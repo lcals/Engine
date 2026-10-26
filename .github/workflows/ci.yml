@@ -72,14 +72,11 @@ jobs:
           & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: test project initialization
-        run: python -m unittest discover -s scripts/tests
-
       - name: configure
         env:
           CC: ${{ matrix.platform.cc }}
           CXX: ${{ matrix.platform.cxx }}
-        run: cmake --preset ${{ matrix.preset }} -D CPP_TEMPLATE_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset ${{ matrix.preset }} -D ENGINE_WARNINGS_AS_ERRORS=ON
 
       - name: build
         run: cmake --build --preset ${{ matrix.preset }}
