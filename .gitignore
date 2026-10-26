@@ -1,0 +1,16 @@
+/build/
+/out/
+/vcpkg_installed/
+/references/*
+!/references/.gitkeep
+/.cache/
+/.idea/
+/.vs/
+/.vscode/
+CMakeUserPresets.json
+*.user
+*.suo
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
