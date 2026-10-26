@@ -10,7 +10,7 @@ Engine 是一个 C++20 项目，目前包含静态库 `engine::core`、示例命
 - [资源管线](docs/asset-pipeline.md)：项目资源、meta、并行处理和运行缓存。
 - [首个游戏](docs/first-game.md)：射击游戏的基本战斗循环。
 
-当前已接入 vcpkg；SDL3、bgfx、LeanCLR、Dear ImGui、Taskflow、flecs、Jolt Physics、Recast Navigation、ozz-animation 和 Basis Universal 已选定但尚未接入。规划中的 PBR 渲染、编辑器、插件系统、MCP 服务和项目出包尚未实现。
+当前已接入 vcpkg。SDL3、bgfx、LeanCLR、Dear ImGui、Taskflow、flecs、Jolt Physics、Recast Navigation、ozz-animation、Basis Universal、SQLite、toml++ 和 efsw 已选定但尚未接入。规划中的 PBR 渲染、编辑器、插件系统、MCP 服务和项目出包尚未实现。
 
 ## 构建与测试
 
