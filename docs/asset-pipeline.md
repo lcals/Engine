@@ -16,6 +16,6 @@
 
 ## 跨平台贴图
 
-贴图保留原始文件与 meta。资源管线离线生成多种 GPU 压缩格式的运行缓存：桌面目标优先使用 BC 系列，支持 ASTC 的设备可大量使用 ASTC，同时保留未压缩格式作为兜底。运行时根据 bgfx 查询到的纹理格式能力选择相应缓存，ASTC 不作为唯一格式。
+贴图保留原始文件与 meta。资源管线使用 [Basis Universal](https://github.com/BinomialLLC/basis_universal) 编码生成运行缓存。运行时根据 bgfx 查询到的设备纹理格式能力，将缓存转码为受支持的 BC、ASTC、ETC 等格式后上传；必要时转为未压缩格式。ASTC 不作为唯一目标格式。
 
-贴图编译优先复用 [bgfx texturec](https://bkaradzic.github.io/bgfx/tools.html)。如果需要独立的 ASTC 编码工具，再考虑 [Arm astcenc](https://github.com/ARM-software/astc-encoder)；如果需要单份中间纹理跨平台转码，再评估 [KTX-Software](https://github.com/KhronosGroup/KTX-Software) 与 [Basis Universal](https://github.com/BinomialLLC/basis_universal)。
+具体容器和编码模式在实现阶段确定。
