@@ -1,0 +1,17 @@
+include_guard(GLOBAL)
+
+function(cpp_template_apply_options target)
+    set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
+
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /permissive-)
+        if(CPP_TEMPLATE_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
+    elseif(CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang|AppleClang)$")
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        if(CPP_TEMPLATE_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
+    endif()
+endfunction()

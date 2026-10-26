@@ -1,0 +1,11 @@
+add_executable(cpp_template_tests greeting_test.cpp)
+target_link_libraries(cpp_template_tests PRIVATE cpp_template::core)
+cpp_template_apply_options(cpp_template_tests)
+add_test(NAME cpp_template.unit COMMAND cpp_template_tests)
+
+if(CPP_TEMPLATE_BUILD_APP)
+    add_test(NAME cpp_template.cli COMMAND cpp_template_app CTest)
+    set_tests_properties(cpp_template.cli PROPERTIES PASS_REGULAR_EXPRESSION "Hello, CTest!")
+    add_test(NAME cpp_template.cli_default COMMAND cpp_template_app)
+    set_tests_properties(cpp_template.cli_default PROPERTIES PASS_REGULAR_EXPRESSION "Hello, World!")
+endif()
