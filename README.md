@@ -2,6 +2,16 @@
 
 Engine 是一个 C++20 项目，目前包含静态库 `engine::core`、示例命令行程序 `engine_app` 和 CTest 测试。项目使用 CMake 与 vcpkg，在 Windows、Linux 和 macOS 上构建；示例通过 vcpkg 安装并使用 `{fmt}`。目前尚无引擎功能实现。
 
+## 规划与现状
+
+项目目标是开发跨平台游戏引擎。已确认的规划按主题记录：
+
+- [引擎架构](docs/architecture.md)：运行时、渲染、场景、编辑器、插件与出包。
+- [资源管线](docs/asset-pipeline.md)：项目资源、meta、并行处理和运行缓存。
+- [首个游戏](docs/first-game.md)：射击游戏的基本战斗循环。
+
+当前已接入 vcpkg；SDL3、bgfx、LeanCLR、Dear ImGui、Taskflow、flecs、Jolt Physics、Recast Navigation 和 ozz-animation 已选定但尚未接入。规划中的 PBR 渲染、编辑器、插件系统、MCP 服务和项目出包尚未实现。
+
 ## 构建与测试
 
 需要 CMake 3.25+、Git、vcpkg 和支持 C++20 的编译器：Windows 安装 Visual Studio 2022+ 的 C++ 桌面开发工作负载，Linux 使用 GCC 或 Clang，macOS 安装 Xcode Command Line Tools。首次构建需要网络获取依赖。
@@ -51,7 +61,7 @@ ctest --preset debug
 .
 ├── .github/workflows/  # Windows、Linux、macOS 的构建与测试 CI
 ├── cmake/              # 目标级编译设置
-├── docs/               # 开发与依赖接入说明
+├── docs/               # 架构规划与开发说明
 ├── include/engine/     # 库的公开头文件
 ├── references/         # 本地参考文件，内容不纳入 Git
 ├── src/                # 库实现和示例入口
@@ -69,6 +79,6 @@ ctest --preset debug
 
 作为 `add_subdirectory()` 子项目使用时，示例和本项目测试默认关闭；链接库目标 `engine::core` 即可。Preset 用于独立开发，会显式开启示例与测试。
 
-`references/` 用于本地放置参考文件，其全部内容均被 Git 忽略，仅保留 `.gitkeep` 以便克隆后创建目录。
+`references/` 用于本地放置参考文件，内容不纳入 Git。部分实现代码可参考该目录，但文档中不得记录其中的具体内容。
 
 详细说明见 [开发与第三方依赖](docs/development.md)，协作约定见 [AGENTS.md](AGENTS.md)。项目采用 [MIT License](LICENSE)。
