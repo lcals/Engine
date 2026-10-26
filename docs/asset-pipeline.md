@@ -4,7 +4,7 @@
 
 ## 资源与 meta
 
-每个资源由原始资源文件及对应的 meta 文件组成。meta 统一使用 TOML 格式，字段结构按原始资源的文件类型设计。
+每个资源由原始资源文件及对应的 meta 文件组成。meta 统一使用 TOML 格式，由 [toml++](https://github.com/marzer/tomlplusplus) 读写；字段结构按原始资源的文件类型设计。
 
 ## 管线与运行缓存
 
@@ -12,7 +12,7 @@
 
 资源管线使用 [Taskflow](https://github.com/taskflow/taskflow) 高度并行地处理资源任务。管线核心编译为供引擎使用的库，同时提供复用该库的独立离线工具。
 
-资源管线使用单机 SQL 数据库记录管线数据，资源 meta 仍保存在 TOML 文件中。管线监听项目文件变化，相关文件变更时触发并行处理，生成或更新运行缓存。
+资源管线使用 [SQLite](https://www.sqlite.org/about.html) 记录管线数据，资源 meta 仍保存在 TOML 文件中。管线通过 [efsw](https://github.com/SpartanJ/efsw) 监听项目文件变化，相关文件变更时触发并行处理，生成或更新运行缓存。
 
 ## 跨平台贴图
 
