@@ -1,4 +1,4 @@
-#include "cpp_template/greeting.hpp"
+#include "engine/greeting.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -20,7 +20,7 @@ bool expect_equal(std::string_view label, std::string_view actual, std::string_v
 bool rejects_empty_name()
 {
     try {
-        static_cast<void>(cpp_template::greeting({}));
+        static_cast<void>(engine::greeting({}));
     } catch (const std::invalid_argument&) {
         return true;
     } catch (...) {
@@ -37,13 +37,13 @@ bool rejects_empty_name()
 int main()
 {
     int failures = 0;
-    if (!expect_equal("normal name", cpp_template::greeting("World"), "Hello, World!")) {
+    if (!expect_equal("normal name", engine::greeting("World"), "Hello, World!")) {
         ++failures;
     }
-    if (!expect_equal("bounded string view", cpp_template::greeting(std::string_view{"Alice_extra", 5}), "Hello, Alice!")) {
+    if (!expect_equal("bounded string view", engine::greeting(std::string_view{"Alice_extra", 5}), "Hello, Alice!")) {
         ++failures;
     }
-    if (!expect_equal("embedded null", cpp_template::greeting(std::string_view{"A\0B", 3}), std::string{"Hello, A\0B!", 11})) {
+    if (!expect_equal("embedded null", engine::greeting(std::string_view{"A\0B", 3}), std::string{"Hello, A\0B!", 11})) {
         ++failures;
     }
     if (!rejects_empty_name()) {

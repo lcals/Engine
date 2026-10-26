@@ -1,10 +1,10 @@
-#include "cpp_template/greeting.hpp"
+#include "engine/greeting.hpp"
 
 #include <fmt/format.h>
 
 #include <stdexcept>
 
-namespace cpp_template {
+namespace engine {
 
 std::string greeting(std::string_view name)
 {
@@ -15,4 +15,4 @@ std::string greeting(std::string_view name)
     return fmt::format("Hello, {}!", name);
 }
 
-} // namespace cpp_template
+} // namespace engine

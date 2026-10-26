@@ -18,8 +18,8 @@
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CPP_TEMPLATE_BUILD_APP": true,
-        "CPP_TEMPLATE_BUILD_TESTS": true,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": true,
         "BUILD_TESTING": true
       }
     },
@@ -30,8 +30,8 @@
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CPP_TEMPLATE_BUILD_APP": true,
-        "CPP_TEMPLATE_BUILD_TESTS": true,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": true,
         "BUILD_TESTING": true
       }
     }
