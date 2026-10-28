@@ -34,6 +34,38 @@
         "ENGINE_BUILD_TESTS": true,
         "BUILD_TESTING": true
       }
+    },
+    {
+      "name": "runtime-deps",
+      "displayName": "Runtime dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/runtime-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true
+      }
+    },
+    {
+      "name": "asset-pipeline-deps",
+      "displayName": "Asset pipeline dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/asset-pipeline-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "asset-pipeline",
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+      }
+    },
+    {
+      "name": "editor-deps",
+      "displayName": "Editor and runtime dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/editor-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "runtime;editor;asset-pipeline",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": true,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+      }
     }
   ],
   "buildPresets": [
