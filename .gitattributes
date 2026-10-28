@@ -1,1 +1,4 @@
 * text=auto eol=lf
+
+# 补丁的空白上下文行保留必需的空格前缀。
+*.patch whitespace=-blank-at-eol

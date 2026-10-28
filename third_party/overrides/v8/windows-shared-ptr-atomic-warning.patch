@@ -1,0 +1,16 @@
+diff --git a/BUILD.gn b/BUILD.gn
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -1484,6 +1484,12 @@ config("toolchain") {
+   cflags = []
+   ldflags = []
+ 
++  if (is_win && !use_custom_libcxx) {
++    # V8 14.3 still uses the C++20-deprecated shared_ptr atomic overloads.
++    defines +=
++        [ "_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING" ]
++  }
++
+   if (v8_current_cpu == "arm") {
+     defines += [ "V8_TARGET_ARCH_ARM" ]
+     if (arm_version >= 7) {

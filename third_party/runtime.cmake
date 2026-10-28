@@ -52,6 +52,10 @@ set(ozz_build_tools OFF CACHE BOOL "Build ozz tools" FORCE)
 set(ozz_build_samples OFF CACHE BOOL "Build ozz samples" FORCE)
 set(ozz_build_howtos OFF CACHE BOOL "Build ozz howtos" FORCE)
 set(ozz_build_tests OFF CACHE BOOL "Build ozz tests" FORCE)
+if(MSVC)
+    # 匹配本项目与 x64-windows vcpkg 包的 /MDd、/MD，避免链接时混用 CRT。
+    set(ozz_build_msvc_rt_dll ON CACHE BOOL "Use the project's dynamic MSVC runtime" FORCE)
+endif()
 add_subdirectory("${_ozz_staged}" "${CMAKE_CURRENT_BINARY_DIR}/ozz-animation" EXCLUDE_FROM_ALL)
 
 add_custom_target(engine_prepare_ozz_animation ALL
@@ -72,7 +76,7 @@ function(_engine_ozz_add_prepare_dependency _directory)
 endfunction()
 _engine_ozz_add_prepare_dependency("${_ozz_staged}")
 
-# V8 使用 GN；当前只固定脚本运行时所需源码，尚未接入构建。
+# V8 使用独立 GN 构建，由 v8.cmake 中的 ENGINE_ENABLE_V8 显式启用。
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/v8/BUILD.gn")
     message(FATAL_ERROR "V8 is missing; run git submodule update --init")
 endif()
