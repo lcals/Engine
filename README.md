@@ -98,6 +98,10 @@ ctest --preset debug
 
 示例程序的目标名为 `engine_app`。Debug 构建后，在 Linux / macOS 的默认生成器下可运行 `./build/debug/engine_app Alice`，在 Windows 的 Visual Studio 生成器下可运行 `.\build\debug\Debug\engine_app.exe Alice`，输出 `Hello, Alice!`。
 
+## CI
+
+CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页面选择 `ci`，点击 Run workflow 并选择分支；提交、推送、创建或更新 PR、合并分支均不会自动运行 CI。助手只有在用户明确要求运行 CI 时才可手动触发。
+
 ## 本地验证记录
 
 2026-10-28 在 Windows x64、VS 2022 上执行：
