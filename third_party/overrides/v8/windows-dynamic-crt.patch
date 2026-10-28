@@ -1,0 +1,12 @@
+diff --git a/config/BUILDCONFIG.gn b/config/BUILDCONFIG.gn
+--- a/config/BUILDCONFIG.gn
++++ b/config/BUILDCONFIG.gn
+@@ -375,7 +375,7 @@ if (is_win) {
+ if (is_win) {
+   default_compiler_configs += [
+     "//build/config/win:default_cfg_compiler",
+-    "//build/config/win:default_crt",
++    "//build/config/win:dynamic_crt",
+     "//build/config/win:lean_and_mean",
+     "//build/config/win:nominmax",
+     "//build/config/win:unicode",

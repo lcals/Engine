@@ -5,6 +5,49 @@
   "dependencies": [
     "fmt"
   ],
+  "features": {
+    "runtime": {
+      "description": "Windows, macOS, and Linux game runtime dependencies",
+      "dependencies": [
+        "basisu",
+        "bgfx",
+        "flatbuffers",
+        "flecs",
+        "joltphysics",
+        "recastnavigation",
+        "rmlui",
+        "sdl3",
+        "tomlplusplus"
+      ]
+    },
+    "editor": {
+      "description": "Desktop editor UI dependencies",
+      "dependencies": [
+        {
+          "name": "imgui",
+          "features": ["docking-experimental", "sdl3-binding"]
+        }
+      ]
+    },
+    "asset-pipeline": {
+      "description": "Editor and offline asset processing dependencies",
+      "dependencies": [
+        "basisu",
+        {
+          "name": "bgfx",
+          "features": ["tools"],
+          "host": true
+        },
+        "efsw",
+        "flatbuffers",
+        "meshoptimizer",
+        "sqlite3",
+        "taskflow",
+        "tomlplusplus",
+        "usd"
+      ]
+    }
+  },
   "overrides": [
     {
       "name": "fmt",
