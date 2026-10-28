@@ -4,6 +4,10 @@
 
 #include <SDL3/SDL.h>
 
+#if defined(SDL_PLATFORM_ANDROID)
+#include "android_surface.hpp"
+#endif
+
 #include <limits>
 
 namespace engine
@@ -60,6 +64,10 @@ bool WindowSystem::can_render() const noexcept
     }
 
 #if defined(SDL_PLATFORM_ANDROID)
+    if (android::surface_paused())
+    {
+        return false;
+    }
     const SDL_PropertiesID properties = SDL_GetWindowProperties(window_);
     if (SDL_GetPointerProperty(properties, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr) ==
         nullptr)
@@ -88,6 +96,15 @@ bool WindowSystem::on_initialize(const EngineConfig& config)
         return false;
     }
 
+#if defined(SDL_PLATFORM_ANDROID)
+    // 后台仍泵送主线程回调，Java 暂停握手才不会等在 SDL 自带的暂停阻塞上。
+    if (!SDL_SetHint(SDL_HINT_ANDROID_BLOCK_ON_PAUSE, "0") ||
+        !SDL_SetHint(SDL_HINT_ANDROID_ALLOW_RECREATE_ACTIVITY, "1"))
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot configure Android lifecycle handling");
+        return false;
+    }
+#endif
     if (!SDL_InitSubSystem(sdl_flags))
     {
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "SDL initialization failed: %s", SDL_GetError());
@@ -107,6 +124,8 @@ bool WindowSystem::on_initialize(const EngineConfig& config)
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
 #if defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_IOS)
     flags |= SDL_WINDOW_METAL;
+#elif defined(SDL_PLATFORM_ANDROID)
+    flags |= SDL_WINDOW_VULKAN;
 #endif
     window_ = SDL_CreateWindow(config.window_title.c_str(), static_cast<int>(config.width),
                                static_cast<int>(config.height), flags);
@@ -135,6 +154,12 @@ bool WindowSystem::on_tick(double)
         {
             exit_requested_ = true;
         }
+#if defined(SDL_PLATFORM_ANDROID)
+        if (event.type == SDL_EVENT_KEY_DOWN && event.key.scancode == SDL_SCANCODE_AC_BACK)
+        {
+            exit_requested_ = true;
+        }
+#endif
     }
     return true;
 }

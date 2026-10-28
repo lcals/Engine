@@ -24,13 +24,13 @@ GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的
 
 | 分组 | vcpkg feature | 依赖 |
 | --- | --- | --- |
-| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、toml++、Basis Universal |
-| 桌面编辑器 | `editor` | Dear ImGui（docking 与 SDL3 绑定） |
+| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、Basis Universal |
+| 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、Taskflow、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 
 运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用独立 GN 工作副本，以 `ENGINE_ENABLE_V8` 显式启用准备、编译和 `engine::v8` 导入目标，命令与本机验证范围统一见根 [README](../README.md#v8-依赖)。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
 
-当前依赖 Preset 面向 Windows、macOS、Linux 桌面平台。固定 baseline 的 `basisu` port 以 `!android & !arm` 排除 Android 和 ARM（包含 ARM64）；本仓库的本地 port 额外允许已验证的 macOS ARM64，维护与验证说明见根 [README](../README.md#本地验证记录)。未来扩展移动平台时需增加相应的移植路径。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
+桌面依赖 Preset 面向 Windows、macOS、Linux；Android 使用 `arm64-android-engine` overlay triplet 与独立安装目录。固定 baseline 的 `basisu` port 原本排除 Android / ARM，本仓库 overlay 增加 macOS ARM64 和 Android ARM64 支持；Android 关闭宿主工具但保留库。SDL3 在 Android 使用共享库并安装同版 Java 入口，其他运行时依赖使用 PIC 静态库。维护与验证说明见根 [README](../README.md#本地验证记录)。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
 Basis Universal 当前通过同一 port 提供编码与转码能力；实现运行时目标时需只链接所需的转码部分，并核对最终产物大小。
 
 需要验证依赖时先运行 `git submodule update --init`，再按需使用 `runtime-deps`、`asset-pipeline-deps` 或 `editor-deps` 的 configure / build / test Preset。编辑器 Preset 同时启用三个 feature；构建及 CTest 会验证相应系统与真实依赖的编译、链接和基本调用。

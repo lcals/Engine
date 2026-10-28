@@ -5,7 +5,6 @@
 #include "animation_system.hpp"
 #include "navigation_system.hpp"
 #include "physics_system.hpp"
-#include "project_system.hpp"
 #include "resource_system.hpp"
 #include "ui_system.hpp"
 #include "world_system.hpp"
@@ -13,6 +12,7 @@
 
 #if ENGINE_HAS_EDITOR
 #include "editor_system.hpp"
+#include "project_system.hpp"
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE
@@ -59,24 +59,15 @@ namespace
 int main()
 {
     engine::EngineConfig config;
-    config.project = ENGINE_TEST_PROJECT;
 
 #if ENGINE_HAS_RUNTIME
-    engine::ProjectSystem project;
-    const engine::EngineConfig empty_config;
-    if (project.initialize(empty_config) || project.is_initialized())
-    {
-        std::fputs("Empty project root directory must fail\n", stderr);
-        return 1;
-    }
     engine::ResourceSystem resource;
     engine::WorldSystem world;
     engine::PhysicsSystem physics;
     engine::NavigationSystem navigation;
     engine::AnimationSystem animation;
     engine::UiSystem ui;
-    if (!check_lifecycle(project, "ProjectSystem", config) ||
-        !check_lifecycle(resource, "ResourceSystem", config) ||
+    if (!check_lifecycle(resource, "ResourceSystem", config) ||
         !check_lifecycle(world, "WorldSystem", config) ||
         !check_lifecycle(physics, "PhysicsSystem", config) ||
         !check_lifecycle(navigation, "NavigationSystem", config) ||
@@ -88,11 +79,17 @@ int main()
 #endif
 
 #if ENGINE_HAS_EDITOR
-    engine::EditorSystem editor;
+    engine::ProjectSystem project(ENGINE_TEST_PROJECT);
+    if (!check_lifecycle(project, "ProjectSystem", config) || !project.initialize(config))
+    {
+        return 1;
+    }
+    engine::EditorSystem editor(project);
     if (!check_lifecycle(editor, "EditorSystem", config))
     {
         return 1;
     }
+    project.shutdown();
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE

@@ -16,7 +16,7 @@ namespace
 
 void print_usage()
 {
-    fmt::print("Usage: engine_app --project <project-directory> [--frames <positive-count>]\n");
+    fmt::print("Usage: engine_app [--frames <positive-count>]\n");
 }
 
 } // namespace
@@ -33,11 +33,7 @@ int main(int argc, char* argv[])
             print_usage();
             return 0;
         }
-        if (argument == "--project" && index + 1 < argc && config.project.empty())
-        {
-            config.project = argv[++index];
-        }
-        else if (argument == "--frames" && index + 1 < argc && frame_limit == 0)
+        if (argument == "--frames" && index + 1 < argc && frame_limit == 0)
         {
             const std::string_view value(argv[++index]);
             const auto result =
@@ -55,12 +51,6 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
-    if (config.project.empty())
-    {
-        print_usage();
-        return 2;
-    }
-
     auto& engine = engine::Engine::instance();
     if (!engine.initialize(config))
     {

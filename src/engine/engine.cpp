@@ -4,7 +4,6 @@
 #include "engine_config.hpp"
 #include "navigation_system.hpp"
 #include "physics_system.hpp"
-#include "project_system.hpp"
 #include "render_system.hpp"
 #include "resource_system.hpp"
 #include "system.hpp"
@@ -38,8 +37,7 @@ Engine& Engine::instance() noexcept
 
 bool Engine::initialize(const EngineConfig& config)
 {
-    if (initialized_ || config.project.empty() || config.window_title.empty() ||
-        config.width == 0 || config.height == 0 ||
+    if (initialized_ || config.window_title.empty() || config.width == 0 || config.height == 0 ||
         config.width > static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
         config.height > static_cast<std::uint32_t>(std::numeric_limits<int>::max()))
     {
@@ -47,7 +45,6 @@ bool Engine::initialize(const EngineConfig& config)
     }
 
     shutdown();
-    systems_.push_back(std::make_unique<ProjectSystem>());
     auto window = std::make_unique<WindowSystem>();
     window_ = window.get();
     systems_.push_back(std::move(window));
@@ -124,6 +121,11 @@ FrameStatus Engine::tick(double delta_time)
     }
     if (!renderer_->render())
     {
+        // 平台暂停请求可以在本帧开始之后到达；此时等待恢复，不锁定为渲染失败。
+        if (!window_->can_render())
+        {
+            return FrameStatus::paused;
+        }
         failed_ = true;
         return FrameStatus::failed;
     }

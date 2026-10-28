@@ -1,7 +1,5 @@
 #include "project_system.hpp"
 
-#include "engine_config.hpp"
-
 #include <toml++/toml.hpp>
 
 #include <cstdio>
@@ -9,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace engine
 {
@@ -37,29 +36,31 @@ namespace
 
 } // namespace
 
-ProjectSystem::ProjectSystem() noexcept = default;
+ProjectSystem::ProjectSystem(std::string project_root) : project_root_(std::move(project_root))
+{
+}
 
 ProjectSystem::~ProjectSystem() noexcept
 {
     shutdown();
 }
 
-bool ProjectSystem::on_initialize(const EngineConfig& config)
+bool ProjectSystem::on_initialize(const EngineConfig&)
 {
-    if (config.project.empty())
+    if (project_root_.empty())
     {
         std::fputs("Project root directory must not be empty\n", stderr);
         return false;
     }
 
-    const std::filesystem::path root(config.project);
-    if (!check_directory(root, config.project))
+    const std::filesystem::path root(project_root_);
+    if (!check_directory(root, project_root_))
     {
         return false;
     }
     for (const char* directory : {"settings", "cache", "assets"})
     {
-        if (!check_directory(root / directory, config.project + "/" + directory))
+        if (!check_directory(root / directory, project_root_ + "/" + directory))
         {
             return false;
         }
@@ -67,9 +68,9 @@ bool ProjectSystem::on_initialize(const EngineConfig& config)
 
     // 目录校验通过后接入配置数据依赖；本阶段不读写项目文件。
     toml::table project;
-    project.insert("project", config.project);
+    project.insert("project", project_root_);
     const auto identifier = project["project"].value<std::string_view>();
-    return identifier && *identifier == config.project;
+    return identifier && *identifier == project_root_;
 }
 
 void ProjectSystem::on_shutdown() noexcept

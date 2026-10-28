@@ -19,10 +19,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     engine_add_system(render)
     target_link_libraries(engine_render PRIVATE engine::window SDL3::SDL3 bgfx::bgfx)
-
-    engine_add_system(project)
-    target_link_libraries(engine_project PRIVATE tomlplusplus::tomlplusplus)
-    target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
+    if(ANDROID)
+        target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
+        target_include_directories(engine_window PRIVATE "${PROJECT_SOURCE_DIR}/platforms/android/native")
+        target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/platforms/android/native")
+        target_link_libraries(engine_render PRIVATE android)
+    endif()
 
     engine_add_system(resource)
     target_link_libraries(engine_resource PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder)
@@ -48,7 +50,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_ui PRIVATE RmlUi::Core)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
-        engine::project engine::window engine::resource engine::world engine::physics
+        engine::window engine::resource engine::world engine::physics
         engine::navigation engine::animation engine::ui engine::render)
 
     add_library(engine_runtime STATIC src/engine/engine.cpp)
@@ -62,8 +64,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS)
+    engine_add_system(project)
+    target_link_libraries(engine_project PRIVATE tomlplusplus::tomlplusplus)
+    target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
+
     engine_add_system(editor)
-    target_link_libraries(engine_editor PRIVATE imgui::imgui)
+    target_link_libraries(engine_editor PRIVATE engine::project imgui::imgui)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

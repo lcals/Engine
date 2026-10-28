@@ -46,16 +46,14 @@ classDiagram
 classDiagram
     direction TB
     class Engine
-    class ProjectSystem
     class WindowSystem
     class ResourceSystem
     class WorldSystem
     class RenderSystem
-    Engine "1" *-- "0..1" ProjectSystem : 第一个根系统
-    Engine "1" *-- "0..1" WindowSystem : 第二个根系统
-    Engine "1" *-- "0..1" ResourceSystem : 第三个根系统
-    Engine "1" *-- "0..1" WorldSystem : 第四个根系统
-    Engine "1" *-- "0..1" RenderSystem : 第五个根系统
+    Engine "1" *-- "0..1" WindowSystem : 第一个根系统
+    Engine "1" *-- "0..1" ResourceSystem : 第二个根系统
+    Engine "1" *-- "0..1" WorldSystem : 第三个根系统
+    Engine "1" *-- "0..1" RenderSystem : 第四个根系统
     Engine --> WindowSystem : 借用并查询窗口状态
     Engine --> RenderSystem : 借用并调用 render
     RenderSystem --> WindowSystem : 构造参数及持续借用
@@ -90,17 +88,14 @@ classDiagram
     direction TB
     class System
     class EngineConfig
-    class ProjectSystem
     class WindowSystem
     class ResourceSystem
     class WorldSystem
     class RenderSystem
-    System <|-- ProjectSystem
     System <|-- WindowSystem
     System <|-- ResourceSystem
     System <|-- WorldSystem
     System <|-- RenderSystem
-    ProjectSystem ..> EngineConfig : on_initialize 参数
     WindowSystem ..> EngineConfig : on_initialize 参数
     ResourceSystem ..> EngineConfig : on_initialize 参数
     WorldSystem ..> EngineConfig : on_initialize 参数
@@ -138,6 +133,9 @@ classDiagram
     class WorldSystem
     class NavigationSystem
     class RenderSystem
+    class ANativeWindow {
+        <<external>>
+    }
     class SDL_MetalView {
         <<external>>
     }
@@ -153,21 +151,22 @@ classDiagram
     class dtNavMesh {
         <<external>>
     }
+    RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
     RenderSystem "1" *-- "0..1" SDL_MetalView : Apple 平台拥有视图
     WindowSystem "1" *-- "0..1" SDL_Window : 配对创建和销毁
     WindowSystem --> SDL_Window : native_window 返回借用
+    SDL_Window --> ANativeWindow : Android 平台属性提供借用
     WorldSystem "1" *-- "0..1" ecs_world_t : 配对创建和销毁
     NavigationSystem "1" *-- "0..1" rcHeightfield : 配对分配和释放
     NavigationSystem "1" *-- "0..1" dtNavMesh : 配对分配和释放
 ```
 
-`RenderSystem` 通过窗口系统借用 SDL 窗口及原生句柄，拥有 bgfx 初始化状态和 Apple 平台的 Metal view。其他模块初始化时创建的局部检查对象在函数结束后释放，不构成持久成员拥有关系。
+`RenderSystem` 通过窗口系统借用 SDL 窗口及原生句柄，拥有 bgfx 初始化状态和 Apple 平台的 Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，属于共享底层引用而非独占窗口对象。其他模块初始化时创建的局部检查对象在函数结束后释放，不构成持久成员拥有关系。
 
 ## 运行时库依赖
 
 | 引擎类 | 使用依赖 | 关系说明 |
 | --- | --- | --- |
-| `ProjectSystem` | toml++ | 配置表结构验证；同时用标准库检查项目根目录及 settings、cache、assets |
 | `WindowSystem` | SDL3 | 初始化、窗口、事件、销毁 |
 | `ResourceSystem` | FlatBuffers、Basis Universal | 解析入口与转码表初始化 |
 | `WorldSystem` | flecs | 创建、推进和销毁 ECS 世界 |
@@ -182,18 +181,24 @@ classDiagram
 
 ## 独立宿主模块
 
+Android `EngineActivity` / `EngineSurface` 分别继承 SDLActivity / SDLSurface；视图创建、回调参数、JNI 暂停握手及原生 Engine 入口依赖统一见[Android 宿主](android-host.md)。
+
 ```mermaid
 classDiagram
     direction TB
     class System
     class EngineConfig
+    class ProjectSystem
     class EditorSystem
     class AssetPipelineSystem
     class ImGuiContext {
         <<external>>
     }
+    System <|-- ProjectSystem
     System <|-- EditorSystem
     System <|-- AssetPipelineSystem
+    ProjectSystem ..> EngineConfig : on_initialize 参数
+    EditorSystem --> ProjectSystem : 构造参数及持续借用
     EditorSystem ..> EngineConfig : on_initialize 参数
     AssetPipelineSystem ..> EngineConfig : on_initialize 参数
     EditorSystem "1" *-- "0..1" ImGuiContext : 配对创建和销毁
@@ -201,8 +206,11 @@ classDiagram
 
 | 宿主类或工具 | 使用依赖 | 所有权及边界 |
 | --- | --- | --- |
-| `EditorSystem` | Dear ImGui | 宿主拥有根系统，系统拥有上下文 |
+| `ProjectSystem` | toml++ | 编辑器宿主拥有根系统，项目保存根目录字符串并检查必需目录 |
+| `EditorSystem` | Dear ImGui | 编辑器宿主拥有根系统，系统借用项目并拥有上下文 |
 | `AssetPipelineSystem` | USD、Taskflow、SQLite、efsw、meshoptimizer | 宿主拥有根系统，当前库检查对象均为局部资源 |
 | 资源构建工具 | shaderc、texturec、geometryc | 宿主可执行程序，不在运行时生命周期中 |
 
-`Engine` 和各运行时系统不拥有、不引用这两个宿主系统。共享资源数据依赖可以由宿主工具再次使用，不引入运行时到离线导入器的反向依赖。
+`editor_app` 宿主依次初始化独立的 `ProjectSystem`、`Engine`、`EditorSystem`，反序关闭；项目验证失败时尚未启动引擎窗口。`EditorSystem` 借用项目，项目必须存活并保持就绪直到编辑器关闭。`engine_app` 独立启动引擎，不要求项目。
+
+`Engine` 和各运行时系统不拥有、不引用这三个宿主系统。共享资源数据依赖可以由宿主工具再次使用，不引入运行时到离线导入器的反向依赖。

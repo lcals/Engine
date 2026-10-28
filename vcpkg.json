@@ -7,7 +7,7 @@
   ],
   "features": {
     "runtime": {
-      "description": "Windows, macOS, and Linux game runtime dependencies",
+      "description": "Windows, macOS, Linux, and Android game runtime dependencies",
       "dependencies": [
         "basisu",
         "bgfx",
@@ -17,12 +17,17 @@
         "recastnavigation",
         "rmlui",
         "sdl3",
-        "tomlplusplus"
+        {
+          "name": "sdl3",
+          "features": ["vulkan"],
+          "platform": "android"
+        }
       ]
     },
     "editor": {
       "description": "Desktop editor UI dependencies",
       "dependencies": [
+        "tomlplusplus",
         {
           "name": "imgui",
           "features": ["docking-experimental", "sdl3-binding"]
