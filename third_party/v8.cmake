@@ -50,6 +50,20 @@ set(ENGINE_V8_JOBS 4 CACHE STRING "Parallel jobs for explicit V8 prepare/build t
 set(_engine_v8_script "${PROJECT_SOURCE_DIR}/cmake/prepare_v8.cmake")
 set(_engine_v8_config "$<IF:$<CONFIG:Debug>,Debug,Release>")
 set(_engine_v8_source "${ENGINE_V8_BUILD_ROOT}/source/v8")
+# 同一主机工具链的清单内容跨 preset 一致；仅本机构建目录保存绝对路径。
+set(_engine_v8_host_file "${CMAKE_CURRENT_BINARY_DIR}/v8-host-toolchain.txt")
+file(CONFIGURE OUTPUT "${_engine_v8_host_file}" CONTENT
+"compiler=@CMAKE_CXX_COMPILER@
+compiler_id=@CMAKE_CXX_COMPILER_ID@
+compiler_version=@CMAKE_CXX_COMPILER_VERSION@
+system=@CMAKE_SYSTEM_NAME@
+processor=@CMAKE_SYSTEM_PROCESSOR@
+osx_sysroot=@CMAKE_OSX_SYSROOT@
+osx_deployment=@CMAKE_OSX_DEPLOYMENT_TARGET@
+vs_instance=@CMAKE_GENERATOR_INSTANCE@
+vs_toolset=@CMAKE_VS_PLATFORM_TOOLSET_VERSION@
+windows_sdk=@CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
+" @ONLY)
 if(WIN32)
     set(_engine_v8_library engine_v8.lib)
 else()
@@ -59,18 +73,24 @@ set(_engine_v8_arguments
     "-DENGINE_V8_BUILD_ROOT=${ENGINE_V8_BUILD_ROOT}"
     "-DENGINE_V8_CONFIG=${_engine_v8_config}"
     "-DENGINE_V8_TARGET_CPU=${_engine_v8_target_cpu}"
-    "-DENGINE_V8_JOBS=${ENGINE_V8_JOBS}")
+    "-DENGINE_V8_JOBS=${ENGINE_V8_JOBS}"
+    "-DENGINE_V8_HOST_TOOLCHAIN_FILE=${_engine_v8_host_file}"
+    "-DENGINE_V8_HOST_COMPILER=${CMAKE_CXX_COMPILER}")
 
 # 准备目标包含网络操作，必须单独显式运行，不属于默认构建。
 add_custom_target(engine_v8_prepare
     COMMAND "${CMAKE_COMMAND}" ${_engine_v8_arguments} -DENGINE_V8_ACTION=PREPARE -P "${_engine_v8_script}"
     USES_TERMINAL VERBATIM)
-# 构建目标不隐式下载依赖；未准备时会给出明确错误。
+# 每次只做轻量身份/产物检查；成功缓存命中时不启动 GN、Ninja 或归档器。
+# 入口保留为目标，确保跨 preset 共享产物缺失、工具链变化也能在构建时被检测。
+# BUILD 不隐式下载依赖；未准备时给出明确错误。
 add_custom_target(engine_v8_build
     COMMAND "${CMAKE_COMMAND}" ${_engine_v8_arguments} -DENGINE_V8_ACTION=BUILD -P "${_engine_v8_script}"
     BYPRODUCTS
         "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/obj/${_engine_v8_library}"
         "${ENGINE_V8_BUILD_ROOT}/include/$<IF:$<CONFIG:Debug>,debug,release>/v8-gn.h"
+        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
+        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/.engine-v8-build.identity"
     USES_TERMINAL VERBATIM)
 
 add_library(engine_v8 STATIC IMPORTED GLOBAL)
