@@ -66,6 +66,24 @@
         "ENGINE_ENABLE_EDITOR_DEPS": true,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
       }
+    },
+    {
+      "name": "v8-debug",
+      "displayName": "V8 Debug embedding verification",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/v8-debug",
+      "cacheVariables": {
+        "ENGINE_ENABLE_V8": true
+      }
+    },
+    {
+      "name": "v8-release",
+      "displayName": "V8 Release embedding verification",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/v8-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_V8": true
+      }
     }
   ],
   "buildPresets": [
@@ -78,6 +96,30 @@
       "name": "release",
       "configurePreset": "release",
       "configuration": "Release"
+    },
+    {
+      "name": "v8-prepare-release",
+      "configurePreset": "v8-release",
+      "configuration": "Release",
+      "targets": ["engine_v8_prepare"]
+    },
+    {
+      "name": "v8-prepare-debug",
+      "configurePreset": "v8-debug",
+      "configuration": "Debug",
+      "targets": ["engine_v8_prepare"]
+    },
+    {
+      "name": "v8-debug",
+      "configurePreset": "v8-debug",
+      "configuration": "Debug",
+      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
+    },
+    {
+      "name": "v8-release",
+      "configurePreset": "v8-release",
+      "configuration": "Release",
+      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
     }
   ],
   "testPresets": [
@@ -102,6 +144,16 @@
       "execution": {
         "noTestsAction": "error"
       }
+    },
+    {
+      "name": "v8-debug",
+      "inherits": "debug",
+      "configurePreset": "v8-debug"
+    },
+    {
+      "name": "v8-release",
+      "inherits": "release",
+      "configurePreset": "v8-release"
     }
   ],
   "workflowPresets": [
@@ -119,6 +171,24 @@
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
         { "type": "test", "name": "release" }
+      ]
+    },
+    {
+      "name": "v8-debug",
+      "steps": [
+        { "type": "configure", "name": "v8-debug" },
+        { "type": "build", "name": "v8-prepare-debug" },
+        { "type": "build", "name": "v8-debug" },
+        { "type": "test", "name": "v8-debug" }
+      ]
+    },
+    {
+      "name": "v8-release",
+      "steps": [
+        { "type": "configure", "name": "v8-release" },
+        { "type": "build", "name": "v8-prepare-release" },
+        { "type": "build", "name": "v8-release" },
+        { "type": "test", "name": "v8-release" }
       ]
     }
   ]

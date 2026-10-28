@@ -28,7 +28,7 @@ GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的
 | 桌面编辑器 | `editor` | Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、Taskflow、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 
-运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用 GN，当前只固定源码，尚未接入构建和链接。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
+运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用独立 GN 工作副本，以 `ENGINE_ENABLE_V8` 显式启用准备、编译和 `engine::v8` 导入目标，命令与本机验证范围统一见根 [README](../README.md#v8-依赖)。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
 
 当前依赖 Preset 面向 Windows、macOS、Linux 桌面平台。固定 baseline 的 `basisu` port 不支持 Android 和 32 位 ARM；未来扩展移动平台时需增加相应的移植路径。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
 Basis Universal 当前通过同一 port 提供编码与转码能力；实现运行时目标时需只链接所需的转码部分，并核对最终产物大小。
@@ -52,7 +52,8 @@ target_link_libraries(engine_core PRIVATE example::example)
 有上游问题时，补丁保存在仓库中，不直接修改依赖的检出目录或 vcpkg 安装目录。
 
 - vcpkg 包：在 `third_party/overlay-ports/<port>/` 放置该 port 的完整定义及补丁，并在 `portfile.cmake` 中用 `PATCHES` 应用。根目录 `vcpkg-configuration.json` 已启用此目录。覆盖文件变化会使下一次 CMake 构建先重新配置，vcpkg 按新的 port 内容重建安装包。具体约定见 [overlay-ports/README.md](../third_party/overlay-ports/README.md)。
-- 已接入构建的 Git 子项目（当前为 ozz-animation）：在 `third_party/overrides/<dependency>/` 放置与上游源码相对路径一致的替换文件。CMake 在构建目录准备源码副本，并在构建前把这些文件覆盖到副本，不修改 Git 子模块。具体约定见 [overrides/README.md](../third_party/overrides/README.md)。V8 尚未接入构建，后续接入时沿用同一覆盖约定。
+- ozz-animation：在 `third_party/overrides/ozz-animation/` 放置与上游源码相对路径一致的替换文件。CMake 在构建目录准备源码副本，并在构建前把这些文件覆盖到副本，不修改 Git 子模块。具体约定见 [overrides/README.md](../third_party/overrides/README.md)。
+- V8：`cmake/prepare_v8.cmake` 在忽略的构建目录准备固定版本的 gclient 工作副本，并在 GN 生成前应用 `third_party/overrides/v8/` 中的补丁；原子模块只读。Windows 兼容补丁的适用版本与移除条件见 [V8 覆盖说明](../third_party/overrides/v8/README.md)。
 
 新增补丁时记录其上游问题和移除条件；上游修复后删除本地覆盖并重新验证。
 

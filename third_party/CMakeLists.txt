@@ -12,3 +12,5 @@ endif()
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     include(asset_pipeline.cmake)
 endif()
+
+include(v8.cmake)

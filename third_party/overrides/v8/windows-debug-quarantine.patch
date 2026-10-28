@@ -1,0 +1,117 @@
+diff --git a/src/partition_alloc/scheduler_loop_quarantine.cc b/src/partition_alloc/scheduler_loop_quarantine.cc
+index d7fb206..15a679c 100644
+--- a/src/partition_alloc/scheduler_loop_quarantine.cc
++++ b/src/partition_alloc/scheduler_loop_quarantine.cc
+@@ -70,8 +70,12 @@ void SchedulerLoopQuarantineBranch<thread_bound>::Configure(
+   if (enable_quarantine_) {
+     // Already enabled, explicitly purging an existing instance.
+     PurgeInternal(0);
+-    PA_CHECK(slots_.empty());
+-    slots_.shrink_to_fit();
++    PA_CHECK(slots_->empty());
++    slots_->shrink_to_fit();
++  }
++
++  if (config.enable_quarantine && !slots_) {
++    slots_.emplace();
+   }
+ 
+   root_ = &root;
+@@ -85,8 +89,11 @@ template <bool thread_bound>
+ bool SchedulerLoopQuarantineBranch<thread_bound>::IsQuarantinedForTesting(
+     void* object) {
+   ScopedGuardIfNeeded<kThreadBound> guard(lock_);
++  if (!slots_) {
++    return false;
++  }
+   uintptr_t slot_start = allocator_root_->ObjectToSlotStartUnchecked(object);
+-  for (const auto& slot : slots_) {
++  for (const auto& slot : *slots_) {
+     if (slot.slot_start == slot_start) {
+       return true;
+     }
+@@ -103,9 +110,12 @@ void SchedulerLoopQuarantineBranch<thread_bound>::SetCapacityInBytes(
+ template <bool thread_bound>
+ void SchedulerLoopQuarantineBranch<thread_bound>::Purge() {
+   ScopedGuardIfNeeded<kThreadBound> guard(lock_);
++  if (!slots_) {
++    return;
++  }
+   PurgeInternal(0);
+-  slots_.shrink_to_fit();
+-  PA_DCHECK(slots_.capacity() == 0);
++  slots_->shrink_to_fit();
++  PA_DCHECK(slots_->capacity() == 0);
+ }
+ 
+ template <bool thread_bound>
+@@ -152,15 +162,15 @@ void SchedulerLoopQuarantineBranch<thread_bound>::Quarantine(
+ 
+   // Put the entry onto the list.
+   branch_size_in_bytes_ += slot_size;
+-  slots_.push_back({
++  slots_->push_back({
+       .slot_start = slot_start,
+       .bucket_index = bucket_index,
+   });
+ 
+   // Swap randomly so that the quarantine list remain shuffled.
+   // This is not uniformly random, but sufficiently random.
+-  const size_t random_index = random_.RandUint32() % slots_.size();
+-  std::swap(slots_[random_index], slots_.back());
++  const size_t random_index = random_.RandUint32() % slots_->size();
++  std::swap((*slots_)[random_index], slots_->back());
+ 
+   // Update stats (not locked).
+   root_->count_.fetch_add(1, std::memory_order_relaxed);
+@@ -179,16 +189,20 @@ PA_ALWAYS_INLINE void
+ SchedulerLoopQuarantineBranch<thread_bound>::PurgeInternal(
+     size_t target_size_in_bytes,
+     [[maybe_unused]] bool for_destruction) {
++  if (!slots_) {
++    PA_DCHECK(branch_size_in_bytes_ == 0);
++    return;
++  }
+   int64_t freed_count = 0;
+   int64_t freed_size_in_bytes = 0;
+ 
+   // Dequarantine some entries as required.
+   while (target_size_in_bytes < branch_size_in_bytes_) {
+-    PA_DCHECK(!slots_.empty());
++    PA_DCHECK(!slots_->empty());
+ 
+     // As quarantined entries are shuffled, picking last entry is equivalent
+     // to picking random entry.
+-    const auto& to_free = slots_.back();
++    const auto& to_free = slots_->back();
+     const size_t bucket_index = to_free.bucket_index;
+     size_t slot_size = 0;
+ 
+@@ -246,7 +260,7 @@ SchedulerLoopQuarantineBranch<thread_bound>::PurgeInternal(
+     freed_size_in_bytes += slot_size;
+     branch_size_in_bytes_ -= slot_size;
+ 
+-    slots_.pop_back();
++    slots_->pop_back();
+   }
+ 
+   root_->size_in_bytes_.fetch_sub(freed_size_in_bytes,
+diff --git a/src/partition_alloc/scheduler_loop_quarantine.h b/src/partition_alloc/scheduler_loop_quarantine.h
+index 2d91eb2..6730388 100644
+--- a/src/partition_alloc/scheduler_loop_quarantine.h
++++ b/src/partition_alloc/scheduler_loop_quarantine.h
+@@ -222,8 +222,12 @@ class SchedulerLoopQuarantineBranch {
+     // index to slot size is more lightweight compared to its reverse look-up.
+     size_t bucket_index = 0;
+   };
+-  std::vector<QuarantineSlot, InternalAllocator<QuarantineSlot>> slots_
+-      PA_GUARDED_BY(lock_);
++  // MSVC iterator debugging allocates a proxy even for an empty vector.
++  // Defer construction until enabled so InternalAllocatorRoot can initialize
++  // its own PartitionRoot without recursively allocating through itself.
++  using QuarantineSlots =
++      std::vector<QuarantineSlot, InternalAllocator<QuarantineSlot>>;
++  std::optional<QuarantineSlots> slots_ PA_GUARDED_BY(lock_);
+   size_t branch_size_in_bytes_ PA_GUARDED_BY(lock_) = 0;
+   // Using `std::atomic` here so that other threads can update this value.
+   std::atomic_size_t branch_capacity_in_bytes_ = 0;
