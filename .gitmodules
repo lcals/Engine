@@ -1,0 +1,8 @@
+[submodule "third_party/ozz-animation"]
+	path = third_party/ozz-animation
+	url = https://github.com/guillaumeblanc/ozz-animation.git
+	shallow = true
+[submodule "third_party/v8"]
+	path = third_party/v8
+	url = https://github.com/v8/v8.git
+	shallow = true

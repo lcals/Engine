@@ -10,5 +10,5 @@
 - 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
 - C++ 改动运行受影响的 Debug / Release 构建与 CTest。
 - 新增依赖需有明确用途；新增 CI Action 使用完整提交 SHA，由 Dependabot 维护更新。
-- 第三方库统一在 `vcpkg.json` 声明，并在 `third_party/CMakeLists.txt` 查找；`third_party/` 可存放需要版本管理的本地 vcpkg 扩展或补丁。
+- 有可用跨平台 port 的第三方库在 `vcpkg.json` 声明，并在 `third_party/` 按运行时、编辑器与资源管线分类查找；其余依赖使用固定版本的 Git 子项目。上游问题的补丁放在 `third_party/`，构建前应用，不直接修改上游检出目录。
 - 快速开始和维护说明统一写入根 `README.md`；如实说明实际运行的验证及限制。

@@ -16,13 +16,26 @@ ctest --test-dir build/custom --output-on-failure --no-tests=error
 
 此示例需要本机已有 Ninja 和 Clang；使用 MSVC + Ninja 时，从 Visual Studio Developer PowerShell 执行并改用 `cl`。机器专属设置可以写入未纳入版本管理的 `CMakeUserPresets.json`。
 
-GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试；可以在仓库 Actions 页面查看每次实际结果。
+GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试，并在 Debug 作业解析全部规划依赖的 vcpkg feature；可以在仓库 Actions 页面查看每次实际结果。
 
 ## 第三方依赖
 
-第三方库由根目录的 `vcpkg.json` manifest 声明，由 `VCPKG_ROOT` 指向的 vcpkg 工具链在 CMake configure 时安装；具体版本由 `builtin-baseline` 和 `overrides` 固定。Engine 当前使用 `{fmt}`：`third_party/CMakeLists.txt` 调用 `find_package(fmt CONFIG REQUIRED GLOBAL)`，`engine_core` 链接 `fmt::fmt`，并在 `greeting()` 示例函数中调用格式化函数。`GLOBAL` 使根目录定义的目标也能看到导入的库目标。
+根目录 `vcpkg.json` 按用途划分可选 feature；`builtin-baseline` 和 `overrides` 固定 vcpkg 版本。默认 `debug` / `release` 仍只安装 `{fmt}`，当前示例也只链接 `fmt::fmt`。其他依赖已声明，但在对应引擎模块实现前不链接到示例程序，避免扩大产物。
 
-添加新依赖时，运行 `vcpkg add port <port>` 或编辑 `vcpkg.json`，在 `third_party/CMakeLists.txt` 查找包，再将它链接到实际使用的 CMake 目标。依赖的 CMake target 名称以该包的 vcpkg usage 输出为准。例如：
+| 分组 | vcpkg feature | 依赖 |
+| --- | --- | --- |
+| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、toml++、Basis Universal |
+| 桌面编辑器 | `editor` | Dear ImGui（docking 与 SDL3 绑定） |
+| 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、Taskflow、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
+
+运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用 GN，当前只固定源码，尚未接入构建和链接。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
+
+当前依赖 Preset 面向 Windows、macOS、Linux 桌面平台。固定 baseline 的 `basisu` port 不支持 Android 和 32 位 ARM；未来扩展移动平台时需增加相应的移植路径。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
+Basis Universal 当前通过同一 port 提供编码与转码能力；实现运行时目标时需只链接所需的转码部分，并核对最终产物大小。
+
+需要验证依赖时先运行 `git submodule update --init`，再按需使用 `cmake --preset runtime-deps`、`cmake --preset asset-pipeline-deps` 或 `cmake --preset editor-deps`。编辑器 Preset 同时启用三个 feature；这些 Preset 只负责依赖安装与包发现，不代表对应引擎模块已经实现。
+
+新增 vcpkg 依赖时，将其放入 `vcpkg.json` 对应 feature，并在 `third_party/` 中查找包，再链接到实际使用的 CMake 目标。依赖的 CMake target 名称以该包的 vcpkg usage 输出为准。例如：
 
 ```cmake
 # third_party/CMakeLists.txt
@@ -32,7 +45,16 @@ find_package(example CONFIG REQUIRED GLOBAL)
 target_link_libraries(engine_core PRIVATE example::example)
 ```
 
-仅实现内部使用的依赖选择 `PRIVATE`；公开头文件需要的依赖选择 `PUBLIC`。`third_party/` 保留给确需本地维护的 vcpkg overlay ports、triplets 或补丁；默认不包含外部源码。使用本地扩展时在 `CMakePresets.json` 设置对应的 `VCPKG_OVERLAY_PORTS` 或 `VCPKG_OVERLAY_TRIPLETS`，不要把构建产物放入 Git。
+仅实现内部使用的依赖选择 `PRIVATE`；公开头文件需要的依赖选择 `PUBLIC`。没有可用跨平台 vcpkg port 时，将上游库固定为 Git 子模块，在 `third_party/` 接入。不要把构建产物放入 Git。
+
+### 上游依赖的本地补丁
+
+有上游问题时，补丁保存在仓库中，不直接修改依赖的检出目录或 vcpkg 安装目录。
+
+- vcpkg 包：在 `third_party/overlay-ports/<port>/` 放置该 port 的完整定义及补丁，并在 `portfile.cmake` 中用 `PATCHES` 应用。根目录 `vcpkg-configuration.json` 已启用此目录。覆盖文件变化会使下一次 CMake 构建先重新配置，vcpkg 按新的 port 内容重建安装包。具体约定见 [overlay-ports/README.md](../third_party/overlay-ports/README.md)。
+- 已接入构建的 Git 子项目（当前为 ozz-animation）：在 `third_party/overrides/<dependency>/` 放置与上游源码相对路径一致的替换文件。CMake 在构建目录准备源码副本，并在构建前把这些文件覆盖到副本，不修改 Git 子模块。具体约定见 [overrides/README.md](../third_party/overrides/README.md)。V8 尚未接入构建，后续接入时沿用同一覆盖约定。
+
+新增补丁时记录其上游问题和移除条件；上游修复后删除本地覆盖并重新验证。
 
 ## 测试与格式
 
