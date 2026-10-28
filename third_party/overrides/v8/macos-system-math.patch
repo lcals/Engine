@@ -1,0 +1,39 @@
+diff --git a/config/mac/BUILD.gn b/config/mac/BUILD.gn
+--- a/config/mac/BUILD.gn
++++ b/config/mac/BUILD.gn
+@@ -36,6 +36,14 @@
+   cflags = common_mac_flags
+ 
+   ldflags = common_mac_flags
++
++  # Keep newer system SDK math macros usable with the pinned resource headers.
++  if (!use_clang_modules && !use_custom_libcxx) {
++    cflags_cc = [
++      "-include",
++      rebase_path("//build/config/mac/system_math_compat.h", root_build_dir),
++    ]
++  }
+ 
+   # ld64 defaults to fixup chains on macOS 12+ when targeting arm64 and on
+   # macOS 13+ when targeting x86_64.
+diff --git a/config/mac/system_math_compat.h b/config/mac/system_math_compat.h
+new file mode 100644
+--- /dev/null
++++ b/config/mac/system_math_compat.h
+@@ -0,0 +1,16 @@
++// Supply SDK 27 math macros missing from the pinned Clang resource headers.
++#ifndef ENGINE_V8_SYSTEM_MATH_COMPAT_H_
++#define ENGINE_V8_SYSTEM_MATH_COMPAT_H_
++
++#include <Availability.h>
++
++#if __MAC_OS_X_VERSION_MAX_ALLOWED >= 270000 && __cplusplus >= 202002L
++#ifndef INFINITY
++#define INFINITY (__builtin_inff())
++#endif
++#ifndef NAN
++#define NAN (__builtin_nanf(""))
++#endif
++#endif
++
++#endif  // ENGINE_V8_SYSTEM_MATH_COMPAT_H_

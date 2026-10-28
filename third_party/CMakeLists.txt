@@ -1,3 +1,16 @@
-# Declare third-party packages in the root vcpkg.json manifest.
-# Find packages here; link their targets to consumers in the root CMakeLists.txt.
+# vcpkg 包按用途在根 manifest 中声明；Git 子项目由 .gitmodules 固定版本。
 find_package(fmt CONFIG REQUIRED GLOBAL)
+
+if(ENGINE_ENABLE_RUNTIME_DEPS)
+    include(runtime.cmake)
+endif()
+
+if(ENGINE_ENABLE_EDITOR_DEPS)
+    include(editor.cmake)
+endif()
+
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    include(asset_pipeline.cmake)
+endif()
+
+include(v8.cmake)

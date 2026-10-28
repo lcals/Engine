@@ -1,0 +1,39 @@
+diff --git a/toolchain/apple/linker_driver.py b/toolchain/apple/linker_driver.py
+--- a/toolchain/apple/linker_driver.py
++++ b/toolchain/apple/linker_driver.py
+@@ -171,6 +171,23 @@
+                 "Usage: linker_driver.py -Wcrl,driver,<compiler-driver> "
+                 "[linker-args]...")
+ 
++        # The downloaded Clang package omits libLTO, but its driver still
++        # supplies that path to Apple's linker. Select Xcode's matching library
++        # explicitly when using the system linker; retain fatal linker warnings.
++        if (sys.platform == 'darwin' and not any(
++                arg.startswith(('-fuse-ld=', '-Wl,-lto_library'))
++                for arg in self._compiler_driver_args)):
++            compiler_dir = os.path.dirname(os.path.abspath(self._driver_path))
++            bundled_lto = os.path.join(compiler_dir, '..', 'lib', 'libLTO.dylib')
++            if not os.path.isfile(bundled_lto):
++                xcode_clang = subprocess.check_output(
++                    ['xcrun', '--find', 'clang'], text=True).strip()
++                xcode_lto = os.path.normpath(os.path.join(
++                    os.path.dirname(xcode_clang), '..', 'lib', 'libLTO.dylib'))
++                if not os.path.isfile(xcode_lto):
++                    raise RuntimeError('Xcode libLTO is unavailable: ' + xcode_lto)
++                self._compiler_driver_args.append('-Wl,-lto_library,' + xcode_lto)
++
+         if self._get_linker_output() is None:
+             raise ValueError(
+                 'Could not find path to linker output (-o or --output)')
+diff --git a/toolchain/apple/toolchain.gni b/toolchain/apple/toolchain.gni
+--- a/toolchain/apple/toolchain.gni
++++ b/toolchain/apple/toolchain.gni
+@@ -412,7 +412,7 @@
+         # }
+ 
+         rspfile_content = "{{rustdeps}} {{externs}} SOURCES {{sources}}"
+-        command = "\"$python_path\" \"$rustc_wrapper\" --rustc=$rustc --depfile=$depfile --rsp=$rspfile -- -Clinker=\"${_cxx}\" $rustc_common_args --emit=dep-info=$depfile,link -o $dllname LDFLAGS {{ldflags}} RUSTENV {{rustenv}}"
++        command = "$linker_driver_env \"$python_path\" \"$rustc_wrapper\" --rustc=$rustc --depfile=$depfile --rsp=$rspfile -- -Clinker=\"$linker_driver\" $rustc_common_args --emit=dep-info=$depfile,link -o $dllname LDFLAGS $linker_driver_args {{ldflags}} -Wl,-no_warn_duplicate_libraries RUSTENV {{rustenv}}"
+         rust_sysroot = rust_sysroot_relative
+       }
+     }

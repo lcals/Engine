@@ -34,9 +34,79 @@
         "ENGINE_BUILD_TESTS": true,
         "BUILD_TESTING": true
       }
+    },
+    {
+      "name": "runtime-deps",
+      "displayName": "Runtime dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/runtime-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true
+      }
+    },
+    {
+      "name": "asset-pipeline-deps",
+      "displayName": "Asset pipeline dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/asset-pipeline-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "asset-pipeline",
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+      }
+    },
+    {
+      "name": "editor-deps",
+      "displayName": "Editor and runtime dependencies",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/editor-deps",
+      "cacheVariables": {
+        "VCPKG_MANIFEST_FEATURES": "runtime;editor;asset-pipeline",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": true,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+      }
+    },
+    {
+      "name": "editor-deps-release",
+      "displayName": "Editor and runtime dependencies Release",
+      "inherits": "editor-deps",
+      "binaryDir": "${sourceDir}/build/editor-deps-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/editor-deps/vcpkg_installed"
+      }
+    },
+    {
+      "name": "v8-debug",
+      "displayName": "V8 Debug embedding verification",
+      "inherits": "debug",
+      "binaryDir": "${sourceDir}/build/v8-debug",
+      "cacheVariables": {
+        "ENGINE_ENABLE_V8": true
+      }
+    },
+    {
+      "name": "v8-release",
+      "displayName": "V8 Release embedding verification",
+      "inherits": "release",
+      "binaryDir": "${sourceDir}/build/v8-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_V8": true
+      }
     }
   ],
   "buildPresets": [
+    {
+      "name": "editor-deps",
+      "configurePreset": "editor-deps",
+      "configuration": "Debug"
+    },
+    {
+      "name": "editor-deps-release",
+      "configurePreset": "editor-deps-release",
+      "configuration": "Release"
+    },
     {
       "name": "debug",
       "configurePreset": "debug",
@@ -46,9 +116,43 @@
       "name": "release",
       "configurePreset": "release",
       "configuration": "Release"
+    },
+    {
+      "name": "v8-prepare-release",
+      "configurePreset": "v8-release",
+      "configuration": "Release",
+      "targets": ["engine_v8_prepare"]
+    },
+    {
+      "name": "v8-prepare-debug",
+      "configurePreset": "v8-debug",
+      "configuration": "Debug",
+      "targets": ["engine_v8_prepare"]
+    },
+    {
+      "name": "v8-debug",
+      "configurePreset": "v8-debug",
+      "configuration": "Debug",
+      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
+    },
+    {
+      "name": "v8-release",
+      "configurePreset": "v8-release",
+      "configuration": "Release",
+      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
     }
   ],
   "testPresets": [
+    {
+      "name": "editor-deps",
+      "inherits": "debug",
+      "configurePreset": "editor-deps"
+    },
+    {
+      "name": "editor-deps-release",
+      "inherits": "release",
+      "configurePreset": "editor-deps-release"
+    },
     {
       "name": "debug",
       "configurePreset": "debug",
@@ -70,9 +174,35 @@
       "execution": {
         "noTestsAction": "error"
       }
+    },
+    {
+      "name": "v8-debug",
+      "inherits": "debug",
+      "configurePreset": "v8-debug"
+    },
+    {
+      "name": "v8-release",
+      "inherits": "release",
+      "configurePreset": "v8-release"
     }
   ],
   "workflowPresets": [
+    {
+      "name": "editor-deps",
+      "steps": [
+        { "type": "configure", "name": "editor-deps" },
+        { "type": "build", "name": "editor-deps" },
+        { "type": "test", "name": "editor-deps" }
+      ]
+    },
+    {
+      "name": "editor-deps-release",
+      "steps": [
+        { "type": "configure", "name": "editor-deps-release" },
+        { "type": "build", "name": "editor-deps-release" },
+        { "type": "test", "name": "editor-deps-release" }
+      ]
+    },
     {
       "name": "debug",
       "steps": [
@@ -87,6 +217,24 @@
         { "type": "configure", "name": "release" },
         { "type": "build", "name": "release" },
         { "type": "test", "name": "release" }
+      ]
+    },
+    {
+      "name": "v8-debug",
+      "steps": [
+        { "type": "configure", "name": "v8-debug" },
+        { "type": "build", "name": "v8-prepare-debug" },
+        { "type": "build", "name": "v8-debug" },
+        { "type": "test", "name": "v8-debug" }
+      ]
+    },
+    {
+      "name": "v8-release",
+      "steps": [
+        { "type": "configure", "name": "v8-release" },
+        { "type": "build", "name": "v8-prepare-release" },
+        { "type": "build", "name": "v8-release" },
+        { "type": "test", "name": "v8-release" }
       ]
     }
   ]

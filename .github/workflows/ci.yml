@@ -1,8 +1,6 @@
 name: ci
 
 on:
-  push:
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -77,6 +75,26 @@ jobs:
           CC: ${{ matrix.platform.cc }}
           CXX: ${{ matrix.platform.cxx }}
         run: cmake --preset ${{ matrix.preset }} -D ENGINE_WARNINGS_AS_ERRORS=ON
+
+      - name: resolve planned dependencies
+        if: matrix.preset == 'debug'
+        shell: python
+        run: |
+          import os
+          import subprocess
+          from pathlib import Path
+
+          executable = 'vcpkg.exe' if os.name == 'nt' else 'vcpkg'
+          command = [
+              str(Path(os.environ['VCPKG_ROOT']) / executable),
+              'install',
+              '--dry-run',
+              f'--x-manifest-root={Path.cwd()}',
+              '--x-feature=runtime',
+              '--x-feature=editor',
+              '--x-feature=asset-pipeline',
+          ]
+          subprocess.run(command, check=True)
 
       - name: build
         run: cmake --build --preset ${{ matrix.preset }}
