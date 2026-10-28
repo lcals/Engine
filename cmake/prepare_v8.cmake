@@ -23,6 +23,20 @@ endif()
 if(NOT ENGINE_V8_JOBS MATCHES "^[1-9][0-9]*$")
     message(FATAL_ERROR "ENGINE_V8_JOBS must be a positive integer")
 endif()
+# 脚本模式不会初始化 CMAKE_HOST_SYSTEM_PROCESSOR。
+cmake_host_system_information(RESULT _host_processor QUERY OS_PLATFORM)
+if(_host_processor MATCHES "^(AMD64|amd64|x86_64|x64)$")
+    set(_host_cpu x64)
+elseif(CMAKE_HOST_APPLE AND _host_processor MATCHES "^(arm64|aarch64)$")
+    set(_host_cpu arm64)
+else()
+    message(FATAL_ERROR "The V8 preparation workflow supports native x64 and macOS ARM64 builds only")
+endif()
+if(NOT DEFINED ENGINE_V8_TARGET_CPU)
+    set(ENGINE_V8_TARGET_CPU "${_host_cpu}")
+elseif(NOT ENGINE_V8_TARGET_CPU STREQUAL _host_cpu)
+    message(FATAL_ERROR "V8 target CPU ${ENGINE_V8_TARGET_CPU} differs from the native host CPU ${_host_cpu}")
+endif()
 
 cmake_path(ABSOLUTE_PATH ENGINE_V8_BUILD_ROOT NORMALIZE)
 set(_allowed_root "${_engine_root}/build")
@@ -43,11 +57,19 @@ set(_upstream "${_engine_root}/third_party/v8")
 set(_depot "${ENGINE_V8_BUILD_ROOT}/depot_tools")
 set(_workspace "${ENGINE_V8_BUILD_ROOT}/source")
 set(_source "${_workspace}/v8")
-set(_patch_roots "${_source}/build" "${_source}" "${_source}/third_party/partition_alloc")
-set(_patch_files
-    "${_engine_root}/third_party/overrides/v8/windows-dynamic-crt.patch"
-    "${_engine_root}/third_party/overrides/v8/windows-shared-ptr-atomic-warning.patch"
-    "${_engine_root}/third_party/overrides/v8/windows-debug-quarantine.patch")
+if(CMAKE_HOST_WIN32)
+    set(_patch_roots "${_source}/build" "${_source}" "${_source}/third_party/partition_alloc")
+    set(_patch_files
+        "${_engine_root}/third_party/overrides/v8/windows-dynamic-crt.patch"
+        "${_engine_root}/third_party/overrides/v8/windows-shared-ptr-atomic-warning.patch"
+        "${_engine_root}/third_party/overrides/v8/windows-debug-quarantine.patch")
+elseif(CMAKE_HOST_APPLE)
+    set(_patch_roots "${_source}/build" "${_source}/build" "${_source}")
+    set(_patch_files
+        "${_engine_root}/third_party/overrides/v8/macos-system-lto-library.patch"
+        "${_engine_root}/third_party/overrides/v8/macos-system-math.patch"
+        "${_engine_root}/third_party/overrides/v8/macos-signpost-attribute.patch")
+endif()
 string(TOLOWER "${ENGINE_V8_CONFIG}" _config_lower)
 set(_out "${_source}/out/engine.${_config_lower}")
 find_package(Git REQUIRED)
@@ -231,7 +253,7 @@ if(ENGINE_V8_ACTION STREQUAL "PREPARE")
         # 固定 depot_tools 并禁止自更新后，仍须显式生成 git.bat 等启动器。
         _engine_v8_run("${_depot}" "$ENV{COMSPEC}" /d /c call "${_depot}/bootstrap/win_tools.bat")
     endif()
-    if(CMAKE_HOST_WIN32)
+    if(_patch_files)
         if(EXISTS "${_source}/build/.git")
             _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
         endif()
@@ -254,7 +276,7 @@ _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
 _engine_v8_assert_revision("${_source}/third_party/partition_alloc" "${_partition_revision}")
 
 # 按各自 Git 根目录应用嵌入方兼容补丁，原 V8 子模块保持只读。
-if(CMAKE_HOST_WIN32)
+if(_patch_files)
     foreach(_patch_root _patch_file IN ZIP_LISTS _patch_roots _patch_files)
         _engine_v8_patch("${_patch_root}" "${_patch_file}" APPLY)
     endforeach()
@@ -263,9 +285,13 @@ if(ENGINE_V8_ACTION STREQUAL "PREPARE")
     _engine_v8_run("${_workspace}" ${_gclient} runhooks "--jobs=${ENGINE_V8_JOBS}")
 endif()
 
-set(_args "target_cpu = \"x64\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n")
-if(CMAKE_HOST_WIN32)
-    # 动态 CRT 的分配函数由宿主提供；关闭静态 CRT 专用的全局 malloc 替换。
+set(_args "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n")
+if(CMAKE_HOST_APPLE)
+    # 系统 SDK 的模块和 TAPI 格式可能新于固定 LLVM；使用常规头文件及 Xcode 链接器。
+    string(APPEND _args "use_clang_modules = false\nuse_lld = false\n")
+endif()
+if(CMAKE_HOST_WIN32 OR CMAKE_HOST_APPLE)
+    # 使用宿主 CRT 分配器，避免全局 malloc/new 替换及系统 libc++ 声明冲突。
     string(APPEND _args "use_allocator_shim = false\nuse_partition_alloc_as_malloc = false\n")
 endif()
 if(ENGINE_V8_CONFIG STREQUAL "Debug")

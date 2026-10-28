@@ -68,6 +68,16 @@
       }
     },
     {
+      "name": "editor-deps-release",
+      "displayName": "Editor and runtime dependencies Release",
+      "inherits": "editor-deps",
+      "binaryDir": "${sourceDir}/build/editor-deps-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/editor-deps/vcpkg_installed"
+      }
+    },
+    {
       "name": "v8-debug",
       "displayName": "V8 Debug embedding verification",
       "inherits": "debug",
@@ -87,6 +97,16 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "editor-deps",
+      "configurePreset": "editor-deps",
+      "configuration": "Debug"
+    },
+    {
+      "name": "editor-deps-release",
+      "configurePreset": "editor-deps-release",
+      "configuration": "Release"
+    },
     {
       "name": "debug",
       "configurePreset": "debug",
@@ -124,6 +144,16 @@
   ],
   "testPresets": [
     {
+      "name": "editor-deps",
+      "inherits": "debug",
+      "configurePreset": "editor-deps"
+    },
+    {
+      "name": "editor-deps-release",
+      "inherits": "release",
+      "configurePreset": "editor-deps-release"
+    },
+    {
       "name": "debug",
       "configurePreset": "debug",
       "configuration": "Debug",
@@ -157,6 +187,22 @@
     }
   ],
   "workflowPresets": [
+    {
+      "name": "editor-deps",
+      "steps": [
+        { "type": "configure", "name": "editor-deps" },
+        { "type": "build", "name": "editor-deps" },
+        { "type": "test", "name": "editor-deps" }
+      ]
+    },
+    {
+      "name": "editor-deps-release",
+      "steps": [
+        { "type": "configure", "name": "editor-deps-release" },
+        { "type": "build", "name": "editor-deps-release" },
+        { "type": "test", "name": "editor-deps-release" }
+      ]
+    },
     {
       "name": "debug",
       "steps": [

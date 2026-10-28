@@ -1,0 +1,93 @@
+Backport of oneTBB commit 132268ddd04d74e8b2e21e431a7e770761def49f (#1839).
+https://github.com/uxlfoundation/oneTBB/pull/1839
+Adapted to 2022.2.0, before the task dynamic dependency fields were introduced.
+Use the concrete task type for deallocation while preserving the base class layout.
+
+diff --git a/include/oneapi/tbb/detail/_task_handle.h b/include/oneapi/tbb/detail/_task_handle.h
+--- a/include/oneapi/tbb/detail/_task_handle.h
++++ b/include/oneapi/tbb/detail/_task_handle.h
+@@ -33,24 +33,30 @@
+ class task_handle;
+ 
+ class task_handle_task : public d1::task {
+-    std::uint64_t m_version_and_traits{};
++    // Preserve the original 64-bit field and subsequent member offsets.
++    using destroy_func_type = void (*)(task_handle_task*, d1::small_object_allocator&, const d1::execution_data*);
++    static_assert(sizeof(destroy_func_type) <= sizeof(std::uint64_t), "Cannot fit destroy pointer into std::uint64_t");
++    std::uint64_t m_destroy_func;
+     d1::wait_tree_vertex_interface* m_wait_tree_vertex;
+     d1::task_group_context& m_ctx;
+     d1::small_object_allocator m_allocator;
+ public:
+-    void finalize(const d1::execution_data* ed = nullptr) {
+-        if (ed) {
+-            m_allocator.delete_object(this, *ed);
++    void destroy(const d1::execution_data* ed = nullptr) {
++        destroy_func_type destroy_func = reinterpret_cast<destroy_func_type>(m_destroy_func);
++        if (destroy_func != nullptr) {
++            (*destroy_func)(this, m_allocator, ed);
+         } else {
+-            m_allocator.delete_object(this);
++            // Older task objects do not carry the concrete deallocation function.
++            this->~task_handle_task();
+         }
+     }
+ 
+-    task_handle_task(d1::wait_tree_vertex_interface* vertex, d1::task_group_context& ctx, d1::small_object_allocator& alloc)
+-        : m_wait_tree_vertex(vertex)
++    task_handle_task(d1::wait_tree_vertex_interface* vertex, d1::task_group_context& ctx,
++                     d1::small_object_allocator& alloc, destroy_func_type destroy_func)
++        : m_destroy_func(reinterpret_cast<std::uint64_t>(destroy_func))
++        , m_wait_tree_vertex(vertex)
+         , m_ctx(ctx)
+         , m_allocator(alloc) {
+-        suppress_unused_warning(m_version_and_traits);
+         m_wait_tree_vertex->reserve();
+     }
+ 
+@@ -64,7 +70,7 @@
+ 
+ class task_handle {
+     struct task_handle_task_finalizer_t{
+-        void operator()(task_handle_task* p){ p->finalize(); }
++        void operator()(task_handle_task* p){ p->destroy(); }
+     };
+     using handle_impl_t = std::unique_ptr<task_handle_task, task_handle_task_finalizer_t>;
+ 
+diff --git a/include/oneapi/tbb/task_group.h b/include/oneapi/tbb/task_group.h
+--- a/include/oneapi/tbb/task_group.h
++++ b/include/oneapi/tbb/task_group.h
+@@ -84,20 +84,30 @@
+     const F m_func;
+ 
+ private:
++    static void destroy_function_task(task_handle_task* p, d1::small_object_allocator& alloc,
++                                      const d1::execution_data* ed)
++    {
++        if (ed) {
++            alloc.delete_object(static_cast<function_task*>(p), *ed);
++        } else {
++            alloc.delete_object(static_cast<function_task*>(p));
++        }
++    }
++
+     d1::task* execute(d1::execution_data& ed) override {
+         __TBB_ASSERT(ed.context == &this->ctx(), "The task group context should be used for all tasks");
+         task* res = task_ptr_or_nullptr(m_func);
+-        finalize(&ed);
++        this->destroy(&ed);
+         return res;
+     }
+     d1::task* cancel(d1::execution_data& ed) override {
+-        finalize(&ed);
++        this->destroy(&ed);
+         return nullptr;
+     }
+ public:
+     template<typename FF>
+     function_task(FF&& f, d1::wait_tree_vertex_interface* vertex, d1::task_group_context& ctx, d1::small_object_allocator& alloc)
+-        : task_handle_task{vertex, ctx, alloc},
++        : task_handle_task{vertex, ctx, alloc, destroy_function_task},
+           m_func(std::forward<FF>(f)) {}
+ };
+ 
