@@ -1,0 +1,21 @@
+diff --git a/src/libplatform/tracing/recorder-mac.cc b/src/libplatform/tracing/recorder-mac.cc
+--- a/src/libplatform/tracing/recorder-mac.cc
++++ b/src/libplatform/tracing/recorder-mac.cc
+@@ -30,9 +30,17 @@
+ }
+ 
+ void Recorder::AddEvent(TraceObject* trace_event) {
++#if !__has_attribute(stack_protector_ignore)
++  // Newer SDK signpost macros use this optional attribute unconditionally.
++#pragma clang diagnostic push
++#pragma clang diagnostic ignored "-Wunknown-attributes"
++#endif
+   os_signpost_event_emit(v8Provider, OS_SIGNPOST_ID_EXCLUSIVE, "",
+                          "%s, cpu_duration: %d", trace_event->name(),
+                          static_cast<int>(trace_event->cpu_duration()));
++#if !__has_attribute(stack_protector_ignore)
++#pragma clang diagnostic pop
++#endif
+ }
+ 
+ }  // namespace tracing

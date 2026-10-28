@@ -4,8 +4,25 @@ option(ENGINE_ENABLE_V8 "Enable explicitly prepared V8 monolith dependency" OFF)
 if(NOT ENGINE_ENABLE_V8)
     return()
 endif()
-if(CMAKE_CROSSCOMPILING OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8 OR NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x64)$")
-    message(FATAL_ERROR "The current V8 preparation workflow supports native x64 builds only")
+if(CMAKE_CROSSCOMPILING OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR "The V8 preparation workflow requires a native 64-bit build")
+endif()
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x64)$")
+    set(_engine_v8_target_cpu x64)
+elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+    set(_engine_v8_target_cpu arm64)
+else()
+    message(FATAL_ERROR "The V8 preparation workflow supports native x64 and macOS ARM64 builds only")
+endif()
+if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+    if(_engine_v8_target_cpu STREQUAL "x64")
+        set(_engine_v8_osx_architecture x86_64)
+    else()
+        set(_engine_v8_osx_architecture arm64)
+    endif()
+    if(NOT CMAKE_OSX_ARCHITECTURES STREQUAL _engine_v8_osx_architecture)
+        message(FATAL_ERROR "V8 requires one native macOS architecture: ${_engine_v8_osx_architecture}")
+    endif()
 endif()
 if(WIN32 AND NOT MSVC)
     message(FATAL_ERROR "V8 on Windows requires an MSVC-compatible compiler and runtime")
@@ -41,6 +58,7 @@ endif()
 set(_engine_v8_arguments
     "-DENGINE_V8_BUILD_ROOT=${ENGINE_V8_BUILD_ROOT}"
     "-DENGINE_V8_CONFIG=${_engine_v8_config}"
+    "-DENGINE_V8_TARGET_CPU=${_engine_v8_target_cpu}"
     "-DENGINE_V8_JOBS=${ENGINE_V8_JOBS}")
 
 # 准备目标包含网络操作，必须单独显式运行，不属于默认构建。
@@ -83,6 +101,13 @@ if(WIN32)
     # Rust std 的原生链接依赖不会随 rlib 自动传递给最终 C++ 链接器。
     set_property(TARGET engine_v8 PROPERTY INTERFACE_LINK_LIBRARIES
         "dbghelp;winmm;ws2_32;advapi32;user32;bcrypt;ntdll;synchronization;userenv;legacy_stdio_definitions")
+elseif(APPLE)
+    # 与 GN 嵌入样例一致，传递 Darwin 时间、系统信息与安全 API 的框架依赖。
+    find_library(_engine_v8_foundation Foundation REQUIRED)
+    find_library(_engine_v8_core_foundation CoreFoundation REQUIRED)
+    find_library(_engine_v8_security Security REQUIRED)
+    set_property(TARGET engine_v8 PROPERTY INTERFACE_LINK_LIBRARIES
+        "${_engine_v8_foundation};${_engine_v8_core_foundation};${_engine_v8_security}")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_package(Threads REQUIRED)
     set_property(TARGET engine_v8 PROPERTY INTERFACE_LINK_LIBRARIES "Threads::Threads;${CMAKE_DL_LIBS};rt")

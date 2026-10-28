@@ -30,7 +30,7 @@ GitHub CI 验证 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的
 
 运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用独立 GN 工作副本，以 `ENGINE_ENABLE_V8` 显式启用准备、编译和 `engine::v8` 导入目标，命令与本机验证范围统一见根 [README](../README.md#v8-依赖)。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
 
-当前依赖 Preset 面向 Windows、macOS、Linux 桌面平台。固定 baseline 的 `basisu` port 不支持 Android 和 32 位 ARM；未来扩展移动平台时需增加相应的移植路径。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
+当前依赖 Preset 面向 Windows、macOS、Linux 桌面平台。固定 baseline 的 `basisu` port 以 `!android & !arm` 排除 Android 和 ARM（包含 ARM64）；本仓库的本地 port 额外允许已验证的 macOS ARM64，维护与验证说明见根 [README](../README.md#本地验证记录)。未来扩展移动平台时需增加相应的移植路径。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
 Basis Universal 当前通过同一 port 提供编码与转码能力；实现运行时目标时需只链接所需的转码部分，并核对最终产物大小。
 
 需要验证依赖时先运行 `git submodule update --init`，再按需使用 `cmake --preset runtime-deps`、`cmake --preset asset-pipeline-deps` 或 `cmake --preset editor-deps`。编辑器 Preset 同时启用三个 feature；这些 Preset 只负责依赖安装与包发现，不代表对应引擎模块已经实现。
