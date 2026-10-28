@@ -9,13 +9,13 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 - [引擎架构总览](docs/architecture.md)：各模块规划文档入口。
 - [首个游戏](docs/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。每个系统在 `include/engine/<system>/` 和 `src/engine/<system>/` 各有独立子目录与 CMake 目标；自有头文件直接按文件名包含，搜索路径由目标传递。`Engine` 持有项目、窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。每个系统在 `include/engine/<system>/` 和 `src/engine/<system>/` 各有独立子目录与 CMake 目标；自有头文件直接按文件名包含，搜索路径由目标传递。`Engine` 持有窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前多数业务系统仅具备生命周期和依赖接入：尚未实现 PBR、场景加载、物理模拟、UI 绘制、编辑器界面、脚本执行框架或 Android APK 打包。V8 保留独立 JavaScript / Intl 测试，但 `ScriptSystem` 暂只验证版本 API。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前多数业务系统仅具备生命周期和依赖接入：尚未实现 PBR、场景加载、物理模拟、UI 绘制、编辑器界面或脚本执行框架。Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`。V8 保留桌面 JavaScript / Intl 测试，但 `ScriptSystem` 暂只验证版本 API，Android 未接入 V8 交叉编译。
 
-仓库自带最小占位项目 `projects/minimal/`，后续启动统一传入这个项目：`settings/` 保存项目设置，`cache/` 保存生成缓存，`assets/` 保存项目资源；三个目录目前仅有 `.gitkeep`，缓存产物不提交。
+仓库自带编辑器最小占位项目 `projects/minimal/`：`settings/` 保存项目设置，`cache/` 保存生成缓存，`assets/` 保存项目资源；三个目录目前仅有 `.gitkeep`，缓存产物不提交。
 
-`--project` 必须传入项目根目录。引擎在创建窗口前检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回启动失败；本阶段不读取项目文件内容。toml++ 使用无异常表结构 API；其预编译解析接口与无异常模式存在 ABI 差异，文件解析尚未启用。Taskflow 仅接入任务图，执行器头含未隔离的异常语法，执行功能留待无异常适配后启用。
+`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才启动引擎和借用该项目的 `EditorSystem`。本阶段不读取项目文件内容。toml++ 使用无异常表结构 API；其预编译解析接口与无异常模式存在 ABI 差异，文件解析尚未启用。Taskflow 仅接入任务图，执行器头含未隔离的异常语法，执行功能留待无异常适配后启用。
 
 ## 构建与测试
 
@@ -142,12 +142,20 @@ Ninja 预设写入独立的 `build/ninja-debug/`、`build/ninja-release/`，避�
 程序目标名为 `engine_app`。Linux / macOS 的 Ninja 预设下运行：
 
 ```sh
-./build/ninja-debug/engine_app --project projects/minimal
+./build/ninja-debug/engine_app
 # 渲染 120 帧后自动退出，适合冒烟验证。
-./build/ninja-debug/engine_app --project projects/minimal --frames 120
+./build/ninja-debug/engine_app --frames 120
 ```
 
-Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe --project projects/minimal`；旧 Visual Studio 预设对应 `.\build\debug\Debug\engine_app.exe --project projects/minimal`。macOS / iOS 使用 Metal，Windows 使用 DirectX 12，Android / Linux 使用 Vulkan；所选后端不可用时返回失败，不以 Noop 或其他后端回退代替成功。
+Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；旧 Visual Studio 预设对应 `.\build\debug\Debug\engine_app.exe`。macOS / iOS 使用 Metal，Windows 使用 DirectX 12，Android / Linux 使用 Vulkan；所选后端不可用时返回失败，不以 Noop 或其他后端回退代替成功。
+
+编辑器宿主由 `editor-deps` 或 `ninja-engine-debug` 等启用编辑器的预设提供，启动时传入项目：
+
+```sh
+./build/ninja-engine-debug/editor_app --project projects/minimal
+```
+
+该入口目前验证项目并建立引擎、ImGui 上下文，尚未绘制完整编辑器界面。
 
 普通 CTest 不要求桌面环境。要在有图形桌面的机器运行真实窗口/GPU测试：
 
@@ -158,6 +166,34 @@ ctest --preset ninja-debug
 ```
 
 `engine.window_render` 验证真实后端、缩放后的像素尺寸、后台暂停恢复、关闭、重复初始化和 Engine 调度。该测试有 60 秒超时并串行执行；不需要 GPU 的生命周期和依赖测试始终注册。
+
+### Android APK
+
+Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JNI 框架](https://wiki.libsdl.org/SDL3/README-android)。原生部分仍由根 CMake Presets 编译，Gradle 只处理 Java、Manifest 和 APK；SDLActivity 源码从同版本 SDL3 的 vcpkg overlay 安装结果取得。APK 直接启动引擎，不包含编辑器项目目录、项目校验或编辑器 UI。
+
+准备 Python 3、JDK 17、Android SDK Platform 35、Build Tools 36.1.0、NDK 27.2.12479018，以及上文的 CMake / Ninja / 编译缓存 / vcpkg。设置 `ANDROID_HOME`、`ANDROID_NDK_HOME`、`JAVA_HOME` 和 `VCPKG_ROOT` 指向已有安装；可复用其他工程的安装目录。Android Gradle Plugin 固定 9.0.0，wrapper 固定 Gradle 9.1.0 并核对官方 SHA-256；也可通过 `GRADLE_HOME` 复用相同版本，脚本会检查版本。
+
+```sh
+python3 scripts/build_android.py --config debug
+python3 scripts/build_android.py --config release
+```
+
+Windows 可用 `python` 执行同一脚本。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure / build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
+
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--skip-native` 可仅重打包已生成的原生库。
+
+Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz 和 RmlUi 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK；V8 的 Android 交叉编译尚未接入。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
+
+复用已有 ARM64 Android 模拟器，明确指定其序列号后安装和启动：
+
+```sh
+adb -s emulator-5580 install -r build/apk/engine-arm64-debug.apk
+adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity
+# 有限帧运行，完成后正常退出 Activity。
+adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ei frames 120
+```
+
+`emulator-5580` 是本轮测试实例，其他环境用 `adb devices` 确认实际序列号。已有进程要改用不同启动参数时，先用 `adb -s <serial> shell am force-stop org.engine.minimal` 停止本应用，再重新启动；不需要清除模拟器或应用数据。模拟器必须提供 Vulkan；软件 Vulkan 也可验证功能，但不能用来衡量真机 GPU 性能。
 
 ## CI
 
@@ -195,7 +231,8 @@ V8 的 Debug 隔离队列补丁另用本机回归程序验证了全局分支的�
 
 本机修复保存在 `third_party/overlay-ports/`，从 manifest 固定 baseline 复制 port，保持依赖版本不变，不直接修改上游检出或安装目录：
 
-- `basisu`：上游 `supports: !android & !arm` 会排除 ARM64。本地声明额外允许已验证的 `arm64-osx`，保留 Android 和其他 ARM 平台限制；升级 baseline 并确认上游 port 已支持 macOS ARM64 后移除此覆盖。
+- `basisu`：上游 `supports: !android & !arm` 会排除 ARM64。本地覆盖允许 macOS ARM64 与 Android；Android 关闭命令行工具，保留编码 / 转码库，并通过 `Threads::Threads` 链接线程支持。升级 baseline 并确认上游 port 已支持对应平台后移除此覆盖。
+- `sdl3` / `bgfx`：Android 使用共享 SDL3 和 Vulkan，SDL3 安装同版本 Java 入口源码，bgfx 补齐 Android 系统库链接；其他平台保留固定 baseline 的配置。
 - `tbb`：macOS 使用共享库，让多个 USD 动态库共享同一个调度器；同时回补 oneTBB [PR #1839](https://github.com/uxlfoundation/oneTBB/pull/1839)（提交 `132268ddd04d74e8b2e21e431a7e770761def49f`），按具体任务类型的大小释放内存，保留原类布局。升级 baseline 已包含该修复后可移除补丁；共享库设置须保留到上游 port 提供等效处理，或 USD 的链接方式已不再重复嵌入静态 TBB。
 
 本次在独立检出中同步并验证了上述修复；日志、输入资源、输出产物与本地验证脚本位于忽略的 `build/local-deps/`。上述五种纹理各经 8×8 PNG 往返后逐像素比较，RGBA 通道最大误差均为 0；BC1/BC3/BC7 使用按 4×4 对齐的纯色块样本。额外对带透明度的 PNG 输出执行 `texturec --validate` 时出现图像头 `m_hasAlpha` 不一致：固定 bimg 的 KTX 读取及容器转换未同步该标志，PNG 重读按实际像素设为有透明度，导致严格头比较失败。该 RGBA8、线性、单 mip 样本经独立解析，64 个像素的全部 RGBA 值一致；此标志维护与校验问题尚未修补。Linux 未执行依赖实机验证，本轮补丁未在 Windows 重跑。
@@ -226,7 +263,21 @@ macOS V8 的兼容补丁保存在 `third_party/overrides/v8/`：`macos-system-lt
 - ozz 在隔离 Git 工程中验证了 Ninja / Makefiles 的无改动构建、覆盖增删、提交与引用变化、缺失副本恢复；编译启动器验证了缺工具拒绝、用户启动器保留和交叉编译选择宿主工具。MSVC 的 `/Z7` 仅做生成命令检查，Windows / Linux 安装与缓存未做本轮实机测试。
 - 安装脚本的 Unix 隔离模拟测试 11 项通过，验证只补缺失工具、包管理器映射和失败退出；运行命令为 `python3 tests/setup_test.py`，仅需 Python 标准库。Windows 模拟用例入口为 `& .\tests\setup_windows_test.ps1`，本机没有 PowerShell，未执行；它不调用真实安装器。两组模拟测试均独立于引擎 CTest。
 
-本轮窗口实现尚未在 Windows / Linux / Android / iOS 实机验证；Android APK 构建和移动平台生命周期仍需后续验证。
+以上为 2026-10-28 的历史记录。引擎与编辑器的项目职责随后已调整，Android 验证见下节；Windows / Linux / iOS 窗口尚未实机验证。
+
+### 编辑器职责拆分与 Android
+
+2026-10-29：引擎直接启动，编辑器必须传入项目。macOS 完整 Debug / Release 构建及 CTest 各 17/17 通过，额外覆盖编辑器项目依赖、初始化失败回滚和上下文清理；两种配置的 `engine_app --frames 3` 与 `editor_app --project projects/minimal --frames 3` 均正常渲染并退出。24 张类图实际解析和渲染通过。
+
+Android ARM64 / API 28 的 Debug / Release 原生库均完成编译与链接，APK 打包成功。编译宿主为 macOS ARM64，使用 JDK 17、NDK 27.2.12479018 和 SDL3 3.2.24；Release APK 使用 NDK 去除调试符号，约 12 MB，Debug APK 保留符号，约 121 MB。两者为本机调试签名，签名校验和 16 KB ZIP 对齐检查均通过。
+
+复用 Game 的 `GameDev` ARM64 / API 34 模拟器，以 SwiftShader 提供软件 Vulkan。最终 Debug / Release 包均完成无项目启动、Vulkan 尚未就绪时立即切后台并恢复、同一进程连续 5 轮前后台切换、返回键正常退出、传入 `frames=120` 后正常结束，以及一次启动操作在同一进程重新建立 Activity 和 Vulkan。最终日志没有崩溃、ANR、SurfaceLost、BufferQueue abandoned 或暂停未确认错误。
+
+验证中修复了 SDL 默认 Activity 重建行为及 Surface 销毁与 bgfx 后台线程的竞态：平台宿主在暂停和销毁 Surface 前请求 SDL 主线程关闭渲染器，确认后再继续；恢复时按需重建 GPU 资源。同步失败会明确结束本应用进程，不继续使用失效 Surface。已同步 Android 宿主、窗口和渲染类图。
+
+最终日志保存在忽略的 `build/android-validation-debug/verified/`、`build/android-validation-release/verified/`，汇总及 APK 哈希位于 `build/android-validation-summary.json`，截图位于 `build/minimal-android.png`；旧日志保留供问题追溯。未清空模拟器或其他应用数据，最终留有运行中的 Release 测试包。此结果不代表真机性能或所有设备兼容性。
+
+Android 真机、Windows / Linux / iOS 窗口尚未执行本轮验证；Android 未接入 V8 或 APK 内部资源加载。
 
 ## 目录
 
@@ -238,6 +289,7 @@ macOS V8 的兼容补丁保存在 `third_party/overrides/v8/`：`macos-system-lt
 ├── cmake/              # 目标级编译设置
 ├── docs/               # 架构规划与开发说明
 ├── include/engine/     # 引擎及各系统的公开头文件
+├── platforms/android/  # Android Manifest、Java 入口、Gradle 与原生打包配置
 ├── projects/minimal/   # settings、cache、assets 三个占位子目录
 ├── references/         # 本地参考文件，内容不纳入 Git
 ├── scripts/            # 跨平台宿主构建工具检查与安装
@@ -250,7 +302,7 @@ macOS V8 的兼容补丁保存在 `third_party/overrides/v8/`：`macos-system-lt
 
 | 选项 | 顶层默认值 | 用途 |
 | --- | --- | --- |
-| `ENGINE_BUILD_APP` | `ON` | 构建最小窗口程序（同时启用运行时） |
+| `ENGINE_BUILD_APP` | `ON` | 构建引擎宿主；启用编辑器时另建 editor_app；Android 输出原生共享库 |
 | `ENGINE_BUILD_TESTS` | `ON` | 构建本项目测试，同时受 `BUILD_TESTING` 控制 |
 | `ENGINE_USE_COMPILER_CACHE` | `ON` | 自动使用已安装的 ccache / sccache，支持 Makefiles / Ninja |
 | `ENGINE_REQUIRE_COMPILER_CACHE` | `OFF` | 缓存不可用时配置失败；ninja-* Preset 开启 |

@@ -6,6 +6,12 @@
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 
+#if defined(SDL_PLATFORM_ANDROID)
+#include "android_surface.hpp"
+
+#include <android/native_window.h>
+#endif
+
 #include <limits>
 
 namespace engine
@@ -91,6 +97,37 @@ RenderSystem::~RenderSystem() noexcept
 
 bool RenderSystem::on_initialize(const EngineConfig&)
 {
+#if defined(SDL_PLATFORM_ANDROID)
+    if (!SDL_AddEventWatch(watch_surface_lifecycle, this))
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Renderer event watch failed: %s", SDL_GetError());
+        return false;
+    }
+    watching_events_ = true;
+#endif
+    return initialize_renderer();
+}
+
+bool RenderSystem::watch_surface_lifecycle(void* userdata, SDL_Event* event)
+{
+#if defined(SDL_PLATFORM_ANDROID)
+    // 原生后台事件和平台暂停握手均在 SDL 主线程处理。
+    const bool suspend =
+        event->type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+        (event->type == SDL_EVENT_USER && event->user.code == android::suspend_rendering_event);
+    if (suspend && SDL_IsMainThread())
+    {
+        static_cast<RenderSystem*>(userdata)->shutdown_renderer();
+    }
+#else
+    (void)userdata;
+    (void)event;
+#endif
+    return true;
+}
+
+bool RenderSystem::initialize_renderer()
+{
     if (active_renderer != nullptr || !windows_.is_initialized() ||
         windows_.native_window() == nullptr)
     {
@@ -98,6 +135,15 @@ bool RenderSystem::on_initialize(const EngineConfig&)
                      "Renderer requires a ready window and no active bgfx");
         return false;
     }
+
+#if defined(SDL_PLATFORM_ANDROID)
+    if (!android::begin_rendering())
+    {
+        // 宿主在初始化途中进入后台；保留系统，等恢复后再创建 GPU 资源。
+        return true;
+    }
+    surface_registered_ = true;
+#endif
 
     SDL_Window* window = windows_.native_window();
     if (!window_size(window, width_, height_))
@@ -123,6 +169,12 @@ bool RenderSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
+    native_window_ = init.platformData.nwh;
+    native_display_ = init.platformData.ndt;
+#if defined(SDL_PLATFORM_ANDROID)
+    // SDL 可以先释放自己的引用；bgfx 后台线程退出后才释放渲染器持有的引用。
+    ANativeWindow_acquire(static_cast<ANativeWindow*>(native_window_));
+#endif
     init.resolution.width = width_;
     init.resolution.height = height_;
     init.resolution.reset = reset_flags;
@@ -141,8 +193,6 @@ bool RenderSystem::on_initialize(const EngineConfig&)
         return false;
     }
 
-    native_window_ = init.platformData.nwh;
-    native_display_ = init.platformData.ndt;
     bgfx::setViewName(main_view, "Main window");
     bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x182432ff, 1.0F, 0);
     bgfx::setDebug(BGFX_DEBUG_TEXT);
@@ -153,10 +203,20 @@ bool RenderSystem::on_initialize(const EngineConfig&)
 
 bool RenderSystem::render()
 {
-    if (!is_initialized() || !renderer_initialized_ || !windows_.can_render())
+    if (!is_initialized() || !windows_.can_render())
     {
         return false;
     }
+
+#if defined(SDL_PLATFORM_ANDROID)
+    if (!renderer_initialized_)
+    {
+        if (!initialize_renderer() || !renderer_initialized_)
+        {
+            return false;
+        }
+    }
+#endif
 
     std::uint32_t width = 0;
     std::uint32_t height = 0;
@@ -175,9 +235,17 @@ bool RenderSystem::render()
     const bool surface_changed = data.nwh != native_window_;
     if (surface_changed)
     {
+#if defined(SDL_PLATFORM_ANDROID)
+        shutdown_renderer();
+        if (!initialize_renderer() || !renderer_initialized_)
+        {
+            return false;
+        }
+#else
         // bgfx 允许初始化后替换原生窗口句柄；显示连接和图形设备保持不变。
         bgfx::setPlatformData(data);
         native_window_ = data.nwh;
+#endif
     }
     if (surface_changed || width != width_ || height != height_)
     {
@@ -193,12 +261,28 @@ bool RenderSystem::render()
     bgfx::dbgTextPrintf(2, 2, 0x0f, "Engine - minimal runtime");
     bgfx::dbgTextPrintf(2, 4, 0x07, "Renderer: %s", bgfx::getRendererName(bgfx::getRendererType()));
     bgfx::dbgTextPrintf(2, 5, 0x07, "Drawable: %u x %u", width_, height_);
+#if defined(SDL_PLATFORM_ANDROID)
+    bgfx::dbgTextPrintf(2, 7, 0x07, "Press Back to exit; Home pauses rendering.");
+#else
     bgfx::dbgTextPrintf(2, 7, 0x07, "Resize this window or close it to exit.");
+#endif
     bgfx::frame();
     return true;
 }
 
 void RenderSystem::on_shutdown() noexcept
+{
+    if (watching_events_)
+    {
+#if defined(SDL_PLATFORM_ANDROID)
+        SDL_RemoveEventWatch(watch_surface_lifecycle, this);
+#endif
+        watching_events_ = false;
+    }
+    shutdown_renderer();
+}
+
+void RenderSystem::shutdown_renderer() noexcept
 {
     if (renderer_initialized_)
     {
@@ -213,10 +297,23 @@ void RenderSystem::on_shutdown() noexcept
         metal_view_ = nullptr;
     }
 #endif
+#if defined(SDL_PLATFORM_ANDROID)
+    if (native_window_ != nullptr)
+    {
+        ANativeWindow_release(static_cast<ANativeWindow*>(native_window_));
+    }
+#endif
     native_window_ = nullptr;
     native_display_ = nullptr;
     width_ = 0;
     height_ = 0;
+    if (surface_registered_)
+    {
+#if defined(SDL_PLATFORM_ANDROID)
+        android::end_rendering();
+#endif
+        surface_registered_ = false;
+    }
 }
 
 } // namespace engine

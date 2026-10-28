@@ -1,11 +1,15 @@
 #include "editor_system.hpp"
 
+#include "project_system.hpp"
+
 #include <imgui.h>
 
 namespace engine
 {
 
-EditorSystem::EditorSystem() noexcept = default;
+EditorSystem::EditorSystem(ProjectSystem& project) noexcept : project_(project)
+{
+}
 
 EditorSystem::~EditorSystem() noexcept
 {
@@ -14,7 +18,7 @@ EditorSystem::~EditorSystem() noexcept
 
 bool EditorSystem::on_initialize(const EngineConfig&)
 {
-    if (!IMGUI_CHECKVERSION())
+    if (!project_.is_initialized() || !IMGUI_CHECKVERSION())
     {
         return false;
     }

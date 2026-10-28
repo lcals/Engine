@@ -174,6 +174,64 @@
         "engine-release"
       ],
       "binaryDir": "${sourceDir}/build/ninja-engine-release"
+    },
+    {
+      "name": "android-arm64-debug",
+      "displayName": "Android ARM64 Debug",
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "binaryDir": "${sourceDir}/build/android-arm64-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "arm64-android-engine",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/third_party/triplets",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ANDROID_STL": "c++_shared",
+        "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
+        "CMAKE_POSITION_INDEPENDENT_CODE": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false
+      }
+    },
+    {
+      "name": "android-arm64-release",
+      "displayName": "Android ARM64 Release",
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "binaryDir": "${sourceDir}/build/android-arm64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "arm64-android-engine",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/third_party/triplets",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ANDROID_STL": "c++_shared",
+        "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
+        "CMAKE_POSITION_INDEPENDENT_CODE": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false
+      }
     }
   ],
   "buildPresets": [
@@ -293,6 +351,22 @@
       "configuration": "Release",
       "targets": [
         "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-debug",
+      "configurePreset": "android-arm64-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-release",
+      "configurePreset": "android-arm64-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_android_bundle"
       ]
     }
   ],

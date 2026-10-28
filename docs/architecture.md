@@ -28,6 +28,6 @@
 - [游戏运行时 UI](ui.md)：RmlUi 玩家界面。
 - [脚本与插件](plugins.md)：C++ 与 TypeScript、V8、脚本热重载及多线程插件。
 - [编辑器](editor.md)：跨平台桌面界面、MVC、MCP 与代码热重载。
-- [项目与出包](project.md)：项目目录、项目化启动参数和 CMake 单文件出包目标。
+- [项目与出包](project.md)：编辑器项目目录、引擎独立启动与平台出包目标。
 
 [首个游戏](first-game.md)记录游戏目标；[开发说明](development.md)记录当前构建与依赖维护方式。

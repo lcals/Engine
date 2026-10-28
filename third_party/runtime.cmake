@@ -1,4 +1,4 @@
-# Windows、macOS 和 Linux 游戏运行时依赖。
+# Windows、macOS、Linux 和 Android 游戏运行时依赖。
 find_package(SDL3 CONFIG REQUIRED GLOBAL)
 find_package(bgfx CONFIG REQUIRED GLOBAL)
 find_package(flecs CONFIG REQUIRED GLOBAL)
@@ -6,7 +6,6 @@ find_package(Jolt CONFIG REQUIRED GLOBAL)
 find_package(recastnavigation CONFIG REQUIRED GLOBAL)
 find_package(RmlUi CONFIG REQUIRED GLOBAL)
 find_package(flatbuffers CONFIG REQUIRED GLOBAL)
-find_package(tomlplusplus CONFIG REQUIRED GLOBAL)
 find_package(basisu CONFIG REQUIRED GLOBAL)
 
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/ozz-animation/CMakeLists.txt")

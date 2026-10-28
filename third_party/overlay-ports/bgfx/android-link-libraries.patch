@@ -1,0 +1,13 @@
+--- a/cmake/bgfx/bgfx.cmake
++++ b/cmake/bgfx/bgfx.cmake
+@@ -153,6 +153,10 @@
+ # bgfx depends on bx and bimg
+ target_link_libraries(bgfx PRIVATE bx bimg)
+ 
++if(ANDROID)
++    target_link_libraries(bgfx PUBLIC android EGL GLESv2 dl)
++endif()
++
+ # Frameworks required on iOS, tvOS and macOS
+ if(${CMAKE_SYSTEM_NAME} MATCHES iOS|tvOS)
+ 	target_link_libraries(

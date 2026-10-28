@@ -204,9 +204,10 @@ bool test_engine(const engine::EngineConfig& config)
 {
     engine::Engine& engine = engine::Engine::instance();
     engine.shutdown();
-    const engine::EngineConfig invalid_config;
+    engine::EngineConfig invalid_config = config;
+    invalid_config.width = 0;
     if (!expect(&engine == &engine::Engine::instance(), "Engine must be a singleton") ||
-        !expect(!engine.initialize(invalid_config), "reject missing project identifier") ||
+        !expect(!engine.initialize(invalid_config), "reject invalid window configuration") ||
         !expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                 "tick must fail before initialization") ||
         !expect(engine.initialize(config), "initialize engine with all runtime systems") ||
@@ -244,7 +245,6 @@ bool test_engine(const engine::EngineConfig& config)
 int main(int, char**)
 {
     engine::EngineConfig config;
-    config.project = ENGINE_TEST_PROJECT;
     config.window_title = "Engine GPU integration test";
     config.width = 640;
     config.height = 360;

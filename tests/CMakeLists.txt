@@ -9,7 +9,8 @@ add_test(NAME engine.v8_cache
         -P "${CMAKE_CURRENT_SOURCE_DIR}/v8_cache_test.cmake")
 set_tests_properties(engine.v8_cache PROPERTIES TIMEOUT 30)
 
-if(ENGINE_ENABLE_RUNTIME_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR ENGINE_ENABLE_V8)
+if(ENGINE_ENABLE_RUNTIME_DEPS OR ENGINE_ENABLE_EDITOR_DEPS OR
+   ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR ENGINE_ENABLE_V8)
     add_executable(engine_dependency_systems_test dependency_systems_test.cpp)
     target_link_libraries(engine_dependency_systems_test PRIVATE engine::core)
     target_compile_definitions(engine_dependency_systems_test PRIVATE
@@ -22,7 +23,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR ENGINE_ENA
         target_link_libraries(engine_dependency_systems_test PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
     endif()
     if(ENGINE_ENABLE_EDITOR_DEPS)
-        target_link_libraries(engine_dependency_systems_test PRIVATE engine::editor)
+        target_link_libraries(engine_dependency_systems_test PRIVATE engine::editor engine::project)
     endif()
     if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         target_link_libraries(engine_dependency_systems_test PRIVATE engine::asset_pipeline)
@@ -38,26 +39,43 @@ endif()
 if(TARGET engine_app)
     add_test(NAME engine.cli_help COMMAND engine_app --help)
     set_tests_properties(engine.cli_help PROPERTIES PASS_REGULAR_EXPRESSION "Usage: engine_app")
-    add_test(NAME engine.cli_missing_project COMMAND engine_app)
-    add_test(NAME engine.cli_invalid_project COMMAND engine_app
-        --project "${CMAKE_CURRENT_BINARY_DIR}/missing-project" --frames 1)
-    add_test(NAME engine.cli_invalid_frames COMMAND engine_app --project test --frames invalid)
-    set_tests_properties(engine.cli_missing_project engine.cli_invalid_frames
-        engine.cli_invalid_project PROPERTIES WILL_FAIL TRUE)
+    add_test(NAME engine.cli_unknown_option COMMAND engine_app --project test)
+    add_test(NAME engine.cli_invalid_frames COMMAND engine_app --frames invalid)
+    set_tests_properties(engine.cli_unknown_option engine.cli_invalid_frames
+        PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
 endif()
 
-if(ENGINE_ENABLE_RUNTIME_DEPS)
+if(TARGET engine_project)
     add_executable(engine_project_test project_system_test.cpp)
     target_link_libraries(engine_project_test PRIVATE engine::project)
     engine_apply_options(engine_project_test)
     add_test(NAME engine.project COMMAND engine_project_test
         "${CMAKE_CURRENT_BINARY_DIR}/project-test-output")
+endif()
 
+if(TARGET engine_editor)
+    add_executable(engine_editor_test editor_system_test.cpp)
+    target_link_libraries(engine_editor_test PRIVATE engine::editor engine::project imgui::imgui)
+    engine_apply_options(engine_editor_test)
+    add_test(NAME engine.editor COMMAND engine_editor_test "${PROJECT_SOURCE_DIR}/projects/minimal")
+endif()
+
+if(TARGET editor_app)
+    add_test(NAME editor.cli_help COMMAND editor_app --help)
+    set_tests_properties(editor.cli_help PROPERTIES PASS_REGULAR_EXPRESSION "Usage: editor_app")
+    add_test(NAME editor.cli_missing_project COMMAND editor_app)
+    add_test(NAME editor.cli_invalid_project COMMAND editor_app
+        --project "${CMAKE_CURRENT_BINARY_DIR}/missing-project" --frames 1)
+    add_test(NAME editor.cli_invalid_frames COMMAND editor_app
+        --project "${PROJECT_SOURCE_DIR}/projects/minimal" --frames invalid)
+    set_tests_properties(editor.cli_missing_project editor.cli_invalid_project
+        editor.cli_invalid_frames PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
+endif()
+
+if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_executable(engine_window_render_test window_render_test.cpp)
     target_link_libraries(engine_window_render_test PRIVATE engine::runtime engine::window
         engine::render SDL3::SDL3 bgfx::bgfx)
-    target_compile_definitions(engine_window_render_test PRIVATE
-        ENGINE_TEST_PROJECT="${PROJECT_SOURCE_DIR}/projects/minimal")
     engine_apply_options(engine_window_render_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)

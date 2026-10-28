@@ -90,9 +90,9 @@ namespace fs = std::filesystem;
 
 [[nodiscard]] bool run_cases(const fs::path& workspace)
 {
-    engine::ProjectSystem project;
-    engine::EngineConfig config;
-    if (!check_rejected(project, config))
+    engine::ProjectSystem empty_project("");
+    const engine::EngineConfig config;
+    if (!check_rejected(empty_project, config))
     {
         return false;
     }
@@ -102,21 +102,25 @@ namespace fs = std::filesystem;
     {
         return false;
     }
-    const engine::EngineConfig valid_config{valid_root.string()};
-    if (!check_ready(project, valid_config) || !check_ready(project, valid_config))
+    std::string caller_path = valid_root.string();
+    engine::ProjectSystem valid_project(caller_path);
+    caller_path.clear();
+    if (!check_ready(valid_project, config) || !check_ready(valid_project, config))
     {
         return false;
     }
 
-    config.project = (workspace / "missing-root").string();
-    if (!check_rejected(project, config) || !check_ready(project, valid_config))
+    const fs::path missing_root = workspace / "missing-root";
+    engine::ProjectSystem missing_project(missing_root.string());
+    if (!check_rejected(missing_project, config) || !create_project(missing_root) ||
+        !check_ready(missing_project, config))
     {
         return false;
     }
     const fs::path root_file = workspace / "root-file";
-    config.project = root_file.string();
-    if (!create_file(root_file) || !check_rejected(project, config) ||
-        !check_ready(project, valid_config))
+    engine::ProjectSystem file_project(root_file.string());
+    if (!create_file(root_file) || !check_rejected(file_project, config) ||
+        !remove_path(root_file) || !create_project(root_file) || !check_ready(file_project, config))
     {
         return false;
     }
@@ -125,7 +129,7 @@ namespace fs = std::filesystem;
     {
         const fs::path root = workspace / directory;
         const fs::path required = root / directory;
-        config.project = root.string();
+        engine::ProjectSystem project(root.string());
         if (!create_project(root) || !remove_path(required) || !check_rejected(project, config))
         {
             return false;
