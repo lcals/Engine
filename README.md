@@ -4,13 +4,12 @@ Engine 是一个 C++20 项目，目前包含静态库 `engine::core`、示例命
 
 ## 规划与现状
 
-项目目标是开发跨平台游戏引擎。已确认的规划按主题记录：
+项目目标是开发跨平台游戏引擎。已确认的规划按模块记录：
 
-- [引擎架构](docs/architecture.md)：运行时、渲染、场景、编辑器、插件与出包。
-- [资源管线](docs/asset-pipeline.md)：项目资源、meta、并行处理和运行缓存。
-- [首个游戏](docs/first-game.md)：射击游戏的基本战斗循环。
+- [引擎架构总览](docs/architecture.md)：各模块规划文档入口。
+- [首个游戏](docs/first-game.md)：割草射击游戏的核心玩法循环。
 
-当前已接入 vcpkg。SDL3、bgfx、LeanCLR、Dear ImGui、Taskflow、flecs、Jolt Physics、Recast Navigation、ozz-animation、Basis Universal、SQLite、toml++ 和 efsw 已选定但尚未接入。规划中的 PBR 渲染、编辑器、插件系统、MCP 服务和项目出包尚未实现。
+当前已接入 vcpkg。SDL3、bgfx、Dear ImGui、RmlUi、Taskflow、flecs、Jolt Physics、Recast Navigation、ozz-animation、Basis Universal、meshoptimizer、SQLite、toml++、efsw、FlatBuffers 和 V8 已选定但尚未接入；C++ 编辑器与 TypeScript 脚本、插件及其热重载也尚未实现。规划中的 PBR 渲染、编辑器、插件系统、MCP 服务和项目出包尚未实现。
 
 ## 构建与测试
 
