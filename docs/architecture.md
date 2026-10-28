@@ -1,35 +1,31 @@
-# 引擎架构规划
+# 引擎架构总览
 
-本文记录已确认的引擎架构与技术选型。资源处理见[资源管线规划](asset-pipeline.md)，首个游戏见[首个游戏](first-game.md)；当前实现状态见[README](../README.md)。
+本文是各模块规划的入口；项目当前实现状态见 [README](../README.md)。具体决策在对应模块文档中维护。
 
-## 总体架构
+## 总体关系与原则
 
-引擎主体是基础，编辑器部分与插件系统并列；编辑器可以调用插件。插件分为编辑器插件和运行插件，均使用 C# 实现，按单线程模型运行。
+引擎主体是编辑器和插件系统的基础；编辑器与插件系统并列，编辑器可以调用插件。
 
-引擎整体采用跨平台实现，运行时必须考虑目标平台之间的兼容性。C++ 引擎主体使用规范、惯用的 C++20，优先使用标准库并尽量控制第三方依赖；依赖统一由 vcpkg 管理，在 `vcpkg.json` 中声明，并在 `third_party/CMakeLists.txt` 中查找。引擎内部适合并行的 C++ 任务尽量并行执行。
+引擎主体采用组件化架构，项目按需组合引擎能力；运行时实体通过 ECS 按需添加组件。引擎功能模块与实体组件各自保持清晰边界。
 
-引擎内置 flecs，采用 ECS 模式。复杂功能组织为系统模块并进一步细分组件，简单功能使用单例实现。场景采用节点模式组织，支持自定义节点类型。
+引擎整体采用跨平台实现，运行时必须考虑目标平台之间的兼容性。C++ 引擎主体使用规范、惯用的 C++20，优先使用标准库并尽量控制第三方依赖；依赖统一由 vcpkg 管理，在 `vcpkg.json` 中声明，并在 `third_party/CMakeLists.txt` 中查找。
 
-## 运行时与渲染
+引擎实现参考 `references/` 目录中的三个项目，并结合本项目已确认的架构与跨平台要求完成设计和实现。
 
-- [SDL3](https://www.libsdl.org/) 是跨平台基础框架，提供大部分运行时基础能力；输入和音频使用 SDL3。
-- [bgfx](https://github.com/bkaradzic/bgfx) 提供跨平台渲染。初期先使用 Vulkan 后端跑通流程，其他渲染 API 后续考虑。引擎使用 PBR 渲染；渲染效果优先参考并复用 [bgfx 官方示例](https://bkaradzic.github.io/bgfx/examples.html)中的做法。
-- 渲染流程采用渲染图组织，描述各渲染阶段的输入、输出与依赖；渲染图负责编排，实际渲染由 bgfx 执行。首版先覆盖 PBR 所需的固定流程，再按需求扩展。
-- [LeanCLR](https://github.com/focus-creative-games/leanclr) 是 C# 脚本运行时。
-- 物理通过第三方插件接入 [Jolt Physics](https://github.com/jrouwe/JoltPhysics)。
-- 导航使用 [Recast Navigation](https://github.com/recastnavigation/recastnavigation)。
-- 动画通过第三方插件接入 [ozz-animation](https://github.com/guillaumeblanc/ozz-animation)，具体接入方式后续确定；渲染侧必须支持 GPU 蒙皮。
+## 模块文档
 
-## 编辑器与 MCP
+- [运行时](runtime.md)：SDL3 基础能力、ECS、系统组织与 C++ 并行任务。
+- [引擎配置](configuration.md)：本地 TOML 配置与首次启动生成。
+- [场景](scene.md)：USD 转节点、节点嵌套、高精度大世界与 flecs 实体映射。
+- [跨模块数据](data.md)：FlatBuffers 数据格式与运行缓存的内存映射。
+- [渲染](rendering.md)：bgfx、默认材质、PBR、渲染图、Blender 视觉基准与视觉资源热重载。
+- [资源管线](asset-pipeline.md)：DCC 适配、USD、依赖分析、Mesh 处理与运行缓存。
+- [物理](physics.md)：Jolt Physics 接入。
+- [导航](navigation.md)：Recast Navigation 接入。
+- [动画](animation.md)：ozz-animation 与 GPU 蒙皮要求。
+- [游戏运行时 UI](ui.md)：RmlUi 玩家界面。
+- [脚本与插件](plugins.md)：C++ 与 TypeScript、V8、脚本热重载及多线程插件。
+- [编辑器](editor.md)：跨平台桌面界面、MVC、MCP 与代码热重载。
+- [项目与出包](project.md)：项目目录、项目化启动参数和 CMake 单文件出包目标。
 
-编辑器设计参考现代游戏引擎，支持 macOS、Windows、Linux 和多个独立系统窗口；相关代码使用统一的桌面平台宏进行条件编译。GUI 先采用 Dear ImGui（docking 分支）。
-
-编辑器采用 MVC：Model 管理数据，View 负责界面呈现，Controller 处理用户操作；业务逻辑与 Dear ImGui 界面代码分离。引擎提供 MCP 服务，编辑器功能先实现为 MCP 接口，再将对应能力接入 UI。
-
-多窗口是编辑器目标要求。[Dear ImGui 官方说明](https://github.com/ocornut/imgui/wiki/Multi-Viewports)指出，其 Multi-Viewports 在 Linux Wayland 下不工作，在部分 X11 窗口管理器下也有问题；Linux 多窗口方案需要单独设计和验证。
-
-## 项目与出包
-
-项目包含资源目录、生成缓存目录和项目设置目录。资源部分采用引擎自有格式，具体格式后续确定；资源输入与缓存流程见[资源管线规划](asset-pipeline.md)。
-
-项目出包通过传入项目名称触发，直接调用 CMake 完成对应项目的构建与打包。
+[首个游戏](first-game.md)记录游戏目标；[开发说明](development.md)记录当前构建与依赖维护方式。
