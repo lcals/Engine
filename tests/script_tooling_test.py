@@ -73,7 +73,7 @@ def test(mcp, root, temporary):
     ])
     require(len(replies) == 8, "notifications must not produce responses")
     require({tool["name"] for tool in replies[0]["result"]["tools"]} ==
-            {"sync_assets", "set_hot_reload", "get_status"}, "wrong tool list")
+            {"sync_assets", "set_hot_reload", "get_status", "start_project", "stop_project"}, "wrong tool list")
     require(contents(replies[1])["state"] == "offline", "missing runtime must be offline")
     require(contents(replies[2])["requestedHotReload"] is False, "disable control failed")
     require(not replies[3]["result"]["isError"], f"sync failed: {contents(replies[3])}")

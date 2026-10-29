@@ -6,6 +6,7 @@
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/system/system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
@@ -51,6 +52,7 @@ bool Engine::initialize(const EngineConfig& config)
     systems_.push_back(std::make_unique<ResourceSystem>());
 
     auto world = std::make_unique<WorldSystem>();
+    world_ = world.get();
     std::unique_ptr<System> physics = std::make_unique<PhysicsSystem>();
     std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
     std::unique_ptr<System> animation = std::make_unique<AnimationSystem>();
@@ -62,7 +64,7 @@ bool Engine::initialize(const EngineConfig& config)
         return false;
     }
 #if ENGINE_HAS_V8
-    auto script = std::make_unique<ScriptSystem>();
+    auto script = std::make_unique<ScriptSystem>(world_);
     script_ = script.get();
     std::unique_ptr<System> script_base = std::move(script);
     if (!world->add_subsystem(script_base))
@@ -73,7 +75,7 @@ bool Engine::initialize(const EngineConfig& config)
 #endif
     systems_.push_back(std::move(world));
 
-    auto renderer = std::make_unique<RenderSystem>(*window_);
+    auto renderer = std::make_unique<RenderSystem>(*window_, world_);
     renderer_ = renderer.get();
     systems_.push_back(std::move(renderer));
     for (const auto& system : systems_)
@@ -128,6 +130,15 @@ FrameStatus Engine::tick(double delta_time)
         {
             return FrameStatus::paused;
         }
+        if (world_->scene() != nullptr)
+        {
+            last_error_ = "Project rendering failed; the project was stopped";
+            stop_gameplay();
+            if (renderer_->render())
+            {
+                return FrameStatus::running;
+            }
+        }
         failed_ = true;
         return FrameStatus::failed;
     }
@@ -142,9 +153,32 @@ void Engine::request_exit() noexcept
 bool Engine::start_gameplay(std::string_view entry)
 {
 #if ENGINE_HAS_SCRIPT_RUNTIME
-    return initialized_ && script_ != nullptr && script_->start_gameplay(entry);
+    last_error_.clear();
+    if (!initialized_ || failed_ || script_ == nullptr)
+    {
+        last_error_ = "The runtime is not ready for gameplay";
+        return false;
+    }
+    if (script_->status().running)
+    {
+        return true;
+    }
+    if (!script_->start_gameplay(entry))
+    {
+        last_error_ = script_->status().last_error;
+        stop_gameplay();
+        return false;
+    }
+    if (!renderer_->prepare_scene())
+    {
+        last_error_ = "Cannot prepare scene rendering resources";
+        stop_gameplay();
+        return false;
+    }
+    return true;
 #else
     static_cast<void>(entry);
+    last_error_ = "Script runtime is not enabled";
     return false;
 #endif
 }
@@ -157,6 +191,14 @@ void Engine::stop_gameplay() noexcept
         script_->stop_gameplay();
     }
 #endif
+    if (world_ != nullptr)
+    {
+        world_->destroy_scene();
+    }
+    if (renderer_ != nullptr)
+    {
+        renderer_->release_scene();
+    }
 }
 
 void Engine::set_hot_reload(bool enabled)
@@ -180,6 +222,21 @@ const ScriptStatus* Engine::script_status() const noexcept
 #endif
 }
 
+std::size_t Engine::scene_node_count() const noexcept
+{
+    return world_ != nullptr && world_->scene() != nullptr ? world_->scene()->nodes().size() : 0;
+}
+
+std::uint32_t Engine::render_resource_count() const noexcept
+{
+    return renderer_ != nullptr ? renderer_->gpu_resource_count() : 0;
+}
+
+std::string_view Engine::last_error() const noexcept
+{
+    return last_error_;
+}
+
 void Engine::shutdown() noexcept
 {
     // 项目退出回调执行期间，渲染和资源系统仍然可用。
@@ -192,6 +249,8 @@ void Engine::shutdown() noexcept
     }
     renderer_ = nullptr;
     script_ = nullptr;
+    world_ = nullptr;
+    last_error_.clear();
     window_ = nullptr;
     initialized_ = false;
     exit_requested_ = false;

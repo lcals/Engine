@@ -2,8 +2,10 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -293,11 +295,14 @@ bool run_cases(const fs::path& workspace)
                    "count=0; Update(){ if (++this.count === 1) throw new Error('update failure'); "
                    "Debug.Log('update:recovered'); } }"}}) ||
         !expect(script.tick(0.01), "Update exception must not fail Engine") ||
-        !expect(script.status().running && !script.status().last_error.empty(),
-                "Update failure is visible") ||
-        !expect(script.tick(0.01) && log_contains("update:recovered"), "next frame still runs") ||
+        !expect(!script.status().running && !script.status().last_error.empty(),
+                "Update failure returns gameplay to idle") ||
+        !expect(script.tick(0.01) && !log_contains("update:recovered"),
+                "failed Update cannot run the next frame") ||
         !publish("healthy-12", {{"scripts/game.js", game_source("healthy", 2)}}) ||
-        !expect(script.tick(0.01), "healthy replacement") ||
+        !expect(script.tick(0.01) && !script.status().running,
+                "publication after Update failure must not restart gameplay") ||
+        !expect(script.start_gameplay(), "explicitly start a healthy replacement") ||
         !expect(script.status().running && script.status().last_error.empty(),
                 "successful replacement clears prior error"))
     {
@@ -372,6 +377,199 @@ bool run_cases(const fs::path& workspace)
     return true;
 }
 
+const std::string scene_source = R"js(
+import { Gameplay, Scene, Time, Debug, Component } from 'engine';
+const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
+export default class Game extends Gameplay {
+    cube = null;
+    scene = null;
+    angle = 0;
+    constructor() {
+        super();
+        this.constructorBlocked = Scene.Create('constructor') === null;
+    }
+    OnInitialize() {
+        if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
+        const discarded = Scene.Create('discarded');
+        const oldNode = discarded?.CreateNode('old');
+        const oldComponent = oldNode?.AddMeshRenderer();
+        if (!discarded || !oldNode || !oldComponent || !discarded.Destroy()) return false;
+        this.scene = Scene.Create('bound-scene');
+        if (!this.scene || discarded.IsValid() || oldNode.IsValid() || oldComponent.IsValid() ||
+            oldNode.SetPosition(1, 2, 3) || oldNode.AddCamera() !== null || discarded.Destroy() ||
+            oldComponent.SetEnabled(false)) return false;
+        const cube = this.scene.CreateNode('cube');
+        const cameraNode = this.scene.CreateNode('camera');
+        const lightNode = this.scene.CreateNode('light');
+        if (!cube || !cameraNode || !lightNode || !cube.IsValid()) return false;
+        const mesh = cube.AddMeshRenderer();
+        const camera = cameraNode.AddCamera();
+        const light = lightNode.AddLight();
+        if (!mesh || !camera || !light || !(mesh instanceof Component) || !mesh.node.IsValid())
+            return false;
+        if (cube.AddMeshRenderer() !== null || cube.SetPosition(NaN, 0, 0) ||
+            cube.SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
+            light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
+        if (!cube.SetPosition(1, 2, 3) || !cube.SetScale(2, 2, 2) ||
+            !mesh.SetMaterial({baseColor:{r:.2,g:.3,b:.4,a:1},metallic:.7,roughness:.2,unlit:false}) ||
+            mesh.SetMaterial({baseColor:{r:2,g:.3,b:.4,a:1},metallic:.7,roughness:.2,unlit:false}) ||
+            !mesh.SetEnabled(false) || !mesh.SetEnabled(true) ||
+            !cameraNode.SetPosition(0, 0, 8) || !camera.SetPerspective(45, .1, 200) ||
+            !this.scene.SetActiveCamera(camera) || !light.SetColor(1, .9, .8) ||
+            !light.SetIntensity(5) || !lightNode.SetRotation(-30, 20, 0)) return false;
+        const parent = this.scene.CreateNode('temporary-parent');
+        const child = this.scene.CreateNode('temporary-child');
+        const component = child?.AddLight();
+        if (!parent || !child || !component || !child.SetParent(parent) || parent.SetParent(child) ||
+            !parent.Destroy() || child.IsValid() || component.IsValid() || child.Destroy() ||
+            component.SetIntensity(1) || this.scene.SetActiveCamera(component)) return false;
+        if (Scene.Create('duplicate') !== null) return false;
+        this.cube = cube;
+        Debug.Log('scene:initialized');
+        return true;
+    }
+    Update() {
+        if (!(Time.deltaTime > 0)) throw new Error('missing deltaTime');
+        this.angle += Time.deltaTime * 10;
+        if (!this.cube.SetRotation(0, this.angle, 0)) throw new Error('stale cube');
+    }
+    OnShutdown() {
+        if (Time.deltaTime !== 0 || !this.scene.IsValid() || !this.cube.SetScale(1, 1, 1))
+            throw new Error('scene must survive through OnShutdown');
+        Debug.Log('scene:shutdown-valid');
+    }
+}
+)js";
+
+bool run_scene_cases()
+{
+    using engine::App;
+    std::error_code error;
+    fs::remove(App::persistent_data_path() / "assets/available.json", error);
+    if (error)
+    {
+        return false;
+    }
+    fs::remove(App::persistent_data_path() / "script-control.json", error);
+    if (error)
+    {
+        return false;
+    }
+    engine::WorldSystem world;
+    engine::ScriptSystem script(&world);
+    const engine::EngineConfig config;
+    if (!expect(world.initialize(config) && script.initialize(config),
+                "initialize scene binding") ||
+        !write_file(App::builtin_assets_path() / "scripts/game.js", scene_source) ||
+        !expect(script.start_gameplay(), "create native scene, nodes and all component bindings") ||
+        !expect(world.scene() != nullptr && world.scene()->nodes().size() == 3,
+                "destroyed node subtree is removed; only cube, camera and light remain"))
+    {
+        return false;
+    }
+    const auto* cube = world.scene()->nodes().front().get();
+    if (!expect(cube->name() == "cube" && cube->transform().position.x == 1.0 &&
+                    cube->transform().scale.x == 2.0 && cube->mesh_renderer() != nullptr &&
+                    cube->mesh_renderer()->material().metallic == 0.7F &&
+                    cube->mesh_renderer()->material().base_color.r == 0.2F &&
+                    world.scene()->active_camera() != nullptr &&
+                    world.scene()->active_camera()->settings().fov_degrees == 45.0F,
+                "native scene retains validated transforms, material and active camera") ||
+        !expect(script.tick(0.25) && cube->transform().rotation.y == 2.5,
+                "Time.deltaTime drives the native cube transform"))
+    {
+        return false;
+    }
+    script.set_hot_reload(true);
+    const auto original_scene = world.scene()->id();
+    if (!publish("scene-bad-precheck", {{"scripts/game.js", "export default class { ??? }"}}) ||
+        !expect(script.tick(0.1) && script.status().running && world.scene() != nullptr &&
+                    world.scene()->id() == original_scene,
+                "failed precheck preserves the exact native scene") ||
+        !publish("scene-reload", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && script.status().running && world.scene() != nullptr &&
+                    world.scene()->id() != original_scene && world.scene()->nodes().size() == 3 &&
+                    log_contains("scene:shutdown-valid"),
+                "successful reload retires old scene after its shutdown callback"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    script.stop_gameplay();
+    if (!expect(world.scene() == nullptr && !script.status().running &&
+                    script.status().last_error.empty(),
+                "explicit stop destroys scene after valid OnShutdown") ||
+        !publish("scene-stopped", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && world.scene() == nullptr && !script.status().running,
+                "hot reload cannot restart explicitly stopped scene") ||
+        !expect(script.start_gameplay(), "restart scene explicitly"))
+    {
+        return false;
+    }
+    const std::string partial =
+        "import {Gameplay,Scene,Debug} from 'engine'; export default class extends Gameplay { "
+        "s=null; OnInitialize(){this.s=Scene.Create('partial'); this.s.CreateNode('partial-node'); "
+        "return false;} OnShutdown(){if(this.s.IsValid()) Debug.Log('partial-scene:shutdown');} }";
+    if (!publish("scene-partial", {{"scripts/game.js", partial}}) ||
+        !expect(script.tick(0.1) && !script.status().running && world.scene() == nullptr &&
+                    log_contains("partial-scene:shutdown"),
+                "failed initialization invokes shutdown then destroys partial native scene"))
+    {
+        return false;
+    }
+    const std::string update_error =
+        "import {Gameplay,Scene,Debug} from 'engine'; export default class extends Gameplay { "
+        "s=null; OnInitialize(){this.s=Scene.Create('bad-update'); return this.s!==null;} "
+        "Update(){throw new Error('scene-update-failed');} "
+        "OnShutdown(){if(this.s.IsValid()) Debug.Log('failed-scene:shutdown');} }";
+    if (!publish("scene-update-error", {{"scripts/game.js", update_error}}) ||
+        !expect(script.start_gameplay() && script.tick(0.1) && !script.status().running &&
+                    world.scene() == nullptr && log_contains("failed-scene:shutdown") &&
+                    script.status().last_error.find("scene-update-failed") != std::string::npos,
+                "Update error clears scene and reports failure without failing engine tick") ||
+        !publish("scene-after-error", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && !script.status().running && world.scene() == nullptr,
+                "publication cannot restart gameplay after Update error"))
+    {
+        return false;
+    }
+    const std::string stale = R"js(
+import {Gameplay,Scene,Debug} from 'engine';
+export default class extends Gameplay {
+    scene=null; node=null; mesh=null;
+    OnInitialize(){this.scene=Scene.Create('external-test'); this.node=this.scene.CreateNode('owned');
+        this.mesh=this.node.AddMeshRenderer(); return this.mesh!==null;}
+    Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
+        this.node.SetPosition(9,9,9) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
+        Scene.Create('steal')!==null) throw new Error('stale references were accepted');
+        Debug.Log('stale:rejected');}
+    OnShutdown(){Debug.Log('stale:shutdown');}
+}
+)js";
+    if (!publish("scene-external", {{"scripts/game.js", stale}}) ||
+        !expect(script.start_gameplay(), "start external invalidation fixture"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    auto* foreign = world.create_scene("foreign");
+    if (!expect(foreign != nullptr && script.tick(0.1) && log_contains("stale:rejected") &&
+                    world.scene() == foreign && foreign->nodes().empty(),
+                "stale scene/node/component references cannot touch a replacement scene"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(world.scene() == foreign, "script cleanup must not destroy an unowned scene"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    script.shutdown();
+    world.shutdown();
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -407,13 +605,13 @@ int main(int argc, char** argv)
         engine::App::shutdown();
         return 1;
     }
-    const bool passed = run_cases(workspace);
+    const bool passed = run_cases(workspace) && run_scene_cases();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
     if (passed)
     {
-        std::puts(
-            "Script runtime PASS: ES modules, logging, paths, snapshots, hot reload and failures");
+        std::puts("Script runtime PASS: ES modules, scenes, components, snapshots, hot reload and "
+                  "failures");
     }
     return passed ? 0 : 1;
 }

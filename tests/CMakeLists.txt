@@ -30,7 +30,7 @@ endif()
 if(ENGINE_ENABLE_SCRIPT_RUNTIME)
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(engine_script_runtime_test PRIVATE engine::script engine::app
-        engine::log engine::resource nlohmann_json::nlohmann_json)
+        engine::log engine::resource engine::world nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_script_runtime_test)
     engine_copy_script_data(engine_script_runtime_test)
@@ -129,7 +129,7 @@ endif()
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_executable(engine_window_render_test window_render_test.cpp)
     target_link_libraries(engine_window_render_test PRIVATE engine::runtime engine::window
-        engine::render SDL3::SDL3 bgfx::bgfx)
+        engine::render engine::world SDL3::SDL3 bgfx::bgfx)
     engine_apply_options(engine_window_render_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
@@ -177,4 +177,20 @@ if(ENGINE_ENABLE_V8)
         VERBATIM)
     add_test(NAME engine.v8 COMMAND engine_v8_test)
     set_tests_properties(engine.v8 PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_world)
+    add_executable(engine_scene_test scene_test.cpp)
+    target_link_libraries(engine_scene_test PRIVATE engine::world)
+    engine_apply_options(engine_scene_test)
+    add_test(NAME engine.scene COMMAND engine_scene_test)
+    set_tests_properties(engine.scene PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET editor_app AND TARGET mcp_app AND ENGINE_ENABLE_GPU_TESTS)
+    add_test(NAME editor.project_lifecycle COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/editor_lifecycle_test.py"
+        --editor "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>"
+        --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.project_lifecycle PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
 endif()

@@ -12,6 +12,7 @@ class ProjectSystem final : public System
 public:
     explicit ProjectSystem(std::string project_root);
     ~ProjectSystem() noexcept override;
+    [[nodiscard]] const std::string& root_path() const noexcept;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;

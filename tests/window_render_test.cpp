@@ -1,7 +1,9 @@
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/window/window_system.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -178,6 +180,143 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
     return true;
 }
 
+struct GpuCounts
+{
+    std::uint16_t vertices;
+    std::uint16_t indices;
+    std::uint16_t shaders;
+    std::uint16_t programs;
+    std::uint16_t uniforms;
+
+    bool operator==(const GpuCounts&) const = default;
+};
+
+GpuCounts gpu_counts()
+{
+    const bgfx::Stats& stats = *bgfx::getStats();
+    return {stats.numVertexBuffers, stats.numIndexBuffers, stats.numShaders, stats.numPrograms,
+            stats.numUniforms};
+}
+
+bool create_cube_scene(engine::WorldSystem& world, bool unlit)
+{
+    engine::Scene* scene = world.create_scene("GPU test scene");
+    if (!expect(scene != nullptr, "create a scene"))
+    {
+        return false;
+    }
+    engine::Node* cube = scene->create_node("Cube");
+    engine::Node* camera_node = scene->create_node("Camera");
+    engine::Node* light_node = scene->create_node("Light");
+    if (!expect(cube != nullptr && camera_node != nullptr && light_node != nullptr,
+                "all scene objects must be nodes"))
+    {
+        return false;
+    }
+    engine::Transform cube_transform;
+    cube_transform.rotation = {20.0, 35.0, 0.0};
+    cube_transform.scale = {1.0, 0.8, 1.2};
+    engine::Transform camera_transform;
+    camera_transform.position.z = 6.0;
+    camera_transform.scale = {2.0, 0.5, 3.0};
+    engine::Transform light_transform;
+    light_transform.rotation = {-20.0, 30.0, 0.0};
+    if (!expect(cube->set_transform(cube_transform), "set nonuniform cube transform") ||
+        !expect(camera_node->set_transform(camera_transform), "place camera node") ||
+        !expect(light_node->set_transform(light_transform), "aim light node"))
+    {
+        return false;
+    }
+    engine::MeshRenderer* mesh = cube->add_mesh_renderer();
+    engine::Camera* camera = camera_node->add_camera();
+    engine::Light* light = light_node->add_light();
+    if (!expect(mesh != nullptr && camera != nullptr && light != nullptr,
+                "attach mesh, camera, and light components"))
+    {
+        return false;
+    }
+    engine::Material material;
+    material.metallic = 0.25F;
+    material.roughness = 0.35F;
+    material.unlit = unlit;
+    return expect(mesh->set_material(material), "set cube material") &&
+           expect(scene->set_active_camera(camera), "select scene camera component");
+}
+
+bool test_scene_renderer(const engine::EngineConfig& config)
+{
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    if (!expect(!renderer.prepare_scene(), "preparation requires initialized renderer") ||
+        !expect(world.initialize(config), "initialize scene world") ||
+        !expect(windows.initialize(config), "initialize scene window") ||
+        !expect(renderer.initialize(config), "initialize scene renderer") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+                "idle editor owns no project GPU resources"))
+    {
+        return false;
+    }
+    SDL_Window* const original_window = windows.native_window();
+    const GpuCounts idle = gpu_counts();
+    // bgfx::touch 本身也进入 numDraw；比较空白基线，不能将它计为项目绘制。
+    const std::uint32_t idle_draws = bgfx::getStats()->numDraw;
+    for (int cycle = 0; cycle < 3; ++cycle)
+    {
+        if (!create_cube_scene(world, cycle == 0) ||
+            !expect(renderer.prepare_scene(), "prepare embedded cube resources") ||
+            !expect(renderer.scene_prepared() && renderer.gpu_resource_count() == 11,
+                    "prepared scene owns the expected GPU handles") ||
+            !expect(renderer.prepare_scene(), "preparing twice is idempotent") ||
+            !render_frames(windows, renderer, 8) ||
+            !expect(bgfx::getStats()->numDraw == idle_draws + 1,
+                    "one mesh component adds one draw above blank baseline") ||
+            !expect(gpu_counts().vertices == idle.vertices + 1 &&
+                        gpu_counts().indices == idle.indices + 1 &&
+                        gpu_counts().programs == idle.programs + 1,
+                    "bgfx sees cube buffers and program") ||
+            !resize_window(windows, renderer))
+        {
+            return false;
+        }
+
+        // 热重载替换场景时不提前通知渲染器，render 按场景编号重新准备资源。
+        world.destroy_scene();
+        if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
+            !expect(renderer.gpu_resource_count() == 11 &&
+                        bgfx::getStats()->numDraw == idle_draws + 1,
+                    "scene replacement recreates one resource set"))
+        {
+            return false;
+        }
+
+        world.destroy_scene();
+        renderer.release_scene();
+        renderer.release_scene();
+        if (!expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
+                    "stop releases project ownership immediately") ||
+            !render_frames(windows, renderer, 8) ||
+            !expect(bgfx::getStats()->numDraw == idle_draws,
+                    "stop restores the blank frame baseline") ||
+            !expect(gpu_counts() == idle, "bgfx retires all project GPU resources") ||
+            !expect(windows.native_window() == original_window,
+                    "all starts and stops reuse the same editor window"))
+        {
+            return false;
+        }
+    }
+
+    engine::Scene* empty = world.create_scene("No hidden camera or mesh");
+    if (!expect(empty != nullptr, "create empty scene") || !render_frames(windows, renderer, 4) ||
+        !expect(renderer.gpu_resource_count() == 0 && bgfx::getStats()->numDraw == idle_draws,
+                "empty scene does not create hidden render objects"))
+    {
+        return false;
+    }
+    return true;
+}
+
 bool tick_engine_frames(engine::Engine& engine, int count)
 {
     int submitted = 0;
@@ -250,12 +389,13 @@ int main(int, char**)
     config.height = 360;
 
     const bool windows_passed = test_window_and_renderer(config);
-    const bool engine_passed = windows_passed && test_engine(config);
+    const bool scene_passed = windows_passed && test_scene_renderer(config);
+    const bool engine_passed = scene_passed && test_engine(config);
     engine::Engine::instance().shutdown();
-    if (!windows_passed || !engine_passed)
+    if (!windows_passed || !scene_passed || !engine_passed)
     {
         return 1;
     }
-    std::puts("Window, real GPU rendering, resize, lifecycle, and Engine integration passed.");
+    std::puts("Window, cube/PBR draws, scene resource retirement, and Engine integration passed.");
     return 0;
 }

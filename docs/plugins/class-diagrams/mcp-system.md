@@ -76,7 +76,9 @@ classDiagram
 - `McpSystem` 构造按值保存项目根目录和目标，两个系统引用须存活到 MCP 关闭。继承 `System` 生命周期，析构及关闭钩子为 `noexcept`，覆盖方法标注 `override`；返回状态的方法标注 `[[nodiscard]]`。
 - 三个 Android 方法为私有实现接口，向 `reply` 输出工具回执文本，通过 `bool` 报告操作状态；不对玩法或其他系统公开新的设备控制接口。
 - `Path` 与 `string` 分别简写 `std::filesystem::path` 与 `std::string`，不是新增包装类型。文件读取使用 [ResourceSystem](../../runtime/class-diagrams/resource-system.md)，编码转换使用 [PathUtils](../../runtime/class-diagrams/path-utils.md)；路径安全检查仍归调用者。
-- stdio 保留 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`；三个工具为 `sync_assets`、`set_hot_reload`、`get_status`，参数不改变。
+- stdio 保留 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。保留 `sync_assets`、`set_hot_reload`、`get_status`，新增无参数 `start_project`、`stop_project`。本阶段新增启停仅面向本机编辑器；Android 沿用既有同步与热重载协议，新增启停返回明确未支持错误。
+- 启停读取编辑器会话和心跳，校验项目路径后，携带请求编号原子发布 `project-control.json`；等待 `project-status.json` 对同一请求的完成回执。发布成功只表示已请求，超时明确返回未确认及请求编号，可继续查询状态；不能声称已完成。互斥发布锁防止两个 MCP 进程覆盖未确认请求。
+- `get_status` 保留脚本版本字段，并合并编辑器运行状态、会话、最后请求结果、节点数和 GPU 资源数。心跳过期标记离线，磁盘历史状态不能当作活动进程证明。
 - 本机目标延续持久目录协议。Android 目标必须明确 adb 序列号和包名，先核验设备状态与 `run-as` 可用性；只支持 debuggable 包。Release 不开放此调试通路。
 - Android 文件位于包的私有 `files/`。同步合并设备 `assets/available.json`（若存在）及 `assets/builtin.json` 的文件和删除路径作为基线，在本机复用 `AssetSyncSystem` 生成不可变版本；APK 升级新增的内置路径也参与删除计算。
 - 通过 SDL3 独立 argv 启动 adb；设备端只执行固定脚本，动态值严格校验并作 POSIX 单引号转义。逐文件传入私有暂存区，读回校验大小与哈希，最后原子发布完整版本和 `available.json`。设备发布锁防止多宿主同时操作。

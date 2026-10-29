@@ -79,7 +79,7 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
     engine::AssetSyncSystem sync;
 #endif
     auto& runtime = engine::Engine::instance();
-    engine::EditorSystem editor(project);
+    engine::EditorSystem editor(project, &runtime);
     std::uint64_t frames = 0;
     const int result = [&]()
     {
@@ -116,17 +116,7 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
-#if ENGINE_HAS_SCRIPT_RUNTIME
-        if (!runtime.start_gameplay())
-        {
-            const auto* status = runtime.script_status();
-            const std::string detail =
-                status != nullptr ? status->last_error : "script system unavailable";
-            LogSystem::write(LogLevel::error, "Gameplay startup failed: " + detail);
-            return 1;
-        }
-        LogSystem::write(LogLevel::info, "Gameplay entry started: scripts/game.js");
-#endif
+        LogSystem::write(LogLevel::info, "Editor ready; waiting for MCP start_project");
         auto previous_time = std::chrono::steady_clock::now();
         for (;;)
         {
@@ -134,6 +124,11 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
             previous_time = current_time;
+            if (!editor.tick(delta_time))
+            {
+                LogSystem::write(LogLevel::error, "Editor control frame failed");
+                return 1;
+            }
             const auto status = runtime.tick(delta_time);
             if (status == engine::FrameStatus::exit_requested)
             {
@@ -149,11 +144,6 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
                 previous_time = std::chrono::steady_clock::now();
                 continue;
-            }
-            if (!editor.tick(delta_time))
-            {
-                LogSystem::write(LogLevel::error, "Editor frame failed");
-                return 1;
             }
             ++frames;
             if (frame_limit != 0 && frames >= frame_limit)
