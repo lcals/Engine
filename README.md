@@ -11,7 +11,7 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。每个系统在 `include/engine/<system>/` 和 `src/engine/<system>/` 各有独立子目录与 CMake 目标；自有头文件直接按文件名包含，搜索路径由目标传递。`Engine` 持有窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前多数业务系统仅具备生命周期和依赖接入：尚未实现 PBR、场景加载、物理模拟、UI 绘制、编辑器界面或脚本执行框架。Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`。V8 保留桌面 JavaScript / Intl 测试，但 `ScriptSystem` 暂只验证版本 API，Android 未接入 V8 交叉编译。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前多数业务系统仅具备生命周期和依赖接入：尚未实现 PBR、场景加载、物理模拟、UI 绘制、编辑器界面或脚本执行框架。Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`。`ScriptSystem` 暂只验证版本 API；桌面与 Android APK 共用 JavaScript / Intl / Temporal 嵌入验证，Android 默认启用 V8。
 
 仓库自带编辑器最小占位项目 `projects/minimal/`：`settings/` 保存项目设置，`cache/` 保存生成缓存，`assets/` 保存项目资源；三个目录目前仅有 `.gitkeep`，缓存产物不提交。
 
@@ -98,7 +98,7 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 ### V8 依赖
 
-V8 不进入默认构建。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
+桌面基础预设不启用 V8，完整引擎及 Android 预设启用。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
 
 ```sh
 cmake --preset v8-release
@@ -116,7 +116,7 @@ Windows 使用本机 VS 2022 C++ 工具链和 Windows SDK 10.0.26100.0，SDK 需
 
 macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。另为 SDK 27 的 C++20 数学头补充缺失的 `INFINITY` / `NAN` 宏，并在编译器不支持 `stack_protector_ignore` 时，仅在 V8 的 signpost 调用处忽略该属性诊断。
 
-下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，以匹配本项目 `/MDd` / `/MD`；关闭全局 allocator shim，保留宿主 CRT 分配器。构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript 并检查结果及 Intl 格式化。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。当前使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，以匹配本项目 `/MDd` / `/MD`；关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。当前使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
 
 GN 的 monolith 未收集隐式 Rust 归档。`cmake/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
 
@@ -178,11 +178,17 @@ python3 scripts/build_android.py --config debug
 python3 scripts/build_android.py --config release
 ```
 
-Windows 可用 `python` 执行同一脚本。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure / build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
+包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
+
+两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
 脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--skip-native` 可仅重打包已生成的原生库。
 
-Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz 和 RmlUi 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK；V8 的 Android 交叉编译尚未接入。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
+Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
+
+V8 使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 `libc++_shared.so`；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
+
+APK 包含 `assets/v8/icudtl.dat` 和可选 V8 嵌入测试；正常启动仍只运行最小引擎窗口。测试在 SDL 线程执行，先将 ICU 数据复制到应用私有目录，再检查 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换、Intl，以及 Temporal 的日期和时区运算。固定 V8 版本的 Temporal 测试显式启用 `--harmony-temporal`；这不增加脚本系统的公开接口。
 
 复用已有 ARM64 Android 模拟器，明确指定其序列号后安装和启动：
 
@@ -191,6 +197,9 @@ adb -s emulator-5580 install -r build/apk/engine-arm64-debug.apk
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity
 # 有限帧运行，完成后正常退出 Activity。
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ei frames 120
+# 在新进程中运行 APK 内的 V8 验证；EngineV8 日志应逐项报告 PASS。
+adb -s emulator-5580 shell am force-stop org.engine.minimal
+adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v8_smoke true
 ```
 
 `emulator-5580` 是本轮测试实例，其他环境用 `adb devices` 确认实际序列号。已有进程要改用不同启动参数时，先用 `adb -s <serial> shell am force-stop org.engine.minimal` 停止本应用，再重新启动；不需要清除模拟器或应用数据。模拟器必须提供 Vulkan；软件 Vulkan 也可验证功能，但不能用来衡量真机 GPU 性能。
@@ -269,7 +278,7 @@ macOS V8 的兼容补丁保存在 `third_party/overrides/v8/`：`macos-system-lt
 
 2026-10-29：引擎直接启动，编辑器必须传入项目。macOS 完整 Debug / Release 构建及 CTest 各 17/17 通过，额外覆盖编辑器项目依赖、初始化失败回滚和上下文清理；两种配置的 `engine_app --frames 3` 与 `editor_app --project projects/minimal --frames 3` 均正常渲染并退出。24 张类图实际解析和渲染通过。
 
-Android ARM64 / API 28 的 Debug / Release 原生库均完成编译与链接，APK 打包成功。编译宿主为 macOS ARM64，使用 JDK 17、NDK 27.2.12479018 和 SDL3 3.2.24；Release APK 使用 NDK 去除调试符号，约 12 MB，Debug APK 保留符号，约 121 MB。两者为本机调试签名，签名校验和 16 KB ZIP 对齐检查均通过。
+首次 Android 包（尚未包含 V8）的 ARM64 / API 28 Debug / Release 原生库均完成编译与链接，APK 打包成功。编译宿主为 macOS ARM64，使用 JDK 17、NDK 27.2.12479018 和 SDL3 3.2.24；Release APK 使用 NDK 去除调试符号，约 12 MB，Debug APK 保留符号，约 121 MB。两者为本机调试签名，签名校验和 16 KB ZIP 对齐检查均通过。
 
 复用 Game 的 `GameDev` ARM64 / API 34 模拟器，以 SwiftShader 提供软件 Vulkan。最终 Debug / Release 包均完成无项目启动、Vulkan 尚未就绪时立即切后台并恢复、同一进程连续 5 轮前后台切换、返回键正常退出、传入 `frames=120` 后正常结束，以及一次启动操作在同一进程重新建立 Activity 和 Vulkan。最终日志没有崩溃、ANR、SurfaceLost、BufferQueue abandoned 或暂停未确认错误。
 
@@ -277,7 +286,23 @@ Android ARM64 / API 28 的 Debug / Release 原生库均完成编译与链接，A
 
 最终日志保存在忽略的 `build/android-validation-debug/verified/`、`build/android-validation-release/verified/`，汇总及 APK 哈希位于 `build/android-validation-summary.json`，截图位于 `build/minimal-android.png`；旧日志保留供问题追溯。未清空模拟器或其他应用数据，最终留有运行中的 Release 测试包。此结果不代表真机性能或所有设备兼容性。
 
-Android 真机、Windows / Linux / iOS 窗口尚未执行本轮验证；Android 未接入 V8 或 APK 内部资源加载。
+该轮结果尚未覆盖 V8；V8 补充验证见下文。Android 真机、Windows / Linux / iOS 窗口尚未执行本轮验证，通用 APK 资源加载尚未实现。
+
+### Android V8
+
+2026-10-29：补齐 Android ARM64 的 V8 14.3.127 交叉编译，macOS ARM64 宿主工具与 Android 目标工具链分开，复用 APK 的 NDK 27.2.12479018。原生库实际链接 V8、ICU 和 Temporal；通过链接 map、ELF Build ID 和 APK 内产物核对，排除只登记依赖或仅调用版本 API 的情况。
+
+含 V8 的 Debug APK 为 135,333,009 字节，Release APK 为 65,962,354 字节，二者的签名校验与 16 KB ZIP 对齐检查通过。Debug 包保留断言与可调试属性，调试符号留在宿主的原始库中；初次携带完整符号的包安装空间不足，改为只剥离 APK 内符号后成功安装，未重编 V8。
+
+在复用的 `GameDev` ARM64 / API 34 模拟器上，两种 APK 的 JavaScript、SharedArrayBuffer Atomics 及十六进制 / Base64、Intl、Temporal 四组测试全部通过。ICU 数据从 APK 复制到应用私有目录后参与实际执行；源码产物、暂存目录和 APK 中的 9,242,032 字节数据 SHA-256 一致，Debug 的设备私有文件哈希也一致。Release 不允许 `run-as`，未读取其私有文件做额外哈希校验。
+
+两种配置的普通启动均通过 Vulkan 窗口、初始化期间切后台并恢复、5 轮前后台、返回退出、120 帧退出，以及完成 Activity 销毁后在同一进程重新启动的检查；最终日志没有 native crash、ANR、SurfaceLost、BufferQueue 或暂停握手错误。安装验证仅替换或卸载本项目测试包，未清空模拟器或其他应用数据。
+
+本轮最终 macOS Debug / Release 完整构建及 CTest 各 17/17 通过，两种配置的引擎与编辑器入口也均完成 3 帧渲染后正常退出。Android 原子兼容分支另在模拟器验证了各宽度 CAS 成功与失败、并发累加、release / acquire 发布，以及非对齐 Base64 数据往返。Ninja 归档路径解析另以真实归档验证空格、美元符号、冒号及组合转义，合并与缓存复用通过。
+
+Android 两种配置的重复 prepare / build 均命中缓存，各阶段约 1 秒；桌面两种配置的重复构建约 0.7 秒。缓存核对覆盖归档、导出头文件、GN 参数、Ninja 日志、成功标记及最终产物，确认文件内容、大小和时间戳均未变化。日志与逐文件快照保存在忽略的 `build/cache-validation/`。
+
+APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/` 和 `release-verified/`，包含 APK 哈希、链接 map 摘录、ELF 信息、ICU 哈希、逐项运行日志和截图，汇总为 `build/android-v8-validation/summary.json`。此轮尚未验证 Android 真机或 Linux / Windows 构建宿主；`ScriptSystem` 的玩法脚本接口仍属后续工作。
 
 ## 目录
 

@@ -68,7 +68,8 @@ def main():
         if not cmake:
             raise ValueError("没有找到 CMake，请先运行环境安装脚本。")
         preset = "android-arm64-" + args.config
-        run([cmake, "--preset", preset])
+        run([cmake, "--preset", preset, "-DENGINE_V8_JOBS=" + str(args.jobs)])
+        run([cmake, "--build", "--preset", preset + "-prepare"])
         run([cmake, "--build", "--preset", preset, "--parallel", str(args.jobs)])
     source = (ROOT / "build/android-gradle" / args.config / "outputs/apk" /
               args.config / ("app-" + args.config + ".apk"))

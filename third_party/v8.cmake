@@ -4,10 +4,58 @@ option(ENGINE_ENABLE_V8 "Enable explicitly prepared V8 monolith dependency" OFF)
 if(NOT ENGINE_ENABLE_V8)
     return()
 endif()
-if(CMAKE_CROSSCOMPILING OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "The V8 preparation workflow requires a native 64-bit build")
+if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    message(FATAL_ERROR "The V8 preparation workflow requires a 64-bit target")
 endif()
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x64)$")
+if(ANDROID)
+    if(DEFINED ENGINE_V8_TARGET_OS AND NOT ENGINE_V8_TARGET_OS STREQUAL "android")
+        message(FATAL_ERROR "The Android V8 target requires ENGINE_V8_TARGET_OS=android")
+    endif()
+    if(NOT CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
+        message(FATAL_ERROR "The Android V8 workflow currently supports ARM64 only")
+    endif()
+    if(NOT EXISTS "${CMAKE_ANDROID_NDK}/source.properties")
+        message(FATAL_ERROR "Android V8 requires the configured NDK")
+    endif()
+    # NDK legacy toolchain 把 CMAKE_SYSTEM_VERSION 固定为 1；实际 ABI API 来自
+    # ANDROID_PLATFORM_LEVEL。兼容 CMake 原生 Android 工具链并拒绝相互冲突的输入。
+    set(_engine_v8_android_api "")
+    set(_engine_v8_api_sources ANDROID_PLATFORM_LEVEL CMAKE_ANDROID_API ANDROID_PLATFORM)
+    if(CMAKE_SYSTEM_VERSION MATCHES "^[0-9]+$" AND CMAKE_SYSTEM_VERSION GREATER 1)
+        list(APPEND _engine_v8_api_sources CMAKE_SYSTEM_VERSION)
+    endif()
+    foreach(_api_source IN LISTS _engine_v8_api_sources)
+        if(DEFINED ${_api_source} AND NOT "${${_api_source}}" STREQUAL "")
+            if(NOT "${${_api_source}}" MATCHES "^(android-)?([0-9]+)$")
+                message(FATAL_ERROR "Android V8 requires a numeric API: ${_api_source}=${${_api_source}}")
+            endif()
+            set(_api "${CMAKE_MATCH_2}")
+            if(NOT _engine_v8_android_api STREQUAL "" AND
+               NOT _engine_v8_android_api STREQUAL _api)
+                message(FATAL_ERROR "Conflicting Android API levels: ${_api_source}=${_api}, expected ${_engine_v8_android_api}")
+            endif()
+            set(_engine_v8_android_api "${_api}")
+        endif()
+    endforeach()
+    if(_engine_v8_android_api STREQUAL "" OR _engine_v8_android_api LESS 28)
+        message(FATAL_ERROR "Android V8 requires a configured Android API level >= 28")
+    endif()
+    if(CMAKE_CXX_COMPILER_TARGET MATCHES "android([0-9]+)$" AND
+       NOT CMAKE_MATCH_1 STREQUAL _engine_v8_android_api)
+        message(FATAL_ERROR "V8 API ${_engine_v8_android_api} conflicts with compiler target ${CMAKE_CXX_COMPILER_TARGET}")
+    endif()
+    if(DEFINED ENGINE_V8_ANDROID_API AND
+       NOT ENGINE_V8_ANDROID_API STREQUAL _engine_v8_android_api)
+        message(FATAL_ERROR "ENGINE_V8_ANDROID_API conflicts with the configured Android toolchain")
+    endif()
+    set(ENGINE_V8_TARGET_OS android)
+    set(ENGINE_V8_ANDROID_NDK "${CMAKE_ANDROID_NDK}")
+    set(ENGINE_V8_ANDROID_API "${_engine_v8_android_api}")
+    set(_engine_v8_target_cpu arm64)
+    set(_engine_v8_default_root "${PROJECT_SOURCE_DIR}/build/v8/android-arm64")
+elseif(CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR "Only Android ARM64 cross-compilation is supported by the V8 workflow")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x64)$")
     set(_engine_v8_target_cpu x64)
 elseif(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$")
     set(_engine_v8_target_cpu arm64)
@@ -31,7 +79,10 @@ if(WIN32 AND DEFINED CMAKE_CXX_COMPILER_ARCHITECTURE_ID AND
         NOT CMAKE_CXX_COMPILER_ARCHITECTURE_ID MATCHES "^(x64|X64|AMD64|amd64)$")
     message(FATAL_ERROR "V8 requires an x64 compiler target on Windows")
 endif()
-set(ENGINE_V8_BUILD_ROOT "${PROJECT_SOURCE_DIR}/build/v8" CACHE PATH "Ignored V8 workspace and toolchain directory")
+if(NOT ANDROID)
+    set(_engine_v8_default_root "${PROJECT_SOURCE_DIR}/build/v8")
+endif()
+set(ENGINE_V8_BUILD_ROOT "${_engine_v8_default_root}" CACHE PATH "Ignored V8 workspace and toolchain directory")
 cmake_path(ABSOLUTE_PATH ENGINE_V8_BUILD_ROOT NORMALIZE)
 set(_engine_v8_allowed_root "${PROJECT_SOURCE_DIR}/build")
 cmake_path(IS_PREFIX _engine_v8_allowed_root "${ENGINE_V8_BUILD_ROOT}" NORMALIZE _engine_v8_inside_build)
@@ -52,7 +103,20 @@ set(_engine_v8_config "$<IF:$<CONFIG:Debug>,Debug,Release>")
 set(_engine_v8_source "${ENGINE_V8_BUILD_ROOT}/source/v8")
 # 同一主机工具链的清单内容跨 preset 一致；仅本机构建目录保存绝对路径。
 set(_engine_v8_host_file "${CMAKE_CURRENT_BINARY_DIR}/v8-host-toolchain.txt")
-file(CONFIGURE OUTPUT "${_engine_v8_host_file}" CONTENT
+if(ANDROID)
+    file(CONFIGURE OUTPUT "${_engine_v8_host_file}" CONTENT
+"host_system=@CMAKE_HOST_SYSTEM_NAME@
+host_processor=@CMAKE_HOST_SYSTEM_PROCESSOR@
+target_system=@CMAKE_SYSTEM_NAME@
+target_processor=@CMAKE_SYSTEM_PROCESSOR@
+target_compiler=@CMAKE_CXX_COMPILER@
+target_compiler_id=@CMAKE_CXX_COMPILER_ID@
+target_compiler_version=@CMAKE_CXX_COMPILER_VERSION@
+android_ndk=@ENGINE_V8_ANDROID_NDK@
+android_api=@ENGINE_V8_ANDROID_API@
+" @ONLY)
+else()
+    file(CONFIGURE OUTPUT "${_engine_v8_host_file}" CONTENT
 "compiler=@CMAKE_CXX_COMPILER@
 compiler_id=@CMAKE_CXX_COMPILER_ID@
 compiler_version=@CMAKE_CXX_COMPILER_VERSION@
@@ -64,6 +128,7 @@ vs_instance=@CMAKE_GENERATOR_INSTANCE@
 vs_toolset=@CMAKE_VS_PLATFORM_TOOLSET_VERSION@
 windows_sdk=@CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
 " @ONLY)
+endif()
 if(WIN32)
     set(_engine_v8_library engine_v8.lib)
 else()
@@ -74,8 +139,15 @@ set(_engine_v8_arguments
     "-DENGINE_V8_CONFIG=${_engine_v8_config}"
     "-DENGINE_V8_TARGET_CPU=${_engine_v8_target_cpu}"
     "-DENGINE_V8_JOBS=${ENGINE_V8_JOBS}"
-    "-DENGINE_V8_HOST_TOOLCHAIN_FILE=${_engine_v8_host_file}"
-    "-DENGINE_V8_HOST_COMPILER=${CMAKE_CXX_COMPILER}")
+    "-DENGINE_V8_HOST_TOOLCHAIN_FILE=${_engine_v8_host_file}")
+if(ANDROID)
+    list(APPEND _engine_v8_arguments
+        "-DENGINE_V8_TARGET_OS=android"
+        "-DENGINE_V8_ANDROID_NDK=${ENGINE_V8_ANDROID_NDK}"
+        "-DENGINE_V8_ANDROID_API=${ENGINE_V8_ANDROID_API}")
+else()
+    list(APPEND _engine_v8_arguments "-DENGINE_V8_HOST_COMPILER=${CMAKE_CXX_COMPILER}")
+endif()
 
 # 准备目标包含网络操作，必须单独显式运行，不属于默认构建。
 add_custom_target(engine_v8_prepare
@@ -117,7 +189,10 @@ set(ENGINE_V8_ICU_DATA
     "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
     CACHE INTERNAL "V8 ICU data to deploy beside a consuming executable" FORCE)
 set_property(TARGET engine_v8 PROPERTY ENGINE_V8_ICU_DATA "${ENGINE_V8_ICU_DATA}")
-if(WIN32)
+if(ANDROID)
+    # Android 的线程 API 在 libc 中；Rust/Temporal 的系统调用依赖随目标传递。
+    set_property(TARGET engine_v8 PROPERTY INTERFACE_LINK_LIBRARIES "android;log;dl;m")
+elseif(WIN32)
     # Rust std 的原生链接依赖不会随 rlib 自动传递给最终 C++ 链接器。
     set_property(TARGET engine_v8 PROPERTY INTERFACE_LINK_LIBRARIES
         "dbghelp;winmm;ws2_32;advapi32;user32;bcrypt;ntdll;synchronization;userenv;legacy_stdio_definitions")

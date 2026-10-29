@@ -17,11 +17,14 @@ classDiagram
         #createSDLSurface(Context context) SDLSurface
         #onPause() void
         #onResume() void
+        #main() void
         #getArguments() String[]
         ~pauseRendering() void$
         ~resumeRenderingIfReady() void$
+        -runV8Smoke() void
         -nativePauseRendering() boolean$
         -nativeResumeRendering() void$
+        -nativeRunV8Smoke(String icuDataFile) boolean$
     }
     class SDLActivity {
         <<external>>
@@ -34,16 +37,24 @@ classDiagram
     }
     class EngineSurface
     class Engine
+    class V8 {
+        <<library>>
+    }
     SDLActivity <|-- EngineActivity
     EngineActivity ..> EngineSurface : 创建并交给 SDL 管理
     EngineActivity ..> Context : 创建视图的参数
     EngineActivity ..> SDLSurface : 创建视图的返回类型
     EngineActivity ..> Engine : 经 SDL_main 启动
+    EngineActivity ..> V8 : 可选 JNI 冒烟测试
 ```
 
 - `getArguments()` 把可选的测试帧数交给原生入口；返回数组交由 SDL 使用。
+- `main()` 在 SDL 原生线程上运行。普通启动调用 SDL 父类入口；只有显式传入 `v8_smoke=true` 时，才调用 `runV8Smoke()`，不创建引擎窗口或运行玩法。
+- `runV8Smoke()` 把 APK 内 `assets/v8/icudtl.dat` 复制到应用私有文件目录，再将路径借给私有 JNI 方法 `nativeRunV8Smoke()`；后者通过返回值报告测试结果。读取或复制失败时记录原因并结束本次测试。
+- JNI 复用桌面测试的普通自由函数，实际创建 V8 平台、isolate 与 context，验证 JavaScript、SharedArrayBuffer 的 Atomics / 十六进制 / Base64、Intl 和 Temporal。测试主体始终链接进 `libmain.so`，普通启动不执行；它不增加 `ScriptSystem` 的公共接口。
+- V8 完整关闭后不能在同一进程重新初始化。测试函数只允许每个进程调用一次，重复调用返回失败；下一次测试或普通启动使用新应用进程。正常引擎退出后的 Activity 重建不执行此测试。
 - `onPause()` 在调用父类之前请求暂停渲染；`onResume()` 在父类处理恢复后检查视图是否就绪。
-- `pauseRendering()` 和 `resumeRenderingIfReady()` 是包内静态辅助方法，由 Activity 和视图共同使用；`~` 表示 Java 包内可见。两个私有静态 `native` 方法通过 JNI 调用平台内部同步代码，不是引擎公共接口。
+- `pauseRendering()` 和 `resumeRenderingIfReady()` 是包内静态辅助方法，由 Activity 和视图共同使用；`~` 表示 Java 包内可见。负责渲染同步的两个私有静态 `native` 方法通过 JNI 调用平台内部同步代码，不是引擎公共接口。
 - 只有 Activity 已恢复、视图存在且 Surface 已就绪时，才解除宿主暂停标志。若原生无法确认渲染已暂停，宿主记录原因并终止自身进程，不继续释放仍可能被使用的 Surface。
 
 ## Surface 边界

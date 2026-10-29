@@ -3,6 +3,11 @@ package org.engine.minimal;
 import android.content.Context;
 import android.util.Log;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+
 import org.libsdl.app.SDLActivity;
 import org.libsdl.app.SDLSurface;
 
@@ -10,6 +15,48 @@ public final class EngineActivity extends SDLActivity
 {
     private static native boolean nativePauseRendering();
     private static native void nativeResumeRendering();
+    private static native boolean nativeRunV8Smoke(String icuDataFile);
+
+    private void runV8Smoke()
+    {
+        File directory = new File(getFilesDir(), "v8");
+        if (!directory.isDirectory() && !directory.mkdirs())
+        {
+            Log.e("EngineV8", "APK V8 smoke FAIL: cannot create the private ICU directory");
+            return;
+        }
+        File data = new File(directory, "icudtl.dat");
+        // 每次测试重新复制，APK 升级后不会误用上一个 V8 版本的 ICU 数据。
+        try (InputStream source = getAssets().open("v8/icudtl.dat");
+             FileOutputStream destination = new FileOutputStream(data))
+        {
+            byte[] buffer = new byte[16384];
+            int count;
+            while ((count = source.read(buffer)) != -1)
+            {
+                destination.write(buffer, 0, count);
+            }
+        }
+        catch (IOException error)
+        {
+            Log.e("EngineV8", "APK V8 smoke FAIL: cannot copy ICU data", error);
+            return;
+        }
+        boolean passed = nativeRunV8Smoke(data.getAbsolutePath());
+        Log.println(passed ? Log.INFO : Log.ERROR, "EngineV8",
+                    passed ? "APK V8 smoke PASS" : "APK V8 smoke FAIL");
+    }
+
+    @Override
+    protected void main()
+    {
+        if (getIntent().getBooleanExtra("v8_smoke", false))
+        {
+            runV8Smoke();
+            return;
+        }
+        super.main();
+    }
 
     static void pauseRendering()
     {
