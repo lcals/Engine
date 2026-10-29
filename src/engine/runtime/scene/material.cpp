@@ -51,6 +51,7 @@ schema::MaterialDataT shader_defaults(std::string_view type_path, const schema::
     schema::MaterialDataT result;
     result.type_path = type_path;
     result.shader_path = shader.path;
+    (void)ResourceSystem::path_to_guid(shader.path, result.shader_guid);
     for (const auto& definition : shader.parameters)
     {
         if (!definition->exposed)
@@ -67,7 +68,7 @@ schema::MaterialDataT shader_defaults(std::string_view type_path, const schema::
 
 } // namespace
 
-Material::Material(schema::MaterialDataT& data) noexcept : data_(data)
+Material::Material() noexcept
 {
 }
 

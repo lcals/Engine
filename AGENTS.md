@@ -31,6 +31,10 @@
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
 - `Node` 保持轻量，只管理身份、层级及无具体类型的组件列表；通过 `add_component<T>() / get_component<T>()` 添加和查找，TS 对应 `AddComponent(Type) / GetComponent(Type)`。节点不保存具体组件指针、不枚举相机等类型、不提供专用添加方法；变换同样由组件表达。
+- GUID 与逻辑路径的双向映射位于核心模块，编辑器、桌面及真机共用，不依赖 SQLite 或平台路径。每个 assets 源资源必须有唯一 GUID 的邻接 meta；移动保留身份，复制生成新身份，冲突不静默重写。
+- 资源描述文件使用 TOML 内容并只保留 .scene/.mesh/.shader/.material/.meta 类型后缀，不追加 .toml。Schema 源文件统一放 include/schemas/runtime；项目生成物必须为 cache/gen/<完整GUID>，无扩展名、无类型前缀、无版本子目录。SQLite 与资源目录索引放 cache 根，不能混入 gen。
+- 编辑器 TaskSystem 使用 Taskflow，项目 settings/import.toml 的 import_threads 默认 4。资源管线负责 meta、SQLite 版本、依赖和发布；任务系统只调度转换，运行时不反向依赖它们。
+- MCP 同步完整运行资源版本，覆盖场景、Mesh、材质、Shader、脚本及其他资源；以 catalog 和 gen/GUID 为共同契约，不能限制为脚本同步。整批校验后发布，SQLite、源 meta 与项目设置留在编辑器端。
 - 场景、节点和组件的数据以 FlatBuffers schema 为唯一模型来源，生成跨语言数据结构；运行时行为类使用生成数据，不维护另一份手写持久数据模型。落盘读写按阶段实现。
 - 材质和 Shader 通过唯一资源路径字符串标识并注册，不使用固定种类枚举；材质引用 Shader 定义并组合命名参数，以名字和明确数值类型读写参数（如 SetFloat、SetV2/3/4），不把每项 shader 参数做成固定业务字段；匹配和校验由材质负责。
 - 材质和 Shader 分为引擎内置与项目资源，完整路径以 `builtin/` 或 `project/` 标识来源；项目材质可复用内置 Shader，内置定义不得反向依赖项目。项目停止先释放场景和 GPU 资源，再清理项目定义；内置定义保留至引擎关闭。

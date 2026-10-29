@@ -71,6 +71,7 @@ private:
     Node(Scene& scene, std::uint64_t id, std::string_view name);
 
     Scene& scene_;
+    std::uint64_t entity_id_;
     schema::NodeInfoT info_{};
     std::vector<std::unique_ptr<Component>> components_;
 };

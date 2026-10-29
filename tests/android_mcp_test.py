@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 
-from script_tooling_test import call, contents, require
+from script_tooling_test import call, contents, metadata_guid, require, verify_complete_asset_snapshot
 
 
 FAKE_ADB = r'''
@@ -110,6 +110,8 @@ def test(server, root, work):
     config_path.write_text(json.dumps(config), encoding="utf-8")
     unusual = project / "assets" / "quote' $(touch injected) 中文.bin"
     unusual.write_bytes(bytes(range(256)) + b"\x00binary\r\n")
+    image_asset = project / "assets/raw-image.png"
+    shutil.copy2(root / "tests/fixtures/asset_tools/blocks.png", image_asset)
 
     device = work / "device"
     runtime = device / "app/files"
@@ -134,9 +136,16 @@ def test(server, root, work):
             receipt["packageName"] == "org.engine.minimal" and
             receipt["runtimeDir"] == "/data/user/0/org.engine.minimal/files", "wrong Android receipt target")
     published = json.loads(available_path.read_text())
+    verify_complete_asset_snapshot(project, runtime, published)
+    image_guid = metadata_guid(image_asset)
+    require((runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes() == image_asset.read_bytes(),
+            "Android raw image bytes changed during synchronization")
     require({"scripts/builtin-only.js", "scripts/previously-deleted.js"}.issubset(published["deleted"]),
             "first sync did not retain built-in deletion baseline")
-    uploaded = runtime / "assets/versions" / published["revision"] / unusual.name
+    unusual_guid = metadata_guid(unusual)
+    uploaded = runtime / "assets/versions" / published["revision"] / "gen" / unusual_guid
+    require("catalog.bin" in {item["path"] for item in published["files"]},
+            "Android GUID catalog missing from snapshot")
     require(uploaded.read_bytes() == unusual.read_bytes(), "binary/Unicode/quoted filename changed")
     require(not (device / "app/injected").exists(), "remote resource path caused shell expansion")
     reported = contents(replies[1])

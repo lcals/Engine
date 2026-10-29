@@ -1,0 +1,57 @@
+include "common.fbs";
+namespace engine.schema;
+
+table TransformData {
+  position:Vec3 (required, native_inline);
+  rotation:Vec3 (required, native_inline);
+  scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
+}
+
+table CameraData {
+  fov_degrees:float = 60;
+  near_clip:float = 0.1;
+  far_clip:float = 1000;
+}
+
+table LightData {
+  color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+  intensity:float = 3;
+}
+
+table MeshRendererData {
+  mesh_guid:string (required);
+  material_guid:string (required);
+}
+
+union ComponentPayload { TransformData, CameraData, LightData, MeshRendererData }
+
+table ComponentData {
+  enabled:bool = true;
+  payload:ComponentPayload (required);
+}
+
+table NodeInfo {
+  id:ulong;
+  name:string;
+  parent_id:ulong;
+}
+
+table NodeData {
+  info:NodeInfo (required);
+  components:[ComponentData];
+}
+
+table SceneInfo {
+  name:string;
+  active_camera_node:ulong;
+}
+
+table SceneData {
+  schema_version:uint = 1;
+  info:SceneInfo (required);
+  nodes:[NodeData];
+}
+
+root_type SceneData;
+file_identifier "ESCN";
+file_extension "scene";

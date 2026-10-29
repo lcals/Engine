@@ -30,6 +30,10 @@ if(ENGINE_ENABLE_EDITOR_DEPS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)
     message(FATAL_ERROR "Editor dependencies require ENGINE_ENABLE_RUNTIME_DEPS")
 endif()
 
+if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)
+    message(FATAL_ERROR "Asset pipeline requires ENGINE_ENABLE_RUNTIME_DEPS")
+endif()
+
 if(ENGINE_ENABLE_SCRIPT_RUNTIME AND ENGINE_ENABLE_EDITOR_DEPS AND
    NOT ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     message(FATAL_ERROR "Editor scripting requires ENGINE_ENABLE_ASSET_PIPELINE_DEPS")
@@ -43,6 +47,7 @@ include(cmake/project_options.cmake)
 add_subdirectory(third_party)
 
 add_library(engine_core STATIC
+    src/engine/runtime/core/guid_map.cpp
     src/engine/runtime/system/system.cpp
     src/engine/runtime/utils/path_utils.cpp)
 add_library(engine::core ALIAS engine_core)
@@ -87,6 +92,12 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
             engine::asset_sync)
     endif()
     engine_apply_options(editor_app)
+endif()
+
+if(ENGINE_BUILD_APP AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(asset_build_app src/asset_build_main.cpp)
+    target_link_libraries(asset_build_app PRIVATE engine::asset_pipeline)
+    engine_apply_options(asset_build_app)
 endif()
 
 if(ENGINE_BUILD_APP AND ENGINE_ENABLE_SCRIPT_RUNTIME AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

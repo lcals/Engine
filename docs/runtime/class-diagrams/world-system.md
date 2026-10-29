@@ -12,6 +12,7 @@ classDiagram
         +WorldSystem()
         +~WorldSystem()
         +create_scene(string_view name) Scene*
+        +load_scene(string_view path) Scene*
         +destroy_scene() void
         +scene() Scene*
         +scene() const Scene*
@@ -35,7 +36,9 @@ classDiagram
     WorldSystem ..> EngineConfig : on_initialize 参数
     WorldSystem ..> flecs : 编译及链接依赖
     WorldSystem "1" *-- "0..1" ecs_world_t : 拥有ECS 世界
+    class ResourceSystem
     class Scene
+    WorldSystem ..> ResourceSystem : 读取活动GUID缓存中的场景数据
     WorldSystem "1" *-- "0..1" Scene : 独占活动场景
     WorldSystem ..> Scene : 创建和查询返回借用
     class PhysicsSystem
@@ -58,3 +61,5 @@ classDiagram
 - `scene()` 返回可空借用，`destroy_scene()` 或世界关闭后失效；只读重载为 `const`，查询与销毁为 `noexcept`。初始化失败和清理遵守[系统约定](engine-system.md)。
 
 C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
+
+`load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景，失败保留当前场景。

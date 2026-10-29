@@ -35,14 +35,14 @@ public:
 
 private:
     friend class MeshRenderer;
-    explicit Material(schema::MaterialDataT& data) noexcept;
+    Material() noexcept;
 
     [[nodiscard]] schema::MaterialParameterT* find_parameter(std::string_view name,
                                                              schema::MaterialValue type) noexcept;
     [[nodiscard]] const schema::MaterialParameterT*
     find_parameter(std::string_view name, schema::MaterialValue type) const noexcept;
 
-    schema::MaterialDataT& data_;
+    schema::MaterialDataT data_;
 };
 
 } // namespace engine

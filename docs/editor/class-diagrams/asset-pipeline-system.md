@@ -2,44 +2,47 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
-本轮桌面编辑器实现；独立根系统由工具宿主初始化并反序关闭。跨图引用不重复定义公开方法。
-
 ```mermaid
 classDiagram
-    direction TB
+    class System
     class AssetPipelineSystem {
         +AssetPipelineSystem()
         +~AssetPipelineSystem()
-        +build_scripts(const std::filesystem::path& project_root) bool
-        +last_error() const std::string&
-        #on_initialize(const EngineConfig& config) bool
-        #on_shutdown() void
+        +build_assets(const filesystem_path& project_root, string_view target_platform) bool
+        +build_scripts(const filesystem_path& project_root) bool
+        +last_build() const AssetBuildStats&
+        +last_error() const string&
     }
-    class System
-    class EngineConfig
-    class NodeJs["Node.js"]
-    class TypeScript
-    class USD
-    class Taskflow
+    class AssetBuildStats {
+        +size_t scanned
+        +size_t imported
+        +size_t reused
+        +size_t removed
+        +size_t import_threads
+        +string revision
+    }
+    class TaskSystem
+    class GuidMap
+    class SceneImporter
     class SQLite
-    class efsw
-    class meshoptimizer
+    class ResourceSystem
     System <|-- AssetPipelineSystem
-    AssetPipelineSystem ..> EngineConfig : 初始化参数
-    AssetPipelineSystem ..> NodeJs : SDL 进程 argv 启动
-    NodeJs ..> TypeScript : 编译器 API
-    AssetPipelineSystem ..> USD : 编译与链接
-    AssetPipelineSystem ..> Taskflow : 编译与链接
-    AssetPipelineSystem ..> SQLite : 编译与链接
-    AssetPipelineSystem ..> efsw : 编译与链接
-    AssetPipelineSystem ..> meshoptimizer : 编译与链接
-    note for AssetPipelineSystem "宿主拥有；settings 配置、assets 源码、cache 产物；编译失败不发布"
-    class PathUtils
-    AssetPipelineSystem ..> PathUtils : UTF-8 路径转换
+    AssetPipelineSystem *-- TaskSystem : 子系统独占
+    AssetPipelineSystem *-- AssetBuildStats : 最近成功批次
+    AssetPipelineSystem ..> GuidMap : 核心 GUID 与逻辑路径映射
+    AssetPipelineSystem ..> SceneImporter : 场景 TOML 转换
+    AssetPipelineSystem ..> SQLite : cache/assets.sqlite
+    AssetPipelineSystem ..> ResourceSystem : 同步文件读取
 ```
 
-通过 SDL3 进程 API 传递独立 argv，调用固定构建脚本；Node 和构建脚本由构建配置指定。TS 配置放 settings，源码 assets，编译成功后替换 cache/assets。失败返回 false，并保留上次有效产物；调用方不能在 false 后同步旧产物。保留 USD、Taskflow、SQLite、efsw、meshoptimizer 的实际编译链接探针。`last_error()` 返回借用错误描述。
+每次全扫描 `assets/`，为新资源创建同名 `.meta`，GUID 必须为唯一完整小写 GUID（新建使用 UUIDv4）。既有资源丢失 meta、重复 GUID、非法路径、符号链接、缺失引用或循环依赖都返回失败。移动时一起移动 meta；缓存数据库可删除重建，meta 保留资源身份。
 
-返回状态及只读访问方法标注 `[[nodiscard]]`；析构和清理为 `noexcept`，钩子标注 `override`。`last_error()` 为 const noexcept，只读字符串借用在下一次业务操作前有效。
+源 `.scene/.mesh/.shader/.material` 使用 TOML 内容；TS 源仍为 `.ts`。每个生成文件严格位于 `cache/gen/<完整GUID>`，无扩展名、类型前缀或版本子目录。`cache/catalog.bin` 为生成的 FlatBuffers 目录，SQLite 不进入运行时。GUID 映射由运行时核心共用。
 
-公共路径编码复用 [PathUtils](../../runtime/class-diagrams/path-utils.md)；路径规范化和安全检查仍由本类负责。
+SQLite 保存源指纹、转换器/Schema/配置/工具/目标版本、依赖、产物指纹。首次全量；之后重新扫描但只转换失效产物及依赖变化的资源。命中缓存仍校验产物指纹。TS 按项目一次编译，JS 沿用对应 TS GUID；声明文件只作为输入。
+
+项目 OS 文件锁覆盖 meta、扫描、转换、发布。Taskflow 工作线程写独立临时产物，协调线程单独写 SQL。批次以同级暂存和备份交换 gen/catalog；SQL 提交 revision 作为恢复依据。转换失败不替换上一批产物；中断恢复在持锁后、下次扫描前完成。`build_scripts()` 暂保留为 `build_assets()` 兼容入口。
+
+孤立的 `.meta` 不作为资源导入；删除源文件后保留的 meta 可以随源文件恢复。任务目标平台可显式指定 `macos/ios/windows/android/linux`，空值使用宿主；后端、工具与 Schema 指纹参与增量键。
+
+Shader 源码的 include 暂保守依赖全部项目普通源文件（不按 .sc/.sh 扩展名筛选），保证 .inc/.h 等变化不会漏编译。TS 使用编译器解析的实际输入快照，包含声明文件、标准库与继承 tsconfig；转换前后都校验指纹，配置中途变化不发布。

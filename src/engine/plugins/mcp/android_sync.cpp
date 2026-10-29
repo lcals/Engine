@@ -304,7 +304,17 @@ bool McpSystem::sync_android(std::string& reply)
     const auto token = nonce();
     const auto staging = "files/assets/.staging-" + token;
     const auto next_manifest = "files/assets/.available-" + token + ".json";
-    const auto mirror = project_root_ / "cache" / (".android-sync-" + token);
+    std::error_code temporary_error;
+    const auto temporary_directory = fs::temp_directory_path(temporary_error);
+    const auto temporary_root =
+        temporary_error ? fs::path{} : fs::canonical(temporary_directory, temporary_error);
+    if (temporary_error)
+    {
+        set_reply(target_, runtime_dir, {{"error", "cannot locate host temporary directory"}},
+                  reply);
+        return false;
+    }
+    const auto mirror = temporary_root / ("engine-android-sync-" + token);
     bool locked = false;
     const auto cleanup = [&]()
     {
@@ -404,7 +414,7 @@ bool McpSystem::sync_android(std::string& reply)
     {
         return fail("cannot prepare local Android asset baseline");
     }
-    if (!sync_.sync(project_root_ / "cache" / "assets", mirror))
+    if (!sync_.sync(project_root_ / "cache", mirror))
     {
         return fail(sync_.last_error());
     }

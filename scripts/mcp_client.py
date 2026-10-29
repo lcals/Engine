@@ -48,7 +48,7 @@ def main():
     commands.add_parser("start", help="Start the project in the editor window")
     commands.add_parser("stop", help="Stop the project and restore the blank window")
     commands.add_parser("status", help="Show published and last reported runtime state")
-    commands.add_parser("sync", help="Compile TypeScript and synchronize a complete version")
+    commands.add_parser("sync", help="Import and synchronize all catalog assets: scripts, scenes, meshes, materials, shaders and raw resources")
     hot_reload = commands.add_parser("hot-reload", help="Set the engine hot reload switch")
     hot_reload.add_argument("enabled", choices=["on", "off"])
     args = parser.parse_args()

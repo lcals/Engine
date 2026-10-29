@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import struct
 import tempfile
 import unittest
 from unittest import mock
@@ -16,19 +17,125 @@ PACK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACK)
 
 
+def catalog_fixture(contents, target="android"):
+    """构造与 asset_catalog.fbs 相同布局的最小真实 FlatBuffer。"""
+    data = bytearray(8)
+    data[4:8] = b"EASC"
+
+    def align(boundary):
+        data.extend(bytes((-len(data)) % boundary))
+
+    def uoffset(location, target):
+        struct.pack_into("<I", data, location, target - location)
+
+    def table(count):
+        align(2)
+        vtable = len(data)
+        data.extend(struct.pack("<HH", 4 + count * 2, 8 + count * 8))
+        data.extend(b"".join(struct.pack("<H", 8 + index * 8) for index in range(count)))
+        align(8)
+        start = len(data)
+        data.extend(bytes(8 + count * 8))
+        struct.pack_into("<i", data, start, start - vtable)
+        return [start + 8 + index * 8 for index in range(count)], start
+
+    def text(location, value):
+        align(4)
+        encoded = value.encode()
+        start = len(data)
+        data.extend(struct.pack("<I", len(encoded)) + encoded + b"\0")
+        uoffset(location, start)
+
+    fields, root = table(4)
+    struct.pack_into("<I", data, 0, root)
+    struct.pack_into("<I", data, fields[0], 1)
+    text(fields[1], "fixture-guid-catalog")
+    text(fields[2], target)
+    align(4)
+    vector = len(data)
+    data.extend(struct.pack("<II", 1, 0))
+    uoffset(fields[3], vector)
+    asset, item = table(7)
+    uoffset(vector + 4, item)
+    guid = "30000000-0000-4000-8000-000000000001"
+    text(asset[0], guid)
+    text(asset[1], "project/scripts/game.ts")
+    struct.pack_into("<B", data, asset[2], 1)
+    checksum = PACK.FNV_OFFSET
+    for byte in contents:
+        checksum = ((checksum ^ byte) * PACK.FNV_PRIME) & PACK.FNV_MASK
+    text(asset[3], f"{checksum:016x}")
+    struct.pack_into("<Q", data, asset[4], len(contents))
+    # dependencies 是空 vector；所有相对指针均指向有效缓冲区。
+    align(4)
+    dependencies = len(data)
+    data.extend(struct.pack("<I", 0))
+    uoffset(asset[5], dependencies)
+    text(asset[6], "scripts/game.js")
+    return bytes(data), guid
+
+
+class AndroidBuildArgumentTest(unittest.TestCase):
+    def test_asset_builder_argument_reaches_native_configuration(self):
+        spec = importlib.util.spec_from_file_location("build_android", ROOT / "scripts/build_android.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        with tempfile.TemporaryDirectory(prefix="engine-android-command-") as directory:
+            root = Path(directory)
+            sdk = root / "sdk"
+            sdk.mkdir()
+            (sdk / "source.properties").write_text("Pkg.Revision = 27.2.12479018\n")
+            (sdk / "bin").mkdir()
+            (sdk / "bin" / ("java.exe" if build.os.name == "nt" else "java")).write_text("")
+            builder = root / "host builder with spaces"
+            builder.write_text("fixture only")
+            builder.chmod(0o755)
+            commands = []
+
+            def record(command):
+                commands.append(command)
+                if ":app:assembleDebug" in command:
+                    apk = root / "build/android-gradle/debug/outputs/apk/debug/app-debug.apk"
+                    apk.parent.mkdir(parents=True)
+                    apk.write_bytes(b"fixture apk")
+
+            with mock.patch.object(build, "ROOT", root), \
+                 mock.patch.object(build, "require_directory", return_value=sdk), \
+                 mock.patch.object(build, "gradle_command", return_value=["fixture-gradle"]), \
+                 mock.patch.object(build.shutil, "which", return_value="fixture-cmake"), \
+                 mock.patch.object(build.subprocess, "check_output", return_value="Gradle 9.1.0"), \
+                 mock.patch.object(build, "run", side_effect=record), \
+                 mock.patch("builtins.print"), \
+                 mock.patch.object(build.sys, "argv", ["build_android.py", "--asset-builder", str(builder)]):
+                self.assertEqual(build.main(), 0)
+            self.assertIn("-DENGINE_ANDROID_ASSET_BUILDER=" + str(builder.resolve()), commands[0])
+            self.assertIn("-DENGINE_ANDROID_PROJECT=" + str((root / "projects/minimal").resolve()), commands[0])
+
+    def test_prepare_uses_explicit_android_target_without_shell(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            builder = root / "asset builder $literal"
+            project = root / "project with spaces"
+            with mock.patch.object(PACK.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+                PACK.compile_catalog(project, builder)
+            self.assertEqual(run.call_args.args[0],
+                             [str(builder.resolve()), "--project", str(project), "--target", "android"])
+            self.assertNotIn("shell", run.call_args.kwargs)
+
+
 class PrepareAndroidAssetsTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="engine-android-assets-")
         self.root = Path(self.temporary.name)
         self.project = self.root / "项目 with spaces $literal"
-        for name in ("settings", "assets", "cache/assets/scripts"):
+        for name in ("settings", "assets", "cache/scripts"):
             (self.project / name).mkdir(parents=True)
-        self.source = self.project / "cache/assets"
+        self.source = self.project / "cache"
         (self.source / "scripts/game.js").write_text("export default class Game {}\n", encoding="utf-8")
         self.output = self.root / "android/assets"
         (self.output / "v8").mkdir(parents=True)
         (self.output / "v8/icudtl.dat").write_bytes(b"ICU data must survive")
-        self.compiler = mock.patch.object(PACK, "compile_project", return_value=None)
+        self.compiler = mock.patch.object(PACK, "compile_catalog", return_value=None)
         self.compiler.start()
 
     def tearDown(self):
@@ -86,7 +193,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_compile_failure_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        with mock.patch.object(PACK, "compile_project", side_effect=ValueError("编译失败")):
+        with mock.patch.object(PACK, "compile_catalog", side_effect=ValueError("编译失败")):
             with self.assertRaisesRegex(ValueError, "编译失败"):
                 self.prepare()
         self.assertEqual(self.snapshot(), previous)
@@ -179,27 +286,52 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "相互包含"):
                     PACK.prepare(self.project, output)
 
-    def test_missing_node_and_typescript_have_actionable_errors(self):
-        self.compiler.stop()
-        with mock.patch.object(PACK.shutil, "which", return_value=None):
-            with self.assertRaisesRegex(ValueError, "PATH"):
-                PACK.compile_project(self.project)
-        with mock.patch.object(PACK.shutil, "which", return_value="node"):
-            with self.assertRaisesRegex(ValueError, "npm ci"):
-                PACK.compile_project(self.project)
+    def test_guid_catalog_packaging_and_platform_validation(self):
+        contents = b"export default class Game {}\n"
+        catalog, guid = catalog_fixture(contents)
+        cache = self.project / "cache"
+        (cache / "catalog.bin").write_bytes(catalog)
+        (cache / "gen").mkdir()
+        (cache / "gen" / guid).write_bytes(contents)
+        (cache / "tasks.sqlite").write_bytes(b"must not ship")
+        (cache / "gen/stale").write_bytes(b"must not ship")
+        manifest = self.prepare()
+        self.assertEqual({item["path"] for item in manifest["files"]},
+                         {"catalog.bin", "gen/" + guid})
+        self.assertEqual((self.output / "project/gen" / guid).read_bytes(), contents)
+        previous = self.snapshot()
+        (cache / "gen" / guid).write_bytes(b"corrupt")
+        with self.assertRaisesRegex(ValueError, "校验不符"):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        (cache / "gen" / guid).write_bytes(contents)
+        catalog, _ = catalog_fixture(contents, "macos")
+        (cache / "catalog.bin").write_bytes(catalog)
+        with self.assertRaisesRegex(ValueError, "android"):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
 
-    def test_compiler_uses_argv_without_shell_and_reports_failure(self):
+    def test_guid_catalog_truncation_is_rejected(self):
+        catalog, _ = catalog_fixture(b"export {}")
+        cache = self.project / "cache"
+        for length in (0, 8, 24, len(catalog) - 1):
+            with self.subTest(length=length):
+                (cache / "catalog.bin").write_bytes(catalog[:length])
+                with self.assertRaises(ValueError):
+                    self.prepare()
+                self.assert_clean()
+
+    def test_missing_catalog_requires_host_asset_builder(self):
         self.compiler.stop()
-        (self.project / "settings/node_modules/typescript").mkdir(parents=True)
-        with mock.patch.object(PACK.shutil, "which", return_value="host node"), \
-                mock.patch.object(PACK.subprocess, "run",
-                                  return_value=subprocess.CompletedProcess([], 1)) as run:
-            with self.assertRaisesRegex(ValueError, "TypeScript 编译失败"):
-                PACK.compile_project(self.project)
-        self.assertEqual(run.call_args.args[0],
-                         ["host node", str(ROOT / "scripts/build_scripts.mjs"),
-                          "--project", str(self.project)])
-        self.assertNotIn("shell", run.call_args.kwargs)
+        with self.assertRaisesRegex(ValueError, "asset-builder"):
+            PACK.compile_catalog(self.project)
+
+    def test_failed_asset_builder_preserves_actionable_error(self):
+        self.compiler.stop()
+        with mock.patch.object(PACK.subprocess, "run", return_value=mock.Mock(returncode=1)):
+            with self.assertRaisesRegex(ValueError, "资产任务编译失败"):
+                PACK.compile_catalog(self.project, self.root / "host asset builder")
 
 
 if __name__ == "__main__":

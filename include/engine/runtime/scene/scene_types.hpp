@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/schema/material_generated.h"
 #include "runtime/schema/scene_generated.h"
 
 namespace engine
@@ -13,6 +14,5 @@ using TransformSettings = schema::TransformDataT;
 using CameraSettings = schema::CameraDataT;
 using LightSettings = schema::LightDataT;
 using ComponentType = schema::ComponentPayload;
-using MeshKind = schema::MeshKind;
 
 } // namespace engine

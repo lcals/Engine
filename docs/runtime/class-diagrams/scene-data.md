@@ -1,134 +1,63 @@
 # FlatBuffers 共享数据模型
 
-[类图索引](../../class-diagrams/index.md) · [场景](scene.md) · [资源系统](resource-system.md) · [材质](material.md)
+[类图索引](../../class-diagrams/index.md) · [资源系统](resource-system.md)
 
-所有下图类型均由 `schemas/runtime/scene.fbs` 生成。C++ 与 TypeScript 使用同一字段定义；本轮验证内存打包和双向读取，磁盘保存、读取留待下一阶段。`T` 后缀表示 C++ 原生对象接口，行为类不重复存储手写字段。
+Schema 位于 `include/schemas/runtime/`，生成 C++ 与 TypeScript。源描述文件是 TOML；缓存是 FlatBuffers。每个独立资源有 schema_version=1 与文件标识，运行时验证后才解包。
 
 ```mermaid
 classDiagram
     class SceneDataT {
-        +unique_ptr~SceneInfoT~ info
-        +vector~unique_ptr~NodeDataT~~ nodes
-    }
-    class SceneInfoT {
-        +string name
-        +uint64_t active_camera_node
+        +uint32_t schema_version
+        +SceneInfoT info
+        +vector~NodeDataT~ nodes
     }
     class NodeDataT {
-        +unique_ptr~NodeInfoT~ info
-        +vector~unique_ptr~ComponentDataT~~ components
+        +NodeInfoT info
+        +vector~ComponentDataT~ components
     }
-    class NodeInfoT {
-        +uint64_t id
-        +string name
-        +uint64_t parent_id
-    }
-    class ComponentDataT {
-        +bool enabled
-        +ComponentPayloadUnion payload
-    }
-    class ComponentPayloadUnion
-    class TransformDataT
-    class CameraDataT
-    class LightDataT
     class MeshRendererDataT {
-        +MeshKind mesh
-        +unique_ptr~MaterialDataT~ material
+        +string mesh_guid
+        +string material_guid
     }
-    class MaterialDataT
-    SceneDataT *-- SceneInfoT
-    SceneDataT *-- NodeDataT
-    NodeDataT *-- NodeInfoT
-    NodeDataT *-- ComponentDataT
-    ComponentDataT *-- ComponentPayloadUnion
-    ComponentPayloadUnion *-- TransformDataT
-    ComponentPayloadUnion *-- CameraDataT
-    ComponentPayloadUnion *-- LightDataT
-    ComponentPayloadUnion *-- MeshRendererDataT
-    MeshRendererDataT *-- MaterialDataT
-```
-
-`MeshRendererDataT.material` 与下面的 `MaterialDataT` 是同一生成类型。资源表保存材质定义，组件中保存对应实例；定义覆盖值和实例合并后的值均使用相同的带类型参数格式。
-
-```mermaid
-classDiagram
+    class MeshDataT {
+        +string path
+        +vector~MeshVertex~ vertices
+        +vector~uint32_t~ indices
+    }
     class MaterialDataT {
         +string type_path
+        +string shader_guid
         +string shader_path
-        +vector~unique_ptr~MaterialParameterT~~ parameters
-    }
-    class MaterialParameterT {
-        +string name
-        +MaterialValueUnion value
+        +vector~MaterialParameterT~ parameters
     }
     class ShaderDataT {
         +string path
-        +vector~uint8_t~ vertex_code
-        +vector~uint8_t~ fragment_code
-        +vector~unique_ptr~ShaderParameterT~~ parameters
+        +ByteBuffer vertex_code
+        +ByteBuffer fragment_code
+        +vector~ShaderParameterT~ parameters
     }
-    class ShaderParameterT {
-        +string name
-        +string uniform_name
-        +uint8_t uniform_offset
-        +bool exposed
-        +bool bounded
-        +double minimum
-        +double maximum
-        +MaterialValueUnion default_value
+    class AssetCatalogDataT {
+        +string revision
+        +vector~AssetEntryT~ entries
     }
-    class MaterialValueUnion
-    MaterialDataT *-- MaterialParameterT
-    MaterialDataT ..> ShaderDataT : shader_path引用
-    ShaderDataT *-- ShaderParameterT
-    MaterialParameterT *-- MaterialValueUnion
-    ShaderParameterT *-- MaterialValueUnion
+    class AssetEntryT {
+        +string guid
+        +string path
+        +AssetKind kind
+        +string content_hash
+        +uint64_t content_size
+        +vector~string~ dependencies
+        +string module_path
+    }
+    SceneDataT *-- NodeDataT
+    NodeDataT *-- MeshRendererDataT : 组件载荷之一
+    MeshRendererDataT ..> MeshDataT : GUID引用
+    MeshRendererDataT ..> MaterialDataT : GUID引用
+    MaterialDataT ..> ShaderDataT : GUID引用
+    AssetCatalogDataT *-- AssetEntryT
 ```
 
-两处 `MaterialValueUnion` 使用同一种生成联合类型：
-
-```mermaid
-classDiagram
-    class MaterialValueUnion
-    class FloatValueT {
-        +float value
-    }
-    class Vec2ValueT {
-        +Vec2 value
-    }
-    class Vec3ValueT {
-        +Vec3 value
-    }
-    class Vec4ValueT {
-        +Vec4 value
-    }
-    class Vec2 {
-        +double x
-        +double y
-    }
-    class Vec3 {
-        +double x
-        +double y
-        +double z
-    }
-    class Vec4 {
-        +double x
-        +double y
-        +double z
-        +double w
-    }
-    MaterialValueUnion *-- FloatValueT
-    MaterialValueUnion *-- Vec2ValueT
-    MaterialValueUnion *-- Vec3ValueT
-    MaterialValueUnion *-- Vec4ValueT
-    Vec2ValueT *-- Vec2
-    Vec3ValueT *-- Vec3
-    Vec4ValueT *-- Vec4
-```
-
-- 生成 VecN 通过 `x()` / `mutate_x()` 等方法访问；图中展示逻辑数据字段，不额外声明第二套 C++ 结构。
-- 场景与节点身份为 uint64，TypeScript 读取为 bigint，跨语言不能经 number 中转。
-- 资源 `path` / `type_path` / `shader_path` 均使用 `builtin/...` 或 `project/...` 的完整规范路径，同时表达来源和身份，无需额外来源枚举。内置材质定义不得依赖项目 Shader；项目可复用内置。
-- Shader 字节码为当前目标图形后端的真实二进制；参数的 union 是基础数据值类型，不是固定 Shader / 材质种类枚举。
-- required 标记确保参数载荷、向量、元数据、材质与资源路径等必要字段存在；语义上的名字、范围及 uniform 槽冲突由 ResourceSystem 注册时验证。
-- `Scene::build_data()` 只在需要快照时组合完整生成数据；日常运行由组件持有自己的生成载荷，不并行维护完整场景副本。
+- `scene.fbs` 只含场景、节点、组件和引用。数值值类型位于 common；Mesh、Shader、Material 与资源索引分别有独立 schema。
+- 场景节点 ID 是场景内稳定局部 ID。加载时建立局部 ID 到运行时实体 ID 映射，恢复父子关系与活动相机；保存时反向映射，不将 flecs ID 落盘。
+- 场景引用独立材质资源，不复制 Shader 字节码或整个材质定义。MeshRenderer 的运行时材质实例继续使用生成的 MaterialDataT 并支持命名参数修改。
+- VecN 使用生成的数值结构。节点 ID 在 TypeScript 中为 bigint。运行时不解析 TOML、不依赖 SQLite。

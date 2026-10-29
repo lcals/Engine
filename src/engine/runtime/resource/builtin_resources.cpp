@@ -1,7 +1,9 @@
 #include "runtime/resource/builtin_resources.hpp"
 
 #include "runtime/resource/resource_system.hpp"
-#include "runtime/schema/scene_generated.h"
+#include "runtime/schema/material_generated.h"
+#include "runtime/schema/mesh_generated.h"
+#include "runtime/schema/shader_generated.h"
 
 #include "fs_cube.bin.h"
 #include "vs_cube.bin.h"
@@ -83,7 +85,21 @@ bool register_definition(bool unlit)
 
 bool register_builtin_render_resources()
 {
-    return register_definition(false) && register_definition(true);
+    schema::MeshDataT cube;
+    cube.path = "builtin/meshes/cube";
+    cube.vertices = {{-1, -1, 1, 0, 0, 1},   {1, -1, 1, 0, 0, 1},   {1, 1, 1, 0, 0, 1},
+                     {-1, 1, 1, 0, 0, 1},    {1, -1, 1, 1, 0, 0},   {1, -1, -1, 1, 0, 0},
+                     {1, 1, -1, 1, 0, 0},    {1, 1, 1, 1, 0, 0},    {1, -1, -1, 0, 0, -1},
+                     {-1, -1, -1, 0, 0, -1}, {-1, 1, -1, 0, 0, -1}, {1, 1, -1, 0, 0, -1},
+                     {-1, -1, -1, -1, 0, 0}, {-1, -1, 1, -1, 0, 0}, {-1, 1, 1, -1, 0, 0},
+                     {-1, 1, -1, -1, 0, 0},  {-1, 1, 1, 0, 1, 0},   {1, 1, 1, 0, 1, 0},
+                     {1, 1, -1, 0, 1, 0},    {-1, 1, -1, 0, 1, 0},  {-1, -1, -1, 0, -1, 0},
+                     {1, -1, -1, 0, -1, 0},  {1, -1, 1, 0, -1, 0},  {-1, -1, 1, 0, -1, 0}};
+    cube.indices = {0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,  8,  9,  10, 8,  10, 11,
+                    12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23};
+    const auto* existing = ResourceSystem::find_mesh(cube.path);
+    return (existing ? *existing == cube : ResourceSystem::register_mesh(cube)) &&
+           register_definition(false) && register_definition(true);
 }
 
 } // namespace engine

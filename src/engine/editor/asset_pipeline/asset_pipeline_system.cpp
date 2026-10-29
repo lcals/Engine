@@ -1,20 +1,558 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 
+#include "editor/asset_pipeline/asset_database.hpp"
+#include "editor/asset_pipeline/asset_importers.hpp"
+#include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/asset_publish.hpp"
+#include "editor/asset_pipeline/project_lock.hpp"
+#include "editor/task/task_system.hpp"
+#include "runtime/resource/builtin_resources.hpp"
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/utils/path_utils.hpp"
 
-#include <SDL3/SDL.h>
 #include <efsw/efsw.hpp>
+#include <flatbuffers/flatbuffers.h>
+#include <flatbuffers/verifier.h>
 #include <meshoptimizer.h>
 #include <pxr/usd/usd/stage.h>
-#include <sqlite3.h>
-#include <taskflow/core/taskflow.hpp>
+#include <toml++/toml.hpp>
 
-#include <cstdio>
+#include <algorithm>
+#include <array>
+#include <map>
+#include <queue>
+#include <set>
+#include <span>
+#include <utility>
 
 namespace engine
 {
+namespace
+{
 
-AssetPipelineSystem::AssetPipelineSystem() noexcept = default;
+using namespace asset_pipeline;
+
+constexpr std::string_view importer_version = "engine-asset-importers-1";
+
+bool directory(const std::filesystem::path& path, std::string& error)
+{
+    std::error_code code;
+    const auto status = std::filesystem::symlink_status(path, code);
+    if (code || !std::filesystem::is_directory(status) || std::filesystem::is_symlink(status))
+    {
+        error = "required project directory is missing, inaccessible or a symlink: " +
+                PathUtils::to_utf8(path);
+        return false;
+    }
+    return true;
+}
+
+bool reject_symlink_if_present(const std::filesystem::path& path, std::string& error)
+{
+    std::error_code code;
+    const auto status = std::filesystem::symlink_status(path, code);
+    if (code == std::errc::no_such_file_or_directory)
+    {
+        return true;
+    }
+    if (code || std::filesystem::is_symlink(status))
+    {
+        error = "cache path is inaccessible or a symlink: " + PathUtils::to_utf8(path);
+        return false;
+    }
+    return true;
+}
+
+bool file_hash(const std::filesystem::path& path, std::string& hash, std::string& error)
+{
+    std::vector<std::byte> bytes;
+    if (!read_bytes(path, bytes, error))
+    {
+        return false;
+    }
+    hash = hash_bytes(bytes);
+    return true;
+}
+
+bool hash_optional_file(const std::filesystem::path& path, std::string& hash, std::string& error)
+{
+    std::error_code code;
+    const bool exists = std::filesystem::exists(path, code);
+    if (code)
+    {
+        error = "cannot inspect configuration: " + PathUtils::to_utf8(path);
+        return false;
+    }
+    if (!exists)
+    {
+        hash = "missing";
+        return true;
+    }
+    return file_hash(path, hash, error);
+}
+
+bool import_threads(const std::filesystem::path& settings, std::size_t& count, std::string& error)
+{
+    count = 4;
+    const auto path = settings / "import.toml";
+    std::error_code code;
+    const bool exists = std::filesystem::exists(path, code);
+    if (code)
+    {
+        error = "cannot inspect settings/import.toml";
+        return false;
+    }
+    if (!exists)
+    {
+        return true;
+    }
+    std::string text;
+    if (!ResourceSystem::read_text(path, text))
+    {
+        error = "cannot read settings/import.toml";
+        return false;
+    }
+    auto parsed = toml::parse(text);
+    if (!parsed)
+    {
+        error = "invalid settings/import.toml: " + std::string(parsed.error().description());
+        return false;
+    }
+    if (!parsed.table().contains("import_threads"))
+    {
+        return true;
+    }
+    const auto value = parsed["import_threads"].value<std::int64_t>();
+    if (!value || *value < 1 || *value > 64)
+    {
+        error = "settings/import.toml import_threads must be an integer from 1 to 64";
+        return false;
+    }
+    count = static_cast<std::size_t>(*value);
+    return true;
+}
+
+bool target_settings(std::string_view requested, std::string& platform,
+                     std::string& shader_platform, std::string& shader_profile, std::string& error)
+{
+    platform = requested;
+    if (platform.empty())
+    {
+#if defined(__APPLE__)
+        platform = "macos";
+#elif defined(_WIN32)
+        platform = "windows";
+#elif defined(__ANDROID__)
+        platform = "android";
+#else
+        platform = "linux";
+#endif
+    }
+    if (platform == "macos" || platform == "ios")
+    {
+        shader_platform = platform == "macos" ? "osx" : "ios";
+        shader_profile = "metal";
+    }
+    else if (platform == "windows")
+    {
+        shader_platform = "windows";
+        shader_profile = "s_5_0";
+    }
+    else if (platform == "android" || platform == "linux")
+    {
+        shader_platform = platform;
+        shader_profile = "spirv";
+    }
+    else
+    {
+        error = "unsupported asset target platform: " + platform;
+        return false;
+    }
+    return true;
+}
+
+std::string generic_path(const std::filesystem::path& path)
+{
+    const auto utf8 = path.generic_u8string();
+    return {utf8.begin(), utf8.end()};
+}
+
+schema::AssetKind asset_kind(const std::filesystem::path& path)
+{
+    const auto filename = PathUtils::to_utf8(path.filename());
+    const auto extension = PathUtils::to_utf8(path.extension());
+    if (extension == ".scene")
+        return schema::AssetKind::scene;
+    if (extension == ".mesh")
+        return schema::AssetKind::mesh;
+    if (extension == ".shader")
+        return schema::AssetKind::shader;
+    if (extension == ".material")
+        return schema::AssetKind::material;
+    if (extension == ".ts" && !filename.ends_with(".d.ts"))
+        return schema::AssetKind::script;
+    return schema::AssetKind::source;
+}
+
+const char* importer_name(schema::AssetKind kind)
+{
+    return schema::EnumNameAssetKind(kind);
+}
+
+bool builtin_identities(GuidMap& identities, std::map<Guid, schema::AssetKind>& kinds)
+{
+    constexpr std::array paths = {"builtin/shaders/pbr", "builtin/shaders/unlit",
+                                  "builtin/materials/default-pbr",
+                                  "builtin/materials/default-unlit", "builtin/meshes/cube"};
+    constexpr std::array types = {schema::AssetKind::shader, schema::AssetKind::shader,
+                                  schema::AssetKind::material, schema::AssetKind::material,
+                                  schema::AssetKind::mesh};
+    for (std::size_t index = 0; index < paths.size(); ++index)
+    {
+        const auto guid = "00000000-0000-4000-8000-00000000000" + std::to_string(index + 1);
+        if (!identities.add(paths[index], guid))
+        {
+            return false;
+        }
+        kinds.emplace(guid, types[index]);
+    }
+    return true;
+}
+
+bool remembered_paths(const std::filesystem::path& cache,
+                      const std::map<Guid, AssetRecord>& previous, std::set<std::string>& paths,
+                      std::string& error)
+{
+    for (const auto& [guid, record] : previous)
+    {
+        (void)guid;
+        paths.insert(record.asset.path);
+    }
+    std::error_code code;
+    if (!std::filesystem::exists(cache / "catalog.bin", code))
+    {
+        if (code)
+        {
+            error = "cannot inspect previous catalog";
+            return false;
+        }
+        return true;
+    }
+    std::vector<std::byte> bytes;
+    if (!read_bytes(cache / "catalog.bin", bytes, error))
+    {
+        return false;
+    }
+    flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(bytes.data()),
+                                   bytes.size());
+    if (!schema::VerifyAssetCatalogDataBuffer(verifier))
+    {
+        // 已有 SQLite 保留身份时允许重建损坏的目录。
+        if (!previous.empty())
+        {
+            return true;
+        }
+        error = "previous catalog is damaged and no database identity record is available";
+        return false;
+    }
+    const auto* catalog = schema::GetAssetCatalogData(bytes.data());
+    for (const auto* entry : *catalog->entries())
+    {
+        paths.insert(entry->path()->str());
+    }
+    return true;
+}
+
+bool scan_assets(const std::filesystem::path& assets, const std::filesystem::path& cache,
+                 const std::set<std::string>& remembered, GuidMap& identities,
+                 std::map<Guid, schema::AssetKind>& kinds, std::vector<AssetRecord>& records,
+                 std::string& error)
+{
+    std::error_code code;
+    std::vector<std::filesystem::path> files;
+    std::filesystem::recursive_directory_iterator iterator(assets, code);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!code && iterator != end)
+    {
+        const auto status = iterator->symlink_status(code);
+        if (code || std::filesystem::is_symlink(status))
+        {
+            error = "asset symlinks and inaccessible entries are not supported: " +
+                    PathUtils::to_utf8(iterator->path());
+            return false;
+        }
+        if (std::filesystem::is_regular_file(status))
+        {
+            const auto name = PathUtils::to_utf8(iterator->path().filename());
+            if (!name.ends_with(".meta") && name != ".gitkeep")
+            {
+                files.push_back(iterator->path());
+            }
+        }
+        else if (!std::filesystem::is_directory(status))
+        {
+            error = "unsupported non-file asset: " + PathUtils::to_utf8(iterator->path());
+            return false;
+        }
+        iterator.increment(code);
+    }
+    if (code)
+    {
+        error = "cannot scan project assets: " + code.message();
+        return false;
+    }
+    std::sort(files.begin(), files.end());
+    for (const auto& source : files)
+    {
+        AssetRecord record;
+        record.asset.source = source;
+        record.asset.path = "project/" + generic_path(source.lexically_relative(assets));
+        record.asset.kind = asset_kind(source);
+        auto meta = source;
+        meta += ".meta";
+        const bool exists = std::filesystem::exists(meta, code);
+        if (code)
+        {
+            error = "cannot inspect resource meta: " + PathUtils::to_utf8(meta);
+            return false;
+        }
+        std::string meta_text;
+        if (!exists)
+        {
+            if (remembered.contains(record.asset.path))
+            {
+                error = "existing asset lost its meta; restore it to preserve references: " +
+                        record.asset.path;
+                return false;
+            }
+            Guid guid;
+            do
+            {
+                guid = new_guid();
+            } while (kinds.contains(guid));
+            meta_text = "guid = \"" + guid + "\"\nimporter = \"" +
+                        importer_name(record.asset.kind) + "\"\nmeta_version = 1\n";
+            const auto temporary = cache / ".asset-meta" / new_guid();
+            if (!write_text(temporary, meta_text, error))
+            {
+                return false;
+            }
+            std::filesystem::rename(temporary, meta, code);
+            if (code)
+            {
+                error = "cannot create resource meta: " + code.message();
+                std::error_code cleanup;
+                std::filesystem::remove(temporary, cleanup);
+                return false;
+            }
+        }
+        else if (!ResourceSystem::read_text(meta, meta_text))
+        {
+            error = "cannot read resource meta: " + PathUtils::to_utf8(meta);
+            return false;
+        }
+        auto parsed = toml::parse(meta_text);
+        if (!parsed || parsed["meta_version"].value_or(std::int64_t{0}) != 1 ||
+            parsed["importer"].value_or(std::string{}) != importer_name(record.asset.kind))
+        {
+            error = "invalid resource meta version/importer: " + PathUtils::to_utf8(meta);
+            return false;
+        }
+        record.asset.guid = parsed["guid"].value_or(std::string{});
+        if (!identities.add(record.asset.path, record.asset.guid) ||
+            !kinds.emplace(record.asset.guid, record.asset.kind).second)
+        {
+            error = "invalid/duplicate resource GUID or logical path: " + record.asset.path + " (" +
+                    record.asset.guid + ")";
+            return false;
+        }
+        record.meta_hash = hash_text(meta_text);
+        if (!file_hash(source, record.source_hash, error))
+        {
+            return false;
+        }
+        if (record.asset.kind == schema::AssetKind::script)
+        {
+            auto module = source.lexically_relative(assets);
+            module.replace_extension(".js");
+            record.module_path = generic_path(module);
+        }
+        records.push_back(std::move(record));
+    }
+    return true;
+}
+
+bool tool_key(const std::filesystem::path& root, const std::vector<AssetRecord>& records,
+              const std::string& platform, std::string& common, std::string& shader,
+              std::string& scripts, std::string& error)
+{
+    common = std::string(importer_version) + ":" + platform;
+    for (const char* name :
+         {"common.fbs", "scene.fbs", "mesh.fbs", "shader.fbs", "material.fbs", "asset_catalog.fbs"})
+    {
+        std::string hash;
+        if (!file_hash(std::filesystem::path(ENGINE_SCHEMA_SOURCE_DIR) / name, hash, error))
+        {
+            return false;
+        }
+        common += ":" + std::string(name) + ":" + hash;
+    }
+    const bool has_shader = std::any_of(records.begin(), records.end(), [](const auto& record)
+                                        { return record.asset.kind == schema::AssetKind::shader; });
+    const bool has_scripts =
+        std::any_of(records.begin(), records.end(), [](const auto& record)
+                    { return record.asset.kind == schema::AssetKind::script; });
+    if (has_shader)
+    {
+        std::string version;
+        if (!run_process({ENGINE_SHADERC_EXECUTABLE, "--version"}, error, &version))
+        {
+            return false;
+        }
+        shader = version;
+        std::string hash;
+        if (!file_hash(std::filesystem::path(ENGINE_BGFX_SHADER_INCLUDE_DIR) / "bgfx_shader.sh",
+                       hash, error))
+        {
+            return false;
+        }
+        shader += ":" + hash;
+    }
+    if (has_scripts)
+    {
+        if (std::string_view(ENGINE_NODE_EXECUTABLE).empty() ||
+            !run_process({ENGINE_NODE_EXECUTABLE, "--version"}, error, &scripts))
+        {
+            if (error.empty())
+                error = "TypeScript import requires Node.js";
+            return false;
+        }
+        for (const auto& path :
+             {root / "settings" / "package.json", root / "settings" / "package-lock.json",
+              root / "settings" / "tsconfig.json",
+              root / "settings" / "node_modules" / "typescript" / "package.json",
+              std::filesystem::path(ENGINE_SCRIPT_BUILDER),
+              std::filesystem::path(ENGINE_SCRIPT_BUILDER).parent_path().parent_path() / "include" /
+                  "engine.d.ts"})
+        {
+            std::string hash;
+            if (!hash_optional_file(path, hash, error))
+            {
+                return false;
+            }
+            scripts += ":" + hash;
+        }
+        std::string input_snapshot;
+        if (!run_process({ENGINE_NODE_EXECUTABLE, ENGINE_SCRIPT_BUILDER, "--project",
+                          PathUtils::to_utf8(root), "--inputs"},
+                         error, &input_snapshot))
+        {
+            return false;
+        }
+        scripts += ":" + hash_text(input_snapshot);
+        for (const auto& record : records)
+        {
+            if (record.asset.source.extension() == ".ts")
+            {
+                scripts +=
+                    ":" + record.asset.path + ":" + record.source_hash + ":" + record.meta_hash;
+            }
+        }
+    }
+    return true;
+}
+
+bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common,
+                    const std::string& shader, const std::string& scripts,
+                    std::map<Guid, std::size_t>& by_guid, std::string& error)
+{
+    std::vector<std::size_t> incoming(records.size(), 0);
+    std::vector<std::vector<std::size_t>> dependents(records.size());
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        by_guid.emplace(records[index].asset.guid, index);
+    }
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        for (const auto& guid : records[index].asset.dependencies)
+        {
+            const auto found = by_guid.find(guid);
+            if (found != by_guid.end())
+            {
+                ++incoming[index];
+                dependents[found->second].push_back(index);
+            }
+        }
+    }
+    std::queue<std::size_t> pending;
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        if (incoming[index] == 0)
+            pending.push(index);
+    }
+    std::size_t visited = 0;
+    while (!pending.empty())
+    {
+        const auto index = pending.front();
+        pending.pop();
+        ++visited;
+        auto& record = records[index];
+        std::string key =
+            common + ":" + record.asset.path + ":" + record.source_hash + ":" + record.meta_hash;
+        if (record.asset.kind == schema::AssetKind::shader)
+            key += ":" + shader;
+        if (record.asset.kind == schema::AssetKind::script)
+            key += ":" + scripts;
+        for (const auto& guid : record.asset.dependencies)
+        {
+            const auto found = by_guid.find(guid);
+            key += ":" + guid + ":" +
+                   (found != by_guid.end() ? records[found->second].build_key : "builtin-1");
+        }
+        record.build_key = hash_text(key);
+        for (const auto dependent : dependents[index])
+        {
+            if (--incoming[dependent] == 0)
+                pending.push(dependent);
+        }
+    }
+    if (visited != records.size())
+    {
+        error = "resource dependency cycle";
+        return false;
+    }
+    return true;
+}
+
+bool verify_sources(const std::vector<AssetRecord>& records, std::string& error)
+{
+    for (const auto& record : records)
+    {
+        std::string hash;
+        auto meta = record.asset.source;
+        meta += ".meta";
+        if (!file_hash(record.asset.source, hash, error) || hash != record.source_hash ||
+            !file_hash(meta, hash, error) || hash != record.meta_hash)
+        {
+            error = "source or meta changed during import; retry the build: " + record.asset.path;
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+AssetPipelineSystem::AssetPipelineSystem()
+{
+    std::unique_ptr<System> subsystem = std::make_unique<TaskSystem>();
+    auto* tasks = static_cast<TaskSystem*>(subsystem.get());
+    if (add_subsystem(subsystem))
+    {
+        tasks_ = tasks;
+    }
+}
 
 AssetPipelineSystem::~AssetPipelineSystem() noexcept
 {
@@ -23,33 +561,18 @@ AssetPipelineSystem::~AssetPipelineSystem() noexcept
 
 bool AssetPipelineSystem::on_initialize(const EngineConfig&)
 {
-    // 本阶段接入任务图，不启动 Taskflow 执行器或目录监听线程。
-    tf::Taskflow taskflow;
-    taskflow.emplace([] {});
-    if (taskflow.num_tasks() != 1)
+    if (tasks_ == nullptr || !register_builtin_render_resources())
     {
         return false;
     }
     efsw::FileWatcher watcher(true);
-
-    sqlite3* database = nullptr;
-    const int open_status = sqlite3_open(":memory:", &database);
-    const int close_status = sqlite3_close(database);
-    if (open_status != SQLITE_OK || close_status != SQLITE_OK)
-    {
-        return false;
-    }
-
     constexpr float vertices[][3] = {{0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}};
     unsigned int remap[2]{};
     if (meshopt_generateVertexRemap(remap, nullptr, 2, vertices, 2, sizeof(vertices[0])) != 1)
     {
         return false;
     }
-
-    // 内存 stage 验证 USD 插件与链接，不读写项目文件。
-    const auto stage = pxr::UsdStage::CreateInMemory();
-    return static_cast<bool>(stage);
+    return static_cast<bool>(pxr::UsdStage::CreateInMemory());
 }
 
 void AssetPipelineSystem::on_shutdown() noexcept
@@ -58,60 +581,359 @@ void AssetPipelineSystem::on_shutdown() noexcept
 
 bool AssetPipelineSystem::build_scripts(const std::filesystem::path& project_root)
 {
+    return build_assets(project_root);
+}
+
+bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root,
+                                       std::string_view requested_target)
+{
     last_error_.clear();
-    if (!is_initialized())
+    if (!is_initialized() || tasks_ == nullptr)
     {
         last_error_ = "asset pipeline is not initialized";
         return false;
     }
-    std::error_code error;
-    const auto root = std::filesystem::absolute(project_root, error);
-    if (error)
+    std::error_code code;
+    const auto root = std::filesystem::absolute(project_root, code).lexically_normal();
+    if (code || !directory(root, last_error_))
     {
-        last_error_ = "cannot resolve project directory: " + error.message();
+        if (last_error_.empty())
+            last_error_ = "cannot resolve project path";
         return false;
     }
-    const std::string root_text = PathUtils::to_utf8(root);
-    const char* arguments[] = {ENGINE_NODE_EXECUTABLE, ENGINE_SCRIPT_BUILDER, "--project",
-                               root_text.c_str(), nullptr};
-    const SDL_PropertiesID properties = SDL_CreateProperties();
-    const bool configured =
-        properties != 0 &&
-        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, arguments) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER,
-                              SDL_PROCESS_STDIO_NULL) &&
-        SDL_SetNumberProperty(properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER,
-                              SDL_PROCESS_STDIO_APP) &&
-        SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_STDERR_TO_STDOUT_BOOLEAN, true);
-    SDL_Process* process = configured ? SDL_CreateProcessWithProperties(properties) : nullptr;
-    SDL_DestroyProperties(properties);
-    if (process == nullptr)
+    for (const auto name : {"settings", "assets", "cache"})
     {
-        last_error_ = std::string("cannot start TypeScript compiler: ") + SDL_GetError();
+        if (!directory(root / name, last_error_))
+            return false;
+    }
+    const auto cache = root / "cache";
+    for (const auto name : {"assets.sqlite", "assets.sqlite-journal", "gen", "catalog.bin",
+                            ".asset-publish", ".asset-meta", ".asset-build.lock"})
+    {
+        if (!reject_symlink_if_present(cache / name, last_error_))
+            return false;
+    }
+    ProjectLock lock;
+    if (!lock.acquire(cache / ".asset-build.lock", last_error_))
+        return false;
+    AssetDatabase database;
+    if (!database.open(cache / "assets.sqlite", last_error_) ||
+        !recover_publish(cache, database, last_error_))
+        return false;
+    std::map<Guid, AssetRecord> previous;
+    std::set<std::string> remembered;
+    if (!database.load(previous, last_error_) ||
+        !remembered_paths(cache, previous, remembered, last_error_))
+        return false;
+
+    AssetBuildStats stats;
+    if (!import_threads(root / "settings", stats.import_threads, last_error_) ||
+        !tasks_->configure_threads(stats.import_threads))
+    {
+        if (last_error_.empty())
+            last_error_ = "cannot configure import workers while tasks are running";
         return false;
     }
-    std::size_t output_size = 0;
-    int exit_code = -1;
-    void* output = SDL_ReadProcess(process, &output_size, &exit_code);
-    if (output != nullptr && output_size != 0)
+    std::string platform;
+    std::string shader_platform;
+    std::string shader_profile;
+    if (!target_settings(requested_target, platform, shader_platform, shader_profile, last_error_))
+        return false;
+    GuidMap identities;
+    std::map<Guid, schema::AssetKind> kinds;
+    if (!builtin_identities(identities, kinds))
     {
-        last_error_.assign(static_cast<const char*>(output), output_size);
-        std::fwrite(output, 1, output_size, stderr);
+        last_error_ = "cannot register builtin resource identities";
+        return false;
     }
-    SDL_free(output);
-    const bool waited = SDL_WaitProcess(process, true, &exit_code);
-    SDL_DestroyProcess(process);
-    if (!waited || exit_code != 0)
+    // meta 先在缓存临时区完整写入，避免中断时在 assets 留下会被误导入的半成品。
+    std::filesystem::remove_all(cache / ".asset-meta", code);
+    if (!code)
+    {
+        std::filesystem::create_directory(cache / ".asset-meta", code);
+    }
+    if (code)
+    {
+        last_error_ = "cannot prepare meta staging: " + code.message();
+        return false;
+    }
+    std::vector<AssetRecord> records;
+    const bool scanned =
+        scan_assets(root / "assets", cache, remembered, identities, kinds, records, last_error_);
+    std::filesystem::remove_all(cache / ".asset-meta", code);
+    if (!scanned || code)
     {
         if (last_error_.empty())
         {
-            last_error_ =
-                "TypeScript compilation failed with exit code " + std::to_string(exit_code);
+            last_error_ = "cannot clean meta staging: " + code.message();
         }
         return false;
     }
-    last_error_.clear();
+    stats.scanned = records.size();
+    const auto workspace = cache / ".asset-publish";
+    const auto output = workspace / "staged-gen";
+    ImportContext context{identities, kinds,           root / "assets",
+                          output,     shader_platform, shader_profile};
+    for (auto& record : records)
+    {
+        if (!scan_dependencies(record.asset, context, last_error_))
+        {
+            last_error_ = record.asset.path + ": " + last_error_;
+            return false;
+        }
+    }
+    std::string common_key;
+    std::string shader_key;
+    std::string script_key;
+    if (!tool_key(root, records, platform, common_key, shader_key, script_key, last_error_))
+        return false;
+    common_key += ":" + shader_platform + ":" + shader_profile;
+    std::map<Guid, std::size_t> by_guid;
+    if (!calculate_keys(records, common_key, shader_key, script_key, by_guid, last_error_))
+        return false;
+    for (const auto& [guid, record] : previous)
+    {
+        (void)record;
+        if (!by_guid.contains(guid))
+            ++stats.removed;
+    }
+    std::filesystem::create_directories(output, code);
+    if (code)
+    {
+        last_error_ = "cannot create asset staging directory: " + code.message();
+        return false;
+    }
+    const auto fail = [&]()
+    {
+        std::string cleanup_error;
+        if (!recover_publish(cache, database, cleanup_error))
+        {
+            last_error_ += "; " + cleanup_error;
+        }
+        return false;
+    };
+    std::vector<bool> changed(records.size(), true);
+    bool compile_scripts = false;
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        auto& record = records[index];
+        const auto old = previous.find(record.asset.guid);
+        if (old != previous.end() && old->second.build_key == record.build_key)
+        {
+            std::vector<std::byte> bytes;
+            const auto file = cache / "gen" / record.asset.guid;
+            const auto status = std::filesystem::symlink_status(file, code);
+            if (!code && std::filesystem::is_regular_file(status) &&
+                !std::filesystem::is_symlink(status) && ResourceSystem::read_binary(file, bytes) &&
+                old->second.output_size == bytes.size() &&
+                old->second.output_hash == hash_bytes(bytes))
+            {
+                record.output_hash = old->second.output_hash;
+                record.output_size = old->second.output_size;
+                std::filesystem::create_hard_link(file, output / record.asset.guid, code);
+                if (code)
+                {
+                    code.clear();
+                    std::filesystem::copy_file(file, output / record.asset.guid, code);
+                }
+                if (code)
+                {
+                    last_error_ = "cannot stage reusable resource: " + code.message();
+                    return fail();
+                }
+                changed[index] = false;
+                ++stats.reused;
+            }
+            code.clear();
+        }
+        if (changed[index])
+        {
+            ++stats.imported;
+            compile_scripts = compile_scripts || record.asset.kind == schema::AssetKind::script;
+        }
+    }
+
+    std::vector<TaskDescription> tasks;
+    std::vector<std::string> errors(records.size() + 1);
+    const auto script_output = workspace / "scripts";
+    if (compile_scripts)
+    {
+        tasks.push_back({"Compile project TypeScript",
+                         [&]()
+                         {
+                             return run_process({ENGINE_NODE_EXECUTABLE, ENGINE_SCRIPT_BUILDER,
+                                                 "--project", PathUtils::to_utf8(root), "--output",
+                                                 PathUtils::to_utf8(script_output)},
+                                                errors.back());
+                         },
+                         {}});
+    }
+    std::map<Guid, std::size_t> task_by_guid;
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        if (!changed[index])
+            continue;
+        task_by_guid.emplace(records[index].asset.guid, tasks.size());
+        tasks.push_back(
+            {records[index].asset.path,
+             [&, index]()
+             {
+                 auto& record = records[index];
+                 bool success = false;
+                 if (record.asset.kind == schema::AssetKind::script)
+                 {
+                     std::vector<std::byte> bytes;
+                     success = read_bytes(script_output / PathUtils::from_utf8(record.module_path),
+                                          bytes, errors[index]) &&
+                               write_bytes(output / record.asset.guid, bytes, errors[index]);
+                 }
+                 else
+                 {
+                     success = convert_asset(record.asset, context, errors[index]);
+                 }
+                 if (!success)
+                     return false;
+                 std::vector<std::byte> bytes;
+                 if (!read_bytes(output / record.asset.guid, bytes, errors[index]))
+                     return false;
+                 record.output_size = bytes.size();
+                 record.output_hash = hash_bytes(bytes);
+                 return true;
+             },
+             {}});
+    }
+    for (std::size_t index = 0; index < records.size(); ++index)
+    {
+        if (!changed[index])
+            continue;
+        auto& task = tasks[task_by_guid.at(records[index].asset.guid)];
+        if (records[index].asset.kind == schema::AssetKind::script)
+            task.dependencies.push_back(0);
+        for (const auto& guid : records[index].asset.dependencies)
+        {
+            const auto dependency = task_by_guid.find(guid);
+            if (dependency != task_by_guid.end())
+                task.dependencies.push_back(dependency->second);
+        }
+    }
+    if (!tasks_->run(tasks))
+    {
+        last_error_ = tasks_->last_error();
+        for (const auto& error : errors)
+        {
+            if (!error.empty())
+                last_error_ += "\n" + error;
+        }
+        return fail();
+    }
+    if (!verify_sources(records, last_error_))
+        return fail();
+    // TS 配置和工具同样需要稳定，防止编译过程中更新设置而发布混合产物。
+    std::string rechecked_common;
+    std::string rechecked_shader;
+    std::string rechecked_script;
+    if (!tool_key(root, records, platform, rechecked_common, rechecked_shader, rechecked_script,
+                  last_error_) ||
+        rechecked_common + ":" + shader_platform + ":" + shader_profile != common_key ||
+        rechecked_shader != shader_key || rechecked_script != script_key)
+    {
+        if (last_error_.empty())
+            last_error_ = "import tools or settings changed during build; retry";
+        return fail();
+    }
+    // 发布前再检查暂存产物，缓存复用也不允许中途被外部写入改变。
+    for (const auto& record : records)
+    {
+        std::vector<std::byte> bytes;
+        if (!read_bytes(output / record.asset.guid, bytes, last_error_) ||
+            bytes.size() != record.output_size || hash_bytes(bytes) != record.output_hash)
+        {
+            last_error_ = "staged resource changed during import: " + record.asset.path;
+            return fail();
+        }
+    }
+    std::string previous_revision;
+    if (!database.revision(previous_revision, last_error_))
+    {
+        return fail();
+    }
+    schema::AssetCatalogDataT catalog;
+    catalog.revision = previous_revision;
+    catalog.target_platform = platform;
+    for (const auto& record : records)
+    {
+        auto entry = std::make_unique<schema::AssetEntryT>();
+        entry->guid = record.asset.guid;
+        entry->path = record.asset.path;
+        entry->kind = record.asset.kind;
+        entry->content_hash = record.output_hash;
+        entry->content_size = record.output_size;
+        entry->dependencies = record.asset.dependencies;
+        entry->module_path = record.module_path;
+        catalog.entries.push_back(std::move(entry));
+    }
+    // 没有变化时保持 revision/catalog/正式文件时间不变；同时确认目录没有多余文件。
+    if (stats.imported == 0 && stats.removed == 0 && previous.size() == records.size() &&
+        !previous_revision.empty())
+    {
+        bool exact_files = true;
+        std::size_t file_count = 0;
+        std::filesystem::directory_iterator generated(cache / "gen", code);
+        const std::filesystem::directory_iterator end;
+        while (!code && generated != end)
+        {
+            const auto filename = PathUtils::to_utf8(generated->path().filename());
+            const auto status = generated->symlink_status(code);
+            if (code || !std::filesystem::is_regular_file(status) ||
+                std::filesystem::is_symlink(status) || !by_guid.contains(filename))
+            {
+                exact_files = false;
+                break;
+            }
+            ++file_count;
+            generated.increment(code);
+        }
+        exact_files = exact_files && !code && file_count == records.size();
+        code.clear();
+        std::vector<std::byte> catalog_bytes;
+        if (exact_files && ResourceSystem::read_binary(cache / "catalog.bin", catalog_bytes))
+        {
+            flatbuffers::Verifier verifier(
+                reinterpret_cast<const std::uint8_t*>(catalog_bytes.data()), catalog_bytes.size());
+            if (schema::VerifyAssetCatalogDataBuffer(verifier))
+            {
+                std::unique_ptr<schema::AssetCatalogDataT> previous_catalog(
+                    schema::GetAssetCatalogData(catalog_bytes.data())->UnPack());
+                if (*previous_catalog == catalog)
+                {
+                    stats.revision = previous_revision;
+                    if (!recover_publish(cache, database, last_error_))
+                    {
+                        return false;
+                    }
+                    last_build_ = std::move(stats);
+                    return true;
+                }
+            }
+        }
+    }
+    stats.revision = new_guid();
+    catalog.revision = stats.revision;
+    flatbuffers::FlatBufferBuilder builder;
+    schema::FinishAssetCatalogDataBuffer(builder,
+                                         schema::AssetCatalogData::Pack(builder, &catalog));
+    if (!write_bytes(workspace / "staged-catalog.bin",
+                     std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
+                     last_error_) ||
+        !publish_assets(cache, database, records, stats.revision, last_error_))
+        return fail();
+    last_build_ = std::move(stats);
     return true;
+}
+
+const AssetBuildStats& AssetPipelineSystem::last_build() const noexcept
+{
+    return last_build_;
 }
 
 const std::string& AssetPipelineSystem::last_error() const noexcept

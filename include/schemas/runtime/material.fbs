@@ -1,0 +1,20 @@
+include "common.fbs";
+namespace engine.schema;
+
+table MaterialParameter {
+  name:string (required);
+  value:MaterialValue (required);
+}
+
+table MaterialData {
+  schema_version:uint = 1;
+  shader_guid:string;
+  // Origin and identity are both encoded in builtin/ or project/ paths.
+  type_path:string (required);
+  // A builtin/ material cannot depend on a project/ shader.
+  shader_path:string (required);
+  parameters:[MaterialParameter] (required);
+}
+
+root_type MaterialData;
+file_identifier "EMAT";

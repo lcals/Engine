@@ -308,7 +308,7 @@ bool component_contracts()
     if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
                     material.set_float("metallic", 0.6F) && material.set_float("roughness", 0.2F) &&
                     material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)) &&
-                    mesh->mesh() == engine::MeshKind::cube,
+                    mesh->mesh_path() == "builtin/meshes/cube",
                 "configure built-in cube material by named typed parameters"))
     {
         return false;

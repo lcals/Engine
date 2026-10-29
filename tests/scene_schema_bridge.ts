@@ -6,7 +6,6 @@ import {
     FloatValueT,
     LightDataT,
     MaterialValue,
-    MeshKind,
     MeshRendererDataT,
     NodeDataT,
     SceneData,
@@ -83,50 +82,17 @@ expect(cameraData instanceof CameraDataT && cameraData.fovDegrees === 75 &&
     "read generated camera values");
 expect(lightData instanceof LightDataT && lightData.color &&
     lightData.intensity === 4.5 && lightData.color.g === 0.5, "read light union payload");
-expect(mesh instanceof MeshRendererDataT && mesh.material &&
-    mesh.mesh === MeshKind.cube && !meshComponent.enabled &&
-    mesh.material.typePath === "project/materials/tests/typed" &&
-    mesh.material.shaderPath === "project/shaders/tests/typed" && mesh.material.parameters.length === 5,
-    "read typed C++ snapshot material and component state");
-const baseColor = mesh.material.parameters.find((value) => value.name === "baseColor");
-const metallic = mesh.material.parameters.find((value) => value.name === "metallic");
-const roughness = mesh.material.parameters.find((value) => value.name === "roughness");
-const position = mesh.material.parameters.find((value) => value.name === "pos");
-const foo = mesh.material.parameters.find((value) => value.name === "foo");
-expect(baseColor && baseColor.valueType === MaterialValue.Vec4Value &&
-    baseColor.value instanceof Vec4ValueT && baseColor.value.value &&
-    baseColor.value.value.x === 0.75 && baseColor.value.value.y === 0.25 &&
-    baseColor.value.value.z === 0.125 && baseColor.value.value.w === 1,
-    "read named Vec4 material parameter through generated union");
-expect(metallic && metallic.valueType === MaterialValue.FloatValue &&
-    metallic.value instanceof FloatValueT && metallic.value.value === 0.625,
-    "read named float parameter from independent runtime snapshot");
-expect(roughness && roughness.valueType === MaterialValue.FloatValue &&
-    roughness.value instanceof FloatValueT && roughness.value.value === 0.25,
-    "read named roughness parameter");
-
-expect(position && position.valueType === MaterialValue.Vec2Value &&
-    position.value instanceof Vec2ValueT && position.value.value &&
-    position.value.value.x === 1.25 && position.value.value.y === 2.5,
-    "read custom shader Vec2 parameter through generated union");
-expect(foo && foo.valueType === MaterialValue.Vec3Value &&
-    foo.value instanceof Vec3ValueT && foo.value.value &&
-    foo.value.value.x === 3 && foo.value.value.y === 4 && foo.value.value.z === 5,
-    "read custom shader Vec3 parameter through generated union");
+expect(mesh instanceof MeshRendererDataT && !meshComponent.enabled &&
+    mesh.meshGuid === "00000000-0000-4000-8000-000000000005" &&
+    mesh.materialGuid === "00000000-0000-4000-8000-000000000003",
+    "read external resource GUID references without embedding material definitions");
 
 scene.info.name = "TypeScript 场景";
 transform.position.x = 42.5;
 cameraData.fovDegrees = 55;
 lightData.intensity = 7.5;
 meshComponent.enabled = true;
-metallic.value.value = 0.125;
-roughness.value.value = 0.75;
-baseColor.value.value.y = 0.5;
-position.value.value.x = 11.5;
-position.value.value.y = 12.5;
-foo.value.value.x = 21;
-foo.value.value.y = 22;
-foo.value.value.z = 23;
+mesh.materialGuid = "00000000-0000-4000-8000-000000000004";
 
 const builder = new flatbuffers.Builder();
 SceneData.finishSceneDataBuffer(builder, scene.pack(builder));

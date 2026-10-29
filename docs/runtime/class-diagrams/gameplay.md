@@ -32,10 +32,10 @@ classDiagram
 
 - 项目写 `export default class Game extends Gameplay`，可直接承载业务或组织业务对象，不挂到节点。一个运行中的项目只有一个入口实例。
 - `OnInitialize(): boolean` 在模块执行和构造后调用；必须返回布尔值，基类默认 true。`Update(): void` 每帧一次；`OnShutdown(): void` 在停止、重载或部分初始化失败清理时调用；基类后二者为空实现。
-- 入口在 OnInitialize 显式创建一个 Scene，所有可见对象、相机与灯光都由 Node 持有对应 Component；本轮不实现场景文件加载或自定义脚本组件。
+- 入口在 OnInitialize 通过 Scene.Load 加载编译场景，也可显式创建 Scene；所有可见对象、相机与灯光都由 Node 持有对应 Component，本轮不增加自定义脚本组件。
 - `Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 分别绑定 C++ 日志 info、warning、error，参数为字符串，默认落盘。
 - App 暴露静态只读字符串 `builtinAssetsPath`、`persistentDataPath`、`cachePath`，对应 C++ App 路径。宿主初始化，脚本不能改写；不提供脚本文件写入 API。
-- 声明统一位于 [include/engine.d.ts](../../../include/engine.d.ts)。TS 配置在项目 settings，源码在 assets，生成 JS 在 cache 并保持相对路径；运行时执行 JS。
+- 声明统一位于 [include/engine.d.ts](../../../include/engine.d.ts)。TS 配置在项目 settings，源码在 assets，生成 JS 沿用源 TS 的 GUID 并写入 cache/gen/<GUID>；catalog 的 module_path 保留相对 import 语义，运行时执行 JS。
 - 热重载重建 Context、模块和 Game，JS 实例及闭包重新开始；不承诺任意状态保留。预检失败保留旧运行，执行失败明确报告。
 
 
@@ -48,6 +48,8 @@ classDiagram
     direction TB
     class Scene {
         +Create(name string) Scene?$
+        +Load(path string) Scene?$
+        +FindNode(name string) Node?
         +IsValid() bool
         +CreateNode(name string) Node?
         +SetActiveCamera(camera Camera?) bool
@@ -116,6 +118,8 @@ classDiagram
 - Scene、Node 与具体组件不能由脚本直接构造；Create/Add 失败返回 null，修改和有效性检查返回 bool。每个 Node 每类组件最多一个。CreateNode 自动添加 Transform；通过 `node.GetComponent(Transform)` 取得变换，通过 `node.AddComponent(Camera)` 添加相机。泛型推导返回具体组件类型，重复添加返回 null，缺失或非法类型查询返回 null。类型注册与转换在脚本绑定层，原生 Node 不枚举具体组件。
 - `Component.node` 与 `Time.deltaTime` 只读；组件引用和节点引用在节点销毁、场景销毁或玩法退出后失效。
 - SetParent 保留局部变换，null 解除父子关系，拒绝循环和跨场景关系；Destroy Node 同时销毁其子树。旋转使用度，前向为 -Z。
-- 持久数据模型由 `schemas/runtime/scene.fbs` 定义，原生组件持有生成的对象数据；脚本 API 是行为绑定，材质命名参数经验证写入生成数据，不作为另一套磁盘格式。
+- 持久数据模型由 `include/schemas/runtime/scene.fbs` 定义，原生组件持有生成的对象数据；脚本 API 是行为绑定，材质命名参数经验证写入生成数据，不作为另一套磁盘格式。
 - `MeshRenderer.material` 返回该组件所属材质的借用包装；材质和 Shader 各自通过唯一资源路径字符串指定，分别由 SetType 与 SetShader 选择。内置 builtin/materials/default-pbr 引用 builtin/shaders/pbr，声明 baseColor（V4）、metallic（Float）、roughness（Float），builtin/materials/default-unlit 引用 builtin/shaders/unlit，声明 baseColor（V4）。SetV2/SetV3 是统一类型接口，只有材质声明相应参数时可写入；未知名字、错误类型和无效数值返回 false 并保留原值。变更材质类型或 Shader 重建所选定义的默认参数，同路径设置保持原值；未知路径返回 false。首版 MeshRenderer 使用内置立方体。
-- 本轮样例在 OnInitialize 创建方块 MeshRenderer、相机 Camera、定向灯 Light；Update 使用 Time.deltaTime 旋转，OnShutdown 结束后由 ScriptSystem 统一释放场景。
+- 本轮样例在 OnInitialize 加载包含方块 MeshRenderer、相机 Camera、定向灯 Light 的场景；通过 FindNode 找到方块，Update 使用 Time.deltaTime 旋转，OnShutdown 结束后由 ScriptSystem 统一释放场景。
+
+`Scene.Load(path)` 从当前 Run 已激活的 GUID catalog 读取已编译场景；输入使用 project/ 逻辑资源路径，例如 project/scenes/main.scene，成功替换活动场景，失败返回 null 且保留原场景。运行时不解析编辑器 JSON、不访问 SQLite。

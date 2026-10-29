@@ -36,29 +36,38 @@ function(engine_add_scene_schema)
         message(FATAL_ERROR "ENGINE_FLATC_EXECUTABLE cannot run on this host: ${ENGINE_FLATC_EXECUTABLE}")
     endif()
 
-    set(_schema "${PROJECT_SOURCE_DIR}/schemas/runtime/scene.fbs")
+    set(_schema_dir "${PROJECT_SOURCE_DIR}/include/schemas/runtime")
     set(_include_root "${PROJECT_BINARY_DIR}/generated/include/engine")
     set(_cpp_dir "${_include_root}/runtime/schema")
     set(_ts_dir "${PROJECT_BINARY_DIR}/generated/typescript")
-    set(_cpp_header "${_cpp_dir}/scene_generated.h")
-    set(_ts_outputs "${_ts_dir}/engine/schema.ts")
-    foreach(_name vec2 vec3 vec4 color mesh-kind transform-data camera-data light-data
-            float-value vec2-value vec3-value vec4-value material-value
-            shader-parameter shader-data material-parameter material-data
-            mesh-renderer-data component-payload component-data node-info node-data scene-info
-            scene-data)
-        list(APPEND _ts_outputs "${_ts_dir}/engine/schema/${_name}.ts")
+    set(_schemas)
+    set(_cpp_headers)
+    foreach(_name common scene mesh shader material asset_catalog)
+        list(APPEND _schemas "${_schema_dir}/${_name}.fbs")
+        list(APPEND _cpp_headers "${_cpp_dir}/${_name}_generated.h")
     endforeach()
-    add_custom_command(OUTPUT "${_cpp_header}" ${_ts_outputs}
+    # 聚合入口只用于生成统一 TS 导出，避免同 namespace 的独立 schema 相互覆盖 barrel。
+    set(_ts_schema "${PROJECT_BINARY_DIR}/generated/all.fbs")
+    file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/generated")
+    file(WRITE "${_ts_schema}" "include \"common.fbs\";\ninclude \"scene.fbs\";\ninclude \"mesh.fbs\";\ninclude \"shader.fbs\";\ninclude \"material.fbs\";\ninclude \"asset_catalog.fbs\";\nnamespace engine.schema;\nroot_type SceneData;\n")
+    set(_stamp "${PROJECT_BINARY_DIR}/generated/schema.stamp")
+    set(_ts_aggregate "${PROJECT_BINARY_DIR}/generated/typescript-aggregate")
+    set(_ts_barrel "${_ts_dir}/engine/schema.ts")
+    add_custom_command(OUTPUT ${_cpp_headers} "${_stamp}" "${_ts_barrel}"
         COMMAND "${CMAKE_COMMAND}" -E make_directory "${_cpp_dir}" "${_ts_dir}"
         COMMAND "${ENGINE_FLATC_EXECUTABLE}" --cpp --gen-object-api --gen-mutable --gen-compare
-            --scoped-enums -o "${_cpp_dir}" "${_schema}"
+            --scoped-enums -I "${_schema_dir}" -o "${_cpp_dir}" ${_schemas}
+        COMMAND "${ENGINE_FLATC_EXECUTABLE}" --ts --gen-all --gen-object-api --ts-entry-points
+            -I "${_schema_dir}" -o "${_ts_aggregate}" "${_ts_schema}"
         COMMAND "${ENGINE_FLATC_EXECUTABLE}" --ts --gen-object-api --ts-entry-points
-            -o "${_ts_dir}" "${_schema}"
-        DEPENDS "${_schema}" "${ENGINE_FLATC_EXECUTABLE}"
-        COMMENT "Generating shared C++ and TypeScript scene data from FlatBuffers"
+            -I "${_schema_dir}" -o "${_ts_dir}" ${_schemas}
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${_ts_aggregate}/engine/schema.ts" "${_ts_barrel}"
+        COMMAND "${CMAKE_COMMAND}" -E touch "${_stamp}"
+        DEPENDS ${_schemas} "${ENGINE_FLATC_EXECUTABLE}"
+        COMMENT "Generating shared C++ and TypeScript asset data from FlatBuffers"
         VERBATIM)
-    add_custom_target(engine_scene_schema DEPENDS "${_cpp_header}" ${_ts_outputs})
+    add_custom_target(engine_scene_schema DEPENDS ${_cpp_headers} "${_stamp}" "${_ts_barrel}")
     add_library(engine_scene_data INTERFACE)
     add_library(engine::scene_data ALIAS engine_scene_data)
     add_dependencies(engine_scene_data engine_scene_schema)

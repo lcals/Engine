@@ -8,6 +8,15 @@ if(NOT ENGINE_ENABLE_V8 OR NOT TARGET engine::v8 OR NOT ENGINE_V8_ICU_DATA OR
 endif()
 set(ENGINE_ANDROID_PROJECT "${PROJECT_SOURCE_DIR}/projects/minimal" CACHE PATH
     "Project whose compiled assets are packaged in the Android application")
+set(ENGINE_ANDROID_ASSET_BUILDER "" CACHE FILEPATH
+    "Host asset_build_app used to compile GUID assets for Android; empty reuses an Android catalog")
+set(_engine_android_asset_builder_arguments)
+if(ENGINE_ANDROID_ASSET_BUILDER)
+    if(NOT EXISTS "${ENGINE_ANDROID_ASSET_BUILDER}" OR IS_DIRECTORY "${ENGINE_ANDROID_ASSET_BUILDER}")
+        message(FATAL_ERROR "ENGINE_ANDROID_ASSET_BUILDER must name an existing host asset_build_app")
+    endif()
+    list(APPEND _engine_android_asset_builder_arguments --asset-builder "${ENGINE_ANDROID_ASSET_BUILDER}")
+endif()
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 target_compile_definitions(engine_app PRIVATE ENGINE_START_PACKAGED_GAMEPLAY=1)
 target_sources(engine_app PRIVATE
@@ -45,6 +54,7 @@ add_custom_target(engine_android_bundle
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/prepare_android_assets.py"
         --project "${ENGINE_ANDROID_PROJECT}"
         --output "${CMAKE_CURRENT_BINARY_DIR}/android/assets"
+        ${_engine_android_asset_builder_arguments}
     DEPENDS engine_app
     COMMENT "Preparing Android libraries, SDL3 Java, V8 ICU and compiled project assets"
     VERBATIM)

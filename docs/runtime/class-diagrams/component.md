@@ -29,7 +29,8 @@ classDiagram
         +set_settings(const LightSettings& settings) bool
     }
     class MeshRenderer {
-        +mesh() MeshKind
+        +mesh_path() string_view
+        +set_mesh(string_view path) bool
         +material() Material&
         +material() const Material&
         -initialize() bool
@@ -62,8 +63,8 @@ classDiagram
     }
     class MeshRendererDataT {
         <<FlatBuffers生成>>
-        +MeshKind mesh
-        +unique_ptr~MaterialDataT~ material
+        +string mesh_guid
+        +string material_guid
     }
     class Material
     class MaterialDataT
@@ -79,12 +80,12 @@ classDiagram
     ComponentPayloadUnion *-- CameraDataT : 可选载荷
     ComponentPayloadUnion *-- LightDataT : 可选载荷
     ComponentPayloadUnion *-- MeshRendererDataT : 可选载荷
-    MeshRendererDataT *-- MaterialDataT : 材质
+    MeshRendererDataT ..> MaterialDataT : GUID引用定义
     Transform ..> TransformDataT : settings别名
     Camera ..> CameraDataT : settings别名
     Light ..> LightDataT : settings别名
     MeshRenderer *-- Material : 独占参数行为
-    Material --> MaterialDataT : 借用同一生成数据
+    Material *-- MaterialDataT : 独占生成的运行时实例
 ```
 
 - 所有状态类型由 FlatBuffers schema 生成。`TransformSettings`、`CameraSettings`、`LightSettings` 是生成类型的别名；Material 是按名字设置参数的行为类；Vec2/Vec3/Vec4/Color 也是生成结构，通过 `x()` / `mutate_x()`、`r()` / `mutate_r()` 访问。没有手写重复字段。
@@ -93,7 +94,7 @@ classDiagram
 - Transform 是普通组件。Scene 创建 Node 后添加 Transform，变换逻辑全部位于 Transform。位置和欧拉角用 double，角度单位为度，矩阵为 `T * Rz * Ry * Rx * S`，Y 向上、局部前向 -Z。
 - 变换必须全部有限，缩放非零，可为负数；失败保持原值。`world_matrix()` 写 16 个列主序 float，父链缺失变换或溢出时返回 false，非空输出保持单位矩阵。
 - Camera 从同节点 Transform 获得位置和朝向；视场角在 (0,180)，近裁面大于 0，远裁面大于近裁面。Light 当前是平行光，使用世界 -Z，强度非负且有限。
-- MeshRenderer 当前使用内置 cube，提供 Material 借用。材质先选择类型，再按名称设置带类型参数，具体参数及失败规则见独立材质类图。
+- MeshRenderer 默认使用内置 cube，通过 set_mesh 选择已注册且具有 GUID 的 Mesh 资源，提供 Material 借用。材质先选择类型，再按名称设置带类型参数，具体参数及失败规则见独立材质类图。
 - 禁用不改变所有权；Transform 的启用标记不改变层级空间关系。GPU 缓冲、Shader 和管线仍由 RenderSystem 管理。
 
-- `data()` 提供生成组件数据的只读借用，调用者不得修改或转移其嵌套载荷；常规变更通过具体组件的方法完成。
+- `data()` 提供生成组件数据的只读借用，调用者不得修改或转移其嵌套载荷；常规变更通过具体组件的方法完成。MeshRenderer 的材质引用由 Scene::build_data 根据当前材质路径解析 GUID；场景不嵌入整个运行时材质实例。

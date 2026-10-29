@@ -1,12 +1,18 @@
 # 引擎类图
 
-状态：本轮实现节点组件场景、内置 PBR 方块，以及编辑器同一窗口内的项目启停。下列图是架构评审入口；具体构建、测试和平台验证结果见根 [README.md](../../README.md)。
+状态：本轮增加资源落盘、GUID 缓存、Taskflow 导入与 SQLite 增量索引；运行时加载场景、网格、材质与 Shader 二进制。下列图是架构评审入口；具体构建、测试和平台验证结果见根 [README.md](../../README.md)。
 
 本轮新增桌面编辑器脚本闭环：平台路径、默认写盘日志、TS 项目入口、持久脚本缓存、MCP 同步与热重载。此前已接入 Android APK 运行与设备同步；当前新增场景和渲染先验证桌面，Android 方块与 PBR 需在桌面审核后单独验证。
 
+- [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
+
+- [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
+- [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
+- [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
+
 ## 本轮场景与项目运行
 
-- 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；本版只简化数据来源，Mesh 与参数内置。
+- 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
@@ -16,7 +22,7 @@
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [MCP](../plugins/class-diagrams/mcp-system.md)：start_project、stop_project 完成回执；保留同步及热重载工具。
-- [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 创建节点与组件，运行停止或重载后旧引用安全失效。
+- [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。
 
 - [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
 
@@ -52,7 +58,7 @@
 | 1 | [窗口系统](../runtime/class-diagrams/window-system.md) | SDL3 窗口和事件 |
 | 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | SDL3 同步文本/二进制读取，FlatBuffers、Basis Universal 接入 |
 | 3 | [世界系统](../runtime/class-diagrams/world-system.md) | flecs 世界、节点组件场景及子系统生命周期 |
-| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | bgfx 初始化、空白窗口与内置方块 PBR 绘制 |
+| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | bgfx 初始化、空白窗口与资源网格 PBR 绘制 |
 
 ## 世界子系统
 

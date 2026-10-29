@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [世界系统](world-system.md) · [节点](node.md)
 
-场景中所有对象均为 Node 与 Component 的组合；跨语言数据及未来落盘格式由 FlatBuffers schema 定义。
+场景中所有对象均为 Node 与 Component 的组合；跨语言数据及缓存二进制格式由 FlatBuffers schema 定义。
 
 ```mermaid
 classDiagram
@@ -19,6 +19,8 @@ classDiagram
         +active_camera() const Camera#42;
         +set_active_camera(Camera#42; camera) bool
         +build_data(SceneDataT& output) bool
+        -restore_data(const SceneDataT& data) bool
+        -find_local_node(uint64_t local_id) Node#42;
     }
     class WorldSystem
     class Node
@@ -56,5 +58,7 @@ classDiagram
 - Camera 添加后由调用方显式 `set_active_camera()`，没有添加组件隐式修改场景状态的行为。传空指针清除，拒绝其他场景的相机。
 - `destroy_node()` 连同后代一起删除；如果活动相机属于该子树，清除记录的相机节点 id。不存在时返回 false。
 - 返回节点和组件均为借用，删除所属节点或场景后失效。遍历 `nodes()` 期间不可增加或删除节点。
-- `build_data()` 从生成类型组成的运行时状态创建独立的 `SceneDataT` 内存快照；失败输出为空。快照可由 FlatBuffers Pack、Verifier、UnPack，并保留层级、组件类型及参数。本轮验证内存往返，不实现磁盘写入或加载。
-- `schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。后续其他语言从同一 schema 生成类型，不另定义数据模型。
+- `build_data()` 从生成类型组成的运行时状态创建独立的 `SceneDataT` 内存快照；失败输出为空。快照可由 FlatBuffers Pack、Verifier、UnPack，并保留层级、组件类型及参数。资源写入由编辑器转换器完成；WorldSystem 读取运行时缓存并向候选 Scene 恢复数据。
+- `include/schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。后续其他语言从同一 schema 生成类型，不另定义数据模型。
+
+`build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
