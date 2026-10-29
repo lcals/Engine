@@ -318,7 +318,7 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 
 `emulator-5580` 是本轮测试实例，其他环境用 `adb devices` 确认实际序列号。已有进程要改用不同启动参数时，先用 `adb -s <serial> shell am force-stop org.engine.minimal` 停止本应用，再重新启动；不需要清除模拟器或应用数据。模拟器必须提供 Vulkan；软件 Vulkan 也可验证功能，但不能用来衡量真机 GPU 性能。
 
-### Android 脚本同步与热重载
+### Android 资源同步与热重载
 
 | App 接口 | Android 指向 |
 | --- | --- |
@@ -331,16 +331,16 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
-# 修改项目 assets 下的 TS 后同步；无需重新打 APK。
+# 修改项目 assets 下的脚本、场景、材质等资源后同步；无需重新打 APK。
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal sync
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
 ```
 
 adb 不在 PATH 时添加 `--adb <adb可执行文件>`。真机使用 `adb devices` 中的实际序列号；需要设备已经授权 adb 调试。MCP 运行在电脑，通过 `run-as` 写入该调试包的私有持久目录，手机不安装 MCP 服务。此通路仅支持 debuggable APK；Release 保持不可调试，同步请求会返回明确错误。
 
-设备同步先上传暂存版本、读回验证大小与哈希，再改名为不可变版本，最后原子发布 `available.json`。发布过程使用设备目录锁；发布前失败保留旧的可用版本。最终发布回执丢失会报告未确认，此时应查询设备状态。每次同步合并 APK 导出的 `builtin.json` 与已有发布清单作为删除基线，APK 升级新增的路径也参与计算，避免删除的资源意外从 APK 恢复。脚本系统逐路径优先使用持久版本，未覆盖的路径回退 APK，删除标记禁止回退。可写版本在 `persistentDataPath`，不会因临时缓存清理而丢失。
+设备同步先上传暂存版本、读回验证大小与哈希，再改名为不可变版本，最后原子发布 `available.json`。发布过程使用设备目录锁；发布前失败保留旧的可用版本。最终发布回执丢失会报告未确认，此时应查询设备状态。每个 GUID 版本必须包含完整的 `catalog.bin` 和其引用的 `gen/<GUID>`；运行时优先使用持久版本，没有持久版本时读取 APK 内置目录。同一次玩法运行固定使用一份完整 catalog，不能把不同版本的场景、材质和脚本混用；重载校验失败时保留原活动版本。删除资源在下一份完整 catalog 中不再出现，不会从 APK 意外恢复。可写版本在 `persistentDataPath`，不会因临时缓存清理而丢失。
 
-热重载由引擎逐帧决定是否执行；关闭开关仍可同步文件，开启后加载最新版本。用 `status` 确认 `activeRevision` 与 `availableRevision` 相同且 `running=true`，同时检查 `lastError`。APK 更新或普通重启不会覆盖现有可用脚本版本；要恢复包内脚本，应先停止应用并由开发者明确清理对应同步数据。
+热重载由引擎逐帧决定是否执行；关闭开关仍可同步文件，开启后加载最新版本。用 `status` 确认 `activeRevision` 与 `availableRevision` 相同且 `running=true`，同时检查 `lastError`。APK 更新或普通重启不会覆盖现有可用资源版本；要恢复包内资源，应先停止应用并由开发者明确清理对应同步数据。
 
 ## CI
 
@@ -557,3 +557,18 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 - 59 个 Mermaid 块实际解析与渲染通过；52 个 C++ 文件格式检查通过，51 份文档中的 257 个本地链接有效。记录位于忽略的 `build/guid-asset-validation/`。
 
 本轮未重新构建 Android APK，也未执行 Android 真机或 Windows/Linux/iOS 运行验证；未触发 CI。当前场景保存资源 GUID，运行时材质实例修改不会自动回写源材质；图片等尚无专用转换的资源按原始字节缓存和同步。
+
+### GUID 资源管线的 Android 验收
+
+2026-10-29：先将 GUID 资源管线合回原 `feat/scene-pbr-runtime`，在该分支完成 Android 修复和验收。后续实现、修复和平台验证继续使用原功能分支；独立新功能只能从主干开分支。
+
+- Android ARM64 Debug / Release 原生库及 APK 均成功构建，V8 与上游库命中缓存。补齐显式宿主 FlatBuffers 工具依赖，并让 CMake 逐个验证 `flatc` 是否能在宿主运行；Gradle 改为检查 GUID `catalog.bin`。模拟交叉编译验证了不可执行候选跳过、旧缓存清除和 C++ / TS Schema 生成。
+- APK 使用 Android 平台 catalog；场景、Mesh、材质、Shader 和脚本按完整 GUID 无后缀打包。样例相机调远，完整旋转方块可容纳在竖屏视野内；没有修改 Renderer 的矩阵或平台投影规则。
+- Debug 在 ARM64 / API 34 模拟器中验证完整资源同步：13 个文件（catalog 加 12 个 GUID 产物）逐字节、大小和哈希一致，覆盖场景、Mesh、材质、Shader、TS→JS、相对模块导入、PNG、原始二进制及空文件。材质改变保持同一进程并实际改变像素；关闭热重载后画面保持不变，再开启即应用待处理版本。
+- 坏 TypeScript、未知源 GUID 和外层哈希正确但 catalog GUID 无效的候选均被拒绝，旧活动版本保持运行；恢复有效资源后可继续重载。持久版本跨进程重启保留，三轮前后台切换正常，180 帧退出有玩法关闭和 bgfx `Shutdown complete` 记录。测试恢复原控制文件及发布指针，只删除自身创建的版本。
+- Release 在已有 `GameDev` 模拟器验证启动、三轮前后台、120 帧正常退出和 V8 smoke（包括 Intl / Temporal）；最终包与设备 APK 哈希一致，保留应用数据并重新启动。Release 的 `run-as` 正确拒绝。
+- macOS Debug / Release 完整构建及 CTest 各 34/34 通过；样例相机调整后，两种配置的真实编辑器项目生命周期测试再次通过。
+
+APK 签名和 16 KB ZIP 对齐检查通过；这不等同于全部原生库支持 16 KB 内存页，当前 SDL3 的 ELF LOAD 对齐仍为 4 KB，尚未完成 16 KB 页设备兼容验证。两种包仍为本机调试签名。
+
+构建、设备日志、截图、逐项报告保存在忽略的 `build/android-guid-validation/`。已有 `GameDev` 存储不足以安装 Debug，保留该应用数据后安装较小的 Release；Debug 使用独立验证 AVD，不清理其他应用数据。本轮只验证模拟器，未验证实体手机、Windows / Linux / iOS；软件 Vulkan 不代表真机性能。未触发 CI。

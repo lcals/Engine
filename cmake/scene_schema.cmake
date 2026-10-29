@@ -1,12 +1,32 @@
 # FlatBuffers 编译器始终在宿主运行，生成的类型在目标平台编译。
+function(engine_validate_host_flatc result candidate)
+    execute_process(COMMAND "${candidate}" --version
+        RESULT_VARIABLE _result OUTPUT_QUIET ERROR_QUIET TIMEOUT 10)
+    if(NOT _result EQUAL 0)
+        set(${result} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
 function(engine_add_scene_schema)
     if(TARGET engine_scene_data)
         return()
     endif()
     set(ENGINE_FLATC_EXECUTABLE "" CACHE FILEPATH "Host FlatBuffers compiler executable")
     if(NOT ENGINE_FLATC_EXECUTABLE)
+        set(_flatc_hints "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/tools/flatbuffers")
+        # vcpkg 自动选择宿主 triplet 时不会向 CMake 导出该变量；从已安装工具中查找。
+        # 逐个执行 --version，跳过不能在宿主运行的目标平台工具。
+        if(VCPKG_INSTALLED_DIR AND NOT VCPKG_HOST_TRIPLET)
+            file(GLOB _flatc_installed_tools LIST_DIRECTORIES TRUE
+                "${VCPKG_INSTALLED_DIR}/*/tools/flatbuffers")
+            list(APPEND _flatc_hints ${_flatc_installed_tools})
+        endif()
+        unset(_engine_host_flatc CACHE)
+        unset(_engine_host_flatc)
         find_program(_engine_host_flatc NAMES flatc
-            HINTS "${VCPKG_INSTALLED_DIR}/${VCPKG_HOST_TRIPLET}/tools/flatbuffers"
+            HINTS ${_flatc_hints}
+            VALIDATOR engine_validate_host_flatc
+            NO_CACHE
             NO_CMAKE_FIND_ROOT_PATH)
         if(_engine_host_flatc)
             set(ENGINE_FLATC_EXECUTABLE "${_engine_host_flatc}" CACHE FILEPATH
