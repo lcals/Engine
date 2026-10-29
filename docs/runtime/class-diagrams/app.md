@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [日志系统](log-system.md)
 
-状态：桌面平台与 Android 使用同一公开接口；Android 平台实现位于 `platforms/android/native/app.cpp`，iOS 尚未实现。
+桌面平台与 Android 使用同一公开接口；Android 平台实现位于 `platforms/android/native/app.cpp`，iOS 尚未实现。
 
 ```mermaid
 classDiagram

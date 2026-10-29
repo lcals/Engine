@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
-本轮桌面编辑器实现；独立根系统由工具宿主初始化并反序关闭。跨图引用不重复定义公开方法。
+桌面编辑器与同步工具使用的独立根系统，由宿主初始化并反序关闭。跨图引用不重复定义公开方法。
 
 ```mermaid
 classDiagram
@@ -33,6 +33,6 @@ classDiagram
 
 公共路径编码复用 [PathUtils](../../runtime/class-diagrams/path-utils.md)；路径规范化和安全检查仍由本类负责。
 
-本轮 GUID 契约：正式输入是项目 `cache/`，只发布 `catalog.bin` 与 `gen/<完整GUID>`，不复制数据库、临时文件或旧路径树。项目缓存不创建版本子目录；设备持久运行目录继续使用不可变 `assets/versions/<revision>/` 快照，每份快照保留 `catalog.bin` 和 `gen/`。同步校验目录全部记录与产物后才原子发布可用版本；接收端不依赖 SQLite。
+资源输入为项目 `cache/`，只发布 `catalog.bin` 与 `gen/<完整GUID>`，不复制数据库、临时文件或旧路径树。项目缓存不创建版本子目录；设备持久运行目录继续使用不可变 `assets/versions/<revision>/` 快照，每份快照保留 `catalog.bin` 和 `gen/`。同步校验目录全部记录与产物后才原子发布可用版本；接收端不依赖 SQLite。
 
-正式 catalog 分支同步全部引用产物，不要求存在玩法脚本；entry 只记录后续启动提示。是否可以启动由脚本系统检查，同步系统不代替运行时激活资源或执行 Gameplay。
+基于 catalog 同步全部引用产物，不要求存在玩法脚本；entry 只记录玩法启动提示。是否可以启动由脚本系统检查，同步系统不代替运行时激活资源或执行 Gameplay。

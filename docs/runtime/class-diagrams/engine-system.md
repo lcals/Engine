@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
-状态：本轮最小实现的架构契约。本总图只定义 `Engine` 和 `System`；具体系统各有独立类图。
+本总图只定义 `Engine` 和 `System`；具体系统各有独立类图。
 
 ```mermaid
 classDiagram
@@ -11,13 +11,10 @@ classDiagram
         <<singleton>>
         +instance() Engine&$
         +initialize(const EngineConfig& config) bool
-        +tick(double delta_time) FrameStatus
-        +start_gameplay(std::string_view entry) bool
-        +stop_gameplay() void
-        +set_hot_reload(bool enabled) void
-        +script_status() const ScriptStatus#42;
-        +last_error() std::string_view
-        +request_exit() void
+        +add_system(std::unique_ptr~System~& system) bool
+        +system_count() std::size_t
+        +is_initialized() bool
+        +tick(double delta_time) bool
         +shutdown() void
         -Engine()
         -~Engine()
@@ -49,29 +46,21 @@ classDiagram
 
 图中按 Mermaid UML 语法写“方法(参数) 返回类型”，不把 `noexcept` 或 `override` 当作返回类型。
 
-- `Engine` 为 `final`；`instance()` 为 `static` 且 `noexcept`。私有构造、析构、`request_exit()` 和 `shutdown()` 为 `noexcept`。单例访问、初始化和更新返回值标注 `[[nodiscard]]`。
+- `Engine` 为 `final`；`instance()` 为 `static` 且 `noexcept`。私有构造、析构、`system_count()`、`is_initialized()` 和 `shutdown()` 为 `noexcept`。`system_count()` 和 `is_initialized()` 为 `const`；单例访问、挂接、状态查询、初始化和更新返回值均标注 `[[nodiscard]]`。
 - `System` 构造、公共虚析构、关闭和只读访问器均为 `noexcept`；`subsystem()` 同时提供普通重载与 `const` 重载，计数、父节点和初始化状态查询均为 `const`。
 - `System` 的初始化、更新、挂接及访问器返回值标注 `[[nodiscard]]`；受保护 `on_initialize()` 和 `on_shutdown()` 为纯虚函数，`on_tick()` 为有默认实现的虚函数；`on_shutdown()` 为 `noexcept`。
 
 ## 接口约定
 
-- `Engine`、窗口系统和渲染系统的初始化、更新、渲染与关闭统一在 `SDL_main` 所在线程调用：桌面为应用主线程，Android 为 SDL 原生主循环线程；不从 Java UI 回调直接调用系统接口。当前公共接口不提供跨线程安全保证。
-- `Engine` 通过 `std::unique_ptr<System>` 拥有普通根系统；`LogSystem` 是另一个由宿主先初始化、最后关闭的进程单例，不进入独占系统树。系统至多属于一个引擎或一个父系统，不同时拥有两个所有者；宿主模块也可独立拥有根系统。
-- 所有系统和子系统继承 `System`。公开 `initialize / tick / shutdown` 是非虚方法，统一调度当前系统及其子系统；派生类实现受保护的 `on_*` 钩子，不隐藏公共入口。
-- `on_tick()` 默认成功且不做工作，没有逐帧任务的系统可以不重写。
-- `initialize()` 和系统 `tick()` 成功返回 `true`，失败返回 `false`。重复初始化返回 `false`，不破坏已运行实例；首次初始化失败时回滚当前子树已创建的资源。
-- `Engine::tick()` 只由宿主调用；`delta_time` 是有限且非负的秒数。未初始化、非法时间、系统更新或无法恢复的渲染失败返回 `failed`，正常返回 `running`，退出请求返回 `exit_requested`，窗口暂不可绘制时返回 `paused`。
-- 根系统依次初始化 `WindowSystem → ResourceSystem → WorldSystem → RenderSystem`。每帧先处理窗口事件，检查退出和暂停；可绘制时更新资源、世界及渲染系统，最后调用 `render()`。暂停期间继续处理窗口恢复和退出事件。
-- 平台暂停请求若在本帧检查后到达，渲染被拒绝且窗口已不可绘制时返回 `paused`，等待恢复，不将正常切后台锁定为失败。
-- 引擎启动不要求项目，`EngineConfig` 不包含项目路径；`Engine` 不拥有或依赖 `ProjectSystem`。
-- 脚本运行功能启用时，`start_gameplay(entry)` 只能在全部根系统就绪后调用。入口是资源相对路径，不是项目目录。创建 Gameplay 和场景后准备 GPU 资源，任一步失败清理本次运行；已运行时重复启动成功且保持现有实例。`stop_gameplay()` 在场景有效时结束玩法回调，再释放场景与项目 GPU 资源，重复调用安全；引擎关闭时先停止玩法，再关闭渲染等根系统。
-- `last_error()` 返回借用错误文本，用于编辑器状态回执，为 const、noexcept、nodiscard。节点数量与 GPU 资源统计归 Scene / RenderSystem，Engine 不提供跨模块汇总接口。停止项目后窗口和共享图形设备仍然存在，下一次渲染呈现空白。
-- `set_hot_reload(enabled)` 转发给脚本模块；`script_status()` 返回借用的只读状态，未装配脚本运行功能时为空。上述业务操作不绕过父系统去调用子系统的公共初始化或关闭。
-- 编辑器宿主先初始化独立的项目系统，检查实际根目录及其 `settings/`、`cache/`、`assets/`，再由 EditorEnvironment 配置 App 路径，启动引擎窗口和编辑器系统；项目失败时尚未打开窗口。
-- `WorldSystem` 独占物理、导航、动画、界面及可选脚本子系统；编译启用 V8 时加入 `ScriptSystem`。编辑器和资源管线由各自宿主单独管理，运行时不依赖它们。
-- 非法 `delta_time` 属于参数拒绝：本帧返回 `failed` 且不执行系统更新，后续传入合法时间仍可继续运行。
-- 渲染返回失败时，若窗口因本帧中新到达的宿主暂停请求而不可绘制，本帧返回 `paused`，恢复后可继续。有项目场景时先停止玩法、释放场景与项目 GPU 资源，再尝试空白渲染；成功则继续返回 `running`，编辑器通过 `last_error()` 显示原因。系统更新失败或空白渲染仍失败时，引擎持续返回 `failed`，不继续推进后续帧；调用 `shutdown()` 后可重新初始化。
-- 根系统关闭顺序与初始化顺序相反。具体类析构中先调用 `shutdown()`，在派生类成员销毁前关闭子树；`System` 基类析构不调用虚钩子。
+- Engine 只负责根系统的所有权、初始化、逐帧更新和反序关闭，编译在纯标准库核心目标中，不依赖窗口、渲染、脚本、场景或编辑器。
+- `add_system()` 只能在引擎未初始化且未执行生命周期回调时调用。对象必须是未初始化的独立根系统；成功后转移所有权并清空输入，失败保持输入和系统列表不变。
+- `initialize()` 要求至少一个根系统，按添加顺序初始化。重复初始化被拒绝；失败反序关闭并销毁已装配系统，允许重新装配。
+- `tick()` 要求已初始化，时间为有限且非负的秒数。非法时间只拒绝本次调用；系统更新失败则保持失败状态，必须关闭后重新装配。系统按注册顺序更新，失败停止本帧后续调度。
+- `shutdown()` 反序关闭并销毁根系统，重复调用安全。生命周期回调中不允许重入初始化、更新、关闭或装配操作。
+- `system_count()` 与 `is_initialized()` 只查询框架自身状态，不汇总任何具体模块数据。
+- 窗口配置校验属于 WindowSystem，运行宿主 [RuntimeHost](runtime-host.md) 负责具体系统装配、窗口事件、暂停和帧提交；[GameplaySession](gameplay-session.md) 负责玩法启停与场景、GPU、项目定义的释放。
+- Engine 不要求项目，不拥有 ProjectSystem；编辑器项目路径与平台目录由 EditorEnvironment 和 App 管理。
+- LogSystem 是宿主独立管理的进程单例；具体系统不可同时由 Engine 和其他父系统拥有。所有入口使用同一运行线程，公共接口不承诺跨线程安全。
 
 ## 子系统约定
 

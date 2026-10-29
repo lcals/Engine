@@ -2,14 +2,14 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [玩法入口](gameplay.md)
 
-状态：桌面与 Android 脚本运行已实现，本轮扩展桌面原生场景绑定。仅定义 `ScriptSystem` 与其状态；其他类的方法在各自类图维护。
+桌面与 Android 共用脚本运行时和场景绑定。本图仅定义 `ScriptSystem` 与其状态；其他类的方法在各自类图维护。
 
 ```mermaid
 classDiagram
     direction TB
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem* world)
+        +ScriptSystem(WorldSystem#42; world)
         +~ScriptSystem()
         +start_gameplay(std::string_view entry) bool
         +stop_gameplay() void
@@ -61,8 +61,8 @@ classDiagram
     ScriptSystem ..> PathUtils : UTF-8 路径转换
 ```
 
-- 构造参数 `world` 默认 nullptr；非空借用必须活到 ScriptSystem 关闭，Engine 传入其父 WorldSystem。空指针保留独立脚本能力，场景创建返回 null。
-- `WorldSystem` 独占可选子系统。系统初始化只准备 V8 环境，所有系统就绪后宿主显式调用 `start_gameplay()`；空引擎无需项目或入口。
+- 构造参数 `world` 默认 nullptr；非空借用必须活到 ScriptSystem 关闭，RuntimeHost 传入其父 WorldSystem。空指针保留独立脚本能力，场景创建返回 null。
+- `WorldSystem` 独占可选子系统。系统初始化只准备 V8 环境，所有系统就绪后宿主通过 GameplaySession 显式启动玩法；空引擎无需项目或入口。
 - 入口默认参数为空，采用同步清单 entry；无同步版本时 Android 采用打包清单 entry，桌面使用 `scripts/game.js`。非空参数固定显式入口，重载继续使用该路径。入口必须默认导出继承 `Gameplay` 的类。所有生命周期和脚本调用在引擎运行线程进行。
 - V8 平台每进程只初始化一次、退出时释放；每个脚本系统独占 isolate，单次玩法运行持有独立 Context、模块缓存及一个入口实例。停止重载释放该次运行；系统重启可以重建 isolate。
 - `ScriptStatus` 默认布尔值为 false、字符串为空；`status()` 返回借用，不能跨系统销毁或跨线程使用。内置运行的 `active_revision` 为 `builtin`。
@@ -76,11 +76,11 @@ classDiagram
 - 预检候选 Context 编译、静态链接失败时，旧入口与快照继续运行；预检成功后先停止旧入口，再执行新模块及入口。执行失败明确报告并停止玩法，不承诺撤销已产生的副作用。
 - 关闭热重载只禁止切换，仍报告可用版本，固定当前入口和模块快照；重新开启在下一帧处理最新完整版本。停止后不会自动重启。
 - `persistent_data_path/assets/available.json` 清单包含 `revision`、`entry`、`files[{path,size,hash}]`、`deleted[]`。版本位于 `assets/versions/<revision>/`，哈希为小写 16 位 FNV-1a 64。全部文件的大小、哈希、路径验证通过后才接受版本。
-- 正式 GUID 项目的入口和 import 通过 catalog 的 module_path 解析到 GUID，再从 Run 驻留快照读取；项目完整 catalog 中缺失的模块不得回退为旧包内路径。兼容旧独立脚本树测试时保留 files/deleted/builtin 解析；绝对路径、越界路径和符号链接越界均拒绝。
+- GUID 资源目录的入口和 import 通过 catalog 的 module_path 解析到 GUID，再从 Run 驻留快照读取；项目完整 catalog 中缺失的模块不得回退为旧包内路径。未使用 catalog 的独立脚本目录按 files/deleted/builtin 解析；绝对路径、越界路径和符号链接越界均拒绝。
 - Android 的 builtin 为 `apk:/assets/project`：安全相对路径组合后交给 ResourceSystem 读取 APK，不对虚拟路径调用原生文件系统 canonical；持久版本仍执行 canonical、大小与哈希校验。
 - Android 初始化要求 App 已就绪；验证 `apk:/assets/project-manifest.json` 的完整资源清单和包内文件后，只将清单原子导出为 `persistent_data_path/assets/builtin.json`，供首次设备同步计算删除项，不覆盖 `available.json` 或复制项目资源。当前运行固定打包项目；即使 App 自定义 builtin 根，也必须与该包清单对应，不提供任意项目切换。校验或导出失败使初始化返回 false。
 - Android 的 ICU 从 `apk:/assets/v8/icudtl.dat` 读取到 `cache_path/v8/icudtl.dat`；内容相同复用，否则原子替换。桌面继续读取可执行程序旁的 ICU。准备或 V8 初始化失败通过返回值与日志报告。
-- 本阶段支持静态 ES 模块和虚拟 `engine` 模块，不提供 Node.js API、动态导入或顶层 await。
+- 支持静态 ES 模块和虚拟 `engine` 模块，不提供 Node.js API、动态导入或顶层 await。
 - 源码、清单和控制文件统一通过 ResourceSystem 的 SDL3 同步读取入口访问；文件系统仅负责非异常路径校验和状态写入。
 - 电脑工具在目标持久目录原子写 `script-control.json` 的 `hotReload`；脚本系统原子写 `script-status.json` 的 `running`、`hotReload`、`activeRevision`、`availableRevision`、`lastError`，不启动网络服务。Android 同步和控制复用此契约。
 - `stop_gameplay()` 和清理支持重复调用。已进入初始化的入口会收到一次 `OnShutdown()`，包括部分启动失败。
@@ -92,4 +92,4 @@ C++ 限定符：构造、析构、`stop_gameplay()`、`status()` 和 `on_shutdow
 
 ## GUID 资源目录
 
-正式项目从 `catalog.bin` 与 `gen/<完整GUID>` 加载；每个 Run 独占一份 ResourceCatalog 字节快照，不在运行时重新读取可变 gen。脚本使用 catalog 的 module_path（如 scripts/game.js）解析相对 import，再按 GUID 取 JS；engine 虚拟模块不变。候选完整校验及静态模块链接不激活全局 catalog，失败保持旧 Run；接受后先结束旧场景，再激活候选资源定义并调用新入口。`Scene.Load(path)` 通过活动 catalog 加载已编译场景，失败返回 null，不清空仍有效的旧场景。
+项目从 `catalog.bin` 与 `gen/<完整GUID>` 加载；每个 Run 独占一份 ResourceCatalog 字节快照，不在运行时重新读取可变 gen。脚本使用 catalog 的 module_path（如 scripts/game.js）解析相对 import，再按 GUID 取 JS；engine 虚拟模块不变。候选完整校验及静态模块链接不激活全局 catalog，失败保持旧 Run；接受后先结束旧场景，再激活候选资源定义并调用新入口。`Scene.Load(path)` 通过活动 catalog 加载已编译场景，失败返回 null，不清空仍有效的旧场景。

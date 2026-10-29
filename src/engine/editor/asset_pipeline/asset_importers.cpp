@@ -14,7 +14,19 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <map>
+#include <memory>
 #include <set>
+#include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace engine::asset_pipeline
 {
@@ -493,7 +505,7 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
                     return false;
                 }
             }
-            // #include 不限制扩展名，本阶段保守追踪全部普通源，避免漏掉 .inc/.h 等依赖。
+            // #include 不限制扩展名，追踪全部普通源以覆盖 .inc/.h 等依赖。
             for (const auto& [guid, kind] : context.kinds)
             {
                 std::string path;

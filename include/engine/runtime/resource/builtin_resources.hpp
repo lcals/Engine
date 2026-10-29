@@ -3,7 +3,7 @@
 namespace engine
 {
 
-// 本阶段用代码注册默认定义；后续资源加载仍使用同一个注册入口。
+// 注册引擎内置的 Mesh、Shader 与材质定义。
 [[nodiscard]] bool register_builtin_render_resources();
 
 } // namespace engine

@@ -16,8 +16,11 @@ def require(condition, message):
 
 def metadata_guid(source):
     text = Path(str(source) + ".meta").read_text(encoding="utf-8")
-    match = re.search(r'^guid\s*=\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"\s*(?:#.*)?$',
-                      text, re.MULTILINE)
+    match = re.search(
+        r'^guid\s*=\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"\s*(?:#.*)?$',
+        text,
+        re.MULTILINE,
+    )
     require(match is not None, "source meta must contain a canonical TOML GUID")
     return match.group(1)
 
@@ -35,16 +38,23 @@ def check_compiler_inputs(root, project, temporary):
     config_path.write_text(json.dumps(config), encoding="utf-8")
 
     def inputs():
-        result = subprocess.run(["node", str(builder), "--project", str(project), "--inputs"],
-                                capture_output=True, text=True, timeout=30, check=False)
+        result = subprocess.run(
+            ["node", str(builder), "--project", str(project), "--inputs"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
         require(result.returncode == 0, f"script input discovery failed: {result.stderr}")
         return json.loads(result.stdout)
 
     first = inputs()
     identities = {entry["path"] for entry in first["inputs"]}
-    require(str(inherited).replace("\\", "/") in identities and
-            str(declarations).replace("\\", "/") in identities,
-            "external inherited config/declarations missing from compiler fingerprint")
+    require(
+        str(inherited).replace("\\", "/") in identities
+        and str(declarations).replace("\\", "/") in identities,
+        "external inherited config/declarations missing from compiler fingerprint",
+    )
     require(first == inputs(), "unchanged TypeScript input fingerprint is not stable")
     inherited.write_text('{"compilerOptions":{"noUnusedLocals":true}}', encoding="utf-8")
     second = inputs()
@@ -55,16 +65,32 @@ def check_compiler_inputs(root, project, temporary):
     lock.mkdir()
     (lock / "old-owner").write_text("abandoned fixture")
     output = temporary / "explicit-ts-staging"
-    result = subprocess.run(["node", str(builder), "--project", str(project), "--output", str(output)],
-                            capture_output=True, text=True, timeout=30, check=False)
-    require(result.returncode == 0, f"explicit staging must ignore old directory lock: {result.stderr}")
-    require((lock / "old-owner").read_text() == "abandoned fixture",
-            "compiler must not remove another operation's lock")
+    result = subprocess.run(
+        ["node", str(builder), "--project", str(project), "--output", str(output)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    require(
+        result.returncode == 0, f"explicit staging must ignore old directory lock: {result.stderr}"
+    )
+    require(
+        (lock / "old-owner").read_text() == "abandoned fixture",
+        "compiler must not remove another operation's lock",
+    )
     shutil.rmtree(lock)
-    result = subprocess.run(["node", str(builder), "--project", str(project)],
-                            capture_output=True, text=True, timeout=30, check=False)
-    require(result.returncode != 0 and not (project / "cache/assets").exists(),
-            "implicit legacy cache/assets output must be rejected")
+    result = subprocess.run(
+        ["node", str(builder), "--project", str(project)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    require(
+        result.returncode != 0 and not (project / "cache/assets").exists(),
+        "implicit legacy cache/assets output must be rejected",
+    )
 
 
 def verify_complete_asset_snapshot(project, runtime, manifest):
@@ -77,39 +103,72 @@ def verify_complete_asset_snapshot(project, runtime, manifest):
     require(actual == expected, "MCP snapshot must include every catalog asset exactly once")
     version = runtime / "assets/versions" / manifest["revision"]
     for relative in expected:
-        require((version / relative).read_bytes() == (project / "cache" / relative).read_bytes(),
-                f"MCP changed generated/raw asset bytes: {relative}")
-    require(not any(path.endswith((".meta", ".sqlite")) or path.startswith("settings/") for path in actual),
-            "editor settings/meta/SQLite entered runtime assets")
-    for relative in ("scenes/main.scene", "meshes/cube.mesh", "materials/cube.material", "shaders/pbr.shader"):
-        require("gen/" + metadata_guid(project / "assets" / relative) in actual,
-                f"non-script typed asset missing: {relative}")
+        require(
+            (version / relative).read_bytes() == (project / "cache" / relative).read_bytes(),
+            f"MCP changed generated/raw asset bytes: {relative}",
+        )
+    require(
+        not any(
+            path.endswith((".meta", ".sqlite")) or path.startswith("settings/") for path in actual
+        ),
+        "editor settings/meta/SQLite entered runtime assets",
+    )
+    for relative in (
+        "scenes/main.scene",
+        "meshes/cube.mesh",
+        "materials/cube.material",
+        "shaders/pbr.shader",
+    ):
+        require(
+            "gen/" + metadata_guid(project / "assets" / relative) in actual,
+            f"non-script typed asset missing: {relative}",
+        )
 
 
 def invoke(mcp, project, runtime, requests):
     messages = [
-        {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {},
-            "clientInfo": {"name": "engine-test", "version": "1"}}},
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "engine-test", "version": "1"},
+            },
+        },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ] + requests
     result = subprocess.run(
         [str(mcp), "--project", str(project), "--runtime-dir", str(runtime)],
-        input="\n".join(json.dumps(message) if isinstance(message, dict) else message
-                        for message in messages) + "\n",
-        capture_output=True, text=True, timeout=90, check=False)
+        input="\n".join(
+            json.dumps(message) if isinstance(message, dict) else message for message in messages
+        )
+        + "\n",
+        capture_output=True,
+        text=True,
+        timeout=90,
+        check=False,
+    )
     require(result.returncode == 0, f"MCP failed: {result.stderr}")
     replies = [json.loads(line) for line in result.stdout.splitlines()]
-    require(replies[0]["result"]["serverInfo"]["name"] == "engine-editor-tools",
-            "initialize did not return server identity")
-    require(all(reply["jsonrpc"] == "2.0" for reply in replies),
-            "stdout contains non-protocol output")
+    require(
+        replies[0]["result"]["serverInfo"]["name"] == "engine-editor-tools",
+        "initialize did not return server identity",
+    )
+    require(
+        all(reply["jsonrpc"] == "2.0" for reply in replies), "stdout contains non-protocol output"
+    )
     return replies[1:]
 
 
 def call(name, arguments=None, request_id=1):
-    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call",
-            "params": {"name": name, "arguments": arguments or {}}}
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "tools/call",
+        "params": {"name": name, "arguments": arguments or {}},
+    }
 
 
 def contents(reply):
@@ -120,8 +179,9 @@ def test(mcp, root, temporary):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
     runtime = temporary / "runtime"
-    shutil.copytree(root / "projects/minimal", project,
-                    ignore=shutil.ignore_patterns("node_modules", "cache"))
+    shutil.copytree(
+        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
+    )
     (project / "cache").mkdir()
     compiler = root / "projects/minimal/settings/node_modules/typescript"
     require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
@@ -139,19 +199,27 @@ def test(mcp, root, temporary):
     binary_asset = project / "assets/资料/raw.bin"
     binary_asset.write_bytes(bytes(range(256)) + b"\0raw binary")
 
-    replies = invoke(mcp, project, runtime, [
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
-        call("get_status", request_id=2),
-        call("set_hot_reload", {"enabled": False}, request_id=3),
-        call("sync_assets", request_id=4),
-        call("set_hot_reload", {"enabled": True}, request_id=5),
-        call("set_hot_reload", {"enabled": "false"}, request_id=6),
-        "{not json}",
-        {"jsonrpc": "2.0", "id": 8, "method": "ping"},
-    ])
+    replies = invoke(
+        mcp,
+        project,
+        runtime,
+        [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+            call("get_status", request_id=2),
+            call("set_hot_reload", {"enabled": False}, request_id=3),
+            call("sync_assets", request_id=4),
+            call("set_hot_reload", {"enabled": True}, request_id=5),
+            call("set_hot_reload", {"enabled": "false"}, request_id=6),
+            "{not json}",
+            {"jsonrpc": "2.0", "id": 8, "method": "ping"},
+        ],
+    )
     require(len(replies) == 8, "notifications must not produce responses")
-    require({tool["name"] for tool in replies[0]["result"]["tools"]} ==
-            {"sync_assets", "set_hot_reload", "get_status", "start_project", "stop_project"}, "wrong tool list")
+    require(
+        {tool["name"] for tool in replies[0]["result"]["tools"]}
+        == {"sync_assets", "set_hot_reload", "get_status", "start_project", "stop_project"},
+        "wrong tool list",
+    )
     require(contents(replies[1])["state"] == "offline", "missing runtime must be offline")
     require(contents(replies[2])["requestedHotReload"] is False, "disable control failed")
     require(not replies[3]["result"]["isError"], f"sync failed: {contents(replies[3])}")
@@ -166,18 +234,26 @@ def test(mcp, root, temporary):
     manifest = json.loads(original_manifest)
     verify_complete_asset_snapshot(project, runtime, manifest)
     for raw in (image_asset, binary_asset):
-        require((project / "cache/gen" / metadata_guid(raw)).read_bytes() == raw.read_bytes(),
-                "raw image/binary bytes changed during import")
+        require(
+            (project / "cache/gen" / metadata_guid(raw)).read_bytes() == raw.read_bytes(),
+            "raw image/binary bytes changed during import",
+        )
     asset_guid = metadata_guid(unicode_asset)
-    require("gen/" + asset_guid in {item["path"] for item in json.loads(original_manifest)["files"]},
-            "Unicode asset GUID did not survive compile and synchronization")
-    require("catalog.bin" in {item["path"] for item in json.loads(original_manifest)["files"]},
-            "GUID resource catalog was not synchronized")
+    require(
+        "gen/" + asset_guid in {item["path"] for item in json.loads(original_manifest)["files"]},
+        "Unicode asset GUID did not survive compile and synchronization",
+    )
+    require(
+        "catalog.bin" in {item["path"] for item in json.loads(original_manifest)["files"]},
+        "GUID resource catalog was not synchronized",
+    )
     require(not (project / "cache/assets").exists(), "formal compiler produced legacy asset tree")
     offline = contents(invoke(mcp, project, runtime, [call("get_status")])[0])
-    require(offline["state"] == "offline" and offline["availableRevision"] ==
-            json.loads(original_manifest)["revision"],
-            "published version must be queryable without a running engine")
+    require(
+        offline["state"] == "offline"
+        and offline["availableRevision"] == json.loads(original_manifest)["revision"],
+        "published version must be queryable without a running engine",
+    )
     script_guid = metadata_guid(project / "assets/scripts/game.ts")
     script_output = project / "cache/gen" / script_guid
     original_output = script_output.read_bytes()
@@ -189,8 +265,10 @@ def test(mcp, root, temporary):
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(reply["result"]["isError"], "TypeScript error must fail sync")
     require(manifest_path.read_bytes() == original_manifest, "failed compile published old assets")
-    require(script_output.read_bytes() == original_output,
-            "failed compile damaged prior compiler output")
+    require(
+        script_output.read_bytes() == original_output,
+        "failed compile damaged prior compiler output",
+    )
     source.write_text(original_source)
 
     helper = project / "assets/scripts/helper.ts"
@@ -199,8 +277,9 @@ def test(mcp, root, temporary):
     require(not reply["result"]["isError"], "adding a module failed")
     manifest = json.loads(manifest_path.read_text())
     helper_guid = metadata_guid(helper)
-    require("gen/" + helper_guid in {item["path"] for item in manifest["files"]},
-            "added module missing")
+    require(
+        "gen/" + helper_guid in {item["path"] for item in manifest["files"]}, "added module missing"
+    )
     helper.unlink()
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "deleting a module failed")
@@ -208,28 +287,50 @@ def test(mcp, root, temporary):
     require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
 
     # No running engine is fabricated: get_status returns only the explicit runtime report.
-    expected = {"running": True, "hotReload": False, "activeRevision": "older",
-                "availableRevision": manifest["revision"], "lastError": ""}
+    expected = {
+        "running": True,
+        "hotReload": False,
+        "activeRevision": "older",
+        "availableRevision": manifest["revision"],
+        "lastError": "",
+    }
     (runtime / "script-status.json").write_text(json.dumps(expected))
     reply = contents(invoke(mcp, project, runtime, [call("get_status")])[0])
-    require(reply["activeRevision"] == "older" and reply["hotReload"] is False,
-            "status incorrectly claims synchronized code is active")
+    require(
+        reply["activeRevision"] == "older" and reply["hotReload"] is False,
+        "status incorrectly claims synchronized code is active",
+    )
     (runtime / "script-status.json").write_text('{"running":"invalid"}')
     reply = invoke(mcp, project, runtime, [call("get_status")])[0]
     require(reply["result"]["isError"], "invalid status fields must not abort the MCP process")
-    replies = invoke(mcp, project, runtime, [
-        {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {
-            "name": "sync_assets", "arguments": False}},
-        {"jsonrpc": "2.0", "id": 3, "method": "ping"},
-    ])
-    require(replies[0]["error"]["code"] == -32602 and
-            replies[1]["error"]["code"] == -32602 and replies[2]["result"] == {},
-            "malformed tool params must return errors without stopping the protocol")
-    missing_target = subprocess.run([str(mcp), "--project", str(project)],
-                                    capture_output=True, text=True, timeout=10)
-    require(missing_target.returncode != 0 and not missing_target.stdout,
-            "MCP accepted an implicit runtime target")
+    replies = invoke(
+        mcp,
+        project,
+        runtime,
+        [
+            {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": []},
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/call",
+                "params": {"name": "sync_assets", "arguments": False},
+            },
+            {"jsonrpc": "2.0", "id": 3, "method": "ping"},
+        ],
+    )
+    require(
+        replies[0]["error"]["code"] == -32602
+        and replies[1]["error"]["code"] == -32602
+        and replies[2]["result"] == {},
+        "malformed tool params must return errors without stopping the protocol",
+    )
+    missing_target = subprocess.run(
+        [str(mcp), "--project", str(project)], capture_output=True, text=True, timeout=10
+    )
+    require(
+        missing_target.returncode != 0 and not missing_target.stdout,
+        "MCP accepted an implicit runtime target",
+    )
 
 
 if __name__ == "__main__":

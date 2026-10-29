@@ -64,19 +64,25 @@ bool cache_file(const std::filesystem::path& root, const std::filesystem::path& 
 {
     const auto encoded = root.generic_u8string();
     if (encoded == u8"apk:/assets" || encoded.starts_with(u8"apk:/assets/"))
+    {
         return true;
+    }
     std::error_code error;
     auto current = root;
     const auto root_status = std::filesystem::symlink_status(root, error);
     if (error || !std::filesystem::is_directory(root_status) ||
         std::filesystem::is_symlink(root_status))
+    {
         return false;
+    }
     for (const auto& part : relative)
     {
         current /= part;
         const auto status = std::filesystem::symlink_status(current, error);
         if (error || std::filesystem::is_symlink(status))
+        {
             return false;
+        }
     }
     return std::filesystem::is_regular_file(std::filesystem::symlink_status(current, error)) &&
            !error;
@@ -416,7 +422,9 @@ bool ResourceSystem::read_catalog(const std::filesystem::path& cache_root, Resou
     }
     const auto* serialized = schema::GetAssetCatalogData(bytes.data());
     if (serialized->entries()->size() > 65536)
+    {
         return false;
+    }
     ResourceCatalog candidate;
     serialized->UnPackTo(&candidate.data);
     if (candidate.data.schema_version != 1 || candidate.data.revision.empty() ||
@@ -448,7 +456,9 @@ bool ResourceSystem::read_catalog(const std::filesystem::path& cache_root, Resou
             return false;
         }
         if (entry->content_size > maximum_snapshot_size - total_size)
+        {
             return false;
+        }
         total_size += static_cast<std::size_t>(entry->content_size);
         std::vector<std::byte> artifact;
         if (!cache_file(cache_root, std::filesystem::path("gen") / entry->guid) ||
@@ -540,7 +550,9 @@ bool ResourceSystem::activate_catalog(const ResourceCatalog& catalog)
         {
             auto current = item++;
             if (current->first.starts_with("builtin/"))
+            {
                 destination.insert(source.extract(current));
+            }
         }
     };
     move_builtin(old_shaders, shaders);
@@ -591,10 +603,14 @@ bool ResourceSystem::activate_catalog(const ResourceCatalog& catalog)
             std::string dependency_path;
             if (!dependencies.insert(guid).second || guid == entry->guid ||
                 !guid_to_path(guid, dependency_path))
+            {
                 success = false;
+            }
         }
         if (!success)
+        {
             break;
+        }
         const auto* pointer = reinterpret_cast<const std::uint8_t*>(bytes->second.data());
         flatbuffers::Verifier verifier(pointer, bytes->second.size());
         if (entry->kind == schema::AssetKind::shader)
@@ -640,7 +656,9 @@ bool ResourceSystem::activate_catalog(const ResourceCatalog& catalog)
         for (const auto& entry : catalog.data.entries)
         {
             if (entry->kind != schema::AssetKind::material)
+            {
                 continue;
+            }
             const auto& bytes = catalog.artifacts.find(entry->guid)->second;
             const auto* pointer = reinterpret_cast<const std::uint8_t*>(bytes.data());
             flatbuffers::Verifier verifier(pointer, bytes.size());
@@ -683,19 +701,27 @@ bool ResourceSystem::read_scene(std::string_view path, schema::SceneDataT& outpu
     output = {};
     Guid guid;
     if (!path_to_guid(path, guid))
+    {
         return false;
+    }
     const auto* entry = active_catalog.find(guid);
     const auto bytes = active_catalog.artifacts.find(guid);
     if (entry == nullptr || entry->kind != schema::AssetKind::scene ||
         bytes == active_catalog.artifacts.end())
+    {
         return false;
+    }
     flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(bytes->second.data()),
                                    bytes->second.size());
     if (!schema::VerifySceneDataBuffer(verifier))
+    {
         return false;
+    }
     auto data = schema::UnPackSceneData(bytes->second.data());
     if (data->schema_version != 1)
+    {
         return false;
+    }
     output = std::move(*data);
     return true;
 }

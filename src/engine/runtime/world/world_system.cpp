@@ -38,14 +38,20 @@ Scene* WorldSystem::load_scene(std::string_view path)
 {
     if (!is_initialized() || world_ == nullptr ||
         scene_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
         return nullptr;
+    }
     schema::SceneDataT data;
     if (!ResourceSystem::read_scene(path, data) || !data.info)
+    {
         return nullptr;
+    }
     std::unique_ptr<Scene> candidate(new (std::nothrow)
                                          Scene(*world_, scene_sequence_ + 1, data.info->name));
     if (!candidate || !candidate->restore_data(data))
+    {
         return nullptr;
+    }
     scene_ = std::move(candidate);
     ++scene_sequence_;
     return scene_.get();

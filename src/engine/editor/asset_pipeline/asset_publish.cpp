@@ -3,7 +3,10 @@
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "runtime/resource/resource_system.hpp"
 
+#include <string>
+#include <system_error>
 #include <toml++/toml.hpp>
+#include <vector>
 
 namespace engine::asset_pipeline
 {

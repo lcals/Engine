@@ -6,8 +6,13 @@
 #include <SDL3/SDL.h>
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace engine::asset_pipeline
 {

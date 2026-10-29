@@ -12,8 +12,15 @@
 
 #include <array>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <memory>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace
 {
@@ -23,7 +30,9 @@ using namespace engine;
 bool expect(bool value, const char* message)
 {
     if (!value)
+    {
         std::fprintf(stderr, "resource catalog: %s\n", message);
+    }
     return value;
 }
 
@@ -78,7 +87,9 @@ bool run(const std::filesystem::path& temporary)
     WorldSystem world;
     EngineConfig config;
     if (!resources.initialize(config) || !world.initialize(config))
+    {
         return false;
+    }
     auto* source = world.create_scene("External resources");
     auto* camera_node = source ? source->create_node("Camera") : nullptr;
     auto* cube_node = source ? source->create_node("Triangle") : nullptr;
@@ -86,14 +97,20 @@ bool run(const std::filesystem::path& temporary)
     auto* renderer = cube_node ? cube_node->add_component<MeshRenderer>() : nullptr;
     if (!camera || !renderer || !source->set_active_camera(camera) ||
         !cube_node->set_parent(camera_node))
+    {
         return false;
+    }
     schema::SceneDataT scene;
     if (!source->build_data(scene))
+    {
         return false;
+    }
     const auto runtime_camera_id = camera_node->id();
     if (!expect(scene.nodes[0]->info->id != runtime_camera_id,
                 "serialized local IDs exclude flecs IDs"))
+    {
         return false;
+    }
     world.destroy_scene();
 
     ResourceCatalog catalog;
@@ -142,7 +159,9 @@ bool run(const std::filesystem::path& temporary)
     for (auto& component : wrong_reference.nodes[1]->components)
     {
         if (auto* data = component->payload.AsMeshRendererData())
+        {
             data->mesh_guid = material_guid;
+        }
     }
     add(catalog, "10000000-0000-4000-8000-000000000006", "project/scenes/wrong-type.scene",
         schema::AssetKind::scene, pack(wrong_reference, "ESCN"), {material_guid});
@@ -153,10 +172,16 @@ bool run(const std::filesystem::path& temporary)
     std::error_code error;
     std::filesystem::create_directories(temporary / "gen", error);
     if (error || !write(temporary / "catalog.bin", pack(catalog.data, "EASC")))
+    {
         return false;
+    }
     for (const auto& [guid, bytes] : catalog.artifacts)
+    {
         if (!write(temporary / "gen" / guid, bytes))
+        {
             return false;
+        }
+    }
     ResourceCatalog loaded;
     const auto* builtin = ResourceSystem::find_shader("builtin/shaders/pbr");
     if (!expect(ResourceSystem::read_catalog(temporary, loaded) &&
@@ -164,25 +189,33 @@ bool run(const std::filesystem::path& temporary)
                 "read and activate generated GUID cache") ||
         !expect(ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
                 "activation preserves builtin definition borrows"))
+    {
         return false;
+    }
     Guid resolved;
     std::string path;
     if (!expect(ResourceSystem::path_to_guid("project/scenes/main.scene", resolved) &&
                     resolved == scene_guid && ResourceSystem::guid_to_path(resolved, path) &&
                     path == "project/scenes/main.scene",
                 "bidirectional resource identity"))
+    {
         return false;
+    }
     auto* restored = world.load_scene(path);
     if (!expect(restored && restored->nodes().size() == 2 && restored->active_camera() &&
                     restored->nodes()[1]->parent() == restored->nodes()[0].get(),
                 "restore nodes, parent hierarchy and active camera"))
+    {
         return false;
+    }
     const auto* restored_mesh = restored->nodes()[1]->get_component<MeshRenderer>();
     if (!expect(restored_mesh && restored_mesh->mesh_path() == mesh.path &&
                     restored_mesh->material().shader_path() == shader.path &&
                     ResourceSystem::find_mesh(mesh.path)->indices.size() == 3,
                 "scene resolves independently compiled mesh/material/shader GUIDs"))
+    {
         return false;
+    }
     schema::SceneDataT restored_data;
     if (!expect(restored->build_data(restored_data) && restored_data == scene,
                 "stable local IDs and external references survive runtime reconstruction") ||
@@ -192,22 +225,28 @@ bool run(const std::filesystem::path& temporary)
         !expect(world.load_scene("project/scenes/wrong-type.scene") == nullptr &&
                     world.scene() == restored,
                 "wrong resource kind cannot be used as mesh and preserves active scene"))
+    {
         return false;
+    }
     auto invalid = loaded;
     material.shader_guid = "10000000-0000-4000-8000-000000000099";
     invalid.artifacts[material_guid] = pack(material, "EMAT");
     for (auto& entry : invalid.data.entries)
+    {
         if (entry->guid == material_guid)
         {
             entry->content_size = invalid.artifacts[material_guid].size();
             entry->content_hash = digest(invalid.artifacts[material_guid]);
         }
+    }
     const auto* previous_material = ResourceSystem::find_material(material.type_path);
     if (!expect(!ResourceSystem::activate_catalog(invalid) &&
                     ResourceSystem::find_material(material.type_path) == previous_material &&
                     ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
                 "failed activation preserves complete previous registry"))
+    {
         return false;
+    }
     auto foreign = catalog;
     foreign.data.target_platform = catalog.data.target_platform == "android" ? "macos" : "android";
     if (!write(temporary / "catalog.bin", pack(foreign.data, "EASC")) ||
@@ -216,7 +255,9 @@ bool run(const std::filesystem::path& temporary)
                     ResourceSystem::find_material(material.type_path) == previous_material,
                 "host validates Android cache for sync but cannot activate Vulkan assets") ||
         !write(temporary / "catalog.bin", pack(catalog.data, "EASC")))
+    {
         return false;
+    }
     auto missing_dependency = catalog;
     missing_dependency.data.entries.front()->dependencies = {
         "10000000-0000-4000-8000-000000000099"};
@@ -224,16 +265,22 @@ bool run(const std::filesystem::path& temporary)
         !expect(!ResourceSystem::read_catalog(temporary, loaded),
                 "unknown GUID dependency rejects catalog") ||
         !write(temporary / "catalog.bin", pack(catalog.data, "EASC")))
+    {
         return false;
+    }
     const std::vector<std::byte> changed{std::byte{0}};
     if (!write(temporary / "gen" / scene_guid, changed))
+    {
         return false;
+    }
     if (!expect(world.load_scene("project/scenes/main.scene") != nullptr,
                 "loaded snapshot unaffected by mutable GUID disk overwrite") ||
         !expect(!ResourceSystem::read_catalog(temporary, loaded) && loaded.artifacts.empty() &&
                     loaded.identities.size() == 0,
                 "mismatched content rejects cache and clears output"))
+    {
         return false;
+    }
     world.destroy_scene();
     ResourceSystem::clear_project_definitions();
     return expect(ResourceSystem::find_mesh(mesh.path) == nullptr &&
@@ -252,7 +299,9 @@ int main()
         ("engine-catalog-" +
          std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     if (error)
+    {
         return 1;
+    }
     const bool result = run(temporary);
     std::filesystem::remove_all(temporary, error);
     return result && !error ? 0 : 1;

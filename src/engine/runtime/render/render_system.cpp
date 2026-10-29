@@ -15,7 +15,7 @@
 #include <bx/math.h>
 
 #if defined(SDL_PLATFORM_ANDROID)
-#include "android_surface.hpp"
+#include "android/native/android_surface.hpp"
 
 #include <android/native_window.h>
 #endif
@@ -254,7 +254,7 @@ struct RenderSystem::SceneGpuResources
                 bgfx::getShaderUniforms(stage, handles.data(), count);
                 for (auto handle : handles)
                 {
-                    bgfx::UniformInfo info;
+                    bgfx::UniformInfo info{};
                     bgfx::getUniformInfo(handle, info);
                     const std::string_view name(info.name);
                     if (name == "u_normal_transform" || name == "u_camera_position" ||
@@ -263,7 +263,9 @@ struct RenderSystem::SceneGpuResources
                         const auto type = name == "u_normal_transform" ? bgfx::UniformType::Mat4
                                                                        : bgfx::UniformType::Vec4;
                         if (info.type != type || info.num != 1)
+                        {
                             return false;
+                        }
                         continue;
                     }
                     if (info.type != bgfx::UniformType::Vec4 || info.num != 1 ||
@@ -307,15 +309,23 @@ struct RenderSystem::SceneGpuResources
         void release() noexcept
         {
             if (bgfx::isValid(program))
+            {
                 bgfx::destroy(program);
+            }
             if (bgfx::isValid(vertex_shader))
+            {
                 bgfx::destroy(vertex_shader);
+            }
             if (bgfx::isValid(fragment_shader))
+            {
                 bgfx::destroy(fragment_shader);
+            }
             for (const auto& uniform : uniforms)
             {
                 if (bgfx::isValid(uniform.handle))
+                {
                     bgfx::destroy(uniform.handle);
+                }
             }
             program = BGFX_INVALID_HANDLE;
             vertex_shader = BGFX_INVALID_HANDLE;
@@ -327,9 +337,13 @@ struct RenderSystem::SceneGpuResources
         {
             const auto* shader = ResourceSystem::find_shader(path);
             if (shader == nullptr)
+            {
                 return false;
+            }
             for (auto& uniform : uniforms)
+            {
                 uniform.values.fill(0.0F);
+            }
             for (const auto& parameter : shader->parameters)
             {
                 std::array<double, 4> values{};
@@ -341,7 +355,9 @@ struct RenderSystem::SceneGpuResources
                 {
                     float scalar = value.AsFloatValue()->value;
                     if (parameter->exposed && !material.get_float(parameter->name, scalar))
+                    {
                         return false;
+                    }
                     values[0] = scalar;
                     count = 1;
                     break;
@@ -350,7 +366,9 @@ struct RenderSystem::SceneGpuResources
                 {
                     Vec2 vector = value.AsVec2Value()->value;
                     if (parameter->exposed && !material.get_v2(parameter->name, vector))
+                    {
                         return false;
+                    }
                     values = {vector.x(), vector.y(), 0.0, 0.0};
                     count = 2;
                     break;
@@ -359,7 +377,9 @@ struct RenderSystem::SceneGpuResources
                 {
                     Vec3 vector = value.AsVec3Value()->value;
                     if (parameter->exposed && !material.get_v3(parameter->name, vector))
+                    {
                         return false;
+                    }
                     values = {vector.x(), vector.y(), vector.z(), 0.0};
                     count = 3;
                     break;
@@ -368,7 +388,9 @@ struct RenderSystem::SceneGpuResources
                 {
                     Vec4 vector = value.AsVec4Value()->value;
                     if (parameter->exposed && !material.get_v4(parameter->name, vector))
+                    {
                         return false;
+                    }
                     values = {vector.x(), vector.y(), vector.z(), vector.w()};
                     count = 4;
                     break;
@@ -380,7 +402,9 @@ struct RenderSystem::SceneGpuResources
                     std::find_if(uniforms.begin(), uniforms.end(), [&parameter](const auto& item)
                                  { return item.name == parameter->uniform_name; });
                 if (uniform == uniforms.end() || parameter->uniform_offset + count > 4)
+                {
                     return false;
+                }
                 for (std::size_t index = 0; index < count; ++index)
                 {
                     uniform->values[parameter->uniform_offset + index] =
@@ -388,7 +412,9 @@ struct RenderSystem::SceneGpuResources
                 }
             }
             for (const auto& uniform : uniforms)
+            {
                 bgfx::setUniform(uniform.handle, uniform.values.data());
+            }
             return true;
         }
     };
@@ -406,7 +432,9 @@ struct RenderSystem::SceneGpuResources
             const auto index_bytes = data.indices.size() * sizeof(std::uint32_t);
             if (vertex_bytes > std::numeric_limits<std::uint32_t>::max() ||
                 index_bytes > std::numeric_limits<std::uint32_t>::max())
+            {
                 return false;
+            }
             bgfx::VertexLayout layout;
             layout.begin()
                 .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -424,9 +452,13 @@ struct RenderSystem::SceneGpuResources
         void release() noexcept
         {
             if (bgfx::isValid(vertices))
+            {
                 bgfx::destroy(vertices);
+            }
             if (bgfx::isValid(indices))
+            {
                 bgfx::destroy(indices);
+            }
             vertices = BGFX_INVALID_HANDLE;
             indices = BGFX_INVALID_HANDLE;
         }
@@ -580,7 +612,9 @@ bool RenderSystem::prepare_scene()
     {
         scene_resources_.reset(new (std::nothrow) SceneGpuResources{});
         if (scene_resources_ == nullptr)
+        {
             return false;
+        }
         auto& resources = *scene_resources_;
         resources.normal_transform =
             bgfx::createUniform("u_normal_transform", bgfx::UniformType::Mat4);
@@ -606,7 +640,9 @@ bool RenderSystem::prepare_scene()
     {
         const auto* mesh = node->get_component<MeshRenderer>();
         if (mesh == nullptr || !mesh->enabled())
+        {
             continue;
+        }
         const std::string mesh_path(mesh->mesh_path());
         if (needed_meshes.insert(mesh_path).second &&
             std::none_of(meshes.begin(), meshes.end(),
@@ -627,7 +663,9 @@ bool RenderSystem::prepare_scene()
         }
         const std::string path(mesh->material().shader_path());
         if (!needed.insert(path).second)
+        {
             continue;
+        }
         const auto* shader = ResourceSystem::find_shader(path);
         if (shader == nullptr)
         {
@@ -656,7 +694,9 @@ bool RenderSystem::prepare_scene()
             iterator = meshes.erase(iterator);
         }
         else
+        {
             ++iterator;
+        }
     }
     // 材质切换 shader 后退役不再使用的程序，保持项目GPU资源有界。
     for (auto iterator = programs.begin(); iterator != programs.end();)
@@ -667,7 +707,9 @@ bool RenderSystem::prepare_scene()
             iterator = programs.erase(iterator);
         }
         else
+        {
             ++iterator;
+        }
     }
     return true;
 }
@@ -678,14 +720,20 @@ void RenderSystem::release_scene() noexcept
     {
         auto& resources = *scene_resources_;
         for (auto& program : resources.programs)
+        {
             program.release();
+        }
         for (auto& mesh : resources.meshes)
+        {
             mesh.release();
+        }
         for (auto uniform : {resources.normal_transform, resources.camera_position,
                              resources.light_direction, resources.light_color})
         {
             if (bgfx::isValid(uniform))
+            {
                 bgfx::destroy(uniform);
+            }
         }
     }
     scene_resources_.reset();
@@ -709,15 +757,19 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(resources.light_direction)) +
                           static_cast<std::uint32_t>(bgfx::isValid(resources.light_color));
     for (const auto& mesh : resources.meshes)
+    {
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
                  static_cast<std::uint32_t>(bgfx::isValid(mesh.indices));
+    }
     for (const auto& program : resources.programs)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.program));
         for (const auto& uniform : program.uniforms)
+        {
             count += static_cast<std::uint32_t>(bgfx::isValid(uniform.handle));
+        }
     }
     return count;
 }
@@ -734,15 +786,15 @@ bool RenderSystem::draw_scene()
         return true;
     }
     const Camera& camera = *scene->active_camera();
-    float camera_world[16];
+    float camera_world[16]{};
     const auto* camera_transform = camera.node().get_component<Transform>();
     if (camera_transform == nullptr || !camera_transform->world_matrix(camera_world))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Camera world matrix is invalid");
         return false;
     }
-    float view[16];
-    float projection[16];
+    float view[16]{};
+    float projection[16]{};
     const CameraSettings& settings = camera.settings();
     bx::mtxProj(projection, settings.fov_degrees, static_cast<float>(width_) / height_,
                 settings.near_clip, settings.far_clip, bgfx::getCaps()->homogeneousDepth,
@@ -763,7 +815,7 @@ bool RenderSystem::draw_scene()
         {
             continue;
         }
-        float light_world[16];
+        float light_world[16]{};
         const auto* transform = node->get_component<Transform>();
         if (transform == nullptr || !transform->world_matrix(light_world))
         {
@@ -785,7 +837,7 @@ bool RenderSystem::draw_scene()
         light_color = {light_settings.color.r() * light_settings.intensity,
                        light_settings.color.g() * light_settings.intensity,
                        light_settings.color.b() * light_settings.intensity, 0.0F};
-        break; // 本轮支持一盏方向光，选节点顺序中的第一个启用 Light。
+        break; // 按节点顺序选取第一个启用的方向光。
     }
     SceneGpuResources& resources = *scene_resources_;
     for (const auto& node : scene->nodes())
@@ -795,14 +847,14 @@ bool RenderSystem::draw_scene()
         {
             continue;
         }
-        float model[16];
+        float model[16]{};
         const auto* transform = node->get_component<Transform>();
         if (transform == nullptr || !transform->world_matrix(model))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
             return false;
         }
-        float normal_transform[16];
+        float normal_transform[16]{};
         if (!normal_matrix(model, normal_transform))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh normal transform is invalid");
@@ -826,7 +878,9 @@ bool RenderSystem::draw_scene()
             std::find_if(resources.meshes.begin(), resources.meshes.end(),
                          [mesh](const auto& item) { return item.path == mesh->mesh_path(); });
         if (mesh_resource == resources.meshes.end())
+        {
             return false;
+        }
         bgfx::setVertexBuffer(0, mesh_resource->vertices);
         bgfx::setIndexBuffer(mesh_resource->indices);
         const std::uint64_t cull =

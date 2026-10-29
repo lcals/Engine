@@ -2,7 +2,9 @@
 # 不递归散列源码树，不运行 GN/Ninja，也不把“归档存在”当成构建成功证明。
 
 function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
-    set(${_ready_output} FALSE PARENT_SCOPE)
+    set(${_ready_output}
+        FALSE
+        PARENT_SCOPE)
     set(_identity "${_revision}\n${_depot_revision}\n${_build_revision}\n${_partition_revision}\n")
     string(APPEND _identity "${CMAKE_HOST_SYSTEM_NAME}\n${ENGINE_V8_TARGET_CPU}\n")
     if(DEFINED ENGINE_V8_TARGET_OS AND NOT ENGINE_V8_TARGET_OS STREQUAL "")
@@ -16,21 +18,24 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     endif()
     string(APPEND _identity "target_os=${_target_os}\n")
 
-    set(_roots "${_source}" "${_depot}" "${_source}/build"
-        "${_source}/third_party/partition_alloc")
+    set(_roots "${_source}" "${_depot}" "${_source}/build" "${_source}/third_party/partition_alloc")
     set(_revisions "${_revision}" "${_depot_revision}" "${_build_revision}"
-        "${_partition_revision}")
+                   "${_partition_revision}")
     foreach(_root _expected IN ZIP_LISTS _roots _revisions)
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
-            RESULT_VARIABLE _status OUTPUT_VARIABLE _actual
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
+            RESULT_VARIABLE _status
+            OUTPUT_VARIABLE _actual
             OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
         if(NOT _status EQUAL 0 OR NOT _actual STREQUAL _expected)
             return()
         endif()
         # 已跟踪的本地修改必须使缓存失效；不扫描巨大的未跟踪构建目录。
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}"
-            diff --no-ext-diff --binary HEAD --
-            RESULT_VARIABLE _status OUTPUT_VARIABLE _diff ERROR_QUIET)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${_root}" diff --no-ext-diff --binary HEAD --
+            RESULT_VARIABLE _status
+            OUTPUT_VARIABLE _diff
+            ERROR_QUIET)
         if(NOT _status EQUAL 0)
             return()
         endif()
@@ -45,15 +50,19 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         if(_root IN_LIST _roots)
             continue()
         endif()
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
-            RESULT_VARIABLE _status OUTPUT_VARIABLE _actual
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
+            RESULT_VARIABLE _status
+            OUTPUT_VARIABLE _actual
             OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
         if(NOT _status EQUAL 0)
             return()
         endif()
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}"
-            diff --no-ext-diff --binary HEAD --
-            RESULT_VARIABLE _status OUTPUT_VARIABLE _diff ERROR_QUIET)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${_root}" diff --no-ext-diff --binary HEAD --
+            RESULT_VARIABLE _status
+            OUTPUT_VARIABLE _diff
+            ERROR_QUIET)
         if(NOT _status EQUAL 0)
             return()
         endif()
@@ -61,9 +70,10 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         string(APPEND _identity "${_root}:${_actual}:${_diff_hash}\n")
     endforeach()
     foreach(_patch_root _patch IN ZIP_LISTS _patch_roots _patch_files)
-        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_patch_root}"
-            apply --reverse --check "${_patch}"
-            RESULT_VARIABLE _status OUTPUT_QUIET ERROR_QUIET)
+        execute_process(
+            COMMAND "${GIT_EXECUTABLE}" -C "${_patch_root}" apply --reverse --check "${_patch}"
+            RESULT_VARIABLE _status
+            OUTPUT_QUIET ERROR_QUIET)
         if(NOT _status EQUAL 0)
             return()
         endif()
@@ -77,8 +87,10 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         if(_entry MATCHES "'([^']+)': '[^']+@([0-9a-f]+)'")
             set(_dependency "${_workspace}/${CMAKE_MATCH_1}")
             set(_expected "${CMAKE_MATCH_2}")
-            execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_dependency}" rev-parse HEAD
-                RESULT_VARIABLE _status OUTPUT_VARIABLE _actual
+            execute_process(
+                COMMAND "${GIT_EXECUTABLE}" -C "${_dependency}" rev-parse HEAD
+                RESULT_VARIABLE _status
+                OUTPUT_VARIABLE _actual
                 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
             if(NOT _status EQUAL 0 OR NOT _actual STREQUAL _expected)
                 return()
@@ -92,7 +104,9 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/v8_cache.cmake"
         "${_engine_root}/third_party/v8.cmake"
         "${ENGINE_V8_BUILD_ROOT}/.gitconfig"
-        "${_source}/DEPS" "${_workspace}/.gclient" "${_workspace}/.gclient_entries"
+        "${_source}/DEPS"
+        "${_workspace}/.gclient"
+        "${_workspace}/.gclient_entries"
         "${_source}/third_party/llvm-build/Release+Asserts/cr_build_revision"
         "${_source}/third_party/rust-toolchain/VERSION"
         ${_patch_files})
@@ -101,9 +115,9 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     endif()
     set(_tools "${_gn}" "${_ninja}")
     if(_target_os STREQUAL "android")
-        if(NOT ENGINE_V8_TARGET_CPU STREQUAL "arm64" OR
-           NOT DEFINED ENGINE_V8_ANDROID_NDK OR
-           NOT ENGINE_V8_ANDROID_API MATCHES "^[0-9]+$")
+        if(NOT ENGINE_V8_TARGET_CPU STREQUAL "arm64"
+           OR NOT DEFINED ENGINE_V8_ANDROID_NDK
+           OR NOT ENGINE_V8_ANDROID_API MATCHES "^[0-9]+$")
             return()
         endif()
         file(REAL_PATH "${ENGINE_V8_ANDROID_NDK}" _ndk)
@@ -120,30 +134,33 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         string(APPEND _identity "android_ndk=${_ndk}\nandroid_api=${ENGINE_V8_ANDROID_API}\n")
         list(APPEND _files "${_ndk}/source.properties" "${_ndk}/meta/platforms.json")
         foreach(_tool IN ITEMS clang llvm-ar ld.lld)
-            list(APPEND _tools "${_ndk}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}")
+            list(APPEND _tools
+                 "${_ndk}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}")
         endforeach()
         # Windows 的 Android 归档仍由宿主可执行的 llvm-ar 处理，不能使用 COFF lld-link。
         if(CMAKE_HOST_WIN32)
-            list(APPEND _tools
-                "${_source}/third_party/llvm-build/Release+Asserts/bin/clang.exe"
-                "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar.exe")
+            list(APPEND _tools "${_source}/third_party/llvm-build/Release+Asserts/bin/clang.exe"
+                 "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar.exe")
         endif()
     endif()
     if(CMAKE_HOST_WIN32)
-        list(APPEND _tools
-            "${_source}/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
-            "${_source}/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
-            "${_source}/third_party/rust-toolchain/bin/rustc.exe")
+        list(APPEND _tools "${_source}/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
+             "${_source}/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
+             "${_source}/third_party/rust-toolchain/bin/rustc.exe")
         # 按系统注册位置及上游支持的 VS 选择变量检测，不能假定安装在 C:。
-        cmake_host_system_information(RESULT _program_files_x86 QUERY WINDOWS_REGISTRY
-            "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion" VALUE "ProgramFilesDir (x86)"
-            ERROR_VARIABLE _registry_error)
-        cmake_host_system_information(RESULT _sdk_root QUERY WINDOWS_REGISTRY
-            "HKLM/SOFTWARE/Microsoft/Windows Kits/Installed Roots" VALUE KitsRoot10
-            ERROR_VARIABLE _registry_error)
-        set(_vs_roots "$ENV{GYP_MSVS_OVERRIDE_PATH}" "$ENV{vs2022_install}"
-            "$ENV{vs2019_install}" "$ENV{vs2017_install}")
-        file(GLOB _default_vs LIST_DIRECTORIES TRUE
+        cmake_host_system_information(
+            RESULT _program_files_x86
+            QUERY WINDOWS_REGISTRY "HKLM/SOFTWARE/Microsoft/Windows/CurrentVersion" VALUE
+                  "ProgramFilesDir (x86)" ERROR_VARIABLE _registry_error)
+        cmake_host_system_information(
+            RESULT _sdk_root
+            QUERY WINDOWS_REGISTRY "HKLM/SOFTWARE/Microsoft/Windows Kits/Installed Roots" VALUE
+                  KitsRoot10 ERROR_VARIABLE _registry_error)
+        set(_vs_roots "$ENV{GYP_MSVS_OVERRIDE_PATH}" "$ENV{vs2022_install}" "$ENV{vs2019_install}"
+                      "$ENV{vs2017_install}")
+        file(
+            GLOB _default_vs
+            LIST_DIRECTORIES TRUE
             "$ENV{ProgramFiles}/Microsoft Visual Studio/*/*"
             "${_program_files_x86}/Microsoft Visual Studio/*/*")
         list(APPEND _vs_roots ${_default_vs})
@@ -158,24 +175,25 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         endforeach()
         if(NOT _sdk_root STREQUAL "")
             file(GLOB _sdk_versions "${_sdk_root}/Include/*/um/Windows.h"
-                "${_sdk_root}/Include/*/ucrt/corecrt.h")
+                 "${_sdk_root}/Include/*/ucrt/corecrt.h")
             list(APPEND _windows_versions ${_sdk_versions})
         endif()
         list(REMOVE_DUPLICATES _windows_versions)
         list(SORT _windows_versions)
         list(APPEND _files ${_windows_versions})
         string(APPEND _identity "$ENV{GYP_MSVS_OVERRIDE_PATH}\n$ENV{GYP_MSVS_VERSION}\n"
-            "$ENV{vs2022_install}\n$ENV{vs2019_install}\n$ENV{vs2017_install}\n")
+               "$ENV{vs2022_install}\n$ENV{vs2019_install}\n$ENV{vs2017_install}\n")
     else()
-        list(APPEND _tools
-            "${_source}/third_party/llvm-build/Release+Asserts/bin/clang"
-            "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar"
-            "${_source}/third_party/rust-toolchain/bin/rustc")
+        list(APPEND _tools "${_source}/third_party/llvm-build/Release+Asserts/bin/clang"
+             "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar"
+             "${_source}/third_party/rust-toolchain/bin/rustc")
     endif()
     if(CMAKE_HOST_APPLE)
         foreach(_query IN ITEMS --show-sdk-path --show-sdk-version)
-            execute_process(COMMAND xcrun --sdk macosx "${_query}"
-                RESULT_VARIABLE _status OUTPUT_VARIABLE _sdk_value
+            execute_process(
+                COMMAND xcrun --sdk macosx "${_query}"
+                RESULT_VARIABLE _status
+                OUTPUT_VARIABLE _sdk_value
                 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
             if(NOT _status EQUAL 0)
                 return()
@@ -186,8 +204,10 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
             endif()
         endforeach()
         foreach(_tool IN ITEMS ld lipo)
-            execute_process(COMMAND xcrun --find "${_tool}"
-                RESULT_VARIABLE _status OUTPUT_VARIABLE _tool_path
+            execute_process(
+                COMMAND xcrun --find "${_tool}"
+                RESULT_VARIABLE _status
+                OUTPUT_VARIABLE _tool_path
                 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
             if(NOT _status EQUAL 0)
                 return()
@@ -198,7 +218,7 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
         # 当前固定 Chromium build 的 native x64 默认 sysroot；缺失时必须跑 hooks。
         list(APPEND _files "${_source}/build/linux/debian_bullseye_amd64-sysroot/.stamp"
-            "${_source}/build/linux/sysroot_scripts/sysroots.json")
+             "${_source}/build/linux/sysroot_scripts/sysroots.json")
     endif()
     if(DEFINED ENGINE_V8_HOST_COMPILER AND NOT ENGINE_V8_HOST_COMPILER STREQUAL "")
         list(APPEND _tools "${ENGINE_V8_HOST_COMPILER}")
@@ -226,9 +246,15 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     string(SHA256 _prepare_key "${_identity}")
     file(SHA256 "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/package_v8.cmake" _package_hash)
     string(SHA256 _build_key "${_prepare_key}\n${_args}\n${_package_hash}\n")
-    set(${_prepare_output} "${_prepare_key}" PARENT_SCOPE)
-    set(${_build_output} "${_build_key}" PARENT_SCOPE)
-    set(${_ready_output} TRUE PARENT_SCOPE)
+    set(${_prepare_output}
+        "${_prepare_key}"
+        PARENT_SCOPE)
+    set(${_build_output}
+        "${_build_key}"
+        PARENT_SCOPE)
+    set(${_ready_output}
+        TRUE
+        PARENT_SCOPE)
 endfunction()
 
 function(_engine_v8_stamp_matches _file _key _output)
@@ -239,13 +265,17 @@ function(_engine_v8_stamp_matches _file _key _output)
             set(_matches TRUE)
         endif()
     endif()
-    set(${_output} ${_matches} PARENT_SCOPE)
+    set(${_output}
+        ${_matches}
+        PARENT_SCOPE)
 endfunction()
 
 function(_engine_v8_artifacts _output)
-    set(${_output} FALSE PARENT_SCOPE)
-    set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat"
-        "${_out}/gen/include/v8-gn.h" "${_out}/args.gn" "${_out}/build.ninja")
+    set(${_output}
+        FALSE
+        PARENT_SCOPE)
+    set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat" "${_out}/gen/include/v8-gn.h"
+                   "${_out}/args.gn" "${_out}/build.ninja")
     if(NOT ENGINE_V8_TARGET_OS STREQUAL "android" OR NOT "${_sample}" STREQUAL "")
         if("${_sample}" STREQUAL "")
             return()
@@ -263,12 +293,16 @@ function(_engine_v8_artifacts _output)
     endforeach()
     file(READ "${_out}/args.gn" _saved_args)
     if(_saved_args STREQUAL _args)
-        set(${_output} TRUE PARENT_SCOPE)
+        set(${_output}
+            TRUE
+            PARENT_SCOPE)
     endif()
 endfunction()
 
 function(_engine_v8_headers_current _output)
-    set(${_output} FALSE PARENT_SCOPE)
+    set(${_output}
+        FALSE
+        PARENT_SCOPE)
     set(_generated "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h")
     if(NOT EXISTS "${_generated}" OR NOT EXISTS "${_out}/gen/include/v8-gn.h")
         return()
@@ -283,7 +317,10 @@ function(_engine_v8_headers_current _output)
         return()
     endif()
     # 这里只核对约数百个公开头文件，不扫描整个 V8 或构建产物树。
-    file(GLOB_RECURSE _headers LIST_DIRECTORIES FALSE RELATIVE "${_source}/include"
+    file(
+        GLOB_RECURSE _headers
+        LIST_DIRECTORIES FALSE
+        RELATIVE "${_source}/include"
         "${_source}/include/*")
     if(NOT _headers)
         return()
@@ -299,7 +336,9 @@ function(_engine_v8_headers_current _output)
             return()
         endif()
     endforeach()
-    set(${_output} TRUE PARENT_SCOPE)
+    set(${_output}
+        TRUE
+        PARENT_SCOPE)
 endfunction()
 
 function(_engine_v8_write_stamp _file _key)

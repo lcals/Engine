@@ -1,3 +1,5 @@
+#include "runtime/utils/path_utils.hpp"
+
 #include <pxr/base/tf/token.h>
 #include <pxr/usd/sdf/layer.h>
 #include <pxr/usd/sdf/path.h>
@@ -33,7 +35,7 @@ namespace
     }
 
     {
-        const auto stage = pxr::UsdStage::CreateNew(path.string());
+        const auto stage = pxr::UsdStage::CreateNew(engine::PathUtils::to_utf8(path));
         if (!stage)
         {
             return fail("Cannot create USD stage");
@@ -69,7 +71,7 @@ namespace
     }
 
     {
-        const auto stage = pxr::UsdStage::Open(path.string());
+        const auto stage = pxr::UsdStage::Open(engine::PathUtils::to_utf8(path));
         if (!stage)
         {
             return fail("Cannot reopen USD stage");
@@ -104,7 +106,7 @@ int main(int argc, char* argv[])
         std::fputs("Expected an output directory\n", stderr);
         return 2;
     }
-    const std::filesystem::path directory(argv[1]);
+    const auto directory = engine::PathUtils::from_utf8(argv[1]);
     std::error_code error;
     std::filesystem::create_directories(directory, error);
     if (error)

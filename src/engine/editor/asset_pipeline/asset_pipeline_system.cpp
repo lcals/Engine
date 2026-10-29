@@ -20,11 +20,18 @@
 
 #include <algorithm>
 #include <array>
+#include <cstddef>
+#include <cstdint>
 #include <map>
+#include <memory>
 #include <queue>
 #include <set>
 #include <span>
+#include <string>
+#include <string_view>
+#include <system_error>
 #include <utility>
+#include <vector>
 
 namespace engine
 {
@@ -183,15 +190,25 @@ schema::AssetKind asset_kind(const std::filesystem::path& path)
     const auto filename = PathUtils::to_utf8(path.filename());
     const auto extension = PathUtils::to_utf8(path.extension());
     if (extension == ".scene")
+    {
         return schema::AssetKind::scene;
+    }
     if (extension == ".mesh")
+    {
         return schema::AssetKind::mesh;
+    }
     if (extension == ".shader")
+    {
         return schema::AssetKind::shader;
+    }
     if (extension == ".material")
+    {
         return schema::AssetKind::material;
+    }
     if (extension == ".ts" && !filename.ends_with(".d.ts"))
+    {
         return schema::AssetKind::script;
+    }
     return schema::AssetKind::source;
 }
 
@@ -425,7 +442,9 @@ bool tool_key(const std::filesystem::path& root, const std::vector<AssetRecord>&
             !run_process({ENGINE_NODE_EXECUTABLE, "--version"}, error, &scripts))
         {
             if (error.empty())
+            {
                 error = "TypeScript import requires Node.js";
+            }
             return false;
         }
         for (const auto& path :
@@ -489,7 +508,9 @@ bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common
     for (std::size_t index = 0; index < records.size(); ++index)
     {
         if (incoming[index] == 0)
+        {
             pending.push(index);
+        }
     }
     std::size_t visited = 0;
     while (!pending.empty())
@@ -501,9 +522,13 @@ bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common
         std::string key =
             common + ":" + record.asset.path + ":" + record.source_hash + ":" + record.meta_hash;
         if (record.asset.kind == schema::AssetKind::shader)
+        {
             key += ":" + shader;
+        }
         if (record.asset.kind == schema::AssetKind::script)
+        {
             key += ":" + scripts;
+        }
         for (const auto& guid : record.asset.dependencies)
         {
             const auto found = by_guid.find(guid);
@@ -514,7 +539,9 @@ bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common
         for (const auto dependent : dependents[index])
         {
             if (--incoming[dependent] == 0)
+            {
                 pending.push(dependent);
+            }
         }
     }
     if (visited != records.size())
@@ -598,47 +625,63 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     if (code || !directory(root, last_error_))
     {
         if (last_error_.empty())
+        {
             last_error_ = "cannot resolve project path";
+        }
         return false;
     }
     for (const auto name : {"settings", "assets", "cache"})
     {
         if (!directory(root / name, last_error_))
+        {
             return false;
+        }
     }
     const auto cache = root / "cache";
     for (const auto name : {"assets.sqlite", "assets.sqlite-journal", "gen", "catalog.bin",
                             ".asset-publish", ".asset-meta", ".asset-build.lock"})
     {
         if (!reject_symlink_if_present(cache / name, last_error_))
+        {
             return false;
+        }
     }
     ProjectLock lock;
     if (!lock.acquire(cache / ".asset-build.lock", last_error_))
+    {
         return false;
+    }
     AssetDatabase database;
     if (!database.open(cache / "assets.sqlite", last_error_) ||
         !recover_publish(cache, database, last_error_))
+    {
         return false;
+    }
     std::map<Guid, AssetRecord> previous;
     std::set<std::string> remembered;
     if (!database.load(previous, last_error_) ||
         !remembered_paths(cache, previous, remembered, last_error_))
+    {
         return false;
+    }
 
     AssetBuildStats stats;
     if (!import_threads(root / "settings", stats.import_threads, last_error_) ||
         !tasks_->configure_threads(stats.import_threads))
     {
         if (last_error_.empty())
+        {
             last_error_ = "cannot configure import workers while tasks are running";
+        }
         return false;
     }
     std::string platform;
     std::string shader_platform;
     std::string shader_profile;
     if (!target_settings(requested_target, platform, shader_platform, shader_profile, last_error_))
+    {
         return false;
+    }
     GuidMap identities;
     std::map<Guid, schema::AssetKind> kinds;
     if (!builtin_identities(identities, kinds))
@@ -686,16 +729,22 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     std::string shader_key;
     std::string script_key;
     if (!tool_key(root, records, platform, common_key, shader_key, script_key, last_error_))
+    {
         return false;
+    }
     common_key += ":" + shader_platform + ":" + shader_profile;
     std::map<Guid, std::size_t> by_guid;
     if (!calculate_keys(records, common_key, shader_key, script_key, by_guid, last_error_))
+    {
         return false;
+    }
     for (const auto& [guid, record] : previous)
     {
         (void)record;
         if (!by_guid.contains(guid))
+        {
             ++stats.removed;
+        }
     }
     std::filesystem::create_directories(output, code);
     if (code)
@@ -772,7 +821,9 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     for (std::size_t index = 0; index < records.size(); ++index)
     {
         if (!changed[index])
+        {
             continue;
+        }
         task_by_guid.emplace(records[index].asset.guid, tasks.size());
         tasks.push_back(
             {records[index].asset.path,
@@ -792,10 +843,14 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
                      success = convert_asset(record.asset, context, errors[index]);
                  }
                  if (!success)
+                 {
                      return false;
+                 }
                  std::vector<std::byte> bytes;
                  if (!read_bytes(output / record.asset.guid, bytes, errors[index]))
+                 {
                      return false;
+                 }
                  record.output_size = bytes.size();
                  record.output_hash = hash_bytes(bytes);
                  return true;
@@ -805,15 +860,21 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     for (std::size_t index = 0; index < records.size(); ++index)
     {
         if (!changed[index])
+        {
             continue;
+        }
         auto& task = tasks[task_by_guid.at(records[index].asset.guid)];
         if (records[index].asset.kind == schema::AssetKind::script)
+        {
             task.dependencies.push_back(0);
+        }
         for (const auto& guid : records[index].asset.dependencies)
         {
             const auto dependency = task_by_guid.find(guid);
             if (dependency != task_by_guid.end())
+            {
                 task.dependencies.push_back(dependency->second);
+            }
         }
     }
     if (!tasks_->run(tasks))
@@ -822,12 +883,16 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         for (const auto& error : errors)
         {
             if (!error.empty())
+            {
                 last_error_ += "\n" + error;
+            }
         }
         return fail();
     }
     if (!verify_sources(records, last_error_))
+    {
         return fail();
+    }
     // TS 配置和工具同样需要稳定，防止编译过程中更新设置而发布混合产物。
     std::string rechecked_common;
     std::string rechecked_shader;
@@ -838,7 +903,9 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         rechecked_shader != shader_key || rechecked_script != script_key)
     {
         if (last_error_.empty())
+        {
             last_error_ = "import tools or settings changed during build; retry";
+        }
         return fail();
     }
     // 发布前再检查暂存产物，缓存复用也不允许中途被外部写入改变。
@@ -926,7 +993,9 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
                      std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
                      last_error_) ||
         !publish_assets(cache, database, records, stats.revision, last_error_))
+    {
         return fail();
+    }
     last_build_ = std::move(stats);
     return true;
 }
