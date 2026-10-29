@@ -7,12 +7,17 @@
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <fstream>
+#include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace engine
@@ -59,14 +64,8 @@ std::string reject_symlinks(std::string_view path)
     return checks;
 }
 
-std::string file_hash(std::string_view bytes)
+std::string hex_hash(std::uint64_t hash)
 {
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char value : bytes)
-    {
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    }
     constexpr char digits[] = "0123456789abcdef";
     std::string result(16, '0');
     for (std::size_t i = result.size(); i != 0; --i)
@@ -253,6 +252,54 @@ bool read_remote(const McpTarget& target, std::string_view path, std::string& ou
     return false;
 }
 
+bool verify_remote_file(const McpTarget& target, std::string_view path, std::uint64_t size,
+                        std::string_view expected_hash, std::string& error)
+{
+    if (expected_hash.size() != 16)
+    {
+        error = "Invalid staged Android file hash: " + std::string(path);
+        return false;
+    }
+    const auto quoted = shell_quote(path);
+    const auto check = reject_symlinks(path) + "[ -f " + quoted + " ] || exit 45; [ \"$(wc -c < " +
+                       quoted + ")\" -eq " + std::to_string(size) + " ] || exit 46; ";
+    std::string output;
+    if (!remote_ok(target, check, {}, output, error))
+    {
+        return false;
+    }
+    // Android toybox 与宿主 fixture 均提供 dd；每次最多读回 1 MiB，包大小不影响内存上限。
+    constexpr std::uint64_t chunk_size = 1024 * 1024;
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (std::uint64_t offset = 0; offset < size;)
+    {
+        const auto expected = std::min(chunk_size, size - offset);
+        const auto command = check + "dd if=" + quoted + " bs=" + std::to_string(chunk_size) +
+                             " skip=" + std::to_string(offset / chunk_size) +
+                             " count=1 2>/dev/null";
+        if (!remote_ok(target, command, {}, output, error))
+        {
+            return false;
+        }
+        if (output.size() != expected)
+        {
+            error = "Android file readback returned an incomplete chunk: " + std::string(path);
+            return false;
+        }
+        for (const unsigned char value : output)
+        {
+            hash = (hash ^ value) * 1099511628211ULL;
+        }
+        offset += expected;
+    }
+    if (hex_hash(hash) != expected_hash)
+    {
+        error = "Android staged file hash verification failed: " + std::string(path);
+        return false;
+    }
+    return true;
+}
+
 bool upload(const McpTarget& target, const fs::path& local_file, std::string_view remote_file,
             std::string& error)
 {
@@ -297,7 +344,7 @@ bool valid_manifest(const Json& manifest)
 
 } // namespace
 
-bool McpSystem::sync_android(std::string& reply)
+bool McpSystem::sync_android(const fs::path& source, std::string& reply)
 {
     std::string error;
     std::string runtime_dir;
@@ -414,7 +461,7 @@ bool McpSystem::sync_android(std::string& reply)
     {
         return fail("cannot prepare local Android asset baseline");
     }
-    if (!sync_.sync(project_root_ / "cache", mirror))
+    if (!sync_.sync(source, mirror))
     {
         return fail(sync_.last_error());
     }
@@ -463,14 +510,10 @@ bool McpSystem::sync_android(std::string& reply)
         {
             return fail(error);
         }
-        if (!read_remote(target_, remote_file, output, exists, error))
+        if (!verify_remote_file(target_, remote_file, item["size"].get<std::uint64_t>(),
+                                item["hash"].get<std::string>(), error))
         {
             return fail(error);
-        }
-        if (!exists || output.size() != item["size"].get<std::uint64_t>() ||
-            file_hash(output) != item["hash"].get<std::string>())
-        {
-            return fail("Android staged file verification failed: " + relative);
         }
     }
     if (reuse_version && published == manifest)

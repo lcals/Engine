@@ -14,6 +14,7 @@ namespace engine
 
 class WorldSystem;
 class Camera;
+class Resource;
 
 class Scene final
 {
@@ -52,6 +53,7 @@ private:
     ecs_world_t& world_;
     std::uint64_t id_;
     std::uint64_t node_sequence_ = 0;
+    std::shared_ptr<const Resource> resource_;
     schema::SceneInfoT info_{};
     std::vector<std::unique_ptr<Node>> nodes_;
 };

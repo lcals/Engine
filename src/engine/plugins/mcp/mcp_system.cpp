@@ -1,5 +1,6 @@
 #include "plugins/mcp/mcp_system.hpp"
 
+#include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -9,12 +10,16 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace engine
 {
@@ -382,6 +387,24 @@ Json tool_list(bool desktop)
                {"description",
                 "Read the configured runtime's reported active and available revisions."},
                {"inputSchema", empty_schema}}})}};
+    result["tools"].push_back(
+        {{"name", "build_resources"},
+         {"description", "Incrementally build selected items from a project settings manifest."},
+         {"inputSchema",
+          {{"type", "object"},
+           {"properties",
+            {{"manifest", {{"type", "string"}}},
+             {"items", {{"type", "array"}, {"items", {{"type", "string"}}}}}}},
+           {"required", Json::array({"manifest"})},
+           {"additionalProperties", false}}}});
+    result["tools"][0]["inputSchema"] = {
+        {"type", "object"},
+        {"properties",
+         {{"source",
+           {{"type", "string"},
+            {"description",
+             "Optional prebuilt output directory relative to the project; skips import."}}}}},
+        {"additionalProperties", false}};
     if (desktop)
     {
         result["tools"].push_back(
@@ -400,9 +423,9 @@ Json tool_list(bool desktop)
 
 } // namespace
 
-McpSystem::McpSystem(AssetPipelineSystem& pipeline, AssetSyncSystem& sync, fs::path project_root,
-                     McpTarget target)
-    : pipeline_(pipeline), sync_(sync), project_root_(std::move(project_root)),
+McpSystem::McpSystem(AssetPipelineSystem& pipeline, AssetBuildSystem& builder,
+                     AssetSyncSystem& sync, fs::path project_root, McpTarget target)
+    : pipeline_(pipeline), builder_(builder), sync_(sync), project_root_(std::move(project_root)),
       target_(std::move(target))
 {
 }
@@ -414,9 +437,9 @@ McpSystem::~McpSystem() noexcept
 
 bool McpSystem::on_initialize(const EngineConfig&)
 {
-    if (!pipeline_.is_initialized() || !sync_.is_initialized())
+    if (!pipeline_.is_initialized() || !builder_.is_initialized() || !sync_.is_initialized())
     {
-        std::fputs("MCP requires initialized asset pipeline and sync systems\n", stderr);
+        std::fputs("MCP requires initialized asset pipeline, build and sync systems\n", stderr);
         return false;
     }
     std::error_code error;
@@ -556,21 +579,87 @@ bool McpSystem::run_stdio()
                 {
                     const auto name = params["name"].get<std::string>();
                     Json result;
-                    if (name == "sync_assets" && arguments.empty())
+                    if (name == "build_resources" && arguments.contains("manifest") &&
+                        arguments["manifest"].is_string() && arguments.size() <= 2 &&
+                        (!arguments.contains("items") || arguments["items"].is_array()))
                     {
-                        if (!pipeline_.build_assets(project_root_, target_.android_serial.empty()
-                                                                       ? std::string_view{}
-                                                                       : "android"))
+                        std::vector<std::string> items;
+                        bool valid = arguments.size() == 1 || arguments.contains("items");
+                        if (arguments.contains("items"))
+                        {
+                            for (const auto& item : arguments["items"])
+                            {
+                                if (!item.is_string())
+                                {
+                                    valid = false;
+                                    break;
+                                }
+                                items.push_back(item.get<std::string>());
+                            }
+                        }
+                        if (!valid)
+                        {
+                            reply = rpc_error(id, -32602, "Invalid build item list");
+                        }
+                        else if (!builder_.build(
+                                     project_root_,
+                                     PathUtils::from_utf8(arguments["manifest"].get<std::string>()),
+                                     items))
+                        {
+                            result = tool_result({{"error", builder_.last_error()}}, true);
+                        }
+                        else
+                        {
+                            const auto& stats = builder_.last_build();
+                            result =
+                                tool_result({{"revision", stats.revision},
+                                             {"resources", stats.resource_count},
+                                             {"packages", stats.package_count},
+                                             {"reusedPackages", stats.reused_package_count},
+                                             {"output", PathUtils::to_utf8(stats.output_path)}});
+                        }
+                    }
+                    else if (name == "sync_assets" &&
+                             (arguments.empty() ||
+                              (arguments.size() == 1 && arguments.contains("source") &&
+                               arguments["source"].is_string())))
+                    {
+                        fs::path source = project_root_ / "cache";
+                        bool valid = true;
+                        if (arguments.contains("source"))
+                        {
+                            const auto relative =
+                                PathUtils::from_utf8(arguments["source"].get<std::string>());
+                            valid = !relative.empty() && !relative.is_absolute() &&
+                                    !relative.has_root_path();
+                            for (const auto& component : relative)
+                            {
+                                valid = valid && component != ".." && component != ".";
+                            }
+                            source = project_root_ / relative;
+                            valid = valid && no_symlinks(source);
+                        }
+                        if (!valid)
+                        {
+                            result = tool_result(
+                                {{"error", "Invalid project-relative build output directory"}},
+                                true);
+                        }
+                        else if (!arguments.contains("source") &&
+                                 !pipeline_.build_assets(project_root_,
+                                                         target_.android_serial.empty()
+                                                             ? std::string_view{}
+                                                             : "android"))
                         {
                             result = tool_result({{"error", pipeline_.last_error()}}, true);
                         }
                         else if (!target_.android_serial.empty())
                         {
                             std::string receipt;
-                            const bool success = sync_android(receipt);
+                            const bool success = sync_android(source, receipt);
                             result = android_result(success, receipt);
                         }
-                        else if (!sync_.sync(project_root_ / "cache", target_.runtime_dir))
+                        else if (!sync_.sync(source, target_.runtime_dir))
                         {
                             result = tool_result({{"error", sync_.last_error()}}, true);
                         }

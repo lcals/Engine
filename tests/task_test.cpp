@@ -3,6 +3,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <vector>
 
 namespace
 {
@@ -10,7 +11,9 @@ namespace
 bool expect(bool value, const char* text)
 {
     if (!value)
+    {
         std::fprintf(stderr, "task test: %s\n", text);
+    }
     return value;
 }
 
@@ -28,7 +31,9 @@ int main()
                 "reject invalid worker counts") ||
         !expect(tasks.configure_threads(2) && tasks.thread_count() == 2,
                 "idle worker reconfiguration"))
+    {
         return 1;
+    }
     std::atomic<int> completed{0};
     std::vector<engine::TaskDescription> graph{
         {"first",
@@ -49,7 +54,9 @@ int main()
     if (!expect(tasks.run(graph),
                 "actual Taskflow dependency join and active reconfiguration rejection") ||
         !expect(tasks.thread_count() == 2, "active batch keeps executor"))
+    {
         return 1;
+    }
     bool downstream_ran = false;
     graph = {{"failure", []() { return false; }, {}},
              {"skipped",
@@ -65,7 +72,9 @@ int main()
         !expect(!tasks.run({{"bad", []() { return true; }, {9}}}), "reject missing task") ||
         !expect(!tasks.run({{"missing", {}, {}}}), "reject empty function") ||
         !expect(tasks.run({}), "empty graph succeeds"))
+    {
         return 1;
+    }
     tasks.shutdown();
     tasks.shutdown();
     return expect(tasks.initialize(config) && tasks.run(graph) == false, "executor restarts safely")

@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-状态：本轮最小实现。仅定义 `WorldSystem` 的方法；其他节点为跨图引用或第三方类型。
+本图仅定义 `WorldSystem` 的方法；其他节点为跨图引用或第三方类型。
 
 ```mermaid
 classDiagram
@@ -11,11 +11,11 @@ classDiagram
         <<final>>
         +WorldSystem()
         +~WorldSystem()
-        +create_scene(string_view name) Scene*
-        +load_scene(string_view path) Scene*
+        +create_scene(string_view name) Scene#42;
+        +load_scene(string_view path) Scene#42;
         +destroy_scene() void
-        +scene() Scene*
-        +scene() const Scene*
+        +scene() Scene#42;
+        +scene() const Scene#42;
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -56,7 +56,7 @@ classDiagram
 
 - 由 `Engine` 拥有的根系统；持有一个 flecs 世界，初始化与销毁调用成对。
 - `on_tick()` 推进 ECS 世界；之后由 `System` 按加入顺序更新子系统。场景节点使用 flecs 实体标识，节点变换与组件只有一份 C++ 状态。
-- `Engine` 装配物理、导航、动画、界面及可选脚本子系统，通过 `add_subsystem()` 将所有权移交世界系统。关闭子系统后再销毁 ECS 世界。
+- `RuntimeHost` 装配物理、导航、动画、界面及可选脚本子系统，通过 `add_subsystem()` 将所有权移交世界系统。关闭子系统后再销毁 ECS 世界。
 - 只有已初始化的世界可创建一个活动场景，已有场景时返回空指针。`destroy_scene()` 可重复调用；关闭时在释放 ECS 世界前销毁场景。每次成功创建分配递增的场景标识，关闭再初始化不重用，供脚本与渲染器拒绝旧引用。
 - `scene()` 返回可空借用，`destroy_scene()` 或世界关闭后失效；只读重载为 `const`，查询与销毁为 `noexcept`。初始化失败和清理遵守[系统约定](engine-system.md)。
 

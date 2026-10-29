@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [应用平台目录](app.md)
 
-状态：本轮实现；继承的生命周期只在 System 总图维护。
+继承的生命周期只在 System 总图维护。
 
 ```mermaid
 classDiagram

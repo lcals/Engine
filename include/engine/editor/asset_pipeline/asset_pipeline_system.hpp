@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
@@ -35,6 +36,8 @@ public:
     // 失败保留上一次成功批次统计；所有接口由编辑器协调线程调用。
     [[nodiscard]] const AssetBuildStats& last_build() const noexcept;
     [[nodiscard]] const std::string& last_error() const noexcept;
+    // 最近成功导入的完整项目目录；不包含资源实体，下一次成功导入后更新。
+    [[nodiscard]] const schema::AssetCatalogDataT& catalog() const noexcept;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -44,6 +47,7 @@ private:
     TaskSystem* tasks_ = nullptr; // System 子系统树独占，本指针借用。
     AssetBuildStats last_build_;
     std::string last_error_;
+    schema::AssetCatalogDataT catalog_;
 };
 
 } // namespace engine

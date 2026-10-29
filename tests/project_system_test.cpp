@@ -1,5 +1,6 @@
 #include "editor/project/project_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/utils/path_utils.hpp"
 
 #include <cstdio>
 #include <filesystem>
@@ -102,7 +103,7 @@ namespace fs = std::filesystem;
     {
         return false;
     }
-    std::string caller_path = valid_root.string();
+    std::string caller_path = engine::PathUtils::to_utf8(valid_root);
     engine::ProjectSystem valid_project(caller_path);
     caller_path.clear();
     if (!check_ready(valid_project, config) || !check_ready(valid_project, config))
@@ -111,14 +112,14 @@ namespace fs = std::filesystem;
     }
 
     const fs::path missing_root = workspace / "missing-root";
-    engine::ProjectSystem missing_project(missing_root.string());
+    engine::ProjectSystem missing_project(engine::PathUtils::to_utf8(missing_root));
     if (!check_rejected(missing_project, config) || !create_project(missing_root) ||
         !check_ready(missing_project, config))
     {
         return false;
     }
     const fs::path root_file = workspace / "root-file";
-    engine::ProjectSystem file_project(root_file.string());
+    engine::ProjectSystem file_project(engine::PathUtils::to_utf8(root_file));
     if (!create_file(root_file) || !check_rejected(file_project, config) ||
         !remove_path(root_file) || !create_project(root_file) || !check_ready(file_project, config))
     {
@@ -129,7 +130,7 @@ namespace fs = std::filesystem;
     {
         const fs::path root = workspace / directory;
         const fs::path required = root / directory;
-        engine::ProjectSystem project(root.string());
+        engine::ProjectSystem project(engine::PathUtils::to_utf8(root));
         if (!create_project(root) || !remove_path(required) || !check_rejected(project, config))
         {
             return false;
@@ -166,7 +167,7 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    const fs::path workspace = fs::path(argv[1]) / "project-system-cases";
+    const fs::path workspace = engine::PathUtils::from_utf8(argv[1]) / "project-system-cases";
     if (!remove_path(workspace) || !make_directory(workspace))
     {
         return 1;

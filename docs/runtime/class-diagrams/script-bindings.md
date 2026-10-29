@@ -10,30 +10,30 @@ classDiagram
     class ScriptBinding {
         <<abstract>>
         +~ScriptBinding()
-        +name() const std::string_view
-        +source() const std::string_view
-        +register_functions(v8Context context, v8Object native) const bool
+        +name() std::string_view*
+        +source() std::string_view*
+        +register_functions(v8Context context, v8Object native) bool*
     }
     class ScriptBindingRegistry {
         <<final>>
         +initialize() bool
         +add_binding(unique_ptr~ScriptBinding~& binding) bool
-        +register_functions(v8Context context) const bool
-        +source() const std::string
+        +register_functions(v8Context context) bool
+        +source() std::string
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem* world)
+        +BindingContext(WorldSystem#42; world)
         +~BindingContext()
         +initialize(v8Context context) bool
         +activate() void
         +begin_call(double delta_time) void
         +end_call() void
         +shutdown() void
-        +world() const WorldSystem#42;
-        +scene_id() const uint64_t
+        +world() WorldSystem#42;
+        +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
-        +delta_time() const double
+        +delta_time() double
     }
     class ScriptSystem
     class WorldSystem
@@ -44,20 +44,22 @@ classDiagram
     BindingContext --> WorldSystem : 可空借用
 ```
 
+`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 返回可修改世界的可空借用。成员函数的 `const` 在此说明，不写入返回类型。
+
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 为 `const v8::FunctionCallbackInfo<v8::Value>&`；`v8Context`、`v8Object`、`v8Value` 分别为对应 `v8::Local` 句柄，`v8FunctionCallback` 为 V8 原生回调函数指针。
 
 ```mermaid
 classDiagram
     direction TB
     class BindingContext {
-        +current(Arguments arguments, bool require_callable) BindingContext#42;
-        +scene(Arguments arguments) Scene#42;
-        +node(Arguments arguments) Node#42;
-        +component(Arguments arguments) Component#42;
-        +identifier(Arguments arguments, int index, uint64_t& output) bool
-        +number(Arguments arguments, int index, double& output) bool
-        +scalar(Arguments arguments, int index, float& output) bool
-        +text(Arguments arguments, int index, std::string& output) bool
+        +current(Arguments arguments, bool require_callable) BindingContext#42;$
+        +scene(Arguments arguments) Scene#42;$
+        +node(Arguments arguments) Node#42;$
+        +component(Arguments arguments) Component#42;$
+        +identifier(Arguments arguments, int index, uint64_t& output) bool$
+        +number(Arguments arguments, int index, double& output) bool$
+        +scalar(Arguments arguments, int index, float& output) bool$
+        +text(Arguments arguments, int index, std::string& output) bool$
     }
     class Scene
     class Node
@@ -71,10 +73,10 @@ classDiagram
 classDiagram
     direction TB
     class BindingContext {
-        +define(v8Context context, v8Object native, std::string_view name, v8Value value) bool
-        +function(v8Context context, v8Object native, std::string_view name, v8FunctionCallback callback, v8Value data) bool
-        +integer(v8Context context, v8Object native, std::string_view name, int32_t value) bool
-        +string(v8Context context, v8Object native, std::string_view name, std::string_view value) bool
+        +define(v8Context context, v8Object native, std::string_view name, v8Value value) bool$
+        +function(v8Context context, v8Object native, std::string_view name, v8FunctionCallback callback, v8Value data) bool$
+        +integer(v8Context context, v8Object native, std::string_view name, int32_t value) bool$
+        +string(v8Context context, v8Object native, std::string_view name, std::string_view value) bool$
     }
 ```
 
@@ -122,4 +124,4 @@ classDiagram
 - MaterialBinding 将 SetType/SetShader 的字符串路径与 SetFloat/SetV2/SetV3/SetV4 直接交给材质接口校验，不识别或硬编码 pbr/unlit 类型名。
 - 构造和清理不抛 C++ 异常；V8 调用通过 Maybe/返回值报告错误。全部借用仅在引擎主线程有效。
 
-SceneBinding 新增 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
+SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。

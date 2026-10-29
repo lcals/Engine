@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [完整引用关系](../../class-diagrams/references.md)
 
-状态：本轮已实现的运行时公共工具。头文件为 `runtime/utils/path_utils.hpp`，实现位于 `src/engine/runtime/utils/path_utils.cpp`。
+运行时公共工具，头文件为 `runtime/utils/path_utils.hpp`，实现位于 `src/engine/runtime/utils/path_utils.cpp`。
 
 ```mermaid
 classDiagram

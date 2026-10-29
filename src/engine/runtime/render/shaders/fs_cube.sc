@@ -31,17 +31,20 @@ void main()
         float alpha = roughness * roughness;
         float alpha_squared = alpha * alpha;
         float distribution_denominator = n_dot_h * n_dot_h * (alpha_squared - 1.0) + 1.0;
-        float distribution = alpha_squared /
+        float distribution =
+            alpha_squared /
             max(3.14159265 * distribution_denominator * distribution_denominator, 0.000001);
-        float visibility_v = n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - alpha_squared) + alpha_squared);
-        float visibility_l = n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - alpha_squared) + alpha_squared);
+        float visibility_v =
+            n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - alpha_squared) + alpha_squared);
+        float visibility_l =
+            n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - alpha_squared) + alpha_squared);
         float visibility = 0.5 / max(visibility_v + visibility_l, 0.00001);
         vec3 f0 = mix(vec3(0.04, 0.04, 0.04), u_base_color.rgb, metallic);
         float fresnel_factor = pow(1.0 - v_dot_h, 5.0);
         vec3 fresnel = f0 + (vec3(1.0, 1.0, 1.0) - f0) * fresnel_factor;
         vec3 specular = distribution * visibility * fresnel;
-        vec3 diffuse = (vec3(1.0, 1.0, 1.0) - fresnel) * (1.0 - metallic) *
-            u_base_color.rgb / 3.14159265;
+        vec3 diffuse =
+            (vec3(1.0, 1.0, 1.0) - fresnel) * (1.0 - metallic) * u_base_color.rgb / 3.14159265;
         color = (diffuse + specular) * u_light_color.rgb * n_dot_l;
         // Reinhard tone mapping of the linear HDR lighting result.
         color = color / (vec3(1.0, 1.0, 1.0) + color);

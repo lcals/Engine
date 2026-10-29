@@ -3,8 +3,13 @@
 #include "runtime/scene/component.hpp"
 #include "runtime/scene/material.hpp"
 
+#include <memory>
+#include <string_view>
+
 namespace engine
 {
+
+class Resource;
 
 class MeshRenderer final : public Component
 {
@@ -21,6 +26,7 @@ private:
     explicit MeshRenderer(Node& node);
     [[nodiscard]] bool initialize() override;
 
+    std::shared_ptr<const Resource> mesh_resource_;
     Material material_;
 };
 

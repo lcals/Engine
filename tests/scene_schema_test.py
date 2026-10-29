@@ -30,7 +30,9 @@ def main():
     runtime = modules / "flatbuffers" / "package.json"
     compiler = modules / "typescript" / "lib" / "tsc.js"
     if not runtime.is_file() or not compiler.is_file():
-        raise RuntimeError("Install the fixed project tooling with npm ci in project settings first")
+        raise RuntimeError(
+            "Install the fixed project tooling with npm ci in project settings first"
+        )
     if json.loads(runtime.read_text(encoding="utf-8"))["version"] != "25.9.23":
         raise RuntimeError("This schema bridge requires the pinned flatbuffers@25.9.23 runtime")
     generated = args.generated.resolve()
@@ -43,12 +45,27 @@ def main():
         output = workspace / "javascript"
         shutil.copytree(generated / "engine", source / "engine")
         shutil.copyfile(Path(__file__).with_name("scene_schema_bridge.ts"), source / "bridge.ts")
-        run([
-            args.node, str(compiler), "--target", "ES2020", "--module", "commonjs",
-            "--moduleResolution", "node", "--strict", "--skipLibCheck",
-            "--baseUrl", str(modules), "--rootDir", str(source), "--outDir", str(output),
-            str(source / "bridge.ts"),
-        ])
+        run(
+            [
+                args.node,
+                str(compiler),
+                "--target",
+                "ES2020",
+                "--module",
+                "commonjs",
+                "--moduleResolution",
+                "node",
+                "--strict",
+                "--skipLibCheck",
+                "--baseUrl",
+                str(modules),
+                "--rootDir",
+                str(source),
+                "--outDir",
+                str(output),
+                str(source / "bridge.ts"),
+            ]
+        )
         original = workspace / "cpp.scene"
         changed = workspace / "typescript.scene"
         run([str(args.binary.resolve()), "--write-buffer", str(original)])

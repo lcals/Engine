@@ -1,0 +1,13 @@
+include "asset_catalog.fbs";
+namespace engine.schema;
+
+table ResourceHeaderData {
+    guid:string (required);
+    kind:AssetKind = source;
+    format_version:uint = 1;
+    payload_offset:ulong;
+    payload_size:ulong;
+}
+
+root_type ResourceHeaderData;
+file_identifier "ERSH";

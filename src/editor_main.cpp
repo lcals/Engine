@@ -2,14 +2,14 @@
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
-#include "runtime/engine.hpp"
+#include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_SCRIPT_RUNTIME
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/script/script_system.hpp"
 #endif
 
@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -44,10 +45,9 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
 {
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
-    engine::AssetSyncSystem sync;
 #endif
-    auto& runtime = engine::Engine::instance();
-    engine::EditorSystem editor(environment, &runtime);
+    engine::RuntimeHost runtime;
+    std::unique_ptr<engine::EditorSystem> editor;
     std::uint64_t frames = 0;
     const int result = [&]()
     {
@@ -57,24 +57,22 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
             return 1;
         }
-        if (!environment.prepare_builtin_assets())
-        {
-            LogSystem::write(LogLevel::error, "Cannot prepare immutable editor built-in assets");
-            return 1;
-        }
-        if (!sync.initialize(config) ||
-            !sync.sync(project_root / "cache", engine::App::persistent_data_path()))
-        {
-            LogSystem::write(LogLevel::error, "Initial asset sync failed: " + sync.last_error());
-            return 1;
-        }
 #endif
         if (!runtime.initialize(config))
         {
             LogSystem::write(LogLevel::error, "Engine initialization failed");
             return 1;
         }
-        if (!editor.initialize(config))
+#if ENGINE_HAS_SCRIPT_RUNTIME
+        if (!environment.apply_resources(pipeline.catalog(), *runtime.gameplay()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot submit editor resource directory: " +
+                                                  std::string(runtime.gameplay()->last_error()));
+            return 1;
+        }
+#endif
+        editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay());
+        if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
@@ -87,7 +85,7 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
             previous_time = current_time;
-            if (!editor.tick(delta_time))
+            if (!editor->tick(delta_time))
             {
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
@@ -118,11 +116,13 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
     }();
 
     // 玩法回调执行时编辑器和全部引擎系统仍就绪。
-    runtime.stop_gameplay();
-    editor.shutdown();
+    if (editor != nullptr)
+    {
+        editor->shutdown();
+        editor.reset();
+    }
     runtime.shutdown();
 #if ENGINE_HAS_SCRIPT_RUNTIME
-    sync.shutdown();
     pipeline.shutdown();
 #endif
     LogSystem::write(LogLevel::info,
@@ -208,7 +208,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     engine::EditorEnvironment environment(project, runtime_directory);
-    if (!environment.initialize(ENGINE_HAS_SCRIPT_RUNTIME != 0))
+    if (!environment.initialize())
     {
         LogSystem::write(LogLevel::error, "Cannot initialize editor environment");
         return 1;

@@ -1,3 +1,5 @@
+#include "resource_fixture.hpp"
+
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -9,8 +11,12 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <limits>
+#include <memory>
+#include <utility>
 
 namespace
 {
@@ -375,101 +381,27 @@ bool material_contracts()
     direction_default.value = {0.0, 0.0, 1.0};
     direction->default_value.Set(direction_default);
     shader.parameters.push_back(std::move(direction));
-    if (!expect(engine::ResourceSystem::register_shader(shader), "register custom shader layout") ||
-        !expect(!engine::ResourceSystem::register_shader(shader), "reject duplicate shader path"))
-    {
-        return false;
-    }
-    const auto* registered = engine::ResourceSystem::find_shader(shader.path);
-    shader.parameters.back()->name = "changed-source";
-    if (!expect(registered != nullptr && registered->parameters.back()->name == "direction",
-                "shader registry owns a deep copy"))
-    {
-        return false;
-    }
-    for (const auto* path :
-         {"/absolute", "project/shaders/../bad", "builtin/shaders//bad", "project/shaders/./bad",
-          "project/shaders\\bad", "C:/bad", "builtin/shaders/bad/", "shaders/missing-source",
-          "external/shaders/bad", "builtin", "project/"})
-    {
-        shader.path = path;
-        if (!expect(!engine::ResourceSystem::register_shader(shader),
-                    "reject noncanonical resource paths"))
-        {
-            return false;
-        }
-    }
-    shader = *registered;
-    shader.path = "builtin/materials/default-pbr";
-    if (!expect(!engine::ResourceSystem::register_shader(shader),
-                "shader and material paths share one namespace"))
-    {
-        return false;
-    }
-    shader.path = "project/shaders/tests/rejected";
-    shader.parameters.back()->uniform_name = "u_modelViewProj";
-    if (!expect(!engine::ResourceSystem::register_shader(shader),
-                "reject reserved engine uniforms"))
-    {
-        return false;
-    }
-    shader.parameters.back()->uniform_name = "u_custom_pair";
-    shader.parameters.back()->uniform_offset = 1;
-    if (!expect(!engine::ResourceSystem::register_shader(shader),
-                "reject overlapping uniform slots"))
-    {
-        return false;
-    }
-    shader.parameters.back()->uniform_name = "u_custom_direction";
-    shader.parameters.back()->uniform_offset = 2;
-    if (!expect(!engine::ResourceSystem::register_shader(shader), "reject Vec3 beyond a Vec4 slot"))
-    {
-        return false;
-    }
+    test_support::ResourceFixture fixture;
     engine::schema::MaterialDataT definition;
     definition.type_path = "project/materials/tests/material-contracts";
-    definition.shader_path = registered->path;
+    definition.shader_path = shader.path;
     auto override_value = std::make_unique<engine::schema::MaterialParameterT>();
     override_value->name = "pos";
     position_default.value = {1.0, 2.0};
     override_value->value.Set(position_default);
     definition.parameters.push_back(std::move(override_value));
-    if (!expect(engine::ResourceSystem::register_material(definition),
-                "register material with named shader override") ||
-        !expect(!engine::ResourceSystem::register_material(definition),
-                "reject duplicate material path"))
+    auto* resources = engine::ResourceSystem::instance();
+    if (!expect(resources && fixture.add(shader) && fixture.add(definition) &&
+                    fixture.publish(*resources),
+                "submit custom shader and material entity directory") ||
+        !expect(engine::ResourceSystem::find_shader(shader.path) == nullptr &&
+                    engine::ResourceSystem::find_material(definition.type_path) == nullptr,
+                "directory submission does not load project definitions"))
     {
         return false;
     }
+    shader.parameters.back()->name = "changed-source";
     definition.parameters[0]->value.AsVec2Value()->value = {99.0, 99.0};
-    const auto* copied = engine::ResourceSystem::find_material(definition.type_path);
-    if (!expect(copied != nullptr && copied->parameters[0]->value.AsVec2Value()->value.x() == 1.0,
-                "material registry owns a deep copy"))
-    {
-        return false;
-    }
-    definition.type_path = "project/materials/tests/rejected";
-    definition.parameters[0]->name = "unknown";
-    if (!expect(!engine::ResourceSystem::register_material(definition),
-                "reject material override missing from shader"))
-    {
-        return false;
-    }
-    definition.parameters[0]->name = "baseColor";
-    if (!expect(!engine::ResourceSystem::register_material(definition),
-                "reject material override with mismatched value type"))
-    {
-        return false;
-    }
-    definition.parameters[0]->name = "lightingMode";
-    engine::schema::FloatValueT hidden;
-    hidden.value = 1.0F;
-    definition.parameters[0]->value.Set(hidden);
-    if (!expect(!engine::ResourceSystem::register_material(definition),
-                "hidden shader controls cannot be overridden as material parameters"))
-    {
-        return false;
-    }
     engine::WorldSystem world;
     if (!world.initialize(config))
     {
@@ -549,83 +481,43 @@ bool material_contracts()
 bool resource_namespaces()
 {
     const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
-    if (!expect(builtin != nullptr, "built-in definitions survive material tests"))
+    auto* resources = engine::ResourceSystem::instance();
+    if (!expect(builtin && resources, "built-in definitions survive material tests"))
     {
         return false;
     }
-    engine::schema::ShaderDataT shader = *builtin;
-    shader.path = "builtin/shaders/tests/shared";
-    if (!expect(engine::ResourceSystem::register_shader(shader),
-                "register built-in shader namespace"))
-    {
-        return false;
-    }
-    shader.path = "project/shaders/tests/shared";
-    if (!expect(engine::ResourceSystem::register_shader(shader),
-                "same relative shader name is independent in project namespace"))
-    {
-        return false;
-    }
+    test_support::ResourceFixture fixture;
+    engine::schema::ShaderDataT shader(*builtin);
+    shader.path = "project/shaders/pbr";
     engine::schema::MaterialDataT material;
-    material.type_path = "builtin/materials/tests/shared";
-    material.shader_path = "builtin/shaders/tests/shared";
-    if (!expect(engine::ResourceSystem::register_material(material),
-                "built-in material references built-in shader"))
+    material.type_path = "project/materials/default-pbr";
+    material.shader_path = shader.path;
+    engine::ResourcePtr held;
+    if (!expect(fixture.add(shader) && fixture.add(material) && fixture.publish(*resources) &&
+                    fixture.load(material.type_path, held),
+                "project namespace uses the same relative names as builtins") ||
+        !expect(held->material()->shader_path == shader.path &&
+                    engine::ResourceSystem::find_shader(shader.path) != nullptr &&
+                    engine::ResourceSystem::find_shader(shader.path) != builtin,
+                "loaded material keeps its distinct project shader alive"))
     {
         return false;
     }
-    material.type_path = "project/materials/tests/shared";
-    material.shader_path = "project/shaders/tests/shared";
-    if (!expect(engine::ResourceSystem::register_material(material),
-                "same relative material name is independent in project namespace"))
+    auto empty = fixture.catalog;
+    empty.entries.clear();
+    empty.revision = "empty";
+    if (!expect(!resources->update_catalog(empty, {}),
+                "cannot remove a directory entry that is still held"))
     {
         return false;
     }
-    material.type_path = "project/materials/tests/reuse-builtin";
-    material.shader_path = "builtin/shaders/pbr";
-    if (!expect(engine::ResourceSystem::register_material(material),
-                "project material may reuse built-in shader"))
-    {
-        return false;
-    }
-    material.type_path = "builtin/materials/tests/invalid-dependency";
-    material.shader_path = "project/shaders/tests/shared";
-    if (!expect(!engine::ResourceSystem::register_material(material) &&
-                    engine::ResourceSystem::find_material(material.type_path) == nullptr,
-                "built-in material cannot depend on project shader"))
-    {
-        return false;
-    }
-    const auto* builtin_material =
-        engine::ResourceSystem::find_material("builtin/materials/tests/shared");
-    const auto* project_material =
-        engine::ResourceSystem::find_material("project/materials/tests/shared");
-    if (!expect(builtin_material != nullptr && project_material != nullptr &&
-                    builtin_material->shader_path == "builtin/shaders/tests/shared" &&
-                    project_material->shader_path == "project/shaders/tests/shared",
-                "both namespaces resolve their own distinct definitions"))
-    {
-        return false;
-    }
-    // All scene/world owners from the preceding tests have already been destroyed.
-    engine::ResourceSystem::clear_project_definitions();
-    engine::ResourceSystem::clear_project_definitions();
-    return expect(engine::ResourceSystem::find_shader("project/shaders/tests/shared") == nullptr &&
-                      engine::ResourceSystem::find_material("project/materials/tests/shared") ==
-                          nullptr &&
-                      engine::ResourceSystem::find_material(
-                          "project/materials/tests/reuse-builtin") == nullptr &&
-                      engine::ResourceSystem::find_shader(
-                          "project/shaders/tests/material-contracts") == nullptr,
-                  "project cleanup removes only project definitions and is repeatable") &&
-           expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin &&
-                      engine::ResourceSystem::find_shader("builtin/shaders/tests/shared") !=
-                          nullptr &&
-                      engine::ResourceSystem::find_material("builtin/materials/tests/shared") ==
-                          builtin_material &&
-                      engine::ResourceSystem::find_material("builtin/materials/default-pbr") !=
-                          nullptr,
-                  "project cleanup preserves built-in definitions and borrowed references");
+    held.reset();
+    return expect(engine::ResourceSystem::find_material(material.type_path) == nullptr &&
+                      engine::ResourceSystem::find_shader(shader.path) == nullptr,
+                  "last material owner releases its shader dependency") &&
+           expect(resources->update_catalog(empty, {}), "released entries can be removed") &&
+           expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
+                  "project removal preserves builtin identity");
 }
 
 } // namespace
@@ -642,7 +534,7 @@ int main()
     }
     resources.shutdown();
     if (!expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == nullptr &&
-                    engine::ResourceSystem::find_material("builtin/materials/tests/shared") ==
+                    engine::ResourceSystem::find_material("builtin/materials/default-pbr") ==
                         nullptr,
                 "resource host shutdown clears all namespaces"))
     {

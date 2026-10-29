@@ -6,6 +6,8 @@
 #include <map>
 
 struct sqlite3;
+#include <string>
+#include <vector>
 
 namespace engine::asset_pipeline
 {
@@ -18,6 +20,7 @@ struct AssetRecord
     std::string build_key;
     std::string output_hash;
     std::uint64_t output_size = 0;
+    std::uint32_t header_size = 0;
     std::string module_path;
 };
 
