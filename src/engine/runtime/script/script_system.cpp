@@ -332,7 +332,8 @@ struct ScriptSystem::State
                     {
                         ResourcePtr resource;
                         auto* system = ResourceSystem::instance();
-                        success = system != nullptr && system->load(mapped->second, resource);
+                        success =
+                            system != nullptr && system->loader().load(mapped->second, resource);
                         if (success)
                         {
                             const auto content = resource->bytes();
@@ -599,7 +600,7 @@ struct ScriptSystem::State
                                            ? nullptr
                                            : candidate->snapshot.catalog->find(mapped->second);
                 ResourcePtr resource;
-                if (expected == nullptr || !system->load(expected->guid, resource) ||
+                if (expected == nullptr || !system->loader().load(expected->guid, resource) ||
                     resource->info().content_hash != expected->content_hash ||
                     resource->info().module_path != expected->module_path)
                 {

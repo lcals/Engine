@@ -13,6 +13,7 @@ class WindowSystem;
 class WorldSystem;
 class RenderSystem;
 class GameplaySession;
+class ResourceSystem;
 
 class RuntimeHost final
 {
@@ -25,7 +26,8 @@ public:
     RuntimeHost(RuntimeHost&&) = delete;
     RuntimeHost& operator=(RuntimeHost&&) = delete;
 
-    [[nodiscard]] bool initialize(const EngineConfig& config);
+    // resources 可空；非空时借用已初始化的资源核心，调用方须在宿主关闭后再释放它。
+    [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources = nullptr);
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
     [[nodiscard]] GameplaySession* gameplay() noexcept;

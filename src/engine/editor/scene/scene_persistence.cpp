@@ -173,7 +173,7 @@ public:
 
 bool write_material(const Material& material, const fs::path& path, std::string& error)
 {
-    const auto* shader = ResourceSystem::find_shader(material.shader_path());
+    const auto* shader = material.shader_data();
     Guid shader_guid;
     if (!shader || !ResourceSystem::path_to_guid(material.shader_path(), shader_guid))
     {

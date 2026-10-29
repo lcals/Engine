@@ -14,9 +14,12 @@
 | ------ | ------------------------------------------------ | --------------- |
 | 运行时 | `include/engine/runtime/`、`src/engine/runtime/` | `docs/runtime/` |
 | 编辑器 | `include/engine/editor/`、`src/engine/editor/`   | `docs/editor/`  |
-| 插件   | `include/engine/plugins/`、`src/engine/plugins/` | `docs/plugins/` |
+| 运行时插件 | `include/engine/plugins/runtime/`、`src/engine/plugins/runtime/` | `docs/plugins/runtime/` |
+| 编辑器插件 | `include/engine/plugins/editor/`、`src/engine/plugins/editor/` | `docs/plugins/editor/` |
 
-各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/` 或 `plugins/` 开始引用。编辑器和 MCP 可以使用运行时公共能力，运行时不反向依赖这些工具模块。
+各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始引用。建模、MCP、资源构建与同步属于编辑器插件，资源依赖图属于运行时插件。插件使用核心接口，核心不 include 或链接具体插件。
+
+每个插件在 `cmake/plugins/<scope>/<name>.cmake` 声明目标、源码及依赖；注册器按清单解析闭包，宿主只装配实际创建的目标。CMake 按 install、dependencies、plugins、core、editor、platforms 六目录分工，详见[插件登记](../plugins/plugins.md)。
 
 | 配置                                        | ScriptSystem 的实际职责                                                | 宿主与平台边界                                           |
 | ------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
@@ -78,7 +81,8 @@ classDiagram
     RuntimeHost --> Engine : 借用框架并注册根系统
     RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
-    Engine "1" *-- "0..1" ResourceSystem : 第一个注册根系统
+    Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
+    RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
     Engine "1" *-- "0..1" WorldSystem : 第二个注册根系统
     Engine "1" *-- "0..1" RenderSystem : 第三个注册根系统
     RuntimeHost --> RenderSystem : 借用并提交帧
@@ -90,7 +94,7 @@ classDiagram
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
 ```
 
-根系统初始化顺序为 Window → Resource → World → Render，关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptSystem 属于 WorldSystem。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
+默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptSystem 属于 WorldSystem。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
 
 ```mermaid
 classDiagram
@@ -150,7 +154,7 @@ classDiagram
 
 场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
-ResourceSystem 按目录按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放，核心索引仅持弱引用。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放；共享缓存与必要依赖保活由 ResourceGraphSystem 插件负责，核心没有缓存。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## App 与日志
 
@@ -214,21 +218,21 @@ classDiagram
 
 ProjectSystem、EditorSystem、AssetPipelineSystem 均为编辑器宿主拥有的独立根系统。EditorSystem 借用已初始化的 EditorEnvironment，环境借用 ProjectSystem；项目和环境必须保持就绪直到编辑器退出。ProjectSystem 没有路径 getter；运行时读取 App 路径，环境的私有项目身份仅用于会话回执。
 
-AssetSyncSystem 由独立工具宿主装配，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
+AssetSyncSystem 由独立工具宿主装配，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)。
 
 启用完整脚本运行时，`editor_app` 启动顺序为：
 
 1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
 2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
 3. 初始化 AssetPipelineSystem 及其 TaskSystem 子系统，按项目导入线程设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
-4. 初始化 RuntimeHost，由其创建窗口并向 Engine 注册资源、世界和渲染根系统；EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
+4. 宿主初始化 ResourceSystem 和选中的 ResourceGraphSystem，并注入加载接口；再初始化 RuntimeHost，借用资源底层并创建窗口、世界和渲染。EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
 5. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
 
-关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
+关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost；解除资源加载接口借用后关闭加载插件、ResourceSystem 和 AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
 
 RuntimeHost 在关闭 Engine 根系统之前销毁玩法会话，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
 
-桌面 `engine_app` 只初始化 App、LogSystem、RuntimeHost，并反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。Android 同名宿主在引擎就绪后显式启动打包项目 Gameplay，退出顺序相同；项目选择发生在打包阶段。
+桌面 `engine_app` 初始化 App、LogSystem，并在宿主处装配资源底层及已选插件，再初始化 RuntimeHost，结束时反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。Android 同名宿主在引擎就绪后显式启动打包项目 Gameplay，退出顺序相同；项目选择发生在打包阶段。
 
 ## 脚本运行、资源读取与项目入口
 
@@ -244,7 +248,9 @@ classDiagram
     ScriptSystem *-- ScriptStatus : 状态值
     ScriptSystem ..> App : 只读应用路径
     ScriptSystem ..> LogSystem : 原生日志绑定
-    ScriptSystem ..> ResourceSystem : 预检单脚本与加载共享脚本资源
+    class ResourceLoader
+    ScriptSystem ..> ResourceSystem : 静态候选预检与目录查询
+    ScriptSystem ..> ResourceLoader : 加载共享脚本资源
     class GameplaySession
     GameplaySession ..> ScriptStatus : 返回可空只读借用
 ```
@@ -331,7 +337,7 @@ classDiagram
 
 `mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名）。资产系统就绪后初始化 ProjectMcpTools，再由各工具模块向 McpSystem 注册，最后初始化并运行协议系统；关闭 MCP 后才销毁业务模块和依赖。ProjectMcpTools 的三个系统引用必须持续有效；McpSystem 自身不要求项目、资产或设备。
 
-McpSystem 只拥有描述、输入参数模型与回调，工具列表和调用共用同一注册表；初始化后冻结列表。业务模块自行处理资源、设备或编辑器通道，不在协议系统累积工具名称分支。独立契约见[协议与注册](../plugins/class-diagrams/mcp-system.md)、[项目工具](../plugins/class-diagrams/project-mcp-tools.md)与[编辑器工具](../plugins/class-diagrams/editor-mcp-tools.md)。
+McpSystem 只拥有描述、输入参数模型与回调，工具列表和调用共用同一注册表；初始化后冻结列表。业务模块自行处理资源、设备或编辑器通道，不在协议系统累积工具名称分支。独立契约见[协议与注册](../plugins/editor/class-diagrams/mcp-system.md)、[项目工具](../plugins/editor/class-diagrams/project-mcp-tools.md)与[编辑器工具](../plugins/editor/class-diagrams/editor-mcp-tools.md)。
 
 MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。MCP 入口不初始化 App 或 LogSystem。
 
@@ -374,7 +380,7 @@ classDiagram
 - MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
 - 同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
 
-资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及[项目 MCP 工具](../plugins/class-diagrams/project-mcp-tools.md)。
+资源同步与 MCP 具体契约见[资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)及[项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)。
 
 ## 项目启停控制文件
 
@@ -491,9 +497,10 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
 | 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
-| 通用协议根系统     | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
+| 运行时插件根系统 | ResourceGraphSystem | EngineConfig；借用 ResourceSystem，实现 ResourceLoader，返回 ResourcePtr |
+| 编辑器协议根系统 | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
 
-App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/editor/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
 
 ## 第三方资源拥有关系
 
@@ -567,8 +574,9 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | WindowSystem          | SDL3                                                                                                                                          | 窗口、事件及平台生命周期                               |
 | VirtualFileSystem     | SDL3、PathUtils                                                                                                                               | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径    |
 | ResourceCatalog       | FlatBuffers、GuidMap                                                                                                                          | 纯元数据目录、身份索引与依赖校验                       |
-| Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 自有实体数据与直接依赖引用                             |
-| ResourceSystem        | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal                                                                    | 目录更新、同步依赖加载、弱引用索引及转码表初始化       |
+| Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 单项实体、目录代际与生成数据                             |
+| ResourceSystem        | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal                                                                    | 目录原子换代、单项加载、接口借用及转码表初始化       |
+| ResourceGraphSystem | ResourceLoader、ResourceSystem、标准库共享与弱指针 | 同代际依赖加载、共享缓存及反向释放 |
 | WorldSystem           | flecs、FlatBuffers、Scene                                                                                                                     | ECS 世界、场景与节点身份生命周期                       |
 | RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
 | PhysicsSystem         | Jolt                                                                                                                                          | 版本一致性入口                                         |
@@ -645,7 +653,7 @@ classDiagram
     RuntimeHost ..> ResourceSystem : 真机启动提交精简目录一次
 ```
 
-运行宿主节点表示平台入口与现有 RuntimeHost 的装配流程，不为运行时添加项目扫描或编辑器配置。ResourceSystem 仍由 Engine 根系统树拥有；编辑器无需调用 AssetBuildSystem 即可运行项目。核心没有反向箭头指向编辑器。
+运行宿主节点表示平台入口与现有 RuntimeHost 的装配流程，不为运行时添加项目扫描或编辑器配置。ResourceSystem 可由 Engine 拥有，或由外部可执行宿主初始化后借给 RuntimeHost；编辑器无需调用 AssetBuildSystem 即可运行项目。核心没有反向箭头指向编辑器。
 
 ```mermaid
 classDiagram
@@ -673,11 +681,20 @@ classDiagram
     ResourceSystem *-- ResourceCatalog : 独占元数据目录
     ResourceCatalog *-- GuidMap : 独占身份索引
     ResourceSystem *-- VirtualFileSystem : 独占存储映射
-    ResourceSystem --> Resource : 弱引用查找已加载对象
-    Resource o-- Resource : 共享必要依赖
+    class ResourceLoader
+    class ResourceGraphSystem
+    class ResourceBundle["Bundle（插件私有）"]
+    ResourceLoader <|-- ResourceSystem
+    ResourceLoader <|-- ResourceGraphSystem
+    ResourceSystem --> ResourceLoader : 借用宿主指定实现
+    ResourceSystem ..> Resource : 单项读取解析
+    ResourceGraphSystem --> ResourceSystem : 借用底层和代际
+    ResourceGraphSystem --> Resource : weak别名缓存不保活
+    ResourceBundle o-- Resource : 当前资源与直接依赖
+    ResourceGraphSystem ..> ResourceBundle : 创建共享所有权组
 ```
 
-Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据；RenderSystem 继续独立管理 GPU 生命周期。
+Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据及代际。合法更新原子切换目录；新请求使用新代际，旧 ResourcePtr 和旧依赖闭包保留至引用释放。插件输出 ResourcePtr 以别名构造保活 Bundle，最后引用释放时先销毁本项再反向释放依赖。RenderSystem 继续独立管理 GPU 生命周期。
 
 ## 贴图与渲染基础
 
@@ -722,7 +739,7 @@ classDiagram
 | ModelingMcpTools | McpSystem | 登记工具描述、参数模型和借用回调，适配器存活到服务关闭 |
 | AssetPipelineSystem | EditableMesh | 从源模型编译运行时 MeshData；GUID/meta与缓存发布仍归管线 |
 
-建模核心、编辑器业务和 MCP 适配分别编译为独立目标。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何库不依赖编辑器或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
+建模计算核心、场景业务和 MCP 适配均位于 `plugins/editor/modeling/`，插件内部按计算与调用边界分别编译。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何目标不依赖编辑器状态或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
 
 
 ## 场景持久化与渲染编辑
@@ -738,6 +755,7 @@ classDiagram
 | RenderCommands | RenderSystem | 借用渲染设置与截图接口；编辑器负责撤销、截图根目录、越界检查及输出目录创建 |
 | RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
 | RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
+| RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
 | RenderSystem | RenderSettings / RendererCallbacks | 拥有当前配置及 bgfx 回调；GPU 资源、阴影和实际帧 PNG 输出属于渲染系统 |
 
 ```mermaid
@@ -761,6 +779,6 @@ classDiagram
     RenderCommands --> RenderSystem : 借用运行时渲染能力
 ```
 
-方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
+方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/editor/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
 
 截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影只支持首个启用方向光的单张 PCF 阴影图，不包含级联、点光/聚光阴影或 IBL。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。

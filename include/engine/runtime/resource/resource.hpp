@@ -8,6 +8,7 @@
 #include "runtime/schema/texture_generated.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <span>
 #include <vector>
@@ -30,6 +31,7 @@ public:
     Resource& operator=(Resource&&) = delete;
 
     [[nodiscard]] const schema::AssetEntryT& info() const noexcept;
+    [[nodiscard]] std::uint64_t generation() const noexcept;
     [[nodiscard]] const schema::SceneDataT* scene() const noexcept;
     [[nodiscard]] const schema::MeshDataT* mesh() const noexcept;
     [[nodiscard]] const schema::ShaderDataT* shader() const noexcept;
@@ -41,8 +43,7 @@ private:
     friend class ResourceSystem;
     Resource() noexcept = default;
 
-    // 成员按逆序析构：当前资源数据释放后，再释放必要依赖。
-    std::vector<ResourcePtr> dependencies_;
+    std::uint64_t generation_ = 0;
     schema::AssetEntryT info_;
     std::unique_ptr<schema::SceneDataT> scene_;
     std::unique_ptr<schema::MeshDataT> mesh_;

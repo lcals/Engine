@@ -1089,7 +1089,7 @@ bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& argum
     auto* resources = ResourceSystem::instance();
     if (!material.get_texture(edit->name, previous_path) || !resources ||
         !ResourceSystem::path_to_guid(arguments["path"].get<std::string>(), guid) ||
-        !resources->load(guid, replacement) || !replacement->texture())
+        !resources->loader().load(guid, replacement) || !replacement->texture())
     {
         error = "Unknown texture slot or texture resource";
         return false;
@@ -1106,7 +1106,7 @@ bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& argum
 Json material_json(const Material& material)
 {
     Json parameters = Json::array();
-    const auto* shader = ResourceSystem::find_shader(material.shader_path());
+    const auto* shader = material.shader_data();
     if (shader != nullptr)
     {
         for (const auto& parameter : shader->parameters)
@@ -1248,7 +1248,7 @@ public:
         Guid guid;
         ResourcePtr resource;
         if (!resources || !ResourceSystem::path_to_guid(resource_path, guid) ||
-            !resources->load(guid, resource))
+            !resources->loader().load(guid, resource))
         {
             return false;
         }
@@ -1287,7 +1287,8 @@ private:
         {
             const auto* available = resources->catalog().find(version.guid);
             ResourcePtr resource;
-            if (!available || *available != version || !resources->load(version.guid, resource))
+            if (!available || *available != version ||
+                !resources->loader().load(version.guid, resource))
             {
                 error = "Material dependency version changed or is unavailable";
                 return false;
@@ -1338,7 +1339,7 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
     ResourcePtr requested;
     auto* resources = ResourceSystem::instance();
     if (!resources || !ResourceSystem::path_to_guid(record->path, guid) ||
-        !resources->load(guid, requested) || !requested->material())
+        !resources->loader().load(guid, requested) || !requested->material())
     {
         error = "Requested path does not identify a material";
         return false;

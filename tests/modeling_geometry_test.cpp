@@ -1,7 +1,7 @@
-#include "plugins/modeling/mesh_geometry.hpp"
+#include "plugins/editor/modeling/mesh_geometry.hpp"
 
-#include "plugins/modeling/mesh_primitives.hpp"
-#include "plugins/modeling/mesh_topology.hpp"
+#include "plugins/editor/modeling/mesh_primitives.hpp"
+#include "plugins/editor/modeling/mesh_topology.hpp"
 
 #include <algorithm>
 #include <array>

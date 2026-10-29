@@ -10,6 +10,11 @@ const schema::AssetEntryT& Resource::info() const noexcept
     return info_;
 }
 
+std::uint64_t Resource::generation() const noexcept
+{
+    return generation_;
+}
+
 const schema::SceneDataT* Resource::scene() const noexcept
 {
     return scene_.get();

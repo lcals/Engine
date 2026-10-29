@@ -2,11 +2,12 @@
 
 #include "runtime/resource/resource.hpp"
 #include "runtime/resource/resource_catalog.hpp"
+#include "runtime/resource/resource_loader.hpp"
 #include "runtime/resource/virtual_file_system.hpp"
 #include "runtime/schema/resource_header_generated.h"
 #include "runtime/system/system.hpp"
 
-#include <map>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,7 +15,7 @@
 namespace engine
 {
 
-class ResourceSystem final : public System
+class ResourceSystem final : public System, public ResourceLoader
 {
 public:
     ResourceSystem() noexcept;
@@ -25,9 +26,18 @@ public:
     [[nodiscard]] bool update_catalog(const schema::AssetCatalogDataT& data,
                                       const MountList& mounts);
     [[nodiscard]] const ResourceCatalog& catalog() const noexcept;
+    [[nodiscard]] std::uint64_t generation() const noexcept;
+    // 借用的 loader 须存活到恢复 nullptr；默认本系统仅提供单项加载。
+    void set_loader(ResourceLoader* loader) noexcept;
+    [[nodiscard]] ResourceLoader& loader() noexcept;
     [[nodiscard]] bool read_header(std::string_view guid, schema::ResourceHeaderDataT& output);
-    [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output);
-    [[nodiscard]] const std::string& last_error() const noexcept;
+    // 单项读取和格式校验；不递归、不缓存、不拥有依赖。
+    [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output) override;
+    [[nodiscard]] ResourcePtr find(std::string_view guid) const noexcept override;
+    // 调用方提供已加载的直接引用，验证跨实体契约；不读取或保留这些引用。
+    [[nodiscard]] bool validate_dependencies(const Resource& resource,
+                                             std::span<const ResourcePtr> dependencies) const;
+    [[nodiscard]] const std::string& last_error() const noexcept override;
 
     // 文件工具无需系统初始化；APK 路径要求宿主 SDL Android 环境就绪。
     [[nodiscard]] static bool read_binary(const std::filesystem::path& path, ByteBuffer& output);
@@ -64,10 +74,10 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    [[nodiscard]] bool load_resource(std::string_view guid, ResourcePtr& output);
     ResourceCatalog catalog_;
     VirtualFileSystem files_;
-    std::map<Guid, std::weak_ptr<const Resource>, std::less<>> loaded_;
+    ResourceLoader* loader_ = nullptr;
+    std::uint64_t generation_ = 0;
     std::string last_error_;
 };
 

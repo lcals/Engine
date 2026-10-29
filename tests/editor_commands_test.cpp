@@ -43,6 +43,13 @@ Json target(const engine::Node& node)
     return {{"sceneId", std::to_string(node.scene().id())}, {"nodeId", std::to_string(node.id())}};
 }
 
+bool same_texture(const engine::ResourcePtr& first, const engine::ResourcePtr& second)
+{
+    return first && second && first->info() == second->info() &&
+           first->generation() == second->generation() && first->texture() && second->texture() &&
+           *first->texture() == *second->texture();
+}
+
 bool render_command_tests()
 {
     engine::ResourceSystem resources;
@@ -97,13 +104,18 @@ bool render_command_tests()
     args.update(
         {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin/textures/white-linear"}});
     const auto original = mesh->material(1)->texture("baseColorTexture");
+    const auto untouched = mesh->material().texture("baseColorTexture");
     if (!expect(execute("set_material_texture", args) &&
-                    mesh->material(1)->texture("baseColorTexture") != original &&
-                    mesh->material().texture("baseColorTexture") == original,
+                    mesh->material(1)->texture("baseColorTexture") &&
+                    mesh->material(1)->texture("baseColorTexture")->info().path ==
+                        "builtin/textures/white-linear" &&
+                    !same_texture(mesh->material(1)->texture("baseColorTexture"), original) &&
+                    mesh->material().texture("baseColorTexture") == untouched,
                 "texture slot selection") ||
         !expect(execute("undo", identity) &&
-                    mesh->material(1)->texture("baseColorTexture") == original,
-                "texture undo preserves shared resource") ||
+                    same_texture(mesh->material(1)->texture("baseColorTexture"), original) &&
+                    mesh->material().texture("baseColorTexture") == untouched,
+                "texture undo restores resource identity and data") ||
         !expect(execute("redo", identity), "texture redo"))
     {
         return false;
@@ -140,7 +152,8 @@ bool render_command_tests()
                                     }()}},
                                   {{"command", "set_camera"}, {"arguments", bad_camera}}})}};
     if (!expect(!execute("batch", batch) &&
-                    mesh->material(1)->texture("baseColorTexture") == previous,
+                    same_texture(mesh->material(1)->texture("baseColorTexture"), previous) &&
+                    mesh->material().texture("baseColorTexture") == untouched,
                 "batch rolls texture back when camera fails"))
     {
         return false;

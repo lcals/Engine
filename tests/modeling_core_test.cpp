@@ -1,6 +1,6 @@
-#include "plugins/modeling/editable_mesh.hpp"
-#include "plugins/modeling/mesh_primitives.hpp"
-#include "plugins/modeling/mesh_topology.hpp"
+#include "plugins/editor/modeling/editable_mesh.hpp"
+#include "plugins/editor/modeling/mesh_primitives.hpp"
+#include "plugins/editor/modeling/mesh_topology.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <array>

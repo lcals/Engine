@@ -7,14 +7,14 @@
 - 平台专用工程、入口和打包资源集中放在 `platforms/<platform>/`，例如 Android 的 Manifest、Java 入口和 Gradle 工程位于 `platforms/android/`；共享引擎系统继续按原目录组织。
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
-- 引擎源码与公开头文件按 `runtime/`、`editor/`、`plugins/` 三层组织，分别位于 `src/engine/<scope>/`、`include/engine/<scope>/`。运行时的引擎入口与公共类型位于 `runtime/`，各系统按职责建子目录，公共工具放 `runtime/utils/`；`EditorSystem` 直接位于 `editor/`，项目、资源管线与同步系统分别在其子目录；MCP 位于 `plugins/mcp/`。
-- 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
+- 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
+- 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/editor/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
 - 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
 - 宿主环境安装统一检查和准备 Ninja 与编译缓存：Windows 默认 sccache，Linux / macOS 默认 ccache；跨平台 Ninja 缓存预设要求工具存在且可执行，不能默默退化为无缓存构建。保留 vcpkg 二进制缓存与上游增量产物，不在普通构建中反复清理、同步或触摸未改变的依赖。
 - C++ 改动运行受影响的 Debug / Release 构建与 CTest。
 - 新增依赖需有明确用途；新增 CI Action 使用完整提交 SHA，由 Dependabot 维护更新。
-- 有可用跨平台 port 的第三方库在 `vcpkg.json` 声明，并在 `third_party/` 按运行时、编辑器与资源管线分类查找；其余依赖使用固定版本的 Git 子项目。上游问题的补丁放在 `third_party/`，构建前应用，不直接修改上游检出目录。
+- 有可用跨平台 port 的第三方库在 `vcpkg.json` 声明，并在 `cmake/dependencies/` 按运行时、编辑器与资源管线分类查找；其余依赖使用固定版本的 Git 子项目。上游问题的补丁放在 `third_party/`，构建前应用，不直接修改上游检出目录。
 - 快速开始和维护说明统一写入根 `README.md`；如实说明实际运行的验证及限制。
 
 ## 架构评审
@@ -23,14 +23,18 @@
 - 用户只需审阅和维护类图；代码实现、测试以及图与代码的同步由助手负责。新增架构类或改变已确认的公开契约，先更新图供评审。
 - 设计保持简单，只增加当前职责需要的类和接口；不为每个第三方库增加包装类，不提前建立通用框架。
 - 整体架构由调用方驱动核心：玩法业务、运行宿主和编辑器都通过同一套最小核心能力组合自己的流程。核心只执行明确请求并返回状态，不判断调用方身份、不包含编辑器或具体项目的策略；何时启动、更新、重载、切换与恢复由调用方决定。该原则适用于全部模块，清单更新只是一个例子；不为此另建通用 Driver/Manager 包装层。
-- 资源核心保持通用和最小，只提供目录更新、查询、同步加载与共享释放。编辑器通过调用核心实现扫描、监听、导入和打包业务，不向核心加入编辑器模式、项目设置或自动发现策略。编辑器直接更新完整资源目录；真机正常启动提交构建生成的精简清单一次，运行时共用同一套接口。
+- 资源核心保持通用和最小，拆分目录查询、单项资源读取/解析和加载调用契约；核心只提供单项底层能力。依赖树加载、同一资源共享缓存和按引用反向卸载放在 `plugins/runtime/resource_graph/`，由插件实现核心声明的加载接口并由宿主注入；核心不能 include 或链接该具体插件。编辑器通过基础资源管线以及构建/同步插件组织扫描、监听、导入、打包与发布，不向核心加入编辑器模式、项目设置或自动发现策略。编辑器持续提交完整目录，真机启动提交精简清单一次，共用资源接口与可选运行时插件。
 - 系统类继承通用抽象基类 `System`。系统支持子系统，子系统同样继承 `System`，由父系统独占并统一管理生命周期。
-- 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/`，独立类图位于各层级的 `class-diagrams/`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
+- 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/`、`docs/plugins/editor/`，独立类图位于各层级的 `class-diagrams/`；插件总索引保留 `docs/plugins/plugins.md`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
 - 引擎启动不要求项目；`EngineConfig` 只保存运行时配置，`Engine` 不拥有或依赖项目系统、编辑器系统。
 - `Engine` 负责系统生命周期与运行调度，不增加场景节点数量、渲染资源数量等跨模块统计便利函数；领域查询归对应系统。
 - 脚本绑定按类/模块拆分为实现统一接口的绑定类；新增绑定只增加一个绑定类并在注册表登记，各自定义脚本外观与原生方法；ScriptSystem 负责 V8、模块预检与执行、玩法回调，不集中放置所有类的绑定实现。部署选择、目录提交与热重载流程由 GameplaySession 协调。
 - 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的 `EditorEnvironment`，环境借用项目系统；两者必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
+- 插件由 CMake 清单登记，使用 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择；每个插件独占 `cmake/plugins/<scope>/<name>.cmake`，在其中声明目标、源码及依赖。注册器统一解析依赖闭包，未选且不在依赖闭包内的插件不创建目标，宿主只装配实际启用的插件；不在核心或宿主中央文件积累每个插件的源码列表。
+- 建模与 MCP 都属于编辑器插件，不因某个文件只含纯算法或通用协议就归入运行时。运行包只消费编译后的 Mesh 等数据；当前设备同步由桌面 MCP 经 adb 完成，设备端不运行 MCP。未来确有设备端调试需求时，须按正式运行与调试运行的构建用途显式装配，调试插件不得进入正式包。
+- CMake 按 `cmake/install/`、`cmake/dependencies/`、`cmake/plugins/`、`cmake/core/`、`cmake/editor/`、`cmake/platforms/` 分职责。根 CMakeLists 只组织入口，插件注册不替代依赖查找，不把安装、平台打包或业务插件混入核心配置。启用/禁用必须验证配置、目标存在性、链接及宿主条件装配。
+
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
 - `Node` 保持轻量，只管理身份、层级及无具体类型的组件列表；通过 `add_component<T>() / get_component<T>()` 添加和查找，TS 对应 `AddComponent(Type) / GetComponent(Type)`。节点不保存具体组件指针、不枚举相机等类型、不提供专用添加方法；变换同样由组件表达。
 - GUID 与逻辑路径的双向映射位于核心模块，编辑器、桌面及真机共用，不依赖 SQLite 或平台路径。每个 assets 源资源必须有唯一 GUID 的邻接 meta；移动保留身份，复制生成新身份，冲突不静默重写。

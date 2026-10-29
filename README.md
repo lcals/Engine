@@ -10,9 +10,9 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
-模块文档及独立类图也按 `docs/runtime/`、`docs/editor/`、`docs/plugins/` 分层；统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和资源同步归编辑器层，MCP 归插件层；它们可以使用运行时能力，运行时不反向依赖它们。
+模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
 各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
@@ -108,6 +108,24 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
 - USD 插件资源在 Windows 位于对应配置的 `bin/usd/*/resources/`，macOS 位于 `lib/usd/*/resources/`；测试按构建配置设置 `PXR_PLUGINPATH_NAME`。TBB / USD 回归同时检查数据保存、加载和正常退出。
 
+### 插件选择
+
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件目前只有 `resource_graph`；建模（包括纯几何）、MCP（包括协议）、资源构建与同步均属于编辑器插件。
+
+例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
+
+```sh
+cmake --preset ninja-debug -DENGINE_RUNTIME_PLUGINS= -DENGINE_EDITOR_PLUGINS=
+cmake --build --preset ninja-debug
+ctest --preset ninja-debug
+```
+
+如需恢复默认资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+
+MCP 在电脑端经 adb 同步 Android 调试包，设备端不运行 MCP；正式游戏不链接建模、MCP 或编辑器构建/同步工具。仅开启运行时和脚本不会默认启用资源同步插件；默认同步插件还要求编辑器或资源管线能力。未来设备调试插件必须按构建用途区分正式运行与调试运行，不能仅靠程序中的运行开关隐藏调试接口。这些开关是构建期选择，不表示支持 C++ 插件热插拔。
+
+CMake 的其余职责分别位于 `install/`、`dependencies/`、`core/`、`editor/`、`platforms/`。新增插件在自己的声明文件维护源码，不向核心中央清单追加业务文件。
+
 ### V8 依赖
 
 桌面基础预设不启用 V8，完整引擎及 Android 预设启用。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
@@ -130,7 +148,7 @@ macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 
 
 下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，以匹配本项目 `/MDd` / `/MD`；关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
 
-GN 的 monolith 未收集隐式 Rust 归档。`cmake/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
+GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
 
 macOS 的 `macos-system-lto-library.patch` 与 `macos-system-math.patch` 适用于固定 Chromium build 提交 `81330a6e45719ab8c0d22e5548afbedb5482b068`，`macos-signpost-attribute.patch` 适用于固定 V8 源码。同步依赖前撤回已知补丁，同步后重新应用；缓存命中时不改写源码。升级工具链后，分别验证 LTO 库选择、SDK 数学宏和 signpost 属性，再移除对应补丁，不能只因版本变化而删除兼容处理。
 
@@ -299,7 +317,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
-编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/class-diagrams/editor-mcp-tools.md)。
+编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/editor/class-diagrams/editor-mcp-tools.md)。
 
 ### 渲染设置与真实帧截图
 
@@ -318,7 +336,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 ### C++ 建模与 MCP 操作
 
-建模由三个独立目标组成：`engine::modeling` 提供纯数据几何计算，`engine::modeling_editor` 管理场景对象、选择、撤销与项目文件，`engine::modeling_mcp_tools` 只注册和转发工具。宿主负责装配；Engine、Node 和运行时渲染器不依赖建模编辑器。边界、数据所有权和类图见[建模插件](docs/plugins/modeling.md)。
+建模由三个独立目标组成：`engine::modeling` 提供纯数据几何计算，`engine::modeling_editor` 管理场景对象、选择、撤销与项目文件，`engine::modeling_mcp_tools` 只注册和转发工具。宿主负责装配；Engine、Node 和运行时渲染器不依赖建模编辑器。边界、数据所有权和类图见[建模插件](docs/plugins/editor/modeling.md)。
 
 编辑器启动项目后，可通过 MCP 完成模型创建与编辑，无需从 DCC 导入基本几何：
 
@@ -337,7 +355,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封口裁切，xatlas 负责 UV 图集展开。前两者及 Clipper2 由 vcpkg 固定版本；xatlas 为固定 Git 子模块，首次构建前执行 `git submodule update --init third_party/xatlas`。不将 Unity 包中的专有实现复制进引擎。
 
-几何验证覆盖体积、封闭性、绕序、孔洞、UV、材质与失败不改变源模型。`modeling.commands` 验证命令事务和身份，`modeling.pipeline` 验证 GUID/meta、权威源编译和增量缓存，`editor.scene_persistence` 覆盖整场景保存、失败回滚、GUID 保留与重新加载，`modeling.mcp` 在开启 GPU 测试时运行真实编辑器和 MCP。完整能力边界按[功能说明](docs/plugins/modeling.md)评审，不以工具数量替代 ProBuilder/UModeler 的逐项等价验证。
+几何验证覆盖体积、封闭性、绕序、孔洞、UV、材质与失败不改变源模型。`modeling.commands` 验证命令事务和身份，`modeling.pipeline` 验证 GUID/meta、权威源编译和增量缓存，`editor.scene_persistence` 覆盖整场景保存、失败回滚、GUID 保留与重新加载，`modeling.mcp` 在开启 GPU 测试时运行真实编辑器和 MCP。完整能力边界按[功能说明](docs/plugins/editor/modeling.md)评审，不以工具数量替代 ProBuilder/UModeler 的逐项等价验证。
 
 ### 现代公寓示例
 
@@ -438,7 +456,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 编辑器直接使用 `cache/gen`，不要求打包。会覆盖该目录的导入或构建要求先 `stop_project`；运行中会返回明确错误。同步已有的独立运行包不覆盖该缓存，可以在关闭热重载时准备候选版本。`cache/gen` 同时只保存一个目标平台的产物，构建 Android 后要先重新导入宿主平台产物，再启动桌面项目。
 
-资源核心只接收调用方准备好的目录和挂载，不扫描工程、不发现发布版本。加载顶级资源时自动加载并共享必要依赖，最后一个使用者释放时回收；读目录、读实体头、加载载荷是分开的操作。v1 目录需重新导入，不能直接作为 v2 运行包。接口与文件格式见[资源加载](docs/runtime/resource-loading.md)和[资源构建](docs/editor/resource-build.md)。
+资源核心只接收调用方准备好的目录和挂载，提供 GUID/VFS 与单项同步加载，不扫描工程、不发现发布版本。调用方通过 ResourceLoader 请求顶级资源；启用的 ResourceGraphSystem 插件遍历必要依赖、共享缓存并在最后引用释放时反向释放依赖。目录更新成功后原子换代，新请求只使用新代际，已有引用及其依赖仍存活至释放；失败保留旧目录。读目录、读实体头、加载载荷是分开的操作。v1 目录需重新导入，不能直接作为 v2 运行包。接口与文件格式见[资源加载](docs/runtime/resource-loading.md)和[资源构建](docs/plugins/editor/resource-build.md)。
 
 ### Android APK
 
@@ -530,7 +548,9 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-以下为截至 2026-10-29 已完成的验证范围。资源目录 v2、依赖加载与清单构建在 macOS 验证；Android APK、模拟器与 Windows 的记录对应此次资源目录重构前版本。构建使用根 Presets 或继承它们的本机 Presets，未触发 CI。
+以下为截至 2026-10-29 已完成的阶段验证范围。下述建模与公寓记录对应插件目录、CMake 和资源加载接口拆分之前；本轮插件与构建拆分的结果见下段。资源目录 v2、依赖加载与清单构建在 macOS 验证；Android APK、模拟器与 Windows 的记录对应此次资源目录重构前版本。构建使用根 Presets 或继承它们的本机 Presets，未触发 CI。
+
+插件与构建拆分已通过 macOS ARM64 的 Debug / Release 编译、Debug 全量 51/51，以及 Release 最终受影响回归 11/11。纯框架配置通过 5/5；关闭全部可选插件仍可编译运行宿主与编辑器；只启用 MCP、不启用建模的配置编译通过，工具清单、传输和插件选择回归 3/3。资源插件验证包含 4096 层依赖链、共享释放、同 GUID 跨代保活和失败不发布；未重跑此次改动的 Android APK 或 Windows 构建。
 
 | 环境                                                 | 已验证范围                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -540,7 +560,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows x64 / VS 2022                                | 依赖准备、Debug / Release 基础构建、ozz / USD 集成、bgfx 工具与 V8 嵌入测试；未覆盖完整编辑器和真实 DirectX 窗口                      |
 | Linux / iOS / Android 实体设备                       | 未完成端到端运行验证                                                                                                                  |
 
-桌面回归覆盖 Taskflow 依赖调度、导入线程设置、SQLite 增量与重建、重复 GUID、meta 缺失及移动、输入依赖变化、产物损坏重建、场景 TOML / C++ / TS FlatBuffers 往返。资源回归覆盖元数据目录、头部读取、按依赖共享与释放、持有资源时拒绝不兼容目录更新、散文件与合并包、清单子集及增量构建。另覆盖超过 64 MiB 合并包的按范围读取、同步和热重载，以及陈旧心跳下的活动缓存保护；模拟 adb 验证分块传输失败不发布。Metal 编辑器验证材质修改经资源同步实际改变画面、重复启停后 GPU 资源回到基线、停止恢复空白。
+桌面回归覆盖 Taskflow 依赖调度、导入线程设置、SQLite 增量与重建、重复 GUID、meta 缺失及移动、输入依赖变化、产物损坏重建、场景 TOML / C++ / TS FlatBuffers 往返。资源回归覆盖元数据目录、头部读取、按依赖共享与释放、目录代际隔离（旧引用继续有效，新加载只使用新目录）、散文件与合并包、清单子集及增量构建。另覆盖超过 64 MiB 合并包的按范围读取、同步和热重载，以及陈旧心跳下的活动缓存保护；模拟 adb 验证分块传输失败不发布。Metal 编辑器验证材质修改经资源同步实际改变画面、重复启停后 GPU 资源回到基线、停止恢复空白。
 
 重构前的 Android Debug 验证包含 catalog 和 12 个 GUID 产物的逐字节、大小与哈希检查，覆盖场景、Mesh、材质、Shader、JavaScript、相对模块导入、图片、原始二进制及空文件。关闭热重载时新版本保持待应用；坏 TS、未知源 GUID 和损坏 catalog 被拒绝；重启保留已发布版本。Debug / Release 均验证前后台切换、正常退出及 V8 嵌入测试，Release 拒绝 `run-as`。这些结果不替代资源目录 v2 的设备验证。
 
@@ -561,9 +581,11 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 - 软件 Vulkan 不反映真机性能；Android 实体手机、Linux / iOS 及完整 Windows 运行时仍需对应平台验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
 - 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
-- 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/modeling.md#几何与持久化边界)为准。
+- 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
-本轮建模与公寓验证（2026-10-29）：macOS Metal 下 Debug / Release 构建通过，49 项 CTest 的最终结果均通过，包含发现并修复问题后的受影响项复测。新增真实编辑器 MCP 回归覆盖渲染设置撤销、PNG 完成回执、截图路径边界、整场景保存与重新加载后继续编辑；修复了 toml++ 混合异常配置导致的格式化 ABI 冲突，以及 RGBA8 阴影编码产生的自阴影条纹。公寓通过 MCP 创建 322 个模型、保存并重新加载 328 个节点，646 个资源的 GUID 全部唯一，实际输出全景及三个近景 PNG。104 块类图已通过真实 Mermaid 解析及渲染；本轮 Shader 通过 Metal / Android SPIR-V 编译，未据此宣称 Android APK 或真机已验证。
+插件拆分前的建模与公寓验证（2026-10-29）：macOS Metal 下 Debug / Release 构建通过，49 项 CTest 的最终结果均通过，包含发现并修复问题后的受影响项复测。新增真实编辑器 MCP 回归覆盖渲染设置撤销、PNG 完成回执、截图路径边界、整场景保存与重新加载后继续编辑；修复了 toml++ 混合异常配置导致的格式化 ABI 冲突，以及 RGBA8 阴影编码产生的自阴影条纹。公寓通过 MCP 创建 322 个模型、保存并重新加载 328 个节点，646 个资源的 GUID 全部唯一，实际输出全景及三个近景 PNG。104 块类图已通过真实 Mermaid 解析及渲染；本轮 Shader 通过 Metal / Android SPIR-V 编译，未据此宣称 Android APK 或真机已验证。
+
+本轮插件目录与资源加载契约的类图验证：使用本机 Chrome 和 Mermaid 引擎逐块执行 `parse` 与 `render`，全部 106 块通过，其中本轮变更文件包含 60 块。结果和复跑脚本位于忽略的 `build/plugin-layout-validation/`；此记录仅覆盖图的语法与渲染，构建及运行结果另行记录。
 
 ## 目录
 
@@ -572,18 +594,18 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 ```text
 .
 ├── .github/workflows/  # Windows、Linux、macOS 的构建与测试 CI
-├── cmake/              # 目标级编译设置
-├── docs/               # 总说明及 runtime/editor/plugins 分层文档与类图
+├── cmake/              # install/dependencies/plugins/core/editor/platforms 构建分工
+├── docs/               # 总说明及 runtime/editor/plugins/{runtime,editor} 文档与类图
 ├── include/engine.d.ts  # 运行时虚拟 engine 模块的类型声明
-├── include/engine/     # runtime/editor/plugins 三层公开头文件
+├── include/engine/     # runtime/editor/plugins/{runtime,editor} 公开头文件
 ├── include/schemas/    # FlatBuffers 跨语言资源数据模型
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
 ├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
 ├── references/         # 本地参考文件，内容不纳入 Git
 ├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
-├── src/engine/         # 与 include/engine 对应的三层实现
+├── src/engine/         # 与 include/engine 对应的基础与插件实现
 ├── tests/              # C++ 与命令行测试
-└── third_party/        # vcpkg 包查找及 Git 子模块
+└── third_party/        # Git 子模块、vcpkg overlay 与本地补丁
 ```
 
 ## 构建选项
@@ -598,11 +620,13 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 | `ENGINE_ENABLE_RUNTIME_DEPS`        | `OFF`      | 编译运行时系统与依赖；debug/release Preset 开启                                               |
 | `ENGINE_ENABLE_EDITOR_DEPS`         | `OFF`      | 编译编辑器系统与专用依赖                                                                      |
 | `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF`      | 编译资源管线系统，查找并验证离线工具                                                          |
+| `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 开启运行时依赖时为 `resource_graph`，否则为空；分号分隔，支持显式空列表 |
+| `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
 | `ENGINE_ENABLE_V8`                  | `OFF`      | 启用显式准备的 V8 monolith、构建目标与嵌入测试                                                |
 | `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | V8 玩法、日志/路径绑定与引擎热重载；完整桌面 engine 及 Android 预设开启，同步工具仅构建在桌面 |
 
-作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。使用 Engine 与系统基类时链接 `engine::core`；使用 RuntimeHost 装配完整运行时时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/` 或 `plugins/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
+作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。使用 Engine 与系统基类时链接 `engine::core`；使用 RuntimeHost 装配运行时时启用运行时并链接 `engine::runtime`；可选插件由宿主另行链接及初始化。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
 
 `references/` 用于本地放置参考文件，内容不纳入 Git。部分实现代码可参考该目录，但文档中不得记录其中的具体内容。
 

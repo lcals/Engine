@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <map>
 #include <set>
 #include <utility>
 
@@ -322,13 +323,10 @@ bool valid_shader(const schema::ShaderDataT& data)
     return true;
 }
 
-bool valid_material(const schema::MaterialDataT& data, const schema::ShaderDataT* shader)
+bool valid_material_shape(const schema::MaterialDataT& data)
 {
-    if (!valid_resource_path(data.type_path) || data.schema_version != 1)
-    {
-        return false;
-    }
-    if (shader == nullptr ||
+    if (!valid_resource_path(data.type_path) || !valid_resource_path(data.shader_path) ||
+        data.schema_version != 1 ||
         (data.type_path.starts_with("builtin/") && data.shader_path.starts_with("project/")))
     {
         return false;
@@ -336,10 +334,43 @@ bool valid_material(const schema::MaterialDataT& data, const schema::ShaderDataT
     std::set<std::string_view> names;
     for (const auto& parameter : data.parameters)
     {
-        if (parameter == nullptr || !names.insert(parameter->name).second)
+        std::array<double, 4> values{};
+        std::uint8_t count = 0;
+        if (!parameter || parameter->name.empty() ||
+            parameter->name.find('\0') != std::string::npos ||
+            !names.insert(parameter->name).second ||
+            !parameter_values(parameter->value, values, count) ||
+            !std::all_of(values.begin(), values.begin() + count,
+                         [](double value)
+                         {
+                             return std::isfinite(value) &&
+                                    std::abs(value) <= std::numeric_limits<float>::max();
+                         }))
         {
             return false;
         }
+    }
+    for (const auto& texture : data.textures)
+    {
+        if (!texture || texture->name.empty() || texture->name.find('\0') != std::string::npos ||
+            !names.insert(texture->name).second || !valid_resource_path(texture->texture_path) ||
+            (data.type_path.starts_with("builtin/") &&
+             !texture->texture_path.starts_with("builtin/")))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool valid_material(const schema::MaterialDataT& data, const schema::ShaderDataT* shader)
+{
+    if (!valid_material_shape(data) || shader == nullptr)
+    {
+        return false;
+    }
+    for (const auto& parameter : data.parameters)
+    {
         const auto definition =
             std::find_if(shader->parameters.begin(), shader->parameters.end(),
                          [&parameter](const auto& item) { return item->name == parameter->name; });
@@ -351,13 +382,6 @@ bool valid_material(const schema::MaterialDataT& data, const schema::ShaderDataT
     }
     for (const auto& texture : data.textures)
     {
-        if (!texture || !names.insert(texture->name).second ||
-            !valid_resource_path(texture->texture_path) ||
-            (data.type_path.starts_with("builtin/") &&
-             !texture->texture_path.starts_with("builtin/")))
-        {
-            return false;
-        }
         const auto sampler = std::find_if(shader->samplers.begin(), shader->samplers.end(),
                                           [&texture](const auto& item)
                                           { return item->name == texture->name && item->exposed; });
@@ -431,6 +455,27 @@ const ResourceCatalog& ResourceSystem::catalog() const noexcept
     return catalog_;
 }
 
+std::uint64_t ResourceSystem::generation() const noexcept
+{
+    return generation_;
+}
+
+void ResourceSystem::set_loader(ResourceLoader* loader) noexcept
+{
+    loader_ = loader == this ? nullptr : loader;
+}
+
+ResourceLoader& ResourceSystem::loader() noexcept
+{
+    return loader_ != nullptr ? *loader_ : *this;
+}
+
+ResourcePtr ResourceSystem::find(std::string_view) const noexcept
+{
+    // 单项核心不保存已加载对象；驻留查询由可选加载器实现。
+    return {};
+}
+
 const std::string& ResourceSystem::last_error() const noexcept
 {
     return last_error_;
@@ -441,7 +486,8 @@ bool ResourceSystem::update_catalog(const schema::AssetCatalogDataT& data, const
     last_error_.clear();
     ResourceCatalog candidate;
     VirtualFileSystem files;
-    if (data.target_platform != target_platform() || !candidate.assign(data) ||
+    if (generation_ == std::numeric_limits<std::uint64_t>::max() ||
+        data.target_platform != target_platform() || !candidate.assign(data) ||
         !files.configure(mounts))
     {
         last_error_ = "Invalid resource catalog, platform or mounts";
@@ -455,31 +501,9 @@ bool ResourceSystem::update_catalog(const schema::AssetCatalogDataT& data, const
             return false;
         }
     }
-    for (const auto& [guid, weak] : loaded_)
-    {
-        const auto resource = weak.lock();
-        if (!resource || resource->info().path.starts_with("builtin/"))
-        {
-            continue;
-        }
-        const auto* replacement = candidate.find(guid);
-        const auto& previous = resource->info();
-        if (replacement == nullptr || *replacement != previous)
-        {
-            last_error_ = "Resource still in use: " + previous.path;
-            return false;
-        }
-        const auto* old_mount = find_mount(files_.mounts(), previous.location->mount);
-        const auto* new_mount = find_mount(mounts, replacement->location->mount);
-        if (old_mount == nullptr || new_mount == nullptr || old_mount->root != new_mount->root)
-        {
-            last_error_ = "Resource mount still in use: " + previous.location->mount;
-            return false;
-        }
-    }
     catalog_ = std::move(candidate);
     files_ = std::move(files);
-    std::erase_if(loaded_, [](const auto& item) { return item.second.expired(); });
+    ++generation_;
     return true;
 }
 
@@ -635,85 +659,16 @@ bool ResourceSystem::load(std::string_view guid, ResourcePtr& output)
         last_error_ = "Unknown resource or resource system not initialized: " + std::string(guid);
         return false;
     }
-    // 显式栈遍历避免深依赖链消耗 C++ 调用栈；本次引用在失败或返回后自动释放。
-    std::vector<std::pair<Guid, bool>> pending{{std::string(guid), false}};
-    std::map<Guid, ResourcePtr, std::less<>> retained;
-    while (!pending.empty())
-    {
-        const auto current = pending.back().first;
-        if (retained.contains(current))
-        {
-            pending.pop_back();
-            continue;
-        }
-        const auto cached = loaded_.find(current);
-        if (cached != loaded_.end())
-        {
-            if (auto resource = cached->second.lock())
-            {
-                retained.emplace(current, std::move(resource));
-                pending.pop_back();
-                continue;
-            }
-        }
-        const auto* entry = catalog_.find(current);
-        if (entry == nullptr)
-        {
-            last_error_ = "Missing necessary resource: " + current;
-            return false;
-        }
-        if (!pending.back().second)
-        {
-            pending.back().second = true;
-            for (const auto& dependency : entry->dependencies)
-            {
-                if (!retained.contains(dependency))
-                {
-                    pending.emplace_back(dependency, false);
-                }
-            }
-            continue;
-        }
-        ResourcePtr resource;
-        if (!load_resource(current, resource))
-        {
-            return false;
-        }
-        retained.emplace(current, std::move(resource));
-        pending.pop_back();
-    }
-    output = retained.find(guid)->second;
-    return true;
-}
-
-bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
-{
-    output.reset();
     const auto* entry = catalog_.find(guid);
-    if (entry == nullptr)
-    {
-        last_error_ = "Missing resource entry: " + std::string(guid);
-        return false;
-    }
     auto resource = std::shared_ptr<Resource>(new Resource());
+    resource->generation_ = generation_;
     resource->info_ = *entry;
-    for (const auto& dependency : entry->dependencies)
+    const auto reference = [this, entry](std::string_view identity, schema::AssetKind kind)
     {
-        const auto found = loaded_.find(dependency);
-        auto reference = found == loaded_.end() ? ResourcePtr{} : found->second.lock();
-        if (!reference)
-        {
-            last_error_ = "Necessary resource not loaded: " + dependency;
-            return false;
-        }
-        resource->dependencies_.push_back(std::move(reference));
-    }
-    const auto dependency = [&resource](std::string_view identity) -> const Resource*
-    {
-        const auto found =
-            std::find_if(resource->dependencies_.begin(), resource->dependencies_.end(),
-                         [identity](const auto& item) { return item->info().guid == identity; });
-        return found == resource->dependencies_.end() ? nullptr : found->get();
+        const auto* target = catalog_.find(identity);
+        return target != nullptr && target->kind == kind &&
+               std::find(entry->dependencies.begin(), entry->dependencies.end(), identity) !=
+                   entry->dependencies.end();
     };
     bool valid = true;
     const bool builtin = entry->path.starts_with("builtin/");
@@ -844,32 +799,30 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
                 valid = false;
                 break;
             }
-            const auto* texture = dependency(texture_guid);
-            valid = texture && texture->texture();
+            valid = reference(texture_guid, schema::AssetKind::texture);
         }
     }
     if (valid && resource->material_)
     {
         auto& material = *resource->material_;
-        const auto* shader = dependency(material.shader_guid);
         std::string shader_path;
-        valid = shader && shader->shader() &&
+        valid = reference(material.shader_guid, schema::AssetKind::shader) &&
                 catalog_.identities().guid_to_path(material.shader_guid, shader_path) &&
                 (material.shader_path.empty() || material.shader_path == shader_path) &&
                 material.type_path == entry->path;
         if (valid)
         {
             material.shader_path = shader_path;
-            valid = valid_material(material, shader->shader());
+            valid = valid_material_shape(material);
             for (const auto& binding : material.textures)
             {
                 if (!valid)
                 {
                     break;
                 }
-                const auto* texture = dependency(binding->texture_guid);
-                valid =
-                    texture && texture->texture() && texture->info().path == binding->texture_path;
+                const auto* texture = catalog_.find(binding->texture_guid);
+                valid = reference(binding->texture_guid, schema::AssetKind::texture) &&
+                        texture != nullptr && texture->path == binding->texture_path;
             }
         }
     }
@@ -892,13 +845,11 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
                 }
                 if (const auto* renderer = component->payload.AsMeshRendererData())
                 {
-                    const auto* mesh = dependency(renderer->mesh_guid);
-                    const auto* material = dependency(renderer->material_guid);
-                    valid = valid && mesh && mesh->mesh() && material && material->material();
+                    valid = valid && reference(renderer->mesh_guid, schema::AssetKind::mesh) &&
+                            reference(renderer->material_guid, schema::AssetKind::material);
                     for (const auto& material_guid : renderer->additional_material_guids)
                     {
-                        const auto* additional = dependency(material_guid);
-                        valid = valid && additional && additional->material();
+                        valid = valid && reference(material_guid, schema::AssetKind::material);
                     }
                 }
             }
@@ -906,11 +857,109 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
     }
     if (!valid)
     {
-        last_error_ = "Invalid resource entity or necessary dependency: " + entry->path;
+        last_error_ = "Invalid resource entity or declared reference: " + entry->path;
         return false;
     }
     output = std::move(resource);
-    loaded_[std::string(guid)] = output;
+    return true;
+}
+
+bool ResourceSystem::validate_dependencies(const Resource& resource,
+                                           std::span<const ResourcePtr> dependencies) const
+{
+    const auto& info = resource.info();
+    const auto* current = catalog_.find(info.guid);
+    if (!is_initialized() || resource.generation() != generation_ || current == nullptr ||
+        *current != info || dependencies.size() != info.dependencies.size())
+    {
+        return false;
+    }
+    std::map<std::string_view, const Resource*, std::less<>> references;
+    for (const auto& dependency : dependencies)
+    {
+        if (!dependency || dependency->generation() != generation_ ||
+            !references.emplace(dependency->info().guid, dependency.get()).second)
+        {
+            return false;
+        }
+        const auto* declared = catalog_.find(dependency->info().guid);
+        if (declared == nullptr || *declared != dependency->info())
+        {
+            return false;
+        }
+    }
+    for (const auto& guid : info.dependencies)
+    {
+        if (!references.contains(guid))
+        {
+            return false;
+        }
+    }
+    const auto dependency = [&references](std::string_view guid) -> const Resource*
+    {
+        const auto found = references.find(guid);
+        return found != references.end() ? found->second : nullptr;
+    };
+    if (const auto* shader = resource.shader())
+    {
+        for (const auto& sampler : shader->samplers)
+        {
+            Guid guid;
+            if (!catalog_.identities().path_to_guid(sampler->default_texture, guid))
+            {
+                return false;
+            }
+            const auto* texture = dependency(guid);
+            if (texture == nullptr || texture->texture() == nullptr)
+            {
+                return false;
+            }
+        }
+    }
+    if (const auto* material = resource.material())
+    {
+        const auto* shader = dependency(material->shader_guid);
+        if (shader == nullptr || !valid_material(*material, shader->shader()))
+        {
+            return false;
+        }
+        for (const auto& binding : material->textures)
+        {
+            const auto* texture = dependency(binding->texture_guid);
+            if (texture == nullptr || texture->texture() == nullptr ||
+                texture->info().path != binding->texture_path)
+            {
+                return false;
+            }
+        }
+    }
+    if (const auto* scene = resource.scene())
+    {
+        for (const auto& node : scene->nodes)
+        {
+            for (const auto& component : node->components)
+            {
+                if (const auto* renderer = component->payload.AsMeshRendererData())
+                {
+                    const auto* mesh = dependency(renderer->mesh_guid);
+                    const auto* material = dependency(renderer->material_guid);
+                    if (mesh == nullptr || mesh->mesh() == nullptr || material == nullptr ||
+                        material->material() == nullptr)
+                    {
+                        return false;
+                    }
+                    for (const auto& guid : renderer->additional_material_guids)
+                    {
+                        const auto* additional = dependency(guid);
+                        if (additional == nullptr || additional->material() == nullptr)
+                        {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+    }
     return true;
 }
 
@@ -950,9 +999,7 @@ const schema::TextureDataT* ResourceSystem::find_texture(std::string_view path) 
     Guid guid;
     if (definition_owner && path_to_guid(path, guid))
     {
-        const auto found = definition_owner->loaded_.find(guid);
-        const auto resource =
-            found == definition_owner->loaded_.end() ? ResourcePtr{} : found->second.lock();
+        const auto resource = definition_owner->loader().find(guid);
         return resource ? resource->texture() : nullptr;
     }
     return nullptr;
@@ -1004,9 +1051,7 @@ const schema::MeshDataT* ResourceSystem::find_mesh(std::string_view path) noexce
     Guid guid;
     if (definition_owner && path_to_guid(path, guid))
     {
-        const auto found = definition_owner->loaded_.find(guid);
-        const auto resource =
-            found == definition_owner->loaded_.end() ? ResourcePtr{} : found->second.lock();
+        const auto resource = definition_owner->loader().find(guid);
         return resource ? resource->mesh() : nullptr;
     }
     return nullptr;
@@ -1022,9 +1067,7 @@ const schema::ShaderDataT* ResourceSystem::find_shader(std::string_view path) no
     Guid guid;
     if (definition_owner && path_to_guid(path, guid))
     {
-        const auto found = definition_owner->loaded_.find(guid);
-        const auto resource =
-            found == definition_owner->loaded_.end() ? ResourcePtr{} : found->second.lock();
+        const auto resource = definition_owner->loader().find(guid);
         return resource ? resource->shader() : nullptr;
     }
     return nullptr;
@@ -1040,9 +1083,7 @@ const schema::MaterialDataT* ResourceSystem::find_material(std::string_view path
     Guid guid;
     if (definition_owner && path_to_guid(path, guid))
     {
-        const auto found = definition_owner->loaded_.find(guid);
-        const auto resource =
-            found == definition_owner->loaded_.end() ? ResourcePtr{} : found->second.lock();
+        const auto resource = definition_owner->loader().find(guid);
         return resource ? resource->material() : nullptr;
     }
     return nullptr;
@@ -1101,7 +1142,7 @@ void ResourceSystem::on_shutdown() noexcept
 {
     if (definition_owner == this)
     {
-        loaded_.clear();
+        loader_ = nullptr;
         catalog_ = {};
         files_ = {};
         textures.clear();

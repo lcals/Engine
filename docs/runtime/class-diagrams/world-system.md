@@ -37,8 +37,10 @@ classDiagram
     WorldSystem ..> flecs : 编译及链接依赖
     WorldSystem "1" *-- "0..1" ecs_world_t : 拥有ECS 世界
     class ResourceSystem
+    class ResourceLoader
     class Scene
-    WorldSystem ..> ResourceSystem : 读取活动GUID缓存中的场景数据
+    WorldSystem ..> ResourceSystem : 查询目录与加载接口
+    WorldSystem ..> ResourceLoader : 加载场景根资源
     WorldSystem "1" *-- "0..1" Scene : 独占活动场景
     WorldSystem ..> Scene : 创建和查询返回借用
     class PhysicsSystem

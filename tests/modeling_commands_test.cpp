@@ -1,5 +1,5 @@
 #include "editor/commands/editor_commands.hpp"
-#include "editor/modeling/modeling_commands.hpp"
+#include "plugins/editor/modeling/modeling_commands.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -8,9 +8,9 @@
 #include "runtime/world/world_system.hpp"
 
 #ifdef ENGINE_TEST_MODELING_MCP
-#include "plugins/mcp/editor_mcp_tools.hpp"
-#include "plugins/mcp/mcp_system.hpp"
-#include "plugins/modeling/modeling_mcp_tools.hpp"
+#include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/editor/modeling/modeling_mcp_tools.hpp"
 #endif
 
 #include <nlohmann/json.hpp>

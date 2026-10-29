@@ -1,6 +1,5 @@
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
-#include "editor/modeling/modeling_commands.hpp"
 #include "editor/project/project_system.hpp"
 #include "editor/render/render_commands.hpp"
 #include "runtime/app/app.hpp"
@@ -10,9 +9,20 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#if ENGINE_HAS_MODELING_PLUGIN
+#include "plugins/editor/modeling/modeling_commands.hpp"
+#endif
+
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#include "runtime/resource/resource_system.hpp"
+#endif
+
 #if ENGINE_HAS_SCRIPT_RUNTIME
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#if ENGINE_HAS_MODELING_PLUGIN
 #include "editor/scene/scene_persistence.hpp"
+#endif
 #include "runtime/script/script_system.hpp"
 #endif
 
@@ -49,10 +59,16 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
 #endif
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    engine::ResourceSystem resources;
+    engine::ResourceGraphSystem resource_graph(resources);
+#endif
     engine::RuntimeHost runtime;
+#if ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::ModelingCommands> modeling;
+#endif
     std::unique_ptr<engine::RenderCommands> render_commands;
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::ScenePersistence> persistence;
 #endif
     std::unique_ptr<engine::EditorSystem> editor;
@@ -66,7 +82,18 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
             return 1;
         }
 #endif
-        if (!runtime.initialize(config))
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+        if (!resources.initialize(config) || !resource_graph.initialize(config))
+        {
+            LogSystem::write(LogLevel::error, "Resource services initialization failed");
+            return 1;
+        }
+        resources.set_loader(&resource_graph);
+        const bool runtime_ready = runtime.initialize(config, &resources);
+#else
+        const bool runtime_ready = runtime.initialize(config);
+#endif
+        if (!runtime_ready)
         {
             LogSystem::write(LogLevel::error, "Engine initialization failed");
             return 1;
@@ -86,6 +113,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
+#if ENGINE_HAS_MODELING_PLUGIN
         if (editor->commands() != nullptr && runtime.world() != nullptr)
         {
             modeling = std::make_unique<engine::ModelingCommands>(*runtime.world(), project_root);
@@ -95,6 +123,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
                 return 1;
             }
         }
+#endif
         if (editor->commands() != nullptr && runtime.renderer() != nullptr)
         {
             render_commands = std::make_unique<engine::RenderCommands>(*runtime.renderer(),
@@ -105,7 +134,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
                 return 1;
             }
         }
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
         if (modeling != nullptr)
         {
             persistence = std::make_unique<engine::ScenePersistence>(
@@ -133,15 +162,19 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
             }
+#if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
                 modeling->synchronize_scene();
             }
+#endif
             const auto status = runtime.tick(delta_time);
+#if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
                 modeling->synchronize_scene();
             }
+#endif
             if (status == engine::FrameStatus::exit_requested)
             {
                 break;
@@ -172,12 +205,19 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
         editor->shutdown();
         editor.reset();
     }
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
     persistence.reset();
 #endif
     render_commands.reset();
+#if ENGINE_HAS_MODELING_PLUGIN
     modeling.reset();
+#endif
     runtime.shutdown();
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    resources.set_loader(nullptr);
+    resource_graph.shutdown();
+    resources.shutdown();
+#endif
 #if ENGINE_HAS_SCRIPT_RUNTIME
     pipeline.shutdown();
 #endif

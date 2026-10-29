@@ -55,7 +55,7 @@ bool MeshRenderer::set_mesh(std::string_view path)
     Guid guid;
     ResourcePtr replacement;
     if (mesh_revision_ == std::numeric_limits<std::uint64_t>::max() || resources == nullptr ||
-        !ResourceSystem::path_to_guid(path, guid) || !resources->load(guid, replacement) ||
+        !ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, replacement) ||
         replacement->mesh() == nullptr || !MeshUtils::validate(*replacement->mesh()) ||
         !set_material_count(std::max(material_count(), required_materials(*replacement->mesh()))))
     {

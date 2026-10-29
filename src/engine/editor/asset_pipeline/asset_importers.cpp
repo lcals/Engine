@@ -4,7 +4,9 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "editor/asset_pipeline/texture_importer.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
-#include "plugins/modeling/editable_mesh.hpp"
+#if ENGINE_HAS_MODELING_PLUGIN
+#include "plugins/editor/modeling/editable_mesh.hpp"
+#endif
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
@@ -251,6 +253,7 @@ bool convert_mesh(const ImportAsset& asset, const ImportContext& context, std::s
     mesh.path = asset.path;
     if (table.contains("modeling"))
     {
+#if ENGINE_HAS_MODELING_PLUGIN
         const auto* modeling = table["modeling"].as_table();
         const auto format =
             modeling == nullptr ? std::string{} : (*modeling)["format"].value_or(std::string{});
@@ -301,6 +304,10 @@ bool convert_mesh(const ImportAsset& asset, const ImportContext& context, std::s
         return write_bytes(context.output / asset.guid,
                            std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
                            error);
+#else
+        error = "modeling mesh source requires the modeling plugin: " + asset.path;
+        return false;
+#endif
     }
     const auto* vertices = table["vertices"].as_array();
     const auto* indices = table["indices"].as_array();

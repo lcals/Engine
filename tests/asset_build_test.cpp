@@ -1,5 +1,5 @@
-#include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 
