@@ -12,6 +12,14 @@ table ShaderParameter {
     default_value:MaterialValue (required);
 }
 
+table ShaderSampler {
+    name:string (required);
+    uniform_name:string (required);
+    stage:ubyte;
+    default_texture:string (required);
+    exposed:bool = true;
+}
+
 table ShaderData {
     schema_version:uint = 1;
     // Canonical unique resource identity, prefixed by builtin/ or project/.
@@ -19,6 +27,7 @@ table ShaderData {
     vertex_code:[ubyte] (required);
     fragment_code:[ubyte] (required);
     parameters:[ShaderParameter] (required);
+    samplers:[ShaderSampler];
 }
 
 root_type ShaderData;

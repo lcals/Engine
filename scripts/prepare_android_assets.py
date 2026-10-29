@@ -210,7 +210,7 @@ def catalog_entries(source):
             or guid in identities
             or logical in paths
             or not logical.startswith("project/")
-            or kind > 5
+            or kind > 6
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

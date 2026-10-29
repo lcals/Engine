@@ -10,20 +10,20 @@
 
 代码和独立类图按职责使用相同分层：
 
-| 范围 | 头文件与实现位置 | 文档位置 |
-| --- | --- | --- |
+| 范围   | 头文件与实现位置                                 | 文档位置        |
+| ------ | ------------------------------------------------ | --------------- |
 | 运行时 | `include/engine/runtime/`、`src/engine/runtime/` | `docs/runtime/` |
-| 编辑器 | `include/engine/editor/`、`src/engine/editor/` | `docs/editor/` |
-| 插件 | `include/engine/plugins/`、`src/engine/plugins/` | `docs/plugins/` |
+| 编辑器 | `include/engine/editor/`、`src/engine/editor/`   | `docs/editor/`  |
+| 插件   | `include/engine/plugins/`、`src/engine/plugins/` | `docs/plugins/` |
 
 各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/` 或 `plugins/` 开始引用。编辑器和 MCP 可以使用运行时公共能力，运行时不反向依赖这些工具模块。
 
-| 配置 | ScriptSystem 的实际职责 | 宿主与平台边界 |
-| --- | --- | --- |
-| `ENGINE_ENABLE_V8=OFF` | 不装配脚本子系统 | 引擎仍可独立启动窗口 |
-| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接 | 可选的依赖验证配置，不执行项目玩法 |
-| V8 与脚本运行均开启 | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 桌面和 Android 共用脚本系统；Android 读取 APK 与持久版本 |
-| 桌面脚本运行与资源管线均开启 | 可构建独立 `mcp_app` | 工具进程通过本机目录或指定 adb 设备和包交换文件 |
+| 配置                                        | ScriptSystem 的实际职责                                                | 宿主与平台边界                                           |
+| ------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
+| `ENGINE_ENABLE_V8=OFF`                      | 不装配脚本子系统                                                       | 引擎仍可独立启动窗口                                     |
+| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接             | 可选的依赖验证配置，不执行项目玩法                       |
+| V8 与脚本运行均开启                         | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 桌面和 Android 共用脚本系统；Android 读取 APK 与持久版本 |
+| 桌面脚本运行与资源管线均开启                | 可构建独立 `mcp_app`                                                   | 工具进程通过本机目录或指定 adb 设备和包交换文件          |
 
 Android 普通启动使用完整 ScriptSystem 运行项目玩法；V8 JNI 冒烟测试仍为显式触发的独立验证路径，切换测试前须停止旧进程。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
 
@@ -198,13 +198,11 @@ classDiagram
     class ProjectSystem
     class EditorSystem
     class AssetPipelineSystem
-    class AssetSyncSystem
     class Engine
     class LogSystem
     EditorHost *-- ProjectSystem : 独立根系统
     EditorHost *-- EditorSystem : 独立根系统
     EditorHost *-- AssetPipelineSystem : 脚本运行开启时拥有
-    EditorHost *-- AssetSyncSystem : 脚本运行开启时拥有
     class EditorEnvironment
     EditorHost *-- EditorEnvironment : 配置平台路径与提交目录
     EditorEnvironment --> ProjectSystem : 已就绪项目借用
@@ -214,20 +212,19 @@ classDiagram
     EditorHost *-- RuntimeHost : 独占运行宿主
 ```
 
-ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿主拥有的独立根系统。EditorSystem 借用已初始化的 EditorEnvironment，环境借用 ProjectSystem；项目和环境必须保持就绪直到编辑器退出。ProjectSystem 没有路径 getter；运行时读取 App 路径，环境的私有项目身份仅用于会话回执。
+ProjectSystem、EditorSystem、AssetPipelineSystem 均为编辑器宿主拥有的独立根系统。EditorSystem 借用已初始化的 EditorEnvironment，环境借用 ProjectSystem；项目和环境必须保持就绪直到编辑器退出。ProjectSystem 没有路径 getter；运行时读取 App 路径，环境的私有项目身份仅用于会话回执。
 
-AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
+AssetSyncSystem 由独立工具宿主装配，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
 
 启用完整脚本运行时，`editor_app` 启动顺序为：
 
 1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
 2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
 3. 初始化 AssetPipelineSystem 及其 TaskSystem 子系统，按项目导入线程设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
-4. 初始化 AssetSyncSystem 以支持显式调试同步；普通编辑器启动直接使用项目转换缓存，不先打包或复制初始版本。
-5. 初始化 RuntimeHost，由其创建窗口并向 Engine 注册资源、世界和渲染根系统；EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
-6. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
+4. 初始化 RuntimeHost，由其创建窗口并向 Engine 注册资源、世界和渲染根系统；EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
+5. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
 
-关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost、AssetSyncSystem、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
+关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
 
 RuntimeHost 在关闭 Engine 根系统之前销毁玩法会话，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
 
@@ -296,24 +293,45 @@ classDiagram
         <<host>>
     }
     class McpSystem
+    class McpTool
+    class ProjectMcpTools
+    class EditorMcpTools
+    McpHost *-- McpSystem : 独占通用协议根系统
+    McpHost *-- ProjectMcpTools : 独占项目工具模块
+    McpHost *-- EditorMcpTools : 独占编辑器工具模块
+    McpSystem *-- "0..*" McpTool : 工具描述与执行函数
+    ProjectMcpTools ..> McpSystem : 初始化前显式注册
+    EditorMcpTools ..> McpSystem : 初始化前显式注册
+    McpTool --> ProjectMcpTools : 项目工具回调借用
+    McpTool --> EditorMcpTools : 编辑器工具回调借用
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class McpHost["mcp_app 宿主"]
+    class ProjectMcpTools
+    class EditorMcpTools
+    class McpTarget
     class AssetPipelineSystem
+    class AssetBuildSystem
     class AssetSyncSystem
     class ResourceSystem
-    class AssetBuildSystem
     McpHost *-- AssetPipelineSystem : 独立根系统
     McpHost *-- AssetBuildSystem : 独立根系统
     McpHost *-- AssetSyncSystem : 独立根系统
-    McpHost *-- McpSystem : 独立根系统
-    class McpTarget
-    McpSystem *-- McpTarget : 按值保存目标参数
-    McpSystem --> AssetPipelineSystem : 构造参数及持续借用
-    McpSystem --> AssetBuildSystem : 构造参数及持续借用
-    McpSystem --> AssetSyncSystem : 构造参数及持续借用
-    McpSystem ..> ResourceSystem : 状态及可用版本读取
+    ProjectMcpTools *-- McpTarget : 固定目标值
+    EditorMcpTools *-- McpTarget : 固定目标值
+    ProjectMcpTools --> AssetPipelineSystem : 构造及持续借用
+    ProjectMcpTools --> AssetBuildSystem : 构造及持续借用
+    ProjectMcpTools --> AssetSyncSystem : 构造及持续借用
+    ProjectMcpTools ..> ResourceSystem : 状态及清单读取
     AssetSyncSystem ..> ResourceSystem : 文件及清单读取
 ```
 
-`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名），依次初始化 AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的三个系统是必需借用，必须先就绪并持续存活。
+`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名）。资产系统就绪后初始化 ProjectMcpTools，再由各工具模块向 McpSystem 注册，最后初始化并运行协议系统；关闭 MCP 后才销毁业务模块和依赖。ProjectMcpTools 的三个系统引用必须持续有效；McpSystem 自身不要求项目、资产或设备。
+
+McpSystem 只拥有描述、输入参数模型与回调，工具列表和调用共用同一注册表；初始化后冻结列表。业务模块自行处理资源、设备或编辑器通道，不在协议系统累积工具名称分支。独立契约见[协议与注册](../plugins/class-diagrams/mcp-system.md)、[项目工具](../plugins/class-diagrams/project-mcp-tools.md)与[编辑器工具](../plugins/class-diagrams/editor-mcp-tools.md)。
 
 MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。MCP 入口不初始化 App 或 LogSystem。
 
@@ -321,7 +339,7 @@ MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑�
 classDiagram
     direction TB
     class AssetSyncSystem
-    class McpSystem
+    class ProjectMcpTools
     class ScriptSystem
     class GameplaySession
     class Available["assets/available.json"] {
@@ -340,11 +358,11 @@ classDiagram
     AssetSyncSystem ..> Available : 原子发布可用版本
     GameplaySession ..> Available : 宿主发现候选版本
     GameplaySession ..> Versions : 校验候选部署内容
-    McpSystem ..> Available : 查询实际已发布版本
-    McpSystem ..> Control : 原子写热重载开关
+    ProjectMcpTools ..> Available : 查询实际已发布版本
+    ProjectMcpTools ..> Control : 原子写热重载开关
     GameplaySession ..> Control : 主线程读取开关并调用脚本能力
     GameplaySession ..> Status : 发布会话与脚本状态
-    McpSystem ..> Status : 查询最后上报的运行状态
+    ProjectMcpTools ..> Status : 查询最后上报的运行状态
 ```
 
 上述文件均位于目标应用的持久数据目录之下，不属于可被系统清理的 App 缓存目录。两个进程无需共享 C++ 对象：
@@ -356,26 +374,74 @@ classDiagram
 - MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
 - 同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
 
-资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及 [MCP 系统](../plugins/class-diagrams/mcp-system.md)。
+资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及[项目 MCP 工具](../plugins/class-diagrams/project-mcp-tools.md)。
 
 ## 项目启停控制文件
 
 ```mermaid
 classDiagram
-    class McpSystem
+    class ProjectMcpTools
     class EditorSystem
     class Engine
     class ProjectControl["project-control.json"]
     class ProjectStatus["project-status.json"]
-    McpSystem ..> ProjectControl : 会话内原子发布启停请求
+    ProjectMcpTools ..> ProjectControl : 会话内原子发布启停请求
     EditorSystem ..> ProjectControl : 主线程读取
     class GameplaySession
     EditorSystem --> GameplaySession : 创建及结束玩法场景
     EditorSystem ..> ProjectStatus : 状态及完成回执
-    McpSystem ..> ProjectStatus : 校验会话心跳及请求结果
+    ProjectMcpTools ..> ProjectStatus : 校验会话心跳及请求结果
 ```
 
 以上文件同样位于 App 持久数据目录。项目控制与脚本热重载控制分开：启动/停止只由编辑器会话消费；同步脚本或打开热重载不会让已停止项目自行启动。启停锁串行化 MCP 发布，旧会话请求不重放，超时返回未确认请求编号。Android 支持全部资源版本同步和热重载；项目启停控制仅由桌面编辑器会话消费。
+
+## 编辑器命令与场景业务
+
+```mermaid
+classDiagram
+    direction TB
+    class EditorMcpTools
+    class EditorCommand["editor-command.json"] {
+        <<file>>
+    }
+    class EditorReceipt["editor-receipts/session/requestId.json"] {
+        <<file>>
+    }
+    class EditorSystem
+    class EditorCommandChannel
+    class EditorCommands
+    EditorMcpTools ..> EditorCommand : 校验目标并发布请求
+    EditorMcpTools ..> EditorReceipt : 等待或补查原请求回执
+    EditorSystem *-- EditorCommandChannel : 独占文件通道
+    EditorCommandChannel ..> EditorCommand : 主线程读取
+    EditorCommandChannel ..> EditorReceipt : 持久化完成结果
+    EditorCommandChannel --> EditorCommands : 持续借用并调度
+    EditorSystem *-- EditorCommands : 独占命令与撤销历史
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class EditorSystem
+    class EditorCommands
+    class EditorEdit
+    class SceneCommands
+    class WorldSystem
+    class Node
+    class Component
+    EditorSystem *-- SceneCommands : 独占场景业务模块
+    SceneCommands --> WorldSystem : 持续借用
+    SceneCommands ..> EditorCommands : 注册业务命令
+    EditorCommands --> SceneCommands : 已注册回调借用
+    EditorCommands *-- "0..*" EditorEdit : 独占记录并按批撤销
+    SceneCommands ..> EditorEdit : 创建尚未应用的修改
+    SceneCommands ..> Node : 按场景及节点身份查询
+    SceneCommands ..> Component : 调用原生属性接口
+```
+
+EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。旧项目启停通道与新编辑命令通道分别维护，不改变 Android 同步协议。
+
+SceneCommands 只负责已有场景查询与 Transform、Light、材质参数修改。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
 
 ## 公共路径工具
 
@@ -400,11 +466,13 @@ classDiagram
     class ProjectSystem
     class AssetPipelineSystem
     class AssetSyncSystem
-    class McpSystem
+    class ProjectMcpTools
+    class EditorMcpTools
     ProjectSystem ..> PathUtils : UTF-8 路径转换
     AssetPipelineSystem ..> PathUtils : UTF-8 路径转换
     AssetSyncSystem ..> PathUtils : UTF-8 路径转换
-    McpSystem ..> PathUtils : UTF-8 路径转换
+    ProjectMcpTools ..> PathUtils : UTF-8 路径转换
+    EditorMcpTools ..> PathUtils : UTF-8 路径转换
 ```
 
 桌面 App 实现、脚本系统、项目系统、资源管线、资源同步、MCP 及编辑器/MCP 宿主使用上述公共转换。转换保留路径内容，不负责路径存在性、规范化或目录越界检查；这些判断继续由使用者完成。
@@ -415,16 +483,17 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 
 下列继承与配置关系均已实现，各类公开方法在其独立图中维护：
 
-| 类别 | 直接继承 System 的类型 | 配置与其他参数依赖 |
-| --- | --- | --- |
-| 运行宿主独占根系统 | WindowSystem | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口 |
-| 引擎根系统 | ResourceSystem、WorldSystem、RenderSystem | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem |
-| 世界子系统 | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus |
-| 独立单例根系统 | LogSystem | EngineConfig、LogLevel、日志文本；返回日志路径借用 |
-| 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
-| 工具根系统 | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线；McpSystem 借用管线、构建与同步系统，并按值接收 McpTarget |
+| 类别               | 直接继承 System 的类型                                                   | 配置与其他参数依赖                                                                             |
+| ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
+| 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
+| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
+| 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
+| 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
+| 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
+| 通用协议根系统     | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
 
-App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，完整字段及 Path/String 关系在 [MCP 独立图](../plugins/class-diagrams/mcp-system.md)维护。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
 
 ## 第三方资源拥有关系
 
@@ -490,34 +559,39 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 
 ## 实际编译与链接依赖
 
-| 引擎类或宿主工具 | 使用依赖 | 当前用途 |
-| --- | --- | --- |
-| PathUtils | 标准库文件系统与字符串 | UTF-8 路径编码转换 |
-| App | SDL3、PathUtils、标准库文件系统 | 桌面与 Android 平台目录及逻辑 APK 根 |
-| LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
-| WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
-| VirtualFileSystem | SDL3、PathUtils | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径 |
-| ResourceCatalog | FlatBuffers、GuidMap | 纯元数据目录、身份索引与依赖校验 |
-| Resource | FlatBuffers、标准库共享指针 | 自有实体数据与直接依赖引用 |
-| ResourceSystem | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal | 目录更新、同步依赖加载、弱引用索引及转码表初始化 |
-| WorldSystem | flecs、FlatBuffers、Scene | ECS 世界、场景与节点身份生命周期 |
-| RenderSystem | bgfx、bx、SDL3、WorldSystem | 图形设备、场景组件读取、PBR 方块与帧提交 |
-| PhysicsSystem | Jolt | 版本一致性入口 |
-| NavigationSystem | Recast、Detour | 高度场与导航网格资源 |
-| AnimationSystem | ozz-animation | 空骨骼构造和析构 |
-| UiSystem | RmlUi | 运行库版本入口 |
-| ScriptSystem 探针实现 | V8 | V8 版本入口的实际链接验证 |
-| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem | JS 模块预检与执行、原生绑定、玩法生命周期及状态 |
-| GameplaySession | ScriptSystem、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
-| ProjectSystem | toml++、LogSystem、PathUtils | 项目目录检查及日志 |
-| EditorEnvironment | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils | 编辑器路径映射、活动缓存租约与目录提交 |
-| EditorSystem | Dear ImGui、EditorEnvironment、GameplaySession、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、项目启停与状态回执 |
-| AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
-| AssetBuildSystem | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++ | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录 |
-| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils | 完整版本校验与原子发布 |
-| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、PathUtils | stdio 协议、清单构建、资源同步、控制与状态 |
-| TS 构建工具 | Node.js、项目固定版本 TypeScript | settings 中配置，assets 中源码，cache 中生成物 |
-| 资源构建工具 | shaderc、texturec、geometryc | 宿主工具，不进入运行时生命周期 |
+| 引擎类或宿主工具      | 使用依赖                                                                                                                                      | 当前用途                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| PathUtils             | 标准库文件系统与字符串                                                                                                                        | UTF-8 路径编码转换                                     |
+| App                   | SDL3、PathUtils、标准库文件系统                                                                                                               | 桌面与 Android 平台目录及逻辑 APK 根                   |
+| LogSystem             | System、App、标准库线程与文件接口                                                                                                             | 进程日志、写盘、刷新和轮换                             |
+| WindowSystem          | SDL3                                                                                                                                          | 窗口、事件及平台生命周期                               |
+| VirtualFileSystem     | SDL3、PathUtils                                                                                                                               | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径    |
+| ResourceCatalog       | FlatBuffers、GuidMap                                                                                                                          | 纯元数据目录、身份索引与依赖校验                       |
+| Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 自有实体数据与直接依赖引用                             |
+| ResourceSystem        | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal                                                                    | 目录更新、同步依赖加载、弱引用索引及转码表初始化       |
+| WorldSystem           | flecs、FlatBuffers、Scene                                                                                                                     | ECS 世界、场景与节点身份生命周期                       |
+| RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
+| PhysicsSystem         | Jolt                                                                                                                                          | 版本一致性入口                                         |
+| NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
+| AnimationSystem       | ozz-animation                                                                                                                                 | 空骨骼构造和析构                                       |
+| UiSystem              | RmlUi                                                                                                                                         | 运行库版本入口                                         |
+| ScriptSystem 探针实现 | V8                                                                                                                                            | V8 版本入口的实际链接验证                              |
+| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
+| GameplaySession       | ScriptSystem、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
+| ProjectSystem         | toml++、LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
+| EditorEnvironment     | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils                                                                     | 编辑器路径映射、活动缓存租约与目录提交                 |
+| EditorSystem          | Dear ImGui、EditorEnvironment、GameplaySession、EditorCommands、SceneCommands、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、主线程命令、项目启停与状态回执           |
+| EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |
+| SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
+| EditorCommandChannel  | EditorCommands、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                                | 编辑器会话请求、持久回执和重复请求防护                 |
+| AssetPipelineSystem   | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
+| AssetBuildSystem      | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++                                                                                  | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录   |
+| AssetSyncSystem       | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils                                                                             | 完整版本校验与原子发布                                 |
+| McpSystem             | System、nlohmann/json、标准函数对象                                                                                                           | stdio 协议、工具注册、参数检查与调用                   |
+| ProjectMcpTools       | McpSystem、nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、PathUtils                             | 项目工具注册、清单构建、资源同步、运行控制及状态       |
+| EditorMcpTools        | McpSystem、ProjectLock、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                        | 编辑器工具注册、跨进程命令提交与回执查询               |
+| TS 构建工具           | Node.js、项目固定版本 TypeScript                                                                                                              | settings 中配置，assets 中源码，cache 中生成物         |
+| 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
@@ -576,12 +650,12 @@ classDiagram
 ```mermaid
 classDiagram
     direction TB
-    class McpSystem
+    class ProjectMcpTools
     class AssetBuildSystem
     class AssetSyncSystem
     class AssetCatalogDataT
-    McpSystem --> AssetBuildSystem : 调用清单构建
-    McpSystem --> AssetSyncSystem : 调用显式部署
+    ProjectMcpTools --> AssetBuildSystem : 调用清单构建
+    ProjectMcpTools --> AssetSyncSystem : 调用显式部署
     AssetBuildSystem ..> AssetCatalogDataT : 生成统一运行清单
     AssetSyncSystem ..> AssetCatalogDataT : 按完整清单准备输出
 ```
@@ -604,3 +678,29 @@ classDiagram
 ```
 
 Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据；RenderSystem 继续独立管理 GPU 生命周期。
+
+## 贴图与渲染基础
+
+```mermaid
+classDiagram
+    class AssetPipelineSystem
+    class TextureImporter
+    class ResourceSystem
+    class Resource
+    class TextureDataT
+    class Material
+    class MeshRenderer
+    class MeshUtils
+    class RenderSystem
+    AssetPipelineSystem ..> TextureImporter : Taskflow任务调用
+    TextureImporter ..> TextureDataT : BasisU缓存
+    Resource *-- TextureDataT : 贴图载荷独占
+    ResourceSystem ..> MeshUtils : 几何验证
+    MeshRenderer ..> MeshUtils : 动态几何验证
+    MeshRenderer *-- Material : 独占多个材质槽
+    Material o-- Resource : 当前具名纹理共享引用
+    RenderSystem o-- Resource : GPU纹理生命周期保活
+    RenderSystem ..> MeshUtils : 切线生成
+```
+
+同一 Resource 身份只创建一份 GPU 纹理，释放最后一个场景使用者后销毁；网格提交通过节点身份和修订号发现变化。无资源读取、GPU句柄或导入策略进入 Engine 类。编辑器 TextureEdit 的撤销历史保存资源元数据值，不持有资源强引用。

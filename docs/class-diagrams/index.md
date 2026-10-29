@@ -8,13 +8,13 @@
 
 各图维护资源目录、同步加载和构建接口。说明见[资源目录与同步加载](../runtime/resource-loading.md)。
 
-| 独立类图 | 评审内容 |
-| --- | --- |
-| [资源系统](../runtime/class-diagrams/resource-system.md) | 更新目录、按需同步加载、共享依赖及领域使用者 |
-| [资源目录](../runtime/class-diagrams/resource-catalog.md) | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
-| [已加载资源](../runtime/class-diagrams/resource.md) | 标准 shared_ptr 共享、生成数据借用和依赖释放 |
-| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务 |
-| [编辑器资源构建](../editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单 |
+| 独立类图                                                         | 评审内容                                      |
+| ---------------------------------------------------------------- | --------------------------------------------- |
+| [资源系统](../runtime/class-diagrams/resource-system.md)         | 更新目录、按需同步加载、共享依赖及领域使用者  |
+| [资源目录](../runtime/class-diagrams/resource-catalog.md)        | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
+| [已加载资源](../runtime/class-diagrams/resource.md)              | 标准 shared_ptr 共享、生成数据借用和依赖释放  |
+| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务   |
+| [编辑器资源构建](../editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单          |
 
 核心不扫描、监听、导入或打包，也不区分编辑器模式。编辑器扫描全部 assets，直接更新核心目录；真机启动提交固定精简清单一次。两端共用加载与释放，编辑器无需打包即可运行。跨层调用见[资源调用关系](references.md#资源调用关系)。
 
@@ -39,10 +39,12 @@
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
-- [MCP](../plugins/class-diagrams/mcp-system.md)：start_project、stop_project 完成回执；保留同步及热重载工具。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。
 
 - [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
+
+- [网格工具](../runtime/class-diagrams/mesh-utils.md)：验证几何及按上游算法生成切线。
+- [贴图导入](../editor/class-diagrams/texture-importer.md)：按 meta 配置调用 BasisU 生成 GUID 资源。
 
 ## 脚本接口
 
@@ -50,7 +52,17 @@
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
-- [MCP 系统](../plugins/class-diagrams/mcp-system.md)：桌面 stdio 工具，向本机或 Android 调试包同步，并控制热重载与查询状态。
+
+- [渲染脚本接口](../runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
+
+## MCP 与编辑器命令
+
+- [MCP 协议与注册](../plugins/class-diagrams/mcp-system.md)：McpSystem 只管理协议、工具描述和执行函数，名称与参数模型来自同一注册项。
+- [项目 MCP 工具](../plugins/class-diagrams/project-mcp-tools.md)：ProjectMcpTools 显式配置项目与本机/Android 目标，按业务注册构建、同步、运行调试和启停工具。
+- [编辑器 MCP 工具](../plugins/class-diagrams/editor-mcp-tools.md)：EditorMcpTools 注册场景查询、组件属性编辑、批量、撤销/重做及回执查询，通过文件通道交给编辑器执行。
+- [编辑器命令与撤销](../editor/class-diagrams/editor-commands.md)：EditorCommands 调度模块命令并拥有撤销历史，SceneCommands 借用世界并注册场景业务；EditorSystem 在主线程消费命令。
+
+MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与引擎核心不引用 MCP、JSON 协议或撤销框架；工具进程不持有编辑器进程中的场景指针。跨进程身份、完成回执与引用方向见[完整引用关系](references.md#编辑器命令与场景业务)。
 
 ## 阅读入口
 
@@ -61,11 +73,11 @@
 
 模块说明和独立类图跟随源码职责分为三层；本页与完整引用关系保留为跨层统一入口：
 
-| 范围 | 文档与独立类图 | 源码职责 |
-| --- | --- | --- |
+| 范围   | 文档与独立类图                                  | 源码职责                                          |
+| ------ | ----------------------------------------------- | ------------------------------------------------- |
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
-| 编辑器 | `docs/editor/`、`docs/editor/class-diagrams/` | 编辑器、项目、资源管线和资源同步 |
-| 插件 | `docs/plugins/`、`docs/plugins/class-diagrams/` | MCP 工具集成及插件接口 |
+| 编辑器 | `docs/editor/`、`docs/editor/class-diagrams/`   | 编辑器、项目、资源管线、资源同步与主线程命令      |
+| 插件   | `docs/plugins/`、`docs/plugins/class-diagrams/` | MCP 协议、模块工具适配及插件接口                  |
 
 头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。运行时不反向依赖编辑器或插件；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
 
@@ -73,22 +85,22 @@
 
 RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；Engine 只通过 System 接口调度。
 
-| 初始化顺序 | 独立类图 | 所有者及职责 |
-| --- | --- | --- |
-| 1 | [窗口系统](../runtime/class-diagrams/window-system.md) | RuntimeHost 独占；SDL3 窗口和事件 |
-| 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | Engine 独占；SDL3 同步读取、FlatBuffers、Basis Universal |
-| 3 | [世界系统](../runtime/class-diagrams/world-system.md) | Engine 独占；flecs 世界、场景和子系统生命周期 |
-| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | Engine 独占；bgfx 设备、空白帧和资源网格 PBR |
+| 初始化顺序 | 独立类图                                                 | 所有者及职责                                             |
+| ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| 1          | [窗口系统](../runtime/class-diagrams/window-system.md)   | RuntimeHost 独占；SDL3 窗口和事件                        |
+| 2          | [资源系统](../runtime/class-diagrams/resource-system.md) | Engine 独占；SDL3 同步读取、FlatBuffers、Basis Universal |
+| 3          | [世界系统](../runtime/class-diagrams/world-system.md)    | Engine 独占；flecs 世界、场景和子系统生命周期            |
+| 4          | [渲染系统](../runtime/class-diagrams/render-system.md)   | Engine 独占；bgfx 设备、空白帧和资源网格 PBR             |
 
 ## 世界子系统
 
-| 顺序 | 独立类图 | 当前依赖 |
-| --- | --- | --- |
-| 1 | [物理系统](../runtime/class-diagrams/physics-system.md) | Jolt |
-| 2 | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
-| 3 | [动画系统](../runtime/class-diagrams/animation-system.md) | ozz-animation |
-| 4 | [界面系统](../runtime/class-diagrams/ui-system.md) | RmlUi |
-| 5 | [脚本系统](../runtime/class-diagrams/script-system.md) | V8；启用时装配 |
+| 顺序 | 独立类图                                                   | 当前依赖       |
+| ---- | ---------------------------------------------------------- | -------------- |
+| 1    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt           |
+| 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
+| 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
+| 4    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi          |
+| 5    | [脚本系统](../runtime/class-diagrams/script-system.md)     | V8；启用时装配 |
 
 ## 宿主模块
 

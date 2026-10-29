@@ -1,7 +1,9 @@
 #include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_sync/asset_sync_system.hpp"
+#include "plugins/mcp/editor_mcp_tools.hpp"
 #include "plugins/mcp/mcp_system.hpp"
+#include "plugins/mcp/project_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -74,9 +76,12 @@ int main(int argc, char** argv)
     engine::AssetPipelineSystem pipeline;
     engine::AssetBuildSystem builder(pipeline);
     engine::AssetSyncSystem sync;
-    engine::McpSystem mcp(pipeline, builder, sync, project, std::move(target));
+    engine::ProjectMcpTools project_tools(pipeline, builder, sync, project, target);
+    engine::EditorMcpTools editor_tools(project, target);
+    engine::McpSystem mcp;
     if (!pipeline.initialize(config) || !builder.initialize(config) || !sync.initialize(config) ||
-        !mcp.initialize(config))
+        !project_tools.initialize() || !project_tools.register_tools(mcp) ||
+        !editor_tools.register_tools(mcp) || !mcp.initialize(config))
     {
         std::fputs("Cannot initialize MCP tool host\n", stderr);
         return 1;

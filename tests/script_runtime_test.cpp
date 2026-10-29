@@ -330,6 +330,25 @@ export default class Game extends Gameplay {
         if (cube.AddComponent(MeshRenderer) !== null || cube.GetComponent(Transform).SetPosition(NaN, 0, 0) ||
             cube.GetComponent(Transform).SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
             light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
+        if (camera.SetOrthographic(0, .1, 100) || !camera.SetOrthographic(3, .2, 100) ||
+            light.SetPoint(-1) || !light.SetPoint(12) || light.SetSpot(10, 40, 20) ||
+            !light.SetSpot(12, 15, 35) || !light.SetDirectional() ||
+            mesh.materialCount !== 1 || mesh.GetMaterial(1) !== null ||
+            mesh.GetMaterial(-1) !== null || mesh.GetMaterial(0.5) !== null ||
+            mesh.SetMaterialCount(0) || mesh.SetMaterialCount(17) ||
+            !mesh.SetMaterialCount(2) || mesh.materialCount !== 2) return false;
+        const slot = mesh.GetMaterial(1);
+        if (!slot || !slot.IsValid() || !slot.SetType('builtin/materials/default-unlit') ||
+            !slot.SetV4('baseColor', .1, .2, .3, 1) ||
+            !slot.SetTexture('baseColorTexture', 'builtin/textures/white-srgb') ||
+            slot.GetTexture('baseColorTexture') !== 'builtin/textures/white-srgb' ||
+            slot.GetTexture('missing') !== null ||
+            slot.SetTexture('missing', 'builtin/textures/white-srgb') ||
+            slot.SetTexture('baseColorTexture', 'builtin/meshes/cube') ||
+            !mesh.SetMaterialCount(1) || slot.IsValid() || slot.SetFloat('roughness', .4) ||
+            slot.GetTexture('baseColorTexture') !== null || mesh.materialCount !== 1 ||
+            !mesh.SetMesh('builtin/meshes/cube') || mesh.SetMesh('project/missing') ||
+            !mesh.material.SetTexture('baseColorTexture', 'builtin/textures/white-srgb')) return false;
         if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
             !mesh.material.SetShader('builtin/shaders/unlit') || mesh.material.SetShader('project/shaders/missing') ||
             !mesh.material.SetType('builtin/materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
@@ -429,7 +448,10 @@ export default class extends Gameplay {
         this.mesh=this.node.AddComponent(MeshRenderer); this.transform=this.node.GetComponent(Transform); this.material=this.mesh.material; return this.mesh!==null;}
     Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
         this.transform.SetPosition(9,9,9) || this.node.GetComponent(MeshRenderer)!==null || this.material.IsValid() ||
-        this.material.SetV4('baseColor',1,1,1,1) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
+        this.material.SetV4('baseColor',1,1,1,1) ||
+        this.material.SetTexture('baseColorTexture','builtin/textures/white-srgb') ||
+        this.material.GetTexture('baseColorTexture')!==null || this.mesh.GetMaterial(0)!==null ||
+        this.mesh.SetMaterialCount(2) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
         Scene.Create('steal')!==null) throw new Error('stale references were accepted');
         Debug.Log('stale:rejected');}
 }

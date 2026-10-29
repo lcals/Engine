@@ -11,6 +11,7 @@
 #include <TargetConditionals.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -20,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <system_error>
+#include <vector>
 
 namespace
 {
@@ -253,6 +255,19 @@ bool run(const std::filesystem::path& root)
     world.destroy_scene();
     auto shader = *ResourceSystem::find_shader("builtin/shaders/pbr");
     shader.path = "project/shaders/test.shader";
+    std::vector<std::string> shader_dependencies;
+    for (const auto& sampler : shader.samplers)
+    {
+        Guid guid;
+        if (!ResourceSystem::path_to_guid(sampler->default_texture, guid))
+        {
+            return false;
+        }
+        shader_dependencies.push_back(std::move(guid));
+    }
+    std::sort(shader_dependencies.begin(), shader_dependencies.end());
+    shader_dependencies.erase(std::unique(shader_dependencies.begin(), shader_dependencies.end()),
+                              shader_dependencies.end());
     auto material = *ResourceSystem::find_material("builtin/materials/default-pbr");
     material.type_path = "project/materials/test.material";
     material.shader_guid = shader_guid;
@@ -271,7 +286,8 @@ bool run(const std::filesystem::path& root)
     fixture.data.schema_version = 2;
     fixture.data.revision = "test-revision";
     fixture.data.target_platform = platform();
-    if (!fixture.add(shader_guid, shader.path, schema::AssetKind::shader, pack(shader, "ESHD")) ||
+    if (!fixture.add(shader_guid, shader.path, schema::AssetKind::shader, pack(shader, "ESHD"),
+                     shader_dependencies) ||
         !fixture.add(material_guid, material.type_path, schema::AssetKind::material,
                      pack(material, "EMAT"), {shader_guid}) ||
         !fixture.add(mesh_guid, mesh.path, schema::AssetKind::mesh, pack(mesh, "EMSH")) ||

@@ -232,6 +232,16 @@ def test(mcp, root, temporary):
             "get_status",
             "start_project",
             "stop_project",
+            "get_scene",
+            "set_transform",
+            "set_light",
+            "set_camera",
+            "set_material_texture",
+            "set_material_parameter",
+            "execute_batch",
+            "undo",
+            "redo",
+            "get_editor_receipt",
         },
         "wrong tool list",
     )
@@ -248,11 +258,17 @@ def test(mcp, root, temporary):
     original_manifest = manifest_path.read_bytes()
     manifest = json.loads(original_manifest)
     verify_complete_asset_snapshot(project, runtime, manifest)
-    for raw in (image_asset, binary_asset):
+    texture_payload = resource_payload(
+        (project / "cache/gen" / metadata_guid(image_asset)).read_bytes()
+    )
+    require(
+        texture_payload[4:8] == b"ETEX", "image was not converted into a BasisU texture resource"
+    )
+    for raw in (binary_asset,):
         require(
             resource_payload((project / "cache/gen" / metadata_guid(raw)).read_bytes())
             == raw.read_bytes(),
-            "raw image/binary bytes changed during import",
+            "raw binary bytes changed during import",
         )
     asset_guid = metadata_guid(unicode_asset)
     require(
@@ -340,6 +356,46 @@ def test(mcp, root, temporary):
         rebuilt["revision"] == first_build["revision"] and rebuilt["reusedPackages"] > 0,
         "unchanged MCP package build did not reuse its output",
     )
+    client_prefix = [
+        sys.executable,
+        str(root / "scripts/mcp_client.py"),
+        "--server",
+        str(mcp),
+        "--project",
+        str(project),
+        "--runtime-dir",
+        str(runtime),
+        "call",
+    ]
+    argument_file = temporary / "tool arguments.json"
+    argument_file.write_text('{"enabled": false}', encoding="utf-8")
+    for arguments, field, expected in (
+        (["get_status", "--arguments", "{}"], "state", "offline"),
+        (
+            ["set_hot_reload", "--arguments-file", str(argument_file)],
+            "requestedHotReload",
+            False,
+        ),
+    ):
+        called = subprocess.run(
+            client_prefix + arguments, capture_output=True, text=True, timeout=30, check=False
+        )
+        require(
+            called.returncode == 0 and json.loads(called.stdout).get(field) == expected,
+            f"generic MCP client call failed: {called.stderr} {called.stdout}",
+        )
+    for arguments in (
+        ["get_status", "--arguments", "[]"],
+        ["get_status", "--arguments", "{broken"],
+        ["get_status", "--arguments", "{}", "--arguments-file", str(argument_file)],
+    ):
+        invalid = subprocess.run(
+            client_prefix + arguments, capture_output=True, text=True, timeout=10, check=False
+        )
+        require(
+            invalid.returncode != 0 and not invalid.stdout,
+            f"generic client accepted invalid or ambiguous JSON arguments: {invalid.stdout}",
+        )
     packed = invoke(
         mcp, project, runtime, [call("sync_assets", {"source": "cache/build/test-package"})]
     )[0]

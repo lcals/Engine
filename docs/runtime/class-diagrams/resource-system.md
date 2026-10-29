@@ -126,6 +126,8 @@ classDiagram
     class ResourceSystem {
         +path_to_guid(string_view path, Guid& output) bool$
         +guid_to_path(string_view guid, string& output) bool$
+        +register_texture(const TextureDataT& data) bool$
+        +find_texture(string_view path) const TextureDataT#42;$
         +register_mesh(const MeshDataT& data) bool$
         +register_shader(const ShaderDataT& data) bool$
         +register_material(const MaterialDataT& data) bool$
@@ -138,3 +140,5 @@ classDiagram
 `instance` 返回已初始化的单宿主根系统借用，未就绪时为空。身份转换只查询目录和固定内置映射。`register_*` 仅供内置资源初始化；项目资源统一走目录和 `load`。`find_*` 只查询内置定义或仍有使用者的已加载对象，不执行 I/O、不增加常驻引用；项目数据借用必须由调用方持有的 ResourcePtr 保活。
 
 内置资源的固定身份、类型和依赖通过 `builtin_resource_catalog()` / `builtin_resource_info(guid)` 提供给核心与构建模块；它们不依赖渲染设备初始化，也不复制宿主平台的 Shader 字节码到其他平台。
+
+贴图由 TextureDataT 保存 CPU 缓存；register_texture/find_texture 服从相同的 builtin 注册与项目借用规则。Shader 默认贴图、材质覆盖贴图必须存在于直接依赖集合，类型、路径和 GUID 一致。缓存先校验 FlatBuffers、Basis 文件校验和、尺寸与 mip 元数据；渲染模块负责设备格式及实际转码，资源系统不创建 GPU 对象。

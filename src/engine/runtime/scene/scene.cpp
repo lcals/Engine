@@ -155,11 +155,22 @@ bool Scene::build_data(schema::SceneDataT& output) const
             if (component->type() == ComponentType::MeshRendererData)
             {
                 const auto& mesh = static_cast<const MeshRenderer&>(*component);
-                if (!ResourceSystem::path_to_guid(
-                        mesh.material().type_path(),
-                        component_data->payload.AsMeshRendererData()->material_guid))
+                auto* settings = component_data->payload.AsMeshRendererData();
+                if (settings->mesh_guid.empty() ||
+                    !ResourceSystem::path_to_guid(mesh.material().type_path(),
+                                                  settings->material_guid))
                 {
                     return false;
+                }
+                settings->additional_material_guids.clear();
+                for (std::size_t slot = 1; slot < mesh.material_count(); ++slot)
+                {
+                    std::string guid;
+                    if (!ResourceSystem::path_to_guid(mesh.material(slot)->type_path(), guid))
+                    {
+                        return false;
+                    }
+                    settings->additional_material_guids.push_back(std::move(guid));
                 }
             }
             node_data->components.push_back(std::move(component_data));
@@ -249,6 +260,20 @@ bool Scene::restore_data(const schema::SceneDataT& data)
                     !mesh->set_mesh(mesh_path) || !mesh->material().set_type(material_path))
                 {
                     return false;
+                }
+                if (!mesh->set_material_count(1 + settings->additional_material_guids.size()))
+                {
+                    return false;
+                }
+                for (std::size_t slot = 0; slot < settings->additional_material_guids.size();
+                     ++slot)
+                {
+                    if (!ResourceSystem::guid_to_path(settings->additional_material_guids[slot],
+                                                      material_path) ||
+                        !mesh->material(slot + 1)->set_type(material_path))
+                    {
+                        return false;
+                    }
                 }
                 restored = mesh;
                 break;

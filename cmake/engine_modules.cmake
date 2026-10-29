@@ -56,8 +56,15 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_window PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
-    target_link_libraries(engine_render PRIVATE engine::window engine::world engine::resource
-                                                SDL3::SDL3 bgfx::bgfx bgfx::bx)
+    target_link_libraries(
+        engine_render
+        PRIVATE engine::window
+                engine::world
+                engine::resource
+                SDL3::SDL3
+                bgfx::bgfx
+                bgfx::bx
+                basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/render_shaders.cmake)
     if(ANDROID)
         target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
@@ -70,6 +77,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_sources(
         engine_resource
         PRIVATE src/engine/runtime/resource/builtin_resources.cpp
+                src/engine/runtime/utils/mesh_utils.cpp
                 src/engine/runtime/resource/resource.cpp
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
@@ -167,25 +175,31 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
-    target_sources(engine_editor PRIVATE src/engine/editor/editor_environment.cpp)
+    target_sources(
+        engine_editor
+        PRIVATE src/engine/editor/editor_environment.cpp
+                src/engine/editor/commands/editor_commands.cpp
+                src/engine/editor/commands/scene_commands.cpp
+                src/engine/editor/commands/editor_command_channel.cpp)
     target_include_directories(engine_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     if(NOT ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         target_sources(engine_editor PRIVATE src/engine/editor/asset_pipeline/project_lock.cpp)
     endif()
     target_link_libraries(
         engine_editor
+        PUBLIC nlohmann_json::nlohmann_json
         PRIVATE engine::project
                 engine::gameplay
                 engine::app
                 engine::log
                 engine::resource
+                engine::world
                 imgui::imgui
-                SDL3::SDL3
-                nlohmann_json::nlohmann_json)
+                SDL3::SDL3)
+    target_compile_definitions(engine_editor PUBLIC JSON_NOEXCEPTION=1)
     target_compile_definitions(
         engine_editor
-        PRIVATE JSON_NOEXCEPTION=1
-                ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>)
+        PRIVATE ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
@@ -201,7 +215,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
                 src/engine/editor/asset_pipeline/project_lock.cpp
-                src/engine/editor/asset_pipeline/scene_importer.cpp)
+                src/engine/editor/asset_pipeline/scene_importer.cpp
+                src/engine/editor/asset_pipeline/texture_importer.cpp)
     target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_asset_pipeline
@@ -211,6 +226,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 usd
                 unofficial::sqlite3::sqlite3
                 efsw::efsw
+                basisu::basisu_encoder
                 meshoptimizer::meshoptimizer
                 nlohmann_json::nlohmann_json
                 SDL3::SDL3)
@@ -254,10 +270,27 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
 
     if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_add_system(plugins mcp)
-        target_sources(engine_mcp PRIVATE src/engine/plugins/mcp/android_sync.cpp)
+        target_sources(engine_mcp PRIVATE src/engine/plugins/mcp/mcp_schema.cpp)
+        target_include_directories(engine_mcp PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+        target_link_libraries(engine_mcp PUBLIC nlohmann_json::nlohmann_json)
+        target_compile_definitions(engine_mcp PUBLIC JSON_NOEXCEPTION=1)
+
+        add_library(
+            engine_project_mcp_tools STATIC
+            src/engine/plugins/mcp/project_mcp_tools.cpp
+            src/engine/plugins/mcp/project_resource_tools.cpp
+            src/engine/plugins/mcp/project_runtime_tools.cpp
+            src/engine/plugins/mcp/project_lifecycle_tools.cpp
+            src/engine/plugins/mcp/android_sync.cpp
+            src/engine/plugins/mcp/editor_mcp_tools.cpp)
+        add_library(engine::project_mcp_tools ALIAS engine_project_mcp_tools)
+        target_include_directories(engine_project_mcp_tools
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(
-            engine_mcp PRIVATE engine::asset_pipeline engine::asset_build engine::asset_sync
-                               engine::resource nlohmann_json::nlohmann_json SDL3::SDL3)
-        target_compile_definitions(engine_mcp PRIVATE JSON_NOEXCEPTION=1)
+            engine_project_mcp_tools
+            PUBLIC engine::mcp
+            PRIVATE engine::asset_pipeline engine::asset_build engine::asset_sync engine::resource
+                    SDL3::SDL3 Threads::Threads)
+        engine_apply_options(engine_project_mcp_tools)
     endif()
 endif()

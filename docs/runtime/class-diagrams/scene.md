@@ -66,3 +66,5 @@ classDiagram
 `build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
 
 由 WorldSystem 加载的场景持有场景根资源及其必要依赖，节点销毁完成后才释放该引用。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。
+
+场景快照保存全部材质槽的 GUID：槽 0 为 material_guid，其余为 additional_material_guids。瞬时网格未落为独立资源、没有 GUID 时 build_data 返回 false，输出为空；不能悄悄序列化成旧网格或丢失动态几何。

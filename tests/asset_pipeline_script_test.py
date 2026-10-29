@@ -149,12 +149,32 @@ def test(builder, source_project, temporary):
     text = text.replace(
         "#include <bgfx_shader.sh>", '#include <bgfx_shader.sh>\n#include "lighting.inc"'
     )
-    text = text.replace(
-        "vec3 color = u_base_color.rgb;", "vec3 color = u_base_color.rgb * TEST_TINT;"
+    tint_target = (
+        "vec4 base_color = texture2D(s_base_color, v_texcoord0) * u_base_color * v_color0;"
     )
+    require(
+        text.count(tint_target) == 1,
+        "shader fixture must insert TEST_TINT into the actual sampled base-color calculation",
+    )
+    text = text.replace(tint_target, tint_target + "\n    base_color.rgb *= TEST_TINT;")
     fragment.write_text(text, encoding="utf-8")
+    shader_assets = {
+        path.relative_to(project / "assets").as_posix()
+        for path in shader_directory.rglob("*")
+        if path.is_file() and not path.name.endswith(".meta")
+    }
+    shader_sources = sorted(
+        "project/" + path for path in shader_assets if not path.endswith(".shader")
+    )
+    require(
+        "project/shaders/pbr_helpers.sh" in shader_sources,
+        "shader fixture must include the shared PBR helper source",
+    )
     shader_first = build(builder, project)
-    require(shader_first[:2] == (5, 1), "new shader and four source dependencies must import")
+    require(
+        shader_first[:2] == (len(shader_assets), 1),
+        "new shader and every copied/generated source must import while existing TS is reused",
+    )
     shader_meta = (shader_directory / "pbr.shader.meta").read_text(encoding="utf-8")
     shader_guid = re.search(r'^guid\s*=\s*"([0-9a-f-]{36})"', shader_meta, re.MULTILINE).group(1)
     shader_output = project / "cache/gen" / shader_guid
@@ -162,8 +182,9 @@ def test(builder, source_project, temporary):
     include.write_text("#define TEST_TINT 0.3\n", encoding="utf-8")
     shader_changed = build(builder, project)
     require(
-        shader_changed[:2] == (2, 4) and shader_output.read_bytes() != first_shader_bytes,
-        "non-.sc/.sh include changes must rebuild the compiled shader",
+        shader_changed[:2] == (2, len(shader_assets) - 1)
+        and shader_output.read_bytes() != first_shader_bytes,
+        "non-.sc/.sh include changes must rebuild only that source and the compiled shader",
     )
     shader_valid = shader_output.read_bytes()
     catalog_valid = catalog.read_bytes()
@@ -197,19 +218,29 @@ def test(builder, source_project, temporary):
             runtime == [("project/helper.ts",)],
             "only emitted JS imports become runtime dependencies",
         )
+        shader_runtime = database.execute(
+            "SELECT dependency_guid FROM runtime_dependencies WHERE asset_guid=? "
+            "ORDER BY dependency_guid",
+            (shader_guid,),
+        ).fetchall()
         require(
-            database.execute(
-                "SELECT COUNT(*) FROM runtime_dependencies WHERE asset_guid=?", (shader_guid,)
-            ).fetchone()[0]
-            == 0,
-            "shader source files must not become required runtime assets",
+            shader_runtime
+            == [
+                ("00000000-0000-4000-8000-000000000006",),
+                ("00000000-0000-4000-8000-000000000007",),
+                ("00000000-0000-4000-8000-000000000008",),
+            ],
+            "shader runtime dependencies must be precisely its three builtin sampler defaults",
         )
+        compiled_sources = database.execute(
+            "SELECT dependency.path FROM dependencies edge "
+            "JOIN assets dependency ON dependency.guid=edge.dependency_guid "
+            "WHERE edge.asset_guid=? ORDER BY dependency.path",
+            (shader_guid,),
+        ).fetchall()
         require(
-            database.execute(
-                "SELECT COUNT(*) FROM dependencies WHERE asset_guid=?", (shader_guid,)
-            ).fetchone()[0]
-            >= 4,
-            "shader compilation still tracks all source build dependencies",
+            compiled_sources == [(path,) for path in shader_sources],
+            "shader compilation must track every source include and no TS asset",
         )
     valid_catalog = catalog.read_bytes()
     (project / "assets/helper.ts").write_text(

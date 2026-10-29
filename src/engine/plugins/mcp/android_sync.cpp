@@ -1,4 +1,4 @@
-#include "plugins/mcp/mcp_system.hpp"
+#include "plugins/mcp/project_mcp_tools.hpp"
 
 #include "editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -344,7 +344,7 @@ bool valid_manifest(const Json& manifest)
 
 } // namespace
 
-bool McpSystem::sync_android(const fs::path& source, std::string& reply)
+bool ProjectMcpTools::sync_android(const fs::path& source, std::string& reply)
 {
     std::string error;
     std::string runtime_dir;
@@ -559,7 +559,7 @@ bool McpSystem::sync_android(const fs::path& source, std::string& reply)
     return true;
 }
 
-bool McpSystem::set_android_hot_reload(bool enabled, std::string& reply)
+bool ProjectMcpTools::set_android_hot_reload(bool enabled, std::string& reply)
 {
     std::string error;
     std::string runtime_dir;
@@ -620,7 +620,7 @@ bool McpSystem::set_android_hot_reload(bool enabled, std::string& reply)
     return true;
 }
 
-bool McpSystem::read_android_status(std::string& reply)
+bool ProjectMcpTools::read_android_status(std::string& reply)
 {
     std::string error;
     std::string runtime_dir;

@@ -1,6 +1,7 @@
 #include "runtime/resource/resource_system.hpp"
 
 #include "runtime/resource/builtin_resources.hpp"
+#include "runtime/utils/mesh_utils.hpp"
 
 #include <SDL3/SDL_stdinc.h>
 #include <basisu/transcoder/basisu_transcoder.h>
@@ -24,6 +25,7 @@ constexpr std::uint64_t maximum_read_size = 64U * 1024U * 1024U;
 std::map<std::string, std::unique_ptr<schema::ShaderDataT>, std::less<>> shaders;
 std::map<std::string, std::unique_ptr<schema::MaterialDataT>, std::less<>> materials;
 std::map<std::string, std::unique_ptr<schema::MeshDataT>, std::less<>> meshes;
+std::map<std::string, std::unique_ptr<schema::TextureDataT>, std::less<>> textures;
 ResourceSystem* definition_owner = nullptr;
 
 const GuidMap& builtin_identities()
@@ -123,6 +125,11 @@ bool reserved_uniform(std::string_view name)
                                   std::string_view("u_camera_position"),
                                   std::string_view("u_light_direction"),
                                   std::string_view("u_light_color"),
+                                  std::string_view("u_light_count"),
+                                  std::string_view("u_light_position_range"),
+                                  std::string_view("u_light_direction_outer"),
+                                  std::string_view("u_light_color_intensity"),
+                                  std::string_view("u_light_kind_inner"),
                                   std::string_view("u_viewRect"),
                                   std::string_view("u_viewTexel"),
                                   std::string_view("u_view"),
@@ -198,26 +205,59 @@ bool valid_parameter_value(const schema::ShaderParameterT& definition,
 
 bool valid_mesh(const schema::MeshDataT& data)
 {
-    if (data.schema_version != 1 || !valid_resource_path(data.path) || data.vertices.empty() ||
-        data.indices.empty() || data.indices.size() % 3 != 0 ||
-        data.vertices.size() > std::numeric_limits<std::uint32_t>::max())
+    return valid_resource_path(data.path) && MeshUtils::validate(data);
+}
+
+bool valid_texture(const schema::TextureDataT& data)
+{
+    if (data.schema_version != 1 || !valid_resource_path(data.path) || data.width == 0 ||
+        data.height == 0 || data.width > 16384 || data.height > 16384 || data.mip_count == 0 ||
+        data.format < schema::TextureFormat::MIN || data.format > schema::TextureFormat::MAX ||
+        data.data.empty() || data.data.size() > maximum_read_size)
     {
         return false;
     }
-    for (const auto& vertex : data.vertices)
+    if (data.encoding == schema::TextureEncoding::rgba8)
     {
-        if (!std::isfinite(vertex.x()) || !std::isfinite(vertex.y()) ||
-            !std::isfinite(vertex.z()) || !std::isfinite(vertex.nx()) ||
-            !std::isfinite(vertex.ny()) || !std::isfinite(vertex.nz()) ||
-            (vertex.nx() == 0 && vertex.ny() == 0 && vertex.nz() == 0))
+        return data.mip_count == 1 &&
+               (data.format == schema::TextureFormat::auto_format ||
+                data.format == schema::TextureFormat::rgba8) &&
+               data.data.size() == static_cast<std::uint64_t>(data.width) * data.height * 4;
+    }
+    if (data.encoding != schema::TextureEncoding::basis)
+    {
+        return false;
+    }
+    basist::basisu_transcoder decoder;
+    basist::basisu_image_info info{};
+    const auto size = static_cast<std::uint32_t>(data.data.size());
+    if (!decoder.validate_file_checksums(data.data.data(), size, true) ||
+        decoder.get_total_images(data.data.data(), size) != 1 ||
+        decoder.get_texture_type(data.data.data(), size) != basist::cBASISTexType2D ||
+        !decoder.get_image_info(data.data.data(), size, info, 0))
+    {
+        return false;
+    }
+    std::uint32_t full_levels = 1;
+    for (auto dimension = std::max(data.width, data.height); dimension > 1; dimension >>= 1)
+    {
+        ++full_levels;
+    }
+    if (info.m_orig_width != data.width || info.m_orig_height != data.height ||
+        info.m_total_levels != data.mip_count ||
+        (data.mip_count != 1 && data.mip_count != full_levels))
+    {
+        return false;
+    }
+    for (std::uint32_t level = 0; level < data.mip_count; ++level)
+    {
+        basist::basisu_image_level_info mip{};
+        if (!decoder.get_image_level_info(data.data.data(), size, mip, 0, level) ||
+            mip.m_orig_width != std::max(1U, data.width >> level) ||
+            mip.m_orig_height != std::max(1U, data.height >> level))
         {
             return false;
         }
-    }
-    if (std::any_of(data.indices.begin(), data.indices.end(),
-                    [&data](std::uint32_t index) { return index >= data.vertices.size(); }))
-    {
-        return false;
     }
     return true;
 }
@@ -257,6 +297,22 @@ bool valid_shader(const schema::ShaderDataT& data)
         }
         slots |= mask;
     }
+    std::set<std::uint8_t> stages;
+    std::set<std::string_view> sampler_uniforms;
+    for (const auto& sampler : data.samplers)
+    {
+        if (!sampler || sampler->name.empty() || sampler->name.find('\0') != std::string::npos ||
+            !names.insert(sampler->name).second || !valid_uniform_name(sampler->uniform_name) ||
+            reserved_uniform(sampler->uniform_name) ||
+            uniform_slots.contains(sampler->uniform_name) ||
+            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 16 ||
+            !stages.insert(sampler->stage).second ||
+            !sampler->default_texture.starts_with("builtin/") ||
+            !valid_resource_path(sampler->default_texture))
+        {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -283,6 +339,23 @@ bool valid_material(const schema::MaterialDataT& data, const schema::ShaderDataT
                          [&parameter](const auto& item) { return item->name == parameter->name; });
         if (definition == shader->parameters.end() || !(*definition)->exposed ||
             !valid_parameter_value(**definition, parameter->value))
+        {
+            return false;
+        }
+    }
+    for (const auto& texture : data.textures)
+    {
+        if (!texture || !names.insert(texture->name).second ||
+            !valid_resource_path(texture->texture_path) ||
+            (data.type_path.starts_with("builtin/") &&
+             !texture->texture_path.starts_with("builtin/")))
+        {
+            return false;
+        }
+        const auto sampler = std::find_if(shader->samplers.begin(), shader->samplers.end(),
+                                          [&texture](const auto& item)
+                                          { return item->name == texture->name && item->exposed; });
+        if (sampler == shader->samplers.end())
         {
             return false;
         }
@@ -643,6 +716,16 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
     {
         switch (entry->kind)
         {
+        case schema::AssetKind::texture:
+        {
+            const auto found = textures.find(entry->path);
+            valid = found != textures.end();
+            if (valid)
+            {
+                resource->texture_ = std::make_unique<schema::TextureDataT>(*found->second);
+            }
+            break;
+        }
         case schema::AssetKind::mesh:
         {
             const auto found = meshes.find(entry->path);
@@ -690,6 +773,13 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
             flatbuffers::Verifier verifier(bytes, payload.size());
             switch (entry->kind)
             {
+            case schema::AssetKind::texture:
+                valid = schema::VerifyTextureDataBuffer(verifier);
+                if (valid)
+                {
+                    resource->texture_ = schema::UnPackTextureData(bytes);
+                }
+                break;
             case schema::AssetKind::scene:
                 valid = schema::VerifySceneDataBuffer(verifier);
                 if (valid)
@@ -728,6 +818,10 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
             }
         }
     }
+    if (valid && resource->texture_)
+    {
+        valid = resource->texture_->path == entry->path && valid_texture(*resource->texture_);
+    }
     if (valid && resource->mesh_)
     {
         valid = resource->mesh_->path == entry->path && valid_mesh(*resource->mesh_);
@@ -735,6 +829,18 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
     if (valid && resource->shader_)
     {
         valid = resource->shader_->path == entry->path && valid_shader(*resource->shader_);
+        for (const auto& sampler : resource->shader_->samplers)
+        {
+            Guid texture_guid;
+            if (!valid ||
+                !catalog_.identities().path_to_guid(sampler->default_texture, texture_guid))
+            {
+                valid = false;
+                break;
+            }
+            const auto* texture = dependency(texture_guid);
+            valid = texture && texture->texture();
+        }
     }
     if (valid && resource->material_)
     {
@@ -749,6 +855,16 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
         {
             material.shader_path = shader_path;
             valid = valid_material(material, shader->shader());
+            for (const auto& binding : material.textures)
+            {
+                if (!valid)
+                {
+                    break;
+                }
+                const auto* texture = dependency(binding->texture_guid);
+                valid =
+                    texture && texture->texture() && texture->info().path == binding->texture_path;
+            }
         }
     }
     if (valid && resource->scene_)
@@ -773,6 +889,11 @@ bool ResourceSystem::load_resource(std::string_view guid, ResourcePtr& output)
                     const auto* mesh = dependency(renderer->mesh_guid);
                     const auto* material = dependency(renderer->material_guid);
                     valid = valid && mesh && mesh->mesh() && material && material->material();
+                    for (const auto& material_guid : renderer->additional_material_guids)
+                    {
+                        const auto* additional = dependency(material_guid);
+                        valid = valid && additional && additional->material();
+                    }
                 }
             }
         }
@@ -801,10 +922,41 @@ bool ResourceSystem::guid_to_path(std::string_view guid, std::string& output)
            builtin_identities().guid_to_path(guid, output);
 }
 
+bool ResourceSystem::register_texture(const schema::TextureDataT& data)
+{
+    if (!data.path.starts_with("builtin/") || !valid_texture(data) ||
+        textures.contains(data.path) || meshes.contains(data.path) ||
+        materials.contains(data.path) || shaders.contains(data.path))
+    {
+        return false;
+    }
+    textures.emplace(data.path, std::make_unique<schema::TextureDataT>(data));
+    return true;
+}
+
+const schema::TextureDataT* ResourceSystem::find_texture(std::string_view path) noexcept
+{
+    const auto builtin = textures.find(path);
+    if (builtin != textures.end())
+    {
+        return builtin->second.get();
+    }
+    Guid guid;
+    if (definition_owner && path_to_guid(path, guid))
+    {
+        const auto found = definition_owner->loaded_.find(guid);
+        const auto resource =
+            found == definition_owner->loaded_.end() ? ResourcePtr{} : found->second.lock();
+        return resource ? resource->texture() : nullptr;
+    }
+    return nullptr;
+}
+
 bool ResourceSystem::register_mesh(const schema::MeshDataT& data)
 {
     if (!data.path.starts_with("builtin/") || !valid_mesh(data) || meshes.contains(data.path) ||
-        shaders.contains(data.path) || materials.contains(data.path))
+        shaders.contains(data.path) || materials.contains(data.path) ||
+        textures.contains(data.path))
     {
         return false;
     }
@@ -815,7 +967,7 @@ bool ResourceSystem::register_mesh(const schema::MeshDataT& data)
 bool ResourceSystem::register_shader(const schema::ShaderDataT& data)
 {
     if (!data.path.starts_with("builtin/") || !valid_shader(data) || shaders.contains(data.path) ||
-        meshes.contains(data.path) || materials.contains(data.path))
+        meshes.contains(data.path) || materials.contains(data.path) || textures.contains(data.path))
     {
         return false;
     }
@@ -828,7 +980,7 @@ bool ResourceSystem::register_material(const schema::MaterialDataT& data)
     if (!data.type_path.starts_with("builtin/") ||
         !valid_material(data, find_shader(data.shader_path)) ||
         materials.contains(data.type_path) || meshes.contains(data.type_path) ||
-        shaders.contains(data.type_path))
+        shaders.contains(data.type_path) || textures.contains(data.type_path))
     {
         return false;
     }
@@ -915,12 +1067,18 @@ bool ResourceSystem::on_initialize(const EngineConfig&)
     {
         old_paths.insert(path);
     }
+    for (const auto& [path, unused] : textures)
+    {
+        old_paths.insert(path);
+    }
     schema::AssetCatalogDataT empty;
     empty.schema_version = 2;
     empty.revision = "builtin-only";
     empty.target_platform = target_platform();
     if (!register_builtin_render_resources() || !update_catalog(empty, {}))
     {
+        std::erase_if(textures,
+                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
         std::erase_if(materials,
                       [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
         std::erase_if(shaders,
@@ -940,6 +1098,7 @@ void ResourceSystem::on_shutdown() noexcept
         loaded_.clear();
         catalog_ = {};
         files_ = {};
+        textures.clear();
         meshes.clear();
         materials.clear();
         shaders.clear();

@@ -2,7 +2,9 @@
 
 #include "runtime/scene/scene_types.hpp"
 
+#include <map>
 #include <memory>
+#include <string>
 #include <string_view>
 
 namespace engine
@@ -29,6 +31,12 @@ public:
     [[nodiscard]] bool set_v2(std::string_view name, const Vec2& value) noexcept;
     [[nodiscard]] bool set_v3(std::string_view name, const Vec3& value) noexcept;
     [[nodiscard]] bool set_v4(std::string_view name, const Vec4& value) noexcept;
+    [[nodiscard]] bool set_texture(std::string_view name, std::string_view path);
+    // 输出借用当前资源路径；失败输出空视图。
+    [[nodiscard]] bool get_texture(std::string_view name, std::string_view& output) const noexcept;
+    // 借用共享引用，未知名称返回空引用；修改材质后重新查询。
+    [[nodiscard]] const std::shared_ptr<const Resource>&
+    texture(std::string_view name) const noexcept;
     // 查询失败时输出零值。
     [[nodiscard]] bool get_float(std::string_view name, float& output) const noexcept;
     [[nodiscard]] bool get_v2(std::string_view name, Vec2& output) const noexcept;
@@ -47,6 +55,7 @@ private:
     std::shared_ptr<const Resource> material_resource_;
     std::shared_ptr<const Resource> shader_resource_;
     schema::MaterialDataT data_;
+    std::map<std::string, std::shared_ptr<const Resource>, std::less<>> textures_;
 };
 
 } // namespace engine

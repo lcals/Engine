@@ -22,7 +22,7 @@ const schema::AssetCatalogDataT& builtin_resource_catalog()
     {
         schema::AssetCatalogDataT result;
         result.schema_version = 2;
-        result.revision = "builtin-1";
+        result.revision = "builtin-2";
         const auto add = [&result](const char* guid, const char* path, schema::AssetKind kind,
                                    const char* dependency)
         {
@@ -46,6 +46,18 @@ const schema::AssetCatalogDataT& builtin_resource_catalog()
             schema::AssetKind::material, "00000000-0000-4000-8000-000000000002");
         add("00000000-0000-4000-8000-000000000005", "builtin/meshes/cube", schema::AssetKind::mesh,
             nullptr);
+        add("00000000-0000-4000-8000-000000000006", "builtin/textures/white-srgb",
+            schema::AssetKind::texture, nullptr);
+        add("00000000-0000-4000-8000-000000000007", "builtin/textures/flat-normal",
+            schema::AssetKind::texture, nullptr);
+        add("00000000-0000-4000-8000-000000000008", "builtin/textures/white-linear",
+            schema::AssetKind::texture, nullptr);
+        for (std::size_t index = 0; index < 2; ++index)
+        {
+            result.entries[index]->dependencies = {"00000000-0000-4000-8000-000000000006",
+                                                   "00000000-0000-4000-8000-000000000007",
+                                                   "00000000-0000-4000-8000-000000000008"};
+        }
         return result;
     }();
     return catalog;
@@ -107,6 +119,19 @@ bool register_definition(bool unlit)
     }
     shader.parameters.push_back(
         scalar_parameter("lightingMode", "u_material", 2, unlit ? 1.0F : 0.0F, false));
+    const auto add_sampler =
+        [&shader](const char* name, const char* uniform, std::uint8_t stage, const char* texture)
+    {
+        auto sampler = std::make_unique<schema::ShaderSamplerT>();
+        sampler->name = name;
+        sampler->uniform_name = uniform;
+        sampler->stage = stage;
+        sampler->default_texture = texture;
+        shader.samplers.push_back(std::move(sampler));
+    };
+    add_sampler("baseColorTexture", "s_base_color", 0, "builtin/textures/white-srgb");
+    add_sampler("normalTexture", "s_normal", 1, "builtin/textures/flat-normal");
+    add_sampler("ormTexture", "s_orm", 2, "builtin/textures/white-linear");
     if (const auto* existing = ResourceSystem::find_shader(shader.path); existing != nullptr)
     {
         if (*existing != shader)
@@ -133,6 +158,24 @@ bool register_definition(bool unlit)
 
 bool register_builtin_render_resources()
 {
+    const auto add_texture = [](const char* path, bool srgb, std::vector<std::uint8_t> pixels)
+    {
+        schema::TextureDataT texture;
+        texture.path = path;
+        texture.width = 1;
+        texture.height = 1;
+        texture.srgb = srgb;
+        texture.encoding = schema::TextureEncoding::rgba8;
+        texture.data = std::move(pixels);
+        const auto* existing = ResourceSystem::find_texture(path);
+        return existing ? *existing == texture : ResourceSystem::register_texture(texture);
+    };
+    if (!add_texture("builtin/textures/white-srgb", true, {255, 255, 255, 255}) ||
+        !add_texture("builtin/textures/flat-normal", false, {128, 128, 255, 255}) ||
+        !add_texture("builtin/textures/white-linear", false, {255, 255, 255, 255}))
+    {
+        return false;
+    }
     schema::MeshDataT cube;
     cube.path = "builtin/meshes/cube";
     cube.vertices = {{-1, -1, 1, 0, 0, 1},   {1, -1, 1, 0, 0, 1},   {1, 1, 1, 0, 0, 1},
@@ -145,6 +188,11 @@ bool register_builtin_render_resources()
                      {1, -1, -1, 0, -1, 0},  {1, -1, 1, 0, -1, 0},  {-1, -1, 1, 0, -1, 0}};
     cube.indices = {0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,  8,  9,  10, 8,  10, 11,
                     12, 13, 14, 12, 14, 15, 16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23};
+    for (std::size_t face = 0; face < 6; ++face)
+    {
+        cube.texcoords.insert(cube.texcoords.end(), {schema::Vec2(0, 1), schema::Vec2(1, 1),
+                                                     schema::Vec2(1, 0), schema::Vec2(0, 0)});
+    }
     const auto* existing = ResourceSystem::find_mesh(cube.path);
     return (existing ? *existing == cube : ResourceSystem::register_mesh(cube)) &&
            register_definition(false) && register_definition(true);

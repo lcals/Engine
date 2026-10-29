@@ -11,6 +11,15 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Light extends Component {
     constructor(token, scene, node) { super(token, scene, node, native.LightKind); }
+    SetDirectional() {
+        const h = handles.get(this); return native.LightDirectional(h.scene, h.node);
+    }
+    SetPoint(range) {
+        const h = handles.get(this); return native.LightPoint(h.scene, h.node, range);
+    }
+    SetSpot(range, inner, outer) {
+        const h = handles.get(this); return native.LightSpot(h.scene, h.node, range, inner, outer);
+    }
     SetColor(r, g, b) {
         const h = handles.get(this); return native.LightColor(h.scene, h.node, r, g, b);
     }
@@ -61,6 +70,48 @@ void intensity(const Arguments& arguments)
         arguments.GetReturnValue().Set(light->set_settings(settings));
     }
 }
+void directional(const Arguments& arguments)
+{
+    arguments.GetReturnValue().Set(false);
+    auto* node = BindingContext::node(arguments);
+    auto* light = node == nullptr ? nullptr : node->get_component<Light>();
+    if (light != nullptr && arguments.Length() == 2)
+    {
+        auto value = light->settings();
+        value.kind = schema::LightKind::directional;
+        arguments.GetReturnValue().Set(light->set_settings(value));
+    }
+}
+
+void point(const Arguments& arguments)
+{
+    arguments.GetReturnValue().Set(false);
+    auto* node = BindingContext::node(arguments);
+    auto* light = node == nullptr ? nullptr : node->get_component<Light>();
+    if (light != nullptr && arguments.Length() == 3)
+    {
+        auto value = light->settings();
+        value.kind = schema::LightKind::point;
+        arguments.GetReturnValue().Set(BindingContext::scalar(arguments, 2, value.range) &&
+                                       light->set_settings(value));
+    }
+}
+
+void spot(const Arguments& arguments)
+{
+    arguments.GetReturnValue().Set(false);
+    auto* node = BindingContext::node(arguments);
+    auto* light = node == nullptr ? nullptr : node->get_component<Light>();
+    if (light != nullptr && arguments.Length() == 5)
+    {
+        auto value = light->settings();
+        value.kind = schema::LightKind::spot;
+        arguments.GetReturnValue().Set(BindingContext::scalar(arguments, 2, value.range) &&
+                                       BindingContext::scalar(arguments, 3, value.inner_angle) &&
+                                       BindingContext::scalar(arguments, 4, value.outer_angle) &&
+                                       light->set_settings(value));
+    }
+}
 } // namespace
 
 std::string_view LightBinding::name() const noexcept
@@ -80,7 +131,10 @@ bool LightBinding::register_functions(v8::Local<v8::Context> context,
                                    static_cast<int>(Light::component_type)) &&
            BindingContext::function(context, native, "LightAdd", add) &&
            BindingContext::function(context, native, "LightColor", color) &&
-           BindingContext::function(context, native, "LightIntensity", intensity);
+           BindingContext::function(context, native, "LightIntensity", intensity) &&
+           BindingContext::function(context, native, "LightDirectional", directional) &&
+           BindingContext::function(context, native, "LightPoint", point) &&
+           BindingContext::function(context, native, "LightSpot", spot);
 }
 
 } // namespace engine::script_bindings

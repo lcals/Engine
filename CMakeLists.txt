@@ -122,8 +122,8 @@ if(ENGINE_BUILD_APP
    AND ENGINE_ENABLE_SCRIPT_RUNTIME
    AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_executable(mcp_app src/mcp_main.cpp)
-    target_link_libraries(mcp_app PRIVATE engine::mcp engine::asset_pipeline engine::asset_build
-                                          engine::asset_sync SDL3::SDL3)
+    target_link_libraries(mcp_app PRIVATE engine::project_mcp_tools engine::asset_pipeline
+                                          engine::asset_build engine::asset_sync SDL3::SDL3)
     engine_apply_options(mcp_app)
 endif()
 

@@ -6,6 +6,12 @@ table MaterialParameter {
     value:MaterialValue (required);
 }
 
+table MaterialTexture {
+    name:string (required);
+    texture_guid:string;
+    texture_path:string (required);
+}
+
 table MaterialData {
     schema_version:uint = 1;
     shader_guid:string;
@@ -14,6 +20,7 @@ table MaterialData {
     // A builtin/ material cannot depend on a project/ shader.
     shader_path:string (required);
     parameters:[MaterialParameter] (required);
+    textures:[MaterialTexture];
 }
 
 root_type MaterialData;
