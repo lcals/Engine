@@ -7,7 +7,7 @@
 - 平台专用工程、入口和打包资源集中放在 `platforms/<platform>/`，例如 Android 的 Manifest、Java 入口和 Gradle 工程位于 `platforms/android/`；共享引擎系统继续按原目录组织。
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
-- 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
+- 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图和脚本执行归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
 - 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/editor/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
 - 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
@@ -28,6 +28,7 @@
 - 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/`、`docs/plugins/editor/`，独立类图位于各层级的 `class-diagrams/`；插件总索引保留 `docs/plugins/plugins.md`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
 - 引擎启动不要求项目；`EngineConfig` 只保存运行时配置，`Engine` 不拥有或依赖项目系统、编辑器系统。
 - `Engine` 负责系统生命周期与运行调度，不增加场景节点数量、渲染资源数量等跨模块统计便利函数；领域查询归对应系统。
+- ScriptSystem、V8 执行和逐类绑定属于 `plugins/runtime/script/` 可选插件；核心只声明 `ScriptRuntime` 与 `ScriptStatus`，运行宿主通过可空工厂注入实现并统一生命周期，关闭插件后仍可启动和渲染，不链接 V8。
 - 脚本绑定按类/模块拆分为实现统一接口的绑定类；新增绑定只增加一个绑定类并在注册表登记，各自定义脚本外观与原生方法；ScriptSystem 负责 V8、模块预检与执行、玩法回调，不集中放置所有类的绑定实现。部署选择、目录提交与热重载流程由 GameplaySession 协调。
 - 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的 `EditorEnvironment`，环境借用项目系统；两者必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
@@ -41,6 +42,9 @@
 - 渲染效果优先适配已选上游的范例和 Shader 工具，保留来源、许可及必要的兼容调整，不重复建立同类算法框架。
 - 图片格式、压缩模式、质量、颜色空间及 mipmap 等导入参数放在资源相邻 `.meta`；参数变化触发对应 GUID 缓存增量生成。
 - 资源描述文件使用 TOML 内容并只保留 .scene/.mesh/.shader/.material/.meta 类型后缀，不追加 .toml。Schema 源文件统一放 include/schemas/runtime；项目生成物必须为 cache/gen/<完整GUID>，无扩展名、无类型前缀、无版本子目录。SQLite 与资源目录索引放 cache 根，不能混入 gen。
+- 按类型扩展的功能采用统一最小接口和显式登记入口，具体类型各自独立文件；类型较多时建立 `importers/`、`codecs/` 或 `components/` 子目录。框架只负责选择和调度，具体类型拥有自己的识别、转换和校验，不把这些逻辑重新集中到大 switch；泛型登记用简单 `add<T>()`，不引入 RTTI、宏反射或通用 Manager。
+- 资源导入器负责本类型的识别、meta 默认值、依赖和工具指纹；管线负责扫描、增量、任务、数据库和原子发布。脚本保持每批一次项目级编译，各脚本转换复用该批结果。
+- 组件生成数据的保存和恢复由 Component 的统一契约及具体组件实现，Scene 只组织节点与层级；编辑器 TOML 编解码按组件类型拆分，不能进入运行时组件。
 - 编辑器 TaskSystem 使用 Taskflow，项目 settings/import.toml 的 import_threads 默认 4。资源管线负责 meta、SQLite 版本、依赖和发布；任务系统只调度转换，运行时不反向依赖它们。
 - MCP 同步完整运行资源版本，覆盖场景、Mesh、材质、Shader、脚本及其他资源；以 catalog 及其中定位的散文件或合并包为共同契约，不能限制为脚本同步。散文件保持 gen/GUID 命名，整批校验后发布，SQLite、源 meta 与项目设置留在编辑器端。
 - 场景、节点和组件的数据以 FlatBuffers schema 为唯一模型来源，生成跨语言数据结构；运行时行为类使用生成数据，不维护另一份手写持久数据模型。落盘读写按阶段实现。

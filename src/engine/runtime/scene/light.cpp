@@ -47,4 +47,15 @@ bool Light::set_settings(const LightSettings& settings) noexcept
     return true;
 }
 
+bool Light::restore_data(const schema::ComponentDataT& data)
+{
+    const auto* settings = data.payload.AsLightData();
+    if (settings == nullptr || !set_settings(*settings))
+    {
+        return false;
+    }
+    set_enabled(data.enabled);
+    return true;
+}
+
 } // namespace engine

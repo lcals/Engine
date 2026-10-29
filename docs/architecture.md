@@ -23,9 +23,9 @@
 
 公开头文件和实现分别位于 `include/engine/`、`src/engine/`，采用相同分层：
 
-- `runtime/`：系统框架、运行时宿主、玩法会话、平台路径、窗口、日志、资源、世界和渲染；公共工具位于 `runtime/utils/`。
+- `runtime/`：系统框架、运行时宿主、玩法会话、脚本执行契约、平台路径、窗口、日志、资源、世界和渲染；公共工具位于 `runtime/utils/`。
 - `editor/`：编辑器环境、项目约束、通用命令、任务调度和资源导入基础。
-- `plugins/runtime/`：可独立选择的资源依赖图实现。
+- `plugins/runtime/`：可独立选择的资源依赖图、V8 脚本执行与逐类绑定实现。
 - `plugins/editor/`：完整建模、MCP 协议及业务适配、资源构建和资源同步插件。
 
 运行时插件调用核心接口，编辑器插件可以组合运行时插件及编辑器基础。核心通过自己定义的接口接收宿主注入的实现，不引用具体插件；运行时插件不得反向依赖编辑器或具体项目。平台专用实现、入口与打包资源集中于 `platforms/<platform>/`。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始包含；CMake 目标传递搜索根，不使用相对目录回跳。
@@ -37,6 +37,8 @@
 CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录。每个插件在 `cmake/plugins/<scope>/<name>.cmake` 自声明，登记器按 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择并解析依赖闭包；未选插件不创建目标，宿主只装配启用实现。目录归属、依赖方向和目标选择共同约束边界，不把移动文件名当作完成插件化。
 
 资源加载契约由核心 `ResourceLoader` 定义；`ResourceSystem` 提供单项实现并借用宿主设置的加载器，`ResourceGraphSystem` 插件以相同契约提供依赖树与共享缓存。宿主先初始化核心，再启用插件，关闭时先停止使用者、解除接口借用，再释放插件和核心。方法和完整所有权见独立类图。
+
+脚本执行契约由核心 [ScriptRuntime](runtime/class-diagrams/script-runtime.md) 定义，状态使用普通 ScriptStatus。可执行宿主按插件清单向 RuntimeHost 提供创建函数，取得实现该契约的 ScriptSystem 并交给 WorldSystem 独占调度。RuntimeHost 和 GameplaySession 不包含或链接具体脚本插件；未选择插件仍可提交资源目录和运行原生场景，脚本玩法启动明确返回不可用。V8 依赖验证使用独立测试，不向核心装配脚本伪系统。
 
 ## 框架与领域职责
 

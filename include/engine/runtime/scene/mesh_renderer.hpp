@@ -19,6 +19,8 @@ class MeshRenderer final : public Component
 {
 public:
     static constexpr ComponentType component_type = ComponentType::MeshRendererData;
+    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
+    [[nodiscard]] bool build_data(schema::ComponentDataT& output) const override;
 
     [[nodiscard]] std::string_view mesh_path() const noexcept;
     [[nodiscard]] bool set_mesh(std::string_view path);

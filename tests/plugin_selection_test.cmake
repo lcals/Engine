@@ -21,6 +21,7 @@ set(ENGINE_ENABLE_RUNTIME_DEPS ON)
 set(ENGINE_ENABLE_EDITOR_DEPS ON)
 set(ENGINE_ENABLE_ASSET_PIPELINE_DEPS ON)
 set(ENGINE_ENABLE_SCRIPT_RUNTIME ON)
+set(ENGINE_ENABLE_V8 ON)
 set(VCPKG_MANIFEST_FEATURES runtime)
 ]=])
     file(APPEND "${_script}" "${body}\n")
@@ -127,7 +128,7 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
@@ -238,6 +239,28 @@ get_property(_calls GLOBAL PROPERTY CONFIGURE_CALLS)
 if(NOT _calls STREQUAL "dependency;user")
     message(FATAL_ERROR "Configuration must run each selected plugin once, dependencies first: ${_calls}")
 endif()
+]=])
+
+run_case(
+    script_disabled
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS resource_graph CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS)
+    message(FATAL_ERROR "Explicit selection must override scripting default")
+endif()
+]=])
+
+run_case(
+    script_requires_v8
+    "requires ENGINE_ENABLE_V8"
+    [=[
+set(ENGINE_ENABLE_V8 OFF)
+set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
 ]=])
 
 message(STATUS "Plugin selection regression cases passed")

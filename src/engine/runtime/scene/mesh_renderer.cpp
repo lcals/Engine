@@ -147,4 +147,68 @@ const Material& MeshRenderer::material() const noexcept
     return material_;
 }
 
+bool MeshRenderer::build_data(schema::ComponentDataT& output) const
+{
+    output = {};
+    schema::ComponentDataT snapshot;
+    if (!Component::build_data(snapshot))
+    {
+        return false;
+    }
+    auto* settings = snapshot.payload.AsMeshRendererData();
+    if (settings->mesh_guid.empty() ||
+        !ResourceSystem::path_to_guid(material_.type_path(), settings->material_guid))
+    {
+        return false;
+    }
+    settings->additional_material_guids.clear();
+    for (const auto& material : additional_materials_)
+    {
+        std::string guid;
+        if (!ResourceSystem::path_to_guid(material->type_path(), guid))
+        {
+            return false;
+        }
+        settings->additional_material_guids.push_back(std::move(guid));
+    }
+    output = std::move(snapshot);
+    return true;
+}
+
+bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
+{
+    const auto* settings = data.payload.AsMeshRendererData();
+    if (!settings || mesh_revision_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    MeshRenderer replacement(node());
+    std::string mesh_path;
+    std::string material_path;
+    if (!ResourceSystem::guid_to_path(settings->mesh_guid, mesh_path) ||
+        !ResourceSystem::guid_to_path(settings->material_guid, material_path) ||
+        !replacement.set_mesh(mesh_path) || !replacement.material_.set_type(material_path) ||
+        !replacement.set_material_count(1 + settings->additional_material_guids.size()))
+    {
+        return false;
+    }
+    for (std::size_t slot = 0; slot < settings->additional_material_guids.size(); ++slot)
+    {
+        if (!ResourceSystem::guid_to_path(settings->additional_material_guids[slot],
+                                          material_path) ||
+            !replacement.material(slot + 1)->set_type(material_path))
+        {
+            return false;
+        }
+    }
+    // 所有读取和校验成功后整体替换；旧资源由局部对象反序释放。
+    mutable_data() = data;
+    mesh_resource_.swap(replacement.mesh_resource_);
+    dynamic_mesh_.swap(replacement.dynamic_mesh_);
+    material_.swap(replacement.material_);
+    additional_materials_.swap(replacement.additional_materials_);
+    ++mesh_revision_;
+    return true;
+}
+
 } // namespace engine

@@ -1,6 +1,6 @@
 # 宿主和测试只部署运行所需数据；不会重新准备上游依赖。
 function(engine_copy_script_data target)
-    if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
+    if(TARGET engine_script AND NOT ANDROID)
         add_custom_command(
             TARGET ${target}
             POST_BUILD

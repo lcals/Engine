@@ -14,6 +14,10 @@ class WorldSystem;
 class RenderSystem;
 class GameplaySession;
 class ResourceSystem;
+class ScriptRuntime;
+
+// 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
+using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&);
 
 class RuntimeHost final
 {
@@ -27,7 +31,9 @@ public:
     RuntimeHost& operator=(RuntimeHost&&) = delete;
 
     // resources 可空；非空时借用已初始化的资源核心，调用方须在宿主关闭后再释放它。
-    [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources = nullptr);
+    // script_factory 可空；实例交给世界独占，核心不选择具体脚本插件。
+    [[nodiscard]] bool initialize(const EngineConfig& config, ResourceSystem* resources = nullptr,
+                                  ScriptRuntimeFactory script_factory = nullptr);
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
     [[nodiscard]] GameplaySession* gameplay() noexcept;

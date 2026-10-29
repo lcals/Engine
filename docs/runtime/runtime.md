@@ -10,4 +10,4 @@
 
 `WorldSystem` 使用 flecs 管理实体，`Node` 与组件表达场景行为；持久数据以生成的 FlatBuffers 结构为准。物理、导航、动画与运行时 UI 通过各自系统接入依赖，具体支持范围见[物理](physics.md)、[导航](navigation.md)、[动画](animation.md)和 [UI](ui.md)。
 
-TypeScript 由编辑器工具编译为 JavaScript，再由 V8 执行。脚本模块负责模块预检、执行和 Gameplay 回调，绑定实现按类或模块拆分并统一注册。GameplaySession 决定部署来源、应用目录并协调热重载，脚本模块不自行发现或切换部署目录。运行生命周期在宿主线程执行，未提供多线程脚本插件或任意状态迁移。接口见[脚本系统](class-diagrams/script-system.md)与[玩法入口](class-diagrams/gameplay.md)。
+TypeScript 由编辑器工具编译为 JavaScript，再由可选 V8 脚本插件执行。核心只提供 [ScriptRuntime](class-diagrams/script-runtime.md) 执行契约与 ScriptStatus，宿主通过创建函数装配插件，核心不链接 V8 或 ScriptSystem。插件负责模块预检、执行和 Gameplay 回调，绑定实现按类或模块拆分并统一注册。GameplaySession 决定部署来源、应用目录并协调热重载，脚本插件不自行发现或切换部署目录。运行生命周期在宿主线程执行，未提供多线程脚本插件或任意状态迁移。接口见[脚本插件](../plugins/runtime/class-diagrams/script-system.md)与[玩法入口](class-diagrams/gameplay.md)。

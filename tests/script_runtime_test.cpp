@@ -1,3 +1,4 @@
+#include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
@@ -6,7 +7,6 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
-#include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 

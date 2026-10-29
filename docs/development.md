@@ -2,7 +2,7 @@
 
 ## 源码与文档分层
 
-`include/engine/` 与 `src/engine/` 使用一致的 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 目录。运行时基础系统及公共工具归 runtime；编辑器主类、项目、命令、任务及导入管线归 editor；资源依赖图归运行时插件；完整建模（含纯几何）、完整 MCP（含协议）、资源构建/同步归编辑器插件。平台入口位于 `platforms/<platform>/`。
+`include/engine/` 与 `src/engine/` 使用一致的 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 目录。运行时基础系统及公共工具归 runtime；编辑器主类、项目、命令、任务及导入管线归 editor；资源依赖图、V8 脚本执行及绑定归运行时插件；完整建模（含纯几何）、完整 MCP（含协议）、资源构建/同步归编辑器插件。平台入口位于 `platforms/<platform>/`。
 
 目标传递 `include/engine/` 作为搜索根，自有头文件使用 `#include "runtime/engine.hpp"`、`#include "editor/project/project_system.hpp"` 等带层级路径；第三方 API 保留标准包含路径。UTF-8 路径转换由 [PathUtils](runtime/class-diagrams/path-utils.md) 复用，路径安全及规范化检查仍由调用者完成。运行时 TypeScript 声明统一位于 [include/engine.d.ts](../include/engine.d.ts)。
 

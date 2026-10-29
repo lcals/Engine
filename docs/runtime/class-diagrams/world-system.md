@@ -51,8 +51,8 @@ classDiagram
     WorldSystem "1" *-- "0..1" AnimationSystem : 独占子系统
     class UiSystem
     WorldSystem "1" *-- "0..1" UiSystem : 独占子系统
-    class ScriptSystem
-    WorldSystem "1" *-- "0..1" ScriptSystem : 启用 V8 时独占
+    class ScriptRuntime
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主工厂提供可选实现
     note for WorldSystem "继承 System 生命周期；析构中调用 shutdown()"
 ```
 

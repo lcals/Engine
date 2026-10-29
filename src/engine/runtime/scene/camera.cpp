@@ -31,4 +31,15 @@ bool Camera::set_settings(const CameraSettings& settings) noexcept
     return true;
 }
 
+bool Camera::restore_data(const schema::ComponentDataT& data)
+{
+    const auto* settings = data.payload.AsCameraData();
+    if (settings == nullptr || !set_settings(*settings))
+    {
+        return false;
+    }
+    set_enabled(data.enabled);
+    return true;
+}
+
 } // namespace engine

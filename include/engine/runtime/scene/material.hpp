@@ -53,6 +53,7 @@ public:
 private:
     friend class MeshRenderer;
     Material() noexcept;
+    void swap(Material& other) noexcept;
 
     [[nodiscard]] schema::MaterialParameterT* find_parameter(std::string_view name,
                                                              schema::MaterialValue type) noexcept;

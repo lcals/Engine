@@ -10,10 +10,10 @@
 #endif
 #include "runtime/app/app.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/gameplay/script_status.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/scene.hpp"
-#include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 

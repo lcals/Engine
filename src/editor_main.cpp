@@ -18,12 +18,15 @@
 #include "runtime/resource/resource_system.hpp"
 #endif
 
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_ASSET_PIPELINE
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #if ENGINE_HAS_MODELING_PLUGIN
 #include "editor/scene/scene_persistence.hpp"
 #endif
-#include "runtime/script/script_system.hpp"
+#endif
+
+#if ENGINE_HAS_SCRIPT_PLUGIN
+#include "plugins/runtime/script/script_system.hpp"
 #endif
 
 #include <SDL3/SDL_main.h>
@@ -56,7 +59,7 @@ void print_usage()
 int run_editor(const fs::path& project_root, engine::EditorEnvironment& environment,
                const engine::EngineConfig& config, std::uint64_t frame_limit)
 {
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_ASSET_PIPELINE
     engine::AssetPipelineSystem pipeline;
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -64,18 +67,23 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
     engine::ResourceGraphSystem resource_graph(resources);
 #endif
     engine::RuntimeHost runtime;
+    engine::ScriptRuntimeFactory script_factory = nullptr;
+#if ENGINE_HAS_SCRIPT_PLUGIN
+    script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<engine::ScriptSystem>(&world); };
+#endif
 #if ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::ModelingCommands> modeling;
 #endif
     std::unique_ptr<engine::RenderCommands> render_commands;
-#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
+#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::ScenePersistence> persistence;
 #endif
     std::unique_ptr<engine::EditorSystem> editor;
     std::uint64_t frames = 0;
     const int result = [&]()
     {
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_ASSET_PIPELINE
         if (!pipeline.initialize(config) || !pipeline.build_assets(project_root))
         {
             LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
@@ -89,16 +97,16 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
             return 1;
         }
         resources.set_loader(&resource_graph);
-        const bool runtime_ready = runtime.initialize(config, &resources);
+        const bool runtime_ready = runtime.initialize(config, &resources, script_factory);
 #else
-        const bool runtime_ready = runtime.initialize(config);
+        const bool runtime_ready = runtime.initialize(config, nullptr, script_factory);
 #endif
         if (!runtime_ready)
         {
             LogSystem::write(LogLevel::error, "Engine initialization failed");
             return 1;
         }
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_ASSET_PIPELINE
         if (!environment.apply_resources(pipeline.catalog(), *runtime.gameplay()))
         {
             LogSystem::write(LogLevel::error, "Cannot submit editor resource directory: " +
@@ -134,7 +142,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
                 return 1;
             }
         }
-#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
+#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
         if (modeling != nullptr)
         {
             persistence = std::make_unique<engine::ScenePersistence>(
@@ -205,7 +213,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
         editor->shutdown();
         editor.reset();
     }
-#if ENGINE_HAS_SCRIPT_RUNTIME && ENGINE_HAS_MODELING_PLUGIN
+#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
     persistence.reset();
 #endif
     render_commands.reset();
@@ -218,7 +226,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
     resource_graph.shutdown();
     resources.shutdown();
 #endif
-#if ENGINE_HAS_SCRIPT_RUNTIME
+#if ENGINE_HAS_ASSET_PIPELINE
     pipeline.shutdown();
 #endif
     LogSystem::write(LogLevel::info,

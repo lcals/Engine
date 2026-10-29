@@ -8,6 +8,7 @@
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -29,6 +30,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -927,6 +929,9 @@ bool test_engine(const engine::EngineConfig& config)
                 "tick must fail before initialization") ||
         !expect(engine.initialize(config), "initialize engine with all runtime systems") ||
         !expect(!engine.initialize(config), "reject repeated initialization while running") ||
+        !expect(engine.gameplay()->script_status() == nullptr && !engine.gameplay()->start() &&
+                    !engine.gameplay()->last_error().empty(),
+                "default runtime has no implicit script plugin and reports unavailable gameplay") ||
         !tick_engine_frames(engine, 8) ||
         !expect(engine.tick(std::numeric_limits<double>::quiet_NaN()) ==
                     engine::FrameStatus::failed,
@@ -955,10 +960,12 @@ bool test_engine(const engine::EngineConfig& config)
     auto* resources = engine::ResourceSystem::instance();
     engine::ResourcePtr held;
     engine::ResourcePtr separate;
-    if (!expect(resources && &resources->loader() == resources && fixture.add(project_shader) &&
-                    fixture.add(project_material) && fixture.publish(*resources) &&
-                    fixture.load(project_material.type_path, held),
-                "default host installs only the single-entity resource core") ||
+    if (!expect(
+            resources && &resources->loader() == resources && fixture.add(project_shader) &&
+                fixture.add(project_material) &&
+                engine.gameplay()->set_resources(fixture.catalog, {{"content", fixture.root}}) &&
+                fixture.load(project_material.type_path, held),
+            "host without script plugin can submit a resource directory to the core") ||
         !expect(fixture.load(project_material.type_path, separate) && separate != held &&
                     held->material()->shader_path == project_shader.path &&
                     engine::ResourceSystem::find_shader(project_shader.path) == nullptr,
@@ -1070,6 +1077,119 @@ bool test_borrowed_resource_host(const engine::EngineConfig& config)
                                "caller closes resources after the runtime host");
 }
 
+struct ScriptLifecycle
+{
+    engine::WorldSystem* world = nullptr;
+    std::size_t initialized = 0;
+    std::size_t ticks = 0;
+    std::size_t shutdowns = 0;
+    bool scene_present_when_stopped = false;
+    bool shutdown_before_world = false;
+    bool destroyed = false;
+};
+
+ScriptLifecycle script_lifecycle;
+
+class ObservedScriptRuntime final : public engine::ScriptRuntime
+{
+public:
+    explicit ObservedScriptRuntime(engine::WorldSystem& world) noexcept : world_(world)
+    {
+        script_lifecycle.world = &world;
+    }
+
+    ~ObservedScriptRuntime() noexcept override
+    {
+        shutdown();
+        script_lifecycle.destroyed = true;
+    }
+
+    [[nodiscard]] bool prepare_gameplay(const engine::ResourceCatalog&, const engine::MountList&,
+                                        std::string_view, std::string_view) override
+    {
+        return false;
+    }
+
+    [[nodiscard]] bool start_prepared_gameplay() override
+    {
+        return false;
+    }
+
+    void stop_gameplay() noexcept override
+    {
+        script_lifecycle.scene_present_when_stopped =
+            script_lifecycle.scene_present_when_stopped || world_.scene() != nullptr;
+    }
+
+    void set_hot_reload(bool enabled) override
+    {
+        status_.hot_reload = enabled;
+    }
+
+    [[nodiscard]] const engine::ScriptStatus& status() const noexcept override
+    {
+        return status_;
+    }
+
+protected:
+    [[nodiscard]] bool on_initialize(const engine::EngineConfig&) override
+    {
+        ++script_lifecycle.initialized;
+        return parent() == &world_;
+    }
+
+    [[nodiscard]] bool on_tick(double) override
+    {
+        ++script_lifecycle.ticks;
+        return world_.is_initialized();
+    }
+
+    void on_shutdown() noexcept override
+    {
+        ++script_lifecycle.shutdowns;
+        script_lifecycle.shutdown_before_world =
+            world_.is_initialized() && engine::ResourceSystem::instance() != nullptr;
+    }
+
+private:
+    engine::WorldSystem& world_;
+    engine::ScriptStatus status_;
+};
+
+bool test_script_runtime_factory(const engine::EngineConfig& config)
+{
+    engine::RuntimeHost host;
+    const auto failed_factory = [](engine::WorldSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+    { return {}; };
+    if (!expect(!host.initialize(config, nullptr, failed_factory) &&
+                    engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
+                "failed script factory unwinds the partial host without a fallback"))
+    {
+        return false;
+    }
+    script_lifecycle = {};
+    const auto factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<ObservedScriptRuntime>(world); };
+    if (!expect(host.initialize(config, nullptr, factory) &&
+                    script_lifecycle.world == host.world() && script_lifecycle.initialized == 1 &&
+                    host.gameplay()->script_status() != nullptr,
+                "host factory supplies an abstract script child without a concrete plugin") ||
+        !expect(create_cube_scene(*host.world(), false), "create scene owned by the caller") ||
+        !tick_engine_frames(host, 3) ||
+        !expect(script_lifecycle.ticks == 3,
+                "world ticks the injected script runtime once per frame"))
+    {
+        return false;
+    }
+    host.shutdown();
+    host.shutdown();
+    return expect(
+        script_lifecycle.scene_present_when_stopped && script_lifecycle.shutdown_before_world &&
+            script_lifecycle.shutdowns == 1 && script_lifecycle.destroyed &&
+            engine::Engine::instance().system_count() == 0,
+        "session stops before scene teardown; world closes and destroys script exactly once");
+}
+
 } // namespace
 
 int main(int, char**)
@@ -1088,8 +1208,9 @@ int main(int, char**)
     const bool settings_passed = textures_passed && test_render_settings_and_capture(config);
     const bool engine_passed = settings_passed && test_engine(config);
     const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
+    const bool script_factory_passed = borrowed_passed && test_script_runtime_factory(config);
     if (!windows_passed || !scene_passed || !textures_passed || !settings_passed ||
-        !engine_passed || !borrowed_passed)
+        !engine_passed || !borrowed_passed || !script_factory_passed)
     {
         return 1;
     }

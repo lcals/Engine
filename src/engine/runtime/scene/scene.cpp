@@ -1,9 +1,7 @@
 #include "runtime/scene/scene.hpp"
 
-#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
-#include "runtime/scene/light.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/transform.hpp"
 
 #include <flecs.h>
@@ -146,32 +144,10 @@ bool Scene::build_data(schema::SceneDataT& output) const
         node_data->components.reserve(node->components().size());
         for (const auto& component : node->components())
         {
-            if (component->data().payload.type == ComponentType::NONE ||
-                component->data().payload.value == nullptr)
+            auto component_data = std::make_unique<schema::ComponentDataT>();
+            if (!component->build_data(*component_data))
             {
                 return false;
-            }
-            auto component_data = std::make_unique<schema::ComponentDataT>(component->data());
-            if (component->type() == ComponentType::MeshRendererData)
-            {
-                const auto& mesh = static_cast<const MeshRenderer&>(*component);
-                auto* settings = component_data->payload.AsMeshRendererData();
-                if (settings->mesh_guid.empty() ||
-                    !ResourceSystem::path_to_guid(mesh.material().type_path(),
-                                                  settings->material_guid))
-                {
-                    return false;
-                }
-                settings->additional_material_guids.clear();
-                for (std::size_t slot = 1; slot < mesh.material_count(); ++slot)
-                {
-                    std::string guid;
-                    if (!ResourceSystem::path_to_guid(mesh.material(slot)->type_path(), guid))
-                    {
-                        return false;
-                    }
-                    settings->additional_material_guids.push_back(std::move(guid));
-                }
             }
             node_data->components.push_back(std::move(component_data));
         }
@@ -191,6 +167,11 @@ Node* Scene::find_local_node(std::uint64_t local_id) const noexcept
 bool Scene::restore_data(const schema::SceneDataT& data)
 {
     if (!nodes_.empty() || data.schema_version != 1 || !data.info)
+    {
+        return false;
+    }
+    ComponentRegistry registry;
+    if (!register_scene_components(registry))
     {
         return false;
     }
@@ -216,72 +197,15 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             {
                 return false;
             }
-            Component* restored = nullptr;
-            switch (component->payload.type)
+            Component* restored = node->get_component(component->payload.type);
+            if (restored == nullptr)
             {
-            case ComponentType::TransformData:
-            {
-                auto* transform = node->get_component<Transform>();
-                if (!transform || !transform->set_settings(*component->payload.AsTransformData()))
-                {
-                    return false;
-                }
-                restored = transform;
-                break;
+                restored = registry.create(component->payload.type, *node);
             }
-            case ComponentType::CameraData:
+            if (!restored || !restored->restore_data(*component))
             {
-                auto* camera = node->add_component<Camera>();
-                if (!camera || !camera->set_settings(*component->payload.AsCameraData()))
-                {
-                    return false;
-                }
-                restored = camera;
-                break;
-            }
-            case ComponentType::LightData:
-            {
-                auto* light = node->add_component<Light>();
-                if (!light || !light->set_settings(*component->payload.AsLightData()))
-                {
-                    return false;
-                }
-                restored = light;
-                break;
-            }
-            case ComponentType::MeshRendererData:
-            {
-                auto* mesh = node->add_component<MeshRenderer>();
-                const auto* settings = component->payload.AsMeshRendererData();
-                std::string mesh_path;
-                std::string material_path;
-                if (!mesh || !ResourceSystem::guid_to_path(settings->mesh_guid, mesh_path) ||
-                    !ResourceSystem::guid_to_path(settings->material_guid, material_path) ||
-                    !mesh->set_mesh(mesh_path) || !mesh->material().set_type(material_path))
-                {
-                    return false;
-                }
-                if (!mesh->set_material_count(1 + settings->additional_material_guids.size()))
-                {
-                    return false;
-                }
-                for (std::size_t slot = 0; slot < settings->additional_material_guids.size();
-                     ++slot)
-                {
-                    if (!ResourceSystem::guid_to_path(settings->additional_material_guids[slot],
-                                                      material_path) ||
-                        !mesh->material(slot + 1)->set_type(material_path))
-                    {
-                        return false;
-                    }
-                }
-                restored = mesh;
-                break;
-            }
-            default:
                 return false;
             }
-            restored->set_enabled(component->enabled);
         }
         if (!types.contains(ComponentType::TransformData))
         {
