@@ -1,3 +1,4 @@
+#include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
@@ -6,7 +7,6 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
-#include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -147,7 +147,7 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     return expect(output.catalog.assign(data), "assign runtime fixture metadata");
 }
 
-bool apply(engine::ScriptSystem& script, const Fixture& candidate,
+bool apply(engine::plugins::script::ScriptSystem& script, const Fixture& candidate,
            std::string_view entry = "scripts/game.js")
 {
     if (!script.prepare_gameplay(candidate.catalog, candidate.mounts, entry))
@@ -182,7 +182,7 @@ std::string game_source(std::string_view name, int expected_value)
 
 bool run_cases(const fs::path& workspace)
 {
-    engine::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script;
     Fixture current;
     if (!expect(script.initialize({}), "initialize V8") ||
         !fixture(workspace, "first",
@@ -205,8 +205,12 @@ bool run_cases(const fs::path& workspace)
                     log_contains("first:update:2") && !log_contains("first:stop"),
                 "candidate precheck neither stops old gameplay nor changes core directory") ||
         !expect(
-            !engine::ResourceSystem::instance()->update_catalog(next.catalog.data(), next.mounts),
-            "running scripts retain their resources and reject conflicting updates"))
+            engine::ResourceSystem::instance()->update_catalog(next.catalog.data(), next.mounts) &&
+                engine::ResourceSystem::instance()->catalog().data().revision == "second" &&
+                script.status().active_revision == "first" && script.tick(.01) &&
+                log_contains("first:update:3") && !log_contains("first:stop") &&
+                !log_contains("second:start"),
+            "publishing a new directory keeps the old scripts running until explicit reload"))
     {
         return false;
     }
@@ -330,6 +334,25 @@ export default class Game extends Gameplay {
         if (cube.AddComponent(MeshRenderer) !== null || cube.GetComponent(Transform).SetPosition(NaN, 0, 0) ||
             cube.GetComponent(Transform).SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
             light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
+        if (camera.SetOrthographic(0, .1, 100) || !camera.SetOrthographic(3, .2, 100) ||
+            light.SetPoint(-1) || !light.SetPoint(12) || light.SetSpot(10, 40, 20) ||
+            !light.SetSpot(12, 15, 35) || !light.SetDirectional() ||
+            mesh.materialCount !== 1 || mesh.GetMaterial(1) !== null ||
+            mesh.GetMaterial(-1) !== null || mesh.GetMaterial(0.5) !== null ||
+            mesh.SetMaterialCount(0) || mesh.SetMaterialCount(17) ||
+            !mesh.SetMaterialCount(2) || mesh.materialCount !== 2) return false;
+        const slot = mesh.GetMaterial(1);
+        if (!slot || !slot.IsValid() || !slot.SetType('builtin/materials/default-unlit') ||
+            !slot.SetV4('baseColor', .1, .2, .3, 1) ||
+            !slot.SetTexture('baseColorTexture', 'builtin/textures/white-srgb') ||
+            slot.GetTexture('baseColorTexture') !== 'builtin/textures/white-srgb' ||
+            slot.GetTexture('missing') !== null ||
+            slot.SetTexture('missing', 'builtin/textures/white-srgb') ||
+            slot.SetTexture('baseColorTexture', 'builtin/meshes/cube') ||
+            !mesh.SetMaterialCount(1) || slot.IsValid() || slot.SetFloat('roughness', .4) ||
+            slot.GetTexture('baseColorTexture') !== null || mesh.materialCount !== 1 ||
+            !mesh.SetMesh('builtin/meshes/cube') || mesh.SetMesh('project/missing') ||
+            !mesh.material.SetTexture('baseColorTexture', 'builtin/textures/white-srgb')) return false;
         if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
             !mesh.material.SetShader('builtin/shaders/unlit') || mesh.material.SetShader('project/shaders/missing') ||
             !mesh.material.SetType('builtin/materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
@@ -371,7 +394,7 @@ export default class Game extends Gameplay {
 bool run_scene_cases(const fs::path& workspace)
 {
     engine::WorldSystem world;
-    engine::ScriptSystem script(&world);
+    engine::plugins::script::ScriptSystem script(&world);
     Fixture original;
     if (!expect(world.initialize({}) && script.initialize({}),
                 "initialize native scene bindings") ||
@@ -429,7 +452,10 @@ export default class extends Gameplay {
         this.mesh=this.node.AddComponent(MeshRenderer); this.transform=this.node.GetComponent(Transform); this.material=this.mesh.material; return this.mesh!==null;}
     Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
         this.transform.SetPosition(9,9,9) || this.node.GetComponent(MeshRenderer)!==null || this.material.IsValid() ||
-        this.material.SetV4('baseColor',1,1,1,1) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
+        this.material.SetV4('baseColor',1,1,1,1) ||
+        this.material.SetTexture('baseColorTexture','builtin/textures/white-srgb') ||
+        this.material.GetTexture('baseColorTexture')!==null || this.mesh.GetMaterial(0)!==null ||
+        this.mesh.SetMaterialCount(2) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
         Scene.Create('steal')!==null) throw new Error('stale references were accepted');
         Debug.Log('stale:rejected');}
 }
@@ -461,7 +487,7 @@ export default class extends Gameplay {
 bool run_guid_cases(const fs::path& workspace)
 {
     engine::WorldSystem world;
-    engine::ScriptSystem script(&world);
+    engine::plugins::script::ScriptSystem script(&world);
     if (!world.initialize({}) || !script.initialize({}))
     {
         return false;

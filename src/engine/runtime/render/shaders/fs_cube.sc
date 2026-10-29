@@ -1,54 +1,123 @@
-$input v_world_position, v_world_normal
+$input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
 
 #include <bgfx_shader.sh>
+#include "pbr_helpers.sh"
+#include "shadow_helpers.sh"
 
+SAMPLER2D(s_base_color, 0);
+SAMPLER2D(s_normal, 1);
+SAMPLER2D(s_orm, 2);
+SAMPLER2D(s_shadow_map, 15);
 uniform vec4 u_base_color;
 // x: metallic, y: roughness, z: unlit, w: unused.
 uniform vec4 u_material;
 uniform vec4 u_camera_position;
-uniform vec4 u_light_direction;
-uniform vec4 u_light_color;
+uniform vec4 u_light_count;
+uniform vec4 u_light_position_range[8];
+uniform vec4 u_light_direction_outer[8];
+uniform vec4 u_light_color_intensity[8];
+uniform vec4 u_light_kind_inner[8];
+uniform vec4 u_ambient;
+// exposure, ACES enabled, reserved, reserved.
+uniform vec4 u_tonemap;
+uniform mat4 u_shadow_transform;
+// bias, texel size, shadow-casting directional light index, enabled.
+uniform vec4 u_shadow_settings;
 
-// Direct-light Cook-Torrance BRDF: GGX distribution, correlated Smith visibility,
-// Schlick Fresnel. Material and lighting values are linear; output is display encoded.
+float shadow_visibility(vec3 world_position)
+{
+    vec4 coordinate = mul(u_shadow_transform, vec4(world_position, 1.0));
+    vec3 projected = coordinate.xyz / coordinate.w;
+    if (any(lessThan(projected, vec3_splat(0.0))) ||
+        any(greaterThan(projected, vec3_splat(1.0))))
+    {
+        return 1.0;
+    }
+    float visible = 0.0;
+    for (int x = 0; x < 4; ++x)
+    {
+        for (int y = 0; y < 4; ++y)
+        {
+            vec2 offset = (vec2(float(x), float(y)) - 1.5) * u_shadow_settings.y;
+            float depth = unpack_shadow_depth(texture2D(s_shadow_map, projected.xy + offset));
+            visible += step(projected.z - u_shadow_settings.x, depth);
+        }
+    }
+    return visible / 16.0;
+}
+
+vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, vec3 base_color,
+                  float metallic, float roughness)
+{
+    vec3 light_dir = -u_light_direction_outer[index].xyz;
+    float attenuation = 1.0;
+    float kind = u_light_kind_inner[index].x;
+    if (kind > 0.5)
+    {
+        vec3 offset = u_light_position_range[index].xyz - world_position;
+        float distance_squared = dot(offset, offset);
+        float distance = sqrt(distance_squared);
+        light_dir = offset / max(distance, 0.0001);
+        float fade = saturate(1.0 - distance / u_light_position_range[index].w);
+        attenuation = fade * fade / max(distance_squared, 0.01);
+        if (kind > 1.5)
+        {
+            float angle = dot(-light_dir, u_light_direction_outer[index].xyz);
+            attenuation *= smoothstep(u_light_direction_outer[index].w,
+                                       u_light_kind_inner[index].y, angle);
+        }
+    }
+    float n_dot_l = saturate(dot(normal, light_dir));
+    float n_dot_v = max(dot(normal, view_dir), 0.0001);
+    vec3 halfway_sum = view_dir + light_dir;
+    vec3 halfway = halfway_sum / max(length(halfway_sum), 0.0001);
+    float n_dot_h = saturate(dot(normal, halfway));
+    float v_dot_h = saturate(dot(view_dir, halfway));
+    vec3 specular_color = mix(vec3_splat(0.04), base_color, metallic);
+    vec3 specular = pbr_specular(roughness, specular_color, n_dot_l, n_dot_v, n_dot_h, v_dot_h);
+    vec3 diffuse = (vec3_splat(1.0) - specular_color) * (1.0 - metallic) * base_color / 3.14159265;
+    vec3 radiance = u_light_color_intensity[index].rgb * u_light_color_intensity[index].w;
+    float visibility = 1.0;
+    if (u_shadow_settings.w > 0.5 && abs(float(index) - u_shadow_settings.z) < 0.5)
+    {
+        visibility = shadow_visibility(world_position);
+    }
+    return (diffuse + specular) * radiance * n_dot_l * attenuation * visibility;
+}
+
 void main()
 {
-    vec3 color = u_base_color.rgb;
+    // sRGB decode happens in the texture sampler; normal and ORM are linear data.
+    vec4 base_color = texture2D(s_base_color, v_texcoord0) * u_base_color * v_color0;
+    vec3 normal = normalize(v_world_normal);
+    vec3 tangent = normalize(v_world_tangent.xyz - normal * dot(normal, v_world_tangent.xyz));
+    vec3 bitangent = cross(normal, tangent) * v_world_tangent.w;
+    // Tangent-space sampling follows bgfx 06-bump; use full XYZ normal maps.
+    vec3 sampled_normal = texture2D(s_normal, v_texcoord0).xyz * 2.0 - 1.0;
+    float normal_length = length(sampled_normal);
+    sampled_normal = normal_length > 0.0001 ? sampled_normal / normal_length : vec3(0.0, 0.0, 1.0);
+    normal = normalize(tangent * sampled_normal.x + bitangent * sampled_normal.y + normal * sampled_normal.z);
+    vec3 orm = texture2D(s_orm, v_texcoord0).rgb;
+    float metallic = saturate(u_material.x * orm.b);
+    float roughness = max(u_material.y * orm.g, 0.045);
+    vec3 color = base_color.rgb;
     if (u_material.z < 0.5)
     {
-        vec3 normal = normalize(v_world_normal);
-        vec3 view_dir = normalize(u_camera_position.xyz - v_world_position);
-        vec3 light_dir = -u_light_direction.xyz;
-        vec3 halfway_sum = view_dir + light_dir;
-        vec3 halfway = halfway_sum / max(length(halfway_sum), 0.0001);
-        float n_dot_l = max(dot(normal, light_dir), 0.0);
-        float n_dot_v = max(dot(normal, view_dir), 0.0001);
-        float n_dot_h = max(dot(normal, halfway), 0.0);
-        float v_dot_h = max(dot(view_dir, halfway), 0.0);
-
-        float metallic = u_material.x;
-        float roughness = max(u_material.y, 0.045);
-        float alpha = roughness * roughness;
-        float alpha_squared = alpha * alpha;
-        float distribution_denominator = n_dot_h * n_dot_h * (alpha_squared - 1.0) + 1.0;
-        float distribution =
-            alpha_squared /
-            max(3.14159265 * distribution_denominator * distribution_denominator, 0.000001);
-        float visibility_v =
-            n_dot_l * sqrt(n_dot_v * n_dot_v * (1.0 - alpha_squared) + alpha_squared);
-        float visibility_l =
-            n_dot_v * sqrt(n_dot_l * n_dot_l * (1.0 - alpha_squared) + alpha_squared);
-        float visibility = 0.5 / max(visibility_v + visibility_l, 0.00001);
-        vec3 f0 = mix(vec3(0.04, 0.04, 0.04), u_base_color.rgb, metallic);
-        float fresnel_factor = pow(1.0 - v_dot_h, 5.0);
-        vec3 fresnel = f0 + (vec3(1.0, 1.0, 1.0) - f0) * fresnel_factor;
-        vec3 specular = distribution * visibility * fresnel;
-        vec3 diffuse =
-            (vec3(1.0, 1.0, 1.0) - fresnel) * (1.0 - metallic) * u_base_color.rgb / 3.14159265;
-        color = (diffuse + specular) * u_light_color.rgb * n_dot_l;
-        // Reinhard tone mapping of the linear HDR lighting result.
-        color = color / (vec3(1.0, 1.0, 1.0) + color);
+        vec3 view_offset = u_camera_position.xyz - v_world_position;
+        vec3 view_dir = view_offset / max(length(view_offset), 0.0001);
+        color = base_color.rgb * (1.0 - metallic) * u_ambient.rgb * u_ambient.w;
+        for (int index = 0; index < 8; ++index)
+        {
+            if (float(index) < u_light_count.x)
+            {
+                color += direct_light(index, v_world_position, normal, view_dir, base_color.rgb, metallic, roughness);
+            }
+        }
+        color *= orm.r;
+        color *= u_tonemap.x;
+        color = u_tonemap.y > 0.5 ? aces_filmic(color) : color / (vec3_splat(1.0) + color);
     }
-    color = pow(max(color, vec3(0.0, 0.0, 0.0)), vec3(1.0 / 2.2, 1.0 / 2.2, 1.0 / 2.2));
+    // Linear scene values to the current SDR, non-sRGB swapchain.
+    color = pow(max(color, vec3_splat(0.0)), vec3_splat(1.0 / 2.2));
     gl_FragColor = vec4(color, 1.0);
 }

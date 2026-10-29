@@ -190,12 +190,17 @@ def test(server, root, work):
     published = json.loads(available_path.read_text())
     verify_complete_asset_snapshot(project, runtime, published)
     image_guid = metadata_guid(image_asset)
+    texture_entity = (project / "cache/gen" / image_guid).read_bytes()
+    uploaded_texture = (
+        runtime / "assets/versions" / published["revision"] / "gen" / image_guid
+    ).read_bytes()
     require(
-        resource_payload(
-            (runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes()
-        )
-        == image_asset.read_bytes(),
-        "Android raw image bytes changed during synchronization",
+        resource_payload(texture_entity)[4:8] == b"ETEX",
+        "PNG was not imported as a BasisU texture resource before Android synchronization",
+    )
+    require(
+        uploaded_texture == texture_entity,
+        "Android synchronization changed the complete generated texture entity",
     )
     require(
         {"scripts/builtin-only.js", "scripts/previously-deleted.js"}.issubset(published["deleted"]),

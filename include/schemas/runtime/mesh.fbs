@@ -1,3 +1,4 @@
+include "common.fbs";
 namespace engine.schema;
 
 struct MeshVertex {
@@ -9,11 +10,21 @@ struct MeshVertex {
     nz:float;
 }
 
+struct MeshSubmesh {
+    first_index:uint;
+    index_count:uint;
+    material_slot:uint;
+}
+
 table MeshData {
     schema_version:uint = 1;
     path:string (required);
     vertices:[MeshVertex] (required);
     indices:[uint] (required);
+    texcoords:[Vec2];
+    tangents:[Vec4];
+    colors:[Color];
+    submeshes:[MeshSubmesh];
 }
 
 root_type MeshData;

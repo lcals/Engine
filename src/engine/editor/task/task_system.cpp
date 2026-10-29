@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace engine
+namespace engine::editor
 {
 
 struct TaskSystem::Impl
@@ -181,4 +181,4 @@ const std::string& TaskSystem::last_error() const noexcept
     return impl_->error;
 }
 
-} // namespace engine
+} // namespace engine::editor

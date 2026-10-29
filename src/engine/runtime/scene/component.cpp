@@ -47,6 +47,17 @@ const schema::ComponentDataT& Component::data() const noexcept
     return data_;
 }
 
+bool Component::build_data(schema::ComponentDataT& output) const
+{
+    output = {};
+    if (data_.payload.type == ComponentType::NONE || data_.payload.value == nullptr)
+    {
+        return false;
+    }
+    output = data_;
+    return true;
+}
+
 schema::ComponentDataT& Component::mutable_data() noexcept
 {
     return data_;

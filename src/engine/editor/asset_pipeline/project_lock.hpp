@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 class ProjectLock final
@@ -24,4 +24,4 @@ private:
     [[maybe_unused]] int descriptor_ = -1;
 };
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

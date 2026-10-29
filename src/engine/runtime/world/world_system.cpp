@@ -45,7 +45,7 @@ Scene* WorldSystem::load_scene(std::string_view path)
     Guid guid;
     ResourcePtr resource;
     if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->load(guid, resource))
+        !resources->loader().load(guid, resource))
     {
         return nullptr;
     }

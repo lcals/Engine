@@ -1,5 +1,5 @@
-#include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -116,7 +116,7 @@ struct Fixture
     }
 };
 
-bool build(engine::AssetBuildSystem& builder, const Fixture& fixture,
+bool build(engine::plugins::asset_build::AssetBuildSystem& builder, const Fixture& fixture,
            const std::vector<std::string>& items)
 {
     if (!builder.build(fixture.root, "settings/resource-build.toml", items))
@@ -134,8 +134,8 @@ bool tests()
     {
         return false;
     }
-    engine::AssetPipelineSystem pipeline;
-    engine::AssetBuildSystem builder(pipeline);
+    engine::editor::AssetPipelineSystem pipeline;
+    engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
     const engine::EngineConfig config;
     if (!expect(!builder.initialize(config), "builder requires initialized borrowed pipeline") ||
         !expect(pipeline.initialize(config) && builder.initialize(config),

@@ -71,9 +71,28 @@
         "tomlplusplus",
         "usd"
       ]
+    },
+    "modeling": {
+      "description": "Editor modeling plugin polygon and solid geometry dependencies",
+      "dependencies": [
+        "earcut-hpp",
+        "manifold"
+      ]
     }
   },
   "overrides": [
+    {
+      "name": "earcut-hpp",
+      "version": "3.2.4"
+    },
+    {
+      "name": "manifold",
+      "version": "3.5.4"
+    },
+    {
+      "name": "clipper2",
+      "version": "2.0.1"
+    },
     {
       "name": "fmt",
       "version": "12.0.0"

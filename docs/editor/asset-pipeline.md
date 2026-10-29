@@ -2,7 +2,7 @@
 
 [资源管线类图](class-diagrams/asset-pipeline-system.md) · [项目与出包](project.md) · [跨模块数据](../runtime/data.md)
 
-导入收集完整 `assets/` 信息并生成增量缓存；[资源构建系统](resource-build.md)根据打包清单选择运行子集。构建依赖与运行依赖分开维护，编辑器直接把成功导入的目录提交给核心，无需先打包才能运行项目。
+导入收集完整 `assets/` 信息并生成增量缓存；[资源构建系统](../plugins/editor/resource-build.md)根据打包清单选择运行子集。构建依赖与运行依赖分开维护，编辑器直接把成功导入的目录提交给核心，无需先打包才能运行项目。
 
 ## 源资源与身份
 
@@ -16,11 +16,15 @@
 
 `AssetPipelineSystem` 扫描源文件、校验 meta、建立依赖图，通过 `TaskSystem` 下发转换任务。任务系统使用 Taskflow，只负责依赖调度；`settings/import.toml` 的 `import_threads` 默认为 4，允许 1–64。源扫描、版本决策、文件发布和错误报告归资源管线。
 
+系统属于 `engine::editor`，逐类型导入接口与实现属于 `engine::editor::asset_pipeline`。每种资源在独立导入器文件中实现识别、默认 meta、指纹、依赖与转换；管线只通过登记接口调度。初始化登记默认实现，宿主可在空闲时通过 `set_importer` 注入替换实现，关闭后清空。编辑器基础不引用或链接具体插件。
+
 转换结果写入 `cache/gen/<完整GUID>`：文件名无扩展名、类型前缀或版本子目录。每个文件是 `ERS1` 资源实体，包含带 `ERSH` 标识的 FlatBuffers 实体头与载荷。`cache/catalog.bin` 使用版本 2，保存 GUID、逻辑路径、类型、必要运行依赖、完整实体大小和哈希、头长度、存储定位及目标平台；导入缓存的定位为 `content` 挂载下的 `gen/<GUID>`。
 
 `cache/assets.sqlite` 使用版本 2，记录源、工具、配置和生成指纹；`dependencies` 表用于构建失效和任务排序，`runtime_dependencies` 表用于打包闭包。数据库与目录索引位于 cache 根，不进入 gen。实体哈希用于校验和增量判断，不改变 GUID 身份。
 
-场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。没有专用导入器的文件保留原始字节作为载荷，图片也遵循此规则。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
+场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。PNG/JPG/JPEG 通过 [TextureImporter](class-diagrams/texture-importer.md) 生成包含 BasisU 数据的纹理载荷，格式、压缩、颜色空间和 mip 设置取自相邻 `.meta`。没有专用导入器的文件保留原始字节作为载荷。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
+
+建模插件的 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md) 由编辑器、构建 CLI 和 MCP 宿主显式注入。它从 `.mesh` 的 `[modeling]` 权威数据编译普通运行 Mesh；基础 MeshImporter 仍处理普通网格。未注入插件时，权威源导入明确失败，不使用冗余渲染数组。导入器身份和 Schema 参与增量指纹，移除插件不能绕过检查复用旧缓存。
 
 首次导入转换全部资源，重复导入只转换变化及其受影响的依赖。TypeScript 指纹覆盖编译器实际读取的配置、声明、标准库和编译器文件；实际生成 JS 中的模块 import / export 和字面量动态 import 形成运行依赖，类型导入被剔除。Shader 的构建依赖保守包含项目全部普通源文件以覆盖自定义 include，这些源码不会自动成为 Shader 的运行依赖。
 
@@ -40,6 +44,6 @@
 
 ## 尚未实现的能力
 
-文件监听自动导入、USD 场景与模型转换、纹理压缩及转码、Mesh 优化导入尚未接入资源转换流程；efsw、OpenUSD、Basis Universal 和 meshoptimizer 已参与编译、链接与依赖验证。
+文件监听自动导入、USD 场景与模型转换及 Mesh 优化导入尚未接入资源转换流程；efsw、OpenUSD 和 meshoptimizer 已参与编译、链接与依赖验证。Basis Universal 的编辑器压缩与运行时转码已接入贴图流程。
 
 DCC 集成采用 USD 交换场景，专有材质与数据由 DCC 适配插件转换；贴图采用 Basis Universal 作为跨平台格式，渲染器按设备能力选择目标格式。这些扩展须通过资源管线的 GUID、依赖和完整版本契约接入。

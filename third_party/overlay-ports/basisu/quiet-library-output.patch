@@ -1,0 +1,96 @@
+--- a/encoder/basisu_comp.cpp
++++ b/encoder/basisu_comp.cpp
+@@ -374,7 +374,10 @@
+ 		if (m_params.m_hdr)
+ 		{
+ 			// UASTC HDR
+-			printf("Mode: UASTC HDR Level %u\n", m_params.m_uastc_hdr_options.m_level);
++			if (m_params.m_status_output)
++			{
++				printf("Mode: UASTC HDR Level %u\n", m_params.m_uastc_hdr_options.m_level);
++			}
+ 
+ 			error_code ec = encode_slices_to_uastc_hdr();
+ 			if (ec != cECSuccess)
+@@ -383,7 +386,10 @@
+ 		else if (m_params.m_uastc)
+ 		{
+ 			// UASTC
+-			printf("Mode: UASTC LDR Level %u\n", m_params.m_pack_uastc_flags & cPackUASTCLevelMask);
++			if (m_params.m_status_output)
++			{
++				printf("Mode: UASTC LDR Level %u\n", m_params.m_pack_uastc_flags & cPackUASTCLevelMask);
++			}
+ 
+ 			error_code ec = encode_slices_to_uastc();
+ 			if (ec != cECSuccess)
+@@ -392,7 +398,10 @@
+ 		else
+ 		{
+ 			// ETC1S
+-			printf("Mode: ETC1S Quality %i, Level %i\n", m_params.m_quality_level, (int)m_params.m_compression_level);
++			if (m_params.m_status_output)
++			{
++				printf("Mode: ETC1S Quality %i, Level %i\n", m_params.m_quality_level, (int)m_params.m_compression_level);
++			}
+ 			
+ 			if (!process_frontend())
+ 				return cECFailedFrontEnd;
+@@ -1003,15 +1012,15 @@
+ 				}
+ 			}
+ 
+-			printf("Warning: The input HDR image's maximum used float value was %f, which is too high to encode as ASTC HDR. The image's components have been linearly scaled so the maximum used value is %f, by multiplying by %f.\n",
++			fprintf(stderr, "Warning: The input HDR image's maximum used float value was %f, which is too high to encode as ASTC HDR. The image's components have been linearly scaled so the maximum used value is %f, by multiplying by %f.\n",
+ 				max_used_val, basist::ASTC_HDR_MAX_VAL, inv_hdr_image_scale);
+ 
+-			printf("The decoded ASTC HDR texture will have to be scaled up by %f.\n", hdr_image_scale);
++			fprintf(stderr, "The decoded ASTC HDR texture will have to be scaled up by %f.\n", hdr_image_scale);
+ 		}
+ 
+ 		// TODO: Determine a constant scale factor, apply if > MAX_HALF_FLOAT
+ 		if (!src_img.clean_astc_hdr_pixels(basist::ASTC_HDR_MAX_VAL))
+-			printf("Warning: clean_astc_hdr_pixels() had to modify the input image to encode to ASTC HDR - see previous warning(s).\n");
++			fprintf(stderr, "Warning: clean_astc_hdr_pixels() had to modify the input image to encode to ASTC HDR - see previous warning(s).\n");
+ 
+ 		float lowest_nonzero_val = 1e+30f;
+ 		float lowest_val = 1e+30f;
+@@ -1262,7 +1271,10 @@
+ 							return false;
+ 						}
+ 
+-						printf("Read source alpha image \"%s\", %ux%u\n", pSource_alpha_image, alpha_data.get_width(), alpha_data.get_height());
++						if (m_params.m_status_output)
++						{
++							printf("Read source alpha image \"%s\", %ux%u\n", pSource_alpha_image, alpha_data.get_width(), alpha_data.get_height());
++						}
+ 
+ 						alpha_data.crop(width, height);
+ 
+@@ -2560,7 +2572,7 @@
+ 				return false;
+ 			}
+ 
+-			//if (m_params.m_status_output)
++			if (m_params.m_status_output)
+ 			{
+ 				printf("Wrote output .basis/.ktx2 file \"%s\"\n", output_filename.c_str());
+ 			}
+@@ -2574,7 +2586,7 @@
+ 			void* pDecomp_data = tinfl_decompress_mem_to_heap(pComp_data, comp_size, &decomp_size, 0);
+ 			if ((decomp_size != comp_data.size()) || (memcmp(pDecomp_data, &comp_data[0], decomp_size) != 0))
+ 			{
+-				printf("basis_compressor::create_basis_file_and_transcode:: miniz compression or decompression failed!\n");
++				fprintf(stderr, "basis_compressor::create_basis_file_and_transcode:: miniz compression or decompression failed!\n");
+ 				return false;
+ 			}
+ 
+@@ -3405,7 +3417,7 @@
+ 			// Make sure we're always aligned here (due to a validator bug).
+ 			if (padding)
+ 			{
+-				printf("Warning: KTX2 mip level data is not 16-byte aligned. This may trigger a ktx2check validation bug. Writing %u bytes of mipPadding.\n", padding);
++				fprintf(stderr, "Warning: KTX2 mip level data is not 16-byte aligned. This may trigger a ktx2check validation bug. Writing %u bytes of mipPadding.\n", padding);
+ 			}
+ 
+ 			for (uint32_t i = 0; i < padding; i++)

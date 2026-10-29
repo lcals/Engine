@@ -1,0 +1,35 @@
+include "common.fbs";
+namespace engine.schema;
+
+struct ModelingVertex {
+    id:ulong;
+    x:double;
+    y:double;
+    z:double;
+}
+
+table ModelingLoop {
+    vertices:[ulong] (required);
+    texcoords:[Vec2];
+    colors:[Color];
+}
+
+table ModelingFace {
+    id:ulong;
+    vertices:[ulong] (required);
+    holes:[ModelingLoop];
+    texcoords:[Vec2];
+    colors:[Color];
+    material_slot:uint;
+    smoothing_group:uint;
+}
+
+table EditableMeshData {
+    schema_version:uint = 1;
+    vertices:[ModelingVertex] (required);
+    faces:[ModelingFace] (required);
+    next_id:ulong = 1;
+}
+
+root_type EditableMeshData;
+file_identifier "EMDL";

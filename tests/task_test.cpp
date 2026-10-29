@@ -21,7 +21,7 @@ bool expect(bool value, const char* text)
 
 int main()
 {
-    engine::TaskSystem tasks;
+    engine::editor::TaskSystem tasks;
     const engine::EngineConfig config;
     if (!expect(!tasks.configure_threads(2) && !tasks.run({}),
                 "uninitialized task system rejects execution") ||
@@ -35,7 +35,7 @@ int main()
         return 1;
     }
     std::atomic<int> completed{0};
-    std::vector<engine::TaskDescription> graph{
+    std::vector<engine::editor::TaskDescription> graph{
         {"first",
          [&]()
          {

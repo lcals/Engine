@@ -60,7 +60,7 @@ namespace fs = std::filesystem;
     return expect(static_cast<bool>(file), "create ordinary file fixture");
 }
 
-[[nodiscard]] bool check_rejected(engine::ProjectSystem& project,
+[[nodiscard]] bool check_rejected(engine::editor::ProjectSystem& project,
                                   const engine::EngineConfig& config)
 {
     if (!expect(!project.initialize(config), "invalid project must fail initialization") ||
@@ -73,7 +73,8 @@ namespace fs = std::filesystem;
     return expect(!project.tick(0.0), "failed project must reject updates");
 }
 
-[[nodiscard]] bool check_ready(engine::ProjectSystem& project, const engine::EngineConfig& config)
+[[nodiscard]] bool check_ready(engine::editor::ProjectSystem& project,
+                               const engine::EngineConfig& config)
 {
     if (!expect(project.initialize(config), "valid project must initialize") ||
         !expect(project.is_initialized(), "valid project must be initialized") ||
@@ -91,7 +92,7 @@ namespace fs = std::filesystem;
 
 [[nodiscard]] bool run_cases(const fs::path& workspace)
 {
-    engine::ProjectSystem empty_project("");
+    engine::editor::ProjectSystem empty_project("");
     const engine::EngineConfig config;
     if (!check_rejected(empty_project, config))
     {
@@ -104,7 +105,7 @@ namespace fs = std::filesystem;
         return false;
     }
     std::string caller_path = engine::PathUtils::to_utf8(valid_root);
-    engine::ProjectSystem valid_project(caller_path);
+    engine::editor::ProjectSystem valid_project(caller_path);
     caller_path.clear();
     if (!check_ready(valid_project, config) || !check_ready(valid_project, config))
     {
@@ -112,14 +113,14 @@ namespace fs = std::filesystem;
     }
 
     const fs::path missing_root = workspace / "missing-root";
-    engine::ProjectSystem missing_project(engine::PathUtils::to_utf8(missing_root));
+    engine::editor::ProjectSystem missing_project(engine::PathUtils::to_utf8(missing_root));
     if (!check_rejected(missing_project, config) || !create_project(missing_root) ||
         !check_ready(missing_project, config))
     {
         return false;
     }
     const fs::path root_file = workspace / "root-file";
-    engine::ProjectSystem file_project(engine::PathUtils::to_utf8(root_file));
+    engine::editor::ProjectSystem file_project(engine::PathUtils::to_utf8(root_file));
     if (!create_file(root_file) || !check_rejected(file_project, config) ||
         !remove_path(root_file) || !create_project(root_file) || !check_ready(file_project, config))
     {
@@ -130,7 +131,7 @@ namespace fs = std::filesystem;
     {
         const fs::path root = workspace / directory;
         const fs::path required = root / directory;
-        engine::ProjectSystem project(engine::PathUtils::to_utf8(root));
+        engine::editor::ProjectSystem project(engine::PathUtils::to_utf8(root));
         if (!create_project(root) || !remove_path(required) || !check_rejected(project, config))
         {
             return false;

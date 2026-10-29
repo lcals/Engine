@@ -1,11 +1,15 @@
 #pragma once
 
-#include "runtime/schema/asset_catalog_generated.h"
-
 #include <string_view>
 
 namespace engine
 {
+
+namespace schema
+{
+struct AssetCatalogDataT;
+struct AssetEntryT;
+} // namespace schema
 
 // 当前引擎编入的固定身份、类型与必要依赖；无需窗口、GPU 或系统初始化。
 // 元数据没有物理位置，实际数据由运行平台编入的内置定义提供。

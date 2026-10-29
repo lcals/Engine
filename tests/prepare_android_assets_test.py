@@ -254,7 +254,8 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assert_clean()
 
     def test_shared_package_copied_once_and_all_members_verified(self):
-        second = resource_entry(b"texture payload", 2, 0, "project/texture.png", "")
+        # The packaging layer validates the typed entity envelope without decoding its payload.
+        second = resource_entry(b"texture payload", 2, 6, "project/texture.png", "")
         first = self.entries[0]
         first["path"] = second["path"] = "packs/game"
         second["offset"] = len(first["entity"])
@@ -288,6 +289,16 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "实体头与 catalog 不一致"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
+
+    def test_unknown_resource_kind_preserves_previous_output(self):
+        self.prepare()
+        previous = self.snapshot()
+        self.entries.append(resource_entry(b"unsupported resource", 2, 7, "project/future.bin", ""))
+        self.write_resources()
+        with self.assertRaises(ValueError):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
 
     def test_catalog_missing_does_not_fall_back_to_scanning(self):
         self.prepare()

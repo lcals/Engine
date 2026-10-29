@@ -1,0 +1,18 @@
+shader = '00000000-0000-4000-8000-000000000002'
+
+[[parameters]]
+name = 'baseColor'
+type = 'v4'
+value = [ 1.0, 0.77000000000000002, 0.41999999999999998, 1.0 ]
+
+[[textures]]
+name = 'baseColorTexture'
+texture = '00000000-0000-4000-8000-000000000006'
+
+[[textures]]
+name = 'normalTexture'
+texture = '00000000-0000-4000-8000-000000000007'
+
+[[textures]]
+name = 'ormTexture'
+texture = '00000000-0000-4000-8000-000000000008'

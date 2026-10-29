@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 
 class SceneImporter final
@@ -17,4 +17,4 @@ public:
                                     const schema::SceneDataT& data, std::string& error);
 };
 
-} // namespace engine
+} // namespace engine::editor

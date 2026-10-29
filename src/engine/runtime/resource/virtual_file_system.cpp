@@ -1,5 +1,6 @@
 #include "runtime/resource/virtual_file_system.hpp"
 
+#include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL_filesystem.h>

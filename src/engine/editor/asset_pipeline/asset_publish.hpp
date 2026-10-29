@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 [[nodiscard]] bool recover_publish(const std::filesystem::path& cache, AssetDatabase& database,
@@ -13,4 +13,4 @@ namespace engine::asset_pipeline
                                   const std::vector<AssetRecord>& records,
                                   const std::string& revision, std::string& error);
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

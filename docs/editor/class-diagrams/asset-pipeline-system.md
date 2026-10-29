@@ -10,6 +10,7 @@ classDiagram
     class AssetPipelineSystem {
         +AssetPipelineSystem()
         +~AssetPipelineSystem()
+        +set_importer(unique_ptr~AssetImporter~& importer) bool
         +build_assets(const filesystem_path& project_root, string_view target_platform) bool
         +build_scripts(const filesystem_path& project_root) bool
         +last_build() const AssetBuildStats&
@@ -26,7 +27,8 @@ classDiagram
     }
     class TaskSystem
     class GuidMap
-    class SceneImporter
+    class AssetImporterRegistry
+    class AssetImporter
     class SQLite
     class ResourceSystem
     class AssetCatalogDataT
@@ -34,7 +36,8 @@ classDiagram
     AssetPipelineSystem *-- TaskSystem : 子系统独占
     AssetPipelineSystem *-- AssetBuildStats : 最近成功批次
     AssetPipelineSystem ..> GuidMap : 核心 GUID 与逻辑路径映射
-    AssetPipelineSystem ..> SceneImporter : 场景 TOML 转换
+    AssetPipelineSystem *-- AssetImporterRegistry : 初始化登记并独占实现
+    AssetPipelineSystem ..> AssetImporter : 通用指纹依赖与转换契约
     AssetPipelineSystem ..> SQLite : cache/assets.sqlite
     AssetPipelineSystem ..> ResourceSystem : 同步文件读取
     AssetPipelineSystem *-- AssetCatalogDataT : 最近成功导入完整目录及只读返回
@@ -42,9 +45,13 @@ classDiagram
 
 每次全扫描 `assets/`，为新资源创建同名 `.meta`，GUID 必须为唯一完整小写 GUID（新建使用 UUIDv4）。既有资源丢失 meta、重复 GUID、非法路径、符号链接、缺失引用或循环依赖都返回失败。移动时一起移动 meta；缓存数据库可删除重建，meta 保留资源身份。
 
-`catalog()` 仅在成功导入后提供完整可用目录，返回借用在下次成功导入或关闭前有效；首次成功前为空，导入失败保留上一份成功目录。编辑器数据库登记全部源资源和导入状态，构建输入与必要运行依赖分别记录，精简与分包由独立的 [AssetBuildSystem](asset-build-system.md) 完成。
+`catalog()` 仅在成功导入后提供完整可用目录，返回借用在下次成功导入或关闭前有效；首次成功前为空，导入失败保留上一份成功目录。编辑器数据库登记全部源资源和导入状态，构建输入与必要运行依赖分别记录，精简与分包由独立的 [AssetBuildSystem](../../plugins/editor/class-diagrams/asset-build-system.md) 完成。
 
 源 `.scene/.mesh/.shader/.material` 使用 TOML 内容；TS 源仍为 `.ts`。每个生成文件严格位于 `cache/gen/<完整GUID>`，无扩展名、类型前缀或版本子目录。`cache/catalog.bin` 为生成的 FlatBuffers 目录，SQLite 不进入运行时。GUID 映射由运行时核心共用。
+
+PNG/JPG/JPEG 通过 [TextureImporter](texture-importer.md) 生成 BasisU 缓存，全部转换参数来自相邻 `.meta` 的 `[texture]`。材质 `[[textures]]` 以 `name` 匹配 Shader sampler，以 `texture` 保存贴图 GUID；导入时解析唯一逻辑路径并登记依赖。Shader 的 `[[samplers]]` 保存 `name/uniform/stage/default_texture/exposed`；槽位为 0..15、各自唯一，默认纹理必须是内置路径，进入 Shader 的运行依赖。Shader 源文件仅作为构建依赖，默认纹理和材质显式引用随统一目录打包、同步及加载。
+
+Mesh 保持原六项位置/法线顶点表达，新增可选 `texcoords`（二项）、`tangents`（四项）、`colors`（四项）数组；出现时必须与顶点数相等。切线方向非零、第四项为 -1 或 1；颜色通道在 0..1。`[[submeshes]]` 的 `first_index/index_count/material_slot` 按顺序完整覆盖三角形索引，材质槽为 0..15；不填时整个 Mesh 使用槽 0。场景组件以 `additional_materials` GUID 数组给槽 1 起绑定材质，所有材质参与依赖计算。
 
 SQLite v2 保存源指纹、转换器/Schema/配置/工具/目标版本、构建依赖、运行依赖和产物指纹。两类依赖分别使用 `dependencies` 与 `runtime_dependencies` 表。首次全量；之后重新扫描但只转换失效产物及构建依赖变化的资源。命中缓存仍校验实体头与完整产物指纹。TS 按项目编译，JS 沿用对应 TS GUID；实际生成的模块 import / export 和字面量动态 import 成为运行依赖，类型导入和声明文件只作为构建输入。
 
@@ -56,4 +63,8 @@ Shader 源码的 include 保守依赖全部项目普通源文件（不按 .sc/.s
 
 Shader 源码依赖不进入运行依赖；普通源资源仍有实体及完整目录条目，供编辑器访问和打包显式保留。转换结束后统一使用核心 `encode_resource()` 封装 `ERS1` 实体。目录版本为 2，存储定位使用 `content` 挂载及 `gen/<GUID>` 路径；`catalog()` 返回最近成功目录的只读借用，不含资源字节，失败保留上一份目录，关闭后清空。
 
-资源管线在项目锁内探测 `cache/editor-hosts/` 的会话 OS 租约。有活租约时，必须读取到身份匹配的 idle/closed 状态；启动中、运行中、停止中或状态读取失败均拒绝覆盖，要求先停止项目，不自动停启。心跳过期不能授予写权限；进程退出自动解锁，残留登记不阻塞导入。编辑器调用方负责在导入成功后将 `catalog()` 及挂载直接提交给核心。独立打包职责见[资源构建系统](asset-build-system.md)。
+资源管线在项目锁内探测 `cache/editor-hosts/` 的会话 OS 租约。有活租约时，必须读取到身份匹配的 idle/closed 状态；启动中、运行中、停止中或状态读取失败均拒绝覆盖，要求先停止项目，不自动停启。心跳过期不能授予写权限；进程退出自动解锁，残留登记不阻塞导入。编辑器调用方负责在导入成功后将 `catalog()` 及挂载直接提交给核心。独立打包职责见[资源构建系统](../../plugins/editor/class-diagrams/asset-build-system.md)。
+
+逐类型接口与批准备见[资源导入器](asset-importers.md)。管线不按具体资源类型分派，类型识别、meta默认值、模块路径、工具指纹、依赖和转换由所选导入器实现。
+
+`AssetPipelineSystem` 与统计属于 `engine::editor`。初始化成功后，宿主可通过 `set_importer` 替换某个已登记资源类型的实现，成功才转移独占所有权；空指针、未登记/非法类型、未初始化或构建期间调用均返回失败。构建与替换由同一协调线程发起，内部互斥拒绝并行调用；并发拒绝不改写正在构建的错误信息。关闭清空登记，重新初始化恢复默认导入器，宿主需要再次注入。编辑器接口不识别插件身份，插件只向下依赖该接口。

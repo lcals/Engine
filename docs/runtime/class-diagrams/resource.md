@@ -9,17 +9,18 @@ classDiagram
     class Resource {
         +~Resource()
         +info() const AssetEntryT&
+        +generation() uint64_t
         +scene() const SceneDataT#42;
         +mesh() const MeshDataT#42;
         +shader() const ShaderDataT#42;
         +material() const MaterialDataT#42;
+        +texture() const TextureDataT#42;
         +bytes() ByteView
     }
     class AssetEntryT
     class ResourceSystem
     Resource *-- AssetEntryT : 独立元数据值
     ResourceSystem ..> Resource : 创建并输出共享引用
-    Resource o-- Resource : 必要依赖共享引用
 ```
 
 ```mermaid
@@ -30,15 +31,18 @@ classDiagram
     class MeshDataT
     class ShaderDataT
     class MaterialDataT
+    class TextureDataT
     Resource *-- SceneDataT : 场景类型时拥有
     Resource *-- MeshDataT : 网格类型时拥有
     Resource *-- ShaderDataT : Shader 类型时拥有
     Resource *-- MaterialDataT : 材质类型时拥有
+    Resource *-- TextureDataT : 贴图类型时拥有
 ```
 
 - `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。
 - 对象只拥有与其类型对应的生成数据；脚本或原始二进制持有自己的字节缓冲。ByteView 是 `std::span<const std::byte>`，不新增类。不手写重复的持久字段。
 - 查询为 const noexcept 并标注 nodiscard。类型不匹配返回空指针，非字节型资源的 bytes 返回空视图。借用仅在调用者仍持有 ResourcePtr 时有效。
 - info 指向独立拥有的元数据，不借用可替换目录。资源数据只读；材质可修改参数和场景节点实例仍归行为对象。
-- 直接必要依赖由 shared_ptr 持有，加载前验证无环。最后一个使用者释放时先销毁当前数据，再释放依赖引用。析构为 noexcept，不调用脚本或 GPU API。
-- 索引只保存 weak_ptr，目录成功更新时移除过期项，同一 GUID 再次加载时替换过期索引，不形成隐含常驻缓存。业务释放自己的 shared_ptr，不通过 GUID 强制删除别人的共享对象。
+- Resource 只拥有本项元数据、目录代际和载荷，不拥有依赖或共享缓存。析构为 noexcept，不调用脚本或 GPU API。
+- 完整依赖闭包由运行时资源依赖图插件的私有 Bundle 保活；输出仍使用 ResourcePtr 标准别名，最后一个使用者释放时由插件按正确顺序释放资源和依赖。
+- `generation()` 标识创建时目录代际，const noexcept；目录更新不改变旧对象。当前代际查询与缓存隔离由加载器处理，不通过 GUID 强制删除其他使用者的对象。

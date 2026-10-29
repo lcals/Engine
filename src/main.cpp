@@ -2,13 +2,18 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#include "runtime/resource/resource_system.hpp"
+#endif
+
 #if ENGINE_HAS_APP_SERVICES
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
 #endif
 
-#if ENGINE_START_PACKAGED_GAMEPLAY
-#include "runtime/script/script_system.hpp"
+#if ENGINE_HAS_SCRIPT_PLUGIN
+#include "plugins/runtime/script/script_system.hpp"
 #endif
 
 #include <SDL3/SDL_main.h>
@@ -77,9 +82,46 @@ int main(int argc, char* argv[])
         return 1;
     }
 #endif
-    engine::RuntimeHost engine;
-    if (!engine.initialize(config))
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    engine::ResourceSystem resources;
+    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
+    const auto shutdown_resources = [&]()
     {
+        resources.set_loader(nullptr);
+        resource_graph.shutdown();
+        resources.shutdown();
+    };
+    if (!resources.initialize(config) || !resource_graph.initialize(config))
+    {
+        shutdown_resources();
+#if ENGINE_HAS_APP_SERVICES
+        engine::LogSystem::write(engine::LogLevel::error,
+                                 "Resource services initialization failed");
+        log.shutdown();
+        engine::App::shutdown();
+#else
+        std::fputs("Resource services initialization failed\n", stderr);
+#endif
+        return 1;
+    }
+    resources.set_loader(&resource_graph);
+#endif
+    engine::RuntimeHost engine;
+    engine::ScriptRuntimeFactory script_factory = nullptr;
+#if ENGINE_HAS_SCRIPT_PLUGIN
+    script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world); };
+#endif
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    const bool engine_ready = engine.initialize(config, &resources, script_factory);
+#else
+    const bool engine_ready = engine.initialize(config, nullptr, script_factory);
+#endif
+    if (!engine_ready)
+    {
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+        shutdown_resources();
+#endif
 #if ENGINE_HAS_APP_SERVICES
         engine::LogSystem::write(engine::LogLevel::error, "Engine initialization failed");
         log.shutdown();
@@ -95,6 +137,9 @@ int main(int argc, char* argv[])
         const std::string detail(engine.gameplay()->last_error());
         engine::LogSystem::write(engine::LogLevel::error, "Gameplay startup failed: " + detail);
         engine.shutdown();
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+        shutdown_resources();
+#endif
         log.shutdown();
         engine::App::shutdown();
         return 1;
@@ -138,6 +183,9 @@ int main(int argc, char* argv[])
         }
     }
     engine.shutdown();
+#if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
+    shutdown_resources();
+#endif
     fmt::print("Engine stopped after {} rendered frames\n", frames);
 #if ENGINE_HAS_APP_SERVICES
     engine::LogSystem::write(engine::LogLevel::info,

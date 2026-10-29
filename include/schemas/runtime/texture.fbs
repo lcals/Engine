@@ -1,0 +1,19 @@
+namespace engine.schema;
+
+enum TextureEncoding:ubyte { basis, rgba8 }
+enum TextureFormat:ubyte { auto_format, rgba8, bc7, astc4x4, etc2 }
+
+table TextureData {
+    schema_version:uint = 1;
+    path:string (required);
+    width:uint;
+    height:uint;
+    mip_count:uint = 1;
+    srgb:bool = true;
+    encoding:TextureEncoding = basis;
+    format:TextureFormat = auto_format;
+    data:[ubyte] (required);
+}
+
+root_type TextureData;
+file_identifier "ETEX";

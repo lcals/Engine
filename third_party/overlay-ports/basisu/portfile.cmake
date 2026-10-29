@@ -8,6 +8,7 @@ vcpkg_from_github(
         # Remove once https://github.com/BinomialLLC/basis_universal/pull/383 merged
         0001-cmake.patch
         android-library.patch
+        quiet-library-output.patch
 )
 
 set(BASISU_BUILD_TOOLS ON)

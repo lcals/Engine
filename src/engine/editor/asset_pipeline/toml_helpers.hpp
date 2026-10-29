@@ -16,7 +16,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 [[nodiscard]] inline bool identifier(const toml::node* node, std::uint64_t& output)
@@ -150,4 +150,4 @@ template <std::size_t Count>
     return false;
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

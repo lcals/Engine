@@ -122,4 +122,15 @@ bool Transform::world_matrix(float* output) const noexcept
     return true;
 }
 
+bool Transform::restore_data(const schema::ComponentDataT& data)
+{
+    const auto* settings = data.payload.AsTransformData();
+    if (settings == nullptr || !set_settings(*settings))
+    {
+        return false;
+    }
+    set_enabled(data.enabled);
+    return true;
+}
+
 } // namespace engine

@@ -2,6 +2,7 @@
 
 #include "runtime/resource/resource_system.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -59,33 +60,59 @@ public:
 
     bool add(const engine::schema::ShaderDataT& shader)
     {
+        std::vector<std::string> dependencies;
+        for (const auto& sampler : shader.samplers)
+        {
+            std::string guid;
+            if (!sampler || !find_guid(sampler->default_texture, guid))
+            {
+                return false;
+            }
+            dependencies.push_back(std::move(guid));
+        }
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishShaderDataBuffer(builder,
                                                engine::schema::ShaderData::Pack(builder, &shader));
-        return add_entity(shader.path, engine::schema::AssetKind::shader, builder, {});
+        return add_entity(shader.path, engine::schema::AssetKind::shader, builder, dependencies);
+    }
+
+    bool add(const engine::schema::MeshDataT& mesh)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishMeshDataBuffer(builder,
+                                             engine::schema::MeshData::Pack(builder, &mesh));
+        return add_entity(mesh.path, engine::schema::AssetKind::mesh, builder, {});
+    }
+
+    bool add(const engine::schema::TextureDataT& texture)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishTextureDataBuffer(
+            builder, engine::schema::TextureData::Pack(builder, &texture));
+        return add_entity(texture.path, engine::schema::AssetKind::texture, builder, {});
     }
 
     bool add(const engine::schema::MaterialDataT& definition)
     {
         engine::schema::MaterialDataT material(definition);
-        engine::GuidMap identities;
-        for (const auto& entry : catalog.entries)
+        if (!find_guid(material.shader_path, material.shader_guid))
         {
-            if (!identities.add(entry->path, entry->guid))
+            return false;
+        }
+        std::vector<std::string> dependencies{material.shader_guid};
+        for (auto& texture : material.textures)
+        {
+            if (!texture || !find_guid(texture->texture_path, texture->texture_guid))
             {
                 return false;
             }
-        }
-        if (!identities.path_to_guid(material.shader_path, material.shader_guid) &&
-            !engine::ResourceSystem::path_to_guid(material.shader_path, material.shader_guid))
-        {
-            return false;
+            dependencies.push_back(texture->texture_guid);
         }
         flatbuffers::FlatBufferBuilder builder;
         engine::schema::FinishMaterialDataBuffer(
             builder, engine::schema::MaterialData::Pack(builder, &material));
         return add_entity(material.type_path, engine::schema::AssetKind::material, builder,
-                          {material.shader_guid});
+                          dependencies);
     }
 
     bool publish(engine::ResourceSystem& resources)
@@ -106,6 +133,19 @@ public:
     engine::schema::AssetCatalogDataT catalog;
 
 private:
+    bool find_guid(std::string_view path, std::string& guid) const
+    {
+        for (const auto& entry : catalog.entries)
+        {
+            if (entry->path == path)
+            {
+                guid = entry->guid;
+                return true;
+            }
+        }
+        return engine::ResourceSystem::path_to_guid(path, guid);
+    }
+
     bool add_entity(std::string_view path, engine::schema::AssetKind kind,
                     const flatbuffers::FlatBufferBuilder& builder,
                     const std::vector<std::string>& dependencies)
@@ -122,6 +162,10 @@ private:
         entry->path = path;
         entry->kind = kind;
         entry->dependencies = dependencies;
+        std::sort(entry->dependencies.begin(), entry->dependencies.end());
+        entry->dependencies.erase(
+            std::unique(entry->dependencies.begin(), entry->dependencies.end()),
+            entry->dependencies.end());
         engine::ByteBuffer entity;
         const engine::ByteView payload(
             reinterpret_cast<const std::byte*>(builder.GetBufferPointer()), builder.GetSize());

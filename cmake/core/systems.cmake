@@ -1,0 +1,12 @@
+# 每个系统独立编译，公开头文件搜索路径由所属目标传递。
+function(engine_add_system scope name)
+    if(ARGC GREATER 2)
+        set(_source "${ARGV2}")
+    else()
+        set(_source "src/engine/${scope}/${name}/${name}_system.cpp")
+    endif()
+    add_library(engine_${name} STATIC "${_source}")
+    add_library(engine::${name} ALIAS engine_${name})
+    target_link_libraries(engine_${name} PUBLIC engine::core)
+    engine_apply_options(engine_${name})
+endfunction()
