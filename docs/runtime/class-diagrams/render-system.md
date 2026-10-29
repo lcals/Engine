@@ -15,6 +15,10 @@ classDiagram
         +release_scene() void
         +scene_prepared() bool
         +gpu_resource_count() uint32_t
+        +set_settings(const RenderSettings& settings) bool
+        +settings() const RenderSettings&
+        +request_screenshot(string_view utf8_png_path) bool
+        +screenshot_status() ScreenshotStatus
         +render() bool
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
@@ -38,6 +42,24 @@ classDiagram
     class MeshUtils
     class EngineConfig {
         <<struct>>
+    }
+    class RenderSettings {
+        <<struct>>
+        +ambient_color : float[3]
+        +ambient_intensity : float
+        +exposure : float
+        +filmic_tonemap : bool
+        +directional_shadows : bool
+        +shadow_resolution : uint16_t
+        +shadow_bias : float
+        +clear_color : uint32_t
+    }
+    class ScreenshotStatus {
+        <<enumeration>>
+        idle
+        pending
+        complete
+        failed
     }
     class bgfx {
         <<library>>
@@ -67,6 +89,8 @@ classDiagram
     RenderSystem ..> TextureDataT : Basis 转码与 mip 上传
     RenderSystem ..> ShaderDataT : 读取生成的二进制与 uniform 映射
     RenderSystem ..> EngineConfig : on_initialize 参数
+    RenderSystem *-- RenderSettings : 拥有渲染配置
+    RenderSystem ..> ScreenshotStatus : 截图回执
     RenderSystem ..> bgfx : 图形资源及帧提交
     RenderSystem ..> SDL3 : 原生窗口及像素尺寸
     RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
@@ -105,4 +129,7 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 - 纹理来自 ResourcePtr 持有的 TextureData，Basis Universal 转码后上传全部 mip。auto 按实际 GPU 能力与 Basis 转码器支持情况选择 BC7、ASTC 4x4、ETC2 或 RGBA8；显式请求不支持的格式返回失败。sRGB 只用于颜色纹理，法线及 ORM 使用线性采样。
 - GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，停止项目、场景替换及设备关闭统一释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
 - 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
-- 最多 8 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。当前实现直接照明，不包含阴影、IBL 或渲染图。
+- 最多 8 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。
+- `set_settings()` 接受调用方明确提交的渲染参数，非法值返回失败且保持原配置。默认环境光为 0、曝光为 1、Reinhard 色调映射、阴影关闭；不改变既有直接照明效果。可选择统一环境漫反射和 filmic 色调映射；环境参数不代表隐藏场景灯，也不实现 IBL。
+- 方向光阴影使用场景中第一个启用的方向光，其变换仍来自节点。按当前可绘制网格的世界边界拟合正交投影，复用 bgfx `15-shadowmaps-simple` 的 packed-depth 路径与 16 点 PCF 采样；无方向光不产生阴影。RGBA8 深度编码与 D16 深度附件避免依赖硬件比较采样；纹理、帧缓冲及程序随场景释放，设备不支持附件格式时返回失败，不假报开启。阴影使用保留纹理槽 15，项目材质不得占用该槽。ACES 色调映射直接适配 bgfx `shaderlib.sh` 的曲线，保留来源。
+- `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧经 bgfx 回调写入 PNG 后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。回调处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时完成或取消等待中的请求。请求和查询由主线程调用，回调状态跨线程同步。

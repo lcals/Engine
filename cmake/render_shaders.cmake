@@ -85,27 +85,34 @@ function(engine_embed_render_shaders target)
 
     set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
-    foreach(_stage vs fs)
-        if(_stage STREQUAL "vs")
-            set(_type vertex)
-        else()
-            set(_type fragment)
-        endif()
-        set(_header "${_output}/${_stage}_cube.bin.h")
-        add_custom_command(
-            OUTPUT "${_header}"
-            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
-            COMMAND
-                "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/${_stage}_cube.sc" -o "${_header}"
-                --type "${_type}" --platform "${_platform}" --profile "${_profile}" --varyingdef
-                "${_source}/varying.def.sc" -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c
-                "${_stage}_cube"
-            DEPENDS "${_source}/${_stage}_cube.sc" "${_source}/varying.def.sc"
-                    "${_source}/pbr_helpers.sh" "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
-                    "${ENGINE_SHADERC_EXECUTABLE}"
-            COMMENT "Compiling embedded ${_platform}/${_profile} ${_stage} cube shader"
-            VERBATIM)
-        target_sources(${target} PRIVATE "${_header}")
+    set(_shaders ${ARGN})
+    if(NOT _shaders)
+        set(_shaders cube)
+    endif()
+    foreach(_shader IN LISTS _shaders)
+        foreach(_stage vs fs)
+            if(_stage STREQUAL "vs")
+                set(_type vertex)
+            else()
+                set(_type fragment)
+            endif()
+            set(_header "${_output}/${_stage}_${_shader}.bin.h")
+            add_custom_command(
+                OUTPUT "${_header}"
+                COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
+                COMMAND
+                    "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/${_stage}_${_shader}.sc" -o "${_header}"
+                    --type "${_type}" --platform "${_platform}" --profile "${_profile}" --varyingdef
+                    "${_source}/varying.def.sc" -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c
+                    "${_stage}_${_shader}"
+                DEPENDS "${_source}/${_stage}_${_shader}.sc" "${_source}/varying.def.sc"
+                        "${_source}/pbr_helpers.sh" "${_source}/shadow_helpers.sh"
+                        "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
+                        "${ENGINE_SHADERC_EXECUTABLE}"
+                COMMENT "Compiling embedded ${_platform}/${_profile} ${_stage} ${_shader} shader"
+                VERBATIM)
+            target_sources(${target} PRIVATE "${_header}")
+        endforeach()
     endforeach()
     target_include_directories(${target} PRIVATE "${_output}")
 endfunction()

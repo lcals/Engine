@@ -742,6 +742,139 @@ bool test_textured_renderer(const engine::EngineConfig& config)
                   "stopping textured scene retires every texture, mesh, program and uniform");
 }
 
+bool test_render_settings_and_capture(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    auto invalid = renderer.settings();
+    invalid.exposure = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!renderer.set_settings(invalid) && renderer.settings().exposure == 1.0F,
+                "invalid render settings preserve the previous configuration") ||
+        !expect(
+            !renderer.request_screenshot("relative.png") &&
+                !renderer.request_screenshot(engine::PathUtils::to_utf8(fixture.root / "bad.jpg")),
+            "capture requires absolute PNG destination") ||
+        !create_cube_scene(world, false))
+    {
+        return false;
+    }
+    auto* scene = world.scene();
+    auto* floor = scene->create_node("Shadow receiver");
+    auto* floor_transform = floor != nullptr ? floor->get_component<engine::Transform>() : nullptr;
+    auto* floor_mesh = floor != nullptr ? floor->add_component<engine::MeshRenderer>() : nullptr;
+    engine::TransformSettings floor_settings;
+    floor_settings.position = {0.0, -1.0, 0.0};
+    floor_settings.scale = {8.0, 0.1, 8.0};
+    engine::TransformSettings camera_settings;
+    camera_settings.position = {5.0, 6.0, 8.0};
+    camera_settings.rotation = {-32.0, 32.0, 0.0};
+    if (!expect(floor_transform != nullptr && floor_mesh != nullptr &&
+                    floor_transform->set_settings(floor_settings) &&
+                    floor_mesh->material().set_type("builtin/materials/default-pbr") &&
+                    floor_mesh->material().set_v4("baseColor", {0.8, 0.8, 0.8, 1.0}) &&
+                    scene->active_camera()->node().get_component<engine::Transform>()->set_settings(
+                        camera_settings),
+                "create receiver and oblique scene camera"))
+    {
+        return false;
+    }
+    engine::RenderSettings settings;
+    settings.ambient_intensity = 0.12F;
+    Screenshot unshadowed;
+    Screenshot shadowed;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "without-shadow", unshadowed))
+    {
+        return false;
+    }
+    const auto unshadowed_resources = renderer.gpu_resource_count();
+    settings.directional_shadows = true;
+    settings.shadow_resolution = 1024;
+    settings.shadow_bias = 0.0005F;
+    if (!expect(renderer.set_settings(settings), "enable explicit directional shadow settings") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "with-shadow", shadowed) ||
+        !expect(renderer.gpu_resource_count() > unshadowed_resources,
+                "shadow pass owns additional GPU resources") ||
+        !expect(shadowed.width == unshadowed.width && shadowed.height == unshadowed.height,
+                "shadow comparison retains frame dimensions"))
+    {
+        return false;
+    }
+    std::size_t shaded_pixels = 0;
+    for (std::size_t index = 0; index < shadowed.pixels.size(); ++index)
+    {
+        int before = 0;
+        int after = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            before += unshadowed.pixels[index][channel];
+            after += shadowed.pixels[index][channel];
+        }
+        shaded_pixels += before > after + 30;
+    }
+    if (!expect(shaded_pixels > 100, "directional shadow darkens receiver pixels"))
+    {
+        return false;
+    }
+    settings.filmic_tonemap = true;
+    settings.exposure = 1.25F;
+    const auto capture = fixture.root / "render-capture.png";
+    const auto capture_path = engine::PathUtils::to_utf8(capture);
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !expect(renderer.request_screenshot(capture_path) &&
+                    renderer.screenshot_status() == engine::ScreenshotStatus::pending &&
+                    !renderer.request_screenshot(capture_path),
+                "capture is queued and concurrent request is rejected") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete,
+                "capture reports completion after callback writes PNG"))
+    {
+        return false;
+    }
+    engine::ByteBuffer png;
+    constexpr std::array<unsigned char, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
+    if (!expect(engine::ResourceSystem::read_binary(capture, png) && png.size() > 24 &&
+                    std::equal(signature.begin(), signature.end(), png.begin(),
+                               [](unsigned char expected, std::byte value)
+                               { return expected == std::to_integer<unsigned char>(value); }),
+                "screenshot file contains PNG bytes instead of a renamed TGA"))
+    {
+        return false;
+    }
+    const auto blocked = fixture.root / "directory.png";
+    std::error_code error;
+    if (!std::filesystem::create_directory(blocked, error) || error ||
+        !renderer.request_screenshot(engine::PathUtils::to_utf8(blocked)) ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(renderer.screenshot_status() == engine::ScreenshotStatus::failed,
+                "PNG write error is returned through capture receipt"))
+    {
+        return false;
+    }
+    settings.directional_shadows = false;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !expect(renderer.gpu_resource_count() == unshadowed_resources,
+                "disabling shadows releases framebuffer, textures and shaders"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 8) &&
+           expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
+                  "capture and enhanced lighting retain no stopped-scene GPU resources");
+}
+
 bool tick_engine_frames(engine::RuntimeHost& engine, int count)
 {
     int submitted = 0;
@@ -847,8 +980,9 @@ int main(int, char**)
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
     const bool textures_passed = scene_passed && test_textured_renderer(config);
-    const bool engine_passed = textures_passed && test_engine(config);
-    if (!windows_passed || !scene_passed || !textures_passed || !engine_passed)
+    const bool settings_passed = textures_passed && test_render_settings_and_capture(config);
+    const bool engine_passed = settings_passed && test_engine(config);
+    if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !engine_passed)
     {
         return 1;
     }

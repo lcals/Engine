@@ -41,7 +41,7 @@ classDiagram
 - `Handler = std::function<bool(const Json&, Json&, std::unique_ptr<EditorEdit>&, std::string&)>`。查询返回结果及空记录；修改仅创建尚未应用的独占记录，由命令服务执行。注册不允许覆盖已有名称或内置 batch/undo/redo。
 - `EditorEdit::apply/revert` 检查场景、完整节点身份和相关属性期望值；失败保持当前对象不变。仅修改涉及的字段，保留脚本对其他字段的修改。不会重建场景、节点或组件。
 - batch 最多 64 条修改，按顺序执行，任一失败反序回滚已应用部分；一批只产生一次撤销记录。禁止嵌套 batch、查询及 undo/redo。撤销反序恢复，重做正序恢复；发现陈旧值则拒绝并恢复本次已执行部分。最多保留 128 批，新的修改清空 redo。
-- SceneCommands 注册 `get_scene`、`set_transform`、`set_light`、`set_material_parameter`。仅操作已有活动场景；无场景查询返回 null，修改失败。不新增建模、渲染或资源导入职责。
+- SceneCommands 注册 `get_scene`、`create_node`、`set_active_camera`、`set_transform`、`set_light`、`set_material_parameter`。仅操作已有活动场景；无场景查询返回 null，修改失败。`create_node` 创建 Transform 和可选 Camera/Light；同场景名称唯一，返回名称后可查询节点身份。撤销删除自身创建的无后代节点，重做可分配新的运行时 ID；其他修改仍检查身份与期望状态。不新增建模、渲染或资源导入职责。
 - 节点 ID 与 sceneId 使用完整十进制 uint64 字符串；数值 JSON ID、零值、溢出及旧场景身份均拒绝。材料参数支持 float/v2/v3/v4，遵守原生材质类型与值域检查。
 
 通道位于编辑器持久目录：`editor-command.json` 输入，`editor-receipt.json` 为最新回执，`editor-receipts/<session>/<requestId>.json` 保存各请求原回执。输入上限 1 MiB。请求为 `{session,projectRoot,requestId,command,arguments}`；回执为 `{session,projectRoot,requestId,command,success,result,error,completedAtMs}`。session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。会话与项目必须匹配；同会话 requestId 只执行一次，先写独立回执再更新最新快照。写回失败保留已执行结果供重试。旧 `project-control.json` 启停协议保持兼容。
@@ -89,3 +89,7 @@ classDiagram
 ```
 
 这些具体编辑记录是命令模块的内部实现，仅实现基类 apply/revert，不向运行时公开。
+
+`set_material_type(sceneId,nodeId,slot?,path)` 选择已有材质资源。内部 MaterialTypeEdit 保存前后参数与贴图快照和依赖版本；不在历史中保留 ResourcePtr，执行时重新校验并临时加载。撤销恢复原材质全部覆盖值，资源版本改变拒绝陈旧操作；普通参数修改仍只改变请求字段。
+
+创建命令在编辑器内部共享自身节点的当前运行时 ID，后续属性历史随重做重建重新定位；外部仍须使用 get_scene 得到的新 ID，旧 ID 不接受。映射随场景代次清理，不向 Node 增加编辑器身份字段。

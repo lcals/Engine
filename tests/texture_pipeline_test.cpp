@@ -226,10 +226,12 @@ bool transcode(const schema::TextureDataT& texture, bool red)
 bool shader_dependencies(AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     constexpr const char* shader_guid = "b0000000-0000-4000-8000-000000000010";
-    constexpr std::array sources = {"vs_cube.sc", "fs_cube.sc", "varying.def.sc", "pbr_helpers.sh"};
+    constexpr std::array sources = {"vs_cube.sc", "fs_cube.sc", "varying.def.sc", "pbr_helpers.sh",
+                                    "shadow_helpers.sh"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
-        "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014"};
+        "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
+        "b0000000-0000-4000-8000-000000000015"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)

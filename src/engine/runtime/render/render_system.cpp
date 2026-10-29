@@ -7,6 +7,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/mesh_utils.hpp"
+#include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -14,7 +15,12 @@
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
+#include <bimg/bimg.h>
 #include <bx/math.h>
+#include <bx/readerwriter.h>
+
+#include "fs_shadow.bin.h"
+#include "vs_shadow.bin.h"
 
 #if defined(SDL_PLATFORM_ANDROID)
 #include "android/native/android_surface.hpp"
@@ -24,9 +30,13 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <cstdlib>
+#include <filesystem>
 #include <iterator>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <set>
 #include <string>
@@ -39,7 +49,9 @@ namespace
 
 // SDL 窗口和 bgfx 生命周期都由主线程驱动；bgfx 只支持一个活动实例。
 RenderSystem* active_renderer = nullptr;
-constexpr std::uint16_t main_view = 0;
+constexpr std::uint16_t shadow_view = 0;
+constexpr std::uint16_t main_view = 1;
+constexpr std::uint8_t shadow_sampler_stage = 15;
 constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
 constexpr std::size_t maximum_lights = 8;
 
@@ -214,6 +226,123 @@ bool platform_data(SDL_Window* window, void* metal_view, bgfx::PlatformData& dat
 }
 
 } // namespace
+
+struct RenderSystem::RendererCallbacks final : bgfx::CallbackI
+{
+    struct ImageWriter final : bx::WriterI
+    {
+        explicit ImageWriter(SDL_IOStream& stream) noexcept : stream_(stream)
+        {
+        }
+
+        std::int32_t write(const void* data, std::int32_t size, bx::Error* error) override
+        {
+            if (size < 0)
+            {
+                error->setError(bx::kErrorReaderWriterWrite, "Invalid image write size");
+                return 0;
+            }
+            const auto written = SDL_WriteIO(&stream_, data, static_cast<std::size_t>(size));
+            if (written != static_cast<std::size_t>(size))
+            {
+                error->setError(bx::kErrorReaderWriterWrite, "Cannot write screenshot");
+            }
+            return static_cast<std::int32_t>(written);
+        }
+
+    private:
+        SDL_IOStream& stream_;
+    };
+
+    std::atomic<ScreenshotStatus> status{ScreenshotStatus::idle};
+    std::mutex mutex;
+    std::string pending_path;
+
+    void fatal(const char* file, std::uint16_t line, bgfx::Fatal::Enum code,
+               const char* message) override
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "bgfx fatal %s:%u: %s", file, line, message);
+        if (code != bgfx::Fatal::DebugCheck)
+        {
+            // bgfx 明确将非 DebugCheck 定义为不可恢复；普通渲染失败由返回值处理。
+            std::abort();
+        }
+    }
+
+    void traceVargs(const char*, std::uint16_t, const char* format, va_list arguments) override
+    {
+        SDL_LogMessageV(SDL_LOG_CATEGORY_RENDER, SDL_LOG_PRIORITY_DEBUG, format, arguments);
+    }
+
+    void profilerBegin(const char*, std::uint32_t, const char*, std::uint16_t) override
+    {
+    }
+    void profilerBeginLiteral(const char*, std::uint32_t, const char*, std::uint16_t) override
+    {
+    }
+    void profilerEnd() override
+    {
+    }
+    std::uint32_t cacheReadSize(std::uint64_t) override
+    {
+        return 0;
+    }
+    bool cacheRead(std::uint64_t, void*, std::uint32_t) override
+    {
+        return false;
+    }
+    void cacheWrite(std::uint64_t, const void*, std::uint32_t) override
+    {
+    }
+    void captureBegin(std::uint32_t, std::uint32_t, std::uint32_t, bgfx::TextureFormat::Enum,
+                      bool) override
+    {
+    }
+    void captureEnd() override
+    {
+    }
+    void captureFrame(const void*, std::uint32_t) override
+    {
+    }
+
+    void screenShot(const char* path, std::uint32_t width, std::uint32_t height,
+                    std::uint32_t pitch, const void* data, std::uint32_t size, bool yflip) override
+    {
+        const std::string requested = path != nullptr ? path : "";
+        const bool png = requested.ends_with(".png");
+        const std::string output = png ? requested : requested + ".tga";
+        bool success = data != nullptr && width > 0 && height > 0 &&
+                       static_cast<std::uint64_t>(width) * 4 <= pitch &&
+                       static_cast<std::uint64_t>(pitch) * height <= size;
+        SDL_IOStream* stream = success ? SDL_IOFromFile(output.c_str(), "wb") : nullptr;
+        success = stream != nullptr;
+        if (stream != nullptr)
+        {
+            ImageWriter writer(*stream);
+            bx::Error error;
+            const auto written =
+                png ? bimg::imageWritePng(&writer, width, height, pitch, data,
+                                          bimg::TextureFormat::BGRA8, yflip, &error)
+                    : bimg::imageWriteTga(&writer, width, height, pitch, data, false, yflip,
+                                          &error);
+            const bool closed = SDL_CloseIO(stream);
+            success = written > 0 && error.isOk() && closed;
+        }
+        if (!success)
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Screenshot write failed: %s", output.c_str());
+            if (stream != nullptr)
+            {
+                (void)SDL_RemovePath(output.c_str());
+            }
+        }
+        std::lock_guard lock(mutex);
+        if (status.load() == ScreenshotStatus::pending && pending_path == requested)
+        {
+            status.store(success ? ScreenshotStatus::complete : ScreenshotStatus::failed);
+        }
+    }
+};
 
 struct RenderSystem::SceneGpuResources
 {
@@ -468,10 +597,15 @@ struct RenderSystem::SceneGpuResources
                         name == "u_light_color_intensity" || name == "u_light_kind_inner";
                     if (name == "u_normal_transform" || name == "u_camera_position" ||
                         name == "u_light_direction" || name == "u_light_color" ||
-                        name == "u_light_count" || light_array)
+                        name == "u_light_count" || name == "u_ambient" || name == "u_tonemap" ||
+                        name == "u_shadow_transform" || name == "u_shadow_settings" ||
+                        name == "u_shadow_depth" || name == "s_shadow_map" || light_array)
                     {
-                        const auto type = name == "u_normal_transform" ? bgfx::UniformType::Mat4
-                                                                       : bgfx::UniformType::Vec4;
+                        const auto type =
+                            name == "u_normal_transform" || name == "u_shadow_transform"
+                                ? bgfx::UniformType::Mat4
+                            : name == "s_shadow_map" ? bgfx::UniformType::Sampler
+                                                     : bgfx::UniformType::Vec4;
                         const auto expected_count = light_array ? maximum_lights : 1;
                         if (info.type != type || info.num != expected_count)
                         {
@@ -522,7 +656,8 @@ struct RenderSystem::SceneGpuResources
             for (const auto& item : shader.samplers)
             {
                 if (!declared(item->uniform_name) ||
-                    item->stage >= bgfx::getCaps()->limits.maxTextureSamplers)
+                    item->stage >= bgfx::getCaps()->limits.maxTextureSamplers ||
+                    item->stage == shadow_sampler_stage)
                 {
                     return false;
                 }
@@ -676,6 +811,8 @@ struct RenderSystem::SceneGpuResources
         std::uint64_t revision = 0;
         bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
         bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+        std::array<float, 3> minimum{};
+        std::array<float, 3> maximum{};
 
         bool create(const MeshRenderer& renderer)
         {
@@ -697,6 +834,8 @@ struct RenderSystem::SceneGpuResources
             };
             static_assert(sizeof(Vertex) == 16 * sizeof(float));
             std::vector<Vertex> packed(data->vertices.size());
+            minimum.fill(std::numeric_limits<float>::max());
+            maximum.fill(std::numeric_limits<float>::lowest());
             for (std::size_t index = 0; index < packed.size(); ++index)
             {
                 const auto& source = data->vertices[index];
@@ -715,6 +854,11 @@ struct RenderSystem::SceneGpuResources
                                   static_cast<float>(tangent.z()), static_cast<float>(tangent.w())},
                                  {static_cast<float>(uv.x()), static_cast<float>(uv.y())},
                                  {color.r(), color.g(), color.b(), color.a()}};
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                {
+                    minimum[axis] = std::min(minimum[axis], packed[index].position[axis]);
+                    maximum[axis] = std::max(maximum[axis], packed[index].position[axis]);
+                }
             }
             const auto vertex_bytes = packed.size() * sizeof(Vertex);
             const auto index_bytes = data->indices.size() * sizeof(std::uint32_t);
@@ -748,6 +892,101 @@ struct RenderSystem::SceneGpuResources
             indices = BGFX_INVALID_HANDLE;
         }
     };
+
+    struct Shadow
+    {
+        bgfx::TextureHandle color = BGFX_INVALID_HANDLE;
+        bgfx::TextureHandle depth = BGFX_INVALID_HANDLE;
+        bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
+        bgfx::ShaderHandle vertex = BGFX_INVALID_HANDLE;
+        bgfx::ShaderHandle fragment = BGFX_INVALID_HANDLE;
+        bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
+        std::uint16_t resolution = 0;
+
+        void release() noexcept
+        {
+            if (bgfx::isValid(framebuffer))
+            {
+                bgfx::setViewFrameBuffer(shadow_view, BGFX_INVALID_HANDLE);
+                bgfx::destroy(framebuffer);
+            }
+            if (bgfx::isValid(color))
+            {
+                bgfx::destroy(color);
+            }
+            if (bgfx::isValid(depth))
+            {
+                bgfx::destroy(depth);
+            }
+            if (bgfx::isValid(program))
+            {
+                bgfx::destroy(program);
+            }
+            if (bgfx::isValid(vertex))
+            {
+                bgfx::destroy(vertex);
+            }
+            if (bgfx::isValid(fragment))
+            {
+                bgfx::destroy(fragment);
+            }
+            *this = {};
+        }
+
+        bool prepare(std::uint16_t size)
+        {
+            if (resolution == size && bgfx::isValid(framebuffer) && bgfx::isValid(program))
+            {
+                return true;
+            }
+            release();
+            constexpr auto color_flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_U_CLAMP |
+                                         BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
+                                         BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT;
+            constexpr auto depth_flags = BGFX_TEXTURE_RT_WRITE_ONLY;
+            if (size > bgfx::getCaps()->limits.maxTextureSize ||
+                !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA8, color_flags) ||
+                !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D16, depth_flags))
+            {
+                return false;
+            }
+            color = bgfx::createTexture2D(size, size, false, 1, bgfx::TextureFormat::RGBA8,
+                                          color_flags);
+            depth =
+                bgfx::createTexture2D(size, size, false, 1, bgfx::TextureFormat::D16, depth_flags);
+            if (!bgfx::isValid(color) || !bgfx::isValid(depth))
+            {
+                release();
+                return false;
+            }
+            const bgfx::TextureHandle attachments[] = {color, depth};
+            framebuffer = bgfx::createFrameBuffer(2, attachments, false);
+            vertex = bgfx::createShader(bgfx::copy(vs_shadow, sizeof(vs_shadow)));
+            fragment = bgfx::createShader(bgfx::copy(fs_shadow, sizeof(fs_shadow)));
+            if (bgfx::isValid(vertex) && bgfx::isValid(fragment))
+            {
+                program = bgfx::createProgram(vertex, fragment);
+            }
+            if (!bgfx::isValid(framebuffer) || !bgfx::isValid(program))
+            {
+                release();
+                return false;
+            }
+            resolution = size;
+            return true;
+        }
+
+        std::uint32_t resource_count() const noexcept
+        {
+            return static_cast<std::uint32_t>(bgfx::isValid(color)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(depth)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(framebuffer)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(vertex)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(fragment)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(program));
+        }
+    };
+
     std::vector<Mesh> meshes;
     std::vector<Texture> textures;
     bgfx::UniformHandle normal_transform = BGFX_INVALID_HANDLE;
@@ -759,7 +998,115 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle light_direction_outer = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_color_intensity = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_kind_inner = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ambient = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle tonemap = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_transform = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_settings = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_depth = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_sampler = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle shadow_fallback = BGFX_INVALID_HANDLE;
+    Shadow shadow;
     std::vector<Program> programs;
+
+    bool draw_shadow(const Scene& scene, const std::array<float, 4>& direction, float* matrix)
+    {
+        // bgfx 15-shadowmaps-simple 的投影与 crop；边界由当前组件几何计算。
+        float view[16]{};
+        const bx::Vec3 up = std::abs(direction[1]) > 0.95F ? bx::Vec3{0.0F, 0.0F, 1.0F}
+                                                           : bx::Vec3{0.0F, 1.0F, 0.0F};
+        bx::mtxLookAt(view, {0.0F, 0.0F, 0.0F}, {direction[0], direction[1], direction[2]}, up,
+                      bx::Handedness::Right);
+        std::array<float, 3> minimum{};
+        std::array<float, 3> maximum{};
+        minimum.fill(std::numeric_limits<float>::max());
+        maximum.fill(std::numeric_limits<float>::lowest());
+        for (const auto& mesh : meshes)
+        {
+            const Node* node = scene.find_node(mesh.node_id);
+            const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
+            float model[16]{};
+            float combined[16]{};
+            if (transform == nullptr || !transform->world_matrix(model))
+            {
+                return false;
+            }
+            bx::mtxMul(combined, model, view);
+            for (std::uint32_t corner = 0; corner < 8; ++corner)
+            {
+                const float coordinates[] = {(corner & 1) ? mesh.maximum[0] : mesh.minimum[0],
+                                             (corner & 2) ? mesh.maximum[1] : mesh.minimum[1],
+                                             (corner & 4) ? mesh.maximum[2] : mesh.minimum[2]};
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                {
+                    const float value = combined[axis] * coordinates[0] +
+                                        combined[axis + 4] * coordinates[1] +
+                                        combined[axis + 8] * coordinates[2] + combined[axis + 12];
+                    minimum[axis] = std::min(minimum[axis], value);
+                    maximum[axis] = std::max(maximum[axis], value);
+                }
+            }
+        }
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            const float margin = std::max(0.1F, (maximum[axis] - minimum[axis]) * 0.01F);
+            minimum[axis] -= margin;
+            maximum[axis] += margin;
+        }
+        const auto* caps = bgfx::getCaps();
+        float projection[16]{};
+        bx::mtxOrtho(projection, minimum[0], maximum[0], minimum[1], maximum[1], -maximum[2],
+                     -minimum[2], 0.0F, caps->homogeneousDepth, bx::Handedness::Right);
+        const float crop[] = {0.5F,
+                              0.0F,
+                              0.0F,
+                              0.0F,
+                              0.0F,
+                              caps->originBottomLeft ? 0.5F : -0.5F,
+                              0.0F,
+                              0.0F,
+                              0.0F,
+                              0.0F,
+                              caps->homogeneousDepth ? 0.5F : 1.0F,
+                              0.0F,
+                              0.5F,
+                              0.5F,
+                              caps->homogeneousDepth ? 0.5F : 0.0F,
+                              1.0F};
+        float projected[16]{};
+        bx::mtxMul(projected, projection, crop);
+        bx::mtxMul(matrix, view, projected);
+        if (!finite_matrix(matrix))
+        {
+            return false;
+        }
+        bgfx::setViewFrameBuffer(shadow_view, shadow.framebuffer);
+        bgfx::setViewRect(shadow_view, 0, 0, shadow.resolution, shadow.resolution);
+        bgfx::setViewClear(shadow_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xffffffff, 1.0F, 0);
+        bgfx::setViewTransform(shadow_view, view, projection);
+        bgfx::touch(shadow_view);
+        const float depth_scale[] = {caps->homogeneousDepth ? 0.5F : 1.0F,
+                                     caps->homogeneousDepth ? 0.5F : 0.0F, 0.0F, 0.0F};
+        for (const auto& mesh : meshes)
+        {
+            const Node* node = scene.find_node(mesh.node_id);
+            const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
+            float model[16]{};
+            if (transform == nullptr || !transform->world_matrix(model))
+            {
+                return false;
+            }
+            bgfx::setTransform(model);
+            bgfx::setUniform(shadow_depth, depth_scale);
+            bgfx::setVertexBuffer(0, mesh.vertices);
+            bgfx::setIndexBuffer(mesh.indices);
+            const auto cull =
+                linear_determinant(model) < 0.0 ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
+            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
+                           BGFX_STATE_DEPTH_TEST_LESS | cull);
+            bgfx::submit(shadow_view, shadow.program);
+        }
+        return true;
+    }
 };
 
 RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world) noexcept
@@ -855,6 +1202,15 @@ bool RenderSystem::initialize_renderer()
     init.resolution.width = width_;
     init.resolution.height = height_;
     init.resolution.reset = reset_flags;
+    if (callbacks_ == nullptr)
+    {
+        callbacks_.reset(new (std::nothrow) RendererCallbacks{});
+        if (callbacks_ == nullptr)
+        {
+            return false;
+        }
+    }
+    init.callback = callbacks_.get();
     if (!bgfx::init(init))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "bgfx initialization failed");
@@ -871,7 +1227,9 @@ bool RenderSystem::initialize_renderer()
     }
 
     bgfx::setViewName(main_view, "Main window");
-    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x181818ff, 1.0F, 0);
+    bgfx::setViewName(shadow_view, "Directional shadow");
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, settings_.clear_color, 1.0F,
+                       0);
     bgfx::setDebug(BGFX_DEBUG_NONE);
     SDL_Log("Renderer initialized: %s (%u x %u)", bgfx::getRendererName(bgfx::getRendererType()),
             width_, height_);
@@ -936,17 +1294,39 @@ bool RenderSystem::prepare_scene()
             bgfx::createUniform("u_light_color_intensity", bgfx::UniformType::Vec4, maximum_lights);
         resources.light_kind_inner =
             bgfx::createUniform("u_light_kind_inner", bgfx::UniformType::Vec4, maximum_lights);
+        resources.ambient = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
+        resources.tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformType::Vec4);
+        resources.shadow_transform =
+            bgfx::createUniform("u_shadow_transform", bgfx::UniformType::Mat4);
+        resources.shadow_settings =
+            bgfx::createUniform("u_shadow_settings", bgfx::UniformType::Vec4);
+        resources.shadow_depth = bgfx::createUniform("u_shadow_depth", bgfx::UniformType::Vec4);
+        resources.shadow_sampler = bgfx::createUniform("s_shadow_map", bgfx::UniformType::Sampler);
         for (auto uniform :
              {resources.normal_transform, resources.camera_position, resources.light_direction,
               resources.light_color, resources.light_count, resources.light_position_range,
               resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner})
+              resources.light_kind_inner, resources.ambient, resources.tonemap,
+              resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
+              resources.shadow_sampler})
         {
             if (!bgfx::isValid(uniform))
             {
                 release_scene();
                 return false;
             }
+        }
+        constexpr std::uint32_t white = 0xffffffff;
+        resources.shadow_fallback = bgfx::createTexture2D(
+            1, 1, false, 1, bgfx::TextureFormat::RGBA8,
+            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
+                BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT,
+            bgfx::copy(&white, sizeof(white)));
+        if (!bgfx::isValid(resources.shadow_fallback) ||
+            bgfx::getCaps()->limits.maxTextureSamplers <= shadow_sampler_stage)
+        {
+            release_scene();
+            return false;
         }
         scene_id_ = scene->id();
     }
@@ -1114,11 +1494,18 @@ void RenderSystem::release_scene() noexcept
         {
             texture.release();
         }
+        resources.shadow.release();
+        if (bgfx::isValid(resources.shadow_fallback))
+        {
+            bgfx::destroy(resources.shadow_fallback);
+        }
         for (auto uniform :
              {resources.normal_transform, resources.camera_position, resources.light_direction,
               resources.light_color, resources.light_count, resources.light_position_range,
               resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner})
+              resources.light_kind_inner, resources.ambient, resources.tonemap,
+              resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
+              resources.shadow_sampler})
         {
             if (bgfx::isValid(uniform))
             {
@@ -1133,6 +1520,61 @@ void RenderSystem::release_scene() noexcept
 bool RenderSystem::scene_prepared() const noexcept
 {
     return scene_resources_ != nullptr;
+}
+
+bool RenderSystem::set_settings(const RenderSettings& settings)
+{
+    if (!std::all_of(settings.ambient_color.begin(), settings.ambient_color.end(), [](float value)
+                     { return std::isfinite(value) && value >= 0.0F && value <= 1.0F; }) ||
+        !std::isfinite(settings.ambient_intensity) || settings.ambient_intensity < 0.0F ||
+        settings.ambient_intensity > 1000.0F || !std::isfinite(settings.exposure) ||
+        settings.exposure <= 0.0F || settings.exposure > 100.0F ||
+        !std::isfinite(settings.shadow_bias) || settings.shadow_bias < 0.0F ||
+        settings.shadow_bias > 0.1F || settings.shadow_resolution < 128 ||
+        settings.shadow_resolution > 8192 ||
+        (settings.shadow_resolution & (settings.shadow_resolution - 1)) != 0 ||
+        (renderer_initialized_ && settings.directional_shadows &&
+         settings.shadow_resolution > bgfx::getCaps()->limits.maxTextureSize))
+    {
+        return false;
+    }
+    settings_ = settings;
+    return true;
+}
+
+const RenderSettings& RenderSystem::settings() const noexcept
+{
+    return settings_;
+}
+
+bool RenderSystem::request_screenshot(std::string_view utf8_png_path)
+{
+    if (!renderer_initialized_ || callbacks_ == nullptr || !SDL_IsMainThread() ||
+        utf8_png_path.empty() || !utf8_png_path.ends_with(".png") ||
+        utf8_png_path.find('\0') != std::string_view::npos)
+    {
+        return false;
+    }
+    const auto path = PathUtils::from_utf8(utf8_png_path);
+    std::error_code error;
+    if (!path.is_absolute() || !std::filesystem::is_directory(path.parent_path(), error) || error)
+    {
+        return false;
+    }
+    std::lock_guard lock(callbacks_->mutex);
+    if (callbacks_->status.load() == ScreenshotStatus::pending)
+    {
+        return false;
+    }
+    callbacks_->pending_path = utf8_png_path;
+    callbacks_->status.store(ScreenshotStatus::pending);
+    bgfx::requestScreenShot(BGFX_INVALID_HANDLE, callbacks_->pending_path.c_str());
+    return true;
+}
+
+ScreenshotStatus RenderSystem::screenshot_status() const noexcept
+{
+    return callbacks_ != nullptr ? callbacks_->status.load() : ScreenshotStatus::idle;
 }
 
 std::uint32_t RenderSystem::gpu_resource_count() const noexcept
@@ -1151,7 +1593,15 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         static_cast<std::uint32_t>(bgfx::isValid(resources.light_position_range)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.light_direction_outer)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.light_color_intensity)) +
-        static_cast<std::uint32_t>(bgfx::isValid(resources.light_kind_inner));
+        static_cast<std::uint32_t>(bgfx::isValid(resources.light_kind_inner)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ambient)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.tonemap)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_transform)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_settings)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_depth)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_sampler)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_fallback)) +
+        resources.shadow.resource_count();
     for (const auto& mesh : resources.meshes)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
@@ -1277,6 +1727,41 @@ bool RenderSystem::draw_scene()
     }
     const float count_value[] = {static_cast<float>(light_count), 0.0F, 0.0F, 0.0F};
     SceneGpuResources& resources = *scene_resources_;
+    std::size_t shadow_light = light_count;
+    if (settings_.directional_shadows)
+    {
+        for (std::size_t index = 0; index < light_count; ++index)
+        {
+            if (light_kind_inner[index][0] == static_cast<float>(schema::LightKind::directional))
+            {
+                shadow_light = index;
+                break;
+            }
+        }
+    }
+    float shadow_transform[16]{};
+    bx::mtxIdentity(shadow_transform);
+    const bool shadow_enabled = shadow_light < light_count;
+    if (shadow_enabled)
+    {
+        if (!resources.shadow.prepare(settings_.shadow_resolution) ||
+            !resources.draw_shadow(*scene, light_direction_outer[shadow_light], shadow_transform))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot render directional shadow map");
+            return false;
+        }
+    }
+    else
+    {
+        resources.shadow.release();
+    }
+    const float shadow_settings[] = {settings_.shadow_bias, 1.0F / settings_.shadow_resolution,
+                                     static_cast<float>(shadow_light),
+                                     shadow_enabled ? 1.0F : 0.0F};
+    const float ambient[] = {settings_.ambient_color[0], settings_.ambient_color[1],
+                             settings_.ambient_color[2], settings_.ambient_intensity};
+    const float tonemap[] = {settings_.exposure, settings_.filmic_tonemap ? 1.0F : 0.0F, 0.0F,
+                             0.0F};
     for (const auto& node : scene->nodes())
     {
         const MeshRenderer* renderer = node->get_component<MeshRenderer>();
@@ -1334,6 +1819,12 @@ bool RenderSystem::draw_scene()
             bgfx::setUniform(resources.light_color_intensity, light_color_intensity.data(),
                              maximum_lights);
             bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(), maximum_lights);
+            bgfx::setUniform(resources.ambient, ambient);
+            bgfx::setUniform(resources.tonemap, tonemap);
+            bgfx::setUniform(resources.shadow_transform, shadow_transform);
+            bgfx::setUniform(resources.shadow_settings, shadow_settings);
+            bgfx::setTexture(shadow_sampler_stage, resources.shadow_sampler,
+                             shadow_enabled ? resources.shadow.color : resources.shadow_fallback);
             bgfx::setTransform(model);
             bgfx::setVertexBuffer(0, mesh->vertices);
             bgfx::setIndexBuffer(mesh->indices, first, count);
@@ -1415,6 +1906,8 @@ bool RenderSystem::render()
         height_ = height;
     }
 
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, settings_.clear_color, 1.0F,
+                       0);
     bgfx::setViewRect(main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(main_view);
@@ -1443,6 +1936,10 @@ void RenderSystem::shutdown_renderer() noexcept
         bgfx::shutdown();
         renderer_initialized_ = false;
         active_renderer = nullptr;
+    }
+    if (callbacks_ != nullptr && callbacks_->status.load() == ScreenshotStatus::pending)
+    {
+        callbacks_->status.store(ScreenshotStatus::failed);
     }
 #if defined(SDL_PLATFORM_MACOS) || defined(SDL_PLATFORM_IOS)
     if (metal_view_ != nullptr)

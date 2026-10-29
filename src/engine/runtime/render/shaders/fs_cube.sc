@@ -2,10 +2,12 @@ $input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
 
 #include <bgfx_shader.sh>
 #include "pbr_helpers.sh"
+#include "shadow_helpers.sh"
 
 SAMPLER2D(s_base_color, 0);
 SAMPLER2D(s_normal, 1);
 SAMPLER2D(s_orm, 2);
+SAMPLER2D(s_shadow_map, 15);
 uniform vec4 u_base_color;
 // x: metallic, y: roughness, z: unlit, w: unused.
 uniform vec4 u_material;
@@ -15,6 +17,34 @@ uniform vec4 u_light_position_range[8];
 uniform vec4 u_light_direction_outer[8];
 uniform vec4 u_light_color_intensity[8];
 uniform vec4 u_light_kind_inner[8];
+uniform vec4 u_ambient;
+// exposure, ACES enabled, reserved, reserved.
+uniform vec4 u_tonemap;
+uniform mat4 u_shadow_transform;
+// bias, texel size, shadow-casting directional light index, enabled.
+uniform vec4 u_shadow_settings;
+
+float shadow_visibility(vec3 world_position)
+{
+    vec4 coordinate = mul(u_shadow_transform, vec4(world_position, 1.0));
+    vec3 projected = coordinate.xyz / coordinate.w;
+    if (any(lessThan(projected, vec3_splat(0.0))) ||
+        any(greaterThan(projected, vec3_splat(1.0))))
+    {
+        return 1.0;
+    }
+    float visible = 0.0;
+    for (int x = 0; x < 4; ++x)
+    {
+        for (int y = 0; y < 4; ++y)
+        {
+            vec2 offset = (vec2(float(x), float(y)) - 1.5) * u_shadow_settings.y;
+            float depth = unpack_shadow_depth(texture2D(s_shadow_map, projected.xy + offset));
+            visible += step(projected.z - u_shadow_settings.x, depth);
+        }
+    }
+    return visible / 16.0;
+}
 
 vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, vec3 base_color,
                   float metallic, float roughness)
@@ -47,7 +77,12 @@ vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, ve
     vec3 specular = pbr_specular(roughness, specular_color, n_dot_l, n_dot_v, n_dot_h, v_dot_h);
     vec3 diffuse = (vec3_splat(1.0) - specular_color) * (1.0 - metallic) * base_color / 3.14159265;
     vec3 radiance = u_light_color_intensity[index].rgb * u_light_color_intensity[index].w;
-    return (diffuse + specular) * radiance * n_dot_l * attenuation;
+    float visibility = 1.0;
+    if (u_shadow_settings.w > 0.5 && abs(float(index) - u_shadow_settings.z) < 0.5)
+    {
+        visibility = shadow_visibility(world_position);
+    }
+    return (diffuse + specular) * radiance * n_dot_l * attenuation * visibility;
 }
 
 void main()
@@ -70,7 +105,7 @@ void main()
     {
         vec3 view_offset = u_camera_position.xyz - v_world_position;
         vec3 view_dir = view_offset / max(length(view_offset), 0.0001);
-        color = vec3_splat(0.0);
+        color = base_color.rgb * (1.0 - metallic) * u_ambient.rgb * u_ambient.w;
         for (int index = 0; index < 8; ++index)
         {
             if (float(index) < u_light_count.x)
@@ -79,7 +114,8 @@ void main()
             }
         }
         color *= orm.r;
-        color = color / (vec3_splat(1.0) + color);
+        color *= u_tonemap.x;
+        color = u_tonemap.y > 0.5 ? aces_filmic(color) : color / (vec3_splat(1.0) + color);
     }
     // Linear scene values to the current SDR, non-sRGB swapchain.
     color = pow(max(color, vec3_splat(0.0)), vec3_splat(1.0 / 2.2));

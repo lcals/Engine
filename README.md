@@ -257,7 +257,7 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 ### 渲染与项目控制
 
 - 同一编辑器窗口在空白与项目画面间整体切换。场景、节点和组件归当前运行；共享窗口与图形设备保留到编辑器关闭。停止会清除最后一帧，重复启动不会创建第二套实例。
-- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；最多 8 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。尚未实现 IBL 环境贴图、阴影和透明混合。
+- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；最多 8 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。支持首个启用方向光的单张阴影图、环境光常量、曝光与 ACES 色调映射；尚未实现 IBL、级联阴影、点光/聚光阴影或透明混合。
 - 内置 Shader 使用宿主 shaderc 在构建时编译为数组，项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
 - 桌面 MCP 提供无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具提供同步、热重载和状态查询；Android 由平台宿主启动 Gameplay，不提供编辑器项目启停。
 - `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
@@ -268,17 +268,23 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 
 `McpSystem` 只处理协议、工具注册和参数检查。`ProjectMcpTools` 登记原有项目启停、资源构建、同步与状态工具；`EditorMcpTools` 登记桌面场景工具。各模块提供工具名称、参数模型和回调，宿主在 MCP 初始化前登记。新增模块不需要改协议分派函数；需要主线程操作的工具回调可复用 `EditorMcpTools::call_command`，由对应编辑器模块注册和执行命令。
 
-| 工具                     | 参数与作用                                                                                            |
-| ------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `get_scene`              | 无参数；查询活动场景、节点和组件，待机返回 `scene: null`                                              |
-| `set_transform`          | `sceneId`、`nodeId`，以及至少一项 `position` / `rotation` / `scale` 三分量数组                        |
-| `set_light`              | `sceneId`、`nodeId`，以及 `color` 四分量数组或 `intensity`                                            |
-| `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`；类型为 `float` / `v2` / `v3` / `v4`，值为对应标量或数组 |
-| `execute_batch`          | `commands` 数组，每项含 `command` 与 `arguments`；支持上述三种修改，最多 64 项                        |
-| `undo` / `redo`          | `sceneId`；撤销或重做一条编辑记录                                                                     |
-| `get_editor_receipt`     | `session`、`requestId`；查询原请求的持久回执                                                          |
+| 工具 | 参数与作用 |
+| --- | --- |
+| `get_scene` | 无参数；查询活动场景、节点和组件，待机返回 `scene: null` |
+| `create_node` | `sceneId`、`name`、`component`（`empty` / `camera` / `light`）；创建带 Transform 的唯一命名节点 |
+| `set_active_camera` | `sceneId`、`nodeId`；选择场景中的 Camera 节点 |
+| `set_transform` | `sceneId`、`nodeId`，以及至少一项 `position` / `rotation` / `scale` 三分量数组 |
+| `set_camera` | `sceneId`、`nodeId`；设置投影、视角、裁剪面或正交尺寸 |
+| `set_light` | `sceneId`、`nodeId`；设置颜色、强度、类型、范围或聚光半角 |
+| `set_material_type` | `sceneId`、`nodeId`、`path`、可选 `slot`；按完整路径选择材质资源 |
+| `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`、可选 `slot`；类型为 `float` / `v2` / `v3` / `v4` |
+| `set_material_texture` | `sceneId`、`nodeId`、`name`、`path`、可选 `slot`；按采样器名设置贴图资源 |
+| `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
+| `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
+| `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
+| `get_editor_receipt` | `session`、`requestId`；查询原请求的持久回执 |
 
-场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。修改只作用于已有组件和已声明的材质参数，失败返回原因；当前不提供创建几何体、修改拓扑或保存场景的 MCP 工具。编辑结果属于本次运行，不自动写回资源文件。
+场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin/materials/default-pbr`、`builtin/materials/default-unlit` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call get_scene
@@ -289,11 +295,72 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 通用 `call <工具名>` 接受 `--arguments '<JSON对象>'` 或 `--arguments-file <文件>`，二者互斥，省略时传空对象。示例 ID 只演示格式，实际操作必须使用当前查询值。
 
-场景工具经 `editor-command.json` 交由编辑器主线程执行，MCP 不直接访问运行场景。每次成功修改生成撤销记录，批量修改失败按相反顺序回滚，成功批次只占一条记录；历史最多 128 条。停止、重启或切换场景后旧历史失效。玩法若已修改目标值，撤销会返回冲突，避免覆盖后来的业务状态；例如示例 Game 持续旋转方块时，旋转编辑可能产生此类冲突。
+场景工具经 `editor-command.json` 交由编辑器主线程执行，MCP 不直接访问运行场景。可撤销修改生成编辑记录；保存与截图是独立文件操作，不进入撤销批次。批量修改失败按相反顺序回滚，成功批次只占一条记录；历史最多 128 条。停止、重启或切换场景后旧历史失效。玩法若已修改目标值，撤销会返回冲突，避免覆盖后来的业务状态；例如示例 Game 持续旋转方块时，旋转编辑可能产生此类冲突。
 
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
 编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/class-diagrams/editor-mcp-tools.md)。
+
+### 渲染设置与真实帧截图
+
+`RenderCommands` 在编辑器主线程调用渲染器；独立的 `RenderMcpTools` 只登记并转发以下工具：
+
+| 工具 | 参数与作用 |
+| --- | --- |
+| `get_render_settings` | 无参数；读取当前渲染设置 |
+| `set_render_settings` | `ambientColor`、`ambientIntensity`、`exposure`、`filmicTonemap`、`directionalShadows`、`shadowResolution`、`shadowBias`、`clearColor` 中至少一项；支持撤销 |
+| `capture_frame` | `path`，相对于项目 `cache/` 的 `.png` 路径；请求真实引擎帧截图 |
+| `get_frame_capture` | 无参数；查询截图 `state` 与文件 `path`，`complete` 才表示文件写入完成 |
+
+截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
+
+方向光阴影适配 bgfx `15-shadowmaps-simple` 的 packed-depth 和 16 点 PCF 路径，只使用首个启用方向光并按可绘制网格边界拟合单张正交阴影图。它没有级联或局部光源阴影；大场景的阴影精度受单图分辨率约束。保留采样器槽 15，项目 Shader 不占用该槽。ACES 曲线复用 bgfx `shaderlib.sh`，环境光是常量项而非 IBL。渲染设置属于当前渲染器配置，`save_scene` 不把它们写入场景节点文件。
+
+### C++ 建模与 MCP 操作
+
+建模由三个独立目标组成：`engine::modeling` 提供纯数据几何计算，`engine::modeling_editor` 管理场景对象、选择、撤销与项目文件，`engine::modeling_mcp_tools` 只注册和转发工具。宿主负责装配；Engine、Node 和运行时渲染器不依赖建模编辑器。边界、数据所有权和类图见[建模插件](docs/plugins/modeling.md)。
+
+编辑器启动项目后，可通过 MCP 完成模型创建与编辑，无需从 DCC 导入基本几何：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call modeling_help
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call get_scene
+```
+
+取得实际 `sceneId` 后，调用 `modeling_create`（`shape` 与 `parameters`）获得稳定 `modelId`；`modeling_get` 返回当前节点身份、分页顶点/面、选择及镜像状态。`modeling_help` 提供各操作参数示例，`modeling_select` 设置或拓展选择，`modeling_edit` 调用核心操作。复制、组合、分离、删除分别使用 `modeling_duplicate`、`modeling_combine`、`modeling_separate`、`modeling_delete`。编辑和选择共用已有 `undo`、`redo`、`execute_batch`。撤销删除会重新创建节点，因此 `modelId` 保持、运行时 `nodeId` 更新，查询后再调用节点组件工具。
+
+`modeling_save` 将源模型保存到 assets 内的 `.mesh`；`modeling_load` 恢复可编辑几何。保存属于文件操作，不混入可撤销几何批次。源文件中 `[modeling]` 以 FlatBuffers 十六进制存储唯一编辑数据模型，渲染数组供兼容读取；资源导入器以编辑数据重新编译，避免过期渲染数组被发布。保存后先 `stop_project`，再 `sync_assets` 导入和同步；导入管线为新源文件生成唯一邻接 meta，并按现有规则生成 `cache/gen/<GUID>`。启用持续镜像时保存其已生成的完整几何，不保存编辑器会话开关。
+
+完整场景使用 `save_scene({"sceneId":"当前ID","path":"scenes/room.scene"})`。编辑器 `ScenePersistence` 保存节点层级、TRS、启用状态、活动相机、相机和灯光设置，并把每个网格和全部材质槽当前值写到相邻 `room-resources/meshes/`、`room-resources/materials/`。网格通过宿主注入的建模回调保留可编辑多边形源；材质引用 Shader 和贴图 GUID。邻接 meta 复用管线身份校验，重复保存保留已有 GUID；发布失败恢复已写入的源文件，回滚失败则保留缓存备份并报告位置。
+
+完整流程是 `save_scene → stop_project → sync_assets → start_project`；项目 Gameplay 应加载该 `.scene` 路径。保存不自动切换 Gameplay 入口，不在运行中导入。重载后运行时仍消费正常 GUID 资源，编辑器根据 mesh 源路径恢复可编辑数据；选择和撤销历史不落盘。单独 `modeling_save` 只保存一个网格，不保存场景引用和材质覆盖。
+
+Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封口裁切，xatlas 负责 UV 图集展开。前两者及 Clipper2 由 vcpkg 固定版本；xatlas 为固定 Git 子模块，首次构建前执行 `git submodule update --init third_party/xatlas`。不将 Unity 包中的专有实现复制进引擎。
+
+几何验证覆盖体积、封闭性、绕序、孔洞、UV、材质与失败不改变源模型。`modeling.commands` 验证命令事务和身份，`modeling.pipeline` 验证 GUID/meta、权威源编译和增量缓存，`editor.scene_persistence` 覆盖整场景保存、失败回滚、GUID 保留与重新加载，`modeling.mcp` 在开启 GPU 测试时运行真实编辑器和 MCP。完整能力边界按[功能说明](docs/plugins/modeling.md)评审，不以工具数量替代 ProBuilder/UModeler 的逐项等价验证。
+
+### 现代公寓示例
+
+`projects/modern-apartment/` 保存四个区域的开放切面公寓：客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机和 5 个灯光节点。家具、摆件、倒角、变换、材质与灯光均由 `scripts/create_modern_apartment.py` 通过正式 MCP 工具创建；Gameplay 加载已保存的 `project/scenes/apartment.scene`。
+
+准备完整 Release 构建后，安装本示例的 TS 依赖并启动编辑器（Windows 使用对应 `.exe`）：
+
+```sh
+npm ci --prefix projects/modern-apartment/settings
+build/ninja-engine-release/editor_app --project projects/modern-apartment --runtime-dir build/apartment-runtime --width 1600 --height 1000
+```
+
+保持编辑器运行，在另一个终端启动已保存的场景、应用渲染设置并截图：
+
+```sh
+python3 scripts/create_modern_apartment.py --start --view-only --configure-view --view wide --capture screenshots/apartment-wide.png
+python3 scripts/create_modern_apartment.py --view-only --view living --capture screenshots/apartment-living.png
+python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture screenshots/apartment-kitchen.png
+```
+
+使用其他构建目录时通过 `--server <mcp_app路径>` 指定。图片位于项目 `cache/screenshots/`，只有收到截图 `complete` 且 PNG 文件校验通过才报告成功。`--view bedroom` 切换卧室，`--save-only` 保存当前完整场景；不带 `--view-only` 时会按唯一名称复用或创建模型并重新设置示例布局。`--dry-run` 只打印构图清单。MCP 回执默认保存到 `build/apartment-mcp-receipts.jsonl`。
+
+节点、网格、材质和灯光已落盘；环境光、曝光、背景色及阴影设置由 `--configure-view` 显式提交，不写入场景。示例使用几何造型与颜色材质，采用实时 PBR、方向光阴影和局部点光；不包含烘焙光照或 IBL。
 
 ### 组件、数据模型与资源扩展
 
@@ -310,7 +377,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 ./build/ninja-engine-debug/asset_build_app --project projects/minimal
 ```
 
-渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 8 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。不包含阴影、IBL、透明排序或 ProBuilder 建模算法。
+渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 8 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。方向光阴影适配 bgfx `15-shadowmaps-simple`，支持环境漫反射与可选 ACES 曝光；尚无 IBL 或透明排序。几何生成与编辑归上文的建模插件。
 
 `Material.SetTexture(name, path)` 按 Shader 的 sampler 声明设置贴图，`GetTexture(name)` 返回当前资源路径。内置参数为 `baseColorTexture`、`normalTexture`、`ormTexture`（AO/Roughness/Metallic）；法线与 ORM 使用线性贴图。`MeshRenderer.GetMaterial(slot)` 访问 0..15 的材质槽，`SetMaterialCount(count)` 设置槽数。C++ `set_mesh_data()` 深拷贝生成的 MeshDataT，成功递增修订号并更新 GPU；未落盘的动态网格不能保存成包含无效 GUID 的场景。
 
@@ -481,7 +548,7 @@ V8、ozz、vcpkg 与编译缓存验证包含无变化构建不重建上游、不
 
 MCP 模块化回归覆盖独立工具注册、参数检查、旧工具兼容、现有组件修改、批量回滚、撤销与重做冲突恢复、请求重放、超时后的持久回执、跨项目及跨会话隔离。批次中遇到不可撤销查询或未注册命令会恢复先前修改和历史。渲染扩展加入相机、灯光类型与具名贴图命令，真实编辑器测试验证修改、回执及撤销流程。
 
-渲染基础使用 `local-ninja-debug` / `local-ninja-release`（继承根 Presets）完成构建，全套 CTest 各 42/42 通过。Metal 截图像素验证 UV、sRGB/线性、动态几何和三种灯光及累加；资源检查覆盖多材质槽、贴图共享和重复启停释放。贴图回归执行真实 PNG/JPEG 解码、UASTC/ETC1S 编码与转码，验证 meta 参数、完整 mip 链、增量命中、非法参数及失败保留旧缓存。Android 仅验证宿主打包和模拟 adb 同步，未重建本轮 APK，未验证各设备压缩格式矩阵。94 张类图通过 Mermaid 解析和渲染，验证结果的源码哈希与当前文档一致。
+渲染基础使用 `local-ninja-debug` / `local-ninja-release`（继承根 Presets）完成构建，全套 CTest 各 42/42 通过。Metal 截图像素验证 UV、sRGB/线性、动态几何和三种灯光及累加；资源检查覆盖多材质槽、贴图共享和重复启停释放。贴图回归执行真实 PNG/JPEG 解码、UASTC/ETC1S 编码与转码，验证 meta 参数、完整 mip 链、增量命中、非法参数及失败保留旧缓存。Android 仅验证宿主打包和模拟 adb 同步，未重建本轮 APK，未验证各设备压缩格式矩阵。该阶段 94 张类图通过 Mermaid 解析和渲染；记录对应当时源码，不代表本轮新增类图已经验证。
 
 MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Release 构建及相关回归各 9/9；渲染基础阶段未重跑该精简配置。C++、Python 与 CMake 改动通过格式检查。
 
@@ -493,7 +560,10 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能；Android 实体手机、Linux / iOS 及完整 Windows 运行时仍需对应平台验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- PBR 尚无阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/modeling.md#几何与持久化边界)为准。
+
+本轮建模与公寓验证（2026-10-29）：macOS Metal 下 Debug / Release 构建通过，49 项 CTest 的最终结果均通过，包含发现并修复问题后的受影响项复测。新增真实编辑器 MCP 回归覆盖渲染设置撤销、PNG 完成回执、截图路径边界、整场景保存与重新加载后继续编辑；修复了 toml++ 混合异常配置导致的格式化 ABI 冲突，以及 RGBA8 阴影编码产生的自阴影条纹。公寓通过 MCP 创建 322 个模型、保存并重新加载 328 个节点，646 个资源的 GUID 全部唯一，实际输出全景及三个近景 PNG。104 块类图已通过真实 Mermaid 解析及渲染；本轮 Shader 通过 Metal / Android SPIR-V 编译，未据此宣称 Android APK 或真机已验证。
 
 ## 目录
 

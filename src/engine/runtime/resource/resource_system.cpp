@@ -122,6 +122,12 @@ bool valid_uniform_name(std::string_view name)
 bool reserved_uniform(std::string_view name)
 {
     constexpr std::array names = {std::string_view("u_normal_transform"),
+                                  std::string_view("u_ambient"),
+                                  std::string_view("u_tonemap"),
+                                  std::string_view("u_shadow_transform"),
+                                  std::string_view("u_shadow_settings"),
+                                  std::string_view("u_shadow_depth"),
+                                  std::string_view("s_shadow_map"),
                                   std::string_view("u_camera_position"),
                                   std::string_view("u_light_direction"),
                                   std::string_view("u_light_color"),
@@ -305,7 +311,7 @@ bool valid_shader(const schema::ShaderDataT& data)
             !names.insert(sampler->name).second || !valid_uniform_name(sampler->uniform_name) ||
             reserved_uniform(sampler->uniform_name) ||
             uniform_slots.contains(sampler->uniform_name) ||
-            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 16 ||
+            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 15 ||
             !stages.insert(sampler->stage).second ||
             !sampler->default_texture.starts_with("builtin/") ||
             !valid_resource_path(sampler->default_texture))

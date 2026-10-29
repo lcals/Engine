@@ -14,4 +14,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     include(asset_pipeline.cmake)
 endif()
 
+if(ENGINE_ENABLE_EDITOR_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    include(modeling.cmake)
+endif()
+
 include(v8.cmake)
