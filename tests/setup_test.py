@@ -7,7 +7,6 @@ import subprocess
 import tempfile
 import unittest
 
-
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "setup.sh"
 BASH = shutil.which("bash")
 
@@ -21,18 +20,30 @@ class SetupTests(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.log = self.root / "calls"
-        self.environment = dict(os.environ, PATH=str(self.bin), MOCK_ROOT=str(self.root),
-                                MOCK_LOG=str(self.log), MOCK_PLATFORM="Linux")
+        self.environment = dict(
+            os.environ,
+            PATH=str(self.bin),
+            MOCK_ROOT=str(self.root),
+            MOCK_LOG=str(self.log),
+            MOCK_PLATFORM="Linux",
+        )
         self.executable("uname", 'printf "%s\\n" "$MOCK_PLATFORM"')
         self.executable("id", 'printf "0\\n"')
         self.executable("cat", '/bin/cat "$@"')
-        for name, version in (("cmake", "cmake version 3.25.0"), ("git", "git version 2.40"),
-                              ("ninja", "1.11.0"), ("ccache", "ccache version 4.10"),
-                              ("sccache", "sccache 0.10.0")):
+        for name, version in (
+            ("cmake", "cmake version 3.25.0"),
+            ("git", "git version 2.40"),
+            ("ninja", "1.11.0"),
+            ("ccache", "ccache version 4.10"),
+            ("sccache", "sccache 0.10.0"),
+        ):
             (self.root / ("version-" + name)).write_text(version)
-            self.executable(name, f'''printf '{name} %s\\n' "$*" >> "$MOCK_LOG"
+            self.executable(
+                name,
+                f'''printf '{name} %s\\n' "$*" >> "$MOCK_LOG"
 [[ -f "$MOCK_ROOT/ready-{name}" ]] || exit 1
-printf '%s\\n' "$(<"$MOCK_ROOT/version-{name}")"''')
+printf '%s\\n' "$(<"$MOCK_ROOT/version-{name}")"''',
+            )
             self.ready(name)
 
     def executable(self, name, body):
@@ -48,7 +59,9 @@ printf '%s\\n' "$(<"$MOCK_ROOT/version-{name}")"''')
             marker.unlink(missing_ok=True)
 
     def manager(self, name):
-        self.executable(name, '''printf 'manager %s\\n' "$*" >> "$MOCK_LOG"
+        self.executable(
+            name,
+            """printf 'manager %s\\n' "$*" >> "$MOCK_LOG"
 [[ "$MOCK_FAIL" != yes ]] || exit 17
 if [[ "$1" == --prefix ]]; then printf '%s\\n' "$MOCK_ROOT"; exit 0; fi
 if [[ "$1" == list ]]; then exit 1; fi
@@ -58,11 +71,17 @@ for argument in "$@"; do
         ninja-build) : > "$MOCK_ROOT/ready-ninja" ;;
         cmake|git|ninja|ccache|sccache) : > "$MOCK_ROOT/ready-$argument" ;;
     esac
-done''')
+done""",
+        )
 
     def run_setup(self, *arguments):
-        return subprocess.run([BASH, str(SCRIPT), *arguments], env=self.environment,
-                              capture_output=True, text=True, timeout=10)
+        return subprocess.run(
+            [BASH, str(SCRIPT), *arguments],
+            env=self.environment,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
 
     def calls(self):
         return self.log.read_text() if self.log.exists() else ""
@@ -126,8 +145,10 @@ done''')
         self.assertIn("manager install ccache", self.calls())
 
     def test_linux_managers_use_native_ninja_package_names(self):
-        for manager, expected in (("dnf", "install -y ninja-build"),
-                                  ("pacman", "-S --needed --noconfirm ninja")):
+        for manager, expected in (
+            ("dnf", "install -y ninja-build"),
+            ("pacman", "-S --needed --noconfirm ninja"),
+        ):
             with self.subTest(manager=manager):
                 self.ready("ninja", False)
                 self.manager(manager)

@@ -13,7 +13,6 @@ import subprocess
 import sys
 import tempfile
 
-
 ROOT = Path(__file__).resolve().parents[1]
 MAX_ASSET_SIZE = 64 * 1024 * 1024
 MAX_SCRIPT_SIZE = 4 * 1024 * 1024
@@ -30,8 +29,12 @@ def require_directory(path):
 
 
 def safe_relative(path):
-    if (not path or path.startswith("/") or any(char in path for char in ("\\", ":", "\0"))
-            or any(part in ("", ".", "..") for part in path.split("/"))):
+    if (
+        not path
+        or path.startswith("/")
+        or any(char in path for char in ("\\", ":", "\0"))
+        or any(part in ("", ".", "..") for part in path.split("/"))
+    ):
         raise ValueError(f"资源相对路径不安全：{path!r}")
     # 不让无法表达为 UTF-8 的系统文件名进入 JSON 或 SDL 资源接口。
     path.encode("utf-8")
@@ -58,11 +61,17 @@ def asset_files(root, directory=None):
 def compile_catalog(project, asset_builder=None):
     if asset_builder is None:
         if not (project / "cache/catalog.bin").is_file():
-            raise ValueError("缺少已编译的 GUID 资源目录；请传入 --asset-builder，或先用 asset_build_app --target android 编译项目。")
+            raise ValueError(
+                "缺少已编译的 GUID 资源目录；请传入 --asset-builder，或先用 asset_build_app --target android 编译项目。"
+            )
         return
     asset_builder = Path(asset_builder).resolve()
-    result = subprocess.run([str(asset_builder), "--project", str(project), "--target", "android"],
-                            cwd=ROOT, stdout=sys.stderr, check=False)
+    result = subprocess.run(
+        [str(asset_builder), "--project", str(project), "--target", "android"],
+        cwd=ROOT,
+        stdout=sys.stderr,
+        check=False,
+    )
     if result.returncode != 0:
         raise ValueError("Android 资产任务编译失败；包内旧资源保持原样，请修复编译诊断后重试。")
 
@@ -105,7 +114,7 @@ def catalog_entries(source):
         end = start + 4 + length
         if end >= len(data) or data[end] != 0:
             raise ValueError("GUID catalog.bin 字符串越界")
-        return data[start + 4:end].decode("utf-8")
+        return data[start + 4 : end].decode("utf-8")
 
     table = scalar(0, "<I")
     version = field(table, 0)
@@ -131,9 +140,13 @@ def catalog_entries(source):
         size_field = field(asset, 4)
         size = scalar(size_field, "<Q") if size_field is not None else 0
         module = string(asset, 6, False)
-        if (not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", guid)
-                or guid in identities or path in paths or kind > 5
-                or not re.fullmatch(r"[0-9a-f]{16}", checksum)):
+        if (
+            not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", guid)
+            or guid in identities
+            or path in paths
+            or kind > 5
+            or not re.fullmatch(r"[0-9a-f]{16}", checksum)
+        ):
             raise ValueError("GUID catalog 条目身份、路径或校验值无效")
         if kind == 1:
             safe_relative(module)
@@ -162,8 +175,10 @@ def copy_asset(source, destination, relative):
     checksum = FNV_OFFSET
     with source.open("rb") as input_file, destination.open("xb") as output_file:
         opened = os.fstat(input_file.fileno())
-        if (not stat.S_ISREG(opened.st_mode)
-                or (opened.st_dev, opened.st_ino) != (before.st_dev, before.st_ino)):
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+            before.st_dev,
+            before.st_ino,
+        ):
             raise ValueError(f"准备资源期间文件来源发生变化：{source}")
         while block := input_file.read(1024 * 1024):
             size += len(block)
@@ -178,8 +193,9 @@ def copy_asset(source, destination, relative):
 
 
 def json_bytes(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True,
-                      separators=(",", ":")).encode("utf-8")
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def stage_assets(source, staging):
@@ -192,8 +208,11 @@ def stage_assets(source, staging):
     expected = {item["path"]: item for item in catalog_entries(source)} if guid_catalog else {}
     if guid_catalog:
         require_directory(source / "gen")
-    paths = ([source / "catalog.bin"] + [source / relative for relative in expected]
-             if guid_catalog else asset_files(source))
+    paths = (
+        [source / "catalog.bin"] + [source / relative for relative in expected]
+        if guid_catalog
+        else asset_files(source)
+    )
     for path in paths:
         relative = safe_relative(path.relative_to(source).as_posix())
         item = copy_asset(path, target / relative, relative)
@@ -252,9 +271,11 @@ def publish_assets(staging, output):
         except BaseException as restore_error:
             preserve_backup = True
             raise ValueError(
-                f"资源发布失败且回滚未完成；备份保留在 {staging}，请恢复后重试："
-                f"{restore_error}") from error
-        raise ValueError(f"资源发布失败，已恢复上一份输出，请检查目录权限后重试：{error}") from error
+                f"资源发布失败且回滚未完成；备份保留在 {staging}，请恢复后重试：" f"{restore_error}"
+            ) from error
+        raise ValueError(
+            f"资源发布失败，已恢复上一份输出，请检查目录权限后重试：{error}"
+        ) from error
     finally:
         if not preserve_backup:
             shutil.rmtree(staging)
@@ -271,7 +292,9 @@ def prepare(project, output, asset_builder=None):
         raise ValueError(f"Android 资源输出不能是符号链接：{output}")
     output = output.resolve()
     if output.is_relative_to(project) or project.is_relative_to(output):
-        raise ValueError("Android 包资源输出与项目目录不能相互包含，请使用 CMake 的 android/assets 目录。")
+        raise ValueError(
+            "Android 包资源输出与项目目录不能相互包含，请使用 CMake 的 android/assets 目录。"
+        )
     # 编译前检查 TS 与静态资源树；编译结果也会在复制前独立检查。
     for _ in asset_files(project / "assets"):
         pass
@@ -283,7 +306,8 @@ def prepare(project, output, asset_builder=None):
         lock.mkdir()
     except FileExistsError as error:
         raise ValueError(
-            f"Android 资源正在准备或上次任务中断：{lock}。确认没有打包任务后移除此锁目录再重试。") from error
+            f"Android 资源正在准备或上次任务中断：{lock}。确认没有打包任务后移除此锁目录再重试。"
+        ) from error
     try:
         compile_catalog(project, asset_builder)
         source = project / "cache"
@@ -301,13 +325,21 @@ def prepare(project, output, asset_builder=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", required=True, type=Path, help="含 settings/cache/assets 的项目目录")
-    parser.add_argument("--output", required=True, type=Path, help="CMake binary/android/assets 目录")
-    parser.add_argument("--asset-builder", type=Path, help="宿主 asset_build_app 路径，编译 Android GUID 产物")
+    parser.add_argument(
+        "--project", required=True, type=Path, help="含 settings/cache/assets 的项目目录"
+    )
+    parser.add_argument(
+        "--output", required=True, type=Path, help="CMake binary/android/assets 目录"
+    )
+    parser.add_argument(
+        "--asset-builder", type=Path, help="宿主 asset_build_app 路径，编译 Android GUID 产物"
+    )
     arguments = parser.parse_args()
     manifest = prepare(arguments.project, arguments.output, arguments.asset_builder)
-    print(f"Android 项目资源已准备：{arguments.output}（{len(manifest['files'])} 个文件，"
-          f"版本 {manifest['revision']}）")
+    print(
+        f"Android 项目资源已准备：{arguments.output}（{len(manifest['files'])} 个文件，"
+        f"版本 {manifest['revision']}）"
+    )
     return 0
 
 

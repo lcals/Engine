@@ -3,6 +3,8 @@
 #include "runtime/scene/component.hpp"
 #include "runtime/scene/material.hpp"
 
+#include <string_view>
+
 namespace engine
 {
 

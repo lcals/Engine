@@ -13,6 +13,12 @@
 
 namespace
 {
+#include <cstdint>
+#include <memory>
+#include <string_view>
+#include <system_error>
+#include <utility>
+
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 

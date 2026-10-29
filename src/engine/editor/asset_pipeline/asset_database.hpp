@@ -6,6 +6,8 @@
 #include <map>
 
 struct sqlite3;
+#include <string>
+#include <vector>
 
 namespace engine::asset_pipeline
 {

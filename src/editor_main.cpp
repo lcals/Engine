@@ -2,8 +2,9 @@
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
-#include "runtime/engine.hpp"
+#include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -21,6 +22,7 @@
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -46,8 +48,8 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
     engine::AssetPipelineSystem pipeline;
     engine::AssetSyncSystem sync;
 #endif
-    auto& runtime = engine::Engine::instance();
-    engine::EditorSystem editor(environment, &runtime);
+    engine::RuntimeHost runtime;
+    std::unique_ptr<engine::EditorSystem> editor;
     std::uint64_t frames = 0;
     const int result = [&]()
     {
@@ -74,7 +76,8 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             LogSystem::write(LogLevel::error, "Engine initialization failed");
             return 1;
         }
-        if (!editor.initialize(config))
+        editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay());
+        if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
@@ -87,7 +90,7 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
             previous_time = current_time;
-            if (!editor.tick(delta_time))
+            if (!editor->tick(delta_time))
             {
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
@@ -118,8 +121,11 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
     }();
 
     // 玩法回调执行时编辑器和全部引擎系统仍就绪。
-    runtime.stop_gameplay();
-    editor.shutdown();
+    if (editor != nullptr)
+    {
+        editor->shutdown();
+        editor.reset();
+    }
     runtime.shutdown();
 #if ENGINE_HAS_SCRIPT_RUNTIME
     sync.shutdown();

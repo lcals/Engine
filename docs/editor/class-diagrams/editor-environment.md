@@ -11,7 +11,7 @@ classDiagram
         +~EditorEnvironment()
         +initialize(bool snapshot_builtin_assets) bool
         +shutdown() void
-        +is_initialized() const bool
+        +is_initialized() bool
         +prepare_builtin_assets() bool
         -ProjectSystem& project_
         -std::string project_identity_
@@ -47,4 +47,4 @@ classDiagram
 - 环境关闭只删除本次创建的快照目录，保留持久数据、项目编译缓存和其他会话目录。初始化失败时清理自己已创建的目录。
 - 项目或 App 提前失效后 `is_initialized()` 返回 `false`，编辑器拒绝后续工作；宿主不可在环境存活时自行重配 App。
 
-构造为 explicit，析构与 shutdown 为 noexcept；返回状态的方法均标注 nodiscard，清理失败仅记录日志。
+构造为 explicit，析构与 shutdown 为 noexcept，is_initialized 为 const noexcept；返回状态的方法均标注 nodiscard，清理失败仅记录日志。

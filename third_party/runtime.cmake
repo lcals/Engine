@@ -55,12 +55,20 @@ foreach(_git_name IN LISTS _ozz_git_names)
     list(APPEND _ozz_git_paths "${_git_path}")
 endforeach()
 # 精确路径 glob 同时检测 loose ref / packed-refs 的创建和删除。
-file(GLOB _ozz_git_files CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE ${_ozz_git_paths})
+file(
+    GLOB _ozz_git_files CONFIGURE_DEPENDS
+    LIST_DIRECTORIES FALSE
+    ${_ozz_git_paths})
 
-file(GLOB_RECURSE _ozz_override_files CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
-     "${_ozz_overrides}/*")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-             "${_ozz_prepare_script}" ${_ozz_git_files} ${_ozz_override_files})
+file(
+    GLOB_RECURSE _ozz_override_files CONFIGURE_DEPENDS
+    LIST_DIRECTORIES FALSE
+    "${_ozz_overrides}/*")
+set_property(
+    DIRECTORY
+    APPEND
+    PROPERTY CMAKE_CONFIGURE_DEPENDS "${_ozz_prepare_script}" ${_ozz_git_files}
+             ${_ozz_override_files})
 
 # 只使用 HEAD 的已提交源码；本地修复继续通过 overrides 提供。
 execute_process(
@@ -90,35 +98,43 @@ set(_ozz_prepare_arguments
     "-DENGINE_DEP_BUILD_ROOT=${CMAKE_BINARY_DIR}"
     "-DENGINE_DEP_STAMP=${_ozz_stamp}"
     "-DENGINE_DEP_GIT_EXECUTABLE=${GIT_EXECUTABLE}")
-execute_process(
-    COMMAND "${CMAKE_COMMAND}" ${_ozz_prepare_arguments}
-            "-DENGINE_DEP_MODE=CONFIGURE" -P "${_ozz_prepare_script}"
-    RESULT_VARIABLE _ozz_prepare_result)
+execute_process(COMMAND "${CMAKE_COMMAND}" ${_ozz_prepare_arguments} "-DENGINE_DEP_MODE=CONFIGURE"
+                        -P "${_ozz_prepare_script}" RESULT_VARIABLE _ozz_prepare_result)
 if(NOT _ozz_prepare_result EQUAL 0)
     message(FATAL_ERROR "Failed to prepare ozz-animation")
 endif()
 # Makefiles 不会为缺失的 BYPRODUCT 自动运行规则；目录清单变化先触发重新配置恢复。
-file(GLOB_RECURSE _ozz_present_staged_files CONFIGURE_DEPENDS LIST_DIRECTORIES FALSE
-     "${_ozz_staged}/*")
+file(
+    GLOB_RECURSE _ozz_present_staged_files CONFIGURE_DEPENDS
+    LIST_DIRECTORIES FALSE
+    "${_ozz_staged}/*")
 
-set(ozz_build_tools OFF CACHE BOOL "Build ozz tools" FORCE)
-set(ozz_build_samples OFF CACHE BOOL "Build ozz samples" FORCE)
-set(ozz_build_howtos OFF CACHE BOOL "Build ozz howtos" FORCE)
-set(ozz_build_tests OFF CACHE BOOL "Build ozz tests" FORCE)
+set(ozz_build_tools
+    OFF
+    CACHE BOOL "Build ozz tools" FORCE)
+set(ozz_build_samples
+    OFF
+    CACHE BOOL "Build ozz samples" FORCE)
+set(ozz_build_howtos
+    OFF
+    CACHE BOOL "Build ozz howtos" FORCE)
+set(ozz_build_tests
+    OFF
+    CACHE BOOL "Build ozz tests" FORCE)
 if(MSVC)
     # 匹配本项目与 x64-windows vcpkg 包的 /MDd、/MD，避免链接时混用 CRT。
-    set(ozz_build_msvc_rt_dll ON CACHE BOOL "Use the project's dynamic MSVC runtime" FORCE)
+    set(ozz_build_msvc_rt_dll
+        ON
+        CACHE BOOL "Use the project's dynamic MSVC runtime" FORCE)
 endif()
 add_subdirectory("${_ozz_staged}" "${CMAKE_CURRENT_BINARY_DIR}/ozz-animation" EXCLUDE_FROM_ALL)
 
 add_custom_command(
     OUTPUT "${_ozz_stamp}"
-    BYPRODUCTS ${_ozz_staged_files}
-               "${_ozz_staged}/.engine-stage-identity"
-               "${_ozz_staged}/.engine-stage-revision"
-               "${_ozz_staged}/.engine-stage-overrides"
-    COMMAND "${CMAKE_COMMAND}" ${_ozz_prepare_arguments}
-            "-DENGINE_DEP_MODE=BUILD" -P "${_ozz_prepare_script}"
+    BYPRODUCTS ${_ozz_staged_files} "${_ozz_staged}/.engine-stage-identity"
+               "${_ozz_staged}/.engine-stage-revision" "${_ozz_staged}/.engine-stage-overrides"
+    COMMAND "${CMAKE_COMMAND}" ${_ozz_prepare_arguments} "-DENGINE_DEP_MODE=BUILD" -P
+            "${_ozz_prepare_script}"
     DEPENDS "${_ozz_prepare_script}" ${_ozz_git_files} ${_ozz_override_files}
     COMMENT "Preparing changed ozz-animation inputs"
     VERBATIM)
@@ -126,15 +142,22 @@ add_custom_target(engine_prepare_ozz_animation ALL DEPENDS "${_ozz_stamp}")
 
 # 所有 ozz 目标（含源码融合目标）只依赖有变化才执行的准备规则。
 function(_engine_ozz_add_prepare_dependency _directory)
-    get_property(_targets DIRECTORY "${_directory}" PROPERTY BUILDSYSTEM_TARGETS)
+    get_property(
+        _targets
+        DIRECTORY "${_directory}"
+        PROPERTY BUILDSYSTEM_TARGETS)
     foreach(_target IN LISTS _targets)
         add_dependencies("${_target}" engine_prepare_ozz_animation)
         get_target_property(_target_type "${_target}" TYPE)
-        if(_target_type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$")
+        if(_target_type MATCHES
+           "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$")
             engine_apply_compiler_cache("${_target}")
         endif()
     endforeach()
-    get_property(_subdirectories DIRECTORY "${_directory}" PROPERTY SUBDIRECTORIES)
+    get_property(
+        _subdirectories
+        DIRECTORY "${_directory}"
+        PROPERTY SUBDIRECTORIES)
     foreach(_subdirectory IN LISTS _subdirectories)
         _engine_ozz_add_prepare_dependency("${_subdirectory}")
     endforeach()

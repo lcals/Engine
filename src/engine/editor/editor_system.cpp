@@ -2,7 +2,7 @@
 
 #include "editor/editor_environment.hpp"
 #include "runtime/app/app.hpp"
-#include "runtime/engine.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/script/script_system.hpp"
@@ -55,7 +55,7 @@ bool plain_path(const fs::path& path)
 
 struct EditorSystem::State
 {
-    Engine& runtime;
+    GameplaySession& gameplay;
     fs::path directory;
     std::string project_root;
     std::string session;
@@ -69,18 +69,18 @@ struct EditorSystem::State
     std::string previous_status;
     std::chrono::steady_clock::time_point last_write{};
 
-    explicit State(Engine& engine) : runtime(engine)
+    explicit State(GameplaySession& session) : gameplay(session)
     {
     }
 
     bool publish(bool force = false)
     {
-        const auto* script = runtime.script_status();
+        const auto* script = gameplay.script_status();
         const bool running = !closed && script != nullptr && script->running;
         std::string error = last_error;
         if (error.empty())
         {
-            error = runtime.last_error();
+            error = gameplay.last_error();
         }
         if (error.empty() && script != nullptr)
         {
@@ -189,15 +189,15 @@ struct EditorSystem::State
             }
             if (last_command == "start_project")
             {
-                last_success = runtime.start_gameplay();
+                last_success = gameplay.start();
                 if (!last_success)
                 {
-                    last_error = runtime.last_error();
+                    last_error = gameplay.last_error();
                 }
             }
             else
             {
-                runtime.stop_gameplay();
+                gameplay.stop();
                 last_success = true;
             }
             transition.clear();
@@ -213,8 +213,8 @@ struct EditorSystem::State
     }
 };
 
-EditorSystem::EditorSystem(EditorEnvironment& environment, Engine* runtime) noexcept
-    : environment_(environment), runtime_(runtime)
+EditorSystem::EditorSystem(EditorEnvironment& environment, GameplaySession* gameplay) noexcept
+    : environment_(environment), gameplay_(gameplay)
 {
 }
 
@@ -236,13 +236,13 @@ bool EditorSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
-    if (runtime_ != nullptr)
+    if (gameplay_ != nullptr)
     {
         if (!App::is_initialized())
         {
             return false;
         }
-        state_ = std::make_unique<State>(*runtime_);
+        state_ = std::make_unique<State>(*gameplay_);
         state_->directory = App::persistent_data_path();
         if (!plain_path(state_->directory))
         {
@@ -268,7 +268,7 @@ void EditorSystem::on_shutdown() noexcept
 {
     if (state_ != nullptr)
     {
-        runtime_->stop_gameplay();
+        gameplay_->stop();
         state_->closed = true;
         if (!state_->session.empty() && !state_->publish(true))
         {

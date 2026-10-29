@@ -42,7 +42,7 @@ android {
         }
         release {
             minifyEnabled = false
-            // 此阶段的 Release APK 仅供本地测试，使用本机生成的调试签名。
+            // Release APK 使用本机生成的调试签名，供本地测试。
             signingConfig = signingConfigs.debug
         }
     }
@@ -56,10 +56,15 @@ androidComponents {
 
 tasks.named('preBuild') {
     doFirst {
-        ['jniLibs/arm64-v8a/libmain.so', 'jniLibs/arm64-v8a/libSDL3.so',
-         'jniLibs/arm64-v8a/libc++_shared.so', 'java/org/libsdl/app/SDLActivity.java',
-         'assets/v8/icudtl.dat', 'assets/project/catalog.bin',
-         'assets/project-manifest.json'].each { relative ->
+        [
+            'jniLibs/arm64-v8a/libmain.so',
+            'jniLibs/arm64-v8a/libSDL3.so',
+            'jniLibs/arm64-v8a/libc++_shared.so',
+            'java/org/libsdl/app/SDLActivity.java',
+            'assets/v8/icudtl.dat',
+            'assets/project/catalog.bin',
+            'assets/project-manifest.json'
+        ].each { relative ->
             File input = new File(nativeDirectory, relative)
             if (!input.isFile() || input.length() == 0) {
                 throw new GradleException("Missing ${relative}; build CMake preset android-arm64-${nativeConfiguration} first")

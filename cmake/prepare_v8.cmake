@@ -31,11 +31,13 @@ set(_android FALSE)
 if(ENGINE_V8_TARGET_OS STREQUAL "android")
     set(_android TRUE)
     if(NOT EXISTS "${ENGINE_V8_ANDROID_NDK}/source.properties")
-        message(FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_NDK pointing to NDK 27.2.12479018")
+        message(
+            FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_NDK pointing to NDK 27.2.12479018")
     endif()
     file(READ "${ENGINE_V8_ANDROID_NDK}/source.properties" _ndk_properties)
     if(NOT _ndk_properties MATCHES "Pkg.Revision[ \t]*=[ \t]*27\\.2\\.12479018")
-        message(FATAL_ERROR "Android V8 currently uses NDK 27.2.12479018, matching the APK toolchain")
+        message(
+            FATAL_ERROR "Android V8 currently uses NDK 27.2.12479018, matching the APK toolchain")
     endif()
     if(NOT ENGINE_V8_ANDROID_API MATCHES "^[0-9]+$" OR ENGINE_V8_ANDROID_API LESS 28)
         message(FATAL_ERROR "Android V8 requires ENGINE_V8_ANDROID_API >= 28")
@@ -48,7 +50,8 @@ if(ENGINE_V8_TARGET_OS STREQUAL "android")
     else()
         message(FATAL_ERROR "Android V8 preparation currently requires a Linux or macOS host")
     endif()
-    set(_ndk_resource_dir "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/lib/clang/18")
+    set(_ndk_resource_dir
+        "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/lib/clang/18")
     if(NOT EXISTS "${_ndk_resource_dir}/lib/linux/libclang_rt.builtins-aarch64-android.a")
         message(FATAL_ERROR "Android V8 is missing the NDK ARM64 compiler runtime")
     endif()
@@ -60,12 +63,15 @@ if(_host_processor MATCHES "^(AMD64|amd64|x86_64|x64)$")
 elseif(CMAKE_HOST_APPLE AND _host_processor MATCHES "^(arm64|aarch64)$")
     set(_host_cpu arm64)
 else()
-    message(FATAL_ERROR "The V8 preparation workflow supports native x64 and macOS ARM64 builds only")
+    message(
+        FATAL_ERROR "The V8 preparation workflow supports native x64 and macOS ARM64 builds only")
 endif()
 if(NOT DEFINED ENGINE_V8_TARGET_CPU)
     set(ENGINE_V8_TARGET_CPU "${_host_cpu}")
 elseif(NOT _android AND NOT ENGINE_V8_TARGET_CPU STREQUAL _host_cpu)
-    message(FATAL_ERROR "V8 target CPU ${ENGINE_V8_TARGET_CPU} differs from the native host CPU ${_host_cpu}")
+    message(
+        FATAL_ERROR
+            "V8 target CPU ${ENGINE_V8_TARGET_CPU} differs from the native host CPU ${_host_cpu}")
 endif()
 if(_android AND NOT ENGINE_V8_TARGET_CPU STREQUAL "arm64")
     message(FATAL_ERROR "The Android V8 integration currently requires target CPU arm64")
@@ -104,10 +110,19 @@ elseif(CMAKE_HOST_APPLE)
         "${_engine_root}/third_party/overrides/v8/macos-signpost-attribute.patch")
 endif()
 if(_android)
-    set(_android_deps_patch "${_engine_root}/third_party/overrides/v8/android-external-toolchain.patch")
-    list(APPEND _patch_roots "${_source}/build" "${_source}/build" "${_source}"
-        "${_source}" "${_source}/third_party/simdutf")
-    list(APPEND _patch_files
+    set(_android_deps_patch
+        "${_engine_root}/third_party/overrides/v8/android-external-toolchain.patch")
+    list(
+        APPEND
+        _patch_roots
+        "${_source}/build"
+        "${_source}/build"
+        "${_source}"
+        "${_source}"
+        "${_source}/third_party/simdutf")
+    list(
+        APPEND
+        _patch_files
         "${_engine_root}/third_party/overrides/v8/android-macos-host.patch"
         "${_engine_root}/third_party/overrides/v8/android-ndk-runtime.patch"
         "${_android_deps_patch}"
@@ -117,19 +132,25 @@ endif()
 string(TOLOWER "${ENGINE_V8_CONFIG}" _config_lower)
 set(_out "${_source}/out/engine.${_config_lower}")
 find_package(Git REQUIRED)
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_engine_root}" rev-parse "HEAD:third_party/v8"
-    OUTPUT_VARIABLE _revision OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _revision_result)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${_engine_root}" rev-parse "HEAD:third_party/v8"
+    OUTPUT_VARIABLE _revision
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    RESULT_VARIABLE _revision_result)
 if(NOT _revision_result EQUAL 0 OR NOT EXISTS "${_upstream}/DEPS")
     message(FATAL_ERROR "Initialize the fixed V8 submodule before preparing V8")
 endif()
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_upstream}" rev-parse HEAD
-    OUTPUT_VARIABLE _upstream_revision OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${_upstream}" rev-parse HEAD
+    OUTPUT_VARIABLE _upstream_revision
+    OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 if(NOT _upstream_revision STREQUAL _revision)
     message(FATAL_ERROR "V8 submodule HEAD differs from the parent repository's fixed revision")
 endif()
 execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_upstream}" show "${_revision}:DEPS"
-    OUTPUT_VARIABLE _deps COMMAND_ERROR_IS_FATAL ANY)
-string(REGEX MATCH "'third_party/depot_tools':[ \r\n]*[^\n]*'@'[ \t]*\\+[ \t]*'([0-9a-f]+)'" _depot_match "${_deps}")
+                OUTPUT_VARIABLE _deps COMMAND_ERROR_IS_FATAL ANY)
+string(REGEX MATCH "'third_party/depot_tools':[ \r\n]*[^\n]*'@'[ \t]*\\+[ \t]*'([0-9a-f]+)'"
+             _depot_match "${_deps}")
 if(NOT _depot_match)
     message(FATAL_ERROR "Cannot read the pinned depot_tools revision from V8 DEPS")
 endif()
@@ -145,7 +166,8 @@ if(NOT _partition_match)
 endif()
 set(_partition_revision "${CMAKE_MATCH_1}")
 if(_android)
-    string(REGEX MATCH "'third_party/simdutf':[ \r\n]*[^\n]*'@'[ \t]*\\+[ \t]*'([0-9a-f]+)'" _simdutf_match "${_deps}")
+    string(REGEX MATCH "'third_party/simdutf':[ \r\n]*[^\n]*'@'[ \t]*\\+[ \t]*'([0-9a-f]+)'"
+                 _simdutf_match "${_deps}")
     if(NOT _simdutf_match)
         message(FATAL_ERROR "Cannot read the pinned simdutf revision from V8 DEPS")
     endif()
@@ -162,9 +184,11 @@ if(ENGINE_V8_ACTION STREQUAL "CHECK")
         set(_check_compiler clang)
         set(_check_library libengine_v8.a)
     endif()
-    foreach(_path IN ITEMS "${_depot}/gclient.py" "${_source}/build/config/BUILDCONFIG.gn"
-            "${_source}/third_party/llvm-build/Release+Asserts/bin/${_check_compiler}"
-            "${_out}/gen/include/v8-gn.h" "${_out}/obj/${_check_library}")
+    foreach(
+        _path IN
+        ITEMS "${_depot}/gclient.py" "${_source}/build/config/BUILDCONFIG.gn"
+              "${_source}/third_party/llvm-build/Release+Asserts/bin/${_check_compiler}"
+              "${_out}/gen/include/v8-gn.h" "${_out}/obj/${_check_library}")
         if(EXISTS "${_path}")
             message(STATUS "Present: ${_path}")
         else()
@@ -190,7 +214,9 @@ else()
     set(_library libengine_v8.a)
     set(_sample "${_out}/v8_hello_world")
 endif()
-set(_args "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n")
+set(_args
+    "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n"
+)
 if(CMAKE_HOST_APPLE AND NOT _android)
     # 系统 SDK 的模块和 TAPI 格式可能新于固定 LLVM；使用常规头文件及 Xcode 链接器。
     string(APPEND _args "use_clang_modules = false\nuse_lld = false\n")
@@ -198,13 +224,24 @@ endif()
 if(_android)
     # GN 仍使用固定的宿主 Clang/Rust；Android ABI、sysroot 和运行库与 APK NDK 一致。
     string(APPEND _args "target_os = \"android\"\nv8_target_cpu = \"arm64\"\n")
-    string(APPEND _args "android_ndk_root = \"${ENGINE_V8_ANDROID_NDK}\"\nandroid_ndk_version = \"r27c\"\n")
-    string(APPEND _args "android_ndk_api_level = ${ENGINE_V8_ANDROID_API}\ndefault_min_sdk_version = ${ENGINE_V8_ANDROID_API}\n")
+    string(APPEND _args
+           "android_ndk_root = \"${ENGINE_V8_ANDROID_NDK}\"\nandroid_ndk_version = \"r27c\"\n")
+    string(
+        APPEND
+        _args
+        "android_ndk_api_level = ${ENGINE_V8_ANDROID_API}\ndefault_min_sdk_version = ${ENGINE_V8_ANDROID_API}\n"
+    )
     string(APPEND _args "android_clang_resource_dir = \"${_ndk_resource_dir}\"\n")
-    string(APPEND _args "use_lld = true\nuse_clang_modules = false\nuse_thin_lto = false\nuse_custom_libunwind = false\n")
+    string(
+        APPEND
+        _args
+        "use_lld = true\nuse_clang_modules = false\nuse_thin_lto = false\nuse_custom_libunwind = false\n"
+    )
     string(APPEND _args "v8_monolithic_for_shared_library = true\n")
 endif()
-if(CMAKE_HOST_WIN32 OR CMAKE_HOST_APPLE OR _android)
+if(CMAKE_HOST_WIN32
+   OR CMAKE_HOST_APPLE
+   OR _android)
     # 使用宿主 CRT 分配器，避免全局 malloc/new 替换及系统 libc++ 声明冲突。
     string(APPEND _args "use_allocator_shim = false\nuse_partition_alloc_as_malloc = false\n")
 endif()
@@ -224,7 +261,10 @@ set(_build_stamp "${_out}/.engine-v8-build.identity")
 
 if(NOT ENGINE_V8_ACTION STREQUAL "CHECK")
     file(MAKE_DIRECTORY "${ENGINE_V8_BUILD_ROOT}")
-    file(LOCK "${ENGINE_V8_BUILD_ROOT}/.engine-v8.lock" GUARD PROCESS TIMEOUT 0
+    file(
+        LOCK "${ENGINE_V8_BUILD_ROOT}/.engine-v8.lock"
+        GUARD PROCESS
+        TIMEOUT 0
         RESULT_VARIABLE _lock_result)
     if(NOT _lock_result STREQUAL "0")
         message(FATAL_ERROR "Another V8 preparation/build is active: ${_lock_result}")
@@ -232,23 +272,34 @@ if(NOT ENGINE_V8_ACTION STREQUAL "CHECK")
 endif()
 
 function(_engine_v8_run _directory)
-    execute_process(COMMAND ${ARGN} WORKING_DIRECTORY "${_directory}" RESULT_VARIABLE _result)
+    execute_process(
+        COMMAND ${ARGN}
+        WORKING_DIRECTORY "${_directory}"
+        RESULT_VARIABLE _result)
     if(NOT _result EQUAL 0)
         message(FATAL_ERROR "V8 command failed (${_result}): ${ARGN}")
     endif()
 endfunction()
 
 function(_engine_v8_assert_revision _directory _expected)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_directory}" rev-parse HEAD
-        OUTPUT_VARIABLE _actual OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE _result)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${_directory}" rev-parse HEAD
+        OUTPUT_VARIABLE _actual
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _result)
     if(NOT _result EQUAL 0 OR NOT _actual STREQUAL _expected)
-        message(FATAL_ERROR "Unexpected revision in ${_directory}; expected ${_expected}. Use a new build root rather than resetting local changes.")
+        message(
+            FATAL_ERROR
+                "Unexpected revision in ${_directory}; expected ${_expected}. Use a new build root rather than resetting local changes."
+        )
     endif()
 endfunction()
 
 function(_engine_v8_patch _directory _patch _action)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_directory}" apply --reverse --check "${_patch}"
-        RESULT_VARIABLE _already_patched OUTPUT_QUIET ERROR_QUIET)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${_directory}" apply --reverse --check "${_patch}"
+        RESULT_VARIABLE _already_patched
+        OUTPUT_QUIET ERROR_QUIET)
     if(_action STREQUAL "REMOVE")
         if(_already_patched EQUAL 0)
             # 只撤销已知补丁，保留副本中的其他修改；供 gclient 检查干净状态。
@@ -271,7 +322,9 @@ include("${CMAKE_CURRENT_LIST_DIR}/v8_cache.cmake")
 _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
 _engine_v8_artifacts(_artifacts_present)
 if(ENGINE_V8_ACTION STREQUAL "CHECK")
-    message(STATUS "V8 workspace identity valid: ${_cache_ready}; outputs present: ${_artifacts_present}")
+    message(
+        STATUS
+            "V8 workspace identity valid: ${_cache_ready}; outputs present: ${_artifacts_present}")
     if(_cache_ready)
         _engine_v8_stamp_matches("${_build_stamp}" "${_build_key}" _built)
         message(STATUS "V8 build cache matches these inputs: ${_built}")
@@ -283,7 +336,9 @@ if(_cache_ready)
     _engine_v8_stamp_matches("${_prepare_stamp}" "${_prepare_key}" _prepared)
     _engine_v8_stamp_matches("${_configure_stamp}" "${_build_key}" _configured)
     _engine_v8_stamp_matches("${_build_stamp}" "${_build_key}" _built)
-    if(ENGINE_V8_ACTION STREQUAL "BUILD" AND _built AND _artifacts_present)
+    if(ENGINE_V8_ACTION STREQUAL "BUILD"
+       AND _built
+       AND _artifacts_present)
         _engine_v8_headers_current(_headers_current)
         if(_headers_current)
             message(STATUS "V8 ${ENGINE_V8_CONFIG} cache hit; reusing verified library and headers")
@@ -296,8 +351,10 @@ if(_cache_ready)
         if(_prepared OR _artifacts_present)
             set(_reuse_prepared TRUE)
         endif()
-        if(_prepared AND _configured AND EXISTS "${_out}/build.ninja" AND
-           EXISTS "${_out}/args.gn")
+        if(_prepared
+           AND _configured
+           AND EXISTS "${_out}/build.ninja"
+           AND EXISTS "${_out}/args.gn")
             file(READ "${_out}/args.gn" _saved_args)
             if(_saved_args STREQUAL _args)
                 message(STATUS "V8 ${ENGINE_V8_CONFIG} preparation cache hit; no sync or hooks")
@@ -318,7 +375,8 @@ endif()
 # depot_tools 的 Windows bootstrap 会调用 git config --global；隔离到构建目录，
 # 同时保留本流程需要的长路径和 LF 检出设置，不改变用户全局 Git 配置。
 if(NOT EXISTS "${ENGINE_V8_BUILD_ROOT}/.gitconfig")
-    file(WRITE "${ENGINE_V8_BUILD_ROOT}/.gitconfig" "[core]\n\tlongpaths = true\n\tautocrlf = false\n\tfilemode = false\n")
+    file(WRITE "${ENGINE_V8_BUILD_ROOT}/.gitconfig"
+         "[core]\n\tlongpaths = true\n\tautocrlf = false\n\tfilemode = false\n")
 endif()
 set(ENV{GIT_CONFIG_GLOBAL} "${ENGINE_V8_BUILD_ROOT}/.gitconfig")
 set(ENV{GIT_CACHE_PATH} "${ENGINE_V8_BUILD_ROOT}/git-cache")
@@ -328,29 +386,75 @@ if(ENGINE_V8_ACTION STREQUAL "PREPARE" AND NOT _reuse_prepared)
         file(MAKE_DIRECTORY "${_depot}")
         _engine_v8_run("${_depot}" "${GIT_EXECUTABLE}" init)
     endif()
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_depot}" remote get-url origin
-        RESULT_VARIABLE _depot_remote_result OUTPUT_QUIET ERROR_QUIET)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${_depot}" remote get-url origin
+        RESULT_VARIABLE _depot_remote_result
+        OUTPUT_QUIET ERROR_QUIET)
     if(NOT _depot_remote_result EQUAL 0)
-        _engine_v8_run("${_depot}" "${GIT_EXECUTABLE}" remote add origin https://chromium.googlesource.com/chromium/tools/depot_tools.git)
+        _engine_v8_run("${_depot}" "${GIT_EXECUTABLE}" remote add origin
+                       https://chromium.googlesource.com/chromium/tools/depot_tools.git)
     endif()
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_depot}" rev-parse --verify HEAD
-        RESULT_VARIABLE _depot_head_result OUTPUT_QUIET ERROR_QUIET)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${_depot}" rev-parse --verify HEAD
+        RESULT_VARIABLE _depot_head_result
+        OUTPUT_QUIET ERROR_QUIET)
     if(NOT _depot_head_result EQUAL 0)
         # 初始化后下载中断时，下一次继续获取同一固定提交，不重置已有检出。
-        _engine_v8_run("${_depot}" "${GIT_EXECUTABLE}" -c core.autocrlf=false fetch --depth=1 origin "${_depot_revision}")
-        _engine_v8_run("${_depot}" "${GIT_EXECUTABLE}" -c core.autocrlf=false checkout --detach FETCH_HEAD)
+        _engine_v8_run(
+            "${_depot}"
+            "${GIT_EXECUTABLE}"
+            -c
+            core.autocrlf=false
+            fetch
+            --depth=1
+            origin
+            "${_depot_revision}")
+        _engine_v8_run(
+            "${_depot}"
+            "${GIT_EXECUTABLE}"
+            -c
+            core.autocrlf=false
+            checkout
+            --detach
+            FETCH_HEAD)
     endif()
     _engine_v8_assert_revision("${_depot}" "${_depot_revision}")
     file(MAKE_DIRECTORY "${_workspace}")
     if(NOT EXISTS "${_source}/.git")
-        _engine_v8_run("${_workspace}" "${GIT_EXECUTABLE}" -c core.autocrlf=false clone --local --no-hardlinks --no-checkout "${_upstream}" "${_source}")
-        _engine_v8_run("${_source}" "${GIT_EXECUTABLE}" remote set-url origin https://chromium.googlesource.com/v8/v8.git)
-        _engine_v8_run("${_source}" "${GIT_EXECUTABLE}" -c core.autocrlf=false checkout --detach "${_revision}")
+        _engine_v8_run(
+            "${_workspace}"
+            "${GIT_EXECUTABLE}"
+            -c
+            core.autocrlf=false
+            clone
+            --local
+            --no-hardlinks
+            --no-checkout
+            "${_upstream}"
+            "${_source}")
+        _engine_v8_run("${_source}" "${GIT_EXECUTABLE}" remote set-url origin
+                       https://chromium.googlesource.com/v8/v8.git)
+        _engine_v8_run(
+            "${_source}"
+            "${GIT_EXECUTABLE}"
+            -c
+            core.autocrlf=false
+            checkout
+            --detach
+            "${_revision}")
     endif()
     _engine_v8_assert_revision("${_source}" "${_revision}")
     # clone --no-checkout 之后中断时补齐检出；不使用 --force，保护副本中的额外修改。
-    _engine_v8_run("${_source}" "${GIT_EXECUTABLE}" -c core.autocrlf=false checkout --detach "${_revision}")
-    set(_gclient_config [=[solutions = [{
+    _engine_v8_run(
+        "${_source}"
+        "${GIT_EXECUTABLE}"
+        -c
+        core.autocrlf=false
+        checkout
+        --detach
+        "${_revision}")
+    set(_gclient_config
+        [=[solutions = [{
   "name": "v8",
   "url": "https://chromium.googlesource.com/v8/v8.git",
   "managed": False,
@@ -366,25 +470,38 @@ target_os = []
 ]=])
     if(_android)
         # 使用 APK 的外部 NDK；原生 V8 不需要 Chromium 的 Java/测试工具。
-        string(REPLACE "target_os = []" "target_os = ['android']" _gclient_config "${_gclient_config}")
-        string(REPLACE "\"custom_vars\": {}" "\"custom_vars\": {\"checkout_android_toolchain\": False}"
-            _gclient_config "${_gclient_config}")
-        string(REPLACE "\"custom_deps\": {" [=["custom_deps": {
+        string(REPLACE "target_os = []" "target_os = ['android']" _gclient_config
+                       "${_gclient_config}")
+        string(REPLACE "\"custom_vars\": {}"
+                       "\"custom_vars\": {\"checkout_android_toolchain\": False}" _gclient_config
+                       "${_gclient_config}")
+        string(
+            REPLACE
+                "\"custom_deps\": {"
+                [=["custom_deps": {
     "v8/third_party/android_platform": None,
     "v8/third_party/colorama/src": None,
-    "v8/third_party/requests": None,]=] _gclient_config "${_gclient_config}")
+    "v8/third_party/requests": None,]=]
+                _gclient_config
+                "${_gclient_config}")
     endif()
     if(EXISTS "${_workspace}/.gclient")
         file(READ "${_workspace}/.gclient" _existing_gclient)
         if(NOT _existing_gclient STREQUAL _gclient_config)
-            message(FATAL_ERROR "Existing ${_workspace}/.gclient differs from the engine configuration; inspect it before replacing it")
+            message(
+                FATAL_ERROR
+                    "Existing ${_workspace}/.gclient differs from the engine configuration; inspect it before replacing it"
+            )
         endif()
     else()
         file(WRITE "${_workspace}/.gclient" "${_gclient_config}")
     endif()
 else()
     if(NOT EXISTS "${_source}/build/config/BUILDCONFIG.gn")
-        message(FATAL_ERROR "V8 is not prepared. Run the engine_v8_prepare target or this script with ENGINE_V8_ACTION=PREPARE first.")
+        message(
+            FATAL_ERROR
+                "V8 is not prepared. Run the engine_v8_prepare target or this script with ENGINE_V8_ACTION=PREPARE first."
+        )
     endif()
     _engine_v8_assert_revision("${_depot}" "${_depot_revision}")
     _engine_v8_assert_revision("${_source}" "${_revision}")
@@ -398,12 +515,30 @@ if(CMAKE_HOST_WIN32)
     # Chromium 只在 VSINSTALLDIR 存在时才清理它；此处始终丢弃继承的工具链
     # 搜索路径和开发者命令行状态，由固定 setup_toolchain.py 重新执行 vcvarsall。
     # PATH、代理及显式 VS 安装位置选择保留，变更仅限当前脚本进程。
-    foreach(_environment IN ITEMS INCLUDE LIB LIBPATH VSINSTALLDIR VCINSTALLDIR
-            VCToolsInstallDir VCToolsVersion WindowsSdkDir WindowsSDKVersion
-            WindowsSDKLibVersion UniversalCRTSdkDir UCRTVersion ExtensionSdkDir
-            VSCMD_VER VSCMD_ARG_HOST_ARCH VSCMD_ARG_TGT_ARCH VSCMD_ARG_APP_PLAT
-            __VSCMD_PREINIT_PATH __VSCMD_PREINIT_INCLUDE __VSCMD_PREINIT_LIB
-            __VSCMD_PREINIT_LIBPATH __VSCMD_PREINIT_VCToolsInstallDir)
+    foreach(
+        _environment IN
+        ITEMS INCLUDE
+              LIB
+              LIBPATH
+              VSINSTALLDIR
+              VCINSTALLDIR
+              VCToolsInstallDir
+              VCToolsVersion
+              WindowsSdkDir
+              WindowsSDKVersion
+              WindowsSDKLibVersion
+              UniversalCRTSdkDir
+              UCRTVersion
+              ExtensionSdkDir
+              VSCMD_VER
+              VSCMD_ARG_HOST_ARCH
+              VSCMD_ARG_TGT_ARCH
+              VSCMD_ARG_APP_PLAT
+              __VSCMD_PREINIT_PATH
+              __VSCMD_PREINIT_INCLUDE
+              __VSCMD_PREINIT_LIB
+              __VSCMD_PREINIT_LIBPATH
+              __VSCMD_PREINIT_VCToolsInstallDir)
         unset(ENV{${_environment}})
     endforeach()
     set(ENV{PATH} "${_depot};$ENV{PATH}")
@@ -422,7 +557,8 @@ if(ENGINE_V8_ACTION STREQUAL "PREPARE" AND NOT _reuse_prepared)
             _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
         endif()
         if(EXISTS "${_source}/third_party/partition_alloc/.git")
-            _engine_v8_assert_revision("${_source}/third_party/partition_alloc" "${_partition_revision}")
+            _engine_v8_assert_revision("${_source}/third_party/partition_alloc"
+                                       "${_partition_revision}")
         endif()
         set(_removal_roots ${_patch_roots})
         set(_removal_files ${_patch_files})
@@ -438,7 +574,8 @@ if(ENGINE_V8_ACTION STREQUAL "PREPARE" AND NOT _reuse_prepared)
         # CIPD 不遵循 Git 的路径级 custom_deps=None；解析 DEPS 前关闭外部工具链下载。
         _engine_v8_patch("${_source}" "${_android_deps_patch}" APPLY)
     endif()
-    _engine_v8_run("${_workspace}" ${_gclient} sync --nohooks --no-history "--jobs=${ENGINE_V8_JOBS}")
+    _engine_v8_run("${_workspace}" ${_gclient} sync --nohooks --no-history
+                   "--jobs=${ENGINE_V8_JOBS}")
 endif()
 _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
 _engine_v8_assert_revision("${_source}/third_party/partition_alloc" "${_partition_revision}")
@@ -460,7 +597,10 @@ file(MAKE_DIRECTORY "${_out}")
 if(EXISTS "${_out}/args.gn")
     file(READ "${_out}/args.gn" _existing_args)
     if(NOT _existing_args STREQUAL _args)
-        message(FATAL_ERROR "Existing ${_out}/args.gn differs from the fixed engine arguments; use another build root or inspect and remove that args.gn")
+        message(
+            FATAL_ERROR
+                "Existing ${_out}/args.gn differs from the fixed engine arguments; use another build root or inspect and remove that args.gn"
+        )
     endif()
 else()
     file(WRITE "${_out}/args.gn" "${_args}")
@@ -470,7 +610,9 @@ if(NOT EXISTS "${_gn}" OR NOT EXISTS "${_ninja}")
 endif()
 _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
 if(NOT _cache_ready)
-    message(FATAL_ERROR "V8 workspace or toolchain validation failed; run engine_v8_prepare before building")
+    message(
+        FATAL_ERROR
+            "V8 workspace or toolchain validation failed; run engine_v8_prepare before building")
 endif()
 _engine_v8_stamp_matches("${_configure_stamp}" "${_build_key}" _configured)
 if(NOT _configured OR NOT EXISTS "${_out}/build.ninja")
@@ -481,24 +623,33 @@ _engine_v8_write_stamp("${_prepare_stamp}" "${_prepare_key}")
 file(MAKE_DIRECTORY "${ENGINE_V8_BUILD_ROOT}/include/v8")
 file(COPY "${_source}/include/" DESTINATION "${ENGINE_V8_BUILD_ROOT}/include/v8")
 if(ENGINE_V8_ACTION STREQUAL "BUILD")
-    _engine_v8_run("${_source}" "${_ninja}" -C "${_out}" -j "${ENGINE_V8_JOBS}" v8_monolith v8_hello_world)
+    _engine_v8_run(
+        "${_source}"
+        "${_ninja}"
+        -C
+        "${_out}"
+        -j
+        "${ENGINE_V8_JOBS}"
+        v8_monolith
+        v8_hello_world)
     set(_package_arguments)
     if(_android)
         list(APPEND _package_arguments -DENGINE_V8_TARGET_OS=android
-            "-DENGINE_V8_TARGET_CPU=${ENGINE_V8_TARGET_CPU}")
+             "-DENGINE_V8_TARGET_CPU=${ENGINE_V8_TARGET_CPU}")
     endif()
-    _engine_v8_run("${_out}" "${CMAKE_COMMAND}" "-DENGINE_V8_OUTPUT=${_out}"
-        ${_package_arguments} -P "${CMAKE_CURRENT_LIST_DIR}/package_v8.cmake")
+    _engine_v8_run("${_out}" "${CMAKE_COMMAND}" "-DENGINE_V8_OUTPUT=${_out}" ${_package_arguments}
+                   -P "${CMAKE_CURRENT_LIST_DIR}/package_v8.cmake")
     file(MAKE_DIRECTORY "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}")
     file(COPY_FILE "${_out}/gen/include/v8-gn.h"
-        "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h" ONLY_IF_DIFFERENT)
+         "${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h" ONLY_IF_DIFFERENT)
     if(NOT _android)
         _engine_v8_run("${_out}" "${_sample}")
     endif()
     _engine_v8_artifacts(_artifacts_present)
     _engine_v8_headers_current(_headers_current)
     if(NOT _artifacts_present OR NOT _headers_current)
-        message(FATAL_ERROR "V8 build finished without all required library, ICU, or header outputs")
+        message(
+            FATAL_ERROR "V8 build finished without all required library, ICU, or header outputs")
     endif()
     _engine_v8_write_stamp("${_build_stamp}" "${_build_key}")
     message(STATUS "Recorded verified V8 ${ENGINE_V8_CONFIG} build cache")

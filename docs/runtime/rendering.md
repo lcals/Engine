@@ -1,36 +1,39 @@
 # 渲染模块
 
-[类图](class-diagrams/render-system.md) · [场景类图](class-diagrams/scene.md)
+[渲染类图](class-diagrams/render-system.md) · [场景类图](class-diagrams/scene.md)
 
-[bgfx](https://github.com/bkaradzic/bgfx) 提供跨平台渲染。图形后端按平台固定：macOS / iOS 使用 Metal，Windows 使用 DirectX 12，Android / Linux 使用 Vulkan。所选后端初始化失败时返回失败，不接受 Noop 或其他后端回退。
+[bgfx](https://github.com/bkaradzic/bgfx) 提供跨平台图形接口。macOS / iOS 固定使用 Metal，Windows 使用 DirectX 12，Android / Linux 使用 Vulkan。所选后端不可用时初始化失败，不以 Noop 或其他后端回退代替成功。
 
-## 当前最小场景阶段
+## 窗口与场景
 
-编辑器复用同一个 SDL3 窗口。默认只清屏显示空白；项目启动后，渲染器读取世界系统的活动场景，用场景相机绘制节点上的 MeshRenderer。停止项目后销毁场景与项目 GPU 资源，继续提交空白帧，避免最后一帧残留。窗口和共享图形设备的生命周期独立于项目运行。
+编辑器复用同一个 SDL3 窗口。待机时清屏；启动项目后读取世界系统的活动场景，通过活动 Camera 绘制节点上的 MeshRenderer；停止后释放场景和项目 GPU 资源，恢复空白帧。窗口和共享图形设备保留到宿主关闭。
 
-场景中的可见物体、相机和灯光全部为 `Node + Component`：`MeshRenderer`、`Camera`、`Light` 都由所属节点拥有。渲染器不创建隐藏相机、灯光或方块对象，也不持有跨帧的组件指针。本轮场景只有一个活动相机，直接光采用节点顺序中第一个启用的 `Light`；其他 Light 尚不累加。无相机或没有启用的 MeshRenderer 时显示空白，无 Light 时 PBR 不得到直接照明，unlit 材质仍可显示。
+可见物体、相机和光源全部以 `Node + Component` 表达。渲染器不创建隐含的相机、灯光或物体，也不持有跨帧组件指针。一个场景选择一个活动相机，直接光取节点顺序中第一个启用的 `Light`，不累加多个光源。没有活动相机或启用的 MeshRenderer 时显示空白；没有 Light 时 PBR 不获得直接照明，无光照材质仍可显示。
 
-节点世界矩阵使用列主序，局部 `-Z` 为相机朝向和方向光传播方向。Camera 提供垂直视场角、近远裁剪面，实际窗口像素尺寸决定宽高比；视图使用世界 -Z 和 +Y 正交化基，忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵的逆转置，因此非均匀缩放不会直接破坏光照方向；负缩放根据行列式切换背面剔除方向。窗口缩放会更新交换链及投影。
+节点世界矩阵为列主序，局部 -Z 表示相机朝向和方向光传播方向。相机提供垂直视场角、近远裁剪面，窗口像素尺寸决定宽高比；视图基忽略缩放大小，避免非均匀缩放扭曲镜头。模型法线使用世界矩阵逆转置；负缩放按行列式切换剔除方向。窗口缩放更新交换链和投影。
 
-内置方块每面使用独立顶点，合计 24 顶点、36 索引；数据包含位置和平面法线。本轮只提供不透明方块，Material 的基础色为线性 RGB，alpha 暂不参与混合。材质可选 unlit；PBR 分支使用 Cook–Torrance 直接光模型（GGX 分布、相关 Smith 可见性、Schlick Fresnel），支持金属度和粗糙度，输出经过 Reinhard 色调映射及近似 gamma 编码。尚无阴影、环境贴图、IBL、纹理采样或透明排序。
+## 网格、材质与 Shader
 
-实现参考固定版本 bgfx `01-cubes` 的缓冲与提交方式、`18-ibl` 的材质和光照组织。`18-ibl` 自身的直接光高光采用 Blinn，本项目的 GGX 分支独立实现，不能将两者等同。本轮不读取范例的模型或环境贴图。
+网格由独立资源提供位置、法线和索引。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过唯一资源路径注册，路径以 `builtin/` 或 `project/` 区分来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
 
-`cmake/render_shaders.cmake` 使用宿主 `shaderc` 编译两个 Shader 并以 `--bin2c` 嵌入目标：macOS/iOS 使用 Metal，Windows 使用 DirectX Shader Model 5，Android/Linux 使用 SPIR-V。缺失或不能执行宿主工具时配置失败；可以通过 `ENGINE_SHADERC_EXECUTABLE` 指定工具。命令、安装入口及实际验证范围统一见根 README。每个 Shader 仅在输入或工具改变后重新生成；普通构建不重新处理上游依赖。
+材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照和直接光 PBR。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持线性基础色、金属度及粗糙度，输出经过 Reinhard 色调映射与近似 gamma 编码。
 
-每个活动场景最多拥有一组内置 Mesh/Shader 资源，所有方块节点复用这组 GPU 对象；材质数据每次提交设置。目前完整资源组包含 2 个缓冲、2 个 Shader、1 个 Program、6 个 Uniform，共 11 个逻辑句柄。`gpu_resource_count()` 统计本系统拥有的句柄；bgfx 在后续帧异步回收驱动资源。停止与准备失败统一调用 `release_scene()`，允许重复及部分初始化；场景编号变化触发旧资源释放和新资源准备，覆盖热重载场景替换。
+缓冲与提交方式参考固定版本 bgfx `01-cubes`，材质和光照组织参考 `18-ibl`；GGX 分支由引擎实现，不等同于 `18-ibl` 的 Blinn 直接光高光。引擎不依赖示例目录中的模型或环境贴图。
 
-Android 原有 Surface 暂停协议继续保留：关闭 bgfx 前释放场景 GPU 资源，恢复时从仍存活的 CPU 场景重建。本轮先验证桌面，不能把代码覆盖 Android 路径视为 Android 已完成实际验证。
+内置 Shader 由 `cmake/render_shaders.cmake` 调用宿主 shaderc 编译并嵌入目标；项目 `.shader` 引用独立源码 GUID，经资源管线生成目标平台二进制。Metal 使用 Metal 程序，DirectX 使用 Shader Model 5，Vulkan 使用 SPIR-V。宿主工具不存在或不可执行时配置失败；`ENGINE_SHADERC_EXECUTABLE` 可显式指定工具。输入及工具未变时复用生成物。
 
-窗口 GPU 测试覆盖空白帧、unlit/PBR 绘制提交、缩放、三轮启动停止、场景替换、同一个窗口保持，以及若干帧后 bgfx 的缓冲、Shader、Program、Uniform 数量回到待机基线。测试统计不能证明画面观感，最终还需编辑器实际窗口截图和人工审核。
+## 资源生命周期
 
-## 后续渲染方向
+渲染器按场景所需的 Mesh、Shader、Program 和 Uniform 管理 GPU 资源，共享相同资源的节点复用句柄。`gpu_resource_count()` 统计本系统持有的逻辑句柄，数量由场景资源决定；bgfx 在后续帧异步回收驱动对象。
 
-以下保留既定渲染方向，均不属于当前硬编码方块里程碑已经完成的能力。
+停止项目、场景替换或准备失败调用可重复的 `release_scene()`，部分初始化同样可清理。玩法会话先关闭脚本并释放场景及 GPU 资源，再清理项目定义；内置定义保留至引擎关闭。完整资源版本热重载重建场景及渲染资源，不自动保存业务状态。
 
-- 引擎使用 PBR，材质系统参考 Unity 和 Unreal Engine，并内置默认材质；bgfx 负责底层渲染。效果优先参考并复用 [bgfx 官方示例](https://bkaradzic.github.io/bgfx/examples.html)。
-- 完整光照阶段覆盖环境光、主光源与阴影；局部光源按游戏需求扩展，全局光照后续考虑。效果与方案参考 `references/`。
-- 以 Blender 作为当前 DCC 视觉制作模板。USD 导入后，在约定支持的材质与渲染效果范围内追求与 Blender 预览一致，最终效果以引擎预览为准。
-- 多阶段渲染流程使用渲染图组织输入、输出和依赖，由 bgfx 实际执行。当前单次直接光方块提交不提前引入通用渲染图框架；后续 PBR 多阶段流程需要时再接入。
-- 后期与渲染优化优先复用 bgfx 能力和官方示例方案；渲染侧需要支持 [GPU 蒙皮](animation.md)、大规模单位提交与可见性管理，配合 ECS、导航、物理和行为更新。
-- 材质、贴图与 Shader 热重载用于编辑器运行期间调整视觉效果；资源变化、缓存更新与替换失败处理见[资源管线](../editor/asset-pipeline.md)。当前实现的是脚本替换后重建场景，不等同于完整渲染资源热重载。
+Android 在 Surface 暂停或销毁前由宿主请求关闭渲染器并等待确认，避免后台图形线程访问失效 Surface；恢复后依据仍存活的 CPU 场景重建 GPU 资源。平台验证范围及命令见根 [README](../../README.md)。
+
+## 能力范围
+
+支持不透明网格、一个活动相机及一盏方向光。尚未实现阴影、环境贴图、IBL、纹理采样、透明混合与排序、GPU 蒙皮、渲染图或大规模可见性管理。材质 alpha 不参与混合。
+
+窗口测试覆盖真实后端、空白帧、无光照/PBR 提交、缩放、重复启停、场景替换及延迟回收后 GPU 对象回到待机基线。画面效果另通过实际截图检查；软件 Vulkan 验证不代表真机 GPU 性能。
+
+渲染扩展沿用 bgfx 官方示例和已有资源契约；多阶段效果需要明确输入、输出和依赖后再引入渲染图。DCC 视觉制作以 Blender 为基准，USD 转换和材质效果以引擎实际支持范围为准。

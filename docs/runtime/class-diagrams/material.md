@@ -45,4 +45,4 @@ classDiagram
 - Material 由 MeshRenderer 独占，持有生成 `MaterialDataT` 的唯一运行时实例。字符串返回值和组件引用均为借用，切换材质或删除节点后不能继续使用旧借用。
 - 默认 MeshRenderer 初始化选择 `builtin/materials/default-pbr`；资源定义不存在时通过组件初始化返回 false，Node 不发布半初始化组件。ResourceSystem 必须先于使用材质的场景初始化、晚于场景和 GPU 资源关闭。
 
-- 项目材质定义可引用内置或项目 Shader；内置材质定义不能引用项目 Shader。项目结束先释放场景，再清理 `project/` 定义，保留 `builtin/` 定义供下一次项目启动。GPU 已复制资源字节且不借用定义，允许在下次场景 prepare 时退役。
+- 项目材质定义可引用内置或项目 Shader；内置材质定义不能引用项目 Shader。项目结束先释放场景与 GPU 资源，再清理 `project/` 定义；`builtin/` 定义保留至资源系统关闭。

@@ -65,7 +65,9 @@ declare module "engine" {
     }
 
     /** A registered engine component class; constructors are not publicly callable. */
-    export interface ComponentType<T extends Component> { readonly prototype: T; }
+    export interface ComponentType<T extends Component> {
+        readonly prototype: T;
+    }
 
     export class Component {
         protected constructor();
@@ -94,5 +96,4 @@ declare module "engine" {
         private constructor();
         readonly material: Material;
     }
-
 }

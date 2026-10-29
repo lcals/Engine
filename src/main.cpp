@@ -1,5 +1,6 @@
-#include "runtime/engine.hpp"
+#include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 
 #if ENGINE_HAS_APP_SERVICES
 #include "runtime/app/app.hpp"
@@ -76,7 +77,7 @@ int main(int argc, char* argv[])
         return 1;
     }
 #endif
-    auto& engine = engine::Engine::instance();
+    engine::RuntimeHost engine;
     if (!engine.initialize(config))
     {
 #if ENGINE_HAS_APP_SERVICES
@@ -89,11 +90,9 @@ int main(int argc, char* argv[])
         return 1;
     }
 #if ENGINE_START_PACKAGED_GAMEPLAY
-    if (!engine.start_gameplay())
+    if (!engine.gameplay()->start())
     {
-        const auto* status = engine.script_status();
-        const std::string detail =
-            status != nullptr ? status->last_error : "script system unavailable";
+        const std::string detail(engine.gameplay()->last_error());
         engine::LogSystem::write(engine::LogLevel::error, "Gameplay startup failed: " + detail);
         engine.shutdown();
         log.shutdown();

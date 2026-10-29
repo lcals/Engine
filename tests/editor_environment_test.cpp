@@ -13,6 +13,12 @@
 
 namespace
 {
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <system_error>
+#include <utility>
+
 namespace fs = std::filesystem;
 
 bool expect(bool condition, const char* message)

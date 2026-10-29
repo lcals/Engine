@@ -9,10 +9,10 @@ import tempfile
 import unittest
 from unittest import mock
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location(
-    "prepare_android_assets", ROOT / "scripts/prepare_android_assets.py")
+    "prepare_android_assets", ROOT / "scripts/prepare_android_assets.py"
+)
 PACK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACK)
 
@@ -77,7 +77,9 @@ def catalog_fixture(contents, target="android"):
 
 class AndroidBuildArgumentTest(unittest.TestCase):
     def test_asset_builder_argument_reaches_native_configuration(self):
-        spec = importlib.util.spec_from_file_location("build_android", ROOT / "scripts/build_android.py")
+        spec = importlib.util.spec_from_file_location(
+            "build_android", ROOT / "scripts/build_android.py"
+        )
         build = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(build)
         with tempfile.TemporaryDirectory(prefix="engine-android-command-") as directory:
@@ -99,27 +101,38 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                     apk.parent.mkdir(parents=True)
                     apk.write_bytes(b"fixture apk")
 
-            with mock.patch.object(build, "ROOT", root), \
-                 mock.patch.object(build, "require_directory", return_value=sdk), \
-                 mock.patch.object(build, "gradle_command", return_value=["fixture-gradle"]), \
-                 mock.patch.object(build.shutil, "which", return_value="fixture-cmake"), \
-                 mock.patch.object(build.subprocess, "check_output", return_value="Gradle 9.1.0"), \
-                 mock.patch.object(build, "run", side_effect=record), \
-                 mock.patch("builtins.print"), \
-                 mock.patch.object(build.sys, "argv", ["build_android.py", "--asset-builder", str(builder)]):
+            with (
+                mock.patch.object(build, "ROOT", root),
+                mock.patch.object(build, "require_directory", return_value=sdk),
+                mock.patch.object(build, "gradle_command", return_value=["fixture-gradle"]),
+                mock.patch.object(build.shutil, "which", return_value="fixture-cmake"),
+                mock.patch.object(build.subprocess, "check_output", return_value="Gradle 9.1.0"),
+                mock.patch.object(build, "run", side_effect=record),
+                mock.patch("builtins.print"),
+                mock.patch.object(
+                    build.sys, "argv", ["build_android.py", "--asset-builder", str(builder)]
+                ),
+            ):
                 self.assertEqual(build.main(), 0)
             self.assertIn("-DENGINE_ANDROID_ASSET_BUILDER=" + str(builder.resolve()), commands[0])
-            self.assertIn("-DENGINE_ANDROID_PROJECT=" + str((root / "projects/minimal").resolve()), commands[0])
+            self.assertIn(
+                "-DENGINE_ANDROID_PROJECT=" + str((root / "projects/minimal").resolve()),
+                commands[0],
+            )
 
     def test_prepare_uses_explicit_android_target_without_shell(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             builder = root / "asset builder $literal"
             project = root / "project with spaces"
-            with mock.patch.object(PACK.subprocess, "run", return_value=mock.Mock(returncode=0)) as run:
+            with mock.patch.object(
+                PACK.subprocess, "run", return_value=mock.Mock(returncode=0)
+            ) as run:
                 PACK.compile_catalog(project, builder)
-            self.assertEqual(run.call_args.args[0],
-                             [str(builder.resolve()), "--project", str(project), "--target", "android"])
+            self.assertEqual(
+                run.call_args.args[0],
+                [str(builder.resolve()), "--project", str(project), "--target", "android"],
+            )
             self.assertNotIn("shell", run.call_args.kwargs)
 
 
@@ -131,7 +144,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         for name in ("settings", "assets", "cache/scripts"):
             (self.project / name).mkdir(parents=True)
         self.source = self.project / "cache"
-        (self.source / "scripts/game.js").write_text("export default class Game {}\n", encoding="utf-8")
+        (self.source / "scripts/game.js").write_text(
+            "export default class Game {}\n", encoding="utf-8"
+        )
         self.output = self.root / "android/assets"
         (self.output / "v8").mkdir(parents=True)
         (self.output / "v8/icudtl.dat").write_bytes(b"ICU data must survive")
@@ -146,12 +161,16 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         return PACK.prepare(self.project, self.output)
 
     def snapshot(self):
-        return {path.relative_to(self.output).as_posix(): path.read_bytes()
-                for path in self.output.rglob("*") if path.is_file()}
+        return {
+            path.relative_to(self.output).as_posix(): path.read_bytes()
+            for path in self.output.rglob("*")
+            if path.is_file()
+        }
 
     def assert_clean(self):
-        self.assertFalse(any(path.name.startswith(".project-prepare-")
-                             for path in self.output.iterdir()))
+        self.assertFalse(
+            any(path.name.startswith(".project-prepare-") for path in self.output.iterdir())
+        )
 
     def test_manifest_empty_binary_unicode_and_determinism(self):
         (self.source / "空文件.txt").write_bytes(b"")
@@ -161,8 +180,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assertEqual(manifest["deleted"], [])
         self.assertRegex(manifest["revision"], r"^apk-[0-9a-f]{64}$")
         entries = {item["path"]: item for item in manifest["files"]}
-        self.assertEqual(entries["空文件.txt"],
-                         {"path": "空文件.txt", "size": 0, "hash": "cbf29ce484222325"})
+        self.assertEqual(
+            entries["空文件.txt"], {"path": "空文件.txt", "size": 0, "hash": "cbf29ce484222325"}
+        )
         for path, item in entries.items():
             data = (self.output / "project" / path).read_bytes()
             self.assertEqual(item["size"], len(data))
@@ -202,9 +222,11 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_limits_reject_before_publishing(self):
         self.prepare()
         previous = self.snapshot()
-        for relative, limit in (("large.bin", PACK.MAX_ASSET_SIZE),
-                                ("scripts/large.js", PACK.MAX_SCRIPT_SIZE),
-                                ("scripts/large.mjs", PACK.MAX_SCRIPT_SIZE)):
+        for relative, limit in (
+            ("large.bin", PACK.MAX_ASSET_SIZE),
+            ("scripts/large.js", PACK.MAX_SCRIPT_SIZE),
+            ("scripts/large.mjs", PACK.MAX_SCRIPT_SIZE),
+        ):
             with self.subTest(relative=relative):
                 path = self.source / relative
                 with path.open("wb") as output:
@@ -234,8 +256,18 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assert_clean()
 
     def test_unsafe_relative_paths_are_rejected(self):
-        for path in ("", "/file", "../file", "a/../file", "a/./file", "a//file", "a/",
-                     "a\\file", "C:file", "a\0file"):
+        for path in (
+            "",
+            "/file",
+            "../file",
+            "a/../file",
+            "a/./file",
+            "a//file",
+            "a/",
+            "a\\file",
+            "C:file",
+            "a\0file",
+        ):
             with self.subTest(path=path):
                 with self.assertRaises(ValueError):
                     PACK.safe_relative(path)
@@ -269,8 +301,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         original_rename = Path.rename
 
         def fail_manifest_publish(path, target):
-            if (path.name == "project-manifest.json"
-                    and path.parent.name.startswith(".project-prepare-")):
+            if path.name == "project-manifest.json" and path.parent.name.startswith(
+                ".project-prepare-"
+            ):
                 raise OSError("simulated manifest publication failure")
             return original_rename(path, target)
 
@@ -296,8 +329,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         (cache / "tasks.sqlite").write_bytes(b"must not ship")
         (cache / "gen/stale").write_bytes(b"must not ship")
         manifest = self.prepare()
-        self.assertEqual({item["path"] for item in manifest["files"]},
-                         {"catalog.bin", "gen/" + guid})
+        self.assertEqual(
+            {item["path"] for item in manifest["files"]}, {"catalog.bin", "gen/" + guid}
+        )
         self.assertEqual((self.output / "project/gen" / guid).read_bytes(), contents)
         previous = self.snapshot()
         (cache / "gen" / guid).write_bytes(b"corrupt")

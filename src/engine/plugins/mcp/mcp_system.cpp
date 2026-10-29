@@ -9,10 +9,13 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <thread>
 #include <utility>
 

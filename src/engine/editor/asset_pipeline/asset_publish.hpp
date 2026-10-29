@@ -1,6 +1,8 @@
 #pragma once
 
 #include "editor/asset_pipeline/asset_database.hpp"
+#include <string>
+#include <vector>
 
 namespace engine::asset_pipeline
 {

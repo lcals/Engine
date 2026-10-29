@@ -1,16 +1,16 @@
 # 引擎类图
 
-状态：本轮增加资源落盘、GUID 缓存、Taskflow 导入与 SQLite 增量索引；运行时加载场景、网格、材质与 Shader 二进制。下列图是架构评审入口；具体构建、测试和平台验证结果见根 [README.md](../../README.md)。
+类图是架构评审入口，维护类的职责、所有权、公开方法和完整引用关系。构建与平台验证范围见根 [README.md](../../README.md)。
 
-本轮新增桌面编辑器脚本闭环：平台路径、默认写盘日志、TS 项目入口、持久脚本缓存、MCP 同步与热重载。此前已接入 Android APK 运行与设备同步；当前新增场景和渲染先验证桌面，Android 方块与 PBR 需在桌面审核后单独验证。
-
+- [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
+- [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
 - [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
 - [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
 
-## 本轮场景与项目运行
+## 场景与项目运行
 
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
@@ -26,12 +26,12 @@
 
 - [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
 
-## 已有脚本接口
+## 脚本接口
 
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
-- [资源同步](../editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久脚本缓存。
+- [资源同步](../editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 - [MCP 系统](../plugins/class-diagrams/mcp-system.md)：桌面 stdio 工具，向本机或 Android 调试包同步，并控制热重载与查询状态。
 
 ## 阅读入口
@@ -41,24 +41,26 @@
 - [配置与状态](../runtime/class-diagrams/types.md)：`EngineConfig` 和 `FrameStatus`。
 - [公共路径工具](../runtime/class-diagrams/path-utils.md)：`PathUtils` 只负责 UTF-8 与文件系统路径转换。
 
-规划说明和独立类图跟随源码职责分为三层；本页与完整引用关系保留为跨层统一入口：
+模块说明和独立类图跟随源码职责分为三层；本页与完整引用关系保留为跨层统一入口：
 
 | 范围 | 文档与独立类图 | 源码职责 |
 | --- | --- | --- |
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
 | 编辑器 | `docs/editor/`、`docs/editor/class-diagrams/` | 编辑器、项目、资源管线和资源同步 |
-| 插件 | `docs/plugins/`、`docs/plugins/class-diagrams/` | MCP 工具集成及插件规划 |
+| 插件 | `docs/plugins/`、`docs/plugins/class-diagrams/` | MCP 工具集成及插件接口 |
 
 头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。运行时不反向依赖编辑器或插件；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
 
 ## 运行时根系统
 
-| 顺序 | 独立类图 | 当前职责与依赖 |
+RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；Engine 只通过 System 接口调度。
+
+| 初始化顺序 | 独立类图 | 所有者及职责 |
 | --- | --- | --- |
-| 1 | [窗口系统](../runtime/class-diagrams/window-system.md) | SDL3 窗口和事件 |
-| 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | SDL3 同步文本/二进制读取，FlatBuffers、Basis Universal 接入 |
-| 3 | [世界系统](../runtime/class-diagrams/world-system.md) | flecs 世界、节点组件场景及子系统生命周期 |
-| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | bgfx 初始化、空白窗口与资源网格 PBR 绘制 |
+| 1 | [窗口系统](../runtime/class-diagrams/window-system.md) | RuntimeHost 独占；SDL3 窗口和事件 |
+| 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | Engine 独占；SDL3 同步读取、FlatBuffers、Basis Universal |
+| 3 | [世界系统](../runtime/class-diagrams/world-system.md) | Engine 独占；flecs 世界、场景和子系统生命周期 |
+| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | Engine 独占；bgfx 设备、空白帧和资源网格 PBR |
 
 ## 世界子系统
 

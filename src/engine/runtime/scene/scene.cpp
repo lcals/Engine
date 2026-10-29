@@ -41,7 +41,9 @@ std::string_view Scene::name() const noexcept
 Node* Scene::create_node(std::string_view name)
 {
     if (node_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
         return nullptr;
+    }
     const ecs_entity_t entity = ecs_new(&world_);
     if (entity == 0)
     {
@@ -156,7 +158,9 @@ bool Scene::build_data(schema::SceneDataT& output) const
                 if (!ResourceSystem::path_to_guid(
                         mesh.material().type_path(),
                         component_data->payload.AsMeshRendererData()->material_guid))
+                {
                     return false;
+                }
             }
             node_data->components.push_back(std::move(component_data));
         }
@@ -176,23 +180,31 @@ Node* Scene::find_local_node(std::uint64_t local_id) const noexcept
 bool Scene::restore_data(const schema::SceneDataT& data)
 {
     if (!nodes_.empty() || data.schema_version != 1 || !data.info)
+    {
         return false;
+    }
     std::set<std::uint64_t> identities;
     for (const auto& source : data.nodes)
     {
         if (!source || !source->info || source->info->id == 0 ||
             !identities.insert(source->info->id).second)
+        {
             return false;
+        }
         Node* node = create_node(source->info->name);
         if (!node)
+        {
             return false;
+        }
         node->info_.id = source->info->id;
         std::set<ComponentType> types;
         for (const auto& component : source->components)
         {
             if (!component || component->payload.value == nullptr ||
                 !types.insert(component->payload.type).second)
+            {
                 return false;
+            }
             Component* restored = nullptr;
             switch (component->payload.type)
             {
@@ -200,7 +212,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             {
                 auto* transform = node->get_component<Transform>();
                 if (!transform || !transform->set_settings(*component->payload.AsTransformData()))
+                {
                     return false;
+                }
                 restored = transform;
                 break;
             }
@@ -208,7 +222,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             {
                 auto* camera = node->add_component<Camera>();
                 if (!camera || !camera->set_settings(*component->payload.AsCameraData()))
+                {
                     return false;
+                }
                 restored = camera;
                 break;
             }
@@ -216,7 +232,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             {
                 auto* light = node->add_component<Light>();
                 if (!light || !light->set_settings(*component->payload.AsLightData()))
+                {
                     return false;
+                }
                 restored = light;
                 break;
             }
@@ -229,7 +247,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
                 if (!mesh || !ResourceSystem::guid_to_path(settings->mesh_guid, mesh_path) ||
                     !ResourceSystem::guid_to_path(settings->material_guid, material_path) ||
                     !mesh->set_mesh(mesh_path) || !mesh->material().set_type(material_path))
+                {
                     return false;
+                }
                 restored = mesh;
                 break;
             }
@@ -239,7 +259,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             restored->set_enabled(component->enabled);
         }
         if (!types.contains(ComponentType::TransformData))
+        {
             return false;
+        }
     }
     node_sequence_ = identities.empty() ? 0 : *identities.rbegin();
     for (const auto& source : data.nodes)
@@ -247,7 +269,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
         auto* node = find_local_node(source->info->id);
         auto* parent = find_local_node(source->info->parent_id);
         if ((source->info->parent_id != 0 && parent == nullptr) || !node->set_parent(parent))
+        {
             return false;
+        }
     }
     Camera* camera = nullptr;
     if (data.info->active_camera_node != 0)
@@ -255,7 +279,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
         auto* node = find_local_node(data.info->active_camera_node);
         camera = node == nullptr ? nullptr : node->get_component<Camera>();
         if (camera == nullptr)
+        {
             return false;
+        }
     }
     info_.name = data.info->name;
     return set_active_camera(camera);

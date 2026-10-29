@@ -27,45 +27,50 @@ function(write_fixture _path _content)
     file(WRITE "${_path}" "${_content}")
 endfunction()
 
-set(_roots "${_source}" "${_depot}" "${_source}/build"
-    "${_source}/third_party/partition_alloc")
+set(_roots "${_source}" "${_depot}" "${_source}/build" "${_source}/third_party/partition_alloc")
 set(_revision_variables _revision _depot_revision _build_revision _partition_revision)
 foreach(_root _variable IN ZIP_LISTS _roots _revision_variables)
     file(MAKE_DIRECTORY "${_root}")
-    execute_process(COMMAND "${GIT_EXECUTABLE}" init --quiet "${_root}"
-        COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}"
-        -c user.name=EngineTest -c user.email=engine-test@example.invalid
-        -c commit.gpgsign=false commit --quiet --allow-empty -m fixture
-        COMMAND_ERROR_IS_FATAL ANY)
-    execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
-        OUTPUT_VARIABLE ${_variable} OUTPUT_STRIP_TRAILING_WHITESPACE
-        COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" init --quiet "${_root}" COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(
+        COMMAND
+            "${GIT_EXECUTABLE}" -C "${_root}" -c user.name=EngineTest -c
+            user.email=engine-test@example.invalid -c commit.gpgsign=false commit --quiet
+            --allow-empty -m fixture COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
+        OUTPUT_VARIABLE ${_variable}
+        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 endforeach()
 
-set(_files "${_engine_root}/third_party/v8.cmake" "${_source}/DEPS"
-    "${_workspace}/.gclient" "${_workspace}/.gclient_entries"
+set(_files
+    "${_engine_root}/third_party/v8.cmake"
+    "${_source}/DEPS"
+    "${_workspace}/.gclient"
+    "${_workspace}/.gclient_entries"
     "${_source}/third_party/llvm-build/Release+Asserts/cr_build_revision"
-    "${_source}/third_party/rust-toolchain/VERSION" "${_gn}" "${_ninja}")
+    "${_source}/third_party/rust-toolchain/VERSION"
+    "${_gn}"
+    "${_ninja}")
 if(CMAKE_HOST_WIN32)
     list(APPEND _files "${_source}/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
-        "${_source}/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
-        "${_source}/third_party/rust-toolchain/bin/rustc.exe")
+         "${_source}/third_party/llvm-build/Release+Asserts/bin/lld-link.exe"
+         "${_source}/third_party/rust-toolchain/bin/rustc.exe")
 else()
     list(APPEND _files "${_source}/third_party/llvm-build/Release+Asserts/bin/clang"
-        "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar"
-        "${_source}/third_party/rust-toolchain/bin/rustc")
+         "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar"
+         "${_source}/third_party/rust-toolchain/bin/rustc")
 endif()
 if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
     list(APPEND _files "${_source}/build/linux/debian_bullseye_amd64-sysroot/.stamp"
-        "${_source}/build/linux/sysroot_scripts/sysroots.json")
+         "${_source}/build/linux/sysroot_scripts/sysroots.json")
 endif()
 foreach(_file IN LISTS _files)
     write_fixture("${_file}" "fixture-input\n")
 endforeach()
 write_fixture("${ENGINE_V8_BUILD_ROOT}/.gitconfig" "[core]\n    filemode = false\n")
 write_fixture("${_workspace}/.gclient_entries"
-    "entries = { 'v8/build': 'https://example.invalid/build@${_build_revision}' }\n")
+              "entries = { 'v8/build': 'https://example.invalid/build@${_build_revision}' }\n")
 
 _engine_v8_cache_keys(_prepare_key _original_key _ready)
 if(NOT _ready)
@@ -79,11 +84,13 @@ if(NOT _matches)
 endif()
 
 foreach(_input IN ITEMS "${_source}/DEPS" "${_engine_root}/third_party/v8.cmake"
-        "${_source}/third_party/rust-toolchain/VERSION")
+                        "${_source}/third_party/rust-toolchain/VERSION")
     write_fixture("${_input}" "changed-input\n")
     _engine_v8_cache_keys(_prepare_key _changed_key _ready)
     _engine_v8_stamp_matches("${_stamp}" "${_changed_key}" _matches)
-    if(NOT _ready OR _matches OR _changed_key STREQUAL _original_key)
+    if(NOT _ready
+       OR _matches
+       OR _changed_key STREQUAL _original_key)
         message(FATAL_ERROR "Changed input must invalidate the cache: ${_input}")
     endif()
     write_fixture("${_input}" "fixture-input\n")
@@ -109,26 +116,30 @@ set(_additional_root "${_source}/third_party/simdutf")
 write_fixture("${_additional_root}/patched.cpp" "upstream\n")
 write_fixture("${_additional_root}/other.cpp" "unchanged\n")
 execute_process(COMMAND "${GIT_EXECUTABLE}" init --quiet "${_additional_root}"
-    COMMAND_ERROR_IS_FATAL ANY)
+                        COMMAND_ERROR_IS_FATAL ANY)
 execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}" add patched.cpp other.cpp
-    COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}"
-    -c user.name=EngineTest -c user.email=engine-test@example.invalid
-    -c commit.gpgsign=false commit --quiet -m fixture
-    COMMAND_ERROR_IS_FATAL ANY)
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}" rev-parse HEAD
-    OUTPUT_VARIABLE _additional_revision OUTPUT_STRIP_TRAILING_WHITESPACE
-    COMMAND_ERROR_IS_FATAL ANY)
+                        COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+    COMMAND
+        "${GIT_EXECUTABLE}" -C "${_additional_root}" -c user.name=EngineTest -c
+        user.email=engine-test@example.invalid -c commit.gpgsign=false commit --quiet -m fixture
+        COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}" rev-parse HEAD
+    OUTPUT_VARIABLE _additional_revision
+    OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 write_fixture("${_additional_root}/patched.cpp" "patched\n")
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}"
-    diff --no-ext-diff --binary HEAD -- patched.cpp
-    OUTPUT_VARIABLE _additional_patch COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+    COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}" diff --no-ext-diff --binary HEAD --
+            patched.cpp OUTPUT_VARIABLE _additional_patch COMMAND_ERROR_IS_FATAL ANY)
 set(_patch_roots "${_additional_root}")
 set(_patch_files "${_engine_root}/additional.patch")
 write_fixture("${_patch_files}" "${_additional_patch}")
 file(READ "${_workspace}/.gclient_entries" _original_entries)
-write_fixture("${_workspace}/.gclient_entries"
-    "entries = {\n 'v8/build': 'https://example.invalid/build@${_build_revision}',\n 'v8/third_party/simdutf': 'https://example.invalid/simdutf@${_additional_revision}'\n}\n")
+write_fixture(
+    "${_workspace}/.gclient_entries"
+    "entries = {\n 'v8/build': 'https://example.invalid/build@${_build_revision}',\n 'v8/third_party/simdutf': 'https://example.invalid/simdutf@${_additional_revision}'\n}\n"
+)
 _engine_v8_cache_keys(_prepare_key _additional_key _ready)
 if(NOT _ready)
     message(FATAL_ERROR "A verified additional patch root must have a valid cache identity")
@@ -136,12 +147,14 @@ endif()
 write_fixture("${_additional_root}/other.cpp" "changed outside the known patch\n")
 _engine_v8_cache_keys(_prepare_key _changed_key _ready)
 if(NOT _ready OR _changed_key STREQUAL _additional_key)
-    message(FATAL_ERROR "Tracked changes outside the known patch must invalidate an additional root")
+    message(
+        FATAL_ERROR "Tracked changes outside the known patch must invalidate an additional root")
 endif()
-execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_additional_root}"
-    -c user.name=EngineTest -c user.email=engine-test@example.invalid
-    -c commit.gpgsign=false commit --quiet --allow-empty -m changed-revision
-    COMMAND_ERROR_IS_FATAL ANY)
+execute_process(
+    COMMAND
+        "${GIT_EXECUTABLE}" -C "${_additional_root}" -c user.name=EngineTest -c
+        user.email=engine-test@example.invalid -c commit.gpgsign=false commit --quiet --allow-empty
+        -m changed-revision COMMAND_ERROR_IS_FATAL ANY)
 _engine_v8_cache_keys(_prepare_key _changed_key _ready)
 if(_ready)
     message(FATAL_ERROR "Additional patch root HEAD must still match the gclient revision")
@@ -166,8 +179,10 @@ set(ENGINE_V8_ANDROID_API 28)
 if(CMAKE_HOST_WIN32)
     set(_ndk_host windows-x86_64)
     set(_ndk_tool_suffix .exe)
-    write_fixture("${_source}/third_party/llvm-build/Release+Asserts/bin/clang.exe" "fixture-input\n")
-    write_fixture("${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar.exe" "fixture-input\n")
+    write_fixture("${_source}/third_party/llvm-build/Release+Asserts/bin/clang.exe"
+                  "fixture-input\n")
+    write_fixture("${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar.exe"
+                  "fixture-input\n")
 elseif(CMAKE_HOST_APPLE)
     set(_ndk_host darwin-x86_64)
     set(_ndk_tool_suffix "")
@@ -176,10 +191,13 @@ else()
     set(_ndk_tool_suffix "")
 endif()
 set(_ndk_files "${ENGINE_V8_ANDROID_NDK}/source.properties"
-    "${ENGINE_V8_ANDROID_NDK}/meta/platforms.json")
+               "${ENGINE_V8_ANDROID_NDK}/meta/platforms.json")
 foreach(_tool IN ITEMS clang llvm-ar ld.lld)
-    list(APPEND _ndk_files
-        "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}")
+    list(
+        APPEND
+        _ndk_files
+        "${ENGINE_V8_ANDROID_NDK}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}"
+    )
 endforeach()
 foreach(_file IN LISTS _ndk_files)
     write_fixture("${_file}" "fixture-ndk\n")
@@ -218,8 +236,8 @@ unset(ENGINE_V8_ANDROID_NDK)
 unset(ENGINE_V8_ANDROID_API)
 set(ENGINE_V8_TARGET_CPU "${_saved_cpu}")
 
-set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat"
-    "${_out}/gen/include/v8-gn.h" "${_sample}" "${_out}/build.ninja")
+set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat" "${_out}/gen/include/v8-gn.h"
+               "${_sample}" "${_out}/build.ninja")
 foreach(_artifact IN LISTS _artifacts)
     write_fixture("${_artifact}" "fixture-output\n")
 endforeach()

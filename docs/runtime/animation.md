@@ -1,5 +1,5 @@
 # 动画模块
 
-动画通过第三方插件接入 [ozz-animation](https://github.com/guillaumeblanc/ozz-animation)，具体接入方式后续确定。
+`AnimationSystem` 接入 [ozz-animation](https://github.com/guillaumeblanc/ozz-animation)，通过运行时骨架对象的构造与释放验证依赖编译、链接和生命周期。它由世界系统管理，不依赖编辑器。
 
-渲染侧必须支持 GPU 蒙皮，相关目标见[渲染模块](rendering.md)。
+动画资源加载、采样、混合及骨骼组件尚未实现；GPU 蒙皮归[渲染模块](rendering.md)，动画系统负责提供对应姿态数据。

@@ -5,7 +5,7 @@
 #include <SDL3/SDL.h>
 
 #if defined(SDL_PLATFORM_ANDROID)
-#include "android_surface.hpp"
+#include "android/native/android_surface.hpp"
 #endif
 
 #include <limits>
@@ -88,6 +88,11 @@ SDL_Window* WindowSystem::native_window() const noexcept
 
 bool WindowSystem::on_initialize(const EngineConfig& config)
 {
+    if (config.window_title.empty())
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Window title must not be empty");
+        return false;
+    }
     constexpr auto max_size = static_cast<std::uint32_t>(std::numeric_limits<int>::max());
     if (config.width == 0 || config.height == 0 || config.width > max_size ||
         config.height > max_size)

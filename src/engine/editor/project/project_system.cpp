@@ -69,7 +69,7 @@ bool ProjectSystem::on_initialize(const EngineConfig&)
         }
     }
 
-    // 目录校验通过后接入配置数据依赖；本阶段不读写项目文件。
+    // 目录校验后验证 TOML 配置依赖，项目文件由各功能模块按职责读取。
     toml::table project;
     project.insert("project", project_root_);
     const auto identifier = project["project"].value<std::string_view>();

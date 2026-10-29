@@ -12,6 +12,7 @@
 #include <sys/file.h>
 #include <unistd.h>
 #endif
+#include <string>
 
 namespace engine::asset_pipeline
 {

@@ -3,20 +3,20 @@ namespace engine.schema;
 enum AssetKind:ubyte { source, script, scene, mesh, shader, material }
 
 table AssetEntry {
-  guid:string (required);
-  path:string (required);
-  kind:AssetKind = source;
-  content_hash:string (required);
-  content_size:ulong;
-  dependencies:[string];
-  module_path:string;
+    guid:string (required);
+    path:string (required);
+    kind:AssetKind = source;
+    content_hash:string (required);
+    content_size:ulong;
+    dependencies:[string];
+    module_path:string;
 }
 
 table AssetCatalogData {
-  schema_version:uint = 1;
-  revision:string (required);
-  target_platform:string (required);
-  entries:[AssetEntry] (required);
+    schema_version:uint = 1;
+    revision:string (required);
+    target_platform:string (required);
+    entries:[AssetEntry] (required);
 }
 
 root_type AssetCatalogData;

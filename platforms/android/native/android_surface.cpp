@@ -1,4 +1,4 @@
-#include "android_surface.hpp"
+#include "android/native/android_surface.hpp"
 
 #include <SDL3/SDL.h>
 #include <jni.h>

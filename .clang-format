@@ -6,4 +6,5 @@ ColumnLimit: 100
 PointerAlignment: Left
 DerivePointerAlignment: false
 AllowShortFunctionsOnASingleLine: None
+InsertBraces: true
 AccessModifierOffset: -4

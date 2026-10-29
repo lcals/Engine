@@ -9,10 +9,15 @@ import subprocess
 import sys
 import tempfile
 
-from script_tooling_test import call, contents, metadata_guid, require, verify_complete_asset_snapshot
+from script_tooling_test import (
+    call,
+    contents,
+    metadata_guid,
+    require,
+    verify_complete_asset_snapshot,
+)
 
-
-FAKE_ADB = r'''
+FAKE_ADB = r"""
 import json
 import os
 from pathlib import Path
@@ -65,24 +70,46 @@ drop_receipt = drop_receipt or (config.get("drop_control_receipt") and "mv -f" i
                               " files/script-control.json" in script)
 if not drop_receipt:
     sys.stdout.buffer.write(f"\n{marker}:{code}\n".encode())
-'''
+"""
 
 
 def invoke(server, project, work, device, requests, package="org.engine.minimal"):
     messages = [
-        {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {
-            "protocolVersion": "2025-06-18", "capabilities": {},
-            "clientInfo": {"name": "android-mcp-test", "version": "1"}}},
+        {
+            "jsonrpc": "2.0",
+            "id": 0,
+            "method": "initialize",
+            "params": {
+                "protocolVersion": "2025-06-18",
+                "capabilities": {},
+                "clientInfo": {"name": "android-mcp-test", "version": "1"},
+            },
+        },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ] + requests
     environment = dict(os.environ, ENGINE_FAKE_ANDROID_ROOT=str(device))
     # Python -s <serial> executes this private fixture; no platform shell launcher is needed.
     result = subprocess.run(
-        [str(server), "--project", str(project), "--android-serial", "fake-adb.py",
-         "--android-package", package, "--adb", sys.executable],
-        cwd=work, env=environment,
+        [
+            str(server),
+            "--project",
+            str(project),
+            "--android-serial",
+            "fake-adb.py",
+            "--android-package",
+            package,
+            "--adb",
+            sys.executable,
+        ],
+        cwd=work,
+        env=environment,
         input="\n".join(json.dumps(message) for message in messages) + "\n",
-        capture_output=True, text=True, encoding="utf-8", timeout=90, check=False)
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=90,
+        check=False,
+    )
     if package != "org.engine.minimal":
         return result
     require(result.returncode == 0, f"Android MCP failed: {result.stderr}")
@@ -98,8 +125,9 @@ def entry(path):
 def test(server, root, work):
     (work / "fake-adb.py").write_text(FAKE_ADB, encoding="utf-8")
     project = work / "project 中文 $literal"
-    shutil.copytree(root / "projects/minimal", project,
-                    ignore=shutil.ignore_patterns("node_modules", "cache"))
+    shutil.copytree(
+        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
+    )
     (project / "cache").mkdir()
     compiler = root / "projects/minimal/settings/node_modules/typescript"
     require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
@@ -118,43 +146,70 @@ def test(server, root, work):
     (runtime / "assets").mkdir(parents=True)
     settings = device / "config.json"
     settings.write_text("{}")
-    builtin = {"revision": "0123456789abcdef", "entry": "scripts/game.js", "files": [
-        entry("scripts/game.js"), entry("scripts/builtin-only.js")],
-        "deleted": ["scripts/previously-deleted.js"]}
+    builtin = {
+        "revision": "0123456789abcdef",
+        "entry": "scripts/game.js",
+        "files": [entry("scripts/game.js"), entry("scripts/builtin-only.js")],
+        "deleted": ["scripts/previously-deleted.js"],
+    }
     builtin_path = runtime / "assets/builtin.json"
     builtin_path.write_text(json.dumps(builtin))
     available_path = runtime / "assets/available.json"
-    status = {"running": True, "hotReload": False, "activeRevision": builtin["revision"],
-              "availableRevision": "", "lastError": ""}
+    status = {
+        "running": True,
+        "hotReload": False,
+        "activeRevision": builtin["revision"],
+        "availableRevision": "",
+        "lastError": "",
+    }
     status_path = runtime / "script-status.json"
     status_path.write_text(json.dumps(status))
 
-    replies = invoke(server, project, work, device, [call("sync_assets"), call("get_status", request_id=2)])
-    require(not replies[0]["result"]["isError"], f"initial Android sync failed: {contents(replies[0])}")
+    replies = invoke(
+        server, project, work, device, [call("sync_assets"), call("get_status", request_id=2)]
+    )
+    require(
+        not replies[0]["result"]["isError"], f"initial Android sync failed: {contents(replies[0])}"
+    )
     receipt = contents(replies[0])
-    require(receipt["deviceSerial"] == "fake-adb.py" and
-            receipt["packageName"] == "org.engine.minimal" and
-            receipt["runtimeDir"] == "/data/user/0/org.engine.minimal/files", "wrong Android receipt target")
+    require(
+        receipt["deviceSerial"] == "fake-adb.py"
+        and receipt["packageName"] == "org.engine.minimal"
+        and receipt["runtimeDir"] == "/data/user/0/org.engine.minimal/files",
+        "wrong Android receipt target",
+    )
     published = json.loads(available_path.read_text())
     verify_complete_asset_snapshot(project, runtime, published)
     image_guid = metadata_guid(image_asset)
-    require((runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes() == image_asset.read_bytes(),
-            "Android raw image bytes changed during synchronization")
-    require({"scripts/builtin-only.js", "scripts/previously-deleted.js"}.issubset(published["deleted"]),
-            "first sync did not retain built-in deletion baseline")
+    require(
+        (runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes()
+        == image_asset.read_bytes(),
+        "Android raw image bytes changed during synchronization",
+    )
+    require(
+        {"scripts/builtin-only.js", "scripts/previously-deleted.js"}.issubset(published["deleted"]),
+        "first sync did not retain built-in deletion baseline",
+    )
     unusual_guid = metadata_guid(unusual)
     uploaded = runtime / "assets/versions" / published["revision"] / "gen" / unusual_guid
-    require("catalog.bin" in {item["path"] for item in published["files"]},
-            "Android GUID catalog missing from snapshot")
+    require(
+        "catalog.bin" in {item["path"] for item in published["files"]},
+        "Android GUID catalog missing from snapshot",
+    )
     require(uploaded.read_bytes() == unusual.read_bytes(), "binary/Unicode/quoted filename changed")
     require(not (device / "app/injected").exists(), "remote resource path caused shell expansion")
     reported = contents(replies[1])
-    require(reported["activeRevision"] == status["activeRevision"] and
-            reported["availableRevision"] == published["revision"], "sync falsely activated gameplay")
+    require(
+        reported["activeRevision"] == status["activeRevision"]
+        and reported["availableRevision"] == published["revision"],
+        "sync falsely activated gameplay",
+    )
     timestamp = available_path.stat().st_mtime_ns
     repeated = contents(invoke(server, project, work, device, [call("sync_assets")])[0])
-    require(repeated.get("unchanged") and available_path.stat().st_mtime_ns == timestamp,
-            "identical Android sync republished the manifest")
+    require(
+        repeated.get("unchanged") and available_path.stat().st_mtime_ns == timestamp,
+        "identical Android sync republished the manifest",
+    )
 
     # A newer installed APK can add built-in paths absent from the older available manifest.
     builtin["files"].append(entry("scripts/new-apk-only.js"))
@@ -162,7 +217,9 @@ def test(server, root, work):
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "sync after APK baseline upgrade failed")
     published = json.loads(available_path.read_text())
-    require("scripts/new-apk-only.js" in published["deleted"], "APK upgrade deletion escaped baseline")
+    require(
+        "scripts/new-apk-only.js" in published["deleted"], "APK upgrade deletion escaped baseline"
+    )
     original = available_path.read_bytes()
     source = project / "assets/scripts/game.ts"
     source.write_text(source.read_text() + "\n// changed Android version\n")
@@ -177,40 +234,62 @@ def test(server, root, work):
     settings.write_text("{}")
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "retry after interrupted upload failed")
-    require((runtime / "assets/versions" / published["revision"]).is_dir(), "old version was removed")
+    require(
+        (runtime / "assets/versions" / published["revision"]).is_dir(), "old version was removed"
+    )
 
-    replies = invoke(server, project, work, device, [
-        call("set_hot_reload", {"enabled": True}),
-        call("set_hot_reload", {"enabled": False}, request_id=2),
-    ])
-    require(all(not reply["result"]["isError"] for reply in replies), "Android control update failed")
-    require(json.loads((runtime / "script-control.json").read_text()) == {"hotReload": False},
-            "Android control replacement failed")
+    replies = invoke(
+        server,
+        project,
+        work,
+        device,
+        [
+            call("set_hot_reload", {"enabled": True}),
+            call("set_hot_reload", {"enabled": False}, request_id=2),
+        ],
+    )
+    require(
+        all(not reply["result"]["isError"] for reply in replies), "Android control update failed"
+    )
+    require(
+        json.loads((runtime / "script-control.json").read_text()) == {"hotReload": False},
+        "Android control replacement failed",
+    )
     require(json.loads(status_path.read_text()) == status, "MCP wrote fabricated engine status")
 
     control = runtime / "script-control.json"
     control.unlink()
     control.mkdir()
     reply = invoke(server, project, work, device, [call("set_hot_reload", {"enabled": True})])[0]
-    require(reply["result"]["isError"] and not list(control.iterdir()),
-            "control publication falsely succeeded into a directory")
+    require(
+        reply["result"]["isError"] and not list(control.iterdir()),
+        "control publication falsely succeeded into a directory",
+    )
     control.rmdir()
     settings.write_text('{"drop_control_receipt":true}')
     reply = invoke(server, project, work, device, [call("set_hot_reload", {"enabled": True})])[0]
-    require(reply["result"]["isError"] and "not confirmed" in contents(reply)["error"],
-            "missing control receipt did not report uncertainty")
-    require(json.loads(control.read_text()) == {"hotReload": True},
-            "fixture did not actually commit the unconfirmed control")
+    require(
+        reply["result"]["isError"] and "not confirmed" in contents(reply)["error"],
+        "missing control receipt did not report uncertainty",
+    )
+    require(
+        json.loads(control.read_text()) == {"hotReload": True},
+        "fixture did not actually commit the unconfirmed control",
+    )
     settings.write_text("{}")
 
     (runtime / "assets/.sync-lock").mkdir()
     (runtime / "assets/.sync-lock/owner").write_text("another-host")
     before_lock = available_path.read_bytes()
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
-    require(reply["result"]["isError"] and available_path.read_bytes() == before_lock,
-            "another publisher's lock was bypassed")
-    require((runtime / "assets/.sync-lock/owner").read_text() == "another-host",
-            "another publisher's lock was removed")
+    require(
+        reply["result"]["isError"] and available_path.read_bytes() == before_lock,
+        "another publisher's lock was bypassed",
+    )
+    require(
+        (runtime / "assets/.sync-lock/owner").read_text() == "another-host",
+        "another publisher's lock was removed",
+    )
     shutil.rmtree(runtime / "assets/.sync-lock")
 
     for mode in ["release", "offline"]:
@@ -226,13 +305,19 @@ def test(server, root, work):
     settings.write_text('{"drop_publish_receipt":true}')
     before_unknown = available_path.read_bytes()
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
-    require(reply["result"]["isError"] and "not confirmed" in contents(reply)["error"],
-            "missing final receipt did not report unconfirmed publication")
-    require(available_path.read_bytes() != before_unknown, "fixture did not actually commit publication")
+    require(
+        reply["result"]["isError"] and "not confirmed" in contents(reply)["error"],
+        "missing final receipt did not report unconfirmed publication",
+    )
+    require(
+        available_path.read_bytes() != before_unknown, "fixture did not actually commit publication"
+    )
     settings.write_text("{}")
     actual = contents(invoke(server, project, work, device, [call("get_status")])[0])
-    require(actual["availableRevision"] == json.loads(available_path.read_text())["revision"],
-            "status used a host mirror instead of the device after uncertain publication")
+    require(
+        actual["availableRevision"] == json.loads(available_path.read_text())["revision"],
+        "status used a host mirror instead of the device after uncertain publication",
+    )
 
 
 if __name__ == "__main__":
