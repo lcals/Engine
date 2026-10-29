@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -91,6 +92,13 @@ def check_compiler_inputs(root, project, temporary):
         result.returncode != 0 and not (project / "cache/assets").exists(),
         "implicit legacy cache/assets output must be rejected",
     )
+
+
+def resource_payload(entity):
+    require(entity[:4] == b"ERS1" and len(entity) >= 8, "invalid resource entity framing")
+    header_size = int.from_bytes(entity[4:8], "little") + 8
+    require(8 < header_size <= len(entity), "invalid bounded resource header")
+    return entity[header_size:]
 
 
 def verify_complete_asset_snapshot(project, runtime, manifest):
@@ -217,7 +225,14 @@ def test(mcp, root, temporary):
     require(len(replies) == 8, "notifications must not produce responses")
     require(
         {tool["name"] for tool in replies[0]["result"]["tools"]}
-        == {"sync_assets", "set_hot_reload", "get_status", "start_project", "stop_project"},
+        == {
+            "sync_assets",
+            "build_resources",
+            "set_hot_reload",
+            "get_status",
+            "start_project",
+            "stop_project",
+        },
         "wrong tool list",
     )
     require(contents(replies[1])["state"] == "offline", "missing runtime must be offline")
@@ -235,7 +250,8 @@ def test(mcp, root, temporary):
     verify_complete_asset_snapshot(project, runtime, manifest)
     for raw in (image_asset, binary_asset):
         require(
-            (project / "cache/gen" / metadata_guid(raw)).read_bytes() == raw.read_bytes(),
+            resource_payload((project / "cache/gen" / metadata_guid(raw)).read_bytes())
+            == raw.read_bytes(),
             "raw image/binary bytes changed during import",
         )
     asset_guid = metadata_guid(unicode_asset)
@@ -285,6 +301,62 @@ def test(mcp, root, temporary):
     require(not reply["result"]["isError"], "deleting a module failed")
     manifest = json.loads(manifest_path.read_text())
     require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
+
+    (project / "settings/test-package.toml").write_text(
+        'target_platform=""\noutput="cache/build/test-package"\n'
+        '[[items]]\nname="game"\nstorage="package"\n'
+        'roots=["project/scripts/game.ts", "project/scenes/main.scene"]\n',
+        encoding="utf-8",
+    )
+    built = invoke(
+        mcp, project, runtime, [call("build_resources", {"manifest": "settings/test-package.toml"})]
+    )[0]
+    require(not built["result"]["isError"], f"MCP resource build failed: {contents(built)}")
+    first_build = contents(built)
+    client = subprocess.run(
+        [
+            sys.executable,
+            str(root / "scripts/mcp_client.py"),
+            "--server",
+            str(mcp),
+            "--project",
+            str(project),
+            "--runtime-dir",
+            str(runtime),
+            "build",
+            "--manifest",
+            "settings/test-package.toml",
+            "--item",
+            "game",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    require(client.returncode == 0, f"MCP client build failed: {client.stderr} {client.stdout}")
+    rebuilt = json.loads(client.stdout)
+    require(
+        rebuilt["revision"] == first_build["revision"] and rebuilt["reusedPackages"] > 0,
+        "unchanged MCP package build did not reuse its output",
+    )
+    packed = invoke(
+        mcp, project, runtime, [call("sync_assets", {"source": "cache/build/test-package"})]
+    )[0]
+    require(
+        not packed["result"]["isError"],
+        f"prebuilt package synchronization failed: {contents(packed)}",
+    )
+    packed_manifest = json.loads(manifest_path.read_text())
+    require(
+        any(item["path"].startswith("packs/") for item in packed_manifest["files"]),
+        "merged package was not included in deployment",
+    )
+    invalid = invoke(mcp, project, runtime, [call("build_resources", {"manifest": "../outside"})])[
+        0
+    ]
+    require(invalid["result"]["isError"], "build manifest traversal was accepted")
+    manifest = packed_manifest
 
     # No running engine is fabricated: get_status returns only the explicit runtime report.
     expected = {

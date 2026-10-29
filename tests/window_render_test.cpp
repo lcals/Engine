@@ -1,3 +1,5 @@
+#include "resource_fixture.hpp"
+
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
@@ -289,11 +291,10 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     engine::schema::MaterialDataT custom_material;
     custom_material.type_path = "project/materials/tests/custom";
     custom_material.shader_path = custom.path;
-    if (!expect(engine::ResourceSystem::register_shader(custom) &&
-                    engine::ResourceSystem::register_shader(incomplete) &&
-                    engine::ResourceSystem::register_shader(unknown) &&
-                    engine::ResourceSystem::register_material(custom_material),
-                "register custom shader and material definitions"))
+    test_support::ResourceFixture fixture;
+    if (!expect(fixture.add(custom) && fixture.add(incomplete) && fixture.add(unknown) &&
+                    fixture.add(custom_material) && fixture.publish(resources),
+                "submit custom shader and material entity directory"))
     {
         return false;
     }
@@ -454,18 +455,23 @@ bool test_engine(const engine::EngineConfig& config)
     engine::schema::MaterialDataT project_material;
     project_material.type_path = "project/materials/lifecycle";
     project_material.shader_path = project_shader.path;
-    if (!expect(engine::ResourceSystem::register_shader(project_shader) &&
-                    engine::ResourceSystem::register_material(project_material),
-                "register project-scoped definitions for running engine"))
+    test_support::ResourceFixture fixture;
+    auto* resources = engine::ResourceSystem::instance();
+    engine::ResourcePtr held;
+    if (!expect(resources && fixture.add(project_shader) && fixture.add(project_material) &&
+                    fixture.publish(*resources) && fixture.load(project_material.type_path, held),
+                "load project material and shader through the resource core"))
     {
         return false;
     }
+    held.reset();
     engine.gameplay()->stop();
     engine.gameplay()->stop();
     if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
                     engine::ResourceSystem::find_material(project_material.type_path) == nullptr &&
                     engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
-                "stopping project clears only project definitions and preserves builtin identity"))
+                "stopped project retains no unowned project definitions and preserves builtin "
+                "identity"))
     {
         return false;
     }

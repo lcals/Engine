@@ -1,12 +1,24 @@
 #pragma once
 
 #include <filesystem>
+#include <memory>
 #include <string>
 
 namespace engine
 {
 
+namespace schema
+{
+struct AssetCatalogDataT;
+}
+
+namespace asset_pipeline
+{
+class ProjectLock;
+}
+
 class ProjectSystem;
+class GameplaySession;
 class EditorSystem;
 
 class EditorEnvironment final
@@ -21,21 +33,24 @@ public:
     EditorEnvironment(EditorEnvironment&&) = delete;
     EditorEnvironment& operator=(EditorEnvironment&&) = delete;
 
-    [[nodiscard]] bool initialize(bool snapshot_builtin_assets = false);
+    [[nodiscard]] bool initialize();
     void shutdown() noexcept;
+    [[nodiscard]] bool refresh_resources(GameplaySession& gameplay);
     [[nodiscard]] bool is_initialized() const noexcept;
-    [[nodiscard]] bool prepare_builtin_assets();
+    [[nodiscard]] bool apply_resources(const schema::AssetCatalogDataT& data,
+                                       GameplaySession& gameplay);
 
 private:
     friend class EditorSystem;
 
     ProjectSystem& project_;
     std::string project_identity_;
+    std::string resource_revision_;
     std::filesystem::path persistent_directory_;
     std::filesystem::path builtin_path_;
-    std::filesystem::path snapshot_directory_;
+    std::filesystem::path session_marker_;
+    std::unique_ptr<asset_pipeline::ProjectLock> session_lease_;
     bool initialized_ = false;
-    bool snapshot_prepared_ = false;
 };
 
 } // namespace engine

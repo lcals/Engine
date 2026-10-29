@@ -179,11 +179,20 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     set_tests_properties(editor.task PROPERTIES TIMEOUT 30)
 
     add_executable(engine_asset_pipeline_test asset_pipeline_test.cpp)
+    target_include_directories(engine_asset_pipeline_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_asset_pipeline_test PRIVATE engine::asset_pipeline
                                                              engine::resource engine::scene_data)
     engine_apply_options(engine_asset_pipeline_test)
     add_test(NAME editor.asset_pipeline COMMAND engine_asset_pipeline_test)
     set_tests_properties(editor.asset_pipeline PROPERTIES TIMEOUT 90)
+
+    add_executable(engine_asset_build_test asset_build_test.cpp)
+    target_link_libraries(engine_asset_build_test PRIVATE engine::asset_build
+                                                          engine::asset_pipeline engine::resource)
+    engine_apply_options(engine_asset_build_test)
+    add_test(NAME editor.asset_build COMMAND engine_asset_build_test)
+    set_tests_properties(editor.asset_build PROPERTIES TIMEOUT 90)
 
     if(TARGET asset_build_app AND ENGINE_NODE_EXECUTABLE)
         find_package(

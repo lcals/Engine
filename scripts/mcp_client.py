@@ -50,10 +50,14 @@ def main():
     commands.add_parser("start", help="Start the project in the editor window")
     commands.add_parser("stop", help="Stop the project and restore the blank window")
     commands.add_parser("status", help="Show published and last reported runtime state")
-    commands.add_parser(
+    sync = commands.add_parser(
         "sync",
-        help="Import and synchronize all catalog assets: scripts, scenes, meshes, materials, shaders and raw resources",
+        help="Import and synchronize the full directory, or synchronize an existing runtime build",
     )
+    sync.add_argument("--source", help="Existing resource directory relative to the project")
+    build = commands.add_parser("build", help="Build a runtime resource subset from a manifest")
+    build.add_argument("--manifest", required=True, help="Manifest relative to project settings/")
+    build.add_argument("--item", action="append", default=[], help="Build item; may be repeated")
     hot_reload = commands.add_parser("hot-reload", help="Set the engine hot reload switch")
     hot_reload.add_argument("enabled", choices=["on", "off"])
     args = parser.parse_args()
@@ -68,9 +72,14 @@ def main():
         "stop": "stop_project",
         "status": "get_status",
         "sync": "sync_assets",
+        "build": "build_resources",
         "hot-reload": "set_hot_reload",
     }[args.command]
     arguments = {"enabled": args.enabled == "on"} if args.command == "hot-reload" else {}
+    if args.command == "sync" and args.source:
+        arguments["source"] = args.source
+    if args.command == "build":
+        arguments = {"manifest": args.manifest, "items": args.item}
     process = None
     timer = None
     try:

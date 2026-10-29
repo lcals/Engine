@@ -4,6 +4,8 @@
 
 下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
 
+资源核心与调用方的方向汇总见[资源调用关系](#资源调用关系)。
+
 ## 构建边界
 
 代码和独立类图按职责使用相同分层：
@@ -148,7 +150,7 @@ classDiagram
 
 场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
-ResourceSystem 深拷贝注册 FlatBuffers 生成的 ShaderDataT / MaterialDataT，完整路径以 builtin/ 或 project/ 区分内置与项目。MeshRenderer 独占 Material，Material 自己持有生成的 MaterialDataT 实例，按 Shader 定义匹配命名参数。RenderSystem 从资源系统借用定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；组件仅提供描述。切换场景、停止运行或图形设备重建时配对释放，图形设备本身可在编辑器待机期间保留。项目停止在场景和 GPU 资源释放后清理 project 定义，builtin 定义随资源系统关闭。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+ResourceSystem 按目录按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放，核心索引仅持弱引用。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## App 与日志
 
@@ -204,7 +206,7 @@ classDiagram
     EditorHost *-- AssetPipelineSystem : 脚本运行开启时拥有
     EditorHost *-- AssetSyncSystem : 脚本运行开启时拥有
     class EditorEnvironment
-    EditorHost *-- EditorEnvironment : 配置平台路径与内置快照
+    EditorHost *-- EditorEnvironment : 配置平台路径与提交目录
     EditorEnvironment --> ProjectSystem : 已就绪项目借用
     EditorSystem --> EditorEnvironment : 构造参数及持续借用
     EditorSystem --> GameplaySession : 可空构造借用与主线程启停
@@ -221,11 +223,11 @@ AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系
 1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
 2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
 3. 初始化 AssetPipelineSystem 及其 TaskSystem 子系统，按项目导入线程设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
-4. 由 EditorEnvironment 从生成内容建立本会话只读内置快照，初始化 AssetSyncSystem 并发布完整初始版本。
-5. 初始化 RuntimeHost，由其创建窗口并向 Engine 注册资源、世界和渲染根系统，再以其玩法会话初始化 EditorSystem。
+4. 初始化 AssetSyncSystem 以支持显式调试同步；普通编辑器启动直接使用项目转换缓存，不先打包或复制初始版本。
+5. 初始化 RuntimeHost，由其创建窗口并向 Engine 注册资源、世界和渲染根系统；EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
 6. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
 
-关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost、AssetSyncSystem、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理内置快照并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
+关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、RuntimeHost、AssetSyncSystem、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理宿主登记并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
 
 RuntimeHost 在关闭 Engine 根系统之前销毁玩法会话，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
 
@@ -245,12 +247,12 @@ classDiagram
     ScriptSystem *-- ScriptStatus : 状态值
     ScriptSystem ..> App : 只读应用路径
     ScriptSystem ..> LogSystem : 原生日志绑定
-    ScriptSystem ..> ResourceSystem : 静态同步文件读取
+    ScriptSystem ..> ResourceSystem : 预检单脚本与加载共享脚本资源
     class GameplaySession
     GameplaySession ..> ScriptStatus : 返回可空只读借用
 ```
 
-ScriptSystem 由 WorldSystem 独占；GameplaySession 协调玩法启停和资源清理，热重载开关与重建由脚本系统负责。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
+ScriptSystem 由 WorldSystem 独占；GameplaySession 协调玩法启停、部署候选选择与资源清理，ScriptSystem 提供候选预检、运行和重建能力。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
 
 ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](../runtime/class-diagrams/resource-system.md)。
 
@@ -297,18 +299,21 @@ classDiagram
     class AssetPipelineSystem
     class AssetSyncSystem
     class ResourceSystem
+    class AssetBuildSystem
     McpHost *-- AssetPipelineSystem : 独立根系统
+    McpHost *-- AssetBuildSystem : 独立根系统
     McpHost *-- AssetSyncSystem : 独立根系统
     McpHost *-- McpSystem : 独立根系统
     class McpTarget
     McpSystem *-- McpTarget : 按值保存目标参数
     McpSystem --> AssetPipelineSystem : 构造参数及持续借用
+    McpSystem --> AssetBuildSystem : 构造参数及持续借用
     McpSystem --> AssetSyncSystem : 构造参数及持续借用
     McpSystem ..> ResourceSystem : 状态及可用版本读取
     AssetSyncSystem ..> ResourceSystem : 文件及清单读取
 ```
 
-`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名），依次初始化 AssetPipelineSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的两个系统是必需借用，必须先就绪并持续存活。
+`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名），依次初始化 AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的三个系统是必需借用，必须先就绪并持续存活。
 
 MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。MCP 入口不初始化 App 或 LogSystem。
 
@@ -318,6 +323,7 @@ classDiagram
     class AssetSyncSystem
     class McpSystem
     class ScriptSystem
+    class GameplaySession
     class Available["assets/available.json"] {
         <<file>>
     }
@@ -332,20 +338,20 @@ classDiagram
     }
     AssetSyncSystem ..> Versions : 准备并校验完整快照
     AssetSyncSystem ..> Available : 原子发布可用版本
-    ScriptSystem ..> Available : 发现完整版本
-    ScriptSystem ..> Versions : 校验并读取候选内容
+    GameplaySession ..> Available : 宿主发现候选版本
+    GameplaySession ..> Versions : 校验候选部署内容
     McpSystem ..> Available : 查询实际已发布版本
     McpSystem ..> Control : 原子写热重载开关
-    ScriptSystem ..> Control : 主线程读取开关
-    ScriptSystem ..> Status : 写最后运行状态
+    GameplaySession ..> Control : 主线程读取开关并调用脚本能力
+    GameplaySession ..> Status : 发布会话与脚本状态
     McpSystem ..> Status : 查询最后上报的运行状态
 ```
 
 上述文件均位于目标应用的持久数据目录之下，不属于可被系统清理的 App 缓存目录。两个进程无需共享 C++ 对象：
 
 - AssetSyncSystem 准备并校验不可变完整版本，再原子替换 `available.json`。发布成功只表示文件可用，不表示脚本已经激活。
-- ScriptSystem 检查完整清单和文件，运行会话固定自己的模块内容；关闭热重载仍可接收新文件及报告可用版本。
-- GUID 资源版本固定一份完整 catalog，模块通过 module_path 解析到 GUID；目录中缺失模块即失败，不回退旧包内内容。只有无 catalog 的独立脚本目录按 files/deleted/builtin 规则解析。编辑器为会话建立固定内置快照，资源构建不改写它。
+- GameplaySession 检查候选部署清单，ScriptSystem 按入口模块预检；关闭热重载仍可接收独立版本文件及报告可用版本。
+- GUID 资源版本固定一份完整 catalog，模块通过 module_path 解析到 GUID；目录中缺失模块即失败，不回退旧包内内容。编辑器直接映射 cache/gen；会覆盖该缓存的构建要求先停止项目。同步已构建的独立运行包不覆盖活动版本。
 - 热重载开启后，在运行线程安全点预检候选模块。语法或静态链接失败保留旧 Game；预检通过后停止旧 Game 并执行新入口，执行失败停止此次玩法，不承诺撤销已产生的业务副作用。
 - MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
 - 同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
@@ -381,8 +387,10 @@ classDiagram
     class PathUtils
     class App
     class ScriptSystem
+    class VirtualFileSystem
     App ..> PathUtils : UTF-8 路径转换
     ScriptSystem ..> PathUtils : UTF-8 路径转换
+    VirtualFileSystem ..> PathUtils : 挂载相对路径转换
 ```
 
 ```mermaid
@@ -401,7 +409,7 @@ classDiagram
 
 桌面 App 实现、脚本系统、项目系统、资源管线、资源同步、MCP 及编辑器/MCP 宿主使用上述公共转换。转换保留路径内容，不负责路径存在性、规范化或目录越界检查；这些判断继续由使用者完成。
 
-ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避免统一正斜杠转换改变 Windows 扩展长度路径语义，因此它与 LogSystem 均没有 PathUtils 调用依赖。
+VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编码，避免改变 Windows 扩展长度路径语义；逻辑相对路径转换仍使用 PathUtils。ResourceSystem 委托 VFS 读取实体范围，宿主与同步工具复用其流式摘要接口。
 
 ## System 继承与参数依赖
 
@@ -414,7 +422,7 @@ ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避�
 | 世界子系统 | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统 | LogSystem | EngineConfig、LogLevel、日志文本；返回日志路径借用 |
 | 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
-| 工具根系统 | AssetPipelineSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、资源及运行目录 Path；McpSystem 构造借用管线和同步系统，并按值接收 McpTarget |
+| 工具根系统 | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线；McpSystem 借用管线、构建与同步系统，并按值接收 McpTarget |
 
 App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，完整字段及 Path/String 关系在 [MCP 独立图](../plugins/class-diagrams/mcp-system.md)维护。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
 
@@ -478,7 +486,7 @@ classDiagram
 
 RenderSystem 借用 SDL 窗口和原生句柄，拥有 bgfx 初始化状态及 Apple Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，不独占 Android 窗口对象。
 
-WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。ResourceSystem 每次读取拥有一个局部 SDL_IOStream，读取结束必须关闭；App 与 LogSystem 分别拥有平台路径值和日志文件。初始化期间的局部依赖检查对象不构成持久拥有关系。
+WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。VirtualFileSystem 每次读取或计算摘要时拥有一个局部 SDL_IOStream，读取结束必须关闭；App 与 LogSystem 分别拥有平台路径值和日志文件。初始化期间的局部依赖检查对象不构成持久拥有关系。
 
 ## 实际编译与链接依赖
 
@@ -488,7 +496,10 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | App | SDL3、PathUtils、标准库文件系统 | 桌面与 Android 平台目录及逻辑 APK 根 |
 | LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
 | WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
-| ResourceSystem | SDL3、FlatBuffers、Basis Universal | 同步文件读取、解析入口及转码表初始化 |
+| VirtualFileSystem | SDL3、PathUtils | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径 |
+| ResourceCatalog | FlatBuffers、GuidMap | 纯元数据目录、身份索引与依赖校验 |
+| Resource | FlatBuffers、标准库共享指针 | 自有实体数据与直接依赖引用 |
+| ResourceSystem | VirtualFileSystem、ResourceCatalog、Resource、FlatBuffers、Basis Universal | 目录更新、同步依赖加载、弱引用索引及转码表初始化 |
 | WorldSystem | flecs、FlatBuffers、Scene | ECS 世界、场景与节点身份生命周期 |
 | RenderSystem | bgfx、bx、SDL3、WorldSystem | 图形设备、场景组件读取、PBR 方块与帧提交 |
 | PhysicsSystem | Jolt | 版本一致性入口 |
@@ -496,17 +507,19 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | AnimationSystem | ozz-animation | 空骨骼构造和析构 |
 | UiSystem | RmlUi | 运行库版本入口 |
 | ScriptSystem 探针实现 | V8 | V8 版本入口的实际链接验证 |
-| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem | JS 模块、原生绑定、玩法生命周期、状态与热重载 |
+| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem | JS 模块预检与执行、原生绑定、玩法生命周期及状态 |
+| GameplaySession | ScriptSystem、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
 | ProjectSystem | toml++、LogSystem、PathUtils | 项目目录检查及日志 |
-| EditorEnvironment | ProjectSystem、App、LogSystem、PathUtils | 编辑器路径映射、私有会话身份与内置快照 |
+| EditorEnvironment | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils | 编辑器路径映射、活动缓存租约与目录提交 |
 | EditorSystem | Dear ImGui、EditorEnvironment、GameplaySession、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、项目启停与状态回执 |
 | AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
-| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、PathUtils | 完整版本校验与原子发布 |
-| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetSyncSystem、PathUtils | stdio 协议、编译同步、控制与状态 |
+| AssetBuildSystem | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++ | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录 |
+| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils | 完整版本校验与原子发布 |
+| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem、PathUtils | stdio 协议、清单构建、资源同步、控制与状态 |
 | TS 构建工具 | Node.js、项目固定版本 TypeScript | settings 中配置，assets 中源码，cache 中生成物 |
 | 资源构建工具 | shaderc、texturec、geometryc | 宿主工具，不进入运行时生命周期 |
 
-Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
+Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
 脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
 
@@ -529,8 +542,65 @@ classDiagram
     AssetPipelineSystem ..> SceneImporter : TOML 转场景数据
     AssetPipelineSystem ..> ResourceSystem : 同步读取及产物校验
     ResourceCatalog *-- GuidMap : 值拥有双向索引
-    ResourceSystem ..> ResourceCatalog : 读取及激活参数
-    ScriptSystem *-- ResourceCatalog : 每次运行固定资源快照
+    ResourceSystem *-- ResourceCatalog : 元数据目录
+    ScriptSystem ..> ResourceCatalog : 候选预检输入
 ```
 
 GuidMap 属于纯标准库核心模块；Taskflow、SQLite、toml++ 仅用于编辑器导入，不进入设备运行时。完整数据结构与公开方法见对应独立图。源资源 meta、SQL 中的身份和运行期目录使用同一完整 GUID，生成路径固定为 `cache/gen/<GUID>`。
+
+## 资源调用关系
+
+方法只在[资源独立类图](index.md#资源系统)维护；本节说明跨层调用方向。
+
+```mermaid
+classDiagram
+    direction TB
+    class EditorHost["编辑器宿主"] {
+        <<host>>
+    }
+    class RuntimeHost["运行宿主"] {
+        <<host>>
+    }
+    class AssetPipelineSystem
+    class AssetBuildSystem
+    class ResourceSystem
+    EditorHost *-- AssetPipelineSystem : 全量扫描与增量导入
+    EditorHost *-- AssetBuildSystem : 可选发布打包
+    AssetBuildSystem --> AssetPipelineSystem : 借用导入能力
+    EditorHost ..> ResourceSystem : 直接更新完整目录
+    RuntimeHost ..> ResourceSystem : 真机启动提交精简目录一次
+```
+
+运行宿主节点表示平台入口与现有 RuntimeHost 的装配流程，不为运行时添加项目扫描或编辑器配置。ResourceSystem 仍由 Engine 根系统树拥有；编辑器无需调用 AssetBuildSystem 即可运行项目。核心没有反向箭头指向编辑器。
+
+```mermaid
+classDiagram
+    direction TB
+    class McpSystem
+    class AssetBuildSystem
+    class AssetSyncSystem
+    class AssetCatalogDataT
+    McpSystem --> AssetBuildSystem : 调用清单构建
+    McpSystem --> AssetSyncSystem : 调用显式部署
+    AssetBuildSystem ..> AssetCatalogDataT : 生成统一运行清单
+    AssetSyncSystem ..> AssetCatalogDataT : 按完整清单准备输出
+```
+
+MCP 的构建、部署、项目启停仍是不同操作。同步成功仅说明候选资源已准备，应用由编辑器或运行宿主协调；核心不轮询发布文件。正常真机运行不自行扩展资源集合。
+
+```mermaid
+classDiagram
+    direction TB
+    class ResourceSystem
+    class ResourceCatalog
+    class GuidMap
+    class VirtualFileSystem
+    class Resource
+    ResourceSystem *-- ResourceCatalog : 独占元数据目录
+    ResourceCatalog *-- GuidMap : 独占身份索引
+    ResourceSystem *-- VirtualFileSystem : 独占存储映射
+    ResourceSystem --> Resource : 弱引用查找已加载对象
+    Resource o-- Resource : 共享必要依赖
+```
+
+Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据；RenderSystem 继续独立管理 GPU 生命周期。

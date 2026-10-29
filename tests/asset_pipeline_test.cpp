@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/engine_config.hpp"
@@ -13,9 +14,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
+#include <memory>
 #include <set>
+#include <sstream>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -131,6 +135,19 @@ bool load_catalog(const Fixture& fixture, engine::schema::AssetCatalogDataT& out
     return true;
 }
 
+std::string read_payload(const Fixture& fixture, std::string_view guid)
+{
+    engine::ResourceCatalog catalog;
+    engine::ByteBuffer payload;
+    if (!engine::ResourceSystem::read_catalog(fixture.root / "cache", catalog) ||
+        !engine::ResourceSystem::read_resource(catalog, {{"content", fixture.root / "cache"}}, guid,
+                                               payload))
+    {
+        return {};
+    }
+    return {reinterpret_cast<const char*>(payload.data()), payload.size()};
+}
+
 bool build(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     if (!pipeline.build_assets(fixture.root))
@@ -139,6 +156,109 @@ bool build(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
         return false;
     }
     return true;
+}
+
+bool editor_guard(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
+{
+    const auto hosts = fixture.root / "cache/editor-hosts";
+    const auto runtime = fixture.root / "cache/editor-status";
+    std::error_code code;
+    std::filesystem::create_directories(hosts, code);
+    if (!code)
+    {
+        std::filesystem::create_directories(runtime, code);
+    }
+    if (code)
+    {
+        return false;
+    }
+    std::ostringstream root_json;
+    std::ostringstream runtime_json;
+    root_json << std::quoted(engine::PathUtils::to_utf8(fixture.root));
+    runtime_json << std::quoted(engine::PathUtils::to_utf8(runtime));
+    const auto status = [&](std::string_view state, std::string_view session = "test")
+    {
+        return "{\"projectRoot\":" + root_json.str() + ",\"session\":\"" + std::string(session) +
+               "\",\"projectState\":\"" + std::string(state) + "\",\"updatedAtMs\":0}";
+    };
+    const auto previous = read(fixture.root / "cache/catalog.bin");
+    auto lease = std::make_unique<engine::asset_pipeline::ProjectLock>();
+    std::string error;
+    if (!expect(lease->acquire(hosts / "test.lock", error), "editor owns lifetime lease") ||
+        !expect(write(hosts / "test.json", "{\"projectRoot\":" + root_json.str() +
+                                               ",\"runtimeDir\":" + runtime_json.str() + "}"),
+                "write editor marker"))
+    {
+        return false;
+    }
+    std::filesystem::last_write_time(
+        hosts / "test.json", std::filesystem::file_time_type::clock::now() - std::chrono::hours(1),
+        code);
+    engine::asset_pipeline::ProjectLock probe;
+    bool acquired = true;
+    if (code ||
+        !expect(probe.try_acquire(hosts / "test.lock", acquired, error) && !acquired &&
+                    error.empty(),
+                "lease contention is distinct from an inspection error") ||
+        !expect(!probe.try_acquire(hosts / "missing/lock", acquired, error) && !acquired &&
+                    !error.empty(),
+                "unreadable lease path reports an error") ||
+        !expect(!pipeline.build_assets(fixture.root) &&
+                    read(fixture.root / "cache/catalog.bin") == previous,
+                "live editor with old marker and missing status still prevents publication") ||
+        !expect(write(runtime / "project-status.json", "invalid") &&
+                    !pipeline.build_assets(fixture.root),
+                "live editor with unreadable status never times out into write permission"))
+    {
+        return false;
+    }
+    for (const auto state : {"running", "starting", "stopping"})
+    {
+        if (!expect(write(runtime / "project-status.json", status(state)) &&
+                        !pipeline.build_assets(fixture.root) &&
+                        pipeline.last_error().find("Stop the active editor project") !=
+                            std::string::npos &&
+                        read(fixture.root / "cache/catalog.bin") == previous,
+                    "paused or slow live editor cannot be overwritten despite an old heartbeat"))
+        {
+            return false;
+        }
+    }
+    if (!expect(write(runtime / "project-status.json", status("idle", "previous-session")) &&
+                    !pipeline.build_assets(fixture.root),
+                "idle status from another session cannot authorize cache publication") ||
+        !expect(write(runtime / "project-status.json", status("unknown")) &&
+                    !pipeline.build_assets(fixture.root),
+                "unknown live project state cannot authorize cache publication") ||
+        !expect(write(runtime / "project-status.json", status("idle")) && build(pipeline, fixture),
+                "matching idle session permits importing while editor remains open") ||
+        !expect(write(runtime / "project-status.json", status("closed")) &&
+                    build(pipeline, fixture),
+                "matching closed session permits import during environment cleanup") ||
+        !expect(write(runtime / "project-status.json", status("running")),
+                "leave a running status to simulate process death"))
+    {
+        return false;
+    }
+    lease.reset();
+    if (!expect(build(pipeline, fixture),
+                "released crashed-editor lease allows import immediately") ||
+        !expect(write(hosts / "test.json", "invalid") && build(pipeline, fixture),
+                "unlocked crashed-editor marker content is irrelevant"))
+    {
+        return false;
+    }
+    std::filesystem::create_directory(hosts / "broken.lock", code);
+    if (code ||
+        !expect(write(hosts / "broken.json", "{}") && !pipeline.build_assets(fixture.root) &&
+                    pipeline.last_error().find("cannot inspect editor host lease") !=
+                        std::string::npos,
+                "lease inspection failure never grants import permission"))
+    {
+        return false;
+    }
+    std::filesystem::remove_all(hosts, code);
+    return !code;
 }
 
 bool tests()
@@ -174,7 +294,8 @@ bool tests()
         return false;
     }
     engine::schema::AssetCatalogDataT catalog;
-    if (!expect(load_catalog(fixture, catalog) && catalog.entries.size() == 3,
+    if (!expect(load_catalog(fixture, catalog) && catalog.entries.size() == 3 &&
+                    catalog.schema_version == 2 && pipeline.catalog() == catalog,
                 "read generated FlatBuffers catalog"))
     {
         return false;
@@ -293,7 +414,7 @@ bool tests()
     if (!expect(mapped, "catalog maps preserved GUID to renamed logical path") ||
         !expect(write(cache / "gen" / source_guid, "corrupt") && build(pipeline, fixture) &&
                     pipeline.last_build().imported == 1 &&
-                    read(cache / "gen" / source_guid) == "second",
+                    read_payload(fixture, source_guid) == "second",
                 "cache hit verifies bytes and rebuilds corrupted artifact") ||
         !expect(write(fixture.root / "settings/import.toml", "import_threads = 2\n") &&
                     build(pipeline, fixture) && pipeline.last_build().import_threads == 2 &&
@@ -349,7 +470,7 @@ bool tests()
                           "revision = \"11111111-1111-4111-8111-111111111111\"\nhad_gen = "
                           "true\n\"had_catalog.bin\" = true\n") &&
                     build(pipeline, fixture) && read(cache / "catalog.bin") == before_recovery &&
-                    read(cache / "gen" / source_guid) == "second",
+                    read_payload(fixture, source_guid) == "second",
                 "interrupted publication rolls back before scanning"))
     {
         return false;
@@ -372,6 +493,10 @@ bool tests()
                 "deletion removes old GUID artifact and index") ||
         !expect(!pipeline.build_assets(fixture.root, "unknown-platform"),
                 "invalid target cannot reuse wrong backend artifacts"))
+    {
+        return false;
+    }
+    if (!editor_guard(pipeline, fixture))
     {
         return false;
     }

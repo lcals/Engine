@@ -9,6 +9,7 @@ namespace engine
 {
 
 class AssetPipelineSystem;
+class AssetBuildSystem;
 class AssetSyncSystem;
 
 struct McpTarget
@@ -22,7 +23,7 @@ struct McpTarget
 class McpSystem final : public System
 {
 public:
-    McpSystem(AssetPipelineSystem& pipeline, AssetSyncSystem& sync,
+    McpSystem(AssetPipelineSystem& pipeline, AssetBuildSystem& builder, AssetSyncSystem& sync,
               std::filesystem::path project_root, McpTarget target);
     ~McpSystem() noexcept override;
 
@@ -33,12 +34,13 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    [[nodiscard]] bool sync_android(std::string& reply);
+    [[nodiscard]] bool sync_android(const std::filesystem::path& source, std::string& reply);
     [[nodiscard]] bool set_android_hot_reload(bool enabled, std::string& reply);
     [[nodiscard]] bool read_android_status(std::string& reply);
 
-    // 两个借用系统必须先初始化，并存活到 McpSystem 关闭。
+    // 三个借用系统必须先初始化，并存活到 McpSystem 关闭。
     AssetPipelineSystem& pipeline_;
+    AssetBuildSystem& builder_;
     AssetSyncSystem& sync_;
     std::filesystem::path project_root_;
     McpTarget target_;

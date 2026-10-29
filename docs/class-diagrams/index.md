@@ -2,6 +2,24 @@
 
 类图是架构评审入口，维护类的职责、所有权、公开方法和完整引用关系。构建与平台验证范围见根 [README.md](../../README.md)。
 
+统一评审原则：**业务、运行宿主和编辑器都驱动最小核心，核心不承载调用方流程。** 评审每个方法时区分“提供能力”和“决定何时使用能力”，后者归调用方。完整边界见[调用方驱动核心](../architecture.md#调用方驱动核心)。
+
+## 资源系统
+
+各图维护资源目录、同步加载和构建接口。说明见[资源目录与同步加载](../runtime/resource-loading.md)。
+
+| 独立类图 | 评审内容 |
+| --- | --- |
+| [资源系统](../runtime/class-diagrams/resource-system.md) | 更新目录、按需同步加载、共享依赖及领域使用者 |
+| [资源目录](../runtime/class-diagrams/resource-catalog.md) | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
+| [已加载资源](../runtime/class-diagrams/resource.md) | 标准 shared_ptr 共享、生成数据借用和依赖释放 |
+| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务 |
+| [编辑器资源构建](../editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单 |
+
+核心不扫描、监听、导入或打包，也不区分编辑器模式。编辑器扫描全部 assets，直接更新核心目录；真机启动提交固定精简清单一次。两端共用加载与释放，编辑器无需打包即可运行。跨层调用见[资源调用关系](references.md#资源调用关系)。
+
+## 当前宿主与导入模块
+
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
@@ -18,7 +36,7 @@
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
 - [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
-- [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和会话内置资源准备。
+- [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [MCP](../plugins/class-diagrams/mcp-system.md)：start_project、stop_project 完成回执；保留同步及热重载工具。
@@ -87,7 +105,7 @@ RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；
 
 - 遵守根 [AGENTS.md](../../AGENTS.md) 的 C++20 规范；不使用异常，通过返回值表达状态。
 - 用户评审类、职责、所有权、关系和公开方法；助手负责实现、测试和图与代码同步。
-- 每个类的方法只在所属图中定义一次。其他图出现同名类时仅表示外部引用，不重复维护接口。
+- 每个类的方法只在所属图中定义一次。其他图出现同名类时仅表示外部引用，不重复维护接口。设计先于实现时明确标注状态，不能将设计方法写成已经可调用的功能。
 - 每个具体系统及子系统独立成图。共有生命周期只在 `System` 中维护；自有头文件以 `runtime/`、`editor/`、`plugins/` 开头，构建提供统一搜索根目录。
 - `+`、`#`、`-` 分别表示公开、受保护、私有；`<|--` 表示继承，`*--` 表示独占拥有，`o--` 表示持有共享底层资源的原生引用，`-->` 表示非拥有引用，`..>` 表示使用依赖。
 - 方法采用 Mermaid 的“方法(参数) 返回类型”语法；静态方法用 `$`、纯虚方法用 `*`，C++ 限定符在图下注明。指针返回值的星号写为 `#42;`，避免被 Mermaid 误认成纯虚标记后省略。

@@ -18,6 +18,19 @@ ScriptSystem::~ScriptSystem() noexcept
     shutdown();
 }
 
+bool ScriptSystem::prepare_gameplay(const ResourceCatalog&, const MountList&, std::string_view,
+                                    std::string_view)
+{
+    status_.last_error = "Script runtime is not enabled in this build";
+    return false;
+}
+
+bool ScriptSystem::start_prepared_gameplay()
+{
+    status_.last_error = "Script runtime is not enabled in this build";
+    return false;
+}
+
 bool ScriptSystem::start_gameplay(std::string_view)
 {
     status_.last_error = "Script runtime is not enabled in this build";

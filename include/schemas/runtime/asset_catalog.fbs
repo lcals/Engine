@@ -2,6 +2,13 @@ namespace engine.schema;
 
 enum AssetKind:ubyte { source, script, scene, mesh, shader, material }
 
+table FileLocation {
+    mount:string (required);
+    path:string (required);
+    offset:ulong;
+    length:ulong;
+}
+
 table AssetEntry {
     guid:string (required);
     path:string (required);
@@ -10,6 +17,10 @@ table AssetEntry {
     content_size:ulong;
     dependencies:[string];
     module_path:string;
+    format_version:uint = 1;
+    // 8-byte prefix plus FlatBuffers header, excluding the payload.
+    header_size:uint;
+    location:FileLocation;
 }
 
 table AssetCatalogData {

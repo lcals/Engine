@@ -67,7 +67,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     endif()
 
     engine_add_system(runtime resource)
-    target_sources(engine_resource PRIVATE src/engine/runtime/resource/builtin_resources.cpp)
+    target_sources(
+        engine_resource
+        PRIVATE src/engine/runtime/resource/builtin_resources.cpp
+                src/engine/runtime/resource/resource.cpp
+                src/engine/runtime/resource/resource_catalog.cpp
+                src/engine/runtime/resource/virtual_file_system.cpp)
     engine_embed_render_shaders(engine_resource)
     target_link_libraries(
         engine_resource
@@ -130,12 +135,14 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine::gameplay ALIAS engine_gameplay)
     target_link_libraries(
         engine_gameplay
-        PUBLIC engine::core
+        PUBLIC engine::core engine::scene_data
         PRIVATE engine::world engine::render engine::resource)
     target_compile_definitions(
         engine_gameplay PRIVATE ENGINE_HAS_SCRIPT_RUNTIME=$<BOOL:${ENGINE_ENABLE_SCRIPT_RUNTIME}>)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
-        target_link_libraries(engine_gameplay PRIVATE engine::script)
+        target_link_libraries(engine_gameplay PRIVATE engine::script engine::app engine::log
+                                                      nlohmann_json::nlohmann_json SDL3::SDL3)
+        target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)
     endif()
     engine_apply_options(engine_gameplay)
 
@@ -161,6 +168,10 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
     target_sources(engine_editor PRIVATE src/engine/editor/editor_environment.cpp)
+    target_include_directories(engine_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    if(NOT ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+        target_sources(engine_editor PRIVATE src/engine/editor/asset_pipeline/project_lock.cpp)
+    endif()
     target_link_libraries(
         engine_editor
         PRIVATE engine::project
@@ -171,7 +182,10 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 imgui::imgui
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
-    target_compile_definitions(engine_editor PRIVATE JSON_NOEXCEPTION=1)
+    target_compile_definitions(
+        engine_editor
+        PRIVATE JSON_NOEXCEPTION=1
+                ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
@@ -191,13 +205,14 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_asset_pipeline
+        PUBLIC engine::scene_data
         PRIVATE engine::task
                 engine::resource
-                engine::scene_data
                 usd
                 unofficial::sqlite3::sqlite3
                 efsw::efsw
                 meshoptimizer::meshoptimizer
+                nlohmann_json::nlohmann_json
                 SDL3::SDL3)
     # vcpkg 的编译库使用异常 ABI；导入器按上游支持方式使用无异常头文件实现。
     get_target_property(_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
@@ -206,6 +221,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_asset_pipeline
         PRIVATE TOML_HEADER_ONLY=1
                 TOML_EXCEPTIONS=0
+                JSON_NOEXCEPTION=1
                 ENGINE_SHADERC_EXECUTABLE="${ENGINE_SHADERC_EXECUTABLE}"
                 ENGINE_BGFX_SHADER_INCLUDE_DIR="${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
                 ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
@@ -217,6 +233,17 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_asset_pipeline
         PRIVATE ENGINE_NODE_EXECUTABLE="${ENGINE_NODE_EXECUTABLE}"
                 ENGINE_SCRIPT_BUILDER="${PROJECT_SOURCE_DIR}/scripts/build_scripts.mjs")
+
+    if(TARGET engine_editor)
+        target_link_libraries(engine_editor PRIVATE engine::asset_pipeline)
+    endif()
+
+    engine_add_system(editor asset_build)
+    target_include_directories(engine_asset_build PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_include_directories(engine_asset_build SYSTEM PRIVATE ${_toml_includes})
+    target_compile_definitions(engine_asset_build PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+    target_link_libraries(engine_asset_build PRIVATE engine::asset_pipeline engine::resource
+                                                     engine::core engine::scene_data)
 endif()
 
 if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
@@ -229,8 +256,8 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
         engine_add_system(plugins mcp)
         target_sources(engine_mcp PRIVATE src/engine/plugins/mcp/android_sync.cpp)
         target_link_libraries(
-            engine_mcp PRIVATE engine::asset_pipeline engine::asset_sync engine::resource
-                               nlohmann_json::nlohmann_json SDL3::SDL3)
+            engine_mcp PRIVATE engine::asset_pipeline engine::asset_build engine::asset_sync
+                               engine::resource nlohmann_json::nlohmann_json SDL3::SDL3)
         target_compile_definitions(engine_mcp PRIVATE JSON_NOEXCEPTION=1)
     endif()
 endif()

@@ -2,12 +2,14 @@
 
 #include "runtime/scene/scene_types.hpp"
 
+#include <memory>
 #include <string_view>
 
 namespace engine
 {
 
 class MeshRenderer;
+class Resource;
 
 class Material final
 {
@@ -42,6 +44,8 @@ private:
     [[nodiscard]] const schema::MaterialParameterT*
     find_parameter(std::string_view name, schema::MaterialValue type) const noexcept;
 
+    std::shared_ptr<const Resource> material_resource_;
+    std::shared_ptr<const Resource> shader_resource_;
     schema::MaterialDataT data_;
 };
 

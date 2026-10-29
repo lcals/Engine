@@ -41,17 +41,26 @@ Scene* WorldSystem::load_scene(std::string_view path)
     {
         return nullptr;
     }
-    schema::SceneDataT data;
-    if (!ResourceSystem::read_scene(path, data) || !data.info)
+    auto* resources = ResourceSystem::instance();
+    Guid guid;
+    ResourcePtr resource;
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->load(guid, resource))
+    {
+        return nullptr;
+    }
+    const auto* data = resource->scene();
+    if (data == nullptr || !data->info)
     {
         return nullptr;
     }
     std::unique_ptr<Scene> candidate(new (std::nothrow)
-                                         Scene(*world_, scene_sequence_ + 1, data.info->name));
-    if (!candidate || !candidate->restore_data(data))
+                                         Scene(*world_, scene_sequence_ + 1, data->info->name));
+    if (!candidate || !candidate->restore_data(*data))
     {
         return nullptr;
     }
+    candidate->resource_ = std::move(resource);
     scene_ = std::move(candidate);
     ++scene_sequence_;
     return scene_.get();

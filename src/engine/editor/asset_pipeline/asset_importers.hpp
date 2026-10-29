@@ -17,7 +17,8 @@ struct ImportAsset
     std::string path;
     std::filesystem::path source;
     schema::AssetKind kind = schema::AssetKind::source;
-    std::vector<Guid> dependencies;
+    std::vector<Guid> build_dependencies;
+    std::vector<Guid> runtime_dependencies;
 };
 
 struct ImportContext
@@ -28,6 +29,7 @@ struct ImportContext
     std::filesystem::path output;
     std::string shader_platform;
     std::string shader_profile;
+    const schema::AssetCatalogDataT* previous_catalog = nullptr;
 };
 
 [[nodiscard]] bool scan_dependencies(ImportAsset& asset, const ImportContext& context,
