@@ -48,3 +48,5 @@ classDiagram
 - 宿主在每轮引擎更新之前调用编辑器更新，窗口最小化时仍处理停止请求。项目画面占满同一窗口，停止后清理运行资源并恢复空白。
 
 C++ 限定符：构造为 `explicit`；构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
+
+资源重整接入：start_project 使用管线相同的 ProjectLock 保护 environment.refresh_resources 与 GameplaySession.start；导入占用锁时返回失败，已运行时重复启动仍幂等。资源导入和构建不自动停止或重启项目。

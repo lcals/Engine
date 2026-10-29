@@ -1,16 +1,19 @@
 #include "editor/editor_environment.hpp"
 
+#include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include "runtime/utils/path_utils.hpp"
-#include <SDL3/SDL.h>
 
-#include <atomic>
+#include <nlohmann/json.hpp>
+
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <utility>
 
 namespace engine
@@ -48,7 +51,7 @@ EditorEnvironment::~EditorEnvironment() noexcept
     shutdown();
 }
 
-bool EditorEnvironment::initialize(bool snapshot_builtin_assets)
+bool EditorEnvironment::initialize()
 {
     if (initialized_ || !project_.is_initialized() || App::is_initialized())
     {
@@ -64,26 +67,8 @@ bool EditorEnvironment::initialize(bool snapshot_builtin_assets)
     AppConfig config;
     config.application_name = application_name(project_identity_);
     config.persistent_data_path = persistent_directory_;
-    if (snapshot_builtin_assets)
-    {
-        static std::atomic<std::uint64_t> sequence = 0;
-        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-        const auto candidate =
-            root / "cache" / "editor-builtin" /
-            (std::to_string(nonce) + "-" + std::to_string(sequence.fetch_add(1)));
-        fs::create_directories(candidate.parent_path(), error);
-        if (error || !fs::create_directory(candidate, error))
-        {
-            project_identity_.clear();
-            return false;
-        }
-        snapshot_directory_ = candidate;
-        config.builtin_assets_path = snapshot_directory_ / "assets";
-    }
-    else
-    {
-        config.builtin_assets_path = root / "assets";
-    }
+    // 编辑器直接使用导入缓存；不建立第二份包体或会话字节快照。
+    config.builtin_assets_path = root / "cache";
     if (!App::initialize(config))
     {
         shutdown();
@@ -96,24 +81,28 @@ bool EditorEnvironment::initialize(bool snapshot_builtin_assets)
 
 void EditorEnvironment::shutdown() noexcept
 {
-    if (!snapshot_directory_.empty())
+    if (!session_marker_.empty())
     {
         std::error_code error;
-        fs::remove_all(snapshot_directory_, error);
+        fs::remove(session_marker_, error);
         if (error)
         {
             LogSystem::write(LogLevel::warning,
-                             "Cannot remove editor built-in snapshot: " + error.message());
+                             "Cannot remove editor host registration: " + error.message());
         }
-        snapshot_directory_.clear();
+        auto lease_path = session_marker_;
+        lease_path.replace_extension(".lock");
+        session_lease_.reset();
+        fs::remove(lease_path, error);
+        session_marker_.clear();
     }
     if (initialized_)
     {
         App::shutdown();
     }
     initialized_ = false;
-    snapshot_prepared_ = false;
     project_identity_.clear();
+    resource_revision_.clear();
     builtin_path_.clear();
 }
 
@@ -123,46 +112,82 @@ bool EditorEnvironment::is_initialized() const noexcept
            App::builtin_assets_path() == builtin_path_;
 }
 
-bool EditorEnvironment::prepare_builtin_assets()
+bool EditorEnvironment::refresh_resources(GameplaySession& gameplay)
 {
-    if (!is_initialized() || snapshot_directory_.empty() || snapshot_prepared_)
+    if (!is_initialized())
     {
         return false;
     }
     ResourceCatalog catalog;
-    if (!ResourceSystem::read_catalog(PathUtils::from_utf8(project_identity_) / "cache", catalog))
+    if (!ResourceSystem::read_catalog(builtin_path_, catalog))
     {
         return false;
     }
-    std::error_code error;
-    fs::create_directories(builtin_path_ / "gen", error);
-    const auto fail = [this]()
+    return (!session_marker_.empty() && catalog.revision() == resource_revision_) ||
+           apply_resources(catalog.data(), gameplay);
+}
+
+bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
+                                        GameplaySession& gameplay)
+{
+    if (!is_initialized())
     {
-        std::error_code ignored;
-        fs::remove_all(builtin_path_, ignored);
         return false;
-    };
-    if (error)
-    {
-        return fail();
     }
-    for (const auto& [guid, bytes] : catalog.artifacts)
+    if (!gameplay.set_resources(data, {{"content", builtin_path_}}))
     {
-        if (!SDL_SaveFile(PathUtils::to_utf8(builtin_path_ / "gen" / guid).c_str(), bytes.data(),
-                          bytes.size()))
+        return false;
+    }
+    if (session_marker_.empty())
+    {
+        const auto directory = builtin_path_ / "editor-hosts";
+        std::error_code error;
+        fs::create_directories(directory, error);
+        if (error || fs::is_symlink(fs::symlink_status(directory, error)) || error)
         {
-            return fail();
+            return false;
         }
+        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto candidate = directory / (std::to_string(nonce) + ".json");
+        const auto temporary = directory / (std::to_string(nonce) + ".tmp");
+        const auto lease_path = directory / (std::to_string(nonce) + ".lock");
+        for (const auto& path : {candidate, temporary, lease_path})
+        {
+            const auto status = fs::symlink_status(path, error);
+            if (error != std::errc::no_such_file_or_directory &&
+                (error || status.type() != fs::file_type::not_found))
+            {
+                return false;
+            }
+            error.clear();
+        }
+        auto lease = std::make_unique<asset_pipeline::ProjectLock>();
+        std::string lock_error;
+        if (!lease->acquire(lease_path, lock_error))
+        {
+            LogSystem::write(LogLevel::error, "Cannot acquire editor host lease: " + lock_error);
+            return false;
+        }
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output << nlohmann::json({{"projectRoot", project_identity_},
+                                  {"runtimeDir", PathUtils::to_utf8(App::persistent_data_path())}})
+                      .dump();
+        output.close();
+        if (output)
+        {
+            fs::rename(temporary, candidate, error);
+        }
+        if (!output || error)
+        {
+            fs::remove(temporary, error);
+            lease.reset();
+            fs::remove(lease_path, error);
+            return false;
+        }
+        session_marker_ = candidate;
+        session_lease_ = std::move(lease);
     }
-    flatbuffers::FlatBufferBuilder builder;
-    schema::FinishAssetCatalogDataBuffer(builder,
-                                         schema::AssetCatalogData::Pack(builder, &catalog.data));
-    if (!SDL_SaveFile(PathUtils::to_utf8(builtin_path_ / "catalog.bin").c_str(),
-                      builder.GetBufferPointer(), builder.GetSize()))
-    {
-        return fail();
-    }
-    snapshot_prepared_ = true;
+    resource_revision_ = data.revision;
     return true;
 }
 

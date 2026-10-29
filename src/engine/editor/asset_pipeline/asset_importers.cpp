@@ -151,6 +151,29 @@ bool load_shader(const Guid& guid, const ImportContext& context,
     {
         return false;
     }
+    if (bytes.size() >= 4 && bytes[0] == std::byte{'E'} && bytes[1] == std::byte{'R'} &&
+        bytes[2] == std::byte{'S'} && bytes[3] == std::byte{'1'})
+    {
+        const schema::AssetEntryT* entry = nullptr;
+        if (context.previous_catalog != nullptr)
+        {
+            for (const auto& candidate : context.previous_catalog->entries)
+            {
+                if (candidate->guid == guid)
+                {
+                    entry = candidate.get();
+                    break;
+                }
+            }
+        }
+        std::vector<std::byte> payload;
+        if (entry == nullptr || !ResourceSystem::decode_resource(*entry, bytes, payload))
+        {
+            error = "reused shader entity is invalid: " + path;
+            return false;
+        }
+        bytes = std::move(payload);
+    }
     flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(bytes.data()),
                                    bytes.size());
     if (!schema::VerifyShaderDataBuffer(verifier))
@@ -455,7 +478,8 @@ bool convert_material(const ImportAsset& asset, const ImportContext& context, st
 
 bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::string& error)
 {
-    asset.dependencies.clear();
+    asset.build_dependencies.clear();
+    asset.runtime_dependencies.clear();
     if (asset.kind == schema::AssetKind::scene)
     {
         schema::SceneDataT scene;
@@ -470,9 +494,9 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
                 if (const auto* mesh = component->payload.AsMeshRendererData())
                 {
                     if (!reference(mesh->mesh_guid, schema::AssetKind::mesh, context,
-                                   asset.dependencies, error) ||
+                                   asset.build_dependencies, error) ||
                         !reference(mesh->material_guid, schema::AssetKind::material, context,
-                                   asset.dependencies, error))
+                                   asset.build_dependencies, error))
                     {
                         return false;
                     }
@@ -490,7 +514,7 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
         if (asset.kind == schema::AssetKind::material)
         {
             if (!reference(table["shader"].value_or(std::string{}), schema::AssetKind::shader,
-                           context, asset.dependencies, error))
+                           context, asset.build_dependencies, error))
             {
                 return false;
             }
@@ -500,7 +524,7 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
             for (const auto field : {"vertex", "fragment", "varying"})
             {
                 if (!reference(table[field].value_or(std::string{}), schema::AssetKind::source,
-                               context, asset.dependencies, error))
+                               context, asset.build_dependencies, error))
                 {
                     return false;
                 }
@@ -511,15 +535,19 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
                 std::string path;
                 if (kind == schema::AssetKind::source &&
                     context.identities.guid_to_path(guid, path) &&
-                    std::find(asset.dependencies.begin(), asset.dependencies.end(), guid) ==
-                        asset.dependencies.end())
+                    std::find(asset.build_dependencies.begin(), asset.build_dependencies.end(),
+                              guid) == asset.build_dependencies.end())
                 {
-                    asset.dependencies.push_back(guid);
+                    asset.build_dependencies.push_back(guid);
                 }
             }
         }
     }
-    std::sort(asset.dependencies.begin(), asset.dependencies.end());
+    std::sort(asset.build_dependencies.begin(), asset.build_dependencies.end());
+    if (asset.kind == schema::AssetKind::scene || asset.kind == schema::AssetKind::material)
+    {
+        asset.runtime_dependencies = asset.build_dependencies;
+    }
     return true;
 }
 

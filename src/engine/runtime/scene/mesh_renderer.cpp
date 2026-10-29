@@ -31,24 +31,22 @@ bool MeshRenderer::initialize()
 
 std::string_view MeshRenderer::mesh_path() const noexcept
 {
-    // 路径由注册资源拥有，返回生命周期受 ResourceSystem 管理的借用。
-    std::string path;
-    if (!ResourceSystem::guid_to_path(data().payload.AsMeshRendererData()->mesh_guid, path))
-    {
-        return {};
-    }
-    const auto* mesh = ResourceSystem::find_mesh(path);
-    return mesh == nullptr ? std::string_view{} : mesh->path;
+    // 借用由本组件持有的网格资源，目录更新不会使这个字符串悬空。
+    return mesh_resource_ ? std::string_view(mesh_resource_->info().path) : std::string_view{};
 }
 
 bool MeshRenderer::set_mesh(std::string_view path)
 {
+    auto* resources = ResourceSystem::instance();
     Guid guid;
-    if (ResourceSystem::find_mesh(path) == nullptr || !ResourceSystem::path_to_guid(path, guid))
+    ResourcePtr replacement;
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->load(guid, replacement) || replacement->mesh() == nullptr)
     {
         return false;
     }
     mutable_data().payload.AsMeshRendererData()->mesh_guid = std::move(guid);
+    mesh_resource_ = std::move(replacement);
     return true;
 }
 

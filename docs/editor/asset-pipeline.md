@@ -2,6 +2,8 @@
 
 [资源管线类图](class-diagrams/asset-pipeline-system.md) · [项目与出包](project.md) · [跨模块数据](../runtime/data.md)
 
+导入收集完整 `assets/` 信息并生成增量缓存；[资源构建系统](resource-build.md)根据打包清单选择运行子集。构建依赖与运行依赖分开维护，编辑器直接把成功导入的目录提交给核心，无需先打包才能运行项目。
+
 ## 源资源与身份
 
 项目源资源位于 `assets/`。场景、网格、材质和 Shader 描述分别使用 `.scene`、`.mesh`、`.material`、`.shader` 后缀，内容为 TOML；不追加 `.toml`。TypeScript、Shader 源码、图片及其他文件保留其格式。
@@ -14,21 +16,27 @@
 
 `AssetPipelineSystem` 扫描源文件、校验 meta、建立依赖图，通过 `TaskSystem` 下发转换任务。任务系统使用 Taskflow，只负责依赖调度；`settings/import.toml` 的 `import_threads` 默认为 4，允许 1–64。源扫描、版本决策、文件发布和错误报告归资源管线。
 
-转换结果写入 `cache/gen/<完整GUID>`：文件名无扩展名、类型前缀或版本子目录。`cache/catalog.bin` 保存路径、GUID、类型、依赖、大小、哈希和目标平台；`cache/assets.sqlite` 记录输入、工具及生成版本。这两个索引位于 cache 根，不进入 gen。内容哈希用于校验和增量判断，不作为文件名或资源身份。
+转换结果写入 `cache/gen/<完整GUID>`：文件名无扩展名、类型前缀或版本子目录。每个文件是 `ERS1` 资源实体，包含带 `ERSH` 标识的 FlatBuffers 实体头与载荷。`cache/catalog.bin` 使用版本 2，保存 GUID、逻辑路径、类型、必要运行依赖、完整实体大小和哈希、头长度、存储定位及目标平台；导入缓存的定位为 `content` 挂载下的 `gen/<GUID>`。
 
-场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 模型；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。没有专用导入器的文件按原始字节缓存，图片也遵循此规则。源码 GUID 及资源间引用由导入器验证。
+`cache/assets.sqlite` 使用版本 2，记录源、工具、配置和生成指纹；`dependencies` 表用于构建失效和任务排序，`runtime_dependencies` 表用于打包闭包。数据库与目录索引位于 cache 根，不进入 gen。实体哈希用于校验和增量判断，不改变 GUID 身份。
 
-首次导入转换全部资源，重复导入只转换变化及其受影响的依赖。TypeScript 指纹覆盖编译器实际读取的配置、声明、标准库和编译器文件；Shader 依赖保守包含项目全部普通源文件，避免漏掉自定义包含文件。损坏产物重新生成；删除 SQLite 后可由源文件和 meta 重建，GUID 保持不变。
+场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。没有专用导入器的文件保留原始字节作为载荷，图片也遵循此规则。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
 
-导入使用项目锁、暂存输出及回滚记录。全部转换成功后才发布完整目录，失败保留上一版；无变化时不改写正式文件或版本。管线既由编辑器和 MCP 调用，也提供 `asset_build_app` 离线入口，命令见根 [README](../../README.md#资源导入与-guid)。
+首次导入转换全部资源，重复导入只转换变化及其受影响的依赖。TypeScript 指纹覆盖编译器实际读取的配置、声明、标准库和编译器文件；实际生成 JS 中的模块 import / export 和字面量动态 import 形成运行依赖，类型导入被剔除。Shader 的构建依赖保守包含项目全部普通源文件以覆盖自定义 include，这些源码不会自动成为 Shader 的运行依赖。
+
+损坏产物重新生成，缓存命中也校验完整实体头、大小和哈希。删除 SQLite 后可由源文件和 meta 重建，GUID 保持不变。普通源资源仍有 meta、实体和完整编辑器目录条目，可通过打包入口或保留项显式选入运行集合。
+
+导入使用项目锁、暂存输出及回滚记录。转换结束后调用核心 `ResourceCatalog.assign()` 校验完整目录；缺失运行依赖、运行依赖环、非法实体元数据等都在发布前失败。全部成功后发布目录，失败保留上一版；无变化时不改写正式文件或版本。
+
+`AssetPipelineSystem.catalog()` 返回最近成功导入的完整内存目录，只包含元数据；下一次成功导入更新内容，失败保留旧目录，关闭时清空。编辑器协调层使用该数据及 `content` 挂载直接调用核心 `update_catalog()`。运行中的编辑器项目会阻止覆盖同一 `cache/gen/`；调用方必须先停止，导入工具不自动停启。管线也提供 `asset_build_app` 离线入口，命令见根 [README](../../README.md#资源导入与-guid)。
 
 ## 运行资源与同步
 
-运行时只读取 catalog 和它引用的 GUID 产物，不依赖 TOML、SQLite、源 meta 或编辑器。Android 出包使用目标平台 catalog，拒绝把桌面 Shader 缓存混入 APK。
+运行时读取 catalog 元数据，并在使用时读取所需资源，不在启动时把所有实体读入内存；可从独立 GUID 文件或合并包中的区间读取。运行时不依赖 TOML、SQLite、源 meta 或编辑器。Android 出包使用目标平台 catalog，拒绝把桌面 Shader 缓存混入 APK。
 
-`AssetSyncSystem` 和 MCP 按完整版本同步场景、网格、材质、Shader、脚本及普通资源。校验大小与哈希后原子发布；纯资源目录无需玩法脚本也能同步。运行时启动或热重载时固定一份完整资源快照，避免不同版本混读。
+`AssetSyncSystem` 和 MCP 按完整运行清单同步场景、网格、材质、Shader、脚本及普通资源，以及它们引用的独立文件或包。校验后发布对应版本；纯资源目录无需玩法脚本也能同步。版本边界由调用方提供的目录和存储挂载确定，核心不扫描目录或自动切换版本。真机启动提交一次目录，正常运行使用固定集合。
 
-热重载由运行时脚本系统执行，MCP 只负责同步和开关。材质或 Shader 改动通过完整版本重载重建场景及 GPU 资源，不是原地替换任意活跃对象。候选编译或静态链接失败保留旧实例；新入口执行后的副作用不自动回滚。
+热重载由 GameplaySession 协调脚本停止、资源释放、目录提交和重新运行，MCP 只负责同步和开关。材质或 Shader 改动通过完整版本重载重建场景及 GPU 资源，不是原地替换任意活跃对象。候选编译或静态链接失败保留旧实例；新入口执行后的副作用不自动回滚。
 
 ## 尚未实现的能力
 

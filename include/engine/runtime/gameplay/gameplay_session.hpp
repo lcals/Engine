@@ -1,10 +1,18 @@
 #pragma once
 
+#include "runtime/resource/virtual_file_system.hpp"
+
+#include <memory>
 #include <string>
 #include <string_view>
 
 namespace engine
 {
+
+namespace schema
+{
+struct AssetCatalogDataT;
+}
 
 class WorldSystem;
 class RenderSystem;
@@ -23,12 +31,17 @@ public:
     GameplaySession(GameplaySession&&) = delete;
     GameplaySession& operator=(GameplaySession&&) = delete;
 
+    [[nodiscard]] bool set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
+                                     std::string_view entry = {});
+    [[nodiscard]] bool tick();
     [[nodiscard]] bool start(std::string_view entry = {});
     void stop(std::string_view reason = {}) noexcept;
     [[nodiscard]] const ScriptStatus* script_status() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
 
 private:
+    struct State;
+    std::unique_ptr<State> state_;
     WorldSystem& world_;
     RenderSystem& renderer_;
     [[maybe_unused]] ScriptSystem* script_ = nullptr;

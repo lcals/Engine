@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 
@@ -171,6 +172,56 @@ def test(builder, source_project, temporary):
     require(
         shader_output.read_bytes() == shader_valid and catalog.read_bytes() == catalog_valid,
         "shader include failure must preserve previous GUID artifacts and catalog",
+    )
+
+    include.write_text("#define TEST_TINT 0.3\n", encoding="utf-8")
+    (project / "assets/helper.ts").write_text("export const helper = 42;\n", encoding="utf-8")
+    (project / "assets/types.ts").write_text(
+        "export interface Shape { value: number; }\n", encoding="utf-8"
+    )
+    source.write_text(
+        'import { helper } from "./helper.js";\n'
+        'import type { Shape } from "./types.js";\n'
+        "export const result: Shape = { value: helper };\n",
+        encoding="utf-8",
+    )
+    build(builder, project)
+    with sqlite3.connect(project / "cache/assets.sqlite") as database:
+        runtime = database.execute(
+            "SELECT dependency.path FROM runtime_dependencies edge "
+            "JOIN assets owner ON owner.guid=edge.asset_guid "
+            "JOIN assets dependency ON dependency.guid=edge.dependency_guid "
+            "WHERE owner.path='project/game.ts' ORDER BY dependency.path"
+        ).fetchall()
+        require(
+            runtime == [("project/helper.ts",)],
+            "only emitted JS imports become runtime dependencies",
+        )
+        require(
+            database.execute(
+                "SELECT COUNT(*) FROM runtime_dependencies WHERE asset_guid=?", (shader_guid,)
+            ).fetchone()[0]
+            == 0,
+            "shader source files must not become required runtime assets",
+        )
+        require(
+            database.execute(
+                "SELECT COUNT(*) FROM dependencies WHERE asset_guid=?", (shader_guid,)
+            ).fetchone()[0]
+            >= 4,
+            "shader compilation still tracks all source build dependencies",
+        )
+    valid_catalog = catalog.read_bytes()
+    (project / "assets/helper.ts").write_text(
+        'import { result } from "./game.js";\n'
+        "export const helper = 42;\n"
+        "export function circular() { return result; }\n",
+        encoding="utf-8",
+    )
+    build(builder, project, success=False)
+    require(
+        catalog.read_bytes() == valid_catalog,
+        "runtime dependency cycle cannot publish an unusable catalog",
     )
 
 

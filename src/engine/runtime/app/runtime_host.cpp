@@ -122,6 +122,11 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
+    if (!gameplay_->tick())
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
     if (!renderer_->render())
     {
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。

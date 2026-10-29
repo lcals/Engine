@@ -10,10 +10,8 @@
 
 #include <SDL3/SDL.h>
 #include <libplatform/libplatform.h>
-#include <nlohmann/json.hpp>
 #include <v8.h>
 
-#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -29,18 +27,7 @@ namespace
 {
 
 namespace fs = std::filesystem;
-using Json = nlohmann::json;
 constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
-
-[[nodiscard]] bool read_text(const fs::path& path, std::string& text)
-{
-    if (ResourceSystem::read_text(path, text) && text.size() <= maximum_text_size)
-    {
-        return true;
-    }
-    text.clear();
-    return false;
-}
 
 [[nodiscard]] bool relative_path(std::string_view input, std::string& normalized)
 {
@@ -67,24 +54,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return !normalized.empty() && normalized != "." && normalized.back() != '/';
 }
 
-[[nodiscard]] bool safe_revision(std::string_view value)
-{
-    if (value.empty() || value.size() > 128 || value == "." || value == ".." || value == "builtin")
-    {
-        return false;
-    }
-    for (const char character : value)
-    {
-        if (!((character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
-              (character >= '0' && character <= '9') || character == '-' || character == '_' ||
-              character == '.'))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
+#if defined(SDL_PLATFORM_ANDROID)
 [[nodiscard]] bool contained_file(const fs::path& root, std::string_view relative, fs::path& path,
                                   bool directory = false)
 {
@@ -118,64 +88,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return true;
 }
 
-[[nodiscard]] bool builtin_file(const fs::path& root, std::string_view relative, fs::path& path)
-{
-#if defined(SDL_PLATFORM_ANDROID)
-    const auto root_text = PathUtils::to_utf8(root);
-    constexpr std::string_view prefix = "apk:/assets";
-    if (root_text.starts_with("apk:"))
-    {
-        std::string normalized;
-        if (root_text != prefix)
-        {
-            if (!root_text.starts_with("apk:/assets/") ||
-                !relative_path(std::string_view(root_text).substr(prefix.size() + 1), normalized) ||
-                normalized != std::string_view(root_text).substr(prefix.size() + 1))
-            {
-                return false;
-            }
-        }
-        if (!relative_path(relative, normalized) || normalized != relative)
-        {
-            return false;
-        }
-        path = PathUtils::from_utf8(root_text + "/" + normalized);
-        return true;
-    }
 #endif
-    return contained_file(root, relative, path);
-}
-
-[[nodiscard]] bool matches_bytes(std::string_view bytes, std::uint64_t size, std::string_view hash)
-{
-    if (hash.size() != 16 || bytes.size() != size)
-    {
-        return false;
-    }
-    std::uint64_t value = 14695981039346656037ULL;
-    for (const char byte : bytes)
-    {
-        value ^= static_cast<unsigned char>(byte);
-        value *= 1099511628211ULL;
-    }
-    constexpr char hex[] = "0123456789abcdef";
-    std::array<char, 16> actual_hash{};
-    for (std::size_t index = actual_hash.size(); index > 0; --index)
-    {
-        actual_hash[index - 1] = hex[value & 15];
-        value >>= 4;
-    }
-    return hash == std::string_view(actual_hash.data(), actual_hash.size());
-}
-
-[[nodiscard]] bool matches_file(const fs::path& path, std::uint64_t size, std::string_view hash)
-{
-    std::vector<std::byte> bytes;
-    return ResourceSystem::read_binary(path, bytes) &&
-           matches_bytes(
-               std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size()), size,
-               hash);
-}
 
 [[nodiscard]] bool script_path(std::string_view path)
 {
@@ -223,111 +136,6 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return true;
 }
 
-[[nodiscard]] bool prepare_builtin_manifest(std::string& entry, std::set<std::string>& deleted,
-                                            std::string& message)
-{
-    if (!App::is_initialized())
-    {
-        message = "Android scripts require initialized App paths";
-        return false;
-    }
-    std::string text;
-    if (!read_text(PathUtils::from_utf8("apk:/assets/project-manifest.json"), text))
-    {
-        message = "Cannot read APK project manifest";
-        return false;
-    }
-    const auto document = Json::parse(text, nullptr, false);
-    if (!document.is_object() || !document.contains("revision") ||
-        !document["revision"].is_string() || !document.contains("entry") ||
-        !document["entry"].is_string() || !document.contains("files") ||
-        !document["files"].is_array() || !document.contains("deleted") ||
-        !document["deleted"].is_array())
-    {
-        message = "Invalid APK project manifest";
-        return false;
-    }
-    const auto manifest_entry = document["entry"].get<std::string>();
-    std::string normalized;
-    if (!safe_revision(document["revision"].get<std::string>()) ||
-        !relative_path(manifest_entry, normalized) || normalized != manifest_entry ||
-        !script_path(manifest_entry))
-    {
-        message = "Unsafe APK project revision or entry path";
-        return false;
-    }
-    std::set<std::string> seen;
-    for (const auto& item : document["files"])
-    {
-        if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
-            !item.contains("size") || !item["size"].is_number_unsigned() ||
-            !item.contains("hash") || !item["hash"].is_string())
-        {
-            message = "Invalid APK project file description";
-            return false;
-        }
-        const auto path = item["path"].get<std::string>();
-        fs::path file;
-        if (!relative_path(path, normalized) || normalized != path || !seen.insert(path).second ||
-            !builtin_file(App::builtin_assets_path(), path, file) ||
-            !matches_file(file, item["size"].get<std::uint64_t>(), item["hash"].get<std::string>()))
-        {
-            message = "APK project file failed path, size or hash check: " + path;
-            return false;
-        }
-    }
-    for (const auto& item : document["deleted"])
-    {
-        if (!item.is_string())
-        {
-            message = "Invalid deleted APK project path";
-            return false;
-        }
-        const auto path = item.get<std::string>();
-        if (!relative_path(path, normalized) || normalized != path || seen.contains(path) ||
-            !deleted.insert(path).second)
-        {
-            message = "Unsafe or conflicting deleted APK project path: " + path;
-            return false;
-        }
-    }
-    if (seen.contains("catalog.bin"))
-    {
-        ResourceCatalog catalog;
-        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), catalog))
-        {
-            message = "APK GUID resource catalog is invalid";
-            return false;
-        }
-        bool has_entry = false;
-        std::set<std::string> expected{"catalog.bin"};
-        for (const auto& asset : catalog.data.entries)
-        {
-            expected.insert("gen/" + asset->guid);
-            has_entry = has_entry || (asset->kind == schema::AssetKind::script &&
-                                      asset->module_path == manifest_entry);
-        }
-        if (!has_entry || expected != seen)
-        {
-            message = "APK manifest does not match its complete GUID resource catalog";
-            return false;
-        }
-    }
-    else if (!seen.contains(manifest_entry))
-    {
-        message = "APK project entry is missing from the complete manifest";
-        return false;
-    }
-    fs::path directory;
-    if (!prepare_directory(App::persistent_data_path(), "assets", directory) ||
-        !cache_file(directory, "builtin.json", text))
-    {
-        message = "Cannot export APK project manifest to persistent assets/builtin.json";
-        return false;
-    }
-    entry = manifest_entry;
-    return true;
-}
 #endif
 
 [[nodiscard]] bool prepare_icu_path(std::string& path)
@@ -434,32 +242,26 @@ struct Snapshot
 {
     std::string revision = "builtin";
     std::string entry = "scripts/game.js";
-    fs::path builtin_root;
-    std::map<std::string, std::string> scripts;
-    std::set<std::string> deleted;
     std::shared_ptr<const ResourceCatalog> catalog;
+    MountList mounts;
     std::map<std::string, Guid, std::less<>> module_guids;
+    bool active_catalog = false;
 };
 
-[[nodiscard]] bool catalog_snapshot(const fs::path& root, Snapshot& snapshot)
+[[nodiscard]] bool catalog_snapshot(const ResourceCatalog& catalog, const MountList& mounts,
+                                    Snapshot& snapshot)
 {
-    auto catalog = std::make_shared<ResourceCatalog>();
-    if (!ResourceSystem::read_catalog(root, *catalog))
+    snapshot.catalog = std::make_shared<ResourceCatalog>(catalog);
+    snapshot.mounts = mounts;
+    for (const auto& asset : catalog.data().entries)
     {
-        return false;
-    }
-    for (const auto& asset : catalog->data.entries)
-    {
-        if (asset->kind == schema::AssetKind::script)
+        if (asset->kind == schema::AssetKind::script &&
+            (asset->module_path.empty() ||
+             !snapshot.module_guids.emplace(asset->module_path, asset->guid).second))
         {
-            if (asset->module_path.empty() ||
-                !snapshot.module_guids.emplace(asset->module_path, asset->guid).second)
-            {
-                return false;
-            }
+            return false;
         }
     }
-    snapshot.catalog = std::move(catalog);
     return true;
 }
 
@@ -474,6 +276,7 @@ struct ScriptSystem::State
         v8::Global<v8::Context> context;
         std::map<std::string, v8::Global<v8::Module>> modules;
         v8::Global<v8::Object> gameplay;
+        std::vector<ResourcePtr> resources;
         bool initialization_entered = false;
         script_bindings::BindingContext bindings;
 
@@ -515,7 +318,7 @@ struct ScriptSystem::State
             }
             else
             {
-                if (!script_path(path) || snapshot.deleted.contains(path))
+                if (!script_path(path))
                 {
                     owner.module_error("Module is deleted or is not JavaScript: " + path);
                     return {};
@@ -523,31 +326,40 @@ struct ScriptSystem::State
                 if (snapshot.catalog != nullptr)
                 {
                     const auto mapped = snapshot.module_guids.find(path);
-                    if (mapped == snapshot.module_guids.end() ||
-                        !snapshot.catalog->read_text(mapped->second, source) ||
-                        source.size() > maximum_text_size)
+                    ByteBuffer bytes;
+                    bool success = mapped != snapshot.module_guids.end();
+                    if (success && snapshot.active_catalog)
                     {
-                        owner.module_error("Cannot read GUID module from locked catalog: " + path);
+                        ResourcePtr resource;
+                        auto* system = ResourceSystem::instance();
+                        success = system != nullptr && system->load(mapped->second, resource);
+                        if (success)
+                        {
+                            const auto content = resource->bytes();
+                            bytes.assign(content.begin(), content.end());
+                            resources.push_back(std::move(resource));
+                        }
+                    }
+                    else if (success)
+                    {
+                        success = ResourceSystem::read_resource(*snapshot.catalog, snapshot.mounts,
+                                                                mapped->second, bytes);
+                    }
+                    if (!success || bytes.size() > maximum_text_size)
+                    {
+                        owner.module_error("Cannot read GUID module from supplied catalog: " +
+                                           path);
                         return {};
+                    }
+                    if (!bytes.empty())
+                    {
+                        source.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
                     }
                 }
                 else
                 {
-                    const auto cached = snapshot.scripts.find(path);
-                    if (cached != snapshot.scripts.end())
-                    {
-                        source = cached->second;
-                    }
-                    else
-                    {
-                        fs::path file;
-                        if (!builtin_file(snapshot.builtin_root, path, file) ||
-                            !read_text(file, source))
-                        {
-                            owner.module_error("Cannot read contained module: " + path);
-                            return {};
-                        }
-                    }
+                    owner.module_error("Gameplay requires a supplied resource catalog");
+                    return {};
                 }
             }
             v8::Local<v8::String> text;
@@ -624,17 +436,7 @@ struct ScriptSystem::State
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
     v8::Isolate* isolate = nullptr;
     std::unique_ptr<Run> active;
-    std::unique_ptr<Snapshot> available;
-    std::string builtin_entry = "scripts/game.js";
-    std::set<std::string> builtin_deleted;
-    std::string requested_entry;
-    std::string last_manifest;
-    std::string last_control;
-    fs::file_time_type last_control_time{};
-    bool control_seen = false;
-    std::string last_attempt;
-    std::string last_status;
-    bool gameplay_requested = false;
+    std::unique_ptr<Run> prepared;
 
     State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world)
         : status(state), world(scene_world), process(std::move(platform))
@@ -643,6 +445,7 @@ struct ScriptSystem::State
 
     ~State()
     {
+        prepared.reset();
         stop();
         if (isolate != nullptr)
         {
@@ -687,240 +490,8 @@ struct ScriptSystem::State
         return fail(std::move(message));
     }
 
-    void publish()
+    [[nodiscard]] std::unique_ptr<Run> precheck(Snapshot snapshot)
     {
-        if (!App::is_initialized())
-        {
-            return;
-        }
-        const Json document = {{"running", status.running},
-                               {"hotReload", status.hot_reload},
-                               {"activeRevision", status.active_revision},
-                               {"availableRevision", status.available_revision},
-                               {"lastError", status.last_error}};
-        const std::string text = document.dump(-1, ' ', false, Json::error_handler_t::replace);
-        if (text == last_status)
-        {
-            return;
-        }
-        const fs::path target = App::persistent_data_path() / "script-status.json";
-        const fs::path temporary = App::persistent_data_path() / "script-status.json.tmp";
-        std::error_code error;
-        fs::remove(temporary, error);
-        if (error)
-        {
-            (void)fail("Cannot remove temporary script status: " + error.message());
-            return;
-        }
-        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-        file << text;
-        file.close();
-        if (!file)
-        {
-            (void)fail("Cannot write script status");
-            return;
-        }
-        if (!SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(),
-                            PathUtils::to_utf8(target).c_str()))
-        {
-            (void)fail(std::string("Cannot publish script status: ") + SDL_GetError());
-            return;
-        }
-        last_status = text;
-    }
-
-    void poll_control()
-    {
-        if (!App::is_initialized())
-        {
-            return;
-        }
-        const fs::path file = App::persistent_data_path() / "script-control.json";
-        std::error_code error;
-        if (!fs::exists(file, error) && !error)
-        {
-            last_control.clear();
-            control_seen = false;
-            return;
-        }
-        std::string text;
-        if (error || !read_text(file, text))
-        {
-            (void)fail("Cannot read script control");
-            return;
-        }
-        const auto written = fs::last_write_time(file, error);
-        if (error)
-        {
-            (void)fail("Cannot inspect script control timestamp");
-            return;
-        }
-        if (control_seen && text == last_control && written == last_control_time)
-        {
-            return;
-        }
-        last_control = text;
-        last_control_time = written;
-        control_seen = true;
-        const auto document = Json::parse(text, nullptr, false);
-        if (!document.is_object() || !document.contains("hotReload") ||
-            !document["hotReload"].is_boolean())
-        {
-            (void)fail("Script control requires a boolean hotReload");
-            return;
-        }
-        const bool enabled = document["hotReload"].get<bool>();
-        if (enabled && !status.hot_reload)
-        {
-            last_attempt.clear();
-        }
-        status.hot_reload = enabled;
-    }
-
-    [[nodiscard]] bool poll_available()
-    {
-        const fs::path root = App::persistent_data_path() / "assets";
-        const fs::path manifest = root / "available.json";
-        std::error_code error;
-        if (!fs::exists(manifest, error) && !error)
-        {
-            // 已接受的完整版本不因发布文件暂时缺失而退回内置版本。
-            return true;
-        }
-        std::string text;
-        if (error || !read_text(manifest, text))
-        {
-            return fail("Cannot read asset version manifest");
-        }
-        if (text == last_manifest && available)
-        {
-            return true;
-        }
-        const auto document = Json::parse(text, nullptr, false);
-        if (!document.is_object() || !document.contains("revision") ||
-            !document["revision"].is_string() || !document.contains("entry") ||
-            !document["entry"].is_string() || !document.contains("files") ||
-            !document["files"].is_array() || !document.contains("deleted") ||
-            !document["deleted"].is_array())
-        {
-            return fail("Invalid asset version manifest");
-        }
-        auto candidate = std::make_unique<Snapshot>();
-        candidate->revision = document["revision"].get<std::string>();
-        const std::string entry = document["entry"].get<std::string>();
-        if (!safe_revision(candidate->revision) || !relative_path(entry, candidate->entry) ||
-            entry != candidate->entry || !script_path(entry))
-        {
-            return fail("Unsafe asset revision or entry path");
-        }
-        if (available && candidate->revision == available->revision)
-        {
-            return fail("A published revision is immutable; publish a new revision");
-        }
-        candidate->builtin_root = App::builtin_assets_path();
-        fs::path version_root;
-        if (!contained_file(App::persistent_data_path(), "assets/versions/" + candidate->revision,
-                            version_root, true))
-        {
-            return fail("Missing or escaping asset version directory");
-        }
-        std::set<std::string> seen;
-        for (const auto& item : document["files"])
-        {
-            if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
-                !item.contains("size") || !item["size"].is_number_unsigned() ||
-                !item.contains("hash") || !item["hash"].is_string())
-            {
-                return fail("Invalid version file description");
-            }
-            const auto path = item["path"].get<std::string>();
-            std::string normalized;
-            fs::path file;
-            if (!relative_path(path, normalized) || normalized != path ||
-                !seen.insert(path).second || !contained_file(version_root, path, file))
-            {
-                return fail("Asset version file failed path, size or hash check: " + path);
-            }
-            if (script_path(path))
-            {
-                std::string source;
-                if (!read_text(file, source) ||
-                    !matches_bytes(source, item["size"].get<std::uint64_t>(),
-                                   item["hash"].get<std::string>()))
-                {
-                    return fail("Version script failed size or hash check: " + path);
-                }
-                candidate->scripts.emplace(path, std::move(source));
-            }
-            else if (!matches_file(file, item["size"].get<std::uint64_t>(),
-                                   item["hash"].get<std::string>()))
-            {
-                return fail("Version asset failed size or hash check: " + path);
-            }
-        }
-        for (const auto& item : document["deleted"])
-        {
-            if (!item.is_string())
-            {
-                return fail("Invalid deleted asset path");
-            }
-            const auto path = item.get<std::string>();
-            std::string normalized;
-            if (!relative_path(path, normalized) || normalized != path || seen.contains(path) ||
-                !candidate->deleted.insert(path).second)
-            {
-                return fail("Unsafe or conflicting deleted asset path: " + path);
-            }
-        }
-        if (seen.contains("catalog.bin"))
-        {
-            if (!catalog_snapshot(version_root, *candidate) ||
-                !candidate->module_guids.contains(candidate->entry))
-            {
-                return fail("Invalid GUID resource catalog or missing gameplay module");
-            }
-            std::set<std::string> expected{"catalog.bin"};
-            for (const auto& asset : candidate->catalog->data.entries)
-            {
-                expected.insert("gen/" + asset->guid);
-            }
-            if (seen != expected)
-            {
-                return fail("Version manifest does not match complete GUID catalog");
-            }
-        }
-        last_manifest = std::move(text);
-        status.available_revision = candidate->revision;
-        available = std::move(candidate);
-        return true;
-    }
-
-    [[nodiscard]] std::unique_ptr<Run> precheck()
-    {
-        Snapshot snapshot;
-        if (available)
-        {
-            snapshot = *available;
-        }
-        else
-        {
-            snapshot.builtin_root = App::builtin_assets_path();
-            snapshot.entry = builtin_entry;
-            snapshot.deleted = builtin_deleted;
-            fs::path catalog_file;
-            if (builtin_file(snapshot.builtin_root, "catalog.bin", catalog_file))
-            {
-                if (!catalog_snapshot(snapshot.builtin_root, snapshot))
-                {
-                    (void)fail("Cannot read complete built-in GUID resource catalog");
-                    return {};
-                }
-            }
-        }
-        if (!requested_entry.empty())
-        {
-            snapshot.entry = requested_entry;
-        }
         auto candidate = std::make_unique<Run>(*this, std::move(snapshot));
         v8::Isolate::Scope isolate_scope(isolate);
         v8::HandleScope handles(isolate);
@@ -1009,10 +580,33 @@ struct ScriptSystem::State
     {
         stop();
         status.last_error.clear();
-        if (candidate->snapshot.catalog != nullptr &&
-            !ResourceSystem::activate_catalog(*candidate->snapshot.catalog))
+        if (candidate->snapshot.catalog != nullptr && !candidate->snapshot.active_catalog)
         {
-            return fail("Cannot activate validated GUID resource catalog");
+            auto* system = ResourceSystem::instance();
+            if (system == nullptr)
+            {
+                return fail("Gameplay requires an active resource system");
+            }
+            for (const auto& [name, module] : candidate->modules)
+            {
+                static_cast<void>(module);
+                if (name == "engine")
+                {
+                    continue;
+                }
+                const auto mapped = candidate->snapshot.module_guids.find(name);
+                const auto* expected = mapped == candidate->snapshot.module_guids.end()
+                                           ? nullptr
+                                           : candidate->snapshot.catalog->find(mapped->second);
+                ResourcePtr resource;
+                if (expected == nullptr || !system->load(expected->guid, resource) ||
+                    resource->info().content_hash != expected->content_hash ||
+                    resource->info().module_path != expected->module_path)
+                {
+                    return fail("Active script resources differ from the prepared catalog");
+                }
+                candidate->resources.push_back(std::move(resource));
+            }
         }
         active = std::move(candidate);
         v8::Isolate::Scope isolate_scope(isolate);
@@ -1122,15 +716,6 @@ ScriptSystem::~ScriptSystem() noexcept
 
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
-    std::string builtin_entry = "scripts/game.js";
-    std::set<std::string> builtin_deleted;
-#if defined(SDL_PLATFORM_ANDROID)
-    if (!prepare_builtin_manifest(builtin_entry, builtin_deleted, status_.last_error))
-    {
-        LogSystem::write(LogLevel::error, status_.last_error);
-        return false;
-    }
-#endif
     auto process = v8_process();
     if (!process->initialize())
     {
@@ -1145,8 +730,6 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     {
         return state_->fail("Cannot register script binding modules");
     }
-    state_->builtin_entry = std::move(builtin_entry);
-    state_->builtin_deleted = std::move(builtin_deleted);
     state_->allocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
     if (!state_->allocator)
     {
@@ -1166,65 +749,75 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     return true;
 }
 
+bool ScriptSystem::prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts,
+                                    std::string_view entry, std::string_view revision)
+{
+    if (!is_initialized() || !state_)
+    {
+        status_.last_error = "Gameplay requires an initialized script system";
+        return false;
+    }
+    state_->prepared.reset();
+    Snapshot snapshot;
+    const std::string_view selected = entry.empty() ? std::string_view{"scripts/game.js"} : entry;
+    if (!relative_path(selected, snapshot.entry) || snapshot.entry != selected ||
+        !script_path(snapshot.entry) || !catalog_snapshot(catalog, mounts, snapshot))
+    {
+        return state_->fail("Invalid gameplay entry or resource catalog");
+    }
+    snapshot.revision = revision.empty() ? std::string(catalog.revision()) : std::string(revision);
+    status_.available_revision = snapshot.revision;
+    state_->prepared = state_->precheck(std::move(snapshot));
+    return state_->prepared != nullptr;
+}
+
+bool ScriptSystem::start_prepared_gameplay()
+{
+    if (!is_initialized() || !state_ || !state_->prepared)
+    {
+        status_.last_error = "No prepared gameplay is available";
+        return false;
+    }
+    return state_->activate(std::move(state_->prepared));
+}
+
 bool ScriptSystem::start_gameplay(std::string_view entry)
 {
-    if (!is_initialized() || !state_ || !App::is_initialized())
+    if (!is_initialized() || !state_)
     {
-        status_.last_error = "Gameplay requires initialized ScriptSystem and App";
-        LogSystem::write(LogLevel::error, status_.last_error);
+        status_.last_error = "Gameplay requires an initialized script system";
         return false;
     }
-    std::string path;
-    if (!entry.empty() && (!relative_path(entry, path) || !script_path(path)))
+    Snapshot snapshot;
+    const auto selected = entry.empty() ? std::string_view{"scripts/game.js"} : entry;
+    if (!relative_path(selected, snapshot.entry) || snapshot.entry != selected ||
+        !script_path(snapshot.entry))
     {
-        (void)state_->fail("Unsafe gameplay entry path");
-        state_->publish();
-        return false;
+        return state_->fail("Unsafe gameplay entry path");
     }
-    const auto previous_entry = state_->requested_entry;
-    state_->requested_entry = std::move(path);
-    state_->poll_control();
-    if (!state_->poll_available())
+    auto* resources = ResourceSystem::instance();
+    if (resources == nullptr || resources->catalog().data().entries.empty() ||
+        !catalog_snapshot(resources->catalog(), {}, snapshot))
     {
-        state_->requested_entry = previous_entry;
-        state_->publish();
-        return false;
+        return state_->fail("Gameplay requires an active runtime resource catalog");
     }
-    auto candidate = state_->precheck();
-    if (!candidate)
-    {
-        state_->requested_entry = previous_entry;
-        state_->publish();
-        return false;
-    }
-    state_->gameplay_requested = true;
-    state_->last_attempt = candidate->snapshot.revision;
-    const bool passed = state_->activate(std::move(candidate));
-    state_->publish();
-    return passed;
+    snapshot.active_catalog = true;
+    snapshot.revision = std::string(resources->catalog().revision());
+    auto candidate = state_->precheck(std::move(snapshot));
+    return candidate != nullptr && state_->activate(std::move(candidate));
 }
 
 void ScriptSystem::stop_gameplay() noexcept
 {
     if (state_)
     {
-        state_->gameplay_requested = false;
         state_->stop();
-        state_->publish();
     }
 }
 
 void ScriptSystem::set_hot_reload(bool enabled)
 {
-    if (enabled && !status_.hot_reload && state_)
-    {
-        state_->last_attempt.clear();
-    }
     status_.hot_reload = enabled;
-    if (state_)
-    {
-        state_->publish();
-    }
 }
 
 const ScriptStatus& ScriptSystem::status() const noexcept
@@ -1238,19 +831,6 @@ bool ScriptSystem::on_tick(double delta_time)
     {
         return true;
     }
-    state_->poll_control();
-    const bool complete = state_->poll_available();
-    if (complete && status_.hot_reload && state_->gameplay_requested && state_->available &&
-        state_->available->revision != status_.active_revision &&
-        state_->available->revision != state_->last_attempt)
-    {
-        state_->last_attempt = state_->available->revision;
-        auto candidate = state_->precheck();
-        if (candidate)
-        {
-            (void)state_->activate(std::move(candidate));
-        }
-    }
     if (status_.running && state_->active)
     {
         v8::Isolate::Scope isolate_scope(state_->isolate);
@@ -1260,13 +840,11 @@ bool ScriptSystem::on_tick(double delta_time)
         if (!state_->call(*state_->active, "Update", false))
         {
             const auto failure = status_.last_error;
-            state_->gameplay_requested = false;
             state_->stop();
             status_.last_error = failure;
         }
         state_->delta_time = 0.0;
     }
-    state_->publish();
     return true;
 }
 

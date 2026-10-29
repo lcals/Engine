@@ -14,6 +14,7 @@ from script_tooling_test import (
     contents,
     metadata_guid,
     require,
+    resource_payload,
     verify_complete_asset_snapshot,
 )
 
@@ -58,6 +59,14 @@ else:
     result = subprocess.run(["/bin/sh", "-c", script], cwd=root / "app",
                             input=payload, capture_output=True)
     output, code = result.stdout + result.stderr, result.returncode
+    chunk = re.search(r"dd if=.* bs=1048576 skip=([0-9]+) count=1", script)
+    if chunk and int(chunk.group(1)) == 1:
+        if config.get("fail_readback_chunk"):
+            output, code = b"simulated interrupted chunk", 1
+        elif config.get("short_readback_chunk"):
+            output = output[:-1]
+        elif config.get("corrupt_readback_chunk") and output:
+            output = bytes([output[0] ^ 1]) + output[1:]
     if script.endswith("; pwd") and code == 0:
         output = b"/data/user/0/org.engine.minimal\n"
     if upload and config.get("fail_upload"):
@@ -182,7 +191,9 @@ def test(server, root, work):
     verify_complete_asset_snapshot(project, runtime, published)
     image_guid = metadata_guid(image_asset)
     require(
-        (runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes()
+        resource_payload(
+            (runtime / "assets/versions" / published["revision"] / "gen" / image_guid).read_bytes()
+        )
         == image_asset.read_bytes(),
         "Android raw image bytes changed during synchronization",
     )
@@ -196,7 +207,10 @@ def test(server, root, work):
         "catalog.bin" in {item["path"] for item in published["files"]},
         "Android GUID catalog missing from snapshot",
     )
-    require(uploaded.read_bytes() == unusual.read_bytes(), "binary/Unicode/quoted filename changed")
+    require(
+        resource_payload(uploaded.read_bytes()) == unusual.read_bytes(),
+        "binary/Unicode/quoted filename changed",
+    )
     require(not (device / "app/injected").exists(), "remote resource path caused shell expansion")
     reported = contents(replies[1])
     require(
@@ -317,6 +331,66 @@ def test(server, root, work):
     require(
         actual["availableRevision"] == json.loads(available_path.read_text())["revision"],
         "status used a host mirror instead of the device after uncertain publication",
+    )
+
+    # The device verifies merged carriers in bounded readback chunks, including later-chunk failure.
+    large = project / "assets/large"
+    large.mkdir()
+    for name in ("first.bin", "second.bin"):
+        with (large / name).open("wb") as resource:
+            resource.truncate(33 * 1024 * 1024)
+    (project / "settings/android-package.toml").write_text(
+        'target_platform="android"\noutput="cache/build/android-package"\n'
+        '[[items]]\nname="game"\nstorage="package"\n'
+        'roots=["project/scripts/game.ts","project/scenes/main.scene"]\n'
+        'keep=["project/large/first.bin","project/large/second.bin"]\n',
+        encoding="utf-8",
+    )
+    built = invoke(
+        server,
+        project,
+        work,
+        device,
+        [call("build_resources", {"manifest": "settings/android-package.toml"})],
+    )[0]
+    require(not built["result"]["isError"], f"Android package build failed: {contents(built)}")
+    packages = list((project / "cache/build/android-package/packs").iterdir())
+    require(
+        len(packages) == 1 and packages[0].stat().st_size > 65 * 1024 * 1024,
+        "expected a valid carrier above the previous adb response limit",
+    )
+    previous = available_path.read_bytes()
+    request = call("sync_assets", {"source": "cache/build/android-package"})
+    for mode in ("fail_readback_chunk", "short_readback_chunk", "corrupt_readback_chunk"):
+        settings.write_text(json.dumps({mode: True}))
+        rejected = invoke(server, project, work, device, [request])[0]
+        require(rejected["result"]["isError"], f"{mode} was not rejected")
+        require(available_path.read_bytes() == previous, f"{mode} changed the published version")
+        require(not (runtime / "assets/.sync-lock").exists(), f"{mode} leaked owned lock")
+        require(not list((runtime / "assets").glob(".staging-*")), f"{mode} leaked staged files")
+    settings.write_text("{}")
+    (device / "calls.jsonl").write_text("")
+    transferred = invoke(server, project, work, device, [request])[0]
+    require(
+        not transferred["result"]["isError"],
+        f"large Android package transfer failed: {contents(transferred)}",
+    )
+    manifest = json.loads(available_path.read_text())
+    package_entries = [item for item in manifest["files"] if item["path"].startswith("packs/")]
+    require(
+        len(package_entries) == 1 and package_entries[0]["size"] == packages[0].stat().st_size,
+        "large carrier length changed during device transfer",
+    )
+    calls = [json.loads(line) for line in (device / "calls.jsonl").read_text().splitlines()]
+    commands = [arguments[-1] for arguments in calls if arguments[0] in ("exec-out", "shell")]
+    chunks = [command for command in commands if "dd if=" in command and "/packs/" in command]
+    require(
+        len(chunks) >= 66 and any("skip=65 count=1" in command for command in chunks),
+        "large carrier was not verified through bounded readback chunks",
+    )
+    require(
+        not any("; cat " in command and "/packs/" in command for command in commands),
+        "device verification still read an entire carrier into one response",
     )
 
 

@@ -112,7 +112,9 @@ endif()
 
 if(ENGINE_BUILD_APP AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_executable(asset_build_app src/asset_build_main.cpp)
-    target_link_libraries(asset_build_app PRIVATE engine::asset_pipeline)
+    target_link_libraries(asset_build_app PRIVATE engine::asset_build engine::asset_pipeline
+                                                  nlohmann_json::nlohmann_json)
+    target_compile_definitions(asset_build_app PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(asset_build_app)
 endif()
 
@@ -120,8 +122,8 @@ if(ENGINE_BUILD_APP
    AND ENGINE_ENABLE_SCRIPT_RUNTIME
    AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_executable(mcp_app src/mcp_main.cpp)
-    target_link_libraries(mcp_app PRIVATE engine::mcp engine::asset_pipeline engine::asset_sync
-                                          SDL3::SDL3)
+    target_link_libraries(mcp_app PRIVATE engine::mcp engine::asset_pipeline engine::asset_build
+                                          engine::asset_sync SDL3::SDL3)
     engine_apply_options(mcp_app)
 endif()
 

@@ -127,38 +127,82 @@ def test(editor, mcp, root, temporary):
             check_empty(tool(mcp, project, runtime, "stop_project"))
             check_empty(tool(mcp, project, runtime, "stop_project"))
 
+        # Live cache cannot be overwritten by import/build. Prebuilt immutable outputs remain deployable.
         tool(mcp, project, runtime, "start_project")
-        tool(mcp, project, runtime, "set_hot_reload", {"enabled": True})
         source.write_text(
             original_source + "\n// lifecycle reload revision one\n", encoding="utf-8"
         )
-        revision = tool(mcp, project, runtime, "sync_assets")["availableRevision"]
+        rejected = tool(mcp, project, runtime, "sync_assets", expect_error=True)
+        require(
+            "stop" in rejected.get("error", "").lower(),
+            "live cache import must explain stop_project",
+        )
+        check_empty(tool(mcp, project, runtime, "stop_project"))
+        # Two individually bounded resources form a carrier larger than the per-entity limit.
+        large_assets = project / "assets/large"
+        large_assets.mkdir()
+        for name in ("first.bin", "second.bin"):
+            with (large_assets / name).open("wb") as resource:
+                resource.truncate(33 * 1024 * 1024)
+        (project / "settings/lifecycle-package.toml").write_text(
+            'target_platform=""\noutput="cache/build/lifecycle-package"\n'
+            '[[items]]\nname="game"\nstorage="package"\n'
+            'roots=["project/scripts/game.ts","project/scenes/main.scene"]\n'
+            'keep=["project/large/first.bin","project/large/second.bin"]\n',
+            encoding="utf-8",
+        )
+        tool(
+            mcp,
+            project,
+            runtime,
+            "build_resources",
+            {"manifest": "settings/lifecycle-package.toml"},
+        )
+        packages = list((project / "cache/build/lifecycle-package/packs").iterdir())
+        require(
+            len(packages) == 1 and packages[0].stat().st_size > 64 * 1024 * 1024,
+            "expected one valid built carrier larger than the per-resource limit",
+        )
+        tool(mcp, project, runtime, "start_project")
+        tool(mcp, project, runtime, "set_hot_reload", {"enabled": False})
+        before_revision = read_json(script_status).get("activeRevision")
+        revision = tool(
+            mcp, project, runtime, "sync_assets", {"source": "cache/build/lifecycle-package"}
+        )["availableRevision"]
+        wait_for(
+            process,
+            lambda: read_json(script_status).get("availableRevision") == revision,
+            "prebuilt deployment availability",
+        )
+        require(
+            read_json(script_status).get("activeRevision") == before_revision,
+            "disabled hot reload applied a synchronized package",
+        )
+        tool(mcp, project, runtime, "set_hot_reload", {"enabled": True})
         wait_for(
             process,
             lambda: read_json(script_status).get("activeRevision") == revision,
-            "native hot reload",
+            "explicit package hot reload",
         )
         running = wait_for(
             process,
             lambda: (s if (s := read_json(project_status)).get("running") else None),
-            "running project after hot reload",
+            "running after package hot reload",
         )
         require(
             running["session"] == session and process.pid == pid,
             "hot reload replaced the editor session",
         )
+        check_empty(tool(mcp, project, runtime, "stop_project"))
         published = (runtime / "assets/available.json").read_bytes()
         source.write_text(
             original_source + "\nconst invalid: number = 'type-error';\n", encoding="utf-8"
         )
         tool(mcp, project, runtime, "sync_assets", expect_error=True)
         require(
-            (runtime / "assets/available.json").read_bytes() == published
-            and read_json(script_status).get("activeRevision") == revision
-            and read_json(project_status).get("running") is True,
-            "compile failure changed the active scene or published files",
+            (runtime / "assets/available.json").read_bytes() == published,
+            "compile failure changed the published resource set",
         )
-        check_empty(tool(mcp, project, runtime, "stop_project"))
         source.write_text(
             original_source + "\n// lifecycle stopped revision two\n", encoding="utf-8"
         )
@@ -198,6 +242,7 @@ def test(editor, mcp, root, temporary):
 
     # 正常退出单独用帧数边界验证，不能把 terminate 当成析构/状态发布验证。
     source.write_text(original_source, encoding="utf-8")
+    # Process exit releases the OS lease; stale markers never require heartbeat expiry.
     graceful_log = temporary / "editor-graceful.log"
     graceful = launch(editor, project, runtime, graceful_log, frames=300)
     try:

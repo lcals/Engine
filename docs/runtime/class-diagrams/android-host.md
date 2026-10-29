@@ -6,7 +6,7 @@ Android 使用 SDL3 自带 Activity 框架加载同版本的 `libSDL3.so` 与引
 
 正常启动由原生入口初始化 App、LogSystem 与 RuntimeHost；所有系统就绪后通过 GameplaySession 运行 APK 项目的入口。引擎不接收编辑器项目目录。退出由 RuntimeHost 先结束玩法会话、关闭引擎系统和窗口，再刷新并关闭日志及 App。后台暂停保留玩法实例，恢复后继续运行；宿主将单帧时间限制为 0.1 秒并丢弃等待期间时间。
 
-构建工具将项目编译资源放在 `assets/project/` 并生成 `assets/project-manifest.json`；设置和 TS 源码不进入 APK。App 的 APK 逻辑根交给 ResourceSystem 直接读取，持久资源版本在应用 `files/assets/versions/`，优先级与桌面一致。ScriptSystem 自行轮询热重载控制与可用版本，MCP 经 adb 同步到 Debug 包私有目录；手机不运行 MCP 服务。
+构建工具将项目编译资源放在 `assets/project/` 并生成 `assets/project-manifest.json`；设置和 TS 源码不进入 APK。App 提供 APK 逻辑根，由 VFS 读取目录及资源范围；持久资源版本在应用 `files/assets/versions/`。GameplaySession 选择持久或内置目录并提交核心，协调热重载控制与可用版本；ScriptSystem 负责模块预检和运行。MCP 经 adb 同步到 Debug 包私有目录；手机不运行 MCP 服务。
 宿主不建立、加载或要求编辑器项目，普通启动使用默认 `EngineConfig`。
 
 ## Activity 入口

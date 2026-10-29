@@ -10,7 +10,6 @@
 
 #if ENGINE_HAS_SCRIPT_RUNTIME
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/script/script_system.hpp"
 #endif
 
@@ -46,7 +45,6 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
 {
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
-    engine::AssetSyncSystem sync;
 #endif
     engine::RuntimeHost runtime;
     std::unique_ptr<engine::EditorSystem> editor;
@@ -59,23 +57,20 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
             return 1;
         }
-        if (!environment.prepare_builtin_assets())
-        {
-            LogSystem::write(LogLevel::error, "Cannot prepare immutable editor built-in assets");
-            return 1;
-        }
-        if (!sync.initialize(config) ||
-            !sync.sync(project_root / "cache", engine::App::persistent_data_path()))
-        {
-            LogSystem::write(LogLevel::error, "Initial asset sync failed: " + sync.last_error());
-            return 1;
-        }
 #endif
         if (!runtime.initialize(config))
         {
             LogSystem::write(LogLevel::error, "Engine initialization failed");
             return 1;
         }
+#if ENGINE_HAS_SCRIPT_RUNTIME
+        if (!environment.apply_resources(pipeline.catalog(), *runtime.gameplay()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot submit editor resource directory: " +
+                                                  std::string(runtime.gameplay()->last_error()));
+            return 1;
+        }
+#endif
         editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay());
         if (!editor->initialize(config))
         {
@@ -128,7 +123,6 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
     }
     runtime.shutdown();
 #if ENGINE_HAS_SCRIPT_RUNTIME
-    sync.shutdown();
     pipeline.shutdown();
 #endif
     LogSystem::write(LogLevel::info,
@@ -214,7 +208,7 @@ int main(int argc, char* argv[])
         return 1;
     }
     engine::EditorEnvironment environment(project, runtime_directory);
-    if (!environment.initialize(ENGINE_HAS_SCRIPT_RUNTIME != 0))
+    if (!environment.initialize())
     {
         LogSystem::write(LogLevel::error, "Cannot initialize editor environment");
         return 1;

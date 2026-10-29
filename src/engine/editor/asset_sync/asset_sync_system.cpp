@@ -52,17 +52,11 @@ std::string hex_hash(std::uint64_t hash)
 
 bool file_hash(const fs::path& path, std::string& hash, std::uint64_t& size)
 {
-    std::vector<std::byte> bytes;
-    if (!ResourceSystem::read_binary(path, bytes))
+    hash.clear();
+    std::uint64_t value = 0;
+    if (!VirtualFileSystem::hash_file(path, value, size))
     {
         return false;
-    }
-    std::uint64_t value = fnv_offset;
-    size = bytes.size();
-    if (!bytes.empty())
-    {
-        const auto* characters = reinterpret_cast<const char*>(bytes.data());
-        hash_bytes(value, std::string_view(characters, bytes.size()));
     }
     hash = hex_hash(value);
     return true;
@@ -240,60 +234,29 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
     }
     lock = lock_path;
 
-    std::vector<std::string> paths;
-    const bool has_catalog = fs::exists(source / "catalog.bin", error);
-    if (error)
+    ResourceCatalog catalog;
+    if (!ResourceSystem::read_catalog(source, catalog))
     {
-        return fail("cannot inspect resource catalog");
+        return fail("source resources require a valid runtime catalog");
     }
-    if (has_catalog)
+    std::vector<std::string> paths{"catalog.bin"};
+    std::set<std::string> storage;
+    const MountList source_mounts{{"content", source}};
+    for (const auto& asset : catalog.data().entries)
     {
-        ResourceCatalog catalog;
-        if (!ResourceSystem::read_catalog(source, catalog))
+        if (!asset->location || asset->location->mount != "content" ||
+            !relative_asset_path(asset->location->path))
         {
-            return fail("source resource catalog or GUID artifacts are invalid");
+            return fail("source catalog contains an invalid storage location");
         }
-        paths.emplace_back("catalog.bin");
-        for (const auto& asset : catalog.data.entries)
+        ByteBuffer payload;
+        if (!ResourceSystem::read_resource(catalog, source_mounts, asset->guid, payload))
         {
-            paths.push_back("gen/" + asset->guid);
+            return fail("source resource entity is invalid: " + asset->guid);
         }
+        storage.insert(asset->location->path);
     }
-    else
-    {
-        // 兼容旧的独立脚本树；正式编辑器输入为 TaskPipeline 生成的 catalog+gen。
-        for (fs::recursive_directory_iterator iterator(source, error), end;
-             !error && iterator != end; iterator.increment(error))
-        {
-            const auto status = iterator->symlink_status(error);
-            if (error || fs::is_symlink(status))
-            {
-                return fail("source assets contain a symlink or unreadable path");
-            }
-            if (fs::is_regular_file(status))
-            {
-                const auto relative =
-                    PathUtils::to_utf8(iterator->path().lexically_relative(source));
-                if (!relative_asset_path(relative))
-                {
-                    return fail("source contains an invalid relative asset path");
-                }
-                paths.push_back(relative);
-            }
-            else if (!fs::is_directory(status))
-            {
-                return fail("source contains an unsupported asset file type");
-            }
-        }
-        if (error)
-        {
-            return fail("cannot enumerate source assets: " + error.message());
-        }
-        if (std::find(paths.begin(), paths.end(), entry) == paths.end())
-        {
-            return fail("gameplay entry does not exist in source assets");
-        }
-    }
+    paths.insert(paths.end(), storage.begin(), storage.end());
     std::sort(paths.begin(), paths.end());
     Json files = Json::array();
     for (const auto& relative : paths)
@@ -397,12 +360,18 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
             return fail("asset changed during sync or existing version is corrupt: " + relative);
         }
     }
-    if (has_catalog)
+    ResourceCatalog verified;
+    if (!ResourceSystem::read_catalog(verify_directory, verified))
     {
-        ResourceCatalog verified;
-        if (!ResourceSystem::read_catalog(verify_directory, verified))
+        return fail("copied resource catalog is invalid");
+    }
+    const MountList verified_mounts{{"content", verify_directory}};
+    for (const auto& asset : verified.data().entries)
+    {
+        ByteBuffer payload;
+        if (!ResourceSystem::read_resource(verified, verified_mounts, asset->guid, payload))
         {
-            return fail("copied resource catalog failed complete artifact validation");
+            return fail("copied resource entity is invalid: " + asset->guid);
         }
     }
     if (!staging.empty())
