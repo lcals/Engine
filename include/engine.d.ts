@@ -38,7 +38,15 @@ declare module "engine" {
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
-        SetV4(name: string, x: number, y: number, z: number, w: number): boolean;
+        SetV4(
+            name: string,
+            x: number,
+            y: number,
+            z: number,
+            w: number,
+        ): boolean;
+        SetTexture(name: string, path: string): boolean;
+        GetTexture(name: string): string | null;
     }
 
     /** One active scene, owned by the current Gameplay run. */
@@ -85,15 +93,33 @@ declare module "engine" {
     }
     export class Camera extends Component {
         private constructor();
-        SetPerspective(fovDegrees: number, nearClip: number, farClip: number): boolean;
+        SetPerspective(
+            fovDegrees: number,
+            nearClip: number,
+            farClip: number,
+        ): boolean;
+        /** Size is the vertical half-height in world units. */
+        SetOrthographic(
+            size: number,
+            nearClip: number,
+            farClip: number,
+        ): boolean;
     }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
+        SetDirectional(): boolean;
+        SetPoint(range: number): boolean;
+        /** Cone half-angles in degrees. */
+        SetSpot(range: number, innerAngle: number, outerAngle: number): boolean;
     }
     export class MeshRenderer extends Component {
         private constructor();
         readonly material: Material;
+        readonly materialCount: number;
+        SetMesh(path: string): boolean;
+        GetMaterial(slot: number): Material | null;
+        SetMaterialCount(count: number): boolean;
     }
 }

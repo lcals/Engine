@@ -13,6 +13,9 @@ classDiagram
         +set_v2(string_view name, const Vec2& value) bool
         +set_v3(string_view name, const Vec3& value) bool
         +set_v4(string_view name, const Vec4& value) bool
+        +set_texture(string_view name, string_view path) bool
+        +get_texture(string_view name, string_view& output) bool
+        +texture(string_view name) const ResourcePtr&
         +get_float(string_view name, float& output) bool
         +get_v2(string_view name, Vec2& output) bool
         +get_v3(string_view name, Vec3& output) bool
@@ -27,7 +30,7 @@ classDiagram
     class Vec2
     class Vec3
     class Vec4
-    MeshRenderer "1" *-- "1" Material : 参数行为
+    MeshRenderer "1" *-- "1..*" Material : 参数行为
     Material *-- MaterialDataT : 独占生成的实例数据
     Material ..> ResourceSystem : 按唯一路径加载定义
     Material o-- Resource : 材质与当前Shader共享引用
@@ -48,3 +51,5 @@ classDiagram
 - 默认 MeshRenderer 初始化选择 `builtin/materials/default-pbr`；资源定义不存在时通过组件初始化返回 false，Node 不发布半初始化组件。ResourceSystem 必须先于使用材质的场景初始化、晚于场景和 GPU 资源关闭。
 
 - 项目材质定义可引用内置或项目 Shader；内置材质定义不能引用项目 Shader。材质持有定义与当前 Shader 的共享引用；换型失败保留旧引用。最后一个使用者释放后项目资源自动回收；`builtin/` 定义保留至资源系统关闭。
+
+- Shader 通过具名 sampler 声明贴图槽和内置默认资源；Material 按名称覆盖贴图路径，持有 ResourcePtr。切换材质或 Shader 时先加载完整候选集合，失败保留旧值。get_texture 失败输出空视图，texture 返回借用的共享引用（未知名称为空），借用在材质修改前有效。

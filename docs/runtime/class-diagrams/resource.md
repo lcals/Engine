@@ -13,6 +13,7 @@ classDiagram
         +mesh() const MeshDataT#42;
         +shader() const ShaderDataT#42;
         +material() const MaterialDataT#42;
+        +texture() const TextureDataT#42;
         +bytes() ByteView
     }
     class AssetEntryT
@@ -30,10 +31,12 @@ classDiagram
     class MeshDataT
     class ShaderDataT
     class MaterialDataT
+    class TextureDataT
     Resource *-- SceneDataT : 场景类型时拥有
     Resource *-- MeshDataT : 网格类型时拥有
     Resource *-- ShaderDataT : Shader 类型时拥有
     Resource *-- MaterialDataT : 材质类型时拥有
+    Resource *-- TextureDataT : 贴图类型时拥有
 ```
 
 - `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。

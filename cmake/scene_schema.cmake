@@ -88,6 +88,7 @@ function(engine_add_scene_schema)
         mesh
         shader
         material
+        texture
         asset_catalog
         resource_header)
         list(APPEND _schemas "${_schema_dir}/${_name}.fbs")
@@ -98,7 +99,7 @@ function(engine_add_scene_schema)
     file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/generated")
     file(
         WRITE "${_ts_schema}"
-        "include \"common.fbs\";\ninclude \"scene.fbs\";\ninclude \"mesh.fbs\";\ninclude \"shader.fbs\";\ninclude \"material.fbs\";\ninclude \"asset_catalog.fbs\";\ninclude \"resource_header.fbs\";\nnamespace engine.schema;\nroot_type SceneData;\n"
+        "include \"common.fbs\";\ninclude \"scene.fbs\";\ninclude \"mesh.fbs\";\ninclude \"shader.fbs\";\ninclude \"material.fbs\";\ninclude \"texture.fbs\";\ninclude \"asset_catalog.fbs\";\ninclude \"resource_header.fbs\";\nnamespace engine.schema;\nroot_type SceneData;\n"
     )
     set(_stamp "${PROJECT_BINARY_DIR}/generated/schema.stamp")
     set(_ts_aggregate "${PROJECT_BINARY_DIR}/generated/typescript-aggregate")

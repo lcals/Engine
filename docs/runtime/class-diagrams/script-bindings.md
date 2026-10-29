@@ -1,6 +1,6 @@
 # 脚本绑定接口与实现
 
-[脚本系统](script-system.md) · [类图索引](../../class-diagrams/index.md)
+[脚本系统](script-system.md) · [渲染组件脚本接口](render-script-api.md) · [类图索引](../../class-diagrams/index.md)
 
 以下类型为脚本模块内部实现，不在公开 C++ SDK 中引入 V8。
 
@@ -121,7 +121,8 @@ classDiagram
 - BindingContext 的共享静态帮助方法负责数值/字符串/64位标识校验、场景/节点查找和只读原生属性注册；所有失败返回状态或空借用。
 - 绑定上下文借用 World，保存 Run 所属场景 ID 和本帧时间，不持有原生 Node/Component 指针。活动 isolate 指针、当前 V8 Context 和回调许可三者全部匹配后才允许访问；退出时清空 embedder 指针并仅清理自己的场景。
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
-- MaterialBinding 将 SetType/SetShader 的字符串路径与 SetFloat/SetV2/SetV3/SetV4 直接交给材质接口校验，不识别或硬编码 pbr/unlit 类型名。
+- MaterialBinding 将 SetType/SetShader/SetTexture 的资源路径与 SetFloat/SetV2/SetV3/SetV4 交给材质接口校验。材质门面保存槽号，每次调用按场景与节点身份解析当前槽，失效槽不访问原生对象；GetTexture 返回已解析的路径。
+- CameraBinding 提供透视与正交设置；LightBinding 提供方向、点和聚光设置；MeshRendererBinding 提供资源网格切换与材质槽访问。所有范围及资源匹配由对应原生组件负责。
 - 构造和清理不抛 C++ 异常；V8 调用通过 Maybe/返回值报告错误。全部借用仅在引擎主线程有效。
 
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。

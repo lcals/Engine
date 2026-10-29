@@ -30,6 +30,11 @@ const schema::MaterialDataT* Resource::material() const noexcept
     return material_.get();
 }
 
+const schema::TextureDataT* Resource::texture() const noexcept
+{
+    return texture_.get();
+}
+
 ByteView Resource::bytes() const noexcept
 {
     return bytes_;

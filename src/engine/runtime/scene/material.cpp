@@ -67,6 +67,62 @@ schema::MaterialDataT shader_defaults(std::string_view type_path, const Resource
     return result;
 }
 
+const schema::ShaderSamplerT* find_sampler(const ResourcePtr& shader, std::string_view name)
+{
+    if (!shader || !shader->shader())
+    {
+        return nullptr;
+    }
+    for (const auto& sampler : shader->shader()->samplers)
+    {
+        if (sampler->name == name)
+        {
+            return sampler.get();
+        }
+    }
+    return nullptr;
+}
+
+bool load_textures(const Resource& shader, const schema::MaterialDataT* material,
+                   schema::MaterialDataT& result,
+                   std::map<std::string, ResourcePtr, std::less<>>& textures)
+{
+    auto* resources = ResourceSystem::instance();
+    if (!resources)
+    {
+        return false;
+    }
+    for (const auto& sampler : shader.shader()->samplers)
+    {
+        std::string path = sampler->default_texture;
+        if (material && sampler->exposed)
+        {
+            for (const auto& binding : material->textures)
+            {
+                if (binding->name == sampler->name)
+                {
+                    path = binding->texture_path;
+                    break;
+                }
+            }
+        }
+        Guid guid;
+        ResourcePtr texture;
+        if (!ResourceSystem::path_to_guid(path, guid) || !resources->load(guid, texture) ||
+            !texture->texture())
+        {
+            return false;
+        }
+        auto binding = std::make_unique<schema::MaterialTextureT>();
+        binding->name = sampler->name;
+        binding->texture_guid = guid;
+        binding->texture_path = path;
+        result.textures.push_back(std::move(binding));
+        textures.emplace(sampler->name, std::move(texture));
+    }
+    return true;
+}
+
 } // namespace
 
 Material::Material() noexcept
@@ -116,7 +172,13 @@ bool Material::set_type(std::string_view path)
         }
         (*destination)->value = parameter->value;
     }
+    std::map<std::string, ResourcePtr, std::less<>> textures;
+    if (!load_textures(*shader, definition, replacement, textures))
+    {
+        return false;
+    }
     data_ = std::move(replacement);
+    textures_ = std::move(textures);
     material_resource_ = std::move(material);
     shader_resource_ = std::move(shader);
     return true;
@@ -141,9 +203,59 @@ bool Material::set_shader(std::string_view path)
         return false;
     }
     auto replacement = shader_defaults(data_.type_path, *shader);
+    std::map<std::string, ResourcePtr, std::less<>> textures;
+    if (!load_textures(*shader, nullptr, replacement, textures))
+    {
+        return false;
+    }
     data_ = std::move(replacement);
+    textures_ = std::move(textures);
     shader_resource_ = std::move(shader);
     return true;
+}
+
+bool Material::set_texture(std::string_view name, std::string_view path)
+{
+    const auto* sampler = find_sampler(shader_resource_, name);
+    auto* resources = ResourceSystem::instance();
+    Guid guid;
+    ResourcePtr replacement;
+    if (!sampler || !sampler->exposed || !resources || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->load(guid, replacement) || !replacement->texture())
+    {
+        return false;
+    }
+    const auto current = textures_.find(name);
+    const auto binding = std::find_if(data_.textures.begin(), data_.textures.end(),
+                                      [name](const auto& item) { return item->name == name; });
+    if (current == textures_.end() || binding == data_.textures.end())
+    {
+        return false;
+    }
+    (*binding)->texture_guid = guid;
+    (*binding)->texture_path = path;
+    current->second = std::move(replacement);
+    return true;
+}
+
+bool Material::get_texture(std::string_view name, std::string_view& output) const noexcept
+{
+    output = {};
+    const auto* sampler = find_sampler(shader_resource_, name);
+    const auto& resource = texture(name);
+    if (!sampler || !sampler->exposed || !resource)
+    {
+        return false;
+    }
+    output = resource->info().path;
+    return true;
+}
+
+const ResourcePtr& Material::texture(std::string_view name) const noexcept
+{
+    static const ResourcePtr empty;
+    const auto found = textures_.find(name);
+    return found == textures_.end() ? empty : found->second;
 }
 
 bool Material::set_float(std::string_view name, float value) noexcept

@@ -33,6 +33,9 @@ classDiagram
     class ResourceSystem
     class MeshDataT
     class ShaderDataT
+    class TextureDataT
+    class Resource
+    class MeshUtils
     class EngineConfig {
         <<struct>>
     }
@@ -58,7 +61,10 @@ classDiagram
     RenderSystem ..> Transform : 从节点读取世界变换
     RenderSystem ..> Material : 读取实例 Shader 路径与命名参数
     RenderSystem ..> ResourceSystem : 按完整资源路径查询定义
-    RenderSystem ..> MeshDataT : 复制独立资源顶点和索引
+    RenderSystem ..> MeshDataT : 读取组件持有几何并组装 GPU 顶点
+    RenderSystem ..> MeshUtils : 几何校验与切线生成
+    RenderSystem o-- Resource : 在用 GPU 纹理持有 CPU 引用
+    RenderSystem ..> TextureDataT : Basis 转码与 mip 上传
     RenderSystem ..> ShaderDataT : 读取生成的二进制与 uniform 映射
     RenderSystem ..> EngineConfig : on_initialize 参数
     RenderSystem ..> bgfx : 图形资源及帧提交
@@ -91,3 +97,12 @@ classDiagram
 - Android Surface 处理代码集中在平台实现中；APK、模拟器暂停恢复和真机验证范围见根 [README.md](../../../README.md)。
 
 C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr`；析构、`release_scene()`、只读状态方法和 `on_shutdown()` 为 `noexcept`；只读状态方法为 `const`。析构及受保护钩子标注 `override`，状态返回值标注 `[[nodiscard]]`。
+
+## 几何、纹理与照明
+
+- 几何支持 UV0、切线、顶点色和子网格；GPU 顶点以明确 float 布局组装，不依赖 FlatBuffers struct 的内存布局。网格按所属节点完整 ID 与 mesh_revision 更新，仅改变的几何重新上传。
+- 每个子网格按材质槽独立提交，空子网格表绘制完整索引与槽 0。所有材质槽遵循相同 Shader 与命名参数规则。
+- 纹理来自 ResourcePtr 持有的 TextureData，Basis Universal 转码后上传全部 mip。auto 按实际 GPU 能力与 Basis 转码器支持情况选择 BC7、ASTC 4x4、ETC2 或 RGBA8；显式请求不支持的格式返回失败。sRGB 只用于颜色纹理，法线及 ORM 使用线性采样。
+- GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，停止项目、场景替换及设备关闭统一释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
+- 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
+- 最多 8 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。当前实现直接照明，不包含阴影、IBL 或渲染图。

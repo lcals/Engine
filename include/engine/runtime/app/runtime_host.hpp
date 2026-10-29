@@ -29,6 +29,7 @@ public:
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
     [[nodiscard]] GameplaySession* gameplay() noexcept;
+    [[nodiscard]] WorldSystem* world() noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;
 

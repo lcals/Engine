@@ -5,6 +5,7 @@
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/asset_publish.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
+#include "editor/asset_pipeline/texture_importer.hpp"
 #include "editor/task/task_system.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -42,7 +43,7 @@ namespace
 
 using namespace asset_pipeline;
 
-constexpr std::string_view importer_version = "engine-asset-importers-2";
+constexpr std::string_view importer_version = "engine-asset-importers-3";
 
 bool directory(const std::filesystem::path& path, std::string& error)
 {
@@ -311,7 +312,14 @@ std::string generic_path(const std::filesystem::path& path)
 schema::AssetKind asset_kind(const std::filesystem::path& path)
 {
     const auto filename = PathUtils::to_utf8(path.filename());
-    const auto extension = PathUtils::to_utf8(path.extension());
+    auto extension = PathUtils::to_utf8(path.extension());
+    std::transform(
+        extension.begin(), extension.end(), extension.begin(), [](unsigned char value)
+        { return static_cast<char>(value >= 'A' && value <= 'Z' ? value + 32 : value); });
+    if (extension == ".png" || extension == ".jpg" || extension == ".jpeg")
+    {
+        return schema::AssetKind::texture;
+    }
     if (extension == ".scene")
     {
         return schema::AssetKind::scene;
@@ -466,6 +474,10 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
             } while (kinds.contains(guid));
             meta_text = "guid = \"" + guid + "\"\nimporter = \"" +
                         importer_name(record.asset.kind) + "\"\nmeta_version = 1\n";
+            if (record.asset.kind == schema::AssetKind::texture)
+            {
+                meta_text += TextureImporter::default_meta();
+            }
             const auto temporary = cache / ".asset-meta" / new_guid();
             if (!write_text(temporary, meta_text, error))
             {
@@ -520,9 +532,10 @@ bool tool_key(const std::filesystem::path& root, const std::vector<AssetRecord>&
               const std::string& platform, std::string& common, std::string& shader,
               std::string& scripts, std::string& error, std::string* script_inputs = nullptr)
 {
-    common = std::string(importer_version) + ":" + platform;
+    common = std::string(importer_version) + ":" + platform + ":" +
+             std::string(TextureImporter::version());
     for (const char* name : {"common.fbs", "scene.fbs", "mesh.fbs", "shader.fbs", "material.fbs",
-                             "asset_catalog.fbs", "resource_header.fbs"})
+                             "asset_catalog.fbs", "resource_header.fbs", "texture.fbs"})
     {
         std::string hash;
         if (!file_hash(std::filesystem::path(ENGINE_SCHEMA_SOURCE_DIR) / name, hash, error))
@@ -971,6 +984,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     };
     std::vector<bool> changed(records.size(), true);
     bool compile_scripts = false;
+    bool encode_textures = false;
     for (std::size_t index = 0; index < records.size(); ++index)
     {
         auto& record = records[index];
@@ -1012,7 +1026,12 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         {
             ++stats.imported;
             compile_scripts = compile_scripts || record.asset.kind == schema::AssetKind::script;
+            encode_textures = encode_textures || record.asset.kind == schema::AssetKind::texture;
         }
+    }
+    if (encode_textures && !TextureImporter::initialize(last_error_))
+    {
+        return fail();
     }
 
     std::vector<TaskDescription> tasks;

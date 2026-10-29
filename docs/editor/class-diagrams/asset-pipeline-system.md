@@ -27,6 +27,7 @@ classDiagram
     class TaskSystem
     class GuidMap
     class SceneImporter
+    class TextureImporter
     class SQLite
     class ResourceSystem
     class AssetCatalogDataT
@@ -35,6 +36,7 @@ classDiagram
     AssetPipelineSystem *-- AssetBuildStats : 最近成功批次
     AssetPipelineSystem ..> GuidMap : 核心 GUID 与逻辑路径映射
     AssetPipelineSystem ..> SceneImporter : 场景 TOML 转换
+    AssetPipelineSystem ..> TextureImporter : 图片与meta转换BasisU缓存
     AssetPipelineSystem ..> SQLite : cache/assets.sqlite
     AssetPipelineSystem ..> ResourceSystem : 同步文件读取
     AssetPipelineSystem *-- AssetCatalogDataT : 最近成功导入完整目录及只读返回
@@ -45,6 +47,10 @@ classDiagram
 `catalog()` 仅在成功导入后提供完整可用目录，返回借用在下次成功导入或关闭前有效；首次成功前为空，导入失败保留上一份成功目录。编辑器数据库登记全部源资源和导入状态，构建输入与必要运行依赖分别记录，精简与分包由独立的 [AssetBuildSystem](asset-build-system.md) 完成。
 
 源 `.scene/.mesh/.shader/.material` 使用 TOML 内容；TS 源仍为 `.ts`。每个生成文件严格位于 `cache/gen/<完整GUID>`，无扩展名、类型前缀或版本子目录。`cache/catalog.bin` 为生成的 FlatBuffers 目录，SQLite 不进入运行时。GUID 映射由运行时核心共用。
+
+PNG/JPG/JPEG 通过 [TextureImporter](texture-importer.md) 生成 BasisU 缓存，全部转换参数来自相邻 `.meta` 的 `[texture]`。材质 `[[textures]]` 以 `name` 匹配 Shader sampler，以 `texture` 保存贴图 GUID；导入时解析唯一逻辑路径并登记依赖。Shader 的 `[[samplers]]` 保存 `name/uniform/stage/default_texture/exposed`；槽位为 0..15、各自唯一，默认纹理必须是内置路径，进入 Shader 的运行依赖。Shader 源文件仅作为构建依赖，默认纹理和材质显式引用随统一目录打包、同步及加载。
+
+Mesh 保持原六项位置/法线顶点表达，新增可选 `texcoords`（二项）、`tangents`（四项）、`colors`（四项）数组；出现时必须与顶点数相等。切线方向非零、第四项为 -1 或 1；颜色通道在 0..1。`[[submeshes]]` 的 `first_index/index_count/material_slot` 按顺序完整覆盖三角形索引，材质槽为 0..15；不填时整个 Mesh 使用槽 0。场景组件以 `additional_materials` GUID 数组给槽 1 起绑定材质，所有材质参与依赖计算。
 
 SQLite v2 保存源指纹、转换器/Schema/配置/工具/目标版本、构建依赖、运行依赖和产物指纹。两类依赖分别使用 `dependencies` 与 `runtime_dependencies` 表。首次全量；之后重新扫描但只转换失效产物及构建依赖变化的资源。命中缓存仍校验实体头与完整产物指纹。TS 按项目编译，JS 沿用对应 TS GUID；实际生成的模块 import / export 和字面量动态 import 成为运行依赖，类型导入和声明文件只作为构建输入。
 

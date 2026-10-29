@@ -179,7 +179,7 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。二者仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；场景与脚本等无需 GPU 的测试始终按目标注册。
+`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。`editor.mcp_commands` 验证场景查询、组件修改、批量回滚、撤销与会话隔离。这些窗口测试仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；命令执行、协议注册和文件传输测试无需 GPU。
 
 ### 桌面脚本与同步
 
@@ -228,8 +228,7 @@ export default class Game extends Gameplay {
         return true;
     }
 
-    override Update(): void {
-    }
+    override Update(): void {}
 
     override OnShutdown(): void {
         Debug.Log("Game stopped");
@@ -241,11 +240,11 @@ export default class Game extends Gameplay {
 
 `App` 的静态只读路径具有以下含义：
 
-| 脚本接口 | 用途 |
-| --- | --- |
-| `App.builtinAssetsPath` | 内置资源根目录；编辑器中映射项目转换缓存，真机为包内资源 |
+| 脚本接口                 | 用途                                                                      |
+| ------------------------ | ------------------------------------------------------------------------- |
+| `App.builtinAssetsPath`  | 内置资源根目录；编辑器中映射项目转换缓存，真机为包内资源                  |
 | `App.persistentDataPath` | 持久数据根目录，保存同步版本、日志、控制与状态；可由 `--runtime-dir` 指定 |
-| `App.cachePath` | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本 |
+| `App.cachePath`          | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本                  |
 
 `LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并通过 SDL 输出到平台日志（桌面 stderr、Android logcat）；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/gen/` 与平台临时 `App.cachePath` 是不同目录。
 
@@ -258,12 +257,43 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 ### 渲染与项目控制
 
 - 同一编辑器窗口在空白与项目画面间整体切换。场景、节点和组件归当前运行；共享窗口与图形设备保留到编辑器关闭。停止会清除最后一帧，重复启动不会创建第二套实例。
-- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；一盏启用的方向光，视角来自活动 Camera 节点。尚未实现 IBL 环境贴图、阴影、贴图材质、透明混合。
+- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；最多 8 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。尚未实现 IBL 环境贴图、阴影和透明混合。
 - 内置 Shader 使用宿主 shaderc 在构建时编译为数组，项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
 - 桌面 MCP 提供无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具提供同步、热重载和状态查询；Android 由平台宿主启动 Gameplay，不提供编辑器项目启停。
 - `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
 - 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
 - 一个运行目录供一个编辑器实例使用；并行编辑器使用不同 `--runtime-dir`。MCP 通过 `project-control.lock` 串行化控制；若 MCP 被强制中止留下锁，先确认相关客户端已退出且状态中没有正在执行的请求，再移除该运行目录中的锁目录。不能删除其他活动操作的锁。
+
+### MCP 模块注册与场景编辑
+
+`McpSystem` 只处理协议、工具注册和参数检查。`ProjectMcpTools` 登记原有项目启停、资源构建、同步与状态工具；`EditorMcpTools` 登记桌面场景工具。各模块提供工具名称、参数模型和回调，宿主在 MCP 初始化前登记。新增模块不需要改协议分派函数；需要主线程操作的工具回调可复用 `EditorMcpTools::call_command`，由对应编辑器模块注册和执行命令。
+
+| 工具                     | 参数与作用                                                                                            |
+| ------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `get_scene`              | 无参数；查询活动场景、节点和组件，待机返回 `scene: null`                                              |
+| `set_transform`          | `sceneId`、`nodeId`，以及至少一项 `position` / `rotation` / `scale` 三分量数组                        |
+| `set_light`              | `sceneId`、`nodeId`，以及 `color` 四分量数组或 `intensity`                                            |
+| `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`；类型为 `float` / `v2` / `v3` / `v4`，值为对应标量或数组 |
+| `execute_batch`          | `commands` 数组，每项含 `command` 与 `arguments`；支持上述三种修改，最多 64 项                        |
+| `undo` / `redo`          | `sceneId`；撤销或重做一条编辑记录                                                                     |
+| `get_editor_receipt`     | `session`、`requestId`；查询原请求的持久回执                                                          |
+
+场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。修改只作用于已有组件和已声明的材质参数，失败返回原因；当前不提供创建几何体、修改拓扑或保存场景的 MCP 工具。编辑结果属于本次运行，不自动写回资源文件。
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call get_scene
+# edit.json 使用查询到的 sceneId/nodeId，内容例如：
+# {"sceneId":"1","nodeId":"42","position":[1,0,0]}
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call set_transform --arguments-file edit.json
+```
+
+通用 `call <工具名>` 接受 `--arguments '<JSON对象>'` 或 `--arguments-file <文件>`，二者互斥，省略时传空对象。示例 ID 只演示格式，实际操作必须使用当前查询值。
+
+场景工具经 `editor-command.json` 交由编辑器主线程执行，MCP 不直接访问运行场景。每次成功修改生成撤销记录，批量修改失败按相反顺序回滚，成功批次只占一条记录；历史最多 128 条。停止、重启或切换场景后旧历史失效。玩法若已修改目标值，撤销会返回冲突，避免覆盖后来的业务状态；例如示例 Game 持续旋转方块时，旋转编辑可能产生此类冲突。
+
+提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
+
+编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/class-diagrams/editor-mcp-tools.md)。
 
 ### 组件、数据模型与资源扩展
 
@@ -280,13 +310,45 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 ./build/ninja-engine-debug/asset_build_app --project projects/minimal
 ```
 
+渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 8 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。不包含阴影、IBL、透明排序或 ProBuilder 建模算法。
+
+`Material.SetTexture(name, path)` 按 Shader 的 sampler 声明设置贴图，`GetTexture(name)` 返回当前资源路径。内置参数为 `baseColorTexture`、`normalTexture`、`ormTexture`（AO/Roughness/Metallic）；法线与 ORM 使用线性贴图。`MeshRenderer.GetMaterial(slot)` 访问 0..15 的材质槽，`SetMaterialCount(count)` 设置槽数。C++ `set_mesh_data()` 深拷贝生成的 MeshDataT，成功递增修订号并更新 GPU；未落盘的动态网格不能保存成包含无效 GUID 的场景。
+
+图片支持 PNG/JPG/JPEG。新图片的 `.meta` 自动生成贴图导入设置，示例：
+
+```toml
+guid = "<完整 GUID>"
+importer = "texture"
+meta_version = 1
+
+[texture]
+format = "auto"
+compression = "uastc"
+compression_level = 2
+rdo_quality_scalar = 1.0
+srgb = true
+mipmaps = true
+```
+
+- `format`：`auto` 按 GPU 与转码器能力选择，或明确 `rgba8` / `bc7` / `astc4x4` / `etc2`；显式格式不支持时返回失败。
+- `compression`：UASTC 或 ETC1S。UASTC 使用 `rdo_quality_scalar`（0.001..50，越小失真越少），ETC1S 改用 `quality`（1..255，默认128）。切换模式同时替换质量字段。
+- `compression_level`：UASTC 0..4，ETC1S 0..5；`srgb` 区分颜色与线性数据，`mipmaps` 决定是否生成完整 mip 链。
+- 设置、源图片、Schema 和编码器版本均参与增量键。输出为 `cache/gen/<完整GUID>` 中的 TextureData/BasisU 资源；Shader sampler 默认纹理和材质纹理引用进入统一依赖树、打包和同步。
+- 旧图片若使用 `importer = "source"`，修改为 `texture` 时保留原 GUID；不自动改变已有原始二进制的用途。单边最大8192、总像素最多16M，解码前检查图片头。
+
+BasisU 使用已有依赖的 C++ 编码接口，整体并行度由项目 `import_threads` 控制，每任务编码器使用单线程。`third_party/overlay-ports/basisu/quiet-library-output.patch` 修复上游静默模式仍输出压缩状态的问题，确保 MCP stdout 只承载协议。
+
+Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/exposed`，默认纹理只允许内置资源；`stage` 必须与 Shader 源码 `SAMPLER2D` 的槽号一致。bgfx 公共反射能校验名称、类型与数量，不能反射槽号。材质 `.material` 的 `[[textures]]` 用 `name` 与 `texture` GUID 指定覆盖值。示例项目已加入棋盘贴图、UV 和完整 PBR sampler 声明。
+
+编辑器 MCP 增加 `set_camera`、`set_material_texture`；`set_light` 支持 `kind/range/innerAngle/outerAngle`，材质命令支持可选 `slot`。场景查询返回全部材质槽和贴图；修改沿用批量事务、撤销/重做和完成回执。历史只记录资源身份与版本，不让停止项目后的资源因撤销栈继续常驻。
+
 `assets/` 下场景、网格、材质、Shader 描述分别使用 `.scene`、`.mesh`、`.material`、`.shader`，内容为 TOML，不追加 `.toml`。TS、Shader 源码、图片等保留原格式。TS 增量指纹来自编译器实际读取的文件，包括继承配置、额外声明、标准库和编译器自身；导入前后再次核对。Shader 保守依赖项目全部普通源文件，确保自定义 `.inc` 等包含文件变化不会漏编译。每个文件的相邻 `.meta` 记录唯一完整 GUID；新资源自动生成，复制已有 meta 导致冲突时返回失败，移动资源必须一起移动 meta。已知资源丢失 meta 时返回失败，避免静默改变引用。
 
 `cache/gen/` 的直接子文件名只允许完整 GUID，不带扩展名。`cache/catalog.bin` 使用 v2 格式，包含 GUID、逻辑路径、类型、运行依赖、实体头大小、内容哈希、目标平台与存储定位；`cache/assets.sqlite` 是可重建的编辑器索引。删除 SQLite 后根据源文件/meta 重新导入，GUID 不变。导入使用项目锁和暂存/回滚记录，失败不会发布半成品；无变化时保持正式文件与版本不变。
 
 `GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
-`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮，也未实现图片压缩或模型格式导入；未配置专用导入器的原始文件按字节缓存。
+`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮，模型格式导入尚未实现；未配置专用导入器的原始文件按字节缓存。
 
 ### 资源运行包
 
@@ -353,11 +415,11 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 
 ### Android 资源同步与热重载
 
-| App 接口 | Android 指向 |
-| --- | --- |
-| `builtinAssetsPath` | `apk:/assets/project`，由 ResourceSystem 读取 APK 的逻辑路径 |
-| `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留 |
-| `cachePath` | 应用私有 `cache/`，可重建的 ICU 等临时数据 |
+| App 接口             | Android 指向                                                 |
+| -------------------- | ------------------------------------------------------------ |
+| `builtinAssetsPath`  | `apk:/assets/project`，由 ResourceSystem 读取 APK 的逻辑路径 |
+| `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留      |
+| `cachePath`          | 应用私有 `cache/`，可重建的 ICU 等临时数据                   |
 
 先启动 Debug APK，让引擎创建状态和内置清单。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
 
@@ -383,15 +445,15 @@ CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页
 
 格式整理覆盖仓库自有代码、测试、工具、平台入口，以及 third_party 中的自有 CMake 接入与 triplet。上游 Git 子模块、overlay portfile、移植的上游覆盖文件、补丁内容和构建生成物保持各自格式，不纳入此范围。语言规则由根 `.clang-format`、`.editorconfig`、`.cmake-format.json` 和 `pyproject.toml` 统一维护；C++ 使用 Allman 大括号、4 空格缩进及 100 列，并为控制语句保留大括号。
 
-| 范围 | 检查方式 |
-| --- | --- |
-| `include/engine/`、`src/`、`tests/` 中的 C++ 与 `platforms/` 中自有 C++ / Java | 将文件列表传给 `clang-format --dry-run --Werror` |
-| `scripts/`、`tests/` 中的 Python | `python3 -m black --check scripts tests` |
+| 范围                                                                                      | 检查方式                                                                     |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `include/engine/`、`src/`、`tests/` 中的 C++ 与 `platforms/` 中自有 C++ / Java            | 将文件列表传给 `clang-format --dry-run --Werror`                             |
+| `scripts/`、`tests/` 中的 Python                                                          | `python3 -m black --check scripts tests`                                     |
 | 根 CMakeLists、`cmake/`、`tests/`、Android native_bundle、自有 third_party 接入与 triplet | 将这些自有 CMake 文件传给 `cmake-format --check`，排除 overlay、上游及生成物 |
-| TypeScript / JavaScript | 使用下方 Prettier 命令 |
-| 运行时和示例项目 Shader | 按 `.editorconfig` 与现有 Shader 排版维护，并执行对应 Shader 编译 |
-| `include/schemas/` 中的 FlatBuffers schema | 4 空格、UTF-8、LF；通过 flatc 生成验证语法 |
-| Android Gradle、Shell 与 PowerShell | 4 空格、UTF-8、LF、无行尾空白；保留各语言语法及现有行为 |
+| TypeScript / JavaScript                                                                   | 使用下方 Prettier 命令                                                       |
+| 运行时和示例项目 Shader                                                                   | 按 `.editorconfig` 与现有 Shader 排版维护，并执行对应 Shader 编译            |
+| `include/schemas/` 中的 FlatBuffers schema                                                | 4 空格、UTF-8、LF；通过 flatc 生成验证语法                                   |
+| Android Gradle、Shell 与 PowerShell                                                       | 4 空格、UTF-8、LF、无行尾空白；保留各语言语法及现有行为                      |
 
 ```sh
 prettier --check --tab-width 4 --print-width 100 include/engine.d.ts projects/minimal/assets/scripts/game.ts scripts/build_scripts.mjs tests/scene_schema_bridge.ts
@@ -403,13 +465,13 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 以下为截至 2026-10-29 已完成的验证范围。资源目录 v2、依赖加载与清单构建在 macOS 验证；Android APK、模拟器与 Windows 的记录对应此次资源目录重构前版本。构建使用根 Presets 或继承它们的本机 Presets，未触发 CI。
 
-| 环境 | 已验证范围 |
-| --- | --- |
-| macOS ARM64 / AppleClang 21 | 资源目录 v2 完整引擎 Debug / Release 构建与 CTest 各 36/36；真实 Metal 窗口、场景、组件、GUID 导入、脚本、MCP 与编辑器生命周期 |
-| Android 打包与同步宿主工具 | v2 目录、散文件和合并包的 Python 打包回归及模拟 adb 同步测试；尚未重新构建本轮 APK 并运行模拟器 |
-| Android ARM64 / API 34 模拟器，软件 Vulkan（重构前） | Debug / Release APK 构建、安装、V8 / Intl / Temporal、PBR 场景、前后台切换、有限帧退出；Debug 全资源同步、热重载及跨进程持久版本 |
-| Windows x64 / VS 2022 | 依赖准备、Debug / Release 基础构建、ozz / USD 集成、bgfx 工具与 V8 嵌入测试；未覆盖完整编辑器和真实 DirectX 窗口 |
-| Linux / iOS / Android 实体设备 | 未完成端到端运行验证 |
+| 环境                                                 | 已验证范围                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| macOS ARM64 / AppleClang 21                          | 完整引擎 Debug / Release 构建及各 42 项回归通过；真实 Metal 画面、BasisU 贴图缓存、场景、脚本、模块化 MCP、主线程编辑与编辑器生命周期 |
+| Android 打包与同步宿主工具                           | v2 目录、散文件和合并包的 Python 打包回归及模拟 adb 同步测试；尚未重新构建本轮 APK 并运行模拟器                                       |
+| Android ARM64 / API 34 模拟器，软件 Vulkan（重构前） | Debug / Release APK 构建、安装、V8 / Intl / Temporal、PBR 场景、前后台切换、有限帧退出；Debug 全资源同步、热重载及跨进程持久版本      |
+| Windows x64 / VS 2022                                | 依赖准备、Debug / Release 基础构建、ozz / USD 集成、bgfx 工具与 V8 嵌入测试；未覆盖完整编辑器和真实 DirectX 窗口                      |
+| Linux / iOS / Android 实体设备                       | 未完成端到端运行验证                                                                                                                  |
 
 桌面回归覆盖 Taskflow 依赖调度、导入线程设置、SQLite 增量与重建、重复 GUID、meta 缺失及移动、输入依赖变化、产物损坏重建、场景 TOML / C++ / TS FlatBuffers 往返。资源回归覆盖元数据目录、头部读取、按依赖共享与释放、持有资源时拒绝不兼容目录更新、散文件与合并包、清单子集及增量构建。另覆盖超过 64 MiB 合并包的按范围读取、同步和热重载，以及陈旧心跳下的活动缓存保护；模拟 adb 验证分块传输失败不发布。Metal 编辑器验证材质修改经资源同步实际改变画面、重复启停后 GPU 资源回到基线、停止恢复空白。
 
@@ -417,9 +479,13 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 V8、ozz、vcpkg 与编译缓存验证包含无变化构建不重建上游、不改写未变化文件，以及输入变化使缓存失效。Unix 环境安装模拟测试覆盖缺失工具、包管理器和失败退出；Windows PowerShell 模拟入口为 `tests/setup_windows_test.ps1`，尚未在 macOS 执行。跨平台脚本存在不等于全部平台已经完成实机测试。
 
-本轮还验证了不启用 V8 的运行配置，Debug / Release 各 14/14；关闭资源管线的编辑器配置构建成功，项目与编辑器回归各 7/7。51 个改动 C++ 文件、7 个 Python 文件、4 份 CMake 文件和 TS 构建工具通过格式检查；83 张类图通过 Mermaid 解析和渲染，并核对验证结果与当前源码一致。
+MCP 模块化回归覆盖独立工具注册、参数检查、旧工具兼容、现有组件修改、批量回滚、撤销与重做冲突恢复、请求重放、超时后的持久回执、跨项目及跨会话隔离。批次中遇到不可撤销查询或未注册命令会恢复先前修改和历史。渲染扩展加入相机、灯光类型与具名贴图命令，真实编辑器测试验证修改、回执及撤销流程。
 
-本轮本地证据保存在忽略的 `build/resource-*.log` 与 `build/resource-design-validation.json`；既有验证记录保留在 `build/refactor-*.log`、`build/refactor-module-validation/`、`build/guid-asset-validation/`、`build/android-guid-validation/`、`build/cache-validation/` 与 `build/local-deps/`。它们是验证产物，不是运行时依赖；仓库维护的复跑入口为 Presets 和 `tests/`。
+渲染基础使用 `local-ninja-debug` / `local-ninja-release`（继承根 Presets）完成构建，全套 CTest 各 42/42 通过。Metal 截图像素验证 UV、sRGB/线性、动态几何和三种灯光及累加；资源检查覆盖多材质槽、贴图共享和重复启停释放。贴图回归执行真实 PNG/JPEG 解码、UASTC/ETC1S 编码与转码，验证 meta 参数、完整 mip 链、增量命中、非法参数及失败保留旧缓存。Android 仅验证宿主打包和模拟 adb 同步，未重建本轮 APK，未验证各设备压缩格式矩阵。94 张类图通过 Mermaid 解析和渲染，验证结果的源码哈希与当前文档一致。
+
+MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Release 构建及相关回归各 9/9；渲染基础阶段未重跑该精简配置。C++、Python 与 CMake 改动通过格式检查。
+
+渲染基础本地证据保存在忽略的 `build/render-foundation-*.log` 与 `build/render-foundation-diagrams.json`。MCP 记录位于 `build/mcp-*.log` 与 `build/mcp-diagrams-final.json`，资源目录记录位于 `build/resource-*.log` 与 `build/resource-design-validation.json`；既有记录保留在 `build/refactor-*.log`、`build/refactor-module-validation/`、`build/guid-asset-validation/`、`build/android-guid-validation/`、`build/cache-validation/` 与 `build/local-deps/`。它们是验证产物，不是运行时依赖；仓库维护的复跑入口为 Presets 和 `tests/`。
 
 限制：
 
@@ -427,7 +493,7 @@ V8、ozz、vcpkg 与编译缓存验证包含无变化构建不重建上游、不
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能；Android 实体手机、Linux / iOS 及完整 Windows 运行时仍需对应平台验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- PBR 尚无贴图、阴影或 IBL；图片按原始字节缓存。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- PBR 尚无阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
 
 ## 目录
 
@@ -452,19 +518,19 @@ V8、ozz、vcpkg 与编译缓存验证包含无变化构建不重建上游、不
 
 ## 构建选项
 
-| 选项 | 顶层默认值 | 用途 |
-| --- | --- | --- |
-| `ENGINE_BUILD_APP` | `ON` | 构建引擎宿主；启用编辑器时另建 editor_app；Android 输出原生共享库 |
-| `ENGINE_BUILD_TESTS` | `ON` | 构建本项目测试，同时受 `BUILD_TESTING` 控制 |
-| `ENGINE_USE_COMPILER_CACHE` | `ON` | 自动使用已安装的 ccache / sccache，支持 Makefiles / Ninja |
-| `ENGINE_REQUIRE_COMPILER_CACHE` | `OFF` | 缓存不可用时配置失败；ninja-* Preset 开启 |
-| `ENGINE_WARNINGS_AS_ERRORS` | `OFF` | 本项目目标将编译警告视为错误，CI 开启 |
-| `ENGINE_ENABLE_RUNTIME_DEPS` | `OFF` | 编译运行时系统与依赖；debug/release Preset 开启 |
-| `ENGINE_ENABLE_EDITOR_DEPS` | `OFF` | 编译编辑器系统与专用依赖 |
-| `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF` | 编译资源管线系统，查找并验证离线工具 |
-| `ENGINE_ENABLE_GPU_TESTS` | `OFF` | 注册需要图形桌面和真实 GPU 的窗口测试 |
-| `ENGINE_ENABLE_V8` | `OFF` | 启用显式准备的 V8 monolith、构建目标与嵌入测试 |
-| `ENGINE_ENABLE_SCRIPT_RUNTIME` | `OFF` | V8 玩法、日志/路径绑定与引擎热重载；完整桌面 engine 及 Android 预设开启，同步工具仅构建在桌面 |
+| 选项                                | 顶层默认值 | 用途                                                                                          |
+| ----------------------------------- | ---------- | --------------------------------------------------------------------------------------------- |
+| `ENGINE_BUILD_APP`                  | `ON`       | 构建引擎宿主；启用编辑器时另建 editor_app；Android 输出原生共享库                             |
+| `ENGINE_BUILD_TESTS`                | `ON`       | 构建本项目测试，同时受 `BUILD_TESTING` 控制                                                   |
+| `ENGINE_USE_COMPILER_CACHE`         | `ON`       | 自动使用已安装的 ccache / sccache，支持 Makefiles / Ninja                                     |
+| `ENGINE_REQUIRE_COMPILER_CACHE`     | `OFF`      | 缓存不可用时配置失败；ninja-* Preset 开启                                                     |
+| `ENGINE_WARNINGS_AS_ERRORS`         | `OFF`      | 本项目目标将编译警告视为错误，CI 开启                                                         |
+| `ENGINE_ENABLE_RUNTIME_DEPS`        | `OFF`      | 编译运行时系统与依赖；debug/release Preset 开启                                               |
+| `ENGINE_ENABLE_EDITOR_DEPS`         | `OFF`      | 编译编辑器系统与专用依赖                                                                      |
+| `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF`      | 编译资源管线系统，查找并验证离线工具                                                          |
+| `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
+| `ENGINE_ENABLE_V8`                  | `OFF`      | 启用显式准备的 V8 monolith、构建目标与嵌入测试                                                |
+| `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | V8 玩法、日志/路径绑定与引擎热重载；完整桌面 engine 及 Android 预设开启，同步工具仅构建在桌面 |
 
 作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。使用 Engine 与系统基类时链接 `engine::core`；使用 RuntimeHost 装配完整运行时时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/` 或 `plugins/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
 

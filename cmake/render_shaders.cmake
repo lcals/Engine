@@ -101,7 +101,7 @@ function(engine_embed_render_shaders target)
                 "${_source}/varying.def.sc" -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c
                 "${_stage}_cube"
             DEPENDS "${_source}/${_stage}_cube.sc" "${_source}/varying.def.sc"
-                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
+                    "${_source}/pbr_helpers.sh" "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
                     "${ENGINE_SHADERC_EXECUTABLE}"
             COMMENT "Compiling embedded ${_platform}/${_profile} ${_stage} cube shader"
             VERBATIM)

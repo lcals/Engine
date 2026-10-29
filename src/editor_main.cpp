@@ -71,7 +71,8 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             return 1;
         }
 #endif
-        editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay());
+        editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay(),
+                                                        runtime.world());
         if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");

@@ -9,8 +9,9 @@ classDiagram
     direction TB
     class EditorSystem {
         <<final>>
-        +EditorSystem(EditorEnvironment& environment, GameplaySession#42; gameplay)
+        +EditorSystem(EditorEnvironment& environment, GameplaySession#42; gameplay, WorldSystem#42; world)
         +~EditorSystem()
+        +commands() EditorCommands#42;
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -23,6 +24,9 @@ classDiagram
     }
     class EditorEnvironment
     class GameplaySession
+    class WorldSystem
+    class EditorCommands
+    class SceneCommands
     class DearImGui["Dear ImGui"] {
         <<library>>
     }
@@ -32,6 +36,9 @@ classDiagram
     System <|-- EditorSystem
     EditorSystem --> EditorEnvironment : 构造参数及持续借用
     EditorSystem --> GameplaySession : 可空借用运行时及主线程启停
+    EditorSystem --> WorldSystem : 可空借用活动场景
+    EditorSystem *-- EditorCommands : 独占命令与撤销历史
+    EditorSystem *-- SceneCommands : 独占场景命令注册模块
     EditorSystem ..> EngineConfig : on_initialize 参数
     EditorSystem ..> DearImGui : 编译及链接依赖
     EditorSystem "1" *-- "0..1" ImGuiContext : 拥有编辑器上下文
@@ -41,11 +48,13 @@ classDiagram
 - 独立宿主模块，由编辑器宿主管理根系统生命周期；运行时 `Engine` 不拥有或依赖它。
 - 构造函数借用宿主拥有的 `EditorEnvironment`；环境持续借用已就绪的 `ProjectSystem`。项目、环境和 App 必须存活且保持就绪直到编辑器关闭；失效环境拒绝启动与更新。
 - `editor_app` 必须接收 `--project <path>`，依次初始化项目、编辑器环境、运行宿主和编辑器，反序关闭；`engine_app` 启动不接收项目路径。编辑器仍通过继承的 `add_subsystem()` 独占和统一管理其他编辑器子系统。
-- 创建和销毁 Dear ImGui 上下文；尚未接入窗口后端、绘制编辑器界面或引入业务工具。
-- 公开业务接口只有构造与析构；继承 `System` 的公共生命周期方法，不提前增加业务方法。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
+- 创建和销毁 Dear ImGui 上下文；尚未接入窗口后端或绘制编辑器界面。场景编辑由独立命令模块提供。
+- 公开接口包含构造、析构与命令服务借用；具体业务由模块注册，继承 `System` 的公共生命周期方法。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
 - `gameplay` 默认为空，此时仅管理编辑器上下文；非空时借用运行宿主提供的玩法会话，接入本机项目控制协议，App 必须先就绪。宿主必须让 GameplaySession 和 EditorEnvironment 存活到 EditorSystem 关闭。编辑器作为环境友元读取私有规范化项目身份，仅用于会话回执和 MCP 目标校验；不公开第二套路径接口。
 - 编辑器启动默认空白，不自动执行 Gameplay。`on_tick()` 在主线程读取带会话标识与请求编号的 `project-control.json`，调用 GameplaySession 启停，原子发布 `project-status.json`；旧会话请求不重放，重复请求不重复执行。状态包含待机、启动中、运行中、停止中、关闭及最近错误。
 - 宿主在每轮引擎更新之前调用编辑器更新，窗口最小化时仍处理停止请求。项目画面占满同一窗口，停止后清理运行资源并恢复空白。
+- `world` 默认空，非空时须与 GameplaySession 一起存活到编辑器关闭；编辑器主线程处理独立 editor-command 通道，并保存去重回执。业务与撤销契约见[编辑器命令](editor-commands.md)，不在 EditorSystem 展开具体组件处理。
+- `commands()` 返回已初始化命令服务的可空借用，供宿主在进入帧循环前注册其他业务模块；初始化之前或关闭后返回空，不暴露组件内部可写数据。
 
 C++ 限定符：构造为 `explicit`；构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 

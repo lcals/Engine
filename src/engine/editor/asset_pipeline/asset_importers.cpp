@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "editor/asset_pipeline/texture_importer.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
@@ -68,6 +69,53 @@ bool reference(const Guid& guid, schema::AssetKind kind, const ImportContext& co
         dependencies.push_back(guid);
     }
     return true;
+}
+
+bool builtin_texture(std::string_view path, const ImportContext& context,
+                     std::vector<Guid>& dependencies, std::string& error)
+{
+    Guid guid;
+    if (!path.starts_with("builtin/") || !context.identities.path_to_guid(path, guid))
+    {
+        error = "shader sampler default must name a builtin texture: " + std::string(path);
+        return false;
+    }
+    return reference(guid, schema::AssetKind::texture, context, dependencies, error);
+}
+
+bool uniform_name(std::string_view name)
+{
+    const auto letter = [](char value)
+    { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_'; };
+    return !name.empty() && letter(name.front()) &&
+           std::all_of(name.begin(), name.end(), [letter](char value)
+                       { return letter(value) || (value >= '0' && value <= '9'); });
+}
+
+bool reserved_uniform(std::string_view name)
+{
+    constexpr std::array reserved = {"u_normal_transform",
+                                     "u_camera_position",
+                                     "u_light_direction",
+                                     "u_light_color",
+                                     "u_light_count",
+                                     "u_light_position_range",
+                                     "u_light_direction_outer",
+                                     "u_light_color_intensity",
+                                     "u_light_kind_inner",
+                                     "u_viewRect",
+                                     "u_viewTexel",
+                                     "u_view",
+                                     "u_invView",
+                                     "u_proj",
+                                     "u_invProj",
+                                     "u_viewProj",
+                                     "u_invViewProj",
+                                     "u_model",
+                                     "u_modelView",
+                                     "u_modelViewProj",
+                                     "u_alphaRef"};
+    return std::find(reserved.begin(), reserved.end(), name) != reserved.end();
 }
 
 bool parameter_values(const schema::MaterialValueUnion& value, std::array<double, 4>& values,
@@ -234,6 +282,100 @@ bool convert_mesh(const ImportAsset& asset, const ImportContext& context, std::s
         }
         mesh.indices.push_back(static_cast<std::uint32_t>(*index));
     }
+    for (const char* name : {"texcoords", "tangents", "colors"})
+    {
+        if (!table.contains(name))
+        {
+            continue;
+        }
+        const auto* values = table[name].as_array();
+        if (values == nullptr || values->size() != mesh.vertices.size())
+        {
+            error = std::string(name) + " must contain one value per mesh vertex";
+            return false;
+        }
+        for (const auto& item : *values)
+        {
+            if (std::string_view(name) == "texcoords")
+            {
+                std::array<double, 2> value{};
+                if (!numbers(&item, value) ||
+                    std::any_of(value.begin(), value.end(), [](double number)
+                                { return std::abs(number) > std::numeric_limits<float>::max(); }))
+                {
+                    error = "mesh texcoord requires two finite float values";
+                    return false;
+                }
+                mesh.texcoords.emplace_back(value[0], value[1]);
+                continue;
+            }
+            std::array<double, 4> value{};
+            if (!numbers(&item, value) ||
+                std::any_of(value.begin(), value.end(), [](double number)
+                            { return std::abs(number) > std::numeric_limits<float>::max(); }))
+            {
+                error = "mesh tangent/color requires four finite float values";
+                return false;
+            }
+            if (std::string_view(name) == "tangents")
+            {
+                if ((value[0] == 0 && value[1] == 0 && value[2] == 0) ||
+                    (value[3] != -1 && value[3] != 1))
+                {
+                    error = "mesh tangent must have nonzero direction and handedness -1 or 1";
+                    return false;
+                }
+                mesh.tangents.emplace_back(value[0], value[1], value[2], value[3]);
+            }
+            else
+            {
+                if (std::any_of(value.begin(), value.end(),
+                                [](double number) { return number < 0 || number > 1; }))
+                {
+                    error = "mesh color channels must be in [0, 1]";
+                    return false;
+                }
+                mesh.colors.emplace_back(static_cast<float>(value[0]), static_cast<float>(value[1]),
+                                         static_cast<float>(value[2]),
+                                         static_cast<float>(value[3]));
+            }
+        }
+    }
+    if (table.contains("submeshes"))
+    {
+        const auto* submeshes = table["submeshes"].as_array();
+        if (submeshes == nullptr || submeshes->empty())
+        {
+            error = "mesh submeshes must be a nonempty array";
+            return false;
+        }
+        std::uint64_t next = 0;
+        for (const auto& item : *submeshes)
+        {
+            const auto* range = item.as_table();
+            std::uint64_t first = 0;
+            std::uint64_t count = 0;
+            std::uint64_t slot = 0;
+            if (range == nullptr || !identifier(range->get("first_index"), first) ||
+                !identifier(range->get("index_count"), count) ||
+                !identifier(range->get("material_slot"), slot) || first != next || count == 0 ||
+                first % 3 != 0 || count % 3 != 0 || first > mesh.indices.size() ||
+                count > mesh.indices.size() - first || slot > 15)
+            {
+                error = "submeshes must cover ordered triangle ranges with material slots 0..15";
+                return false;
+            }
+            mesh.submeshes.emplace_back(static_cast<std::uint32_t>(first),
+                                        static_cast<std::uint32_t>(count),
+                                        static_cast<std::uint32_t>(slot));
+            next = first + count;
+        }
+        if (next != mesh.indices.size())
+        {
+            error = "mesh submeshes must cover every triangle";
+            return false;
+        }
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));
     return write_bytes(context.output / asset.guid,
@@ -296,24 +438,7 @@ bool convert_shader(const ImportAsset& asset, const ImportContext& context, std:
                 }
                 return false;
             }
-            constexpr std::array reserved = {"u_normal_transform",
-                                             "u_camera_position",
-                                             "u_light_direction",
-                                             "u_light_color",
-                                             "u_viewRect",
-                                             "u_viewTexel",
-                                             "u_view",
-                                             "u_invView",
-                                             "u_proj",
-                                             "u_invProj",
-                                             "u_viewProj",
-                                             "u_invViewProj",
-                                             "u_model",
-                                             "u_modelView",
-                                             "u_modelViewProj",
-                                             "u_alphaRef"};
-            if (std::find(reserved.begin(), reserved.end(), parameter->uniform_name) !=
-                reserved.end())
+            if (reserved_uniform(parameter->uniform_name))
             {
                 error = "shader parameter uses an engine-reserved uniform";
                 return false;
@@ -351,6 +476,50 @@ bool convert_shader(const ImportAsset& asset, const ImportContext& context, std:
             }
             occupied |= mask;
             shader.parameters.push_back(std::move(parameter));
+        }
+    }
+    if (table.contains("samplers"))
+    {
+        const auto* samplers = table["samplers"].as_array();
+        if (samplers == nullptr)
+        {
+            error = "shader samplers must be an array";
+            return false;
+        }
+        std::set<std::string> uniforms;
+        std::set<std::int64_t> stages;
+        for (const auto& item : *samplers)
+        {
+            const auto* sampler_table = item.as_table();
+            if (sampler_table == nullptr)
+            {
+                error = "shader sampler must be a table";
+                return false;
+            }
+            auto sampler = std::make_unique<schema::ShaderSamplerT>();
+            sampler->name = (*sampler_table)["name"].value_or(std::string{});
+            sampler->uniform_name = (*sampler_table)["uniform"].value_or(std::string{});
+            sampler->default_texture = (*sampler_table)["default_texture"].value_or(std::string{});
+            sampler->exposed = (*sampler_table)["exposed"].value_or(true);
+            const auto stage = (*sampler_table)["stage"].value<std::int64_t>();
+            std::vector<Guid> dependencies;
+            if (sampler->name.empty() || !names.insert(sampler->name).second ||
+                !uniform_name(sampler->uniform_name) || slots.contains(sampler->uniform_name) ||
+                reserved_uniform(sampler->uniform_name) ||
+                !uniforms.insert(sampler->uniform_name).second ||
+                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage > 15 ||
+                !stages.insert(*stage).second ||
+                (sampler_table->contains("exposed") && !(*sampler_table)["exposed"].is_boolean()) ||
+                !builtin_texture(sampler->default_texture, context, dependencies, error))
+            {
+                if (error.empty())
+                {
+                    error = "invalid or duplicate shader sampler name, uniform or stage";
+                }
+                return false;
+            }
+            sampler->stage = static_cast<std::uint8_t>(*stage);
+            shader.samplers.push_back(std::move(sampler));
         }
     }
     std::string varying_path;
@@ -467,6 +636,45 @@ bool convert_material(const ImportAsset& asset, const ImportContext& context, st
             material.parameters.push_back(std::move(parameter));
         }
     }
+    if (table.contains("textures"))
+    {
+        const auto* textures = table["textures"].as_array();
+        if (textures == nullptr)
+        {
+            error = "material textures must be an array";
+            return false;
+        }
+        for (const auto& item : *textures)
+        {
+            const auto* texture_table = item.as_table();
+            if (texture_table == nullptr)
+            {
+                error = "material texture must be a table";
+                return false;
+            }
+            auto texture = std::make_unique<schema::MaterialTextureT>();
+            texture->name = (*texture_table)["name"].value_or(std::string{});
+            texture->texture_guid = (*texture_table)["texture"].value_or(std::string{});
+            const auto definition =
+                std::find_if(shader->samplers.begin(), shader->samplers.end(),
+                             [&](const auto& value) { return value->name == texture->name; });
+            std::vector<Guid> dependencies;
+            if (!names.insert(texture->name).second || definition == shader->samplers.end() ||
+                !(*definition)->exposed ||
+                !reference(texture->texture_guid, schema::AssetKind::texture, context, dependencies,
+                           error) ||
+                !context.identities.guid_to_path(texture->texture_guid, texture->texture_path))
+            {
+                if (error.empty())
+                {
+                    error = "material texture is unknown, duplicated, hidden or invalid: " +
+                            texture->name;
+                }
+                return false;
+            }
+            material.textures.push_back(std::move(texture));
+        }
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishMaterialDataBuffer(builder, schema::MaterialData::Pack(builder, &material));
     return write_bytes(context.output / asset.guid,
@@ -500,6 +708,14 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
                     {
                         return false;
                     }
+                    for (const auto& material : mesh->additional_material_guids)
+                    {
+                        if (!reference(material, schema::AssetKind::material, context,
+                                       asset.build_dependencies, error))
+                        {
+                            return false;
+                        }
+                    }
                 }
             }
         }
@@ -518,9 +734,57 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
             {
                 return false;
             }
+            if (table.contains("textures"))
+            {
+                const auto* textures = table["textures"].as_array();
+                if (textures == nullptr)
+                {
+                    error = "material textures must be an array";
+                    return false;
+                }
+                for (const auto& item : *textures)
+                {
+                    const auto* texture = item.as_table();
+                    if (texture == nullptr ||
+                        !reference((*texture)["texture"].value_or(std::string{}),
+                                   schema::AssetKind::texture, context, asset.build_dependencies,
+                                   error))
+                    {
+                        if (error.empty())
+                        {
+                            error = "material texture must be a table";
+                        }
+                        return false;
+                    }
+                }
+            }
         }
         else
         {
+            if (table.contains("samplers"))
+            {
+                const auto* samplers = table["samplers"].as_array();
+                if (samplers == nullptr)
+                {
+                    error = "shader samplers must be an array";
+                    return false;
+                }
+                for (const auto& item : *samplers)
+                {
+                    const auto* sampler = item.as_table();
+                    if (sampler == nullptr ||
+                        !builtin_texture((*sampler)["default_texture"].value_or(std::string{}),
+                                         context, asset.runtime_dependencies, error))
+                    {
+                        if (error.empty())
+                        {
+                            error = "shader sampler must be a table";
+                        }
+                        return false;
+                    }
+                }
+                asset.build_dependencies = asset.runtime_dependencies;
+            }
             for (const auto field : {"vertex", "fragment", "varying"})
             {
                 if (!reference(table[field].value_or(std::string{}), schema::AssetKind::source,
@@ -553,6 +817,10 @@ bool scan_dependencies(ImportAsset& asset, const ImportContext& context, std::st
 
 bool convert_asset(const ImportAsset& asset, const ImportContext& context, std::string& error)
 {
+    if (asset.kind == schema::AssetKind::texture)
+    {
+        return TextureImporter::convert(asset, context, error);
+    }
     if (asset.kind == schema::AssetKind::mesh)
     {
         return convert_mesh(asset, context, error);

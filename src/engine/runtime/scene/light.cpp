@@ -33,7 +33,13 @@ const LightSettings& Light::settings() const noexcept
 bool Light::set_settings(const LightSettings& settings) noexcept
 {
     if (!valid_color(settings.color) || !std::isfinite(settings.intensity) ||
-        settings.intensity < 0.0F)
+        settings.intensity < 0.0F ||
+        (settings.kind != schema::LightKind::directional &&
+         settings.kind != schema::LightKind::point && settings.kind != schema::LightKind::spot) ||
+        !std::isfinite(settings.range) || settings.range <= 0.0F ||
+        !std::isfinite(settings.inner_angle) || !std::isfinite(settings.outer_angle) ||
+        settings.inner_angle < 0.0F || settings.inner_angle >= settings.outer_angle ||
+        settings.outer_angle >= 90.0F)
     {
         return false;
     }

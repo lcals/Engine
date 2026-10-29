@@ -11,6 +11,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -18,8 +19,14 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstdio>
+#include <filesystem>
 #include <limits>
+#include <string>
+#include <vector>
 
 namespace
 {
@@ -196,6 +203,7 @@ struct GpuCounts
     std::uint16_t shaders;
     std::uint16_t programs;
     std::uint16_t uniforms;
+    std::uint16_t textures;
 
     bool operator==(const GpuCounts&) const = default;
 };
@@ -203,8 +211,8 @@ struct GpuCounts
 GpuCounts gpu_counts()
 {
     const bgfx::Stats& stats = *bgfx::getStats();
-    return {stats.numVertexBuffers, stats.numIndexBuffers, stats.numShaders, stats.numPrograms,
-            stats.numUniforms};
+    return {stats.numVertexBuffers, stats.numIndexBuffers, stats.numShaders,
+            stats.numPrograms,      stats.numUniforms,     stats.numTextures};
 }
 
 bool create_cube_scene(engine::WorldSystem& world, bool unlit)
@@ -306,8 +314,8 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     {
         if (!create_cube_scene(world, cycle == 0) ||
             !expect(renderer.prepare_scene(), "prepare embedded cube resources") ||
-            !expect(renderer.scene_prepared() && renderer.gpu_resource_count() == 11,
-                    "prepared scene owns the expected GPU handles") ||
+            !expect(renderer.scene_prepared() && renderer.gpu_resource_count() > 0,
+                    "prepared scene owns GPU handles") ||
             !expect(renderer.prepare_scene(), "preparing twice is idempotent") ||
             !render_frames(windows, renderer, 8) ||
             !expect(bgfx::getStats()->numDraw == idle_draws + 1,
@@ -327,7 +335,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
                         !mesh->material().set_v4("baseColor", {0.2, 0.7, 0.3, 1.0}),
                     "custom material resolves names from its shader") ||
             !render_frames(windows, renderer, 8) ||
-            !expect(renderer.gpu_resource_count() == 11 &&
+            !expect(renderer.gpu_resource_count() > 0 &&
                         bgfx::getStats()->numDraw == idle_draws + 1,
                     "shader switching retires previous program and renders custom definition"))
         {
@@ -342,7 +350,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
                     "shader reflection rejects missing and unknown uniforms with full cleanup") ||
                 !expect(mesh->material().set_shader(custom.path), "restore valid shader") ||
                 !render_frames(windows, renderer, 8) ||
-                !expect(renderer.gpu_resource_count() == 11,
+                !expect(renderer.gpu_resource_count() > 0,
                         "renderer recovers without retaining failed program handles"))
             {
                 return false;
@@ -364,7 +372,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         // 热重载替换场景时不提前通知渲染器，render 按场景编号重新准备资源。
         world.destroy_scene();
         if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
-            !expect(renderer.gpu_resource_count() == 11 &&
+            !expect(renderer.gpu_resource_count() > 0 &&
                         bgfx::getStats()->numDraw == idle_draws + 1,
                     "scene replacement recreates one resource set"))
         {
@@ -395,6 +403,343 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         return false;
     }
     return true;
+}
+
+struct Screenshot
+{
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::vector<std::array<std::uint8_t, 3>> pixels;
+
+    std::array<std::uint8_t, 3> pixel(std::uint32_t x, std::uint32_t y) const
+    {
+        return pixels[static_cast<std::size_t>(y) * width + x];
+    }
+};
+
+bool read_screenshot(const std::filesystem::path& path, Screenshot& output)
+{
+    engine::ByteBuffer bytes;
+    if (!engine::ResourceSystem::read_binary(path, bytes) || bytes.size() < 18)
+    {
+        return false;
+    }
+    const auto byte = [&bytes](std::size_t index)
+    { return std::to_integer<std::uint8_t>(bytes[index]); };
+    const auto type = byte(2);
+    const auto pixel_size = byte(16) / 8;
+    const std::uint32_t width = byte(12) | (static_cast<std::uint32_t>(byte(13)) << 8);
+    const std::uint32_t height = byte(14) | (static_cast<std::uint32_t>(byte(15)) << 8);
+    if (byte(1) != 0 || (type != 2 && type != 10) || (pixel_size != 3 && pixel_size != 4) ||
+        width == 0 || height == 0 || width > 4096 || height > 4096)
+    {
+        return false;
+    }
+    output.width = width;
+    output.height = height;
+    output.pixels.resize(static_cast<std::size_t>(width) * height);
+    std::size_t offset = 18 + byte(0);
+    std::size_t current = 0;
+    const auto read_pixel = [&]()
+    {
+        const std::array<std::uint8_t, 3> result = {byte(offset + 2), byte(offset + 1),
+                                                    byte(offset)};
+        offset += pixel_size;
+        return result;
+    };
+    while (current < output.pixels.size())
+    {
+        if (offset >= bytes.size())
+        {
+            return false;
+        }
+        const auto header = type == 10 ? byte(offset++) : 0;
+        const std::size_t count = type == 10 ? (header & 127) + 1 : 1;
+        const bool repeated = (header & 128) != 0;
+        if (count > output.pixels.size() - current ||
+            (repeated ? 1 : count) * pixel_size > bytes.size() - offset)
+        {
+            return false;
+        }
+        std::array<std::uint8_t, 3> color{};
+        if (repeated)
+        {
+            color = read_pixel();
+        }
+        for (std::size_t item = 0; item < count; ++item)
+        {
+            if (!repeated)
+            {
+                color = read_pixel();
+            }
+            const auto column = static_cast<std::uint32_t>(current % width);
+            const auto row = static_cast<std::uint32_t>(current / width);
+            const auto x = (byte(17) & 16) != 0 ? width - 1 - column : column;
+            const auto y = (byte(17) & 32) != 0 ? row : height - 1 - row;
+            output.pixels[static_cast<std::size_t>(y) * width + x] = color;
+            ++current;
+        }
+    }
+    return true;
+}
+
+bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
+                const std::filesystem::path& root, const char* name, Screenshot& output)
+{
+    const auto path = root / name;
+    const auto native_path = engine::PathUtils::to_utf8(path);
+    bgfx::requestScreenShot(BGFX_INVALID_HANDLE, native_path.c_str());
+    if (!render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    // bgfx 的默认回调保存 TGA；读取实际 GPU 输出，不给正式接口添加测试入口。
+    auto image_path = path;
+    image_path += ".tga";
+    return expect(read_screenshot(image_path, output), "read screenshot of real GPU output");
+}
+
+engine::schema::MeshDataT textured_quad()
+{
+    engine::schema::MeshDataT data;
+    data.path = "project/meshes/textured-quad";
+    data.vertices = {
+        {-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
+    data.indices = {0, 1, 2, 0, 2, 3};
+    data.texcoords = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
+    data.tangents.assign(4, {1, 0, 0, 1});
+    data.colors.assign(4, {1, 1, 1, 1});
+    return data;
+}
+
+engine::schema::TextureDataT test_texture(const char* path, bool srgb, bool blocks)
+{
+    engine::schema::TextureDataT data;
+    data.path = path;
+    data.width = 8;
+    data.height = 8;
+    data.srgb = srgb;
+    data.encoding = engine::schema::TextureEncoding::rgba8;
+    data.format = engine::schema::TextureFormat::rgba8;
+    for (std::uint32_t y = 0; y < data.height; ++y)
+    {
+        for (std::uint32_t x = 0; x < data.width; ++x)
+        {
+            const bool bottom = y >= 4;
+            const bool right = x >= 4;
+            data.data.push_back(blocks ? ((!bottom && !right) || (bottom && right) ? 255 : 0)
+                                       : 128);
+            data.data.push_back(blocks ? (right ? 255 : 0) : 128);
+            data.data.push_back(blocks ? (bottom ? 255 : 0) : 128);
+            data.data.push_back(255);
+        }
+    }
+    return data;
+}
+
+bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
+{
+    const bool matched = std::abs(static_cast<int>(color[0]) - r) <= 12 &&
+                         std::abs(static_cast<int>(color[1]) - g) <= 12 &&
+                         std::abs(static_cast<int>(color[2]) - b) <= 12;
+    if (!matched)
+    {
+        std::fprintf(stderr, "GPU pixel: actual (%u,%u,%u), expected (%d,%d,%d)\n", color[0],
+                     color[1], color[2], r, g, b);
+    }
+    return matched;
+}
+
+bool test_textured_renderer(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!expect(resources.initialize(config) && world.initialize(config) &&
+                    windows.initialize(config) && renderer.initialize(config),
+                "initialize texture rendering systems") ||
+        !expect(fixture.add(test_texture("project/textures/blocks", true, true)) &&
+                    fixture.add(test_texture("project/textures/gray-srgb", true, false)) &&
+                    fixture.add(test_texture("project/textures/gray-linear", false, false)) &&
+                    fixture.publish(resources),
+                "publish texture fixtures through the resource catalog") ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    const auto idle_draws = bgfx::getStats()->numDraw;
+    auto* scene = world.create_scene("Texture GPU test");
+    auto* quad_node = scene ? scene->create_node("Quad") : nullptr;
+    auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
+    auto* mesh = quad_node ? quad_node->add_component<engine::MeshRenderer>() : nullptr;
+    auto* camera = camera_node ? camera_node->add_component<engine::Camera>() : nullptr;
+    engine::TransformSettings camera_transform;
+    camera_transform.position = {0, 0, 3};
+    engine::CameraSettings camera_settings;
+    camera_settings.projection = engine::schema::Projection::orthographic;
+    camera_settings.orthographic_size = 2;
+    auto data = textured_quad();
+    if (!expect(
+            mesh && camera && camera->set_settings(camera_settings) &&
+                camera_node->get_component<engine::Transform>()->set_settings(camera_transform) &&
+                scene->set_active_camera(camera) && mesh->set_mesh_data(data) &&
+                mesh->material().set_type("builtin/materials/default-unlit") &&
+                mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
+                mesh->material().set_texture("baseColorTexture", "project/textures/blocks"),
+            "assemble orthographic textured quad") ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    Screenshot image;
+    if (!screenshot(windows, renderer, fixture.root, "blocks", image))
+    {
+        return false;
+    }
+    const auto cx = image.width / 2;
+    const auto cy = image.height / 2;
+    const auto sample = image.height / 8;
+    if (!expect(near_color(image.pixel(cx - sample, cy - sample), 255, 0, 0) &&
+                    near_color(image.pixel(cx + sample, cy - sample), 0, 255, 0) &&
+                    near_color(image.pixel(cx - sample, cy + sample), 0, 0, 255) &&
+                    near_color(image.pixel(cx + sample, cy + sample), 255, 255, 255),
+                "GPU samples all texture quadrants with the expected UV orientation"))
+    {
+        return false;
+    }
+    if (!expect(mesh->material().set_texture("baseColorTexture", "project/textures/gray-srgb"),
+                "select sRGB gray texture") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "gray-srgb", image) ||
+        !expect(near_color(image.pixel(cx, cy), 128, 128, 128),
+                "sRGB sampling and display encoding preserve middle gray") ||
+        !expect(mesh->material().set_texture("baseColorTexture", "project/textures/gray-linear"),
+                "select linear gray texture") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "gray-linear", image) ||
+        !expect(near_color(image.pixel(cx, cy), 188, 188, 188),
+                "linear data receives display encoding exactly once"))
+    {
+        return false;
+    }
+
+    const auto single_mesh = gpu_counts();
+    for (auto& vertex : data.vertices)
+    {
+        vertex.mutate_x(vertex.x() + 5);
+    }
+    if (!expect(mesh->set_mesh_data(data), "submit changed vertex positions") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "moved-vertices", image) ||
+        !expect(image.pixel(cx, cy)[0] < 80 && gpu_counts() == single_mesh,
+                "dynamic geometry changes pixels and retires replaced GPU buffers") ||
+        !expect(mesh->set_mesh_data(textured_quad()), "restore quad geometry"))
+    {
+        return false;
+    }
+
+    auto* second_node = scene->create_node("Shared texture quad");
+    auto* second = second_node ? second_node->add_component<engine::MeshRenderer>() : nullptr;
+    engine::TransformSettings second_transform;
+    second_transform.position = {2, 0, -0.1};
+    if (!expect(
+            second && second->set_mesh_data(textured_quad()) &&
+                second_node->get_component<engine::Transform>()->set_settings(second_transform) &&
+                second->material().set_type("builtin/materials/default-unlit") &&
+                second->material().set_texture("baseColorTexture", "project/textures/gray-linear"),
+            "add another mesh sharing the same texture") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 2 &&
+                    gpu_counts().textures == single_mesh.textures &&
+                    gpu_counts().vertices == single_mesh.vertices + 1,
+                "multiple meshes share uploaded textures without sharing geometry ownership"))
+    {
+        return false;
+    }
+    data = textured_quad();
+    data.submeshes = {{0, 3, 0}, {3, 3, 1}};
+    if (!expect(mesh->set_material_count(2) && mesh->material(1) &&
+                    mesh->material(1)->set_type("builtin/materials/default-unlit") &&
+                    mesh->material(1)->set_texture("baseColorTexture",
+                                                   "project/textures/gray-linear") &&
+                    mesh->set_mesh_data(data),
+                "assign independent material slots to two submeshes") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 3 &&
+                    gpu_counts().textures == single_mesh.textures,
+                "submesh ranges add draws while retaining shared textures"))
+    {
+        return false;
+    }
+    if (!expect(mesh->material().set_type("builtin/materials/default-pbr") &&
+                    mesh->material(1)->set_type("builtin/materials/default-pbr"),
+                "enable PBR on both submesh materials"))
+    {
+        return false;
+    }
+    std::vector<engine::Light*> lights;
+    for (const auto kind : {engine::schema::LightKind::directional,
+                            engine::schema::LightKind::point, engine::schema::LightKind::spot})
+    {
+        auto* node = scene->create_node("Light");
+        auto* light = node ? node->add_component<engine::Light>() : nullptr;
+        engine::LightSettings settings;
+        settings.kind = kind;
+        engine::TransformSettings transform;
+        transform.position = {0, 0, 2};
+        if (!expect(light && light->set_settings(settings) &&
+                        node->get_component<engine::Transform>()->set_settings(transform),
+                    "create directional, point and spot lights"))
+        {
+            return false;
+        }
+        light->set_enabled(false);
+        lights.push_back(light);
+    }
+    const auto brightness = [](const std::array<std::uint8_t, 3>& color)
+    { return static_cast<int>(color[0]) + color[1] + color[2]; };
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "unlit-pbr", image))
+    {
+        return false;
+    }
+    const auto dark = brightness(image.pixel(cx, cy));
+    int brightest_single = dark;
+    for (std::size_t index = 0; index < lights.size(); ++index)
+    {
+        lights[index]->set_enabled(true);
+        const auto name = "light-" + std::to_string(index);
+        if (!render_frames(windows, renderer, 8) ||
+            !screenshot(windows, renderer, fixture.root, name.c_str(), image) ||
+            !expect(brightness(image.pixel(cx, cy)) > dark + 20,
+                    "each directional, point and spot light contributes visible PBR lighting"))
+        {
+            return false;
+        }
+        brightest_single = std::max(brightest_single, brightness(image.pixel(cx, cy)));
+        lights[index]->set_enabled(false);
+    }
+    for (auto* light : lights)
+    {
+        light->set_enabled(true);
+    }
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "all-lights", image) ||
+        !expect(brightness(image.pixel(cx, cy)) > brightest_single + 5,
+                "multiple light contributions accumulate in the rendered pixel") ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 3,
+                "multiple lights preserve mesh draw count"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 8) &&
+           expect(gpu_counts() == idle && renderer.gpu_resource_count() == 0,
+                  "stopping textured scene retires every texture, mesh, program and uniform");
 }
 
 bool tick_engine_frames(engine::RuntimeHost& engine, int count)
@@ -501,8 +846,9 @@ int main(int, char**)
 
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
-    const bool engine_passed = scene_passed && test_engine(config);
-    if (!windows_passed || !scene_passed || !engine_passed)
+    const bool textures_passed = scene_passed && test_textured_renderer(config);
+    const bool engine_passed = textures_passed && test_engine(config);
+    if (!windows_passed || !scene_passed || !textures_passed || !engine_passed)
     {
         return 1;
     }

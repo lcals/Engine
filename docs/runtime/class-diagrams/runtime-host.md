@@ -11,6 +11,7 @@ classDiagram
         +initialize(const EngineConfig& config) bool
         +tick(double delta_time) FrameStatus
         +gameplay() GameplaySession#42;
+        +world() WorldSystem#42;
         +request_exit() void
         +shutdown() void
     }
@@ -35,5 +36,6 @@ classDiagram
 - 每帧先处理窗口事件，退出返回 exit_requested；窗口不可绘制返回 paused 并继续接收恢复事件。随后由 Engine 更新根系统，由 GameplaySession 处理显式部署控制和资源切换，最后提交渲染帧。
 - 项目场景渲染失败时停止 GameplaySession 并尝试空白渲染；恢复成功继续运行，错误保留在会话中。系统更新或空白渲染失败保持 failed，直到关闭后重新初始化。渲染过程中收到平台暂停时返回 paused。
 - `gameplay()` 返回可空借用，仅在本宿主初始化成功至关闭前有效。宿主调用者必须先关闭借用会话的 EditorSystem，再销毁 RuntimeHost。
+- `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
 - 关闭先销毁玩法会话，再关闭 Engine 的渲染、世界、资源根系统，最后销毁窗口。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。

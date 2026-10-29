@@ -41,3 +41,21 @@ exposed = false
 bounded = true
 minimum = 0.0
 maximum = 1.0
+
+[[samplers]]
+name = "baseColorTexture"
+uniform = "s_base_color"
+stage = 0
+default_texture = "builtin/textures/white-srgb"
+
+[[samplers]]
+name = "normalTexture"
+uniform = "s_normal"
+stage = 1
+default_texture = "builtin/textures/flat-normal"
+
+[[samplers]]
+name = "ormTexture"
+uniform = "s_orm"
+stage = 2
+default_texture = "builtin/textures/white-linear"

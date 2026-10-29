@@ -73,7 +73,10 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
                 if (value == nullptr || !std::isfinite(value->fov_degrees) ||
                     !std::isfinite(value->near_clip) || !std::isfinite(value->far_clip) ||
                     value->fov_degrees <= 0 || value->fov_degrees >= 180 || value->near_clip <= 0 ||
-                    value->far_clip <= value->near_clip)
+                    value->far_clip <= value->near_clip ||
+                    value->projection < schema::Projection::MIN ||
+                    value->projection > schema::Projection::MAX ||
+                    !std::isfinite(value->orthographic_size) || value->orthographic_size <= 0)
                 {
                     error = "invalid scene camera";
                     return false;
@@ -88,7 +91,12 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
                     !std::isfinite(value->color.b()) || !std::isfinite(value->color.a()) ||
                     value->color.r() < 0 || value->color.g() < 0 || value->color.b() < 0 ||
                     value->color.a() < 0 || value->color.a() > 1 || value->color.r() > 1 ||
-                    value->color.g() > 1 || value->color.b() > 1)
+                    value->color.g() > 1 || value->color.b() > 1 ||
+                    value->kind < schema::LightKind::MIN || value->kind > schema::LightKind::MAX ||
+                    !std::isfinite(value->range) || value->range <= 0 ||
+                    !std::isfinite(value->inner_angle) || !std::isfinite(value->outer_angle) ||
+                    value->inner_angle < 0 || value->outer_angle <= 0 || value->outer_angle >= 90 ||
+                    value->inner_angle > value->outer_angle)
                 {
                     error = "invalid scene light";
                     return false;
@@ -99,7 +107,11 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
             {
                 const auto* value = component->payload.AsMeshRendererData();
                 if (value == nullptr || !GuidMap::valid_guid(value->mesh_guid) ||
-                    !GuidMap::valid_guid(value->material_guid))
+                    !GuidMap::valid_guid(value->material_guid) ||
+                    value->additional_material_guids.size() > 15 ||
+                    std::any_of(value->additional_material_guids.begin(),
+                                value->additional_material_guids.end(),
+                                [](const auto& guid) { return !GuidMap::valid_guid(guid); }))
                 {
                     error = "mesh renderer requires mesh and material GUIDs";
                     return false;
@@ -185,10 +197,23 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
              !float_number(table.get("fov_degrees"), value.fov_degrees)) ||
             (table.contains("near_clip") &&
              !float_number(table.get("near_clip"), value.near_clip)) ||
-            (table.contains("far_clip") && !float_number(table.get("far_clip"), value.far_clip)))
+            (table.contains("far_clip") && !float_number(table.get("far_clip"), value.far_clip)) ||
+            (table.contains("orthographic_size") &&
+             !float_number(table.get("orthographic_size"), value.orthographic_size)))
         {
             error = "camera fields must be finite numbers";
             return false;
+        }
+        if (table.contains("projection"))
+        {
+            const auto projection = table["projection"].value<std::string_view>();
+            if (projection != "perspective" && projection != "orthographic")
+            {
+                error = "camera projection must be perspective or orthographic";
+                return false;
+            }
+            value.projection = projection == "perspective" ? schema::Projection::perspective
+                                                           : schema::Projection::orthographic;
         }
         component.payload.Set(std::move(value));
     }
@@ -197,10 +222,28 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
         schema::LightDataT value;
         std::array<double, 4> color{1, 1, 1, 1};
         if ((table.contains("color") && !numbers(table.get("color"), color)) ||
-            (table.contains("intensity") && !float_number(table.get("intensity"), value.intensity)))
+            (table.contains("intensity") &&
+             !float_number(table.get("intensity"), value.intensity)) ||
+            (table.contains("range") && !float_number(table.get("range"), value.range)) ||
+            (table.contains("inner_angle") &&
+             !float_number(table.get("inner_angle"), value.inner_angle)) ||
+            (table.contains("outer_angle") &&
+             !float_number(table.get("outer_angle"), value.outer_angle)))
         {
             error = "light color and intensity must be finite numbers";
             return false;
+        }
+        if (table.contains("kind"))
+        {
+            const auto kind = table["kind"].value<std::string_view>();
+            if (kind != "directional" && kind != "point" && kind != "spot")
+            {
+                error = "light kind must be directional, point or spot";
+                return false;
+            }
+            value.kind = kind == "point"  ? schema::LightKind::point
+                         : kind == "spot" ? schema::LightKind::spot
+                                          : schema::LightKind::directional;
         }
         for (const auto channel : color)
         {
@@ -219,6 +262,25 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
         schema::MeshRendererDataT value;
         value.mesh_guid = table["mesh"].value_or(std::string{});
         value.material_guid = table["material"].value_or(std::string{});
+        if (table.contains("additional_materials"))
+        {
+            const auto* materials = table["additional_materials"].as_array();
+            if (materials == nullptr)
+            {
+                error = "mesh renderer additional_materials must be a GUID array";
+                return false;
+            }
+            for (const auto& item : *materials)
+            {
+                const auto guid = item.value<std::string>();
+                if (!guid)
+                {
+                    error = "mesh renderer additional_materials must contain GUID strings";
+                    return false;
+                }
+                value.additional_material_guids.push_back(*guid);
+            }
+        }
         component.payload.Set(std::move(value));
     }
     else
@@ -351,6 +413,8 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
                 value.insert("fov_degrees", camera->fov_degrees);
                 value.insert("near_clip", camera->near_clip);
                 value.insert("far_clip", camera->far_clip);
+                value.insert("projection", schema::EnumNameProjection(camera->projection));
+                value.insert("orthographic_size", camera->orthographic_size);
                 break;
             }
             case schema::ComponentPayload::LightData:
@@ -360,6 +424,10 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
                 value.insert("color", toml::array{light->color.r(), light->color.g(),
                                                   light->color.b(), light->color.a()});
                 value.insert("intensity", light->intensity);
+                value.insert("kind", schema::EnumNameLightKind(light->kind));
+                value.insert("range", light->range);
+                value.insert("inner_angle", light->inner_angle);
+                value.insert("outer_angle", light->outer_angle);
                 break;
             }
             case schema::ComponentPayload::MeshRendererData:
@@ -368,6 +436,15 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
                 value.insert("type", "mesh_renderer");
                 value.insert("mesh", mesh->mesh_guid);
                 value.insert("material", mesh->material_guid);
+                if (!mesh->additional_material_guids.empty())
+                {
+                    toml::array materials;
+                    for (const auto& guid : mesh->additional_material_guids)
+                    {
+                        materials.push_back(guid);
+                    }
+                    value.insert("additional_materials", std::move(materials));
+                }
                 break;
             }
             default:

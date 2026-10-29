@@ -80,6 +80,22 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME)
     endif()
 endif()
 
+if(TARGET engine_mcp)
+    add_executable(engine_mcp_registry_test mcp_registry_test.cpp)
+    target_link_libraries(engine_mcp_registry_test PRIVATE engine::mcp)
+    engine_apply_options(engine_mcp_registry_test)
+    add_test(NAME engine.mcp_registry COMMAND engine_mcp_registry_test)
+    set_tests_properties(engine.mcp_registry PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET mcp_app)
+    add_test(
+        NAME editor.mcp_transport
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/mcp_editor_transport_test.py"
+                --mcp "$<TARGET_FILE:mcp_app>")
+    set_tests_properties(editor.mcp_transport PROPERTIES TIMEOUT 60)
+endif()
+
 if(ENGINE_ENABLE_RUNTIME_DEPS
    OR ENGINE_ENABLE_EDITOR_DEPS
    OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS
@@ -129,6 +145,14 @@ if(TARGET engine_project)
 endif()
 
 if(TARGET engine_editor)
+    add_executable(engine_editor_commands_test editor_commands_test.cpp)
+    target_include_directories(engine_editor_commands_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_editor_commands_test PRIVATE engine::editor engine::world
+                                                              engine::resource)
+    engine_apply_options(engine_editor_commands_test)
+    add_test(NAME editor.commands COMMAND engine_editor_commands_test)
+    set_tests_properties(editor.commands PROPERTIES TIMEOUT 30)
     add_executable(engine_editor_environment_test editor_environment_test.cpp)
     target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project
                                                                  engine::app engine::resource)
@@ -154,6 +178,11 @@ if(TARGET editor_app)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_executable(engine_render_foundation_test render_foundation_test.cpp)
+    target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource)
+    engine_apply_options(engine_render_foundation_test)
+    add_test(NAME engine.render_foundation COMMAND engine_render_foundation_test)
+    set_tests_properties(engine.render_foundation PROPERTIES TIMEOUT 30)
     add_executable(engine_window_render_test window_render_test.cpp)
     target_link_libraries(
         engine_window_render_test
@@ -167,7 +196,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_apply_options(engine_window_render_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
-        set_tests_properties(engine.window_render PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+        set_tests_properties(engine.window_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endif()
 endif()
 
@@ -178,6 +207,15 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_test(NAME editor.task COMMAND engine_task_test)
     set_tests_properties(editor.task PROPERTIES TIMEOUT 30)
 
+    add_executable(engine_texture_pipeline_test texture_pipeline_test.cpp)
+    target_link_libraries(
+        engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource
+                                             engine::scene_data basisu::basisu_encoder)
+    target_compile_definitions(engine_texture_pipeline_test
+                               PRIVATE ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    engine_apply_options(engine_texture_pipeline_test)
+    add_test(NAME editor.texture_pipeline COMMAND engine_texture_pipeline_test)
+    set_tests_properties(editor.texture_pipeline PROPERTIES TIMEOUT 120)
     add_executable(engine_asset_pipeline_test asset_pipeline_test.cpp)
     target_include_directories(engine_asset_pipeline_test
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -295,4 +333,11 @@ if(TARGET editor_app
             "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
             "${PROJECT_SOURCE_DIR}")
     set_tests_properties(editor.project_lifecycle PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+    add_test(
+        NAME editor.mcp_commands
+        COMMAND
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/mcp_editor_test.py" --editor
+            "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
+            "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.mcp_commands PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
 endif()

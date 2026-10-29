@@ -46,6 +46,8 @@ public:
 
     [[nodiscard]] static bool path_to_guid(std::string_view path, Guid& output);
     [[nodiscard]] static bool guid_to_path(std::string_view guid, std::string& output);
+    [[nodiscard]] static bool register_texture(const schema::TextureDataT& data);
+    [[nodiscard]] static const schema::TextureDataT* find_texture(std::string_view path) noexcept;
     [[nodiscard]] static bool register_mesh(const schema::MeshDataT& data);
     [[nodiscard]] static const schema::MeshDataT* find_mesh(std::string_view path) noexcept;
 

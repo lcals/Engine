@@ -153,6 +153,11 @@ GameplaySession* RuntimeHost::gameplay() noexcept
     return gameplay_.get();
 }
 
+WorldSystem* RuntimeHost::world() noexcept
+{
+    return initialized_ ? world_ : nullptr;
+}
+
 void RuntimeHost::request_exit() noexcept
 {
     exit_requested_ = true;
