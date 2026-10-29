@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [脚本系统](script-system.md)
 
-状态：本轮桌面入口实现。Gameplay、Debug 是虚拟 `engine` 模块的脚本接口，Game 是项目默认导出的类型，不增加同名 C++ 所有者。
+状态：桌面入口已实现，本轮接入 Android，复用相同脚本接口与生命周期。Gameplay、Debug 是虚拟 `engine` 模块的脚本接口，Game 是项目默认导出的类型，不增加同名 C++ 所有者。
 
 ```mermaid
 classDiagram

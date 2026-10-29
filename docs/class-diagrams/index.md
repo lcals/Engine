@@ -2,7 +2,7 @@
 
 状态：本轮实现引擎、统一系统生命周期、各系统最小骨架与窗口渲染。下列图是架构评审入口；具体构建、测试和平台验证结果见根 [README.md](../../README.md)。
 
-本轮新增桌面编辑器脚本闭环：平台路径、默认写盘日志、TS 项目入口、持久脚本缓存、MCP 同步与热重载。先完成编辑器验证，用户审核后再进行 Android 接入；场景 `Node` / `Component` 的完整业务接口尚不进入本轮运行 SDK。
+本轮新增桌面编辑器脚本闭环：平台路径、默认写盘日志、TS 项目入口、持久脚本缓存、MCP 同步与热重载。桌面编辑器验证后，本轮接入 Android APK 运行与设备同步；场景 `Node` / `Component` 的完整业务接口尚不进入本轮运行 SDK。
 
 ## 本轮脚本接口
 
@@ -10,7 +10,7 @@
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久脚本缓存。
-- [MCP 系统](../plugins/class-diagrams/mcp-system.md)：桌面 stdio 工具，提供同步、热重载开关与状态。
+- [MCP 系统](../plugins/class-diagrams/mcp-system.md)：桌面 stdio 工具，向本机或 Android 调试包同步，并控制热重载与查询状态。
 
 ## 阅读入口
 
@@ -57,7 +57,7 @@
 - `engine_app` 使用默认配置即可启动；`editor_app` 必须传入 `--project <path>`，先验证项目再启动窗口。当前编辑器为基本宿主，尚未绘制编辑器界面。
 - [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：USD、Taskflow、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
 - shaderc、texturec、geometryc 是构建提供的宿主工具；fmt 用于基础格式化。它们不引入额外引擎包装类。
-- 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内部资源访问尚未实现，平台验证范围见根 [README.md](../../README.md)。
+- 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内置资源通过 SDL 文件流读取，平台验证范围见根 [README.md](../../README.md)。
 
 ## 维护约定
 

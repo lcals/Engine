@@ -2,9 +2,14 @@
 if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "The current Android APK preset requires arm64-v8a")
 endif()
-if(NOT ENGINE_ENABLE_V8 OR NOT TARGET engine::v8 OR NOT ENGINE_V8_ICU_DATA)
-    message(FATAL_ERROR "The Android APK requires V8 and its ICU data; enable ENGINE_ENABLE_V8")
+if(NOT ENGINE_ENABLE_V8 OR NOT TARGET engine::v8 OR NOT ENGINE_V8_ICU_DATA OR
+   NOT ENGINE_ENABLE_SCRIPT_RUNTIME)
+    message(FATAL_ERROR "The Android APK requires V8, its ICU data and ENGINE_ENABLE_SCRIPT_RUNTIME")
 endif()
+set(ENGINE_ANDROID_PROJECT "${PROJECT_SOURCE_DIR}/projects/minimal" CACHE PATH
+    "Project whose compiled assets are packaged in the Android application")
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+target_compile_definitions(engine_app PRIVATE ENGINE_START_PACKAGED_GAMEPLAY=1)
 target_sources(engine_app PRIVATE
     "${PROJECT_SOURCE_DIR}/tests/v8_smoke.cpp"
     "${PROJECT_SOURCE_DIR}/platforms/android/native/android_v8_smoke.cpp")
@@ -37,6 +42,9 @@ add_custom_target(engine_android_bundle
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_engine_android_v8_assets}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${ENGINE_V8_ICU_DATA}" "${_engine_android_v8_assets}/icudtl.dat"
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/prepare_android_assets.py"
+        --project "${ENGINE_ANDROID_PROJECT}"
+        --output "${CMAKE_CURRENT_BINARY_DIR}/android/assets"
     DEPENDS engine_app
-    COMMENT "Preparing Android native libraries, SDL3 Java sources and V8 ICU data"
+    COMMENT "Preparing Android libraries, SDL3 Java, V8 ICU and compiled project assets"
     VERBATIM)

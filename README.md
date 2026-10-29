@@ -173,7 +173,7 @@ ctest --preset ninja-debug
 
 ### 桌面脚本与同步
 
-本阶段使用桌面编辑器验证整个流程。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入 V8 玩法环境。先安装项目锁定的 TypeScript，再构建完整引擎预设：
+桌面编辑器与 Android 共用运行时脚本和热重载实现。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入 V8 玩法环境。先安装项目锁定的 TypeScript，再构建完整引擎预设：
 
 ```sh
 npm ci --prefix projects/minimal/settings
@@ -235,13 +235,13 @@ export default class Game extends Gameplay {
 | `App.persistentDataPath` | 持久数据根目录，保存同步版本、日志、控制与状态；可由 `--runtime-dir` 指定 |
 | `App.cachePath` | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本 |
 
-`LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并输出到 stderr；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/assets/` 与平台临时 `App.cachePath` 是不同目录。
+`LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并通过 SDL 输出到平台日志（桌面 stderr、Android logcat）；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/assets/` 与平台临时 `App.cachePath` 是不同目录。
 
 持久版本保存在 `persistentDataPath/assets/versions/<revision>/`；所有文件传入并核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。入口及每个静态 import 统一按相对路径解析：清单命中时使用对应版本文件，`deleted` 中的路径禁止回退，其他路径读取内置资源；不通过复制内置内容覆盖已有同步文件。绝对路径、越界路径和越界符号链接会被拒绝。版本文件保持不变，下一次发布使用新版本名。
 
 文件读取统一通过 `ResourceSystem` 的 SDL3 同步接口，单文件上限 64 MiB；当前脚本源码、清单和控制文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
 
-当前同步将完整版本发布到本机可写目录，通过 `script-control.json` / `script-status.json` 完成桌面控制；尚未实现网络传输、真机传输或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 是桌面功能开关，完整引擎预设开启；关闭时保留 V8 版本探针。Android 玩法脚本接入等待用户审核，下面 APK 历史验证不包含本节新增能力。
+同步将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；关闭时保留 V8 版本探针。Android 传输使用 adb，具体命令如下。
 
 ### Android APK
 
@@ -250,21 +250,24 @@ Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JN
 准备 Python 3、JDK 17、Android SDK Platform 35、Build Tools 36.1.0、NDK 27.2.12479018，以及上文的 CMake / Ninja / 编译缓存 / vcpkg。设置 `ANDROID_HOME`、`ANDROID_NDK_HOME`、`JAVA_HOME` 和 `VCPKG_ROOT` 指向已有安装；可复用其他工程的安装目录。Android Gradle Plugin 固定 9.0.0，wrapper 固定 Gradle 9.1.0 并核对官方 SHA-256；也可通过 `GRADLE_HOME` 复用相同版本，脚本会检查版本。
 
 ```sh
-python3 scripts/build_android.py --config debug
-python3 scripts/build_android.py --config release
+npm ci --prefix projects/minimal/settings
+python3 scripts/build_android.py --config debug --project projects/minimal
+python3 scripts/build_android.py --config release --project projects/minimal
 ```
 
 包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
 
 两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
-脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--skip-native` 可仅重打包已生成的原生库。
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/minimal`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标每次重新编译 TS，并发布完整项目资源快照；原生库与上游缓存仍复用。`--skip-native` 仅重打包已生成的原生库及资源，不重新选择或编译项目。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
 V8 使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 `libc++_shared.so`；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
 
-APK 包含 `assets/v8/icudtl.dat` 和可选 V8 嵌入测试；正常启动仍只运行最小引擎窗口。测试在 SDL 线程执行，先将 ICU 数据复制到应用私有目录，再检查 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换、Intl，以及 Temporal 的日期和时区运算。固定 V8 版本的 Temporal 测试显式启用 `--harmony-temporal`；这不增加脚本系统的公开接口。
+APK 包含 `assets/v8/icudtl.dat`、`assets/project/` 下的编译资源和 `assets/project-manifest.json` 完整清单；不包含项目设置、TS 源码或 Node.js。正常启动按 App、LogSystem、Engine 的顺序初始化，再运行项目 Gameplay；无需在手机上传入编辑器项目目录。ScriptSystem 校验 APK 清单和文件，并将清单导出到持久目录供首次同步计算删除项；ICU 根据内容复用应用临时缓存中的副本，JS 直接通过 SDL 读取 APK。
+
+另保留可选 V8 嵌入测试，ICU 副本写入应用 `cache/v8-smoke/`，在新的 SDL 进程执行 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换、Intl，以及 Temporal 的日期和时区运算。固定 V8 版本的 Temporal 测试显式启用 `--harmony-temporal`；这不增加脚本系统的公开接口。
 
 复用已有 ARM64 Android 模拟器，明确指定其序列号后安装和启动：
 
@@ -279,6 +282,30 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 ```
 
 `emulator-5580` 是本轮测试实例，其他环境用 `adb devices` 确认实际序列号。已有进程要改用不同启动参数时，先用 `adb -s <serial> shell am force-stop org.engine.minimal` 停止本应用，再重新启动；不需要清除模拟器或应用数据。模拟器必须提供 Vulkan；软件 Vulkan 也可验证功能，但不能用来衡量真机 GPU 性能。
+
+### Android 脚本同步与热重载
+
+| App 接口 | Android 指向 |
+| --- | --- |
+| `builtinAssetsPath` | `apk:/assets/project`，由 ResourceSystem 读取 APK 的逻辑路径 |
+| `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留 |
+| `cachePath` | 应用私有 `cache/`，可重建的 ICU 等临时数据 |
+
+先启动 Debug APK，让引擎创建状态和内置清单。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
+# 修改项目 assets 下的 TS 后同步；无需重新打 APK。
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal sync
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
+```
+
+adb 不在 PATH 时添加 `--adb <adb可执行文件>`。真机使用 `adb devices` 中的实际序列号；需要设备已经授权 adb 调试。MCP 运行在电脑，通过 `run-as` 写入该调试包的私有持久目录，手机不安装 MCP 服务。此通路仅支持 debuggable APK；Release 保持不可调试，同步请求会返回明确错误。
+
+设备同步先上传暂存版本、读回验证大小与哈希，再改名为不可变版本，最后原子发布 `available.json`。发布过程使用设备目录锁；发布前失败保留旧的可用版本。最终发布回执丢失会报告未确认，此时应查询设备状态。每次同步合并 APK 导出的 `builtin.json` 与已有发布清单作为删除基线，APK 升级新增的路径也参与计算，避免删除的资源意外从 APK 恢复。脚本系统逐路径优先使用持久版本，未覆盖的路径回退 APK，删除标记禁止回退。可写版本在 `persistentDataPath`，不会因临时缓存清理而丢失。
+
+热重载由引擎逐帧决定是否执行；关闭开关仍可同步文件，开启后加载最新版本。用 `status` 确认 `activeRevision` 与 `availableRevision` 相同且 `running=true`，同时检查 `lastError`。APK 更新或普通重启不会覆盖现有可用脚本版本；要恢复包内脚本，应先停止应用并由开发者明确清理对应同步数据。
 
 ## CI
 
@@ -439,3 +466,19 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 `references/` 用于本地放置参考文件，内容不纳入 Git。部分实现代码可参考该目录，但文档中不得记录其中的具体内容。
 
 详细说明见 [开发与第三方依赖](docs/development.md)，协作约定见 [AGENTS.md](AGENTS.md)。项目采用 [MIT License](LICENSE)。
+
+
+2026-10-29 Android 脚本接入验证（macOS ARM64 宿主，复用 GameDev ARM64 / API 34 模拟器）：
+
+| 范围 | 实际结果 |
+| --- | --- |
+| Android Debug / Release 原生库和 APK | 开启完整脚本运行时与严格警告，成功构建；V8 命中各自编译缓存，编辑器和 MCP 不进入 APK |
+| 桌面 Debug / Release 回归 | CTest 各 24/24 通过，含新增 Android 资源打包与模拟 adb 故障测试 |
+| Debug APK 的真实设备通路 | 包内 Gameplay 与日志启动、缓存优先、同进程 A→B 重载、关闭期间待应用、开启后切换、非法 TS 保留版本均通过 |
+| 包内回退与删除 | 未覆盖模块从 APK 读取；删除标记拒绝回退且旧实例保持运行；首次同步将删除的包内文件列入清单 |
+| 生命周期与持久数据 | 三轮后台/前台切换保持同一进程，重启保留同步版本，ICU 内容相同时复用缓存 |
+| 最终 APK 运行 | Vulkan 画面正常；Debug 和 Release 的 V8 / Intl / Temporal 测试均通过；Release 玩法运行 120 帧正常退出，MCP 明确拒绝非调试包 |
+| 类图与文档 | 40 个 Mermaid 图实际渲染成功，200 条本地 Markdown 链接有效 |
+| 模拟 adb 故障回归 | 二进制/中文/引号路径、传输失败、哈希不符、锁冲突、发布回执丢失、APK 更新后的删除基线均覆盖 |
+
+本轮设备验证使用模拟器；尚未在实体 Android 手机运行。版本清单中的 FNV-1a 哈希用于完整性校验，不作为发布签名。当前 adb 同步仅用于调试包，Release 的发布签名和正式内容更新渠道未接入。

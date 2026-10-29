@@ -19,11 +19,11 @@ option(ENGINE_WARNINGS_AS_ERRORS "Treat warnings in this project's targets as er
 option(ENGINE_ENABLE_RUNTIME_DEPS "Build runtime systems and dependencies" OFF)
 option(ENGINE_ENABLE_EDITOR_DEPS "Build editor system and dependencies" OFF)
 option(ENGINE_ENABLE_ASSET_PIPELINE_DEPS "Build asset pipeline system and dependencies" OFF)
-option(ENGINE_ENABLE_SCRIPT_RUNTIME "Build the desktop gameplay scripting and synchronization runtime" OFF)
+option(ENGINE_ENABLE_SCRIPT_RUNTIME "Build the gameplay scripting runtime" OFF)
 
 if(ENGINE_ENABLE_SCRIPT_RUNTIME AND
-   (NOT ENGINE_ENABLE_V8 OR NOT ENGINE_ENABLE_RUNTIME_DEPS OR ANDROID))
-    message(FATAL_ERROR "Script runtime currently requires desktop runtime dependencies and V8")
+   (NOT ENGINE_ENABLE_V8 OR NOT ENGINE_ENABLE_RUNTIME_DEPS))
+    message(FATAL_ERROR "Script runtime requires runtime dependencies and V8")
 endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)
@@ -63,9 +63,9 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_app PRIVATE engine::runtime SDL3::SDL3 fmt::fmt)
     if(TARGET engine_platform)
         target_link_libraries(engine_app PRIVATE engine::app engine::log)
-        target_compile_definitions(engine_app PRIVATE ENGINE_HAS_DESKTOP_SERVICES=1)
+        target_compile_definitions(engine_app PRIVATE ENGINE_HAS_APP_SERVICES=1)
     else()
-        target_compile_definitions(engine_app PRIVATE ENGINE_HAS_DESKTOP_SERVICES=0)
+        target_compile_definitions(engine_app PRIVATE ENGINE_HAS_APP_SERVICES=0)
     endif()
     engine_apply_options(engine_app)
     if(ANDROID)
@@ -97,7 +97,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_SCRIPT_RUNTIME AND ENGINE_ENABLE_ASSET_PIP
 endif()
 
 function(engine_copy_script_data target)
-    if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+    if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
         add_custom_command(TARGET ${target} POST_BUILD
             COMMAND "${CMAKE_COMMAND}" -E copy_if_different
                     "${ENGINE_V8_ICU_DATA}" "$<TARGET_FILE_DIR:${target}>/icudtl.dat"

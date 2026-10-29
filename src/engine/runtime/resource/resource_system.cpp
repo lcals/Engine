@@ -2,8 +2,11 @@
 
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_iostream.h>
+#include <SDL3/SDL_properties.h>
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <flatbuffers/idl.h>
+
+#include <string_view>
 
 namespace engine
 {
@@ -11,6 +14,38 @@ namespace
 {
 
 constexpr Sint64 maximum_read_size = 64 * 1024 * 1024;
+
+bool apk_asset_name(std::string_view path, std::string_view& name)
+{
+    constexpr std::string_view prefix = "apk:/assets/";
+    name = {};
+    if (!path.starts_with(prefix))
+    {
+        return false;
+    }
+    const auto relative = path.substr(prefix.size());
+    if (relative.empty() || relative.find_first_of("\\:") != std::string_view::npos ||
+        relative.find('\0') != std::string_view::npos)
+    {
+        return false;
+    }
+    auto remainder = relative;
+    for (;;)
+    {
+        const auto separator = remainder.find('/');
+        const auto component = remainder.substr(0, separator);
+        if (component.empty() || component == "." || component == "..")
+        {
+            return false;
+        }
+        if (separator == std::string_view::npos)
+        {
+            name = relative;
+            return true;
+        }
+        remainder.remove_prefix(separator + 1);
+    }
+}
 
 } // namespace
 
@@ -34,17 +69,45 @@ bool ResourceSystem::read_binary(const std::filesystem::path& path, std::vector<
     {
         return false;
     }
-    const std::string filename(encoded_path.begin(), encoded_path.end());
-    SDL_PathInfo info{};
-    if (!SDL_GetPathInfo(filename.c_str(), &info) || info.type != SDL_PATHTYPE_FILE)
+    std::string filename(encoded_path.begin(), encoded_path.end());
+    const bool apk_asset = filename.starts_with("apk:");
+    if (apk_asset)
     {
+        std::string_view asset_name;
+        if (!apk_asset_name(filename, asset_name))
+        {
+            return false;
+        }
+#if defined(SDL_PLATFORM_ANDROID)
+        filename = std::string(asset_name);
+#else
+        // APK 逻辑路径绝不能退化为桌面的同名磁盘文件。
         return false;
+#endif
+    }
+    else
+    {
+        SDL_PathInfo info{};
+        if (!SDL_GetPathInfo(filename.c_str(), &info) || info.type != SDL_PATHTYPE_FILE)
+        {
+            return false;
+        }
     }
     SDL_IOStream* stream = SDL_IOFromFile(filename.c_str(), "rb");
     if (stream == nullptr)
     {
         return false;
     }
+#if defined(SDL_PLATFORM_ANDROID)
+    if (apk_asset &&
+        SDL_GetPointerProperty(SDL_GetIOProperties(stream),
+                               SDL_PROP_IOSTREAM_ANDROID_AASSET_POINTER, nullptr) == nullptr)
+    {
+        // SDL 会优先尝试私有目录同名文件；内置资源读取只接受真实 AAsset。
+        (void)SDL_CloseIO(stream);
+        return false;
+    }
+#endif
 
     const Sint64 file_size = SDL_GetIOSize(stream);
     bool success = file_size >= 0 && file_size <= maximum_read_size;

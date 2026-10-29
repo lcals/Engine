@@ -2,7 +2,7 @@
 
 [类图索引](index.md)
 
-状态：与当前桌面玩法脚本、日志、资源同步和 MCP 实现同步。下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
+状态：与当前桌面和 Android 玩法脚本、日志、资源同步和 MCP 实现同步。下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
 
 ## 构建边界
 
@@ -19,11 +19,11 @@
 | 配置 | ScriptSystem 的实际职责 | 宿主与平台边界 |
 | --- | --- | --- |
 | `ENGINE_ENABLE_V8=OFF` | 不装配脚本子系统 | 引擎仍可独立启动窗口 |
-| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接 | 包括目前 Android 的普通引擎启动路径，不执行项目玩法 |
-| V8 与桌面脚本运行均开启 | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 要求桌面运行依赖；Android 本轮不允许开启该开关 |
-| 桌面脚本运行与资源管线均开启 | 可构建独立 `mcp_app` | 工具进程和编辑器进程通过指定运行目录交换文件 |
+| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接 | 可选的依赖验证配置，不执行项目玩法 |
+| V8 与脚本运行均开启 | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 桌面和 Android 共用脚本系统；Android 读取 APK 与持久版本 |
+| 桌面脚本运行与资源管线均开启 | 可构建独立 `mcp_app` | 工具进程通过本机目录或指定 adb 设备和包交换文件 |
 
-Android 现有 V8 JNI 冒烟测试是显式触发的独立验证路径，不等于 ScriptSystem 已接入项目脚本、App 平台目录或设备同步。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
+Android 普通启动使用完整 ScriptSystem 运行项目玩法；V8 JNI 冒烟测试仍为显式触发的独立验证路径，切换测试前须停止旧进程。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
 
 ## 引擎与系统所有权
 
@@ -130,7 +130,7 @@ App 和 LogSystem 的生命周期由宿主负责，Engine 不反向拥有它们�
 
 App 的三个路径访问器返回内部 `std::filesystem::path` 的只读借用；LogSystem 同样借用 App 的持久目录，并拥有日志文件。日志默认写入持久目录的 `logs/engine.log`，同时输出标准错误。宿主必须先停止所有日志使用者，再刷新、关闭 LogSystem，最后关闭 App。
 
-目录语义、失败状态和日志轮换分别见 [App](../runtime/class-diagrams/app.md) 与[日志系统](../runtime/class-diagrams/log-system.md)。内置资源根由资源系统解释；本轮桌面实现不代表 Android APK 内容已有普通磁盘路径。
+目录语义、失败状态和日志轮换分别见 [App](../runtime/class-diagrams/app.md) 与[日志系统](../runtime/class-diagrams/log-system.md)。内置资源根由资源系统解释；Android APK 使用逻辑路径，普通磁盘 canonical 只用于可写版本和桌面文件。
 
 ## 编辑器宿主拥有的独立系统
 
@@ -172,7 +172,7 @@ ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿�
 
 Engine 内部也在销毁 RenderSystem 之前调用停止玩法，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
 
-桌面 `engine_app` 只初始化 App、LogSystem、Engine，并反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。
+桌面 `engine_app` 只初始化 App、LogSystem、Engine，并反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。Android 同名宿主在引擎就绪后显式启动打包项目 Gameplay，退出顺序相同；项目选择发生在打包阶段。
 
 ## 脚本运行、资源读取与项目入口
 
@@ -242,13 +242,15 @@ classDiagram
     McpHost *-- AssetPipelineSystem : 独立根系统
     McpHost *-- AssetSyncSystem : 独立根系统
     McpHost *-- McpSystem : 独立根系统
+    class McpTarget
+    McpSystem *-- McpTarget : 按值保存目标参数
     McpSystem --> AssetPipelineSystem : 构造参数及持续借用
     McpSystem --> AssetSyncSystem : 构造参数及持续借用
     McpSystem ..> ResourceSystem : 状态及可用版本读取
     AssetSyncSystem ..> ResourceSystem : 文件及清单读取
 ```
 
-`mcp_app` 接收明确的项目根目录和运行目录，依次初始化 AssetPipelineSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的两个系统是必需借用，必须先就绪并持续存活。
+`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名），依次初始化 AssetPipelineSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的两个系统是必需借用，必须先就绪并持续存活。
 
 MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。当前 MCP 入口不初始化 App 或 LogSystem。
 
@@ -288,7 +290,7 @@ classDiagram
 - 查找模块时，清单 files 命中使用版本内容，deleted 命中拒绝加载，其余路径回退内置内容。编辑器为本会话建立独立内置快照，后续 TS 构建不改写它。
 - 热重载开启后，在运行线程安全点预检候选模块。语法或静态链接失败保留旧 Game；预检通过后停止旧 Game 并执行新入口，执行失败停止此次玩法，不承诺撤销已产生的业务副作用。
 - MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
-- 当前同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。本轮没有网络传输或 Android 真机同步实现。
+- 当前同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
 
 资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及 [MCP 系统](../plugins/class-diagrams/mcp-system.md)。
 
@@ -334,9 +336,9 @@ ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避�
 | 世界子系统 | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统 | LogSystem | EngineConfig、LogLevel、日志文本；返回日志路径借用 |
 | 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 ProjectSystem |
-| 工具根系统 | AssetPipelineSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、资源及运行目录 Path；McpSystem 构造借用管线和同步系统 |
+| 工具根系统 | AssetPipelineSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、资源及运行目录 Path；McpSystem 构造借用管线和同步系统，并按值接收 McpTarget |
 
-App 不参与 System 继承，初始化参数为 AppConfig。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，完整字段及 Path/String 关系在 [MCP 独立图](../plugins/class-diagrams/mcp-system.md)维护。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
 
 ## 第三方资源拥有关系
 
@@ -405,7 +407,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | 引擎类或宿主工具 | 使用依赖 | 当前用途 |
 | --- | --- | --- |
 | PathUtils | 标准库文件系统与字符串 | UTF-8 路径编码转换 |
-| App | SDL3、PathUtils、标准库文件系统 | 桌面平台目录与路径准备 |
+| App | SDL3、PathUtils、标准库文件系统 | 桌面与 Android 平台目录及逻辑 APK 根 |
 | LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
 | WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
 | ResourceSystem | SDL3、FlatBuffers、Basis Universal | 同步文件读取、解析入口及转码表初始化 |

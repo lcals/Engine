@@ -138,6 +138,34 @@ Object.freeze(App);
     return true;
 }
 
+[[nodiscard]] bool builtin_file(const fs::path& root, std::string_view relative, fs::path& path)
+{
+#if defined(SDL_PLATFORM_ANDROID)
+    const auto root_text = PathUtils::to_utf8(root);
+    constexpr std::string_view prefix = "apk:/assets";
+    if (root_text.starts_with("apk:"))
+    {
+        std::string normalized;
+        if (root_text != prefix)
+        {
+            if (!root_text.starts_with("apk:/assets/") ||
+                !relative_path(std::string_view(root_text).substr(prefix.size() + 1), normalized) ||
+                normalized != std::string_view(root_text).substr(prefix.size() + 1))
+            {
+                return false;
+            }
+        }
+        if (!relative_path(relative, normalized) || normalized != relative)
+        {
+            return false;
+        }
+        path = PathUtils::from_utf8(root_text + "/" + normalized);
+        return true;
+    }
+#endif
+    return contained_file(root, relative, path);
+}
+
 [[nodiscard]] bool matches_bytes(std::string_view bytes, std::uint64_t size, std::string_view hash)
 {
     if (hash.size() != 16 || bytes.size() != size)
@@ -172,6 +200,160 @@ Object.freeze(App);
 [[nodiscard]] bool script_path(std::string_view path)
 {
     return path.ends_with(".js") || path.ends_with(".mjs");
+}
+
+#if defined(SDL_PLATFORM_ANDROID)
+[[nodiscard]] bool prepare_directory(const fs::path& root, std::string_view relative,
+                                     fs::path& directory)
+{
+    std::error_code error;
+    fs::create_directories(root / PathUtils::from_utf8(relative), error);
+    return !error && contained_file(root, relative, directory, true);
+}
+
+[[nodiscard]] bool cache_file(const fs::path& directory, std::string_view name,
+                              std::string_view bytes)
+{
+    const fs::path target = directory / PathUtils::from_utf8(name);
+    std::error_code error;
+    const auto status = fs::symlink_status(target, error);
+    std::string previous;
+    if (!error && fs::is_regular_file(status) && ResourceSystem::read_text(target, previous) &&
+        previous == bytes)
+    {
+        return true;
+    }
+
+    // 临时文件位于已校验目录；先移除残留链接，发布时替换目标本身而不跟随目标链接。
+    const fs::path temporary = directory / PathUtils::from_utf8(std::string(name) + ".tmp");
+    fs::remove(temporary, error);
+    if (error)
+    {
+        return false;
+    }
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    file.close();
+    if (!file ||
+        !SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(target).c_str()))
+    {
+        fs::remove(temporary, error);
+        return false;
+    }
+    return true;
+}
+
+[[nodiscard]] bool prepare_builtin_manifest(std::string& entry, std::set<std::string>& deleted,
+                                            std::string& message)
+{
+    if (!App::is_initialized())
+    {
+        message = "Android scripts require initialized App paths";
+        return false;
+    }
+    std::string text;
+    if (!read_text(PathUtils::from_utf8("apk:/assets/project-manifest.json"), text))
+    {
+        message = "Cannot read APK project manifest";
+        return false;
+    }
+    const auto document = Json::parse(text, nullptr, false);
+    if (!document.is_object() || !document.contains("revision") ||
+        !document["revision"].is_string() || !document.contains("entry") ||
+        !document["entry"].is_string() || !document.contains("files") ||
+        !document["files"].is_array() || !document.contains("deleted") ||
+        !document["deleted"].is_array())
+    {
+        message = "Invalid APK project manifest";
+        return false;
+    }
+    const auto manifest_entry = document["entry"].get<std::string>();
+    std::string normalized;
+    if (!safe_revision(document["revision"].get<std::string>()) ||
+        !relative_path(manifest_entry, normalized) || normalized != manifest_entry ||
+        !script_path(manifest_entry))
+    {
+        message = "Unsafe APK project revision or entry path";
+        return false;
+    }
+    std::set<std::string> seen;
+    for (const auto& item : document["files"])
+    {
+        if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
+            !item.contains("size") || !item["size"].is_number_unsigned() ||
+            !item.contains("hash") || !item["hash"].is_string())
+        {
+            message = "Invalid APK project file description";
+            return false;
+        }
+        const auto path = item["path"].get<std::string>();
+        fs::path file;
+        if (!relative_path(path, normalized) || normalized != path || !seen.insert(path).second ||
+            !builtin_file(App::builtin_assets_path(), path, file) ||
+            !matches_file(file, item["size"].get<std::uint64_t>(), item["hash"].get<std::string>()))
+        {
+            message = "APK project file failed path, size or hash check: " + path;
+            return false;
+        }
+    }
+    for (const auto& item : document["deleted"])
+    {
+        if (!item.is_string())
+        {
+            message = "Invalid deleted APK project path";
+            return false;
+        }
+        const auto path = item.get<std::string>();
+        if (!relative_path(path, normalized) || normalized != path || seen.contains(path) ||
+            !deleted.insert(path).second)
+        {
+            message = "Unsafe or conflicting deleted APK project path: " + path;
+            return false;
+        }
+    }
+    if (!seen.contains(manifest_entry))
+    {
+        message = "APK project entry is missing from the complete manifest";
+        return false;
+    }
+    fs::path directory;
+    if (!prepare_directory(App::persistent_data_path(), "assets", directory) ||
+        !cache_file(directory, "builtin.json", text))
+    {
+        message = "Cannot export APK project manifest to persistent assets/builtin.json";
+        return false;
+    }
+    entry = manifest_entry;
+    return true;
+}
+#endif
+
+[[nodiscard]] bool prepare_icu_path(std::string& path)
+{
+#if defined(SDL_PLATFORM_ANDROID)
+    if (!App::is_initialized())
+    {
+        return false;
+    }
+    std::vector<std::byte> bytes;
+    fs::path directory;
+    if (!ResourceSystem::read_binary(PathUtils::from_utf8("apk:/assets/v8/icudtl.dat"), bytes) ||
+        bytes.empty() || !prepare_directory(App::cache_path(), "v8", directory) ||
+        !cache_file(directory, "icudtl.dat",
+                    std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())))
+    {
+        return false;
+    }
+    path = PathUtils::to_utf8(directory / "icudtl.dat");
+#else
+    const char* base = SDL_GetBasePath();
+    if (base == nullptr)
+    {
+        return false;
+    }
+    path = PathUtils::to_utf8(PathUtils::from_utf8(base) / "icudtl.dat");
+#endif
+    return true;
 }
 
 [[nodiscard]] v8::MaybeLocal<v8::String> js_string(v8::Isolate* isolate, std::string_view text)
@@ -212,13 +394,12 @@ struct V8Process
         {
             return ready;
         }
-        const char* base = SDL_GetBasePath();
-        if (base == nullptr)
+        std::string icu;
+        if (!prepare_icu_path(icu))
         {
             return false;
         }
-        const std::string icu = PathUtils::to_utf8(PathUtils::from_utf8(base) / "icudtl.dat");
-        if (!v8::V8::InitializeICUDefaultLocation(base, icu.c_str()))
+        if (!v8::V8::InitializeICUDefaultLocation(nullptr, icu.c_str()))
         {
             return false;
         }
@@ -319,7 +500,7 @@ struct ScriptSystem::State
                 else
                 {
                     fs::path file;
-                    if (!contained_file(snapshot.builtin_root, path, file) ||
+                    if (!builtin_file(snapshot.builtin_root, path, file) ||
                         !read_text(file, source))
                     {
                         owner.module_error("Cannot read contained module: " + path);
@@ -395,6 +576,8 @@ struct ScriptSystem::State
     v8::Isolate* isolate = nullptr;
     std::unique_ptr<Run> active;
     std::unique_ptr<Snapshot> available;
+    std::string builtin_entry = "scripts/game.js";
+    std::set<std::string> builtin_deleted;
     std::string requested_entry;
     std::string last_manifest;
     std::string last_control;
@@ -697,6 +880,8 @@ struct ScriptSystem::State
         else
         {
             snapshot.builtin_root = App::builtin_assets_path();
+            snapshot.entry = builtin_entry;
+            snapshot.deleted = builtin_deleted;
         }
         if (!requested_entry.empty())
         {
@@ -887,16 +1072,27 @@ ScriptSystem::~ScriptSystem() noexcept
 
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
+    std::string builtin_entry = "scripts/game.js";
+    std::set<std::string> builtin_deleted;
+#if defined(SDL_PLATFORM_ANDROID)
+    if (!prepare_builtin_manifest(builtin_entry, builtin_deleted, status_.last_error))
+    {
+        LogSystem::write(LogLevel::error, status_.last_error);
+        return false;
+    }
+#endif
     auto process = v8_process();
     if (!process->initialize())
     {
-        status_.last_error = "Cannot initialize V8 platform or ICU beside the executable";
+        status_.last_error = "Cannot prepare ICU data or initialize the V8 platform";
         LogSystem::write(LogLevel::error, status_.last_error);
         return false;
     }
     status_.last_error.clear();
     status_.available_revision.clear();
     state_ = std::make_unique<State>(status_, std::move(process));
+    state_->builtin_entry = std::move(builtin_entry);
+    state_->builtin_deleted = std::move(builtin_deleted);
     state_->allocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
     if (!state_->allocator)
     {

@@ -1,18 +1,24 @@
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 
-#if ENGINE_HAS_DESKTOP_SERVICES
+#if ENGINE_HAS_APP_SERVICES
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
+#endif
+
+#if ENGINE_START_PACKAGED_GAMEPLAY
+#include "runtime/script/script_system.hpp"
 #endif
 
 #include <SDL3/SDL_main.h>
 #include <fmt/base.h>
 
+#include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <string_view>
 #include <thread>
 
@@ -56,16 +62,16 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
-#if ENGINE_HAS_DESKTOP_SERVICES
+#if ENGINE_HAS_APP_SERVICES
     if (!engine::App::initialize(engine::AppConfig{}))
     {
-        std::fputs("Application path initialization failed\n", stderr);
+        engine::LogSystem::write(engine::LogLevel::error, "Application path initialization failed");
         return 1;
     }
     auto& log = engine::LogSystem::instance();
     if (!log.initialize(config))
     {
-        std::fputs("Log initialization failed\n", stderr);
+        engine::LogSystem::write(engine::LogLevel::error, "Log initialization failed");
         engine::App::shutdown();
         return 1;
     }
@@ -73,7 +79,7 @@ int main(int argc, char* argv[])
     auto& engine = engine::Engine::instance();
     if (!engine.initialize(config))
     {
-#if ENGINE_HAS_DESKTOP_SERVICES
+#if ENGINE_HAS_APP_SERVICES
         engine::LogSystem::write(engine::LogLevel::error, "Engine initialization failed");
         log.shutdown();
         engine::App::shutdown();
@@ -82,6 +88,20 @@ int main(int argc, char* argv[])
 #endif
         return 1;
     }
+#if ENGINE_START_PACKAGED_GAMEPLAY
+    if (!engine.start_gameplay())
+    {
+        const auto* status = engine.script_status();
+        const std::string detail =
+            status != nullptr ? status->last_error : "script system unavailable";
+        engine::LogSystem::write(engine::LogLevel::error, "Gameplay startup failed: " + detail);
+        engine.shutdown();
+        log.shutdown();
+        engine::App::shutdown();
+        return 1;
+    }
+    engine::LogSystem::write(engine::LogLevel::info, "Packaged gameplay started");
+#endif
     auto previous_time = std::chrono::steady_clock::now();
     std::uint64_t frames = 0;
     int result = 0;
@@ -89,7 +109,7 @@ int main(int argc, char* argv[])
     {
         const auto current_time = std::chrono::steady_clock::now();
         const double delta_time =
-            std::chrono::duration<double>(current_time - previous_time).count();
+            std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
         previous_time = current_time;
         const auto status = engine.tick(delta_time);
         if (status == engine::FrameStatus::exit_requested)
@@ -98,13 +118,18 @@ int main(int argc, char* argv[])
         }
         if (status == engine::FrameStatus::failed)
         {
+#if ENGINE_HAS_APP_SERVICES
+            engine::LogSystem::write(engine::LogLevel::error, "Engine frame failed");
+#else
             std::fputs("Engine frame failed\n", stderr);
+#endif
             result = 1;
             break;
         }
         if (status == engine::FrameStatus::paused)
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            previous_time = std::chrono::steady_clock::now();
             continue;
         }
         ++frames;
@@ -115,8 +140,9 @@ int main(int argc, char* argv[])
     }
     engine.shutdown();
     fmt::print("Engine stopped after {} rendered frames\n", frames);
-#if ENGINE_HAS_DESKTOP_SERVICES
-    engine::LogSystem::write(engine::LogLevel::info, "Engine stopped");
+#if ENGINE_HAS_APP_SERVICES
+    engine::LogSystem::write(engine::LogLevel::info,
+                             "Engine stopped after " + std::to_string(frames) + " rendered frames");
     if (!log.flush())
     {
         result = 1;
