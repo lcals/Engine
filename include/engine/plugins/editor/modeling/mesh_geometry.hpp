@@ -4,7 +4,7 @@
 
 #include <span>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 
 enum class MeshBooleanOperation
@@ -147,4 +147,4 @@ public:
                                           std::string& error);
 };
 
-} // namespace engine
+} // namespace engine::plugins::modeling

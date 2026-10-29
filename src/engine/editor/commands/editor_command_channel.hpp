@@ -6,7 +6,7 @@
 #include <set>
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 
 class EditorCommands;
@@ -32,4 +32,4 @@ private:
     nlohmann::json pending_;
 };
 
-} // namespace engine
+} // namespace engine::editor

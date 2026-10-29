@@ -4,6 +4,8 @@
 
 以下类型为脚本模块内部实现，不在公开 C++ SDK 中引入 V8。
 
+绑定类型统一位于 `engine::plugins::script::bindings`，包含 `ScriptBinding`、`ScriptBindingRegistry`、`BindingContext` 及各模块绑定类；它们通过 `engine` 中的核心公开接口实现脚本操作。
+
 ```mermaid
 classDiagram
     direction TB

@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::resource_graph
 {
 namespace
 {
@@ -195,4 +195,4 @@ bool ResourceGraphSystem::load(std::string_view guid, ResourcePtr& output)
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::resource_graph

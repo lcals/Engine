@@ -179,10 +179,11 @@ if(TARGET engine_modeling_editor)
     set_tests_properties(modeling.commands PROPERTIES TIMEOUT 60)
 endif()
 
-if(TARGET engine_asset_pipeline AND TARGET engine_modeling)
+if(TARGET engine_asset_pipeline AND TARGET engine_modeling_importer)
     add_executable(engine_modeling_pipeline_test modeling_pipeline_test.cpp)
-    target_link_libraries(engine_modeling_pipeline_test
-                          PRIVATE engine::modeling engine::asset_pipeline engine::resource)
+    target_link_libraries(
+        engine_modeling_pipeline_test PRIVATE engine::modeling_importer engine::modeling
+                                              engine::asset_pipeline engine::resource)
     engine_apply_options(engine_modeling_pipeline_test)
     add_test(NAME modeling.pipeline COMMAND engine_modeling_pipeline_test)
     set_tests_properties(modeling.pipeline PROPERTIES TIMEOUT 120)
@@ -436,13 +437,14 @@ if(TARGET engine_asset_pipeline)
     add_test(NAME editor.asset_metadata COMMAND engine_asset_metadata_test)
 endif()
 
-if(TARGET engine_modeling_editor AND TARGET engine_asset_pipeline)
+if(TARGET engine_modeling_editor AND TARGET engine_modeling_importer)
     add_executable(engine_scene_persistence_test scene_persistence_test.cpp)
     target_include_directories(engine_scene_persistence_test
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
-        engine_scene_persistence_test PRIVATE engine::modeling_editor engine::editor
-                                              engine::asset_pipeline engine::world engine::resource)
+        engine_scene_persistence_test
+        PRIVATE engine::modeling_editor engine::modeling_importer engine::editor
+                engine::asset_pipeline engine::world engine::resource)
     engine_apply_options(engine_scene_persistence_test)
     add_test(NAME editor.scene_persistence COMMAND engine_scene_persistence_test)
 endif()
@@ -463,6 +465,14 @@ add_test(
         "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/plugin-selection-test" -P
         "${CMAKE_CURRENT_SOURCE_DIR}/plugin_selection_test.cmake")
 set_tests_properties(engine.plugin_selection PROPERTIES TIMEOUT 30)
+
+add_test(
+    NAME engine.architecture_boundaries
+    COMMAND
+        "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/scripts/check_architecture.py" --root
+        "${PROJECT_SOURCE_DIR}" --targets "${PROJECT_BINARY_DIR}/architecture" --config "$<CONFIG>")
+add_test(NAME engine.architecture_rules
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/architecture_rules_test.py")
 
 if(TARGET engine_world)
     add_executable(engine_component_registry_test component_registry_test.cpp)

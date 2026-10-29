@@ -4,6 +4,8 @@
 
 源码位于 `plugins/runtime/resource_graph/`。插件实现依赖加载策略，核心仅提供目录、单项读取和契约校验；业务请求顶级 GUID 即可取得完整必要依赖。
 
+C++ 类型为 `engine::plugins::resource_graph::ResourceGraphSystem`；`System`、`ResourceLoader`、`ResourceSystem` 和资源数据仍属于 `engine`，依赖方向由插件指向核心。
+
 ```mermaid
 classDiagram
     class ResourceGraphSystem {

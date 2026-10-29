@@ -9,7 +9,7 @@
 #include <string>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
@@ -42,11 +42,12 @@ Json selection()
 }
 } // namespace
 
-ModelingMcpTools::ModelingMcpTools(EditorMcpTools& editor) noexcept : editor_(editor)
+ModelingMcpTools::ModelingMcpTools(engine::plugins::mcp::EditorMcpTools& editor) noexcept
+    : editor_(editor)
 {
 }
 
-bool ModelingMcpTools::register_tools(McpSystem& system)
+bool ModelingMcpTools::register_tools(engine::plugins::mcp::McpSystem& system)
 {
     const auto add = [&](std::string name, std::string description, Json schema)
     {
@@ -153,4 +154,4 @@ bool ModelingMcpTools::register_tools(McpSystem& system)
                object(load, {"sceneId", "path"}));
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

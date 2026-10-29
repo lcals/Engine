@@ -28,7 +28,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -402,4 +402,4 @@ bool ShaderImporter::scan_dependencies(ImportAsset& asset, const ImportContext& 
     return true;
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

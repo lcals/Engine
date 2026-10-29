@@ -20,7 +20,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
@@ -674,4 +674,4 @@ bool ProjectMcpTools::read_android_status(std::string& reply)
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

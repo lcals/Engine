@@ -7,12 +7,13 @@
 #include <array>
 #include <numeric>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
 
-using namespace modeling_detail;
+namespace math = detail::geometry;
+using math::Point;
 
 struct FaceAttributes
 {
@@ -98,7 +99,7 @@ bool to_solid(const schema::EditableMeshDataT& data, manifold::Manifold& output,
         const auto first = mesh.NumVert();
         for (const auto& corner : source)
         {
-            const Point p = position(data, corner.vertex);
+            const Point p = math::position(data, corner.vertex);
             const auto index = mesh.NumVert();
             const auto [found, inserted] = first_corner.emplace(corner.vertex, index);
             if (!inserted)
@@ -142,7 +143,7 @@ bool from_solid(const manifold::Manifold& solid, const Provenance& provenance,
     candidate.next_id = next_id;
     if (mesh.NumTri() == 0)
     {
-        return commit(output, std::move(candidate), error);
+        return math::commit(output, std::move(candidate), error);
     }
     std::vector<std::uint64_t> parent(mesh.NumVert());
     std::iota(parent.begin(), parent.end(), 0);
@@ -172,9 +173,9 @@ bool from_solid(const manifold::Manifold& solid, const Provenance& provenance,
             continue;
         }
         const auto offset = i * mesh.numProp;
-        const auto id =
-            add_vertex(candidate, {mesh.vertProperties[offset], mesh.vertProperties[offset + 1],
-                                   mesh.vertProperties[offset + 2]});
+        const auto id = math::add_vertex(candidate, {mesh.vertProperties[offset],
+                                                     mesh.vertProperties[offset + 1],
+                                                     mesh.vertProperties[offset + 2]});
         vertex_ids.emplace(canonical, id);
         remap[i] = id;
     }
@@ -217,24 +218,24 @@ bool from_solid(const manifold::Manifold& solid, const Provenance& provenance,
         if (!original_face)
         {
             Point normal;
-            if (!face_normal(candidate, *face, normal))
+            if (!math::face_normal(candidate, *face, normal))
             {
                 error = "Solid result contains a degenerate cap";
                 return false;
             }
             Point u;
             Point v;
-            basis(normal, u, v);
+            math::basis(normal, u, v);
             for (const auto id : face->vertices)
             {
-                const auto p = position(candidate, id);
-                face->texcoords.emplace_back(dot(p, u), dot(p, v));
+                const auto p = math::position(candidate, id);
+                face->texcoords.emplace_back(math::dot(p, u), math::dot(p, v));
             }
         }
         candidate.faces.push_back(std::move(face));
     }
-    remove_unused_vertices(candidate);
-    return commit(output, std::move(candidate), error);
+    math::remove_unused_vertices(candidate);
+    return math::commit(output, std::move(candidate), error);
 }
 
 bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std::string& error)
@@ -245,25 +246,25 @@ bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std
     std::map<std::pair<std::uint64_t, std::uint64_t>, std::uint64_t> intersections;
     const auto intersection = [&](const Corner& a, const Corner& b)
     {
-        const Point pa = position(candidate, a.vertex);
-        const Point pb = position(candidate, b.vertex);
-        const double da = dot(normal, pa) - offset;
-        const double db = dot(normal, pb) - offset;
+        const Point pa = math::position(candidate, a.vertex);
+        const Point pb = math::position(candidate, b.vertex);
+        const double da = math::dot(normal, pa) - offset;
+        const double db = math::dot(normal, pb) - offset;
         const double t = std::clamp(da / (da - db), 0.0, 1.0);
         Corner result;
-        if (t <= epsilon)
+        if (t <= math::epsilon)
         {
             return a;
         }
-        if (t >= 1.0 - epsilon)
+        if (t >= 1.0 - math::epsilon)
         {
             return b;
         }
-        const auto key = edge_key(a.vertex, b.vertex);
+        const auto key = math::edge_key(a.vertex, b.vertex);
         const auto found = intersections.find(key);
         if (found == intersections.end())
         {
-            result.vertex = add_vertex(candidate, pa + (pb - pa) * t);
+            result.vertex = math::add_vertex(candidate, pa + (pb - pa) * t);
             intersections.emplace(key, result.vertex);
         }
         else
@@ -294,8 +295,10 @@ bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std
             {
                 const auto& a = source[triangles[i + j]];
                 const auto& b = source[triangles[i + (j + 1) % 3]];
-                const bool a_inside = dot(normal, position(candidate, a.vertex)) >= offset;
-                const bool b_inside = dot(normal, position(candidate, b.vertex)) >= offset;
+                const bool a_inside =
+                    math::dot(normal, math::position(candidate, a.vertex)) >= offset;
+                const bool b_inside =
+                    math::dot(normal, math::position(candidate, b.vertex)) >= offset;
                 if (a_inside)
                 {
                     polygon.push_back(a);
@@ -330,8 +333,8 @@ bool clip_open(schema::EditableMeshDataT& data, Point normal, double offset, std
             candidate.faces.push_back(std::move(clipped));
         }
     }
-    remove_unused_vertices(candidate);
-    return commit(data, std::move(candidate), error);
+    math::remove_unused_vertices(candidate);
+    return math::commit(data, std::move(candidate), error);
 }
 
 } // namespace
@@ -371,9 +374,9 @@ bool MeshGeometry::clip(schema::EditableMeshDataT& data, const MeshClipOptions& 
                         std::string& error)
 {
     error.clear();
-    Point normal = point(options.normal);
-    const double size = length(normal);
-    if (!normalize(normal) || !std::isfinite(options.offset) ||
+    Point normal = math::point(options.normal);
+    const double size = math::length(normal);
+    if (!math::normalize(normal) || !std::isfinite(options.offset) ||
         !EditableMesh::validate(data, error))
     {
         if (error.empty())
@@ -427,15 +430,15 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
     for (const auto& face : data.faces)
     {
         Point normal;
-        if (!face->holes.empty() || !face_normal(data, *face, normal))
+        if (!face->holes.empty() || !math::face_normal(data, *face, normal))
         {
             error = "Bevel currently requires a convex polyhedron without face holes";
             return false;
         }
-        const Point origin = position(data, face->vertices.front());
+        const Point origin = math::position(data, face->vertices.front());
         for (const auto& vertex : data.vertices)
         {
-            if (dot(normal, point(vertex) - origin) > epsilon * 100.0)
+            if (math::dot(normal, math::point(vertex) - origin) > math::epsilon * 100.0)
             {
                 error = "Selected-edge bevel currently requires a convex polyhedron";
                 return false;
@@ -445,7 +448,7 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
         {
             const auto a = face->vertices[i];
             const auto b = face->vertices[(i + 1) % face->vertices.size()];
-            edges[edge_key(a, b)].push_back({normal, a, b});
+            edges[math::edge_key(a, b)].push_back({normal, a, b});
         }
     }
     for (const auto& [key, sides] : edges)
@@ -466,7 +469,7 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
     std::set<std::pair<std::uint64_t, std::uint64_t>> selected;
     for (const auto& edge : options.edges)
     {
-        const auto key = edge_key(edge.first, edge.second);
+        const auto key = math::edge_key(edge.first, edge.second);
         const auto found = edges.find(key);
         if (found == edges.end() || !selected.insert(key).second)
         {
@@ -482,9 +485,9 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
             {
                 continue;
             }
-            limit = std::min(
-                limit,
-                length(position(data, neighbor.first) - position(data, neighbor.second)) * 0.5);
+            limit = std::min(limit, math::length(math::position(data, neighbor.first) -
+                                                 math::position(data, neighbor.second)) *
+                                        0.5);
         }
         if (options.width >= limit)
         {
@@ -494,16 +497,16 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
         const auto& sides = found->second;
         const Point n0 = sides[0].normal;
         const Point n1 = sides[1].normal;
-        const double cosine = std::clamp(dot(n0, n1), -1.0, 1.0);
+        const double cosine = std::clamp(math::dot(n0, n1), -1.0, 1.0);
         const double sine = std::sqrt(std::max(0.0, 1.0 - cosine * cosine));
-        if (sine <= epsilon)
+        if (sine <= math::epsilon)
         {
             error = "Bevel requires a convex crease, not a coplanar triangulation edge";
             return false;
         }
-        const Point origin = position(data, edge.first);
-        Point direction = position(data, edge.second) - origin;
-        if (!normalize(direction))
+        const Point origin = math::position(data, edge.first);
+        Point direction = math::position(data, edge.second) - origin;
+        if (!math::normalize(direction))
         {
             error = "Bevel edge has no length";
             return false;
@@ -523,17 +526,17 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
         {
             const Point a = curve(static_cast<double>(i) / options.segments);
             const Point b = curve(static_cast<double>(i + 1) / options.segments);
-            Point normal = cross(direction, b - a);
-            if (!normalize(normal))
+            Point normal = math::cross(direction, b - a);
+            if (!math::normalize(normal))
             {
                 error = "Bevel profile produced a degenerate segment";
                 return false;
             }
-            if (dot(normal, n0 + n1) < 0.0)
+            if (math::dot(normal, n0 + n1) < 0.0)
             {
                 normal = normal * -1.0;
             }
-            planes.push_back({normal, dot(normal, a)});
+            planes.push_back({normal, math::dot(normal, a)});
         }
     }
     manifold::Manifold solid;
@@ -553,7 +556,7 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
         }
     }
     const double after = solid.Volume();
-    if (after <= epsilon || after >= before || !std::isfinite(after))
+    if (after <= math::epsilon || after >= before || !std::isfinite(after))
     {
         error = "Bevel did not produce a nonempty smaller solid";
         return false;
@@ -561,4 +564,4 @@ bool MeshGeometry::bevel(schema::EditableMeshDataT& data, const MeshBevelOptions
     return from_solid(solid, provenance, options.material_slot, data.next_id, data, error);
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

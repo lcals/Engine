@@ -4,12 +4,13 @@
 
 #include <numeric>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
 
-using namespace modeling_detail;
+namespace math = detail::geometry;
+using math::Point;
 
 bool valid_profile(const std::vector<schema::Vec2>& profile, bool closed, std::string& error)
 {
@@ -29,7 +30,7 @@ bool valid_profile(const std::vector<schema::Vec2>& profile, bool closed, std::s
         if (i > 0 || closed)
         {
             const auto& previous = profile[(i + profile.size() - 1) % profile.size()];
-            if (std::hypot(p.x() - previous.x(), p.y() - previous.y()) <= epsilon)
+            if (std::hypot(p.x() - previous.x(), p.y() - previous.y()) <= math::epsilon)
             {
                 error = "Profile contains a zero-length edge";
                 return false;
@@ -68,8 +69,8 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
         error = "Invalid sweep path, twist, or cap for an open profile";
         return false;
     }
-    if (options.path.size() > 2 &&
-        length(point(options.path.front()) - point(options.path.back())) <= epsilon)
+    if (options.path.size() > 2 && math::length(math::point(options.path.front()) -
+                                                math::point(options.path.back())) <= math::epsilon)
     {
         error = "Sweep currently requires an open path; coincident end caps are not a closed sweep";
         return false;
@@ -84,7 +85,7 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
             const auto& b = profile[(i + 1) % profile.size()];
             area += a.x() * b.y() - a.y() * b.x();
         }
-        if (std::abs(area) <= epsilon)
+        if (std::abs(area) <= math::epsilon)
         {
             error = "Sweep profile has no area";
             return false;
@@ -98,16 +99,16 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
     std::vector<double> distances(options.path.size(), 0.0);
     for (std::size_t i = 0; i < options.path.size(); ++i)
     {
-        if (!finite(point(options.path[i])))
+        if (!math::finite(math::point(options.path[i])))
         {
             error = "Sweep path contains a non-finite point";
             return false;
         }
         if (i + 1 < options.path.size())
         {
-            Point segment = point(options.path[i + 1]) - point(options.path[i]);
-            distances[i + 1] = distances[i] + length(segment);
-            if (!normalize(segment))
+            Point segment = math::point(options.path[i + 1]) - math::point(options.path[i]);
+            distances[i + 1] = distances[i] + math::length(segment);
+            if (!math::normalize(segment))
             {
                 error = "Sweep path contains a zero-length segment";
                 return false;
@@ -122,7 +123,7 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
     for (std::size_t i = tangents.size() - 1; i > 1; --i)
     {
         Point tangent = tangents[i - 2] + tangents[i - 1];
-        if (!normalize(tangent))
+        if (!math::normalize(tangent))
         {
             error = "Sweep path reverses direction at a joint";
             return false;
@@ -133,33 +134,34 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
     std::vector<std::vector<std::uint64_t>> rings;
     Point u;
     Point v;
-    basis(tangents.front(), u, v);
+    math::basis(tangents.front(), u, v);
     for (std::size_t i = 0; i < options.path.size(); ++i)
     {
         if (i > 0)
         {
-            Point axis = cross(tangents[i - 1], tangents[i]);
-            const double cosine = std::clamp(dot(tangents[i - 1], tangents[i]), -1.0, 1.0);
-            if (normalize(axis))
+            Point axis = math::cross(tangents[i - 1], tangents[i]);
+            const double cosine = std::clamp(math::dot(tangents[i - 1], tangents[i]), -1.0, 1.0);
+            if (math::normalize(axis))
             {
-                u = rotate(u, axis, std::acos(cosine));
+                u = math::rotate(u, axis, std::acos(cosine));
             }
-            u = u - tangents[i] * dot(u, tangents[i]);
-            if (!normalize(u))
+            u = u - tangents[i] * math::dot(u, tangents[i]);
+            if (!math::normalize(u))
             {
                 error = "Cannot transport the sweep coordinate frame";
                 return false;
             }
-            v = cross(tangents[i], u);
+            v = math::cross(tangents[i], u);
         }
         const double fraction = distances[i] / distances.back();
-        const double twist = options.twist_degrees * pi / 180.0 * fraction;
+        const double twist = options.twist_degrees * math::pi / 180.0 * fraction;
         const Point tu = u * std::cos(twist) + v * std::sin(twist);
         const Point tv = v * std::cos(twist) - u * std::sin(twist);
         std::vector<std::uint64_t> ring;
         for (const auto& p : profile)
         {
-            ring.push_back(add_vertex(candidate, point(options.path[i]) + tu * p.x() + tv * p.y()));
+            ring.push_back(math::add_vertex(candidate, math::point(options.path[i]) + tu * p.x() +
+                                                           tv * p.y()));
         }
         rings.push_back(std::move(ring));
     }
@@ -169,9 +171,10 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
         for (std::size_t j = 0; j < edge_count; ++j)
         {
             const std::size_t next = (j + 1) % profile.size();
-            add_quad(candidate, rings[i][j], rings[i][next], rings[i + 1][next], rings[i + 1][j],
-                     static_cast<double>(j) / edge_count, static_cast<double>(j + 1) / edge_count,
-                     distances[i] / distances.back(), distances[i + 1] / distances.back());
+            math::add_quad(candidate, rings[i][j], rings[i][next], rings[i + 1][next],
+                           rings[i + 1][j], static_cast<double>(j) / edge_count,
+                           static_cast<double>(j + 1) / edge_count, distances[i] / distances.back(),
+                           distances[i + 1] / distances.back());
         }
     }
     if (options.cap)
@@ -180,10 +183,10 @@ bool MeshGeometry::sweep(const MeshSweepOptions& options, schema::EditableMeshDa
         auto front_uv = profile;
         std::reverse(front.begin(), front.end());
         std::reverse(front_uv.begin(), front_uv.end());
-        add_face(candidate, std::move(front), std::move(front_uv));
-        add_face(candidate, rings.back(), profile);
+        math::add_face(candidate, std::move(front), std::move(front_uv));
+        math::add_face(candidate, rings.back(), profile);
     }
-    return commit(output, std::move(candidate), error);
+    return math::commit(output, std::move(candidate), error);
 }
 
 bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDataT& output,
@@ -209,23 +212,24 @@ bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDa
             return false;
         }
     }
-    const bool full = std::abs(options.angle_degrees - 360.0) < epsilon;
+    const bool full = std::abs(options.angle_degrees - 360.0) < math::epsilon;
     const std::size_t columns = options.segments + (full ? 0 : 1);
     schema::EditableMeshDataT candidate;
     std::vector<std::vector<std::uint64_t>> rings;
     for (const auto& p : options.profile)
     {
         std::vector<std::uint64_t> ring;
-        if (p.x() <= epsilon)
+        if (p.x() <= math::epsilon)
         {
-            ring.assign(columns, add_vertex(candidate, {0.0, p.y(), 0.0}));
+            ring.assign(columns, math::add_vertex(candidate, {0.0, p.y(), 0.0}));
         }
         else
         {
             for (std::size_t i = 0; i < columns; ++i)
             {
-                const double angle = options.angle_degrees * pi / 180.0 * i / options.segments;
-                ring.push_back(add_vertex(
+                const double angle =
+                    options.angle_degrees * math::pi / 180.0 * i / options.segments;
+                ring.push_back(math::add_vertex(
                     candidate, {p.x() * std::cos(angle), p.y(), -p.x() * std::sin(angle)}));
             }
         }
@@ -251,15 +255,15 @@ bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDa
             }
             if (a == b)
             {
-                add_face(candidate, {a, c, d}, {{u0, v0}, {u1, v1}, {u0, v1}}, 0, 1);
+                math::add_face(candidate, {a, c, d}, {{u0, v0}, {u1, v1}, {u0, v1}}, 0, 1);
             }
             else if (c == d)
             {
-                add_face(candidate, {a, b, c}, {{u0, v0}, {u1, v0}, {u1, v1}}, 0, 1);
+                math::add_face(candidate, {a, b, c}, {{u0, v0}, {u1, v0}, {u1, v1}}, 0, 1);
             }
             else
             {
-                add_quad(candidate, a, b, c, d, u0, u1, v0, v1);
+                math::add_quad(candidate, a, b, c, d, u0, u1, v0, v1);
             }
         }
     }
@@ -267,20 +271,21 @@ bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDa
     {
         std::uint64_t bottom = rings.front().front();
         std::uint64_t top = rings.back().front();
-        if (options.profile.front().x() > epsilon)
+        if (options.profile.front().x() > math::epsilon)
         {
-            bottom = add_vertex(candidate, {0.0, options.profile.front().y(), 0.0});
+            bottom = math::add_vertex(candidate, {0.0, options.profile.front().y(), 0.0});
             for (std::size_t i = 0; i < options.segments; ++i)
             {
-                add_face(candidate, {bottom, rings.front()[(i + 1) % columns], rings.front()[i]});
+                math::add_face(candidate,
+                               {bottom, rings.front()[(i + 1) % columns], rings.front()[i]});
             }
         }
-        if (options.profile.back().x() > epsilon)
+        if (options.profile.back().x() > math::epsilon)
         {
-            top = add_vertex(candidate, {0.0, options.profile.back().y(), 0.0});
+            top = math::add_vertex(candidate, {0.0, options.profile.back().y(), 0.0});
             for (std::size_t i = 0; i < options.segments; ++i)
             {
-                add_face(candidate, {top, rings.back()[i], rings.back()[(i + 1) % columns]});
+                math::add_face(candidate, {top, rings.back()[i], rings.back()[(i + 1) % columns]});
             }
         }
         if (!full)
@@ -303,21 +308,22 @@ bool MeshGeometry::lathe(const MeshLatheOptions& options, schema::EditableMeshDa
                 end.push_back(bottom);
             }
             std::reverse(end.begin(), end.end());
-            add_face(candidate, std::move(start));
-            add_face(candidate, std::move(end));
+            math::add_face(candidate, std::move(start));
+            math::add_face(candidate, std::move(end));
         }
     }
-    return commit(output, std::move(candidate), error);
+    return math::commit(output, std::move(candidate), error);
 }
 
 bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptions& options,
                           std::string& error)
 {
     error.clear();
-    Point normal = point(options.normal);
-    const double normal_length = length(normal);
-    if (!normalize(normal) || !std::isfinite(options.offset) || !std::isfinite(options.tolerance) ||
-        options.tolerance <= 0.0 || !EditableMesh::validate(data, error))
+    Point normal = math::point(options.normal);
+    const double normal_length = math::length(normal);
+    if (!math::normalize(normal) || !std::isfinite(options.offset) ||
+        !std::isfinite(options.tolerance) || options.tolerance <= 0.0 ||
+        !EditableMesh::validate(data, error))
     {
         if (error.empty())
         {
@@ -332,7 +338,7 @@ bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptio
         bool negative = false;
         for (const auto& vertex : data.vertices)
         {
-            const double distance = dot(normal, point(vertex)) - offset;
+            const double distance = math::dot(normal, math::point(vertex)) - offset;
             positive = positive || distance > options.tolerance;
             negative = negative || distance < -options.tolerance;
         }
@@ -347,23 +353,23 @@ bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptio
     {
         for (auto& vertex : candidate.vertices)
         {
-            const Point p = point(vertex);
-            const Point reflected = p - normal * (2.0 * (dot(normal, p) - offset));
+            const Point p = math::point(vertex);
+            const Point reflected = p - normal * (2.0 * (math::dot(normal, p) - offset));
             vertex = schema::ModelingVertex(vertex.id(), reflected.x, reflected.y, reflected.z);
         }
         for (auto& face : candidate.faces)
         {
             reverse_face(*face);
         }
-        return commit(data, std::move(candidate), error);
+        return math::commit(data, std::move(candidate), error);
     }
     std::map<std::uint64_t, std::uint64_t> remap;
     bool has_off_plane_vertex = false;
     for (std::size_t i = 0; i < data.vertices.size(); ++i)
     {
         const auto& vertex = data.vertices[i];
-        const Point p = point(vertex);
-        const double distance = dot(normal, p) - offset;
+        const Point p = math::point(vertex);
+        const double distance = math::dot(normal, p) - offset;
         if (options.weld && std::abs(distance) <= options.tolerance)
         {
             remap[vertex.id()] = vertex.id();
@@ -374,7 +380,7 @@ bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptio
         else
         {
             has_off_plane_vertex = true;
-            remap[vertex.id()] = add_vertex(candidate, p - normal * (2.0 * distance));
+            remap[vertex.id()] = math::add_vertex(candidate, p - normal * (2.0 * distance));
         }
     }
     const auto on_plane = [&](const schema::ModelingFaceT& face)
@@ -408,8 +414,8 @@ bool MeshGeometry::mirror(schema::EditableMeshDataT& data, const MeshMirrorOptio
         reverse_face(*face);
         candidate.faces.push_back(std::move(face));
     }
-    remove_unused_vertices(candidate);
-    return commit(data, std::move(candidate), error);
+    math::remove_unused_vertices(candidate);
+    return math::commit(data, std::move(candidate), error);
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

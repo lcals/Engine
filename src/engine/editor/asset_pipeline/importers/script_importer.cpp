@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 schema::AssetKind ScriptImporter::kind() const noexcept
 {
@@ -170,4 +170,4 @@ bool ScriptImporter::convert(const ImportAsset& asset, const ImportContext& cont
                       bytes, error) &&
            write_bytes(context.output / asset.guid, bytes, error);
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

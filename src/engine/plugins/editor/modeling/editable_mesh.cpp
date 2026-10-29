@@ -17,13 +17,15 @@
 #include <unordered_set>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
 
-using namespace modeling_detail;
-using Ring = std::vector<Point>;
+namespace math = detail::topology;
+using math::ProjectedPoint;
+using math::Vector;
+using Ring = std::vector<ProjectedPoint>;
 using VertexLookup = std::unordered_map<std::uint64_t, Vector>;
 
 VertexLookup make_lookup(const schema::EditableMeshDataT& data)
@@ -32,7 +34,7 @@ VertexLookup make_lookup(const schema::EditableMeshDataT& data)
     result.reserve(data.vertices.size());
     for (const auto& vertex : data.vertices)
     {
-        result.emplace(vertex.id(), position(vertex));
+        result.emplace(vertex.id(), math::position(vertex));
     }
     return result;
 }
@@ -63,12 +65,13 @@ bool fail(std::string& error, std::string message)
     return false;
 }
 
-double orientation(const Point& a, const Point& b, const Point& c)
+double orientation(const ProjectedPoint& a, const ProjectedPoint& b, const ProjectedPoint& c)
 {
     return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
 }
 
-bool on_segment(const Point& a, const Point& b, const Point& point, double tolerance)
+bool on_segment(const ProjectedPoint& a, const ProjectedPoint& b, const ProjectedPoint& point,
+                double tolerance)
 {
     return std::abs(orientation(a, b, point)) <= tolerance &&
            point[0] >= std::min(a[0], b[0]) - tolerance &&
@@ -77,7 +80,8 @@ bool on_segment(const Point& a, const Point& b, const Point& point, double toler
            point[1] <= std::max(a[1], b[1]) + tolerance;
 }
 
-bool intersects(const Point& a, const Point& b, const Point& c, const Point& d, double tolerance)
+bool intersects(const ProjectedPoint& a, const ProjectedPoint& b, const ProjectedPoint& c,
+                const ProjectedPoint& d, double tolerance)
 {
     const auto ab_c = orientation(a, b, c);
     const auto ab_d = orientation(a, b, d);
@@ -92,7 +96,7 @@ bool intersects(const Point& a, const Point& b, const Point& c, const Point& d, 
            on_segment(c, d, a, tolerance) || on_segment(c, d, b, tolerance);
 }
 
-bool inside(const Ring& ring, const Point& point)
+bool inside(const Ring& ring, const ProjectedPoint& point)
 {
     bool result = false;
     for (std::size_t i = 0, j = ring.size() - 1; i < ring.size(); j = i++)
@@ -131,17 +135,17 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
         return fail(error, "面环必须包含 3 到 65536 个顶点，孔洞数量不得超过 1024");
     }
     const auto normal = lookup_normal(lookup, face);
-    if (length(normal) <= epsilon)
+    if (math::length(normal) <= math::epsilon)
     {
         return fail(error, "多边形面积为零或绕序无效");
     }
-    const auto unit_normal = normalized(normal);
+    const auto unit_normal = math::normalized(normal);
     const auto origin = lookup_position(lookup, face.vertices.front());
-    const auto axis = projection_axis(normal);
+    const auto axis = math::projection_axis(normal);
     double scale = 1.0;
     for (auto id : face.vertices)
     {
-        scale = std::max(scale, length(sub(lookup_position(lookup, id), origin)));
+        scale = std::max(scale, math::length(math::sub(lookup_position(lookup, id), origin)));
     }
     const auto tolerance = 1.0e-9 * scale * scale;
     std::unordered_set<std::uint64_t> used;
@@ -161,11 +165,11 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
                 return fail(error, "面引用缺失或重复的顶点");
             }
             const auto value = vertex->second;
-            if (std::abs(dot(sub(value, origin), unit_normal)) > 1.0e-7 * scale)
+            if (std::abs(math::dot(math::sub(value, origin), unit_normal)) > 1.0e-7 * scale)
             {
                 return fail(error, "多边形顶点不共面，请先三角化或拆分面");
             }
-            ring.push_back(project(value, axis));
+            ring.push_back(math::project(value, axis));
             vertices.push_back(id);
         }
         for (const auto& value : uv)
@@ -193,7 +197,7 @@ bool rings_for_face(const VertexLookup& lookup, const schema::ModelingFaceT& fac
         for (std::size_t i = 0; i < ring.size(); ++i)
         {
             const auto next = (i + 1) % ring.size();
-            if (std::hypot(ring[i][0] - ring[next][0], ring[i][1] - ring[next][1]) <= epsilon)
+            if (std::hypot(ring[i][0] - ring[next][0], ring[i][1] - ring[next][1]) <= math::epsilon)
             {
                 return fail(error, "面包含零长度边");
             }
@@ -275,7 +279,7 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
         expected_area -= std::abs(signed_area(rings[i]));
     }
     const auto normal = lookup_normal(lookup, face);
-    const auto axis = projection_axis(normal);
+    const auto axis = math::projection_axis(normal);
     double actual_area = 0.0;
     for (std::size_t i = 0; i < triangles.size(); i += 3)
     {
@@ -287,17 +291,18 @@ bool triangulate_impl(const VertexLookup& lookup, const schema::ModelingFaceT& f
         const auto a = lookup_position(lookup, vertices[triangles[i]]);
         const auto b = lookup_position(lookup, vertices[triangles[i + 1]]);
         const auto c = lookup_position(lookup, vertices[triangles[i + 2]]);
-        const auto triangle_normal = cross(sub(b, a), sub(c, a));
-        if (length(triangle_normal) <= epsilon)
+        const auto triangle_normal = math::cross(math::sub(b, a), math::sub(c, a));
+        if (math::length(triangle_normal) <= math::epsilon)
         {
             return fail(error, "三角化产生退化三角形");
         }
-        if (dot(triangle_normal, normal) < 0.0)
+        if (math::dot(triangle_normal, normal) < 0.0)
         {
             std::swap(triangles[i + 1], triangles[i + 2]);
         }
-        actual_area +=
-            std::abs(orientation(project(a, axis), project(b, axis), project(c, axis))) * 0.5;
+        actual_area += std::abs(orientation(math::project(a, axis), math::project(b, axis),
+                                            math::project(c, axis))) *
+                       0.5;
     }
     if (std::abs(actual_area - expected_area) > std::max(1.0, expected_area) * 1.0e-7)
     {
@@ -346,7 +351,7 @@ bool EditableMesh::validate(const schema::EditableMeshDataT& data, std::string& 
     for (const auto& vertex : data.vertices)
     {
         if (!vertex.id() || vertex.id() >= data.next_id || !ids.insert(vertex.id()).second ||
-            !finite(position(vertex)) || length(position(vertex)) > 1.0e12)
+            !math::finite(math::position(vertex)) || math::length(math::position(vertex)) > 1.0e12)
         {
             return fail(error, "顶点身份或位置无效");
         }
@@ -405,7 +410,7 @@ bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_vi
             for (auto id : ids)
             {
                 auto& value = smooth_normals[{id, face->smoothing_group}];
-                value = add(value, normal);
+                value = math::add(value, normal);
             }
         };
         accumulate(face->vertices);
@@ -430,17 +435,18 @@ bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_vi
                 return false;
             }
             const auto offset = static_cast<std::uint32_t>(result.vertices.size());
-            const auto flat_normal = normalized(lookup_normal(lookup, *face));
-            const auto axis = projection_axis(flat_normal);
+            const auto flat_normal = math::normalized(lookup_normal(lookup, *face));
+            const auto axis = math::projection_axis(flat_normal);
             const auto append_ring = [&](const auto& ids, const auto& uv, const auto& colors)
             {
                 for (std::size_t i = 0; i < ids.size(); ++i)
                 {
                     const auto point = lookup_position(lookup, ids[i]);
-                    auto normal = face->smoothing_group
-                                      ? normalized(smooth_normals[{ids[i], face->smoothing_group}])
-                                      : flat_normal;
-                    if (length(normal) <= epsilon)
+                    auto normal =
+                        face->smoothing_group
+                            ? math::normalized(smooth_normals[{ids[i], face->smoothing_group}])
+                            : flat_normal;
+                    if (math::length(normal) <= math::epsilon)
                     {
                         normal = flat_normal;
                     }
@@ -448,7 +454,7 @@ bool EditableMesh::compile(const schema::EditableMeshDataT& data, std::string_vi
                         static_cast<float>(point[0]), static_cast<float>(point[1]),
                         static_cast<float>(point[2]), static_cast<float>(normal[0]),
                         static_cast<float>(normal[1]), static_cast<float>(normal[2]));
-                    const auto planar = project(point, axis);
+                    const auto planar = math::project(point, axis);
                     result.texcoords.push_back(uv.empty() ? schema::Vec2(planar[0], planar[1])
                                                           : uv[i]);
                     result.colors.push_back(colors.empty() ? schema::Color(1, 1, 1, 1) : colors[i]);
@@ -493,7 +499,7 @@ bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMesh
         auto found = positions.find(key);
         if (found == positions.end())
         {
-            const auto id = add_vertex(result, {vertex.x(), vertex.y(), vertex.z()});
+            const auto id = math::add_vertex(result, {vertex.x(), vertex.y(), vertex.z()});
             found = positions.emplace(key, id).first;
         }
         ids.push_back(found->second);
@@ -509,7 +515,7 @@ bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMesh
                 break;
             }
         }
-        auto& face = add_face(
+        auto& face = math::add_face(
             result, {ids[data.indices[i]], ids[data.indices[i + 1]], ids[data.indices[i + 2]]},
             material);
         for (std::size_t j = i; j < i + 3; ++j)
@@ -559,9 +565,9 @@ bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMesh
             const auto second_id = ids[second_index];
             const auto key = std::minmax(first_id, second_id);
             Vector first_normal =
-                normalized({first_vertex.nx(), first_vertex.ny(), first_vertex.nz()});
+                math::normalized({first_vertex.nx(), first_vertex.ny(), first_vertex.nz()});
             Vector second_normal =
-                normalized({second_vertex.nx(), second_vertex.ny(), second_vertex.nz()});
+                math::normalized({second_vertex.nx(), second_vertex.ny(), second_vertex.nz()});
             if (first_id != key.first)
             {
                 std::swap(first_normal, second_normal);
@@ -569,8 +575,8 @@ bool EditableMesh::from_mesh(const schema::MeshDataT& data, schema::EditableMesh
             auto& neighbors = shared[key];
             for (const auto& neighbor : neighbors)
             {
-                if (dot(first_normal, neighbor.first) >= 1.0 - 1.0e-6 &&
-                    dot(second_normal, neighbor.second) >= 1.0 - 1.0e-6)
+                if (math::dot(first_normal, neighbor.first) >= 1.0 - 1.0e-6 &&
+                    math::dot(second_normal, neighbor.second) >= 1.0 - 1.0e-6)
                 {
                     const auto a = root(triangle);
                     const auto b = root(neighbor.face);
@@ -710,4 +716,4 @@ bool EditableMesh::selected_vertices(const schema::EditableMeshDataT& data,
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

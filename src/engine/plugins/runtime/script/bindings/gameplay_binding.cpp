@@ -2,7 +2,7 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -31,4 +31,4 @@ bool GameplayBinding::register_functions(v8::Local<v8::Context>, v8::Local<v8::O
     return true;
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

@@ -148,7 +148,7 @@ std::string read_payload(const Fixture& fixture, std::string_view guid)
     return {reinterpret_cast<const char*>(payload.data()), payload.size()};
 }
 
-bool build(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
+bool build(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     if (!pipeline.build_assets(fixture.root))
     {
@@ -158,7 +158,7 @@ bool build(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
     return true;
 }
 
-bool editor_guard(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
+bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     const auto hosts = fixture.root / "cache/editor-hosts";
     const auto runtime = fixture.root / "cache/editor-status";
@@ -182,7 +182,7 @@ bool editor_guard(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
                "\",\"projectState\":\"" + std::string(state) + "\",\"updatedAtMs\":0}";
     };
     const auto previous = read(fixture.root / "cache/catalog.bin");
-    auto lease = std::make_unique<engine::asset_pipeline::ProjectLock>();
+    auto lease = std::make_unique<engine::editor::asset_pipeline::ProjectLock>();
     std::string error;
     if (!expect(lease->acquire(hosts / "test.lock", error), "editor owns lifetime lease") ||
         !expect(write(hosts / "test.json", "{\"projectRoot\":" + root_json.str() +
@@ -194,7 +194,7 @@ bool editor_guard(engine::AssetPipelineSystem& pipeline, const Fixture& fixture)
     std::filesystem::last_write_time(
         hosts / "test.json", std::filesystem::file_time_type::clock::now() - std::chrono::hours(1),
         code);
-    engine::asset_pipeline::ProjectLock probe;
+    engine::editor::asset_pipeline::ProjectLock probe;
     bool acquired = true;
     if (code ||
         !expect(probe.try_acquire(hosts / "test.lock", acquired, error) && !acquired &&
@@ -271,7 +271,7 @@ bool tests()
     std::error_code filesystem_error;
     const auto assets = fixture.root / "assets";
     const auto cache = fixture.root / "cache";
-    engine::AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
     const engine::EngineConfig config;
     if (!expect(!pipeline.build_assets(fixture.root), "uninitialized build rejected") ||
         !expect(pipeline.initialize(config), "initialize pipeline and Taskflow subsystem") ||
@@ -432,16 +432,16 @@ bool tests()
     engine::schema::SceneDataT data;
     std::string import_error;
     const auto saved_scene = fixture.root / "settings/roundtrip.scene";
-    if (!expect(engine::SceneImporter::read(assets / "main.scene", data, import_error) &&
+    if (!expect(engine::editor::SceneImporter::read(assets / "main.scene", data, import_error) &&
                     data.nodes[1]->info->id == std::numeric_limits<std::uint64_t>::max(),
                 "TOML decimal strings preserve complete uint64 node identity") ||
-        !expect(engine::SceneImporter::write(saved_scene, data, import_error),
+        !expect(engine::editor::SceneImporter::write(saved_scene, data, import_error),
                 "save actual generated scene data as TOML"))
     {
         return false;
     }
     engine::schema::SceneDataT roundtrip;
-    if (!expect(engine::SceneImporter::read(saved_scene, roundtrip, import_error) &&
+    if (!expect(engine::editor::SceneImporter::read(saved_scene, roundtrip, import_error) &&
                     data == roundtrip,
                 "scene TOML save/read preserves all generated fields"))
     {
@@ -449,7 +449,7 @@ bool tests()
     }
     data.nodes[0]->info->parent_id = data.nodes[1]->info->id;
     const auto saved_text = read(saved_scene);
-    if (!expect(!engine::SceneImporter::write(saved_scene, data, import_error) &&
+    if (!expect(!engine::editor::SceneImporter::write(saved_scene, data, import_error) &&
                     read(saved_scene) == saved_text,
                 "hierarchy cycle rejected without replacing saved scene"))
     {

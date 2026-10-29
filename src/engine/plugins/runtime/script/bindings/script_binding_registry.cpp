@@ -17,7 +17,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 
 bool ScriptBindingRegistry::initialize()
@@ -88,4 +88,4 @@ function attach(object, token, scene, node = 0n, kind = -1) {
     return result;
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

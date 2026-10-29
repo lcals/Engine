@@ -9,7 +9,7 @@ struct sqlite3;
 #include <string>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 struct AssetRecord
@@ -46,4 +46,4 @@ private:
     bool transaction_ = false;
 };
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

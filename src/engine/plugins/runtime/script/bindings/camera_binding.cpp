@@ -4,7 +4,7 @@
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/node.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -81,4 +81,4 @@ bool CameraBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "CameraOrthographic", orthographic);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

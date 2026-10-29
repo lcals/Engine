@@ -14,7 +14,7 @@ class Node;
 class Component;
 } // namespace engine
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 
 using Arguments = v8::FunctionCallbackInfo<v8::Value>;
@@ -69,4 +69,4 @@ private:
     double delta_time_ = 0.0;
 };
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

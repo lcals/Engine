@@ -2,7 +2,7 @@
 
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 class LightCodec final : public SceneComponentCodec
@@ -17,4 +17,4 @@ public:
     void write(const schema::ComponentDataT& component, toml::table& value) const override;
 };
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

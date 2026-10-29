@@ -15,7 +15,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
@@ -66,7 +66,7 @@ bool valid_android_target(const McpTarget& target)
 
 } // namespace
 
-namespace mcp_tools
+namespace tools
 {
 bool no_symlinks(const fs::path& path)
 {
@@ -127,10 +127,12 @@ bool android_receipt(bool success, const std::string& text, Json& output)
     }
     return success;
 }
-} // namespace mcp_tools
+} // namespace tools
 
-ProjectMcpTools::ProjectMcpTools(AssetPipelineSystem& pipeline, AssetBuildSystem& builder,
-                                 AssetSyncSystem& sync, fs::path project_root, McpTarget target)
+ProjectMcpTools::ProjectMcpTools(engine::editor::AssetPipelineSystem& pipeline,
+                                 engine::plugins::asset_build::AssetBuildSystem& builder,
+                                 engine::plugins::asset_sync::AssetSyncSystem& sync,
+                                 fs::path project_root, McpTarget target)
     : pipeline_(pipeline), builder_(builder), sync_(sync), project_root_(std::move(project_root)),
       target_(std::move(target))
 {
@@ -149,13 +151,13 @@ bool ProjectMcpTools::initialize()
     }
     std::error_code error;
     project_root_ = fs::absolute(project_root_, error).lexically_normal();
-    if (error || !mcp_tools::no_symlinks(project_root_))
+    if (error || !tools::no_symlinks(project_root_))
     {
         return false;
     }
     for (const char* name : {"settings", "cache", "assets"})
     {
-        if (!mcp_tools::no_symlinks(project_root_ / name) ||
+        if (!tools::no_symlinks(project_root_ / name) ||
             !fs::is_directory(project_root_ / name, error) || error)
         {
             std::fputs("MCP project must contain settings, cache and assets directories\n", stderr);
@@ -180,7 +182,7 @@ bool ProjectMcpTools::initialize()
         return false;
     }
     target_.runtime_dir = fs::absolute(target_.runtime_dir, error).lexically_normal();
-    if (error || !mcp_tools::no_symlinks(target_.runtime_dir))
+    if (error || !tools::no_symlinks(target_.runtime_dir))
     {
         return false;
     }
@@ -195,4 +197,4 @@ bool ProjectMcpTools::register_tools(McpSystem& mcp)
            register_lifecycle_tools(mcp);
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

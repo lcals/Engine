@@ -28,11 +28,7 @@
 #include <utility>
 #include <vector>
 
-#if ENGINE_HAS_MODELING_PLUGIN
-#include "plugins/editor/modeling/editable_mesh.hpp"
-#endif
-
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 schema::AssetKind MeshImporter::kind() const noexcept
 {
@@ -44,7 +40,7 @@ bool MeshImporter::matches(const std::filesystem::path& source) const
 }
 bool MeshImporter::inspect_batch(const ImportContext&, std::string& fingerprint, std::string& error)
 {
-    return schema_fingerprint({"mesh.fbs", "modeling.fbs"}, fingerprint, error);
+    return schema_fingerprint({"mesh.fbs"}, fingerprint, error);
 }
 bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& context,
                            std::string& error) const
@@ -58,61 +54,8 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
     mesh.path = asset.path;
     if (table.contains("modeling"))
     {
-#if ENGINE_HAS_MODELING_PLUGIN
-        const auto* modeling = table["modeling"].as_table();
-        const auto format =
-            modeling == nullptr ? std::string{} : (*modeling)["format"].value_or(std::string{});
-        const auto encoded =
-            modeling == nullptr ? std::string{} : (*modeling)["data"].value_or(std::string{});
-        if (format != "flatbuffers-hex" || encoded.empty() || encoded.size() % 2 != 0 ||
-            encoded.size() > 128 * 1024 * 1024)
-        {
-            error = "modeling source requires bounded flatbuffers-hex data";
-            return false;
-        }
-        const auto digit = [](char value) -> int
-        {
-            if (value >= '0' && value <= '9')
-            {
-                return value - '0';
-            }
-            if (value >= 'a' && value <= 'f')
-            {
-                return value - 'a' + 10;
-            }
-            if (value >= 'A' && value <= 'F')
-            {
-                return value - 'A' + 10;
-            }
-            return -1;
-        };
-        std::vector<std::uint8_t> bytes(encoded.size() / 2);
-        for (std::size_t index = 0; index < bytes.size(); ++index)
-        {
-            const int high = digit(encoded[index * 2]);
-            const int low = digit(encoded[index * 2 + 1]);
-            if (high < 0 || low < 0)
-            {
-                error = "modeling source contains invalid hexadecimal data";
-                return false;
-            }
-            bytes[index] = static_cast<std::uint8_t>((high << 4) | low);
-        }
-        schema::EditableMeshDataT editable;
-        if (!EditableMesh::deserialize(bytes, editable, error) ||
-            !EditableMesh::compile(editable, asset.path, mesh, error))
-        {
-            return false;
-        }
-        flatbuffers::FlatBufferBuilder builder;
-        schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));
-        return write_bytes(context.output / asset.guid,
-                           std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
-                           error);
-#else
-        error = "modeling mesh source requires the modeling plugin: " + asset.path;
+        error = "modeling mesh source requires a registered modeling importer: " + asset.path;
         return false;
-#endif
     }
     const auto* vertices = table["vertices"].as_array();
     const auto* indices = table["indices"].as_array();
@@ -255,4 +198,4 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
                        error);
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

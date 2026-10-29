@@ -1,6 +1,5 @@
 #pragma once
 
-#include "runtime/schema/material_generated.h"
 #include "runtime/schema/scene_generated.h"
 
 namespace engine

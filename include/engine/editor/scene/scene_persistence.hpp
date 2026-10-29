@@ -6,10 +6,14 @@
 
 namespace engine
 {
-
-class EditorCommands;
 class Node;
 class WorldSystem;
+} // namespace engine
+
+namespace engine::editor
+{
+
+class EditorCommands;
 
 class ScenePersistence final
 {
@@ -30,4 +34,4 @@ private:
     MeshSourceWriter writer_;
 };
 
-} // namespace engine
+} // namespace engine::editor

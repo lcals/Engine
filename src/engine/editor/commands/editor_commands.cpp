@@ -9,7 +9,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -285,4 +285,4 @@ std::size_t EditorCommands::redo_count() const noexcept
     return state_->redo.size();
 }
 
-} // namespace engine
+} // namespace engine::editor

@@ -16,7 +16,7 @@
 #include <thread>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
@@ -57,7 +57,7 @@ bool read_json(const fs::path& path, Json& value, bool& exists)
     exists = false;
     value = Json::object();
     std::error_code error;
-    if (!mcp_tools::no_symlinks(path))
+    if (!tools::no_symlinks(path))
     {
         return false;
     }
@@ -117,7 +117,7 @@ bool publish_request(const fs::path& runtime, const Json& request)
 {
     const auto destination = runtime / "editor-command.json";
     const auto temporary = runtime / (".editor-command-" + request["requestId"].get<std::string>());
-    if (!mcp_tools::no_symlinks(destination) || !mcp_tools::no_symlinks(temporary))
+    if (!tools::no_symlinks(destination) || !tools::no_symlinks(temporary))
     {
         return false;
     }
@@ -174,7 +174,7 @@ bool EditorMcpTools::register_tools(McpSystem& system)
         return true;
     }
     std::error_code error;
-    if (!mcp_tools::no_symlinks(project_root_) || !mcp_tools::no_symlinks(target_.runtime_dir))
+    if (!tools::no_symlinks(project_root_) || !tools::no_symlinks(target_.runtime_dir))
     {
         return false;
     }
@@ -300,18 +300,18 @@ bool EditorMcpTools::call_command(std::string_view command, const Json& argument
     {
         return fail(reply, "Editor command requires a desktop target, name and arguments object");
     }
-    asset_pipeline::ProjectLock lock;
+    engine::editor::asset_pipeline::ProjectLock lock;
     bool acquired = false;
     std::string error;
     const auto lock_path = target_.runtime_dir / "editor-command.lock";
-    if (!mcp_tools::no_symlinks(lock_path) || !lock.try_acquire(lock_path, acquired, error) ||
+    if (!tools::no_symlinks(lock_path) || !lock.try_acquire(lock_path, acquired, error) ||
         !acquired)
     {
         return fail(reply, "Another editor command owns the submission lock: " + error);
     }
     Json status;
-    if (!mcp_tools::read_project_status(target_.runtime_dir, status) ||
-        !mcp_tools::editor_alive(status) || !identifier(status["session"]))
+    if (!tools::read_project_status(target_.runtime_dir, status) || !tools::editor_alive(status) ||
+        !identifier(status["session"]))
     {
         return fail(reply, "No live editor session for this runtime directory");
     }
@@ -379,7 +379,7 @@ bool EditorMcpTools::call_command(std::string_view command, const Json& argument
             return success;
         }
         Json current;
-        if (mcp_tools::read_project_status(target_.runtime_dir, current) &&
+        if (tools::read_project_status(target_.runtime_dir, current) &&
             (current["session"] != request["session"] ||
              current["projectRoot"] != request["projectRoot"] ||
              current["projectState"] == "closed"))
@@ -429,4 +429,4 @@ bool EditorMcpTools::read_receipt(const Json& arguments, Json& reply)
     return fail(reply, "No editor request or receipt matches this identity");
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

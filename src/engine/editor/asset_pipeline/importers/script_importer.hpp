@@ -2,7 +2,7 @@
 
 #include "editor/asset_pipeline/asset_importer.hpp"
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 class ScriptImporter final : public AssetImporter
 {
@@ -22,4 +22,4 @@ public:
 private:
     std::map<std::string, std::vector<Guid>> modules_;
 };
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

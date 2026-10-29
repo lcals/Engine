@@ -6,11 +6,16 @@
 
 namespace engine
 {
+class GameplaySession;
+}
 
-namespace schema
+namespace engine::schema
 {
 struct AssetCatalogDataT;
 }
+
+namespace engine::editor
+{
 
 namespace asset_pipeline
 {
@@ -18,7 +23,7 @@ class ProjectLock;
 }
 
 class ProjectSystem;
-class GameplaySession;
+
 class EditorSystem;
 
 class EditorEnvironment final
@@ -53,4 +58,4 @@ private:
     bool initialized_ = false;
 };
 
-} // namespace engine
+} // namespace engine::editor

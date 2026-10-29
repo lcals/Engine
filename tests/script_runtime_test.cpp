@@ -147,7 +147,7 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     return expect(output.catalog.assign(data), "assign runtime fixture metadata");
 }
 
-bool apply(engine::ScriptSystem& script, const Fixture& candidate,
+bool apply(engine::plugins::script::ScriptSystem& script, const Fixture& candidate,
            std::string_view entry = "scripts/game.js")
 {
     if (!script.prepare_gameplay(candidate.catalog, candidate.mounts, entry))
@@ -182,7 +182,7 @@ std::string game_source(std::string_view name, int expected_value)
 
 bool run_cases(const fs::path& workspace)
 {
-    engine::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script;
     Fixture current;
     if (!expect(script.initialize({}), "initialize V8") ||
         !fixture(workspace, "first",
@@ -394,7 +394,7 @@ export default class Game extends Gameplay {
 bool run_scene_cases(const fs::path& workspace)
 {
     engine::WorldSystem world;
-    engine::ScriptSystem script(&world);
+    engine::plugins::script::ScriptSystem script(&world);
     Fixture original;
     if (!expect(world.initialize({}) && script.initialize({}),
                 "initialize native scene bindings") ||
@@ -487,7 +487,7 @@ export default class extends Gameplay {
 bool run_guid_cases(const fs::path& workspace)
 {
     engine::WorldSystem world;
-    engine::ScriptSystem script(&world);
+    engine::plugins::script::ScriptSystem script(&world);
     if (!world.initialize({}) || !script.initialize({}))
     {
         return false;

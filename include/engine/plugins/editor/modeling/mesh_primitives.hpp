@@ -2,7 +2,7 @@
 
 #include "plugins/editor/modeling/editable_mesh.hpp"
 
-namespace engine
+namespace engine::plugins::modeling
 {
 
 enum class MeshPrimitive
@@ -50,4 +50,4 @@ public:
                                       schema::EditableMeshDataT& output, std::string& error);
 };
 
-} // namespace engine
+} // namespace engine::plugins::modeling

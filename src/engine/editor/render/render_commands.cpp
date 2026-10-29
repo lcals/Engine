@@ -15,7 +15,7 @@
 #include <string>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -283,4 +283,4 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                    return true;
                });
 }
-} // namespace engine
+} // namespace engine::editor

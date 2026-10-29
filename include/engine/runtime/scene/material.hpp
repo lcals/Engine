@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/scene/scene_types.hpp"
+#include "runtime/schema/material_generated.h"
 
 #include <map>
 #include <memory>

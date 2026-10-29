@@ -13,7 +13,7 @@
 namespace
 {
 using Json = nlohmann::json;
-using engine::McpCallStatus;
+using engine::plugins::mcp::McpCallStatus;
 
 bool check(bool condition, const char* message)
 {
@@ -26,9 +26,10 @@ bool check(bool condition, const char* message)
 
 bool exercise()
 {
-    engine::McpSystem mcp;
+    engine::plugins::mcp::McpSystem mcp;
     Json result = {{"stale", true}};
-    if (!check(mcp.call_tool("fake.sum", Json::object(), result) == McpCallStatus::failed &&
+    if (!check(mcp.call_tool("fake.sum", Json::object(), result) ==
+                       engine::plugins::mcp::McpCallStatus::failed &&
                    result.contains("error") && !result.contains("stale"),
                "uninitialized invocation reports failure with safe output"))
     {
@@ -49,18 +50,18 @@ bool exercise()
                          {"additionalProperties", false}};
     auto calls = std::make_shared<int>(0);
     std::weak_ptr<int> callback_lifetime = calls;
-    engine::McpTool sum{"fake.sum", "Sum bounded input values.", schema,
-                        [calls](const Json& input, Json& output)
-                        {
-                            ++*calls;
-                            int total = 0;
-                            for (const auto& value : input["values"])
-                            {
-                                total += value.get<int>();
-                            }
-                            output = {{"total", total}};
-                            return true;
-                        }};
+    engine::plugins::mcp::McpTool sum{"fake.sum", "Sum bounded input values.", schema,
+                                      [calls](const Json& input, Json& output)
+                                      {
+                                          ++*calls;
+                                          int total = 0;
+                                          for (const auto& value : input["values"])
+                                          {
+                                              total += value.get<int>();
+                                          }
+                                          output = {{"total", total}};
+                                          return true;
+                                      }};
     if (!check(mcp.register_tool(std::move(sum)), "module registers its own tool") ||
         !check(!mcp.register_tool(
                    {"fake.sum", "Duplicate", schema, [](const Json&, Json&) { return true; }}),
@@ -107,7 +108,8 @@ bool exercise()
           Json{{"values", Json::array({1})}, {"label", "三个字"}},
           Json{{"values", Json::array({1})}, {"mode", "invalid"}}})
     {
-        if (!check(mcp.call_tool("fake.sum", invalid, result) == McpCallStatus::invalid_arguments &&
+        if (!check(mcp.call_tool("fake.sum", invalid, result) ==
+                           engine::plugins::mcp::McpCallStatus::invalid_arguments &&
                        result.empty() && *calls == 0,
                    "invalid arguments never execute the handler"))
         {
@@ -115,17 +117,18 @@ bool exercise()
         }
     }
     if (!check(mcp.call_tool("fake.missing", Json::object(), result) ==
-                       McpCallStatus::unknown_tool &&
+                       engine::plugins::mcp::McpCallStatus::unknown_tool &&
                    result.empty(),
                "unknown tool has a distinct status") ||
         !check(mcp.call_tool("fake.sum",
                              {{"values", Json::array({2, 3})},
                               {"label", "节点"},
                               {"custom", Json::array({1.0, 2.0, 3.0})}},
-                             result) == McpCallStatus::success &&
+                             result) == engine::plugins::mcp::McpCallStatus::success &&
                    result == Json{{"total", 5}} && *calls == 1,
                "valid arguments reach the module callback") ||
-        !check(mcp.call_tool("fake.failure", Json::object(), result) == McpCallStatus::failed &&
+        !check(mcp.call_tool("fake.failure", Json::object(), result) ==
+                       engine::plugins::mcp::McpCallStatus::failed &&
                    result == Json{{"error", "expected failure"}},
                "business failure keeps its diagnostic output") ||
         !check(!mcp.register_tool({"fake.late", "Late registration", schema,

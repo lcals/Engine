@@ -3,7 +3,7 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/log/log_system.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -58,4 +58,4 @@ bool DebugBinding::register_functions(v8::Local<v8::Context> context,
                                     v8::Int32::New(isolate, static_cast<int>(LogLevel::error)));
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

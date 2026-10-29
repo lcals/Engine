@@ -245,7 +245,7 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::ResourceGraphSystem graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
 #endif
     engine::WorldSystem world;
     if (!expect(resources.initialize(config) && world.initialize(config),

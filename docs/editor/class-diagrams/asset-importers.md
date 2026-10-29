@@ -20,6 +20,8 @@ classDiagram
         +initialize() bool
         +add~T~(bool fallback) bool
         +add(unique_ptr~AssetImporter~& importer, bool fallback) bool
+        +replace(unique_ptr~AssetImporter~& importer) bool
+        +clear() void
         +find(AssetKind kind) AssetImporter#42;
         +select(const Path& source) AssetImporter#42;
     }
@@ -37,11 +39,13 @@ classDiagram
     AssetImporter <|-- TextureImporter
     AssetImporter <|-- ScriptImporter
     AssetImporter <|-- SourceImporter
-    AssetImporterRegistry *-- AssetImporter : 独占每批实现
+    AssetImporterRegistry *-- AssetImporter : 独占登记实现
 ```
 
 - 析构与 kind/default_meta 为 noexcept；matches/module_path/scan_dependencies/prepare_batch/convert 为 const。inspect_batch 允许保存本批预检结果，随后转换只读。重要返回值均为 nodiscard。
 - add 默认 fallback=false，成功才转移所有权；重复类型、空指针及第二个 fallback 失败。select 拒绝多个类型同时匹配，没有具体匹配时使用独立登记的普通源实现；不通过路径固定分支分派。
+- 所有导入接口属于 `engine::editor::asset_pipeline`；管线在初始化时登记默认实现，并在关闭时清空。`replace` 只替换已有合法类型，失败保留调用方与登记表的所有权，替换 fallback 同步更新指针。宿主通过 `AssetPipelineSystem::set_importer` 注入插件实现；构建期间拒绝更换，编辑器库不引用任何插件。
+- `MeshImporter` 公开为普通 Mesh 导入实现，允许插件继承；未注入建模导入器时，含 `[modeling]` 的源明确返回失败，不能退回过期的渲染数组。建模源转换见[建模资源导入](../../plugins/editor/class-diagrams/modeling-mesh-importer.md)。
 - ImportAsset 保存源身份及两类依赖，ImportContext 借用 GUID 映射、类型表、批次源清单，持有项目、assets、暂存输出及目标平台值；不是新的持久化模型。
 - inspect_batch 收集类型工具/Schema指纹。scan_dependencies 只建立元数据；转换输出原始载荷，由管线统一封装资源实体。失败不发布暂存文件，旧缓存与目录保留。
 - prepare_batch 可提供一个前置 TaskDescription，空 execute 表示没有公共任务；调用方将该类型全部失效资源任务依赖它。没有异步导入框架或新的任务执行器。

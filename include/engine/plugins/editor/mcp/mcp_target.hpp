@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <string>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 
 struct McpTarget
@@ -14,4 +14,4 @@ struct McpTarget
     std::string android_package;
 };
 
-} // namespace engine
+} // namespace engine::plugins::mcp

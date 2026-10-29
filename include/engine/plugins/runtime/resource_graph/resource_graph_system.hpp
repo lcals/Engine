@@ -10,8 +10,11 @@
 
 namespace engine
 {
-
 class ResourceSystem;
+} // namespace engine
+
+namespace engine::plugins::resource_graph
+{
 
 class ResourceGraphSystem final : public System, public ResourceLoader
 {
@@ -35,4 +38,4 @@ private:
     std::string last_error_;
 };
 
-} // namespace engine
+} // namespace engine::plugins::resource_graph

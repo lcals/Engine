@@ -9,11 +9,11 @@
 #include <memory>
 #include <vector>
 
-namespace engine::modeling_detail
+namespace engine::plugins::modeling::detail::topology
 {
 
 using Vector = std::array<double, 3>;
-using Point = std::array<double, 2>;
+using ProjectedPoint = std::array<double, 2>;
 constexpr double epsilon = 1.0e-9;
 
 inline Vector add(const Vector& a, const Vector& b)
@@ -90,10 +90,11 @@ inline int projection_axis(const Vector& normal)
     return x > y && x > z ? 0 : (y > z ? 1 : 2);
 }
 
-inline Point project(const Vector& value, int axis)
+inline ProjectedPoint project(const Vector& value, int axis)
 {
-    return axis == 0 ? Point{value[1], value[2]}
-                     : (axis == 1 ? Point{value[2], value[0]} : Point{value[0], value[1]});
+    return axis == 0 ? ProjectedPoint{value[1], value[2]}
+                     : (axis == 1 ? ProjectedPoint{value[2], value[0]}
+                                  : ProjectedPoint{value[0], value[1]});
 }
 
 inline std::uint64_t add_vertex(schema::EditableMeshDataT& data, const Vector& value)
@@ -151,4 +152,4 @@ inline void reverse_face(schema::ModelingFaceT& face)
     }
 }
 
-} // namespace engine::modeling_detail
+} // namespace engine::plugins::modeling::detail::topology

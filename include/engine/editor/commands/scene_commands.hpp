@@ -6,9 +6,13 @@
 
 namespace engine
 {
+class WorldSystem;
+}
+
+namespace engine::editor
+{
 
 class EditorCommands;
-class WorldSystem;
 
 class SceneCommands final
 {
@@ -26,4 +30,4 @@ private:
     std::map<std::uint64_t, std::shared_ptr<std::uint64_t>> node_aliases_;
 };
 
-} // namespace engine
+} // namespace engine::editor

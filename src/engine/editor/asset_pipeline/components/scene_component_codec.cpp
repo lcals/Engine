@@ -7,7 +7,7 @@
 
 #include <array>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -49,4 +49,4 @@ const SceneComponentCodec* find_scene_component_codec(std::string_view name) noe
     return nullptr;
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

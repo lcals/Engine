@@ -9,7 +9,7 @@
 #include <string_view>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 
 struct MeshEdge
@@ -56,4 +56,4 @@ public:
                                                std::string& error);
 };
 
-} // namespace engine
+} // namespace engine::plugins::modeling

@@ -10,7 +10,7 @@
 
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 bool AssetImporterRegistry::initialize()
 {
@@ -22,8 +22,7 @@ bool AssetImporterRegistry::initialize()
         !add<SceneAssetImporter>() || !add<TextureImporter>() || !add<ScriptImporter>() ||
         !add<SourceImporter>(true))
     {
-        importers_.clear();
-        fallback_ = nullptr;
+        clear();
         return false;
     }
     return true;
@@ -41,6 +40,32 @@ bool AssetImporterRegistry::add(std::unique_ptr<AssetImporter>& importer, bool f
     }
     importers_.push_back(std::move(importer));
     return true;
+}
+bool AssetImporterRegistry::replace(std::unique_ptr<AssetImporter>& importer)
+{
+    if (!importer || importer->kind() < schema::AssetKind::MIN ||
+        importer->kind() > schema::AssetKind::MAX)
+    {
+        return false;
+    }
+    for (auto& registered : importers_)
+    {
+        if (registered->kind() == importer->kind())
+        {
+            if (registered.get() == fallback_)
+            {
+                fallback_ = importer.get();
+            }
+            registered = std::move(importer);
+            return true;
+        }
+    }
+    return false;
+}
+void AssetImporterRegistry::clear() noexcept
+{
+    fallback_ = nullptr;
+    importers_.clear();
 }
 AssetImporter* AssetImporterRegistry::find(schema::AssetKind kind) const noexcept
 {
@@ -69,4 +94,4 @@ AssetImporter* AssetImporterRegistry::select(const std::filesystem::path& source
     }
     return match != nullptr ? match : fallback_;
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

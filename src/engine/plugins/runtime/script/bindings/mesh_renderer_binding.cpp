@@ -4,7 +4,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/node.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -89,4 +89,4 @@ bool MeshRendererBinding::register_functions(v8::Local<v8::Context> context,
                                     set_material_count);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

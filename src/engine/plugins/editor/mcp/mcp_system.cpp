@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
@@ -42,7 +42,7 @@ McpSystem::~McpSystem() noexcept
 bool McpSystem::register_tool(McpTool tool)
 {
     if (is_initialized() || tool.name.empty() || tool.description.empty() || !tool.execute ||
-        !mcp_protocol::valid_schema(tool.input_schema) ||
+        !protocol::valid_schema(tool.input_schema) ||
         std::any_of(tools_.begin(), tools_.end(),
                     [&tool](const auto& current) { return current.name == tool.name; }))
     {
@@ -78,7 +78,7 @@ McpCallStatus McpSystem::call_tool(std::string_view name, const Json& arguments,
     {
         return McpCallStatus::unknown_tool;
     }
-    if (!mcp_protocol::valid_arguments(tool->input_schema, arguments))
+    if (!protocol::valid_arguments(tool->input_schema, arguments))
     {
         return McpCallStatus::invalid_arguments;
     }
@@ -215,4 +215,4 @@ bool McpSystem::run_stdio()
     return std::cin.eof();
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

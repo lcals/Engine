@@ -6,7 +6,7 @@
 #include <string_view>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 
 class McpSystem final : public System
@@ -30,4 +30,4 @@ private:
     std::vector<McpTool> tools_;
 };
 
-} // namespace engine
+} // namespace engine::plugins::mcp

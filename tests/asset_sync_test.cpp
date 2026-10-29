@@ -121,7 +121,7 @@ bool exercise(const fs::path& root)
     std::map<std::string, std::string> scripts{
         {"scripts/game.js", "export default class Game {}\n"},
         {"scripts/deleted.js", "export const value = 1;\n"}};
-    engine::AssetSyncSystem sync;
+    engine::plugins::asset_sync::AssetSyncSystem sync;
     if (!check(!sync.sync(source, runtime), "uninitialized sync rejected") ||
         !check(sync.initialize({}), "initialize sync") ||
         !check(write_file(source / "scripts/game.js", scripts.at("scripts/game.js")) &&
@@ -290,7 +290,7 @@ bool guid_exercise(const fs::path& root)
     {
         return false;
     }
-    engine::AssetSyncSystem sync;
+    engine::plugins::asset_sync::AssetSyncSystem sync;
     if (!check(sync.initialize({}) && sync.sync(source, runtime), "publish complete GUID catalog"))
     {
         return false;

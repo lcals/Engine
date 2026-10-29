@@ -7,12 +7,13 @@
 #include <array>
 #include <memory>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
 
-using namespace modeling_detail;
+namespace math = detail::geometry;
+using math::Point;
 
 struct AtlasCorner
 {
@@ -71,17 +72,18 @@ bool repair_unused_corners(const schema::EditableMeshDataT& data,
                 error = "UV atlas did not return enough corners for a polygon loop";
                 return false;
             }
-            const Point a = position(data, corners[loop[before]].vertex);
-            const Point b = position(data, corners[loop[after]].vertex);
-            const Point p = position(data, corners[index].vertex);
+            const Point a = math::position(data, corners[loop[before]].vertex);
+            const Point b = math::position(data, corners[loop[after]].vertex);
+            const Point p = math::position(data, corners[index].vertex);
             const Point edge = b - a;
-            const double size = dot(edge, edge);
-            if (size <= epsilon * epsilon || length(cross(p - a, edge)) > size * 0.000001)
+            const double size = math::dot(edge, edge);
+            if (size <= math::epsilon * math::epsilon ||
+                math::length(math::cross(p - a, edge)) > size * 0.000001)
             {
                 error = "UV atlas omitted a non-collinear polygon corner";
                 return false;
             }
-            const double t = dot(p - a, edge) / size;
+            const double t = math::dot(p - a, edge) / size;
             const auto& uv0 = texcoords[loop[before]];
             const auto& uv1 = texcoords[loop[after]];
             texcoords[index] =
@@ -108,7 +110,7 @@ bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
     }
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
@@ -141,14 +143,14 @@ bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
                 }
                 const auto current = static_cast<std::uint32_t>(corners.size());
                 corners.push_back(corner);
-                const Point p = position(candidate, vertices[i]);
+                const Point p = math::position(candidate, vertices[i]);
                 positions.push_back(
                     {static_cast<float>(p.x), static_cast<float>(p.y), static_cast<float>(p.z)});
                 input_uv.push_back(
                     {static_cast<float>(corner.uv.x()), static_cast<float>(corner.uv.y())});
                 loop.push_back(current);
                 const auto next = first + static_cast<std::uint32_t>((i + 1) % vertices.size());
-                edges[edge_key(vertices[i], vertices[(i + 1) % vertices.size()])].push_back(
+                edges[math::edge_key(vertices[i], vertices[(i + 1) % vertices.size()])].push_back(
                     {f, current, next});
             }
             loops.push_back(std::move(loop));
@@ -183,7 +185,7 @@ bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
     std::set<std::pair<std::uint64_t, std::uint64_t>> seams;
     for (const auto& edge : options.seams)
     {
-        const auto key = edge_key(edge.first, edge.second);
+        const auto key = math::edge_key(edge.first, edge.second);
         if (!edges.contains(key) || !seams.insert(key).second)
         {
             error = "UV seam selection contains a missing or duplicate edge";
@@ -364,7 +366,7 @@ bool MeshGeometry::unwrap_uv(schema::EditableMeshDataT& data,
     {
         candidate.faces.push_back(std::move(face));
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

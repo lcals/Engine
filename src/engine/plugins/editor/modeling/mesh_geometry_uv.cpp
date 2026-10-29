@@ -5,12 +5,13 @@
 #include <functional>
 #include <queue>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
 
-using namespace modeling_detail;
+namespace math = detail::geometry;
+using math::Point;
 
 template <typename Function> void map_loops(schema::ModelingFaceT& face, Function&& function)
 {
@@ -38,14 +39,14 @@ bool face_projection(schema::EditableMeshDataT& data, schema::ModelingFaceT& fac
                      std::string& error)
 {
     Point normal;
-    if (!face_normal(data, face, normal))
+    if (!math::face_normal(data, face, normal))
     {
         error = "Cannot project a degenerate face";
         return false;
     }
     Point u;
     Point v;
-    basis(normal, u, v);
+    math::basis(normal, u, v);
     bounds = {};
     map_loops(face,
               [&](const auto& vertices, auto& texcoords)
@@ -53,9 +54,9 @@ bool face_projection(schema::EditableMeshDataT& data, schema::ModelingFaceT& fac
                   texcoords.clear();
                   for (const auto id : vertices)
                   {
-                      const Point p = position(data, id);
-                      const double x = dot(p, u);
-                      const double y = dot(p, v);
+                      const Point p = math::position(data, id);
+                      const double x = math::dot(p, u);
+                      const double y = math::dot(p, v);
                       bounds.min_u = std::min(bounds.min_u, x);
                       bounds.min_v = std::min(bounds.min_v, y);
                       bounds.max_u = std::max(bounds.max_u, x);
@@ -80,21 +81,21 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
         error = "Unknown UV projection";
         return false;
     }
-    Point axis = point(options.normal);
-    if (!normalize(axis) || !finite_uv(options.scale) || !finite_uv(options.offset))
+    Point axis = math::point(options.normal);
+    if (!math::normalize(axis) || !finite_uv(options.scale) || !finite_uv(options.offset))
     {
         error = "Invalid UV projection axis, scale, or offset";
         return false;
     }
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
     Point u;
     Point v;
-    basis(axis, u, v);
+    math::basis(axis, u, v);
     for (auto* face : faces)
     {
         Point face_u = u;
@@ -102,7 +103,7 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
         if (options.projection == MeshUvProjection::box)
         {
             Point normal;
-            if (!face_normal(candidate, *face, normal))
+            if (!math::face_normal(candidate, *face, normal))
             {
                 error = "Cannot project a degenerate face";
                 return false;
@@ -123,7 +124,7 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
             {
                 major = {0.0, 0.0, normal.z < 0.0 ? -1.0 : 1.0};
             }
-            basis(major, face_u, face_v);
+            math::basis(major, face_u, face_v);
         }
         bool valid = true;
         map_loops(*face,
@@ -132,23 +133,24 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
                       texcoords.clear();
                       for (const auto id : vertices)
                       {
-                          const Point p = position(candidate, id);
-                          double x = dot(p, face_u);
-                          double y = dot(p, face_v);
+                          const Point p = math::position(candidate, id);
+                          double x = math::dot(p, face_u);
+                          double y = math::dot(p, face_v);
                           if (options.projection == MeshUvProjection::cylindrical ||
                               options.projection == MeshUvProjection::spherical)
                           {
-                              x = std::atan2(dot(p, v), dot(p, u)) / (2.0 * pi) + 0.5;
-                              y = dot(p, axis);
+                              x = std::atan2(math::dot(p, v), math::dot(p, u)) / (2.0 * math::pi) +
+                                  0.5;
+                              y = math::dot(p, axis);
                               if (options.projection == MeshUvProjection::spherical)
                               {
-                                  const double radius = length(p);
-                                  if (radius <= epsilon)
+                                  const double radius = math::length(p);
+                                  if (radius <= math::epsilon)
                                   {
                                       valid = false;
                                       return;
                                   }
-                                  y = std::acos(std::clamp(y / radius, -1.0, 1.0)) / pi;
+                                  y = std::acos(std::clamp(y / radius, -1.0, 1.0)) / math::pi;
                               }
                           }
                           texcoords.emplace_back(x, y);
@@ -186,7 +188,7 @@ bool MeshGeometry::project_uv(schema::EditableMeshDataT& data,
             return false;
         }
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
 bool MeshGeometry::transform_uv(schema::EditableMeshDataT& data,
@@ -201,11 +203,11 @@ bool MeshGeometry::transform_uv(schema::EditableMeshDataT& data,
     }
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
-    const double angle = options.rotation_degrees * pi / 180.0;
+    const double angle = options.rotation_degrees * math::pi / 180.0;
     for (auto* face : faces)
     {
         bool valid = true;
@@ -233,7 +235,7 @@ bool MeshGeometry::transform_uv(schema::EditableMeshDataT& data,
             return false;
         }
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
 bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
@@ -247,7 +249,7 @@ bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
     }
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
@@ -269,7 +271,7 @@ bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
         }
         const double width = bounds.max_u - bounds.min_u;
         const double height = bounds.max_v - bounds.min_v;
-        if (width <= epsilon || height <= epsilon)
+        if (width <= math::epsilon || height <= math::epsilon)
         {
             error = "Cannot pack a degenerate UV island";
             return false;
@@ -288,7 +290,7 @@ bool MeshGeometry::unwrap_face_uv(schema::EditableMeshDataT& data,
                       }
                   });
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
 bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
@@ -315,7 +317,7 @@ bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
     }
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
@@ -328,7 +330,7 @@ bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
         }
         const double width = bounds.max_u - bounds.min_u;
         const double height = bounds.max_v - bounds.min_v;
-        if (width <= epsilon || height <= epsilon)
+        if (width <= math::epsilon || height <= math::epsilon)
         {
             error = "Cannot map a degenerate Hotspot face";
             return false;
@@ -374,7 +376,7 @@ bool MeshGeometry::hotspot_uv(schema::EditableMeshDataT& data,
                       }
                   });
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
 bool MeshGeometry::set_smoothing(schema::EditableMeshDataT& data,
@@ -383,7 +385,7 @@ bool MeshGeometry::set_smoothing(schema::EditableMeshDataT& data,
 {
     schema::EditableMeshDataT candidate = data;
     std::vector<schema::ModelingFaceT*> faces;
-    if (!selected_faces(candidate, face_ids, faces, error))
+    if (!math::selected_faces(candidate, face_ids, faces, error))
     {
         return false;
     }
@@ -391,7 +393,7 @@ bool MeshGeometry::set_smoothing(schema::EditableMeshDataT& data,
     {
         face->smoothing_group = group;
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
 bool MeshGeometry::auto_smooth(schema::EditableMeshDataT& data, double angle_degrees,
@@ -413,28 +415,29 @@ bool MeshGeometry::auto_smooth(schema::EditableMeshDataT& data, double angle_deg
     for (std::size_t i = 0; i < candidate.faces.size(); ++i)
     {
         auto& face = *candidate.faces[i];
-        if (!face_normal(candidate, face, normals[i]))
+        if (!math::face_normal(candidate, face, normals[i]))
         {
             error = "Cannot smooth a degenerate face";
             return false;
         }
         face.smoothing_group = 0;
-        map_loops(
-            face,
-            [&](const auto& vertices, auto&)
-            {
-                for (std::size_t j = 0; j < vertices.size(); ++j)
-                {
-                    edges[edge_key(vertices[j], vertices[(j + 1) % vertices.size()])].push_back(i);
-                }
-            });
+        map_loops(face,
+                  [&](const auto& vertices, auto&)
+                  {
+                      for (std::size_t j = 0; j < vertices.size(); ++j)
+                      {
+                          edges[math::edge_key(vertices[j], vertices[(j + 1) % vertices.size()])]
+                              .push_back(i);
+                      }
+                  });
     }
     std::vector<std::vector<std::size_t>> neighbors(candidate.faces.size());
-    const double cosine = std::cos(angle_degrees * pi / 180.0);
+    const double cosine = std::cos(angle_degrees * math::pi / 180.0);
     for (const auto& [edge, faces] : edges)
     {
         (void)edge;
-        if (faces.size() == 2 && dot(normals[faces[0]], normals[faces[1]]) >= cosine - epsilon)
+        if (faces.size() == 2 &&
+            math::dot(normals[faces[0]], normals[faces[1]]) >= cosine - math::epsilon)
         {
             neighbors[faces[0]].push_back(faces[1]);
             neighbors[faces[1]].push_back(faces[0]);
@@ -465,7 +468,7 @@ bool MeshGeometry::auto_smooth(schema::EditableMeshDataT& data, double angle_deg
             }
         }
     }
-    return commit(data, std::move(candidate), error);
+    return math::commit(data, std::move(candidate), error);
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

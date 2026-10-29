@@ -40,6 +40,10 @@ Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前�
 
 ## 核心与调用方
 
+命名空间分别为核心 `engine`、编辑器 `engine::editor`、插件 `engine::plugins::<插件名>`。插件可向下调用核心与适用的编辑器接口；编辑器基础库不引用插件。具体装配只在宿主进行，不能由插件 CMake 给核心或编辑器追加反向链接。
+
+建模的权威源网格由 `ModelingMeshImporter` 处理，宿主通过 `AssetPipelineSystem::set_importer` 将它交给编辑器注册表。基础 `MeshImporter` 保留普通网格导入；未启用插件时，遇到建模权威源明确失败。导入器身份参与增量指纹，移除插件后不能复用此前插件生成的缓存绕过检查。详见[建模资源导入](editor/class-diagrams/modeling-mesh-importer.md)。
+
 资源核心保留目录、GUID/VFS、单项读取与解析。`ResourceLoader` 定义加载与查询接口；运行时 `resource_graph` 插件通过相同接口组合单项能力、加载依赖并共享资源。业务只请求顶级对象，依赖策略不进入 Engine、资源文件底层或 MCP。
 
 MCP 插件中的协议目标只拥有描述、输入模型与回调。编辑器业务模块自行注册工具，场景命令通过文件通道进入编辑器主线程；组件继续提供普通 C++ 方法。超时返回原请求身份，客户端查询完成回执，不重复执行未确认操作。

@@ -209,7 +209,7 @@ classDiagram
     class LogSystem
     EditorHost *-- ProjectSystem : 独立根系统
     EditorHost *-- EditorSystem : 独立根系统
-    EditorHost *-- AssetPipelineSystem : 脚本运行开启时拥有
+    EditorHost *-- AssetPipelineSystem : 资源管线目标开启时拥有
     class EditorEnvironment
     EditorHost *-- EditorEnvironment : 配置平台路径与提交目录
     EditorEnvironment --> ProjectSystem : 已就绪项目借用
@@ -562,12 +562,14 @@ classDiagram
     ResourceSystem ..> ResourceCodec : 按资源类型解码和验证
     ResourceCodec ..> Resource : 写入候选实体
     ResourceCodec ..> ResourceCatalog : 借用引用元数据
-    AssetPipelineSystem ..> AssetImporterRegistry : 批次选择与类型登记
-    AssetImporterRegistry *-- AssetImporter : 独占每批实现
+    AssetPipelineSystem *-- AssetImporterRegistry : 独占登记并在批次中选择
+    AssetImporterRegistry *-- AssetImporter : 独占已登记实现
     AssetImporter ..> ImportContext : 借用转换输入及目标信息
 ```
 
 单项资源的类型校验见 [ResourceCodec](../runtime/class-diagrams/resource-codecs.md)，离线依赖、类型指纹和转换见 [AssetImporter](../editor/class-diagrams/asset-importers.md)。资源解码器不加载依赖；导入器不拥有 Taskflow 执行器或 SQLite 发布事务。
+
+建模导入扩展的完整关系见 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：插件继承编辑器 MeshImporter，宿主创建并通过 set_importer 转交管线持有。管线只拥有 AssetImporter 接口，不依赖建模插件目标；销毁管线时释放登记实现。
 
 ## 第三方资源拥有关系
 
@@ -682,13 +684,17 @@ classDiagram
     class ResourceSystem
     class AssetPipelineSystem
     class TaskSystem
+    class AssetImporter
+    class SceneAssetImporter
     class SceneImporter
     class ScriptSystem
     class System
     System <|-- TaskSystem
     AssetPipelineSystem *-- TaskSystem : 独占导入子系统
     AssetPipelineSystem ..> GuidMap : 源文件逻辑路径与身份校验
-    AssetPipelineSystem ..> SceneImporter : TOML 转场景数据
+    AssetPipelineSystem ..> AssetImporter : 调度已登记类型
+    AssetImporter <|-- SceneAssetImporter
+    SceneAssetImporter ..> SceneImporter : TOML 转场景数据
     AssetPipelineSystem ..> ResourceSystem : 同步读取及产物校验
     ResourceCatalog *-- GuidMap : 值拥有双向索引
     ResourceSystem *-- ResourceCatalog : 元数据目录
@@ -768,6 +774,7 @@ Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享
 ```mermaid
 classDiagram
     class AssetPipelineSystem
+    class AssetImporter
     class TextureImporter
     class ResourceSystem
     class Resource
@@ -776,7 +783,8 @@ classDiagram
     class MeshRenderer
     class MeshUtils
     class RenderSystem
-    AssetPipelineSystem ..> TextureImporter : Taskflow任务调用
+    AssetPipelineSystem ..> AssetImporter : Taskflow任务通过统一接口调用
+    AssetImporter <|-- TextureImporter
     TextureImporter ..> TextureDataT : BasisU缓存
     Resource *-- TextureDataT : 贴图载荷独占
     ResourceSystem ..> MeshUtils : 几何验证
@@ -804,7 +812,9 @@ classDiagram
 | ModelingCommands | MeshRenderer | 通过节点查询借用；只提交完整有效的新网格 |
 | ModelingMcpTools | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
 | ModelingMcpTools | McpSystem | 登记工具描述、参数模型和借用回调，适配器存活到服务关闭 |
-| AssetPipelineSystem | EditableMesh | 从源模型编译运行时 MeshData；GUID/meta与缓存发布仍归管线 |
+| editor_app / asset_build_app / mcp_app 宿主 | ModelingMeshImporter | 按已启用目标创建插件导入器，通过 set_importer 转交资源管线 |
+| AssetPipelineSystem | AssetImporterRegistry / AssetImporter | 独占登记与导入器接口；不引用具体建模插件，GUID/meta 与缓存发布仍归管线 |
+| ModelingMeshImporter | MeshImporter / EditableMesh | 继承编辑器普通网格导入器；权威建模源由插件几何层编译为运行时 MeshData |
 
 建模计算核心、场景业务和 MCP 适配均位于 `plugins/editor/modeling/`，插件内部按计算与调用边界分别编译。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何目标不依赖编辑器状态或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
 
@@ -829,6 +839,8 @@ classDiagram
 classDiagram
     class ScenePersistence
     class ModelingCommands
+    class EditorHost
+    class MeshSourceWriter
     class WorldSystem
     class SceneImporter
     class EditorCommands
@@ -837,7 +849,9 @@ classDiagram
     class RenderMcpTools
     class RenderSystem
     ScenePersistence --> WorldSystem : 借用场景
-    ScenePersistence ..> ModelingCommands : 宿主注入网格回调
+    EditorHost ..> ModelingCommands : 创建建模业务并绑定方法
+    EditorHost ..> ScenePersistence : 创建并注入网格回调
+    ScenePersistence *-- MeshSourceWriter : 持有函数契约
     ScenePersistence ..> SceneImporter : 发布场景快照
     ScenePersistence ..> EditorCommands : 注册保存命令
     EditorMcpTools ..> EditorCommands : 文件命令通道
@@ -847,5 +861,7 @@ classDiagram
 ```
 
 方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/editor/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
+
+`EditorHost` 表示编辑器入口程序，`MeshSourceWriter` 是 `std::function` 类型别名。宿主提供的闭包借用 ModelingCommands，宿主先释放编辑器命令和持久化回调，再销毁建模对象；ScenePersistence 本身不依赖任何插件类型。
 
 截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影只支持首个启用方向光的单张 PCF 阴影图，不包含级联、点光/聚光阴影或 IBL。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。

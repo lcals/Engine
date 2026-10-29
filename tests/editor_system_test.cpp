@@ -66,12 +66,12 @@ private:
 [[nodiscard]] bool run_cases(const char* project_root, ImGuiContext* host_context)
 {
     const engine::EngineConfig config;
-    engine::ProjectSystem project(project_root);
-    engine::EditorEnvironment environment(project, std::filesystem::path(project_root) / "cache" /
-                                                       "editor-system-test-persistent");
+    engine::editor::ProjectSystem project(project_root);
+    engine::editor::EditorEnvironment environment(
+        project, std::filesystem::path(project_root) / "cache" / "editor-system-test-persistent");
     Calls calls;
     {
-        engine::EditorSystem editor(environment);
+        engine::editor::EditorSystem editor(environment);
         std::unique_ptr<engine::System> child = std::make_unique<EditorChild>(calls);
         if (!expect(editor.add_subsystem(child) && !child, "editor owns its child") ||
             !expect(!editor.initialize(config) && !editor.is_initialized(),

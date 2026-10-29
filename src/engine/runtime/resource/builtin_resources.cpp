@@ -1,6 +1,7 @@
 #include "runtime/resource/builtin_resources.hpp"
 
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/shader_generated.h"

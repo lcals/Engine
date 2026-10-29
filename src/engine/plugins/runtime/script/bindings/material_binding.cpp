@@ -4,7 +4,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/node.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -178,4 +178,4 @@ bool MaterialBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "MaterialV4", set_v4);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

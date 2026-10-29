@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <string>
 
-namespace engine::mcp_tools
+namespace engine::plugins::mcp::tools
 {
 
 [[nodiscard]] bool no_symlinks(const std::filesystem::path& path);
@@ -14,4 +14,4 @@ namespace engine::mcp_tools
 [[nodiscard]] bool editor_alive(const nlohmann::json& status);
 [[nodiscard]] bool android_receipt(bool success, const std::string& text, nlohmann::json& output);
 
-} // namespace engine::mcp_tools
+} // namespace engine::plugins::mcp::tools

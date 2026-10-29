@@ -23,12 +23,12 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::asset_build
 {
 namespace
 {
 
-using namespace asset_pipeline;
+namespace pipeline = engine::editor::asset_pipeline;
 
 struct BuildItem
 {
@@ -336,7 +336,7 @@ bool read_entity(const std::filesystem::path& cache, const schema::AssetEntryT& 
 {
     const auto file = cache / "gen" / entry.guid;
     ByteBuffer payload;
-    if (!inspect_path(file, error) || !read_bytes(file, bytes, error) ||
+    if (!inspect_path(file, error) || !pipeline::read_bytes(file, bytes, error) ||
         !ResourceSystem::decode_resource(entry, bytes, payload))
     {
         error = "imported resource entity is invalid: " + entry.path;
@@ -438,7 +438,8 @@ bool publish_output(const std::filesystem::path& staged, const std::filesystem::
 
 } // namespace
 
-AssetBuildSystem::AssetBuildSystem(AssetPipelineSystem& pipeline) noexcept : pipeline_(pipeline)
+AssetBuildSystem::AssetBuildSystem(engine::editor::AssetPipelineSystem& pipeline) noexcept
+    : pipeline_(pipeline)
 {
 }
 
@@ -492,12 +493,13 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     const auto name = PathUtils::to_utf8(output.filename());
     const auto staged = output.parent_path() / PathUtils::from_utf8("." + name + ".staged");
     const auto backup = output.parent_path() / PathUtils::from_utf8("." + name + ".previous");
-    ProjectLock package_lock;
+    pipeline::ProjectLock package_lock;
     if (!inspect_path(staged, last_error_) || !inspect_path(backup, last_error_) ||
-        !package_lock.acquire(
-            root / "cache" /
-                (".asset-package-" + hash_text(PathUtils::to_utf8(manifest.output)) + ".lock"),
-            last_error_) ||
+        !package_lock.acquire(root / "cache" /
+                                  (".asset-package-" +
+                                   pipeline::hash_text(PathUtils::to_utf8(manifest.output)) +
+                                   ".lock"),
+                              last_error_) ||
         !recover_output(output, backup, last_error_))
     {
         return false;
@@ -507,7 +509,7 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
         last_error_ = pipeline_.last_error();
         return false;
     }
-    ProjectLock import_lock;
+    pipeline::ProjectLock import_lock;
     ResourceCatalog source;
     if (!import_lock.acquire(root / "cache/.asset-build.lock", last_error_) ||
         !ResourceSystem::read_catalog(root / "cache", source) ||
@@ -539,9 +541,10 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
             const auto* entry = source.find(guid);
             key += ":" + guid + ":" + entry->content_hash;
         }
-        fingerprint += ":" + hash_text(key);
+        fingerprint += ":" + pipeline::hash_text(key);
         std::uint64_t offset = 0;
-        const auto package_path = "packs/" + item.name + "-" + hash_text("package-1:" + key);
+        const auto package_path =
+            "packs/" + item.name + "-" + pipeline::hash_text("package-1:" + key);
         for (const auto& guid : item.resources)
         {
             auto entry = std::make_unique<schema::AssetEntryT>(*source.find(guid));
@@ -568,7 +571,7 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     }
     std::sort(data.entries.begin(), data.entries.end(),
               [](const auto& left, const auto& right) { return left->guid < right->guid; });
-    data.revision = hash_text(fingerprint);
+    data.revision = pipeline::hash_text(fingerprint);
     stats.resource_count = data.entries.size();
     stats.revision = data.revision;
     ResourceCatalog result;
@@ -670,9 +673,9 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishAssetCatalogDataBuffer(builder, schema::AssetCatalogData::Pack(builder, &data));
-    if (!write_bytes(staged / "catalog.bin",
-                     std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
-                     last_error_) ||
+    if (!pipeline::write_bytes(
+            staged / "catalog.bin",
+            std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())), last_error_) ||
         !publish_output(staged, output, backup, last_error_))
     {
         return fail();
@@ -691,4 +694,4 @@ const std::string& AssetBuildSystem::last_error() const noexcept
     return last_error_;
 }
 
-} // namespace engine
+} // namespace engine::plugins::asset_build

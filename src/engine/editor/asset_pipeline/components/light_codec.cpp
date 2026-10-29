@@ -8,7 +8,7 @@
 #include <limits>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 schema::ComponentPayload LightCodec::type() const noexcept
@@ -101,4 +101,4 @@ void LightCodec::write(const schema::ComponentDataT& component, toml::table& val
     value.insert("outer_angle", light->outer_angle);
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

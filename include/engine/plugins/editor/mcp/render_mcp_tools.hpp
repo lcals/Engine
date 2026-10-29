@@ -1,6 +1,6 @@
 #pragma once
 
-namespace engine
+namespace engine::plugins::mcp
 {
 class EditorMcpTools;
 class McpSystem;
@@ -14,4 +14,4 @@ public:
 private:
     EditorMcpTools& editor_;
 };
-} // namespace engine
+} // namespace engine::plugins::mcp

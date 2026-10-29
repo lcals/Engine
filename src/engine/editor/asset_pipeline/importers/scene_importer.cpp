@@ -8,7 +8,7 @@
 #include <flatbuffers/flatbuffers.h>
 #include <span>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 schema::AssetKind SceneAssetImporter::kind() const noexcept
 {
@@ -75,4 +75,4 @@ bool SceneAssetImporter::convert(const ImportAsset& asset, const ImportContext& 
                        std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
                        error);
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

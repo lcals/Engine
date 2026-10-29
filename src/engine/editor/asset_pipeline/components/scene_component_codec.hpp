@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 class SceneComponentCodec
@@ -26,4 +26,4 @@ public:
 find_scene_component_codec(schema::ComponentPayload type) noexcept;
 [[nodiscard]] const SceneComponentCodec* find_scene_component_codec(std::string_view name) noexcept;
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

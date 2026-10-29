@@ -1,5 +1,7 @@
 # 建模编辑业务
 
+图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。 `WorldSystem`、`Node` 等运行时类型属于 `engine`，`EditorCommands`、`EditorEdit` 属于 `engine::editor`。
+
 [类图索引](../../../class-diagrams/index.md) · [核心建模](editable-mesh.md)
 
 编辑器负责场景身份、选择、撤销与源资源文件；全部几何运算调用插件的纯 C++ 核心。
@@ -8,11 +10,11 @@
 ```mermaid
 classDiagram
     class ModelingCommands {
-        +ModelingCommands(WorldSystem& world, Path project_root)
+        +ModelingCommands(engine::WorldSystem& world, Path project_root)
         +~ModelingCommands()
-        +register_commands(EditorCommands& commands) bool
+        +register_commands(engine::editor::EditorCommands& commands) bool
         +synchronize_scene() void
-        +export_mesh(const Node& node, const filesystem_path& path, string& error) bool
+        +export_mesh(const engine::Node& node, const filesystem_path& path, string& error) bool
     }
     class WorldSystem
     class EditorCommands

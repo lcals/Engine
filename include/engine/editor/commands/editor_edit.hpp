@@ -2,7 +2,7 @@
 
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 
 class EditorEdit
@@ -14,4 +14,4 @@ public:
     [[nodiscard]] virtual bool revert(std::string& error) = 0;
 };
 
-} // namespace engine
+} // namespace engine::editor

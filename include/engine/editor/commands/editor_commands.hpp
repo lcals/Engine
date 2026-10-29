@@ -9,7 +9,7 @@
 #include <string>
 #include <string_view>
 
-namespace engine
+namespace engine::editor
 {
 
 class EditorEdit;
@@ -40,4 +40,4 @@ private:
     std::unique_ptr<State> state_;
 };
 
-} // namespace engine
+} // namespace engine::editor

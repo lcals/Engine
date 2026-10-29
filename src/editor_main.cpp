@@ -9,6 +9,10 @@
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#if ENGINE_HAS_MODELING_IMPORTER
+#include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#endif
+
 #if ENGINE_HAS_MODELING_PLUGIN
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #endif
@@ -56,35 +60,49 @@ void print_usage()
                "<pixels>] [--height <pixels>]\n");
 }
 
-int run_editor(const fs::path& project_root, engine::EditorEnvironment& environment,
+int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& environment,
                const engine::EngineConfig& config, std::uint64_t frame_limit)
 {
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
-    engine::ResourceGraphSystem resource_graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
 #endif
     engine::RuntimeHost runtime;
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::ScriptSystem>(&world); };
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world); };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
-    std::unique_ptr<engine::ModelingCommands> modeling;
+    std::unique_ptr<engine::plugins::modeling::ModelingCommands> modeling;
 #endif
-    std::unique_ptr<engine::RenderCommands> render_commands;
+    std::unique_ptr<engine::editor::RenderCommands> render_commands;
 #if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
-    std::unique_ptr<engine::ScenePersistence> persistence;
+    std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
-    std::unique_ptr<engine::EditorSystem> editor;
+    std::unique_ptr<engine::editor::EditorSystem> editor;
     std::uint64_t frames = 0;
     const int result = [&]()
     {
 #if ENGINE_HAS_ASSET_PIPELINE
-        if (!pipeline.initialize(config) || !pipeline.build_assets(project_root))
+        if (!pipeline.initialize(config))
+        {
+            LogSystem::write(LogLevel::error, "Asset pipeline initialization failed");
+            return 1;
+        }
+#if ENGINE_HAS_MODELING_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
+            std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
+        if (!pipeline.set_importer(importer))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register modeling importer");
+            return 1;
+        }
+#endif
+        if (!pipeline.build_assets(project_root))
         {
             LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
             return 1;
@@ -114,8 +132,8 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
             return 1;
         }
 #endif
-        editor = std::make_unique<engine::EditorSystem>(environment, runtime.gameplay(),
-                                                        runtime.world());
+        editor = std::make_unique<engine::editor::EditorSystem>(environment, runtime.gameplay(),
+                                                                runtime.world());
         if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");
@@ -124,7 +142,8 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
 #if ENGINE_HAS_MODELING_PLUGIN
         if (editor->commands() != nullptr && runtime.world() != nullptr)
         {
-            modeling = std::make_unique<engine::ModelingCommands>(*runtime.world(), project_root);
+            modeling = std::make_unique<engine::plugins::modeling::ModelingCommands>(
+                *runtime.world(), project_root);
             if (!modeling->register_commands(*editor->commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register modeling commands");
@@ -134,8 +153,8 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
 #endif
         if (editor->commands() != nullptr && runtime.renderer() != nullptr)
         {
-            render_commands = std::make_unique<engine::RenderCommands>(*runtime.renderer(),
-                                                                       project_root / "cache");
+            render_commands = std::make_unique<engine::editor::RenderCommands>(
+                *runtime.renderer(), project_root / "cache");
             if (!render_commands->register_commands(*editor->commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register render commands");
@@ -145,7 +164,7 @@ int run_editor(const fs::path& project_root, engine::EditorEnvironment& environm
 #if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
         if (modeling != nullptr)
         {
-            persistence = std::make_unique<engine::ScenePersistence>(
+            persistence = std::make_unique<engine::editor::ScenePersistence>(
                 *runtime.world(), project_root,
                 [&modeling](const engine::Node& node, const fs::path& destination,
                             std::string& error)
@@ -319,13 +338,13 @@ int main(int argc, char* argv[])
         LogSystem::write(LogLevel::error, "Cannot normalize editor project path");
         return 1;
     }
-    engine::ProjectSystem project(PathUtils::to_utf8(project_root));
+    engine::editor::ProjectSystem project(PathUtils::to_utf8(project_root));
     if (!project.initialize(config))
     {
         LogSystem::write(LogLevel::error, "Editor project initialization failed");
         return 1;
     }
-    engine::EditorEnvironment environment(project, runtime_directory);
+    engine::editor::EditorEnvironment environment(project, runtime_directory);
     if (!environment.initialize())
     {
         LogSystem::write(LogLevel::error, "Cannot initialize editor environment");

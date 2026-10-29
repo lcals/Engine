@@ -84,7 +84,7 @@ int main(int argc, char* argv[])
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
-    engine::ResourceGraphSystem resource_graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
     const auto shutdown_resources = [&]()
     {
         resources.set_loader(nullptr);
@@ -110,7 +110,7 @@ int main(int argc, char* argv[])
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::ScriptSystem>(&world); };
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world); };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready = engine.initialize(config, &resources, script_factory);

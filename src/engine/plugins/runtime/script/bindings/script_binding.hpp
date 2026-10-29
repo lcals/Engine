@@ -4,7 +4,7 @@
 
 #include <string_view>
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 
 class ScriptBinding
@@ -17,4 +17,4 @@ public:
                                                   v8::Local<v8::Object> native) const = 0;
 };
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

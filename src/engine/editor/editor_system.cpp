@@ -26,7 +26,7 @@
 #include <fstream>
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -370,4 +370,4 @@ void EditorSystem::on_shutdown() noexcept
         context_ = nullptr;
     }
 }
-} // namespace engine
+} // namespace engine::editor

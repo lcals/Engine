@@ -14,15 +14,15 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-using mcp_tools::editor_alive;
-using mcp_tools::no_symlinks;
-using mcp_tools::read_project_status;
+using tools::editor_alive;
+using tools::no_symlinks;
+using tools::read_project_status;
 
 bool atomic_control(const fs::path& runtime, bool enabled)
 {
@@ -163,7 +163,7 @@ bool ProjectMcpTools::register_runtime_tools(McpSystem& mcp)
              {
                  std::string receipt;
                  const bool success = set_android_hot_reload(enabled, receipt);
-                 return mcp_tools::android_receipt(success, receipt, output);
+                 return tools::android_receipt(success, receipt, output);
              }
              if (!atomic_control(target_.runtime_dir, enabled))
              {
@@ -187,10 +187,10 @@ bool ProjectMcpTools::register_runtime_tools(McpSystem& mcp)
              {
                  std::string receipt;
                  const bool success = read_android_status(receipt);
-                 return mcp_tools::android_receipt(success, receipt, output);
+                 return tools::android_receipt(success, receipt, output);
              }
              return read_status(target_.runtime_dir, output);
          }});
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

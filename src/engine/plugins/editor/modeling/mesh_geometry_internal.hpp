@@ -11,7 +11,7 @@
 #include <set>
 #include <utility>
 
-namespace engine::modeling_detail
+namespace engine::plugins::modeling::detail::geometry
 {
 
 constexpr double epsilon = 1.0e-9;
@@ -213,4 +213,4 @@ inline std::pair<std::uint64_t, std::uint64_t> edge_key(std::uint64_t a, std::ui
     return std::minmax(a, b);
 }
 
-} // namespace engine::modeling_detail
+} // namespace engine::plugins::modeling::detail::geometry
