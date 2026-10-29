@@ -6,10 +6,16 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <memory>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <utility>
 
 namespace
 {
@@ -41,18 +47,87 @@ bool check(bool condition, const char* description)
     return condition;
 }
 
+std::string source_guid(std::string_view name)
+{
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const unsigned char value : name)
+    {
+        hash = (hash ^ value) * 1099511628211ULL;
+    }
+    char guid[37]{};
+    std::snprintf(guid, sizeof(guid), "30000000-0000-4000-8000-%012llx",
+                  static_cast<unsigned long long>(hash & 0xffffffffffffULL));
+    return guid;
+}
+
+bool publish_scripts(const fs::path& source, const std::map<std::string, std::string>& scripts)
+{
+    engine::schema::AssetCatalogDataT catalog;
+    catalog.schema_version = 2;
+    catalog.target_platform = "android";
+    catalog.revision = "sync-fixture";
+    for (const auto& [name, text] : scripts)
+    {
+        auto entry = std::make_unique<engine::schema::AssetEntryT>();
+        entry->guid = source_guid(name);
+        entry->path = "project/" + name;
+        entry->module_path = name;
+        entry->kind = engine::schema::AssetKind::script;
+        engine::ByteBuffer entity;
+        if (!engine::ResourceSystem::encode_resource(
+                entry->guid, entry->kind,
+                engine::ByteView(reinterpret_cast<const std::byte*>(text.data()), text.size()),
+                entity, entry->header_size))
+        {
+            return false;
+        }
+        std::uint64_t hash = 14695981039346656037ULL;
+        for (const auto value : entity)
+        {
+            hash = (hash ^ std::to_integer<unsigned char>(value)) * 1099511628211ULL;
+        }
+        char digest[17]{};
+        std::snprintf(digest, sizeof(digest), "%016llx", static_cast<unsigned long long>(hash));
+        entry->content_hash = digest;
+        entry->content_size = entity.size();
+        entry->location = std::make_unique<engine::schema::FileLocationT>();
+        entry->location->mount = "content";
+        entry->location->path = "gen/" + entry->guid;
+        entry->location->length = entity.size();
+        catalog.revision += entry->content_hash;
+        if (!write_file(
+                source / entry->location->path,
+                std::string_view(reinterpret_cast<const char*>(entity.data()), entity.size())))
+        {
+            return false;
+        }
+        catalog.entries.push_back(std::move(entry));
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    return write_file(source / "catalog.bin",
+                      std::string_view(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                       builder.GetSize()));
+}
+
 bool exercise(const fs::path& root)
 {
     const auto source = root / "source";
     const auto runtime = root / "runtime";
-    const auto available = runtime / "assets" / "available.json";
-    const auto entry = source / "scripts" / "game.js";
+    const auto available = runtime / "assets/available.json";
+    const auto game_file = "gen/" + source_guid("scripts/game.js");
+    const auto deleted_file = "gen/" + source_guid("scripts/deleted.js");
+    std::map<std::string, std::string> scripts{
+        {"scripts/game.js", "export default class Game {}\n"},
+        {"scripts/deleted.js", "export const value = 1;\n"}};
     engine::AssetSyncSystem sync;
     if (!check(!sync.sync(source, runtime), "uninitialized sync rejected") ||
         !check(sync.initialize({}), "initialize sync") ||
-        !check(write_file(entry, "export default class Game {}\n"), "write gameplay entry") ||
-        !check(write_file(source / "scripts" / "deleted.js", "export const value = 1;\n"),
-               "write removable script") ||
+        !check(write_file(source / "scripts/game.js", scripts.at("scripts/game.js")) &&
+                   !sync.sync(source, runtime),
+               "loose script tree without catalog rejected") ||
+        !check(publish_scripts(source, scripts), "write unified source catalog") ||
         !check(sync.sync(source, runtime), "publish initial version"))
     {
         return false;
@@ -72,58 +147,61 @@ bool exercise(const fs::path& root)
     {
         return false;
     }
-    fs::remove(source / "scripts" / "deleted.js", error);
-    if (!check(!error && write_file(entry, "export default class Game { updated = true; }\n"),
-               "change entry and remove script") ||
-        !check(sync.sync(source, runtime), "publish changed snapshot"))
+    scripts.erase("scripts/deleted.js");
+    scripts["scripts/game.js"] = "export default class Game { updated = true; }\n";
+    if (!check(publish_scripts(source, scripts) && sync.sync(source, runtime),
+               "publish changed catalog and removed script"))
     {
         return false;
     }
     const auto second = read_json(available);
     if (!check(sync.revision() != first_revision, "changed content gets new revision") ||
-        !check(second["deleted"] == Json::array({"scripts/deleted.js"}), "deletion recorded") ||
-        !check(
-            fs::exists(runtime / "assets" / "versions" / first_revision / "scripts" / "deleted.js",
-                       error),
-            "old active snapshot remains intact") ||
-        !check(write_file(source / "scripts" / "added.js", "export const added = 1;\n"),
-               "add script") ||
-        !check(sync.sync(source, runtime), "publish added script"))
+        !check(second["deleted"] == Json::array({deleted_file}), "GUID deletion recorded") ||
+        !check(fs::exists(runtime / "assets/versions" / first_revision / deleted_file, error),
+               "old active snapshot remains intact"))
+    {
+        return false;
+    }
+    scripts["scripts/added.js"] = "export const added = 1;\n";
+    if (!check(publish_scripts(source, scripts) && sync.sync(source, runtime),
+               "publish added script"))
     {
         return false;
     }
     const auto third = read_json(available);
-    if (!check(third["deleted"] == second["deleted"], "deletions persist across later syncs"))
+    if (!check(third["deleted"] == second["deleted"], "deletions persist across later syncs") ||
+        !write_file(runtime / "assets/.staging-interrupted/catalog.bin", "bad"))
     {
         return false;
     }
-    // 暂存文件和其他同步持有的锁都不能让半批文件成为可用版本。
-    if (!write_file(runtime / "assets" / ".staging-interrupted" / "scripts" / "game.js", "bad"))
-    {
-        return false;
-    }
-    fs::create_directory(runtime / "assets" / ".sync-lock", error);
+    fs::create_directory(runtime / "assets/.sync-lock", error);
     if (!check(!error && !sync.sync(source, runtime),
                "concurrent or interrupted sync lock rejected") ||
         !check(read_json(available) == third, "interrupted transfer never changes manifest"))
     {
         return false;
     }
-    fs::remove(runtime / "assets" / ".sync-lock", error);
+    fs::remove(runtime / "assets/.sync-lock", error);
     if (!check(!error && sync.sync(source, runtime), "retry after abandoned lock cleanup"))
     {
         return false;
     }
-    // 主机支持符号链接时验证源与目标均不会逃出指定树。
-    fs::create_symlink(entry, source / "scripts" / "escape.js", error);
+    // 指向已有实体的链接也不能作为部署来源。
+    const auto outside = root / "external-entity";
+    fs::copy_file(source / game_file, outside, error);
+    if (error || !fs::remove(source / game_file, error) || error)
+    {
+        return false;
+    }
+    fs::create_symlink(outside, source / game_file, error);
     if (!error)
     {
-        if (!check(!sync.sync(source, runtime), "source symlink rejected") ||
+        if (!check(!sync.sync(source, runtime), "referenced source symlink rejected") ||
             !check(read_json(available) == third, "symlink failure keeps old manifest"))
         {
             return false;
         }
-        fs::remove(source / "scripts" / "escape.js", error);
+        fs::remove(source / game_file, error);
         fs::create_directory_symlink(runtime, root / "redirected-runtime", error);
         if (!check(!error && !sync.sync(source, root / "redirected-runtime"),
                    "runtime symlink rejected"))
@@ -134,13 +212,14 @@ bool exercise(const fs::path& root)
     else
     {
         std::fputs("Symlink checks skipped: host does not permit creating test symlinks\n", stderr);
-        error.clear();
+    }
+    if (!publish_scripts(source, scripts))
+    {
+        return false;
     }
     const auto current_revision = third["revision"].get<std::string>();
-    if (!check(
-            write_file(runtime / "assets" / "versions" / current_revision / "scripts" / "game.js",
-                       "corrupt"),
-            "simulate corrupted immutable version") ||
+    if (!check(write_file(runtime / "assets/versions" / current_revision / game_file, "corrupt"),
+               "simulate corrupted immutable version") ||
         !check(!sync.sync(source, runtime), "corrupted immutable version is rejected") ||
         !check(read_json(available) == third, "corruption does not replace available pointer"))
     {
@@ -158,29 +237,46 @@ bool exercise(const fs::path& root)
     }
     return true;
 }
+
 bool guid_exercise(const fs::path& root)
 {
     const auto source = root / "guid-cache";
     const auto runtime = root / "guid-runtime";
     const std::string guid = "20000000-0000-4000-8000-000000000001";
     const std::string script = "export default class Game {}\n";
+    engine::ByteBuffer entity;
+    std::uint32_t header_size = 0;
+    if (!engine::ResourceSystem::encode_resource(
+            guid, engine::schema::AssetKind::script,
+            engine::ByteView(reinterpret_cast<const std::byte*>(script.data()), script.size()),
+            entity, header_size))
+    {
+        return false;
+    }
+    const std::string encoded_entity(reinterpret_cast<const char*>(entity.data()), entity.size());
     std::uint64_t hash = 14695981039346656037ULL;
-    for (unsigned char value : script)
+    for (unsigned char value : encoded_entity)
     {
         hash = (hash ^ value) * 1099511628211ULL;
     }
     std::array<char, 17> encoded{};
     std::snprintf(encoded.data(), encoded.size(), "%016llx", static_cast<unsigned long long>(hash));
     engine::schema::AssetCatalogDataT catalog;
+    catalog.schema_version = 2;
     catalog.revision = "guid-sync-test";
-    catalog.target_platform = "android"; // 桌面可传输交叉平台产物，只有激活要求平台一致。
+    catalog.target_platform = "android";
     auto asset = std::make_unique<engine::schema::AssetEntryT>();
     asset->guid = guid;
     asset->path = "project/scripts/game.ts";
     asset->module_path = "scripts/game.js";
     asset->kind = engine::schema::AssetKind::script;
     asset->content_hash = encoded.data();
-    asset->content_size = script.size();
+    asset->content_size = entity.size();
+    asset->header_size = header_size;
+    asset->location = std::make_unique<engine::schema::FileLocationT>();
+    asset->location->mount = "content";
+    asset->location->path = "gen/" + guid;
+    asset->location->length = entity.size();
     catalog.entries.push_back(std::move(asset));
     flatbuffers::FlatBufferBuilder builder;
     engine::schema::FinishAssetCatalogDataBuffer(
@@ -188,7 +284,7 @@ bool guid_exercise(const fs::path& root)
     if (!write_file(source / "catalog.bin",
                     std::string_view(reinterpret_cast<const char*>(builder.GetBufferPointer()),
                                      builder.GetSize())) ||
-        !write_file(source / "gen" / guid, script) ||
+        !write_file(source / "gen" / guid, encoded_entity) ||
         !write_file(source / "tasks.sqlite", "editor-only database") ||
         !write_file(source / "gen/stale-artifact", "unreferenced generated output"))
     {
@@ -210,18 +306,39 @@ bool guid_exercise(const fs::path& root)
     {
         return false;
     }
-    catalog.entries.front()->kind = engine::schema::AssetKind::source;
-    catalog.entries.front()->path = "project/data/raw.bin";
-    catalog.entries.front()->module_path.clear();
+    // 合并包只同步一次物理文件，条目按清单范围寻址。
+    auto& packed = *catalog.entries.front();
+    packed.location->path = "packages/main";
+    packed.location->offset = 9;
+    catalog.revision = "packed-sync-test";
     builder.Clear();
     engine::schema::FinishAssetCatalogDataBuffer(
         builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
-    if (!write_file(source / "gen" / guid, script) ||
+    if (!write_file(source / "packages/main", "pack-head" + encoded_entity + "pack-tail") ||
         !write_file(source / "catalog.bin",
                     std::string_view(reinterpret_cast<const char*>(builder.GetBufferPointer()),
                                      builder.GetSize())) ||
-        !check(sync.sync(source, runtime),
-               "resource-only catalog synchronizes without gameplay entry"))
+        !check(sync.sync(source, runtime), "package members synchronize through locations"))
+    {
+        return false;
+    }
+    const auto packed_manifest = read_json(available);
+    if (!check(packed_manifest["files"].size() == 2 &&
+                   packed_manifest["files"][1]["path"] == "packages/main",
+               "only the referenced package and catalog are synchronized"))
+    {
+        return false;
+    }
+    // 包的物理尺寸可超过单实体上限；稀疏尾部不改变有效资源的定位。
+    std::error_code error;
+    fs::resize_file(source / "packages/main", 65ULL * 1024 * 1024, error);
+    if (!check(!error && sync.sync(source, runtime), "large carrier hashes in bounded chunks"))
+    {
+        return false;
+    }
+    const auto large_manifest = read_json(available);
+    if (!check(large_manifest["files"][1]["size"] == 65ULL * 1024 * 1024,
+               "large carrier length is preserved in the deployment manifest"))
     {
         return false;
     }

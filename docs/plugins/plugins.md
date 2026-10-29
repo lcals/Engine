@@ -1,15 +1,13 @@
 # 脚本与插件模块
 
-本文保留插件扩展的规划目标。当前代码按职责分层：V8 玩法脚本系统位于 `runtime/script/`；MCP 工具位于 `plugins/mcp/`，调用 `editor/` 中的资源管线与同步能力，不把 MCP 协议放进运行时。
+V8 玩法脚本位于 `runtime/script/`；MCP 工具位于 `plugins/mcp/`，调用编辑器资源管线和同步能力。运行时不依赖 MCP 协议。相关接口见[脚本系统](../runtime/class-diagrams/script-system.md)、[玩法入口](../runtime/class-diagrams/gameplay.md)和 [MCP 系统](class-diagrams/mcp-system.md)。
 
-已实现接口见[运行时脚本系统](../runtime/class-diagrams/script-system.md)、[项目玩法入口](../runtime/class-diagrams/gameplay.md)和 [MCP 系统](class-diagrams/mcp-system.md)。当前热重载重建玩法 Context 与 Game，不保留任意 JavaScript 状态；插件多线程和状态迁移属于下文的后续目标。
+引擎主体与编辑器使用 C++，玩法使用 TypeScript。TypeScript 编译为 JavaScript 后由 V8 执行，原生能力通过 `engine` ES 模块暴露，公开声明统一维护于 [include/engine.d.ts](../../include/engine.d.ts)。每个绑定类实现统一接口并在注册表登记，绑定外观和原生回调归对应类的实现文件。
 
-引擎主体与编辑器使用 C++；游戏脚本、编辑器插件和运行插件使用 TypeScript。TypeScript 编译为 JavaScript 后由 [V8](https://v8.dev/) 执行。
+项目 `Gameplay` 是场景之外的入口，可以承载业务与场景切换；场景对象使用 Node 和普通 Component，不增加 Behaviour 或 MonoBehaviour 层次。脚本运行和回调由宿主线程驱动。
 
-参考熟悉的脚本接口使用方式：引擎能力由 C++ 实现，并通过稳定的 TypeScript API 供脚本与插件调用，公开声明统一维护在 [include/engine.d.ts](../../include/engine.d.ts)。未来场景脚本采用 Node 与普通 Component，不增加 Behaviour 或 MonoBehaviour 层次。后续状态迁移需明确可保存的数据与恢复规则，再支持跨重载延续；不能把该目标当作当前任意状态回滚承诺。
+MCP 提供项目启停、资源导入、完整版本同步、热重载开关与状态查询。同步覆盖 catalog 中的全部资源；桌面通过持久目录发布，Android 调试包通过明确指定设备的 adb 通路发布。MCP 不直接重载 V8，也不安装设备端 MCP 服务。
 
-插件系统与编辑器并列，编辑器可以调用插件。插件分为编辑器插件和运行插件，分别运行在对应宿主中；脚本与插件支持多线程执行，由宿主管理执行与隔离边界。
+热重载重建玩法 Context 和实例。候选编译或静态链接失败时保留旧运行；新入口开始执行后，业务副作用不自动回滚。关闭热重载仍可同步待应用版本，停止项目后不会因同步自动启动。
 
-游戏运行时脚本与运行插件的长期目标是无需重启引擎即可切换逻辑，并支持明确约定的运行数据保留。当前实现只在候选模块编译或静态链接失败时保留旧运行；新入口开始执行后的业务副作用不能自动回滚。引擎负责热重载，MCP 负责同步并控制开关，支持通过增补日志和调整逻辑快速调试。
-
-编辑器代码与插件的热重载目标见[编辑器模块](../editor/editor.md)。
+独立编辑器插件、运行插件、多线程插件执行、C++ 模块热重载及状态迁移尚未实现。扩展接口须明确宿主、生命周期、线程和状态边界，不能将这些能力视为已有 V8 热重载的保证。

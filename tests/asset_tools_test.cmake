@@ -31,7 +31,10 @@ function(run_tool _tool _output _magic)
     if(_size LESS_EQUAL _magic_bytes)
         message(FATAL_ERROR "${_output} contains no payload")
     endif()
-    file(READ "${_output}" _header LIMIT ${_magic_bytes} HEX)
+    file(
+        READ "${_output}" _header
+        LIMIT ${_magic_bytes}
+        HEX)
     if(NOT "${_header}" STREQUAL "${_magic}")
         message(FATAL_ERROR "Unexpected header in ${_output}: ${_header}")
     endif()
@@ -46,21 +49,56 @@ else()
 endif()
 
 set(_shader "${ENGINE_OUTPUT_DIR}/triangle_shader.bin")
-run_tool("${ENGINE_SHADERC}" "${_shader}" "565348"
-    -f "${_fixtures}/vs_triangle.sc" -o "${_shader}" --type vertex
-    --platform "${_shader_platform}" --profile 120
-    --varyingdef "${_fixtures}/varying.def.sc" --Werror)
+run_tool(
+    "${ENGINE_SHADERC}"
+    "${_shader}"
+    "565348"
+    -f
+    "${_fixtures}/vs_triangle.sc"
+    -o
+    "${_shader}"
+    --type
+    vertex
+    --platform
+    "${_shader_platform}"
+    --profile
+    120
+    --varyingdef
+    "${_fixtures}/varying.def.sc"
+    --Werror)
 
 set(_texture "${ENGINE_OUTPUT_DIR}/blocks.ktx")
-run_tool("${ENGINE_TEXTUREC}" "${_texture}" "ab4b5458203131bb0d0a1a0a"
-    -f "${_fixtures}/blocks.png" -o "${_texture}" -t RGBA8 --linear --validate)
-file(READ "${_texture}" _dimensions OFFSET 36 LIMIT 12 HEX)
+run_tool(
+    "${ENGINE_TEXTUREC}"
+    "${_texture}"
+    "ab4b5458203131bb0d0a1a0a"
+    -f
+    "${_fixtures}/blocks.png"
+    -o
+    "${_texture}"
+    -t
+    RGBA8
+    --linear
+    --validate)
+file(
+    READ "${_texture}" _dimensions
+    OFFSET 36
+    LIMIT 12
+    HEX)
 if(NOT "${_dimensions}" STREQUAL "080000000800000000000000")
     message(FATAL_ERROR "Texture dimensions must remain 8 x 8: ${_dimensions}")
 endif()
 
 set(_mesh "${ENGINE_OUTPUT_DIR}/triangle_mesh.bin")
-run_tool("${ENGINE_GEOMETRYC}" "${_mesh}" "5642"
-    -f "${ENGINE_OUTPUT_DIR}/triangle.obj" -o "${_mesh}" --ccw --tangent)
+run_tool(
+    "${ENGINE_GEOMETRYC}"
+    "${_mesh}"
+    "5642"
+    -f
+    "${ENGINE_OUTPUT_DIR}/triangle.obj"
+    -o
+    "${_mesh}"
+    --ccw
+    --tangent)
 
 message(STATUS "Compiled and checked shader, texture, and mesh outputs")

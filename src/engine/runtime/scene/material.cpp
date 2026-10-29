@@ -14,10 +14,10 @@ namespace engine
 namespace
 {
 
-const schema::ShaderParameterT* find_definition(std::string_view shader_path, std::string_view name,
+const schema::ShaderParameterT* find_definition(const ResourcePtr& resource, std::string_view name,
                                                 schema::MaterialValue value_type)
 {
-    const schema::ShaderDataT* shader = ResourceSystem::find_shader(shader_path);
+    const schema::ShaderDataT* shader = resource ? resource->shader() : nullptr;
     if (shader == nullptr)
     {
         return nullptr;
@@ -31,10 +31,10 @@ const schema::ShaderParameterT* find_definition(std::string_view shader_path, st
     return iterator == shader->parameters.end() ? nullptr : iterator->get();
 }
 
-bool valid_values(std::string_view shader_path, std::string_view name,
+bool valid_values(const ResourcePtr& resource, std::string_view name,
                   schema::MaterialValue value_type, std::initializer_list<double> values)
 {
-    const auto* definition = find_definition(shader_path, name, value_type);
+    const auto* definition = find_definition(resource, name, value_type);
     return definition != nullptr &&
            std::all_of(values.begin(), values.end(),
                        [definition](double value)
@@ -46,12 +46,13 @@ bool valid_values(std::string_view shader_path, std::string_view name,
                        });
 }
 
-schema::MaterialDataT shader_defaults(std::string_view type_path, const schema::ShaderDataT& shader)
+schema::MaterialDataT shader_defaults(std::string_view type_path, const Resource& resource)
 {
+    const auto& shader = *resource.shader();
     schema::MaterialDataT result;
     result.type_path = type_path;
     result.shader_path = shader.path;
-    (void)ResourceSystem::path_to_guid(shader.path, result.shader_guid);
+    result.shader_guid = resource.info().guid;
     for (const auto& definition : shader.parameters)
     {
         if (!definition->exposed)
@@ -84,17 +85,22 @@ std::string_view Material::shader_path() const noexcept
 
 bool Material::set_type(std::string_view path)
 {
-    const schema::MaterialDataT* definition = ResourceSystem::find_material(path);
-    if (definition == nullptr)
-    {
-        return false;
-    }
-    if (data_.type_path == path)
+    if (data_.type_path == path && material_resource_ && shader_resource_)
     {
         return true;
     }
-    const schema::ShaderDataT* shader = ResourceSystem::find_shader(definition->shader_path);
-    if (shader == nullptr)
+    auto* resources = ResourceSystem::instance();
+    Guid guid;
+    ResourcePtr material;
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->load(guid, material) || material->material() == nullptr)
+    {
+        return false;
+    }
+    const auto* definition = material->material();
+    ResourcePtr shader;
+    if (!ResourceSystem::path_to_guid(definition->shader_path, guid) ||
+        !resources->load(guid, shader) || shader->shader() == nullptr)
     {
         return false;
     }
@@ -111,22 +117,32 @@ bool Material::set_type(std::string_view path)
         (*destination)->value = parameter->value;
     }
     data_ = std::move(replacement);
+    material_resource_ = std::move(material);
+    shader_resource_ = std::move(shader);
     return true;
 }
 
 bool Material::set_shader(std::string_view path)
 {
-    const schema::ShaderDataT* shader = ResourceSystem::find_shader(path);
-    if (shader == nullptr || ResourceSystem::find_material(data_.type_path) == nullptr)
+    if (!material_resource_)
     {
         return false;
     }
-    if (data_.shader_path == path)
+    if (data_.shader_path == path && shader_resource_)
     {
         return true;
     }
+    auto* resources = ResourceSystem::instance();
+    Guid guid;
+    ResourcePtr shader;
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->load(guid, shader) || shader->shader() == nullptr)
+    {
+        return false;
+    }
     auto replacement = shader_defaults(data_.type_path, *shader);
     data_ = std::move(replacement);
+    shader_resource_ = std::move(shader);
     return true;
 }
 
@@ -134,7 +150,7 @@ bool Material::set_float(std::string_view name, float value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::FloatValue);
     if (parameter == nullptr ||
-        !valid_values(shader_path(), name, schema::MaterialValue::FloatValue, {value}))
+        !valid_values(shader_resource_, name, schema::MaterialValue::FloatValue, {value}))
     {
         return false;
     }
@@ -145,8 +161,9 @@ bool Material::set_float(std::string_view name, float value) noexcept
 bool Material::set_v2(std::string_view name, const Vec2& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec2Value);
-    if (parameter == nullptr || !valid_values(shader_path(), name, schema::MaterialValue::Vec2Value,
-                                              {value.x(), value.y()}))
+    if (parameter == nullptr ||
+        !valid_values(shader_resource_, name, schema::MaterialValue::Vec2Value,
+                      {value.x(), value.y()}))
     {
         return false;
     }
@@ -157,8 +174,9 @@ bool Material::set_v2(std::string_view name, const Vec2& value) noexcept
 bool Material::set_v3(std::string_view name, const Vec3& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec3Value);
-    if (parameter == nullptr || !valid_values(shader_path(), name, schema::MaterialValue::Vec3Value,
-                                              {value.x(), value.y(), value.z()}))
+    if (parameter == nullptr ||
+        !valid_values(shader_resource_, name, schema::MaterialValue::Vec3Value,
+                      {value.x(), value.y(), value.z()}))
     {
         return false;
     }
@@ -169,8 +187,9 @@ bool Material::set_v3(std::string_view name, const Vec3& value) noexcept
 bool Material::set_v4(std::string_view name, const Vec4& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec4Value);
-    if (parameter == nullptr || !valid_values(shader_path(), name, schema::MaterialValue::Vec4Value,
-                                              {value.x(), value.y(), value.z(), value.w()}))
+    if (parameter == nullptr ||
+        !valid_values(shader_resource_, name, schema::MaterialValue::Vec4Value,
+                      {value.x(), value.y(), value.z(), value.w()}))
     {
         return false;
     }
@@ -187,7 +206,7 @@ bool Material::get_float(std::string_view name, float& output) const noexcept
         return false;
     }
     const float value = parameter->value.AsFloatValue()->value;
-    if (!valid_values(shader_path(), name, schema::MaterialValue::FloatValue, {value}))
+    if (!valid_values(shader_resource_, name, schema::MaterialValue::FloatValue, {value}))
     {
         return false;
     }
@@ -204,7 +223,7 @@ bool Material::get_v2(std::string_view name, Vec2& output) const noexcept
         return false;
     }
     const Vec2& value = parameter->value.AsVec2Value()->value;
-    if (!valid_values(shader_path(), name, schema::MaterialValue::Vec2Value,
+    if (!valid_values(shader_resource_, name, schema::MaterialValue::Vec2Value,
                       {value.x(), value.y()}))
     {
         return false;
@@ -222,7 +241,7 @@ bool Material::get_v3(std::string_view name, Vec3& output) const noexcept
         return false;
     }
     const Vec3& value = parameter->value.AsVec3Value()->value;
-    if (!valid_values(shader_path(), name, schema::MaterialValue::Vec3Value,
+    if (!valid_values(shader_resource_, name, schema::MaterialValue::Vec3Value,
                       {value.x(), value.y(), value.z()}))
     {
         return false;
@@ -240,7 +259,7 @@ bool Material::get_v4(std::string_view name, Vec4& output) const noexcept
         return false;
     }
     const Vec4& value = parameter->value.AsVec4Value()->value;
-    if (!valid_values(shader_path(), name, schema::MaterialValue::Vec4Value,
+    if (!valid_values(shader_resource_, name, schema::MaterialValue::Vec4Value,
                       {value.x(), value.y(), value.z(), value.w()}))
     {
         return false;
@@ -258,7 +277,7 @@ schema::MaterialParameterT* Material::find_parameter(std::string_view name,
 const schema::MaterialParameterT*
 Material::find_parameter(std::string_view name, schema::MaterialValue type) const noexcept
 {
-    if (find_definition(data_.shader_path, name, type) == nullptr)
+    if (find_definition(shader_resource_, name, type) == nullptr)
     {
         return nullptr;
     }

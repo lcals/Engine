@@ -22,6 +22,7 @@ classDiagram
         -restore_data(const SceneDataT& data) bool
         -find_local_node(uint64_t local_id) Node#42;
     }
+    class Resource
     class WorldSystem
     class Node
     class Camera
@@ -44,6 +45,7 @@ classDiagram
     }
     WorldSystem "1" *-- "0..1" Scene : 独占活动场景
     Scene "1" *-- "0..*" Node : 独占节点
+    Scene o-- Resource : 已加载场景根资源共享引用
     Scene "1" *-- "1" SceneInfoT : 唯一场景元数据
     Scene --> ecs_world_t : 借用底层实体世界
     Scene ..> Camera : 根据节点id查询与设置活动相机
@@ -59,6 +61,8 @@ classDiagram
 - `destroy_node()` 连同后代一起删除；如果活动相机属于该子树，清除记录的相机节点 id。不存在时返回 false。
 - 返回节点和组件均为借用，删除所属节点或场景后失效。遍历 `nodes()` 期间不可增加或删除节点。
 - `build_data()` 从生成类型组成的运行时状态创建独立的 `SceneDataT` 内存快照；失败输出为空。快照可由 FlatBuffers Pack、Verifier、UnPack，并保留层级、组件类型及参数。资源写入由编辑器转换器完成；WorldSystem 读取运行时缓存并向候选 Scene 恢复数据。
-- `include/schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。后续其他语言从同一 schema 生成类型，不另定义数据模型。
+- `include/schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。C++ 与 TypeScript 从同一 schema 生成类型，不另定义数据模型。
 
 `build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
+
+由 WorldSystem 加载的场景持有场景根资源及其必要依赖，节点销毁完成后才释放该引用。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。

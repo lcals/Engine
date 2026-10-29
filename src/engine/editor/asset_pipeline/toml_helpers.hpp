@@ -8,15 +8,18 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 
 namespace engine::asset_pipeline
 {
 
-inline bool identifier(const toml::node* node, std::uint64_t& output)
+[[nodiscard]] inline bool identifier(const toml::node* node, std::uint64_t& output)
 {
     output = 0;
     if (node == nullptr)
@@ -37,12 +40,19 @@ inline bool identifier(const toml::node* node, std::uint64_t& output)
     {
         return false;
     }
-    const auto parsed = std::from_chars(text->data(), text->data() + text->size(), output);
-    return parsed.ec == std::errc{} && parsed.ptr == text->data() + text->size();
+    std::uint64_t value = 0;
+    const auto parsed = std::from_chars(text->data(), text->data() + text->size(), value);
+    if (parsed.ec != std::errc{} || parsed.ptr != text->data() + text->size())
+    {
+        return false;
+    }
+    output = value;
+    return true;
 }
 
-inline bool number(const toml::node* node, double& output)
+[[nodiscard]] inline bool number(const toml::node* node, double& output)
 {
+    output = 0;
     if (node == nullptr)
     {
         return false;
@@ -56,25 +66,30 @@ inline bool number(const toml::node* node, double& output)
     return true;
 }
 
-template <std::size_t Count> bool numbers(const toml::node* node, std::array<double, Count>& output)
+template <std::size_t Count>
+[[nodiscard]] bool numbers(const toml::node* node, std::array<double, Count>& output)
 {
+    output = {};
     const auto* values = node != nullptr ? node->as_array() : nullptr;
     if (values == nullptr || values->size() != Count)
     {
         return false;
     }
+    std::array<double, Count> parsed{};
     for (std::size_t index = 0; index < Count; ++index)
     {
-        if (!number(values->get(index), output[index]))
+        if (!number(values->get(index), parsed[index]))
         {
             return false;
         }
     }
+    output = parsed;
     return true;
 }
 
-inline bool float_number(const toml::node* node, float& output)
+[[nodiscard]] inline bool float_number(const toml::node* node, float& output)
 {
+    output = 0;
     double value = 0;
     if (!number(node, value) || std::abs(value) > std::numeric_limits<float>::max())
     {
@@ -84,9 +99,10 @@ inline bool float_number(const toml::node* node, float& output)
     return true;
 }
 
-inline bool value_union(const toml::table& table, schema::MaterialValueUnion& output,
-                        std::string& error)
+[[nodiscard]] inline bool value_union(const toml::table& table, schema::MaterialValueUnion& output,
+                                      std::string& error)
 {
+    output.Reset();
     const auto type = table["type"].value<std::string_view>();
     if (type == "float")
     {

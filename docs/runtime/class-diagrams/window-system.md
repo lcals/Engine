@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-状态：本轮最小窗口与渲染实现。本图只定义 `WindowSystem` 的方法，其他节点为跨图引用或第三方类型。
+本图只定义 `WindowSystem` 的方法，其他节点为跨图引用或第三方类型。
 
 ```mermaid
 classDiagram

@@ -17,7 +17,9 @@ function(_engine_v8_parse_ninja_paths _text _output)
         string(REPLACE "$$" "$" _path "${_path}")
         list(APPEND _paths "${_path}")
     endforeach()
-    set(${_output} "${_paths}" PARENT_SCOPE)
+    set(${_output}
+        "${_paths}"
+        PARENT_SCOPE)
 endfunction()
 
 if(NOT DEFINED ENGINE_V8_OUTPUT)
@@ -112,8 +114,10 @@ if(_target_os STREQUAL "mac")
         message(FATAL_ERROR "Unsupported macOS V8 archive architecture: ${_archive_processor}")
     endif()
     find_program(_xcrun xcrun REQUIRED)
-    execute_process(COMMAND "${_xcrun}" --find lipo
-        OUTPUT_VARIABLE _lipo OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+    execute_process(
+        COMMAND "${_xcrun}" --find lipo
+        OUTPUT_VARIABLE _lipo
+        OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
 endif()
 if(NOT EXISTS "${_archiver}")
     message(FATAL_ERROR "The pinned LLVM archiver is unavailable: ${_archiver}")
@@ -129,7 +133,14 @@ foreach(_archive IN LISTS _rust_archives _runtime_archives)
         # Rust 列表来自命令变量；隐式依赖的 Ninja 路径已经单独解码。
         string(REPLACE "$:" ":" _archive "${_archive}")
     endif()
-    cmake_path(ABSOLUTE_PATH _archive BASE_DIRECTORY "${_out}" NORMALIZE OUTPUT_VARIABLE _absolute_archive)
+    cmake_path(
+        ABSOLUTE_PATH
+        _archive
+        BASE_DIRECTORY
+        "${_out}"
+        NORMALIZE
+        OUTPUT_VARIABLE
+        _absolute_archive)
     list(APPEND _inputs "${_absolute_archive}")
     if(_is_runtime)
         list(APPEND _runtime_inputs "${_absolute_archive}")
@@ -145,8 +156,17 @@ endforeach()
 file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" _script_hash)
 file(SIZE "${_archiver}" _archiver_size)
 file(TIMESTAMP "${_archiver}" _archiver_mtime "%Y-%m-%dT%H:%M:%S.%fZ" UTC)
-string(JOIN "\n" _input_manifest "${_script_hash}" "${_target_os}" "${ENGINE_V8_TARGET_CPU}"
-    "${_archiver}:${_archiver_size}:${_archiver_mtime}" "${_native_arch}" "${_lipo}" ${_inputs})
+string(
+    JOIN
+    "\n"
+    _input_manifest
+    "${_script_hash}"
+    "${_target_os}"
+    "${ENGINE_V8_TARGET_CPU}"
+    "${_archiver}:${_archiver_size}:${_archiver_mtime}"
+    "${_native_arch}"
+    "${_lipo}"
+    ${_inputs})
 string(SHA256 _identity "${_input_manifest}")
 set(_identity_file "${_out}/obj/.engine-v8-package-identity")
 set(_current_identity "")
@@ -177,7 +197,7 @@ if(_target_os STREQUAL "win")
     set(_response_file "${_out}/obj/engine_v8.rsp")
     file(WRITE "${_response_file}" "${_response}")
     execute_process(COMMAND "${_archiver}" /lib /nologo "/OUT:${_temporary}" "@${_response_file}"
-        WORKING_DIRECTORY "${_out}" COMMAND_ERROR_IS_FATAL ANY)
+                    WORKING_DIRECTORY "${_out}" COMMAND_ERROR_IS_FATAL ANY)
 else()
     # MRI ADDLIB 逐个展开归档成员，不能把 rlib 作为嵌套成员塞进最终静态库。
     set(_mri "CREATE \"${_temporary}\"\n")
@@ -185,8 +205,10 @@ else()
         set(_mri_input "${_input}")
         if(_target_os STREQUAL "mac" AND _input IN_LIST _runtime_inputs)
             # Clang 的 Darwin 运行库是通用归档；MRI 只接受目标架构的薄归档。
-            execute_process(COMMAND "${_lipo}" -archs "${_input}"
-                OUTPUT_VARIABLE _architectures OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
+            execute_process(
+                COMMAND "${_lipo}" -archs "${_input}"
+                OUTPUT_VARIABLE _architectures
+                OUTPUT_STRIP_TRAILING_WHITESPACE COMMAND_ERROR_IS_FATAL ANY)
             separate_arguments(_architectures UNIX_COMMAND "${_architectures}")
             if(NOT _native_arch IN_LIST _architectures)
                 message(FATAL_ERROR "V8 runtime archive lacks ${_native_arch}: ${_input}")
@@ -196,8 +218,8 @@ else()
                 string(SHA256 _runtime_id "${_input}")
                 file(MAKE_DIRECTORY "${_out}/obj/engine_v8_runtime")
                 set(_mri_input "${_out}/obj/engine_v8_runtime/${_runtime_id}-${_native_arch}.a")
-                execute_process(COMMAND "${_lipo}" "${_input}" -thin "${_native_arch}" -output "${_mri_input}.tmp"
-                    COMMAND_ERROR_IS_FATAL ANY)
+                execute_process(COMMAND "${_lipo}" "${_input}" -thin "${_native_arch}" -output
+                                        "${_mri_input}.tmp" COMMAND_ERROR_IS_FATAL ANY)
                 file(RENAME "${_mri_input}.tmp" "${_mri_input}")
             endif()
         endif()
@@ -206,7 +228,9 @@ else()
     string(APPEND _mri "SAVE\nEND\n")
     set(_mri_file "${_out}/obj/engine_v8.mri")
     file(WRITE "${_mri_file}" "${_mri}")
-    execute_process(COMMAND "${_archiver}" -M INPUT_FILE "${_mri_file}"
+    execute_process(
+        COMMAND "${_archiver}" -M
+        INPUT_FILE "${_mri_file}"
         WORKING_DIRECTORY "${_out}" COMMAND_ERROR_IS_FATAL ANY)
 endif()
 file(RENAME "${_temporary}" "${_library}")

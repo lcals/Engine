@@ -4,9 +4,9 @@
 
 Android 使用 SDL3 自带 Activity 框架加载同版本的 `libSDL3.so` 与引擎 `libmain.so`。
 
-正常启动由原生宿主依次初始化 App、LogSystem、Engine；所有系统就绪后调用 `Engine::start_gameplay()` 运行 APK 项目的入口。引擎不接收编辑器项目目录。退出先结束玩法及引擎系统，再刷新并关闭日志和 App。后台暂停保留玩法实例，恢复后继续运行；宿主将单帧时间限制为 0.1 秒并丢弃等待期间时间。
+正常启动由原生入口初始化 App、LogSystem 与 RuntimeHost；所有系统就绪后通过 GameplaySession 运行 APK 项目的入口。引擎不接收编辑器项目目录。退出由 RuntimeHost 先结束玩法会话、关闭引擎系统和窗口，再刷新并关闭日志及 App。后台暂停保留玩法实例，恢复后继续运行；宿主将单帧时间限制为 0.1 秒并丢弃等待期间时间。
 
-构建工具将项目编译资源放在 `assets/project/` 并生成 `assets/project-manifest.json`；设置和 TS 源码不进入 APK。App 的 APK 逻辑根交给 ResourceSystem 直接读取，持久资源版本在应用 `files/assets/versions/`，优先级与桌面一致。ScriptSystem 自行轮询热重载控制与可用版本，MCP 经 adb 同步到 Debug 包私有目录；手机不运行 MCP 服务。
+构建工具将项目编译资源放在 `assets/project/` 并生成 `assets/project-manifest.json`；设置和 TS 源码不进入 APK。App 提供 APK 逻辑根，由 VFS 读取目录及资源范围；持久资源版本在应用 `files/assets/versions/`。GameplaySession 选择持久或内置目录并提交核心，协调热重载控制与可用版本；ScriptSystem 负责模块预检和运行。MCP 经 adb 同步到 Debug 包私有目录；手机不运行 MCP 服务。
 宿主不建立、加载或要求编辑器项目，普通启动使用默认 `EngineConfig`。
 
 ## Activity 入口
@@ -40,7 +40,7 @@ classDiagram
         <<external>>
     }
     class EngineSurface
-    class Engine
+    class RuntimeHost
     class V8 {
         <<library>>
     }
@@ -48,13 +48,13 @@ classDiagram
     EngineActivity ..> EngineSurface : 创建并交给 SDL 管理
     EngineActivity ..> Context : 创建视图的参数
     EngineActivity ..> SDLSurface : 创建视图的返回类型
-    EngineActivity ..> Engine : 经 SDL_main 启动
+    EngineActivity ..> RuntimeHost : 经 SDL_main 启动
     EngineActivity ..> V8 : 可选 JNI 冒烟测试
 ```
 
 - `getArguments()` 把可选的测试帧数交给原生入口；返回数组交由 SDL 使用。
 - `main()` 在 SDL 原生线程上运行。普通启动调用 SDL 父类入口；只有显式传入 `v8_smoke=true` 时，才调用 `runV8Smoke()`，不创建引擎窗口或运行玩法。
-- `runV8Smoke()` 把 APK 内 `assets/v8/icudtl.dat` 复制到应用私有文件目录，再将路径借给私有 JNI 方法 `nativeRunV8Smoke()`；后者通过返回值报告测试结果。读取或复制失败时记录原因并结束本次测试。
+- `runV8Smoke()` 把 APK 内 `assets/v8/icudtl.dat` 复制到应用私有 `cache/v8-smoke/`，再将路径借给私有 JNI 方法 `nativeRunV8Smoke()`；后者通过返回值报告测试结果。读取或复制失败时记录原因并结束测试。
 - JNI 复用桌面测试的普通自由函数，实际创建 V8 平台、isolate 与 context，验证 JavaScript、SharedArrayBuffer 的 Atomics / 十六进制 / Base64、Intl 和 Temporal。测试主体始终链接进 `libmain.so`，普通启动不执行；它不增加 `ScriptSystem` 的公共接口。
 - V8 完整关闭后不能在同一进程重新初始化。测试函数只允许每个进程调用一次，重复调用返回失败；下一次测试或普通启动使用新应用进程。正常引擎退出后的 Activity 重建不执行此测试。
 - `onPause()` 在调用父类之前请求暂停渲染；`onResume()` 在父类处理恢复后检查视图是否就绪。
@@ -102,6 +102,6 @@ classDiagram
 - 关闭 SDL 自带的后台阻塞，让失焦后的事件泵继续处理主线程回调。握手不伪造 SDL 前后台事件，避免快速切换时与 SDL 合并的暂停 / 恢复事件冲突。
 - 允许 SDL 在同一进程内重新创建 Activity；正常退出后再次启动通过已有的引擎关闭 / 重新初始化流程建立新窗口和渲染器。
 - 初始化前收到暂停请求时暂缓 GPU 创建；已有初始化开始后才收到请求，则完成初始化或失败清理后再确认关闭。关闭与退出的确认以平台内部渲染登记已清除为准。
-- 窗口可绘制性同时检查宿主暂停标志。渲染期间到达的暂停请求使本帧返回 `paused`，不进入不可恢复的 `failed` 状态；Surface 再次就绪后按需重新创建当前最小渲染资源。
+- 窗口可绘制性同时检查宿主暂停标志。渲染期间到达的暂停请求使本帧返回 `paused`，不进入不可恢复的 `failed` 状态；Surface 再次就绪后按需重新创建场景所需的渲染资源。
 - SDLActivity 管理 Activity / Surface 回调和 SDL 原生线程；所有引擎系统与 bgfx API 仍由 `SDL_main` 所在线程调用，不从 Java UI 线程调用。
-- 平台辅助函数不增加引擎架构类或公开系统方法。图只定义 Android 宿主类；`Engine` 的方法与所有权仍在引擎总图维护。实际 APK、模拟器与真机验证范围见根 [README](../../../README.md#编辑器职责拆分与-android)。
+- 平台辅助函数不增加引擎架构类或公开系统方法。图只定义 Android 宿主类；运行时装配与调度见 [RuntimeHost](runtime-host.md)，抽象系统生命周期见[引擎总图](engine-system.md)。实际 APK、模拟器与真机验证范围见根 [README](../../../README.md#验证范围与限制)。

@@ -1,5 +1,9 @@
+#include "resource_fixture.hpp"
+
+#include "runtime/app/runtime_host.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -287,11 +291,10 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     engine::schema::MaterialDataT custom_material;
     custom_material.type_path = "project/materials/tests/custom";
     custom_material.shader_path = custom.path;
-    if (!expect(engine::ResourceSystem::register_shader(custom) &&
-                    engine::ResourceSystem::register_shader(incomplete) &&
-                    engine::ResourceSystem::register_shader(unknown) &&
-                    engine::ResourceSystem::register_material(custom_material),
-                "register custom shader and material definitions"))
+    test_support::ResourceFixture fixture;
+    if (!expect(fixture.add(custom) && fixture.add(incomplete) && fixture.add(unknown) &&
+                    fixture.add(custom_material) && fixture.publish(resources),
+                "submit custom shader and material entity directory"))
     {
         return false;
     }
@@ -354,7 +357,9 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         }
         mesh->set_enabled(true);
         if (!render_frames(windows, renderer, 8))
+        {
             return false;
+        }
 
         // 热重载替换场景时不提前通知渲染器，render 按场景编号重新准备资源。
         world.destroy_scene();
@@ -392,7 +397,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     return true;
 }
 
-bool tick_engine_frames(engine::Engine& engine, int count)
+bool tick_engine_frames(engine::RuntimeHost& engine, int count)
 {
     int submitted = 0;
     for (int attempt = 0; attempt < max_frame_attempts && submitted < count; ++attempt)
@@ -416,11 +421,11 @@ bool tick_engine_frames(engine::Engine& engine, int count)
 
 bool test_engine(const engine::EngineConfig& config)
 {
-    engine::Engine& engine = engine::Engine::instance();
-    engine.shutdown();
+    engine::RuntimeHost engine;
     engine::EngineConfig invalid_config = config;
     invalid_config.width = 0;
-    if (!expect(&engine == &engine::Engine::instance(), "Engine must be a singleton") ||
+    if (!expect(&engine::Engine::instance() == &engine::Engine::instance(),
+                "Engine must be a singleton") ||
         !expect(!engine.initialize(invalid_config), "reject invalid window configuration") ||
         !expect(engine.tick(delta_time) == engine::FrameStatus::failed,
                 "tick must fail before initialization") ||
@@ -442,22 +447,31 @@ bool test_engine(const engine::EngineConfig& config)
 
     const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
     if (!expect(builtin != nullptr, "engine owns builtin definitions"))
+    {
         return false;
+    }
     engine::schema::ShaderDataT project_shader(*builtin);
     project_shader.path = "project/shaders/lifecycle";
     engine::schema::MaterialDataT project_material;
     project_material.type_path = "project/materials/lifecycle";
     project_material.shader_path = project_shader.path;
-    if (!expect(engine::ResourceSystem::register_shader(project_shader) &&
-                    engine::ResourceSystem::register_material(project_material),
-                "register project-scoped definitions for running engine"))
+    test_support::ResourceFixture fixture;
+    auto* resources = engine::ResourceSystem::instance();
+    engine::ResourcePtr held;
+    if (!expect(resources && fixture.add(project_shader) && fixture.add(project_material) &&
+                    fixture.publish(*resources) && fixture.load(project_material.type_path, held),
+                "load project material and shader through the resource core"))
+    {
         return false;
-    engine.stop_gameplay();
-    engine.stop_gameplay();
+    }
+    held.reset();
+    engine.gameplay()->stop();
+    engine.gameplay()->stop();
     if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
                     engine::ResourceSystem::find_material(project_material.type_path) == nullptr &&
                     engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
-                "stopping project clears only project definitions and preserves builtin identity"))
+                "stopped project retains no unowned project definitions and preserves builtin "
+                "identity"))
     {
         return false;
     }
@@ -488,7 +502,6 @@ int main(int, char**)
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
     const bool engine_passed = scene_passed && test_engine(config);
-    engine::Engine::instance().shutdown();
     if (!windows_passed || !scene_passed || !engine_passed)
     {
         return 1;

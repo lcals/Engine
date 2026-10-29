@@ -15,7 +15,7 @@ PhysicsSystem::~PhysicsSystem() noexcept
 
 bool PhysicsSystem::on_initialize(const EngineConfig&)
 {
-    // 本阶段确认物理库 ABI；碰撞世界和类型注册随物理功能一起启用。
+    // 校验 Jolt 的链接与 ABI 配置；本系统不创建物理世界。
     return JPH::VerifyJoltVersionID();
 }
 

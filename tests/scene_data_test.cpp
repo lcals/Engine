@@ -11,10 +11,13 @@
 #include <flatbuffers/flatbuffers.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <string_view>
 #include <vector>
 
 namespace

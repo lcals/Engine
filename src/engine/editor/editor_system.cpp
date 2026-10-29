@@ -1,8 +1,12 @@
 #include "editor/editor_system.hpp"
 
 #include "editor/editor_environment.hpp"
+
+#if ENGINE_HAS_ASSET_PIPELINE
+#include "editor/asset_pipeline/project_lock.hpp"
+#endif
 #include "runtime/app/app.hpp"
-#include "runtime/engine.hpp"
+#include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/script/script_system.hpp"
@@ -55,7 +59,8 @@ bool plain_path(const fs::path& path)
 
 struct EditorSystem::State
 {
-    Engine& runtime;
+    GameplaySession& gameplay;
+    EditorEnvironment& environment;
     fs::path directory;
     std::string project_root;
     std::string session;
@@ -69,18 +74,19 @@ struct EditorSystem::State
     std::string previous_status;
     std::chrono::steady_clock::time_point last_write{};
 
-    explicit State(Engine& engine) : runtime(engine)
+    State(GameplaySession& session, EditorEnvironment& editor_environment)
+        : gameplay(session), environment(editor_environment)
     {
     }
 
     bool publish(bool force = false)
     {
-        const auto* script = runtime.script_status();
+        const auto* script = gameplay.script_status();
         const bool running = !closed && script != nullptr && script->running;
         std::string error = last_error;
         if (error.empty())
         {
-            error = runtime.last_error();
+            error = gameplay.last_error();
         }
         if (error.empty() && script != nullptr)
         {
@@ -179,6 +185,10 @@ struct EditorSystem::State
         last_command = request["command"].get<std::string>();
         last_error.clear();
         last_success = false;
+#if ENGINE_HAS_ASSET_PIPELINE
+        // 启动锁覆盖刷新、资源取得及最终状态发布，避免与其他进程导入交错。
+        asset_pipeline::ProjectLock start_lock;
+#endif
         if (last_command == "start_project" || last_command == "stop_project")
         {
             transition = last_command == "start_project" ? "starting" : "stopping";
@@ -189,15 +199,35 @@ struct EditorSystem::State
             }
             if (last_command == "start_project")
             {
-                last_success = runtime.start_gameplay();
-                if (!last_success)
+#if ENGINE_HAS_ASSET_PIPELINE
+                const auto import_lock =
+                    PathUtils::from_utf8(project_root) / "cache" / ".asset-build.lock";
+                if (!plain_path(import_lock) || !start_lock.acquire(import_lock, last_error))
                 {
-                    last_error = runtime.last_error();
+                    last_error =
+                        "Resource import is active; wait for it before starting the project: " +
+                        last_error;
                 }
+                else
+                {
+                    const auto* current = gameplay.script_status();
+                    const bool already_running = current != nullptr && current->running;
+                    last_success = (already_running || environment.refresh_resources(gameplay)) &&
+                                   gameplay.start();
+                    if (!last_success)
+                    {
+                        last_error = gameplay.last_error().empty()
+                                         ? "Cannot refresh the editor resource directory"
+                                         : std::string(gameplay.last_error());
+                    }
+                }
+#else
+                last_error = "Project startup requires the editor resource pipeline";
+#endif
             }
             else
             {
-                runtime.stop_gameplay();
+                gameplay.stop();
                 last_success = true;
             }
             transition.clear();
@@ -213,8 +243,8 @@ struct EditorSystem::State
     }
 };
 
-EditorSystem::EditorSystem(EditorEnvironment& environment, Engine* runtime) noexcept
-    : environment_(environment), runtime_(runtime)
+EditorSystem::EditorSystem(EditorEnvironment& environment, GameplaySession* gameplay) noexcept
+    : environment_(environment), gameplay_(gameplay)
 {
 }
 
@@ -236,13 +266,13 @@ bool EditorSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
-    if (runtime_ != nullptr)
+    if (gameplay_ != nullptr)
     {
         if (!App::is_initialized())
         {
             return false;
         }
-        state_ = std::make_unique<State>(*runtime_);
+        state_ = std::make_unique<State>(*gameplay_, environment_);
         state_->directory = App::persistent_data_path();
         if (!plain_path(state_->directory))
         {
@@ -250,7 +280,9 @@ bool EditorSystem::on_initialize(const EngineConfig&)
         }
         state_->project_root = environment_.project_identity_;
         state_->session =
-            std::to_string(timestamp_ms()) + "-" + std::to_string(SDL_GetPerformanceCounter());
+            environment_.session_marker_.empty()
+                ? std::to_string(timestamp_ms()) + "-" + std::to_string(SDL_GetPerformanceCounter())
+                : PathUtils::to_utf8(environment_.session_marker_.stem());
         if (!state_->publish(true))
         {
             return false;
@@ -268,7 +300,7 @@ void EditorSystem::on_shutdown() noexcept
 {
     if (state_ != nullptr)
     {
-        runtime_->stop_gameplay();
+        gameplay_->stop();
         state_->closed = true;
         if (!state_->session.empty() && !state_->publish(true))
         {

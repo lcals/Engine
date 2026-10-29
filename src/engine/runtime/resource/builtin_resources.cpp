@@ -15,6 +15,54 @@
 
 namespace engine
 {
+
+const schema::AssetCatalogDataT& builtin_resource_catalog()
+{
+    static const schema::AssetCatalogDataT catalog = []
+    {
+        schema::AssetCatalogDataT result;
+        result.schema_version = 2;
+        result.revision = "builtin-1";
+        const auto add = [&result](const char* guid, const char* path, schema::AssetKind kind,
+                                   const char* dependency)
+        {
+            auto entry = std::make_unique<schema::AssetEntryT>();
+            entry->guid = guid;
+            entry->path = path;
+            entry->kind = kind;
+            if (dependency != nullptr)
+            {
+                entry->dependencies.emplace_back(dependency);
+            }
+            result.entries.push_back(std::move(entry));
+        };
+        add("00000000-0000-4000-8000-000000000001", "builtin/shaders/pbr",
+            schema::AssetKind::shader, nullptr);
+        add("00000000-0000-4000-8000-000000000002", "builtin/shaders/unlit",
+            schema::AssetKind::shader, nullptr);
+        add("00000000-0000-4000-8000-000000000003", "builtin/materials/default-pbr",
+            schema::AssetKind::material, "00000000-0000-4000-8000-000000000001");
+        add("00000000-0000-4000-8000-000000000004", "builtin/materials/default-unlit",
+            schema::AssetKind::material, "00000000-0000-4000-8000-000000000002");
+        add("00000000-0000-4000-8000-000000000005", "builtin/meshes/cube", schema::AssetKind::mesh,
+            nullptr);
+        return result;
+    }();
+    return catalog;
+}
+
+const schema::AssetEntryT* builtin_resource_info(std::string_view guid)
+{
+    for (const auto& entry : builtin_resource_catalog().entries)
+    {
+        if (entry->guid == guid)
+        {
+            return entry.get();
+        }
+    }
+    return nullptr;
+}
+
 namespace
 {
 
