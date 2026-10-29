@@ -38,7 +38,11 @@ def main():
     parser = argparse.ArgumentParser(description="Call the configured editor runtime's MCP tools")
     parser.add_argument("--server", required=True, type=Path, help="Path to mcp_app")
     parser.add_argument("--project", required=True, type=Path)
-    parser.add_argument("--runtime-dir", required=True, type=Path)
+    targets = parser.add_mutually_exclusive_group(required=True)
+    targets.add_argument("--runtime-dir", type=Path)
+    targets.add_argument("--android-serial")
+    parser.add_argument("--android-package")
+    parser.add_argument("--adb", type=Path)
     parser.add_argument("--timeout", type=float, default=120, help="Whole operation timeout in seconds")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="Show published and last reported runtime state")
@@ -48,15 +52,26 @@ def main():
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.android_serial and not args.android_package:
+        parser.error("--android-serial requires --android-package")
+    if not args.android_serial and (args.android_package or args.adb):
+        parser.error("--android-package and --adb require --android-serial")
     tool = {"status": "get_status", "sync": "sync_assets", "hot-reload": "set_hot_reload"}[
         args.command]
     arguments = {"enabled": args.enabled == "on"} if args.command == "hot-reload" else {}
     process = None
     timer = None
     try:
+        command = [str(args.server.resolve()), "--project", str(args.project.resolve())]
+        if args.android_serial:
+            command += ["--android-serial", args.android_serial,
+                        "--android-package", args.android_package]
+            if args.adb:
+                command += ["--adb", str(args.adb.resolve())]
+        else:
+            command += ["--runtime-dir", str(args.runtime_dir.resolve())]
         process = subprocess.Popen(
-            [str(args.server.resolve()), "--project", str(args.project.resolve()),
-             "--runtime-dir", str(args.runtime_dir.resolve())],
+            command,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
             text=True, encoding="utf-8")
         timer = threading.Timer(args.timeout, process.kill)

@@ -19,7 +19,7 @@ public final class EngineActivity extends SDLActivity
 
     private void runV8Smoke()
     {
-        File directory = new File(getFilesDir(), "v8");
+        File directory = new File(getCacheDir(), "v8-smoke");
         if (!directory.isDirectory() && !directory.mkdirs())
         {
             Log.e("EngineV8", "APK V8 smoke FAIL: cannot create the private ICU directory");

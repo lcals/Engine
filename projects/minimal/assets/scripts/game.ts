@@ -2,7 +2,7 @@ import { App, Debug, Gameplay } from "engine";
 
 export default class Game extends Gameplay {
     override OnInitialize(): boolean {
-        Debug.Log("Game.OnInitialize: editor script runtime ready");
+        Debug.Log("Game.OnInitialize: script runtime ready");
         Debug.Log(`Built-in assets: ${App.builtinAssetsPath}`);
         Debug.Log(`Persistent data: ${App.persistentDataPath}`);
         Debug.Log(`Temporary cache: ${App.cachePath}`);

@@ -201,6 +201,7 @@
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
         "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false
@@ -230,6 +231,7 @@
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
         "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false

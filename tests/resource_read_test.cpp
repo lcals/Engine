@@ -163,6 +163,81 @@ bool oversized_file(const std::filesystem::path& root)
     return success;
 }
 
+bool apk_path_failures(const std::filesystem::path& root)
+{
+    const std::array<std::string_view, 15> invalid_paths{"apk:",
+                                                         "apk:/",
+                                                         "apk:/asset/project/game.js",
+                                                         "apk:/assets",
+                                                         "apk:/assets/",
+                                                         "apk://assets/project/game.js",
+                                                         "apk:/assets//project/game.js",
+                                                         "apk:/assets/project/",
+                                                         "apk:/assets/./project/game.js",
+                                                         "apk:/assets/project/../game.js",
+                                                         "apk:/assets/../../game.js",
+                                                         "apk:/assets/project/game.js/.",
+                                                         "apk:/assets/project/game.js/..",
+                                                         "apk:/assets/project\\game.js",
+                                                         "apk:/assets/project/C:game.js"};
+    bool success = true;
+    std::vector<std::byte> binary;
+    std::string text;
+    for (const auto invalid : invalid_paths)
+    {
+        binary.assign(8, std::byte{0x42});
+        text = "must be cleared";
+        success &= expect(!engine::ResourceSystem::read_binary(invalid, binary) && binary.empty(),
+                          "malformed or escaping APK binary path fails and clears output");
+        success &= expect(!engine::ResourceSystem::read_text(invalid, text) && text.empty(),
+                          "malformed or escaping APK text path fails and clears output");
+    }
+    auto embedded_nul = std::filesystem::path("apk:/assets/project/game.js");
+    embedded_nul += std::string("\0ignored", 8);
+    binary.assign(8, std::byte{0x42});
+    text = "must be cleared";
+    success &= expect(!engine::ResourceSystem::read_binary(embedded_nul, binary) && binary.empty(),
+                      "APK binary path with NUL fails and clears output");
+    success &= expect(!engine::ResourceSystem::read_text(embedded_nul, text) && text.empty(),
+                      "APK text path with NUL fails and clears output");
+
+#if !defined(__ANDROID__)
+    // POSIX 允许带冒号的真实目录；确认 APK 前缀不会读取这个伪装的桌面文件。
+    std::error_code error;
+    const auto previous_directory = std::filesystem::current_path(error);
+    if (error)
+    {
+        return expect(false, "capture the current working directory");
+    }
+#if !defined(_WIN32)
+    const auto poison = root / "apk:" / "assets" / "project" / "game.js";
+    std::filesystem::create_directories(poison.parent_path(), error);
+    if (error || !write_file(poison, "must not be read as an APK asset"))
+    {
+        return expect(false, "create the local APK-prefix collision fixture");
+    }
+#endif
+    std::filesystem::current_path(root, error);
+    if (error)
+    {
+        return expect(false, "enter the APK-prefix collision fixture directory");
+    }
+    binary.assign(8, std::byte{0x42});
+    text = "must be cleared";
+    success &= expect(!engine::ResourceSystem::read_binary("apk:/assets/project/game.js", binary) &&
+                          binary.empty(),
+                      "a valid APK binary path cannot read a same-name desktop file");
+    success &= expect(!engine::ResourceSystem::read_text("apk:/assets/project/game.js", text) &&
+                          text.empty(),
+                      "a valid APK text path cannot read a same-name desktop file");
+    std::filesystem::current_path(previous_directory, error);
+    success &= expect(!error, "restore the original working directory");
+#else
+    (void)root;
+#endif
+    return success;
+}
+
 } // namespace
 
 int main()
@@ -176,5 +251,6 @@ int main()
     failures += !binary_and_text(directory.path);
     failures += !empty_and_failures(directory.path);
     failures += !oversized_file(directory.path);
+    failures += !apk_path_failures(directory.path);
     return failures == 0 ? 0 : 1;
 }

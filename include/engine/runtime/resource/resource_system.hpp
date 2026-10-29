@@ -16,7 +16,8 @@ public:
     ResourceSystem() noexcept;
     ~ResourceSystem() noexcept override;
 
-    // 同步读取普通文件，不要求系统初始化；上限 64 MiB，失败清空输出。
+    // 同步读取普通文件或 Android 的 apk:/assets/ 路径；上限 64 MiB，失败清空输出。
+    // 不要求系统初始化；APK 读取要求宿主的 SDL Android 环境已就绪。
     [[nodiscard]] static bool read_binary(const std::filesystem::path& path,
                                           std::vector<std::byte>& output);
     // 保留原始字节及 NUL，不转码；空文件成功。

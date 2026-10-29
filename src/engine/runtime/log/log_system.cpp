@@ -2,6 +2,8 @@
 
 #include "runtime/app/app.hpp"
 
+#include <SDL3/SDL_log.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -126,7 +128,10 @@ void LogSystem::write(LogLevel level, std::string_view message)
     auto& log = instance();
     const auto record = format_record(level, message);
     const std::lock_guard lock(log.mutex_);
-    std::fwrite(record.data(), 1, record.size(), stderr);
+    const SDL_LogPriority priority = level == LogLevel::error     ? SDL_LOG_PRIORITY_ERROR
+                                     : level == LogLevel::warning ? SDL_LOG_PRIORITY_WARN
+                                                                  : SDL_LOG_PRIORITY_INFO;
+    SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, priority, "%s", record.c_str());
     if (!log.file_.is_open() || log.file_failed_)
     {
         return;
@@ -219,7 +224,8 @@ void LogSystem::report_file_failure() noexcept
 {
     if (!file_failed_)
     {
-        std::fputs("Log file output failed; records remain available on stderr\n", stderr);
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "Log file output failed; records remain available in the platform log");
     }
     file_failed_ = true;
 }

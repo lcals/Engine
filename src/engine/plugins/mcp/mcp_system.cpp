@@ -42,6 +42,58 @@ Json tool_result(Json content, bool failed = false)
         {"isError", failed}};
 }
 
+Json android_result(bool success, const std::string& text)
+{
+    auto value = Json::parse(text, nullptr, false);
+    if (!value.is_object())
+    {
+        return tool_result({{"error", "invalid Android operation receipt"}}, true);
+    }
+    return tool_result(std::move(value), !success);
+}
+
+bool valid_android_target(const McpTarget& target)
+{
+    const auto ascii_letter = [](unsigned char value)
+    { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z'); };
+    if (target.android_serial.empty() || target.android_package.empty() ||
+        target.adb_executable.empty() || !target.runtime_dir.empty() ||
+        target.android_package.find('.') == std::string::npos)
+    {
+        return false;
+    }
+    for (const unsigned char value : target.android_serial)
+    {
+        if (!ascii_letter(value) && !(value >= '0' && value <= '9') && value != '-' &&
+            value != '_' && value != '.' && value != ':')
+        {
+            return false;
+        }
+    }
+    bool component_start = true;
+    for (const unsigned char value : target.android_package)
+    {
+        if (value == '.')
+        {
+            if (component_start)
+            {
+                return false;
+            }
+            component_start = true;
+        }
+        else
+        {
+            if ((!ascii_letter(value) && value != '_') &&
+                (component_start || value < '0' || value > '9'))
+            {
+                return false;
+            }
+            component_start = false;
+        }
+    }
+    return !component_start;
+}
+
 bool no_symlinks(const fs::path& path)
 {
     std::error_code error;
@@ -175,9 +227,9 @@ Json tool_list()
 } // namespace
 
 McpSystem::McpSystem(AssetPipelineSystem& pipeline, AssetSyncSystem& sync, fs::path project_root,
-                     fs::path runtime_dir)
+                     McpTarget target)
     : pipeline_(pipeline), sync_(sync), project_root_(std::move(project_root)),
-      runtime_dir_(std::move(runtime_dir))
+      target_(std::move(target))
 {
 }
 
@@ -201,18 +253,35 @@ bool McpSystem::on_initialize(const EngineConfig&)
     }
     for (const char* name : {"settings", "cache", "assets"})
     {
-        if (!fs::is_directory(project_root_ / name, error) || error)
+        if (!no_symlinks(project_root_ / name) || !fs::is_directory(project_root_ / name, error) ||
+            error)
         {
             std::fputs("MCP project must contain settings, cache and assets directories\n", stderr);
             return false;
         }
     }
-    runtime_dir_ = fs::absolute(runtime_dir_, error).lexically_normal();
-    if (error || !no_symlinks(runtime_dir_))
+    if (!target_.android_serial.empty() || !target_.android_package.empty())
+    {
+        if (!valid_android_target(target_))
+        {
+            std::fputs("Android MCP requires a valid explicit serial, package and adb path; "
+                       "--runtime-dir is mutually exclusive\n",
+                       stderr);
+            return false;
+        }
+        return true;
+    }
+    if (target_.runtime_dir.empty())
+    {
+        std::fputs("MCP requires an explicit local or Android target\n", stderr);
+        return false;
+    }
+    target_.runtime_dir = fs::absolute(target_.runtime_dir, error).lexically_normal();
+    if (error || !no_symlinks(target_.runtime_dir))
     {
         return false;
     }
-    fs::create_directories(runtime_dir_, error);
+    fs::create_directories(target_.runtime_dir, error);
     return !error;
 }
 
@@ -281,7 +350,8 @@ bool McpSystem::run_stdio()
                         {{"protocolVersion", protocol},
                          {"capabilities", {{"tools", {{"listChanged", false}}}}},
                          {"serverInfo", {{"name", "engine-editor-tools"}, {"version", "0.1.0"}}},
-                         {"instructions", "Tools target the explicit --project and --runtime-dir. "
+                         {"instructions", "Tools target the explicit local runtime or Android "
+                                          "device/package. "
                                           "Sync publishes files; the engine owns activation."}});
                 }
             }
@@ -317,30 +387,57 @@ bool McpSystem::run_stdio()
                         {
                             result = tool_result({{"error", pipeline_.last_error()}}, true);
                         }
-                        else if (!sync_.sync(project_root_ / "cache" / "assets", runtime_dir_))
+                        else if (!target_.android_serial.empty())
+                        {
+                            std::string receipt;
+                            const bool success = sync_android(receipt);
+                            result = android_result(success, receipt);
+                        }
+                        else if (!sync_.sync(project_root_ / "cache" / "assets",
+                                             target_.runtime_dir))
                         {
                             result = tool_result({{"error", sync_.last_error()}}, true);
                         }
                         else
                         {
-                            result = tool_result({{"availableRevision", sync_.revision()},
-                                                  {"runtimeDir", PathUtils::to_utf8(runtime_dir_)},
-                                                  {"activation", "pending engine decision"}});
+                            result = tool_result(
+                                {{"availableRevision", sync_.revision()},
+                                 {"runtimeDir", PathUtils::to_utf8(target_.runtime_dir)},
+                                 {"activation", "pending engine decision"}});
                         }
                     }
                     else if (name == "set_hot_reload" && arguments.size() == 1 &&
                              arguments.contains("enabled") && arguments["enabled"].is_boolean())
                     {
                         const bool enabled = arguments["enabled"].get<bool>();
-                        result = atomic_control(runtime_dir_, enabled)
-                                     ? tool_result({{"requestedHotReload", enabled},
-                                                    {"activation", "pending engine decision"}})
-                                     : tool_result({{"error", "cannot publish hot reload control"}},
-                                                   true);
+                        if (!target_.android_serial.empty())
+                        {
+                            std::string receipt;
+                            const bool success = set_android_hot_reload(enabled, receipt);
+                            result = android_result(success, receipt);
+                        }
+                        else
+                        {
+                            result =
+                                atomic_control(target_.runtime_dir, enabled)
+                                    ? tool_result({{"requestedHotReload", enabled},
+                                                   {"activation", "pending engine decision"}})
+                                    : tool_result({{"error", "cannot publish hot reload control"}},
+                                                  true);
+                        }
                     }
                     else if (name == "get_status" && arguments.empty())
                     {
-                        result = read_status(runtime_dir_);
+                        if (!target_.android_serial.empty())
+                        {
+                            std::string receipt;
+                            const bool success = read_android_status(receipt);
+                            result = android_result(success, receipt);
+                        }
+                        else
+                        {
+                            result = read_status(target_.runtime_dir);
+                        }
                     }
                     else
                     {

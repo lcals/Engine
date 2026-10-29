@@ -49,6 +49,13 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME)
 
     if(TARGET mcp_app)
         find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME engine.android_asset_packaging COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/prepare_android_assets_test.py")
+        set_tests_properties(engine.android_asset_packaging PROPERTIES TIMEOUT 60)
+        add_test(NAME engine.android_mcp COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/android_mcp_test.py"
+            --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(engine.android_mcp PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
         add_test(NAME engine.script_tooling COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/script_tooling_test.py"
             --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
