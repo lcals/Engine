@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,6 +12,78 @@ import tempfile
 def require(condition, message):
     if not condition:
         raise AssertionError(message)
+
+
+def metadata_guid(source):
+    text = Path(str(source) + ".meta").read_text(encoding="utf-8")
+    match = re.search(r'^guid\s*=\s*"([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"\s*(?:#.*)?$',
+                      text, re.MULTILINE)
+    require(match is not None, "source meta must contain a canonical TOML GUID")
+    return match.group(1)
+
+
+def check_compiler_inputs(root, project, temporary):
+    builder = root / "scripts/build_scripts.mjs"
+    config_path = project / "settings/tsconfig.json"
+    config = json.loads(config_path.read_text())
+    inherited = temporary / "shared-tsconfig.json"
+    inherited.write_text('{"compilerOptions":{"noUnusedLocals":false}}', encoding="utf-8")
+    declarations = temporary / "external-types.d.ts"
+    declarations.write_text("declare const fingerprintInput: string;\n", encoding="utf-8")
+    config["extends"] = str(inherited)
+    config["files"].append(str(declarations))
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    def inputs():
+        result = subprocess.run(["node", str(builder), "--project", str(project), "--inputs"],
+                                capture_output=True, text=True, timeout=30, check=False)
+        require(result.returncode == 0, f"script input discovery failed: {result.stderr}")
+        return json.loads(result.stdout)
+
+    first = inputs()
+    identities = {entry["path"] for entry in first["inputs"]}
+    require(str(inherited).replace("\\", "/") in identities and
+            str(declarations).replace("\\", "/") in identities,
+            "external inherited config/declarations missing from compiler fingerprint")
+    require(first == inputs(), "unchanged TypeScript input fingerprint is not stable")
+    inherited.write_text('{"compilerOptions":{"noUnusedLocals":true}}', encoding="utf-8")
+    second = inputs()
+    require(second != first, "inherited configuration mutation did not change fingerprint")
+    declarations.write_text("declare const fingerprintInput: number;\n", encoding="utf-8")
+    require(inputs() != second, "external declaration mutation did not change fingerprint")
+    lock = project / "cache/.script-build-lock"
+    lock.mkdir()
+    (lock / "old-owner").write_text("abandoned fixture")
+    output = temporary / "explicit-ts-staging"
+    result = subprocess.run(["node", str(builder), "--project", str(project), "--output", str(output)],
+                            capture_output=True, text=True, timeout=30, check=False)
+    require(result.returncode == 0, f"explicit staging must ignore old directory lock: {result.stderr}")
+    require((lock / "old-owner").read_text() == "abandoned fixture",
+            "compiler must not remove another operation's lock")
+    shutil.rmtree(lock)
+    result = subprocess.run(["node", str(builder), "--project", str(project)],
+                            capture_output=True, text=True, timeout=30, check=False)
+    require(result.returncode != 0 and not (project / "cache/assets").exists(),
+            "implicit legacy cache/assets output must be rejected")
+
+
+def verify_complete_asset_snapshot(project, runtime, manifest):
+    expected = {"catalog.bin"}
+    for source in (project / "assets").rglob("*"):
+        if not source.is_file() or source.name.endswith(".meta") or source.name == ".gitkeep":
+            continue
+        expected.add("gen/" + metadata_guid(source))
+    actual = {item["path"] for item in manifest["files"]}
+    require(actual == expected, "MCP snapshot must include every catalog asset exactly once")
+    version = runtime / "assets/versions" / manifest["revision"]
+    for relative in expected:
+        require((version / relative).read_bytes() == (project / "cache" / relative).read_bytes(),
+                f"MCP changed generated/raw asset bytes: {relative}")
+    require(not any(path.endswith((".meta", ".sqlite")) or path.startswith("settings/") for path in actual),
+            "editor settings/meta/SQLite entered runtime assets")
+    for relative in ("scenes/main.scene", "meshes/cube.mesh", "materials/cube.material", "shaders/pbr.shader"):
+        require("gen/" + metadata_guid(project / "assets" / relative) in actual,
+                f"non-script typed asset missing: {relative}")
 
 
 def invoke(mcp, project, runtime, requests):
@@ -57,9 +130,14 @@ def test(mcp, root, temporary):
     config = json.loads(config_path.read_text())
     config["files"] = [str(root / "include/engine.d.ts")]
     config_path.write_text(json.dumps(config), encoding="utf-8")
+    check_compiler_inputs(root, project, temporary)
     unicode_asset = project / "assets/资料/文本.txt"
     unicode_asset.parent.mkdir()
     unicode_asset.write_text("UTF-8 asset content", encoding="utf-8")
+    image_asset = project / "assets/资料/raw.png"
+    shutil.copy2(root / "tests/fixtures/asset_tools/blocks.png", image_asset)
+    binary_asset = project / "assets/资料/raw.bin"
+    binary_asset.write_bytes(bytes(range(256)) + b"\0raw binary")
 
     replies = invoke(mcp, project, runtime, [
         {"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
@@ -85,13 +163,25 @@ def test(mcp, root, temporary):
     require(control == {"hotReload": True}, "control file was not atomically replaced")
     manifest_path = runtime / "assets/available.json"
     original_manifest = manifest_path.read_bytes()
-    require("资料/文本.txt" in {item["path"] for item in json.loads(original_manifest)["files"]},
-            "Unicode asset path did not survive compile and synchronization")
+    manifest = json.loads(original_manifest)
+    verify_complete_asset_snapshot(project, runtime, manifest)
+    for raw in (image_asset, binary_asset):
+        require((project / "cache/gen" / metadata_guid(raw)).read_bytes() == raw.read_bytes(),
+                "raw image/binary bytes changed during import")
+    asset_guid = metadata_guid(unicode_asset)
+    require("gen/" + asset_guid in {item["path"] for item in json.loads(original_manifest)["files"]},
+            "Unicode asset GUID did not survive compile and synchronization")
+    require("catalog.bin" in {item["path"] for item in json.loads(original_manifest)["files"]},
+            "GUID resource catalog was not synchronized")
+    require(not (project / "cache/assets").exists(), "formal compiler produced legacy asset tree")
     offline = contents(invoke(mcp, project, runtime, [call("get_status")])[0])
     require(offline["state"] == "offline" and offline["availableRevision"] ==
             json.loads(original_manifest)["revision"],
             "published version must be queryable without a running engine")
-    original_output = (project / "cache/assets/scripts/game.js").read_bytes()
+    script_guid = metadata_guid(project / "assets/scripts/game.ts")
+    script_output = project / "cache/gen" / script_guid
+    original_output = script_output.read_bytes()
+    require(b"sourceMappingURL=data:" in original_output, "GUID JS must carry an inline source map")
     source = project / "assets/scripts/game.ts"
     original_source = source.read_text()
 
@@ -99,7 +189,7 @@ def test(mcp, root, temporary):
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(reply["result"]["isError"], "TypeScript error must fail sync")
     require(manifest_path.read_bytes() == original_manifest, "failed compile published old assets")
-    require((project / "cache/assets/scripts/game.js").read_bytes() == original_output,
+    require(script_output.read_bytes() == original_output,
             "failed compile damaged prior compiler output")
     source.write_text(original_source)
 
@@ -108,13 +198,14 @@ def test(mcp, root, temporary):
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "adding a module failed")
     manifest = json.loads(manifest_path.read_text())
-    require("scripts/helper.js" in {item["path"] for item in manifest["files"]},
+    helper_guid = metadata_guid(helper)
+    require("gen/" + helper_guid in {item["path"] for item in manifest["files"]},
             "added module missing")
     helper.unlink()
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "deleting a module failed")
     manifest = json.loads(manifest_path.read_text())
-    require("scripts/helper.js" in manifest["deleted"], "deleted module was not recorded")
+    require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
 
     # No running engine is fabricated: get_status returns only the explicit runtime report.
     expected = {"running": True, "hotReload": False, "activeRevision": "older",

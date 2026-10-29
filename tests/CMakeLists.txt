@@ -1,3 +1,8 @@
+add_executable(engine_guid_map_test guid_map_test.cpp)
+target_link_libraries(engine_guid_map_test PRIVATE engine::core)
+engine_apply_options(engine_guid_map_test)
+add_test(NAME engine.guid_map COMMAND engine_guid_map_test)
+
 add_executable(engine_system_test system_test.cpp)
 target_link_libraries(engine_system_test PRIVATE engine::core)
 engine_apply_options(engine_system_test)
@@ -40,7 +45,7 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME)
 
     add_executable(engine_asset_sync_test asset_sync_test.cpp)
     target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync
-        nlohmann_json::nlohmann_json)
+        engine::resource nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_asset_sync_test)
     add_test(NAME engine.asset_sync COMMAND engine_asset_sync_test
@@ -109,7 +114,7 @@ endif()
 
 if(TARGET engine_editor)
     add_executable(engine_editor_environment_test editor_environment_test.cpp)
-    target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project engine::app)
+    target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project engine::app engine::resource)
     engine_apply_options(engine_editor_environment_test)
     add_test(NAME engine.editor_environment COMMAND engine_editor_environment_test
         "${CMAKE_CURRENT_BINARY_DIR}")
@@ -143,6 +148,28 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_task_test task_test.cpp)
+    target_link_libraries(engine_task_test PRIVATE engine::task)
+    engine_apply_options(engine_task_test)
+    add_test(NAME editor.task COMMAND engine_task_test)
+    set_tests_properties(editor.task PROPERTIES TIMEOUT 30)
+
+    add_executable(engine_asset_pipeline_test asset_pipeline_test.cpp)
+    target_link_libraries(engine_asset_pipeline_test PRIVATE engine::asset_pipeline
+        engine::resource engine::scene_data)
+    engine_apply_options(engine_asset_pipeline_test)
+    add_test(NAME editor.asset_pipeline COMMAND engine_asset_pipeline_test)
+    set_tests_properties(editor.asset_pipeline PROPERTIES TIMEOUT 90)
+
+    if(TARGET asset_build_app AND ENGINE_NODE_EXECUTABLE)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME editor.asset_pipeline_scripts COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/asset_pipeline_script_test.py"
+            --builder "$<TARGET_FILE:asset_build_app>"
+            --project "${PROJECT_SOURCE_DIR}/projects/minimal")
+        set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
+    endif()
+
     set_tests_properties(engine.dependencies PROPERTIES
         ENVIRONMENT "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
 
@@ -185,6 +212,12 @@ if(ENGINE_ENABLE_V8)
 endif()
 
 if(TARGET engine_world)
+    add_executable(engine_resource_catalog_test resource_catalog_test.cpp)
+    target_link_libraries(engine_resource_catalog_test PRIVATE engine::world engine::resource)
+    engine_apply_options(engine_resource_catalog_test)
+    add_test(NAME engine.resource_catalog COMMAND engine_resource_catalog_test
+        "${CMAKE_CURRENT_BINARY_DIR}/resource-catalog-test-output")
+    set_tests_properties(engine.resource_catalog PROPERTIES TIMEOUT 30)
     add_executable(engine_scene_test scene_test.cpp)
     target_link_libraries(engine_scene_test PRIVATE engine::world)
     engine_apply_options(engine_scene_test)

@@ -291,7 +291,29 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
             return false;
         }
     }
-    if (!seen.contains(manifest_entry))
+    if (seen.contains("catalog.bin"))
+    {
+        ResourceCatalog catalog;
+        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), catalog))
+        {
+            message = "APK GUID resource catalog is invalid";
+            return false;
+        }
+        bool has_entry = false;
+        std::set<std::string> expected{"catalog.bin"};
+        for (const auto& asset : catalog.data.entries)
+        {
+            expected.insert("gen/" + asset->guid);
+            has_entry = has_entry || (asset->kind == schema::AssetKind::script &&
+                                      asset->module_path == manifest_entry);
+        }
+        if (!has_entry || expected != seen)
+        {
+            message = "APK manifest does not match its complete GUID resource catalog";
+            return false;
+        }
+    }
+    else if (!seen.contains(manifest_entry))
     {
         message = "APK project entry is missing from the complete manifest";
         return false;
@@ -415,7 +437,31 @@ struct Snapshot
     fs::path builtin_root;
     std::map<std::string, std::string> scripts;
     std::set<std::string> deleted;
+    std::shared_ptr<const ResourceCatalog> catalog;
+    std::map<std::string, Guid, std::less<>> module_guids;
 };
+
+[[nodiscard]] bool catalog_snapshot(const fs::path& root, Snapshot& snapshot)
+{
+    auto catalog = std::make_shared<ResourceCatalog>();
+    if (!ResourceSystem::read_catalog(root, *catalog))
+    {
+        return false;
+    }
+    for (const auto& asset : catalog->data.entries)
+    {
+        if (asset->kind == schema::AssetKind::script)
+        {
+            if (asset->module_path.empty() ||
+                !snapshot.module_guids.emplace(asset->module_path, asset->guid).second)
+            {
+                return false;
+            }
+        }
+    }
+    snapshot.catalog = std::move(catalog);
+    return true;
+}
 
 } // namespace
 
@@ -474,19 +520,33 @@ struct ScriptSystem::State
                     owner.module_error("Module is deleted or is not JavaScript: " + path);
                     return {};
                 }
-                const auto cached = snapshot.scripts.find(path);
-                if (cached != snapshot.scripts.end())
+                if (snapshot.catalog != nullptr)
                 {
-                    source = cached->second;
+                    const auto mapped = snapshot.module_guids.find(path);
+                    if (mapped == snapshot.module_guids.end() ||
+                        !snapshot.catalog->read_text(mapped->second, source) ||
+                        source.size() > maximum_text_size)
+                    {
+                        owner.module_error("Cannot read GUID module from locked catalog: " + path);
+                        return {};
+                    }
                 }
                 else
                 {
-                    fs::path file;
-                    if (!builtin_file(snapshot.builtin_root, path, file) ||
-                        !read_text(file, source))
+                    const auto cached = snapshot.scripts.find(path);
+                    if (cached != snapshot.scripts.end())
                     {
-                        owner.module_error("Cannot read contained module: " + path);
-                        return {};
+                        source = cached->second;
+                    }
+                    else
+                    {
+                        fs::path file;
+                        if (!builtin_file(snapshot.builtin_root, path, file) ||
+                            !read_text(file, source))
+                        {
+                            owner.module_error("Cannot read contained module: " + path);
+                            return {};
+                        }
                     }
                 }
             }
@@ -812,6 +872,23 @@ struct ScriptSystem::State
                 return fail("Unsafe or conflicting deleted asset path: " + path);
             }
         }
+        if (seen.contains("catalog.bin"))
+        {
+            if (!catalog_snapshot(version_root, *candidate) ||
+                !candidate->module_guids.contains(candidate->entry))
+            {
+                return fail("Invalid GUID resource catalog or missing gameplay module");
+            }
+            std::set<std::string> expected{"catalog.bin"};
+            for (const auto& asset : candidate->catalog->data.entries)
+            {
+                expected.insert("gen/" + asset->guid);
+            }
+            if (seen != expected)
+            {
+                return fail("Version manifest does not match complete GUID catalog");
+            }
+        }
         last_manifest = std::move(text);
         status.available_revision = candidate->revision;
         available = std::move(candidate);
@@ -830,6 +907,15 @@ struct ScriptSystem::State
             snapshot.builtin_root = App::builtin_assets_path();
             snapshot.entry = builtin_entry;
             snapshot.deleted = builtin_deleted;
+            fs::path catalog_file;
+            if (builtin_file(snapshot.builtin_root, "catalog.bin", catalog_file))
+            {
+                if (!catalog_snapshot(snapshot.builtin_root, snapshot))
+                {
+                    (void)fail("Cannot read complete built-in GUID resource catalog");
+                    return {};
+                }
+            }
         }
         if (!requested_entry.empty())
         {
@@ -923,6 +1009,11 @@ struct ScriptSystem::State
     {
         stop();
         status.last_error.clear();
+        if (candidate->snapshot.catalog != nullptr &&
+            !ResourceSystem::activate_catalog(*candidate->snapshot.catalog))
+        {
+            return fail("Cannot activate validated GUID resource catalog");
+        }
         active = std::move(candidate);
         v8::Isolate::Scope isolate_scope(isolate);
         v8::HandleScope handles(isolate);

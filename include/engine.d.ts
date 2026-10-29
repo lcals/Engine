@@ -45,6 +45,10 @@ declare module "engine" {
     export class Scene {
         private constructor();
         static Create(name: string): Scene | null;
+        /** Load a compiled scene from the active GUID resource catalog. */
+        static Load(path: string): Scene | null;
+        /** First node with the requested name in scene order. */
+        FindNode(name: string): Node | null;
         IsValid(): boolean;
         CreateNode(name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;

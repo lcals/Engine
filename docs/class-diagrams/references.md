@@ -211,7 +211,7 @@ ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿�
 
 1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
 2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
-3. 初始化 AssetPipelineSystem，编译项目 TS，生成 `cache/assets/` 中的 JS 与资源。
+3. 初始化 AssetPipelineSystem 及其 TaskSystem 子系统，按项目导入线程设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
 4. 由 EditorEnvironment 从生成内容建立本会话只读内置快照，初始化 AssetSyncSystem 并发布完整初始版本。
 5. 初始化 Engine 全部根系统及子系统，再初始化 EditorSystem。
 6. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 Engine 玩法入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
@@ -497,3 +497,28 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
 脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
+
+## 资源身份与导入依赖
+
+```mermaid
+classDiagram
+    direction TB
+    class GuidMap
+    class ResourceCatalog
+    class ResourceSystem
+    class AssetPipelineSystem
+    class TaskSystem
+    class SceneImporter
+    class ScriptSystem
+    class System
+    System <|-- TaskSystem
+    AssetPipelineSystem *-- TaskSystem : 独占导入子系统
+    AssetPipelineSystem ..> GuidMap : 源文件逻辑路径与身份校验
+    AssetPipelineSystem ..> SceneImporter : TOML 转场景数据
+    AssetPipelineSystem ..> ResourceSystem : 同步读取及产物校验
+    ResourceCatalog *-- GuidMap : 值拥有双向索引
+    ResourceSystem ..> ResourceCatalog : 读取及激活参数
+    ScriptSystem *-- ResourceCatalog : 每次运行固定资源快照
+```
+
+GuidMap 属于纯标准库核心模块；Taskflow、SQLite、toml++ 仅用于编辑器导入，不进入设备运行时。完整数据结构与公开方法见对应独立图。源资源 meta、SQL 中的身份和运行期目录使用同一完整 GUID，生成路径固定为 `cache/gen/<GUID>`。

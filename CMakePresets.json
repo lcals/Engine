@@ -66,9 +66,9 @@
       "inherits": "debug",
       "binaryDir": "${sourceDir}/build/asset-pipeline-deps",
       "cacheVariables": {
-        "VCPKG_MANIFEST_FEATURES": "asset-pipeline",
+        "VCPKG_MANIFEST_FEATURES": "runtime;asset-pipeline",
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true,
-        "ENGINE_ENABLE_RUNTIME_DEPS": false,
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_BUILD_APP": false,
         "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/asset-pipeline"
       }

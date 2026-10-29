@@ -52,9 +52,9 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
     const int result = [&]()
     {
 #if ENGINE_HAS_SCRIPT_RUNTIME
-        if (!pipeline.initialize(config) || !pipeline.build_scripts(project_root))
+        if (!pipeline.initialize(config) || !pipeline.build_assets(project_root))
         {
-            LogSystem::write(LogLevel::error, "Script build failed: " + pipeline.last_error());
+            LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
             return 1;
         }
         if (!environment.prepare_builtin_assets())
@@ -63,7 +63,7 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             return 1;
         }
         if (!sync.initialize(config) ||
-            !sync.sync(project_root / "cache" / "assets", engine::App::persistent_data_path()))
+            !sync.sync(project_root / "cache", engine::App::persistent_data_path()))
         {
             LogSystem::write(LogLevel::error, "Initial asset sync failed: " + sync.last_error());
             return 1;

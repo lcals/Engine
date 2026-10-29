@@ -121,3 +121,5 @@ classDiagram
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
 - MaterialBinding 将 SetType/SetShader 的字符串路径与 SetFloat/SetV2/SetV3/SetV4 直接交给材质接口校验，不识别或硬编码 pbr/unlit 类型名。
 - 构造和清理不抛 C++ 异常；V8 调用通过 Maybe/返回值报告错误。全部借用仅在引擎主线程有效。
+
+SceneBinding 新增 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。

@@ -39,28 +39,6 @@ RenderSystem* active_renderer = nullptr;
 constexpr std::uint16_t main_view = 0;
 constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
 
-struct CubeVertex
-{
-    float x;
-    float y;
-    float z;
-    float nx;
-    float ny;
-    float nz;
-};
-
-// 每面独立顶点以保留平面法线，逆时针为外表面；本轮唯一内置 Mesh。
-constexpr CubeVertex cube_vertices[] = {
-    {-1, -1, 1, 0, 0, 1},   {1, -1, 1, 0, 0, 1},    {1, 1, 1, 0, 0, 1},    {-1, 1, 1, 0, 0, 1},
-    {1, -1, 1, 1, 0, 0},    {1, -1, -1, 1, 0, 0},   {1, 1, -1, 1, 0, 0},   {1, 1, 1, 1, 0, 0},
-    {1, -1, -1, 0, 0, -1},  {-1, -1, -1, 0, 0, -1}, {-1, 1, -1, 0, 0, -1}, {1, 1, -1, 0, 0, -1},
-    {-1, -1, -1, -1, 0, 0}, {-1, -1, 1, -1, 0, 0},  {-1, 1, 1, -1, 0, 0},  {-1, 1, -1, -1, 0, 0},
-    {-1, 1, 1, 0, 1, 0},    {1, 1, 1, 0, 1, 0},     {1, 1, -1, 0, 1, 0},   {-1, 1, -1, 0, 1, 0},
-    {-1, -1, -1, 0, -1, 0}, {1, -1, -1, 0, -1, 0},  {1, -1, 1, 0, -1, 0},  {-1, -1, 1, 0, -1, 0}};
-constexpr std::uint16_t cube_indices[] = {0,  1,  2,  0,  2,  3,  4,  5,  6,  4,  6,  7,
-                                          8,  9,  10, 8,  10, 11, 12, 13, 14, 12, 14, 15,
-                                          16, 17, 18, 16, 18, 19, 20, 21, 22, 20, 22, 23};
-
 bool finite_matrix(const float* matrix)
 {
     return std::all_of(matrix, matrix + 16, [](float value) { return std::isfinite(value); });
@@ -415,8 +393,45 @@ struct RenderSystem::SceneGpuResources
         }
     };
 
-    bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
-    bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+    struct Mesh
+    {
+        std::string path;
+        bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
+        bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
+
+        bool create(const schema::MeshDataT& data)
+        {
+            path = data.path;
+            const auto vertex_bytes = data.vertices.size() * sizeof(schema::MeshVertex);
+            const auto index_bytes = data.indices.size() * sizeof(std::uint32_t);
+            if (vertex_bytes > std::numeric_limits<std::uint32_t>::max() ||
+                index_bytes > std::numeric_limits<std::uint32_t>::max())
+                return false;
+            bgfx::VertexLayout layout;
+            layout.begin()
+                .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+                .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
+                .end();
+            static_assert(sizeof(schema::MeshVertex) == 6 * sizeof(float));
+            vertices = bgfx::createVertexBuffer(
+                bgfx::copy(data.vertices.data(), static_cast<std::uint32_t>(vertex_bytes)), layout);
+            indices = bgfx::createIndexBuffer(
+                bgfx::copy(data.indices.data(), static_cast<std::uint32_t>(index_bytes)),
+                BGFX_BUFFER_INDEX32);
+            return bgfx::isValid(vertices) && bgfx::isValid(indices);
+        }
+
+        void release() noexcept
+        {
+            if (bgfx::isValid(vertices))
+                bgfx::destroy(vertices);
+            if (bgfx::isValid(indices))
+                bgfx::destroy(indices);
+            vertices = BGFX_INVALID_HANDLE;
+            indices = BGFX_INVALID_HANDLE;
+        }
+    };
+    std::vector<Mesh> meshes;
     bgfx::UniformHandle normal_transform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle camera_position = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_direction = BGFX_INVALID_HANDLE;
@@ -567,15 +582,6 @@ bool RenderSystem::prepare_scene()
         if (scene_resources_ == nullptr)
             return false;
         auto& resources = *scene_resources_;
-        bgfx::VertexLayout layout;
-        layout.begin()
-            .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-            .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
-            .end();
-        resources.vertices =
-            bgfx::createVertexBuffer(bgfx::makeRef(cube_vertices, sizeof(cube_vertices)), layout);
-        resources.indices =
-            bgfx::createIndexBuffer(bgfx::makeRef(cube_indices, sizeof(cube_indices)));
         resources.normal_transform =
             bgfx::createUniform("u_normal_transform", bgfx::UniformType::Mat4);
         resources.camera_position =
@@ -583,8 +589,7 @@ bool RenderSystem::prepare_scene()
         resources.light_direction =
             bgfx::createUniform("u_light_direction", bgfx::UniformType::Vec4);
         resources.light_color = bgfx::createUniform("u_light_color", bgfx::UniformType::Vec4);
-        if (!bgfx::isValid(resources.vertices) || !bgfx::isValid(resources.indices) ||
-            !bgfx::isValid(resources.normal_transform) ||
+        if (!bgfx::isValid(resources.normal_transform) ||
             !bgfx::isValid(resources.camera_position) ||
             !bgfx::isValid(resources.light_direction) || !bgfx::isValid(resources.light_color))
         {
@@ -595,11 +600,31 @@ bool RenderSystem::prepare_scene()
     }
     auto& programs = scene_resources_->programs;
     std::set<std::string> needed;
+    std::set<std::string> needed_meshes;
+    auto& meshes = scene_resources_->meshes;
     for (const auto& node : scene->nodes())
     {
         const auto* mesh = node->get_component<MeshRenderer>();
         if (mesh == nullptr || !mesh->enabled())
             continue;
+        const std::string mesh_path(mesh->mesh_path());
+        if (needed_meshes.insert(mesh_path).second &&
+            std::none_of(meshes.begin(), meshes.end(),
+                         [&mesh_path](const auto& item) { return item.path == mesh_path; }))
+        {
+            const auto* data = ResourceSystem::find_mesh(mesh_path);
+            if (data == nullptr)
+            {
+                release_scene();
+                return false;
+            }
+            meshes.emplace_back();
+            if (!meshes.back().create(*data))
+            {
+                release_scene();
+                return false;
+            }
+        }
         const std::string path(mesh->material().shader_path());
         if (!needed.insert(path).second)
             continue;
@@ -623,6 +648,16 @@ bool RenderSystem::prepare_scene()
             }
         }
     }
+    for (auto iterator = meshes.begin(); iterator != meshes.end();)
+    {
+        if (!needed_meshes.contains(iterator->path))
+        {
+            iterator->release();
+            iterator = meshes.erase(iterator);
+        }
+        else
+            ++iterator;
+    }
     // 材质切换 shader 后退役不再使用的程序，保持项目GPU资源有界。
     for (auto iterator = programs.begin(); iterator != programs.end();)
     {
@@ -644,10 +679,8 @@ void RenderSystem::release_scene() noexcept
         auto& resources = *scene_resources_;
         for (auto& program : resources.programs)
             program.release();
-        if (bgfx::isValid(resources.vertices))
-            bgfx::destroy(resources.vertices);
-        if (bgfx::isValid(resources.indices))
-            bgfx::destroy(resources.indices);
+        for (auto& mesh : resources.meshes)
+            mesh.release();
         for (auto uniform : {resources.normal_transform, resources.camera_position,
                              resources.light_direction, resources.light_color})
         {
@@ -671,12 +704,13 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         return 0;
     }
     const SceneGpuResources& resources = *scene_resources_;
-    std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(resources.vertices)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(resources.indices)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(resources.normal_transform)) +
+    std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(resources.normal_transform)) +
                           static_cast<std::uint32_t>(bgfx::isValid(resources.camera_position)) +
                           static_cast<std::uint32_t>(bgfx::isValid(resources.light_direction)) +
                           static_cast<std::uint32_t>(bgfx::isValid(resources.light_color));
+    for (const auto& mesh : resources.meshes)
+        count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(mesh.indices));
     for (const auto& program : resources.programs)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
@@ -788,8 +822,13 @@ bool RenderSystem::draw_scene()
         bgfx::setUniform(resources.light_direction, light_direction.data());
         bgfx::setUniform(resources.light_color, light_color.data());
         bgfx::setTransform(model);
-        bgfx::setVertexBuffer(0, resources.vertices);
-        bgfx::setIndexBuffer(resources.indices);
+        const auto mesh_resource =
+            std::find_if(resources.meshes.begin(), resources.meshes.end(),
+                         [mesh](const auto& item) { return item.path == mesh->mesh_path(); });
+        if (mesh_resource == resources.meshes.end())
+            return false;
+        bgfx::setVertexBuffer(0, mesh_resource->vertices);
+        bgfx::setIndexBuffer(mesh_resource->indices);
         const std::uint64_t cull =
             linear_determinant(model) < 0.0F ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |

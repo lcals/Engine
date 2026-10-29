@@ -603,6 +603,131 @@ export default class extends Gameplay {
     return true;
 }
 
+std::map<std::string, std::string> guid_files(const std::string& revision, std::string_view source,
+                                              std::string_view helper, std::string_view scene_bytes)
+{
+    engine::schema::AssetCatalogDataT catalog;
+    catalog.revision = revision;
+#if defined(__APPLE__)
+    catalog.target_platform = "macos";
+#elif defined(_WIN32)
+    catalog.target_platform = "windows";
+#else
+    catalog.target_platform = "linux";
+#endif
+    std::map<std::string, std::string> files;
+    const auto add = [&](const char* guid, const char* path, engine::schema::AssetKind kind,
+                         const char* module, std::string_view contents)
+    {
+        auto asset = std::make_unique<engine::schema::AssetEntryT>();
+        asset->guid = guid;
+        asset->path = path;
+        asset->kind = kind;
+        asset->module_path = module;
+        asset->content_hash = hash_text(contents);
+        asset->content_size = contents.size();
+        files.emplace("gen/" + asset->guid, contents);
+        catalog.entries.push_back(std::move(asset));
+    };
+    add("10000000-0000-4000-8000-000000000001", "project/scripts/game.ts",
+        engine::schema::AssetKind::script, "scripts/game.js", source);
+    if (!helper.empty())
+    {
+        add("10000000-0000-4000-8000-000000000002", "project/scripts/lib/value.ts",
+            engine::schema::AssetKind::script, "scripts/lib/value.js", helper);
+    }
+    add("10000000-0000-4000-8000-000000000003", "project/scenes/main.scene",
+        engine::schema::AssetKind::scene, "", scene_bytes);
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    files.emplace(
+        "catalog.bin",
+        std::string(reinterpret_cast<const char*>(builder.GetBufferPointer()), builder.GetSize()));
+    return files;
+}
+
+bool run_guid_cases()
+{
+    engine::WorldSystem world;
+    engine::ScriptSystem script(&world);
+    const engine::EngineConfig config;
+    if (!expect(world.initialize(config), "initialize GUID scene world"))
+    {
+        return false;
+    }
+    auto* source_scene = world.create_scene("GUID scene");
+    if (!expect(source_scene != nullptr && source_scene->create_node("GUID Node") != nullptr,
+                "create GUID scene fixture"))
+    {
+        return false;
+    }
+    engine::schema::SceneDataT data;
+    if (!source_scene->build_data(data))
+    {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishSceneDataBuffer(builder, engine::schema::SceneData::Pack(builder, &data));
+    const std::string scene_bytes(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                  builder.GetSize());
+    world.destroy_scene();
+    const std::string source = R"js(
+import {Gameplay, Scene, Debug} from 'engine';
+import {value} from './lib/value.js';
+export default class extends Gameplay {
+    scene = null;
+    OnInitialize() {
+        this.scene = Scene.Load('project/scenes/main.scene');
+        if (!this.scene || !this.scene.FindNode('GUID Node') || this.scene.FindNode('missing') !== null ||
+            Scene.Load('project/scenes/missing.scene') !== null || !this.scene.IsValid()) return false;
+        Debug.Log('guid:start:' + value); return true;
+    }
+    Update() {
+        this.scene = Scene.Load('project/scenes/main.scene');
+        if (!this.scene || !this.scene.FindNode('GUID Node')) throw new Error('GUID scene snapshot changed');
+        Debug.Log('guid:update:' + value);
+    }
+}
+)js";
+    if (!publish("guid-1", guid_files("guid-1", source, "export const value = 7;", scene_bytes)) ||
+        !expect(script.initialize(config) && script.start_gameplay() &&
+                    log_contains("guid:start:7"),
+                "GUID module imports and Scene.Load/FindNode execute") ||
+        !write_file(engine::App::persistent_data_path() /
+                        "assets/versions/guid-1/gen/10000000-0000-4000-8000-000000000003",
+                    "changed") ||
+        !expect(script.tick(0.01) && log_contains("guid:update:7"),
+                "active catalog keeps scene bytes immutable after source file mutation"))
+    {
+        return false;
+    }
+    script.set_hot_reload(true);
+    if (!publish("guid-bad", guid_files("guid-bad", "export default class { ??? }",
+                                        "export const value = 99;", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-1" &&
+                    world.scene() != nullptr,
+                "GUID precheck failure preserves active scene/catalog") ||
+        !publish("guid-2", guid_files("guid-2", source, "export const value = 8;", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-2" &&
+                    log_contains("guid:start:8"),
+                "GUID replacement activates new catalog and code") ||
+        !publish("guid-missing", guid_files("guid-missing", source, "", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-2",
+                "deleted GUID module cannot fall back to built-in path tree"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(world.scene() == nullptr, "GUID scene belongs to its gameplay run"))
+    {
+        return false;
+    }
+    script.shutdown();
+    world.shutdown();
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -639,7 +764,8 @@ int main(int argc, char** argv)
         return 1;
     }
     engine::ResourceSystem resources;
-    const bool passed = resources.initialize(config) && run_cases(workspace) && run_scene_cases();
+    const bool passed = resources.initialize(config) && run_cases(workspace) && run_scene_cases() &&
+                        run_guid_cases();
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

@@ -1,12 +1,17 @@
 #include "runtime/scene/scene.hpp"
 
+#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/transform.hpp"
 
 #include <flecs.h>
 
 #include <algorithm>
+#include <limits>
 #include <new>
+#include <set>
 #include <utility>
 
 namespace engine
@@ -35,6 +40,8 @@ std::string_view Scene::name() const noexcept
 
 Node* Scene::create_node(std::string_view name)
 {
+    if (node_sequence_ == std::numeric_limits<std::uint64_t>::max())
+        return nullptr;
     const ecs_entity_t entity = ecs_new(&world_);
     if (entity == 0)
     {
@@ -89,7 +96,7 @@ bool Scene::destroy_node(std::uint64_t id)
     }
     const auto should_remove = [&removed](const Node* node)
     { return std::find(removed.begin(), removed.end(), node) != removed.end(); };
-    if (should_remove(find_node(info_.active_camera_node)))
+    if (should_remove(find_local_node(info_.active_camera_node)))
     {
         info_.active_camera_node = 0;
     }
@@ -104,13 +111,13 @@ const std::vector<std::unique_ptr<Node>>& Scene::nodes() const noexcept
 
 Camera* Scene::active_camera() noexcept
 {
-    Node* node = find_node(info_.active_camera_node);
+    Node* node = find_local_node(info_.active_camera_node);
     return node == nullptr ? nullptr : node->get_component<Camera>();
 }
 
 const Camera* Scene::active_camera() const noexcept
 {
-    const Node* node = find_node(info_.active_camera_node);
+    const Node* node = find_local_node(info_.active_camera_node);
     return node == nullptr ? nullptr : node->get_component<Camera>();
 }
 
@@ -120,7 +127,7 @@ bool Scene::set_active_camera(Camera* camera) noexcept
     {
         return false;
     }
-    info_.active_camera_node = camera == nullptr ? 0 : camera->node().id();
+    info_.active_camera_node = camera == nullptr ? 0 : camera->node().info().id;
     return true;
 }
 
@@ -142,13 +149,116 @@ bool Scene::build_data(schema::SceneDataT& output) const
             {
                 return false;
             }
-            node_data->components.push_back(
-                std::make_unique<schema::ComponentDataT>(component->data()));
+            auto component_data = std::make_unique<schema::ComponentDataT>(component->data());
+            if (component->type() == ComponentType::MeshRendererData)
+            {
+                const auto& mesh = static_cast<const MeshRenderer&>(*component);
+                if (!ResourceSystem::path_to_guid(
+                        mesh.material().type_path(),
+                        component_data->payload.AsMeshRendererData()->material_guid))
+                    return false;
+            }
+            node_data->components.push_back(std::move(component_data));
         }
         snapshot.nodes.push_back(std::move(node_data));
     }
     output = std::move(snapshot);
     return true;
+}
+
+Node* Scene::find_local_node(std::uint64_t local_id) const noexcept
+{
+    const auto item = std::find_if(nodes_.begin(), nodes_.end(), [local_id](const auto& node)
+                                   { return node->info().id == local_id; });
+    return item == nodes_.end() ? nullptr : item->get();
+}
+
+bool Scene::restore_data(const schema::SceneDataT& data)
+{
+    if (!nodes_.empty() || data.schema_version != 1 || !data.info)
+        return false;
+    std::set<std::uint64_t> identities;
+    for (const auto& source : data.nodes)
+    {
+        if (!source || !source->info || source->info->id == 0 ||
+            !identities.insert(source->info->id).second)
+            return false;
+        Node* node = create_node(source->info->name);
+        if (!node)
+            return false;
+        node->info_.id = source->info->id;
+        std::set<ComponentType> types;
+        for (const auto& component : source->components)
+        {
+            if (!component || component->payload.value == nullptr ||
+                !types.insert(component->payload.type).second)
+                return false;
+            Component* restored = nullptr;
+            switch (component->payload.type)
+            {
+            case ComponentType::TransformData:
+            {
+                auto* transform = node->get_component<Transform>();
+                if (!transform || !transform->set_settings(*component->payload.AsTransformData()))
+                    return false;
+                restored = transform;
+                break;
+            }
+            case ComponentType::CameraData:
+            {
+                auto* camera = node->add_component<Camera>();
+                if (!camera || !camera->set_settings(*component->payload.AsCameraData()))
+                    return false;
+                restored = camera;
+                break;
+            }
+            case ComponentType::LightData:
+            {
+                auto* light = node->add_component<Light>();
+                if (!light || !light->set_settings(*component->payload.AsLightData()))
+                    return false;
+                restored = light;
+                break;
+            }
+            case ComponentType::MeshRendererData:
+            {
+                auto* mesh = node->add_component<MeshRenderer>();
+                const auto* settings = component->payload.AsMeshRendererData();
+                std::string mesh_path;
+                std::string material_path;
+                if (!mesh || !ResourceSystem::guid_to_path(settings->mesh_guid, mesh_path) ||
+                    !ResourceSystem::guid_to_path(settings->material_guid, material_path) ||
+                    !mesh->set_mesh(mesh_path) || !mesh->material().set_type(material_path))
+                    return false;
+                restored = mesh;
+                break;
+            }
+            default:
+                return false;
+            }
+            restored->set_enabled(component->enabled);
+        }
+        if (!types.contains(ComponentType::TransformData))
+            return false;
+    }
+    node_sequence_ = identities.empty() ? 0 : *identities.rbegin();
+    for (const auto& source : data.nodes)
+    {
+        auto* node = find_local_node(source->info->id);
+        auto* parent = find_local_node(source->info->parent_id);
+        if ((source->info->parent_id != 0 && parent == nullptr) || !node->set_parent(parent))
+            return false;
+    }
+    Camera* camera = nullptr;
+    if (data.info->active_camera_node != 0)
+    {
+        auto* node = find_local_node(data.info->active_camera_node);
+        camera = node == nullptr ? nullptr : node->get_component<Camera>();
+        if (camera == nullptr)
+            return false;
+    }
+    info_.name = data.info->name;
+    return set_active_camera(camera);
 }
 
 void Scene::destroy_entity(std::uint64_t id) noexcept

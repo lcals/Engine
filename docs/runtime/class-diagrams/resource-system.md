@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-状态：同步文件读取、按唯一路径注册和查询 Shader / 材质生成数据。文件读取和定义注册互相独立，本轮资源定义由代码建立。
+状态：同步文件读取、按唯一路径注册和查询 Shader / 材质生成数据。文件读取和定义注册互相独立，项目定义从 GUID 二进制缓存加载，内置定义由引擎注册。
 
 ```mermaid
 classDiagram
@@ -13,6 +13,13 @@ classDiagram
         +~ResourceSystem()
         +read_binary(const Path& path, ByteBuffer& output) bool$
         +read_text(const Path& path, string& output) bool$
+        +read_catalog(const Path& cache_root, ResourceCatalog& output) bool$
+        +activate_catalog(const ResourceCatalog& catalog) bool$
+        +path_to_guid(string_view path, Guid& output) bool$
+        +guid_to_path(string_view guid, string& output) bool$
+        +register_mesh(const MeshDataT& data) bool$
+        +find_mesh(string_view path) const MeshDataT#42;$
+        +read_scene(string_view path, SceneDataT& output) bool$
         +register_shader(const ShaderDataT& data) bool$
         +register_material(const MaterialDataT& data) bool$
         +find_shader(string_view path) const ShaderDataT#42;$
@@ -68,7 +75,7 @@ classDiagram
 - `register_shader()` 深拷贝生成 Shader 数据，要求非空顶点与片段 GPU 字节码。参数必须有唯一名称、合法且非引擎保留的 uniform 名、完整数值类型、有限默认值与合法范围。
 - 每个材质 uniform 使用 Vec4 槽；float/Vec2/Vec3/Vec4 分别占 1/2/3/4 个分量，`uniform_offset` 指定起点。同名 uniform 可共享不重叠区段，越界和重叠均拒绝；相机、光照、矩阵及 bgfx 预定义 uniform 名不可覆盖。
 - `register_material()` 要求引用已注册 Shader；`builtin/` 材质仅能引用 `builtin/` Shader，`project/` 材质可引用两者。所有覆盖参数均在 Shader 中公开声明，名称、类型和范围匹配；未知、重复、隐藏或不匹配参数返回 false。成功后注册表与调用方对象完全独立。
-- 查询返回只读借用，调用者不得修改或转移生成数据的嵌套字段。注册新路径不使既有借用失效；`clear_project_definitions()` 只使项目定义借用失效，`clear_definitions()` 或宿主关闭使全部失效。使用相应定义的场景与 GPU 资源须先销毁，才能清理定义。
+- 查询返回只读借用，调用者不得修改或转移生成数据的嵌套字段。注册新路径不使既有借用失效；`clear_project_definitions()` 只使项目定义借用失效，`clear_definitions()` 或宿主关闭使全部失效。借用定义的 CPU 场景须先销毁，才能清理定义；GPU 已复制字节，不持有定义借用。
 - `clear_project_definitions()` 依次删除项目材质和项目 Shader，保留全部内置定义及其借用，重复调用安全；项目运行结束后调用。
 - 初始化建立 `builtin/` Shader 和材质定义；建立失败只撤销本次新增的定义。关闭清空宿主定义表。注册的生成数据字段见[共享数据模型](scene-data.md)，实例使用规则见[材质](material.md)。
 - 不重写 `on_tick()`，沿用基类默认空更新。
@@ -76,3 +83,31 @@ classDiagram
 返回状态的方法标注 `[[nodiscard]]`；构造、析构与关闭钩子保持 `noexcept`，覆盖方法标注 `override`。每个成功打开的 SDL 文件流均显式关闭，失败不遗留半成品输出。
 
 Android 包验证需覆盖：包内项目入口和 ICU 可读、压缩及空资源可读、缺失和目录失败、非法虚拟路径失败且清空输出，以及人为建立同名私有文件后读取必须失败。脚本版本优先级和删除标记由 ScriptSystem 负责，资源读取不自行切换到持久版本。
+
+## GUID 缓存加载
+
+```mermaid
+classDiagram
+    class ResourceCatalog {
+        +GuidMap identities
+        +AssetCatalogDataT data
+        +map~Guid, ByteBuffer~ artifacts
+        +find(string_view guid) const AssetEntryT#42;
+        +read_binary(string_view guid, ByteBuffer& output) bool
+        +read_text(string_view guid, string& output) bool
+    }
+    class GuidMap
+    class AssetCatalogDataT
+    class ResourceSystem
+    ResourceCatalog *-- GuidMap
+    ResourceCatalog *-- AssetCatalogDataT
+    ResourceSystem ..> ResourceCatalog : 校验及激活快照
+```
+
+- `cache/catalog.bin` 是运行时索引；资源产物严格为 `cache/gen/<完整GUID>`，没有扩展名、资源类型前缀或版本子目录。SQLite 只由编辑器使用。
+- 每个 Run 可独占一份 ResourceCatalog。读取校验完整清单、GUID、路径、依赖以及每项产物的长度与内容摘要后保存字节快照，后续磁盘覆盖不改变活动版本。失败输出为空。
+- GuidMap 位于运行时核心模块；编辑器与真机复用同一双向路径/GUID规则。内置资源使用固定 GUID。
+- 激活先解析全部 Shader、Material、Mesh 并验证互相引用，失败恢复旧定义；成功更换项目资源表。调用者先释放旧场景；GPU 以 bgfx::copy 拥有字节并且不保存 CPU 资源借用，可以在下次 prepare 按新场景 ID 退役。候选脚本预检不得激活全局资源。
+- `read_scene` 只读当前已激活快照的 FlatBuffers 二进制，拒绝错误文件标识、版本或内容。
+
+- read_catalog 允许五个受支持目标平台，供宿主校验跨平台产物；activate_catalog 严格匹配运行平台。目录最多 65536 项、驻留总计 512 MiB，单项上限 64 MiB；超过则返回 false。普通磁盘缓存拒绝 catalog/gen 路径上的符号链接，APK 由 SDL AAsset 读取。

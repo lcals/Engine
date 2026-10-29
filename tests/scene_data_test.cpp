@@ -47,86 +47,13 @@ const engine::schema::ComponentDataT* find_component(const engine::schema::NodeD
     return iterator == node.components.end() ? nullptr : iterator->get();
 }
 
-bool material_matches(const engine::schema::MaterialDataT* material, float metallic,
-                      float roughness, double green, const engine::Vec2& position,
-                      const engine::Vec3& foo)
-{
-    if (material == nullptr || material->type_path != "project/materials/tests/typed" ||
-        material->shader_path != "project/shaders/tests/typed" || material->parameters.size() != 5)
-    {
-        return false;
-    }
-    const auto parameter =
-        [material](std::string_view name) -> const engine::schema::MaterialParameterT*
-    {
-        const auto iterator = std::find_if(material->parameters.begin(), material->parameters.end(),
-                                           [name](const auto& value)
-                                           { return value != nullptr && value->name == name; });
-        return iterator == material->parameters.end() ? nullptr : iterator->get();
-    };
-    const auto* base_color = parameter("baseColor");
-    const auto* metallic_parameter = parameter("metallic");
-    const auto* roughness_parameter = parameter("roughness");
-    const auto* position_parameter = parameter("pos");
-    const auto* foo_parameter = parameter("foo");
-    if (base_color == nullptr || metallic_parameter == nullptr || roughness_parameter == nullptr ||
-        position_parameter == nullptr || foo_parameter == nullptr)
-    {
-        return false;
-    }
-    const auto* color_value = base_color->value.AsVec4Value();
-    const auto* metallic_value = metallic_parameter->value.AsFloatValue();
-    const auto* roughness_value = roughness_parameter->value.AsFloatValue();
-    const auto* position_value = position_parameter->value.AsVec2Value();
-    const auto* foo_value = foo_parameter->value.AsVec3Value();
-    return color_value != nullptr && metallic_value != nullptr && roughness_value != nullptr &&
-           color_value->value.x() == 0.75 && color_value->value.y() == green &&
-           color_value->value.z() == 0.125 && color_value->value.w() == 1.0 &&
-           metallic_value->value == metallic && roughness_value->value == roughness &&
-           position_value != nullptr && position_value->value.x() == position.x() &&
-           position_value->value.y() == position.y() && foo_value != nullptr &&
-           foo_value->value.x() == foo.x() && foo_value->value.y() == foo.y() &&
-           foo_value->value.z() == foo.z();
-}
-
-bool register_typed_material()
-{
-    const auto* builtin_shader = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
-    const auto* builtin_material =
-        engine::ResourceSystem::find_material("builtin/materials/default-pbr");
-    if (!expect(builtin_shader != nullptr && builtin_material != nullptr,
-                "resource system registers built-in paths"))
-    {
-        return false;
-    }
-    engine::schema::ShaderDataT shader(*builtin_shader);
-    shader.path = "project/shaders/tests/typed";
-    auto position = std::make_unique<engine::schema::ShaderParameterT>();
-    position->name = "pos";
-    position->uniform_name = "u_testPosition";
-    position->default_value.Set(engine::schema::Vec2ValueT{});
-    shader.parameters.push_back(std::move(position));
-    auto foo = std::make_unique<engine::schema::ShaderParameterT>();
-    foo->name = "foo";
-    foo->uniform_name = "u_testFoo";
-    foo->default_value.Set(engine::schema::Vec3ValueT{});
-    shader.parameters.push_back(std::move(foo));
-
-    engine::schema::MaterialDataT material(*builtin_material);
-    material.type_path = "project/materials/tests/typed";
-    material.shader_path = shader.path;
-    return expect(engine::ResourceSystem::register_shader(shader) &&
-                      engine::ResourceSystem::register_material(material),
-                  "register custom path-based material and shader with every parameter type");
-}
-
 bool round_trip(std::vector<std::uint8_t>& bytes)
 {
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     engine::WorldSystem world;
     if (!expect(resources.initialize(config), "initialize shared resource definitions") ||
-        !register_typed_material() || !expect(world.initialize(config), "initialize world"))
+        !expect(world.initialize(config), "initialize world"))
     {
         return false;
     }
@@ -174,11 +101,9 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                 "default material uses resource paths") ||
         !expect(cube_node->get_component<engine::Transform>()->set_settings(transform) &&
                     camera->set_settings(camera_settings) && light->set_settings(light_settings) &&
-                    material.set_type("project/materials/tests/typed") &&
                     material.set_v4("baseColor", {0.75, 0.25, 0.125, 1.0}) &&
                     material.set_float("metallic", 0.625F) &&
-                    material.set_float("roughness", 0.25F) && material.set_v2("pos", {1.25, 2.5}) &&
-                    material.set_v3("foo", {3.0, 4.0, 5.0}),
+                    material.set_float("roughness", 0.25F),
                 "set generated component values and typed material parameters"))
     {
         return false;
@@ -221,7 +146,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
         engine::schema::GetSceneData(bytes.data())->UnPack());
     if (!expect(restored != nullptr && restored->info != nullptr &&
                     restored->info->name == "Shared scene model" && restored->nodes.size() == 4 &&
-                    restored->info->active_camera_node == camera_node->id() + identity_offset,
+                    restored->info->active_camera_node == camera_node->info().id + identity_offset,
                 "scene metadata and active camera survive round trip"))
     {
         return false;
@@ -230,10 +155,10 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     const auto* decoded_camera = find_node(*restored, "Camera");
     const auto* decoded_light = find_node(*restored, "Light");
     if (!expect(decoded_cube != nullptr && decoded_camera != nullptr && decoded_light != nullptr &&
-                    decoded_cube->info->id == cube_node->id() + identity_offset &&
-                    decoded_cube->info->parent_id == root->id() + identity_offset &&
-                    decoded_camera->info->parent_id == root->id() + identity_offset &&
-                    decoded_light->info->parent_id == root->id() + identity_offset,
+                    decoded_cube->info->id == cube_node->info().id + identity_offset &&
+                    decoded_cube->info->parent_id == root->info().id + identity_offset &&
+                    decoded_camera->info->parent_id == root->info().id + identity_offset &&
+                    decoded_light->info->parent_id == root->info().id + identity_offset,
                 "node identities and parent links survive round trip"))
     {
         return false;
@@ -258,9 +183,9 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     decoded_transform->scale.x() == 2.0 && decoded_transform->scale.y() == 3.0 &&
                     decoded_transform->scale.z() == 4.0,
                 "generated vector values survive round trip") ||
-        !expect(!mesh_data->enabled && decoded_mesh->mesh == engine::MeshKind::cube &&
-                    material_matches(decoded_mesh->material.get(), 0.625F, 0.25F, 0.25, {1.25, 2.5},
-                                     {3.0, 4.0, 5.0}),
+        !expect(!mesh_data->enabled &&
+                    decoded_mesh->mesh_guid == "00000000-0000-4000-8000-000000000005" &&
+                    decoded_mesh->material_guid == "00000000-0000-4000-8000-000000000003",
                 "material and enabled state remain independent of later runtime edits") ||
         !expect(decoded_camera_settings->fov_degrees == 75.0F &&
                     decoded_camera_settings->near_clip == 0.2F &&
@@ -359,10 +284,9 @@ bool check_typescript_result(const char* changed_path, const char* original_path
                       transform_data->position.y() == 2.5 && transform_data->scale.x() == 2.0 &&
                       transform_data->scale.y() == 3.0 && transform_data->scale.z() == 4.0,
                   "TypeScript edits generated transform data") &&
-           expect(mesh_data != nullptr && mesh_data->material != nullptr && mesh->enabled &&
-                      mesh_data->mesh == engine::MeshKind::cube &&
-                      material_matches(mesh_data->material.get(), 0.125F, 0.75F, 0.5, {11.5, 12.5},
-                                       {21.0, 22.0, 23.0}),
+           expect(mesh_data != nullptr && mesh->enabled &&
+                      mesh_data->mesh_guid == "00000000-0000-4000-8000-000000000005" &&
+                      mesh_data->material_guid == "00000000-0000-4000-8000-000000000004",
                   "TypeScript edits nested material and component state") &&
            expect(camera_data != nullptr && camera_data->fov_degrees == 55.0F &&
                       camera_data->near_clip == 0.2F && camera_data->far_clip == 200.0F,

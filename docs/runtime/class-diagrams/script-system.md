@@ -76,7 +76,7 @@ classDiagram
 - 预检候选 Context 编译、静态链接失败时，旧入口与快照继续运行；预检成功后先停止旧入口，再执行新模块及入口。执行失败明确报告并停止玩法，不承诺撤销已产生的副作用。
 - 关闭热重载只禁止切换，仍报告可用版本，固定当前入口和模块快照；重新开启在下一帧处理最新完整版本。停止后不会自动重启。
 - `persistent_data_path/assets/available.json` 清单包含 `revision`、`entry`、`files[{path,size,hash}]`、`deleted[]`。版本位于 `assets/versions/<revision>/`，哈希为小写 16 位 FNV-1a 64。全部文件的大小、哈希、路径验证通过后才接受版本。
-- 入口和所有 import 统一按路径解析：清单 files 命中读取对应 cache；deleted 命中拒绝；其他路径回退 builtin。宿主保证 builtin 在会话内不变；不复制内置内容覆盖同步文件。绝对路径、越界路径和符号链接越界均拒绝。
+- 正式 GUID 项目的入口和 import 通过 catalog 的 module_path 解析到 GUID，再从 Run 驻留快照读取；项目完整 catalog 中缺失的模块不得回退为旧包内路径。兼容旧独立脚本树测试时保留 files/deleted/builtin 解析；绝对路径、越界路径和符号链接越界均拒绝。
 - Android 的 builtin 为 `apk:/assets/project`：安全相对路径组合后交给 ResourceSystem 读取 APK，不对虚拟路径调用原生文件系统 canonical；持久版本仍执行 canonical、大小与哈希校验。
 - Android 初始化要求 App 已就绪；验证 `apk:/assets/project-manifest.json` 的完整资源清单和包内文件后，只将清单原子导出为 `persistent_data_path/assets/builtin.json`，供首次设备同步计算删除项，不覆盖 `available.json` 或复制项目资源。当前运行固定打包项目；即使 App 自定义 builtin 根，也必须与该包清单对应，不提供任意项目切换。校验或导出失败使初始化返回 false。
 - Android 的 ICU 从 `apk:/assets/v8/icudtl.dat` 读取到 `cache_path/v8/icudtl.dat`；内容相同复用，否则原子替换。桌面继续读取可执行程序旁的 ICU。准备或 V8 初始化失败通过返回值与日志报告。
@@ -89,3 +89,7 @@ classDiagram
 C++ 限定符：构造、析构、`stop_gameplay()`、`status()` 和 `on_shutdown()` 为 `noexcept`；`status()` 为 const。返回状态或借用的方法标注 `[[nodiscard]]`，钩子和析构标注 override。V8 异常捕获只处理 JavaScript 异常，不使用 C++ 异常。
 
 公共路径编码复用 [PathUtils](path-utils.md)；路径规范化和安全检查仍由本类负责。
+
+## GUID 资源目录
+
+正式项目从 `catalog.bin` 与 `gen/<完整GUID>` 加载；每个 Run 独占一份 ResourceCatalog 字节快照，不在运行时重新读取可变 gen。脚本使用 catalog 的 module_path（如 scripts/game.js）解析相对 import，再按 GUID 取 JS；engine 虚拟模块不变。候选完整校验及静态模块链接不激活全局 catalog，失败保持旧 Run；接受后先结束旧场景，再激活候选资源定义并调用新入口。`Scene.Load(path)` 通过活动 catalog 加载已编译场景，失败返回 null，不清空仍有效的旧场景。

@@ -367,7 +367,8 @@ Json tool_list(bool desktop)
         {"tools",
          Json::array(
              {{{"name", "sync_assets"},
-               {"description", "Compile project scripts and publish a complete runtime version. "
+               {"description", "Import all project assets and synchronize the complete GUID "
+                               "catalog and artifacts. "
                                "Success means available, not activated."},
                {"inputSchema", empty_schema}},
               {{"name", "set_hot_reload"},
@@ -523,9 +524,10 @@ bool McpSystem::run_stdio()
                         {{"protocolVersion", protocol},
                          {"capabilities", {{"tools", {{"listChanged", false}}}}},
                          {"serverInfo", {{"name", "engine-editor-tools"}, {"version", "0.1.0"}}},
-                         {"instructions", "Tools target the explicit local runtime or Android "
-                                          "device/package. "
-                                          "Sync publishes files; the engine owns activation."}});
+                         {"instructions",
+                          "Tools target the explicit local runtime or Android "
+                          "device/package. "
+                          "Sync publishes all catalog assets; the engine owns activation."}});
                 }
             }
             else if (method == "ping")
@@ -556,7 +558,9 @@ bool McpSystem::run_stdio()
                     Json result;
                     if (name == "sync_assets" && arguments.empty())
                     {
-                        if (!pipeline_.build_scripts(project_root_))
+                        if (!pipeline_.build_assets(project_root_, target_.android_serial.empty()
+                                                                       ? std::string_view{}
+                                                                       : "android"))
                         {
                             result = tool_result({{"error", pipeline_.last_error()}}, true);
                         }
@@ -566,8 +570,7 @@ bool McpSystem::run_stdio()
                             const bool success = sync_android(receipt);
                             result = android_result(success, receipt);
                         }
-                        else if (!sync_.sync(project_root_ / "cache" / "assets",
-                                             target_.runtime_dir))
+                        else if (!sync_.sync(project_root_ / "cache", target_.runtime_dir))
                         {
                             result = tool_result({{"error", sync_.last_error()}}, true);
                         }

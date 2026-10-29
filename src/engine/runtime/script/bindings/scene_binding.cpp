@@ -16,6 +16,15 @@ export class Scene {
         const id = native.SceneCreate(name);
         return id === null ? null : new Scene(key, id);
     }
+    static Load(path) {
+        const id = native.SceneLoad(path);
+        return id === null ? null : new Scene(key, id);
+    }
+    FindNode(name) {
+        const scene = handles.get(this).scene;
+        const node = native.SceneFindNode(scene, name);
+        return node === null ? null : new Node(key, scene, node);
+    }
     IsValid() { return native.SceneValid(handles.get(this).scene); }
     Destroy() { return native.SceneDestroy(handles.get(this).scene); }
     CreateNode(name) {
@@ -50,6 +59,49 @@ void create(const Arguments& arguments)
         binding->set_scene_id(scene->id());
         arguments.GetReturnValue().Set(
             v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), scene->id()));
+    }
+}
+
+void load(const Arguments& arguments)
+{
+    arguments.GetReturnValue().SetNull();
+    auto* binding = BindingContext::current(arguments);
+    std::string path;
+    if (binding == nullptr || binding->world() == nullptr || !binding->world()->is_initialized() ||
+        arguments.Length() != 1 || !BindingContext::text(arguments, 0, path))
+    {
+        return;
+    }
+    const auto* current_scene = binding->world()->scene();
+    if (current_scene != nullptr && current_scene->id() != binding->scene_id())
+    {
+        return; // 玩法不能替换由另一个宿主建立的场景。
+    }
+    if (auto* scene = binding->world()->load_scene(path); scene != nullptr)
+    {
+        binding->set_scene_id(scene->id());
+        arguments.GetReturnValue().Set(
+            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), scene->id()));
+    }
+}
+
+void find_node(const Arguments& arguments)
+{
+    arguments.GetReturnValue().SetNull();
+    auto* scene = BindingContext::scene(arguments);
+    std::string name;
+    if (scene == nullptr || arguments.Length() != 2 || !BindingContext::text(arguments, 1, name))
+    {
+        return;
+    }
+    for (const auto& node : scene->nodes())
+    {
+        if (node->name() == name)
+        {
+            arguments.GetReturnValue().Set(
+                v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), node->id()));
+            return;
+        }
     }
 }
 
@@ -106,6 +158,8 @@ bool SceneBinding::register_functions(v8::Local<v8::Context> context,
                                       v8::Local<v8::Object> native) const
 {
     return BindingContext::function(context, native, "SceneCreate", create) &&
+           BindingContext::function(context, native, "SceneLoad", load) &&
+           BindingContext::function(context, native, "SceneFindNode", find_node) &&
            BindingContext::function(context, native, "SceneValid", valid) &&
            BindingContext::function(context, native, "SceneDestroy", destroy) &&
            BindingContext::function(context, native, "ActiveCamera", active_camera);

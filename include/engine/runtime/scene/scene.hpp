@@ -45,10 +45,13 @@ private:
     friend class WorldSystem;
     friend class Node;
     Scene(ecs_world_t& world, std::uint64_t id, std::string_view name);
+    [[nodiscard]] Node* find_local_node(std::uint64_t local_id) const noexcept;
+    [[nodiscard]] bool restore_data(const schema::SceneDataT& data);
     void destroy_entity(std::uint64_t id) noexcept;
 
     ecs_world_t& world_;
     std::uint64_t id_;
+    std::uint64_t node_sequence_ = 0;
     schema::SceneInfoT info_{};
     std::vector<std::unique_ptr<Node>> nodes_;
 };

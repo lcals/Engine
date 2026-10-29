@@ -129,10 +129,29 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    engine_add_system(editor task)
+    target_link_libraries(engine_task PRIVATE Taskflow::Taskflow Threads::Threads)
+    target_compile_definitions(engine_task PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
+
     engine_add_system(editor asset_pipeline)
-    target_link_libraries(engine_asset_pipeline PRIVATE usd Taskflow::Taskflow
+    target_sources(engine_asset_pipeline PRIVATE
+        src/engine/editor/asset_pipeline/asset_database.cpp
+        src/engine/editor/asset_pipeline/asset_importers.cpp
+        src/engine/editor/asset_pipeline/asset_io.cpp
+        src/engine/editor/asset_pipeline/asset_publish.cpp
+        src/engine/editor/asset_pipeline/project_lock.cpp
+        src/engine/editor/asset_pipeline/scene_importer.cpp)
+    target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_asset_pipeline PRIVATE engine::task engine::resource engine::scene_data
+        usd
         unofficial::sqlite3::sqlite3 efsw::efsw meshoptimizer::meshoptimizer SDL3::SDL3)
-    target_compile_definitions(engine_asset_pipeline PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
+    # vcpkg 的编译库使用异常 ABI；导入器按上游支持方式使用无异常头文件实现。
+    get_target_property(_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_asset_pipeline SYSTEM PRIVATE ${_toml_includes})
+    target_compile_definitions(engine_asset_pipeline PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
+        ENGINE_SHADERC_EXECUTABLE="${ENGINE_SHADERC_EXECUTABLE}"
+        ENGINE_BGFX_SHADER_INCLUDE_DIR="${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
+        ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
     find_program(ENGINE_NODE_EXECUTABLE NAMES node)
     if(NOT ENGINE_NODE_EXECUTABLE)
         set(ENGINE_NODE_EXECUTABLE "")

@@ -2,6 +2,7 @@
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <cstdio>
@@ -51,6 +52,37 @@ std::string read(const fs::path& path)
     return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
 }
 
+constexpr auto script_guid = "550e8400-e29b-41d4-a716-446655440000";
+
+bool write_catalog(const fs::path& cache, const std::string& content)
+{
+    engine::schema::AssetCatalogDataT catalog;
+    catalog.revision = "test-revision";
+    catalog.target_platform = "macos";
+    auto entry = std::make_unique<engine::schema::AssetEntryT>();
+    entry->guid = script_guid;
+    entry->path = "project/scripts/game.ts";
+    entry->module_path = "scripts/game.js";
+    entry->kind = engine::schema::AssetKind::script;
+    entry->content_size = content.size();
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const unsigned char byte : content)
+    {
+        hash ^= byte;
+        hash *= 1099511628211ULL;
+    }
+    char text[17];
+    std::snprintf(text, sizeof(text), "%016llx", static_cast<unsigned long long>(hash));
+    entry->content_hash = text;
+    catalog.entries.push_back(std::move(entry));
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    return write(
+        cache / "catalog.bin",
+        std::string(reinterpret_cast<const char*>(builder.GetBufferPointer()), builder.GetSize()));
+}
+
 bool run_cases(const fs::path& workspace)
 {
     const auto root = workspace / "project";
@@ -92,15 +124,17 @@ bool run_cases(const fs::path& workspace)
     const auto other_session = snapshot.parent_path().parent_path() / "other-session";
     if (!expect(!environment.prepare_builtin_assets(), "missing compiled assets rejects copy") ||
         !expect(absent(snapshot), "failed copy leaves no partial assets") ||
-        !directory(root / "cache" / "assets") || !directory(other_session) ||
+        !directory(root / "cache" / "gen") || !directory(other_session) ||
         !write(other_session / "keep.txt", "other") ||
-        !write(root / "cache" / "assets" / "game.js", "original") ||
+        !write(root / "cache" / "gen" / script_guid, "original") ||
+        !write_catalog(root / "cache", "original") ||
         !write(persistent / "keep.txt", "persistent") ||
         !expect(environment.prepare_builtin_assets(), "prepare compiled asset snapshot") ||
-        !expect(read(snapshot / "game.js") == "original", "snapshot contains generated scripts") ||
-        !write(root / "cache" / "assets" / "game.js", "replacement") ||
+        !expect(read(snapshot / "gen" / script_guid) == "original",
+                "snapshot contains generated scripts") ||
+        !write(root / "cache" / "gen" / script_guid, "replacement") ||
         !expect(!environment.prepare_builtin_assets(), "built snapshot cannot be overwritten") ||
-        !expect(read(snapshot / "game.js") == "original", "snapshot remains stable"))
+        !expect(read(snapshot / "gen" / script_guid) == "original", "snapshot remains stable"))
     {
         return false;
     }
@@ -108,7 +142,7 @@ bool run_cases(const fs::path& workspace)
     if (!expect(absent(snapshot.parent_path()), "shutdown removes only owned session") ||
         !expect(read(other_session / "keep.txt") == "other", "preserve other session") ||
         !expect(read(persistent / "keep.txt") == "persistent", "preserve persistent content") ||
-        !expect(read(root / "cache" / "assets" / "game.js") == "replacement",
+        !expect(read(root / "cache" / "gen" / script_guid) == "replacement",
                 "preserve compiled cache") ||
         !expect(project.is_initialized(), "environment does not close borrowed project"))
     {

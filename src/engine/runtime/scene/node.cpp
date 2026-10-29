@@ -8,21 +8,21 @@
 namespace engine
 {
 
-Node::Node(Scene& scene, std::uint64_t id, std::string_view name) : scene_(scene)
+Node::Node(Scene& scene, std::uint64_t id, std::string_view name) : scene_(scene), entity_id_(id)
 {
-    info_.id = id;
+    info_.id = ++scene_.node_sequence_;
     info_.name = name;
 }
 
 Node::~Node() noexcept
 {
     components_.clear();
-    scene_.destroy_entity(info_.id);
+    scene_.destroy_entity(entity_id_);
 }
 
 std::uint64_t Node::id() const noexcept
 {
-    return info_.id;
+    return entity_id_;
 }
 
 std::string_view Node::name() const noexcept
@@ -47,12 +47,12 @@ const Scene& Node::scene() const noexcept
 
 Node* Node::parent() noexcept
 {
-    return scene_.find_node(info_.parent_id);
+    return scene_.find_local_node(info_.parent_id);
 }
 
 const Node* Node::parent() const noexcept
 {
-    return std::as_const(scene_).find_node(info_.parent_id);
+    return std::as_const(scene_).find_local_node(info_.parent_id);
 }
 
 bool Node::set_parent(Node* parent) noexcept
@@ -68,7 +68,7 @@ bool Node::set_parent(Node* parent) noexcept
             return false;
         }
     }
-    info_.parent_id = parent == nullptr ? 0 : parent->id();
+    info_.parent_id = parent == nullptr ? 0 : parent->info_.id;
     return true;
 }
 
