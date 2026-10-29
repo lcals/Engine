@@ -1,5 +1,6 @@
 #include "editor/asset_pipeline/asset_importer_registry.hpp"
 
+#include "editor/asset_pipeline/importers/audio_importer.hpp"
 #include "editor/asset_pipeline/importers/material_importer.hpp"
 #include "editor/asset_pipeline/importers/mesh_importer.hpp"
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
@@ -19,8 +20,8 @@ bool AssetImporterRegistry::initialize()
         return false;
     }
     if (!add<MeshImporter>() || !add<ShaderImporter>() || !add<MaterialImporter>() ||
-        !add<SceneAssetImporter>() || !add<TextureImporter>() || !add<ScriptImporter>() ||
-        !add<SourceImporter>(true))
+        !add<SceneAssetImporter>() || !add<TextureImporter>() || !add<AudioImporter>() ||
+        !add<ScriptImporter>() || !add<SourceImporter>(true))
     {
         clear();
         return false;

@@ -79,6 +79,8 @@ classDiagram
     class RuntimeHost
     class GameplaySession
     class ScriptRuntimeFactory
+    class PhysicsSystem
+    class AudioSystem
     RuntimeHost --> Engine : 借用框架并注册根系统
     RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
@@ -93,6 +95,9 @@ classDiagram
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
     GameplaySession --> WorldSystem : 借用并结束场景
     GameplaySession --> RenderSystem : 借用并管理项目 GPU 资源
+    GameplaySession --> PhysicsSystem : 可空借用及显式清理
+    GameplaySession --> AudioSystem : 可空借用及显式清理
+    RuntimeHost --> AudioSystem : 借用并随窗口暂停恢复
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
 ```
@@ -107,17 +112,19 @@ classDiagram
     class NavigationSystem
     class AnimationSystem
     class UiSystem
+    class AudioSystem
     class ScriptRuntime
     WorldSystem "1" *-- "0..1" PhysicsSystem : 第一个子系统
     WorldSystem "1" *-- "0..1" NavigationSystem : 第二个子系统
     WorldSystem "1" *-- "0..1" AnimationSystem : 第三个子系统
     WorldSystem "1" *-- "0..1" UiSystem : 第四个子系统
-    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第五子系统
+    WorldSystem "1" *-- "0..1" AudioSystem : 第五个子系统
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第六子系统
 ```
 
 RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断 V8 或插件是否编译。
 
-每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时不继续执行资源、世界和脚本更新；编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
+每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
 
 ## 场景对象、组件及渲染引用
 
@@ -158,6 +165,51 @@ classDiagram
 场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
 领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放；共享缓存与必要依赖保活由 ResourceGraphSystem 插件负责，核心没有缓存。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+
+## 物理与音频引用
+
+```mermaid
+classDiagram
+    class Component
+    class Collider
+    class RigidBody
+    class AudioSource
+    class AudioListener
+    class Transform
+    class WorldSystem
+    class PhysicsSystem
+    class AudioSystem
+    class Resource
+    Component <|-- Collider
+    Component <|-- RigidBody
+    Component <|-- AudioSource
+    Component <|-- AudioListener
+    PhysicsSystem --> WorldSystem : 生命周期内借用
+    PhysicsSystem ..> Collider : 每帧读取形状配置
+    PhysicsSystem ..> RigidBody : 消费冲量及回写速度
+    PhysicsSystem ..> Transform : 同步变换及模拟结果
+    AudioSystem --> WorldSystem : 生命周期内借用
+    AudioSystem ..> AudioSource : 消费请求及回写状态
+    AudioSystem ..> AudioListener : 读取首个有效监听器
+    AudioSystem ..> Transform : 读取位置及朝向
+    AudioSource o-- Resource : 共享音频实体
+```
+
+四个组件由 Node 独占；系统按场景/节点身份重新查询，不跨帧保存组件指针。持久设置使用生成数据，冲量请求、音频游标与播放状态属于运行时瞬态。音源通过 ResourceLoader 加载 clip；Resource 持有 AudioClipDataT，不持有输出设备。
+
+| 所有者或调用方 | 对象 | 关系与边界 |
+| --- | --- | --- |
+| PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
+| AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
+| AudioSystem | SDL 逻辑设备和每源音频流 | 独占；按需打开，主线程提交短队列；SDL 线程不访问场景 |
+| GameplaySession | PhysicsSystem / AudioSystem | 可空借用；停止脚本后先清音频/物理，再销毁场景与 GPU |
+| AudioImporter | AudioClipDataT | 编辑器将 WAV/meta 转交错 PCM，无设备或运行播放策略 |
+| SceneComponentCodec | Collider/RigidBody/AudioSource/AudioListener 生成载荷 | 逐类型 TOML 读写，音源 clip GUID 进入场景依赖 |
+| ComponentEdit | ComponentDataT | 编辑器独立前后快照，不持有组件或 ResourcePtr |
+| 物理/音频 MCP 注册函数 | EditorMcpTools | 回调借用固定目标通道，只提交命令；不链接模拟或播放实现 |
+| 逐类脚本绑定 | 对应运行时组件 | 插件核验句柄后调用普通接口，不复制运行逻辑 |
+
+方法分别见[物理系统](../runtime/class-diagrams/physics-system.md)、[物理组件](../runtime/class-diagrams/physics-components.md)、[音频系统](../runtime/class-diagrams/audio-system.md)、[音频组件](../runtime/class-diagrams/audio-components.md)、[音频导入](../editor/class-diagrams/audio-importer.md)、[组件命令](../editor/class-diagrams/component-commands.md)和[MCP 适配](../plugins/editor/class-diagrams/physics-audio-mcp-tools.md)。
 
 ## App 与日志
 
@@ -450,7 +502,7 @@ classDiagram
 
 EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。旧项目启停通道与新编辑命令通道分别维护，不改变 Android 同步协议。
 
-SceneCommands 负责活动场景查询、创建带 Transform 的空节点或相机/灯光节点、活动相机选择，以及 Transform、Camera、Light、材质类型/参数/贴图修改。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
+SceneCommands 负责活动场景查询、创建带 Transform 的空节点或相机/灯光节点、活动相机选择，以及 Transform、Camera、Light、材质类型/参数/贴图修改；物理和音频的逐类型命令由它显式登记，快照与新增组件撤销见[组件命令图](../editor/class-diagrams/component-commands.md)。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。通用方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
 
 ## 公共路径工具
 
@@ -496,7 +548,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
 | 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
-| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptRuntime | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
+| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
 | 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
@@ -648,18 +700,19 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | ResourceGraphSystem | ResourceLoader、ResourceSystem、标准库共享与弱指针 | 同代际依赖加载、共享缓存及反向释放 |
 | WorldSystem           | flecs、FlatBuffers、Scene                                                                                                                     | ECS 世界、场景与节点身份生命周期                       |
 | RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
-| PhysicsSystem         | Jolt                                                                                                                                          | 版本一致性入口                                         |
+| PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
+| AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
 | NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
 | AnimationSystem       | ozz-animation                                                                                                                                 | 空骨骼构造和析构                                       |
 | UiSystem              | RmlUi                                                                                                                                         | 运行库版本入口                                         |
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或 V8 链接 |
 | ScriptSystem 插件 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
-| GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
+| GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、PhysicsSystem、AudioSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
 | ProjectSystem         | toml++、LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
 | EditorEnvironment     | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils                                                                     | 编辑器路径映射、活动缓存租约与目录提交                 |
 | EditorSystem          | Dear ImGui、EditorEnvironment、GameplaySession、EditorCommands、SceneCommands、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、主线程命令、项目启停与状态回执           |
 | EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |
-| SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
+| SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、Collider、RigidBody、AudioSource、AudioListener、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
 | EditorCommandChannel  | EditorCommands、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                                | 编辑器会话请求、持久回执和重复请求防护                 |
 | AssetPipelineSystem   | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
 | AssetBuildSystem      | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++                                                                                  | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录   |

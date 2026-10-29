@@ -34,7 +34,7 @@ classDiagram
     ComponentPayloadUnion *-- MeshRendererDataT : 可选载荷之一
 ```
 
-`SceneInfoT`、`NodeInfoT` 与各组件载荷分别见[场景](scene.md)、[节点](node.md)和[组件](component.md)。`scene.fbs` 只含场景、节点、组件及资源引用；数值类型来自 `common.fbs`。`MeshRendererDataT` 的两个 GUID 分别引用下方网格与材质定义，不复制资源内容。
+`SceneInfoT`、`NodeInfoT` 与各组件载荷分别见[场景](scene.md)、[节点](node.md)、[渲染基础组件](component.md)、[物理组件](physics-components.md)和[音频组件](audio-components.md)。`scene.fbs` 只含场景、节点、组件及资源引用；数值类型来自 `common.fbs`。`MeshRendererDataT` 的 GUID 引用下方网格与材质定义，`AudioSourceDataT::clip_guid` 引用独立音频实体，不复制资源内容。组件 union 增加独立载荷，不在 Node 中保存具体类型字段。
 
 场景节点 ID 为稳定局部 ID。加载时映射到运行实体 ID，恢复父子关系和活动相机；保存时反向映射，不将 flecs ID 落盘。TypeScript 节点 ID 使用 bigint。
 
@@ -199,3 +199,22 @@ classDiagram
 ```
 
 图片 `.meta` 声明格式、压缩模式、质量、颜色空间和 mipmap。编辑器调用 BasisU 生成缓存；运行时仅解析并按 GPU 能力转码。auto_format 由设备选择，明确指定但设备不支持的格式返回失败。内置默认贴图使用 RGBA8，避免运行时编码器参与生成。新增网格数组可省略，旧 MeshVertex 二进制布局不变；缺省 UV 为零、颜色为白色，切线按上游算法生成。
+
+## 音频
+
+```mermaid
+classDiagram
+    class AudioClipDataT {
+        +uint32_t schema_version
+        +uint32_t sample_rate
+        +uint8_t channels
+        +uint64_t frames
+        +vector~float~ samples
+    }
+    class AudioSourceDataT
+    class Resource
+    AudioSourceDataT ..> AudioClipDataT : clip_guid引用
+    Resource *-- AudioClipDataT : 音频类型时独占载荷
+```
+
+`audio.fbs` 使用 `EAUD` 标识，采样为交错 F32 PCM。采样率、声道、帧数与样本数经过[运行时解码器](resource-codecs.md)校验。资源目录的 `audio` 类型、场景依赖与音源共享引用使用同一 GUID；播放游标、SDL 句柄与瞬态状态不进入模型。

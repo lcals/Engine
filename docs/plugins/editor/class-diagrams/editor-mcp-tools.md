@@ -38,3 +38,5 @@ classDiagram
 渲染编辑命令增加 `set_camera`、`set_material_texture`；材质命令接受可选 `slot`（默认 0），灯光命令接受类型、范围和聚光半角。相机和灯光编辑仅回滚被请求的字段；贴图编辑记录前后资源身份和版本；撤销重新按路径加载，资源已变更时拒绝旧操作，历史不阻止停止项目或热重载释放资源。所有命令继续走同一主线程事务与撤销栈。场景查询包含投影、灯光类型、全部材质槽及具名贴图。
 
 场景扩展工具 `create_node`、`set_active_camera`、`set_material_type`、`save_scene` 仍只提交编辑器命令。前者创建空节点或相机/灯光，材质换型以完整资源路径指定并支持撤销；场景保存由 ScenePersistence 发布源资源，之后调用方停止项目、同步导入并重启。MCP 不直接创建节点、不写场景文件或执行导入策略。
+
+[物理与音频适配](physics-audio-mcp-tools.md)按领域独立注册：Collider、RigidBody、AudioSource、AudioListener 的设置与查询，以及冲量和播放控制。适配只定义工具 schema 并调用同一 `call_command()`；组件编辑、快照与撤销仍由编辑器完成，模拟与音频输出仍由运行时核心执行。

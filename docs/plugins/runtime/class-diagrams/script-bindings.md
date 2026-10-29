@@ -103,6 +103,10 @@ classDiagram
     class LightBinding
     class MeshRendererBinding
     class MaterialBinding
+    class ColliderBinding
+    class RigidBodyBinding
+    class AudioSourceBinding
+    class AudioListenerBinding
     ScriptBinding <|-- AppBinding
     ScriptBinding <|-- DebugBinding
     ScriptBinding <|-- GameplayBinding
@@ -115,6 +119,10 @@ classDiagram
     ScriptBinding <|-- LightBinding
     ScriptBinding <|-- MeshRendererBinding
     ScriptBinding <|-- MaterialBinding
+    ScriptBinding <|-- ColliderBinding
+    ScriptBinding <|-- RigidBodyBinding
+    ScriptBinding <|-- AudioSourceBinding
+    ScriptBinding <|-- AudioListenerBinding
 ```
 
 实现均为 final，分别保存于 `src/engine/plugins/runtime/script/bindings/` 下的 `app_binding`、`debug_binding`、`gameplay_binding`、`time_binding`、`scene_binding`、`node_binding`、`component_binding`、`transform_binding`、`camera_binding`、`light_binding`、`mesh_renderer_binding`、`material_binding` 头文件与实现文件。接口、注册表和公共上下文同目录独立维护。
@@ -126,6 +134,7 @@ classDiagram
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
 - MaterialBinding 将 SetType/SetShader/SetTexture 的资源路径与 SetFloat/SetV2/SetV3/SetV4 交给材质接口校验。材质门面保存槽号，每次调用按场景与节点身份解析当前槽，失效槽不访问原生对象；GetTexture 返回已解析的路径。
 - CameraBinding 提供透视与正交设置；LightBinding 提供方向、点和聚光设置；MeshRendererBinding 提供资源网格切换与材质槽访问。所有范围及资源匹配由对应原生组件负责。
+- ColliderBinding、RigidBodyBinding、AudioSourceBinding、AudioListenerBinding 各有独立文件，提供[物理与音频组件接口](physics-audio-script-api.md)。几何、质量、速度、冲量、音频设置与播放请求交原生组件处理，不在绑定中实现仿真或混音。
 - 构造和清理不抛 C++ 异常；V8 调用通过 Maybe/返回值报告错误。全部借用仅在引擎主线程有效。
 
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。

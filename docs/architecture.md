@@ -35,7 +35,7 @@ Engine/System 框架只依赖标准库。SDL、bgfx 等必要的系统实现依�
 
 公开头文件和实现分别位于 `include/engine/`、`src/engine/`，采用相同分层：
 
-- `runtime/`：系统框架、运行时宿主、玩法会话、脚本执行契约、平台路径、窗口、日志、资源、世界和渲染；公共工具位于 `runtime/utils/`。
+- `runtime/`：系统框架、运行时宿主、玩法会话、脚本执行契约、平台路径、窗口、日志、资源、世界、渲染、物理与音频；公共工具位于 `runtime/utils/`。
 - `editor/`：编辑器环境、项目约束、通用命令、任务调度和资源导入基础。
 - `plugins/runtime/`：可独立选择的资源依赖图、V8 脚本执行与逐类绑定实现。
 - `plugins/editor/`：完整建模、MCP 协议及业务适配、资源构建和资源同步插件。
@@ -60,6 +60,8 @@ CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录�
 
 场景对象统一为 Node 与 Component，Node 只管理身份、层级和组件集合。场景、组件及资源数据由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite 与转换；构建和同步插件组织发布。资源核心读取单项并解析，依赖图插件加载必要依赖并维持共享使用关系。
 
+物理与音频同样分层：`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 以及 `PhysicsSystem`、`AudioSystem` 属于运行时核心。Jolt 物体、SDL 输出设备与流由对应系统管理，公开组件只暴露生成设置和普通 C++ 请求。WAV/meta 转 PCM、场景 TOML 读写、组件快照与撤销属于编辑器。MCP 插件只注册工具并转发编辑器命令；V8 插件逐类绑定核心接口。两类插件都不复制模拟或播放逻辑，核心也不读取 JSON 命令与编辑器设置。
+
 MCP 协议层只登记、校验并调用工具。项目工具和场景工具各自注册；场景操作通过命令通道交给编辑器主线程，编辑器命令模块组织批量执行、回滚与撤销，场景模块调用普通组件接口。组件和 Engine 不知道 MCP、命令历史或编辑器项目。新业务模块分别登记需要暴露的工具和执行函数，所有权与线程边界保持显式。
 
 实现采用 C++20 与返回值错误处理，资源所有权和失败清理保持明确。依赖使用固定版本的 vcpkg port 或 Git 子模块，实际参与系统编译和链接。代码规则见 [AGENTS.md](../AGENTS.md)，构建和补丁维护见[开发说明](development.md)。
@@ -72,7 +74,8 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [渲染](runtime/rendering.md)：bgfx、平台后端、材质、PBR 与 GPU 资源生命周期。
 - [资源管线](editor/asset-pipeline.md)：meta、Taskflow、SQLite、增量转换和完整版本发布。
 - [资源构建](plugins/editor/resource-build.md)：项目清单、依赖闭包、散文件和合并包。
-- [物理](runtime/physics.md)、[导航](runtime/navigation.md)、[动画](runtime/animation.md)、[运行时 UI](runtime/ui.md)：各系统的依赖接入与能力范围。
+- [物理](runtime/physics.md)、[音频](runtime/audio.md)：节点组件、固定步模拟、PCM 播放与清理边界。
+- [导航](runtime/navigation.md)、[动画](runtime/animation.md)、[运行时 UI](runtime/ui.md)：各系统的依赖接入与能力范围。
 - [脚本与插件](plugins/plugins.md)：V8 绑定、Gameplay、热重载和 MCP。
 - [编辑器](editor/editor.md)、[编辑器配置](editor/configuration.md)：环境、项目控制和工具设置。
 - [项目与出包](editor/project.md)：项目目录契约、运行内容与平台部署。

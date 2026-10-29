@@ -37,6 +37,23 @@ if(TARGET engine_resource)
     set_tests_properties(engine.resource_read PROPERTIES TIMEOUT 30)
 endif()
 
+if(TARGET engine_physics)
+    add_executable(engine_physics_test physics_test.cpp)
+    target_link_libraries(engine_physics_test PRIVATE engine::physics engine::world)
+    engine_apply_options(engine_physics_test)
+    add_test(NAME engine.physics COMMAND engine_physics_test)
+    set_tests_properties(engine.physics PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_audio)
+    add_executable(engine_audio_test audio_test.cpp)
+    target_link_libraries(engine_audio_test PRIVATE engine::audio engine::world engine::resource
+                                                    SDL3::SDL3)
+    engine_apply_options(engine_audio_test)
+    add_test(NAME engine.audio COMMAND engine_audio_test)
+    set_tests_properties(engine.audio PROPERTIES TIMEOUT 60)
+endif()
+
 if(TARGET engine_script)
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(
@@ -201,9 +218,23 @@ if(ENGINE_ENABLE_GPU_TESTS
             "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
             "${PROJECT_SOURCE_DIR}")
     set_tests_properties(modeling.mcp PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+    add_test(
+        NAME editor.physics_audio_mcp
+        COMMAND
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/mcp_physics_audio_test.py"
+            --editor "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
+            "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.physics_audio_mcp PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE
+                                                             ENVIRONMENT "SDL_AUDIODRIVER=dummy")
 endif()
 
 if(TARGET engine_editor)
+    add_executable(engine_physics_audio_commands_test physics_audio_commands_test.cpp)
+    target_link_libraries(engine_physics_audio_commands_test PRIVATE engine::editor engine::world
+                                                                     engine::resource)
+    engine_apply_options(engine_physics_audio_commands_test)
+    add_test(NAME editor.physics_audio_commands COMMAND engine_physics_audio_commands_test)
+    set_tests_properties(editor.physics_audio_commands PROPERTIES TIMEOUT 30)
     add_executable(engine_editor_commands_test editor_commands_test.cpp)
     target_include_directories(engine_editor_commands_test
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -269,6 +300,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_executable(engine_audio_pipeline_test audio_pipeline_test.cpp)
+    target_link_libraries(engine_audio_pipeline_test PRIVATE engine::asset_pipeline
+                                                             engine::resource)
+    engine_apply_options(engine_audio_pipeline_test)
+    add_test(NAME editor.audio_pipeline COMMAND engine_audio_pipeline_test)
+    set_tests_properties(editor.audio_pipeline PROPERTIES TIMEOUT 120)
     add_executable(engine_task_test task_test.cpp)
     target_link_libraries(engine_task_test PRIVATE engine::task)
     engine_apply_options(engine_task_test)

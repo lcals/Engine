@@ -1,6 +1,7 @@
 #include "runtime/app/runtime_host.hpp"
 
 #include "runtime/animation/animation_system.hpp"
+#include "runtime/audio/audio_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
@@ -55,12 +56,18 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     }
 
     auto world = std::make_unique<WorldSystem>();
-    std::unique_ptr<System> physics = std::make_unique<PhysicsSystem>();
+    auto physics_system = std::make_unique<PhysicsSystem>(world.get());
+    physics_ = physics_system.get();
+    std::unique_ptr<System> physics = std::move(physics_system);
+    auto audio_system = std::make_unique<AudioSystem>(world.get());
+    audio_ = audio_system.get();
+    std::unique_ptr<System> audio = std::move(audio_system);
     std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
     std::unique_ptr<System> animation = std::make_unique<AnimationSystem>();
     std::unique_ptr<System> ui = std::make_unique<UiSystem>();
     if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
-        !world->add_subsystem(animation) || !world->add_subsystem(ui))
+        !world->add_subsystem(animation) || !world->add_subsystem(ui) ||
+        !world->add_subsystem(audio))
     {
         shutdown();
         return false;
@@ -92,7 +99,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script);
+    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_);
     initialized_ = true;
     return true;
 }
@@ -116,6 +123,11 @@ FrameStatus RuntimeHost::tick(double delta_time)
     {
         request_exit();
         return FrameStatus::exit_requested;
+    }
+    if (!audio_->set_paused(!window_->can_render()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
     }
     if (!window_->can_render())
     {
@@ -176,6 +188,8 @@ void RuntimeHost::shutdown() noexcept
 {
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
     gameplay_.reset();
+    audio_ = nullptr;
+    physics_ = nullptr;
     renderer_ = nullptr;
     world_ = nullptr;
     if (owns_engine_)

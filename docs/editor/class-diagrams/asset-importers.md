@@ -30,6 +30,7 @@ classDiagram
     class MaterialImporter
     class SceneAssetImporter
     class TextureImporter
+    class AudioImporter
     class ScriptImporter
     class SourceImporter
     AssetImporter <|-- MeshImporter
@@ -37,6 +38,7 @@ classDiagram
     AssetImporter <|-- MaterialImporter
     AssetImporter <|-- SceneAssetImporter
     AssetImporter <|-- TextureImporter
+    AssetImporter <|-- AudioImporter
     AssetImporter <|-- ScriptImporter
     AssetImporter <|-- SourceImporter
     AssetImporterRegistry *-- AssetImporter : 独占登记实现

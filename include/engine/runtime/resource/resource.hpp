@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/schema/asset_catalog_generated.h"
+#include "runtime/schema/audio_generated.h"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/scene_generated.h"
@@ -38,6 +39,7 @@ public:
     [[nodiscard]] const schema::ShaderDataT* shader() const noexcept;
     [[nodiscard]] const schema::MaterialDataT* material() const noexcept;
     [[nodiscard]] const schema::TextureDataT* texture() const noexcept;
+    [[nodiscard]] const schema::AudioClipDataT* audio() const noexcept;
     [[nodiscard]] ByteView bytes() const noexcept;
 
 private:
@@ -52,6 +54,7 @@ private:
     std::unique_ptr<schema::ShaderDataT> shader_;
     std::unique_ptr<schema::MaterialDataT> material_;
     std::unique_ptr<schema::TextureDataT> texture_;
+    std::unique_ptr<schema::AudioClipDataT> audio_;
     std::vector<std::byte> bytes_;
 };
 

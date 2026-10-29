@@ -26,6 +26,7 @@ protected:
     static void store(Resource& output, std::unique_ptr<schema::ShaderDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::MaterialDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::TextureDataT> data) noexcept;
+    static void store(Resource& output, std::unique_ptr<schema::AudioClipDataT> data) noexcept;
     static void store(Resource& output, ByteView data);
     [[nodiscard]] static bool valid_path(std::string_view path) noexcept;
     [[nodiscard]] static bool declares(const ResourceCatalog& catalog, const Resource& resource,

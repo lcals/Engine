@@ -1,5 +1,8 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 
+#include "runtime/audio/audio_system.hpp"
+#include "runtime/physics/physics_system.hpp"
+
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -576,8 +579,7 @@ struct GameplaySession::State
             return fail(owner.script_->status().last_error);
         }
         owner.script_->stop_gameplay();
-        owner.world_.destroy_scene();
-        owner.renderer_.release_scene();
+        owner.release_scene();
         if (!resources->update_catalog(snapshot.catalog.data(), snapshot.mounts))
         {
             gameplay_requested = false;
@@ -597,9 +599,9 @@ struct GameplaySession::State
     }
 };
 
-GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer,
-                                 ScriptRuntime* script) noexcept
-    : world_(world), renderer_(renderer), script_(script)
+GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
+                                 PhysicsSystem* physics, AudioSystem* audio) noexcept
+    : world_(world), renderer_(renderer), script_(script), physics_(physics), audio_(audio)
 {
 }
 
@@ -725,8 +727,7 @@ bool GameplaySession::tick()
     if (state_->gameplay_requested && !script_->status().running)
     {
         state_->gameplay_requested = false;
-        world_.destroy_scene();
-        renderer_.release_scene();
+        release_scene();
     }
     if (complete && state_->gameplay_requested && script_->status().hot_reload &&
         state_->available && state_->available->revision != script_->status().active_revision &&
@@ -737,6 +738,20 @@ bool GameplaySession::tick()
     }
     state_->publish();
     return true;
+}
+
+void GameplaySession::release_scene() noexcept
+{
+    if (audio_ != nullptr)
+    {
+        audio_->clear();
+    }
+    if (physics_ != nullptr)
+    {
+        physics_->clear();
+    }
+    world_.destroy_scene();
+    renderer_.release_scene();
 }
 
 void GameplaySession::stop(std::string_view reason) noexcept
@@ -753,8 +768,7 @@ void GameplaySession::stop(std::string_view reason) noexcept
     {
         script_->stop_gameplay();
     }
-    world_.destroy_scene();
-    renderer_.release_scene();
+    release_scene();
     if (state_)
     {
         state_->publish();

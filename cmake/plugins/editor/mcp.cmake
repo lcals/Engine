@@ -13,6 +13,8 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/project_lifecycle_tools.cpp
         src/engine/plugins/editor/mcp/android_sync.cpp
         src/engine/plugins/editor/mcp/editor_mcp_tools.cpp
+        src/engine/plugins/editor/mcp/physics_mcp_tools.cpp
+        src/engine/plugins/editor/mcp/audio_mcp_tools.cpp
         src/engine/plugins/editor/mcp/render_mcp_tools.cpp)
     add_library(engine::project_mcp_tools ALIAS engine_project_mcp_tools)
     target_include_directories(engine_project_mcp_tools PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")

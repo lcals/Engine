@@ -1,0 +1,8 @@
+guid = "d29c372d-35fc-5daf-a634-ecb1ead1096f"
+importer = "audio"
+meta_version = 1
+
+[audio]
+sample_rate = 48000
+channels = 2
+gain = 1.0

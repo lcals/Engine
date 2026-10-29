@@ -3,8 +3,12 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/audio_listener.hpp"
+#include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/collider.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -93,7 +97,7 @@ std::string guid_for(std::string_view path)
 
 bool fixture(const fs::path& workspace, std::string_view revision,
              const std::map<std::string, std::string>& scripts, Fixture& output,
-             std::string_view scene_bytes = {})
+             std::string_view scene_bytes = {}, std::string_view audio_bytes = {})
 {
     output = {};
     output.root = workspace / "versions" / engine::PathUtils::from_utf8(revision);
@@ -141,6 +145,11 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     }
     if (!scene_bytes.empty() &&
         !add("project/scenes/main.scene", "", engine::schema::AssetKind::scene, scene_bytes))
+    {
+        return false;
+    }
+    if (!audio_bytes.empty() &&
+        !add("project/sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
     {
         return false;
     }
@@ -548,6 +557,106 @@ export default class extends Gameplay {
     return true;
 }
 
+bool run_physics_audio_binding_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Component, Collider, RigidBody, AudioSource, AudioListener } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const scene = Scene.Create('physics-audio-bindings');
+        const node = scene?.CreateNode('emitter');
+        const listenerNode = scene?.CreateNode('listener');
+        if (!scene || !node || !listenerNode) return false;
+        const collider = node.AddComponent(Collider);
+        const body = node.AddComponent(RigidBody);
+        const audio = node.AddComponent(AudioSource);
+        const listener = listenerNode.AddComponent(AudioListener);
+        if (!collider || !body || !audio || !listener || !(collider instanceof Component) ||
+            !(node.GetComponent(RigidBody) instanceof RigidBody) ||
+            !(node.GetComponent(AudioSource) instanceof AudioSource) ||
+            !(listenerNode.GetComponent(AudioListener) instanceof AudioListener) ||
+            node.AddComponent(Collider) !== null) return false;
+        if (collider.SetBox(0, 1, 1) || collider.SetSphere(NaN) ||
+            collider.SetCapsule(-1, 1) || collider.SetTrigger('yes') ||
+            !collider.SetSphere(.4) || !collider.SetCapsule(.25, .5) ||
+            !collider.SetBox(.5, 1, .5) || !collider.SetFriction(.6) ||
+            !collider.SetRestitution(.2) || !collider.SetTrigger(false)) return false;
+        if (body.SetMass(0) || body.SetMotion('flying') || body.SetVelocity(Infinity, 0, 0) ||
+            !body.SetMass(2) || !body.SetVelocity(1, 2, 3) || body.GetVelocity()?.y !== 2 ||
+            body.SetMotion('static') || !body.SetVelocity(0, 0, 0) ||
+            !body.SetMotion('static') || body.AddImpulse(1, 0, 0) ||
+            !body.SetMotion('kinematic') || !body.SetMotion('dynamic') ||
+            !body.AddImpulse(0, 1, 0) || !body.SetVelocity(1, 2, 3)) return false;
+        if (audio.Play() || audio.SetVolume(-1) || audio.SetPitch(0) ||
+            audio.SetLoop(1) || audio.SetSpatial('false') || audio.SetDistances(10, 1) ||
+            listener.SetVolume(NaN) || !listener.SetVolume(.75) ||
+            !audio.SetVolume(.5) || !audio.SetPitch(1.25) || !audio.SetLoop(true) ||
+            !audio.SetSpatial(false) || !audio.SetPlayOnAwake(false) ||
+            !audio.SetDistances(1, 25) || !audio.SetClip('project/sounds/test.wav') ||
+            audio.SetClip('builtin/meshes/cube') || !audio.Play() ||
+            audio.isPlaying || audio.playback !== 'pending' || !audio.Pause() ||
+            audio.playback !== 'paused' || !audio.Play() || !audio.Stop() ||
+            audio.playback !== 'stopped' || audio.isPlaying) return false;
+        const temporary = scene.CreateNode('temporary');
+        const staleCollider = temporary?.AddComponent(Collider);
+        const staleBody = temporary?.AddComponent(RigidBody);
+        const staleAudio = temporary?.AddComponent(AudioSource);
+        const staleListener = temporary?.AddComponent(AudioListener);
+        if (!staleCollider || !staleBody || !staleAudio || !staleListener || !temporary.Destroy() ||
+            staleCollider.SetSphere(1) || staleBody.GetVelocity() !== null ||
+            staleAudio.Play() || staleAudio.playback !== null || staleAudio.isPlaying ||
+            staleListener.SetVolume(1)) return false;
+        return true;
+    }
+}
+)js";
+    engine::schema::AudioClipDataT clip;
+    clip.frames = 16;
+    clip.samples.assign(32, 0.25F);
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAudioClipDataBuffer(builder,
+                                              engine::schema::AudioClipData::Pack(builder, &clip));
+    const std::string_view audio(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                 builder.GetSize());
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture input;
+    if (!expect(world.initialize({}) && script.initialize({}),
+                "initialize physics and audio bindings") ||
+        !fixture(workspace, "physics-audio-bindings", {{"scripts/game.js", std::string(source)}},
+                 input, {}, audio) ||
+        !expect(apply(script, input), "typed physics/audio bindings, validation and stale handles"))
+    {
+        return false;
+    }
+    const auto* scene = world.scene();
+    if (!expect(scene != nullptr && scene->nodes().size() == 2, "binding scene retains two nodes"))
+    {
+        return false;
+    }
+    const auto* emitter = scene->nodes().front().get();
+    const auto* collider = emitter->get_component<engine::Collider>();
+    const auto* body = emitter->get_component<engine::RigidBody>();
+    const auto* source_component = emitter->get_component<engine::AudioSource>();
+    const auto* listener = scene->nodes().back()->get_component<engine::AudioListener>();
+    if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
+                    listener != nullptr &&
+                    collider->settings().shape == engine::schema::ColliderShape::box &&
+                    body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
+                    source_component->clip_data() != nullptr && source_component->settings().loop &&
+                    source_component->settings().volume == .5F &&
+                    listener->settings().volume == .75F,
+                "script settings reach native physics and audio components"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    const bool cleared = world.scene() == nullptr;
+    script.shutdown();
+    world.shutdown();
+    return expect(cleared, "script shutdown releases component resource references with its scene");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -585,7 +694,8 @@ int main(int argc, char** argv)
     }
     engine::ResourceSystem resources;
     const bool passed = resources.initialize(config) && run_cases(workspace) &&
-                        run_scene_cases(workspace) && run_guid_cases(workspace);
+                        run_scene_cases(workspace) && run_guid_cases(workspace) &&
+                        run_physics_audio_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

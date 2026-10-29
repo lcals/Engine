@@ -40,6 +40,11 @@ const schema::TextureDataT* Resource::texture() const noexcept
     return texture_.get();
 }
 
+const schema::AudioClipDataT* Resource::audio() const noexcept
+{
+    return audio_.get();
+}
+
 ByteView Resource::bytes() const noexcept
 {
     return bytes_;

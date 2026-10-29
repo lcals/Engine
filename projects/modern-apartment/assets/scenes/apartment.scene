@@ -22,6 +22,11 @@ parent = '0'
     projection = 'orthographic'
     type = 'camera'
 
+    [[nodes.components]]
+    type = "audio_listener"
+    enabled = true
+    volume = 1.0
+
 [[nodes]]
 id = '3'
 name = 'Sun'
@@ -185,6 +190,16 @@ parent = '0'
     material = 'd2b631cd-93d2-4a21-aa19-1457e1f38074'
     mesh = '44f49635-d747-4063-8434-5427a6ac5765'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [7.0, 0.04374999992549419, 5.0]
+    center = [0.0, 0.01625000007450581, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '11'
@@ -924,6 +939,16 @@ parent = '0'
     mesh = '2713956c-a620-44a5-8cc9-275e9f3871af'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [7.099999904632568, 1.5499999523162842, 0.10000000149011612]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '52'
 name = 'apartment_left_wall_back'
@@ -941,6 +966,16 @@ parent = '0'
     material = 'f50e593d-616b-416e-b03e-5c4c91639e7a'
     mesh = 'c1028e8f-b822-4fc5-aff9-a810bd0444a2'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 1.5499999523162842, 2.5999999046325684]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '53'
@@ -960,6 +995,16 @@ parent = '0'
     mesh = '191fc17a-6062-4bc9-9007-7fb8057e4669'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 1.5499999523162842, 0.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '54'
 name = 'apartment_window_low_wall'
@@ -977,6 +1022,16 @@ parent = '0'
     material = '50b51d80-4a8b-45eb-86ca-955b4c1d3361'
     mesh = 'f1ab646f-9a27-44da-8334-7323c4e11b50'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 0.375, 1.9500000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '55'
@@ -996,6 +1051,16 @@ parent = '0'
     mesh = '0f513013-094b-4a7b-8237-56970655f53e'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 0.17499999701976776, 1.9500000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '56'
 name = 'apartment_window_glass'
@@ -1013,6 +1078,16 @@ parent = '0'
     material = 'fd075bed-4eed-490c-ad12-6a7c4f77e9c0'
     mesh = '40b3a22d-4a18-42ed-8fd8-27389f9ad9e5'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.012500000186264515, 0.9750000238418579, 1.8250000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '57'
@@ -1122,6 +1197,16 @@ parent = '0'
     mesh = '6473332e-7fc5-4eea-90dc-bb66fe15bfe0'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.17000000178813934, 0.03500000014901161, 2.0]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '63'
 name = 'apartment_back_skirting'
@@ -1176,6 +1261,16 @@ parent = '0'
     mesh = 'e10cc164-4243-47e9-90f4-e4e696311053'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.07999999821186066, 0.7250000238418579, 2.049999952316284]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '66'
 name = 'apartment_bedroom_partition_cap'
@@ -1193,6 +1288,16 @@ parent = '0'
     material = '1ce95f9a-ca40-492d-b4ea-f5ebb55a9b65'
     mesh = '1d9bb236-14a6-4d9a-8acd-6e01b728f58c'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11500000208616257, 0.03500000014901161, 2.049999952316284]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '67'
@@ -1212,6 +1317,16 @@ parent = '0'
     mesh = '1d975cdd-d933-41d6-8f85-27048ceb19a3'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.975000023841858, 0.4749999940395355, 0.07999999821186066]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '68'
 name = 'apartment_bedroom_low_wall_cap'
@@ -1229,6 +1344,16 @@ parent = '0'
     material = '29912d73-490e-40fd-9bee-fbe62e9f38a7'
     mesh = 'd61490b4-85e3-474e-906e-c7a1c1842638'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.0, 0.03500000014901161, 0.11500000208616257]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '69'
@@ -1265,6 +1390,16 @@ parent = '0'
     material = '8018e2cd-3775-42ea-a2a9-a88e39993ebc'
     mesh = 'ac393260-d98a-4e43-85d7-0a6f1b4bb4c1'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.240000009536743, 0.012500000186264515, 1.7400000095367432]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '71'
@@ -1410,6 +1545,16 @@ parent = '0'
     mesh = '941dd60f-2fda-4af4-90d0-088813e48fe1'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.75, 0.17499999701976776, 0.5400000214576721]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '79'
 name = 'apartment_sofa_back'
@@ -1427,6 +1572,16 @@ parent = '0'
     material = '9da21642-6f6b-4430-bf44-9a6d4d73d16c'
     mesh = 'b06c44bb-2fdf-4124-b7fa-c56f4343883b'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.75, 0.36000001430511475, 0.13500000536441803]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '80'
@@ -1446,6 +1601,16 @@ parent = '0'
     mesh = 'ac764333-e158-4515-8038-9ec4d4f41c85'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11999999731779099, 0.28999999165534973, 0.5649999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '81'
 name = 'apartment_sofa_arm_-2.82'
@@ -1464,6 +1629,16 @@ parent = '0'
     mesh = '67786f0e-86fe-411e-b1ad-17997bddccfa'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11999999731779099, 0.28999999165534973, 0.5649999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '82'
 name = 'apartment_sofa_seat_0'
@@ -1481,6 +1656,16 @@ parent = '0'
     material = '83418588-34a9-4614-834c-0613a5bd0237'
     mesh = '6caadb12-9ed5-4623-b6c0-a26c68832130'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '83'
@@ -1518,6 +1703,16 @@ parent = '0'
     mesh = '1e3e4147-851c-4e3e-9366-0e3bf37a6c35'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '85'
 name = 'apartment_sofa_back_cushion_1'
@@ -1553,6 +1748,16 @@ parent = '0'
     material = '3150ff39-1f31-4fac-8727-c5e64bd70d4a'
     mesh = 'd16d7ece-fdda-4c55-9cbc-92dad58ac9b2'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '87'
@@ -1698,6 +1903,16 @@ parent = '0'
     mesh = 'df016c22-2f14-4532-8665-ebbe82fbfeaa'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.0, 0.05999999865889549, 1.0]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '95'
 name = 'apartment_coffee_table_pedestal'
@@ -1715,6 +1930,16 @@ parent = '0'
     material = '5c26b7c9-1c14-43d0-b80b-a6a7cc61f7cc'
     mesh = '4f9ace9a-0782-4649-9bf4-6aad94f59345'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.4399999976158142, 0.20000000298023224, 0.4399999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '96'
@@ -1806,6 +2031,16 @@ parent = '0'
     mesh = '1db05a21-eda2-48a6-b3e7-a8851b6842d8'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.38999998569488525, 0.03999999910593033, 0.38999998569488525]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '101'
 name = 'apartment_side_table_stem'
@@ -1878,6 +2113,16 @@ parent = '0'
     mesh = '8071478e-5ae4-4d86-ba1d-89afebd6c76e'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.47999998927116394, 0.125, 0.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '105'
 name = 'apartment_lounge_chair_back'
@@ -1896,6 +2141,16 @@ parent = '0'
     mesh = '099f84fd-7a12-42e1-98b6-8414aa307035'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.47999998927116394, 0.3700000047683716, 0.11999999731779099]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '106'
 name = 'apartment_lounge_chair_base'
@@ -1913,6 +2168,16 @@ parent = '0'
     material = 'f6f2c203-0bc8-4f14-9e27-c46703301291'
     mesh = 'a6987396-194c-4aaf-8242-9b62b33b3ddf'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.16500000655651093, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '107'
@@ -2220,6 +2485,16 @@ parent = '0'
     mesh = '6a0feb0f-9d1a-4bb9-aff8-68cd654e28bd'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.8250000476837158, 0.019999999552965164, 1.875]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '124'
 name = 'apartment_bed_frame'
@@ -2237,6 +2512,16 @@ parent = '0'
     material = 'f90724b7-e123-4319-bcd3-a91fbe55e504'
     mesh = '58f3a759-9c0c-440d-a72c-23d336209bfb'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.375, 0.14000000059604645, 1.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '125'
@@ -2256,6 +2541,16 @@ parent = '0'
     mesh = '7999daee-45c0-4bcc-9d90-2ab27b1a9a3f'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.3250000476837158, 0.14000000059604645, 1.4249999523162842]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '126'
 name = 'apartment_duvet'
@@ -2273,6 +2568,16 @@ parent = '0'
     material = '47f9a831-040e-4371-a6e8-e306293161ce'
     mesh = '26dc157b-d98b-4d56-9c33-62d897e68cc7'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.3600000143051147, 0.09000000357627869, 1.0099999904632568]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '127'
@@ -2345,6 +2650,16 @@ parent = '0'
     material = '378e0edf-5f7b-4204-a1d7-c609136b646b'
     mesh = '2e3a53d3-4db1-455f-8d0c-91989f167b47'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.465000033378601, 0.6499999761581421, 0.0949999988079071]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '131'
@@ -2706,6 +3021,16 @@ parent = '0'
     mesh = '1e810633-583a-4913-af05-0d4f081e4b24'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.29499998688697815, 0.23999999463558197, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '151'
 name = 'apartment_nightstand_drawer_0'
@@ -2795,6 +3120,16 @@ parent = '0'
     material = '0336344e-2839-44c9-8edc-aea5cfd1c72b'
     mesh = '348bbe42-d7ab-4e1c-b48b-e5515ed18e1e'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.29499998688697815, 0.23999999463558197, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '156'
@@ -2958,6 +3293,16 @@ parent = '0'
     mesh = '18d4f40d-4015-4b1f-9403-f36d4963e535'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.2750000059604645, 1.100000023841858, 1.225000023841858]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '165'
 name = 'apartment_wardrobe_door_0'
@@ -3120,6 +3465,16 @@ parent = '0'
     mesh = '3a77de29-0417-49eb-98db-1541dc4a361d'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '174'
 name = 'apartment_kitchen_front_0'
@@ -3173,6 +3528,16 @@ parent = '0'
     material = '9b9bef4f-f1e0-4a80-817f-c64f469e7df0'
     mesh = '8ba213ea-c9b5-4635-9540-d39b95252156'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '177'
@@ -3228,6 +3593,16 @@ parent = '0'
     mesh = '8617f362-e358-4587-aaa1-74badaba6eca'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '180'
 name = 'apartment_kitchen_front_2'
@@ -3281,6 +3656,16 @@ parent = '0'
     material = '52663557-cea5-4a10-866d-cefbe6c26f7d'
     mesh = 'aac7ad3e-3c80-4dba-b020-cbde0a32902b'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '183'
@@ -3336,6 +3721,16 @@ parent = '0'
     mesh = 'a19c1305-1eef-4fa2-b5e2-4d923ad3237c'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '186'
 name = 'apartment_kitchen_front_4'
@@ -3389,6 +3784,16 @@ parent = '0'
     material = '598f241a-7b5f-4ea2-9ae3-d244ac71dd5c'
     mesh = '2083f3bc-22ae-459c-9f7e-305063032584'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '189'
@@ -3444,6 +3849,16 @@ parent = '0'
     mesh = 'c357c24e-a802-4328-a263-e33d1fc43bab'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [3.325000047683716, 0.05000000074505806, 0.5099999904632568]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '192'
 name = 'apartment_kitchen_backsplash'
@@ -3461,6 +3876,16 @@ parent = '0'
     material = 'cb433407-8770-4783-8cbd-831924be27f1'
     mesh = '2e9d88ea-2520-4b67-b870-ad22e9c4df8c'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [3.3499999046325684, 0.33000001311302185, 0.017500000074505806]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '193'
@@ -3894,6 +4319,16 @@ parent = '0'
     mesh = '958d2f47-76e1-420d-89d6-da55f2df44f4'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.48500001430511475, 1.0750000476837158, 0.4749999940395355]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '217'
 name = 'apartment_fridge_door'
@@ -3984,6 +4419,16 @@ parent = '0'
     mesh = '6760f5c5-71b7-4f04-94d4-235cfcc615ef'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.4249999523162842, 0.42500001192092896, 0.5600000023841858]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '222'
 name = 'apartment_island_counter'
@@ -4001,6 +4446,16 @@ parent = '0'
     material = '40a90753-269e-479a-97fd-09fc2bda1f2e'
     mesh = '83ec508a-3871-4b0d-a3b2-92a7296dcee4'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.600000023841858, 0.05999999865889549, 0.7749999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '223'
@@ -4236,6 +4691,16 @@ parent = '0'
     mesh = 'e256b9b1-b08b-4b5a-97ea-6f00f4a8e357'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.05000000074505806, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '236'
 name = 'apartment_stool_leg_0_0'
@@ -4307,6 +4772,16 @@ parent = '0'
     material = 'c1fbb164-2313-427c-88ab-ef7a553e9a18'
     mesh = '4070d245-68a5-4a14-b079-e7ab600dc4fc'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.05000000074505806, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '240'
@@ -4452,6 +4927,16 @@ parent = '0'
     mesh = '4a05c76d-795e-41a8-a7f9-a16d45877716'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.1500000953674316, 0.012500000186264515, 2.1500000953674316]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '248'
 name = 'apartment_dining_table_top'
@@ -4469,6 +4954,16 @@ parent = '0'
     material = 'daf93f3f-0690-48bd-a315-5de7a7a667ef'
     mesh = '1f9ac29f-7ba7-4f58-af12-82013c3be4d1'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.0800000429153442, 0.05999999865889549, 1.0800000429153442]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '249'
@@ -4488,6 +4983,16 @@ parent = '0'
     mesh = '84dfa08b-4e1c-4472-88fb-55e0de0cc7f9'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.36500000953674316, 0.5]
+    center = [0.0, 0.36500000953674316, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '250'
 name = 'apartment_dining_chair_0_seat'
@@ -4505,6 +5010,16 @@ parent = '0'
     material = '498ea9d4-cdd0-4558-a930-1c5949a441f8'
     mesh = 'c51ac107-8e32-4714-96ad-87b6ea1a72f4'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '251'
@@ -4524,6 +5039,16 @@ parent = '0'
     mesh = '3eaa65df-3e27-4e1a-b8d7-689bd0f50e34'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '252'
 name = 'apartment_dining_chair_0_leg_0'
@@ -4541,6 +5066,16 @@ parent = '0'
     material = '18db625b-5b88-4879-9ead-3c2652cd9ede'
     mesh = 'd83a996e-0844-4b4f-91b3-2615086470ca'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '253'
@@ -4560,6 +5095,16 @@ parent = '0'
     mesh = '7d2f245b-4a21-4da3-947a-eae324ad58fc'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '254'
 name = 'apartment_dining_chair_0_leg_2'
@@ -4577,6 +5122,16 @@ parent = '0'
     material = 'e0f6cdf3-d027-42d0-b873-eea7b8070e04'
     mesh = '08942d0f-7f68-4739-a918-b89040b15404'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '255'
@@ -4596,6 +5151,16 @@ parent = '0'
     mesh = '54da6140-e671-4e89-8e4a-d56e8ab127eb'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '256'
 name = 'apartment_dining_chair_1_seat'
@@ -4613,6 +5178,16 @@ parent = '0'
     material = 'fcf7bb96-a6a3-49bf-a73c-624e9a1aa484'
     mesh = 'd05c3217-e48f-4595-88ce-d1a8fd5b1fc9'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '257'
@@ -4632,6 +5207,16 @@ parent = '0'
     mesh = 'd884da20-f7d0-42b3-8de6-54c196b4cb90'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '258'
 name = 'apartment_dining_chair_1_leg_0'
@@ -4649,6 +5234,16 @@ parent = '0'
     material = '3e4c0db6-090c-4406-b336-cb78dd1956d6'
     mesh = '3fa52e94-7189-4aae-9c3e-020d819b4e36'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '259'
@@ -4668,6 +5263,16 @@ parent = '0'
     mesh = 'd1578184-f596-4130-aea4-1c8a96ecfa23'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '260'
 name = 'apartment_dining_chair_1_leg_2'
@@ -4685,6 +5290,16 @@ parent = '0'
     material = '64f04bfa-d5f0-42e4-9909-dfd0a3151980'
     mesh = '9aa8f874-51d3-48e3-9d8b-7db8368d65a7'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '261'
@@ -4704,6 +5319,16 @@ parent = '0'
     mesh = 'a613c523-52d5-4a3f-b708-865348efe5fa'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '262'
 name = 'apartment_dining_chair_2_seat'
@@ -4721,6 +5346,16 @@ parent = '0'
     material = '9459261e-cfa2-49ec-9c62-651c3420585b'
     mesh = 'b3e850f8-0897-4e6d-9cb4-8920b9017880'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '263'
@@ -4740,6 +5375,16 @@ parent = '0'
     mesh = 'bc2e718b-b44a-4d52-aa98-a91b4d91ac11'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '264'
 name = 'apartment_dining_chair_2_leg_0'
@@ -4757,6 +5402,16 @@ parent = '0'
     material = '3083ed04-b56d-45a8-930c-cba3b532e3d4'
     mesh = '8250cc63-2e27-4866-aeb7-11e364157ce5'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '265'
@@ -4776,6 +5431,16 @@ parent = '0'
     mesh = 'a2c0f728-2f17-4dd8-be58-9f2bf8d3db38'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '266'
 name = 'apartment_dining_chair_2_leg_2'
@@ -4793,6 +5458,16 @@ parent = '0'
     material = 'b70207f5-65c4-4cd9-842f-3972ec78380c'
     mesh = '1c3fb7b5-2abc-4d33-8353-69d525a977bd'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '267'
@@ -4812,6 +5487,16 @@ parent = '0'
     mesh = '37ec2366-afe1-4381-89b1-a8c138dde521'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '268'
 name = 'apartment_dining_chair_3_seat'
@@ -4829,6 +5514,16 @@ parent = '0'
     material = '690e7b96-31ac-4f97-9d96-4c5517e9dd4a'
     mesh = 'b6757efb-3a59-45a9-8445-d362c8382eb5'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '269'
@@ -4848,6 +5543,16 @@ parent = '0'
     mesh = 'ec180013-ec90-4762-9712-708f8414f2bd'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '270'
 name = 'apartment_dining_chair_3_leg_0'
@@ -4865,6 +5570,16 @@ parent = '0'
     material = '528c4cda-4f29-4566-b46b-619f06188345'
     mesh = 'e04022ad-bd44-4a20-b422-5092546b7931'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '271'
@@ -4884,6 +5599,16 @@ parent = '0'
     mesh = '6bea71f9-3692-4e7b-a15c-a1d5df106d98'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '272'
 name = 'apartment_dining_chair_3_leg_2'
@@ -4902,6 +5627,16 @@ parent = '0'
     mesh = 'bfe3d8ce-53e5-417c-acf7-282d6d2aa563'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '273'
 name = 'apartment_dining_chair_3_leg_3'
@@ -4919,6 +5654,16 @@ parent = '0'
     material = 'bb94b380-71ce-4728-8f38-bade17bf839b'
     mesh = 'd0a0e63b-87a5-4212-88a7-d8483d3e0f1c'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '274'
@@ -5262,6 +6007,16 @@ parent = '0'
     mesh = 'a0b36c92-29bf-4e82-bf4a-a3384c58e9f0'
     type = 'mesh_renderer'
 
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.2750000059604645, 0.3499999940395355, 1.024999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
 [[nodes]]
 id = '293'
 name = 'apartment_entry_console_top'
@@ -5279,6 +6034,16 @@ parent = '0'
     material = '66ce35ef-e456-4cc5-92f1-ad07356bb0cb'
     mesh = '7c7b9b87-fd29-451b-9365-d5e4fde07cbf'
     type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.33000001311302185, 0.03500000014901161, 1.0850000381469727]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
 
 [[nodes]]
 id = '294'
@@ -5927,3 +6692,66 @@ parent = '0'
     material = 'dcfdabed-b681-42a9-81e5-3e22e2f9f78f'
     mesh = '6623d816-4313-4dd0-b9d4-3ee2cfa2a92d'
     type = 'mesh_renderer'
+
+[[nodes]]
+id = '330'
+name = 'apartment_physics_ball'
+parent = '0'
+
+    [[nodes.components]]
+    type = "transform"
+    enabled = true
+    position = [0.1, 2.2, 2.4]
+    rotation = [0.0, 0.0, 0.0]
+    scale = [0.22, 0.22, 0.22]
+
+    [[nodes.components]]
+    enabled = true
+    material = "5bc73cdc-f1ea-49c2-8df0-b82f459ac34e"
+    mesh = "afbf65ad-2372-4621-9f32-756bf746acb6"
+    type = "mesh_renderer"
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "sphere"
+    radius = 1.0
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.48
+    is_trigger = false
+
+    [[nodes.components]]
+    type = "rigid_body"
+    enabled = true
+    motion = "dynamic"
+    mass = 0.35
+    gravity_factor = 1.0
+    linear_damping = 0.15
+    angular_damping = 0.25
+    linear_velocity = [0.0, 0.0, 0.0]
+    angular_velocity = [0.0, 0.0, 0.0]
+
+[[nodes]]
+id = '331'
+name = 'apartment_ambience'
+parent = '0'
+
+    [[nodes.components]]
+    type = "transform"
+    enabled = true
+    position = [0.0, 1.0, 0.0]
+    rotation = [0.0, 0.0, 0.0]
+    scale = [1.0, 1.0, 1.0]
+
+    [[nodes.components]]
+    type = "audio_source"
+    enabled = true
+    clip = "d29c372d-35fc-5daf-a634-ecb1ead1096f"
+    volume = 0.2
+    pitch = 1.0
+    loop = true
+    play_on_awake = true
+    spatial = false
+    min_distance = 1.0
+    max_distance = 20.0

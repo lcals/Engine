@@ -68,6 +68,7 @@ int main()
                  {"surface.material", schema::AssetKind::material},
                  {"program.shader", schema::AssetKind::shader},
                  {"albedo.JPEG", schema::AssetKind::texture},
+                 {"sound.WAV", schema::AssetKind::audio},
                  {"logic.ts", schema::AssetKind::script},
                  {"types.d.ts", schema::AssetKind::source},
                  {"custom.blob", schema::AssetKind::source}};

@@ -1,8 +1,11 @@
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
 
 #include "plugins/runtime/script/bindings/app_binding.hpp"
+#include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
+#include "plugins/runtime/script/bindings/audio_source_binding.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/script/bindings/camera_binding.hpp"
+#include "plugins/runtime/script/bindings/collider_binding.hpp"
 #include "plugins/runtime/script/bindings/component_binding.hpp"
 #include "plugins/runtime/script/bindings/debug_binding.hpp"
 #include "plugins/runtime/script/bindings/gameplay_binding.hpp"
@@ -10,6 +13,7 @@
 #include "plugins/runtime/script/bindings/material_binding.hpp"
 #include "plugins/runtime/script/bindings/mesh_renderer_binding.hpp"
 #include "plugins/runtime/script/bindings/node_binding.hpp"
+#include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
 #include "plugins/runtime/script/bindings/scene_binding.hpp"
 #include "plugins/runtime/script/bindings/time_binding.hpp"
 #include "plugins/runtime/script/bindings/transform_binding.hpp"
@@ -30,7 +34,9 @@ bool ScriptBindingRegistry::initialize()
     if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
         !add<TimeBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||
         !add<ComponentBinding>() || !add<TransformBinding>() || !add<CameraBinding>() ||
-        !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>())
+        !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>() ||
+        !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<AudioSourceBinding>() ||
+        !add<AudioListenerBinding>())
     {
         bindings_.clear();
         return false;

@@ -51,6 +51,8 @@ classDiagram
     WorldSystem "1" *-- "0..1" AnimationSystem : 独占子系统
     class UiSystem
     WorldSystem "1" *-- "0..1" UiSystem : 独占子系统
+    class AudioSystem
+    WorldSystem "1" *-- "0..1" AudioSystem : 独占子系统
     class ScriptRuntime
     WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主工厂提供可选实现
     note for WorldSystem "继承 System 生命周期；析构中调用 shutdown()"
@@ -58,7 +60,7 @@ classDiagram
 
 - 由 `Engine` 拥有的根系统；持有一个 flecs 世界，初始化与销毁调用成对。
 - `on_tick()` 推进 ECS 世界；之后由 `System` 按加入顺序更新子系统。场景节点使用 flecs 实体标识，节点变换与组件只有一份 C++ 状态。
-- `RuntimeHost` 装配物理、导航、动画、界面及可选脚本子系统，通过 `add_subsystem()` 将所有权移交世界系统。关闭子系统后再销毁 ECS 世界。
+- `RuntimeHost` 按物理、导航、动画、界面、音频、可选脚本顺序装配子系统，通过 `add_subsystem()` 将所有权移交世界系统。关闭子系统后再销毁 ECS 世界。
 - 只有已初始化的世界可创建一个活动场景，已有场景时返回空指针。`destroy_scene()` 可重复调用；关闭时在释放 ECS 世界前销毁场景。每次成功创建分配递增的场景标识，关闭再初始化不重用，供脚本与渲染器拒绝旧引用。
 - `scene()` 返回可空借用，`destroy_scene()` 或世界关闭后失效；只读重载为 `const`，查询与销毁为 `noexcept`。初始化失败和清理遵守[系统约定](engine-system.md)。
 
