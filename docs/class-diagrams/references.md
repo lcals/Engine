@@ -2,9 +2,30 @@
 
 [类图索引](index.md)
 
-状态：与本轮最小实现同步。为避免单幅图缩得难以阅读，按拥有层级和依赖范围拆分；同名节点连接同一个类。方法和字段只在各自独立图维护。
+状态：与当前桌面和 Android 玩法脚本、日志、资源同步和 MCP 实现同步。下图只维护拥有、借用、调用及参数类型关系；方法和字段在各自独立类图维护。同名节点指向同一个类型，宿主节点表示入口程序，不是新增 C++ 架构类。
 
-## 引擎与生命周期
+## 构建边界
+
+代码和独立类图按职责使用相同分层：
+
+| 范围 | 头文件与实现位置 | 文档位置 |
+| --- | --- | --- |
+| 运行时 | `include/engine/runtime/`、`src/engine/runtime/` | `docs/runtime/` |
+| 编辑器 | `include/engine/editor/`、`src/engine/editor/` | `docs/editor/` |
+| 插件 | `include/engine/plugins/`、`src/engine/plugins/` | `docs/plugins/` |
+
+各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/` 或 `plugins/` 开始引用。编辑器和 MCP 可以使用运行时公共能力，运行时不反向依赖这些工具模块。
+
+| 配置 | ScriptSystem 的实际职责 | 宿主与平台边界 |
+| --- | --- | --- |
+| `ENGINE_ENABLE_V8=OFF` | 不装配脚本子系统 | 引擎仍可独立启动窗口 |
+| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接 | 可选的依赖验证配置，不执行项目玩法 |
+| V8 与脚本运行均开启 | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 桌面和 Android 共用脚本系统；Android 读取 APK 与持久版本 |
+| 桌面脚本运行与资源管线均开启 | 可构建独立 `mcp_app` | 工具进程通过本机目录或指定 adb 设备和包交换文件 |
+
+Android 普通启动使用完整 ScriptSystem 运行项目玩法；V8 JNI 冒烟测试仍为显式触发的独立验证路径，切换测试前须停止旧进程。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
+
+## 引擎与系统所有权
 
 ```mermaid
 classDiagram
@@ -19,18 +40,16 @@ classDiagram
         <<struct>>
     }
     class FrameStatus {
-        <<enum class>>
+        <<enumeration>>
     }
-    Engine "0..1" *-- "0..*" System : 独占根系统
+    Engine "0..1" *-- "0..*" System : 独占引擎根系统
     System "0..1" *-- "0..*" System : 独占子系统
-    Engine ..> EngineConfig : initialize 参数
-    System ..> EngineConfig : initialize 及 on_initialize 参数
-    Engine ..> FrameStatus : tick 返回类型
+    Engine ..> EngineConfig : 初始化参数
+    System ..> EngineConfig : 生命周期参数
+    Engine ..> FrameStatus : 帧状态返回值
 ```
 
-每个系统只能有一个拥有者：引擎、一个父系统，或独立宿主。`add_subsystem()` 成功接管传入对象；`subsystem()` 和 `parent()` 返回借用。公开生命周期只调度根系统，子系统由父系统递归调度。
-
-借用关系单独绘制，避免 Mermaid 把同一类型的两条自引用边合并覆盖：
+一个 System 对象只由引擎、父系统或独立宿主管理。`add_subsystem()` 成功后转移独占所有权；`parent()` 和 `subsystem()` 只返回借用。公开生命周期只接受根系统调度，子系统由父系统递归管理。
 
 ```mermaid
 classDiagram
@@ -39,8 +58,7 @@ classDiagram
     System --> System : parent 与 subsystem 返回借用
 ```
 
-
-## 运行时根系统
+App 是静态平台门面，不继承 System。LogSystem 是进程单例及独立根系统，由宿主借用和调度，不进入 Engine 的独占系统数组。Gameplay、Game、Debug 属于脚本接口，不继承 C++ System。
 
 ```mermaid
 classDiagram
@@ -50,18 +68,18 @@ classDiagram
     class ResourceSystem
     class WorldSystem
     class RenderSystem
+    class ScriptSystem
     Engine "1" *-- "0..1" WindowSystem : 第一个根系统
     Engine "1" *-- "0..1" ResourceSystem : 第二个根系统
     Engine "1" *-- "0..1" WorldSystem : 第三个根系统
     Engine "1" *-- "0..1" RenderSystem : 第四个根系统
-    Engine --> WindowSystem : 借用并查询窗口状态
-    Engine --> RenderSystem : 借用并调用 render
+    Engine --> WindowSystem : 持续借用及查询状态
+    Engine --> RenderSystem : 持续借用及提交帧
+    Engine --> ScriptSystem : 借用世界中的可选子系统
     RenderSystem --> WindowSystem : 构造参数及持续借用
 ```
 
-根系统按图中顺序初始化、反序关闭；每帧窗口事件优先，随后更新其他根系统，最后提交渲染。`RenderSystem` 不拥有窗口系统，窗口必须存活到渲染系统销毁之后。
-
-## 世界拥有的子系统
+根系统初始化顺序为 Window → Resource → World → Render，关闭时反序处理。Engine 对窗口、渲染和可选脚本系统持有非拥有指针；ScriptSystem 仍属于 WorldSystem。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
 
 ```mermaid
 classDiagram
@@ -79,138 +97,334 @@ classDiagram
     WorldSystem "1" *-- "0..1" ScriptSystem : 启用 V8 时第五个子系统
 ```
 
-`Engine` 负责创建和装配这些对象；所有权通过 `System::add_subsystem()` 转入 `WorldSystem`，不再由 `Engine` 的根系统容器拥有。
+Engine 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。启用 V8 时即装配 ScriptSystem，具体是探针还是完整运行实现由上表区分。
 
-## 继承与配置参数
+每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时不继续执行资源、世界和脚本更新；外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
+
+## App 与日志
 
 ```mermaid
 classDiagram
     direction TB
+    class EditorHost["editor_app 宿主"] {
+        <<host>>
+    }
+    class Engine
+    class App
+    class AppConfig
+    class LogSystem {
+        <<singleton>>
+    }
+    class LogLevel
     class System
-    class EngineConfig
-    class WindowSystem
-    class ResourceSystem
-    class WorldSystem
-    class RenderSystem
-    System <|-- WindowSystem
-    System <|-- ResourceSystem
-    System <|-- WorldSystem
-    System <|-- RenderSystem
-    WindowSystem ..> EngineConfig : on_initialize 参数
-    ResourceSystem ..> EngineConfig : on_initialize 参数
-    WorldSystem ..> EngineConfig : on_initialize 参数
-    RenderSystem ..> EngineConfig : on_initialize 参数
+    EditorHost ..> App : 初始化并最后关闭
+    EditorHost --> LogSystem : 借用单例并调度生命周期
+    EditorHost --> Engine : 借用单例并调度生命周期
+    App ..> AppConfig : 平台目录初始化参数
+    System <|-- LogSystem
+    LogSystem ..> App : 持久目录与日志位置
+    LogSystem ..> LogLevel : 写入级别参数
 ```
 
+App 和 LogSystem 的生命周期由宿主负责，Engine 不反向拥有它们，也不因此获得项目依赖。AppConfig 只提供应用名及平台目录覆盖值，EngineConfig 继续只表示引擎运行配置。
+
+App 的三个路径访问器返回内部 `std::filesystem::path` 的只读借用；LogSystem 同样借用 App 的持久目录，并拥有日志文件。日志默认写入持久目录的 `logs/engine.log`，同时输出标准错误。宿主必须先停止所有日志使用者，再刷新、关闭 LogSystem，最后关闭 App。
+
+目录语义、失败状态和日志轮换分别见 [App](../runtime/class-diagrams/app.md) 与[日志系统](../runtime/class-diagrams/log-system.md)。内置资源根由资源系统解释；Android APK 使用逻辑路径，普通磁盘 canonical 只用于可写版本和桌面文件。
+
+## 编辑器宿主拥有的独立系统
+
 ```mermaid
 classDiagram
     direction TB
-    class System
-    class EngineConfig
-    class PhysicsSystem
-    class NavigationSystem
-    class AnimationSystem
-    class UiSystem
+    class EditorHost["editor_app 宿主"] {
+        <<host>>
+    }
+    class ProjectSystem
+    class EditorSystem
+    class AssetPipelineSystem
+    class AssetSyncSystem
+    class Engine
+    class LogSystem
+    EditorHost *-- ProjectSystem : 独立根系统
+    EditorHost *-- EditorSystem : 独立根系统
+    EditorHost *-- AssetPipelineSystem : 脚本运行开启时拥有
+    EditorHost *-- AssetSyncSystem : 脚本运行开启时拥有
+    EditorSystem --> ProjectSystem : 构造参数及持续借用
+    ProjectSystem ..> LogSystem : 项目检查日志
+    EditorHost ..> Engine : 各系统就绪后启动玩法
+```
+
+ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿主拥有的独立根系统。EditorSystem 借用已初始化的 ProjectSystem；项目必须保持就绪直到编辑器退出。
+
+当前 AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
+
+启用完整脚本运行时，`editor_app` 启动顺序为：
+
+1. 解析项目与运行目录，初始化 App，然后初始化 LogSystem。
+2. 初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
+3. 初始化 AssetPipelineSystem，编译项目 TS，生成 `cache/assets/` 中的 JS 与资源。
+4. 从生成内容建立本会话只读内置快照，初始化 AssetSyncSystem 并发布完整初始版本。
+5. 初始化 Engine 全部根系统及子系统，再初始化 EditorSystem。
+6. 宿主调用 Engine 的玩法启动入口，经借用的 ScriptSystem 创建 Game，执行项目初始化。
+
+关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、Engine、AssetSyncSystem、AssetPipelineSystem、ProjectSystem；删除本会话内置快照，最后刷新并关闭 LogSystem、关闭 App。中途失败按已成功初始化部分清理。
+
+Engine 内部也在销毁 RenderSystem 之前调用停止玩法，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
+
+桌面 `engine_app` 只初始化 App、LogSystem、Engine，并反序关闭；不要求项目、不创建 ProjectSystem，也不自动启动 Game。Android 同名宿主在引擎就绪后显式启动打包项目 Gameplay，退出顺序相同；项目选择发生在打包阶段。
+
+## 脚本运行、资源读取与项目入口
+
+```mermaid
+classDiagram
+    direction TB
     class ScriptSystem
-    System <|-- PhysicsSystem
-    System <|-- NavigationSystem
-    System <|-- AnimationSystem
-    System <|-- UiSystem
-    System <|-- ScriptSystem
-    PhysicsSystem ..> EngineConfig : on_initialize 参数
-    NavigationSystem ..> EngineConfig : on_initialize 参数
-    AnimationSystem ..> EngineConfig : on_initialize 参数
-    UiSystem ..> EngineConfig : on_initialize 参数
-    ScriptSystem ..> EngineConfig : on_initialize 参数
+    class ScriptStatus
+    class App
+    class LogSystem
+    class ResourceSystem
+    class Engine
+    ScriptSystem *-- ScriptStatus : 状态值
+    ScriptSystem ..> App : 只读应用路径
+    ScriptSystem ..> LogSystem : 原生日志绑定
+    ScriptSystem ..> ResourceSystem : 静态同步文件读取
+    Engine ..> ScriptStatus : 返回可空只读借用
 ```
 
-## 第三方资源的所有权与借用
+ScriptSystem 由 WorldSystem 独占；Engine 只通过借用转发玩法启动、停止、热重载开关及状态查询。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
+
+ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](../runtime/class-diagrams/resource-system.md)。
+
+```mermaid
+classDiagram
+    direction TB
+    class ScriptSystem
+    class Gameplay {
+        <<script base>>
+    }
+    class Game {
+        <<project script>>
+    }
+    class Debug {
+        <<script binding>>
+    }
+    class ScriptApp["App 脚本绑定"]
+    class App
+    class LogSystem
+    Gameplay <|-- Game
+    ScriptSystem "1" *-- "0..1" Game : 当前玩法运行实例
+    ScriptSystem ..> Gameplay : 引擎模块基类及实例检查
+    Game ..> Debug : 项目日志调用
+    Game ..> ScriptApp : 应用目录查询
+    Debug ..> LogSystem : 静态日志转发
+    ScriptApp ..> App : 只读平台路径绑定
+```
+
+Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并为后续场景流转保留入口职责。
+
+本轮没有实现 Node、Component 或场景加载 API，也没有 Behaviour、MonoBehaviour 继承层。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
+
+V8 平台按进程管理，完整退出前须先销毁全部 isolate。每个实际 ScriptSystem 拥有一个 isolate；单次玩法运行拥有独立 Context、模块缓存和 Game。热重载重建这些玩法对象，不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
+
+## MCP 宿主与跨进程文件关系
+
+```mermaid
+classDiagram
+    direction TB
+    class McpHost["mcp_app 宿主"] {
+        <<host>>
+    }
+    class McpSystem
+    class AssetPipelineSystem
+    class AssetSyncSystem
+    class ResourceSystem
+    McpHost *-- AssetPipelineSystem : 独立根系统
+    McpHost *-- AssetSyncSystem : 独立根系统
+    McpHost *-- McpSystem : 独立根系统
+    class McpTarget
+    McpSystem *-- McpTarget : 按值保存目标参数
+    McpSystem --> AssetPipelineSystem : 构造参数及持续借用
+    McpSystem --> AssetSyncSystem : 构造参数及持续借用
+    McpSystem ..> ResourceSystem : 状态及可用版本读取
+    AssetSyncSystem ..> ResourceSystem : 文件及清单读取
+```
+
+`mcp_app` 接收明确的项目根目录与 McpTarget（本机运行目录，或 adb 序列号和 Android 包名），依次初始化 AssetPipelineSystem、AssetSyncSystem、McpSystem；退出时反序关闭。McpSystem 构造参数中的两个系统是必需借用，必须先就绪并持续存活。
+
+MCP 宿主不创建 Engine、WorldSystem 或 ScriptSystem，也不通过编辑器对象直接执行玩法。它使用项目路径编译资源，使用指定运行目录同步和控制；标准输出只写 JSON-RPC，构建诊断输出到标准错误。当前 MCP 入口不初始化 App 或 LogSystem。
+
+```mermaid
+classDiagram
+    direction TB
+    class AssetSyncSystem
+    class McpSystem
+    class ScriptSystem
+    class Available["assets/available.json"] {
+        <<file>>
+    }
+    class Versions["assets/versions/revision"] {
+        <<directory>>
+    }
+    class Control["script-control.json"] {
+        <<file>>
+    }
+    class Status["script-status.json"] {
+        <<file>>
+    }
+    AssetSyncSystem ..> Versions : 准备并校验完整快照
+    AssetSyncSystem ..> Available : 原子发布可用版本
+    ScriptSystem ..> Available : 发现完整版本
+    ScriptSystem ..> Versions : 校验并读取候选内容
+    McpSystem ..> Available : 查询实际已发布版本
+    McpSystem ..> Control : 原子写热重载开关
+    ScriptSystem ..> Control : 主线程读取开关
+    ScriptSystem ..> Status : 写最后运行状态
+    McpSystem ..> Status : 查询最后上报的运行状态
+```
+
+上述文件均位于目标应用的持久数据目录之下，不属于可被系统清理的 App 缓存目录。两个进程无需共享 C++ 对象：
+
+- AssetSyncSystem 准备并校验不可变完整版本，再原子替换 `available.json`。发布成功只表示文件可用，不表示脚本已经激活。
+- ScriptSystem 检查完整清单和文件，运行会话固定自己的模块内容；关闭热重载仍可接收新文件及报告可用版本。
+- 查找模块时，清单 files 命中使用版本内容，deleted 命中拒绝加载，其余路径回退内置内容。编辑器为本会话建立独立内置快照，后续 TS 构建不改写它。
+- 热重载开启后，在运行线程安全点预检候选模块。语法或静态链接失败保留旧 Game；预检通过后停止旧 Game 并执行新入口，执行失败停止此次玩法，不承诺撤销已产生的业务副作用。
+- MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
+- 当前同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。Android 通过 adb 与 run-as 发布到 Debug 包，Release 不开放该通路；不提供独立网络服务或差量传输。
+
+资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及 [MCP 系统](../plugins/class-diagrams/mcp-system.md)。
+
+## 公共路径工具
+
+公共 [PathUtils](../runtime/class-diagrams/path-utils.md) 位于 `runtime/utils/`，提供 UTF-8 字符串与文件系统路径之间的静态转换，不继承 System、不持有实例，也不参与生命周期调度。其方法只在独立类图定义。
+
+```mermaid
+classDiagram
+    direction TB
+    class PathUtils
+    class App
+    class ScriptSystem
+    App ..> PathUtils : UTF-8 路径转换
+    ScriptSystem ..> PathUtils : UTF-8 路径转换
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class PathUtils
+    class ProjectSystem
+    class AssetPipelineSystem
+    class AssetSyncSystem
+    class McpSystem
+    ProjectSystem ..> PathUtils : UTF-8 路径转换
+    AssetPipelineSystem ..> PathUtils : UTF-8 路径转换
+    AssetSyncSystem ..> PathUtils : UTF-8 路径转换
+    McpSystem ..> PathUtils : UTF-8 路径转换
+```
+
+桌面 App 实现、脚本系统、项目系统、资源管线、资源同步、MCP 及编辑器/MCP 宿主使用上述公共转换。转换保留路径内容，不负责路径存在性、规范化或目录越界检查；这些判断继续由使用者完成。
+
+ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避免统一正斜杠转换改变 Windows 扩展长度路径语义，因此它与 LogSystem 均没有 PathUtils 调用依赖。
+
+## System 继承与参数依赖
+
+下列继承与配置关系均已实现，各类公开方法在其独立图中维护：
+
+| 类别 | 直接继承 System 的类型 | 配置与其他参数依赖 |
+| --- | --- | --- |
+| 引擎根系统 | WindowSystem、ResourceSystem、WorldSystem、RenderSystem | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem |
+| 世界子系统 | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus |
+| 独立单例根系统 | LogSystem | EngineConfig、LogLevel、日志文本；返回日志路径借用 |
+| 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 ProjectSystem |
+| 工具根系统 | AssetPipelineSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、资源及运行目录 Path；McpSystem 构造借用管线和同步系统，并按值接收 McpTarget |
+
+App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，完整字段及 Path/String 关系在 [MCP 独立图](../plugins/class-diagrams/mcp-system.md)维护。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+
+## 第三方资源拥有关系
 
 ```mermaid
 classDiagram
     direction TB
     class WindowSystem
-    class WorldSystem
-    class NavigationSystem
     class RenderSystem
-    class ANativeWindow {
+    class SDL_Window {
         <<external>>
     }
     class SDL_MetalView {
         <<external>>
     }
-    class SDL_Window {
+    class ANativeWindow {
         <<external>>
     }
+    WindowSystem "1" *-- "0..1" SDL_Window : 配对创建和销毁
+    WindowSystem --> SDL_Window : 返回借用
+    RenderSystem "1" *-- "0..1" SDL_MetalView : Apple 平台拥有视图
+    RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
+    RenderSystem --> WindowSystem : 借用窗口系统
+    SDL_Window --> ANativeWindow : 平台属性提供借用
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class WorldSystem
     class ecs_world_t {
         <<external>>
     }
+    WorldSystem "1" *-- "0..1" ecs_world_t : 配对创建和销毁
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class NavigationSystem
     class rcHeightfield {
         <<external>>
     }
     class dtNavMesh {
         <<external>>
     }
-    RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
-    RenderSystem "1" *-- "0..1" SDL_MetalView : Apple 平台拥有视图
-    WindowSystem "1" *-- "0..1" SDL_Window : 配对创建和销毁
-    WindowSystem --> SDL_Window : native_window 返回借用
-    SDL_Window --> ANativeWindow : Android 平台属性提供借用
-    WorldSystem "1" *-- "0..1" ecs_world_t : 配对创建和销毁
     NavigationSystem "1" *-- "0..1" rcHeightfield : 配对分配和释放
     NavigationSystem "1" *-- "0..1" dtNavMesh : 配对分配和释放
 ```
 
-`RenderSystem` 通过窗口系统借用 SDL 窗口及原生句柄，拥有 bgfx 初始化状态和 Apple 平台的 Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，属于共享底层引用而非独占窗口对象。其他模块初始化时创建的局部检查对象在函数结束后释放，不构成持久成员拥有关系。
-
-## 运行时库依赖
-
-| 引擎类 | 使用依赖 | 关系说明 |
-| --- | --- | --- |
-| `WindowSystem` | SDL3 | 初始化、窗口、事件、销毁 |
-| `ResourceSystem` | FlatBuffers、Basis Universal | 解析入口与转码表初始化 |
-| `WorldSystem` | flecs | 创建、推进和销毁 ECS 世界 |
-| `RenderSystem` | bgfx、SDL3 | 图形设备、平台窗口查询及帧提交 |
-| `PhysicsSystem` | Jolt | 版本一致性入口 |
-| `NavigationSystem` | Recast、Detour | 高度场与导航网格资源 |
-| `AnimationSystem` | ozz-animation | 空骨骼构造和析构 |
-| `UiSystem` | RmlUi | 运行库版本入口 |
-| `ScriptSystem` | V8 | 可选构建，运行库版本入口 |
-
-以上均为使用依赖；库不是被引擎销毁的对象。每条依赖在对应[独立类图](index.md)中绘制。
-
-## 独立宿主模块
-
-Android `EngineActivity` / `EngineSurface` 分别继承 SDLActivity / SDLSurface；视图创建、回调参数、JNI 暂停握手及原生 Engine 入口依赖统一见[Android 宿主](android-host.md)。
-
 ```mermaid
 classDiagram
     direction TB
-    class System
-    class EngineConfig
-    class ProjectSystem
     class EditorSystem
-    class AssetPipelineSystem
     class ImGuiContext {
         <<external>>
     }
-    System <|-- ProjectSystem
-    System <|-- EditorSystem
-    System <|-- AssetPipelineSystem
-    ProjectSystem ..> EngineConfig : on_initialize 参数
-    EditorSystem --> ProjectSystem : 构造参数及持续借用
-    EditorSystem ..> EngineConfig : on_initialize 参数
-    AssetPipelineSystem ..> EngineConfig : on_initialize 参数
     EditorSystem "1" *-- "0..1" ImGuiContext : 配对创建和销毁
 ```
 
-| 宿主类或工具 | 使用依赖 | 所有权及边界 |
+RenderSystem 借用 SDL 窗口和原生句柄，拥有 bgfx 初始化状态及 Apple Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，不独占 Android 窗口对象。
+
+WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。ResourceSystem 每次读取拥有一个局部 SDL_IOStream，读取结束必须关闭；App 与 LogSystem 分别拥有平台路径值和日志文件。初始化期间的局部依赖检查对象不构成持久拥有关系。
+
+## 实际编译与链接依赖
+
+| 引擎类或宿主工具 | 使用依赖 | 当前用途 |
 | --- | --- | --- |
-| `ProjectSystem` | toml++ | 编辑器宿主拥有根系统，项目保存根目录字符串并检查必需目录 |
-| `EditorSystem` | Dear ImGui | 编辑器宿主拥有根系统，系统借用项目并拥有上下文 |
-| `AssetPipelineSystem` | USD、Taskflow、SQLite、efsw、meshoptimizer | 宿主拥有根系统，当前库检查对象均为局部资源 |
-| 资源构建工具 | shaderc、texturec、geometryc | 宿主可执行程序，不在运行时生命周期中 |
+| PathUtils | 标准库文件系统与字符串 | UTF-8 路径编码转换 |
+| App | SDL3、PathUtils、标准库文件系统 | 桌面与 Android 平台目录及逻辑 APK 根 |
+| LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
+| WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
+| ResourceSystem | SDL3、FlatBuffers、Basis Universal | 同步文件读取、解析入口及转码表初始化 |
+| WorldSystem | flecs | 创建、推进和销毁 ECS 世界 |
+| RenderSystem | bgfx、SDL3 | 图形设备、窗口查询及帧提交 |
+| PhysicsSystem | Jolt | 版本一致性入口 |
+| NavigationSystem | Recast、Detour | 高度场与导航网格资源 |
+| AnimationSystem | ozz-animation | 空骨骼构造和析构 |
+| UiSystem | RmlUi | 运行库版本入口 |
+| ScriptSystem 探针实现 | V8 | V8 版本入口的实际链接验证 |
+| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils | JS 模块、原生绑定、玩法生命周期、状态与热重载 |
+| ProjectSystem | toml++、LogSystem、PathUtils | 项目目录检查及日志 |
+| EditorSystem | Dear ImGui、ProjectSystem | 编辑器上下文及项目借用 |
+| AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils | 保留依赖验证，启动本地 TS 编译进程 |
+| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、PathUtils | 完整版本校验与原子发布 |
+| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetSyncSystem、PathUtils | stdio 协议、编译同步、控制与状态 |
+| TS 构建工具 | Node.js、项目固定版本 TypeScript | settings 中配置，assets 中源码，cache 中生成物 |
+| 资源构建工具 | shaderc、texturec、geometryc | 宿主工具，不进入运行时生命周期 |
 
-`editor_app` 宿主依次初始化独立的 `ProjectSystem`、`Engine`、`EditorSystem`，反序关闭；项目验证失败时尚未启动引擎窗口。`EditorSystem` 借用项目，项目必须存活并保持就绪直到编辑器关闭。`engine_app` 独立启动引擎，不要求项目。
-
-`Engine` 和各运行时系统不拥有、不引用这三个宿主系统。共享资源数据依赖可以由宿主工具再次使用，不引入运行时到离线导入器的反向依赖。
+Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。

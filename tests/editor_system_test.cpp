@@ -1,7 +1,7 @@
-#include "editor_system.hpp"
-#include "engine_config.hpp"
-#include "project_system.hpp"
-#include "system.hpp"
+#include "editor/editor_system.hpp"
+#include "editor/project/project_system.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/system/system.hpp"
 
 #include <imgui.h>
 
