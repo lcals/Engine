@@ -28,6 +28,10 @@ classDiagram
     class Camera
     class Light
     class MeshRenderer
+    class Transform
+    class Material
+    class ResourceSystem
+    class ShaderDataT
     class EngineConfig {
         <<struct>>
     }
@@ -50,6 +54,10 @@ classDiagram
     RenderSystem ..> Camera : 从节点读取视角与投影
     RenderSystem ..> Light : 从节点读取方向与光照
     RenderSystem ..> MeshRenderer : 从节点读取 Mesh 与材质
+    RenderSystem ..> Transform : 从节点读取世界变换
+    RenderSystem ..> Material : 读取实例 Shader 路径与命名参数
+    RenderSystem ..> ResourceSystem : 按完整资源路径查询定义
+    RenderSystem ..> ShaderDataT : 读取生成的二进制与 uniform 映射
     RenderSystem ..> EngineConfig : on_initialize 参数
     RenderSystem ..> bgfx : 图形资源及帧提交
     RenderSystem ..> SDL3 : 原生窗口及像素尺寸
@@ -59,7 +67,7 @@ classDiagram
 ```
 
 - 构造时借用窗口系统，以及可空的世界系统；两者必须比渲染系统存活更久。世界系统为空时只显示空白。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
-- `prepare_scene()` 在主线程准备当前场景的内置方块资源，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时成功且不分配项目 GPU 资源。
+- `prepare_scene()` 在主线程准备当前场景的方块缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
@@ -74,7 +82,9 @@ classDiagram
 - 拥有 bgfx 创建的资源，使用对应 API 释放；不拥有窗口系统，也不拥有第三方库本身。初始化、清理和复制移动限制遵守[系统约定](engine-system.md)。
 
 - 当前使用 SDL3 提供原生窗口句柄，macOS / iOS 选择 Metal、Windows 选择 Direct3D12、Android / Linux 选择 Vulkan；拒绝 Noop 和回退到其他图形后端。待机清屏，无调试文字。窗口像素尺寸变化时重置交换链并更新相机宽高比。
-- 场景资源为 24 顶点、36 索引的内置方块、一套同时支持 unlit 和直接光 PBR 的 Shader、对应 Uniform。Shader 由固定版本 bgfx `shaderc` 在构建时编译为目标平台格式并嵌入程序，不读取上游范例资源。
+- 当前 Mesh 为 24 顶点、36 索引的内置方块。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。渲染器按 `builtin/...` 或 `project/...` 路径查找 ShaderData，不通过材质种类或路径分支选择效果。
+- 每个在用 Shader 路径拥有一套 Program 和参数 Uniform；多个组件可使用不同 Shader。按生成数据中的 uniform 名称、偏移及数值类型映射参数，上传实例值和隐藏默认值。反射双向核对全部非引擎 Uniform，缺失声明或不存在的声明均拒绝，失败清理本次场景 GPU 资源。
+- 材质变更 Shader 后释放已无人使用的程序。项目停止先释放场景和 GPU 句柄，再清理 project 资源定义；builtin 定义继续保留。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；暂不提供任意 Shader 源码运行时编译。
 - Android 暂停关闭 bgfx 时同时释放场景 GPU 资源；恢复后根据仍存活的场景重新建立资源。本轮实际运行验证限定桌面，Android 后续单独验证。
 - Android Surface 处理代码集中在平台实现中；APK、模拟器暂停恢复和真机验证范围见根 [README.md](../../../README.md)。
 

@@ -16,8 +16,6 @@ classDiagram
         +stop_gameplay() void
         +set_hot_reload(bool enabled) void
         +script_status() const ScriptStatus#42;
-        +scene_node_count() std::size_t
-        +render_resource_count() std::uint32_t
         +last_error() std::string_view
         +request_exit() void
         +shutdown() void
@@ -67,9 +65,9 @@ classDiagram
 - 平台暂停请求若在本帧检查后到达，渲染被拒绝且窗口已不可绘制时返回 `paused`，等待恢复，不将正常切后台锁定为失败。
 - 引擎启动不要求项目，`EngineConfig` 不包含项目路径；`Engine` 不拥有或依赖 `ProjectSystem`。
 - 脚本运行功能启用时，`start_gameplay(entry)` 只能在全部根系统就绪后调用。入口是资源相对路径，不是项目目录。创建 Gameplay 和场景后准备 GPU 资源，任一步失败清理本次运行；已运行时重复启动成功且保持现有实例。`stop_gameplay()` 在场景有效时结束玩法回调，再释放场景与项目 GPU 资源，重复调用安全；引擎关闭时先停止玩法，再关闭渲染等根系统。
-- `scene_node_count()` 和 `render_resource_count()` 是只读运行统计；`last_error()` 返回借用错误文本，用于编辑器状态回执。三个访问器均为 const、noexcept、nodiscard。停止项目后窗口和共享图形设备仍然存在，下一次渲染呈现空白。
+- `last_error()` 返回借用错误文本，用于编辑器状态回执，为 const、noexcept、nodiscard。节点数量与 GPU 资源统计归 Scene / RenderSystem，Engine 不提供跨模块汇总接口。停止项目后窗口和共享图形设备仍然存在，下一次渲染呈现空白。
 - `set_hot_reload(enabled)` 转发给脚本模块；`script_status()` 返回借用的只读状态，未装配脚本运行功能时为空。上述业务操作不绕过父系统去调用子系统的公共初始化或关闭。
-- 编辑器宿主先初始化独立的项目系统，检查实际根目录及其 `settings/`、`cache/`、`assets/`，再启动引擎窗口和编辑器系统；项目失败时尚未打开窗口。
+- 编辑器宿主先初始化独立的项目系统，检查实际根目录及其 `settings/`、`cache/`、`assets/`，再由 EditorEnvironment 配置 App 路径，启动引擎窗口和编辑器系统；项目失败时尚未打开窗口。
 - `WorldSystem` 独占物理、导航、动画、界面及可选脚本子系统；编译启用 V8 时加入 `ScriptSystem`。编辑器和资源管线由各自宿主单独管理，运行时不依赖它们。
 - 非法 `delta_time` 属于参数拒绝：本帧返回 `failed` 且不执行系统更新，后续传入合法时间仍可继续运行。
 - 渲染返回失败时，若窗口因本帧中新到达的宿主暂停请求而不可绘制，本帧返回 `paused`，恢复后可继续。有项目场景时先停止玩法、释放场景与项目 GPU 资源，再尝试空白渲染；成功则继续返回 `running`，编辑器通过 `last_error()` 显示原因。系统更新失败或空白渲染仍失败时，引擎持续返回 `failed`，不继续推进后续帧；调用 `shutdown()` 后可重新初始化。

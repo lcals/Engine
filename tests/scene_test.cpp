@@ -1,5 +1,10 @@
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <array>
@@ -121,19 +126,21 @@ bool hierarchy_and_transforms()
     {
         return false;
     }
-    engine::Transform parent_transform;
+    engine::TransformSettings parent_transform;
     parent_transform.position = {1.0, 2.0, 3.0};
-    parent_transform.rotation.z = 90.0;
-    parent_transform.scale.x = 2.0;
-    engine::Transform child_transform;
-    child_transform.position.x = 1.0;
-    if (!expect(parent->set_transform(parent_transform) && child->set_transform(child_transform),
+    parent_transform.rotation.mutate_z(90.0);
+    parent_transform.scale.mutate_x(2.0);
+    engine::TransformSettings child_transform;
+    child_transform.position.mutate_x(1.0);
+    if (!expect(parent->get_component<engine::Transform>()->set_settings(parent_transform) &&
+                    child->get_component<engine::Transform>()->set_settings(child_transform),
                 "set parent and local child transforms"))
     {
         return false;
     }
     std::array<float, 16> matrix{};
-    if (!expect(child->world_matrix(matrix.data()), "compute world matrix") ||
+    if (!expect(child->get_component<engine::Transform>()->world_matrix(matrix.data()),
+                "compute world matrix") ||
         !expect(near(matrix[12], 1.0F) && near(matrix[13], 4.0F) && near(matrix[14], 3.0F),
                 "world translation applies parent rotation and nonuniform scale") ||
         !expect(near(matrix[0], 0.0F) && near(matrix[1], 2.0F) && near(matrix[4], -1.0F),
@@ -141,29 +148,34 @@ bool hierarchy_and_transforms()
     {
         return false;
     }
-    engine::Transform invalid = child_transform;
-    invalid.scale.y = 0.0;
-    if (!expect(!child->set_transform(invalid) && child->transform().scale.y == 1.0,
+    engine::TransformSettings invalid = child_transform;
+    invalid.scale.mutate_y(0.0);
+    if (!expect(!child->get_component<engine::Transform>()->set_settings(invalid) &&
+                    child->get_component<engine::Transform>()->settings().scale.y() == 1.0,
                 "zero scale rejected without altering transform"))
     {
         return false;
     }
     invalid = child_transform;
-    invalid.position.y = std::numeric_limits<double>::quiet_NaN();
-    if (!expect(!child->set_transform(invalid) && child->transform().position.y == 0.0,
+    invalid.position.mutate_y(std::numeric_limits<double>::quiet_NaN());
+    if (!expect(!child->get_component<engine::Transform>()->set_settings(invalid) &&
+                    child->get_component<engine::Transform>()->settings().position.y() == 0.0,
                 "nonfinite transform rejected without altering transform") ||
-        !expect(!child->world_matrix(nullptr), "null matrix output rejected") ||
+        !expect(!child->get_component<engine::Transform>()->world_matrix(nullptr),
+                "null matrix output rejected") ||
         !expect(child->set_parent(nullptr), "detach preserves local transform") ||
-        !expect(child->world_matrix(matrix.data()) && near(matrix[12], 1.0F) &&
-                    near(matrix[13], 0.0F),
+        !expect(child->get_component<engine::Transform>()->world_matrix(matrix.data()) &&
+                    near(matrix[12], 1.0F) && near(matrix[13], 0.0F),
                 "detached world matrix uses local coordinates"))
     {
         return false;
     }
     invalid = child_transform;
-    invalid.scale.x = std::numeric_limits<double>::max();
-    if (!expect(child->set_transform(invalid), "finite transform may exceed GPU precision") ||
-        !expect(!child->world_matrix(matrix.data()), "reject float matrix overflow"))
+    invalid.scale.mutate_x(std::numeric_limits<double>::max());
+    if (!expect(child->get_component<engine::Transform>()->set_settings(invalid),
+                "finite transform may exceed GPU precision") ||
+        !expect(!child->get_component<engine::Transform>()->world_matrix(matrix.data()),
+                "reject float matrix overflow"))
     {
         return false;
     }
@@ -175,15 +187,17 @@ bool hierarchy_and_transforms()
             return false;
         }
     }
-    child_transform.scale.z = -1.0;
-    if (!expect(child->set_transform(child_transform) && child->set_parent(parent),
+    child_transform.scale.mutate_z(-1.0);
+    if (!expect(child->get_component<engine::Transform>()->set_settings(child_transform) &&
+                    child->set_parent(parent),
                 "negative scale allowed and child can reattach"))
     {
         return false;
     }
-    engine::Camera* camera = grandchild->add_camera();
-    if (!expect(camera != nullptr && scene->active_camera() == camera,
-                "first camera component becomes active"))
+    engine::Camera* camera = grandchild->add_component<engine::Camera>();
+    if (!expect(camera != nullptr && scene->active_camera() == nullptr &&
+                    scene->set_active_camera(camera),
+                "select active camera explicitly"))
     {
         return false;
     }
@@ -222,28 +236,52 @@ bool component_contracts()
     {
         return false;
     }
-    engine::Camera* camera = node->add_camera();
-    engine::Light* light = node->add_light();
-    engine::MeshRenderer* mesh = node->add_mesh_renderer();
-    engine::Camera* foreign_camera = foreign_node->add_camera();
+    if (!expect(node->get_component<engine::Transform>() != nullptr &&
+                    node->components().size() == 1,
+                "new scene node owns a Transform through the generic component list") ||
+        !expect(node->get_component<engine::Camera>() == nullptr &&
+                    node->get_component(engine::Camera::component_type) == nullptr,
+                "generic typed and untyped lookup return null for missing component") ||
+        !expect(node->add_component<engine::Transform>() == nullptr,
+                "duplicate Transform is rejected through the same generic method"))
+    {
+        return false;
+    }
+    engine::Camera* camera = node->add_component<engine::Camera>();
+    engine::Light* light = node->add_component<engine::Light>();
+    engine::MeshRenderer* mesh = node->add_component<engine::MeshRenderer>();
+    engine::Camera* foreign_camera = foreign_node->add_component<engine::Camera>();
     if (!expect(camera != nullptr && light != nullptr && mesh != nullptr &&
                     foreign_camera != nullptr,
                 "different components can share a node") ||
-        !expect(node->add_camera() == nullptr && node->add_light() == nullptr &&
-                    node->add_mesh_renderer() == nullptr,
+        !expect(node->add_component<engine::Camera>() == nullptr &&
+                    node->add_component<engine::Light>() == nullptr &&
+                    node->add_component<engine::MeshRenderer>() == nullptr,
                 "duplicate component type rejected") ||
         !expect(&camera->node() == node && &light->node() == node && &mesh->node() == node,
                 "components borrow their owner") ||
-        !expect(camera->type() == engine::ComponentType::camera &&
-                    light->type() == engine::ComponentType::light &&
-                    mesh->type() == engine::ComponentType::mesh_renderer,
+        !expect(camera->type() == engine::ComponentType::CameraData &&
+                    light->type() == engine::ComponentType::LightData &&
+                    mesh->type() == engine::ComponentType::MeshRendererData,
                 "component types are explicit") ||
-        !expect(!scene->set_active_camera(foreign_camera) && scene->active_camera() == camera,
+        !expect(scene->set_active_camera(camera) && !scene->set_active_camera(foreign_camera) &&
+                    scene->active_camera() == camera,
                 "active camera must belong to scene"))
     {
         return false;
     }
-    engine::CameraSettings camera_settings{75.0F, 0.2F, 50.0F};
+    const engine::Node& read_only_node = *node;
+    if (!expect(node->get_component(engine::Camera::component_type) == camera &&
+                    read_only_node.get_component<engine::Camera>() == camera &&
+                    read_only_node.components().size() == 4,
+                "one generic list provides const typed and untyped access"))
+    {
+        return false;
+    }
+    engine::CameraSettings camera_settings;
+    camera_settings.fov_degrees = 75.0F;
+    camera_settings.near_clip = 0.2F;
+    camera_settings.far_clip = 50.0F;
     if (!expect(camera->set_settings(camera_settings), "configure camera"))
     {
         return false;
@@ -260,28 +298,30 @@ bool component_contracts()
     {
         return false;
     }
-    light_settings.color.r = std::numeric_limits<float>::infinity();
-    if (!expect(!light->set_settings(light_settings) && light->settings().color.r == 1.0F,
+    light_settings.color.mutate_r(std::numeric_limits<float>::infinity());
+    if (!expect(!light->set_settings(light_settings) && light->settings().color.r() == 1.0F,
                 "invalid light color leaves old settings"))
     {
         return false;
     }
-    engine::Material material;
-    material.metallic = 0.6F;
-    material.roughness = 0.2F;
-    if (!expect(mesh->set_material(material) && mesh->mesh() == engine::MeshKind::cube,
-                "configure built-in cube material"))
+    engine::Material& material = mesh->material();
+    if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
+                    material.set_float("metallic", 0.6F) && material.set_float("roughness", 0.2F) &&
+                    material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)) &&
+                    mesh->mesh() == engine::MeshKind::cube,
+                "configure built-in cube material by named typed parameters"))
     {
         return false;
     }
-    material.roughness = -1.0F;
-    if (!expect(!mesh->set_material(material) && mesh->material().roughness == 0.2F,
-                "invalid material leaves old values"))
+    float roughness = 0.0F;
+    if (!expect(!material.set_float("roughness", -1.0F) &&
+                    material.get_float("roughness", roughness) && roughness == 0.2F,
+                "invalid material value leaves old parameter"))
     {
         return false;
     }
     mesh->set_enabled(false);
-    if (!expect(!mesh->enabled() && node->mesh_renderer() == mesh,
+    if (!expect(!mesh->enabled() && node->get_component<engine::MeshRenderer>() == mesh,
                 "disable retains component ownership"))
     {
         return false;
@@ -290,14 +330,324 @@ bool component_contracts()
                   "active camera can be cleared");
 }
 
+bool missing_material_resources()
+{
+    const engine::EngineConfig config;
+    engine::WorldSystem world;
+    if (!world.initialize(config))
+    {
+        return false;
+    }
+    engine::Scene* scene = world.create_scene("Before resource initialization");
+    engine::Node* node = scene == nullptr ? nullptr : scene->create_node("Node");
+    return expect(node != nullptr && node->add_component<engine::MeshRenderer>() == nullptr &&
+                      node->get_component<engine::MeshRenderer>() == nullptr &&
+                      node->components().size() == 1,
+                  "failed component initialization leaves the generic component list unchanged");
+}
+
+bool material_contracts()
+{
+    const engine::EngineConfig config;
+    engine::ResourceSystem second_owner;
+    if (!expect(!second_owner.initialize(config), "only one resource host owns definitions"))
+    {
+        return false;
+    }
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    if (!expect(builtin != nullptr, "resource host installs default shader"))
+    {
+        return false;
+    }
+    engine::schema::ShaderDataT shader = *builtin;
+    shader.path = "project/shaders/tests/material-contracts";
+    auto position = std::make_unique<engine::schema::ShaderParameterT>();
+    position->name = "pos";
+    position->uniform_name = "u_custom_pair";
+    engine::schema::Vec2ValueT position_default;
+    position_default.value = {0.0, 0.0};
+    position->default_value.Set(position_default);
+    shader.parameters.push_back(std::move(position));
+    auto direction = std::make_unique<engine::schema::ShaderParameterT>();
+    direction->name = "direction";
+    direction->uniform_name = "u_custom_direction";
+    engine::schema::Vec3ValueT direction_default;
+    direction_default.value = {0.0, 0.0, 1.0};
+    direction->default_value.Set(direction_default);
+    shader.parameters.push_back(std::move(direction));
+    if (!expect(engine::ResourceSystem::register_shader(shader), "register custom shader layout") ||
+        !expect(!engine::ResourceSystem::register_shader(shader), "reject duplicate shader path"))
+    {
+        return false;
+    }
+    const auto* registered = engine::ResourceSystem::find_shader(shader.path);
+    shader.parameters.back()->name = "changed-source";
+    if (!expect(registered != nullptr && registered->parameters.back()->name == "direction",
+                "shader registry owns a deep copy"))
+    {
+        return false;
+    }
+    for (const auto* path :
+         {"/absolute", "project/shaders/../bad", "builtin/shaders//bad", "project/shaders/./bad",
+          "project/shaders\\bad", "C:/bad", "builtin/shaders/bad/", "shaders/missing-source",
+          "external/shaders/bad", "builtin", "project/"})
+    {
+        shader.path = path;
+        if (!expect(!engine::ResourceSystem::register_shader(shader),
+                    "reject noncanonical resource paths"))
+        {
+            return false;
+        }
+    }
+    shader = *registered;
+    shader.path = "builtin/materials/default-pbr";
+    if (!expect(!engine::ResourceSystem::register_shader(shader),
+                "shader and material paths share one namespace"))
+    {
+        return false;
+    }
+    shader.path = "project/shaders/tests/rejected";
+    shader.parameters.back()->uniform_name = "u_modelViewProj";
+    if (!expect(!engine::ResourceSystem::register_shader(shader),
+                "reject reserved engine uniforms"))
+    {
+        return false;
+    }
+    shader.parameters.back()->uniform_name = "u_custom_pair";
+    shader.parameters.back()->uniform_offset = 1;
+    if (!expect(!engine::ResourceSystem::register_shader(shader),
+                "reject overlapping uniform slots"))
+    {
+        return false;
+    }
+    shader.parameters.back()->uniform_name = "u_custom_direction";
+    shader.parameters.back()->uniform_offset = 2;
+    if (!expect(!engine::ResourceSystem::register_shader(shader), "reject Vec3 beyond a Vec4 slot"))
+    {
+        return false;
+    }
+    engine::schema::MaterialDataT definition;
+    definition.type_path = "project/materials/tests/material-contracts";
+    definition.shader_path = registered->path;
+    auto override_value = std::make_unique<engine::schema::MaterialParameterT>();
+    override_value->name = "pos";
+    position_default.value = {1.0, 2.0};
+    override_value->value.Set(position_default);
+    definition.parameters.push_back(std::move(override_value));
+    if (!expect(engine::ResourceSystem::register_material(definition),
+                "register material with named shader override") ||
+        !expect(!engine::ResourceSystem::register_material(definition),
+                "reject duplicate material path"))
+    {
+        return false;
+    }
+    definition.parameters[0]->value.AsVec2Value()->value = {99.0, 99.0};
+    const auto* copied = engine::ResourceSystem::find_material(definition.type_path);
+    if (!expect(copied != nullptr && copied->parameters[0]->value.AsVec2Value()->value.x() == 1.0,
+                "material registry owns a deep copy"))
+    {
+        return false;
+    }
+    definition.type_path = "project/materials/tests/rejected";
+    definition.parameters[0]->name = "unknown";
+    if (!expect(!engine::ResourceSystem::register_material(definition),
+                "reject material override missing from shader"))
+    {
+        return false;
+    }
+    definition.parameters[0]->name = "baseColor";
+    if (!expect(!engine::ResourceSystem::register_material(definition),
+                "reject material override with mismatched value type"))
+    {
+        return false;
+    }
+    definition.parameters[0]->name = "lightingMode";
+    engine::schema::FloatValueT hidden;
+    hidden.value = 1.0F;
+    definition.parameters[0]->value.Set(hidden);
+    if (!expect(!engine::ResourceSystem::register_material(definition),
+                "hidden shader controls cannot be overridden as material parameters"))
+    {
+        return false;
+    }
+    engine::WorldSystem world;
+    if (!world.initialize(config))
+    {
+        return false;
+    }
+    engine::Scene* scene = world.create_scene("Material contracts");
+    engine::Node* node = scene == nullptr ? nullptr : scene->create_node("Mesh");
+    engine::MeshRenderer* mesh =
+        node == nullptr ? nullptr : node->add_component<engine::MeshRenderer>();
+    if (!expect(mesh != nullptr, "create mesh after resource initialization"))
+    {
+        return false;
+    }
+    engine::Material& material = mesh->material();
+    engine::Vec2 vector2;
+    engine::Vec3 vector3;
+    engine::Vec4 vector4;
+    float scalar = 0.0F;
+    if (!expect(material.set_type("project/materials/tests/material-contracts") &&
+                    material.get_v2("pos", vector2) && vector2.x() == 1.0 && vector2.y() == 2.0 &&
+                    material.get_v3("direction", vector3) && vector3.z() == 1.0,
+                "material merges custom shader defaults and definition overrides") ||
+        !expect(material.set_v2("pos", engine::Vec2(3.0, 4.0)) &&
+                    material.set_v3("direction", engine::Vec3(1.0, 2.0, 3.0)) &&
+                    material.set_type("project/materials/tests/material-contracts") &&
+                    material.set_shader("project/shaders/tests/material-contracts") &&
+                    material.get_v2("pos", vector2) && vector2.x() == 3.0 &&
+                    material.get_v3("direction", vector3) && vector3.z() == 3.0,
+                "custom Vec2 and Vec3 setters work and same material or shader retains instance "
+                "values") ||
+        !expect(!material.set_float("pos", 1.0F) && !material.set_v2("Pos", engine::Vec2()) &&
+                    !material.set_v4("missing", engine::Vec4()) &&
+                    !material.set_float("lightingMode", 1.0F),
+                "reject wrong kind, case, unknown names and hidden shader parameters") ||
+        !expect(
+            !material.set_v2("pos", engine::Vec2(std::numeric_limits<double>::infinity(), 0.0)) &&
+                !material.set_v3("direction",
+                                 engine::Vec3(0.0, std::numeric_limits<double>::max(), 0.0)) &&
+                !material.set_float("roughness", std::numeric_limits<float>::quiet_NaN()) &&
+                !material.set_v4("baseColor", engine::Vec4(1.1, 0.0, 0.0, 1.0)) &&
+                material.get_v2("pos", vector2) && vector2.x() == 3.0,
+            "reject nonfinite, GPU-overflow and bounded values without changing parameters") ||
+        !expect(!material.set_type("project/materials/missing") &&
+                    !material.set_shader("project/shaders/missing") &&
+                    material.type_path() == "project/materials/tests/material-contracts" &&
+                    material.shader_path() == "project/shaders/tests/material-contracts",
+                "missing definitions preserve material and shader paths"))
+    {
+        return false;
+    }
+    vector2 = {9.0, 9.0};
+    vector3 = {9.0, 9.0, 9.0};
+    vector4 = {9.0, 9.0, 9.0, 9.0};
+    scalar = 9.0F;
+    if (!expect(!material.get_float("pos", scalar) && scalar == 0.0F &&
+                    !material.get_v2("missing", vector2) && vector2.x() == 0.0 &&
+                    vector2.y() == 0.0 && !material.get_v3("missing", vector3) &&
+                    vector3.z() == 0.0 && !material.get_v4("missing", vector4) &&
+                    vector4.w() == 0.0,
+                "failed typed getters produce complete zero values") ||
+        !expect(material.set_shader("builtin/shaders/unlit") &&
+                    material.type_path() == "project/materials/tests/material-contracts" &&
+                    material.shader_path() == "builtin/shaders/unlit" &&
+                    !material.get_v2("pos", vector2) && !material.get_float("metallic", scalar) &&
+                    material.get_v4("baseColor", vector4) && vector4.x() == 0.7,
+                "shader replacement keeps material identity and rebuilds its exposed parameters") ||
+        !expect(material.set_type("builtin/materials/default-pbr") &&
+                    material.shader_path() == "builtin/shaders/pbr" &&
+                    material.get_float("roughness", scalar) && scalar == 0.4F,
+                "changing material restores new definition and shader defaults"))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool resource_namespaces()
+{
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    if (!expect(builtin != nullptr, "built-in definitions survive material tests"))
+    {
+        return false;
+    }
+    engine::schema::ShaderDataT shader = *builtin;
+    shader.path = "builtin/shaders/tests/shared";
+    if (!expect(engine::ResourceSystem::register_shader(shader),
+                "register built-in shader namespace"))
+    {
+        return false;
+    }
+    shader.path = "project/shaders/tests/shared";
+    if (!expect(engine::ResourceSystem::register_shader(shader),
+                "same relative shader name is independent in project namespace"))
+    {
+        return false;
+    }
+    engine::schema::MaterialDataT material;
+    material.type_path = "builtin/materials/tests/shared";
+    material.shader_path = "builtin/shaders/tests/shared";
+    if (!expect(engine::ResourceSystem::register_material(material),
+                "built-in material references built-in shader"))
+    {
+        return false;
+    }
+    material.type_path = "project/materials/tests/shared";
+    material.shader_path = "project/shaders/tests/shared";
+    if (!expect(engine::ResourceSystem::register_material(material),
+                "same relative material name is independent in project namespace"))
+    {
+        return false;
+    }
+    material.type_path = "project/materials/tests/reuse-builtin";
+    material.shader_path = "builtin/shaders/pbr";
+    if (!expect(engine::ResourceSystem::register_material(material),
+                "project material may reuse built-in shader"))
+    {
+        return false;
+    }
+    material.type_path = "builtin/materials/tests/invalid-dependency";
+    material.shader_path = "project/shaders/tests/shared";
+    if (!expect(!engine::ResourceSystem::register_material(material) &&
+                    engine::ResourceSystem::find_material(material.type_path) == nullptr,
+                "built-in material cannot depend on project shader"))
+    {
+        return false;
+    }
+    const auto* builtin_material =
+        engine::ResourceSystem::find_material("builtin/materials/tests/shared");
+    const auto* project_material =
+        engine::ResourceSystem::find_material("project/materials/tests/shared");
+    if (!expect(builtin_material != nullptr && project_material != nullptr &&
+                    builtin_material->shader_path == "builtin/shaders/tests/shared" &&
+                    project_material->shader_path == "project/shaders/tests/shared",
+                "both namespaces resolve their own distinct definitions"))
+    {
+        return false;
+    }
+    // All scene/world owners from the preceding tests have already been destroyed.
+    engine::ResourceSystem::clear_project_definitions();
+    engine::ResourceSystem::clear_project_definitions();
+    return expect(engine::ResourceSystem::find_shader("project/shaders/tests/shared") == nullptr &&
+                      engine::ResourceSystem::find_material("project/materials/tests/shared") ==
+                          nullptr &&
+                      engine::ResourceSystem::find_material(
+                          "project/materials/tests/reuse-builtin") == nullptr &&
+                      engine::ResourceSystem::find_shader(
+                          "project/shaders/tests/material-contracts") == nullptr,
+                  "project cleanup removes only project definitions and is repeatable") &&
+           expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin &&
+                      engine::ResourceSystem::find_shader("builtin/shaders/tests/shared") !=
+                          nullptr &&
+                      engine::ResourceSystem::find_material("builtin/materials/tests/shared") ==
+                          builtin_material &&
+                      engine::ResourceSystem::find_material("builtin/materials/default-pbr") !=
+                          nullptr,
+                  "project cleanup preserves built-in definitions and borrowed references");
+}
+
 } // namespace
 
 int main()
 {
-    if (!scene_lifecycle() || !hierarchy_and_transforms() || !component_contracts())
+    const engine::EngineConfig config;
+    engine::ResourceSystem resources;
+    if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
+        !hierarchy_and_transforms() || !component_contracts() || !material_contracts() ||
+        !resource_namespaces())
     {
         return 1;
     }
-    std::puts("Scene identity, node hierarchy, transforms, and component contracts passed.");
+    resources.shutdown();
+    if (!expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == nullptr &&
+                    engine::ResourceSystem::find_material("builtin/materials/tests/shared") ==
+                        nullptr,
+                "resource host shutdown clears all namespaces"))
+    {
+        return 1;
+    }
+    std::puts("Scene, components, material parameters and resource namespaces passed.");
     return 0;
 }

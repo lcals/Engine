@@ -111,6 +111,7 @@ classDiagram
     class Scene
     class Node
     class Component
+    class Transform
     class Camera
     class Light
     class MeshRenderer
@@ -122,6 +123,7 @@ classDiagram
     Node --> Scene : 所属场景借用
     Node --> Node : 可空父节点借用
     Component --> Node : 所属节点借用
+    Component <|-- Transform
     Component <|-- Camera
     Component <|-- Light
     Component <|-- MeshRenderer
@@ -137,9 +139,9 @@ classDiagram
     RenderSystem ..> MeshRenderer : 内置网格与材质参数
 ```
 
-场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material、变换和 Shader 是数据或渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识；局部变换只由 Node 保存，世界矩阵按父链计算。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
+场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
-RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；组件仅提供描述。切换场景、停止运行或图形设备重建时配对释放，图形设备本身可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+ResourceSystem 深拷贝注册 FlatBuffers 生成的 ShaderDataT / MaterialDataT，完整路径以 builtin/ 或 project/ 区分内置与项目。Material 引用 MeshRenderer 的生成数据，按 Shader 定义匹配命名参数。RenderSystem 从资源系统借用定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；组件仅提供描述。切换场景、停止运行或图形设备重建时配对释放，图形设备本身可在编辑器待机期间保留。项目停止在场景和 GPU 资源释放后清理 project 定义，builtin 定义随资源系统关闭。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## App 与日志
 
@@ -157,7 +159,9 @@ classDiagram
     }
     class LogLevel
     class System
-    EditorHost ..> App : 初始化并最后关闭
+    class EditorEnvironment
+    EditorHost *-- EditorEnvironment : 编辑器宿主环境
+    EditorEnvironment ..> App : 路径初始化并最后关闭
     EditorHost --> LogSystem : 借用单例并调度生命周期
     EditorHost --> Engine : 借用单例并调度生命周期
     App ..> AppConfig : 平台目录初始化参数
@@ -190,26 +194,29 @@ classDiagram
     EditorHost *-- EditorSystem : 独立根系统
     EditorHost *-- AssetPipelineSystem : 脚本运行开启时拥有
     EditorHost *-- AssetSyncSystem : 脚本运行开启时拥有
-    EditorSystem --> ProjectSystem : 构造参数及持续借用
+    class EditorEnvironment
+    EditorHost *-- EditorEnvironment : 配置平台路径与内置快照
+    EditorEnvironment --> ProjectSystem : 已就绪项目借用
+    EditorSystem --> EditorEnvironment : 构造参数及持续借用
     EditorSystem --> Engine : 可空构造借用与主线程启停
     ProjectSystem ..> LogSystem : 项目检查日志
     EditorHost ..> Engine : 初始化及更新共享基础系统
 ```
 
-ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿主拥有的独立根系统。EditorSystem 借用已初始化的 ProjectSystem；项目必须保持就绪直到编辑器退出。
+ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿主拥有的独立根系统。EditorSystem 借用已初始化的 EditorEnvironment，环境借用 ProjectSystem；项目和环境必须保持就绪直到编辑器退出。ProjectSystem 没有路径 getter；运行时读取 App 路径，环境的私有项目身份仅用于会话回执。
 
 当前 AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
 
 启用完整脚本运行时，`editor_app` 启动顺序为：
 
-1. 解析项目与运行目录，初始化 App，然后初始化 LogSystem。
-2. 初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
+1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
+2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
 3. 初始化 AssetPipelineSystem，编译项目 TS，生成 `cache/assets/` 中的 JS 与资源。
-4. 从生成内容建立本会话只读内置快照，初始化 AssetSyncSystem 并发布完整初始版本。
+4. 由 EditorEnvironment 从生成内容建立本会话只读内置快照，初始化 AssetSyncSystem 并发布完整初始版本。
 5. 初始化 Engine 全部根系统及子系统，再初始化 EditorSystem。
 6. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 Engine 玩法入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
 
-关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、Engine、AssetSyncSystem、AssetPipelineSystem、ProjectSystem；删除本会话内置快照，最后刷新并关闭 LogSystem、关闭 App。中途失败按已成功初始化部分清理。
+关闭顺序为：先结束 Game 回调，再关闭 EditorSystem、Engine、AssetSyncSystem、AssetPipelineSystem；刷新并关闭 LogSystem，由 EditorEnvironment 清理内置快照并关闭 App，最后关闭 ProjectSystem。中途失败按已成功初始化部分清理。
 
 Engine 内部也在销毁 RenderSystem 之前调用停止玩法，因此 Game 的退出回调仍能使用存活的引擎系统。完整脚本运行关闭时，编辑器跳过编译、同步和玩法启动，保留项目检查、引擎及编辑器窗口流程。
 
@@ -394,7 +401,7 @@ ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避�
 | 引擎根系统 | WindowSystem、ResourceSystem、WorldSystem、RenderSystem | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem |
 | 世界子系统 | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统 | LogSystem | EngineConfig、LogLevel、日志文本；返回日志路径借用 |
-| 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 ProjectSystem 和可空 Engine |
+| 编辑器根系统 | ProjectSystem、EditorSystem | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 Engine |
 | 工具根系统 | AssetPipelineSystem、AssetSyncSystem、McpSystem | EngineConfig；项目、资源及运行目录 Path；McpSystem 构造借用管线和同步系统，并按值接收 McpTarget |
 
 App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，完整字段及 Path/String 关系在 [MCP 独立图](../plugins/class-diagrams/mcp-system.md)维护。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
@@ -470,7 +477,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
 | WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
 | ResourceSystem | SDL3、FlatBuffers、Basis Universal | 同步文件读取、解析入口及转码表初始化 |
-| WorldSystem | flecs、Scene | ECS 世界、场景与节点身份生命周期 |
+| WorldSystem | flecs、FlatBuffers、Scene | ECS 世界、场景与节点身份生命周期 |
 | RenderSystem | bgfx、bx、SDL3、WorldSystem | 图形设备、场景组件读取、PBR 方块与帧提交 |
 | PhysicsSystem | Jolt | 版本一致性入口 |
 | NavigationSystem | Recast、Detour | 高度场与导航网格资源 |
@@ -479,7 +486,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | ScriptSystem 探针实现 | V8 | V8 版本入口的实际链接验证 |
 | ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem | JS 模块、原生绑定、玩法生命周期、状态与热重载 |
 | ProjectSystem | toml++、LogSystem、PathUtils | 项目目录检查及日志 |
-| EditorSystem | Dear ImGui、ProjectSystem、Engine、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、项目启停与状态回执 |
+| EditorEnvironment | ProjectSystem、App、LogSystem、PathUtils | 编辑器路径映射、私有会话身份与内置快照 |
+| EditorSystem | Dear ImGui、EditorEnvironment、Engine、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、项目启停与状态回执 |
 | AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils | 保留依赖验证，启动本地 TS 编译进程 |
 | AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、PathUtils | 完整版本校验与原子发布 |
 | McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetSyncSystem、PathUtils | stdio 协议、编译同步、控制与状态 |
@@ -487,3 +495,5 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | 资源构建工具 | shaderc、texturec、geometryc | 宿主工具，不进入运行时生命周期 |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
+
+脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。

@@ -1,7 +1,12 @@
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -213,38 +218,49 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
     {
         return false;
     }
-    engine::Transform cube_transform;
+    engine::TransformSettings cube_transform;
     cube_transform.rotation = {20.0, 35.0, 0.0};
     cube_transform.scale = {1.0, 0.8, 1.2};
-    engine::Transform camera_transform;
-    camera_transform.position.z = 6.0;
+    engine::TransformSettings camera_transform;
+    camera_transform.position.mutate_z(6.0);
     camera_transform.scale = {2.0, 0.5, 3.0};
-    engine::Transform light_transform;
+    engine::TransformSettings light_transform;
     light_transform.rotation = {-20.0, 30.0, 0.0};
-    if (!expect(cube->set_transform(cube_transform), "set nonuniform cube transform") ||
-        !expect(camera_node->set_transform(camera_transform), "place camera node") ||
-        !expect(light_node->set_transform(light_transform), "aim light node"))
+    if (!expect(cube->get_component<engine::Transform>()->set_settings(cube_transform),
+                "set nonuniform cube transform") ||
+        !expect(camera_node->get_component<engine::Transform>()->set_settings(camera_transform),
+                "place camera node") ||
+        !expect(light_node->get_component<engine::Transform>()->set_settings(light_transform),
+                "aim light node"))
     {
         return false;
     }
-    engine::MeshRenderer* mesh = cube->add_mesh_renderer();
-    engine::Camera* camera = camera_node->add_camera();
-    engine::Light* light = light_node->add_light();
+    engine::MeshRenderer* mesh = cube->add_component<engine::MeshRenderer>();
+    engine::Camera* camera = camera_node->add_component<engine::Camera>();
+    engine::Light* light = light_node->add_component<engine::Light>();
     if (!expect(mesh != nullptr && camera != nullptr && light != nullptr,
                 "attach mesh, camera, and light components"))
     {
         return false;
     }
-    engine::Material material;
-    material.metallic = 0.25F;
-    material.roughness = 0.35F;
-    material.unlit = unlit;
-    return expect(mesh->set_material(material), "set cube material") &&
+    auto& material = mesh->material();
+    return expect(material.set_type(unlit ? "builtin/materials/default-unlit"
+                                          : "builtin/materials/default-pbr"),
+                  "select material type") &&
+           expect(material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)),
+                  "set named material color") &&
+           (unlit || (expect(material.set_float("metallic", 0.25F), "set metallic parameter") &&
+                      expect(material.set_float("roughness", 0.35F), "set roughness parameter"))) &&
            expect(scene->set_active_camera(camera), "select scene camera component");
 }
 
 bool test_scene_renderer(const engine::EngineConfig& config)
 {
+    engine::ResourceSystem resources;
+    if (!expect(resources.initialize(config), "initialize render resource definitions"))
+    {
+        return false;
+    }
     engine::WorldSystem world;
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -255,6 +271,27 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         !render_frames(windows, renderer, 8) ||
         !expect(!renderer.scene_prepared() && renderer.gpu_resource_count() == 0,
                 "idle editor owns no project GPU resources"))
+    {
+        return false;
+    }
+    // 自定义资源路径和逻辑参数名复用同一着色器二进制，渲染器不识别材质种类。
+    engine::schema::ShaderDataT custom(*engine::ResourceSystem::find_shader("builtin/shaders/pbr"));
+    custom.path = "project/shaders/tests/custom";
+    custom.parameters.front()->name = "tint";
+    engine::schema::ShaderDataT incomplete(custom);
+    incomplete.path = "project/shaders/tests/incomplete";
+    incomplete.parameters.erase(incomplete.parameters.begin());
+    engine::schema::ShaderDataT unknown(custom);
+    unknown.path = "project/shaders/tests/unknown-uniform";
+    unknown.parameters.front()->uniform_name = "u_missing_parameter";
+    engine::schema::MaterialDataT custom_material;
+    custom_material.type_path = "project/materials/tests/custom";
+    custom_material.shader_path = custom.path;
+    if (!expect(engine::ResourceSystem::register_shader(custom) &&
+                    engine::ResourceSystem::register_shader(incomplete) &&
+                    engine::ResourceSystem::register_shader(unknown) &&
+                    engine::ResourceSystem::register_material(custom_material),
+                "register custom shader and material definitions"))
     {
         return false;
     }
@@ -280,6 +317,44 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         {
             return false;
         }
+
+        auto* mesh = world.scene()->nodes().front()->get_component<engine::MeshRenderer>();
+        if (!expect(mesh->material().set_type(custom_material.type_path) &&
+                        mesh->material().set_v4("tint", {0.2, 0.7, 0.3, 1.0}) &&
+                        !mesh->material().set_v4("baseColor", {0.2, 0.7, 0.3, 1.0}),
+                    "custom material resolves names from its shader") ||
+            !render_frames(windows, renderer, 8) ||
+            !expect(renderer.gpu_resource_count() == 11 &&
+                        bgfx::getStats()->numDraw == idle_draws + 1,
+                    "shader switching retires previous program and renders custom definition"))
+        {
+            return false;
+        }
+        for (const auto* invalid_path :
+             {"project/shaders/tests/incomplete", "project/shaders/tests/unknown-uniform"})
+        {
+            if (!expect(mesh->material().set_shader(invalid_path), "select schema-valid shader") ||
+                !expect(
+                    !renderer.prepare_scene() && renderer.gpu_resource_count() == 0,
+                    "shader reflection rejects missing and unknown uniforms with full cleanup") ||
+                !expect(mesh->material().set_shader(custom.path), "restore valid shader") ||
+                !render_frames(windows, renderer, 8) ||
+                !expect(renderer.gpu_resource_count() == 11,
+                        "renderer recovers without retaining failed program handles"))
+            {
+                return false;
+            }
+        }
+        mesh->set_enabled(false);
+        if (!render_frames(windows, renderer, 8) ||
+            !expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
+                    "disabling the last drawable mesh releases all scene GPU resources"))
+        {
+            return false;
+        }
+        mesh->set_enabled(true);
+        if (!render_frames(windows, renderer, 8))
+            return false;
 
         // 热重载替换场景时不提前通知渲染器，render 按场景编号重新准备资源。
         world.destroy_scene();
@@ -361,6 +436,28 @@ bool test_engine(const engine::EngineConfig& config)
         !expect(engine.tick(delta_time) == engine::FrameStatus::paused,
                 "engine must report background pause") ||
         !push_application_event(SDL_EVENT_DID_ENTER_FOREGROUND) || !tick_engine_frames(engine, 8))
+    {
+        return false;
+    }
+
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    if (!expect(builtin != nullptr, "engine owns builtin definitions"))
+        return false;
+    engine::schema::ShaderDataT project_shader(*builtin);
+    project_shader.path = "project/shaders/lifecycle";
+    engine::schema::MaterialDataT project_material;
+    project_material.type_path = "project/materials/lifecycle";
+    project_material.shader_path = project_shader.path;
+    if (!expect(engine::ResourceSystem::register_shader(project_shader) &&
+                    engine::ResourceSystem::register_material(project_material),
+                "register project-scoped definitions for running engine"))
+        return false;
+    engine.stop_gameplay();
+    engine.stop_gameplay();
+    if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
+                    engine::ResourceSystem::find_material(project_material.type_path) == nullptr &&
+                    engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
+                "stopping project clears only project definitions and preserves builtin identity"))
     {
         return false;
     }

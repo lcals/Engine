@@ -48,11 +48,6 @@ ProjectSystem::~ProjectSystem() noexcept
     shutdown();
 }
 
-const std::string& ProjectSystem::root_path() const noexcept
-{
-    return project_root_;
-}
-
 bool ProjectSystem::on_initialize(const EngineConfig&)
 {
     if (project_root_.empty())

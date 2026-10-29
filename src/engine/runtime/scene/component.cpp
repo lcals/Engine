@@ -1,6 +1,12 @@
 #include "runtime/scene/component.hpp"
 
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
+
 #include <cmath>
+#include <memory>
+#include <utility>
 
 namespace engine
 {
@@ -14,16 +20,32 @@ bool unit_value(float value)
 
 bool valid_color(const Color& color)
 {
-    return unit_value(color.r) && unit_value(color.g) && unit_value(color.b) && unit_value(color.a);
+    return unit_value(color.r()) && unit_value(color.g()) && unit_value(color.b()) &&
+           unit_value(color.a());
+}
+
+schema::ComponentDataT make_mesh_renderer_data()
+{
+    schema::MeshRendererDataT settings;
+    settings.material = std::make_unique<schema::MaterialDataT>();
+    schema::ComponentDataT data;
+    data.payload.Set(std::move(settings));
+    return data;
 }
 
 } // namespace
 
-Component::Component(Node& node, ComponentType type) noexcept : node_(node), type_(type)
+Component::Component(Node& node, schema::ComponentDataT data) noexcept
+    : node_(node), data_(std::move(data))
 {
 }
 
 Component::~Component() noexcept = default;
+
+bool Component::initialize()
+{
+    return true;
+}
 
 Node& Component::node() noexcept
 {
@@ -37,26 +59,37 @@ const Node& Component::node() const noexcept
 
 ComponentType Component::type() const noexcept
 {
-    return type_;
+    return data_.payload.type;
 }
 
 bool Component::enabled() const noexcept
 {
-    return enabled_;
+    return data_.enabled;
 }
 
 void Component::set_enabled(bool enabled) noexcept
 {
-    enabled_ = enabled;
+    data_.enabled = enabled;
 }
 
-Camera::Camera(Node& node) noexcept : Component(node, ComponentType::camera)
+const schema::ComponentDataT& Component::data() const noexcept
 {
+    return data_;
+}
+
+schema::ComponentDataT& Component::mutable_data() noexcept
+{
+    return data_;
+}
+
+Camera::Camera(Node& node) : Component(node)
+{
+    mutable_data().payload.Set(CameraSettings{});
 }
 
 const CameraSettings& Camera::settings() const noexcept
 {
-    return settings_;
+    return *data().payload.AsCameraData();
 }
 
 bool Camera::set_settings(const CameraSettings& settings) noexcept
@@ -68,17 +101,18 @@ bool Camera::set_settings(const CameraSettings& settings) noexcept
     {
         return false;
     }
-    settings_ = settings;
+    *mutable_data().payload.AsCameraData() = settings;
     return true;
 }
 
-Light::Light(Node& node) noexcept : Component(node, ComponentType::light)
+Light::Light(Node& node) : Component(node)
 {
+    mutable_data().payload.Set(LightSettings{});
 }
 
 const LightSettings& Light::settings() const noexcept
 {
-    return settings_;
+    return *data().payload.AsLightData();
 }
 
 bool Light::set_settings(const LightSettings& settings) noexcept
@@ -88,33 +122,34 @@ bool Light::set_settings(const LightSettings& settings) noexcept
     {
         return false;
     }
-    settings_ = settings;
+    *mutable_data().payload.AsLightData() = settings;
     return true;
 }
 
-MeshRenderer::MeshRenderer(Node& node) noexcept : Component(node, ComponentType::mesh_renderer)
+MeshRenderer::MeshRenderer(Node& node)
+    : Component(node, make_mesh_renderer_data()),
+      material_(*mutable_data().payload.AsMeshRendererData()->material)
 {
+}
+
+bool MeshRenderer::initialize()
+{
+    return material_.set_type("builtin/materials/default-pbr");
 }
 
 MeshKind MeshRenderer::mesh() const noexcept
 {
-    return MeshKind::cube;
+    return data().payload.AsMeshRendererData()->mesh;
+}
+
+Material& MeshRenderer::material() noexcept
+{
+    return material_;
 }
 
 const Material& MeshRenderer::material() const noexcept
 {
     return material_;
-}
-
-bool MeshRenderer::set_material(const Material& material) noexcept
-{
-    if (!valid_color(material.base_color) || !unit_value(material.metallic) ||
-        !unit_value(material.roughness))
-    {
-        return false;
-    }
-    material_ = material;
-    return true;
 }
 
 } // namespace engine

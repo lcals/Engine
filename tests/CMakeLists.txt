@@ -108,6 +108,11 @@ if(TARGET engine_project)
 endif()
 
 if(TARGET engine_editor)
+    add_executable(engine_editor_environment_test editor_environment_test.cpp)
+    target_link_libraries(engine_editor_environment_test PRIVATE engine::editor engine::project engine::app)
+    engine_apply_options(engine_editor_environment_test)
+    add_test(NAME engine.editor_environment COMMAND engine_editor_environment_test
+        "${CMAKE_CURRENT_BINARY_DIR}")
     add_executable(engine_editor_test editor_system_test.cpp)
     target_link_libraries(engine_editor_test PRIVATE engine::editor engine::project imgui::imgui)
     engine_apply_options(engine_editor_test)
@@ -129,7 +134,7 @@ endif()
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_executable(engine_window_render_test window_render_test.cpp)
     target_link_libraries(engine_window_render_test PRIVATE engine::runtime engine::window
-        engine::render engine::world SDL3::SDL3 bgfx::bgfx)
+        engine::render engine::world engine::resource SDL3::SDL3 bgfx::bgfx)
     engine_apply_options(engine_window_render_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.window_render COMMAND engine_window_render_test)
@@ -185,6 +190,21 @@ if(TARGET engine_world)
     engine_apply_options(engine_scene_test)
     add_test(NAME engine.scene COMMAND engine_scene_test)
     set_tests_properties(engine.scene PROPERTIES TIMEOUT 30)
+    add_executable(engine_scene_data_test scene_data_test.cpp)
+    target_link_libraries(engine_scene_data_test PRIVATE engine::world engine::resource)
+    engine_apply_options(engine_scene_data_test)
+    add_test(NAME engine.scene_data COMMAND engine_scene_data_test)
+    if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS AND ENGINE_NODE_EXECUTABLE)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME engine.scene_schema_cross_language
+            COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scene_schema_test.py"
+                --binary "$<TARGET_FILE:engine_scene_data_test>"
+                --generated "${PROJECT_BINARY_DIR}/generated/typescript"
+                --settings "${PROJECT_SOURCE_DIR}/projects/minimal/settings"
+                --work-dir "${CMAKE_CURRENT_BINARY_DIR}"
+                --node "${ENGINE_NODE_EXECUTABLE}")
+        set_tests_properties(engine.scene_schema_cross_language PROPERTIES TIMEOUT 180)
+    endif()
 endif()
 
 if(TARGET editor_app AND TARGET mcp_app AND ENGINE_ENABLE_GPU_TESTS)

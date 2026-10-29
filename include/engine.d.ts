@@ -29,12 +29,16 @@ declare module "engine" {
         static readonly deltaTime: number;
     }
 
-    export interface Color { r: number; g: number; b: number; a: number; }
-    export interface Material {
-        baseColor: Color;
-        metallic: number;
-        roughness: number;
-        unlit: boolean;
+    /** Resource paths start with builtin/ or project/. Parameters match the selected shader. */
+    export class Material {
+        private constructor();
+        IsValid(): boolean;
+        SetType(path: string): boolean;
+        SetShader(path: string): boolean;
+        SetFloat(name: string, value: number): boolean;
+        SetV2(name: string, x: number, y: number): boolean;
+        SetV3(name: string, x: number, y: number, z: number): boolean;
+        SetV4(name: string, x: number, y: number, z: number, w: number): boolean;
     }
 
     /** One active scene, owned by the current Gameplay run. */
@@ -52,21 +56,26 @@ declare module "engine" {
         IsValid(): boolean;
         Destroy(): boolean;
         SetParent(parent: Node | null): boolean;
-        SetPosition(x: number, y: number, z: number): boolean;
-        /** Local Euler angles in degrees, applied X then Y then Z. */
-        SetRotation(x: number, y: number, z: number): boolean;
-        SetScale(x: number, y: number, z: number): boolean;
-        AddCamera(): Camera | null;
-        AddLight(): Light | null;
-        /** The first implementation uses a built-in cube mesh. */
-        AddMeshRenderer(): MeshRenderer | null;
+        AddComponent<T extends Component>(type: ComponentType<T>): T | null;
+        GetComponent<T extends Component>(type: ComponentType<T>): T | null;
     }
+
+    /** A registered engine component class; constructors are not publicly callable. */
+    export interface ComponentType<T extends Component> { readonly prototype: T; }
 
     export class Component {
         protected constructor();
         readonly node: Node;
         IsValid(): boolean;
         SetEnabled(enabled: boolean): boolean;
+    }
+    /** Every scene node starts with one Transform component. */
+    export class Transform extends Component {
+        private constructor();
+        SetPosition(x: number, y: number, z: number): boolean;
+        /** Local Euler angles in degrees, applied X then Y then Z. */
+        SetRotation(x: number, y: number, z: number): boolean;
+        SetScale(x: number, y: number, z: number): boolean;
     }
     export class Camera extends Component {
         private constructor();
@@ -79,7 +88,7 @@ declare module "engine" {
     }
     export class MeshRenderer extends Component {
         private constructor();
-        SetMaterial(material: Material): boolean;
+        readonly material: Material;
     }
 
 }

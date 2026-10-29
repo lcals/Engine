@@ -57,21 +57,16 @@ classDiagram
         +IsValid() bool
         +Destroy() bool
         +SetParent(parent Node?) bool
-        +SetPosition(x number, y number, z number) bool
-        +SetRotation(x number, y number, z number) bool
-        +SetScale(x number, y number, z number) bool
-        +AddCamera() Camera?
-        +AddLight() Light?
-        +AddMeshRenderer() MeshRenderer?
+        +AddComponent~T~(type ComponentType~T~) T?
+        +GetComponent~T~(type ComponentType~T~) T?
     }
+    class Component
+    class ComponentType~T~
     class Camera
-    class Light
-    class MeshRenderer
     Scene ..> Node : 创建借用包装
     Scene ..> Camera : 活动相机
-    Node ..> Camera : 添加组件
-    Node ..> Light : 添加组件
-    Node ..> MeshRenderer : 添加组件
+    Node ..> Component : 泛型添加或查找
+    Node ..> ComponentType : 组件类型参数
 ```
 
 ## 脚本组件接口
@@ -84,6 +79,11 @@ classDiagram
         +IsValid() bool
         +SetEnabled(enabled bool) bool
     }
+    class Transform {
+        +SetPosition(x number, y number, z number) bool
+        +SetRotation(x number, y number, z number) bool
+        +SetScale(x number, y number, z number) bool
+    }
     class Camera {
         +SetPerspective(fovDegrees number, nearClip number, farClip number) bool
     }
@@ -92,34 +92,30 @@ classDiagram
         +SetIntensity(intensity number) bool
     }
     class MeshRenderer {
-        +SetMaterial(material Material) bool
+        +material Material
     }
     class Material {
-        <<interface>>
-        +Color baseColor
-        +number metallic
-        +number roughness
-        +bool unlit
-    }
-    class Color {
-        <<interface>>
-        +number r
-        +number g
-        +number b
-        +number a
+        +IsValid() bool
+        +SetType(path string) bool
+        +SetShader(path string) bool
+        +SetFloat(name string, value number) bool
+        +SetV2(name string, x number, y number) bool
+        +SetV3(name string, x number, y number, z number) bool
+        +SetV4(name string, x number, y number, z number, w number) bool
     }
     class Time {
         +deltaTime number$
     }
+    Component <|-- Transform
     Component <|-- Camera
     Component <|-- Light
     Component <|-- MeshRenderer
     MeshRenderer ..> Material
-    Material ..> Color
 ```
 
-- Scene、Node 与具体组件不能由脚本直接构造；Create/Add 失败返回 null，修改和有效性检查返回 bool。每个 Node 每类组件最多一个。
+- Scene、Node 与具体组件不能由脚本直接构造；Create/Add 失败返回 null，修改和有效性检查返回 bool。每个 Node 每类组件最多一个。CreateNode 自动添加 Transform；通过 `node.GetComponent(Transform)` 取得变换，通过 `node.AddComponent(Camera)` 添加相机。泛型推导返回具体组件类型，重复添加返回 null，缺失或非法类型查询返回 null。类型注册与转换在脚本绑定层，原生 Node 不枚举具体组件。
 - `Component.node` 与 `Time.deltaTime` 只读；组件引用和节点引用在节点销毁、场景销毁或玩法退出后失效。
 - SetParent 保留局部变换，null 解除父子关系，拒绝循环和跨场景关系；Destroy Node 同时销毁其子树。旋转使用度，前向为 -Z。
-- Material 是普通参数数据；范围和有限数值由原生接口校验，修改失败保留原值。首版 MeshRenderer 使用内置立方体。
+- 持久数据模型由 `schemas/runtime/scene.fbs` 定义，原生组件持有生成的对象数据；脚本 API 是行为绑定，材质命名参数经验证写入生成数据，不作为另一套磁盘格式。
+- `MeshRenderer.material` 返回该组件所属材质的借用包装；材质和 Shader 各自通过唯一资源路径字符串指定，分别由 SetType 与 SetShader 选择。内置 builtin/materials/default-pbr 引用 builtin/shaders/pbr，声明 baseColor（V4）、metallic（Float）、roughness（Float），builtin/materials/default-unlit 引用 builtin/shaders/unlit，声明 baseColor（V4）。SetV2/SetV3 是统一类型接口，只有材质声明相应参数时可写入；未知名字、错误类型和无效数值返回 false 并保留原值。变更材质类型或 Shader 重建所选定义的默认参数，同路径设置保持原值；未知路径返回 false。首版 MeshRenderer 使用内置立方体。
 - 本轮样例在 OnInitialize 创建方块 MeshRenderer、相机 Camera、定向灯 Light；Update 使用 Time.deltaTime 旋转，OnShutdown 结束后由 ScriptSystem 统一释放场景。

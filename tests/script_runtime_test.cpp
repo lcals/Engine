@@ -2,7 +2,10 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
@@ -378,7 +381,7 @@ bool run_cases(const fs::path& workspace)
 }
 
 const std::string scene_source = R"js(
-import { Gameplay, Scene, Time, Debug, Component } from 'engine';
+import { Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
 const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
 export default class Game extends Gameplay {
     cube = null;
@@ -392,34 +395,49 @@ export default class Game extends Gameplay {
         if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
         const discarded = Scene.Create('discarded');
         const oldNode = discarded?.CreateNode('old');
-        const oldComponent = oldNode?.AddMeshRenderer();
+        const oldComponent = oldNode?.AddComponent(MeshRenderer);
+        const oldTransform = oldNode?.GetComponent(Transform);
         if (!discarded || !oldNode || !oldComponent || !discarded.Destroy()) return false;
         this.scene = Scene.Create('bound-scene');
         if (!this.scene || discarded.IsValid() || oldNode.IsValid() || oldComponent.IsValid() ||
-            oldNode.SetPosition(1, 2, 3) || oldNode.AddCamera() !== null || discarded.Destroy() ||
+            oldTransform.SetPosition(1, 2, 3) || oldNode.GetComponent(Transform) !== null || oldNode.AddComponent(Camera) !== null || discarded.Destroy() ||
             oldComponent.SetEnabled(false)) return false;
         const cube = this.scene.CreateNode('cube');
         const cameraNode = this.scene.CreateNode('camera');
         const lightNode = this.scene.CreateNode('light');
         if (!cube || !cameraNode || !lightNode || !cube.IsValid()) return false;
-        const mesh = cube.AddMeshRenderer();
-        const camera = cameraNode.AddCamera();
-        const light = lightNode.AddLight();
+        const mesh = cube.AddComponent(MeshRenderer);
+        const camera = cameraNode.AddComponent(Camera);
+        const light = lightNode.AddComponent(Light);
         if (!mesh || !camera || !light || !(mesh instanceof Component) || !mesh.node.IsValid())
             return false;
-        if (cube.AddMeshRenderer() !== null || cube.SetPosition(NaN, 0, 0) ||
-            cube.SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
+        if (!(cube.GetComponent(Transform) instanceof Transform) ||
+            !(cube.GetComponent(MeshRenderer) instanceof MeshRenderer) ||
+            cube.GetComponent(Camera) !== null || cube.GetComponent(Light) !== null ||
+            cube.AddComponent(Transform) !== null || cube.AddComponent(Component) !== null ||
+            cube.GetComponent(Component) !== null || cube.AddComponent(class {}) !== null ||
+            cube.GetComponent({prototype: Camera.prototype}) !== null ||
+            cube.AddComponent(null) !== null || cube.GetComponent(undefined) !== null) return false;
+        if (cube.AddComponent(MeshRenderer) !== null || cube.GetComponent(Transform).SetPosition(NaN, 0, 0) ||
+            cube.GetComponent(Transform).SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
             light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
-        if (!cube.SetPosition(1, 2, 3) || !cube.SetScale(2, 2, 2) ||
-            !mesh.SetMaterial({baseColor:{r:.2,g:.3,b:.4,a:1},metallic:.7,roughness:.2,unlit:false}) ||
-            mesh.SetMaterial({baseColor:{r:2,g:.3,b:.4,a:1},metallic:.7,roughness:.2,unlit:false}) ||
+        if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
+            !mesh.material.SetShader('builtin/shaders/unlit') || mesh.material.SetShader('project/shaders/missing') ||
+            !mesh.material.SetType('builtin/materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
+            !mesh.material.SetType('builtin/materials/default-pbr') || !mesh.material.SetV4('baseColor', .2, .3, .4, 1) ||
+            !mesh.material.SetFloat('metallic', .7) || !mesh.material.SetFloat('roughness', .2) ||
+            !mesh.material.SetType('builtin/materials/default-pbr') || mesh.material.SetType('unknown') ||
+            mesh.material.SetFloat('missing', 1) || mesh.material.SetFloat('baseColor', .2) ||
+            mesh.material.SetV2('roughness', .1, .2) || mesh.material.SetV3('baseColor', .2, .3, .4) ||
+            mesh.material.SetV4('baseColor', 2, .3, .4, 1) ||
+            mesh.material.SetFloat('roughness', Infinity) ||
             !mesh.SetEnabled(false) || !mesh.SetEnabled(true) ||
-            !cameraNode.SetPosition(0, 0, 8) || !camera.SetPerspective(45, .1, 200) ||
+            !cameraNode.GetComponent(Transform).SetPosition(0, 0, 8) || !camera.SetPerspective(45, .1, 200) ||
             !this.scene.SetActiveCamera(camera) || !light.SetColor(1, .9, .8) ||
-            !light.SetIntensity(5) || !lightNode.SetRotation(-30, 20, 0)) return false;
+            !light.SetIntensity(5) || !lightNode.GetComponent(Transform).SetRotation(-30, 20, 0)) return false;
         const parent = this.scene.CreateNode('temporary-parent');
         const child = this.scene.CreateNode('temporary-child');
-        const component = child?.AddLight();
+        const component = child?.AddComponent(Light);
         if (!parent || !child || !component || !child.SetParent(parent) || parent.SetParent(child) ||
             !parent.Destroy() || child.IsValid() || component.IsValid() || child.Destroy() ||
             component.SetIntensity(1) || this.scene.SetActiveCamera(component)) return false;
@@ -431,10 +449,10 @@ export default class Game extends Gameplay {
     Update() {
         if (!(Time.deltaTime > 0)) throw new Error('missing deltaTime');
         this.angle += Time.deltaTime * 10;
-        if (!this.cube.SetRotation(0, this.angle, 0)) throw new Error('stale cube');
+        if (!this.cube.GetComponent(Transform).SetRotation(0, this.angle, 0)) throw new Error('stale cube');
     }
     OnShutdown() {
-        if (Time.deltaTime !== 0 || !this.scene.IsValid() || !this.cube.SetScale(1, 1, 1))
+        if (Time.deltaTime !== 0 || !this.scene.IsValid() || !this.cube.GetComponent(Transform).SetScale(1, 1, 1))
             throw new Error('scene must survive through OnShutdown');
         Debug.Log('scene:shutdown-valid');
     }
@@ -468,14 +486,26 @@ bool run_scene_cases()
         return false;
     }
     const auto* cube = world.scene()->nodes().front().get();
-    if (!expect(cube->name() == "cube" && cube->transform().position.x == 1.0 &&
-                    cube->transform().scale.x == 2.0 && cube->mesh_renderer() != nullptr &&
-                    cube->mesh_renderer()->material().metallic == 0.7F &&
-                    cube->mesh_renderer()->material().base_color.r == 0.2F &&
+    float metallic = 0.0F;
+    engine::Vec4 color;
+    if (!expect(
+            cube->get_component<engine::MeshRenderer>()->material().get_float("metallic",
+                                                                              metallic) &&
+                cube->get_component<engine::MeshRenderer>()->material().get_v4("baseColor", color),
+            "read typed named material parameters"))
+    {
+        return false;
+    }
+    if (!expect(cube->name() == "cube" &&
+                    cube->get_component<engine::Transform>()->settings().position.x() == 1.0 &&
+                    cube->get_component<engine::Transform>()->settings().scale.x() == 2.0 &&
+                    cube->get_component<engine::MeshRenderer>() != nullptr && metallic == 0.7F &&
+                    static_cast<float>(color.x()) == 0.2F &&
                     world.scene()->active_camera() != nullptr &&
                     world.scene()->active_camera()->settings().fov_degrees == 45.0F,
                 "native scene retains validated transforms, material and active camera") ||
-        !expect(script.tick(0.25) && cube->transform().rotation.y == 2.5,
+        !expect(script.tick(0.25) &&
+                    cube->get_component<engine::Transform>()->settings().rotation.y() == 2.5,
                 "Time.deltaTime drives the native cube transform"))
     {
         return false;
@@ -507,7 +537,8 @@ bool run_scene_cases()
         return false;
     }
     const std::string partial =
-        "import {Gameplay,Scene,Debug} from 'engine'; export default class extends Gameplay { "
+        "import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine'; export default class "
+        "extends Gameplay { "
         "s=null; OnInitialize(){this.s=Scene.Create('partial'); this.s.CreateNode('partial-node'); "
         "return false;} OnShutdown(){if(this.s.IsValid()) Debug.Log('partial-scene:shutdown');} }";
     if (!publish("scene-partial", {{"scripts/game.js", partial}}) ||
@@ -518,7 +549,8 @@ bool run_scene_cases()
         return false;
     }
     const std::string update_error =
-        "import {Gameplay,Scene,Debug} from 'engine'; export default class extends Gameplay { "
+        "import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine'; export default class "
+        "extends Gameplay { "
         "s=null; OnInitialize(){this.s=Scene.Create('bad-update'); return this.s!==null;} "
         "Update(){throw new Error('scene-update-failed');} "
         "OnShutdown(){if(this.s.IsValid()) Debug.Log('failed-scene:shutdown');} }";
@@ -534,13 +566,14 @@ bool run_scene_cases()
         return false;
     }
     const std::string stale = R"js(
-import {Gameplay,Scene,Debug} from 'engine';
+import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine';
 export default class extends Gameplay {
-    scene=null; node=null; mesh=null;
+    scene=null; node=null; mesh=null; transform=null; material=null;
     OnInitialize(){this.scene=Scene.Create('external-test'); this.node=this.scene.CreateNode('owned');
-        this.mesh=this.node.AddMeshRenderer(); return this.mesh!==null;}
+        this.mesh=this.node.AddComponent(MeshRenderer); this.transform=this.node.GetComponent(Transform); this.material=this.mesh.material; return this.mesh!==null;}
     Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
-        this.node.SetPosition(9,9,9) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
+        this.transform.SetPosition(9,9,9) || this.node.GetComponent(MeshRenderer)!==null || this.material.IsValid() ||
+        this.material.SetV4('baseColor',1,1,1,1) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
         Scene.Create('steal')!==null) throw new Error('stale references were accepted');
         Debug.Log('stale:rejected');}
     OnShutdown(){Debug.Log('stale:shutdown');}
@@ -605,7 +638,9 @@ int main(int argc, char** argv)
         engine::App::shutdown();
         return 1;
     }
-    const bool passed = run_cases(workspace) && run_scene_cases();
+    engine::ResourceSystem resources;
+    const bool passed = resources.initialize(config) && run_cases(workspace) && run_scene_cases();
+    resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
     if (passed)

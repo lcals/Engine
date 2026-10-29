@@ -3,90 +3,36 @@
 #include "runtime/scene/scene.hpp"
 
 #include <algorithm>
-#include <array>
-#include <cmath>
-#include <limits>
-#include <new>
-#include <numbers>
 #include <utility>
 
 namespace engine
 {
-namespace
+
+Node::Node(Scene& scene, std::uint64_t id, std::string_view name) : scene_(scene)
 {
-
-constexpr std::array<double, 16> identity = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
-
-bool finite_vector(const Vec3& value)
-{
-    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-}
-
-std::array<double, 16> local_matrix(const Transform& transform)
-{
-    constexpr double radians = std::numbers::pi / 180.0;
-    const double sx = std::sin(transform.rotation.x * radians);
-    const double cx = std::cos(transform.rotation.x * radians);
-    const double sy = std::sin(transform.rotation.y * radians);
-    const double cy = std::cos(transform.rotation.y * radians);
-    const double sz = std::sin(transform.rotation.z * radians);
-    const double cz = std::cos(transform.rotation.z * radians);
-    return {cz * cy * transform.scale.x,
-            sz * cy * transform.scale.x,
-            -sy * transform.scale.x,
-            0,
-            (cz * sy * sx - sz * cx) * transform.scale.y,
-            (sz * sy * sx + cz * cx) * transform.scale.y,
-            cy * sx * transform.scale.y,
-            0,
-            (cz * sy * cx + sz * sx) * transform.scale.z,
-            (sz * sy * cx - cz * sx) * transform.scale.z,
-            cy * cx * transform.scale.z,
-            0,
-            transform.position.x,
-            transform.position.y,
-            transform.position.z,
-            1};
-}
-
-std::array<double, 16> multiply(const std::array<double, 16>& left,
-                                const std::array<double, 16>& right)
-{
-    std::array<double, 16> result{};
-    for (std::size_t column = 0; column < 4; ++column)
-    {
-        for (std::size_t row = 0; row < 4; ++row)
-        {
-            for (std::size_t index = 0; index < 4; ++index)
-            {
-                result[column * 4 + row] += left[index * 4 + row] * right[column * 4 + index];
-            }
-        }
-    }
-    return result;
-}
-
-} // namespace
-
-Node::Node(Scene& scene, std::uint64_t id, std::string_view name)
-    : scene_(scene), id_(id), name_(name)
-{
+    info_.id = id;
+    info_.name = name;
 }
 
 Node::~Node() noexcept
 {
     components_.clear();
-    scene_.destroy_entity(id_);
+    scene_.destroy_entity(info_.id);
 }
 
 std::uint64_t Node::id() const noexcept
 {
-    return id_;
+    return info_.id;
 }
 
 std::string_view Node::name() const noexcept
 {
-    return name_;
+    return info_.name;
+}
+
+const schema::NodeInfoT& Node::info() const noexcept
+{
+    return info_;
 }
 
 Scene& Node::scene() noexcept
@@ -99,31 +45,14 @@ const Scene& Node::scene() const noexcept
     return scene_;
 }
 
-const Transform& Node::transform() const noexcept
-{
-    return transform_;
-}
-
-bool Node::set_transform(const Transform& transform) noexcept
-{
-    if (!finite_vector(transform.position) || !finite_vector(transform.rotation) ||
-        !finite_vector(transform.scale) || transform.scale.x == 0.0 || transform.scale.y == 0.0 ||
-        transform.scale.z == 0.0)
-    {
-        return false;
-    }
-    transform_ = transform;
-    return true;
-}
-
 Node* Node::parent() noexcept
 {
-    return parent_;
+    return scene_.find_node(info_.parent_id);
 }
 
 const Node* Node::parent() const noexcept
 {
-    return parent_;
+    return std::as_const(scene_).find_node(info_.parent_id);
 }
 
 bool Node::set_parent(Node* parent) noexcept
@@ -139,120 +68,25 @@ bool Node::set_parent(Node* parent) noexcept
             return false;
         }
     }
-    parent_ = parent;
+    info_.parent_id = parent == nullptr ? 0 : parent->id();
     return true;
 }
 
-bool Node::world_matrix(float* output) const noexcept
+Component* Node::get_component(ComponentType type) noexcept
 {
-    if (output == nullptr)
-    {
-        return false;
-    }
-    std::transform(identity.begin(), identity.end(), output,
-                   [](double value) { return static_cast<float>(value); });
-    std::array<double, 16> world = identity;
-    for (const Node* node = this; node != nullptr; node = node->parent())
-    {
-        world = multiply(local_matrix(node->transform()), world);
-        if (!std::all_of(world.begin(), world.end(),
-                         [](double value) { return std::isfinite(value); }))
-        {
-            return false;
-        }
-    }
-    constexpr double max_float = std::numeric_limits<float>::max();
-    if (!std::all_of(world.begin(), world.end(),
-                     [](double value) { return value >= -max_float && value <= max_float; }))
-    {
-        return false;
-    }
-    std::transform(world.begin(), world.end(), output,
-                   [](double value) { return static_cast<float>(value); });
-    return true;
+    return const_cast<Component*>(std::as_const(*this).get_component(type));
 }
 
-Camera* Node::add_camera()
+const Component* Node::get_component(ComponentType type) const noexcept
 {
-    if (camera_ != nullptr)
-    {
-        return nullptr;
-    }
-    std::unique_ptr<Camera> component(new (std::nothrow) Camera(*this));
-    if (component == nullptr)
-    {
-        return nullptr;
-    }
-    camera_ = component.get();
-    components_.push_back(std::move(component));
-    if (scene_.active_camera() == nullptr && !scene_.set_active_camera(camera_))
-    {
-        components_.pop_back();
-        camera_ = nullptr;
-    }
-    return camera_;
+    const auto iterator = std::find_if(components_.begin(), components_.end(),
+                                       [type](const auto& item) { return item->type() == type; });
+    return iterator == components_.end() ? nullptr : iterator->get();
 }
 
-Light* Node::add_light()
+const std::vector<std::unique_ptr<Component>>& Node::components() const noexcept
 {
-    if (light_ != nullptr)
-    {
-        return nullptr;
-    }
-    std::unique_ptr<Light> component(new (std::nothrow) Light(*this));
-    if (component == nullptr)
-    {
-        return nullptr;
-    }
-    light_ = component.get();
-    components_.push_back(std::move(component));
-    return light_;
-}
-
-MeshRenderer* Node::add_mesh_renderer()
-{
-    if (mesh_renderer_ != nullptr)
-    {
-        return nullptr;
-    }
-    std::unique_ptr<MeshRenderer> component(new (std::nothrow) MeshRenderer(*this));
-    if (component == nullptr)
-    {
-        return nullptr;
-    }
-    mesh_renderer_ = component.get();
-    components_.push_back(std::move(component));
-    return mesh_renderer_;
-}
-
-Camera* Node::camera() noexcept
-{
-    return camera_;
-}
-
-const Camera* Node::camera() const noexcept
-{
-    return camera_;
-}
-
-Light* Node::light() noexcept
-{
-    return light_;
-}
-
-const Light* Node::light() const noexcept
-{
-    return light_;
-}
-
-MeshRenderer* Node::mesh_renderer() noexcept
-{
-    return mesh_renderer_;
-}
-
-const MeshRenderer* Node::mesh_renderer() const noexcept
-{
-    return mesh_renderer_;
+    return components_;
 }
 
 } // namespace engine

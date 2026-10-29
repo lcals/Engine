@@ -22,51 +22,18 @@ public:
     [[nodiscard]] ComponentType type() const noexcept;
     [[nodiscard]] bool enabled() const noexcept;
     void set_enabled(bool enabled) noexcept;
+    [[nodiscard]] const schema::ComponentDataT& data() const noexcept;
 
 protected:
-    Component(Node& node, ComponentType type) noexcept;
+    explicit Component(Node& node, schema::ComponentDataT data = {}) noexcept;
+    // 由 Node 在转入组件列表之前调用，失败则销毁尚未发布的组件。
+    [[nodiscard]] virtual bool initialize();
+    [[nodiscard]] schema::ComponentDataT& mutable_data() noexcept;
 
 private:
+    friend class Node;
     Node& node_;
-    ComponentType type_;
-    bool enabled_ = true;
-};
-
-class Camera final : public Component
-{
-public:
-    [[nodiscard]] const CameraSettings& settings() const noexcept;
-    [[nodiscard]] bool set_settings(const CameraSettings& settings) noexcept;
-
-private:
-    friend class Node;
-    explicit Camera(Node& node) noexcept;
-    CameraSettings settings_{};
-};
-
-class Light final : public Component
-{
-public:
-    [[nodiscard]] const LightSettings& settings() const noexcept;
-    [[nodiscard]] bool set_settings(const LightSettings& settings) noexcept;
-
-private:
-    friend class Node;
-    explicit Light(Node& node) noexcept;
-    LightSettings settings_{};
-};
-
-class MeshRenderer final : public Component
-{
-public:
-    [[nodiscard]] MeshKind mesh() const noexcept;
-    [[nodiscard]] const Material& material() const noexcept;
-    [[nodiscard]] bool set_material(const Material& material) noexcept;
-
-private:
-    friend class Node;
-    explicit MeshRenderer(Node& node) noexcept;
-    Material material_{};
+    schema::ComponentDataT data_{};
 };
 
 } // namespace engine

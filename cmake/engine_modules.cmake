@@ -30,6 +30,13 @@ endif()
 if(ENGINE_ENABLE_V8)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
         engine_add_system(runtime script)
+        # 每个绑定一个实现文件；新增类只需在注册表登记，不再维护第二份构建清单。
+        file(GLOB _engine_script_binding_sources CONFIGURE_DEPENDS
+            "${PROJECT_SOURCE_DIR}/src/engine/runtime/script/bindings/*_binding.cpp")
+        target_sources(engine_script PRIVATE ${_engine_script_binding_sources}
+            src/engine/runtime/script/bindings/binding_context.cpp
+            src/engine/runtime/script/bindings/script_binding_registry.cpp)
+        target_include_directories(engine_script PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_script PRIVATE engine::app engine::log SDL3::SDL3
             nlohmann_json::nlohmann_json)
         target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
@@ -44,9 +51,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_window PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
-    target_link_libraries(engine_render PRIVATE engine::window engine::world SDL3::SDL3 bgfx::bgfx bgfx::bx)
+    target_link_libraries(engine_render PRIVATE engine::window engine::world engine::resource SDL3::SDL3 bgfx::bgfx bgfx::bx)
     include(${PROJECT_SOURCE_DIR}/cmake/render_shaders.cmake)
-    engine_embed_render_shaders(engine_render)
     if(ANDROID)
         target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
         target_include_directories(engine_window PRIVATE "${PROJECT_SOURCE_DIR}/platforms/android/native")
@@ -55,18 +61,24 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     endif()
 
     engine_add_system(runtime resource)
-    target_link_libraries(engine_resource PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder
+    target_sources(engine_resource PRIVATE src/engine/runtime/resource/builtin_resources.cpp)
+    engine_embed_render_shaders(engine_resource)
+    target_link_libraries(engine_resource PUBLIC engine::scene_data PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder
         SDL3::SDL3)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
         target_link_libraries(engine_script PRIVATE engine::resource)
     endif()
 
     engine_add_system(runtime world)
+    include(${PROJECT_SOURCE_DIR}/cmake/scene_schema.cmake)
+    engine_add_scene_schema()
     target_sources(engine_world PRIVATE
         src/engine/runtime/scene/component.cpp
+        src/engine/runtime/scene/material.cpp
         src/engine/runtime/scene/node.cpp
+        src/engine/runtime/scene/transform.cpp
         src/engine/runtime/scene/scene.cpp)
-    target_link_libraries(engine_world PRIVATE flecs::flecs_static)
+    target_link_libraries(engine_world PUBLIC engine::scene_data PRIVATE flecs::flecs_static engine::resource)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
         target_link_libraries(engine_script PRIVATE engine::world)
     endif()
@@ -110,6 +122,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
+    target_sources(engine_editor PRIVATE src/engine/editor/editor_environment.cpp)
     target_link_libraries(engine_editor PRIVATE engine::project engine::runtime engine::app
         engine::log engine::resource imgui::imgui SDL3::SDL3 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_editor PRIVATE JSON_NOEXCEPTION=1)

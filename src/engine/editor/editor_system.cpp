@@ -1,6 +1,6 @@
 #include "editor/editor_system.hpp"
 
-#include "editor/project/project_system.hpp"
+#include "editor/editor_environment.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/log/log_system.hpp"
@@ -95,9 +95,7 @@ struct EditorSystem::State
                        {"lastRequestId", last_request},
                        {"lastCommand", last_command},
                        {"lastRequestSucceeded", last_success},
-                       {"lastError", error},
-                       {"nodeCount", runtime.scene_node_count()},
-                       {"gpuResources", runtime.render_resource_count()}};
+                       {"lastError", error}};
         const auto serialized = status.dump(-1, ' ', false, Json::error_handler_t::replace);
         const auto now = std::chrono::steady_clock::now();
         if (!force && serialized == previous_status &&
@@ -215,8 +213,8 @@ struct EditorSystem::State
     }
 };
 
-EditorSystem::EditorSystem(ProjectSystem& project, Engine* runtime) noexcept
-    : project_(project), runtime_(runtime)
+EditorSystem::EditorSystem(EditorEnvironment& environment, Engine* runtime) noexcept
+    : environment_(environment), runtime_(runtime)
 {
 }
 
@@ -227,7 +225,7 @@ EditorSystem::~EditorSystem() noexcept
 
 bool EditorSystem::on_initialize(const EngineConfig&)
 {
-    if (!project_.is_initialized() || !IMGUI_CHECKVERSION())
+    if (!environment_.is_initialized() || !IMGUI_CHECKVERSION())
     {
         return false;
     }
@@ -246,13 +244,11 @@ bool EditorSystem::on_initialize(const EngineConfig&)
         }
         state_ = std::make_unique<State>(*runtime_);
         state_->directory = App::persistent_data_path();
-        std::error_code error;
-        const auto root = fs::canonical(PathUtils::from_utf8(project_.root_path()), error);
-        if (error || !plain_path(state_->directory))
+        if (!plain_path(state_->directory))
         {
             return false;
         }
-        state_->project_root = PathUtils::to_utf8(root);
+        state_->project_root = environment_.project_identity_;
         state_->session =
             std::to_string(timestamp_ms()) + "-" + std::to_string(SDL_GetPerformanceCounter());
         if (!state_->publish(true))
@@ -265,7 +261,7 @@ bool EditorSystem::on_initialize(const EngineConfig&)
 
 bool EditorSystem::on_tick(double)
 {
-    return state_ == nullptr || state_->poll();
+    return environment_.is_initialized() && (state_ == nullptr || state_->poll());
 }
 
 void EditorSystem::on_shutdown() noexcept
