@@ -1,14 +1,15 @@
-#include "app.hpp"
-#include "editor_system.hpp"
-#include "engine.hpp"
-#include "engine_config.hpp"
-#include "log_system.hpp"
-#include "project_system.hpp"
+#include "editor/editor_system.hpp"
+#include "editor/project/project_system.hpp"
+#include "runtime/app/app.hpp"
+#include "runtime/engine.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/log/log_system.hpp"
+#include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_SCRIPT_RUNTIME
-#include "asset_pipeline_system.hpp"
-#include "asset_sync_system.hpp"
-#include "script_system.hpp"
+#include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/asset_sync/asset_sync_system.hpp"
+#include "runtime/script/script_system.hpp"
 #endif
 
 #include <SDL3/SDL_main.h>
@@ -28,17 +29,7 @@ namespace
 namespace fs = std::filesystem;
 using engine::LogLevel;
 using engine::LogSystem;
-
-fs::path utf8_path(std::string_view text)
-{
-    return fs::path(std::u8string(reinterpret_cast<const char8_t*>(text.data()), text.size()));
-}
-
-std::string path_text(const fs::path& path)
-{
-    const auto text = path.generic_u8string();
-    return std::string(reinterpret_cast<const char*>(text.data()), text.size());
-}
+using engine::PathUtils;
 
 void print_usage()
 {
@@ -49,7 +40,7 @@ void print_usage()
 std::string project_name(const fs::path& path)
 {
     std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char value : path_text(path))
+    for (const unsigned char value : PathUtils::to_utf8(path))
     {
         hash ^= value;
         hash *= 1099511628211ULL;
@@ -82,7 +73,7 @@ bool prepare_builtin(const fs::path& source, const fs::path& target)
 int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
                std::uint64_t frame_limit)
 {
-    engine::ProjectSystem project(path_text(project_root));
+    engine::ProjectSystem project(PathUtils::to_utf8(project_root));
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
     engine::AssetSyncSystem sync;
@@ -215,7 +206,7 @@ int main(int argc, char* argv[])
         }
         else if (argument == "--runtime-dir" && index + 1 < argc && runtime_directory.empty())
         {
-            runtime_directory = utf8_path(argv[++index]);
+            runtime_directory = PathUtils::from_utf8(argv[++index]);
             if (runtime_directory.empty())
             {
                 print_usage();
@@ -246,7 +237,7 @@ int main(int argc, char* argv[])
         return 2;
     }
     std::error_code error;
-    const auto absolute_project = fs::absolute(utf8_path(project_argument), error);
+    const auto absolute_project = fs::absolute(PathUtils::from_utf8(project_argument), error);
     if (error)
     {
         LogSystem::write(LogLevel::error, "Cannot resolve editor project path");
@@ -281,10 +272,10 @@ int main(int argc, char* argv[])
         engine::App::shutdown();
         return 1;
     }
-    LogSystem::write(LogLevel::info, "Editor project: " + path_text(project_root));
+    LogSystem::write(LogLevel::info, "Editor project: " + PathUtils::to_utf8(project_root));
     LogSystem::write(LogLevel::info, "Editor persistent directory: " +
-                                         path_text(engine::App::persistent_data_path()));
-    LogSystem::write(LogLevel::info, "Editor log: " + path_text(log.file_path()));
+                                         PathUtils::to_utf8(engine::App::persistent_data_path()));
+    LogSystem::write(LogLevel::info, "Editor log: " + PathUtils::to_utf8(log.file_path()));
     const int result = run_editor(project_root, config, frame_limit);
 #if ENGINE_HAS_SCRIPT_RUNTIME
     fs::remove_all(session_directory, error);

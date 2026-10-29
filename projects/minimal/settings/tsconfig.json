@@ -12,6 +12,6 @@
     "types": [],
     "sourceMap": true
   },
-  "files": ["../../../sdk/typescript/engine.d.ts"],
+  "files": ["../../../include/engine.d.ts"],
   "include": ["../assets/**/*.ts"]
 }

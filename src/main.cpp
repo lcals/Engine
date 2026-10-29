@@ -1,9 +1,9 @@
-#include "engine.hpp"
-#include "engine_config.hpp"
+#include "runtime/engine.hpp"
+#include "runtime/engine_config.hpp"
 
 #if ENGINE_HAS_DESKTOP_SERVICES
-#include "app.hpp"
-#include "log_system.hpp"
+#include "runtime/app/app.hpp"
+#include "runtime/log/log_system.hpp"
 #endif
 
 #include <SDL3/SDL_main.h>

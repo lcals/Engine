@@ -1,7 +1,8 @@
-#include "asset_pipeline_system.hpp"
-#include "asset_sync_system.hpp"
-#include "engine_config.hpp"
-#include "mcp_system.hpp"
+#include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/asset_sync/asset_sync_system.hpp"
+#include "plugins/mcp/mcp_system.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL_main.h>
 
@@ -31,7 +32,7 @@ int main(int argc, char** argv)
                 std::fputs("Duplicate MCP startup argument\n", stderr);
                 return 2;
             }
-            destination = std::filesystem::path(reinterpret_cast<const char8_t*>(argv[++index]));
+            destination = engine::PathUtils::from_utf8(argv[++index]);
         }
         else
         {
