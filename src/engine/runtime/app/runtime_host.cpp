@@ -30,7 +30,7 @@ RuntimeHost::~RuntimeHost() noexcept
 }
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
-                             ScriptRuntimeFactory script_factory)
+                             ScriptRuntimeFactory script_factory, RuntimeSetup setup)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
@@ -63,7 +63,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     audio_ = audio_system.get();
     std::unique_ptr<System> audio = std::move(audio_system);
     std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
-    std::unique_ptr<System> animation = std::make_unique<AnimationSystem>();
+    auto animation_system = std::make_unique<AnimationSystem>(world.get());
+    animation_ = animation_system.get();
+    std::unique_ptr<System> animation = std::move(animation_system);
     std::unique_ptr<System> ui = std::make_unique<UiSystem>();
     if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
         !world->add_subsystem(animation) || !world->add_subsystem(ui) ||
@@ -84,6 +86,11 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             return false;
         }
     }
+    if (setup != nullptr && !setup(*world, *window_, *physics_))
+    {
+        shutdown();
+        return false;
+    }
     world_ = world.get();
     std::unique_ptr<System> world_base = std::move(world);
     if (!engine_.add_system(world_base))
@@ -99,7 +106,8 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_);
+    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
+                                                  animation_);
     initialized_ = true;
     return true;
 }
@@ -188,6 +196,7 @@ void RuntimeHost::shutdown() noexcept
 {
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
     gameplay_.reset();
+    animation_ = nullptr;
     audio_ = nullptr;
     physics_ = nullptr;
     renderer_ = nullptr;

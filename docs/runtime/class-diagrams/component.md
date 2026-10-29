@@ -44,6 +44,14 @@ classDiagram
         +set_mesh_data(const MeshDataT& data) bool
         +mesh_data() const MeshDataT#42;
         +mesh_revision() uint64_t
+        +mesh_instance_id() uint64_t
+        +visible() bool
+        +set_visible(bool value) void
+        +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
+        +clear_deformation() void
+        +deformed_vertices() span~const MeshVertex~
+        +deformed_tangents() span~const Vec4~
+        +deformation_revision() uint64_t
         -initialize() bool
     }
     class Node
@@ -126,5 +134,10 @@ classDiagram
 - `material()` 保留槽 0 的必需引用；按槽查询越界返回空指针，材质槽数量为 1..16。缩减不得丢弃当前子网格引用的槽。扩容先初始化默认材质，全部成功才提交。
 - `set_mesh_data()` 接收 FlatBuffers 生成的独立几何快照，校验顶点、索引、UV、切线、颜色与子网格范围后整体替换，并按需扩充材质槽；失败不改变现有几何、槽与修订号。动态数据不注册到资源单例，不伪造 GUID。
 - `set_mesh()` 取得完整资源后替换瞬时快照；两种成功提交均递增 mesh_revision。`mesh_data()` 是当前组件持有数据的只读借用，下次成功变更或组件销毁后失效。
+- `mesh_instance_id()` 是进程内稳定且不重复的组件实例身份；瞬态蒙皮/GPU 缓存以它和 `mesh_revision()` 区分同节点组件重建，不依赖可能重复的内存地址。
+- `set_deformation()` 接收与源顶点等长的位置/法线及切线，完整校验后独立保存，仅递增 deformation_revision；失败保留旧输出。源 Mesh、GUID、索引、UV、颜色、子网格与材质均不变。两个 span 查询返回借用，下一次成功提交、清除、源网格变化或组件销毁后失效。
+- `clear_deformation()` 恢复源几何，重复调用无副作用；成功更换源网格或恢复组件数据也清除旧变形。变形数据不进入场景快照。清除及只读查询为 noexcept，渲染器同时检查修订号与变形是否存在；修订号到达上限时拒绝新提交，清除仍可执行。
 
 - `build_data` 和 `restore_data` 是统一组件持久数据契约；简单组件直接校验生成载荷，MeshRenderer 在自身文件解析 GUID、持有资源和组装材质槽。Scene 只组织节点与层级，不分派具体组件字段。失败快照为空，恢复失败保留组件原状态。
+
+`MeshRenderer::visible()` / `set_visible()` 控制瞬态绘制可见性，默认 true；不改组件 enabled、源资源、动画采样或持久快照。隐藏时主通道与阴影通道均不绘制；再次显示按已有几何和当前变形准备 GPU 资源。

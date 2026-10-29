@@ -23,6 +23,7 @@ classDiagram
     }
     class SceneCommands {
         +SceneCommands(WorldSystem& world)
+        +node_identity(uint64_t id) shared_ptr~uint64_t~
         +register_commands(EditorCommands& commands) bool
     }
     class WorldSystem
@@ -95,3 +96,7 @@ classDiagram
 `set_material_type(sceneId,nodeId,slot?,path)` 选择已有材质资源。内部 MaterialTypeEdit 保存前后参数与贴图快照和依赖版本；不在历史中保留 ResourcePtr，执行时重新校验并临时加载。撤销恢复原材质全部覆盖值，资源版本改变拒绝陈旧操作；普通参数修改仍只改变请求字段。
 
 创建命令在编辑器内部共享自身节点的当前运行时 ID，后续属性历史随重做重建重新定位；外部仍须使用 get_scene 得到的新 ID，旧 ID 不接受。映射随场景代次清理，不向 Node 增加编辑器身份字段。
+
+`SceneCommands::node_identity(id)` 返回当前场景中已存在节点的共享 ID 单元；调用前核验场景代次，不存在返回空。插件编辑记录共享同一单元，创建命令重做更新单元值后可继续定位；共享的是身份值，不是节点或场景所有权。场景改变清空当前映射，历史执行仍须核验其原场景代次。
+
+模型实例化的事务与资源版本校验见[模型命令](model-commands.md)。

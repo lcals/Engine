@@ -32,6 +32,11 @@ export class Scene {
         const node = native.NodeCreate(scene, name);
         return node === null ? null : new Node(key, scene, node);
     }
+    InstantiateModel(path, name) {
+        const scene = handles.get(this).scene;
+        const node = native.SceneInstantiateModel(scene, path, name);
+        return node === null ? null : new Node(key, scene, node);
+    }
     SetActiveCamera(camera) {
         const scene = handles.get(this).scene;
         if (camera === null) return native.ActiveCamera(scene, 0n);
@@ -111,6 +116,24 @@ void valid(const Arguments& arguments)
                                    BindingContext::scene(arguments) != nullptr);
 }
 
+void instantiate_model(const Arguments& arguments)
+{
+    arguments.GetReturnValue().SetNull();
+    auto* scene = BindingContext::scene(arguments);
+    std::string path;
+    std::string name;
+    if (!scene || arguments.Length() != 3 || !BindingContext::text(arguments, 1, path) ||
+        !BindingContext::text(arguments, 2, name))
+    {
+        return;
+    }
+    if (const auto* root = scene->instantiate_model(path, name))
+    {
+        arguments.GetReturnValue().Set(
+            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), root->id()));
+    }
+}
+
 void destroy(const Arguments& arguments)
 {
     arguments.GetReturnValue().Set(false);
@@ -160,6 +183,7 @@ bool SceneBinding::register_functions(v8::Local<v8::Context> context,
     return BindingContext::function(context, native, "SceneCreate", create) &&
            BindingContext::function(context, native, "SceneLoad", load) &&
            BindingContext::function(context, native, "SceneFindNode", find_node) &&
+           BindingContext::function(context, native, "SceneInstantiateModel", instantiate_model) &&
            BindingContext::function(context, native, "SceneValid", valid) &&
            BindingContext::function(context, native, "SceneDestroy", destroy) &&
            BindingContext::function(context, native, "ActiveCamera", active_camera);

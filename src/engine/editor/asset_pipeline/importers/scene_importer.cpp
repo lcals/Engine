@@ -37,6 +37,15 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
     {
         for (const auto& component : node->components)
         {
+            if (const auto* animator = component->payload.AsAnimatorData();
+                animator != nullptr && !animator->animation_guid.empty())
+            {
+                if (!reference(animator->animation_guid, schema::AssetKind::animation, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
+                }
+            }
             if (const auto* audio = component->payload.AsAudioSourceData();
                 audio != nullptr && !audio->clip_guid.empty())
             {

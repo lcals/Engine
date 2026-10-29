@@ -138,6 +138,8 @@ template <typename T, typename Data, typename Read, typename Write>
                    return true;
                });
 }
+[[nodiscard]] bool register_character_motor(WorldSystem& world, EditorCommands& commands,
+                                            NodeAliases& aliases);
 [[nodiscard]] bool register_collider(WorldSystem& world, EditorCommands& commands,
                                      NodeAliases& aliases);
 [[nodiscard]] bool register_rigid_body(WorldSystem& world, EditorCommands& commands,
@@ -146,4 +148,9 @@ template <typename T, typename Data, typename Read, typename Write>
                                          NodeAliases& aliases);
 [[nodiscard]] bool register_audio_listener(WorldSystem& world, EditorCommands& commands,
                                            NodeAliases& aliases);
+[[nodiscard]] bool register_animator(WorldSystem& world, EditorCommands& commands,
+                                     NodeAliases& aliases);
+[[nodiscard]] bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                 Json& result, std::unique_ptr<EditorEdit>& edit,
+                                 std::string& error);
 } // namespace engine::editor::components

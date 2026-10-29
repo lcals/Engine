@@ -7,7 +7,7 @@ project(
     engine
     VERSION 0.1.0
     DESCRIPTION "Engine C++20 project"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 include(cmake/core/options.cmake)
 include(cmake/install/compiler_cache.cmake)

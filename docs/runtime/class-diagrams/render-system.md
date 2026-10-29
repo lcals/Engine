@@ -79,7 +79,7 @@ classDiagram
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 从节点读取视角与投影
     RenderSystem ..> Light : 从节点读取方向与光照
-    RenderSystem ..> MeshRenderer : 从节点读取 Mesh 与材质
+    RenderSystem ..> MeshRenderer : 读取源Mesh和瞬态变形及材质
     RenderSystem ..> Transform : 从节点读取世界变换
     RenderSystem ..> Material : 读取实例 Shader 路径与命名参数
     RenderSystem ..> ResourceSystem : 内置资源注册及身份查询

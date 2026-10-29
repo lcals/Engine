@@ -39,6 +39,7 @@
 #include <mutex>
 #include <new>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -807,61 +808,30 @@ struct RenderSystem::SceneGpuResources
 
     struct Mesh
     {
+        struct Vertex
+        {
+            float position[3];
+            float normal[3];
+            float tangent[4];
+            float texcoord[2];
+            float color[4];
+        };
+        static_assert(sizeof(Vertex) == 16 * sizeof(float));
+
         std::uint64_t node_id = 0;
+        std::uint64_t instance_id = 0;
         std::uint64_t revision = 0;
+        std::uint64_t deformation_revision = 0;
         bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
+        bgfx::DynamicVertexBufferHandle deformed_vertices = BGFX_INVALID_HANDLE;
         bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
         std::array<float, 3> minimum{};
         std::array<float, 3> maximum{};
+        std::array<float, 3> source_minimum{};
+        std::array<float, 3> source_maximum{};
 
-        bool create(const MeshRenderer& renderer)
+        static bgfx::VertexLayout vertex_layout()
         {
-            const auto* data = renderer.mesh_data();
-            std::vector<schema::Vec4> tangents;
-            if (data == nullptr || !MeshUtils::build_tangents(*data, tangents))
-            {
-                return false;
-            }
-            node_id = renderer.node().id();
-            revision = renderer.mesh_revision();
-            struct Vertex
-            {
-                float position[3];
-                float normal[3];
-                float tangent[4];
-                float texcoord[2];
-                float color[4];
-            };
-            static_assert(sizeof(Vertex) == 16 * sizeof(float));
-            std::vector<Vertex> packed(data->vertices.size());
-            minimum.fill(std::numeric_limits<float>::max());
-            maximum.fill(std::numeric_limits<float>::lowest());
-            for (std::size_t index = 0; index < packed.size(); ++index)
-            {
-                const auto& source = data->vertices[index];
-                const auto& tangent = tangents[index];
-                const auto uv = data->texcoords.empty() ? schema::Vec2{} : data->texcoords[index];
-                const auto color =
-                    data->colors.empty() ? schema::Color{1, 1, 1, 1} : data->colors[index];
-                const double normal_length =
-                    std::hypot(static_cast<double>(source.nx()), static_cast<double>(source.ny()),
-                               static_cast<double>(source.nz()));
-                packed[index] = {{source.x(), source.y(), source.z()},
-                                 {static_cast<float>(source.nx() / normal_length),
-                                  static_cast<float>(source.ny() / normal_length),
-                                  static_cast<float>(source.nz() / normal_length)},
-                                 {static_cast<float>(tangent.x()), static_cast<float>(tangent.y()),
-                                  static_cast<float>(tangent.z()), static_cast<float>(tangent.w())},
-                                 {static_cast<float>(uv.x()), static_cast<float>(uv.y())},
-                                 {color.r(), color.g(), color.b(), color.a()}};
-                for (std::size_t axis = 0; axis < 3; ++axis)
-                {
-                    minimum[axis] = std::min(minimum[axis], packed[index].position[axis]);
-                    maximum[axis] = std::max(maximum[axis], packed[index].position[axis]);
-                }
-            }
-            const auto vertex_bytes = packed.size() * sizeof(Vertex);
-            const auto index_bytes = data->indices.size() * sizeof(std::uint32_t);
             bgfx::VertexLayout layout;
             layout.begin()
                 .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
@@ -870,12 +840,153 @@ struct RenderSystem::SceneGpuResources
                 .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
                 .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
                 .end();
+            return layout;
+        }
+
+        bool pack_vertices(const schema::MeshDataT& data,
+                           std::span<const schema::MeshVertex> positions,
+                           std::span<const Vec4> tangents, std::vector<Vertex>& packed)
+        {
+            if (positions.size() != data.vertices.size() || tangents.size() != positions.size())
+            {
+                return false;
+            }
+            packed.resize(positions.size());
+            minimum.fill(std::numeric_limits<float>::max());
+            maximum.fill(std::numeric_limits<float>::lowest());
+            for (std::size_t index = 0; index < packed.size(); ++index)
+            {
+                const auto& source = positions[index];
+                const auto& tangent = tangents[index];
+                const auto uv = data.texcoords.empty() ? schema::Vec2{} : data.texcoords[index];
+                const auto color =
+                    data.colors.empty() ? schema::Color{1, 1, 1, 1} : data.colors[index];
+                const double normal_length =
+                    std::hypot(static_cast<double>(source.nx()), static_cast<double>(source.ny()),
+                               static_cast<double>(source.nz()));
+                if (!(normal_length > 0.0))
+                {
+                    return false;
+                }
+                const std::array<double, 3> normal = {source.nx() / normal_length,
+                                                      source.ny() / normal_length,
+                                                      source.nz() / normal_length};
+                const std::array<double, 3> bitangent = {
+                    normal[1] * tangent.z() - normal[2] * tangent.y(),
+                    normal[2] * tangent.x() - normal[0] * tangent.z(),
+                    normal[0] * tangent.y() - normal[1] * tangent.x()};
+                const std::array<double, 3> orthogonal = {
+                    bitangent[1] * normal[2] - bitangent[2] * normal[1],
+                    bitangent[2] * normal[0] - bitangent[0] * normal[2],
+                    bitangent[0] * normal[1] - bitangent[1] * normal[0]};
+                const double tangent_length =
+                    std::hypot(orthogonal[0], orthogonal[1], orthogonal[2]);
+                if (!(tangent_length > 0.0))
+                {
+                    return false;
+                }
+                packed[index] = {{source.x(), source.y(), source.z()},
+                                 {static_cast<float>(normal[0]), static_cast<float>(normal[1]),
+                                  static_cast<float>(normal[2])},
+                                 {static_cast<float>(orthogonal[0] / tangent_length),
+                                  static_cast<float>(orthogonal[1] / tangent_length),
+                                  static_cast<float>(orthogonal[2] / tangent_length),
+                                  static_cast<float>(tangent.w())},
+                                 {static_cast<float>(uv.x()), static_cast<float>(uv.y())},
+                                 {color.r(), color.g(), color.b(), color.a()}};
+                for (std::size_t axis = 0; axis < 3; ++axis)
+                {
+                    minimum[axis] = std::min(minimum[axis], packed[index].position[axis]);
+                    maximum[axis] = std::max(maximum[axis], packed[index].position[axis]);
+                }
+            }
+            return true;
+        }
+
+        bool create(const MeshRenderer& renderer)
+        {
+            const auto* data = renderer.mesh_data();
+            std::vector<schema::Vec4> tangents;
+            std::vector<Vertex> packed;
+            if (data == nullptr || !MeshUtils::build_tangents(*data, tangents) ||
+                !pack_vertices(*data, data->vertices, tangents, packed))
+            {
+                return false;
+            }
+            node_id = renderer.node().id();
+            instance_id = renderer.mesh_instance_id();
+            revision = renderer.mesh_revision();
+            source_minimum = minimum;
+            source_maximum = maximum;
+            const auto vertex_bytes = packed.size() * sizeof(Vertex);
+            const auto index_bytes = data->indices.size() * sizeof(std::uint32_t);
             vertices = bgfx::createVertexBuffer(
-                bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)), layout);
+                bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)),
+                vertex_layout());
             indices = bgfx::createIndexBuffer(
                 bgfx::copy(data->indices.data(), static_cast<std::uint32_t>(index_bytes)),
                 BGFX_BUFFER_INDEX32);
             return bgfx::isValid(vertices) && bgfx::isValid(indices);
+        }
+
+        bool update_deformation(const MeshRenderer& renderer)
+        {
+            const auto positions = renderer.deformed_vertices();
+            if (deformation_revision == renderer.deformation_revision() &&
+                bgfx::isValid(deformed_vertices) == !positions.empty())
+            {
+                return true;
+            }
+            if (positions.empty())
+            {
+                if (bgfx::isValid(deformed_vertices))
+                {
+                    bgfx::destroy(deformed_vertices);
+                    deformed_vertices = BGFX_INVALID_HANDLE;
+                }
+                minimum = source_minimum;
+                maximum = source_maximum;
+            }
+            else
+            {
+                const auto* data = renderer.mesh_data();
+                std::vector<Vertex> packed;
+                if (data == nullptr ||
+                    !pack_vertices(*data, positions, renderer.deformed_tangents(), packed))
+                {
+                    return false;
+                }
+                // bgfx examples/35-dynamic: keep topology and update only the vertex stream.
+                // Copyright 2011-2025 Branimir Karadzic; third_party/notices/bgfx.txt.
+                const auto* memory = bgfx::copy(
+                    packed.data(), static_cast<std::uint32_t>(packed.size() * sizeof(Vertex)));
+                if (bgfx::isValid(deformed_vertices))
+                {
+                    bgfx::update(deformed_vertices, 0, memory);
+                }
+                else
+                {
+                    deformed_vertices = bgfx::createDynamicVertexBuffer(memory, vertex_layout());
+                    if (!bgfx::isValid(deformed_vertices))
+                    {
+                        return false;
+                    }
+                }
+            }
+            deformation_revision = renderer.deformation_revision();
+            return true;
+        }
+
+        void bind_vertices() const
+        {
+            if (bgfx::isValid(deformed_vertices))
+            {
+                bgfx::setVertexBuffer(0, deformed_vertices);
+            }
+            else
+            {
+                bgfx::setVertexBuffer(0, vertices);
+            }
         }
 
         void release() noexcept
@@ -884,12 +995,18 @@ struct RenderSystem::SceneGpuResources
             {
                 bgfx::destroy(vertices);
             }
+            if (bgfx::isValid(deformed_vertices))
+            {
+                bgfx::destroy(deformed_vertices);
+            }
             if (bgfx::isValid(indices))
             {
                 bgfx::destroy(indices);
             }
             vertices = BGFX_INVALID_HANDLE;
+            deformed_vertices = BGFX_INVALID_HANDLE;
             indices = BGFX_INVALID_HANDLE;
+            deformation_revision = 0;
         }
     };
 
@@ -1097,7 +1214,7 @@ struct RenderSystem::SceneGpuResources
             }
             bgfx::setTransform(model);
             bgfx::setUniform(shadow_depth, depth_scale);
-            bgfx::setVertexBuffer(0, mesh.vertices);
+            mesh.bind_vertices();
             bgfx::setIndexBuffer(mesh.indices);
             const auto cull =
                 linear_determinant(model) < 0.0 ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
@@ -1340,7 +1457,7 @@ bool RenderSystem::prepare_scene()
     for (const auto& node : scene->nodes())
     {
         const auto* renderer = node->get_component<MeshRenderer>();
-        if (renderer == nullptr || !renderer->enabled())
+        if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
         {
             continue;
         }
@@ -1358,7 +1475,8 @@ bool RenderSystem::prepare_scene()
             meshes.emplace_back();
             mesh = std::prev(meshes.end());
         }
-        if (mesh->revision != renderer->mesh_revision())
+        if (mesh->instance_id != renderer->mesh_instance_id() ||
+            mesh->revision != renderer->mesh_revision())
         {
             mesh->release();
             if (!mesh->create(*renderer))
@@ -1366,6 +1484,11 @@ bool RenderSystem::prepare_scene()
                 release_scene();
                 return false;
             }
+        }
+        if (!mesh->update_deformation(*renderer))
+        {
+            release_scene();
+            return false;
         }
         std::set<std::size_t> slots;
         if (data->submeshes.empty())
@@ -1605,6 +1728,7 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
     for (const auto& mesh : resources.meshes)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
                  static_cast<std::uint32_t>(bgfx::isValid(mesh.indices));
     }
     for (const auto& texture : resources.textures)
@@ -1765,7 +1889,7 @@ bool RenderSystem::draw_scene()
     for (const auto& node : scene->nodes())
     {
         const MeshRenderer* renderer = node->get_component<MeshRenderer>();
-        if (renderer == nullptr || !renderer->enabled())
+        if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
         {
             continue;
         }
@@ -1826,7 +1950,7 @@ bool RenderSystem::draw_scene()
             bgfx::setTexture(shadow_sampler_stage, resources.shadow_sampler,
                              shadow_enabled ? resources.shadow.color : resources.shadow_fallback);
             bgfx::setTransform(model);
-            bgfx::setVertexBuffer(0, mesh->vertices);
+            mesh->bind_vertices();
             bgfx::setIndexBuffer(mesh->indices, first, count);
             const std::uint64_t cull =
                 linear_determinant(model) < 0.0 ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;

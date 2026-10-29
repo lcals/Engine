@@ -18,6 +18,7 @@ namespace engine::editor
 class EditorEnvironment;
 
 class EditorCommands;
+class SceneCommands;
 
 class EditorSystem final : public System
 {
@@ -29,6 +30,7 @@ public:
     ~EditorSystem() noexcept override;
     // 返回借用；初始化前、关闭后或未配置世界时返回空。
     [[nodiscard]] EditorCommands* commands() noexcept;
+    [[nodiscard]] SceneCommands* scene_commands() noexcept;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;

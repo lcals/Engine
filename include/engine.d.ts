@@ -38,13 +38,7 @@ declare module "engine" {
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
-        SetV4(
-            name: string,
-            x: number,
-            y: number,
-            z: number,
-            w: number,
-        ): boolean;
+        SetV4(name: string, x: number, y: number, z: number, w: number): boolean;
         SetTexture(name: string, path: string): boolean;
         GetTexture(name: string): string | null;
     }
@@ -59,6 +53,8 @@ declare module "engine" {
         FindNode(name: string): Node | null;
         IsValid(): boolean;
         CreateNode(name: string): Node | null;
+        /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
+        InstantiateModel(path: string, name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;
         Destroy(): boolean;
     }
@@ -93,17 +89,9 @@ declare module "engine" {
     }
     export class Camera extends Component {
         private constructor();
-        SetPerspective(
-            fovDegrees: number,
-            nearClip: number,
-            farClip: number,
-        ): boolean;
+        SetPerspective(fovDegrees: number, nearClip: number, farClip: number): boolean;
         /** Size is the vertical half-height in world units. */
-        SetOrthographic(
-            size: number,
-            nearClip: number,
-            farClip: number,
-        ): boolean;
+        SetOrthographic(size: number, nearClip: number, farClip: number): boolean;
     }
     export class Light extends Component {
         private constructor();
@@ -121,6 +109,26 @@ declare module "engine" {
         SetMesh(path: string): boolean;
         GetMaterial(slot: number): Material | null;
         SetMaterialCount(count: number): boolean;
+    }
+    /** An independent animation action sampled onto the MeshRenderer on the same node. */
+    export class Animator extends Component {
+        private constructor();
+        /** Empty path clears the action; failure preserves the previous action and settings. */
+        SetAnimation(path: string): boolean;
+        /** Playback multiplier in [0, 16]; zero freezes time. */
+        SetSpeed(value: number): boolean;
+        SetLoop(value: boolean): boolean;
+        SetPlayOnAwake(value: boolean): boolean;
+        Play(): boolean;
+        /** Retain the last sampled pose. */
+        Pause(): boolean;
+        /** Restore the source Mesh and reset time to zero. */
+        Stop(): boolean;
+        /** Seconds in [0, duration]; seeking from stopped enters a retained paused pose. */
+        Seek(seconds: number): boolean;
+        readonly isPlaying: boolean;
+        readonly playback: "stopped" | "playing" | "paused" | null;
+        readonly time: number | null;
     }
     export class Collider extends Component {
         private constructor();
@@ -142,6 +150,22 @@ declare module "engine" {
         GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
         /** A world-space impulse consumed by the next physics synchronization. */
         AddImpulse(x: number, y: number, z: number): boolean;
+    }
+    export class CharacterMotor extends Component {
+        private constructor();
+        /** Capsule origin is at its feet; halfHeight excludes the hemispheres. */
+        SetCapsule(radius: number, halfHeight: number): boolean;
+        SetSlopeLimit(degrees: number): boolean;
+        SetStepHeight(value: number): boolean;
+        SetGroundSnapDistance(value: number): boolean;
+        SetGravityFactor(value: number): boolean;
+        /** Desired world-space horizontal velocity; physics supplies the vertical component. */
+        SetVelocity(x: number, z: number): boolean;
+        /** Last physics velocity, not the pending movement request. */
+        GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
+        /** Accepted only while grounded, consumed at the next physics step. */
+        Jump(speed: number): boolean;
+        readonly grounded: boolean;
     }
     export class AudioSource extends Component {
         private constructor();

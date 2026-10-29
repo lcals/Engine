@@ -30,7 +30,9 @@ bool AssetImporterRegistry::initialize()
 }
 bool AssetImporterRegistry::add(std::unique_ptr<AssetImporter>& importer, bool fallback)
 {
-    if (!importer || find(importer->kind()) != nullptr || (fallback && fallback_ != nullptr) ||
+    if (!importer || importer->id().empty() ||
+        importer->id().find_first_not_of("abcdefghijklmnopqrstuvwxyz_") != std::string_view::npos ||
+        find(importer->id()) != nullptr || (fallback && fallback_ != nullptr) ||
         importer->kind() < schema::AssetKind::MIN || importer->kind() > schema::AssetKind::MAX)
     {
         return false;
@@ -51,7 +53,7 @@ bool AssetImporterRegistry::replace(std::unique_ptr<AssetImporter>& importer)
     }
     for (auto& registered : importers_)
     {
-        if (registered->kind() == importer->kind())
+        if (registered->id() == importer->id())
         {
             if (registered.get() == fallback_)
             {
@@ -68,16 +70,32 @@ void AssetImporterRegistry::clear() noexcept
     fallback_ = nullptr;
     importers_.clear();
 }
-AssetImporter* AssetImporterRegistry::find(schema::AssetKind kind) const noexcept
+AssetImporter* AssetImporterRegistry::find(std::string_view id) const noexcept
 {
     for (const auto& importer : importers_)
     {
-        if (importer->kind() == kind)
+        if (importer->id() == id)
         {
             return importer.get();
         }
     }
     return nullptr;
+}
+AssetImporter* AssetImporterRegistry::find(schema::AssetKind kind) const noexcept
+{
+    AssetImporter* match = nullptr;
+    for (const auto& importer : importers_)
+    {
+        if (importer->kind() == kind)
+        {
+            if (match != nullptr)
+            {
+                return nullptr;
+            }
+            match = importer.get();
+        }
+    }
+    return match;
 }
 AssetImporter* AssetImporterRegistry::select(const std::filesystem::path& source) const
 {

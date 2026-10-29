@@ -293,7 +293,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_unknown_resource_kind_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        self.entries.append(resource_entry(b"unsupported resource", 2, 8, "project/future.bin", ""))
+        self.entries.append(
+            resource_entry(b"unsupported resource", 2, 11, "project/future.bin", "")
+        )
         self.write_resources()
         with self.assertRaises(ValueError):
             self.prepare()
@@ -305,7 +307,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.entries.append(audio)
         self.write_resources()
         self.prepare()
-        self.assertEqual((self.output / "project" / "gen" / audio["guid"]).read_bytes(), audio["entity"])
+        self.assertEqual(
+            (self.output / "project" / "gen" / audio["guid"]).read_bytes(), audio["entity"]
+        )
         self.assert_clean()
 
     def test_catalog_missing_does_not_fall_back_to_scanning(self):

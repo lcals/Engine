@@ -16,6 +16,8 @@
 
 网格由独立资源提供位置、法线、UV0、切线、顶点色和索引；子网格索引范围关联材质槽。动态网格通过 `set_mesh_data` 提交生成模型的深拷贝，修订号变化时更新 GPU。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过目录中的唯一逻辑路径定位并按需加载，路径以 `builtin/` 或 `project/` 区分来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
 
+动画等逐帧变形通过 `MeshRenderer::set_deformation` 提交瞬态位置、法线及切线，保留源网格和全部材质槽。渲染器参考 bgfx `35-dynamic` 建立独立动态 VB，变形修订变化时只更新顶点，不重建静态索引缓冲；清除变形恢复源 VB 并释放动态 VB。光照与阴影读取同一份顶点输出，阴影包围盒随变形更新。UV、颜色、索引及子网格范围继续读取源资源；渲染器不执行骨架采样或读取 FBX。
+
 材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照和直接光 PBR。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间，输出经过 Reinhard 色调映射与近似 gamma 编码。
 
 缓冲提交参考固定版本 bgfx `01-cubes`，切线与法线采样参考 `06-bump`；PBR 函数适配 The Forge `Common_3/Graphics/ShaderUtilities.h.fsl`。方向光阴影适配 bgfx `15-shadowmaps-simple`，可选 ACES 曲线来自 bgfx `shaderlib.sh`。源码保留上游来源，许可位于 `third_party/notices/`。

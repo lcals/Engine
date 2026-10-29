@@ -1,0 +1,31 @@
+include "common.fbs";
+namespace engine.schema;
+
+struct VectorKey {
+    time:float;
+    value:Vec3;
+}
+
+struct RotationKey {
+    time:float;
+    value:Vec4;
+}
+
+table AnimationTrackData {
+    joint:uint;
+    translations:[VectorKey] (required);
+    rotations:[RotationKey] (required);
+    scales:[VectorKey] (required);
+}
+
+table AnimationData {
+    schema_version:uint = 1;
+    path:string (required);
+    name:string (required);
+    skeleton_guid:string (required);
+    duration:float;
+    tracks:[AnimationTrackData] (required);
+}
+
+root_type AnimationData;
+file_identifier "EANI";

@@ -1,11 +1,14 @@
 #pragma once
 
+#include "runtime/schema/animation_generated.h"
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/schema/audio_generated.h"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
+#include "runtime/schema/model_generated.h"
 #include "runtime/schema/scene_generated.h"
 #include "runtime/schema/shader_generated.h"
+#include "runtime/schema/skeleton_generated.h"
 #include "runtime/schema/texture_generated.h"
 
 #include <cstddef>
@@ -40,6 +43,9 @@ public:
     [[nodiscard]] const schema::MaterialDataT* material() const noexcept;
     [[nodiscard]] const schema::TextureDataT* texture() const noexcept;
     [[nodiscard]] const schema::AudioClipDataT* audio() const noexcept;
+    [[nodiscard]] const schema::ModelDataT* model() const noexcept;
+    [[nodiscard]] const schema::SkeletonDataT* skeleton() const noexcept;
+    [[nodiscard]] const schema::AnimationDataT* animation() const noexcept;
     [[nodiscard]] ByteView bytes() const noexcept;
 
 private:
@@ -55,6 +61,9 @@ private:
     std::unique_ptr<schema::MaterialDataT> material_;
     std::unique_ptr<schema::TextureDataT> texture_;
     std::unique_ptr<schema::AudioClipDataT> audio_;
+    std::unique_ptr<schema::ModelDataT> model_;
+    std::unique_ptr<schema::SkeletonDataT> skeleton_;
+    std::unique_ptr<schema::AnimationDataT> animation_;
     std::vector<std::byte> bytes_;
 };
 

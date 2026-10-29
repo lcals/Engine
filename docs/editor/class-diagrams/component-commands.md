@@ -41,7 +41,8 @@ classDiagram
 | `register_rigid_body(world, commands, aliases)` | `set_rigid_body`、`get_rigid_body` | `add_impulse` |
 | `register_audio_source(world, commands, aliases)` | `set_audio_source`、`get_audio_source` | `play_audio`、`pause_audio`、`stop_audio`、`get_audio_state` |
 | `register_audio_listener(world, commands, aliases)` | `set_audio_listener`、`get_audio_listener` | 无 |
+| `register_animator(world, commands, aliases)` | `set_animator`、`get_animator` | `play_animation`、`pause_animation`、`stop_animation`、`seek_animation`、`get_animation_state` |
 
-四个注册函数均返回 `bool`，借用 `WorldSystem&`、`EditorCommands&` 和编辑器内部节点映射 `NodeAliases&`；由 SceneCommands 登记。`set_*` 可添加缺失组件，`get_*` 缺失时返回失败；设置和查询均要求当前 `sceneId` / `nodeId`。音频的 `clip` 输入使用逻辑资源路径，编辑器转换为 GUID，组件加载并检查实际资源类型；空路径清空 clip。
+注册函数均返回 `bool`，借用 `WorldSystem&`、`EditorCommands&` 和编辑器内部节点映射 `NodeAliases&`；由 SceneCommands 登记。`set_*` 可添加缺失组件，`get_*` 缺失时返回失败；设置和查询均要求当前 `sceneId` / `nodeId`。音频的 `clip` 输入使用逻辑资源路径，编辑器转换为 GUID，组件加载并检查实际资源类型；空路径清空 clip。
 
 所有 `set_*` 共用主线程批量事务与撤销历史。冲量与播放控制是瞬态请求，不进入 `execute_batch` 或撤销记录；成功表示请求被组件接受，音频实际输出须检查后续 `get_audio_state`。运行时组件和系统不依赖这些命令或 JSON。

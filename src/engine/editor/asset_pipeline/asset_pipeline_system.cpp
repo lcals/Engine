@@ -18,7 +18,6 @@
 #include <flatbuffers/verifier.h>
 #include <meshoptimizer.h>
 #include <nlohmann/json.hpp>
-#include <pxr/usd/usd/stage.h>
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -44,7 +43,7 @@ namespace
 
 using namespace asset_pipeline;
 
-constexpr std::string_view importer_version = "engine-asset-importers-6";
+constexpr std::string_view importer_version = "engine-asset-importers-7";
 
 bool directory(const std::filesystem::path& path, std::string& error)
 {
@@ -357,6 +356,12 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
         return false;
     }
     std::sort(files.begin(), files.end());
+    std::set<Guid> reserved;
+    for (const auto& [guid, kind] : kinds)
+    {
+        (void)kind;
+        reserved.insert(guid);
+    }
     for (const auto& source : files)
     {
         AssetRecord record;
@@ -369,27 +374,64 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
             return false;
         }
         record.asset.kind = importer->kind();
+        record.asset.importer_id = importer->id();
         record.module_path = importer->module_path(source.lexically_relative(assets));
         std::string meta_text;
         const auto defaults = importer->default_meta();
-        if (!read_or_create_asset_meta(source, cache / ".asset-meta",
-                                       schema::EnumNameAssetKind(record.asset.kind), defaults,
-                                       !remembered.contains(record.asset.path), meta_text,
+        if (!read_or_create_asset_meta(source, cache / ".asset-meta", record.asset.importer_id,
+                                       defaults, !remembered.contains(record.asset.path), meta_text,
                                        record.asset.guid, error))
         {
             return false;
         }
-        if (!identities.add(record.asset.path, record.asset.guid) ||
+        if (!reserved.insert(record.asset.guid).second ||
+            !identities.add(record.asset.path, record.asset.guid) ||
             !kinds.emplace(record.asset.guid, record.asset.kind).second)
         {
             error = "invalid/duplicate resource GUID or logical path: " + record.asset.path + " (" +
                     record.asset.guid + ")";
             return false;
         }
+        std::vector<ImportSubresource> descriptions;
+        std::vector<ImportAsset> children;
+        if (!importer->discover(record.asset, descriptions, error) ||
+            !update_subresource_meta(record.asset, cache / ".asset-meta", descriptions, remembered,
+                                     meta_text, children, error))
+        {
+            return false;
+        }
+        std::set<std::string> active;
+        for (const auto& description : descriptions)
+        {
+            active.insert(description.key);
+        }
         record.meta_hash = hash_text(meta_text);
         if (!file_hash(source, record.source_hash, error))
         {
             return false;
+        }
+        for (auto& child : children)
+        {
+            if (!reserved.insert(child.guid).second)
+            {
+                error = "Duplicate active or dormant subresource GUID: " + child.path;
+                return false;
+            }
+            if (!active.contains(child.subresource_key))
+            {
+                continue;
+            }
+            if (!identities.add(child.path, child.guid) ||
+                !kinds.emplace(child.guid, child.kind).second)
+            {
+                error = "Duplicate subresource logical path: " + child.path;
+                return false;
+            }
+            AssetRecord output;
+            output.asset = std::move(child);
+            output.source_hash = record.source_hash;
+            output.meta_hash = record.meta_hash;
+            records.push_back(std::move(output));
         }
         records.push_back(std::move(record));
     }
@@ -410,16 +452,16 @@ bool common_fingerprint(const std::string& platform, std::string& output, std::s
 
 bool inspect_importers(const AssetImporterRegistry& importers, const ImportContext& context,
                        const std::vector<AssetRecord>& records,
-                       std::map<schema::AssetKind, std::string>& fingerprints, std::string& error)
+                       std::map<std::string, std::string>& fingerprints, std::string& error)
 {
     fingerprints.clear();
     for (const auto& record : records)
     {
-        if (fingerprints.contains(record.asset.kind))
+        if (fingerprints.contains(record.asset.importer_id))
         {
             continue;
         }
-        auto* importer = importers.find(record.asset.kind);
+        auto* importer = importers.find(record.asset.importer_id);
         std::string fingerprint;
         if (importer == nullptr || !importer->inspect_batch(context, fingerprint, error))
         {
@@ -430,13 +472,13 @@ bool inspect_importers(const AssetImporterRegistry& importers, const ImportConte
             fingerprints.clear();
             return false;
         }
-        fingerprints.emplace(record.asset.kind, std::move(fingerprint));
+        fingerprints.emplace(record.asset.importer_id, std::move(fingerprint));
     }
     return true;
 }
 
 bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common,
-                    const std::map<schema::AssetKind, std::string>& fingerprints,
+                    const std::map<std::string, std::string>& fingerprints,
                     std::map<Guid, std::size_t>& by_guid, std::string& error)
 {
     std::vector<std::size_t> incoming(records.size(), 0);
@@ -472,9 +514,9 @@ bool calculate_keys(std::vector<AssetRecord>& records, const std::string& common
         pending.pop();
         ++visited;
         auto& record = records[index];
-        std::string key =
-            common + ":" + record.asset.path + ":" + record.source_hash + ":" + record.meta_hash;
-        const auto fingerprint = fingerprints.find(record.asset.kind);
+        std::string key = common + ":" + record.asset.importer_id + ":" + record.asset.path + ":" +
+                          record.source_hash + ":" + record.meta_hash;
+        const auto fingerprint = fingerprints.find(record.asset.importer_id);
         if (fingerprint == fingerprints.end())
         {
             error = "missing importer fingerprint: " + record.asset.path;
@@ -551,13 +593,29 @@ bool AssetPipelineSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
-    return static_cast<bool>(pxr::UsdStage::CreateInMemory()) && importers_.initialize();
+    return importers_.initialize();
 }
 
 void AssetPipelineSystem::on_shutdown() noexcept
 {
     importers_.clear();
     catalog_ = {};
+}
+
+bool AssetPipelineSystem::add_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer)
+{
+    std::unique_lock lock(build_mutex_, std::try_to_lock);
+    if (!lock.owns_lock())
+    {
+        return false;
+    }
+    last_error_.clear();
+    if (!is_initialized() || !importers_.add(importer))
+    {
+        last_error_ = "importer registration requires an initialized pipeline and unique id";
+        return false;
+    }
+    return true;
 }
 
 bool AssetPipelineSystem::set_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer)
@@ -570,7 +628,7 @@ bool AssetPipelineSystem::set_importer(std::unique_ptr<asset_pipeline::AssetImpo
     last_error_.clear();
     if (!is_initialized() || !importers_.replace(importer))
     {
-        last_error_ = "importer replacement requires an initialized pipeline and registered type";
+        last_error_ = "importer replacement requires an initialized pipeline and registered id";
         return false;
     }
     return true;
@@ -721,7 +779,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     ImportContext context{identities,        kinds,  root, root / "assets", output, platform,
                           &previous_catalog, sources};
     std::string common_key;
-    std::map<schema::AssetKind, std::string> fingerprints;
+    std::map<std::string, std::string> fingerprints;
     if (!common_fingerprint(platform, common_key, last_error_) ||
         !inspect_importers(importers, context, records, fingerprints, last_error_))
     {
@@ -729,7 +787,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     }
     for (auto& record : records)
     {
-        const auto* importer = importers.find(record.asset.kind);
+        const auto* importer = importers.find(record.asset.importer_id);
         if (importer == nullptr || !importer->scan_dependencies(record.asset, context, last_error_))
         {
             last_error_ = record.asset.path + ": " + last_error_;
@@ -765,7 +823,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         return false;
     };
     std::vector<bool> changed(records.size(), true);
-    std::set<schema::AssetKind> changed_types;
+    std::set<std::string> changed_types;
     for (std::size_t index = 0; index < records.size(); ++index)
     {
         auto& record = records[index];
@@ -806,14 +864,14 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         if (changed[index])
         {
             ++stats.imported;
-            changed_types.insert(record.asset.kind);
+            changed_types.insert(record.asset.importer_id);
         }
     }
     std::vector<TaskDescription> tasks;
     std::vector<std::string> errors(records.size());
-    std::map<schema::AssetKind, std::string> batch_errors;
-    std::map<schema::AssetKind, std::size_t> batch_tasks;
-    for (const auto kind : changed_types)
+    std::map<std::string, std::string> batch_errors;
+    std::map<std::string, std::size_t> batch_tasks;
+    for (const auto& kind : changed_types)
     {
         TaskDescription task;
         const auto* importer = importers.find(kind);
@@ -841,7 +899,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
                          [&, index]()
                          {
                              auto& record = records[index];
-                             const auto* importer = importers.find(record.asset.kind);
+                             const auto* importer = importers.find(record.asset.importer_id);
                              if (importer == nullptr ||
                                  !importer->convert(record.asset, context, errors[index]))
                              {
@@ -865,7 +923,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
             continue;
         }
         auto& task = tasks[task_by_guid.at(records[index].asset.guid)];
-        const auto batch = batch_tasks.find(records[index].asset.kind);
+        const auto batch = batch_tasks.find(records[index].asset.importer_id);
         if (batch != batch_tasks.end())
         {
             task.dependencies.push_back(batch->second);
@@ -929,7 +987,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
     }
     // 类型工具与输入快照同样需要稳定，防止发布混合产物。
     std::string rechecked_common;
-    std::map<schema::AssetKind, std::string> rechecked_fingerprints;
+    std::map<std::string, std::string> rechecked_fingerprints;
     if (!common_fingerprint(platform, rechecked_common, last_error_) ||
         !inspect_importers(importers, context, records, rechecked_fingerprints, last_error_) ||
         rechecked_common != common_key || rechecked_fingerprints != fingerprints)

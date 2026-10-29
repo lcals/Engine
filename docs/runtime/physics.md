@@ -13,3 +13,7 @@
 触发器不产生碰撞响应；本阶段不提供碰撞事件回调。见[物理系统类图](class-diagrams/physics-system.md)与[物理组件类图](class-diagrams/physics-components.md)。
 
 组件公共校验范围：碰撞尺寸为 `0.0001..100000`，胶囊半高允许为零，中心各轴绝对值不超过 `100000`；摩擦、弹性和阻尼为 `0..1`。质量为 `0.0001..1000000`，重力倍率为 `0..100`；线速度和角速度各轴绝对值不超过 `10000`，单次及累计待消费冲量各轴不超过 `1000000`。世界空间缩放后仍须满足形状尺寸限制。超出范围通过返回值拒绝，不隐式改写输入。
+
+角色运动使用独立的 `CharacterMotor`，公开胶囊设置、世界空间水平速度、地面状态及一次跳跃请求，内部复用 Jolt `CharacterVirtual`。胶囊中心从脚底原点自动上移 `radius + half_height`；角色之间使用 Jolt `CharacterVsCharacterCollisionSimple`。角色必须是单位缩放、仅 Y 轴旋转的根节点，不能同时启用独立 Collider/RigidBody。设置的台阶高度、贴地距离和坡度限制参与实际碰撞求解；具体范围和契约见[角色物理类图](class-diagrams/character-motor.md)。
+
+`cast_sphere()` 查询已同步的物理世界，返回状态与可通行比例，忽略触发器。第一/第三人称输入和相机防穿墙策略由可选运行时[角色控制器插件](../plugins/runtime/class-diagrams/character-controller.md)负责，核心不读取键鼠、不引用该插件。

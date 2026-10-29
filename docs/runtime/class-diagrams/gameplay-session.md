@@ -6,7 +6,7 @@
 classDiagram
     class GameplaySession {
         <<final>>
-        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio)
+        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation)
         +~GameplaySession()
         +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
@@ -20,12 +20,14 @@ classDiagram
     class ScriptRuntime
     class PhysicsSystem
     class AudioSystem
+    class AnimationSystem
     class ResourceSystem
     class ResourceCatalog
     GameplaySession --> WorldSystem : 必需借用
     GameplaySession --> RenderSystem : 必需借用
     GameplaySession --> ScriptRuntime : 可空借用抽象执行契约
     GameplaySession --> PhysicsSystem : 可空借用 清理物理场景
+    GameplaySession --> AnimationSystem : 可空借用并清理采样缓存
     GameplaySession --> AudioSystem : 可空借用 停止并释放声部
     GameplaySession ..> ResourceSystem : 显式提交资源目录
     GameplaySession *-- ResourceCatalog : 基线及候选元数据

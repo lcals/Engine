@@ -12,6 +12,8 @@ classDiagram
         +~PhysicsSystem()
         +clear() void
         +body_count() size_t
+        +character_count() size_t
+        +cast_sphere(const Vec3& origin, const Vec3& displacement, float radius, float& fraction) bool
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -21,6 +23,8 @@ classDiagram
     class Scene
     class Collider
     class RigidBody
+    class CharacterMotor
+    class Vec3
     class Transform
     class EngineConfig
     class PhysicsState["PhysicsSystem::State"]
@@ -32,6 +36,8 @@ classDiagram
     PhysicsSystem ..> Scene : 按ID重新解析节点
     PhysicsSystem ..> Collider : 读取形状
     PhysicsSystem ..> RigidBody : 消费冲量并同步速度
+    PhysicsSystem ..> CharacterMotor : 消费移动与跳跃并回写地面状态
+    PhysicsSystem ..> Vec3 : 球体扫掠输入
     PhysicsSystem ..> Transform : 同步世界和局部变换
     PhysicsSystem ..> EngineConfig : 初始化参数
 ```

@@ -8,9 +8,13 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#include <SDL3/SDL_error.h>
+#include <SDL3/SDL_filesystem.h>
 #include <toml++/toml.hpp>
 
 #include <map>
+#include <set>
+#include <sstream>
 #include <system_error>
 
 namespace engine::editor::asset_pipeline
@@ -118,6 +122,159 @@ bool read_or_create_asset_meta(const fs::path& source, const fs::path& staging,
     return true;
 }
 
+bool update_subresource_meta(const ImportAsset& source, const fs::path& staging,
+                             const std::vector<ImportSubresource>& requested,
+                             const std::set<std::string>& remembered, std::string& text,
+                             std::vector<ImportAsset>& identities, std::string& error)
+{
+    identities.clear();
+    auto parsed = toml::parse(text);
+    if (!parsed)
+    {
+        error = "Invalid source metadata: " + source.path;
+        return false;
+    }
+    std::map<std::string, std::size_t> by_key;
+    GuidMap paths;
+    if (!paths.add(source.path, source.guid))
+    {
+        error = "Invalid parent resource identity";
+        return false;
+    }
+    std::set<Guid> guids{source.guid};
+    auto* entries = parsed["subresources"].as_array();
+    if (parsed.table().contains("subresources") && entries == nullptr)
+    {
+        error = "Subresources metadata must be an array: " + source.path;
+        return false;
+    }
+    if (entries != nullptr)
+    {
+        for (const auto& item : *entries)
+        {
+            const auto* table = item.as_table();
+            ImportAsset child;
+            child.parent_guid = source.guid;
+            child.source = source.source;
+            child.importer_id = source.importer_id;
+            std::string kind;
+            if (table != nullptr)
+            {
+                child.subresource_key = (*table)["key"].value_or(std::string{});
+                child.guid = (*table)["guid"].value_or(std::string{});
+                kind = (*table)["kind"].value_or(std::string{});
+            }
+            bool known_kind = false;
+            for (const auto candidate : schema::EnumValuesAssetKind())
+            {
+                if (kind == schema::EnumNameAssetKind(candidate))
+                {
+                    child.kind = candidate;
+                    known_kind = true;
+                    break;
+                }
+            }
+            child.path = source.path + "/" + child.subresource_key;
+            if (!known_kind || child.subresource_key.empty() ||
+                !paths.add(child.path, child.guid) || !guids.insert(child.guid).second ||
+                !by_key.emplace(child.subresource_key, identities.size()).second)
+            {
+                error = "Invalid or duplicate subresource identity: " + source.path;
+                identities.clear();
+                return false;
+            }
+            identities.push_back(std::move(child));
+        }
+    }
+    bool changed = false;
+    std::set<std::string> discovered;
+    for (const auto& description : requested)
+    {
+        const auto path = source.path + "/" + description.key;
+        if (description.key.empty() || description.kind < schema::AssetKind::MIN ||
+            description.kind > schema::AssetKind::MAX || !discovered.insert(description.key).second)
+        {
+            error = "Importer returned invalid or duplicate subresource key: " + path;
+            identities.clear();
+            return false;
+        }
+        const auto existing = by_key.find(description.key);
+        if (existing != by_key.end())
+        {
+            if (identities[existing->second].kind != description.kind)
+            {
+                error = "Subresource kind changed for an existing identity: " + path;
+                identities.clear();
+                return false;
+            }
+            continue;
+        }
+        if (remembered.contains(path))
+        {
+            error = "Existing subresource lost its meta identity; restore it: " + path;
+            identities.clear();
+            return false;
+        }
+        ImportAsset child;
+        child.guid = new_guid();
+        child.parent_guid = source.guid;
+        child.path = path;
+        child.source = source.source;
+        child.kind = description.kind;
+        child.importer_id = source.importer_id;
+        child.subresource_key = description.key;
+        if (!guids.insert(child.guid).second || !paths.add(child.path, child.guid))
+        {
+            error = "Generated subresource GUID conflicts with an existing identity";
+            identities.clear();
+            return false;
+        }
+        by_key.emplace(child.subresource_key, identities.size());
+        identities.push_back(std::move(child));
+        changed = true;
+    }
+    if (!changed)
+    {
+        return true;
+    }
+    toml::array updated;
+    for (const auto& child : identities)
+    {
+        updated.push_back(toml::table{{"key", child.subresource_key},
+                                      {"kind", schema::EnumNameAssetKind(child.kind)},
+                                      {"guid", child.guid}});
+    }
+    parsed.table().insert_or_assign("subresources", std::move(updated));
+    std::ostringstream stream;
+    stream << parsed.table();
+    const auto candidate = stream.str() + "\n";
+    auto meta = source.source;
+    meta += ".meta";
+    std::string current;
+    if (!ResourceSystem::read_text(meta, current) || current != text)
+    {
+        error = "Source metadata changed during discovery; retry the build: " + source.path;
+        identities.clear();
+        return false;
+    }
+    const auto temporary = staging / new_guid();
+    if (!write_text(temporary, candidate, error))
+    {
+        identities.clear();
+        return false;
+    }
+    if (!SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(meta).c_str()))
+    {
+        error = "Cannot publish subresource metadata: " + std::string(SDL_GetError());
+        std::error_code cleanup;
+        fs::remove(temporary, cleanup);
+        identities.clear();
+        return false;
+    }
+    text = candidate;
+    return true;
+}
+
 bool ensure_asset_guid(const fs::path& project_root, const fs::path& source,
                        std::string_view importer, std::string& guid, std::string& error)
 {
@@ -212,6 +369,23 @@ bool ensure_asset_guid(const fs::path& project_root, const fs::path& source,
                     error = "Duplicate resource GUID: " + identity;
                 }
                 return false;
+            }
+            ImportAsset parent;
+            parent.guid = identity;
+            parent.path = logical;
+            parent.source = asset_path;
+            std::vector<ImportAsset> children;
+            if (!update_subresource_meta(parent, {}, {}, {}, text, children, error))
+            {
+                return false;
+            }
+            for (const auto& child : children)
+            {
+                if (!identities.add(child.path, child.guid))
+                {
+                    error = "Duplicate subresource GUID or path: " + child.path;
+                    return false;
+                }
             }
         }
         iterator.increment(code);

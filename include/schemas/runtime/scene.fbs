@@ -72,9 +72,39 @@ table AudioListenerData {
     volume:float = 1;
 }
 
+table AnimatorData {
+    animation_guid:string;
+    speed:float = 1;
+    loop:bool = true;
+    play_on_awake:bool = true;
+}
+
+table CharacterMotorData {
+    radius:float = 0.3;
+    half_height:float = 0.6;
+    max_slope_degrees:float = 50;
+    step_height:float = 0.35;
+    ground_snap_distance:float = 0.2;
+    gravity_factor:float = 1;
+}
+
+enum CharacterView:ubyte { first_person, third_person }
+table CharacterControllerData {
+    mode:CharacterView = third_person;
+    move_speed:float = 4;
+    jump_speed:float = 5;
+    look_sensitivity:float = 0.12;
+    eye_height:float = 1.6;
+    camera_distance:float = 4;
+    pitch_min:float = -80;
+    pitch_max:float = 80;
+    camera_node_id:ulong;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
-    ColliderData, RigidBodyData, AudioSourceData, AudioListenerData
+    ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
+    CharacterControllerData
 }
 
 table ComponentData {

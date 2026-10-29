@@ -1,7 +1,17 @@
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+#include "plugins/editor/character_controller/character_controller_codec.hpp"
+#endif
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
+
+#if ENGINE_HAS_FBX_IMPORTER
+#include "plugins/editor/fbx_import/fbx_importer.hpp"
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+#include "plugins/editor/usd_import/usd_importer.hpp"
+#endif
 
 #if ENGINE_HAS_MODELING_IMPORTER
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
@@ -77,6 +87,31 @@ int main(int argc, char** argv)
                      pipeline.last_error().c_str());
         return 1;
     }
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+    if (!engine::plugins::character_controller::register_controller_codec())
+    {
+        std::fputs("Cannot register character controller scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_FBX_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =
+        std::make_unique<engine::plugins::fbx_import::FbxImporter>();
+    if (!pipeline.add_importer(fbx_importer))
+    {
+        std::fputs("Cannot register FBX importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> usd_importer =
+        std::make_unique<engine::plugins::usd_import::UsdImporter>();
+    if (!pipeline.add_importer(usd_importer))
+    {
+        std::fputs("Cannot register USD importer\n", stderr);
+        return 1;
+    }
+#endif
 #if ENGINE_HAS_MODELING_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();

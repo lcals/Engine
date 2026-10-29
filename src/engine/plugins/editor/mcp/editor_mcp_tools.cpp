@@ -232,6 +232,7 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                        {"arguments", {{"type", "object"}, {"additionalProperties", true}}}},
                       {"command", "arguments"});
     return register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
+           register_animation_tools(system, *this) && register_model_tools(system, *this) &&
            register_command("get_scene", "get_scene", "Read the active scene and its components.",
                             object_schema(Json::object())) &&
            register_command(

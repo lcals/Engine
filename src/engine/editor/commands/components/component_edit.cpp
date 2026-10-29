@@ -127,13 +127,7 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
     const bool created = current == nullptr;
     if (created)
     {
-        ComponentRegistry registry;
-        if (!register_scene_components(registry))
-        {
-            error = "Cannot register components";
-            return false;
-        }
-        current = registry.create(type_, *node);
+        current = world_.component_registry().create(type_, *node);
     }
     if (!current || !current->restore_data(*value))
     {

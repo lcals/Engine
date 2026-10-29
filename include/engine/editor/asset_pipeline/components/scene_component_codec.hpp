@@ -1,8 +1,9 @@
 #pragma once
 
-#include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/schema/scene_generated.h"
+#include <toml++/toml.hpp>
 
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -21,6 +22,9 @@ public:
                                         std::string& error) const = 0;
     virtual void write(const schema::ComponentDataT& component, toml::table& value) const = 0;
 };
+
+// 登记成功转移所有权；类型或名字冲突时保留输入，不支持运行中卸载代码。
+[[nodiscard]] bool register_scene_component_codec(std::unique_ptr<SceneComponentCodec>& codec);
 
 [[nodiscard]] const SceneComponentCodec*
 find_scene_component_codec(schema::ComponentPayload type) noexcept;
