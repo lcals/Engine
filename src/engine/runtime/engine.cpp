@@ -199,6 +199,10 @@ void Engine::stop_gameplay() noexcept
     {
         renderer_->release_scene();
     }
+    if (initialized_)
+    {
+        ResourceSystem::clear_project_definitions();
+    }
 }
 
 void Engine::set_hot_reload(bool enabled)
@@ -220,16 +224,6 @@ const ScriptStatus* Engine::script_status() const noexcept
 #else
     return nullptr;
 #endif
-}
-
-std::size_t Engine::scene_node_count() const noexcept
-{
-    return world_ != nullptr && world_->scene() != nullptr ? world_->scene()->nodes().size() : 0;
-}
-
-std::uint32_t Engine::render_resource_count() const noexcept
-{
-    return renderer_ != nullptr ? renderer_->gpu_resource_count() : 0;
 }
 
 std::string_view Engine::last_error() const noexcept

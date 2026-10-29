@@ -35,8 +35,6 @@ public:
     void stop_gameplay() noexcept;
     void set_hot_reload(bool enabled);
     [[nodiscard]] const ScriptStatus* script_status() const noexcept;
-    [[nodiscard]] std::size_t scene_node_count() const noexcept;
-    [[nodiscard]] std::uint32_t render_resource_count() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;

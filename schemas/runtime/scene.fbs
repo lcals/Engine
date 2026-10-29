@@ -1,0 +1,132 @@
+namespace engine.schema;
+
+struct Vec2 {
+  x:double;
+  y:double;
+}
+
+struct Vec3 {
+  x:double;
+  y:double;
+  z:double;
+}
+
+struct Vec4 {
+  x:double;
+  y:double;
+  z:double;
+  w:double;
+}
+
+struct Color {
+  r:float;
+  g:float;
+  b:float;
+  a:float;
+}
+
+enum MeshKind:ubyte { cube }
+
+table TransformData {
+  position:Vec3 (required, native_inline);
+  rotation:Vec3 (required, native_inline);
+  scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
+}
+
+table CameraData {
+  fov_degrees:float = 60;
+  near_clip:float = 0.1;
+  far_clip:float = 1000;
+}
+
+table LightData {
+  color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+  intensity:float = 3;
+}
+
+table FloatValue {
+  value:float;
+}
+
+table Vec2Value {
+  value:Vec2 (required, native_inline);
+}
+
+table Vec3Value {
+  value:Vec3 (required, native_inline);
+}
+
+table Vec4Value {
+  value:Vec4 (required, native_inline);
+}
+
+union MaterialValue { FloatValue, Vec2Value, Vec3Value, Vec4Value }
+
+table ShaderParameter {
+  name:string (required);
+  uniform_name:string (required);
+  uniform_offset:ubyte = 0;
+  exposed:bool = true;
+  bounded:bool = false;
+  minimum:double = 0;
+  maximum:double = 1;
+  default_value:MaterialValue (required);
+}
+
+table ShaderData {
+  // Canonical unique resource identity, prefixed by builtin/ or project/.
+  path:string (required);
+  vertex_code:[ubyte] (required);
+  fragment_code:[ubyte] (required);
+  parameters:[ShaderParameter] (required);
+}
+
+table MaterialParameter {
+  name:string (required);
+  value:MaterialValue (required);
+}
+
+table MaterialData {
+  // Origin and identity are both encoded in builtin/ or project/ paths.
+  type_path:string (required);
+  // A builtin/ material cannot depend on a project/ shader.
+  shader_path:string (required);
+  parameters:[MaterialParameter] (required);
+}
+
+table MeshRendererData {
+  mesh:MeshKind = cube;
+  material:MaterialData (required);
+}
+
+union ComponentPayload { TransformData, CameraData, LightData, MeshRendererData }
+
+table ComponentData {
+  enabled:bool = true;
+  payload:ComponentPayload (required);
+}
+
+table NodeInfo {
+  id:ulong;
+  name:string;
+  parent_id:ulong;
+}
+
+table NodeData {
+  info:NodeInfo (required);
+  components:[ComponentData];
+}
+
+table SceneInfo {
+  name:string;
+  active_camera_node:ulong;
+}
+
+table SceneData {
+  info:SceneInfo (required);
+  nodes:[NodeData];
+}
+
+root_type SceneData;
+file_identifier "ESCN";
+file_extension "scene";

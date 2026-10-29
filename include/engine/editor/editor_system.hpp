@@ -9,15 +9,15 @@ struct ImGuiContext;
 namespace engine
 {
 
-class ProjectSystem;
+class EditorEnvironment;
 class Engine;
 
 class EditorSystem final : public System
 {
 public:
-    // 项目由宿主拥有，须先初始化并保持就绪直到编辑器关闭。
+    // 环境由宿主拥有，须先初始化并保持就绪直到编辑器关闭。
     // runtime 可空；非空时必须先初始化，并与 App 一起存活到编辑器关闭。
-    explicit EditorSystem(ProjectSystem& project, Engine* runtime = nullptr) noexcept;
+    explicit EditorSystem(EditorEnvironment& environment, Engine* runtime = nullptr) noexcept;
     ~EditorSystem() noexcept override;
 
 protected:
@@ -26,7 +26,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    ProjectSystem& project_;
+    EditorEnvironment& environment_;
     Engine* runtime_ = nullptr;
     struct State;
     std::unique_ptr<State> state_;

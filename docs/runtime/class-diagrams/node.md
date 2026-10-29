@@ -8,56 +8,41 @@ classDiagram
         +~Node()
         +id() uint64_t
         +name() string_view
+        +info() const NodeInfoT&
         +scene() Scene&
         +scene() const Scene&
-        +transform() const Transform&
-        +set_transform(const Transform& value) bool
         +parent() Node#42;
         +parent() const Node#42;
         +set_parent(Node#42; parent) bool
-        +world_matrix(float* output) bool
-        +add_camera() Camera#42;
-        +add_light() Light#42;
-        +add_mesh_renderer() MeshRenderer#42;
-        +camera() Camera#42;
-        +camera() const Camera#42;
-        +light() Light#42;
-        +light() const Light#42;
-        +mesh_renderer() MeshRenderer#42;
-        +mesh_renderer() const MeshRenderer#42;
+        +add_component~T~() T#42;
+        +get_component~T~() T#42;
+        +get_component~T~() const T#42;
+        +get_component(ComponentType type) Component#42;
+        +get_component(ComponentType type) const Component#42;
+        +components() const vector~unique_ptr~Component~~&
     }
     class Scene
     class Component
-    class Camera
-    class Light
-    class MeshRenderer
-    class Transform {
-        <<struct>>
-        +Vec3 position
-        +Vec3 rotation
-        +Vec3 scale
+    class NodeInfoT {
+        <<FlatBuffers生成>>
+        +uint64_t id
+        +string name
+        +uint64_t parent_id
     }
-    class Vec3 {
-        <<struct>>
-        +double x
-        +double y
-        +double z
+    class ComponentType {
+        <<FlatBuffers生成枚举别名>>
     }
     Scene "1" *-- "0..*" Node : 拥有
     Node --> Scene : 借用所属场景
-    Node --> Node : 可空父节点借用
-    Node "1" *-- "0..*" Component : 独占组件
-    Node "1" *-- "1" Transform : 唯一变换数据
-    Transform *-- Vec3 : 位置欧拉角缩放
-    Node ..> Camera : 添加与查询返回
-    Node ..> Light : 添加与查询返回
-    Node ..> MeshRenderer : 添加与查询返回
+    Node --> Node : 按父节点id查找借用
+    Node "1" *-- "1" NodeInfoT : 唯一元数据
+    Node "1" *-- "0..*" Component : 通用组件列表
+    Node ..> ComponentType : 通用类型比较
 ```
 
-- Node 是所有场景对象的身份、层级与组件容器；Transform 是每个节点固有的普通数据结构，不额外制造变换实体或第二份 ECS 状态。
-- 位置和欧拉角使用 double；欧拉角单位为度，矩阵为 `T * Rz * Ry * Rx * S`。Y 向上，相机和灯光局部前向为 -Z。
-- 设置变换必须全部有限，缩放各分量非零；失败保持原值。允许负缩放。
-- `set_parent()` 保持局部变换；空指针解除父子关系。拒绝其他场景节点、自身及循环父链。
-- `world_matrix()` 写 16 个列主序 float；父链变换累乘出现溢出返回 false，输出保持单位矩阵；空输出返回 false。
-- 每个节点当前每类内置组件至多一个，重复添加返回空指针。组件独占于节点、不可单独转移。本阶段不增加通用类型注册或模板分派。
+- Node 只负责身份、父子关系与组件所有权，不知道 Transform、Camera、Light、MeshRenderer 的具体数据或字段；没有专用组件成员、方法或类型分支。
+- `add_component<T>()` 创建组件并检查通用初始化返回值，成功才转入唯一的 `vector<unique_ptr<Component>>`。`get_component<T>()` 是通用类型查询后的静态转换；非模板版本返回 Component 借用，由调用者按类型转换。均不依赖 RTTI。
+- 每类组件至多一个，重复添加返回空指针；查询不存在的类型返回空指针。组件的静态类型标记来自 FlatBuffers 生成枚举，不另外维护类型编号。当前可添加的四个原生组件均为 final，构造由 Node 控制；新增原生组件须在 schema 增加独立载荷并声明其唯一类型标记，不能复用其他组件标记。
+- `NodeInfoT` 由 `schemas/runtime/scene.fbs` 生成，保存唯一的 id、名称和父 id；不并行维护手写数据对象。父指针按需在所属场景中解析。
+- `set_parent()` 保持局部变换；空指针解除关系，拒绝其他场景节点、自身及循环父链。
 - 节点析构删除底层 flecs 实体；删除层级统一走 Scene，调用方不得销毁借用。

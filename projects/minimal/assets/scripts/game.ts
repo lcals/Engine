@@ -1,7 +1,7 @@
-import { Debug, Gameplay, Node, Scene, Time } from "engine";
+import { Debug, Gameplay, Camera, Light, MeshRenderer, Transform, Scene, Time } from "engine";
 
 export default class Game extends Gameplay {
-    private cube: Node | null = null;
+    private cube: Transform | null = null;
     private angle = 0;
 
     override OnInitialize(): boolean {
@@ -11,23 +11,26 @@ export default class Game extends Gameplay {
         const cameraNode = scene.CreateNode("Camera");
         const lightNode = scene.CreateNode("Sun");
         if (!cube || !cameraNode || !lightNode) return false;
-        const mesh = cube.AddMeshRenderer();
-        const camera = cameraNode.AddCamera();
-        const light = lightNode.AddLight();
-        if (!mesh || !camera || !light) return false;
-        if (!mesh.SetMaterial({
-            baseColor: { r: 0.72, g: 0.23, b: 0.08, a: 1 },
-            metallic: 0.35,
-            roughness: 0.3,
-            unlit: false,
-        }) || !cube.SetRotation(18, 25, 0)
-            || !cameraNode.SetPosition(0, 0, 5)
+        const mesh = cube.AddComponent(MeshRenderer);
+        const camera = cameraNode.AddComponent(Camera);
+        const light = lightNode.AddComponent(Light);
+        const cubeTransform = cube.GetComponent(Transform);
+        const cameraTransform = cameraNode.GetComponent(Transform);
+        const lightTransform = lightNode.GetComponent(Transform);
+        if (!mesh || !camera || !light || !cubeTransform || !cameraTransform || !lightTransform)
+            return false;
+        const material = mesh.material;
+        if (!material.SetType("builtin/materials/default-pbr")
+            || !material.SetV4("baseColor", 0.72, 0.23, 0.08, 1)
+            || !material.SetFloat("metallic", 0.35)
+            || !material.SetFloat("roughness", 0.3) || !cubeTransform.SetRotation(18, 25, 0)
+            || !cameraTransform.SetPosition(0, 0, 5)
             || !camera.SetPerspective(50, 0.1, 100)
             || !scene.SetActiveCamera(camera)
-            || !lightNode.SetRotation(-35, -30, 0)
+            || !lightTransform.SetRotation(-35, -30, 0)
             || !light.SetColor(1, 0.96, 0.9)
             || !light.SetIntensity(4)) return false;
-        this.cube = cube;
+        this.cube = cubeTransform;
         Debug.Log("Game.OnInitialize: PBR cube scene ready");
         return true;
     }

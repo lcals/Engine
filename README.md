@@ -251,9 +251,18 @@ export default class Game extends Gameplay {
 - 首版使用内置 24 顶点、36 索引的方块；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；一盏启用的方向光，视角来自活动 Camera 节点。尚未实现 IBL 环境贴图、阴影、贴图材质、透明混合或场景资源文件。
 - Shader 使用宿主 shaderc 在构建时编译为内置数组；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
 - 桌面 MCP 增加无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具仍保留同步、热重载和状态查询，新增项目启停尚未接入 Android。
-- `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`、`nodeCount`、`gpuResources`。`gpuResources` 统计项目持有的句柄，真正后端回收由 bgfx 在已提交命令完成后处理。
+- `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
 - 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
 - 一个运行目录供一个编辑器实例使用；并行编辑器使用不同 `--runtime-dir`。MCP 通过 `project-control.lock` 串行化控制；若 MCP 被强制中止留下锁，先确认相关客户端已退出且状态中没有正在执行的请求，再移除该运行目录中的锁目录。不能删除其他活动操作的锁。
+
+### 组件、数据模型与资源扩展
+
+- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光和网格也都是组件。
+- `schemas/runtime/scene.fbs` 是场景、节点、组件和材质参数的数据模型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；本阶段提供内存快照与跨语言验证，尚未接入正式磁盘加载流程。
+- 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可注册自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目先销毁场景和 GPU 句柄，再清理项目定义；内置定义保留至引擎关闭。
+- `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。定义目前用生成结构在代码中注册，读取资源文件留到下一阶段。
+- ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载、生命周期和热重载职责。
+- EditorEnvironment 借用已校验的项目，配置 App 路径并管理当前会话的内置资源快照。ProjectSystem 不再提供另一套 root_path 入口；运行时继续通过 App 读取路径语义。
 
 ### Android APK
 
@@ -451,6 +460,7 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
 ├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
 ├── references/         # 本地参考文件，内容不纳入 Git
+├── schemas/            # FlatBuffers 跨语言数据模型
 ├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
 ├── src/engine/         # 与 include/engine 对应的三层实现
 ├── tests/              # C++ 与命令行测试
@@ -507,3 +517,15 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 - Metal 着色器随两种配置实际编译；另完成顶点与片元着色器的 SPIR-V 编译。47 个 Mermaid 图实际解析、渲染通过，228 条本地 Markdown 链接有效，25 个受影响 C++ 文件格式检查通过。
 
 日志、截图、像素比较与类图验证记录保存在忽略的 `build/scene-render-validation/`。当前 PBR 为直接方向光，不包含贴图、阴影或 IBL；资源落盘、加载及本轮 Android 包验证留到后续阶段。SPIR-V 编译不代表已验证 Vulkan 实机；Windows / Linux / iOS 也未执行本轮 GPU 验证。本轮未触发 CI。
+
+### 组件泛型、跨语言模型与绑定模块修订
+
+2026-10-29 在同一 macOS ARM64 环境完成本轮修订，使用根 Presets 派生的 `local-ninja-debug` / `local-ninja-release`，保持禁异常和严格编译警告。
+
+- Debug / Release 完整构建成功，CTest 各 **29/29** 通过。覆盖泛型组件、Transform、材质命名参数、内置/项目资源空间、EditorEnvironment、逐类 V8 绑定及项目启停/热重载。
+- FlatBuffers 在构建时生成 C++ 和 TS；测试以真实场景导出快照，经 C++ 打包、TS 解包修改再打包、C++ 验证，覆盖超过 JS 安全整数范围的节点 ID、组件联合体和材质向量参数。
+- 真实 Metal 测试使用自定义项目 Shader 路径及逻辑参数名；验证 Shader 切换、缺失/未知 Uniform 拒绝、失败回收、禁用最后一个网格后的回收，以及项目停止保留内置资源定义。bgfx 延迟回收完成后，实际资源计数回到待机基线。
+- 编辑器同一窗口完成 MCP 启动、同步、脚本热重载和停止。截图比较统一为 RGBA 并排除 macOS 标题栏及活动边框后，金属度/粗糙度变化的平均通道差为 3.816，停止前后空白内容区最大差为 0；测试编辑器在 3000 帧后正常退出。首次截图比较因窗口边框造成的尺寸差中断，修正比较工具后完成复测。
+- 56 个 Mermaid 块实际解析与渲染成功，46 份类图/说明文档的 240 个本地链接及锚点有效；65 个修改或新增 C++ 文件格式检查通过。
+
+记录保存在忽略的 `build/component-revision-validation/`。本次验证为桌面 Metal；Android、Windows、Linux、iOS 的本轮运行验证尚未执行。资源定义暂在代码中注册，正式资源落盘及加载仍为下一阶段；本轮未触发 CI。

@@ -25,9 +25,16 @@
 - 系统类继承通用抽象基类 `System`。系统支持子系统，子系统同样继承 `System`，由父系统独占并统一管理生命周期。
 - 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/`，独立类图位于各层级的 `class-diagrams/`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
 - 引擎启动不要求项目；`EngineConfig` 只保存运行时配置，`Engine` 不拥有或依赖项目系统、编辑器系统。
-- 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的项目系统，项目必须存活并保持就绪直到编辑器关闭。
+- `Engine` 负责系统生命周期与运行调度，不增加场景节点数量、渲染资源数量等跨模块统计便利函数；领域查询归对应系统。
+- 脚本绑定按类/模块拆分为实现统一接口的绑定类；新增绑定只增加一个绑定类并在注册表登记，各自定义脚本外观与原生方法；ScriptSystem 只负责 V8、脚本加载、玩法生命周期与热重载，不集中放置所有类的绑定实现。
+- 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的 `EditorEnvironment`，环境借用项目系统；两者必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
+- `Node` 保持轻量，只管理身份、层级及无具体类型的组件列表；通过 `add_component<T>() / get_component<T>()` 添加和查找，TS 对应 `AddComponent(Type) / GetComponent(Type)`。节点不保存具体组件指针、不枚举相机等类型、不提供专用添加方法；变换同样由组件表达。
+- 场景、节点和组件的数据以 FlatBuffers schema 为唯一模型来源，生成跨语言数据结构；运行时行为类使用生成数据，不维护另一份手写持久数据模型。落盘读写按阶段实现。
+- 材质和 Shader 通过唯一资源路径字符串标识并注册，不使用固定种类枚举；材质引用 Shader 定义并组合命名参数，以名字和明确数值类型读写参数（如 SetFloat、SetV2/3/4），不把每项 shader 参数做成固定业务字段；匹配和校验由材质负责。
+- 材质和 Shader 分为引擎内置与项目资源，完整路径以 `builtin/` 或 `project/` 标识来源；项目材质可复用内置 Shader，内置定义不得反向依赖项目。项目停止先释放场景和 GPU 资源，再清理项目定义；内置定义保留至引擎关闭。
+- 编辑器路径映射与内置资源准备由 `EditorEnvironment` 集中管理，运行时继续使用 `App` 的内置、持久和缓存路径语义；不在 `ProjectSystem` 增加重复的根路径访问器。
 - `App` 路径接口跨平台语义一致；脚本模块处理加载和热重载的平台差异，按相对路径优先查持久目录中的可修改脚本缓存，再查包体内置资源。MCP 同步同一持久缓存，仅控制引擎热重载开关，不实现重载本身。
 - TS 工程配置归项目 `settings/`，源码归 `assets/`，生成物归 `cache/`。引擎统一在 `include/engine.d.ts` 维护运行时类型声明，只声明已实现绑定，保持与类图同步。
 - UTF-8 与原生路径的通用转换由 `PathUtils`（`runtime/utils/path_utils.hpp`）提供；路径规范化、目录权限与越界检查仍由具体调用者负责。运行时工具不得反向依赖编辑器或插件。

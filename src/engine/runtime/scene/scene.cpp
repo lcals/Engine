@@ -1,5 +1,8 @@
 #include "runtime/scene/scene.hpp"
 
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/transform.hpp"
+
 #include <flecs.h>
 
 #include <algorithm>
@@ -9,14 +12,14 @@
 namespace engine
 {
 
-Scene::Scene(ecs_world_t& world, std::uint64_t id, std::string_view name)
-    : world_(world), id_(id), name_(name)
+Scene::Scene(ecs_world_t& world, std::uint64_t id, std::string_view name) : world_(world), id_(id)
 {
+    info_.name = name;
 }
 
 Scene::~Scene() noexcept
 {
-    active_camera_ = nullptr;
+    info_.active_camera_node = 0;
     nodes_.clear();
 }
 
@@ -27,7 +30,7 @@ std::uint64_t Scene::id() const noexcept
 
 std::string_view Scene::name() const noexcept
 {
-    return name_;
+    return info_.name;
 }
 
 Node* Scene::create_node(std::string_view name)
@@ -41,6 +44,10 @@ Node* Scene::create_node(std::string_view name)
     if (node == nullptr)
     {
         ecs_delete(&world_, entity);
+        return nullptr;
+    }
+    if (node->add_component<Transform>() == nullptr)
+    {
         return nullptr;
     }
     Node* result = node.get();
@@ -82,9 +89,9 @@ bool Scene::destroy_node(std::uint64_t id)
     }
     const auto should_remove = [&removed](const Node* node)
     { return std::find(removed.begin(), removed.end(), node) != removed.end(); };
-    if (active_camera_ != nullptr && should_remove(&active_camera_->node()))
+    if (should_remove(find_node(info_.active_camera_node)))
     {
-        active_camera_ = nullptr;
+        info_.active_camera_node = 0;
     }
     std::erase_if(nodes_, [&should_remove](const auto& node) { return should_remove(node.get()); });
     return true;
@@ -97,12 +104,14 @@ const std::vector<std::unique_ptr<Node>>& Scene::nodes() const noexcept
 
 Camera* Scene::active_camera() noexcept
 {
-    return active_camera_;
+    Node* node = find_node(info_.active_camera_node);
+    return node == nullptr ? nullptr : node->get_component<Camera>();
 }
 
 const Camera* Scene::active_camera() const noexcept
 {
-    return active_camera_;
+    const Node* node = find_node(info_.active_camera_node);
+    return node == nullptr ? nullptr : node->get_component<Camera>();
 }
 
 bool Scene::set_active_camera(Camera* camera) noexcept
@@ -111,7 +120,34 @@ bool Scene::set_active_camera(Camera* camera) noexcept
     {
         return false;
     }
-    active_camera_ = camera;
+    info_.active_camera_node = camera == nullptr ? 0 : camera->node().id();
+    return true;
+}
+
+bool Scene::build_data(schema::SceneDataT& output) const
+{
+    output = {};
+    schema::SceneDataT snapshot;
+    snapshot.info = std::make_unique<schema::SceneInfoT>(info_);
+    snapshot.nodes.reserve(nodes_.size());
+    for (const auto& node : nodes_)
+    {
+        auto node_data = std::make_unique<schema::NodeDataT>();
+        node_data->info = std::make_unique<schema::NodeInfoT>(node->info());
+        node_data->components.reserve(node->components().size());
+        for (const auto& component : node->components())
+        {
+            if (component->data().payload.type == ComponentType::NONE ||
+                component->data().payload.value == nullptr)
+            {
+                return false;
+            }
+            node_data->components.push_back(
+                std::make_unique<schema::ComponentDataT>(component->data()));
+        }
+        snapshot.nodes.push_back(std::move(node_data));
+    }
+    output = std::move(snapshot);
     return true;
 }
 

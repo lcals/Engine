@@ -1,11 +1,20 @@
 #include "runtime/resource/resource_system.hpp"
 
+#include "runtime/resource/builtin_resources.hpp"
+
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_iostream.h>
 #include <SDL3/SDL_properties.h>
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <flatbuffers/idl.h>
 
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <limits>
+#include <map>
+#include <memory>
+#include <set>
 #include <string_view>
 
 namespace engine
@@ -14,6 +23,125 @@ namespace
 {
 
 constexpr Sint64 maximum_read_size = 64 * 1024 * 1024;
+
+std::map<std::string, std::unique_ptr<schema::ShaderDataT>, std::less<>> shaders;
+std::map<std::string, std::unique_ptr<schema::MaterialDataT>, std::less<>> materials;
+const ResourceSystem* definition_owner = nullptr;
+
+bool valid_resource_path(std::string_view path)
+{
+    if ((!path.starts_with("builtin/") && !path.starts_with("project/")) ||
+        path.find_first_of("\\:") != std::string_view::npos ||
+        path.find('\0') != std::string_view::npos)
+    {
+        return false;
+    }
+    for (;;)
+    {
+        const auto separator = path.find('/');
+        const auto part = path.substr(0, separator);
+        if (part.empty() || part == "." || part == "..")
+        {
+            return false;
+        }
+        if (separator == std::string_view::npos)
+        {
+            return true;
+        }
+        path.remove_prefix(separator + 1);
+    }
+}
+
+bool valid_uniform_name(std::string_view name)
+{
+    const auto letter = [](char value)
+    { return (value >= 'a' && value <= 'z') || (value >= 'A' && value <= 'Z') || value == '_'; };
+    if (name.empty() || !letter(name.front()))
+    {
+        return false;
+    }
+    return std::all_of(name.begin(), name.end(), [letter](char value)
+                       { return letter(value) || (value >= '0' && value <= '9'); });
+}
+
+bool reserved_uniform(std::string_view name)
+{
+    constexpr std::array names = {std::string_view("u_normal_transform"),
+                                  std::string_view("u_camera_position"),
+                                  std::string_view("u_light_direction"),
+                                  std::string_view("u_light_color"),
+                                  std::string_view("u_viewRect"),
+                                  std::string_view("u_viewTexel"),
+                                  std::string_view("u_view"),
+                                  std::string_view("u_invView"),
+                                  std::string_view("u_proj"),
+                                  std::string_view("u_invProj"),
+                                  std::string_view("u_viewProj"),
+                                  std::string_view("u_invViewProj"),
+                                  std::string_view("u_model"),
+                                  std::string_view("u_modelView"),
+                                  std::string_view("u_modelViewProj"),
+                                  std::string_view("u_alphaRef")};
+    return std::find(names.begin(), names.end(), name) != names.end();
+}
+
+bool parameter_values(const schema::MaterialValueUnion& value, std::array<double, 4>& output,
+                      std::uint8_t& size)
+{
+    output = {};
+    size = 0;
+    if (value.value == nullptr)
+    {
+        return false;
+    }
+    switch (value.type)
+    {
+    case schema::MaterialValue::FloatValue:
+        output[0] = value.AsFloatValue()->value;
+        size = 1;
+        break;
+    case schema::MaterialValue::Vec2Value:
+    {
+        const auto& vector = value.AsVec2Value()->value;
+        output = {vector.x(), vector.y(), 0.0, 0.0};
+        size = 2;
+        break;
+    }
+    case schema::MaterialValue::Vec3Value:
+    {
+        const auto& vector = value.AsVec3Value()->value;
+        output = {vector.x(), vector.y(), vector.z(), 0.0};
+        size = 3;
+        break;
+    }
+    case schema::MaterialValue::Vec4Value:
+    {
+        const auto& vector = value.AsVec4Value()->value;
+        output = {vector.x(), vector.y(), vector.z(), vector.w()};
+        size = 4;
+        break;
+    }
+    default:
+        return false;
+    }
+    return std::all_of(output.begin(), output.begin() + size,
+                       [](double item)
+                       {
+                           constexpr double maximum = std::numeric_limits<float>::max();
+                           return std::isfinite(item) && item >= -maximum && item <= maximum;
+                       });
+}
+
+bool valid_parameter_value(const schema::ShaderParameterT& definition,
+                           const schema::MaterialValueUnion& value)
+{
+    std::array<double, 4> values{};
+    std::uint8_t count = 0;
+    return value.type == definition.default_value.type && parameter_values(value, values, count) &&
+           (!definition.bounded ||
+            std::all_of(values.begin(), values.begin() + count, [&definition](double item)
+                        { return item >= definition.minimum && item <= definition.maximum; }));
+}
 
 bool apk_asset_name(std::string_view path, std::string_view& name)
 {
@@ -159,18 +287,143 @@ bool ResourceSystem::read_text(const std::filesystem::path& path, std::string& o
     return true;
 }
 
+bool ResourceSystem::register_shader(const schema::ShaderDataT& data)
+{
+    if (!valid_resource_path(data.path) || shaders.contains(data.path) ||
+        materials.contains(data.path) || data.vertex_code.empty() || data.fragment_code.empty())
+    {
+        return false;
+    }
+    std::set<std::string_view> names;
+    std::map<std::string_view, unsigned int> uniform_slots;
+    for (const auto& parameter : data.parameters)
+    {
+        if (parameter == nullptr || parameter->name.empty() ||
+            parameter->name.find('\0') != std::string::npos ||
+            !names.insert(parameter->name).second || !valid_uniform_name(parameter->uniform_name) ||
+            reserved_uniform(parameter->uniform_name) || !std::isfinite(parameter->minimum) ||
+            !std::isfinite(parameter->maximum) || parameter->minimum > parameter->maximum ||
+            !valid_parameter_value(*parameter, parameter->default_value))
+        {
+            return false;
+        }
+        std::array<double, 4> values{};
+        std::uint8_t size = 0;
+        if (!parameter_values(parameter->default_value, values, size) ||
+            static_cast<unsigned int>(parameter->uniform_offset) + size > 4)
+        {
+            return false;
+        }
+        const unsigned int mask = ((1U << size) - 1U) << parameter->uniform_offset;
+        unsigned int& slots = uniform_slots[parameter->uniform_name];
+        if ((slots & mask) != 0)
+        {
+            return false;
+        }
+        slots |= mask;
+    }
+    shaders.emplace(data.path, std::make_unique<schema::ShaderDataT>(data));
+    return true;
+}
+
+bool ResourceSystem::register_material(const schema::MaterialDataT& data)
+{
+    if (!valid_resource_path(data.type_path) || shaders.contains(data.type_path) ||
+        materials.contains(data.type_path))
+    {
+        return false;
+    }
+    const schema::ShaderDataT* shader = find_shader(data.shader_path);
+    if (shader == nullptr ||
+        (data.type_path.starts_with("builtin/") && data.shader_path.starts_with("project/")))
+    {
+        return false;
+    }
+    std::set<std::string_view> names;
+    for (const auto& parameter : data.parameters)
+    {
+        if (parameter == nullptr || !names.insert(parameter->name).second)
+        {
+            return false;
+        }
+        const auto definition =
+            std::find_if(shader->parameters.begin(), shader->parameters.end(),
+                         [&parameter](const auto& item) { return item->name == parameter->name; });
+        if (definition == shader->parameters.end() || !(*definition)->exposed ||
+            !valid_parameter_value(**definition, parameter->value))
+        {
+            return false;
+        }
+    }
+    materials.emplace(data.type_path, std::make_unique<schema::MaterialDataT>(data));
+    return true;
+}
+
+const schema::ShaderDataT* ResourceSystem::find_shader(std::string_view path) noexcept
+{
+    const auto iterator = shaders.find(path);
+    return iterator == shaders.end() ? nullptr : iterator->second.get();
+}
+
+const schema::MaterialDataT* ResourceSystem::find_material(std::string_view path) noexcept
+{
+    const auto iterator = materials.find(path);
+    return iterator == materials.end() ? nullptr : iterator->second.get();
+}
+
+void ResourceSystem::clear_project_definitions() noexcept
+{
+    std::erase_if(materials, [](const auto& item) { return item.first.starts_with("project/"); });
+    std::erase_if(shaders, [](const auto& item) { return item.first.starts_with("project/"); });
+}
+
+void ResourceSystem::clear_definitions() noexcept
+{
+    materials.clear();
+    shaders.clear();
+}
+
 bool ResourceSystem::on_initialize(const EngineConfig&)
 {
+    if (definition_owner != nullptr)
+    {
+        return false;
+    }
     // 转码查找表属于 Basis Universal，不需要单独销毁，重复初始化安全。
     basist::basisu_transcoder_init();
-
-    // 以私有最小 schema 验证解析入口；该探针不定义正式资源格式。
     flatbuffers::Parser parser;
-    return parser.Parse("table DependencyProbe { value:uint; } root_type DependencyProbe;");
+    if (!parser.Parse("table DependencyProbe { value:uint; } root_type DependencyProbe;"))
+    {
+        return false;
+    }
+    std::set<std::string> old_paths;
+    for (const auto& [path, unused] : shaders)
+    {
+        old_paths.insert(path);
+    }
+    for (const auto& [path, unused] : materials)
+    {
+        old_paths.insert(path);
+    }
+    if (!register_builtin_render_resources())
+    {
+        std::erase_if(materials,
+                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
+        std::erase_if(shaders,
+                      [&old_paths](const auto& item) { return !old_paths.contains(item.first); });
+        return false;
+    }
+    definition_owner = this;
+    return true;
 }
 
 void ResourceSystem::on_shutdown() noexcept
 {
+    if (definition_owner == this)
+    {
+        clear_definitions();
+        definition_owner = nullptr;
+    }
 }
 
 } // namespace engine

@@ -53,6 +53,10 @@ classDiagram
     ScriptSystem ..> LogSystem : 静态日志入口
     ScriptSystem ..> ResourceSystem : 同步读取脚本与清单
     ScriptSystem ..> V8 : 平台及隔离环境
+    class ScriptBindingRegistry
+    class BindingContext
+    ScriptSystem *-- ScriptBindingRegistry : 独占各模块绑定注册表
+    ScriptSystem *-- BindingContext : 每次Run独占一个上下文
     class PathUtils
     ScriptSystem ..> PathUtils : UTF-8 路径转换
 ```
@@ -63,6 +67,9 @@ classDiagram
 - V8 平台每进程只初始化一次、退出时释放；每个脚本系统独占 isolate，单次玩法运行持有独立 Context、模块缓存及一个入口实例。停止重载释放该次运行；系统重启可以重建 isolate。
 - `ScriptStatus` 默认布尔值为 false、字符串为空；`status()` 返回借用，不能跨系统销毁或跨线程使用。内置运行的 `active_revision` 为 `builtin`。
 - 每帧先读取控制和完整发布版本，在安全点切换，再调用 `Update()`。JavaScript 异常写日志及 `last_error`，不使 Engine 失败；Update 失败停止玩法并清空场景，回到编辑器待机，不会由后续热重载自动启动。`OnInitialize` 非布尔值或 false 均使此次启动失败。
+- Node 的泛型 AddComponent/GetComponent 通过各组件绑定注册的工厂匹配类型；变换由 Transform 提供，材质通过字符串资源路径和参数名设置。原生 Node 仅管理组件列表。
+- [脚本绑定](script-bindings.md)通过 `ScriptBinding` 通用接口拆成独立实现：每个类的 JS 门面、原生回调与注册在自己的源文件。增加绑定只增加实现类及一个集中注册项；ScriptSystem 只负责 V8、模块加载、生命周期与热重载，不维护业务分派 switch。
+- 每个 Run 独占 BindingContext；isolate 保存活动上下文指针。回调先比较当前 Context、活动指针和生命周期许可再访问世界与场景。Run 销毁前清空 Context 中的 Run/BindingContext 指针；旧 Context 或预检 Context 不能解引用已销毁 Run。
 - 场景包装仅保存 Scene generation 与 Node id；每次调用同时校验当前 Context 属于活动 Run、Scene 属于该 Run、Node 仍存在。失效对象返回 false/null，不保存原生 Node 或 Component 裸指针。
 - 仅 Gameplay 生命周期回调允许修改场景；模块顶层、构造函数及预检期间禁止修改。`Time.deltaTime` 只在 Update 提供本帧秒数，初始化和退出为 0。
 - 停止与重载先在旧场景仍有效时调用 OnShutdown，随后销毁该次运行的原生 Scene，再释放 Context；初始化失败清理部分场景。

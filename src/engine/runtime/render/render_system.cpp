@@ -1,6 +1,11 @@
 #include "runtime/render/render_system.hpp"
 
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -8,9 +13,6 @@
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
 #include <bx/math.h>
-
-#include "fs_cube.bin.h"
-#include "vs_cube.bin.h"
 
 #if defined(SDL_PLATFORM_ANDROID)
 #include "android_surface.hpp"
@@ -23,6 +25,9 @@
 #include <cmath>
 #include <limits>
 #include <new>
+#include <set>
+#include <string>
+#include <vector>
 
 namespace engine
 {
@@ -159,9 +164,9 @@ bool drawable_scene(const Scene& scene)
         return false;
     }
     return std::any_of(scene.nodes().begin(), scene.nodes().end(),
-                       [](const auto& node)
+                       [](const std::unique_ptr<Node>& node)
                        {
-                           const MeshRenderer* mesh = node->mesh_renderer();
+                           const MeshRenderer* mesh = node->get_component<MeshRenderer>();
                            return mesh != nullptr && mesh->enabled();
                        });
 }
@@ -230,17 +235,193 @@ bool platform_data(SDL_Window* window, void* metal_view, bgfx::PlatformData& dat
 
 struct RenderSystem::SceneGpuResources
 {
+    struct Uniform
+    {
+        std::string name;
+        bgfx::UniformHandle handle = BGFX_INVALID_HANDLE;
+        std::array<float, 4> values{};
+    };
+
+    struct Program
+    {
+        std::string path;
+        bgfx::ShaderHandle vertex_shader = BGFX_INVALID_HANDLE;
+        bgfx::ShaderHandle fragment_shader = BGFX_INVALID_HANDLE;
+        bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
+        std::vector<Uniform> uniforms;
+
+        bool create(const schema::ShaderDataT& shader)
+        {
+            path = shader.path;
+            vertex_shader = bgfx::createShader(bgfx::copy(
+                shader.vertex_code.data(), static_cast<std::uint32_t>(shader.vertex_code.size())));
+            fragment_shader = bgfx::createShader(
+                bgfx::copy(shader.fragment_code.data(),
+                           static_cast<std::uint32_t>(shader.fragment_code.size())));
+            if (!bgfx::isValid(vertex_shader) || !bgfx::isValid(fragment_shader))
+            {
+                return false;
+            }
+            program = bgfx::createProgram(vertex_shader, fragment_shader);
+            if (!bgfx::isValid(program))
+            {
+                return false;
+            }
+            // 反射与定义双向匹配，避免遗漏参数继承上一对象的 uniform 值。
+            std::vector<bgfx::UniformInfo> reflected;
+            for (auto stage : {vertex_shader, fragment_shader})
+            {
+                const auto count = bgfx::getShaderUniforms(stage);
+                std::vector<bgfx::UniformHandle> handles(count);
+                bgfx::getShaderUniforms(stage, handles.data(), count);
+                for (auto handle : handles)
+                {
+                    bgfx::UniformInfo info;
+                    bgfx::getUniformInfo(handle, info);
+                    const std::string_view name(info.name);
+                    if (name == "u_normal_transform" || name == "u_camera_position" ||
+                        name == "u_light_direction" || name == "u_light_color")
+                    {
+                        const auto type = name == "u_normal_transform" ? bgfx::UniformType::Mat4
+                                                                       : bgfx::UniformType::Vec4;
+                        if (info.type != type || info.num != 1)
+                            return false;
+                        continue;
+                    }
+                    if (info.type != bgfx::UniformType::Vec4 || info.num != 1 ||
+                        std::none_of(shader.parameters.begin(), shader.parameters.end(),
+                                     [&name](const auto& parameter)
+                                     { return parameter->uniform_name == name; }))
+                    {
+                        return false;
+                    }
+                    reflected.push_back(info);
+                }
+            }
+            const auto declared = [&reflected](const std::string& name)
+            {
+                return std::any_of(reflected.begin(), reflected.end(),
+                                   [&name](const auto& info) { return name == info.name; });
+            };
+            for (const auto& parameter : shader.parameters)
+            {
+                if (std::any_of(uniforms.begin(), uniforms.end(), [&parameter](const auto& uniform)
+                                { return uniform.name == parameter->uniform_name; }))
+                {
+                    continue;
+                }
+                if (!declared(parameter->uniform_name))
+                {
+                    return false;
+                }
+                Uniform uniform;
+                uniform.name = parameter->uniform_name;
+                uniform.handle = bgfx::createUniform(uniform.name.c_str(), bgfx::UniformType::Vec4);
+                uniforms.push_back(std::move(uniform));
+                if (!bgfx::isValid(uniforms.back().handle))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        void release() noexcept
+        {
+            if (bgfx::isValid(program))
+                bgfx::destroy(program);
+            if (bgfx::isValid(vertex_shader))
+                bgfx::destroy(vertex_shader);
+            if (bgfx::isValid(fragment_shader))
+                bgfx::destroy(fragment_shader);
+            for (const auto& uniform : uniforms)
+            {
+                if (bgfx::isValid(uniform.handle))
+                    bgfx::destroy(uniform.handle);
+            }
+            program = BGFX_INVALID_HANDLE;
+            vertex_shader = BGFX_INVALID_HANDLE;
+            fragment_shader = BGFX_INVALID_HANDLE;
+            uniforms.clear();
+        }
+
+        bool bind_material(const Material& material)
+        {
+            const auto* shader = ResourceSystem::find_shader(path);
+            if (shader == nullptr)
+                return false;
+            for (auto& uniform : uniforms)
+                uniform.values.fill(0.0F);
+            for (const auto& parameter : shader->parameters)
+            {
+                std::array<double, 4> values{};
+                std::size_t count = 0;
+                const auto& value = parameter->default_value;
+                switch (value.type)
+                {
+                case schema::MaterialValue::FloatValue:
+                {
+                    float scalar = value.AsFloatValue()->value;
+                    if (parameter->exposed && !material.get_float(parameter->name, scalar))
+                        return false;
+                    values[0] = scalar;
+                    count = 1;
+                    break;
+                }
+                case schema::MaterialValue::Vec2Value:
+                {
+                    Vec2 vector = value.AsVec2Value()->value;
+                    if (parameter->exposed && !material.get_v2(parameter->name, vector))
+                        return false;
+                    values = {vector.x(), vector.y(), 0.0, 0.0};
+                    count = 2;
+                    break;
+                }
+                case schema::MaterialValue::Vec3Value:
+                {
+                    Vec3 vector = value.AsVec3Value()->value;
+                    if (parameter->exposed && !material.get_v3(parameter->name, vector))
+                        return false;
+                    values = {vector.x(), vector.y(), vector.z(), 0.0};
+                    count = 3;
+                    break;
+                }
+                case schema::MaterialValue::Vec4Value:
+                {
+                    Vec4 vector = value.AsVec4Value()->value;
+                    if (parameter->exposed && !material.get_v4(parameter->name, vector))
+                        return false;
+                    values = {vector.x(), vector.y(), vector.z(), vector.w()};
+                    count = 4;
+                    break;
+                }
+                default:
+                    return false;
+                }
+                auto uniform =
+                    std::find_if(uniforms.begin(), uniforms.end(), [&parameter](const auto& item)
+                                 { return item.name == parameter->uniform_name; });
+                if (uniform == uniforms.end() || parameter->uniform_offset + count > 4)
+                    return false;
+                for (std::size_t index = 0; index < count; ++index)
+                {
+                    uniform->values[parameter->uniform_offset + index] =
+                        static_cast<float>(values[index]);
+                }
+            }
+            for (const auto& uniform : uniforms)
+                bgfx::setUniform(uniform.handle, uniform.values.data());
+            return true;
+        }
+    };
+
     bgfx::VertexBufferHandle vertices = BGFX_INVALID_HANDLE;
     bgfx::IndexBufferHandle indices = BGFX_INVALID_HANDLE;
-    bgfx::ShaderHandle vertex_shader = BGFX_INVALID_HANDLE;
-    bgfx::ShaderHandle fragment_shader = BGFX_INVALID_HANDLE;
-    bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle normal_transform = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle base_color = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle material = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle camera_position = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_direction = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_color = BGFX_INVALID_HANDLE;
+    std::vector<Program> programs;
 };
 
 RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world) noexcept
@@ -372,56 +553,87 @@ bool RenderSystem::prepare_scene()
     }
     if (scene == nullptr || !drawable_scene(*scene))
     {
-        return true;
-    }
-    if (scene_resources_ != nullptr)
-    {
+        release_scene();
         return true;
     }
     if (!renderer_initialized_)
     {
-        // Android 前后台切换保留 CPU 场景，恢复 Surface 后再创建 GPU 对象。
+        // Android 暂停时保留 CPU 场景，恢复 Surface 后再创建 GPU 对象。
         return true;
     }
-    scene_resources_.reset(new (std::nothrow) SceneGpuResources{});
     if (scene_resources_ == nullptr)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot allocate scene GPU resource state");
-        return false;
+        scene_resources_.reset(new (std::nothrow) SceneGpuResources{});
+        if (scene_resources_ == nullptr)
+            return false;
+        auto& resources = *scene_resources_;
+        bgfx::VertexLayout layout;
+        layout.begin()
+            .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
+            .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
+            .end();
+        resources.vertices =
+            bgfx::createVertexBuffer(bgfx::makeRef(cube_vertices, sizeof(cube_vertices)), layout);
+        resources.indices =
+            bgfx::createIndexBuffer(bgfx::makeRef(cube_indices, sizeof(cube_indices)));
+        resources.normal_transform =
+            bgfx::createUniform("u_normal_transform", bgfx::UniformType::Mat4);
+        resources.camera_position =
+            bgfx::createUniform("u_camera_position", bgfx::UniformType::Vec4);
+        resources.light_direction =
+            bgfx::createUniform("u_light_direction", bgfx::UniformType::Vec4);
+        resources.light_color = bgfx::createUniform("u_light_color", bgfx::UniformType::Vec4);
+        if (!bgfx::isValid(resources.vertices) || !bgfx::isValid(resources.indices) ||
+            !bgfx::isValid(resources.normal_transform) ||
+            !bgfx::isValid(resources.camera_position) ||
+            !bgfx::isValid(resources.light_direction) || !bgfx::isValid(resources.light_color))
+        {
+            release_scene();
+            return false;
+        }
+        scene_id_ = scene->id();
     }
-    SceneGpuResources& resources = *scene_resources_;
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
-        .end();
-    resources.vertices =
-        bgfx::createVertexBuffer(bgfx::makeRef(cube_vertices, sizeof(cube_vertices)), layout);
-    resources.indices = bgfx::createIndexBuffer(bgfx::makeRef(cube_indices, sizeof(cube_indices)));
-    resources.vertex_shader = bgfx::createShader(bgfx::makeRef(vs_cube, sizeof(vs_cube)));
-    resources.fragment_shader = bgfx::createShader(bgfx::makeRef(fs_cube, sizeof(fs_cube)));
-    if (bgfx::isValid(resources.vertex_shader) && bgfx::isValid(resources.fragment_shader))
+    auto& programs = scene_resources_->programs;
+    std::set<std::string> needed;
+    for (const auto& node : scene->nodes())
     {
-        // 显式保留 Shader 所有权，失败和正常关闭都走同一清理流程。
-        resources.program = bgfx::createProgram(resources.vertex_shader, resources.fragment_shader);
+        const auto* mesh = node->get_component<MeshRenderer>();
+        if (mesh == nullptr || !mesh->enabled())
+            continue;
+        const std::string path(mesh->material().shader_path());
+        if (!needed.insert(path).second)
+            continue;
+        const auto* shader = ResourceSystem::find_shader(path);
+        if (shader == nullptr)
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Unknown shader resource: %s", path.c_str());
+            release_scene();
+            return false;
+        }
+        if (std::none_of(programs.begin(), programs.end(),
+                         [&path](const auto& program) { return program.path == path; }))
+        {
+            programs.emplace_back();
+            if (!programs.back().create(*shader))
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare shader resource: %s",
+                             path.c_str());
+                release_scene();
+                return false;
+            }
+        }
     }
-    resources.normal_transform = bgfx::createUniform("u_normal_transform", bgfx::UniformType::Mat4);
-    resources.base_color = bgfx::createUniform("u_base_color", bgfx::UniformType::Vec4);
-    resources.material = bgfx::createUniform("u_material", bgfx::UniformType::Vec4);
-    resources.camera_position = bgfx::createUniform("u_camera_position", bgfx::UniformType::Vec4);
-    resources.light_direction = bgfx::createUniform("u_light_direction", bgfx::UniformType::Vec4);
-    resources.light_color = bgfx::createUniform("u_light_color", bgfx::UniformType::Vec4);
-    if (!bgfx::isValid(resources.vertices) || !bgfx::isValid(resources.indices) ||
-        !bgfx::isValid(resources.program) || !bgfx::isValid(resources.normal_transform) ||
-        !bgfx::isValid(resources.base_color) || !bgfx::isValid(resources.material) ||
-        !bgfx::isValid(resources.camera_position) || !bgfx::isValid(resources.light_direction) ||
-        !bgfx::isValid(resources.light_color))
+    // 材质切换 shader 后退役不再使用的程序，保持项目GPU资源有界。
+    for (auto iterator = programs.begin(); iterator != programs.end();)
     {
-        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot initialize embedded cube GPU resources");
-        release_scene();
-        return false;
+        if (!needed.contains(iterator->path))
+        {
+            iterator->release();
+            iterator = programs.erase(iterator);
+        }
+        else
+            ++iterator;
     }
-    scene_id_ = scene->id();
     return true;
 }
 
@@ -429,36 +641,18 @@ void RenderSystem::release_scene() noexcept
 {
     if (scene_resources_ != nullptr && renderer_initialized_)
     {
-        const SceneGpuResources& resources = *scene_resources_;
-        if (bgfx::isValid(resources.program))
-        {
-            bgfx::destroy(resources.program);
-        }
-        if (bgfx::isValid(resources.vertex_shader))
-        {
-            bgfx::destroy(resources.vertex_shader);
-        }
-        if (bgfx::isValid(resources.fragment_shader))
-        {
-            bgfx::destroy(resources.fragment_shader);
-        }
+        auto& resources = *scene_resources_;
+        for (auto& program : resources.programs)
+            program.release();
         if (bgfx::isValid(resources.vertices))
-        {
             bgfx::destroy(resources.vertices);
-        }
         if (bgfx::isValid(resources.indices))
-        {
             bgfx::destroy(resources.indices);
-        }
-        const bgfx::UniformHandle uniforms[] = {
-            resources.normal_transform, resources.base_color,      resources.material,
-            resources.camera_position,  resources.light_direction, resources.light_color};
-        for (bgfx::UniformHandle uniform : uniforms)
+        for (auto uniform : {resources.normal_transform, resources.camera_position,
+                             resources.light_direction, resources.light_color})
         {
             if (bgfx::isValid(uniform))
-            {
                 bgfx::destroy(uniform);
-            }
         }
     }
     scene_resources_.reset();
@@ -477,17 +671,21 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         return 0;
     }
     const SceneGpuResources& resources = *scene_resources_;
-    return static_cast<std::uint32_t>(bgfx::isValid(resources.vertices)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.indices)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.vertex_shader)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.fragment_shader)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.program)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.normal_transform)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.base_color)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.material)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.camera_position)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.light_direction)) +
-           static_cast<std::uint32_t>(bgfx::isValid(resources.light_color));
+    std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(resources.vertices)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(resources.indices)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(resources.normal_transform)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(resources.camera_position)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(resources.light_direction)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(resources.light_color));
+    for (const auto& program : resources.programs)
+    {
+        count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.program));
+        for (const auto& uniform : program.uniforms)
+            count += static_cast<std::uint32_t>(bgfx::isValid(uniform.handle));
+    }
+    return count;
 }
 
 bool RenderSystem::draw_scene()
@@ -503,7 +701,8 @@ bool RenderSystem::draw_scene()
     }
     const Camera& camera = *scene->active_camera();
     float camera_world[16];
-    if (!camera.node().world_matrix(camera_world))
+    const auto* camera_transform = camera.node().get_component<Transform>();
+    if (camera_transform == nullptr || !camera_transform->world_matrix(camera_world))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Camera world matrix is invalid");
         return false;
@@ -525,13 +724,14 @@ bool RenderSystem::draw_scene()
     std::array<float, 4> light_color{};
     for (const auto& node : scene->nodes())
     {
-        const Light* light = node->light();
+        const Light* light = node->get_component<Light>();
         if (light == nullptr || !light->enabled())
         {
             continue;
         }
         float light_world[16];
-        if (!node->world_matrix(light_world))
+        const auto* transform = node->get_component<Transform>();
+        if (transform == nullptr || !transform->world_matrix(light_world))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Light world matrix is invalid");
             return false;
@@ -548,21 +748,22 @@ bool RenderSystem::draw_scene()
                            static_cast<float>(-light_world[9] / length),
                            static_cast<float>(-light_world[10] / length), 0.0F};
         const LightSettings& light_settings = light->settings();
-        light_color = {light_settings.color.r * light_settings.intensity,
-                       light_settings.color.g * light_settings.intensity,
-                       light_settings.color.b * light_settings.intensity, 0.0F};
+        light_color = {light_settings.color.r() * light_settings.intensity,
+                       light_settings.color.g() * light_settings.intensity,
+                       light_settings.color.b() * light_settings.intensity, 0.0F};
         break; // 本轮支持一盏方向光，选节点顺序中的第一个启用 Light。
     }
-    const SceneGpuResources& resources = *scene_resources_;
+    SceneGpuResources& resources = *scene_resources_;
     for (const auto& node : scene->nodes())
     {
-        const MeshRenderer* mesh = node->mesh_renderer();
+        const MeshRenderer* mesh = node->get_component<MeshRenderer>();
         if (mesh == nullptr || !mesh->enabled())
         {
             continue;
         }
         float model[16];
-        if (!node->world_matrix(model))
+        const auto* transform = node->get_component<Transform>();
+        if (transform == nullptr || !transform->world_matrix(model))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
             return false;
@@ -574,13 +775,15 @@ bool RenderSystem::draw_scene()
             return false;
         }
         const Material& material = mesh->material();
-        const float base_color[] = {material.base_color.r, material.base_color.g,
-                                    material.base_color.b, material.base_color.a};
-        const float parameters[] = {material.metallic, material.roughness,
-                                    material.unlit ? 1.0F : 0.0F, 0.0F};
+        auto program = std::find_if(resources.programs.begin(), resources.programs.end(),
+                                    [&material](const auto& item)
+                                    { return item.path == material.shader_path(); });
+        if (program == resources.programs.end() || !program->bind_material(material))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Material parameters do not match its shader");
+            return false;
+        }
         bgfx::setUniform(resources.normal_transform, normal_transform);
-        bgfx::setUniform(resources.base_color, base_color);
-        bgfx::setUniform(resources.material, parameters);
         bgfx::setUniform(resources.camera_position, camera_position);
         bgfx::setUniform(resources.light_direction, light_direction.data());
         bgfx::setUniform(resources.light_color, light_color.data());
@@ -591,7 +794,7 @@ bool RenderSystem::draw_scene()
             linear_determinant(model) < 0.0F ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
                        BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA | cull);
-        bgfx::submit(main_view, resources.program);
+        bgfx::submit(main_view, program->program);
     }
     return true;
 }

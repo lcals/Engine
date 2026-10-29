@@ -8,12 +8,17 @@
 
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；本版只简化数据来源，Mesh 与参数内置。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
-- [节点](../runtime/class-diagrams/node.md)：身份、层级、变换及组件所有权。
-- [组件](../runtime/class-diagrams/component.md)：Component、Camera、Light、MeshRenderer 及当前参数。
+- [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
+- [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
+- [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
+- [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
+- [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和会话内置资源准备。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [MCP](../plugins/class-diagrams/mcp-system.md)：start_project、stop_project 完成回执；保留同步及热重载工具。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 创建节点与组件，运行停止或重载后旧引用安全失效。
+
+- [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
 
 ## 已有脚本接口
 
@@ -64,7 +69,7 @@
 - [Android 宿主](../runtime/class-diagrams/android-host.md)：SDL3 Activity 加载原生引擎，Activity 与 Surface 在销毁前同步暂停渲染；不要求编辑器项目。
 
 - [项目系统](../editor/class-diagrams/project-system.md)：编辑器宿主先检查项目根目录及 settings、cache、assets；接入 toml++。
-- [编辑器系统](../editor/class-diagrams/editor-system.md)：借用已就绪的项目系统，创建 Dear ImGui 上下文，支持编辑器子系统。
+- [编辑器系统](../editor/class-diagrams/editor-system.md)：借用已就绪的编辑器环境，创建 Dear ImGui 上下文，支持编辑器子系统。
 - `engine_app` 使用默认配置即可启动；`editor_app` 必须传入 `--project <path>`，先验证项目再启动窗口。编辑器默认空白待机，MCP 启动后项目占满同一窗口，停止后恢复空白；尚未绘制编辑器业务界面。
 - [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：USD、Taskflow、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
 - shaderc、texturec、geometryc 是构建提供的宿主工具；fmt 用于基础格式化。它们不引入额外引擎包装类。

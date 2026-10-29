@@ -2,10 +2,12 @@
 
 #include "runtime/scene/component.hpp"
 
+#include <concepts>
 #include <cstdint>
 #include <memory>
-#include <string>
+#include <new>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace engine
@@ -25,41 +27,52 @@ public:
 
     [[nodiscard]] std::uint64_t id() const noexcept;
     [[nodiscard]] std::string_view name() const noexcept;
+    [[nodiscard]] const schema::NodeInfoT& info() const noexcept;
     [[nodiscard]] Scene& scene() noexcept;
     [[nodiscard]] const Scene& scene() const noexcept;
-    [[nodiscard]] const Transform& transform() const noexcept;
-    [[nodiscard]] bool set_transform(const Transform& transform) noexcept;
     [[nodiscard]] Node* parent() noexcept;
     [[nodiscard]] const Node* parent() const noexcept;
     // 保留局部变换；空指针解除父子关系。跨场景或形成循环时返回 false。
     [[nodiscard]] bool set_parent(Node* parent) noexcept;
-    // 输出 16 个列主序 float；无效输出或计算溢出返回 false，非空输出保留单位矩阵。
-    [[nodiscard]] bool world_matrix(float* output) const noexcept;
 
     // 返回借用，由本节点独占；每类组件至多一个，重复添加返回空指针。
-    [[nodiscard]] Camera* add_camera();
-    [[nodiscard]] Light* add_light();
-    [[nodiscard]] MeshRenderer* add_mesh_renderer();
-    [[nodiscard]] Camera* camera() noexcept;
-    [[nodiscard]] const Camera* camera() const noexcept;
-    [[nodiscard]] Light* light() noexcept;
-    [[nodiscard]] const Light* light() const noexcept;
-    [[nodiscard]] MeshRenderer* mesh_renderer() noexcept;
-    [[nodiscard]] const MeshRenderer* mesh_renderer() const noexcept;
+    template <std::derived_from<Component> T> [[nodiscard]] T* add_component()
+    {
+        if (get_component(T::component_type) != nullptr)
+        {
+            return nullptr;
+        }
+        std::unique_ptr<T> component(new (std::nothrow) T(*this));
+        if (component == nullptr || !static_cast<Component&>(*component).initialize())
+        {
+            return nullptr;
+        }
+        T* result = component.get();
+        components_.push_back(std::move(component));
+        return result;
+    }
+
+    template <std::derived_from<Component> T> [[nodiscard]] T* get_component() noexcept
+    {
+        return static_cast<T*>(get_component(T::component_type));
+    }
+
+    template <std::derived_from<Component> T> [[nodiscard]] const T* get_component() const noexcept
+    {
+        return static_cast<const T*>(get_component(T::component_type));
+    }
+
+    [[nodiscard]] Component* get_component(ComponentType type) noexcept;
+    [[nodiscard]] const Component* get_component(ComponentType type) const noexcept;
+    [[nodiscard]] const std::vector<std::unique_ptr<Component>>& components() const noexcept;
 
 private:
     friend class Scene;
     Node(Scene& scene, std::uint64_t id, std::string_view name);
 
     Scene& scene_;
-    std::uint64_t id_;
-    std::string name_;
-    Transform transform_{};
-    Node* parent_ = nullptr;
+    schema::NodeInfoT info_{};
     std::vector<std::unique_ptr<Component>> components_;
-    Camera* camera_ = nullptr;
-    Light* light_ = nullptr;
-    MeshRenderer* mesh_renderer_ = nullptr;
 };
 
 } // namespace engine
