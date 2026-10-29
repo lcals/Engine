@@ -232,6 +232,25 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                       {"command", "arguments"});
     return register_command("get_scene", "get_scene", "Read the active scene and its components.",
                             object_schema(Json::object())) &&
+           register_command(
+               "create_node", "create_node",
+               "Create a named node with Transform and an optional component.",
+               object_schema(
+                   {{"sceneId", id_schema()},
+                    {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
+                    {"component", {{"type", "string"}, {"enum", {"empty", "camera", "light"}}}}},
+                   {"sceneId", "name", "component"})) &&
+           register_command("set_active_camera", "set_active_camera",
+                            "Select the active scene camera.",
+                            object_schema(node_properties, required_node)) &&
+           register_command(
+               "save_scene", "save_scene",
+               "Save the active scene, mesh sources and material values into project assets. "
+               "Import after stopping the project.",
+               object_schema(
+                   {{"sceneId", id_schema()},
+                    {"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}},
+                   {"sceneId", "path"})) &&
            register_command("set_transform", "set_transform", "Edit an existing node transform.",
                             object_schema(std::move(transform), required_node)) &&
            register_command("set_light", "set_light", "Edit an existing light component.",
@@ -242,6 +261,15 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                "set_material_texture", "set_material_texture",
                "Assign a texture by sampler name and resource path.",
                object_schema(std::move(texture), {"sceneId", "nodeId", "name", "path"})) &&
+           register_command(
+               "set_material_type", "set_material_type",
+               "Select a material resource for a renderer slot.",
+               object_schema(
+                   {{"sceneId", id_schema()},
+                    {"nodeId", id_schema()},
+                    {"slot", {{"type", "integer"}, {"minimum", 0}, {"maximum", 15}}},
+                    {"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}},
+                   {"sceneId", "nodeId", "path"})) &&
            register_command("set_material_parameter", "set_material_parameter",
                             "Set an existing material parameter by name and declared type.",
                             object_schema(std::move(material),

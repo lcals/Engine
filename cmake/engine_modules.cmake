@@ -63,9 +63,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 engine::resource
                 SDL3::SDL3
                 bgfx::bgfx
+                bgfx::bimg_encode
                 bgfx::bx
                 basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/render_shaders.cmake)
+    engine_embed_render_shaders(engine_render shadow)
     if(ANDROID)
         target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
         target_include_directories(engine_window PRIVATE "${PROJECT_SOURCE_DIR}/platforms")
@@ -169,15 +171,37 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_apply_options(engine_runtime)
 endif()
 
+if(ENGINE_ENABLE_EDITOR_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    add_library(engine_modeling STATIC
+        src/engine/plugins/modeling/editable_mesh.cpp
+        src/engine/plugins/modeling/mesh_topology.cpp
+        src/engine/plugins/modeling/mesh_primitives.cpp
+        src/engine/plugins/modeling/mesh_geometry.cpp
+        src/engine/plugins/modeling/mesh_geometry_uv.cpp
+        src/engine/plugins/modeling/mesh_geometry_atlas.cpp
+        src/engine/plugins/modeling/mesh_geometry_solid.cpp)
+    add_library(engine::modeling ALIAS engine_modeling)
+    target_include_directories(engine_modeling PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_modeling
+        PUBLIC engine::core engine::scene_data
+        PRIVATE engine::resource earcut_hpp::earcut_hpp manifold::manifold xatlas::xatlas)
+    engine_apply_options(engine_modeling)
+endif()
+
 if(ENGINE_ENABLE_EDITOR_DEPS)
     engine_add_system(editor project)
-    target_link_libraries(engine_project PRIVATE tomlplusplus::tomlplusplus engine::log)
-    target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
+    # toml++ 的 formatter 在异常开关下具有不同布局；所有自有目标统一采用无异常头文件实现。
+    # 不链接 vcpkg 的带异常二进制库，避免同名 formatter 符号混入同一进程。
+    get_target_property(_project_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_project SYSTEM PRIVATE ${_project_toml_includes})
+    target_link_libraries(engine_project PRIVATE engine::log)
+    target_compile_definitions(engine_project PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
     target_sources(
         engine_editor
-        PRIVATE src/engine/editor/editor_environment.cpp
+        PRIVATE src/engine/editor/render/render_commands.cpp
+                src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
                 src/engine/editor/commands/editor_command_channel.cpp)
@@ -189,6 +213,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
         engine_editor
         PUBLIC nlohmann_json::nlohmann_json
         PRIVATE engine::project
+                engine::render
                 engine::gameplay
                 engine::app
                 engine::log
@@ -200,6 +225,18 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(
         engine_editor
         PRIVATE ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>)
+
+    add_library(engine_modeling_editor STATIC src/engine/editor/modeling/modeling_commands.cpp)
+    add_library(engine::modeling_editor ALIAS engine_modeling_editor)
+    target_include_directories(engine_modeling_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    get_target_property(_modeling_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_modeling_editor SYSTEM PRIVATE ${_modeling_toml_includes})
+    target_link_libraries(engine_modeling_editor
+        PUBLIC engine::core
+        PRIVATE engine::modeling engine::editor engine::world engine::resource SDL3::SDL3)
+    target_compile_definitions(engine_modeling_editor
+        PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0 JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_modeling_editor)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
@@ -210,7 +247,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_add_system(editor asset_pipeline)
     target_sources(
         engine_asset_pipeline
-        PRIVATE src/engine/editor/asset_pipeline/asset_database.cpp
+        PRIVATE src/engine/editor/asset_pipeline/asset_metadata.cpp
+                src/engine/editor/asset_pipeline/asset_database.cpp
                 src/engine/editor/asset_pipeline/asset_importers.cpp
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
@@ -223,6 +261,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         PUBLIC engine::scene_data
         PRIVATE engine::task
                 engine::resource
+                engine::modeling
                 usd
                 unofficial::sqlite3::sqlite3
                 efsw::efsw
@@ -251,6 +290,9 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 ENGINE_SCRIPT_BUILDER="${PROJECT_SOURCE_DIR}/scripts/build_scripts.mjs")
 
     if(TARGET engine_editor)
+        target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp)
+        target_include_directories(engine_editor SYSTEM PRIVATE ${_toml_includes})
+        target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
         target_link_libraries(engine_editor PRIVATE engine::asset_pipeline)
     endif()
 
@@ -282,7 +324,8 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
             src/engine/plugins/mcp/project_runtime_tools.cpp
             src/engine/plugins/mcp/project_lifecycle_tools.cpp
             src/engine/plugins/mcp/android_sync.cpp
-            src/engine/plugins/mcp/editor_mcp_tools.cpp)
+            src/engine/plugins/mcp/editor_mcp_tools.cpp
+            src/engine/plugins/mcp/render_mcp_tools.cpp)
         add_library(engine::project_mcp_tools ALIAS engine_project_mcp_tools)
         target_include_directories(engine_project_mcp_tools
                                    PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -292,5 +335,10 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME AND NOT ANDROID)
             PRIVATE engine::asset_pipeline engine::asset_build engine::asset_sync engine::resource
                     SDL3::SDL3 Threads::Threads)
         engine_apply_options(engine_project_mcp_tools)
+        add_library(engine_modeling_mcp_tools STATIC
+            src/engine/plugins/modeling/modeling_mcp_tools.cpp)
+        add_library(engine::modeling_mcp_tools ALIAS engine_modeling_mcp_tools)
+        target_link_libraries(engine_modeling_mcp_tools PUBLIC engine::project_mcp_tools)
+        engine_apply_options(engine_modeling_mcp_tools)
     endif()
 endif()

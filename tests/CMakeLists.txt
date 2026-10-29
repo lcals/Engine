@@ -144,6 +144,46 @@ if(TARGET engine_project)
                                          "${CMAKE_CURRENT_BINARY_DIR}/project-test-output")
 endif()
 
+if(TARGET engine_modeling)
+    foreach(_part core geometry)
+        add_executable(engine_modeling_${_part}_test modeling_${_part}_test.cpp)
+        target_link_libraries(engine_modeling_${_part}_test PRIVATE engine::modeling)
+        engine_apply_options(engine_modeling_${_part}_test)
+        add_test(NAME modeling.${_part} COMMAND engine_modeling_${_part}_test)
+        set_tests_properties(modeling.${_part} PROPERTIES TIMEOUT 60)
+    endforeach()
+endif()
+
+if(TARGET engine_modeling_editor)
+    add_executable(engine_modeling_commands_test modeling_commands_test.cpp)
+    target_link_libraries(engine_modeling_commands_test PRIVATE engine::modeling_editor
+        engine::modeling engine::editor engine::world engine::resource)
+    if(TARGET engine_modeling_mcp_tools)
+        target_link_libraries(engine_modeling_commands_test PRIVATE engine::modeling_mcp_tools)
+        target_compile_definitions(engine_modeling_commands_test PRIVATE ENGINE_TEST_MODELING_MCP=1)
+    endif()
+    engine_apply_options(engine_modeling_commands_test)
+    add_test(NAME modeling.commands COMMAND engine_modeling_commands_test)
+    set_tests_properties(modeling.commands PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_asset_pipeline AND TARGET engine_modeling)
+    add_executable(engine_modeling_pipeline_test modeling_pipeline_test.cpp)
+    target_link_libraries(engine_modeling_pipeline_test PRIVATE engine::modeling
+        engine::asset_pipeline engine::resource)
+    engine_apply_options(engine_modeling_pipeline_test)
+    add_test(NAME modeling.pipeline COMMAND engine_modeling_pipeline_test)
+    set_tests_properties(modeling.pipeline PROPERTIES TIMEOUT 120)
+endif()
+
+if(ENGINE_ENABLE_GPU_TESTS AND TARGET editor_app AND TARGET mcp_app)
+    add_test(NAME modeling.mcp
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/mcp_modeling_test.py"
+            --editor "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>"
+            --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(modeling.mcp PROPERTIES TIMEOUT 240 RUN_SERIAL TRUE)
+endif()
+
 if(TARGET engine_editor)
     add_executable(engine_editor_commands_test editor_commands_test.cpp)
     target_include_directories(engine_editor_commands_test
@@ -340,4 +380,21 @@ if(TARGET editor_app
             "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
             "${PROJECT_SOURCE_DIR}")
     set_tests_properties(editor.mcp_commands PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+endif()
+
+if(TARGET engine_asset_pipeline)
+    add_executable(engine_asset_metadata_test asset_metadata_test.cpp)
+    target_include_directories(engine_asset_metadata_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_asset_metadata_test PRIVATE engine::asset_pipeline engine::resource)
+    engine_apply_options(engine_asset_metadata_test)
+    add_test(NAME editor.asset_metadata COMMAND engine_asset_metadata_test)
+endif()
+
+if(TARGET engine_modeling_editor AND TARGET engine_asset_pipeline)
+    add_executable(engine_scene_persistence_test scene_persistence_test.cpp)
+    target_include_directories(engine_scene_persistence_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_scene_persistence_test PRIVATE engine::modeling_editor engine::editor
+        engine::asset_pipeline engine::world engine::resource)
+    engine_apply_options(engine_scene_persistence_test)
+    add_test(NAME editor.scene_persistence COMMAND engine_scene_persistence_test)
 endif()

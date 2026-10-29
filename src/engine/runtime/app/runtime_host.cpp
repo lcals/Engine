@@ -158,6 +158,11 @@ WorldSystem* RuntimeHost::world() noexcept
     return initialized_ ? world_ : nullptr;
 }
 
+RenderSystem* RuntimeHost::renderer() noexcept
+{
+    return initialized_ ? renderer_ : nullptr;
+}
+
 void RuntimeHost::request_exit() noexcept
 {
     exit_requested_ = true;

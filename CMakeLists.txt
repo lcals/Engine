@@ -94,6 +94,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
     target_link_libraries(
         editor_app
         PRIVATE engine::editor
+                engine::modeling_editor
                 engine::project
                 engine::runtime
                 engine::app
@@ -123,7 +124,8 @@ if(ENGINE_BUILD_APP
    AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_executable(mcp_app src/mcp_main.cpp)
     target_link_libraries(mcp_app PRIVATE engine::project_mcp_tools engine::asset_pipeline
-                                          engine::asset_build engine::asset_sync SDL3::SDL3)
+                                          engine::asset_build engine::asset_sync
+                                          engine::modeling_mcp_tools SDL3::SDL3)
     engine_apply_options(mcp_app)
 endif()
 

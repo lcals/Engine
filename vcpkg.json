@@ -41,6 +41,8 @@
     "editor": {
       "description": "Desktop editor UI dependencies",
       "dependencies": [
+        "earcut-hpp",
+        "manifold",
         "tomlplusplus",
         {
           "name": "imgui",
@@ -54,6 +56,8 @@
     "asset-pipeline": {
       "description": "Editor and offline asset processing dependencies",
       "dependencies": [
+        "earcut-hpp",
+        "manifold",
         "basisu",
         {
           "name": "bgfx",
@@ -74,6 +78,18 @@
     }
   },
   "overrides": [
+    {
+      "name": "earcut-hpp",
+      "version": "3.2.4"
+    },
+    {
+      "name": "manifold",
+      "version": "3.5.4"
+    },
+    {
+      "name": "clipper2",
+      "version": "2.0.1"
+    },
     {
       "name": "fmt",
       "version": "12.0.0"

@@ -4,6 +4,7 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "editor/asset_pipeline/texture_importer.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
+#include "plugins/modeling/editable_mesh.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
@@ -95,6 +96,12 @@ bool uniform_name(std::string_view name)
 bool reserved_uniform(std::string_view name)
 {
     constexpr std::array reserved = {"u_normal_transform",
+                                     "u_ambient",
+                                     "u_tonemap",
+                                     "u_shadow_transform",
+                                     "u_shadow_settings",
+                                     "u_shadow_depth",
+                                     "s_shadow_map",
                                      "u_camera_position",
                                      "u_light_direction",
                                      "u_light_color",
@@ -242,6 +249,59 @@ bool convert_mesh(const ImportAsset& asset, const ImportContext& context, std::s
     }
     schema::MeshDataT mesh;
     mesh.path = asset.path;
+    if (table.contains("modeling"))
+    {
+        const auto* modeling = table["modeling"].as_table();
+        const auto format =
+            modeling == nullptr ? std::string{} : (*modeling)["format"].value_or(std::string{});
+        const auto encoded =
+            modeling == nullptr ? std::string{} : (*modeling)["data"].value_or(std::string{});
+        if (format != "flatbuffers-hex" || encoded.empty() || encoded.size() % 2 != 0 ||
+            encoded.size() > 128 * 1024 * 1024)
+        {
+            error = "modeling source requires bounded flatbuffers-hex data";
+            return false;
+        }
+        const auto digit = [](char value) -> int
+        {
+            if (value >= '0' && value <= '9')
+            {
+                return value - '0';
+            }
+            if (value >= 'a' && value <= 'f')
+            {
+                return value - 'a' + 10;
+            }
+            if (value >= 'A' && value <= 'F')
+            {
+                return value - 'A' + 10;
+            }
+            return -1;
+        };
+        std::vector<std::uint8_t> bytes(encoded.size() / 2);
+        for (std::size_t index = 0; index < bytes.size(); ++index)
+        {
+            const int high = digit(encoded[index * 2]);
+            const int low = digit(encoded[index * 2 + 1]);
+            if (high < 0 || low < 0)
+            {
+                error = "modeling source contains invalid hexadecimal data";
+                return false;
+            }
+            bytes[index] = static_cast<std::uint8_t>((high << 4) | low);
+        }
+        schema::EditableMeshDataT editable;
+        if (!EditableMesh::deserialize(bytes, editable, error) ||
+            !EditableMesh::compile(editable, asset.path, mesh, error))
+        {
+            return false;
+        }
+        flatbuffers::FlatBufferBuilder builder;
+        schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));
+        return write_bytes(context.output / asset.guid,
+                           std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
+                           error);
+    }
     const auto* vertices = table["vertices"].as_array();
     const auto* indices = table["indices"].as_array();
     if (vertices == nullptr || vertices->empty() || indices == nullptr || indices->empty() ||
@@ -507,7 +567,7 @@ bool convert_shader(const ImportAsset& asset, const ImportContext& context, std:
                 !uniform_name(sampler->uniform_name) || slots.contains(sampler->uniform_name) ||
                 reserved_uniform(sampler->uniform_name) ||
                 !uniforms.insert(sampler->uniform_name).second ||
-                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage > 15 ||
+                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 15 ||
                 !stages.insert(*stage).second ||
                 (sampler_table->contains("exposed") && !(*sampler_table)["exposed"].is_boolean()) ||
                 !builtin_texture(sampler->default_texture, context, dependencies, error))

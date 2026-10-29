@@ -3,6 +3,7 @@
 #include "editor/asset_pipeline/asset_database.hpp"
 #include "editor/asset_pipeline/asset_importers.hpp"
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/asset_metadata.hpp"
 #include "editor/asset_pipeline/asset_publish.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/asset_pipeline/texture_importer.hpp"
@@ -43,7 +44,7 @@ namespace
 
 using namespace asset_pipeline;
 
-constexpr std::string_view importer_version = "engine-asset-importers-3";
+constexpr std::string_view importer_version = "engine-asset-importers-5";
 
 bool directory(const std::filesystem::path& path, std::string& error)
 {
@@ -450,61 +451,16 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
         record.asset.source = source;
         record.asset.path = "project/" + generic_path(source.lexically_relative(assets));
         record.asset.kind = asset_kind(source);
-        auto meta = source;
-        meta += ".meta";
-        const bool exists = std::filesystem::exists(meta, code);
-        if (code)
-        {
-            error = "cannot inspect resource meta: " + PathUtils::to_utf8(meta);
-            return false;
-        }
         std::string meta_text;
-        if (!exists)
+        const auto defaults = record.asset.kind == schema::AssetKind::texture
+                                  ? TextureImporter::default_meta()
+                                  : std::string_view{};
+        if (!read_or_create_asset_meta(
+                source, cache / ".asset-meta", importer_name(record.asset.kind), defaults,
+                !remembered.contains(record.asset.path), meta_text, record.asset.guid, error))
         {
-            if (remembered.contains(record.asset.path))
-            {
-                error = "existing asset lost its meta; restore it to preserve references: " +
-                        record.asset.path;
-                return false;
-            }
-            Guid guid;
-            do
-            {
-                guid = new_guid();
-            } while (kinds.contains(guid));
-            meta_text = "guid = \"" + guid + "\"\nimporter = \"" +
-                        importer_name(record.asset.kind) + "\"\nmeta_version = 1\n";
-            if (record.asset.kind == schema::AssetKind::texture)
-            {
-                meta_text += TextureImporter::default_meta();
-            }
-            const auto temporary = cache / ".asset-meta" / new_guid();
-            if (!write_text(temporary, meta_text, error))
-            {
-                return false;
-            }
-            std::filesystem::rename(temporary, meta, code);
-            if (code)
-            {
-                error = "cannot create resource meta: " + code.message();
-                std::error_code cleanup;
-                std::filesystem::remove(temporary, cleanup);
-                return false;
-            }
-        }
-        else if (!ResourceSystem::read_text(meta, meta_text))
-        {
-            error = "cannot read resource meta: " + PathUtils::to_utf8(meta);
             return false;
         }
-        auto parsed = toml::parse(meta_text);
-        if (!parsed || parsed["meta_version"].value_or(std::int64_t{0}) != 1 ||
-            parsed["importer"].value_or(std::string{}) != importer_name(record.asset.kind))
-        {
-            error = "invalid resource meta version/importer: " + PathUtils::to_utf8(meta);
-            return false;
-        }
-        record.asset.guid = parsed["guid"].value_or(std::string{});
         if (!identities.add(record.asset.path, record.asset.guid) ||
             !kinds.emplace(record.asset.guid, record.asset.kind).second)
         {
@@ -534,8 +490,9 @@ bool tool_key(const std::filesystem::path& root, const std::vector<AssetRecord>&
 {
     common = std::string(importer_version) + ":" + platform + ":" +
              std::string(TextureImporter::version());
-    for (const char* name : {"common.fbs", "scene.fbs", "mesh.fbs", "shader.fbs", "material.fbs",
-                             "asset_catalog.fbs", "resource_header.fbs", "texture.fbs"})
+    for (const char* name :
+         {"common.fbs", "scene.fbs", "mesh.fbs", "modeling.fbs", "shader.fbs", "material.fbs",
+          "asset_catalog.fbs", "resource_header.fbs", "texture.fbs"})
     {
         std::string hash;
         if (!file_hash(std::filesystem::path(ENGINE_SCHEMA_SOURCE_DIR) / name, hash, error))

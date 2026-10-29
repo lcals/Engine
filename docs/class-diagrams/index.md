@@ -57,6 +57,12 @@
 
 ## MCP 与编辑器命令
 
+- [建模职责边界](../plugins/modeling.md)：独立 C++ 几何核心、编辑器业务与 MCP 适配。
+- [可编辑网格](../plugins/class-diagrams/editable-mesh.md)：生成模型、稳定身份、校验与渲染网格编译。
+- [基本体](../plugins/class-diagrams/mesh-primitives.md)、[拓扑运算](../plugins/class-diagrams/mesh-topology.md)、[几何与 UV](../plugins/class-diagrams/mesh-geometry.md)：无项目和编辑器依赖的计算接口。
+- [建模编辑业务](../editor/class-diagrams/modeling-commands.md)：节点关联、选择、事务与资源保存。
+- [建模 MCP](../plugins/class-diagrams/modeling-mcp-tools.md)：工具注册及命令转发。
+
 - [MCP 协议与注册](../plugins/class-diagrams/mcp-system.md)：McpSystem 只管理协议、工具描述和执行函数，名称与参数模型来自同一注册项。
 - [项目 MCP 工具](../plugins/class-diagrams/project-mcp-tools.md)：ProjectMcpTools 显式配置项目与本机/Android 目标，按业务注册构建、同步、运行调试和启停工具。
 - [编辑器 MCP 工具](../plugins/class-diagrams/editor-mcp-tools.md)：EditorMcpTools 注册场景查询、组件属性编辑、批量、撤销/重做及回执查询，通过文件通道交给编辑器执行。
@@ -124,3 +130,7 @@ RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；
 - 关系标签使用普通文本；带 `::` 的 C++ 类型写在成员声明或图外说明中，避免额外冒号触发解析错误。修改后检查 Mermaid 解析和渲染。
 - `library` 是第三方库，`external` 是第三方资源类型；标准库类型在方法签名中表达。拥有资源不等于拥有库本身。
 - 已选依赖必须实际编译和链接；最小接入检查不表示玩法、物理、动画、UI 或编辑器业务已实现。
+
+- [渲染编辑命令](../editor/class-diagrams/render-commands.md)：环境光、阴影、曝光与真实帧截图。
+- [渲染 MCP 适配](../plugins/class-diagrams/render-mcp-tools.md)：效果控制、异步截图请求和状态。
+- [场景持久化](../editor/class-diagrams/scene-persistence.md)：模型、材质、灯光、相机和层级的完整源资源保存。

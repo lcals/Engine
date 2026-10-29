@@ -441,7 +441,7 @@ classDiagram
 
 EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。旧项目启停通道与新编辑命令通道分别维护，不改变 Android 同步协议。
 
-SceneCommands 只负责已有场景查询与 Transform、Light、材质参数修改。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
+SceneCommands 负责活动场景查询、创建带 Transform 的空节点或相机/灯光节点、活动相机选择，以及 Transform、Camera、Light、材质类型/参数/贴图修改。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
 
 ## 公共路径工具
 
@@ -704,3 +704,63 @@ classDiagram
 ```
 
 同一 Resource 身份只创建一份 GPU 纹理，释放最后一个场景使用者后销毁；网格提交通过节点身份和修订号发现变化。无资源读取、GPU句柄或导入策略进入 Engine 类。编辑器 TextureEdit 的撤销历史保存资源元数据值，不持有资源强引用。
+
+## 建模三层引用关系
+
+| 调用方/所有者 | 被调用/被拥有对象 | 关系与有效期 |
+| --- | --- | --- |
+| editor_app 宿主 | ModelingCommands | 独占；先于命令注册创建，晚于命令与撤销历史释放销毁 |
+| ModelingCommands | WorldSystem | 借用；仅编辑器主线程访问，场景切换使旧模型身份失效 |
+| ModelingCommands | EditableMeshDataT | 独占模型及操作前后快照；不借用临时序列化内存 |
+| ModelingCommands | EditorCommands / EditorEdit | 注册模块命令；编辑记录交命令历史独占 |
+| ModelingCommands | MeshPrimitives / MeshTopology / MeshGeometry / EditableMesh | 调用纯数据计算，无反向依赖 |
+| EditableMesh | EditableMeshDataT / MeshDataT | 输入生成模型，输出独立渲染网格；没有场景/编辑器状态 |
+| MeshGeometry | Manifold | 实体运算，检查返回状态；不对外暴露第三方类型 |
+| EditableMesh | Earcut | 多边形三角化；输入验证及编译由建模核心负责 |
+| ModelingCommands | MeshRenderer | 通过节点查询借用；只提交完整有效的新网格 |
+| ModelingMcpTools | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
+| ModelingMcpTools | McpSystem | 登记工具描述、参数模型和借用回调，适配器存活到服务关闭 |
+| AssetPipelineSystem | EditableMesh | 从源模型编译运行时 MeshData；GUID/meta与缓存发布仍归管线 |
+
+建模核心、编辑器业务和 MCP 适配分别编译为独立目标。MCP 适配只调用工具通道，不直接引用几何接口；工具宿主提供资源构建时仍会通过导入管线链接几何编译能力。几何库不依赖编辑器或 MCP，运行时场景、组件和渲染器不引用任何建模编辑器类型。
+
+
+## 场景持久化与渲染编辑
+
+| 调用方/所有者 | 被调用/被拥有对象 | 关系与有效期 |
+| --- | --- | --- |
+| editor_app 宿主 | ScenePersistence / RenderCommands | 独占装配；先注册命令，先释放命令及历史再销毁业务对象 |
+| ScenePersistence | WorldSystem | 借用活动场景；读取 NodeInfo、组件生成数据及活动相机，构造独立 SceneDataT 快照 |
+| ScenePersistence | MeshSourceWriter | 按值持有宿主注入的函数；函数借用 ModelingCommands，后者的生命期覆盖持久化对象 |
+| ScenePersistence | SceneImporter / asset_pipeline 身份 helper | 场景 TOML 发布和相邻 meta 校验；失败回滚源文件，不更新运行目录 |
+| ScenePersistence | Material / ResourceSystem | 读取当前全部材质槽、可公开参数和贴图，解析 Shader/Texture GUID；不向核心加入保存策略 |
+| ModelingCommands | Node / MeshRenderer | export_mesh 保存已管理的多边形源；普通渲染网格可转换为编辑源，场景重载按项目路径恢复源数据 |
+| RenderCommands | RenderSystem | 借用渲染设置与截图接口；编辑器负责撤销、截图根目录、越界检查及输出目录创建 |
+| RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
+| RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
+| RenderSystem | RenderSettings / RendererCallbacks | 拥有当前配置及 bgfx 回调；GPU 资源、阴影和实际帧 PNG 输出属于渲染系统 |
+
+```mermaid
+classDiagram
+    class ScenePersistence
+    class ModelingCommands
+    class WorldSystem
+    class SceneImporter
+    class EditorCommands
+    class EditorMcpTools
+    class RenderCommands
+    class RenderMcpTools
+    class RenderSystem
+    ScenePersistence --> WorldSystem : 借用场景
+    ScenePersistence ..> ModelingCommands : 宿主注入网格回调
+    ScenePersistence ..> SceneImporter : 发布场景快照
+    ScenePersistence ..> EditorCommands : 注册保存命令
+    EditorMcpTools ..> EditorCommands : 文件命令通道
+    RenderMcpTools --> EditorMcpTools : 借用固定目标通道
+    RenderCommands ..> EditorCommands : 注册设置与截图命令
+    RenderCommands --> RenderSystem : 借用运行时渲染能力
+```
+
+方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
+
+截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影只支持首个启用方向光的单张 PCF 阴影图，不包含级联、点光/聚光阴影或 IBL。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。

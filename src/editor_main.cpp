@@ -1,6 +1,8 @@
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
+#include "editor/modeling/modeling_commands.hpp"
 #include "editor/project/project_system.hpp"
+#include "editor/render/render_commands.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
@@ -10,6 +12,7 @@
 
 #if ENGINE_HAS_SCRIPT_RUNTIME
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "editor/scene/scene_persistence.hpp"
 #include "runtime/script/script_system.hpp"
 #endif
 
@@ -36,17 +39,22 @@ using engine::PathUtils;
 void print_usage()
 {
     fmt::print("Usage: editor_app --project <project-directory> "
-               "[--runtime-dir <persistent-directory>] [--frames <positive-count>]\n");
+               "[--runtime-dir <persistent-directory>] [--frames <positive-count>] [--width "
+               "<pixels>] [--height <pixels>]\n");
 }
 
-int run_editor([[maybe_unused]] const fs::path& project_root,
-               engine::EditorEnvironment& environment, const engine::EngineConfig& config,
-               std::uint64_t frame_limit)
+int run_editor(const fs::path& project_root, engine::EditorEnvironment& environment,
+               const engine::EngineConfig& config, std::uint64_t frame_limit)
 {
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
 #endif
     engine::RuntimeHost runtime;
+    std::unique_ptr<engine::ModelingCommands> modeling;
+    std::unique_ptr<engine::RenderCommands> render_commands;
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    std::unique_ptr<engine::ScenePersistence> persistence;
+#endif
     std::unique_ptr<engine::EditorSystem> editor;
     std::uint64_t frames = 0;
     const int result = [&]()
@@ -78,6 +86,40 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
+        if (editor->commands() != nullptr && runtime.world() != nullptr)
+        {
+            modeling = std::make_unique<engine::ModelingCommands>(*runtime.world(), project_root);
+            if (!modeling->register_commands(*editor->commands()))
+            {
+                LogSystem::write(LogLevel::error, "Cannot register modeling commands");
+                return 1;
+            }
+        }
+        if (editor->commands() != nullptr && runtime.renderer() != nullptr)
+        {
+            render_commands = std::make_unique<engine::RenderCommands>(*runtime.renderer(),
+                                                                       project_root / "cache");
+            if (!render_commands->register_commands(*editor->commands()))
+            {
+                LogSystem::write(LogLevel::error, "Cannot register render commands");
+                return 1;
+            }
+        }
+#if ENGINE_HAS_SCRIPT_RUNTIME
+        if (modeling != nullptr)
+        {
+            persistence = std::make_unique<engine::ScenePersistence>(
+                *runtime.world(), project_root,
+                [&modeling](const engine::Node& node, const fs::path& destination,
+                            std::string& error)
+                { return modeling->export_mesh(node, destination, error); });
+            if (!persistence->register_commands(*editor->commands()))
+            {
+                LogSystem::write(LogLevel::error, "Cannot register scene persistence commands");
+                return 1;
+            }
+        }
+#endif
         LogSystem::write(LogLevel::info, "Editor ready; waiting for MCP start_project");
         auto previous_time = std::chrono::steady_clock::now();
         for (;;)
@@ -91,7 +133,15 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
             }
+            if (modeling != nullptr)
+            {
+                modeling->synchronize_scene();
+            }
             const auto status = runtime.tick(delta_time);
+            if (modeling != nullptr)
+            {
+                modeling->synchronize_scene();
+            }
             if (status == engine::FrameStatus::exit_requested)
             {
                 break;
@@ -122,6 +172,11 @@ int run_editor([[maybe_unused]] const fs::path& project_root,
         editor->shutdown();
         editor.reset();
     }
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    persistence.reset();
+#endif
+    render_commands.reset();
+    modeling.reset();
     runtime.shutdown();
 #if ENGINE_HAS_SCRIPT_RUNTIME
     pipeline.shutdown();
@@ -147,6 +202,20 @@ int main(int argc, char* argv[])
         {
             print_usage();
             return 0;
+        }
+        if ((argument == "--width" || argument == "--height") && index + 1 < argc)
+        {
+            const std::string_view value(argv[++index]);
+            std::uint32_t pixels = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), pixels);
+            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() ||
+                pixels < 320 || pixels > 8192)
+            {
+                fmt::print(stderr, "Window dimension must be within 320..8192 pixels\n");
+                return 2;
+            }
+            (argument == "--width" ? config.width : config.height) = pixels;
+            continue;
         }
         if (argument == "--project" && index + 1 < argc && project_argument.empty())
         {

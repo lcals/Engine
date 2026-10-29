@@ -22,12 +22,14 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace engine
 {
 namespace
 {
 using Json = nlohmann::json;
+using NodeAliases = std::map<std::uint64_t, std::shared_ptr<std::uint64_t>>;
 
 bool fields(const Json& arguments, std::initializer_list<std::string_view> allowed)
 {
@@ -102,8 +104,20 @@ Json json_vector(const Vec3& value)
 struct Target
 {
     WorldSystem& world;
+    NodeAliases* aliases = nullptr;
+    std::shared_ptr<std::uint64_t> identity;
     std::uint64_t scene_id = 0;
     std::uint64_t node_id = 0;
+
+    explicit Target(WorldSystem& value, NodeAliases* references = nullptr)
+        : world(value), aliases(references)
+    {
+    }
+
+    std::uint64_t resolved_id() const noexcept
+    {
+        return identity ? *identity : node_id;
+    }
 
     Node* node(std::string& error) const
     {
@@ -113,7 +127,7 @@ struct Target
             error = "The requested scene is no longer active";
             return nullptr;
         }
-        auto* found = scene->find_node(node_id);
+        auto* found = scene->find_node(resolved_id());
         if (found == nullptr)
         {
             error = "The requested node no longer exists";
@@ -129,9 +143,214 @@ struct Target
             error = "sceneId and nodeId must be complete nonzero uint64 decimal strings";
             return false;
         }
-        return node(error) != nullptr;
+        if (!node(error))
+        {
+            return false;
+        }
+        if (aliases)
+        {
+            const auto found = aliases->find(node_id);
+            if (found != aliases->end())
+            {
+                identity = found->second;
+            }
+        }
+        return true;
     }
 };
+
+std::vector<std::uint8_t> node_snapshot(const Node& node)
+{
+    schema::NodeDataT data;
+    data.info = std::make_unique<schema::NodeInfoT>(node.info());
+    for (const auto& component : node.components())
+    {
+        data.components.push_back(std::make_unique<schema::ComponentDataT>(component->data()));
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    builder.Finish(schema::NodeData::Pack(builder, &data));
+    return {builder.GetBufferPointer(), builder.GetBufferPointer() + builder.GetSize()};
+}
+
+class CreateNodeEdit final : public EditorEdit
+{
+public:
+    Target target;
+    std::string name;
+    std::string component;
+    std::vector<std::uint8_t> snapshot;
+
+    CreateNodeEdit(WorldSystem& world, NodeAliases& aliases) : target(world, &aliases)
+    {
+        target.identity = std::make_shared<std::uint64_t>(0);
+    }
+
+    bool apply(std::string& error) override
+    {
+        auto* scene = target.world.scene();
+        if (!scene || scene->id() != target.scene_id)
+        {
+            error = "The requested scene is no longer active";
+            return false;
+        }
+        for (const auto& node : scene->nodes())
+        {
+            if (node->name() == name)
+            {
+                error = "A node with this name already exists in the scene";
+                return false;
+            }
+        }
+        auto* node = scene->create_node(name);
+        if (!node)
+        {
+            error = "Cannot create scene node";
+            return false;
+        }
+        if ((component == "light" && !node->add_component<Light>()) ||
+            (component == "camera" && !node->add_component<Camera>()))
+        {
+            const bool removed = scene->destroy_node(node->id());
+            error = removed ? "Cannot create requested component" : "Cannot clean up created node";
+            return false;
+        }
+        target.node_id = node->id();
+        *target.identity = node->id();
+        (*target.aliases)[node->id()] = target.identity;
+        snapshot = node_snapshot(*node);
+        return true;
+    }
+
+    bool revert(std::string& error) override
+    {
+        auto* node = target.node(error);
+        if (!node)
+        {
+            return false;
+        }
+        auto& scene = node->scene();
+        if (node_snapshot(*node) != snapshot ||
+            (scene.active_camera() && &scene.active_camera()->node() == node))
+        {
+            error = "Created node changed outside this edit; undo is stale";
+            return false;
+        }
+        for (const auto& other : scene.nodes())
+        {
+            if (other->parent() == node)
+            {
+                error = "Created node has children; undo would remove unrelated nodes";
+                return false;
+            }
+        }
+        if (!scene.destroy_node(node->id()))
+        {
+            error = "Cannot remove created node";
+            return false;
+        }
+        target.aliases->erase(target.node_id);
+        return true;
+    }
+};
+
+class ActiveCameraEdit final : public EditorEdit
+{
+public:
+    Target target;
+    std::uint64_t before = 0;
+    std::shared_ptr<std::uint64_t> before_identity;
+    explicit ActiveCameraEdit(Target value) : target(value)
+    {
+    }
+    bool apply(std::string& error) override
+    {
+        return change(before_identity ? *before_identity : before, target.resolved_id(), error);
+    }
+    bool revert(std::string& error) override
+    {
+        return change(target.resolved_id(), before_identity ? *before_identity : before, error);
+    }
+
+private:
+    bool change(std::uint64_t expected, std::uint64_t replacement, std::string& error)
+    {
+        auto* scene = target.world.scene();
+        if (!scene || scene->id() != target.scene_id)
+        {
+            error = "The requested scene is no longer active";
+            return false;
+        }
+        const auto current = scene->active_camera() ? scene->active_camera()->node().id() : 0;
+        auto* node = replacement ? scene->find_node(replacement) : nullptr;
+        auto* camera = node ? node->get_component<Camera>() : nullptr;
+        if (current != expected || (replacement && !camera))
+        {
+            error = "Active camera changed outside this edit or target is missing";
+            return false;
+        }
+        if (!scene->set_active_camera(camera))
+        {
+            error = "Cannot select active camera";
+            return false;
+        }
+        return true;
+    }
+};
+
+bool prepare_create_node(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                         Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error)
+{
+    auto created = std::make_unique<CreateNodeEdit>(world, aliases);
+    if (!fields(arguments, {"sceneId", "name", "component"}) ||
+        !identifier(arguments, "sceneId", created->target.scene_id) ||
+        !arguments.contains("name") || !arguments["name"].is_string() ||
+        !arguments.contains("component") || !arguments["component"].is_string())
+    {
+        error = "create_node requires sceneId, name and component";
+        return false;
+    }
+    created->name = arguments["name"].get<std::string>();
+    created->component = arguments["component"].get<std::string>();
+    if (created->name.empty() || created->name.size() > 128 ||
+        created->name.find('\0') != std::string::npos ||
+        (created->component != "empty" && created->component != "camera" &&
+         created->component != "light"))
+    {
+        error = "Node name must contain 1..128 bytes and component must be empty, camera or light";
+        return false;
+    }
+    result = {{"sceneId", arguments["sceneId"]}, {"name", created->name}};
+    edit = std::move(created);
+    return true;
+}
+
+bool prepare_active_camera(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                           Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error)
+{
+    Target target(world, &aliases);
+    if (!fields(arguments, {"sceneId", "nodeId"}) || !target.read(arguments, error))
+    {
+        error = "set_active_camera requires current sceneId and nodeId";
+        return false;
+    }
+    auto* node = target.node(error);
+    if (!node || !node->get_component<Camera>())
+    {
+        error = "Requested node has no Camera component";
+        return false;
+    }
+    auto record = std::make_unique<ActiveCameraEdit>(target);
+    const auto* previous = world.scene()->active_camera();
+    record->before = previous ? previous->node().id() : 0;
+    const auto previous_identity = aliases.find(record->before);
+    if (previous_identity != aliases.end())
+    {
+        record->before_identity = previous_identity->second;
+    }
+    result = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["nodeId"]}};
+    edit = std::move(record);
+    return true;
+}
 
 class TransformEdit final : public EditorEdit
 {
@@ -401,10 +620,10 @@ private:
     }
 };
 
-bool prepare_transform(WorldSystem& world, const Json& arguments, Json& result,
-                       std::unique_ptr<EditorEdit>& output, std::string& error)
+bool prepare_transform(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                       Json& result, std::unique_ptr<EditorEdit>& output, std::string& error)
 {
-    Target target{world};
+    Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "position", "rotation", "scale"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
     {
@@ -457,10 +676,10 @@ bool prepare_transform(WorldSystem& world, const Json& arguments, Json& result,
     return true;
 }
 
-bool prepare_light(WorldSystem& world, const Json& arguments, Json& result,
+bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
                    std::unique_ptr<EditorEdit>& output, std::string& error)
 {
-    Target target{world};
+    Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "color", "intensity", "kind", "range",
                             "innerAngle", "outerAngle"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
@@ -582,10 +801,10 @@ bool read_slot(const Json& arguments, std::size_t& output)
     return true;
 }
 
-bool prepare_material(WorldSystem& world, const Json& arguments, Json& result,
+bool prepare_material(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
                       std::unique_ptr<EditorEdit>& output, std::string& error)
 {
-    Target target{world};
+    Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "name", "type", "value", "slot"}) ||
         !arguments.contains("name") || !arguments.contains("type") ||
         !arguments.contains("value") || !arguments["name"].is_string() ||
@@ -713,10 +932,10 @@ private:
     }
 };
 
-bool prepare_camera(WorldSystem& world, const Json& arguments, Json& result,
+bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
                     std::unique_ptr<EditorEdit>& output, std::string& error)
 {
-    Target target{world};
+    Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "projection", "fovDegrees", "nearClip", "farClip",
                             "orthographicSize"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
@@ -840,10 +1059,10 @@ private:
     }
 };
 
-bool prepare_texture(WorldSystem& world, const Json& arguments, Json& result,
+bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
                      std::unique_ptr<EditorEdit>& output, std::string& error)
 {
-    Target target{world};
+    Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "name", "path", "slot"}) ||
         !arguments.contains("name") || !arguments["name"].is_string() ||
         !arguments.contains("path") || !arguments["path"].is_string() ||
@@ -954,6 +1173,199 @@ Json material_json(const Material& material)
             {"parameters", std::move(parameters)}};
 }
 
+bool restore_material(Material& material, const Json& saved)
+{
+    if (!material.set_type(saved["typePath"].get<std::string>()) ||
+        !material.set_shader(saved["shaderPath"].get<std::string>()))
+    {
+        return false;
+    }
+    for (const auto& parameter : saved["parameters"])
+    {
+        const auto name = parameter["name"].get<std::string>();
+        const auto type = parameter["type"].get<std::string>();
+        const auto& value = parameter["value"];
+        bool success = false;
+        if (type == "float")
+        {
+            success = material.set_float(name, value.get<float>());
+        }
+        else if (type == "v2")
+        {
+            success = material.set_v2(name, {value[0].get<double>(), value[1].get<double>()});
+        }
+        else if (type == "v3")
+        {
+            success = material.set_v3(
+                name, {value[0].get<double>(), value[1].get<double>(), value[2].get<double>()});
+        }
+        else if (type == "v4")
+        {
+            success = material.set_v4(name, {value[0].get<double>(), value[1].get<double>(),
+                                             value[2].get<double>(), value[3].get<double>()});
+        }
+        if (!success)
+        {
+            return false;
+        }
+    }
+    for (const auto& texture : saved["textures"])
+    {
+        if (!material.set_texture(texture["name"].get<std::string>(),
+                                  texture["path"].get<std::string>()))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+class MaterialTypeEdit final : public EditorEdit
+{
+public:
+    Target target;
+    std::size_t slot = 0;
+    std::string path;
+    Json before;
+    Json after;
+    std::vector<schema::AssetEntryT> versions;
+
+    explicit MaterialTypeEdit(Target value) : target(value)
+    {
+    }
+
+    bool apply(std::string& error) override
+    {
+        return change(before, after, error);
+    }
+    bool revert(std::string& error) override
+    {
+        return change(after, before, error);
+    }
+    bool retain_version(std::string_view resource_path)
+    {
+        auto* resources = ResourceSystem::instance();
+        Guid guid;
+        ResourcePtr resource;
+        if (!resources || !ResourceSystem::path_to_guid(resource_path, guid) ||
+            !resources->load(guid, resource))
+        {
+            return false;
+        }
+        if (std::any_of(versions.begin(), versions.end(),
+                        [&](const auto& entry) { return entry.guid == guid; }))
+        {
+            return true;
+        }
+        versions.push_back(resource->info());
+        for (const auto& dependency : resource->info().dependencies)
+        {
+            std::string dependency_path;
+            if (!ResourceSystem::guid_to_path(dependency, dependency_path) ||
+                !retain_version(dependency_path))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+private:
+    bool change(const Json& expected, Json& replacement, std::string& error)
+    {
+        auto* node = target.node(error);
+        auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
+        auto* material = renderer ? renderer->material(slot) : nullptr;
+        auto* resources = ResourceSystem::instance();
+        if (!material || !resources || material_json(*material) != expected)
+        {
+            error = "Material changed outside this edit; undo or redo is stale";
+            return false;
+        }
+        std::vector<ResourcePtr> pins;
+        for (const auto& version : versions)
+        {
+            const auto* available = resources->catalog().find(version.guid);
+            ResourcePtr resource;
+            if (!available || *available != version || !resources->load(version.guid, resource))
+            {
+                error = "Material dependency version changed or is unavailable";
+                return false;
+            }
+            pins.push_back(std::move(resource));
+        }
+        if (replacement.is_null())
+        {
+            if (!material->set_type(path))
+            {
+                error = "Cannot assign material type";
+                return false;
+            }
+            replacement = material_json(*material);
+            return true;
+        }
+        if (!restore_material(*material, replacement))
+        {
+            const bool restored = restore_material(*material, expected);
+            error =
+                restored ? "Cannot restore material values" : "Cannot roll back material values";
+            return false;
+        }
+        return true;
+    }
+};
+
+bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                           Json& result, std::unique_ptr<EditorEdit>& output, std::string& error)
+{
+    Target target(world, &aliases);
+    if (!fields(arguments, {"sceneId", "nodeId", "slot", "path"}) || !arguments.contains("path") ||
+        !arguments["path"].is_string() || !target.read(arguments, error))
+    {
+        error = "set_material_type requires current sceneId, nodeId and resource path";
+        return false;
+    }
+    auto record = std::make_unique<MaterialTypeEdit>(target);
+    const auto* renderer = target.node(error)->get_component<MeshRenderer>();
+    if (!renderer || !read_slot(arguments, record->slot) || !renderer->material(record->slot))
+    {
+        error = "Invalid material slot";
+        return false;
+    }
+    const auto& material = *renderer->material(record->slot);
+    record->path = arguments["path"].get<std::string>();
+    Guid guid;
+    ResourcePtr requested;
+    auto* resources = ResourceSystem::instance();
+    if (!resources || !ResourceSystem::path_to_guid(record->path, guid) ||
+        !resources->load(guid, requested) || !requested->material())
+    {
+        error = "Requested path does not identify a material";
+        return false;
+    }
+    record->before = material_json(material);
+    if (!record->retain_version(material.type_path()) ||
+        !record->retain_version(material.shader_path()) || !record->retain_version(record->path))
+    {
+        error = "Cannot capture material resource versions";
+        return false;
+    }
+    for (const auto& texture : record->before["textures"])
+    {
+        if (!record->retain_version(texture["path"].get<std::string>()))
+        {
+            error = "Cannot capture material texture version";
+            return false;
+        }
+    }
+    result = {{"sceneId", arguments["sceneId"]},
+              {"nodeId", arguments["nodeId"]},
+              {"path", record->path},
+              {"slot", record->slot}};
+    output = std::move(record);
+    return true;
+}
+
 bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::string& error)
 {
     if (!arguments.empty())
@@ -1051,37 +1463,87 @@ SceneCommands::SceneCommands(WorldSystem& world) noexcept : world_(world)
 {
 }
 
+void SceneCommands::synchronize_aliases() noexcept
+{
+    const auto* scene = world_.scene();
+    const auto generation = scene ? scene->id() : 0;
+    if (scene_id_ != generation)
+    {
+        node_aliases_.clear();
+        scene_id_ = generation;
+    }
+}
+
 bool SceneCommands::register_commands(EditorCommands& commands)
 {
     return commands.register_command("get_scene", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)
                                      { return query_scene(world_, arguments, result, error); }) &&
-           commands.register_command(
-               "set_transform", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
-               { return prepare_transform(world_, arguments, result, edit, error); }) &&
-           commands.register_command(
-               "set_light", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
-               { return prepare_light(world_, arguments, result, edit, error); }) &&
-           commands.register_command(
-               "set_material_parameter", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
-               { return prepare_material(world_, arguments, result, edit, error); }) &&
-           commands.register_command(
-               "set_camera", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
-               { return prepare_camera(world_, arguments, result, edit, error); }) &&
-           commands.register_command(
-               "set_material_texture", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
-               { return prepare_texture(world_, arguments, result, edit, error); });
+           commands.register_command("create_node", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_create_node(world_, node_aliases_,
+                                                                    arguments, result, edit, error);
+                                     }) &&
+           commands.register_command("set_active_camera", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_active_camera(
+                                             world_, node_aliases_, arguments, result, edit, error);
+                                     }) &&
+           commands.register_command("set_transform", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_transform(world_, node_aliases_, arguments,
+                                                                  result, edit, error);
+                                     }) &&
+           commands.register_command("set_light", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_light(world_, node_aliases_, arguments,
+                                                              result, edit, error);
+                                     }) &&
+           commands.register_command("set_material_type", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_material_type(
+                                             world_, node_aliases_, arguments, result, edit, error);
+                                     }) &&
+           commands.register_command("set_material_parameter", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_material(world_, node_aliases_, arguments,
+                                                                 result, edit, error);
+                                     }) &&
+           commands.register_command("set_camera", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_camera(world_, node_aliases_, arguments,
+                                                               result, edit, error);
+                                     }) &&
+           commands.register_command("set_material_texture", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_texture(world_, node_aliases_, arguments,
+                                                                result, edit, error);
+                                     });
 }
 
 } // namespace engine

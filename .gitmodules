@@ -6,3 +6,7 @@
 	path = third_party/v8
 	url = https://github.com/v8/v8.git
 	shallow = true
+[submodule "third_party/xatlas"]
+	path = third_party/xatlas
+	url = https://github.com/jpcy/xatlas.git
+	shallow = true
