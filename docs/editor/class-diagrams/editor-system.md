@@ -9,9 +9,10 @@ classDiagram
     direction TB
     class EditorSystem {
         <<final>>
-        +EditorSystem(ProjectSystem& project)
+        +EditorSystem(EditorEnvironment& environment, Engine* runtime)
         +~EditorSystem()
         #on_initialize(const EngineConfig& config) bool
+        #on_tick(double delta_time) bool
         #on_shutdown() void
     }
     class System {
@@ -20,7 +21,8 @@ classDiagram
     class EngineConfig {
         <<struct>>
     }
-    class ProjectSystem
+    class EditorEnvironment
+    class Engine
     class DearImGui["Dear ImGui"] {
         <<library>>
     }
@@ -28,7 +30,8 @@ classDiagram
         <<external>>
     }
     System <|-- EditorSystem
-    EditorSystem --> ProjectSystem : 构造参数及持续借用
+    EditorSystem --> EditorEnvironment : 构造参数及持续借用
+    EditorSystem --> Engine : 可空借用运行时及主线程启停
     EditorSystem ..> EngineConfig : on_initialize 参数
     EditorSystem ..> DearImGui : 编译及链接依赖
     EditorSystem "1" *-- "0..1" ImGuiContext : 拥有编辑器上下文
@@ -36,10 +39,12 @@ classDiagram
 ```
 
 - 独立宿主模块，由编辑器宿主管理根系统生命周期；运行时 `Engine` 不拥有或依赖它。
-- 构造函数借用宿主拥有的 `ProjectSystem`；项目必须先初始化，并存活且保持就绪直到编辑器关闭。项目未就绪时，编辑器初始化返回 `false`。
-- `editor_app` 必须接收 `--project <path>`，依次初始化项目、引擎和编辑器，反序关闭；`engine_app` 启动不接收项目路径。编辑器仍通过继承的 `add_subsystem()` 独占和统一管理其他编辑器子系统。
+- 构造函数借用宿主拥有的 `EditorEnvironment`；环境持续借用已就绪的 `ProjectSystem`。项目、环境和 App 必须存活且保持就绪直到编辑器关闭；失效环境拒绝启动与更新。
+- `editor_app` 必须接收 `--project <path>`，依次初始化项目、编辑器环境、引擎和编辑器，反序关闭；`engine_app` 启动不接收项目路径。编辑器仍通过继承的 `add_subsystem()` 独占和统一管理其他编辑器子系统。
 - 当前创建和销毁 Dear ImGui 上下文；尚未接入窗口后端、绘制编辑器界面或引入业务工具。
 - 公开业务接口当前只有构造与析构；继承 `System` 的公共生命周期方法，不提前增加业务方法。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
-- 不重写 `on_tick()`，沿用基类默认成功的空更新；当前无逐帧业务任务。
+- `runtime` 默认为空，此时仅管理编辑器上下文；非空时借用已初始化的引擎，接入本机项目控制协议，App 必须先就绪。宿主必须让 Engine 和 EditorEnvironment 存活到 EditorSystem 关闭。编辑器作为环境友元读取私有规范化项目身份，仅用于会话回执和 MCP 目标校验；不公开第二套路径接口。
+- 编辑器启动默认空白，不自动执行 Gameplay。`on_tick()` 在主线程读取带会话标识与请求编号的 `project-control.json`，调用 Engine 启停，原子发布 `project-status.json`；旧会话请求不重放，重复请求不重复执行。状态包含待机、启动中、运行中、停止中、关闭及最近错误、节点数与项目 GPU 资源数。
+- 宿主在每轮引擎更新之前调用编辑器更新，窗口最小化时仍处理停止请求。项目画面占满同一窗口，停止后清理运行资源并恢复空白。
 
 C++ 限定符：构造为 `explicit`；构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。

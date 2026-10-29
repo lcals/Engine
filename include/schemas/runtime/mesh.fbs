@@ -1,0 +1,20 @@
+namespace engine.schema;
+
+struct MeshVertex {
+  x:float;
+  y:float;
+  z:float;
+  nx:float;
+  ny:float;
+  nz:float;
+}
+
+table MeshData {
+  schema_version:uint = 1;
+  path:string (required);
+  vertices:[MeshVertex] (required);
+  indices:[uint] (required);
+}
+
+root_type MeshData;
+file_identifier "EMSH";

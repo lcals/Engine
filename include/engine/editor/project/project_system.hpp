@@ -18,6 +18,8 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    friend class EditorEnvironment;
+
     std::string project_root_;
 };
 

@@ -1,5 +1,8 @@
 #include "runtime/script/script_system.hpp"
 
+#include "runtime/script/bindings/binding_context.hpp"
+#include "runtime/script/bindings/script_binding_registry.hpp"
+
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -28,29 +31,6 @@ namespace
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
-
-constexpr std::string_view engine_module = R"js(
-const native = globalThis.__engineNative;
-export class Gameplay {
-    OnInitialize() { return true; }
-    Update() {}
-    OnShutdown() {}
-}
-export class Debug {
-    constructor() { throw new TypeError('Debug is static'); }
-    static Log(message) { native.Log(message); }
-    static LogWarning(message) { native.LogWarning(message); }
-    static LogError(message) { native.LogError(message); }
-}
-export class App {
-    constructor() { throw new TypeError('App is static'); }
-    static get builtinAssetsPath() { return native.builtinAssetsPath; }
-    static get persistentDataPath() { return native.persistentDataPath; }
-    static get cachePath() { return native.cachePath; }
-}
-Object.freeze(Debug);
-Object.freeze(App);
-)js";
 
 [[nodiscard]] bool read_text(const fs::path& path, std::string& text)
 {
@@ -311,7 +291,29 @@ Object.freeze(App);
             return false;
         }
     }
-    if (!seen.contains(manifest_entry))
+    if (seen.contains("catalog.bin"))
+    {
+        ResourceCatalog catalog;
+        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), catalog))
+        {
+            message = "APK GUID resource catalog is invalid";
+            return false;
+        }
+        bool has_entry = false;
+        std::set<std::string> expected{"catalog.bin"};
+        for (const auto& asset : catalog.data.entries)
+        {
+            expected.insert("gen/" + asset->guid);
+            has_entry = has_entry || (asset->kind == schema::AssetKind::script &&
+                                      asset->module_path == manifest_entry);
+        }
+        if (!has_entry || expected != seen)
+        {
+            message = "APK manifest does not match its complete GUID resource catalog";
+            return false;
+        }
+    }
+    else if (!seen.contains(manifest_entry))
     {
         message = "APK project entry is missing from the complete manifest";
         return false;
@@ -428,19 +430,6 @@ std::shared_ptr<V8Process> v8_process()
     return process;
 }
 
-void log_callback(const v8::FunctionCallbackInfo<v8::Value>& arguments)
-{
-    auto* isolate = arguments.GetIsolate();
-    if (arguments.Length() != 1 || !arguments[0]->IsString())
-    {
-        isolate->ThrowException(v8::Exception::TypeError(
-            v8::String::NewFromUtf8Literal(isolate, "Debug requires one string message")));
-        return;
-    }
-    const auto level = static_cast<LogLevel>(arguments.Data().As<v8::Int32>()->Value());
-    LogSystem::write(level, value_text(isolate, arguments[0]));
-}
-
 struct Snapshot
 {
     std::string revision = "builtin";
@@ -448,7 +437,31 @@ struct Snapshot
     fs::path builtin_root;
     std::map<std::string, std::string> scripts;
     std::set<std::string> deleted;
+    std::shared_ptr<const ResourceCatalog> catalog;
+    std::map<std::string, Guid, std::less<>> module_guids;
 };
+
+[[nodiscard]] bool catalog_snapshot(const fs::path& root, Snapshot& snapshot)
+{
+    auto catalog = std::make_shared<ResourceCatalog>();
+    if (!ResourceSystem::read_catalog(root, *catalog))
+    {
+        return false;
+    }
+    for (const auto& asset : catalog->data.entries)
+    {
+        if (asset->kind == schema::AssetKind::script)
+        {
+            if (asset->module_path.empty() ||
+                !snapshot.module_guids.emplace(asset->module_path, asset->guid).second)
+            {
+                return false;
+            }
+        }
+    }
+    snapshot.catalog = std::move(catalog);
+    return true;
+}
 
 } // namespace
 
@@ -462,9 +475,24 @@ struct ScriptSystem::State
         std::map<std::string, v8::Global<v8::Module>> modules;
         v8::Global<v8::Object> gameplay;
         bool initialization_entered = false;
+        script_bindings::BindingContext bindings;
 
-        Run(State& state, Snapshot version) : owner(state), snapshot(std::move(version))
+        Run(State& state, Snapshot version)
+            : owner(state), snapshot(std::move(version)), bindings(state.world)
         {
+        }
+
+        ~Run()
+        {
+            v8::Isolate::Scope isolate_scope(owner.isolate);
+            v8::HandleScope handles(owner.isolate);
+            if (!context.IsEmpty())
+            {
+                context.Get(owner.isolate)
+                    ->SetAlignedPointerInEmbedderData(0, nullptr, v8::kEmbedderDataTypeTagDefault);
+            }
+            // 清空原生入口，再释放本次Run的场景；旧Context不能保留已销毁Run地址。
+            bindings.shutdown();
         }
 
         [[nodiscard]] v8::MaybeLocal<v8::Module> load_module(const std::string& path)
@@ -483,7 +511,7 @@ struct ScriptSystem::State
             std::string source;
             if (path == "engine")
             {
-                source = engine_module;
+                source = owner.binding_registry.source();
             }
             else
             {
@@ -492,19 +520,33 @@ struct ScriptSystem::State
                     owner.module_error("Module is deleted or is not JavaScript: " + path);
                     return {};
                 }
-                const auto cached = snapshot.scripts.find(path);
-                if (cached != snapshot.scripts.end())
+                if (snapshot.catalog != nullptr)
                 {
-                    source = cached->second;
+                    const auto mapped = snapshot.module_guids.find(path);
+                    if (mapped == snapshot.module_guids.end() ||
+                        !snapshot.catalog->read_text(mapped->second, source) ||
+                        source.size() > maximum_text_size)
+                    {
+                        owner.module_error("Cannot read GUID module from locked catalog: " + path);
+                        return {};
+                    }
                 }
                 else
                 {
-                    fs::path file;
-                    if (!builtin_file(snapshot.builtin_root, path, file) ||
-                        !read_text(file, source))
+                    const auto cached = snapshot.scripts.find(path);
+                    if (cached != snapshot.scripts.end())
                     {
-                        owner.module_error("Cannot read contained module: " + path);
-                        return {};
+                        source = cached->second;
+                    }
+                    else
+                    {
+                        fs::path file;
+                        if (!builtin_file(snapshot.builtin_root, path, file) ||
+                            !read_text(file, source))
+                        {
+                            owner.module_error("Cannot read contained module: " + path);
+                            return {};
+                        }
                     }
                 }
             }
@@ -533,6 +575,10 @@ struct ScriptSystem::State
         {
             auto* run = static_cast<Run*>(
                 context->GetAlignedPointerFromEmbedderData(0, v8::kEmbedderDataTypeTagDefault));
+            if (run == nullptr)
+            {
+                return {};
+            }
             auto* isolate = run->owner.isolate;
             if (attributes->Length() != 0)
             {
@@ -571,6 +617,9 @@ struct ScriptSystem::State
     };
 
     ScriptStatus& status;
+    script_bindings::ScriptBindingRegistry binding_registry;
+    WorldSystem* world = nullptr;
+    double delta_time = 0.0;
     std::shared_ptr<V8Process> process;
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
     v8::Isolate* isolate = nullptr;
@@ -587,8 +636,8 @@ struct ScriptSystem::State
     std::string last_status;
     bool gameplay_requested = false;
 
-    State(ScriptStatus& state, std::shared_ptr<V8Process> platform)
-        : status(state), process(std::move(platform))
+    State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world)
+        : status(state), world(scene_world), process(std::move(platform))
     {
     }
 
@@ -823,51 +872,27 @@ struct ScriptSystem::State
                 return fail("Unsafe or conflicting deleted asset path: " + path);
             }
         }
+        if (seen.contains("catalog.bin"))
+        {
+            if (!catalog_snapshot(version_root, *candidate) ||
+                !candidate->module_guids.contains(candidate->entry))
+            {
+                return fail("Invalid GUID resource catalog or missing gameplay module");
+            }
+            std::set<std::string> expected{"catalog.bin"};
+            for (const auto& asset : candidate->catalog->data.entries)
+            {
+                expected.insert("gen/" + asset->guid);
+            }
+            if (seen != expected)
+            {
+                return fail("Version manifest does not match complete GUID catalog");
+            }
+        }
         last_manifest = std::move(text);
         status.available_revision = candidate->revision;
         available = std::move(candidate);
         return true;
-    }
-
-    [[nodiscard]] bool bind(v8::Local<v8::Context> context)
-    {
-        auto native = v8::Object::New(isolate);
-        constexpr auto attributes =
-            static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
-        for (const auto& [name, level] :
-             std::array<std::pair<const char*, LogLevel>, 3>{{{"Log", LogLevel::info},
-                                                              {"LogWarning", LogLevel::warning},
-                                                              {"LogError", LogLevel::error}}})
-        {
-            v8::Local<v8::String> key;
-            v8::Local<v8::Function> function;
-            if (!js_string(isolate, name).ToLocal(&key) ||
-                !v8::Function::New(context, log_callback,
-                                   v8::Int32::New(isolate, static_cast<int>(level)))
-                     .ToLocal(&function) ||
-                !native->DefineOwnProperty(context, key, function, attributes).FromMaybe(false))
-            {
-                return false;
-            }
-        }
-        for (const auto& [name, path] : std::array<std::pair<const char*, fs::path>, 3>{
-                 {{"builtinAssetsPath", App::builtin_assets_path()},
-                  {"persistentDataPath", App::persistent_data_path()},
-                  {"cachePath", App::cache_path()}}})
-        {
-            v8::Local<v8::String> key;
-            v8::Local<v8::String> value;
-            if (!js_string(isolate, name).ToLocal(&key) ||
-                !js_string(isolate, PathUtils::to_utf8(path)).ToLocal(&value) ||
-                !native->DefineOwnProperty(context, key, value, attributes).FromMaybe(false))
-            {
-                return false;
-            }
-        }
-        return context->Global()
-            ->DefineOwnProperty(context, v8::String::NewFromUtf8Literal(isolate, "__engineNative"),
-                                native, attributes)
-            .FromMaybe(false);
     }
 
     [[nodiscard]] std::unique_ptr<Run> precheck()
@@ -882,6 +907,15 @@ struct ScriptSystem::State
             snapshot.builtin_root = App::builtin_assets_path();
             snapshot.entry = builtin_entry;
             snapshot.deleted = builtin_deleted;
+            fs::path catalog_file;
+            if (builtin_file(snapshot.builtin_root, "catalog.bin", catalog_file))
+            {
+                if (!catalog_snapshot(snapshot.builtin_root, snapshot))
+                {
+                    (void)fail("Cannot read complete built-in GUID resource catalog");
+                    return {};
+                }
+            }
         }
         if (!requested_entry.empty())
         {
@@ -904,7 +938,9 @@ struct ScriptSystem::State
         v8::Local<v8::Module> module;
         // 加载 engine 但不执行，后续校验入口实例确实继承该 Context 的 Gameplay。
         v8::Local<v8::Module> engine;
-        if (!bind(context) || !candidate->load_module("engine").ToLocal(&engine) ||
+        if (!candidate->bindings.initialize(context) ||
+            !binding_registry.register_functions(context) ||
+            !candidate->load_module("engine").ToLocal(&engine) ||
             !candidate->load_module(candidate->snapshot.entry).ToLocal(&module) ||
             !module->InstantiateModule(context, Run::resolve).FromMaybe(false))
         {
@@ -927,9 +963,13 @@ struct ScriptSystem::State
         v8::Local<v8::String> key;
         v8::Local<v8::Value> member;
         v8::Local<v8::Value> result;
-        if (!js_string(isolate, name).ToLocal(&key) ||
-            !object->Get(context, key).ToLocal(&member) || !member->IsFunction() ||
-            !member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result))
+        run.bindings.begin_call(delta_time);
+        const bool called =
+            js_string(isolate, name).ToLocal(&key) && object->Get(context, key).ToLocal(&member) &&
+            member->IsFunction() &&
+            member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result);
+        run.bindings.end_call();
+        if (!called)
         {
             return exception(caught, std::string("Gameplay.") + name + " failed");
         }
@@ -955,10 +995,12 @@ struct ScriptSystem::State
             if (active->initialization_entered)
             {
                 active->initialization_entered = false;
+                delta_time = 0.0;
                 (void)call(*active, "OnShutdown", false);
             }
             active.reset();
         }
+        delta_time = 0.0;
         status.running = false;
         status.active_revision.clear();
     }
@@ -967,12 +1009,18 @@ struct ScriptSystem::State
     {
         stop();
         status.last_error.clear();
+        if (candidate->snapshot.catalog != nullptr &&
+            !ResourceSystem::activate_catalog(*candidate->snapshot.catalog))
+        {
+            return fail("Cannot activate validated GUID resource catalog");
+        }
         active = std::move(candidate);
         v8::Isolate::Scope isolate_scope(isolate);
         v8::HandleScope handles(isolate);
         v8::TryCatch caught(isolate);
         const auto context = active->context.Get(isolate);
         v8::Context::Scope context_scope(context);
+        active->bindings.activate();
         const auto module = active->modules.find(active->snapshot.entry)->second.Get(isolate);
         v8::Local<v8::Value> evaluation;
         bool passed = module->Evaluate(context).ToLocal(&evaluation);
@@ -1063,7 +1111,9 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem() noexcept = default;
+ScriptSystem::ScriptSystem(WorldSystem* world) noexcept : world_(world)
+{
+}
 
 ScriptSystem::~ScriptSystem() noexcept
 {
@@ -1090,7 +1140,11 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     }
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, std::move(process));
+    state_ = std::make_unique<State>(status_, std::move(process), world_);
+    if (!state_->binding_registry.initialize())
+    {
+        return state_->fail("Cannot register script binding modules");
+    }
     state_->builtin_entry = std::move(builtin_entry);
     state_->builtin_deleted = std::move(builtin_deleted);
     state_->allocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
@@ -1178,7 +1232,7 @@ const ScriptStatus& ScriptSystem::status() const noexcept
     return status_;
 }
 
-bool ScriptSystem::on_tick(double)
+bool ScriptSystem::on_tick(double delta_time)
 {
     if (!state_ || !App::is_initialized())
     {
@@ -1202,7 +1256,15 @@ bool ScriptSystem::on_tick(double)
         v8::Isolate::Scope isolate_scope(state_->isolate);
         v8::HandleScope handles(state_->isolate);
         v8::Context::Scope context_scope(state_->active->context.Get(state_->isolate));
-        (void)state_->call(*state_->active, "Update", false);
+        state_->delta_time = delta_time;
+        if (!state_->call(*state_->active, "Update", false))
+        {
+            const auto failure = status_.last_error;
+            state_->gameplay_requested = false;
+            state_->stop();
+            status_.last_error = failure;
+        }
+        state_->delta_time = 0.0;
     }
     state_->publish();
     return true;

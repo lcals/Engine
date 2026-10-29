@@ -9,6 +9,8 @@
 namespace engine
 {
 
+class WorldSystem;
+
 struct ScriptStatus
 {
     bool running = false;
@@ -21,7 +23,7 @@ struct ScriptStatus
 class ScriptSystem final : public System
 {
 public:
-    ScriptSystem() noexcept;
+    explicit ScriptSystem(WorldSystem* world = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 空入口采用发布清单 entry；无清单时使用 scripts/game.js。
@@ -37,6 +39,8 @@ protected:
 
 private:
     struct State;
+    // 可空借用，非空时必须活到脚本系统关闭。
+    WorldSystem* world_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

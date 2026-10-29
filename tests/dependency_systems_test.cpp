@@ -11,6 +11,7 @@
 #endif
 
 #if ENGINE_HAS_EDITOR
+#include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #endif
@@ -84,11 +85,18 @@ int main()
     {
         return 1;
     }
-    engine::EditorSystem editor(project);
+    engine::EditorEnvironment environment(project, std::filesystem::path(ENGINE_TEST_PROJECT) /
+                                                       "cache" / "dependency-test-persistent");
+    if (!environment.initialize())
+    {
+        return 1;
+    }
+    engine::EditorSystem editor(environment);
     if (!check_lifecycle(editor, "EditorSystem", config))
     {
         return 1;
     }
+    environment.shutdown();
     project.shutdown();
 #endif
 

@@ -15,7 +15,7 @@ public:
     AssetSyncSystem() noexcept;
     ~AssetSyncSystem() noexcept override;
 
-    [[nodiscard]] bool sync(const std::filesystem::path& source_assets,
+    [[nodiscard]] bool sync(const std::filesystem::path& source_cache,
                             const std::filesystem::path& runtime_dir,
                             std::string_view entry = "scripts/game.js");
     [[nodiscard]] const std::string& revision() const noexcept;

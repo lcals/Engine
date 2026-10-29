@@ -58,7 +58,7 @@ tasks.named('preBuild') {
     doFirst {
         ['jniLibs/arm64-v8a/libmain.so', 'jniLibs/arm64-v8a/libSDL3.so',
          'jniLibs/arm64-v8a/libc++_shared.so', 'java/org/libsdl/app/SDLActivity.java',
-         'assets/v8/icudtl.dat', 'assets/project/scripts/game.js',
+         'assets/v8/icudtl.dat', 'assets/project/catalog.bin',
          'assets/project-manifest.json'].each { relative ->
             File input = new File(nativeDirectory, relative)
             if (!input.isFile() || input.length() == 0) {

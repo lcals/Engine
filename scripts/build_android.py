@@ -45,12 +45,17 @@ def main():
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
     parser.add_argument("--project", type=Path,
                         help="要编译并放入 APK 的项目目录，默认 projects/minimal")
+    parser.add_argument("--asset-builder", type=Path,
+                        help="宿主 asset_build_app，用 --target android 增量编译项目资源；省略时须已有 Android catalog")
     parser.add_argument("--skip-native", action="store_true", help="仅打包已由 CMake 生成的原生库")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs 必须大于 0")
-    if args.skip_native and args.project is not None:
-        parser.error("--skip-native 复用已生成资源，不能同时指定 --project；选择项目时请执行完整构建。")
+    if args.skip_native and (args.project is not None or args.asset_builder is not None):
+        parser.error("--skip-native 复用已生成资源，不能同时指定 --project 或 --asset-builder；更新项目时请执行完整构建。")
+    asset_builder = args.asset_builder.resolve() if args.asset_builder is not None else None
+    if asset_builder is not None and (not asset_builder.is_file() or not os.access(asset_builder, os.X_OK)):
+        parser.error("--asset-builder 必须指向可执行的宿主 asset_build_app，请先构建桌面资源工具。")
     project = args.project or ROOT / "projects/minimal"
     require_directory("ANDROID_HOME")
     ndk_root = require_directory("ANDROID_NDK_HOME")
@@ -74,7 +79,8 @@ def main():
             raise ValueError("没有找到 CMake，请先运行环境安装脚本。")
         preset = "android-arm64-" + args.config
         run([cmake, "--preset", preset, "-DENGINE_V8_JOBS=" + str(args.jobs),
-             "-DENGINE_ANDROID_PROJECT=" + str(project.resolve())])
+             "-DENGINE_ANDROID_PROJECT=" + str(project.resolve()),
+             "-DENGINE_ANDROID_ASSET_BUILDER=" + (str(asset_builder) if asset_builder else "")])
         run([cmake, "--build", "--preset", preset + "-prepare"])
         run([cmake, "--build", "--preset", preset, "--parallel", str(args.jobs)])
     source = (ROOT / "build/android-gradle" / args.config / "outputs/apk" /

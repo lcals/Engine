@@ -30,6 +30,13 @@ endif()
 if(ENGINE_ENABLE_V8)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
         engine_add_system(runtime script)
+        # 每个绑定一个实现文件；新增类只需在注册表登记，不再维护第二份构建清单。
+        file(GLOB _engine_script_binding_sources CONFIGURE_DEPENDS
+            "${PROJECT_SOURCE_DIR}/src/engine/runtime/script/bindings/*_binding.cpp")
+        target_sources(engine_script PRIVATE ${_engine_script_binding_sources}
+            src/engine/runtime/script/bindings/binding_context.cpp
+            src/engine/runtime/script/bindings/script_binding_registry.cpp)
+        target_include_directories(engine_script PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         target_link_libraries(engine_script PRIVATE engine::app engine::log SDL3::SDL3
             nlohmann_json::nlohmann_json)
         target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
@@ -44,7 +51,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_window PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
-    target_link_libraries(engine_render PRIVATE engine::window SDL3::SDL3 bgfx::bgfx)
+    target_link_libraries(engine_render PRIVATE engine::window engine::world engine::resource SDL3::SDL3 bgfx::bgfx bgfx::bx)
+    include(${PROJECT_SOURCE_DIR}/cmake/render_shaders.cmake)
     if(ANDROID)
         target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
         target_include_directories(engine_window PRIVATE "${PROJECT_SOURCE_DIR}/platforms/android/native")
@@ -53,14 +61,27 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     endif()
 
     engine_add_system(runtime resource)
-    target_link_libraries(engine_resource PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder
+    target_sources(engine_resource PRIVATE src/engine/runtime/resource/builtin_resources.cpp)
+    engine_embed_render_shaders(engine_resource)
+    target_link_libraries(engine_resource PUBLIC engine::scene_data PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder
         SDL3::SDL3)
     if(ENGINE_ENABLE_SCRIPT_RUNTIME)
         target_link_libraries(engine_script PRIVATE engine::resource)
     endif()
 
     engine_add_system(runtime world)
-    target_link_libraries(engine_world PRIVATE flecs::flecs_static)
+    include(${PROJECT_SOURCE_DIR}/cmake/scene_schema.cmake)
+    engine_add_scene_schema()
+    target_sources(engine_world PRIVATE
+        src/engine/runtime/scene/component.cpp
+        src/engine/runtime/scene/material.cpp
+        src/engine/runtime/scene/node.cpp
+        src/engine/runtime/scene/transform.cpp
+        src/engine/runtime/scene/scene.cpp)
+    target_link_libraries(engine_world PUBLIC engine::scene_data PRIVATE flecs::flecs_static engine::resource)
+    if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+        target_link_libraries(engine_script PRIVATE engine::world)
+    endif()
 
     engine_add_system(runtime physics)
     target_link_libraries(engine_physics PRIVATE Jolt::Jolt)
@@ -101,14 +122,36 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
-    target_link_libraries(engine_editor PRIVATE engine::project imgui::imgui)
+    target_sources(engine_editor PRIVATE src/engine/editor/editor_environment.cpp)
+    target_link_libraries(engine_editor PRIVATE engine::project engine::runtime engine::app
+        engine::log engine::resource imgui::imgui SDL3::SDL3 nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_editor PRIVATE JSON_NOEXCEPTION=1)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+    engine_add_system(editor task)
+    target_link_libraries(engine_task PRIVATE Taskflow::Taskflow Threads::Threads)
+    target_compile_definitions(engine_task PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
+
     engine_add_system(editor asset_pipeline)
-    target_link_libraries(engine_asset_pipeline PRIVATE usd Taskflow::Taskflow
+    target_sources(engine_asset_pipeline PRIVATE
+        src/engine/editor/asset_pipeline/asset_database.cpp
+        src/engine/editor/asset_pipeline/asset_importers.cpp
+        src/engine/editor/asset_pipeline/asset_io.cpp
+        src/engine/editor/asset_pipeline/asset_publish.cpp
+        src/engine/editor/asset_pipeline/project_lock.cpp
+        src/engine/editor/asset_pipeline/scene_importer.cpp)
+    target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_asset_pipeline PRIVATE engine::task engine::resource engine::scene_data
+        usd
         unofficial::sqlite3::sqlite3 efsw::efsw meshoptimizer::meshoptimizer SDL3::SDL3)
-    target_compile_definitions(engine_asset_pipeline PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
+    # vcpkg 的编译库使用异常 ABI；导入器按上游支持方式使用无异常头文件实现。
+    get_target_property(_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_asset_pipeline SYSTEM PRIVATE ${_toml_includes})
+    target_compile_definitions(engine_asset_pipeline PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
+        ENGINE_SHADERC_EXECUTABLE="${ENGINE_SHADERC_EXECUTABLE}"
+        ENGINE_BGFX_SHADER_INCLUDE_DIR="${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
+        ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
     find_program(ENGINE_NODE_EXECUTABLE NAMES node)
     if(NOT ENGINE_NODE_EXECUTABLE)
         set(ENGINE_NODE_EXECUTABLE "")
