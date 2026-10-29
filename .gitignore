@@ -22,3 +22,4 @@ Thumbs.db
 # 项目缓存由资源管线生成，仅保存空目录占位。
 /projects/*/cache/*
 !/projects/*/cache/.gitkeep
+node_modules/

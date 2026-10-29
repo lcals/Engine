@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noImplicitOverride": true,
+    "noEmitOnError": true,
+    "rootDir": "../assets",
+    "outDir": "../cache/assets",
+    "lib": ["ES2022"],
+    "types": [],
+    "sourceMap": true
+  },
+  "files": ["../../../sdk/typescript/engine.d.ts"],
+  "include": ["../assets/**/*.ts"]
+}

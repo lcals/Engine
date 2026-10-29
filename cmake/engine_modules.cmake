@@ -1,6 +1,11 @@
 # 每个系统独立编译，公开头文件搜索路径由所属目标传递。
 function(engine_add_system name)
-    add_library(engine_${name} STATIC "src/engine/${name}/${name}_system.cpp")
+    if(ARGC GREATER 1)
+        set(_source "${ARGV1}")
+    else()
+        set(_source "src/engine/${name}/${name}_system.cpp")
+    endif()
+    add_library(engine_${name} STATIC "${_source}")
     add_library(engine::${name} ALIAS engine_${name})
     target_include_directories(engine_${name} PUBLIC
         "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/engine/${name}>")
@@ -8,8 +13,29 @@ function(engine_add_system name)
     engine_apply_options(engine_${name})
 endfunction()
 
+if(ENGINE_ENABLE_RUNTIME_DEPS AND NOT ANDROID)
+    find_package(Threads REQUIRED)
+    add_library(engine_platform STATIC platforms/desktop/app.cpp)
+    add_library(engine::app ALIAS engine_platform)
+    target_compile_features(engine_platform PUBLIC cxx_std_20)
+    target_include_directories(engine_platform PUBLIC
+        "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/engine/app>")
+    target_link_libraries(engine_platform PRIVATE SDL3::SDL3)
+    engine_apply_options(engine_platform)
+
+    engine_add_system(log)
+    target_link_libraries(engine_log PRIVATE engine::app Threads::Threads)
+endif()
+
 if(ENGINE_ENABLE_V8)
-    engine_add_system(script)
+    if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+        engine_add_system(script)
+        target_link_libraries(engine_script PRIVATE engine::app engine::log SDL3::SDL3
+            nlohmann_json::nlohmann_json)
+        target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
+    else()
+        engine_add_system(script src/engine/script/script_system_probe.cpp)
+    endif()
     target_link_libraries(engine_script PRIVATE engine::v8)
 endif()
 
@@ -27,7 +53,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     endif()
 
     engine_add_system(resource)
-    target_link_libraries(engine_resource PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder)
+    target_link_libraries(engine_resource PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder
+        SDL3::SDL3)
+    if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+        target_link_libraries(engine_script PRIVATE engine::resource)
+    endif()
 
     engine_add_system(world)
     target_link_libraries(engine_world PRIVATE flecs::flecs_static)
@@ -57,6 +87,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine::runtime ALIAS engine_runtime)
     target_link_libraries(engine_runtime PUBLIC engine::core PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
     target_compile_definitions(engine_runtime PRIVATE ENGINE_HAS_V8=$<BOOL:${ENGINE_ENABLE_V8}>)
+    target_compile_definitions(engine_runtime PUBLIC
+        ENGINE_HAS_SCRIPT_RUNTIME=$<BOOL:${ENGINE_ENABLE_SCRIPT_RUNTIME}>)
     if(ENGINE_ENABLE_V8)
         target_link_libraries(engine_runtime PRIVATE engine::script)
     endif()
@@ -65,7 +97,7 @@ endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS)
     engine_add_system(project)
-    target_link_libraries(engine_project PRIVATE tomlplusplus::tomlplusplus)
+    target_link_libraries(engine_project PRIVATE tomlplusplus::tomlplusplus engine::log)
     target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
 
     engine_add_system(editor)
@@ -75,6 +107,27 @@ endif()
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_add_system(asset_pipeline)
     target_link_libraries(engine_asset_pipeline PRIVATE usd Taskflow::Taskflow
-        unofficial::sqlite3::sqlite3 efsw::efsw meshoptimizer::meshoptimizer)
+        unofficial::sqlite3::sqlite3 efsw::efsw meshoptimizer::meshoptimizer SDL3::SDL3)
     target_compile_definitions(engine_asset_pipeline PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
+    find_program(ENGINE_NODE_EXECUTABLE NAMES node)
+    if(NOT ENGINE_NODE_EXECUTABLE)
+        set(ENGINE_NODE_EXECUTABLE "")
+    endif()
+    target_compile_definitions(engine_asset_pipeline PRIVATE
+        ENGINE_NODE_EXECUTABLE="${ENGINE_NODE_EXECUTABLE}"
+        ENGINE_SCRIPT_BUILDER="${PROJECT_SOURCE_DIR}/scripts/build_scripts.mjs")
+endif()
+
+if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+    engine_add_system(asset_sync)
+    target_link_libraries(engine_asset_sync PRIVATE nlohmann_json::nlohmann_json engine::resource
+        SDL3::SDL3)
+    target_compile_definitions(engine_asset_sync PRIVATE JSON_NOEXCEPTION=1)
+
+    if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+        engine_add_system(mcp)
+        target_link_libraries(engine_mcp PRIVATE engine::asset_pipeline engine::asset_sync
+            engine::resource nlohmann_json::nlohmann_json SDL3::SDL3)
+        target_compile_definitions(engine_mcp PRIVATE JSON_NOEXCEPTION=1)
+    endif()
 endif()
