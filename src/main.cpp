@@ -1,6 +1,11 @@
 #include "engine.hpp"
 #include "engine_config.hpp"
 
+#if ENGINE_HAS_DESKTOP_SERVICES
+#include "app.hpp"
+#include "log_system.hpp"
+#endif
+
 #include <SDL3/SDL_main.h>
 #include <fmt/base.h>
 
@@ -51,10 +56,30 @@ int main(int argc, char* argv[])
             return 2;
         }
     }
+#if ENGINE_HAS_DESKTOP_SERVICES
+    if (!engine::App::initialize(engine::AppConfig{}))
+    {
+        std::fputs("Application path initialization failed\n", stderr);
+        return 1;
+    }
+    auto& log = engine::LogSystem::instance();
+    if (!log.initialize(config))
+    {
+        std::fputs("Log initialization failed\n", stderr);
+        engine::App::shutdown();
+        return 1;
+    }
+#endif
     auto& engine = engine::Engine::instance();
     if (!engine.initialize(config))
     {
+#if ENGINE_HAS_DESKTOP_SERVICES
+        engine::LogSystem::write(engine::LogLevel::error, "Engine initialization failed");
+        log.shutdown();
+        engine::App::shutdown();
+#else
         std::fputs("Engine initialization failed\n", stderr);
+#endif
         return 1;
     }
     auto previous_time = std::chrono::steady_clock::now();
@@ -90,5 +115,14 @@ int main(int argc, char* argv[])
     }
     engine.shutdown();
     fmt::print("Engine stopped after {} rendered frames\n", frames);
+#if ENGINE_HAS_DESKTOP_SERVICES
+    engine::LogSystem::write(engine::LogLevel::info, "Engine stopped");
+    if (!log.flush())
+    {
+        result = 1;
+    }
+    log.shutdown();
+    engine::App::shutdown();
+#endif
     return result;
 }

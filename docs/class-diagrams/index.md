@@ -2,6 +2,16 @@
 
 状态：本轮实现引擎、统一系统生命周期、各系统最小骨架与窗口渲染。下列图是架构评审入口；具体构建、测试和平台验证结果见根 [README.md](../../README.md)。
 
+本轮新增桌面编辑器脚本闭环：平台路径、默认写盘日志、TS 项目入口、持久脚本缓存、MCP 同步与热重载。先完成编辑器验证，用户审核后再进行 Android 接入；场景 `Node` / `Component` 的完整业务接口尚不进入本轮运行 SDK。
+
+## 本轮脚本接口
+
+- [App 平台路径](app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
+- [日志系统](log-system.md)：宿主管理的单例，默认写入磁盘。
+- [项目玩法入口](gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
+- [资源同步](asset-sync-system.md)：完整批次发布到持久脚本缓存。
+- [MCP 系统](mcp-system.md)：桌面 stdio 工具，提供同步、热重载开关与状态。
+
 ## 阅读入口
 
 - [引擎与系统总图](engine-system.md)：只定义 `Engine` 和抽象基类 `System`。
@@ -13,7 +23,7 @@
 | 顺序 | 独立类图 | 当前职责与依赖 |
 | --- | --- | --- |
 | 1 | [窗口系统](window-system.md) | SDL3 窗口和事件 |
-| 2 | [资源系统](resource-system.md) | FlatBuffers、Basis Universal 接入 |
+| 2 | [资源系统](resource-system.md) | SDL3 同步文本/二进制读取，FlatBuffers、Basis Universal 接入 |
 | 3 | [世界系统](world-system.md) | flecs 世界及子系统生命周期 |
 | 4 | [渲染系统](render-system.md) | bgfx 初始化、最小画面和帧提交 |
 

@@ -11,11 +11,13 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。每个系统在 `include/engine/<system>/` 和 `src/engine/<system>/` 各有独立子目录与 CMake 目标；自有头文件直接按文件名包含，搜索路径由目标传递。`Engine` 持有窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前多数业务系统仅具备生命周期和依赖接入：尚未实现 PBR、场景加载、物理模拟、UI 绘制、编辑器界面或脚本执行框架。Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`。`ScriptSystem` 暂只验证版本 API；桌面与 Android APK 共用 JavaScript / Intl / Temporal 嵌入验证，Android 默认启用 V8。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前尚未实现 PBR、场景加载、物理模拟、UI 绘制或完整编辑器界面。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
-仓库自带编辑器最小占位项目 `projects/minimal/`：`settings/` 保存项目设置，`cache/` 保存生成缓存，`assets/` 保存项目资源；三个目录目前仅有 `.gitkeep`，缓存产物不提交。
+Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 V8，并保留已完成的 JavaScript / Intl / Temporal 嵌入验证。新增玩法脚本闭环目前仅接入桌面；Android 继续使用系统版本探针及独立 V8 测试，待用户审核后再扩展，历史 APK 结果不能作为新增脚本能力的验证。
 
-`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才启动引擎和借用该项目的 `EditorSystem`。本阶段不读取项目文件内容。toml++ 使用无异常表结构 API；其预编译解析接口与无异常模式存在 ABI 差异，文件解析尚未启用。Taskflow 仅接入任务图，执行器头含未隔离的异常语法，执行功能留待无异常适配后启用。
+仓库自带最小项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，生成 JS 与资源镜像放 `cache/assets/`。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+
+`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。toml++ 使用无异常表结构 API，其文件解析尚未启用。Taskflow 仅接入任务图，执行器功能留待无异常适配后启用。
 
 ## 构建与测试
 
@@ -84,7 +86,7 @@ cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
-这两个 workflow 包括显式 V8 准备步骤；已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。原 `engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。脚本系统不启动 isolate，因此最小窗口程序当前无需加载 ICU 数据；真正执行 JavaScript 的测试会自动部署 `icudtl.dat`。
+这两个 workflow 包括显式 V8 准备步骤，并启用桌面脚本运行；先按下节准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。原 `engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。启用脚本运行的应用及测试会自动将 `icudtl.dat` 部署到可执行文件旁。
 
 依赖安装缓存位于 `build/dependencies/`，按 `runtime`、`editor`、`asset-pipeline`、`base` 四组 feature 隔离；同组 Debug / Release 共用安装目录，避免重复安装。vcpkg 自带二进制缓存继续生效，并保留用户设置的 `VCPKG_BINARY_SOURCES`。删除某个应用构建目录不会清掉这些共享依赖；只修改引擎源码时，无需运行清理依赖或重新准备依赖的命令。
 
@@ -155,7 +157,7 @@ Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；旧 Visual
 ./build/ninja-engine-debug/editor_app --project projects/minimal
 ```
 
-该入口目前验证项目并建立引擎、ImGui 上下文，尚未绘制完整编辑器界面。
+该入口验证项目并建立引擎、ImGui 上下文；完整引擎预设还会构建、同步并运行项目脚本。尚未绘制完整编辑器界面。
 
 普通 CTest 不要求桌面环境。要在有图形桌面的机器运行真实窗口/GPU测试：
 
@@ -166,6 +168,78 @@ ctest --preset ninja-debug
 ```
 
 `engine.window_render` 验证真实后端、缩放后的像素尺寸、后台暂停恢复、关闭、重复初始化和 Engine 调度。该测试有 60 秒超时并串行执行；不需要 GPU 的生命周期和依赖测试始终注册。
+
+### 桌面脚本与同步
+
+本阶段使用桌面编辑器验证整个流程。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入 V8 玩法环境。先安装项目锁定的 TypeScript，再构建完整引擎预设：
+
+```sh
+npm ci --prefix projects/minimal/settings
+cmake --workflow --preset ninja-engine-debug
+cmake --workflow --preset ninja-engine-release
+```
+
+从仓库根目录启动编辑器，指定一个持久运行目录，让编辑器和 MCP 工具访问同一份缓存与状态：
+
+```sh
+./build/ninja-engine-debug/editor_app --project projects/minimal --runtime-dir build/editor-runtime
+```
+
+Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
+
+编辑器先读取 `settings/tsconfig.json`，将 `assets/` 中的 TS 编译为 `cache/assets/` 下同路径的 JS，并复制其他资源；构建失败保留上一次完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后才启动 `Game`。示例会有意写入 warning/error 日志来验证绑定，这两条消息不表示启动失败。
+
+编辑器运行时，在另一终端修改 `projects/minimal/assets/scripts/game.ts`，然后执行：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime sync
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload on
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload off
+```
+
+Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动 `mcp_app`，完成 MCP 初始化并调用一次工具；也可将这个可执行文件及相同参数配置到其他 MCP 客户端。`sync` 同时构建 TS 和同步完整版本；热重载开关只写控制请求，切换由引擎在帧边界执行。同步成功或返回 `pending engine decision` 不等于新脚本已经运行，应通过 `status` 的 `activeRevision`、`availableRevision`、`running` 和 `lastError` 确认。状态是引擎最近一次上报，并非独立的进程存活检测。
+
+热重载默认关闭；同一持久目录已有控制文件时读取其设置。关闭期间仍可同步新版本，当前实例和模块快照保持不变；开启后应用最新完整版本。候选脚本编译或静态链接失败时旧实例继续运行；新模块执行或 `OnInitialize` 失败会停止此次玩法并报告错误，不承诺撤销副作用或保留任意 JS 状态。`Update` 异常记录错误，后续引擎帧继续运行。
+
+运行 SDK 位于 [engine.d.ts](sdk/typescript/engine.d.ts)，由虚拟 ES 模块 `engine` 提供：
+
+```ts
+import { Debug, Gameplay } from "engine";
+
+export default class Game extends Gameplay {
+    override OnInitialize(): boolean {
+        Debug.Log("Game started");
+        return true;
+    }
+
+    override Update(): void {
+    }
+
+    override OnShutdown(): void {
+        Debug.Log("Game stopped");
+    }
+}
+```
+
+每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Node`、`Component` 和场景脚本接口尚未实现，SDK 没有声明这些接口。
+
+`App` 的静态只读路径具有以下含义：
+
+| 脚本接口 | 用途 |
+| --- | --- |
+| `App.builtinAssetsPath` | 内置资源根目录；编辑器中为当前会话的固定资源快照 |
+| `App.persistentDataPath` | 持久数据根目录，保存同步版本、日志、控制与状态；可由 `--runtime-dir` 指定 |
+| `App.cachePath` | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本 |
+
+`LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并输出到 stderr；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/assets/` 与平台临时 `App.cachePath` 是不同目录。
+
+持久版本保存在 `persistentDataPath/assets/versions/<revision>/`；所有文件传入并核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。入口及每个静态 import 统一按相对路径解析：清单命中时使用对应版本文件，`deleted` 中的路径禁止回退，其他路径读取内置资源；不通过复制内置内容覆盖已有同步文件。绝对路径、越界路径和越界符号链接会被拒绝。版本文件保持不变，下一次发布使用新版本名。
+
+文件读取统一通过 `ResourceSystem` 的 SDL3 同步接口，单文件上限 64 MiB；当前脚本源码、清单和控制文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
+
+当前同步将完整版本发布到本机可写目录，通过 `script-control.json` / `script-status.json` 完成桌面控制；尚未实现网络传输、真机传输或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 是桌面功能开关，完整引擎预设开启；关闭时保留 V8 版本探针。Android 玩法脚本接入等待用户审核，下面 APK 历史验证不包含本节新增能力。
 
 ### Android APK
 
@@ -304,6 +378,18 @@ Android 两种配置的重复 prepare / build 均命中缓存，各阶段约 1 �
 
 APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/` 和 `release-verified/`，包含 APK 哈希、链接 map 摘录、ELF 信息、ICU 哈希、逐项运行日志和截图，汇总为 `build/android-v8-validation/summary.json`。此轮尚未验证 Android 真机或 Linux / Windows 构建宿主；`ScriptSystem` 的玩法脚本接口仍属后续工作。
 
+### 桌面脚本、日志、资源读取与同步
+
+2026-10-29 在 macOS ARM64、AppleClang 21 上，通过继承标准 `ninja-engine-debug` / `ninja-engine-release` 的本机 Presets 完成构建，开启禁异常、编译警告视为错误及真实 GPU 测试；两种配置 CTest 均为 22/22 通过，V8 准备命中已有缓存。
+
+- SDL3 同步读取覆盖二进制、文本、空文件、中文路径、嵌入 NUL、缺失文件、目录及超限文件；失败清空输出。
+- 日志验证实际写盘、并发记录、轮换、失败后重试和重复生命周期。脚本验证真实 V8 模块执行、日志与路径绑定、缓存优先及内置回退、删除清单、语法或链接失败、重启和入口切换。
+- 工具测试实际调用 TypeScript 5.9.3 与 MCP，覆盖中文及空格路径、编译失败保持旧产物、版本发布、删除、协议错误和热重载控制。MCP 标准输出保持 JSON-RPC。
+- Debug 编辑器在独立项目上运行 3600 个 Metal 帧：启动玩法后通过 MCP 同步修改并重载，关闭重载后同步保留旧实例，重新开启应用待运行版本，TS 编译失败时保留原版本；三次玩法实例均执行关闭回调，编辑器正常退出。
+- 35 张 Mermaid 类图均实际解析、渲染成功；C++ 格式与 `git diff --check` 通过。端到端记录保存在忽略的 `build/editor-script-validation/`。
+
+本轮新增能力尚未在 Windows / Linux 或 Android 上实机验证；Android 接入按约定等待桌面审核。本轮没有触发 CI，也没有把完整资源批次同步表述为真机或网络传输。
+
 ## 目录
 
 所有受版本管理的目录均使用小写；`CMakeLists.txt` 等标准文件名保持原样。
@@ -314,10 +400,11 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 ├── cmake/              # 目标级编译设置
 ├── docs/               # 架构规划与开发说明
 ├── include/engine/     # 引擎及各系统的公开头文件
-├── platforms/android/  # Android Manifest、Java 入口、Gradle 与原生打包配置
-├── projects/minimal/   # settings、cache、assets 三个占位子目录
+├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
+├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
 ├── references/         # 本地参考文件，内容不纳入 Git
-├── scripts/            # 跨平台宿主构建工具检查与安装
+├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
+├── sdk/typescript/     # 运行时虚拟 engine 模块的类型声明
 ├── src/engine/         # 按系统分目录的实现；src/main.cpp 为应用入口
 ├── tests/              # C++ 与命令行测试
 └── third_party/        # vcpkg 包查找及 Git 子模块
@@ -337,6 +424,7 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 | `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF` | 编译资源管线系统，查找并验证离线工具 |
 | `ENGINE_ENABLE_GPU_TESTS` | `OFF` | 注册需要图形桌面和真实 GPU 的窗口测试 |
 | `ENGINE_ENABLE_V8` | `OFF` | 启用显式准备的 V8 monolith、构建目标与嵌入测试 |
+| `ENGINE_ENABLE_SCRIPT_RUNTIME` | `OFF` | 桌面 V8 玩法、日志/路径绑定与资源同步；完整 engine 预设开启，Android 不启用 |
 
 作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。只使用系统基类时链接 `engine::core`；使用完整引擎入口时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`，由目标传递直接包含头文件所需的搜索路径。Preset 用于独立开发，会显式开启对应系统与测试。
 

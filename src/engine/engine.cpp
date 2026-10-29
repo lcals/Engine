@@ -62,8 +62,10 @@ bool Engine::initialize(const EngineConfig& config)
         return false;
     }
 #if ENGINE_HAS_V8
-    std::unique_ptr<System> script = std::make_unique<ScriptSystem>();
-    if (!world->add_subsystem(script))
+    auto script = std::make_unique<ScriptSystem>();
+    script_ = script.get();
+    std::unique_ptr<System> script_base = std::move(script);
+    if (!world->add_subsystem(script_base))
     {
         shutdown();
         return false;
@@ -137,8 +139,51 @@ void Engine::request_exit() noexcept
     exit_requested_ = true;
 }
 
+bool Engine::start_gameplay(std::string_view entry)
+{
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    return initialized_ && script_ != nullptr && script_->start_gameplay(entry);
+#else
+    static_cast<void>(entry);
+    return false;
+#endif
+}
+
+void Engine::stop_gameplay() noexcept
+{
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    if (script_ != nullptr)
+    {
+        script_->stop_gameplay();
+    }
+#endif
+}
+
+void Engine::set_hot_reload(bool enabled)
+{
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    if (script_ != nullptr)
+    {
+        script_->set_hot_reload(enabled);
+    }
+#else
+    static_cast<void>(enabled);
+#endif
+}
+
+const ScriptStatus* Engine::script_status() const noexcept
+{
+#if ENGINE_HAS_SCRIPT_RUNTIME
+    return script_ != nullptr ? &script_->status() : nullptr;
+#else
+    return nullptr;
+#endif
+}
+
 void Engine::shutdown() noexcept
 {
+    // 项目退出回调执行期间，渲染和资源系统仍然可用。
+    stop_gameplay();
     // 逐个反序销毁，保证渲染器析构期间借用的窗口仍然存在。
     while (!systems_.empty())
     {
@@ -146,6 +191,7 @@ void Engine::shutdown() noexcept
         systems_.pop_back();
     }
     renderer_ = nullptr;
+    script_ = nullptr;
     window_ = nullptr;
     initialized_ = false;
     exit_requested_ = false;

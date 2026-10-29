@@ -9,6 +9,53 @@ add_test(NAME engine.v8_cache
         -P "${CMAKE_CURRENT_SOURCE_DIR}/v8_cache_test.cmake")
 set_tests_properties(engine.v8_cache PROPERTIES TIMEOUT 30)
 
+if(TARGET engine_platform)
+    add_executable(engine_app_log_test app_log_test.cpp)
+    target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads)
+    engine_apply_options(engine_app_log_test)
+    add_test(NAME engine.app_log COMMAND engine_app_log_test
+        "${CMAKE_CURRENT_BINARY_DIR}/app-log-test-output")
+    set_tests_properties(engine.app_log PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET engine_resource)
+    add_executable(engine_resource_read_test resource_read_test.cpp)
+    target_link_libraries(engine_resource_read_test PRIVATE engine::resource)
+    engine_apply_options(engine_resource_read_test)
+    add_test(NAME engine.resource_read COMMAND engine_resource_read_test
+        "${CMAKE_CURRENT_BINARY_DIR}/resource-read-test-output")
+    set_tests_properties(engine.resource_read PROPERTIES TIMEOUT 30)
+endif()
+
+if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+    add_executable(engine_script_runtime_test script_runtime_test.cpp)
+    target_link_libraries(engine_script_runtime_test PRIVATE engine::script engine::app
+        engine::log engine::resource nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_script_runtime_test)
+    engine_copy_script_data(engine_script_runtime_test)
+    add_test(NAME engine.script_runtime COMMAND engine_script_runtime_test
+        "${CMAKE_CURRENT_BINARY_DIR}/script-runtime-test-output")
+    set_tests_properties(engine.script_runtime PROPERTIES TIMEOUT 60)
+
+    add_executable(engine_asset_sync_test asset_sync_test.cpp)
+    target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync
+        nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_asset_sync_test)
+    add_test(NAME engine.asset_sync COMMAND engine_asset_sync_test
+        "${CMAKE_CURRENT_BINARY_DIR}/asset-sync-test-output")
+    set_tests_properties(engine.asset_sync PROPERTIES TIMEOUT 30)
+
+    if(TARGET mcp_app)
+        find_package(Python3 COMPONENTS Interpreter REQUIRED)
+        add_test(NAME engine.script_tooling COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/script_tooling_test.py"
+            --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(engine.script_tooling PROPERTIES TIMEOUT 120)
+    endif()
+endif()
+
 if(ENGINE_ENABLE_RUNTIME_DEPS OR ENGINE_ENABLE_EDITOR_DEPS OR
    ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR ENGINE_ENABLE_V8)
     add_executable(engine_dependency_systems_test dependency_systems_test.cpp)

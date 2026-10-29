@@ -12,6 +12,10 @@ classDiagram
         +instance() Engine&$
         +initialize(const EngineConfig& config) bool
         +tick(double delta_time) FrameStatus
+        +start_gameplay(std::string_view entry) bool
+        +stop_gameplay() void
+        +set_hot_reload(bool enabled) void
+        +script_status() const ScriptStatus#42;
         +request_exit() void
         +shutdown() void
         -Engine()
@@ -51,7 +55,7 @@ classDiagram
 ## 接口约定
 
 - `Engine`、窗口系统和渲染系统的初始化、更新、渲染与关闭统一在 `SDL_main` 所在线程调用：桌面为应用主线程，Android 为 SDL 原生主循环线程；不从 Java UI 回调直接调用系统接口。当前公共接口不提供跨线程安全保证。
-- `Engine` 是唯一的进程级单例，通过 `std::unique_ptr<System>` 拥有根系统。系统至多属于一个引擎或一个父系统，不同时拥有两个所有者；宿主模块也可独立拥有根系统。
+- `Engine` 通过 `std::unique_ptr<System>` 拥有普通根系统；`LogSystem` 是另一个由宿主先初始化、最后关闭的进程单例，不进入独占系统树。系统至多属于一个引擎或一个父系统，不同时拥有两个所有者；宿主模块也可独立拥有根系统。
 - 所有系统和子系统继承 `System`。公开 `initialize / tick / shutdown` 是非虚方法，统一调度当前系统及其子系统；派生类实现受保护的 `on_*` 钩子，不隐藏公共入口。
 - `on_tick()` 默认成功且不做工作，没有逐帧任务的系统可以不重写。
 - `initialize()` 和系统 `tick()` 成功返回 `true`，失败返回 `false`。重复初始化返回 `false`，不破坏已运行实例；首次初始化失败时回滚当前子树已创建的资源。
@@ -59,6 +63,8 @@ classDiagram
 - 根系统依次初始化 `WindowSystem → ResourceSystem → WorldSystem → RenderSystem`。每帧先处理窗口事件，检查退出和暂停；可绘制时更新资源、世界及渲染系统，最后调用 `render()`。暂停期间继续处理窗口恢复和退出事件。
 - 平台暂停请求若在本帧检查后到达，渲染被拒绝且窗口已不可绘制时返回 `paused`，等待恢复，不将正常切后台锁定为失败。
 - 引擎启动不要求项目，`EngineConfig` 不包含项目路径；`Engine` 不拥有或依赖 `ProjectSystem`。
+- 桌面脚本运行功能启用时，`start_gameplay(entry)` 只能在全部根系统就绪后调用。入口是资源相对路径，不是项目目录。`stop_gameplay()` 先结束玩法回调，重复调用安全；引擎关闭时先停止玩法，再关闭渲染等根系统。
+- `set_hot_reload(enabled)` 转发给脚本模块；`script_status()` 返回借用的只读状态，未装配脚本运行功能时为空。上述业务操作不绕过父系统去调用子系统的公共初始化或关闭。
 - 编辑器宿主先初始化独立的项目系统，检查实际根目录及其 `settings/`、`cache/`、`assets/`，再启动引擎窗口和编辑器系统；项目失败时尚未打开窗口。
 - `WorldSystem` 独占物理、导航、动画、界面及可选脚本子系统；编译启用 V8 时加入 `ScriptSystem`。编辑器和资源管线由各自宿主单独管理，运行时不依赖它们。
 - 非法 `delta_time` 属于参数拒绝：本帧返回 `failed` 且不执行系统更新，后续传入合法时间仍可继续运行。

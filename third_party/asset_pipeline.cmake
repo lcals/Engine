@@ -7,6 +7,7 @@ find_package(basisu CONFIG REQUIRED GLOBAL)
 find_package(meshoptimizer CONFIG REQUIRED GLOBAL)
 find_package(flatbuffers CONFIG REQUIRED GLOBAL)
 find_package(tomlplusplus CONFIG REQUIRED GLOBAL)
+find_package(SDL3 CONFIG REQUIRED GLOBAL)
 
 # bgfx 的 shader、texture、geometry 编译器在构建主机上运行。
 find_program(ENGINE_BGFX_SHADERC_EXECUTABLE NAMES shaderc REQUIRED)

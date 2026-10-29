@@ -1,5 +1,7 @@
 #include "project_system.hpp"
 
+#include "log_system.hpp"
+
 #include <toml++/toml.hpp>
 
 #include <cstdio>
@@ -21,14 +23,14 @@ namespace
     const bool is_directory = std::filesystem::is_directory(path, error);
     if (error)
     {
-        std::fprintf(stderr, "Cannot access required project directory '%s': %s\n",
-                     display_path.c_str(), error.message().c_str());
+        LogSystem::write(LogLevel::error, "Cannot access required project directory '" +
+                                              display_path + "': " + error.message());
         return false;
     }
     if (!is_directory)
     {
-        std::fprintf(stderr, "Required project path '%s' is not a directory\n",
-                     display_path.c_str());
+        LogSystem::write(LogLevel::error,
+                         "Required project path '" + display_path + "' is not a directory");
         return false;
     }
     return true;
@@ -49,11 +51,11 @@ bool ProjectSystem::on_initialize(const EngineConfig&)
 {
     if (project_root_.empty())
     {
-        std::fputs("Project root directory must not be empty\n", stderr);
+        LogSystem::write(LogLevel::error, "Project root directory must not be empty");
         return false;
     }
 
-    const std::filesystem::path root(project_root_);
+    const std::filesystem::path root(reinterpret_cast<const char8_t*>(project_root_.c_str()));
     if (!check_directory(root, project_root_))
     {
         return false;

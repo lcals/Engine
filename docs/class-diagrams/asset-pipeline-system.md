@@ -1,54 +1,41 @@
 # 资源管线系统
 
-[类图索引](index.md) · [引擎与系统](engine-system.md) · [完整引用关系](references.md)
+[类图索引](index.md) · [完整引用关系](references.md)
 
-状态：本轮最小实现。仅定义 `AssetPipelineSystem` 的方法；其他节点为跨图引用或第三方类型。
+本轮桌面编辑器实现；独立根系统由工具宿主初始化并反序关闭。跨图引用不重复定义公开方法。
 
 ```mermaid
 classDiagram
     direction TB
     class AssetPipelineSystem {
-        <<final>>
         +AssetPipelineSystem()
         +~AssetPipelineSystem()
+        +build_scripts(const std::filesystem::path& project_root) bool
+        +last_error() const std::string&
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
     }
-    class System {
-        <<abstract>>
-    }
-    class EngineConfig {
-        <<struct>>
-    }
-    class USD["USD"] {
-        <<library>>
-    }
-    class Taskflow["Taskflow"] {
-        <<library>>
-    }
-    class SQLite["SQLite"] {
-        <<library>>
-    }
-    class efsw["efsw"] {
-        <<library>>
-    }
-    class meshoptimizer["meshoptimizer"] {
-        <<library>>
-    }
+    class System
+    class EngineConfig
+    class NodeJs["Node.js"]
+    class TypeScript
+    class USD
+    class Taskflow
+    class SQLite
+    class efsw
+    class meshoptimizer
     System <|-- AssetPipelineSystem
-    AssetPipelineSystem ..> EngineConfig : on_initialize 参数
-    AssetPipelineSystem ..> USD : 编译及链接依赖
-    AssetPipelineSystem ..> Taskflow : 编译及链接依赖
-    AssetPipelineSystem ..> SQLite : 编译及链接依赖
-    AssetPipelineSystem ..> efsw : 编译及链接依赖
-    AssetPipelineSystem ..> meshoptimizer : 编译及链接依赖
-    note for AssetPipelineSystem "继承 System 生命周期；析构中调用 shutdown()"
+    AssetPipelineSystem ..> EngineConfig : 初始化参数
+    AssetPipelineSystem ..> NodeJs : SDL 进程 argv 启动
+    NodeJs ..> TypeScript : 编译器 API
+    AssetPipelineSystem ..> USD : 编译与链接
+    AssetPipelineSystem ..> Taskflow : 编译与链接
+    AssetPipelineSystem ..> SQLite : 编译与链接
+    AssetPipelineSystem ..> efsw : 编译与链接
+    AssetPipelineSystem ..> meshoptimizer : 编译与链接
+    note for AssetPipelineSystem "宿主拥有；settings 配置、assets 源码、cache 产物；编译失败不发布"
 ```
 
-- 独立宿主模块，由资源工具宿主管理根系统生命周期；运行时不依赖 USD、文件监听器或离线处理工具。
-- 当前建立局部 Taskflow 任务图、文件监听对象、SQLite 内存数据库、meshoptimizer 重映射和 USD 内存 stage，验证依赖编译与链接。局部资源在初始化探针结束时释放。
-- 尚未启动目录监听线程、Taskflow 执行器或实际导入任务。构建提供的 shaderc、texturec、geometryc 属于宿主工具，不作为运行时类或资源对象。
-- 公开业务接口当前只有构造与析构；继承 `System` 的公共生命周期方法，不提前增加业务方法。初始化失败和清理遵守[系统约定](engine-system.md)。
-- 不重写 `on_tick()`，沿用基类默认成功的空更新；当前无逐帧业务任务。
+通过 SDL3 进程 API 传递独立 argv，调用固定构建脚本；Node 和构建脚本由构建配置指定。TS 配置放 settings，源码 assets，编译成功后替换 cache/assets。失败返回 false，并保留上次有效产物；调用方不能在 false 后同步旧产物。保留 USD、Taskflow、SQLite、efsw、meshoptimizer 的实际编译链接探针。`last_error()` 返回借用错误描述。
 
-C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
+返回状态及只读访问方法标注 `[[nodiscard]]`；析构和清理为 `noexcept`，钩子标注 `override`。`last_error()` 为 const noexcept，只读字符串借用在下一次业务操作前有效。
