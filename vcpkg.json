@@ -20,6 +20,10 @@
           "host": true
         },
         "flatbuffers",
+        {
+          "name": "flatbuffers",
+          "host": true
+        },
         "flecs",
         "joltphysics",
         "recastnavigation",

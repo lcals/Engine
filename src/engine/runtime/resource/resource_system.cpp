@@ -63,7 +63,7 @@ std::string_view target_platform() noexcept
 bool cache_file(const std::filesystem::path& root, const std::filesystem::path& relative)
 {
     const auto encoded = root.generic_u8string();
-    if (encoded.starts_with(u8"apk:/assets/"))
+    if (encoded == u8"apk:/assets" || encoded.starts_with(u8"apk:/assets/"))
         return true;
     std::error_code error;
     auto current = root;
