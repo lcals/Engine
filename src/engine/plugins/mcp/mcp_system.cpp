@@ -13,6 +13,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace engine
@@ -142,6 +143,138 @@ bool atomic_control(const fs::path& runtime, bool enabled)
     return true;
 }
 
+bool read_project_status(const fs::path& runtime, Json& status)
+{
+    const auto path = runtime / "project-status.json";
+    std::error_code error;
+    const auto size = fs::file_size(path, error);
+    std::string text;
+    if (error || size > 64 * 1024 || !no_symlinks(path) || !ResourceSystem::read_text(path, text))
+    {
+        return false;
+    }
+    status = Json::parse(text, nullptr, false);
+    return status.is_object() && status.contains("session") && status["session"].is_string() &&
+           status.contains("projectRoot") && status["projectRoot"].is_string() &&
+           status.contains("projectState") && status["projectState"].is_string() &&
+           status.contains("updatedAtMs") && status["updatedAtMs"].is_number_integer() &&
+           status.contains("lastRequestId") && status["lastRequestId"].is_string() &&
+           status.contains("lastRequestSucceeded") && status["lastRequestSucceeded"].is_boolean();
+}
+
+bool editor_alive(const Json& status)
+{
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    const auto time = status["updatedAtMs"].get<std::int64_t>();
+    return time <= now && time >= now - 5000 && status["projectState"] != "closed";
+}
+
+Json control_project(const fs::path& runtime, const fs::path& project_root,
+                     const std::string& command)
+{
+    const auto lock = runtime / "project-control.lock";
+    std::error_code error;
+    if (!no_symlinks(lock) || !fs::create_directory(lock, error))
+    {
+        return tool_result({{"error", "Another project control operation owns the lock"}}, true);
+    }
+    const auto result = [&]() -> Json
+    {
+        Json before;
+        if (!read_project_status(runtime, before) || !editor_alive(before))
+        {
+            return tool_result({{"error", "No live editor session for this runtime directory"}},
+                               true);
+        }
+        const auto canonical_project = fs::canonical(project_root, error);
+        if (error || before["projectRoot"] != PathUtils::to_utf8(canonical_project))
+        {
+            return tool_result({{"error", "Editor session belongs to a different project"}}, true);
+        }
+        const auto target = runtime / "project-control.json";
+        if (!no_symlinks(target))
+        {
+            return tool_result({{"error", "Project control path contains a symlink"}}, true);
+        }
+        if (fs::exists(target, error))
+        {
+            std::string previous_text;
+            const auto previous_size = fs::file_size(target, error);
+            if (error || previous_size > 16 * 1024 ||
+                !ResourceSystem::read_text(target, previous_text))
+            {
+                return tool_result({{"error", "Cannot inspect previous project request"}}, true);
+            }
+            const auto previous = Json::parse(previous_text, nullptr, false);
+            if (previous.is_object() && previous.contains("session") &&
+                previous["session"] == before["session"] && previous.contains("requestId") &&
+                (previous["requestId"] != before["lastRequestId"] ||
+                 before["projectState"] == "starting" || before["projectState"] == "stopping"))
+            {
+                return tool_result({{"error", "Previous project request is still pending"},
+                                    {"requestId", previous["requestId"]}},
+                                   true);
+            }
+        }
+        else if (error)
+        {
+            return tool_result({{"error", "Cannot inspect project control path"}}, true);
+        }
+        const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
+        const auto request_id = std::to_string(nonce);
+        const auto temporary = runtime / (".project-control-" + request_id + ".json");
+        if (!no_symlinks(temporary))
+        {
+            return tool_result({{"error", "Invalid temporary control path"}}, true);
+        }
+        std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+        output << Json({{"session", before["session"]},
+                        {"requestId", request_id},
+                        {"command", command}})
+                      .dump()
+               << '\n';
+        output.close();
+        if (!output || !SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(),
+                                       PathUtils::to_utf8(target).c_str()))
+        {
+            fs::remove(temporary, error);
+            return tool_result({{"error", "Cannot publish project request"}}, true);
+        }
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            Json receipt;
+            if (read_project_status(runtime, receipt))
+            {
+                if (receipt["session"] != before["session"])
+                {
+                    return tool_result({{"error", "Editor session changed before completion"},
+                                        {"requestId", request_id}},
+                                       true);
+                }
+                if (receipt["lastRequestId"] == request_id &&
+                    receipt["projectState"] != "starting" && receipt["projectState"] != "stopping")
+                {
+                    receipt["requestId"] = request_id;
+                    receipt["activation"] = "completed";
+                    receipt["runtimeDir"] = PathUtils::to_utf8(runtime);
+                    const bool succeeded = receipt["lastRequestSucceeded"].get<bool>();
+                    return tool_result(std::move(receipt), !succeeded);
+                }
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        return tool_result({{"error", "Project request submitted; completion is not confirmed"},
+                            {"requestId", request_id},
+                            {"activation", "pending"}},
+                           true);
+    }();
+    fs::remove(lock, error);
+    return result;
+}
+
 Json read_status(const fs::path& runtime)
 {
     Json status = {{"running", false},
@@ -194,17 +327,43 @@ Json read_status(const fs::path& runtime)
     {
         return tool_result({{"error", "cannot inspect published asset manifest"}}, true);
     }
+    const auto project_status_path = runtime / "project-status.json";
+    if (fs::exists(project_status_path, error))
+    {
+        Json project_status;
+        if (!read_project_status(runtime, project_status))
+        {
+            return tool_result({{"error", "Invalid editor project status"}}, true);
+        }
+        for (auto item = project_status.begin(); item != project_status.end(); ++item)
+        {
+            status[item.key()] = item.value();
+        }
+        const bool alive = editor_alive(project_status);
+        status["editorAlive"] = alive;
+        status["state"] = alive ? "lastReportedEditor" : "offline";
+        if (!alive)
+        {
+            status["lastReportedProjectState"] = status["projectState"];
+            status["projectState"] = "offline";
+            status["running"] = false;
+        }
+    }
+    else if (error)
+    {
+        return tool_result({{"error", "Cannot inspect editor status"}}, true);
+    }
     status["runtimeDir"] = PathUtils::to_utf8(runtime);
     status["statusSource"] =
         "availableRevision is published on disk; runtime fields are the last engine report";
     return tool_result(std::move(status));
 }
 
-Json tool_list()
+Json tool_list(bool desktop)
 {
     const Json empty_schema = {
         {"type", "object"}, {"properties", Json::object()}, {"additionalProperties", false}};
-    return {
+    Json result = {
         {"tools",
          Json::array(
              {{{"name", "sync_assets"},
@@ -222,6 +381,20 @@ Json tool_list()
                {"description",
                 "Read the configured runtime's reported active and available revisions."},
                {"inputSchema", empty_schema}}})}};
+    if (desktop)
+    {
+        result["tools"].push_back(
+            {{"name", "start_project"},
+             {"description",
+              "Start the loaded project in the existing editor window; wait for completion."},
+             {"inputSchema", empty_schema}});
+        result["tools"].push_back(
+            {{"name", "stop_project"},
+             {"description",
+              "Stop the project, release its resources, and restore the blank editor window."},
+             {"inputSchema", empty_schema}});
+    }
+    return result;
 }
 
 } // namespace
@@ -366,7 +539,7 @@ bool McpSystem::run_stdio()
             }
             else if (method == "tools/list")
             {
-                reply = rpc_result(id, tool_list());
+                reply = rpc_result(id, tool_list(target_.android_serial.empty()));
             }
             else if (method == "tools/call")
             {
@@ -425,6 +598,15 @@ bool McpSystem::run_stdio()
                                     : tool_result({{"error", "cannot publish hot reload control"}},
                                                   true);
                         }
+                    }
+                    else if ((name == "start_project" || name == "stop_project") &&
+                             arguments.empty())
+                    {
+                        result = target_.android_serial.empty()
+                                     ? control_project(target_.runtime_dir, project_root_, name)
+                                     : tool_result({{"error", "Project start/stop currently "
+                                                              "requires a desktop editor target"}},
+                                                   true);
                     }
                     else if (name == "get_status" && arguments.empty())
                     {

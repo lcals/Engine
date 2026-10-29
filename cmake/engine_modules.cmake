@@ -44,7 +44,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_window PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
-    target_link_libraries(engine_render PRIVATE engine::window SDL3::SDL3 bgfx::bgfx)
+    target_link_libraries(engine_render PRIVATE engine::window engine::world SDL3::SDL3 bgfx::bgfx bgfx::bx)
+    include(${PROJECT_SOURCE_DIR}/cmake/render_shaders.cmake)
+    engine_embed_render_shaders(engine_render)
     if(ANDROID)
         target_sources(engine_window PRIVATE platforms/android/native/android_surface.cpp)
         target_include_directories(engine_window PRIVATE "${PROJECT_SOURCE_DIR}/platforms/android/native")
@@ -60,7 +62,14 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     endif()
 
     engine_add_system(runtime world)
+    target_sources(engine_world PRIVATE
+        src/engine/runtime/scene/component.cpp
+        src/engine/runtime/scene/node.cpp
+        src/engine/runtime/scene/scene.cpp)
     target_link_libraries(engine_world PRIVATE flecs::flecs_static)
+    if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+        target_link_libraries(engine_script PRIVATE engine::world)
+    endif()
 
     engine_add_system(runtime physics)
     target_link_libraries(engine_physics PRIVATE Jolt::Jolt)
@@ -101,7 +110,9 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
-    target_link_libraries(engine_editor PRIVATE engine::project imgui::imgui)
+    target_link_libraries(engine_editor PRIVATE engine::project engine::runtime engine::app
+        engine::log engine::resource imgui::imgui SDL3::SDL3 nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_editor PRIVATE JSON_NOEXCEPTION=1)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

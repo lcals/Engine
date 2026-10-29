@@ -2,14 +2,14 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [玩法入口](gameplay.md)
 
-状态：桌面编辑器脚本运行已实现，本轮补齐 Android 包内玩法启动与同一持久缓存上的热重载。仅定义 `ScriptSystem` 与其状态；其他类的方法在各自类图维护。
+状态：桌面与 Android 脚本运行已实现，本轮扩展桌面原生场景绑定。仅定义 `ScriptSystem` 与其状态；其他类的方法在各自类图维护。
 
 ```mermaid
 classDiagram
     direction TB
     class ScriptSystem {
         <<final>>
-        +ScriptSystem()
+        +ScriptSystem(WorldSystem* world)
         +~ScriptSystem()
         +start_gameplay(std::string_view entry) bool
         +stop_gameplay() void
@@ -43,6 +43,9 @@ classDiagram
     }
     System <|-- ScriptSystem
     WorldSystem *-- ScriptSystem : 可选子系统
+    ScriptSystem --> WorldSystem : 可空借用世界
+    class Scene
+    ScriptSystem ..> Scene : 当前玩法创建与清理
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem *-- Gameplay : 当前运行入口
     ScriptSystem ..> EngineConfig : 初始化参数
@@ -54,11 +57,15 @@ classDiagram
     ScriptSystem ..> PathUtils : UTF-8 路径转换
 ```
 
+- 构造参数 `world` 默认 nullptr；非空借用必须活到 ScriptSystem 关闭，Engine 传入其父 WorldSystem。空指针保留独立脚本能力，场景创建返回 null。
 - `WorldSystem` 独占可选子系统。系统初始化只准备 V8 环境，所有系统就绪后宿主显式调用 `start_gameplay()`；空引擎无需项目或入口。
 - 入口默认参数为空，采用同步清单 entry；无同步版本时 Android 采用打包清单 entry，桌面使用 `scripts/game.js`。非空参数固定显式入口，重载继续使用该路径。入口必须默认导出继承 `Gameplay` 的类。所有生命周期和脚本调用在引擎运行线程进行。
 - V8 平台每进程只初始化一次、退出时释放；每个脚本系统独占 isolate，单次玩法运行持有独立 Context、模块缓存及一个入口实例。停止重载释放该次运行；系统重启可以重建 isolate。
 - `ScriptStatus` 默认布尔值为 false、字符串为空；`status()` 返回借用，不能跨系统销毁或跨线程使用。内置运行的 `active_revision` 为 `builtin`。
-- 每帧先读取控制和完整发布版本，在安全点切换，再调用 `Update()`。JavaScript 异常写日志及 `last_error`，不使 Engine 失败。`OnInitialize` 非布尔值或 false 均使此次启动失败。
+- 每帧先读取控制和完整发布版本，在安全点切换，再调用 `Update()`。JavaScript 异常写日志及 `last_error`，不使 Engine 失败；Update 失败停止玩法并清空场景，回到编辑器待机，不会由后续热重载自动启动。`OnInitialize` 非布尔值或 false 均使此次启动失败。
+- 场景包装仅保存 Scene generation 与 Node id；每次调用同时校验当前 Context 属于活动 Run、Scene 属于该 Run、Node 仍存在。失效对象返回 false/null，不保存原生 Node 或 Component 裸指针。
+- 仅 Gameplay 生命周期回调允许修改场景；模块顶层、构造函数及预检期间禁止修改。`Time.deltaTime` 只在 Update 提供本帧秒数，初始化和退出为 0。
+- 停止与重载先在旧场景仍有效时调用 OnShutdown，随后销毁该次运行的原生 Scene，再释放 Context；初始化失败清理部分场景。
 - 预检候选 Context 编译、静态链接失败时，旧入口与快照继续运行；预检成功后先停止旧入口，再执行新模块及入口。执行失败明确报告并停止玩法，不承诺撤销已产生的副作用。
 - 关闭热重载只禁止切换，仍报告可用版本，固定当前入口和模块快照；重新开启在下一帧处理最新完整版本。停止后不会自动重启。
 - `persistent_data_path/assets/available.json` 清单包含 `revision`、`entry`、`files[{path,size,hash}]`、`deleted[]`。版本位于 `assets/versions/<revision>/`，哈希为小写 16 位 FNV-1a 64。全部文件的大小、哈希、路径验证通过后才接受版本。

@@ -3,7 +3,9 @@
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL.h>
 #include <libplatform/libplatform.h>
@@ -11,9 +13,11 @@
 #include <v8.h>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <set>
 #include <system_error>
@@ -48,8 +52,109 @@ export class App {
     static get persistentDataPath() { return native.persistentDataPath; }
     static get cachePath() { return native.cachePath; }
 }
-Object.freeze(Debug);
-Object.freeze(App);
+const key = {};
+const handles = new WeakMap();
+function attach(object, token, scene, node = 0n, kind = -1) {
+    if (token !== key) throw new TypeError('Use scene and node factory methods');
+    handles.set(object, { scene, node, kind });
+}
+export class Time {
+    constructor() { throw new TypeError('Time is static'); }
+    static get deltaTime() { return native.DeltaTime(); }
+}
+export class Scene {
+    constructor(token, scene) { attach(this, token, scene); }
+    static Create(name) {
+        const id = native.SceneCreate(name);
+        return id === null ? null : new Scene(key, id);
+    }
+    IsValid() { return native.SceneValid(handles.get(this).scene); }
+    Destroy() { return native.SceneDestroy(handles.get(this).scene); }
+    CreateNode(name) {
+        const scene = handles.get(this).scene;
+        const node = native.NodeCreate(scene, name);
+        return node === null ? null : new Node(key, scene, node);
+    }
+    SetActiveCamera(camera) {
+        const scene = handles.get(this).scene;
+        if (camera === null) return native.ActiveCamera(scene, 0n);
+        const other = handles.get(camera);
+        return camera instanceof Camera && other?.scene === scene &&
+            native.ActiveCamera(scene, other.node);
+    }
+}
+export class Node {
+    constructor(token, scene, node) { attach(this, token, scene, node); }
+    IsValid() { const h = handles.get(this); return native.NodeValid(h.scene, h.node); }
+    Destroy() { const h = handles.get(this); return native.NodeDestroy(h.scene, h.node); }
+    SetParent(parent) {
+        const h = handles.get(this);
+        if (parent === null) return native.NodeParent(h.scene, h.node, 0n);
+        const other = handles.get(parent);
+        return parent instanceof Node && other?.scene === h.scene &&
+            native.NodeParent(h.scene, h.node, other.node);
+    }
+    SetPosition(x, y, z) {
+        const h = handles.get(this); return native.NodePosition(h.scene, h.node, x, y, z);
+    }
+    SetRotation(x, y, z) {
+        const h = handles.get(this); return native.NodeRotation(h.scene, h.node, x, y, z);
+    }
+    SetScale(x, y, z) {
+        const h = handles.get(this); return native.NodeScale(h.scene, h.node, x, y, z);
+    }
+    AddCamera() {
+        const h = handles.get(this);
+        return native.AddCamera(h.scene, h.node) ? new Camera(key, h.scene, h.node) : null;
+    }
+    AddLight() {
+        const h = handles.get(this);
+        return native.AddLight(h.scene, h.node) ? new Light(key, h.scene, h.node) : null;
+    }
+    AddMeshRenderer() {
+        const h = handles.get(this);
+        return native.AddMeshRenderer(h.scene, h.node) ? new MeshRenderer(key, h.scene, h.node) : null;
+    }
+}
+export class Component {
+    constructor(token, scene, node, kind) { attach(this, token, scene, node, kind); }
+    get node() { const h = handles.get(this); return new Node(key, h.scene, h.node); }
+    IsValid() {
+        const h = handles.get(this); return native.ComponentValid(h.scene, h.node, h.kind);
+    }
+    SetEnabled(enabled) {
+        const h = handles.get(this); return native.ComponentEnabled(h.scene, h.node, h.kind, enabled);
+    }
+}
+export class Camera extends Component {
+    constructor(token, scene, node) { super(token, scene, node, 0); }
+    SetPerspective(fov, near, far) {
+        const h = handles.get(this); return native.CameraSettings(h.scene, h.node, fov, near, far);
+    }
+}
+export class Light extends Component {
+    constructor(token, scene, node) { super(token, scene, node, 1); }
+    SetColor(r, g, b) {
+        const h = handles.get(this); return native.LightColor(h.scene, h.node, r, g, b);
+    }
+    SetIntensity(intensity) {
+        const h = handles.get(this); return native.LightIntensity(h.scene, h.node, intensity);
+    }
+}
+export class MeshRenderer extends Component {
+    constructor(token, scene, node) { super(token, scene, node, 2); }
+    SetMaterial(material) {
+        const h = handles.get(this);
+        if (!material || !material.baseColor) return false;
+        const c = material.baseColor;
+        return native.Material(h.scene, h.node, c.r, c.g, c.b, c.a,
+            material.metallic, material.roughness, material.unlit);
+    }
+}
+for (const type of [Debug, App, Time, Scene, Node, Component, Camera, Light, MeshRenderer]) {
+    Object.freeze(type.prototype);
+    Object.freeze(type);
+}
 )js";
 
 [[nodiscard]] bool read_text(const fs::path& path, std::string& text)
@@ -441,6 +546,31 @@ void log_callback(const v8::FunctionCallbackInfo<v8::Value>& arguments)
     LogSystem::write(level, value_text(isolate, arguments[0]));
 }
 
+enum class SceneOperation
+{
+    scene_create,
+    scene_valid,
+    scene_destroy,
+    node_create,
+    active_camera,
+    node_valid,
+    node_destroy,
+    node_parent,
+    node_position,
+    node_rotation,
+    node_scale,
+    add_camera,
+    add_light,
+    add_mesh_renderer,
+    component_valid,
+    component_enabled,
+    camera_settings,
+    light_color,
+    light_intensity,
+    material,
+    delta_time
+};
+
 struct Snapshot
 {
     std::string revision = "builtin";
@@ -462,6 +592,8 @@ struct ScriptSystem::State
         std::map<std::string, v8::Global<v8::Module>> modules;
         v8::Global<v8::Object> gameplay;
         bool initialization_entered = false;
+        bool scene_calls_allowed = false;
+        std::uint64_t scene_id = 0;
 
         Run(State& state, Snapshot version) : owner(state), snapshot(std::move(version))
         {
@@ -571,6 +703,8 @@ struct ScriptSystem::State
     };
 
     ScriptStatus& status;
+    WorldSystem* world = nullptr;
+    double delta_time = 0.0;
     std::shared_ptr<V8Process> process;
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
     v8::Isolate* isolate = nullptr;
@@ -587,8 +721,8 @@ struct ScriptSystem::State
     std::string last_status;
     bool gameplay_requested = false;
 
-    State(ScriptStatus& state, std::shared_ptr<V8Process> platform)
-        : status(state), process(std::move(platform))
+    State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world)
+        : status(state), world(scene_world), process(std::move(platform))
     {
     }
 
@@ -829,6 +963,294 @@ struct ScriptSystem::State
         return true;
     }
 
+    static bool identifier(const v8::FunctionCallbackInfo<v8::Value>& arguments, int index,
+                           std::uint64_t& value)
+    {
+        if (index >= arguments.Length() || !arguments[index]->IsBigInt())
+        {
+            return false;
+        }
+        bool lossless = false;
+        value = arguments[index].As<v8::BigInt>()->Uint64Value(&lossless);
+        return lossless;
+    }
+
+    static bool number(const v8::FunctionCallbackInfo<v8::Value>& arguments, int index,
+                       double& value)
+    {
+        if (index >= arguments.Length() || !arguments[index]->IsNumber())
+        {
+            return false;
+        }
+        value = arguments[index].As<v8::Number>()->Value();
+        return std::isfinite(value);
+    }
+
+    static bool scalar(const v8::FunctionCallbackInfo<v8::Value>& arguments, int index,
+                       float& value)
+    {
+        double candidate = 0.0;
+        if (!number(arguments, index, candidate) ||
+            std::abs(candidate) > std::numeric_limits<float>::max())
+        {
+            return false;
+        }
+        value = static_cast<float>(candidate);
+        return true;
+    }
+
+    static void scene_callback(const v8::FunctionCallbackInfo<v8::Value>& arguments)
+    {
+        auto* isolate = arguments.GetIsolate();
+        auto* state = static_cast<State*>(isolate->GetData(0));
+        const auto operation =
+            static_cast<SceneOperation>(arguments.Data().As<v8::Int32>()->Value());
+        if (operation == SceneOperation::scene_create || operation == SceneOperation::node_create)
+        {
+            arguments.GetReturnValue().SetNull();
+        }
+        else
+        {
+            arguments.GetReturnValue().Set(false);
+        }
+        const auto context = isolate->GetCurrentContext();
+        if (context->GetNumberOfEmbedderDataFields() == 0)
+        {
+            return;
+        }
+        auto* run = static_cast<Run*>(
+            context->GetAlignedPointerFromEmbedderData(0, v8::kEmbedderDataTypeTagDefault));
+        // 先比较地址和实际 Context，再解引用；旧 Context 可比 Run 活得更久。
+        if (state == nullptr || run == nullptr || state->active.get() != run ||
+            run->context.Get(isolate) != context)
+        {
+            if (operation == SceneOperation::delta_time)
+            {
+                arguments.GetReturnValue().Set(0.0);
+            }
+            return;
+        }
+        if (operation == SceneOperation::delta_time)
+        {
+            arguments.GetReturnValue().Set(run->scene_calls_allowed ? state->delta_time : 0.0);
+            return;
+        }
+        if (!run->scene_calls_allowed || state->world == nullptr || !state->world->is_initialized())
+        {
+            return;
+        }
+        if (operation == SceneOperation::scene_create)
+        {
+            if (arguments.Length() != 1 || !arguments[0]->IsString())
+            {
+                return;
+            }
+            auto* scene = state->world->create_scene(value_text(isolate, arguments[0]));
+            if (scene != nullptr)
+            {
+                run->scene_id = scene->id();
+                arguments.GetReturnValue().Set(v8::BigInt::NewFromUnsigned(isolate, scene->id()));
+            }
+            return;
+        }
+        std::uint64_t scene_id = 0;
+        auto* scene = state->world->scene();
+        if (!identifier(arguments, 0, scene_id) || run->scene_id == 0 ||
+            scene_id != run->scene_id || scene == nullptr || scene->id() != scene_id)
+        {
+            return;
+        }
+        if (operation == SceneOperation::scene_valid)
+        {
+            arguments.GetReturnValue().Set(true);
+            return;
+        }
+        if (operation == SceneOperation::scene_destroy)
+        {
+            state->world->destroy_scene();
+            run->scene_id = 0;
+            arguments.GetReturnValue().Set(true);
+            return;
+        }
+        if (operation == SceneOperation::node_create)
+        {
+            if (arguments.Length() != 2 || !arguments[1]->IsString())
+            {
+                return;
+            }
+            if (auto* node = scene->create_node(value_text(isolate, arguments[1])); node != nullptr)
+            {
+                arguments.GetReturnValue().Set(v8::BigInt::NewFromUnsigned(isolate, node->id()));
+            }
+            return;
+        }
+        std::uint64_t node_id = 0;
+        if (!identifier(arguments, 1, node_id))
+        {
+            return;
+        }
+        if (operation == SceneOperation::active_camera && node_id == 0)
+        {
+            arguments.GetReturnValue().Set(scene->set_active_camera(nullptr));
+            return;
+        }
+        auto* node = scene->find_node(node_id);
+        if (node == nullptr)
+        {
+            return;
+        }
+        switch (operation)
+        {
+        case SceneOperation::node_valid:
+            arguments.GetReturnValue().Set(true);
+            break;
+        case SceneOperation::node_destroy:
+            arguments.GetReturnValue().Set(scene->destroy_node(node_id));
+            break;
+        case SceneOperation::active_camera:
+            arguments.GetReturnValue().Set(node->camera() != nullptr &&
+                                           scene->set_active_camera(node->camera()));
+            break;
+        case SceneOperation::node_parent:
+        {
+            std::uint64_t parent_id = 0;
+            if (!identifier(arguments, 2, parent_id))
+            {
+                break;
+            }
+            auto* parent = parent_id == 0 ? nullptr : scene->find_node(parent_id);
+            arguments.GetReturnValue().Set((parent_id == 0 || parent != nullptr) &&
+                                           node->set_parent(parent));
+            break;
+        }
+        case SceneOperation::node_position:
+        case SceneOperation::node_rotation:
+        case SceneOperation::node_scale:
+        {
+            Vec3 value;
+            if (!number(arguments, 2, value.x) || !number(arguments, 3, value.y) ||
+                !number(arguments, 4, value.z))
+            {
+                break;
+            }
+            auto transform = node->transform();
+            if (operation == SceneOperation::node_position)
+            {
+                transform.position = value;
+            }
+            else if (operation == SceneOperation::node_rotation)
+            {
+                transform.rotation = value;
+            }
+            else
+            {
+                transform.scale = value;
+            }
+            arguments.GetReturnValue().Set(node->set_transform(transform));
+            break;
+        }
+        case SceneOperation::add_camera:
+            arguments.GetReturnValue().Set(node->add_camera() != nullptr);
+            break;
+        case SceneOperation::add_light:
+            arguments.GetReturnValue().Set(node->add_light() != nullptr);
+            break;
+        case SceneOperation::add_mesh_renderer:
+            arguments.GetReturnValue().Set(node->add_mesh_renderer() != nullptr);
+            break;
+        case SceneOperation::component_valid:
+        case SceneOperation::component_enabled:
+        {
+            if (arguments.Length() < 3 || !arguments[2]->IsInt32())
+            {
+                break;
+            }
+            Component* component = nullptr;
+            switch (arguments[2].As<v8::Int32>()->Value())
+            {
+            case 0:
+                component = node->camera();
+                break;
+            case 1:
+                component = node->light();
+                break;
+            case 2:
+                component = node->mesh_renderer();
+                break;
+            default:
+                break;
+            }
+            if (component == nullptr)
+            {
+                break;
+            }
+            if (operation == SceneOperation::component_enabled)
+            {
+                if (arguments.Length() != 4 || !arguments[3]->IsBoolean())
+                {
+                    break;
+                }
+                component->set_enabled(arguments[3]->IsTrue());
+            }
+            arguments.GetReturnValue().Set(true);
+            break;
+        }
+        case SceneOperation::camera_settings:
+        {
+            CameraSettings settings;
+            if (node->camera() != nullptr && scalar(arguments, 2, settings.fov_degrees) &&
+                scalar(arguments, 3, settings.near_clip) && scalar(arguments, 4, settings.far_clip))
+            {
+                arguments.GetReturnValue().Set(node->camera()->set_settings(settings));
+            }
+            break;
+        }
+        case SceneOperation::light_color:
+        case SceneOperation::light_intensity:
+        {
+            auto* light = node->light();
+            if (light == nullptr)
+            {
+                break;
+            }
+            auto settings = light->settings();
+            if (operation == SceneOperation::light_color)
+            {
+                if (!scalar(arguments, 2, settings.color.r) ||
+                    !scalar(arguments, 3, settings.color.g) ||
+                    !scalar(arguments, 4, settings.color.b))
+                {
+                    break;
+                }
+            }
+            else if (!scalar(arguments, 2, settings.intensity))
+            {
+                break;
+            }
+            arguments.GetReturnValue().Set(light->set_settings(settings));
+            break;
+        }
+        case SceneOperation::material:
+        {
+            Material material;
+            if (node->mesh_renderer() != nullptr && scalar(arguments, 2, material.base_color.r) &&
+                scalar(arguments, 3, material.base_color.g) &&
+                scalar(arguments, 4, material.base_color.b) &&
+                scalar(arguments, 5, material.base_color.a) &&
+                scalar(arguments, 6, material.metallic) &&
+                scalar(arguments, 7, material.roughness) && arguments.Length() == 9 &&
+                arguments[8]->IsBoolean())
+            {
+                material.unlit = arguments[8]->IsTrue();
+                arguments.GetReturnValue().Set(node->mesh_renderer()->set_material(material));
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
     [[nodiscard]] bool bind(v8::Local<v8::Context> context)
     {
         auto native = v8::Object::New(isolate);
@@ -844,6 +1266,40 @@ struct ScriptSystem::State
             if (!js_string(isolate, name).ToLocal(&key) ||
                 !v8::Function::New(context, log_callback,
                                    v8::Int32::New(isolate, static_cast<int>(level)))
+                     .ToLocal(&function) ||
+                !native->DefineOwnProperty(context, key, function, attributes).FromMaybe(false))
+            {
+                return false;
+            }
+        }
+        for (const auto& [name, operation] : std::array<std::pair<const char*, SceneOperation>, 21>{
+                 {{"SceneCreate", SceneOperation::scene_create},
+                  {"SceneValid", SceneOperation::scene_valid},
+                  {"SceneDestroy", SceneOperation::scene_destroy},
+                  {"NodeCreate", SceneOperation::node_create},
+                  {"ActiveCamera", SceneOperation::active_camera},
+                  {"NodeValid", SceneOperation::node_valid},
+                  {"NodeDestroy", SceneOperation::node_destroy},
+                  {"NodeParent", SceneOperation::node_parent},
+                  {"NodePosition", SceneOperation::node_position},
+                  {"NodeRotation", SceneOperation::node_rotation},
+                  {"NodeScale", SceneOperation::node_scale},
+                  {"AddCamera", SceneOperation::add_camera},
+                  {"AddLight", SceneOperation::add_light},
+                  {"AddMeshRenderer", SceneOperation::add_mesh_renderer},
+                  {"ComponentValid", SceneOperation::component_valid},
+                  {"ComponentEnabled", SceneOperation::component_enabled},
+                  {"CameraSettings", SceneOperation::camera_settings},
+                  {"LightColor", SceneOperation::light_color},
+                  {"LightIntensity", SceneOperation::light_intensity},
+                  {"Material", SceneOperation::material},
+                  {"DeltaTime", SceneOperation::delta_time}}})
+        {
+            v8::Local<v8::String> key;
+            v8::Local<v8::Function> function;
+            if (!js_string(isolate, name).ToLocal(&key) ||
+                !v8::Function::New(context, scene_callback,
+                                   v8::Int32::New(isolate, static_cast<int>(operation)))
                      .ToLocal(&function) ||
                 !native->DefineOwnProperty(context, key, function, attributes).FromMaybe(false))
             {
@@ -927,9 +1383,13 @@ struct ScriptSystem::State
         v8::Local<v8::String> key;
         v8::Local<v8::Value> member;
         v8::Local<v8::Value> result;
-        if (!js_string(isolate, name).ToLocal(&key) ||
-            !object->Get(context, key).ToLocal(&member) || !member->IsFunction() ||
-            !member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result))
+        run.scene_calls_allowed = true;
+        const bool called =
+            js_string(isolate, name).ToLocal(&key) && object->Get(context, key).ToLocal(&member) &&
+            member->IsFunction() &&
+            member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result);
+        run.scene_calls_allowed = false;
+        if (!called)
         {
             return exception(caught, std::string("Gameplay.") + name + " failed");
         }
@@ -955,10 +1415,17 @@ struct ScriptSystem::State
             if (active->initialization_entered)
             {
                 active->initialization_entered = false;
+                delta_time = 0.0;
                 (void)call(*active, "OnShutdown", false);
+            }
+            if (world != nullptr && world->scene() != nullptr &&
+                world->scene()->id() == active->scene_id)
+            {
+                world->destroy_scene();
             }
             active.reset();
         }
+        delta_time = 0.0;
         status.running = false;
         status.active_revision.clear();
     }
@@ -1063,7 +1530,9 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem() noexcept = default;
+ScriptSystem::ScriptSystem(WorldSystem* world) noexcept : world_(world)
+{
+}
 
 ScriptSystem::~ScriptSystem() noexcept
 {
@@ -1090,7 +1559,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     }
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, std::move(process));
+    state_ = std::make_unique<State>(status_, std::move(process), world_);
     state_->builtin_entry = std::move(builtin_entry);
     state_->builtin_deleted = std::move(builtin_deleted);
     state_->allocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
@@ -1178,7 +1647,7 @@ const ScriptStatus& ScriptSystem::status() const noexcept
     return status_;
 }
 
-bool ScriptSystem::on_tick(double)
+bool ScriptSystem::on_tick(double delta_time)
 {
     if (!state_ || !App::is_initialized())
     {
@@ -1202,7 +1671,15 @@ bool ScriptSystem::on_tick(double)
         v8::Isolate::Scope isolate_scope(state_->isolate);
         v8::HandleScope handles(state_->isolate);
         v8::Context::Scope context_scope(state_->active->context.Get(state_->isolate));
-        (void)state_->call(*state_->active, "Update", false);
+        state_->delta_time = delta_time;
+        if (!state_->call(*state_->active, "Update", false))
+        {
+            const auto failure = status_.last_error;
+            state_->gameplay_requested = false;
+            state_->stop();
+            status_.last_error = failure;
+        }
+        state_->delta_time = 0.0;
     }
     state_->publish();
     return true;

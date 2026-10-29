@@ -12,6 +12,13 @@
       "dependencies": [
         "basisu",
         "bgfx",
+        {
+          "name": "bgfx",
+          "features": [
+            "tools"
+          ],
+          "host": true
+        },
         "flatbuffers",
         "flecs",
         "joltphysics",
@@ -20,7 +27,9 @@
         "sdl3",
         {
           "name": "sdl3",
-          "features": ["vulkan"],
+          "features": [
+            "vulkan"
+          ],
           "platform": "android"
         }
       ]
@@ -31,7 +40,10 @@
         "tomlplusplus",
         {
           "name": "imgui",
-          "features": ["docking-experimental", "sdl3-binding"]
+          "features": [
+            "docking-experimental",
+            "sdl3-binding"
+          ]
         }
       ]
     },
@@ -41,7 +53,9 @@
         "basisu",
         {
           "name": "bgfx",
-          "features": ["tools"],
+          "features": [
+            "tools"
+          ],
           "host": true
         },
         "efsw",

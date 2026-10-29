@@ -1,9 +1,12 @@
 #include "runtime/world/world_system.hpp"
 
+#include "runtime/scene/scene.hpp"
+
 #include <flecs.h>
 
 #include <cstdio>
 #include <limits>
+#include <new>
 
 namespace engine
 {
@@ -13,6 +16,36 @@ WorldSystem::WorldSystem() noexcept = default;
 WorldSystem::~WorldSystem() noexcept
 {
     shutdown();
+}
+
+Scene* WorldSystem::create_scene(std::string_view name)
+{
+    if (!is_initialized() || world_ == nullptr || scene_ != nullptr ||
+        scene_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return nullptr;
+    }
+    scene_.reset(new (std::nothrow) Scene(*world_, scene_sequence_ + 1, name));
+    if (scene_ != nullptr)
+    {
+        ++scene_sequence_;
+    }
+    return scene_.get();
+}
+
+void WorldSystem::destroy_scene() noexcept
+{
+    scene_.reset();
+}
+
+Scene* WorldSystem::scene() noexcept
+{
+    return scene_.get();
+}
+
+const Scene* WorldSystem::scene() const noexcept
+{
+    return scene_.get();
 }
 
 bool WorldSystem::on_initialize(const EngineConfig&)
@@ -32,6 +65,7 @@ bool WorldSystem::on_tick(double delta_time)
 
 void WorldSystem::on_shutdown() noexcept
 {
+    destroy_scene();
     if (world_ != nullptr)
     {
         if (ecs_fini(world_) != 0)
