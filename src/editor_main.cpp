@@ -1,3 +1,4 @@
+#include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/app/app.hpp"
@@ -37,70 +38,32 @@ void print_usage()
                "[--runtime-dir <persistent-directory>] [--frames <positive-count>]\n");
 }
 
-std::string project_name(const fs::path& path)
-{
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char value : PathUtils::to_utf8(path))
-    {
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    }
-    constexpr char digits[] = "0123456789abcdef";
-    std::string suffix(16, '0');
-    for (std::size_t index = suffix.size(); index != 0; --index)
-    {
-        suffix[index - 1] = digits[hash & 15U];
-        hash >>= 4U;
-    }
-    return "engine-editor-" + suffix;
-}
-
-#if ENGINE_HAS_SCRIPT_RUNTIME
-bool prepare_builtin(const fs::path& source, const fs::path& target)
-{
-    std::error_code error;
-    fs::create_directories(target.parent_path(), error);
-    if (error)
-    {
-        return false;
-    }
-    // 每会话独占快照；后续 TS 构建和 MCP 同步都不能改写此路径。
-    fs::copy(source, target, fs::copy_options::recursive, error);
-    return !error;
-}
-#endif
-
-int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
+int run_editor([[maybe_unused]] const fs::path& project_root,
+               engine::EditorEnvironment& environment, const engine::EngineConfig& config,
                std::uint64_t frame_limit)
 {
-    engine::ProjectSystem project(PathUtils::to_utf8(project_root));
 #if ENGINE_HAS_SCRIPT_RUNTIME
     engine::AssetPipelineSystem pipeline;
     engine::AssetSyncSystem sync;
 #endif
     auto& runtime = engine::Engine::instance();
-    engine::EditorSystem editor(project);
+    engine::EditorSystem editor(environment, &runtime);
     std::uint64_t frames = 0;
     const int result = [&]()
     {
-        if (!project.initialize(config))
-        {
-            LogSystem::write(LogLevel::error, "Editor project initialization failed");
-            return 1;
-        }
 #if ENGINE_HAS_SCRIPT_RUNTIME
-        if (!pipeline.initialize(config) || !pipeline.build_scripts(project_root))
+        if (!pipeline.initialize(config) || !pipeline.build_assets(project_root))
         {
-            LogSystem::write(LogLevel::error, "Script build failed: " + pipeline.last_error());
+            LogSystem::write(LogLevel::error, "Asset build failed: " + pipeline.last_error());
             return 1;
         }
-        if (!prepare_builtin(project_root / "cache" / "assets", engine::App::builtin_assets_path()))
+        if (!environment.prepare_builtin_assets())
         {
             LogSystem::write(LogLevel::error, "Cannot prepare immutable editor built-in assets");
             return 1;
         }
         if (!sync.initialize(config) ||
-            !sync.sync(project_root / "cache" / "assets", engine::App::persistent_data_path()))
+            !sync.sync(project_root / "cache", engine::App::persistent_data_path()))
         {
             LogSystem::write(LogLevel::error, "Initial asset sync failed: " + sync.last_error());
             return 1;
@@ -116,17 +79,7 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
-#if ENGINE_HAS_SCRIPT_RUNTIME
-        if (!runtime.start_gameplay())
-        {
-            const auto* status = runtime.script_status();
-            const std::string detail =
-                status != nullptr ? status->last_error : "script system unavailable";
-            LogSystem::write(LogLevel::error, "Gameplay startup failed: " + detail);
-            return 1;
-        }
-        LogSystem::write(LogLevel::info, "Gameplay entry started: scripts/game.js");
-#endif
+        LogSystem::write(LogLevel::info, "Editor ready; waiting for MCP start_project");
         auto previous_time = std::chrono::steady_clock::now();
         for (;;)
         {
@@ -134,6 +87,11 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
             previous_time = current_time;
+            if (!editor.tick(delta_time))
+            {
+                LogSystem::write(LogLevel::error, "Editor control frame failed");
+                return 1;
+            }
             const auto status = runtime.tick(delta_time);
             if (status == engine::FrameStatus::exit_requested)
             {
@@ -149,11 +107,6 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
                 previous_time = std::chrono::steady_clock::now();
                 continue;
-            }
-            if (!editor.tick(delta_time))
-            {
-                LogSystem::write(LogLevel::error, "Editor frame failed");
-                return 1;
             }
             ++frames;
             if (frame_limit != 0 && frames >= frame_limit)
@@ -172,7 +125,6 @@ int run_editor(const fs::path& project_root, const engine::EngineConfig& config,
     sync.shutdown();
     pipeline.shutdown();
 #endif
-    project.shutdown();
     LogSystem::write(LogLevel::info,
                      "Editor stopped after " + std::to_string(frames) + " rendered frames");
     return result;
@@ -249,44 +201,33 @@ int main(int argc, char* argv[])
         LogSystem::write(LogLevel::error, "Cannot normalize editor project path");
         return 1;
     }
-    engine::AppConfig app_config;
-    app_config.application_name = project_name(project_root);
-    app_config.persistent_data_path = runtime_directory;
-#if ENGINE_HAS_SCRIPT_RUNTIME
-    const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
-    const auto session_directory =
-        project_root / "cache" / "editor-builtin" / std::to_string(nonce);
-    app_config.builtin_assets_path = session_directory / "assets";
-#else
-    app_config.builtin_assets_path = project_root / "assets";
-#endif
-    if (!engine::App::initialize(app_config))
+    engine::ProjectSystem project(PathUtils::to_utf8(project_root));
+    if (!project.initialize(config))
     {
-        LogSystem::write(LogLevel::error, "Cannot initialize application paths");
+        LogSystem::write(LogLevel::error, "Editor project initialization failed");
+        return 1;
+    }
+    engine::EditorEnvironment environment(project, runtime_directory);
+    if (!environment.initialize(ENGINE_HAS_SCRIPT_RUNTIME != 0))
+    {
+        LogSystem::write(LogLevel::error, "Cannot initialize editor environment");
         return 1;
     }
     auto& log = LogSystem::instance();
     if (!log.initialize(config))
     {
         LogSystem::write(LogLevel::error, "Cannot initialize disk logging");
-        engine::App::shutdown();
+        environment.shutdown();
         return 1;
     }
     LogSystem::write(LogLevel::info, "Editor project: " + PathUtils::to_utf8(project_root));
     LogSystem::write(LogLevel::info, "Editor persistent directory: " +
                                          PathUtils::to_utf8(engine::App::persistent_data_path()));
     LogSystem::write(LogLevel::info, "Editor log: " + PathUtils::to_utf8(log.file_path()));
-    const int result = run_editor(project_root, config, frame_limit);
-#if ENGINE_HAS_SCRIPT_RUNTIME
-    fs::remove_all(session_directory, error);
-    if (error)
-    {
-        LogSystem::write(LogLevel::warning,
-                         "Cannot remove editor built-in snapshot: " + error.message());
-    }
-#endif
+    const int result = run_editor(project_root, environment, config, frame_limit);
     const bool flushed = log.flush();
     log.shutdown();
-    engine::App::shutdown();
+    environment.shutdown();
+    project.shutdown();
     return flushed ? result : 1;
 }

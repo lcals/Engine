@@ -1,8 +1,10 @@
 #include "editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/resource_system.hpp"
 
 #include <nlohmann/json.hpp>
 
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
@@ -156,6 +158,76 @@ bool exercise(const fs::path& root)
     }
     return true;
 }
+bool guid_exercise(const fs::path& root)
+{
+    const auto source = root / "guid-cache";
+    const auto runtime = root / "guid-runtime";
+    const std::string guid = "20000000-0000-4000-8000-000000000001";
+    const std::string script = "export default class Game {}\n";
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (unsigned char value : script)
+    {
+        hash = (hash ^ value) * 1099511628211ULL;
+    }
+    std::array<char, 17> encoded{};
+    std::snprintf(encoded.data(), encoded.size(), "%016llx", static_cast<unsigned long long>(hash));
+    engine::schema::AssetCatalogDataT catalog;
+    catalog.revision = "guid-sync-test";
+    catalog.target_platform = "android"; // 桌面可传输交叉平台产物，只有激活要求平台一致。
+    auto asset = std::make_unique<engine::schema::AssetEntryT>();
+    asset->guid = guid;
+    asset->path = "project/scripts/game.ts";
+    asset->module_path = "scripts/game.js";
+    asset->kind = engine::schema::AssetKind::script;
+    asset->content_hash = encoded.data();
+    asset->content_size = script.size();
+    catalog.entries.push_back(std::move(asset));
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    if (!write_file(source / "catalog.bin",
+                    std::string_view(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                     builder.GetSize())) ||
+        !write_file(source / "gen" / guid, script) ||
+        !write_file(source / "tasks.sqlite", "editor-only database") ||
+        !write_file(source / "gen/stale-artifact", "unreferenced generated output"))
+    {
+        return false;
+    }
+    engine::AssetSyncSystem sync;
+    if (!check(sync.initialize({}) && sync.sync(source, runtime), "publish complete GUID catalog"))
+    {
+        return false;
+    }
+    const auto available = runtime / "assets/available.json";
+    const auto first = read_json(available);
+    if (!check(first["files"].size() == 2 && first["files"][0]["path"] == "catalog.bin" &&
+                   first["files"][1]["path"] == "gen/" + guid,
+               "only catalog and referenced GUID artifacts enter device snapshot") ||
+        !write_file(source / "gen" / guid, "corrupt") ||
+        !check(!sync.sync(source, runtime) && read_json(available) == first,
+               "catalog hash mismatch preserves previous publication"))
+    {
+        return false;
+    }
+    catalog.entries.front()->kind = engine::schema::AssetKind::source;
+    catalog.entries.front()->path = "project/data/raw.bin";
+    catalog.entries.front()->module_path.clear();
+    builder.Clear();
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    if (!write_file(source / "gen" / guid, script) ||
+        !write_file(source / "catalog.bin",
+                    std::string_view(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                     builder.GetSize())) ||
+        !check(sync.sync(source, runtime),
+               "resource-only catalog synchronizes without gameplay entry"))
+    {
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
@@ -168,7 +240,7 @@ int main()
     }
     const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
     const auto root = temporary / ("engine-asset-sync-test-" + std::to_string(nonce));
-    const bool success = exercise(root);
+    const bool success = exercise(root) && guid_exercise(root);
     fs::remove_all(root, error);
     return success && !error ? 0 : 1;
 }

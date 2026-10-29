@@ -1,0 +1,51 @@
+name = "PBR cube"
+active_camera = 2
+
+[[nodes]]
+id = 1
+name = "Cube"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [18.0, 25.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "504f6b26-1f51-4fdd-bb97-8bbf0110bb75"
+
+[[nodes]]
+id = 2
+name = "Camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 8.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 50.0
+near_clip = 0.1
+far_clip = 100.0
+
+[[nodes]]
+id = 3
+name = "Sun"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [-35.0, -30.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "light"
+color = [1.0, 0.96, 0.9, 1.0]
+intensity = 4.0

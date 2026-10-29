@@ -9,7 +9,9 @@ struct ScriptSystem::State
 {
 };
 
-ScriptSystem::ScriptSystem() noexcept = default;
+ScriptSystem::ScriptSystem(WorldSystem* world) noexcept : world_(world)
+{
+}
 
 ScriptSystem::~ScriptSystem() noexcept
 {

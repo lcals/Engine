@@ -1,3 +1,4 @@
+#include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -66,9 +67,11 @@ private:
 {
     const engine::EngineConfig config;
     engine::ProjectSystem project(project_root);
+    engine::EditorEnvironment environment(project, std::filesystem::path(project_root) / "cache" /
+                                                       "editor-system-test-persistent");
     Calls calls;
     {
-        engine::EditorSystem editor(project);
+        engine::EditorSystem editor(environment);
         std::unique_ptr<engine::System> child = std::make_unique<EditorChild>(calls);
         if (!expect(editor.add_subsystem(child) && !child, "editor owns its child") ||
             !expect(!editor.initialize(config) && !editor.is_initialized(),
@@ -76,7 +79,8 @@ private:
             !expect(calls.initialize == 0, "project rejection must precede child startup") ||
             !expect(ImGui::GetCurrentContext() == host_context,
                     "preserve host context on rejection") ||
-            !expect(project.initialize(config), "initialize valid project"))
+            !expect(project.initialize(config), "initialize valid project") ||
+            !expect(environment.initialize(), "initialize editor environment"))
         {
             return false;
         }

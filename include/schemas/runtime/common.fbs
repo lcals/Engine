@@ -1,0 +1,44 @@
+namespace engine.schema;
+
+struct Vec2 {
+  x:double;
+  y:double;
+}
+
+struct Vec3 {
+  x:double;
+  y:double;
+  z:double;
+}
+
+struct Vec4 {
+  x:double;
+  y:double;
+  z:double;
+  w:double;
+}
+
+struct Color {
+  r:float;
+  g:float;
+  b:float;
+  a:float;
+}
+
+table FloatValue {
+  value:float;
+}
+
+table Vec2Value {
+  value:Vec2 (required, native_inline);
+}
+
+table Vec3Value {
+  value:Vec3 (required, native_inline);
+}
+
+table Vec4Value {
+  value:Vec4 (required, native_inline);
+}
+
+union MaterialValue { FloatValue, Vec2Value, Vec3Value, Vec4Value }

@@ -1,6 +1,6 @@
 # Engine
 
-Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已实现 `Engine` 单例、支持子系统的 `System` 生命周期、SDL3 窗口和 bgfx 最小 GPU 渲染。`engine_app` 可以显示窗口、持续清屏和调试文本，并处理缩放、暂停、恢复及退出。
+Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已实现 `Engine` 单例、支持子系统的 `System` 生命周期、SDL3 窗口和 bgfx 渲染。`engine_app` 可以显示空白窗口，并处理缩放、暂停、恢复及退出；`editor_app` 默认空白待机，由 MCP 启动项目，在同一窗口绘制节点组件场景中的 PBR 方块，停止后恢复空白。
 
 ## 规划与现状
 
@@ -13,13 +13,13 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 
 规划文档及独立类图也按 `docs/runtime/`、`docs/editor/`、`docs/plugins/` 分层；统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和资源同步归编辑器层，MCP 归插件层；它们可以使用运行时能力，运行时不反向依赖它们。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前尚未实现 PBR、场景加载、物理模拟、UI 绘制或完整编辑器界面。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前已实现内置方块与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面仍属后续工作。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
-Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久脚本版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。上述流程已在模拟器验证，JavaScript / Intl / Temporal 嵌入测试也已通过；实体手机尚未验证。
+Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久脚本版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。上述既有流程已在模拟器验证，JavaScript / Intl / Temporal 嵌入测试也已通过；本轮新增场景/PBR 与项目启停先验证桌面，尚未重新构建或验证 Android APK，实体手机也尚未验证。
 
-仓库自带最小项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，生成 JS 与资源镜像放 `cache/assets/`。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库自带最小项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
-`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。toml++ 使用无异常表结构 API，其文件解析尚未启用。Taskflow 仅接入任务图，执行器功能留待无异常适配后启用。
+`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
 ## 构建与测试
 
@@ -159,7 +159,7 @@ Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；旧 Visual
 ./build/ninja-engine-debug/editor_app --project projects/minimal
 ```
 
-该入口验证项目并建立引擎、ImGui 上下文；完整引擎预设还会构建、同步并运行项目脚本。尚未绘制完整编辑器界面。
+该入口验证项目并建立引擎、ImGui 上下文；完整引擎预设还会构建并同步项目脚本，等待 MCP `start_project` 后运行。尚未绘制完整编辑器界面。
 
 普通 CTest 不要求桌面环境。要在有图形桌面的机器运行真实窗口/GPU测试：
 
@@ -169,7 +169,7 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-`engine.window_render` 验证真实后端、缩放后的像素尺寸、后台暂停恢复、关闭、重复初始化和 Engine 调度。该测试有 60 秒超时并串行执行；不需要 GPU 的生命周期和依赖测试始终注册。
+`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。二者仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；场景与脚本等无需 GPU 的测试始终按目标注册。
 
 ### 桌面脚本与同步
 
@@ -189,21 +189,23 @@ cmake --workflow --preset ninja-engine-release
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
-编辑器先读取 `settings/tsconfig.json`，将 `assets/` 中的 TS 编译为 `cache/assets/` 下同路径的 JS，并复制其他资源；构建失败保留上一次完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后才启动 `Game`。示例会有意写入 warning/error 日志来验证绑定，这两条消息不表示启动失败。
+编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/main.scene")`，从 FlatBuffers 缓存恢复方块、相机和方向光三个节点，停止时释放场景及本次运行 GPU 资源。
 
 编辑器运行时，在另一终端修改 `projects/minimal/assets/scripts/game.ts`，然后执行：
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime start
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime sync
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload on
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload off
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime stop
 ```
 
-Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动 `mcp_app`，完成 MCP 初始化并调用一次工具；也可将这个可执行文件及相同参数配置到其他 MCP 客户端。`sync` 同时构建 TS 和同步完整版本；热重载开关只写控制请求，切换由引擎在帧边界执行。同步成功或返回 `pending engine decision` 不等于新脚本已经运行，应通过 `status` 的 `activeRevision`、`availableRevision`、`running` 和 `lastError` 确认。状态是引擎最近一次上报，并非独立的进程存活检测。
+Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动 `mcp_app`，完成 MCP 初始化并调用一次工具；也可将这个可执行文件及相同参数配置到其他 MCP 客户端。`sync` 同时导入项目资源和同步完整版本；热重载开关只写控制请求，切换由引擎在帧边界执行。同步成功或返回 `pending engine decision` 不等于新资源版本已经启用，应通过 `status` 的 `activeRevision`、`availableRevision`、`running` 和 `lastError` 确认。运行资源版本是引擎最近一次上报；编辑器另有带心跳的项目状态，超过 5 秒无更新会标记离线。
 
-热重载默认关闭；同一持久目录已有控制文件时读取其设置。关闭期间仍可同步新版本，当前实例和模块快照保持不变；开启后应用最新完整版本。候选脚本编译或静态链接失败时旧实例继续运行；新模块执行或 `OnInitialize` 失败会停止此次玩法并报告错误，不承诺撤销副作用或保留任意 JS 状态。`Update` 异常记录错误，后续引擎帧继续运行。
+热重载默认关闭；同一持久目录已有控制文件时读取其设置。关闭期间仍可同步新版本，当前实例和模块快照保持不变；开启后应用最新完整版本。候选脚本编译或静态链接失败时旧实例继续运行；新模块执行或 `OnInitialize` 失败会停止此次玩法并报告错误，不承诺撤销副作用或保留任意 JS 状态。`Update` 异常会记录错误、结束本次 Gameplay 并清理场景，编辑器回到待机。停止项目后，同步或开启热重载不会自动启动项目。
 
 运行 SDK 位于 [engine.d.ts](include/engine.d.ts)，由虚拟 ES 模块 `engine` 提供：
 
@@ -225,7 +227,7 @@ export default class Game extends Gameplay {
 }
 ```
 
-每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Node`、`Component` 和场景脚本接口尚未实现，SDK 没有声明这些接口。
+每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前资源快照读取场景，`Scene.FindNode(name)` 查找节点；`Scene.Create` 仍可动态创建当前 Gameplay 所属场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer` 组件。全部场景对象都遵守这个结构。节点提供局部位置、旋转、缩放与父子关系；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/minimal/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
 
 `App` 的静态只读路径具有以下含义：
 
@@ -235,13 +237,46 @@ export default class Game extends Gameplay {
 | `App.persistentDataPath` | 持久数据根目录，保存同步版本、日志、控制与状态；可由 `--runtime-dir` 指定 |
 | `App.cachePath` | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本 |
 
-`LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并通过 SDL 输出到平台日志（桌面 stderr、Android logcat）；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/assets/` 与平台临时 `App.cachePath` 是不同目录。
+`LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并通过 SDL 输出到平台日志（桌面 stderr、Android logcat）；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/gen/` 与平台临时 `App.cachePath` 是不同目录。
 
-持久版本保存在 `persistentDataPath/assets/versions/<revision>/`；所有文件传入并核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。入口及每个静态 import 统一按相对路径解析：清单命中时使用对应版本文件，`deleted` 中的路径禁止回退，其他路径读取内置资源；不通过复制内置内容覆盖已有同步文件。绝对路径、越界路径和越界符号链接会被拒绝。版本文件保持不变，下一次发布使用新版本名。
+持久版本保存在 `persistentDataPath/assets/versions/<revision>/`，只含 `catalog.bin` 和其引用的 `gen/<GUID>`，SQLite 不进包。全部内容核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。运行开始先选择完整持久版本，未发布时使用内置版本；一次 Run 固定同一目录清单和资源字节快照，避免增量更新混读。TS 相对 import 通过清单中的模块路径映射到 GUID，已删除模块不会回退到旧包体。绝对路径、越界路径和越界符号链接会被拒绝。
 
-文件读取统一通过 `ResourceSystem` 的 SDL3 同步接口，单文件上限 64 MiB；当前脚本源码、清单和控制文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
+文件读取统一通过 `ResourceSystem` 的 SDL3 同步接口，单文件上限 64 MiB；资源目录最多 65536 项，固定快照总量上限 512 MiB；当前脚本源码、清单和控制文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
 
-同步将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；关闭时保留 V8 版本探针。Android 传输使用 adb，具体命令如下。
+MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及其他普通资源；按 GUID 将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；关闭时保留 V8 版本探针。Android 传输使用 adb，具体命令如下。
+
+### 本轮渲染与项目控制边界
+
+- 同一编辑器窗口在空白与项目画面间整体切换。场景、节点和组件归当前运行；共享窗口与图形设备保留到编辑器关闭。停止会清除最后一帧，重复启动不会创建第二套实例。
+- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；一盏启用的方向光，视角来自活动 Camera 节点。尚未实现 IBL 环境贴图、阴影、贴图材质、透明混合。
+- 内置 Shader 使用宿主 shaderc 在构建时编译为数组，项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
+- 桌面 MCP 增加无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具仍保留同步、热重载和状态查询，新增项目启停尚未接入 Android。
+- `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
+- 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
+- 一个运行目录供一个编辑器实例使用；并行编辑器使用不同 `--runtime-dir`。MCP 通过 `project-control.lock` 串行化控制；若 MCP 被强制中止留下锁，先确认相关客户端已退出且状态中没有正在执行的请求，再移除该运行目录中的锁目录。不能删除其他活动操作的锁。
+
+### 组件、数据模型与资源扩展
+
+- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光和网格也都是组件。
+- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`asset_catalog.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景先以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+- 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可注册自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目先销毁场景和 GPU 句柄，再清理项目定义；内置定义保留至引擎关闭。
+- `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
+- ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载、生命周期和热重载职责。
+- EditorEnvironment 借用已校验的项目，配置 App 路径并管理当前会话的内置资源快照。ProjectSystem 不再提供另一套 root_path 入口；运行时继续通过 App 读取路径语义。
+
+### 资源导入与 GUID
+
+```sh
+./build/ninja-engine-debug/asset_build_app --project projects/minimal
+```
+
+`assets/` 下场景、网格、材质、Shader 描述分别使用 `.scene`、`.mesh`、`.material`、`.shader`，内容为 TOML，不追加 `.toml`。TS、Shader 源码、图片等保留原格式。TS 增量指纹来自编译器实际读取的文件，包括继承配置、额外声明、标准库和编译器自身；导入前后再次核对。Shader 暂时保守依赖项目全部普通源文件，确保自定义 `.inc` 等包含文件变化不会漏编译。每个文件的相邻 `.meta` 记录唯一完整 GUID；新资源自动生成，复制已有 meta 导致冲突时返回失败，移动资源必须一起移动 meta。已知资源丢失 meta 时返回失败，避免静默改变引用。
+
+`cache/gen/` 的直接子文件名只允许完整 GUID，不带扩展名。`cache/catalog.bin` 包含 GUID、逻辑路径、类型、依赖、内容哈希与目标平台；`cache/assets.sqlite` 是可重建的编辑器索引。删除 SQLite 后根据源文件/meta 重新导入，GUID 不变。导入使用项目锁和暂存/回滚记录，失败不会发布半成品；无变化时保持正式文件与版本不变。
+
+`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
+
+`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。当前不提供编辑器保存按钮，也未实现图片压缩或模型格式导入；未配置专用导入器的原始文件按字节缓存。
 
 ### Android APK
 
@@ -251,15 +286,15 @@ Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JN
 
 ```sh
 npm ci --prefix projects/minimal/settings
-python3 scripts/build_android.py --config debug --project projects/minimal
-python3 scripts/build_android.py --config release --project projects/minimal
+python3 scripts/build_android.py --config debug --project projects/minimal --asset-builder build/ninja-engine-debug/asset_build_app
+python3 scripts/build_android.py --config release --project projects/minimal --asset-builder build/ninja-engine-debug/asset_build_app
 ```
 
 包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
 
 两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
-脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/minimal`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标每次重新编译 TS，并发布完整项目资源快照；原生库与上游缓存仍复用。`--skip-native` 仅重打包已生成的原生库及资源，不重新选择或编译项目。
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/minimal`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 `asset_build_app --target android` 增量编译资源，再校验并打包 `cache/catalog.bin` 与被引用的 `cache/gen/<GUID>`；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
@@ -283,7 +318,7 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 
 `emulator-5580` 是本轮测试实例，其他环境用 `adb devices` 确认实际序列号。已有进程要改用不同启动参数时，先用 `adb -s <serial> shell am force-stop org.engine.minimal` 停止本应用，再重新启动；不需要清除模拟器或应用数据。模拟器必须提供 Vulkan；软件 Vulkan 也可验证功能，但不能用来衡量真机 GPU 性能。
 
-### Android 脚本同步与热重载
+### Android 资源同步与热重载
 
 | App 接口 | Android 指向 |
 | --- | --- |
@@ -296,16 +331,16 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
-# 修改项目 assets 下的 TS 后同步；无需重新打 APK。
+# 修改项目 assets 下的脚本、场景、材质等资源后同步；无需重新打 APK。
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal sync
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
 ```
 
 adb 不在 PATH 时添加 `--adb <adb可执行文件>`。真机使用 `adb devices` 中的实际序列号；需要设备已经授权 adb 调试。MCP 运行在电脑，通过 `run-as` 写入该调试包的私有持久目录，手机不安装 MCP 服务。此通路仅支持 debuggable APK；Release 保持不可调试，同步请求会返回明确错误。
 
-设备同步先上传暂存版本、读回验证大小与哈希，再改名为不可变版本，最后原子发布 `available.json`。发布过程使用设备目录锁；发布前失败保留旧的可用版本。最终发布回执丢失会报告未确认，此时应查询设备状态。每次同步合并 APK 导出的 `builtin.json` 与已有发布清单作为删除基线，APK 升级新增的路径也参与计算，避免删除的资源意外从 APK 恢复。脚本系统逐路径优先使用持久版本，未覆盖的路径回退 APK，删除标记禁止回退。可写版本在 `persistentDataPath`，不会因临时缓存清理而丢失。
+设备同步先上传暂存版本、读回验证大小与哈希，再改名为不可变版本，最后原子发布 `available.json`。发布过程使用设备目录锁；发布前失败保留旧的可用版本。最终发布回执丢失会报告未确认，此时应查询设备状态。每个 GUID 版本必须包含完整的 `catalog.bin` 和其引用的 `gen/<GUID>`；运行时优先使用持久版本，没有持久版本时读取 APK 内置目录。同一次玩法运行固定使用一份完整 catalog，不能把不同版本的场景、材质和脚本混用；重载校验失败时保留原活动版本。删除资源在下一份完整 catalog 中不再出现，不会从 APK 意外恢复。可写版本在 `persistentDataPath`，不会因临时缓存清理而丢失。
 
-热重载由引擎逐帧决定是否执行；关闭开关仍可同步文件，开启后加载最新版本。用 `status` 确认 `activeRevision` 与 `availableRevision` 相同且 `running=true`，同时检查 `lastError`。APK 更新或普通重启不会覆盖现有可用脚本版本；要恢复包内脚本，应先停止应用并由开发者明确清理对应同步数据。
+热重载由引擎逐帧决定是否执行；关闭开关仍可同步文件，开启后加载最新版本。用 `status` 确认 `activeRevision` 与 `availableRevision` 相同且 `running=true`，同时检查 `lastError`。APK 更新或普通重启不会覆盖现有可用资源版本；要恢复包内资源，应先停止应用并由开发者明确清理对应同步数据。
 
 ## CI
 
@@ -436,6 +471,7 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 ├── docs/               # 总说明及 runtime/editor/plugins 分层文档与类图
 ├── include/engine.d.ts  # 运行时虚拟 engine 模块的类型声明
 ├── include/engine/     # runtime/editor/plugins 三层公开头文件
+├── include/schemas/    # FlatBuffers 跨语言资源数据模型
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
 ├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
 ├── references/         # 本地参考文件，内容不纳入 Git
@@ -482,3 +518,57 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 | 模拟 adb 故障回归 | 二进制/中文/引号路径、传输失败、哈希不符、锁冲突、发布回执丢失、APK 更新后的删除基线均覆盖 |
 
 本轮设备验证使用模拟器；尚未在实体 Android 手机运行。版本清单中的 FNV-1a 哈希用于完整性校验，不作为发布签名。当前 adb 同步仅用于调试包，Release 的发布签名和正式内容更新渠道未接入。
+
+### 场景组件、PBR 方块与编辑器项目启停
+
+2026-10-29 在 macOS ARM64、AppleClang 21 上，通过根目录的 `local-ninja-debug` / `local-ninja-release` 本机 Presets（继承标准 Ninja 引擎 Presets）完成 Debug / Release 构建，启用禁异常、严格警告及真实 GPU 测试，依赖与 V8 复用已有缓存。
+
+- Release 完整 CTest 26/26 通过。Debug 首次完整执行 24/25 通过；修正窗口测试对 bgfx 空白帧提交计数的假设后，该项复测通过，最终新增及受影响的脚本、场景、窗口和编辑器生命周期测试 4/4 通过。
+- 场景由 `Node` 和 `Component` 表达，方块、相机、方向光各占一个节点；验证父子变换、循环拒绝、跨场景引用拒绝、失效句柄和场景销毁。示例通过真实 V8 绑定动态创建场景，网格与材质暂为固定数据。
+- 真实 Metal 编辑器默认空白；MCP 连续三轮启动、停止和重复启动均通过，同一窗口保留。运行时示例为 3 个节点、11 个项目 GPU 资源句柄；停止后两项均为 0。该计数表示项目持有的句柄，bgfx 按帧延迟回收实际 GPU 资源；窗口和共享图形设备保留。
+- 编辑器端到端测试覆盖运行中热重载、编译失败保留旧实例、停止后同步不自动启动、玩法初始化失败清理并恢复空白，以及正常关闭后的状态回执。
+- 实际截图比较确认：相机非均匀缩放前后像素一致，金属度和粗糙度变化会改变方块光照，停止后的窗口内容与启动前空白画面像素一致。手工检查使用的编辑器在 36000 帧后正常退出，记录了图形设备完成关闭。
+- Metal 着色器随两种配置实际编译；另完成顶点与片元着色器的 SPIR-V 编译。47 个 Mermaid 图实际解析、渲染通过，228 条本地 Markdown 链接有效，25 个受影响 C++ 文件格式检查通过。
+
+日志、截图、像素比较与类图验证记录保存在忽略的 `build/scene-render-validation/`。当前 PBR 为直接方向光，不包含贴图、阴影或 IBL；资源落盘、加载及本轮 Android 包验证留到后续阶段。SPIR-V 编译不代表已验证 Vulkan 实机；Windows / Linux / iOS 也未执行本轮 GPU 验证。本轮未触发 CI。
+
+### 组件泛型、跨语言模型与绑定模块修订
+
+2026-10-29 在同一 macOS ARM64 环境完成本轮修订，使用根 Presets 派生的 `local-ninja-debug` / `local-ninja-release`，保持禁异常和严格编译警告。
+
+- Debug / Release 完整构建成功，CTest 各 **29/29** 通过。覆盖泛型组件、Transform、材质命名参数、内置/项目资源空间、EditorEnvironment、逐类 V8 绑定及项目启停/热重载。
+- FlatBuffers 在构建时生成 C++ 和 TS；测试以真实场景导出快照，经 C++ 打包、TS 解包修改再打包、C++ 验证，覆盖超过 JS 安全整数范围的节点 ID、组件联合体和材质向量参数。
+- 真实 Metal 测试使用自定义项目 Shader 路径及逻辑参数名；验证 Shader 切换、缺失/未知 Uniform 拒绝、失败回收、禁用最后一个网格后的回收，以及项目停止保留内置资源定义。bgfx 延迟回收完成后，实际资源计数回到待机基线。
+- 编辑器同一窗口完成 MCP 启动、同步、脚本热重载和停止。截图比较统一为 RGBA 并排除 macOS 标题栏及活动边框后，金属度/粗糙度变化的平均通道差为 3.816，停止前后空白内容区最大差为 0；测试编辑器在 3000 帧后正常退出。首次截图比较因窗口边框造成的尺寸差中断，修正比较工具后完成复测。
+- 56 个 Mermaid 块实际解析与渲染成功，46 份类图/说明文档的 240 个本地链接及锚点有效；65 个修改或新增 C++ 文件格式检查通过。
+
+记录保存在忽略的 `build/component-revision-validation/`。本次验证为桌面 Metal；Android、Windows、Linux、iOS 的本轮运行验证尚未执行。资源定义暂在代码中注册，正式资源落盘及加载仍为下一阶段；本轮未触发 CI。
+
+### GUID 资源落盘与全资源同步
+
+2026-10-29 在 macOS ARM64、AppleClang 21 上，使用继承标准 Ninja 引擎预设的本机 Debug / Release Presets；开启禁异常、严格警告和真实 GPU 测试，复用依赖及 V8 缓存。
+
+- Debug / Release 完整构建成功，CTest 各 **34/34** 通过。覆盖核心 GUID 映射、Taskflow 任务依赖、SQLite 增量、TOML/FlatBuffers 往返、固定资源快照、完整资源同步和编辑器启停。
+- 样例首次导入 8 项，第二次 0 项导入、8 项复用，版本不变；`gen/` 恰有 8 个完整 GUID 文件，无扩展名。默认 4 个工作线程，配置为 2、非法线程数拒绝均有测试。
+- 资源回归覆盖重复 GUID、丢失 meta、携 meta 改名、依赖变化、损坏产物重建、删除 SQLite 重建、资源删除及中断发布恢复。场景节点 uint64 ID 经 TOML 和 C++/TS FlatBuffers 往返保留。
+- 真实 TypeScript 测试覆盖继承配置、settings 中额外声明文件的变化与编译失败保留旧产物；真实 shaderc 测试覆盖自定义 `.inc` 变化触发 Shader 重编。正式编译入口只输出暂存目录，由资源管线按 GUID 发布。
+- 桌面 MCP 与模拟 adb 对全部类型的 GUID 产物逐字节校验，包含场景、Mesh、材质、Shader、脚本、PNG 与原始二进制。纯资源目录无需脚本入口也能发布。Android 打包工具的 15 项测试通过；这些结果不表示已在设备执行。
+- Metal 编辑器从磁盘场景及项目资源生成画面；仅修改 `.material` 后，经 MCP 同步和引擎热重载，画面平均通道差为 3.816。停止恢复空白的内容区最大差为 0，编辑器在 2400 帧后正常退出。
+- 59 个 Mermaid 块实际解析与渲染通过；52 个 C++ 文件格式检查通过，51 份文档中的 257 个本地链接有效。记录位于忽略的 `build/guid-asset-validation/`。
+
+本轮未重新构建 Android APK，也未执行 Android 真机或 Windows/Linux/iOS 运行验证；未触发 CI。当前场景保存资源 GUID，运行时材质实例修改不会自动回写源材质；图片等尚无专用转换的资源按原始字节缓存和同步。
+
+### GUID 资源管线的 Android 验收
+
+2026-10-29：先将 GUID 资源管线合回原 `feat/scene-pbr-runtime`，在该分支完成 Android 修复和验收。后续实现、修复和平台验证继续使用原功能分支；独立新功能只能从主干开分支。
+
+- Android ARM64 Debug / Release 原生库及 APK 均成功构建，V8 与上游库命中缓存。补齐显式宿主 FlatBuffers 工具依赖，并让 CMake 逐个验证 `flatc` 是否能在宿主运行；Gradle 改为检查 GUID `catalog.bin`。模拟交叉编译验证了不可执行候选跳过、旧缓存清除和 C++ / TS Schema 生成。
+- APK 使用 Android 平台 catalog；场景、Mesh、材质、Shader 和脚本按完整 GUID 无后缀打包。样例相机调远，完整旋转方块可容纳在竖屏视野内；没有修改 Renderer 的矩阵或平台投影规则。
+- Debug 在 ARM64 / API 34 模拟器中验证完整资源同步：13 个文件（catalog 加 12 个 GUID 产物）逐字节、大小和哈希一致，覆盖场景、Mesh、材质、Shader、TS→JS、相对模块导入、PNG、原始二进制及空文件。材质改变保持同一进程并实际改变像素；关闭热重载后画面保持不变，再开启即应用待处理版本。
+- 坏 TypeScript、未知源 GUID 和外层哈希正确但 catalog GUID 无效的候选均被拒绝，旧活动版本保持运行；恢复有效资源后可继续重载。持久版本跨进程重启保留，三轮前后台切换正常，180 帧退出有玩法关闭和 bgfx `Shutdown complete` 记录。测试恢复原控制文件及发布指针，只删除自身创建的版本。
+- Release 在已有 `GameDev` 模拟器验证启动、三轮前后台、120 帧正常退出和 V8 smoke（包括 Intl / Temporal）；最终包与设备 APK 哈希一致，保留应用数据并重新启动。Release 的 `run-as` 正确拒绝。
+- macOS Debug / Release 完整构建及 CTest 各 34/34 通过；样例相机调整后，两种配置的真实编辑器项目生命周期测试再次通过。
+
+APK 签名和 16 KB ZIP 对齐检查通过；这不等同于全部原生库支持 16 KB 内存页，当前 SDL3 的 ELF LOAD 对齐仍为 4 KB，尚未完成 16 KB 页设备兼容验证。两种包仍为本机调试签名。
+
+构建、设备日志、截图、逐项报告保存在忽略的 `build/android-guid-validation/`。已有 `GameDev` 存储不足以安装 Debug，保留该应用数据后安装较小的 Release；Debug 使用独立验证 AVD，不清理其他应用数据。本轮只验证模拟器，未验证实体手机、Windows / Linux / iOS；软件 Vulkan 不代表真机性能。未触发 CI。

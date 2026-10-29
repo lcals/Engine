@@ -2,8 +2,13 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/camera.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -293,11 +298,14 @@ bool run_cases(const fs::path& workspace)
                    "count=0; Update(){ if (++this.count === 1) throw new Error('update failure'); "
                    "Debug.Log('update:recovered'); } }"}}) ||
         !expect(script.tick(0.01), "Update exception must not fail Engine") ||
-        !expect(script.status().running && !script.status().last_error.empty(),
-                "Update failure is visible") ||
-        !expect(script.tick(0.01) && log_contains("update:recovered"), "next frame still runs") ||
+        !expect(!script.status().running && !script.status().last_error.empty(),
+                "Update failure returns gameplay to idle") ||
+        !expect(script.tick(0.01) && !log_contains("update:recovered"),
+                "failed Update cannot run the next frame") ||
         !publish("healthy-12", {{"scripts/game.js", game_source("healthy", 2)}}) ||
-        !expect(script.tick(0.01), "healthy replacement") ||
+        !expect(script.tick(0.01) && !script.status().running,
+                "publication after Update failure must not restart gameplay") ||
+        !expect(script.start_gameplay(), "explicitly start a healthy replacement") ||
         !expect(script.status().running && script.status().last_error.empty(),
                 "successful replacement clears prior error"))
     {
@@ -372,6 +380,354 @@ bool run_cases(const fs::path& workspace)
     return true;
 }
 
+const std::string scene_source = R"js(
+import { Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
+const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
+export default class Game extends Gameplay {
+    cube = null;
+    scene = null;
+    angle = 0;
+    constructor() {
+        super();
+        this.constructorBlocked = Scene.Create('constructor') === null;
+    }
+    OnInitialize() {
+        if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
+        const discarded = Scene.Create('discarded');
+        const oldNode = discarded?.CreateNode('old');
+        const oldComponent = oldNode?.AddComponent(MeshRenderer);
+        const oldTransform = oldNode?.GetComponent(Transform);
+        if (!discarded || !oldNode || !oldComponent || !discarded.Destroy()) return false;
+        this.scene = Scene.Create('bound-scene');
+        if (!this.scene || discarded.IsValid() || oldNode.IsValid() || oldComponent.IsValid() ||
+            oldTransform.SetPosition(1, 2, 3) || oldNode.GetComponent(Transform) !== null || oldNode.AddComponent(Camera) !== null || discarded.Destroy() ||
+            oldComponent.SetEnabled(false)) return false;
+        const cube = this.scene.CreateNode('cube');
+        const cameraNode = this.scene.CreateNode('camera');
+        const lightNode = this.scene.CreateNode('light');
+        if (!cube || !cameraNode || !lightNode || !cube.IsValid()) return false;
+        const mesh = cube.AddComponent(MeshRenderer);
+        const camera = cameraNode.AddComponent(Camera);
+        const light = lightNode.AddComponent(Light);
+        if (!mesh || !camera || !light || !(mesh instanceof Component) || !mesh.node.IsValid())
+            return false;
+        if (!(cube.GetComponent(Transform) instanceof Transform) ||
+            !(cube.GetComponent(MeshRenderer) instanceof MeshRenderer) ||
+            cube.GetComponent(Camera) !== null || cube.GetComponent(Light) !== null ||
+            cube.AddComponent(Transform) !== null || cube.AddComponent(Component) !== null ||
+            cube.GetComponent(Component) !== null || cube.AddComponent(class {}) !== null ||
+            cube.GetComponent({prototype: Camera.prototype}) !== null ||
+            cube.AddComponent(null) !== null || cube.GetComponent(undefined) !== null) return false;
+        if (cube.AddComponent(MeshRenderer) !== null || cube.GetComponent(Transform).SetPosition(NaN, 0, 0) ||
+            cube.GetComponent(Transform).SetScale(0, 1, 1) || camera.SetPerspective(0, 1, 2) ||
+            light.SetIntensity(-1) || light.SetColor(Infinity, 1, 1)) return false;
+        if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
+            !mesh.material.SetShader('builtin/shaders/unlit') || mesh.material.SetShader('project/shaders/missing') ||
+            !mesh.material.SetType('builtin/materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
+            !mesh.material.SetType('builtin/materials/default-pbr') || !mesh.material.SetV4('baseColor', .2, .3, .4, 1) ||
+            !mesh.material.SetFloat('metallic', .7) || !mesh.material.SetFloat('roughness', .2) ||
+            !mesh.material.SetType('builtin/materials/default-pbr') || mesh.material.SetType('unknown') ||
+            mesh.material.SetFloat('missing', 1) || mesh.material.SetFloat('baseColor', .2) ||
+            mesh.material.SetV2('roughness', .1, .2) || mesh.material.SetV3('baseColor', .2, .3, .4) ||
+            mesh.material.SetV4('baseColor', 2, .3, .4, 1) ||
+            mesh.material.SetFloat('roughness', Infinity) ||
+            !mesh.SetEnabled(false) || !mesh.SetEnabled(true) ||
+            !cameraNode.GetComponent(Transform).SetPosition(0, 0, 8) || !camera.SetPerspective(45, .1, 200) ||
+            !this.scene.SetActiveCamera(camera) || !light.SetColor(1, .9, .8) ||
+            !light.SetIntensity(5) || !lightNode.GetComponent(Transform).SetRotation(-30, 20, 0)) return false;
+        const parent = this.scene.CreateNode('temporary-parent');
+        const child = this.scene.CreateNode('temporary-child');
+        const component = child?.AddComponent(Light);
+        if (!parent || !child || !component || !child.SetParent(parent) || parent.SetParent(child) ||
+            !parent.Destroy() || child.IsValid() || component.IsValid() || child.Destroy() ||
+            component.SetIntensity(1) || this.scene.SetActiveCamera(component)) return false;
+        if (Scene.Create('duplicate') !== null) return false;
+        this.cube = cube;
+        Debug.Log('scene:initialized');
+        return true;
+    }
+    Update() {
+        if (!(Time.deltaTime > 0)) throw new Error('missing deltaTime');
+        this.angle += Time.deltaTime * 10;
+        if (!this.cube.GetComponent(Transform).SetRotation(0, this.angle, 0)) throw new Error('stale cube');
+    }
+    OnShutdown() {
+        if (Time.deltaTime !== 0 || !this.scene.IsValid() || !this.cube.GetComponent(Transform).SetScale(1, 1, 1))
+            throw new Error('scene must survive through OnShutdown');
+        Debug.Log('scene:shutdown-valid');
+    }
+}
+)js";
+
+bool run_scene_cases()
+{
+    using engine::App;
+    std::error_code error;
+    fs::remove(App::persistent_data_path() / "assets/available.json", error);
+    if (error)
+    {
+        return false;
+    }
+    fs::remove(App::persistent_data_path() / "script-control.json", error);
+    if (error)
+    {
+        return false;
+    }
+    engine::WorldSystem world;
+    engine::ScriptSystem script(&world);
+    const engine::EngineConfig config;
+    if (!expect(world.initialize(config) && script.initialize(config),
+                "initialize scene binding") ||
+        !write_file(App::builtin_assets_path() / "scripts/game.js", scene_source) ||
+        !expect(script.start_gameplay(), "create native scene, nodes and all component bindings") ||
+        !expect(world.scene() != nullptr && world.scene()->nodes().size() == 3,
+                "destroyed node subtree is removed; only cube, camera and light remain"))
+    {
+        return false;
+    }
+    const auto* cube = world.scene()->nodes().front().get();
+    float metallic = 0.0F;
+    engine::Vec4 color;
+    if (!expect(
+            cube->get_component<engine::MeshRenderer>()->material().get_float("metallic",
+                                                                              metallic) &&
+                cube->get_component<engine::MeshRenderer>()->material().get_v4("baseColor", color),
+            "read typed named material parameters"))
+    {
+        return false;
+    }
+    if (!expect(cube->name() == "cube" &&
+                    cube->get_component<engine::Transform>()->settings().position.x() == 1.0 &&
+                    cube->get_component<engine::Transform>()->settings().scale.x() == 2.0 &&
+                    cube->get_component<engine::MeshRenderer>() != nullptr && metallic == 0.7F &&
+                    static_cast<float>(color.x()) == 0.2F &&
+                    world.scene()->active_camera() != nullptr &&
+                    world.scene()->active_camera()->settings().fov_degrees == 45.0F,
+                "native scene retains validated transforms, material and active camera") ||
+        !expect(script.tick(0.25) &&
+                    cube->get_component<engine::Transform>()->settings().rotation.y() == 2.5,
+                "Time.deltaTime drives the native cube transform"))
+    {
+        return false;
+    }
+    script.set_hot_reload(true);
+    const auto original_scene = world.scene()->id();
+    if (!publish("scene-bad-precheck", {{"scripts/game.js", "export default class { ??? }"}}) ||
+        !expect(script.tick(0.1) && script.status().running && world.scene() != nullptr &&
+                    world.scene()->id() == original_scene,
+                "failed precheck preserves the exact native scene") ||
+        !publish("scene-reload", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && script.status().running && world.scene() != nullptr &&
+                    world.scene()->id() != original_scene && world.scene()->nodes().size() == 3 &&
+                    log_contains("scene:shutdown-valid"),
+                "successful reload retires old scene after its shutdown callback"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    script.stop_gameplay();
+    if (!expect(world.scene() == nullptr && !script.status().running &&
+                    script.status().last_error.empty(),
+                "explicit stop destroys scene after valid OnShutdown") ||
+        !publish("scene-stopped", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && world.scene() == nullptr && !script.status().running,
+                "hot reload cannot restart explicitly stopped scene") ||
+        !expect(script.start_gameplay(), "restart scene explicitly"))
+    {
+        return false;
+    }
+    const std::string partial =
+        "import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine'; export default class "
+        "extends Gameplay { "
+        "s=null; OnInitialize(){this.s=Scene.Create('partial'); this.s.CreateNode('partial-node'); "
+        "return false;} OnShutdown(){if(this.s.IsValid()) Debug.Log('partial-scene:shutdown');} }";
+    if (!publish("scene-partial", {{"scripts/game.js", partial}}) ||
+        !expect(script.tick(0.1) && !script.status().running && world.scene() == nullptr &&
+                    log_contains("partial-scene:shutdown"),
+                "failed initialization invokes shutdown then destroys partial native scene"))
+    {
+        return false;
+    }
+    const std::string update_error =
+        "import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine'; export default class "
+        "extends Gameplay { "
+        "s=null; OnInitialize(){this.s=Scene.Create('bad-update'); return this.s!==null;} "
+        "Update(){throw new Error('scene-update-failed');} "
+        "OnShutdown(){if(this.s.IsValid()) Debug.Log('failed-scene:shutdown');} }";
+    if (!publish("scene-update-error", {{"scripts/game.js", update_error}}) ||
+        !expect(script.start_gameplay() && script.tick(0.1) && !script.status().running &&
+                    world.scene() == nullptr && log_contains("failed-scene:shutdown") &&
+                    script.status().last_error.find("scene-update-failed") != std::string::npos,
+                "Update error clears scene and reports failure without failing engine tick") ||
+        !publish("scene-after-error", {{"scripts/game.js", scene_source}}) ||
+        !expect(script.tick(0.1) && !script.status().running && world.scene() == nullptr,
+                "publication cannot restart gameplay after Update error"))
+    {
+        return false;
+    }
+    const std::string stale = R"js(
+import {Gameplay,Scene,Debug,MeshRenderer,Transform} from 'engine';
+export default class extends Gameplay {
+    scene=null; node=null; mesh=null; transform=null; material=null;
+    OnInitialize(){this.scene=Scene.Create('external-test'); this.node=this.scene.CreateNode('owned');
+        this.mesh=this.node.AddComponent(MeshRenderer); this.transform=this.node.GetComponent(Transform); this.material=this.mesh.material; return this.mesh!==null;}
+    Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
+        this.transform.SetPosition(9,9,9) || this.node.GetComponent(MeshRenderer)!==null || this.material.IsValid() ||
+        this.material.SetV4('baseColor',1,1,1,1) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
+        Scene.Create('steal')!==null) throw new Error('stale references were accepted');
+        Debug.Log('stale:rejected');}
+    OnShutdown(){Debug.Log('stale:shutdown');}
+}
+)js";
+    if (!publish("scene-external", {{"scripts/game.js", stale}}) ||
+        !expect(script.start_gameplay(), "start external invalidation fixture"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    auto* foreign = world.create_scene("foreign");
+    if (!expect(foreign != nullptr && script.tick(0.1) && log_contains("stale:rejected") &&
+                    world.scene() == foreign && foreign->nodes().empty(),
+                "stale scene/node/component references cannot touch a replacement scene"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(world.scene() == foreign, "script cleanup must not destroy an unowned scene"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    script.shutdown();
+    world.shutdown();
+    return true;
+}
+
+std::map<std::string, std::string> guid_files(const std::string& revision, std::string_view source,
+                                              std::string_view helper, std::string_view scene_bytes)
+{
+    engine::schema::AssetCatalogDataT catalog;
+    catalog.revision = revision;
+#if defined(__APPLE__)
+    catalog.target_platform = "macos";
+#elif defined(_WIN32)
+    catalog.target_platform = "windows";
+#else
+    catalog.target_platform = "linux";
+#endif
+    std::map<std::string, std::string> files;
+    const auto add = [&](const char* guid, const char* path, engine::schema::AssetKind kind,
+                         const char* module, std::string_view contents)
+    {
+        auto asset = std::make_unique<engine::schema::AssetEntryT>();
+        asset->guid = guid;
+        asset->path = path;
+        asset->kind = kind;
+        asset->module_path = module;
+        asset->content_hash = hash_text(contents);
+        asset->content_size = contents.size();
+        files.emplace("gen/" + asset->guid, contents);
+        catalog.entries.push_back(std::move(asset));
+    };
+    add("10000000-0000-4000-8000-000000000001", "project/scripts/game.ts",
+        engine::schema::AssetKind::script, "scripts/game.js", source);
+    if (!helper.empty())
+    {
+        add("10000000-0000-4000-8000-000000000002", "project/scripts/lib/value.ts",
+            engine::schema::AssetKind::script, "scripts/lib/value.js", helper);
+    }
+    add("10000000-0000-4000-8000-000000000003", "project/scenes/main.scene",
+        engine::schema::AssetKind::scene, "", scene_bytes);
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAssetCatalogDataBuffer(
+        builder, engine::schema::AssetCatalogData::Pack(builder, &catalog));
+    files.emplace(
+        "catalog.bin",
+        std::string(reinterpret_cast<const char*>(builder.GetBufferPointer()), builder.GetSize()));
+    return files;
+}
+
+bool run_guid_cases()
+{
+    engine::WorldSystem world;
+    engine::ScriptSystem script(&world);
+    const engine::EngineConfig config;
+    if (!expect(world.initialize(config), "initialize GUID scene world"))
+    {
+        return false;
+    }
+    auto* source_scene = world.create_scene("GUID scene");
+    if (!expect(source_scene != nullptr && source_scene->create_node("GUID Node") != nullptr,
+                "create GUID scene fixture"))
+    {
+        return false;
+    }
+    engine::schema::SceneDataT data;
+    if (!source_scene->build_data(data))
+    {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishSceneDataBuffer(builder, engine::schema::SceneData::Pack(builder, &data));
+    const std::string scene_bytes(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                  builder.GetSize());
+    world.destroy_scene();
+    const std::string source = R"js(
+import {Gameplay, Scene, Debug} from 'engine';
+import {value} from './lib/value.js';
+export default class extends Gameplay {
+    scene = null;
+    OnInitialize() {
+        this.scene = Scene.Load('project/scenes/main.scene');
+        if (!this.scene || !this.scene.FindNode('GUID Node') || this.scene.FindNode('missing') !== null ||
+            Scene.Load('project/scenes/missing.scene') !== null || !this.scene.IsValid()) return false;
+        Debug.Log('guid:start:' + value); return true;
+    }
+    Update() {
+        this.scene = Scene.Load('project/scenes/main.scene');
+        if (!this.scene || !this.scene.FindNode('GUID Node')) throw new Error('GUID scene snapshot changed');
+        Debug.Log('guid:update:' + value);
+    }
+}
+)js";
+    if (!publish("guid-1", guid_files("guid-1", source, "export const value = 7;", scene_bytes)) ||
+        !expect(script.initialize(config) && script.start_gameplay() &&
+                    log_contains("guid:start:7"),
+                "GUID module imports and Scene.Load/FindNode execute") ||
+        !write_file(engine::App::persistent_data_path() /
+                        "assets/versions/guid-1/gen/10000000-0000-4000-8000-000000000003",
+                    "changed") ||
+        !expect(script.tick(0.01) && log_contains("guid:update:7"),
+                "active catalog keeps scene bytes immutable after source file mutation"))
+    {
+        return false;
+    }
+    script.set_hot_reload(true);
+    if (!publish("guid-bad", guid_files("guid-bad", "export default class { ??? }",
+                                        "export const value = 99;", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-1" &&
+                    world.scene() != nullptr,
+                "GUID precheck failure preserves active scene/catalog") ||
+        !publish("guid-2", guid_files("guid-2", source, "export const value = 8;", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-2" &&
+                    log_contains("guid:start:8"),
+                "GUID replacement activates new catalog and code") ||
+        !publish("guid-missing", guid_files("guid-missing", source, "", scene_bytes)) ||
+        !expect(script.tick(0.01) && script.status().active_revision == "guid-2",
+                "deleted GUID module cannot fall back to built-in path tree"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(world.scene() == nullptr, "GUID scene belongs to its gameplay run"))
+    {
+        return false;
+    }
+    script.shutdown();
+    world.shutdown();
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -407,13 +763,16 @@ int main(int argc, char** argv)
         engine::App::shutdown();
         return 1;
     }
-    const bool passed = run_cases(workspace);
+    engine::ResourceSystem resources;
+    const bool passed = resources.initialize(config) && run_cases(workspace) && run_scene_cases() &&
+                        run_guid_cases();
+    resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
     if (passed)
     {
-        std::puts(
-            "Script runtime PASS: ES modules, logging, paths, snapshots, hot reload and failures");
+        std::puts("Script runtime PASS: ES modules, scenes, components, snapshots, hot reload and "
+                  "failures");
     }
     return passed ? 0 : 1;
 }

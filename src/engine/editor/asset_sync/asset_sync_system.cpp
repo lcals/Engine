@@ -168,7 +168,7 @@ const std::string& AssetSyncSystem::last_error() const noexcept
     return last_error_;
 }
 
-bool AssetSyncSystem::sync(const fs::path& source_assets, const fs::path& runtime_dir,
+bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime_dir,
                            std::string_view entry)
 {
     revision_.clear();
@@ -203,7 +203,7 @@ bool AssetSyncSystem::sync(const fs::path& source_assets, const fs::path& runtim
     {
         return fail("asset sync is not initialized or entry path is invalid");
     }
-    const auto source = fs::absolute(source_assets, error).lexically_normal();
+    const auto source = fs::absolute(source_cache, error).lexically_normal();
     if (error || !no_symlinks(source) || !fs::is_directory(source, error))
     {
         return fail("source assets must be an existing directory without symlinks");
@@ -236,37 +236,60 @@ bool AssetSyncSystem::sync(const fs::path& source_assets, const fs::path& runtim
     lock = lock_path;
 
     std::vector<std::string> paths;
-    for (fs::recursive_directory_iterator iterator(source, error), end; !error && iterator != end;
-         iterator.increment(error))
-    {
-        const auto status = iterator->symlink_status(error);
-        if (error || fs::is_symlink(status))
-        {
-            return fail("source assets contain a symlink or unreadable path");
-        }
-        if (fs::is_regular_file(status))
-        {
-            const auto relative = PathUtils::to_utf8(iterator->path().lexically_relative(source));
-            if (!relative_asset_path(relative))
-            {
-                return fail("source contains an invalid relative asset path");
-            }
-            paths.push_back(relative);
-        }
-        else if (!fs::is_directory(status))
-        {
-            return fail("source contains an unsupported asset file type");
-        }
-    }
+    const bool has_catalog = fs::exists(source / "catalog.bin", error);
     if (error)
     {
-        return fail("cannot enumerate source assets: " + error.message());
+        return fail("cannot inspect resource catalog");
+    }
+    if (has_catalog)
+    {
+        ResourceCatalog catalog;
+        if (!ResourceSystem::read_catalog(source, catalog))
+        {
+            return fail("source resource catalog or GUID artifacts are invalid");
+        }
+        paths.emplace_back("catalog.bin");
+        for (const auto& asset : catalog.data.entries)
+        {
+            paths.push_back("gen/" + asset->guid);
+        }
+    }
+    else
+    {
+        // 兼容旧的独立脚本树；正式编辑器输入为 TaskPipeline 生成的 catalog+gen。
+        for (fs::recursive_directory_iterator iterator(source, error), end;
+             !error && iterator != end; iterator.increment(error))
+        {
+            const auto status = iterator->symlink_status(error);
+            if (error || fs::is_symlink(status))
+            {
+                return fail("source assets contain a symlink or unreadable path");
+            }
+            if (fs::is_regular_file(status))
+            {
+                const auto relative =
+                    PathUtils::to_utf8(iterator->path().lexically_relative(source));
+                if (!relative_asset_path(relative))
+                {
+                    return fail("source contains an invalid relative asset path");
+                }
+                paths.push_back(relative);
+            }
+            else if (!fs::is_directory(status))
+            {
+                return fail("source contains an unsupported asset file type");
+            }
+        }
+        if (error)
+        {
+            return fail("cannot enumerate source assets: " + error.message());
+        }
+        if (std::find(paths.begin(), paths.end(), entry) == paths.end())
+        {
+            return fail("gameplay entry does not exist in source assets");
+        }
     }
     std::sort(paths.begin(), paths.end());
-    if (!std::binary_search(paths.begin(), paths.end(), std::string(entry)))
-    {
-        return fail("gameplay entry does not exist in source assets");
-    }
     Json files = Json::array();
     for (const auto& relative : paths)
     {
@@ -367,6 +390,14 @@ bool AssetSyncSystem::sync(const fs::path& source_assets, const fs::path& runtim
             actual_size != item["size"].get<std::uint64_t>())
         {
             return fail("asset changed during sync or existing version is corrupt: " + relative);
+        }
+    }
+    if (has_catalog)
+    {
+        ResourceCatalog verified;
+        if (!ResourceSystem::read_catalog(verify_directory, verified))
+        {
+            return fail("copied resource catalog failed complete artifact validation");
         }
     }
     if (!staging.empty())

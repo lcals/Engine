@@ -1,0 +1,267 @@
+#include "editor/asset_pipeline/asset_database.hpp"
+
+#include "runtime/utils/path_utils.hpp"
+
+#include <sqlite3.h>
+
+#include <limits>
+
+namespace engine::asset_pipeline
+{
+namespace
+{
+
+class Statement final
+{
+public:
+    explicit Statement(sqlite3* database, const char* sql)
+    {
+        if (sqlite3_prepare_v2(database, sql, -1, &statement_, nullptr) != SQLITE_OK)
+        {
+            statement_ = nullptr;
+        }
+    }
+    ~Statement()
+    {
+        sqlite3_finalize(statement_);
+    }
+    Statement(const Statement&) = delete;
+    Statement& operator=(const Statement&) = delete;
+    sqlite3_stmt* get() const noexcept
+    {
+        return statement_;
+    }
+    bool bind(int index, const std::string& value)
+    {
+        return statement_ != nullptr &&
+               value.size() <= static_cast<std::size_t>(std::numeric_limits<int>::max()) &&
+               sqlite3_bind_text(statement_, index, value.data(), static_cast<int>(value.size()),
+                                 SQLITE_TRANSIENT) == SQLITE_OK;
+    }
+    bool bind(int index, std::uint64_t value)
+    {
+        return statement_ != nullptr &&
+               value <= static_cast<std::uint64_t>(std::numeric_limits<sqlite3_int64>::max()) &&
+               sqlite3_bind_int64(statement_, index, static_cast<sqlite3_int64>(value)) ==
+                   SQLITE_OK;
+    }
+    std::string text(int index) const
+    {
+        const auto* value = sqlite3_column_text(statement_, index);
+        return value != nullptr ? reinterpret_cast<const char*>(value) : std::string{};
+    }
+
+private:
+    sqlite3_stmt* statement_ = nullptr;
+};
+
+} // namespace
+
+AssetDatabase::~AssetDatabase() noexcept
+{
+    rollback();
+    sqlite3_close(database_);
+}
+
+bool AssetDatabase::execute(const char* sql, std::string& error)
+{
+    char* diagnostics = nullptr;
+    const int result = sqlite3_exec(database_, sql, nullptr, nullptr, &diagnostics);
+    if (result != SQLITE_OK)
+    {
+        error = "asset database: " +
+                std::string(diagnostics != nullptr ? diagnostics : sqlite3_errmsg(database_));
+    }
+    sqlite3_free(diagnostics);
+    return result == SQLITE_OK;
+}
+
+bool AssetDatabase::open(const std::filesystem::path& path, std::string& error)
+{
+    if (sqlite3_open_v2(PathUtils::to_utf8(path).c_str(), &database_,
+                        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
+                        nullptr) != SQLITE_OK)
+    {
+        error = "cannot open asset database: " + std::string(sqlite3_errmsg(database_));
+        return false;
+    }
+    Statement version(database_, "PRAGMA user_version;");
+    if (version.get() == nullptr || sqlite3_step(version.get()) != SQLITE_ROW)
+    {
+        error = "cannot read asset database version";
+        return false;
+    }
+    const int number = sqlite3_column_int(version.get(), 0);
+    if (number != 0 && number != 1)
+    {
+        error = "unsupported asset database version; rebuild cache/assets.sqlite";
+        return false;
+    }
+    return execute(
+        "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;"
+        "CREATE TABLE IF NOT EXISTS assets("
+        "guid TEXT PRIMARY KEY, path TEXT NOT NULL UNIQUE, kind INTEGER NOT NULL,"
+        "source_hash TEXT NOT NULL, meta_hash TEXT NOT NULL, build_key TEXT NOT NULL,"
+        "output_hash TEXT NOT NULL, output_size INTEGER NOT NULL, module_path TEXT NOT NULL);"
+        "CREATE TABLE IF NOT EXISTS dependencies("
+        "asset_guid TEXT NOT NULL REFERENCES assets(guid) ON DELETE CASCADE,"
+        "dependency_guid TEXT NOT NULL, PRIMARY KEY(asset_guid,dependency_guid));"
+        "CREATE TABLE IF NOT EXISTS state(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
+        "PRAGMA user_version=1;",
+        error);
+}
+
+bool AssetDatabase::load(std::map<Guid, AssetRecord>& records, std::string& error)
+{
+    records.clear();
+    Statement statement(
+        database_,
+        "SELECT guid,path,kind,source_hash,meta_hash,build_key,output_hash,output_size,module_path "
+        "FROM assets ORDER BY path;");
+    if (statement.get() == nullptr)
+    {
+        error = "cannot read asset database rows";
+        return false;
+    }
+    int result = SQLITE_ROW;
+    while ((result = sqlite3_step(statement.get())) == SQLITE_ROW)
+    {
+        AssetRecord record;
+        record.asset.guid = statement.text(0);
+        record.asset.path = statement.text(1);
+        record.asset.kind = static_cast<schema::AssetKind>(sqlite3_column_int(statement.get(), 2));
+        record.source_hash = statement.text(3);
+        record.meta_hash = statement.text(4);
+        record.build_key = statement.text(5);
+        record.output_hash = statement.text(6);
+        record.output_size = static_cast<std::uint64_t>(sqlite3_column_int64(statement.get(), 7));
+        record.module_path = statement.text(8);
+        records.emplace(record.asset.guid, std::move(record));
+    }
+    if (result != SQLITE_DONE)
+    {
+        error = "cannot finish reading asset database rows";
+        return false;
+    }
+    Statement dependencies(
+        database_, "SELECT asset_guid,dependency_guid FROM dependencies ORDER BY dependency_guid;");
+    if (dependencies.get() == nullptr)
+    {
+        error = "cannot read asset dependencies";
+        return false;
+    }
+    while ((result = sqlite3_step(dependencies.get())) == SQLITE_ROW)
+    {
+        const auto iterator = records.find(dependencies.text(0));
+        if (iterator == records.end())
+        {
+            error = "asset database contains an orphan dependency";
+            return false;
+        }
+        iterator->second.asset.dependencies.push_back(dependencies.text(1));
+    }
+    if (result != SQLITE_DONE)
+    {
+        error = "cannot finish reading asset dependencies";
+        return false;
+    }
+    return true;
+}
+
+bool AssetDatabase::revision(std::string& output, std::string& error)
+{
+    output.clear();
+    Statement statement(database_, "SELECT value FROM state WHERE key='revision';");
+    if (statement.get() == nullptr)
+    {
+        error = "cannot read asset revision";
+        return false;
+    }
+    const int result = sqlite3_step(statement.get());
+    if (result == SQLITE_ROW)
+    {
+        output = statement.text(0);
+        return true;
+    }
+    if (result != SQLITE_DONE)
+    {
+        error = "cannot finish reading asset revision";
+        return false;
+    }
+    return true;
+}
+
+bool AssetDatabase::begin_update(const std::vector<AssetRecord>& records,
+                                 const std::string& revision_value, std::string& error)
+{
+    if (transaction_ || !execute("BEGIN IMMEDIATE;", error))
+    {
+        return false;
+    }
+    transaction_ = true;
+    if (!execute("DELETE FROM dependencies; DELETE FROM assets;", error))
+    {
+        return false;
+    }
+    Statement insert(database_, "INSERT INTO "
+                                "assets(guid,path,kind,source_hash,meta_hash,build_key,output_hash,"
+                                "output_size,module_path) VALUES(?,?,?,?,?,?,?,?,?);");
+    Statement dependency(database_,
+                         "INSERT INTO dependencies(asset_guid,dependency_guid) VALUES(?,?);");
+    for (const auto& record : records)
+    {
+        if (!insert.bind(1, record.asset.guid) || !insert.bind(2, record.asset.path) ||
+            !insert.bind(3, static_cast<std::uint64_t>(record.asset.kind)) ||
+            !insert.bind(4, record.source_hash) || !insert.bind(5, record.meta_hash) ||
+            !insert.bind(6, record.build_key) || !insert.bind(7, record.output_hash) ||
+            !insert.bind(8, record.output_size) || !insert.bind(9, record.module_path) ||
+            sqlite3_step(insert.get()) != SQLITE_DONE)
+        {
+            error = "cannot store asset database row: " + std::string(sqlite3_errmsg(database_));
+            return false;
+        }
+        sqlite3_reset(insert.get());
+        sqlite3_clear_bindings(insert.get());
+        for (const auto& guid : record.asset.dependencies)
+        {
+            if (!dependency.bind(1, record.asset.guid) || !dependency.bind(2, guid) ||
+                sqlite3_step(dependency.get()) != SQLITE_DONE)
+            {
+                error = "cannot store asset dependency: " + std::string(sqlite3_errmsg(database_));
+                return false;
+            }
+            sqlite3_reset(dependency.get());
+            sqlite3_clear_bindings(dependency.get());
+        }
+    }
+    Statement revision_statement(database_, "INSERT INTO state(key,value) VALUES('revision',?) ON "
+                                            "CONFLICT(key) DO UPDATE SET value=excluded.value;");
+    if (!revision_statement.bind(1, revision_value) ||
+        sqlite3_step(revision_statement.get()) != SQLITE_DONE)
+    {
+        error = "cannot store asset revision";
+        return false;
+    }
+    return true;
+}
+
+bool AssetDatabase::commit(std::string& error)
+{
+    if (!transaction_ || !execute("COMMIT;", error))
+    {
+        return false;
+    }
+    transaction_ = false;
+    return true;
+}
+
+void AssetDatabase::rollback() noexcept
+{
+    if (transaction_)
+    {
+        sqlite3_exec(database_, "ROLLBACK;", nullptr, nullptr, nullptr);
+        transaction_ = false;
+    }
+}
+
+} // namespace engine::asset_pipeline
