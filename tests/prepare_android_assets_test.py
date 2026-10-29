@@ -293,11 +293,19 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_unknown_resource_kind_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        self.entries.append(resource_entry(b"unsupported resource", 2, 7, "project/future.bin", ""))
+        self.entries.append(resource_entry(b"unsupported resource", 2, 8, "project/future.bin", ""))
         self.write_resources()
         with self.assertRaises(ValueError):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
+
+    def test_audio_resource_kind_is_preserved(self):
+        audio = resource_entry(b"compiled PCM audio", 2, 7, "project/audio/room.wav", "")
+        self.entries.append(audio)
+        self.write_resources()
+        self.prepare()
+        self.assertEqual((self.output / "project" / "gen" / audio["guid"]).read_bytes(), audio["entity"])
         self.assert_clean()
 
     def test_catalog_missing_does_not_fall_back_to_scanning(self):

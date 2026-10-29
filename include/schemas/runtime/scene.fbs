@@ -33,7 +33,49 @@ table MeshRendererData {
     additional_material_guids:[string];
 }
 
-union ComponentPayload { TransformData, CameraData, LightData, MeshRendererData }
+enum ColliderShape:ubyte { box, sphere, capsule }
+enum BodyMotion:ubyte { static_body, kinematic, dynamic }
+
+table ColliderData {
+    shape:ColliderShape = box;
+    half_extents:Vec3 (required, native_inline, native_default: "Vec3(0.5, 0.5, 0.5)");
+    radius:float = 0.5;
+    half_height:float = 0.5;
+    center:Vec3 (required, native_inline);
+    friction:float = 0.5;
+    restitution:float = 0.1;
+    is_trigger:bool = false;
+}
+
+table RigidBodyData {
+    motion:BodyMotion = dynamic;
+    mass:float = 1;
+    gravity_factor:float = 1;
+    linear_damping:float = 0.05;
+    angular_damping:float = 0.05;
+    linear_velocity:Vec3 (required, native_inline);
+    angular_velocity:Vec3 (required, native_inline);
+}
+
+table AudioSourceData {
+    clip_guid:string;
+    volume:float = 1;
+    pitch:float = 1;
+    loop:bool = false;
+    play_on_awake:bool = true;
+    spatial:bool = true;
+    min_distance:float = 1;
+    max_distance:float = 20;
+}
+
+table AudioListenerData {
+    volume:float = 1;
+}
+
+union ComponentPayload {
+    TransformData, CameraData, LightData, MeshRendererData,
+    ColliderData, RigidBodyData, AudioSourceData, AudioListenerData
+}
 
 table ComponentData {
     enabled:bool = true;

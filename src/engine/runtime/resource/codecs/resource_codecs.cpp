@@ -1,5 +1,6 @@
 #include "runtime/resource/resource_codec.hpp"
 
+#include "runtime/resource/codecs/audio_resource_codec.hpp"
 #include "runtime/resource/codecs/binary_resource_codec.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
@@ -16,6 +17,7 @@ namespace
 {
 
 const BinaryResourceCodec binary;
+const AudioResourceCodec audio;
 const MaterialResourceCodec material;
 const MeshResourceCodec mesh;
 const SceneResourceCodec scene;
@@ -36,6 +38,7 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::texture, &texture},
     CodecEntry{schema::AssetKind::script, &binary},
     CodecEntry{schema::AssetKind::source, &binary},
+    CodecEntry{schema::AssetKind::audio, &audio},
 };
 
 } // namespace

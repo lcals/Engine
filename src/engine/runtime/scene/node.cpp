@@ -72,6 +72,12 @@ bool Node::set_parent(Node* parent) noexcept
     return true;
 }
 
+bool Node::remove_component(ComponentType type) noexcept
+{
+    return std::erase_if(components_,
+                         [type](const auto& value) { return value->type() == type; }) != 0;
+}
+
 Component* Node::get_component(ComponentType type) noexcept
 {
     return const_cast<Component*>(std::as_const(*this).get_component(type));

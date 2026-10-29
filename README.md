@@ -10,11 +10,11 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
 模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图与脚本执行属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
@@ -260,7 +260,7 @@ export default class Game extends Gameplay {
 }
 ```
 
-每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前目录按需加载场景及必要依赖，`Scene.FindNode(name)` 查找节点；`Scene.Create` 可以动态创建所属玩法会话的场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer` 组件。全部场景对象都遵守这个结构。节点管理父子关系，Transform 提供局部位置、旋转与缩放；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/minimal/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
+每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前目录按需加载场景及必要依赖，`Scene.FindNode(name)` 查找节点；`Scene.Create` 可以动态创建所属玩法会话的场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer`、`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 组件。物理与音频接口见[脚本类图](docs/plugins/runtime/class-diagrams/physics-audio-script-api.md)。全部场景对象都遵守这个结构。节点管理父子关系，Transform 提供局部位置、旋转与缩放；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/minimal/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
 
 `App` 的静态只读路径具有以下含义：
 
@@ -303,6 +303,12 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 | `set_material_type` | `sceneId`、`nodeId`、`path`、可选 `slot`；按完整路径选择材质资源 |
 | `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`、可选 `slot`；类型为 `float` / `v2` / `v3` / `v4` |
 | `set_material_texture` | `sceneId`、`nodeId`、`name`、`path`、可选 `slot`；按采样器名设置贴图资源 |
+| `set_collider` / `get_collider` | `sceneId`、`nodeId`；添加/编辑或查询 box、sphere、capsule 碰撞体及摩擦、弹性、触发器 |
+| `set_rigid_body` / `get_rigid_body` | `sceneId`、`nodeId`；添加/编辑或查询运动类型、质量、重力、阻尼和速度 |
+| `add_impulse` | `sceneId`、`nodeId`、`impulse` 三分量数组；提交动态刚体冲量，不可撤销 |
+| `set_audio_source` / `get_audio_source` | `sceneId`、`nodeId`；添加/编辑或查询 clip 路径、音量、音调、循环和空间衰减 |
+| `set_audio_listener` / `get_audio_listener` | `sceneId`、`nodeId`；添加/编辑或查询监听器音量 |
+| `play_audio` / `pause_audio` / `stop_audio` / `get_audio_state` | `sceneId`、`nodeId`；播放控制或状态查询，不可撤销 |
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
@@ -324,6 +330,18 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
 编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/editor/class-diagrams/editor-mcp-tools.md)。
+
+### 物理与音频组件
+
+运行时核心使用 `Collider` + `RigidBody` 表达物理对象，使用 `AudioSource` + `AudioListener` 表达音频对象，位置与朝向继续来自 `Transform`。Jolt 与 SDL 句柄只存在于对应系统实现；编辑器负责导入、保存和撤销，MCP 负责工具描述与转发。完整边界见[物理](docs/runtime/physics.md)、[音频](docs/runtime/audio.md)、[组件命令](docs/editor/class-diagrams/component-commands.md)与[MCP 参数](docs/plugins/editor/class-diagrams/physics-audio-mcp-tools.md)。
+
+`set_collider`、`set_rigid_body`、`set_audio_source`、`set_audio_listener` 可添加节点缺少的组件，支持批量与撤销；`get_*` 要求组件存在。动态模拟可能改变速度，撤销会检查完整组件快照并拒绝覆盖新状态。冲量与播放控制属于瞬态运行请求，不进入撤销批次。音频 `playback` 为 0 stopped、1 pending、2 playing、3 paused、4 failed；播放回执成功只表示请求接受，实际输出须查询后续状态。
+
+音频源目前支持 WAV，转换为 `audio.fbs` 描述的交错 F32 PCM。相邻 `.meta` 使用 `[audio]` 的 `sample_rate`（默认 48000）、`channels`（默认 2）和 `gain`（默认 1），变化参与增量导入。生成物仍为无后缀 `cache/gen/<GUID>`，场景用 clip GUID 建立依赖，构建和同步共用现有资源清单。详见[音频导入](docs/editor/class-diagrams/audio-importer.md)。
+
+基础物理包括盒、球、胶囊，静态、运动学、动态刚体及冲量；动态刚体必须位于场景根节点。音频支持单/双声道、循环、音调、音量、暂停、距离衰减和左右声像。结束项目显式清理物理对象、流和逻辑设备；普通场景替换由各系统在下一次更新按场景身份清理。
+
+[公寓物理与音频示例](docs/editor/apartment-physics-audio.md)复用已有场景与资源，增加静态家具碰撞体、动态落球、相机监听器及原创合成循环音频；示例配置不进入引擎核心。
 
 ### 渲染设置与真实帧截图
 
@@ -388,8 +406,8 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 
 ### 组件、数据模型与资源扩展
 
-- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光和网格也都是组件。
-- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光、网格、碰撞体、刚体、音源与监听器也都是组件。
+- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
 - 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
 - ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
@@ -557,25 +575,25 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-10-30，模块分层、脚本插件化、逐类型接口、命名空间和建模导入器装配已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-10-30，物理、音频、资源导入和公寓示例已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
 | 环境 | 已验证范围 |
 | --- | --- |
-| macOS ARM64 / AppleClang 21 | 完整 Debug / Release 构建与 CTest 各 56/56 通过，包含真实 Metal 窗口、项目启停、MCP 建模、场景保存和资源管线 |
-| macOS 精简插件 Release | 关闭脚本、V8 和建模插件后构建通过；47 项测试分非窗口 45 项与窗口 2 项执行，全部通过。资源导入、渲染、脚本启动失败返回及关闭均正常；宿主无上述插件符号 |
-| Android ARM64 / API 34 软件 Vulkan 模拟器 | Debug / Release APK 构建、安装与设备 APK 哈希匹配；Vulkan 画面、V8、前后台及有限帧退出通过。Debug 资源同步、热重载、合并包及持久恢复通过；Release 拒绝 `run-as` |
-| Windows x64 / VS 2022 | 既有依赖准备、基础构建、ozz / USD 和 V8 嵌入记录保留；未验证本次重构及完整 DirectX 编辑器 |
-| Linux / iOS / Android 实体设备 | 尚未完成端到端运行验证 |
+| macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过，各覆盖 61 项 CTest。Debug 全量运行后更新两处新增功能的旧预期，并复跑 13 项受影响测试；Release 分 56 项非窗口与 5 项窗口测试执行，全部通过 |
+| macOS Metal 公寓 | 330 节点、77 碰撞体；小球落地、施加冲量后再次落地；默认 SDL 设备播放、暂停、续播、停止、调整音量和项目重启；真实渲染截图保存成功 |
+| Android ARM64 / API 34 软件 Vulkan 模拟器 | 新增物理音频功能的 Debug APK 编译、安装和哈希核对通过；落球、音频状态、三次前后台、有限帧退出、冷重启、包含音频的 MCP 合并包同步及持久版本启动通过 |
+| 既有精简插件与 Android Release | 前次模块分层验证中，关闭脚本/V8/建模的桌面 Release 47 项测试通过，Android Debug / Release 完成资源目录和生命周期验证；本次物理音频未重建 Android Release APK |
+| Windows / Linux / iOS / Android 实体设备 | 未验证本次物理音频功能的端到端运行 |
 
-架构检查覆盖源码包含方向、当前配置实际 CMake 目标的直接与传递链接、真实别名和循环；桌面完整、精简配置及 Android Debug / Release 均通过。检查器包含 8 个正反例，其中使用真实 CMake 接口目标核对 `LINK_ONLY` 内的别名。267 个自有 C++ 文件通过格式检查；本次 CMake、Python 改动通过各自格式检查。117 块 Mermaid 类图解析与渲染通过，后续变更的 5 块已复核；相对文档链接有效。
+架构检查覆盖源码包含方向和实际 CMake 目标的直接、传递链接；核心、编辑器和插件保持单向依赖。68 个新增或修改的自有 C++ 文件与 5 个 CMake 文件通过格式检查，127 块 Mermaid 图解析、渲染通过，变更文档的相对链接有效。
 
-导入器回归覆盖普通 Mesh、插件注册的所有权转移、构建中拒绝替换、关闭插件后拒绝权威建模源、失败保留旧产物及恢复插件后的增量命中。资源与编辑器测试覆盖 Taskflow 调度、导入线程设置、SQLite 增量、GUID 冲突、meta 移动、输入变化、产物损坏、场景 TOML / C++ / TS FlatBuffers 往返，以及共享引用、深依赖链和目录代际隔离。MCP 回归覆盖注册、参数校验、编辑事务、撤销重做、回执与会话隔离；真实 Metal 测试包含材质变化、纹理、项目反复启停和资源释放。
+物理回归覆盖盒/球/胶囊接触、静态/运动学/动态体、固定步进、单次冲量、触发器、父变换约束、极小尺度、旋转奇异角度以及清理恢复。音频回归覆盖 WAV/meta 增量导入、损坏输入保留旧缓存、PCM 实体校验、多个声源、循环、暂停、修改参数、组件删除、换场景和释放；自动化输出使用 SDL dummy。MCP 在真实编辑器中完成添加组件、方块落地、音频控制、场景保存、重新导入和再次启动；组件历史测试覆盖批量回滚、无效参数原子性和节点重建后的身份关联。
 
-Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的定位、实体头和完整性，原生代码包含脚本和资源图插件，不包含编辑器、建模、MCP、构建或同步插件。Debug 真 MCP 验证 14 个实体对应的 15 个散文件，材质重载保持同一进程；关闭热重载时画面不变，开启后应用新版。坏 TS、错误源 GUID 和损坏设备 catalog 均保留旧活动版本。另通过 MCP 构建 7 个实体的合并包，重复构建复用产物，完成同步、激活及跨进程持久恢复。Debug / Release 均完成 V8 JavaScript、SharedArrayBuffer / Atomics、Intl、Temporal、三次前后台和有限帧释放；日志未发现崩溃、ANR 或图形设备丢失。
+公寓保留原有家具与灯光，新增 76 个静态家具/建筑碰撞体、一个动态球和原创循环音频。通过 MCP 施加冲量后球心最终稳定在约 0.255 米，符合地面高度与球半径；停止后场景释放，再次启动恢复播放。音频实际打开了桌面默认 SDL 输出设备，但这些检查不代表主观听觉评测。
 
-本轮记录位于忽略的 `build/namespace-*.log`、`build/namespace-android-validation/` 和 `build/plugin-layout-validation/`。Android 目录包含包体与安装哈希、日志、截图、同步回执、清理结果及复跑命令；验证使用独立模拟器，已有 GameDev 模拟器保持运行。验证产物不提交，复跑入口保留在 Presets 和 `tests/`。
+Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含编辑器、建模或 MCP 插件。设备端落球接触后速度归零，播放、暂停、续播、停止和重播状态正常；360 帧运行正常退出。MCP 同步后的 catalog 与包文件逐字节匹配，冷启动使用已发布持久版本。日志未发现崩溃、ANR 或图形设备丢失；模拟器关闭宿主音频输出，不代表实体扬声器验证。
 
-现代公寓的既有验收记录对应 2026-10-29：通过 MCP 创建 322 个模型，保存并重载 328 个节点，646 个资源 GUID 唯一，输出全景和三个近景 PNG。本轮覆盖建模与场景保存自动回归，未重新生成这套公寓。V8、ozz、vcpkg 和编译缓存继续复用；Windows PowerShell 安装测试未在 macOS 执行。
+验证记录和截图位于忽略的 `build/physics-audio-*.log`、`build/physics-audio-apartment/`、`build/physics-audio-android/` 与 `build/plugin-layout-validation/`。Android 测试结束恢复资源版本指针并清理测试版本，只关闭本次启动的独立模拟器；已有模拟器和编辑器保持不动。验证产物不提交，桌面复跑入口保留在 Presets、`tests/` 和公寓示例脚本。
 
 限制：
 
@@ -583,7 +601,8 @@ Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
 ## 目录

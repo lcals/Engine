@@ -18,6 +18,7 @@ classDiagram
         #store(Resource& output, unique_ptr~ShaderDataT~ data) void$
         #store(Resource& output, unique_ptr~MaterialDataT~ data) void$
         #store(Resource& output, unique_ptr~TextureDataT~ data) void$
+        #store(Resource& output, unique_ptr~AudioClipDataT~ data) void$
         #store(Resource& output, ByteView data) void$
         #valid_path(string_view path) bool$
         #declares(const ResourceCatalog& catalog, const Resource& resource, string_view guid, AssetKind kind) bool$
@@ -52,9 +53,14 @@ classDiagram
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate(const TextureDataT& data) bool$
     }
+    class AudioResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const AudioClipDataT& data) bool$
+    }
     ResourceCodec <|-- SceneResourceCodec
     ResourceCodec <|-- MeshResourceCodec
     ResourceCodec <|-- TextureResourceCodec
+    ResourceCodec <|-- AudioResourceCodec
 ```
 
 ```mermaid
@@ -80,6 +86,7 @@ classDiagram
 
 - Scene 校验 FlatBuffers 场景、节点和组件结构及资源引用，跨实体校验接收已加载网格与材质。
 - Mesh 复用 MeshUtils 的拓扑与数据校验；Texture 校验像素、Basis 文件、尺寸、格式与 mip 元数据，不创建 GPU 对象。
+- Audio 只校验并保存 `AudioClipDataT`：版本为 1、采样率 8000–192000、1/2 声道、非零帧数、交错样本数精确匹配帧数与声道，所有样本有限且在 [-1,1]，PCM 大小不超过 64 MiB 减 128 KiB。失败不发布候选；不创建音频设备或决定播放行为。
 - Shader 校验参数、Uniform、Sampler 和默认贴图声明；Material 校验结构与声明引用，跨实体校验材质参数是否匹配 Shader。
 - Binary 原样保存脚本和通用 source 载荷，脚本执行或具体二进制解释由使用者负责。
 - 内置与项目数据使用同一类型校验。内置注册调用对应解码器的静态 validate；内置读取复制已注册定义，不执行 VFS I/O。

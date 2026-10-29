@@ -1,0 +1,13 @@
+namespace engine.schema;
+
+// Interleaved normalized float PCM. Runtime playback does not decode source files.
+table AudioClipData {
+    schema_version:uint = 1;
+    sample_rate:uint = 48000;
+    channels:ubyte = 2;
+    frames:ulong;
+    samples:[float] (required);
+}
+
+root_type AudioClipData;
+file_identifier "EAUD";

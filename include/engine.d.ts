@@ -122,4 +122,46 @@ declare module "engine" {
         GetMaterial(slot: number): Material | null;
         SetMaterialCount(count: number): boolean;
     }
+    export class Collider extends Component {
+        private constructor();
+        /** Local half-extents of a box. */
+        SetBox(x: number, y: number, z: number): boolean;
+        SetSphere(radius: number): boolean;
+        /** Half-height is measured along the cylinder part, excluding the hemispheres. */
+        SetCapsule(radius: number, halfHeight: number): boolean;
+        SetFriction(value: number): boolean;
+        SetRestitution(value: number): boolean;
+        SetTrigger(value: boolean): boolean;
+    }
+    export class RigidBody extends Component {
+        private constructor();
+        SetMotion(motion: "static" | "kinematic" | "dynamic"): boolean;
+        SetMass(value: number): boolean;
+        /** World-space linear velocity. */
+        SetVelocity(x: number, y: number, z: number): boolean;
+        GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
+        /** A world-space impulse consumed by the next physics synchronization. */
+        AddImpulse(x: number, y: number, z: number): boolean;
+    }
+    export class AudioSource extends Component {
+        private constructor();
+        /** Empty path clears the current clip; failure preserves the previous clip. */
+        SetClip(path: string): boolean;
+        SetVolume(value: number): boolean;
+        SetPitch(value: number): boolean;
+        SetLoop(value: boolean): boolean;
+        SetSpatial(value: boolean): boolean;
+        SetPlayOnAwake(value: boolean): boolean;
+        SetDistances(minimum: number, maximum: number): boolean;
+        /** True means the request was accepted, not that audio output has started. */
+        Play(): boolean;
+        Pause(): boolean;
+        Stop(): boolean;
+        readonly isPlaying: boolean;
+        readonly playback: "stopped" | "pending" | "playing" | "paused" | "failed" | null;
+    }
+    export class AudioListener extends Component {
+        private constructor();
+        SetVolume(value: number): boolean;
+    }
 }

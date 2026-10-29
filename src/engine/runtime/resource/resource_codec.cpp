@@ -39,6 +39,11 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::TextureDataT
     output.texture_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AudioClipDataT> data) noexcept
+{
+    output.audio_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, ByteView data)
 {
     output.bytes_.assign(data.begin(), data.end());

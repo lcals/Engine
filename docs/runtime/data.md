@@ -2,7 +2,7 @@
 
 引擎、编辑器与脚本使用 [FlatBuffers](https://flatbuffers.dev/) 定义和交换结构化资源数据。Schema 源文件统一位于 `include/schemas/runtime/`，构建时由宿主 flatc 生成 C++ 和 TypeScript；生成物不纳入版本管理。
 
-`scene.fbs` 定义场景节点及组件，`mesh.fbs`、`material.fbs`、`shader.fbs` 和 `asset_catalog.fbs` 分别定义网格、材质、Shader 与资源目录，`common.fbs` 提供共享数值类型。行为类使用生成数据，不另写一套持久化模型。场景中的资源引用使用 GUID，持久节点 ID 与运行实体 ID 分开。
+`scene.fbs` 定义场景节点及组件，`mesh.fbs`、`material.fbs`、`shader.fbs`、`audio.fbs` 和 `asset_catalog.fbs` 分别定义网格、材质、Shader、音频 PCM 与资源目录，`common.fbs` 提供共享数值类型。行为类使用生成数据，不另写一套持久化模型。场景中的资源引用使用 GUID，持久节点 ID 与运行实体 ID 分开。物理和音频组件只保存设置；Jolt/SDL 句柄、冲量请求和播放游标不序列化。
 
 编辑器将源资源转换为 `cache/gen/<完整GUID>` 二进制。运行时通过 `ResourceSystem` 的 SDL3 同步文件接口读取，校验数据结构、目录及引用后使用。资源目录只保存元数据；核心按需读取独立实体或包成员。ResourceGraphSystem 插件通过统一 ResourceLoader 接口组织必要依赖和共享缓存，实际使用者持有对象及其依赖闭包。内存映射读取尚未实现。
 

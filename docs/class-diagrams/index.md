@@ -35,6 +35,7 @@
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
 - [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
+- [音频导入器](../editor/class-diagrams/audio-importer.md)：按 meta 转换 WAV 为交错 PCM，生成 GUID 资源。
 - [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
 
 ## 场景与项目运行
@@ -44,6 +45,8 @@
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
 - [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
+- [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。
+- [音频组件](../runtime/class-diagrams/audio-components.md)：AudioSource、AudioListener、共享音频资源与播放状态。
 - [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
@@ -64,6 +67,7 @@
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
 - [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
+- [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 
 ## MCP 与编辑器命令
 
@@ -77,6 +81,8 @@
 - [项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)：ProjectMcpTools 显式配置项目与本机/Android 目标，按业务注册构建、同步、运行调试和启停工具。
 - [编辑器 MCP 工具](../plugins/editor/class-diagrams/editor-mcp-tools.md)：EditorMcpTools 注册场景查询、组件属性编辑、批量、撤销/重做及回执查询，通过文件通道交给编辑器执行。
 - [编辑器命令与撤销](../editor/class-diagrams/editor-commands.md)：EditorCommands 调度模块命令并拥有撤销历史，SceneCommands 借用世界并注册场景业务；EditorSystem 在主线程消费命令。
+- [按类型组件命令](../editor/class-diagrams/component-commands.md)：逐类型注册，ComponentEdit 管理添加、属性快照、回滚与撤销。
+- [物理与音频 MCP](../plugins/editor/class-diagrams/physics-audio-mcp-tools.md)：参数 schema、工具登记与主线程命令转发。
 
 MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与引擎核心不引用 MCP、JSON 协议或撤销框架；工具进程不持有编辑器进程中的场景指针。跨进程身份、完成回执与引用方向见[完整引用关系](references.md#编辑器命令与场景业务)。
 
@@ -121,7 +127,8 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
 | 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
 | 4    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi          |
-| 5    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
+| 5    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
+| 6    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
 
 ## 宿主模块
 
@@ -144,7 +151,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 - 方法采用 Mermaid 的“方法(参数) 返回类型”语法；静态方法用 `$`、纯虚方法用 `*`，C++ 限定符在图下注明。指针返回值的星号写为 `#42;`，避免被 Mermaid 误认成纯虚标记后省略。
 - 关系标签使用普通文本；带 `::` 的 C++ 类型写在成员声明或图外说明中，避免额外冒号触发解析错误。修改后检查 Mermaid 解析和渲染。
 - `library` 是第三方库，`external` 是第三方资源类型；标准库类型在方法签名中表达。拥有资源不等于拥有库本身。
-- 已选依赖必须实际编译和链接；最小接入检查不表示玩法、物理、动画、UI 或编辑器业务已实现。
+- 已选依赖必须实际编译和链接；依赖接入检查不代表对应模块全部能力已经实现，实际范围以各模块说明和验证记录为准。
 
 - [渲染编辑命令](../editor/class-diagrams/render-commands.md)：环境光、阴影、曝光与真实帧截图。
 - [渲染 MCP 适配](../plugins/editor/class-diagrams/render-mcp-tools.md)：效果控制、异步截图请求和状态。

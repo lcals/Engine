@@ -12,6 +12,8 @@ struct EngineConfig;
 class WindowSystem;
 class WorldSystem;
 class RenderSystem;
+class PhysicsSystem;
+class AudioSystem;
 class GameplaySession;
 class ResourceSystem;
 class ScriptRuntime;
@@ -48,6 +50,8 @@ private:
     std::unique_ptr<GameplaySession> gameplay_;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;
+    PhysicsSystem* physics_ = nullptr;
+    AudioSystem* audio_ = nullptr;
     bool owns_engine_ = false;
     bool initialized_ = false;
     bool exit_requested_ = false;

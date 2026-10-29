@@ -2,6 +2,8 @@
 
 [类图索引](../../class-diagrams/index.md) · [节点](node.md) · [材质](material.md)
 
+本页定义 Component 基类及变换、相机、灯光、网格组件；[物理组件](physics-components.md)与[音频组件](audio-components.md)独立维护，同样继承 Component 并由 Node 管理。
+
 ```mermaid
 classDiagram
     class Component {

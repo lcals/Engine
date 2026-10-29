@@ -3,6 +3,7 @@
 
 #if ENGINE_HAS_RUNTIME
 #include "runtime/animation/animation_system.hpp"
+#include "runtime/audio/audio_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -65,12 +66,14 @@ int main()
     engine::ResourceSystem resource;
     engine::WorldSystem world;
     engine::PhysicsSystem physics;
+    engine::AudioSystem audio;
     engine::NavigationSystem navigation;
     engine::AnimationSystem animation;
     engine::UiSystem ui;
     if (!check_lifecycle(resource, "ResourceSystem", config) ||
         !check_lifecycle(world, "WorldSystem", config) ||
         !check_lifecycle(physics, "PhysicsSystem", config) ||
+        !check_lifecycle(audio, "AudioSystem", config) ||
         !check_lifecycle(navigation, "NavigationSystem", config) ||
         !check_lifecycle(animation, "AnimationSystem", config) ||
         !check_lifecycle(ui, "UiSystem", config))

@@ -1,5 +1,6 @@
 #include "editor/commands/scene_commands.hpp"
 
+#include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -1477,7 +1478,11 @@ void SceneCommands::synchronize_aliases() noexcept
 
 bool SceneCommands::register_commands(EditorCommands& commands)
 {
-    return commands.register_command("get_scene", false,
+    return components::register_collider(world_, commands, node_aliases_) &&
+           components::register_rigid_body(world_, commands, node_aliases_) &&
+           components::register_audio_source(world_, commands, node_aliases_) &&
+           components::register_audio_listener(world_, commands, node_aliases_) &&
+           commands.register_command("get_scene", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)
                                      { return query_scene(world_, arguments, result, error); }) &&
