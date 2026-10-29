@@ -3,7 +3,7 @@ if(NOT DEFINED ENGINE_OUTPUT_DIR OR ENGINE_OUTPUT_DIR STREQUAL "")
     message(FATAL_ERROR "Missing isolated ENGINE_OUTPUT_DIR")
 endif()
 find_package(Git REQUIRED)
-include("${CMAKE_CURRENT_LIST_DIR}/../cmake/v8_cache.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/dependencies/v8_cache.cmake")
 
 # 仅使用独立小型假产物；此测试不运行 V8、GN、Ninja 或归档器。
 set(_engine_root "${ENGINE_OUTPUT_DIR}/fixture")
@@ -44,7 +44,7 @@ foreach(_root _variable IN ZIP_LISTS _roots _revision_variables)
 endforeach()
 
 set(_files
-    "${_engine_root}/third_party/v8.cmake"
+    "${_engine_root}/cmake/dependencies/v8.cmake"
     "${_source}/DEPS"
     "${_workspace}/.gclient"
     "${_workspace}/.gclient_entries"
@@ -83,7 +83,7 @@ if(NOT _matches)
     message(FATAL_ERROR "Identical inputs must match a completed cache stamp")
 endif()
 
-foreach(_input IN ITEMS "${_source}/DEPS" "${_engine_root}/third_party/v8.cmake"
+foreach(_input IN ITEMS "${_source}/DEPS" "${_engine_root}/cmake/dependencies/v8.cmake"
                         "${_source}/third_party/rust-toolchain/VERSION")
     write_fixture("${_input}" "changed-input\n")
     _engine_v8_cache_keys(_prepare_key _changed_key _ready)

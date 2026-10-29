@@ -475,7 +475,20 @@ bool material_contracts()
     {
         return false;
     }
-    return true;
+    definition.type_path = "project/materials/tests/invalid-parameter";
+    engine::schema::FloatValueT wrong_type;
+    wrong_type.value = 1.0;
+    definition.parameters.front()->value.Set(wrong_type);
+    engine::ResourcePtr invalid;
+    return expect(fixture.add(definition) && fixture.publish(*resources) &&
+                      fixture.load(definition.type_path, invalid) && invalid->material(),
+                  "core can read structurally valid material without loading its dependencies") &&
+           expect(!material.set_type(definition.type_path) &&
+                      material.type_path() == "builtin/materials/default-pbr" &&
+                      material.shader_path() == "builtin/shaders/pbr" &&
+                      material.get_float("roughness", scalar) && scalar == 0.4F,
+                  "material validates shader parameter types and preserves the previous instance "
+                  "without the dependency graph plugin");
 }
 
 bool resource_namespaces()
@@ -493,29 +506,41 @@ bool resource_namespaces()
     material.type_path = "project/materials/default-pbr";
     material.shader_path = shader.path;
     engine::ResourcePtr held;
+    engine::ResourcePtr held_shader;
     if (!expect(fixture.add(shader) && fixture.add(material) && fixture.publish(*resources) &&
                     fixture.load(material.type_path, held),
                 "project namespace uses the same relative names as builtins") ||
         !expect(held->material()->shader_path == shader.path &&
-                    engine::ResourceSystem::find_shader(shader.path) != nullptr &&
-                    engine::ResourceSystem::find_shader(shader.path) != builtin,
-                "loaded material keeps its distinct project shader alive"))
+                    engine::ResourceSystem::find_shader(shader.path) == nullptr &&
+                    fixture.load(shader.path, held_shader) && held_shader->shader() &&
+                    held_shader->shader()->path == shader.path && held_shader->shader() != builtin,
+                "core loads explicit material and shader entities without a dependency cache"))
     {
         return false;
     }
+    const auto generation = held->generation();
     auto empty = fixture.catalog;
     empty.entries.clear();
     empty.revision = "empty";
-    if (!expect(!resources->update_catalog(empty, {}),
-                "cannot remove a directory entry that is still held"))
+    engine::ResourcePtr missing = held;
+    if (!expect(resources->update_catalog(empty, {}) && resources->generation() > generation &&
+                    held->generation() == generation &&
+                    held->material()->shader_path == shader.path &&
+                    held_shader->shader()->path == shader.path,
+                "directory publication preserves held entities from the previous generation") ||
+        !expect(!resources->load(held->info().guid, missing) && !missing,
+                "new loads use the current directory without falling back to a held old entity"))
     {
         return false;
     }
+    const std::weak_ptr<const engine::Resource> material_weak = held;
+    const std::weak_ptr<const engine::Resource> shader_weak = held_shader;
     held.reset();
-    return expect(engine::ResourceSystem::find_material(material.type_path) == nullptr &&
+    held_shader.reset();
+    return expect(material_weak.expired() && shader_weak.expired() &&
+                      engine::ResourceSystem::find_material(material.type_path) == nullptr &&
                       engine::ResourceSystem::find_shader(shader.path) == nullptr,
-                  "last material owner releases its shader dependency") &&
-           expect(resources->update_catalog(empty, {}), "released entries can be removed") &&
+                  "each core entity is released with its final explicit owner") &&
            expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
                   "project removal preserves builtin identity");
 }

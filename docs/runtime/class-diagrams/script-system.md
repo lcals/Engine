@@ -34,13 +34,15 @@ classDiagram
     class ResourceMount
     class Resource
     class ResourceSystem
+    class ResourceLoader
     System <|-- ScriptSystem
     WorldSystem *-- ScriptSystem : 可选子系统
     ScriptSystem --> WorldSystem : 可空借用世界
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入
-    ScriptSystem ..> ResourceSystem : 读取或取得脚本
+    ScriptSystem ..> ResourceSystem : 静态读取候选与目录查询
+    ScriptSystem ..> ResourceLoader : 获取活动脚本资源
     ScriptSystem o-- Resource : 活动脚本共享引用
 ```
 

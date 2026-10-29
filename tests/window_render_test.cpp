@@ -1,5 +1,9 @@
 #include "resource_fixture.hpp"
 
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#endif
+
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
@@ -550,9 +554,12 @@ bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
     return matched;
 }
 
-bool test_textured_renderer(const engine::EngineConfig& config)
+bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
     engine::ResourceSystem resources;
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    engine::ResourceGraphSystem graph(resources);
+#endif
     engine::WorldSystem world;
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, &world);
@@ -569,6 +576,16 @@ bool test_textured_renderer(const engine::EngineConfig& config)
     {
         return false;
     }
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    if (shared)
+    {
+        if (!expect(graph.initialize(config), "initialize shared texture loader"))
+        {
+            return false;
+        }
+        resources.set_loader(&graph);
+    }
+#endif
     const auto idle = gpu_counts();
     const auto idle_draws = bgfx::getStats()->numDraw;
     auto* scene = world.create_scene("Texture GPU test");
@@ -641,7 +658,8 @@ bool test_textured_renderer(const engine::EngineConfig& config)
         return false;
     }
 
-    auto* second_node = scene->create_node("Shared texture quad");
+    const auto texture_increment = shared ? 0 : mesh->material().shader_data()->samplers.size();
+    auto* second_node = scene->create_node("Second texture quad");
     auto* second = second_node ? second_node->add_component<engine::MeshRenderer>() : nullptr;
     engine::TransformSettings second_transform;
     second_transform.position = {2, 0, -0.1};
@@ -650,12 +668,12 @@ bool test_textured_renderer(const engine::EngineConfig& config)
                 second_node->get_component<engine::Transform>()->set_settings(second_transform) &&
                 second->material().set_type("builtin/materials/default-unlit") &&
                 second->material().set_texture("baseColorTexture", "project/textures/gray-linear"),
-            "add another mesh sharing the same texture") ||
+            "add another mesh referencing the same texture path") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == idle_draws + 2 &&
-                    gpu_counts().textures == single_mesh.textures &&
+                    gpu_counts().textures == single_mesh.textures + texture_increment &&
                     gpu_counts().vertices == single_mesh.vertices + 1,
-                "multiple meshes share uploaded textures without sharing geometry ownership"))
+                "GPU uploads follow entity ownership: distinct in core, shared through graph"))
     {
         return false;
     }
@@ -669,8 +687,8 @@ bool test_textured_renderer(const engine::EngineConfig& config)
                 "assign independent material slots to two submeshes") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == idle_draws + 3 &&
-                    gpu_counts().textures == single_mesh.textures,
-                "submesh ranges add draws while retaining shared textures"))
+                    gpu_counts().textures == single_mesh.textures + 2 * texture_increment,
+                "submesh material textures obey the selected resource loading policy"))
     {
         return false;
     }
@@ -936,13 +954,20 @@ bool test_engine(const engine::EngineConfig& config)
     test_support::ResourceFixture fixture;
     auto* resources = engine::ResourceSystem::instance();
     engine::ResourcePtr held;
-    if (!expect(resources && fixture.add(project_shader) && fixture.add(project_material) &&
-                    fixture.publish(*resources) && fixture.load(project_material.type_path, held),
-                "load project material and shader through the resource core"))
+    engine::ResourcePtr separate;
+    if (!expect(resources && &resources->loader() == resources && fixture.add(project_shader) &&
+                    fixture.add(project_material) && fixture.publish(*resources) &&
+                    fixture.load(project_material.type_path, held),
+                "default host installs only the single-entity resource core") ||
+        !expect(fixture.load(project_material.type_path, separate) && separate != held &&
+                    held->material()->shader_path == project_shader.path &&
+                    engine::ResourceSystem::find_shader(project_shader.path) == nullptr,
+                "default host does not silently install recursive loading or shared caches"))
     {
         return false;
     }
     held.reset();
+    separate.reset();
     engine.gameplay()->stop();
     engine.gameplay()->stop();
     if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
@@ -968,6 +993,83 @@ bool test_engine(const engine::EngineConfig& config)
            tick_engine_frames(engine, 8);
 }
 
+class ObservedResourceLoader final : public engine::ResourceLoader
+{
+public:
+    explicit ObservedResourceLoader(engine::ResourceSystem& resources) noexcept
+        : resources_(resources)
+    {
+    }
+
+    [[nodiscard]] bool load(std::string_view guid, engine::ResourcePtr& output) override
+    {
+        ++loads_;
+        return resources_.load(guid, output);
+    }
+
+    [[nodiscard]] engine::ResourcePtr find(std::string_view guid) const noexcept override
+    {
+        return resources_.find(guid);
+    }
+
+    [[nodiscard]] const std::string& last_error() const noexcept override
+    {
+        return resources_.last_error();
+    }
+
+    [[nodiscard]] std::size_t loads() const noexcept
+    {
+        return loads_;
+    }
+
+private:
+    engine::ResourceSystem& resources_;
+    std::size_t loads_ = 0;
+};
+
+bool test_borrowed_resource_host(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    ObservedResourceLoader loader(resources);
+    engine::RuntimeHost host;
+    if (!expect(!host.initialize(config, &resources) &&
+                    engine::Engine::instance().system_count() == 0 &&
+                    engine::ResourceSystem::instance() == nullptr,
+                "uninitialized borrowed resources fail before claiming the engine") ||
+        !expect(resources.initialize(config), "initialize caller-owned resource core"))
+    {
+        return false;
+    }
+    resources.set_loader(&loader);
+    auto invalid_config = config;
+    invalid_config.width = 0;
+    if (!expect(!host.initialize(invalid_config, &resources) && resources.is_initialized() &&
+                    engine::ResourceSystem::instance() == &resources &&
+                    &resources.loader() == &loader,
+                "partial host initialization never closes borrowed resource services") ||
+        !expect(host.initialize(config, &resources) && &resources.loader() == &loader,
+                "runtime host preserves the caller's selected loader") ||
+        !expect(host.world() && create_cube_scene(*host.world(), false),
+                "scene components use the injected loader") ||
+        !tick_engine_frames(host, 8) ||
+        !expect(loader.loads() > 0, "material and mesh reads reached the selected loader"))
+    {
+        host.shutdown();
+        resources.set_loader(nullptr);
+        return false;
+    }
+    host.shutdown();
+    host.shutdown();
+    const bool preserved =
+        expect(resources.is_initialized() && engine::ResourceSystem::instance() == &resources &&
+                   &resources.loader() == &loader && engine::Engine::instance().system_count() == 0,
+               "host shutdown releases consumers but never closes caller-owned resources");
+    resources.set_loader(nullptr);
+    resources.shutdown();
+    return preserved && expect(engine::ResourceSystem::instance() == nullptr,
+                               "caller closes resources after the runtime host");
+}
+
 } // namespace
 
 int main(int, char**)
@@ -979,10 +1081,15 @@ int main(int, char**)
 
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
-    const bool textures_passed = scene_passed && test_textured_renderer(config);
+    bool textures_passed = scene_passed && test_textured_renderer(config, false);
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    textures_passed = textures_passed && test_textured_renderer(config, true);
+#endif
     const bool settings_passed = textures_passed && test_render_settings_and_capture(config);
     const bool engine_passed = settings_passed && test_engine(config);
-    if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !engine_passed)
+    const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
+    if (!windows_passed || !scene_passed || !textures_passed || !settings_passed ||
+        !engine_passed || !borrowed_passed)
     {
         return 1;
     }

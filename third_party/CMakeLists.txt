@@ -3,19 +3,19 @@ find_package(fmt CONFIG REQUIRED GLOBAL)
 find_package(nlohmann_json CONFIG REQUIRED GLOBAL)
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
-    include(runtime.cmake)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/runtime.cmake")
 endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS)
-    include(editor.cmake)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/editor.cmake")
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-    include(asset_pipeline.cmake)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/asset_pipeline.cmake")
 endif()
 
-if(ENGINE_ENABLE_EDITOR_DEPS OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-    include(modeling.cmake)
+if("editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/modeling.cmake")
 endif()
 
-include(v8.cmake)
+include("${PROJECT_SOURCE_DIR}/cmake/dependencies/v8.cmake")

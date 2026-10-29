@@ -2,7 +2,7 @@
 
 [资源管线类图](class-diagrams/asset-pipeline-system.md) · [项目与出包](project.md) · [跨模块数据](../runtime/data.md)
 
-导入收集完整 `assets/` 信息并生成增量缓存；[资源构建系统](resource-build.md)根据打包清单选择运行子集。构建依赖与运行依赖分开维护，编辑器直接把成功导入的目录提交给核心，无需先打包才能运行项目。
+导入收集完整 `assets/` 信息并生成增量缓存；[资源构建系统](../plugins/editor/resource-build.md)根据打包清单选择运行子集。构建依赖与运行依赖分开维护，编辑器直接把成功导入的目录提交给核心，无需先打包才能运行项目。
 
 ## 源资源与身份
 

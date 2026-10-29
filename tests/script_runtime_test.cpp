@@ -205,8 +205,12 @@ bool run_cases(const fs::path& workspace)
                     log_contains("first:update:2") && !log_contains("first:stop"),
                 "candidate precheck neither stops old gameplay nor changes core directory") ||
         !expect(
-            !engine::ResourceSystem::instance()->update_catalog(next.catalog.data(), next.mounts),
-            "running scripts retain their resources and reject conflicting updates"))
+            engine::ResourceSystem::instance()->update_catalog(next.catalog.data(), next.mounts) &&
+                engine::ResourceSystem::instance()->catalog().data().revision == "second" &&
+                script.status().active_revision == "first" && script.tick(.01) &&
+                log_contains("first:update:3") && !log_contains("first:stop") &&
+                !log_contains("second:start"),
+            "publishing a new directory keeps the old scripts running until explicit reload"))
     {
         return false;
     }

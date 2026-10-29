@@ -41,8 +41,6 @@
     "editor": {
       "description": "Desktop editor UI dependencies",
       "dependencies": [
-        "earcut-hpp",
-        "manifold",
         "tomlplusplus",
         {
           "name": "imgui",
@@ -56,8 +54,6 @@
     "asset-pipeline": {
       "description": "Editor and offline asset processing dependencies",
       "dependencies": [
-        "earcut-hpp",
-        "manifold",
         "basisu",
         {
           "name": "bgfx",
@@ -74,6 +70,13 @@
         "taskflow",
         "tomlplusplus",
         "usd"
+      ]
+    },
+    "modeling": {
+      "description": "Editor modeling plugin polygon and solid geometry dependencies",
+      "dependencies": [
+        "earcut-hpp",
+        "manifold"
       ]
     }
   },

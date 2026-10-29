@@ -8,6 +8,7 @@
 #include <limits>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace engine
 {
@@ -108,7 +109,7 @@ bool load_textures(const Resource& shader, const schema::MaterialDataT* material
         }
         Guid guid;
         ResourcePtr texture;
-        if (!ResourceSystem::path_to_guid(path, guid) || !resources->load(guid, texture) ||
+        if (!ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, texture) ||
             !texture->texture())
         {
             return false;
@@ -139,6 +140,11 @@ std::string_view Material::shader_path() const noexcept
     return data_.shader_path;
 }
 
+const schema::ShaderDataT* Material::shader_data() const noexcept
+{
+    return shader_resource_ ? shader_resource_->shader() : nullptr;
+}
+
 bool Material::set_type(std::string_view path)
 {
     if (data_.type_path == path && material_resource_ && shader_resource_)
@@ -149,14 +155,14 @@ bool Material::set_type(std::string_view path)
     Guid guid;
     ResourcePtr material;
     if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->load(guid, material) || material->material() == nullptr)
+        !resources->loader().load(guid, material) || material->material() == nullptr)
     {
         return false;
     }
     const auto* definition = material->material();
     ResourcePtr shader;
     if (!ResourceSystem::path_to_guid(definition->shader_path, guid) ||
-        !resources->load(guid, shader) || shader->shader() == nullptr)
+        !resources->loader().load(guid, shader) || shader->shader() == nullptr)
     {
         return false;
     }
@@ -174,6 +180,28 @@ bool Material::set_type(std::string_view path)
     }
     std::map<std::string, ResourcePtr, std::less<>> textures;
     if (!load_textures(*shader, definition, replacement, textures))
+    {
+        return false;
+    }
+    std::vector<ResourcePtr> dependencies;
+    dependencies.reserve(material->info().dependencies.size());
+    for (const auto& dependency : material->info().dependencies)
+    {
+        if (dependency == shader->info().guid)
+        {
+            dependencies.push_back(shader);
+            continue;
+        }
+        const auto texture =
+            std::find_if(textures.begin(), textures.end(), [&dependency](const auto& entry)
+                         { return entry.second->info().guid == dependency; });
+        if (texture == textures.end())
+        {
+            return false;
+        }
+        dependencies.push_back(texture->second);
+    }
+    if (!resources->validate_dependencies(*material, dependencies))
     {
         return false;
     }
@@ -198,7 +226,7 @@ bool Material::set_shader(std::string_view path)
     Guid guid;
     ResourcePtr shader;
     if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->load(guid, shader) || shader->shader() == nullptr)
+        !resources->loader().load(guid, shader) || shader->shader() == nullptr)
     {
         return false;
     }
@@ -221,7 +249,7 @@ bool Material::set_texture(std::string_view name, std::string_view path)
     Guid guid;
     ResourcePtr replacement;
     if (!sampler || !sampler->exposed || !resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->load(guid, replacement) || !replacement->texture())
+        !resources->loader().load(guid, replacement) || !replacement->texture())
     {
         return false;
     }

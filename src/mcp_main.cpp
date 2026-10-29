@@ -1,13 +1,16 @@
-#include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "editor/asset_sync/asset_sync_system.hpp"
-#include "plugins/mcp/editor_mcp_tools.hpp"
-#include "plugins/mcp/mcp_system.hpp"
-#include "plugins/mcp/project_mcp_tools.hpp"
-#include "plugins/mcp/render_mcp_tools.hpp"
-#include "plugins/modeling/modeling_mcp_tools.hpp"
+#include "plugins/editor/asset_build/asset_build_system.hpp"
+#include "plugins/editor/asset_sync/asset_sync_system.hpp"
+#include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/editor/mcp/project_mcp_tools.hpp"
+#include "plugins/editor/mcp/render_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
+
+#if ENGINE_HAS_MODELING_PLUGIN
+#include "plugins/editor/modeling/modeling_mcp_tools.hpp"
+#endif
 
 #include <SDL3/SDL_main.h>
 
@@ -80,13 +83,17 @@ int main(int argc, char** argv)
     engine::AssetSyncSystem sync;
     engine::ProjectMcpTools project_tools(pipeline, builder, sync, project, target);
     engine::EditorMcpTools editor_tools(project, target);
+#if ENGINE_HAS_MODELING_PLUGIN
     engine::ModelingMcpTools modeling_tools(editor_tools);
+#endif
     engine::RenderMcpTools render_tools(editor_tools);
     engine::McpSystem mcp;
     if (!pipeline.initialize(config) || !builder.initialize(config) || !sync.initialize(config) ||
         !project_tools.initialize() || !project_tools.register_tools(mcp) ||
-        !editor_tools.register_tools(mcp) ||
-        (!android && (!modeling_tools.register_tools(mcp) || !render_tools.register_tools(mcp))) ||
+        !editor_tools.register_tools(mcp) || (!android && !render_tools.register_tools(mcp)) ||
+#if ENGINE_HAS_MODELING_PLUGIN
+        (!android && !modeling_tools.register_tools(mcp)) ||
+#endif
         !mcp.initialize(config))
     {
         std::fputs("Cannot initialize MCP tool host\n", stderr);

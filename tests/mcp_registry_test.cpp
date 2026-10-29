@@ -1,4 +1,4 @@
-#include "plugins/mcp/mcp_system.hpp"
+#include "plugins/editor/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 
 #include <nlohmann/json.hpp>

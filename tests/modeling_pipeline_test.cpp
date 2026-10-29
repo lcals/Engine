@@ -1,6 +1,6 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "plugins/modeling/editable_mesh.hpp"
-#include "plugins/modeling/mesh_primitives.hpp"
+#include "plugins/editor/modeling/editable_mesh.hpp"
+#include "plugins/editor/modeling/mesh_primitives.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 

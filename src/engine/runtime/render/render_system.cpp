@@ -1,6 +1,6 @@
 #include "runtime/render/render_system.hpp"
 
-#include "runtime/resource/resource_system.hpp"
+#include "runtime/resource/resource.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -1385,7 +1385,7 @@ bool RenderSystem::prepare_scene()
                 return false;
             }
             const std::string path(material->shader_path());
-            const auto* shader = ResourceSystem::find_shader(path);
+            const auto* shader = material->shader_data();
             if (shader == nullptr)
             {
                 SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Unknown shader resource: %s", path.c_str());

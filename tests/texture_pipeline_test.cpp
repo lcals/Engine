@@ -378,11 +378,23 @@ bool tests()
         if (!expect(resources.update_catalog(pipeline.catalog(),
                                              {{"content", fixture.root / "cache"}}) &&
                         resources.load(scene_guid, loaded) && loaded->scene(),
-                    "loading top-level scene resolves texture through material dependency tree"))
+                    "resource core reads the imported scene entity"))
         {
             return false;
         }
-        const auto* imported_mesh = ResourceSystem::find_mesh("project/quad.mesh");
+        ResourcePtr mesh_resource;
+        ResourcePtr material_resource;
+        ResourcePtr texture_resource;
+        if (!expect(ResourceSystem::find_mesh("project/quad.mesh") == nullptr &&
+                        resources.load(mesh_guid, mesh_resource) &&
+                        resources.load(material_guid, material_resource) &&
+                        resources.load(guid, texture_resource) && material_resource->material() &&
+                        texture_resource->texture(),
+                    "pipeline outputs load independently without a recursive cache plugin"))
+        {
+            return false;
+        }
+        const auto* imported_mesh = mesh_resource->mesh();
         if (!expect(imported_mesh && imported_mesh->texcoords.size() == 4 &&
                         imported_mesh->submeshes.size() == 2,
                     "runtime receives UVs, colors, tangents and material submeshes"))

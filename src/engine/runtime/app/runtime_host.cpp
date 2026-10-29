@@ -31,9 +31,11 @@ RuntimeHost::~RuntimeHost() noexcept
     shutdown();
 }
 
-bool RuntimeHost::initialize(const EngineConfig& config)
+bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources)
 {
-    if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0)
+    if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
+        (resources != nullptr &&
+         (!resources->is_initialized() || ResourceSystem::instance() != resources)))
     {
         return false;
     }
@@ -44,11 +46,14 @@ bool RuntimeHost::initialize(const EngineConfig& config)
         shutdown();
         return false;
     }
-    std::unique_ptr<System> resources = std::make_unique<ResourceSystem>();
-    if (!engine_.add_system(resources))
+    if (resources == nullptr)
     {
-        shutdown();
-        return false;
+        std::unique_ptr<System> owned_resources = std::make_unique<ResourceSystem>();
+        if (!engine_.add_system(owned_resources))
+        {
+            shutdown();
+            return false;
+        }
     }
 
     auto world = std::make_unique<WorldSystem>();

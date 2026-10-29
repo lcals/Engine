@@ -2,7 +2,7 @@
 
 架构评审从[类图索引](class-diagrams/index.md)进入：总图只定义 `Engine` 与 `System`，各领域类独立维护职责、所有权、依赖和公开方法。类图与代码同步，使用说明及验证范围统一见根 [README](../README.md)。
 
-[资源系统](runtime/resource-loading.md)提供通用目录更新和同步加载，编辑器通过调用核心实现扫描、增量导入与构建业务，真机启动使用固定精简清单。资源与必要依赖由实际使用者共享，目录不持有全部实体数据。
+[资源核心](runtime/resource-loading.md)提供目录、GUID/VFS 与单项加载底层；运行时资源依赖图插件实现依赖树加载、共享缓存和反向卸载。编辑器通过基础管线与构建/同步插件组织导入和发布，真机启动使用固定精简清单。目录不持有全部实体数据。
 
 ## 调用方驱动核心
 
@@ -15,7 +15,7 @@
 | 运行宿主 | 平台入口、帧推进、部署来源和启动顺序         | 装配系统，调用核心初始化、更新与关闭           |
 | 核心     | 每项能力内部的正确执行、状态与生命周期约束   | 提供最小接口，返回成功、失败或必要状态         |
 
-资源加载时自动处理必要依赖属于加载能力本身；是否加载哪个场景、是否启用热重载、何时应用新目录属于调用方决策。窗口、世界、渲染、脚本等模块同样遵循这一划分，不把上层流程塞进 Engine 或任何核心系统。
+资源加载时自动处理必要依赖由运行时资源依赖图插件实现；是否加载哪个场景、是否启用热重载、何时应用新目录属于调用方决策。窗口、世界、渲染、脚本等模块同样遵循这一划分，不把上层流程塞进 Engine 或任何核心系统。
 
 “编辑器多次更新目录，真机启动提交一次”只是调用频率的例子，不是核心里的两种模式。编辑器与运行时不需要两套资源机制，也不为调用方另建通用 Driver 类。具体所有权和公开接口以独立类图为准。
 
@@ -24,12 +24,19 @@
 公开头文件和实现分别位于 `include/engine/`、`src/engine/`，采用相同分层：
 
 - `runtime/`：系统框架、运行时宿主、玩法会话、平台路径、窗口、日志、资源、世界和渲染；公共工具位于 `runtime/utils/`。
-- `editor/`：编辑器环境与控制、项目约束、任务调度、资源导入和同步。
-- `plugins/`：MCP 协议与自行注册的业务工具，调用资源管线、同步能力及编辑器命令通道。
+- `editor/`：编辑器环境、项目约束、通用命令、任务调度和资源导入基础。
+- `plugins/runtime/`：可独立选择的资源依赖图实现。
+- `plugins/editor/`：完整建模、MCP 协议及业务适配、资源构建和资源同步插件。
 
-编辑器和插件可以使用运行时，运行时不依赖编辑器、插件、离线导入器或具体项目。平台专用实现、入口与打包资源集中于 `platforms/<platform>/`。自有头文件从 `runtime/`、`editor/` 或 `plugins/` 开始包含；CMake 目标传递搜索根，不使用相对目录回跳。
+运行时插件调用核心接口，编辑器插件可以组合运行时插件及编辑器基础。核心通过自己定义的接口接收宿主注入的实现，不引用具体插件；运行时插件不得反向依赖编辑器或具体项目。平台专用实现、入口与打包资源集中于 `platforms/<platform>/`。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始包含；CMake 目标传递搜索根，不使用相对目录回跳。
 
-模块说明位于 `docs/<scope>/`，独立类图位于 `docs/<scope>/class-diagrams/`；跨层入口和[完整引用关系](class-diagrams/references.md)位于 `docs/class-diagrams/`。TypeScript 公共声明统一维护在 `include/engine.d.ts`，只暴露已实现绑定。
+模块说明位于 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/` 和 `docs/plugins/editor/`，独立类图位于各范围的 `class-diagrams/`；跨层入口和[完整引用关系](class-diagrams/references.md)位于 `docs/class-diagrams/`。TypeScript 公共声明统一维护在 `include/engine.d.ts`，只暴露已实现绑定。
+
+## 构建边界
+
+CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录。每个插件在 `cmake/plugins/<scope>/<name>.cmake` 自声明，登记器按 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择并解析依赖闭包；未选插件不创建目标，宿主只装配启用实现。目录归属、依赖方向和目标选择共同约束边界，不把移动文件名当作完成插件化。
+
+资源加载契约由核心 `ResourceLoader` 定义；`ResourceSystem` 提供单项实现并借用宿主设置的加载器，`ResourceGraphSystem` 插件以相同契约提供依赖树与共享缓存。宿主先初始化核心，再启用插件，关闭时先停止使用者、解除接口借用，再释放插件和核心。方法和完整所有权见独立类图。
 
 ## 框架与领域职责
 
@@ -37,7 +44,7 @@
 
 运行时启动不要求项目目录。编辑器通过独立 `ProjectSystem` 校验项目，再由 `EditorEnvironment` 准备路径及资源；运行时消费部署后的 catalog 与 GUID 二进制。Android 宿主读取包内或持久版本，不依赖编辑器项目结构。
 
-场景对象统一为 Node 与 Component，Node 只管理身份、层级和组件集合。场景、组件及资源数据由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite、转换和发布；运行时读取目录元数据，按需加载实体及其必要依赖。
+场景对象统一为 Node 与 Component，Node 只管理身份、层级和组件集合。场景、组件及资源数据由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite 与转换；构建和同步插件组织发布。资源核心读取单项并解析，依赖图插件加载必要依赖并维持共享使用关系。
 
 MCP 协议层只登记、校验并调用工具。项目工具和场景工具各自注册；场景操作通过命令通道交给编辑器主线程，编辑器命令模块组织批量执行、回滚与撤销，场景模块调用普通组件接口。组件和 Engine 不知道 MCP、命令历史或编辑器项目。新业务模块分别登记需要暴露的工具和执行函数，所有权与线程边界保持显式。
 
@@ -50,7 +57,7 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [跨模块数据](runtime/data.md)：FlatBuffers 模型、GUID 引用与快照。
 - [渲染](runtime/rendering.md)：bgfx、平台后端、材质、PBR 与 GPU 资源生命周期。
 - [资源管线](editor/asset-pipeline.md)：meta、Taskflow、SQLite、增量转换和完整版本发布。
-- [资源构建](editor/resource-build.md)：项目清单、依赖闭包、散文件和合并包。
+- [资源构建](plugins/editor/resource-build.md)：项目清单、依赖闭包、散文件和合并包。
 - [物理](runtime/physics.md)、[导航](runtime/navigation.md)、[动画](runtime/animation.md)、[运行时 UI](runtime/ui.md)：各系统的依赖接入与能力范围。
 - [脚本与插件](plugins/plugins.md)：V8 绑定、Gameplay、热重载和 MCP。
 - [编辑器](editor/editor.md)、[编辑器配置](editor/configuration.md)：环境、项目控制和工具设置。

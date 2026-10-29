@@ -10,6 +10,11 @@
 namespace engine
 {
 
+namespace schema
+{
+struct ShaderDataT;
+}
+
 class MeshRenderer;
 class Resource;
 
@@ -23,6 +28,8 @@ public:
 
     [[nodiscard]] std::string_view type_path() const noexcept;
     [[nodiscard]] std::string_view shader_path() const noexcept;
+    // 借用材质当前持有的 Shader 定义；切换 Shader 或销毁材质后失效。
+    [[nodiscard]] const schema::ShaderDataT* shader_data() const noexcept;
     // 材质资源路径；换型重新合并 Shader 默认值与材质覆盖值，同型保持当前值。
     [[nodiscard]] bool set_type(std::string_view path);
     // Shader 资源路径；切换后采用新 Shader 默认值，同路径保留已有参数。

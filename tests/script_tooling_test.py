@@ -183,7 +183,7 @@ def contents(reply):
     return json.loads(reply["result"]["content"][0]["text"])
 
 
-def test(mcp, root, temporary):
+def test(mcp, root, temporary, without_modeling=False):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
     runtime = temporary / "runtime"
@@ -223,47 +223,55 @@ def test(mcp, root, temporary):
         ],
     )
     require(len(replies) == 8, "notifications must not produce responses")
+    expected_tools = {
+        "sync_assets",
+        "build_resources",
+        "set_hot_reload",
+        "get_status",
+        "start_project",
+        "stop_project",
+        "get_scene",
+        "set_transform",
+        "set_light",
+        "set_camera",
+        "set_material_texture",
+        "set_material_parameter",
+        "execute_batch",
+        "undo",
+        "redo",
+        "get_editor_receipt",
+        "create_node",
+        "set_active_camera",
+        "set_material_type",
+        "save_scene",
+        "get_render_settings",
+        "set_render_settings",
+        "capture_frame",
+        "get_frame_capture",
+        "modeling_help",
+        "modeling_create",
+        "modeling_get",
+        "modeling_select",
+        "modeling_edit",
+        "modeling_delete",
+        "modeling_duplicate",
+        "modeling_combine",
+        "modeling_separate",
+        "modeling_save",
+        "modeling_load",
+    }
+    if without_modeling:
+        expected_tools = {name for name in expected_tools if not name.startswith("modeling_")}
     require(
-        {tool["name"] for tool in replies[0]["result"]["tools"]}
-        == {
-            "sync_assets",
-            "build_resources",
-            "set_hot_reload",
-            "get_status",
-            "start_project",
-            "stop_project",
-            "get_scene",
-            "set_transform",
-            "set_light",
-            "set_camera",
-            "set_material_texture",
-            "set_material_parameter",
-            "execute_batch",
-            "undo",
-            "redo",
-            "get_editor_receipt",
-            "create_node",
-            "set_active_camera",
-            "set_material_type",
-            "save_scene",
-            "get_render_settings",
-            "set_render_settings",
-            "capture_frame",
-            "get_frame_capture",
-            "modeling_help",
-            "modeling_create",
-            "modeling_get",
-            "modeling_select",
-            "modeling_edit",
-            "modeling_delete",
-            "modeling_duplicate",
-            "modeling_combine",
-            "modeling_separate",
-            "modeling_save",
-            "modeling_load",
-        },
+        {tool["name"] for tool in replies[0]["result"]["tools"]} == expected_tools,
         "wrong tool list",
     )
+    if without_modeling:
+        unavailable = invoke(mcp, project, runtime, [call("modeling_help")])[0]
+        require(
+            unavailable.get("error", {}).get("message") == "Unknown tool",
+            "disabled modeling plugin still exposes an executable tool",
+        )
     require(contents(replies[1])["state"] == "offline", "missing runtime must be offline")
     require(contents(replies[2])["requestedHotReload"] is False, "disable control failed")
     require(not replies[3]["result"]["isError"], f"sync failed: {contents(replies[3])}")
@@ -484,7 +492,17 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mcp", required=True, type=Path)
     parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument(
+        "--without-modeling",
+        action="store_true",
+        help="Validate the editor MCP host with the modeling plugin disabled",
+    )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="engine-script-tooling-") as directory:
-        test(arguments.mcp.resolve(), arguments.root.resolve(), Path(directory).resolve())
+        test(
+            arguments.mcp.resolve(),
+            arguments.root.resolve(),
+            Path(directory).resolve(),
+            without_modeling=arguments.without_modeling,
+        )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

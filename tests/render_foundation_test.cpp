@@ -1,5 +1,9 @@
 #include "resource_fixture.hpp"
 
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#endif
+
 #include "runtime/engine_config.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
@@ -180,7 +184,7 @@ bool check_mesh(engine::Scene& scene)
                   "removing an unused material slot invalidates its lookup");
 }
 
-bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene)
+bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, bool shared)
 {
     test_support::ResourceFixture fixture;
     engine::schema::TextureDataT texture;
@@ -208,10 +212,13 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene)
     }
     const auto& first_texture = first->material().texture("baseColorTexture");
     const auto& second_texture = second->material().texture("baseColorTexture");
-    std::weak_ptr<const engine::Resource> held = first_texture;
+    std::weak_ptr<const engine::Resource> first_held = first_texture;
+    std::weak_ptr<const engine::Resource> second_held = second_texture;
     std::string_view path;
-    if (!expect(first_texture && first_texture == second_texture && first_texture->texture(),
-                "materials share one loaded texture resource") ||
+    if (!expect(first_texture && second_texture && first_texture->texture() &&
+                    second_texture->texture() && (first_texture == second_texture) == shared &&
+                    *first_texture->texture() == *second_texture->texture(),
+                "core loads distinct texture entities; injected graph shares matching entities") ||
         !expect(first->material().get_texture("baseColorTexture", path) && path == texture.path,
                 "query returns the resolved texture path") ||
         !expect(!first->material().set_texture("missingSampler", texture.path) &&
@@ -224,10 +231,11 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene)
     }
     const auto first_id = first_node->id();
     const auto second_id = second_node->id();
-    return expect(scene.destroy_node(first_id) && !held.expired(),
-                  "texture stays alive while another material owns it") &&
-           expect(scene.destroy_node(second_id) && held.expired(),
-                  "last material owner releases the texture resource");
+    return expect(scene.destroy_node(first_id) && first_held.expired() != shared &&
+                      !second_held.expired(),
+                  "destroying a material releases only resources without remaining owners") &&
+           expect(scene.destroy_node(second_id) && first_held.expired() && second_held.expired(),
+                  "last material owner releases every loaded texture entity");
 }
 
 } // namespace
@@ -236,6 +244,9 @@ int main()
 {
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    engine::ResourceGraphSystem graph(resources);
+#endif
     engine::WorldSystem world;
     if (!expect(resources.initialize(config) && world.initialize(config),
                 "initialize resource and world systems"))
@@ -244,10 +255,22 @@ int main()
     }
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_camera_and_light(*scene) ||
-        !check_mesh(*scene) || !check_textures(resources, *scene))
+        !check_mesh(*scene) || !check_textures(resources, *scene, false))
     {
         return 1;
     }
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    if (!expect(graph.initialize(config), "initialize optional dependency graph"))
+    {
+        return 1;
+    }
+    resources.set_loader(&graph);
+    if (!check_textures(resources, *scene, true))
+    {
+        return 1;
+    }
+    resources.set_loader(nullptr);
+#endif
     std::puts("Render component validation, dynamic mesh ownership and texture sharing passed.");
     return 0;
 }

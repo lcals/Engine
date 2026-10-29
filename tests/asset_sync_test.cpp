@@ -1,4 +1,4 @@
-#include "editor/asset_sync/asset_sync_system.hpp"
+#include "plugins/editor/asset_sync/asset_sync_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 
