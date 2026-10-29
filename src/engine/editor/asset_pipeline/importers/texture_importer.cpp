@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -330,4 +330,4 @@ bool TextureImporter::prepare_batch(const ImportContext&, TaskDescription& task,
     return initialize(error);
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

@@ -2,7 +2,7 @@
 
 #include "plugins/runtime/script/bindings/script_binding.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 
 class SceneBinding final : public ScriptBinding
@@ -14,4 +14,4 @@ public:
                                           v8::Local<v8::Object> native) const override;
 };
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

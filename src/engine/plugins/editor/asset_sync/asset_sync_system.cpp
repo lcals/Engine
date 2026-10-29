@@ -19,7 +19,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::asset_sync
 {
 namespace
 {
@@ -402,4 +402,4 @@ bool AssetSyncSystem::sync(const fs::path& source_cache, const fs::path& runtime
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::asset_sync

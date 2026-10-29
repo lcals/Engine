@@ -1,6 +1,6 @@
 #include "editor/asset_pipeline/asset_importer.hpp"
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 std::string_view AssetImporter::default_meta() const noexcept
 {
@@ -26,4 +26,4 @@ bool AssetImporter::prepare_batch(const ImportContext&, TaskDescription& task, s
     task = {};
     return true;
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

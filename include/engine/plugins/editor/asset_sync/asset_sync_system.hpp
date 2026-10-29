@@ -6,7 +6,7 @@
 #include <string>
 #include <string_view>
 
-namespace engine
+namespace engine::plugins::asset_sync
 {
 
 class AssetSyncSystem final : public System
@@ -30,4 +30,4 @@ private:
     std::string last_error_;
 };
 
-} // namespace engine
+} // namespace engine::plugins::asset_sync

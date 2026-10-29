@@ -8,7 +8,7 @@
 #include <limits>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 schema::ComponentPayload CameraCodec::type() const noexcept
@@ -82,4 +82,4 @@ void CameraCodec::write(const schema::ComponentDataT& component, toml::table& va
     value.insert("orthographic_size", camera->orthographic_size);
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

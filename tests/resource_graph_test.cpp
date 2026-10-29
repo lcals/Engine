@@ -89,7 +89,7 @@ bool put_source(test_support::ResourceFixture& fixture, std::size_t index, std::
 bool test_shared_graph_and_generations()
 {
     ResourceSystem resources;
-    ResourceGraphSystem graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
     EngineConfig config;
     ResourcePtr output;
     if (!expect(&resources.loader() == &resources && !graph.initialize(config) &&
@@ -193,7 +193,7 @@ bool test_shared_graph_and_generations()
 bool test_cross_entity_validation()
 {
     ResourceSystem resources;
-    ResourceGraphSystem graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
     EngineConfig config;
     if (!resources.initialize(config) || !graph.initialize(config))
     {
@@ -230,7 +230,7 @@ bool test_cross_entity_validation()
 bool test_deep_graph_cleanup()
 {
     ResourceSystem resources;
-    ResourceGraphSystem graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
     EngineConfig config;
     if (!resources.initialize(config) || !graph.initialize(config))
     {

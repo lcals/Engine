@@ -10,6 +10,7 @@ classDiagram
     class AssetPipelineSystem {
         +AssetPipelineSystem()
         +~AssetPipelineSystem()
+        +set_importer(unique_ptr~AssetImporter~& importer) bool
         +build_assets(const filesystem_path& project_root, string_view target_platform) bool
         +build_scripts(const filesystem_path& project_root) bool
         +last_build() const AssetBuildStats&
@@ -35,7 +36,7 @@ classDiagram
     AssetPipelineSystem *-- TaskSystem : 子系统独占
     AssetPipelineSystem *-- AssetBuildStats : 最近成功批次
     AssetPipelineSystem ..> GuidMap : 核心 GUID 与逻辑路径映射
-    AssetPipelineSystem *-- AssetImporterRegistry : 每批局部独占类型登记
+    AssetPipelineSystem *-- AssetImporterRegistry : 初始化登记并独占实现
     AssetPipelineSystem ..> AssetImporter : 通用指纹依赖与转换契约
     AssetPipelineSystem ..> SQLite : cache/assets.sqlite
     AssetPipelineSystem ..> ResourceSystem : 同步文件读取
@@ -65,3 +66,5 @@ Shader 源码依赖不进入运行依赖；普通源资源仍有实体及完整�
 资源管线在项目锁内探测 `cache/editor-hosts/` 的会话 OS 租约。有活租约时，必须读取到身份匹配的 idle/closed 状态；启动中、运行中、停止中或状态读取失败均拒绝覆盖，要求先停止项目，不自动停启。心跳过期不能授予写权限；进程退出自动解锁，残留登记不阻塞导入。编辑器调用方负责在导入成功后将 `catalog()` 及挂载直接提交给核心。独立打包职责见[资源构建系统](../../plugins/editor/class-diagrams/asset-build-system.md)。
 
 逐类型接口与批准备见[资源导入器](asset-importers.md)。管线不按具体资源类型分派，类型识别、meta默认值、模块路径、工具指纹、依赖和转换由所选导入器实现。
+
+`AssetPipelineSystem` 与统计属于 `engine::editor`。初始化成功后，宿主可通过 `set_importer` 替换某个已登记资源类型的实现，成功才转移独占所有权；空指针、未登记/非法类型、未初始化或构建期间调用均返回失败。构建与替换由同一协调线程发起，内部互斥拒绝并行调用；并发拒绝不改写正在构建的错误信息。关闭清空登记，重新初始化恢复默认导入器，宿主需要再次注入。编辑器接口不识别插件身份，插件只向下依赖该接口。

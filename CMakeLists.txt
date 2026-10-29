@@ -31,3 +31,6 @@ endif()
 if(BUILD_TESTING AND ENGINE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
+
+include(cmake/core/architecture_checks.cmake)
+engine_export_architecture("${PROJECT_BINARY_DIR}/architecture")

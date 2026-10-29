@@ -4,7 +4,7 @@
 #include "runtime/app/app.hpp"
 #include "runtime/utils/path_utils.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -42,4 +42,4 @@ bool AppBinding::register_functions(v8::Local<v8::Context> context,
                                   PathUtils::to_utf8(App::cache_path()));
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

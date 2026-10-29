@@ -5,7 +5,7 @@
 #include <functional>
 #include <string>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 
 enum class McpCallStatus
@@ -25,4 +25,4 @@ struct McpTool
     std::function<bool(const nlohmann::json&, nlohmann::json&)> execute;
 };
 
-} // namespace engine
+} // namespace engine::plugins::mcp

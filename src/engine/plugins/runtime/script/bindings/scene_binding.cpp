@@ -5,7 +5,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -165,4 +165,4 @@ bool SceneBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "ActiveCamera", active_camera);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

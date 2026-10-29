@@ -33,8 +33,22 @@ function(engine_configure_modeling_plugin)
         engine_apply_options(engine_modeling_editor)
     endif()
     if(TARGET engine_asset_pipeline)
-        target_link_libraries(engine_asset_pipeline PRIVATE engine::modeling)
-        target_compile_definitions(engine_asset_pipeline PRIVATE ENGINE_HAS_MODELING_PLUGIN=1)
+        add_library(engine_modeling_importer STATIC
+                    src/engine/plugins/editor/modeling/modeling_mesh_importer.cpp)
+        add_library(engine::modeling_importer ALIAS engine_modeling_importer)
+        get_target_property(_modeling_importer_toml_includes tomlplusplus::tomlplusplus
+                            INTERFACE_INCLUDE_DIRECTORIES)
+        target_include_directories(engine_modeling_importer SYSTEM
+                                   PRIVATE ${_modeling_importer_toml_includes})
+        target_link_libraries(
+            engine_modeling_importer
+            PUBLIC engine::asset_pipeline
+            PRIVATE engine::modeling engine::resource SDL3::SDL3)
+        target_compile_definitions(
+            engine_modeling_importer
+            PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
+                    ENGINE_SCHEMA_SOURCE_DIR="${PROJECT_SOURCE_DIR}/include/schemas/runtime")
+        engine_apply_options(engine_modeling_importer)
     endif()
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
         add_library(engine_modeling_mcp_tools STATIC

@@ -5,7 +5,7 @@
 #include <map>
 #include <span>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 // 借用的数据覆盖完整批次和所有任务；转换期间只读。
 struct ImportContext
@@ -19,4 +19,4 @@ struct ImportContext
     const schema::AssetCatalogDataT* previous_catalog = nullptr;
     std::span<const ImportAsset* const> sources;
 };
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

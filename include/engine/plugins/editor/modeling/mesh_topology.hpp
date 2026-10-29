@@ -5,7 +5,7 @@
 #include <array>
 #include <span>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 
 enum class MeshFaceSelection
@@ -93,4 +93,4 @@ public:
                                      std::uint32_t material_slot_offset = 0);
 };
 
-} // namespace engine
+} // namespace engine::plugins::modeling

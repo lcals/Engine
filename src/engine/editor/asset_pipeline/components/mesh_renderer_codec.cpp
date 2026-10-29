@@ -8,7 +8,7 @@
 #include <limits>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 schema::ComponentPayload MeshRendererCodec::type() const noexcept
@@ -88,4 +88,4 @@ void MeshRendererCodec::write(const schema::ComponentDataT& component, toml::tab
     }
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

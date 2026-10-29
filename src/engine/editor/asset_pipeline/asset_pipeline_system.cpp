@@ -37,7 +37,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -551,12 +551,29 @@ bool AssetPipelineSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
-    return static_cast<bool>(pxr::UsdStage::CreateInMemory());
+    return static_cast<bool>(pxr::UsdStage::CreateInMemory()) && importers_.initialize();
 }
 
 void AssetPipelineSystem::on_shutdown() noexcept
 {
+    importers_.clear();
     catalog_ = {};
+}
+
+bool AssetPipelineSystem::set_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer)
+{
+    std::unique_lock lock(build_mutex_, std::try_to_lock);
+    if (!lock.owns_lock())
+    {
+        return false;
+    }
+    last_error_.clear();
+    if (!is_initialized() || !importers_.replace(importer))
+    {
+        last_error_ = "importer replacement requires an initialized pipeline and registered type";
+        return false;
+    }
+    return true;
 }
 
 bool AssetPipelineSystem::build_scripts(const std::filesystem::path& project_root)
@@ -567,6 +584,11 @@ bool AssetPipelineSystem::build_scripts(const std::filesystem::path& project_roo
 bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root,
                                        std::string_view requested_target)
 {
+    std::unique_lock build_lock(build_mutex_, std::try_to_lock);
+    if (!build_lock.owns_lock())
+    {
+        return false;
+    }
     last_error_.clear();
     if (!is_initialized() || tasks_ == nullptr)
     {
@@ -655,12 +677,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         last_error_ = "cannot prepare meta staging: " + code.message();
         return false;
     }
-    AssetImporterRegistry importers;
-    if (!importers.initialize())
-    {
-        last_error_ = "cannot initialize resource importers";
-        return false;
-    }
+    const auto& importers = importers_;
     std::vector<AssetRecord> records;
     const bool scanned = scan_assets(root / "assets", cache, remembered, importers, identities,
                                      kinds, records, last_error_);
@@ -1045,4 +1062,4 @@ const schema::AssetCatalogDataT& AssetPipelineSystem::catalog() const noexcept
     return catalog_;
 }
 
-} // namespace engine
+} // namespace engine::editor

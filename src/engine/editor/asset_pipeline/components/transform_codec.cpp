@@ -8,7 +8,7 @@
 #include <limits>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 schema::ComponentPayload TransformCodec::type() const noexcept
@@ -74,4 +74,4 @@ void TransformCodec::write(const schema::ComponentDataT& component, toml::table&
                  toml::array{transform->scale.x(), transform->scale.y(), transform->scale.z()});
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

@@ -35,7 +35,7 @@ struct Project
 int main()
 {
     using namespace engine;
-    using namespace engine::asset_pipeline;
+    using namespace engine::editor::asset_pipeline;
     std::error_code code;
     Project project{fs::temp_directory_path(code) /
                     ("engine-asset-meta-" +
@@ -78,7 +78,7 @@ int main()
     {
         return 1;
     }
-    AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
     if (!expect(pipeline.initialize({}) && pipeline.build_assets(project.root),
                 "import shared metadata", pipeline.last_error()))
     {

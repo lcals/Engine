@@ -2,7 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 schema::AssetKind SourceImporter::kind() const noexcept
 {
@@ -24,4 +24,4 @@ bool SourceImporter::convert(const ImportAsset& asset, const ImportContext& cont
     return read_bytes(asset.source, bytes, error) &&
            write_bytes(context.output / asset.guid, bytes, error);
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

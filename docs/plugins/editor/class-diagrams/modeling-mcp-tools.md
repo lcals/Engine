@@ -1,12 +1,14 @@
 # 建模 MCP 适配
 
+图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。 `EditorMcpTools`、`McpSystem` 属于 `engine::plugins::mcp`；适配类借用这些接口，不把 MCP 类型导出到核心命名空间。
+
 [类图索引](../../../class-diagrams/index.md) · [建模编辑业务](modeling-commands.md)
 
 ```mermaid
 classDiagram
     class ModelingMcpTools {
-        +ModelingMcpTools(EditorMcpTools& editor)
-        +register_tools(McpSystem& system) bool
+        +ModelingMcpTools(engine::plugins::mcp::EditorMcpTools& editor)
+        +register_tools(engine::plugins::mcp::McpSystem& system) bool
     }
     class EditorMcpTools
     class McpSystem

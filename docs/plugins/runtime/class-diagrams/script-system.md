@@ -4,6 +4,8 @@
 
 ScriptSystem 属于 `plugins/runtime/script/`，实现核心 [ScriptRuntime](../../../runtime/class-diagrams/script-runtime.md) 契约并管理 V8、模块预检与执行、玩法回调和脚本运行资源；资源部署选择及清单切换由 GameplaySession 调用。
 
+C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对象保留在 `engine`。宿主直接引用插件命名空间，核心不提供插件类型别名。
+
 ```mermaid
 classDiagram
     class ScriptSystem {

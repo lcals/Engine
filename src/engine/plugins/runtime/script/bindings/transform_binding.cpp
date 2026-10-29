@@ -4,7 +4,7 @@
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -88,4 +88,4 @@ bool TransformBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "TransformScale", scale);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

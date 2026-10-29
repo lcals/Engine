@@ -5,7 +5,7 @@
 
 #include <string_view>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 class AssetImporter
 {
@@ -25,4 +25,4 @@ public:
     [[nodiscard]] virtual bool convert(const ImportAsset& asset, const ImportContext& context,
                                        std::string& error) const = 0;
 };
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

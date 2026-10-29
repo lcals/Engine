@@ -14,7 +14,7 @@
 #include <string_view>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 
 bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
@@ -81,7 +81,7 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
                      valid = valid && component != ".." && component != ".";
                  }
                  source = project_root_ / relative;
-                 if (!valid || !mcp_tools::no_symlinks(source))
+                 if (!valid || !tools::no_symlinks(source))
                  {
                      output = {{"error", "Invalid project-relative build output directory"}};
                      return false;
@@ -98,7 +98,7 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
              {
                  std::string receipt;
                  const bool success = sync_android(source, receipt);
-                 return mcp_tools::android_receipt(success, receipt, output);
+                 return tools::android_receipt(success, receipt, output);
              }
              if (!sync_.sync(source, target_.runtime_dir))
              {
@@ -112,4 +112,4 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
          }});
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

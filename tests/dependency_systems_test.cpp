@@ -80,18 +80,19 @@ int main()
 #endif
 
 #if ENGINE_HAS_EDITOR
-    engine::ProjectSystem project(ENGINE_TEST_PROJECT);
+    engine::editor::ProjectSystem project(ENGINE_TEST_PROJECT);
     if (!check_lifecycle(project, "ProjectSystem", config) || !project.initialize(config))
     {
         return 1;
     }
-    engine::EditorEnvironment environment(project, std::filesystem::path(ENGINE_TEST_PROJECT) /
-                                                       "cache" / "dependency-test-persistent");
+    engine::editor::EditorEnvironment environment(project,
+                                                  std::filesystem::path(ENGINE_TEST_PROJECT) /
+                                                      "cache" / "dependency-test-persistent");
     if (!environment.initialize())
     {
         return 1;
     }
-    engine::EditorSystem editor(environment);
+    engine::editor::EditorSystem editor(environment);
     if (!check_lifecycle(editor, "EditorSystem", config))
     {
         return 1;
@@ -101,7 +102,7 @@ int main()
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::AssetPipelineSystem asset_pipeline;
+    engine::editor::AssetPipelineSystem asset_pipeline;
     if (!check_lifecycle(asset_pipeline, "AssetPipelineSystem", config))
     {
         return 1;
@@ -109,7 +110,7 @@ int main()
 #endif
 
 #if ENGINE_TEST_SCRIPT_PLUGIN
-    engine::ScriptSystem script;
+    engine::plugins::script::ScriptSystem script;
     if (!check_lifecycle(script, "ScriptSystem", config))
     {
         return 1;

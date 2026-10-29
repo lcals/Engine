@@ -3,7 +3,7 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/scene.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -98,4 +98,4 @@ bool NodeBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "NodeParent", set_parent);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

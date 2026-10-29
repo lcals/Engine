@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 struct ImportAsset
 {
@@ -18,4 +18,4 @@ struct ImportAsset
     std::vector<Guid> build_dependencies;
     std::vector<Guid> runtime_dependencies;
 };
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

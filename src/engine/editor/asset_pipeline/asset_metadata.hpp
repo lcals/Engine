@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 // 调用方持有项目构建锁；缺失的已知资源 meta 不得重新分配身份。
@@ -19,4 +19,4 @@ namespace engine::asset_pipeline
                                      const std::filesystem::path& source, std::string_view importer,
                                      std::string& guid, std::string& error);
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

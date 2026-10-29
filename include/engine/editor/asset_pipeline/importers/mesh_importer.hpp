@@ -2,9 +2,9 @@
 
 #include "editor/asset_pipeline/asset_importer.hpp"
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
-class MeshImporter final : public AssetImporter
+class MeshImporter : public AssetImporter
 {
 public:
     [[nodiscard]] schema::AssetKind kind() const noexcept override;
@@ -14,4 +14,4 @@ public:
     [[nodiscard]] bool convert(const ImportAsset& asset, const ImportContext& context,
                                std::string& error) const override;
 };
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

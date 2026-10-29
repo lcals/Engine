@@ -38,9 +38,9 @@ bool expect(bool value, const char* message, const std::string& error)
 #ifdef ENGINE_TEST_MODELING_MCP
 bool registry_test()
 {
-    engine::EditorMcpTools editor({}, {});
-    engine::ModelingMcpTools module(editor);
-    engine::McpSystem system;
+    engine::plugins::mcp::EditorMcpTools editor({}, {});
+    engine::plugins::modeling::ModelingMcpTools module(editor);
+    engine::plugins::mcp::McpSystem system;
     Json reply;
     if (!expect(module.register_tools(system), "register all modeling schemas", {}) ||
         !expect(!module.register_tools(system), "duplicate modeling registration rejected", {}) ||
@@ -85,7 +85,7 @@ bool registry_test()
     {
         const Json arguments = {{"sceneId", "1"}, {"modelId", "1"}, {"operation", operation}};
         if (!expect(system.call_tool("modeling_edit", arguments, reply) ==
-                        engine::McpCallStatus::failed,
+                        engine::plugins::mcp::McpCallStatus::failed,
                     "every modeling operation passes schema and reaches the absent desktop target",
                     operation))
         {
@@ -97,7 +97,7 @@ bool registry_test()
           "door", "curved_stairs", "sprite", "icosphere", "polygon", "sweep", "lathe"})
     {
         if (!expect(system.call_tool("modeling_create", {{"sceneId", "1"}, {"shape", shape}},
-                                     reply) == engine::McpCallStatus::failed,
+                                     reply) == engine::plugins::mcp::McpCallStatus::failed,
                     "every shape passes tool schema", shape))
         {
             return false;
@@ -107,17 +107,17 @@ bool registry_test()
     {
         if (!expect(system.call_tool("modeling_select",
                                      {{"sceneId", "1"}, {"modelId", "1"}, {"mode", mode}},
-                                     reply) == engine::McpCallStatus::failed,
+                                     reply) == engine::plugins::mcp::McpCallStatus::failed,
                     "every selection mode passes tool schema", mode))
         {
             return false;
         }
     }
     return expect(system.call_tool("modeling_edit", {{"sceneId", "1"}, {"modelId", 1}}, reply) ==
-                      engine::McpCallStatus::invalid_arguments,
+                      engine::plugins::mcp::McpCallStatus::invalid_arguments,
                   "invalid schema arguments rejected before editor transport", {}) &&
            expect(system.call_tool("modeling_create", {{"sceneId", "1"}, {"shape", "unknown"}},
-                                   reply) == engine::McpCallStatus::invalid_arguments,
+                                   reply) == engine::plugins::mcp::McpCallStatus::invalid_arguments,
                   "unknown shape rejected by tool schema", {});
 }
 #endif
@@ -135,8 +135,9 @@ bool run(const fs::path& project)
     {
         return false;
     }
-    engine::ModelingCommands modeling(world, project);
-    engine::EditorCommands commands([&]() { return world.scene() ? world.scene()->id() : 0; });
+    engine::plugins::modeling::ModelingCommands modeling(world, project);
+    engine::editor::EditorCommands commands([&]()
+                                            { return world.scene() ? world.scene()->id() : 0; });
     if (!modeling.register_commands(commands))
     {
         return false;

@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 RenderMcpTools::RenderMcpTools(EditorMcpTools& editor) noexcept : editor_(editor)
 {
@@ -56,4 +56,4 @@ bool RenderMcpTools::register_tools(McpSystem& system)
            add("get_frame_capture", "查询截图实际状态；complete 才表示文件写入完成。",
                object(Json::object()));
 }
-} // namespace engine
+} // namespace engine::plugins::mcp

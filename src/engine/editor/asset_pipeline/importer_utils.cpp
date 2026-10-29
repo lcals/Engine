@@ -10,7 +10,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 bool read_table(const std::filesystem::path& path, toml::table& table, std::string& error)
 {
@@ -163,4 +163,4 @@ std::string generic_path(const std::filesystem::path& path)
     return {value.begin(), value.end()};
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 [[nodiscard]] std::string hash_bytes(std::span<const std::byte> bytes);
@@ -21,4 +21,4 @@ namespace engine::asset_pipeline
                                std::string* output = nullptr);
 [[nodiscard]] std::string new_guid();
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

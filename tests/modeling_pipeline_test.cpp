@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/modeling/editable_mesh.hpp"
 #include "plugins/editor/modeling/mesh_primitives.hpp"
+#include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -8,7 +9,9 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -44,11 +47,40 @@ bool write(const fs::path& path, const std::string& text)
     stream.close();
     return static_cast<bool>(stream);
 }
+
+class CheckedMeshImporter final : public engine::editor::asset_pipeline::MeshImporter
+{
+public:
+    CheckedMeshImporter(engine::editor::AssetPipelineSystem& pipeline, bool& rejected) noexcept
+        : pipeline_(pipeline), rejected_(rejected)
+    {
+    }
+
+    [[nodiscard]] bool inspect_batch(const engine::editor::asset_pipeline::ImportContext& context,
+                                     std::string& fingerprint, std::string& error) override
+    {
+        std::thread concurrent(
+            [this]
+            {
+                std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> replacement =
+                    std::make_unique<MeshImporter>();
+                rejected_ = !pipeline_.set_importer(replacement) && replacement != nullptr;
+            });
+        concurrent.join();
+        return MeshImporter::inspect_batch(context, fingerprint, error);
+    }
+
+private:
+    engine::editor::AssetPipelineSystem& pipeline_;
+    bool& rejected_;
+};
 } // namespace
 
 int main()
 {
     using namespace engine;
+    using namespace engine::editor;
+    using namespace engine::plugins::modeling;
     std::error_code filesystem_error;
     Project project;
     project.root = fs::temp_directory_path(filesystem_error);
@@ -89,8 +121,13 @@ int main()
                                hex + "\"\n";
     const fs::path path = project.root / "assets/cube.mesh";
     AssetPipelineSystem pipeline;
+    std::unique_ptr<asset_pipeline::AssetImporter> importer =
+        std::make_unique<ModelingMeshImporter>();
     if (!expect(write(path, source), "write source") ||
+        !expect(!pipeline.set_importer(importer) && importer,
+                "uninitialized pipeline rejects registration without consuming ownership") ||
         !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(pipeline.set_importer(importer) && !importer, "host injects modeling importer") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))
     {
         return 1;
@@ -125,11 +162,57 @@ int main()
         return 1;
     }
     const auto revision = pipeline.last_build().revision;
+    importer = std::make_unique<asset_pipeline::MeshImporter>();
+    if (!expect(pipeline.set_importer(importer) && !importer,
+                "host restores ordinary mesh importer") ||
+        !expect(
+            !pipeline.build_assets(project.root),
+            "removing modeling importer rejects authoritative source instead of reusing cache") ||
+        !expect(pipeline.last_build().revision == revision,
+                "missing plugin preserves published version"))
+    {
+        return 1;
+    }
+    importer = std::make_unique<ModelingMeshImporter>();
+    if (!expect(pipeline.set_importer(importer), "host restores modeling importer") ||
+        !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
+        !expect(pipeline.last_build().imported == 0,
+                "restored plugin reuses matching authoritative cache"))
+    {
+        return 1;
+    }
     const std::string invalid = "[modeling]\nformat = \"flatbuffers-hex\"\ndata = \"0Z\"\n";
     if (!expect(write(path, invalid), "write invalid source") ||
         !expect(!pipeline.build_assets(project.root), "reject malformed editable data") ||
         !expect(pipeline.last_build().revision == revision,
                 "failed import keeps published version"))
+    {
+        return 1;
+    }
+    const std::string ordinary = "vertices = [[0,0,0,0,0,1],[1,0,0,0,0,1],[0,1,0,0,0,1]]\n"
+                                 "indices = [0,1,2]\n";
+    if (!expect(write(path, ordinary), "write ordinary mesh") ||
+        !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
+        !expect(pipeline.last_build().imported == 1,
+                "modeling plugin delegates ordinary mesh to editor importer"))
+    {
+        return 1;
+    }
+    pipeline.shutdown();
+    if (!expect(pipeline.initialize({}), "pipeline reinitializes with default importers") ||
+        !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
+        !expect(pipeline.last_build().imported == 1,
+                "ordinary mesh remains importable without modeling plugin; type key changes") ||
+        !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
+        !expect(pipeline.last_build().imported == 0, "ordinary mesh cache remains incremental"))
+    {
+        return 1;
+    }
+    bool concurrent_rejected = false;
+    importer = std::make_unique<CheckedMeshImporter>(pipeline, concurrent_rejected);
+    if (!expect(pipeline.set_importer(importer), "install registration concurrency probe") ||
+        !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
+        !expect(concurrent_rejected, "in-flight build rejects concurrent importer replacement"))
     {
         return 1;
     }

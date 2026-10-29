@@ -14,7 +14,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -253,4 +253,4 @@ const std::string& EditorCommandChannel::last_error() const noexcept
     return last_error_;
 }
 
-} // namespace engine
+} // namespace engine::editor

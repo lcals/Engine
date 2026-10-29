@@ -8,10 +8,15 @@ struct ImGuiContext;
 
 namespace engine
 {
-
-class EditorEnvironment;
 class GameplaySession;
 class WorldSystem;
+} // namespace engine
+
+namespace engine::editor
+{
+
+class EditorEnvironment;
+
 class EditorCommands;
 
 class EditorSystem final : public System
@@ -39,4 +44,4 @@ private:
     ImGuiContext* context_ = nullptr;
 };
 
-} // namespace engine
+} // namespace engine::editor

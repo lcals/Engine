@@ -31,7 +31,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::modeling
 {
 namespace
 {
@@ -1623,7 +1623,7 @@ struct ModelingCommands::State
         return true;
     }
 
-    class Edit final : public EditorEdit
+    class Edit final : public engine::editor::EditorEdit
     {
     public:
         State& owner;
@@ -1812,8 +1812,9 @@ struct ModelingCommands::State
         return true;
     }
 
-    bool create(const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& output,
-                std::string& error, bool loading)
+    bool create(const Json& arguments, Json& result,
+                std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error,
+                bool loading)
     {
         if ((loading && !fields(arguments, {"sceneId", "path", "name"})) ||
             (!loading && !fields(arguments, {"sceneId", "shape", "parameters", "name"})))
@@ -1862,8 +1863,9 @@ struct ModelingCommands::State
         return true;
     }
 
-    bool change_model(const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& output,
-                      std::string& error, bool selecting)
+    bool change_model(const Json& arguments, Json& result,
+                      std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error,
+                      bool selecting)
     {
         if ((selecting &&
              !fields(arguments, {"sceneId", "modelId", "nodeId", "selection", "mode"})) ||
@@ -2076,8 +2078,8 @@ struct ModelingCommands::State
         return true;
     }
 
-    bool remove(const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& output,
-                std::string& error)
+    bool remove(const Json& arguments, Json& result,
+                std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error)
     {
         if (!fields(arguments, {"sceneId", "modelId", "nodeId"}))
         {
@@ -2101,8 +2103,9 @@ struct ModelingCommands::State
         return true;
     }
 
-    bool duplicate(const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& output,
-                   std::string& error, bool separate)
+    bool duplicate(const Json& arguments, Json& result,
+                   std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error,
+                   bool separate)
     {
         if (!fields(arguments, {"sceneId", "modelId", "nodeId", "name", "selection"}) ||
             (!separate && arguments.contains("selection")))
@@ -2207,8 +2210,8 @@ struct ModelingCommands::State
         return true;
     }
 
-    bool combine(const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& output,
-                 std::string& error)
+    bool combine(const Json& arguments, Json& result,
+                 std::unique_ptr<engine::editor::EditorEdit>& output, std::string& error)
     {
         std::vector<std::uint64_t> model_ids;
         if (!fields(arguments, {"sceneId", "modelIds", "name"}) ||
@@ -2317,7 +2320,7 @@ struct ModelingCommands::State
     }
 
     bool execute(std::string_view command, const Json& arguments, Json& result,
-                 std::unique_ptr<EditorEdit>& edit, std::string& error)
+                 std::unique_ptr<engine::editor::EditorEdit>& edit, std::string& error)
     {
         if (command == "modeling_help")
         {
@@ -2414,7 +2417,7 @@ bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::
     return save_source(path, source, *renderer->mesh_data(), error);
 }
 
-bool ModelingCommands::register_commands(EditorCommands& commands)
+bool ModelingCommands::register_commands(engine::editor::EditorCommands& commands)
 {
     for (const char* name :
          {"modeling_create", "modeling_get", "modeling_select", "modeling_edit", "modeling_delete",
@@ -2427,7 +2430,8 @@ bool ModelingCommands::register_commands(EditorCommands& commands)
         if (!commands.register_command(
                 command, undoable,
                 [this, command](const Json& arguments, Json& result,
-                                std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                std::unique_ptr<engine::editor::EditorEdit>& edit,
+                                std::string& error)
                 { return state_->execute(command, arguments, result, edit, error); }))
         {
             return false;
@@ -2436,4 +2440,4 @@ bool ModelingCommands::register_commands(EditorCommands& commands)
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::modeling

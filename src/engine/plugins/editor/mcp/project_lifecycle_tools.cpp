@@ -15,15 +15,15 @@
 #include <thread>
 #include <utility>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 namespace
 {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-using mcp_tools::editor_alive;
-using mcp_tools::no_symlinks;
-using mcp_tools::read_project_status;
+using tools::editor_alive;
+using tools::no_symlinks;
+using tools::read_project_status;
 
 bool control_project(const fs::path& runtime, const fs::path& project_root,
                      const std::string& command, Json& response)
@@ -167,4 +167,4 @@ bool ProjectMcpTools::register_lifecycle_tools(McpSystem& mcp)
     return true;
 }
 
-} // namespace engine
+} // namespace engine::plugins::mcp

@@ -560,7 +560,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
     engine::ResourceSystem resources;
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
-    engine::ResourceGraphSystem graph(resources);
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
 #endif
     engine::WorldSystem world;
     engine::WindowSystem windows;

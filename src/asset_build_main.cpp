@@ -3,10 +3,15 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#if ENGINE_HAS_MODELING_IMPORTER
+#include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#endif
+
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -64,7 +69,7 @@ int main(int argc, char** argv)
         usage();
         return 2;
     }
-    engine::AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
     const engine::EngineConfig config;
     if (!pipeline.initialize(config))
     {
@@ -72,9 +77,18 @@ int main(int argc, char** argv)
                      pipeline.last_error().c_str());
         return 1;
     }
+#if ENGINE_HAS_MODELING_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
+        std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
+    if (!pipeline.set_importer(importer))
+    {
+        std::fputs("Cannot register modeling importer\n", stderr);
+        return 1;
+    }
+#endif
     if (!manifest.empty())
     {
-        engine::AssetBuildSystem build(pipeline);
+        engine::plugins::asset_build::AssetBuildSystem build(pipeline);
         if (!build.initialize(config) || !build.build(project, manifest, items))
         {
             std::fprintf(stderr, "Resource build failed: %s\n", build.last_error().c_str());

@@ -5,6 +5,7 @@
 #include "editor/project/project_system.hpp"
 #include "editor/scene/scene_persistence.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
+#include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -20,6 +21,7 @@
 #include <chrono>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <system_error>
 
@@ -53,12 +55,18 @@ Node* named(Scene& scene, std::string_view name)
 bool run(const fs::path& root)
 {
     // 与 editor_app 同样装配项目系统，捕获跨模块 TOML ABI/符号冲突。
-    ProjectSystem project(PathUtils::to_utf8(root));
+    engine::editor::ProjectSystem project(PathUtils::to_utf8(root));
     ResourceSystem resources;
     WorldSystem world;
-    AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
     if (!project.initialize({}) || !resources.initialize({}) || !world.initialize({}) ||
         !pipeline.initialize({}))
+    {
+        return false;
+    }
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
+        std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
+    if (!pipeline.set_importer(importer))
     {
         return false;
     }
@@ -67,20 +75,22 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    ModelingCommands modeling(world, root);
-    SceneCommands scene_commands(world);
+    engine::plugins::modeling::ModelingCommands modeling(world, root);
+    engine::editor::SceneCommands scene_commands(world);
     bool reject_export = false;
-    ScenePersistence persistence(world, root,
-                                 [&](const Node& node, const fs::path& path, std::string& error)
-                                 {
-                                     if (reject_export && node.name() == "Second")
-                                     {
-                                         error = "Injected export failure";
-                                         return false;
-                                     }
-                                     return modeling.export_mesh(node, path, error);
-                                 });
-    EditorCommands commands([&]() { return world.scene() ? world.scene()->id() : 0; });
+    engine::editor::ScenePersistence persistence(
+        world, root,
+        [&](const Node& node, const fs::path& path, std::string& error)
+        {
+            if (reject_export && node.name() == "Second")
+            {
+                error = "Injected export failure";
+                return false;
+            }
+            return modeling.export_mesh(node, path, error);
+        });
+    engine::editor::EditorCommands commands([&]()
+                                            { return world.scene() ? world.scene()->id() : 0; });
     if (!modeling.register_commands(commands) || !scene_commands.register_commands(commands) ||
         !persistence.register_commands(commands))
     {
@@ -191,8 +201,8 @@ bool run(const fs::path& root)
         return false;
     }
     schema::SceneDataT saved;
-    if (!expect(SceneImporter::read(path, saved, error) && saved.nodes.size() == 4 &&
-                    saved.info->active_camera_node == camera->info().id,
+    if (!expect(engine::editor::SceneImporter::read(path, saved, error) &&
+                    saved.nodes.size() == 4 && saved.info->active_camera_node == camera->info().id,
                 "saved schema contains camera and all nodes", error))
     {
         return false;

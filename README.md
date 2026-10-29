@@ -16,11 +16,15 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
-Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2 的打包与同步已接入；APK 与模拟器的既有验证对应目录重构前版本，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
+Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
 仓库提供示例项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
+
+核心命名空间使用 `engine`，编辑器使用 `engine::editor`，插件使用 `engine::plugins::<插件名>`。核心不包含或链接编辑器、具体插件；编辑器基础库不包含或链接具体插件。插件实现下层声明的接口，由可执行宿主注入。建模 Mesh 导入扩展通过 `AssetPipelineSystem::set_importer` 登记；未启用建模插件时仍可导入普通 Mesh，权威建模源会明确报错。第三方类型尽量限制在实现中，FlatBuffers 唯一数据模型继续保留。
+
+绑定、导入器、资源解码和组件编解码按类型独立文件，以最小接口和显式注册扩展。详细规则见 [AGENTS.md](AGENTS.md) 与[架构总览](docs/architecture.md)。CTest 的 `engine.architecture_boundaries` 检查源码包含方向及当前配置实际 `engine_*` 目标的链接方向、别名和循环；`engine.architecture_rules` 验证检查器的正反例。
 
 ## 构建与测试
 
@@ -122,7 +126,7 @@ ctest --preset ninja-debug
 
 如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，同时要求启用 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
 
-脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、V8 执行和逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接 V8，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。
+脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、V8 执行和逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接 V8，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。当前宿主的 `save_scene` 命令需同时启用资源管线与建模插件；关闭建模插件后仍支持普通 Mesh 导入。
 
 MCP 在电脑端经 adb 同步 Android 调试包，设备端不运行 MCP；正式游戏不链接建模、MCP 或编辑器构建/同步工具。仅开启运行时和脚本不会默认启用资源同步插件；默认同步插件还要求编辑器或资源管线能力。未来设备调试插件必须按构建用途区分正式运行与调试运行，不能仅靠程序中的运行开关隐藏调试接口。这些开关是构建期选择，不表示支持 C++ 插件热插拔。
 
@@ -553,46 +557,34 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-以下为截至 2026-10-29 已完成的阶段验证范围。下述建模与公寓记录对应插件目录、CMake 和资源加载接口拆分之前；本轮插件与构建拆分的结果见下段。资源目录 v2、依赖加载与清单构建在 macOS 验证；Android APK、模拟器与 Windows 的记录对应此次资源目录重构前版本。构建使用根 Presets 或继承它们的本机 Presets，未触发 CI。
+截至 2026-10-30，模块分层、脚本插件化、逐类型接口、命名空间和建模导入器装配已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
-插件与构建拆分已通过 macOS ARM64 的 Debug / Release 编译、Debug 全量 51/51，以及 Release 最终受影响回归 11/11。纯框架配置通过 5/5；关闭全部可选插件仍可编译运行宿主与编辑器；只启用 MCP、不启用建模的配置编译通过，工具清单、传输和插件选择回归 3/3。资源插件验证包含 4096 层依赖链、共享释放、同 GUID 跨代保活和失败不发布；未重跑此次改动的 Android APK 或 Windows 构建。
+| 环境 | 已验证范围 |
+| --- | --- |
+| macOS ARM64 / AppleClang 21 | 完整 Debug / Release 构建与 CTest 各 56/56 通过，包含真实 Metal 窗口、项目启停、MCP 建模、场景保存和资源管线 |
+| macOS 精简插件 Release | 关闭脚本、V8 和建模插件后构建通过；47 项测试分非窗口 45 项与窗口 2 项执行，全部通过。资源导入、渲染、脚本启动失败返回及关闭均正常；宿主无上述插件符号 |
+| Android ARM64 / API 34 软件 Vulkan 模拟器 | Debug / Release APK 构建、安装与设备 APK 哈希匹配；Vulkan 画面、V8、前后台及有限帧退出通过。Debug 资源同步、热重载、合并包及持久恢复通过；Release 拒绝 `run-as` |
+| Windows x64 / VS 2022 | 既有依赖准备、基础构建、ozz / USD 和 V8 嵌入记录保留；未验证本次重构及完整 DirectX 编辑器 |
+| Linux / iOS / Android 实体设备 | 尚未完成端到端运行验证 |
 
-脚本插件化与逐类型接口拆分随后通过 macOS ARM64 Debug / Release 最终增量构建。Debug 全量 54/54；Release 全量首轮 53 项通过，新增资源解码测试的空数组越界修复后，该项复测 1/1 通过。关闭脚本插件且 `ENGINE_ENABLE_V8=OFF` 的 Release 配置通过构建，全量首轮 49/50，新编辑器测试修正 macOS 临时目录规范化后复测 1/1 通过；正式路径校验未放宽。该配置真实验证资源导入、GPU 渲染、脚本启动明确失败及正常关闭，宿主链接无 V8 / ScriptSystem。新增注册、组件恢复与资源解码测试覆盖重复登记、未知类型和失败保留原状态。未重建本批改动的 Android APK 或 Windows 目标，未运行 CI；日志位于忽略的 `build/type-modules-*.log`。
+架构检查覆盖源码包含方向、当前配置实际 CMake 目标的直接与传递链接、真实别名和循环；桌面完整、精简配置及 Android Debug / Release 均通过。检查器包含 8 个正反例，其中使用真实 CMake 接口目标核对 `LINK_ONLY` 内的别名。267 个自有 C++ 文件通过格式检查；本次 CMake、Python 改动通过各自格式检查。117 块 Mermaid 类图解析与渲染通过，后续变更的 5 块已复核；相对文档链接有效。
 
-| 环境                                                 | 已验证范围                                                                                                                            |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| macOS ARM64 / AppleClang 21                          | 完整引擎 Debug / Release 构建及各 42 项回归通过；真实 Metal 画面、BasisU 贴图缓存、场景、脚本、模块化 MCP、主线程编辑与编辑器生命周期 |
-| Android 打包与同步宿主工具                           | v2 目录、散文件和合并包的 Python 打包回归及模拟 adb 同步测试；尚未重新构建本轮 APK 并运行模拟器                                       |
-| Android ARM64 / API 34 模拟器，软件 Vulkan（重构前） | Debug / Release APK 构建、安装、V8 / Intl / Temporal、PBR 场景、前后台切换、有限帧退出；Debug 全资源同步、热重载及跨进程持久版本      |
-| Windows x64 / VS 2022                                | 依赖准备、Debug / Release 基础构建、ozz / USD 集成、bgfx 工具与 V8 嵌入测试；未覆盖完整编辑器和真实 DirectX 窗口                      |
-| Linux / iOS / Android 实体设备                       | 未完成端到端运行验证                                                                                                                  |
+导入器回归覆盖普通 Mesh、插件注册的所有权转移、构建中拒绝替换、关闭插件后拒绝权威建模源、失败保留旧产物及恢复插件后的增量命中。资源与编辑器测试覆盖 Taskflow 调度、导入线程设置、SQLite 增量、GUID 冲突、meta 移动、输入变化、产物损坏、场景 TOML / C++ / TS FlatBuffers 往返，以及共享引用、深依赖链和目录代际隔离。MCP 回归覆盖注册、参数校验、编辑事务、撤销重做、回执与会话隔离；真实 Metal 测试包含材质变化、纹理、项目反复启停和资源释放。
 
-桌面回归覆盖 Taskflow 依赖调度、导入线程设置、SQLite 增量与重建、重复 GUID、meta 缺失及移动、输入依赖变化、产物损坏重建、场景 TOML / C++ / TS FlatBuffers 往返。资源回归覆盖元数据目录、头部读取、按依赖共享与释放、目录代际隔离（旧引用继续有效，新加载只使用新目录）、散文件与合并包、清单子集及增量构建。另覆盖超过 64 MiB 合并包的按范围读取、同步和热重载，以及陈旧心跳下的活动缓存保护；模拟 adb 验证分块传输失败不发布。Metal 编辑器验证材质修改经资源同步实际改变画面、重复启停后 GPU 资源回到基线、停止恢复空白。
+Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的定位、实体头和完整性，原生代码包含脚本和资源图插件，不包含编辑器、建模、MCP、构建或同步插件。Debug 真 MCP 验证 14 个实体对应的 15 个散文件，材质重载保持同一进程；关闭热重载时画面不变，开启后应用新版。坏 TS、错误源 GUID 和损坏设备 catalog 均保留旧活动版本。另通过 MCP 构建 7 个实体的合并包，重复构建复用产物，完成同步、激活及跨进程持久恢复。Debug / Release 均完成 V8 JavaScript、SharedArrayBuffer / Atomics、Intl、Temporal、三次前后台和有限帧释放；日志未发现崩溃、ANR 或图形设备丢失。
 
-重构前的 Android Debug 验证包含 catalog 和 12 个 GUID 产物的逐字节、大小与哈希检查，覆盖场景、Mesh、材质、Shader、JavaScript、相对模块导入、图片、原始二进制及空文件。关闭热重载时新版本保持待应用；坏 TS、未知源 GUID 和损坏 catalog 被拒绝；重启保留已发布版本。Debug / Release 均验证前后台切换、正常退出及 V8 嵌入测试，Release 拒绝 `run-as`。这些结果不替代资源目录 v2 的设备验证。
+本轮记录位于忽略的 `build/namespace-*.log`、`build/namespace-android-validation/` 和 `build/plugin-layout-validation/`。Android 目录包含包体与安装哈希、日志、截图、同步回执、清理结果及复跑命令；验证使用独立模拟器，已有 GameDev 模拟器保持运行。验证产物不提交，复跑入口保留在 Presets 和 `tests/`。
 
-V8、ozz、vcpkg 与编译缓存验证包含无变化构建不重建上游、不改写未变化文件，以及输入变化使缓存失效。Unix 环境安装模拟测试覆盖缺失工具、包管理器和失败退出；Windows PowerShell 模拟入口为 `tests/setup_windows_test.ps1`，尚未在 macOS 执行。跨平台脚本存在不等于全部平台已经完成实机测试。
-
-MCP 模块化回归覆盖独立工具注册、参数检查、旧工具兼容、现有组件修改、批量回滚、撤销与重做冲突恢复、请求重放、超时后的持久回执、跨项目及跨会话隔离。批次中遇到不可撤销查询或未注册命令会恢复先前修改和历史。渲染扩展加入相机、灯光类型与具名贴图命令，真实编辑器测试验证修改、回执及撤销流程。
-
-渲染基础使用 `local-ninja-debug` / `local-ninja-release`（继承根 Presets）完成构建，全套 CTest 各 42/42 通过。Metal 截图像素验证 UV、sRGB/线性、动态几何和三种灯光及累加；资源检查覆盖多材质槽、贴图共享和重复启停释放。贴图回归执行真实 PNG/JPEG 解码、UASTC/ETC1S 编码与转码，验证 meta 参数、完整 mip 链、增量命中、非法参数及失败保留旧缓存。Android 仅验证宿主打包和模拟 adb 同步，未重建本轮 APK，未验证各设备压缩格式矩阵。该阶段 94 张类图通过 Mermaid 解析和渲染；记录对应当时源码，不代表本轮新增类图已经验证。
-
-MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Release 构建及相关回归各 9/9；渲染基础阶段未重跑该精简配置。C++、Python 与 CMake 改动通过格式检查。
-
-渲染基础本地证据保存在忽略的 `build/render-foundation-*.log` 与 `build/render-foundation-diagrams.json`。MCP 记录位于 `build/mcp-*.log` 与 `build/mcp-diagrams-final.json`，资源目录记录位于 `build/resource-*.log` 与 `build/resource-design-validation.json`；既有记录保留在 `build/refactor-*.log`、`build/refactor-module-validation/`、`build/guid-asset-validation/`、`build/android-guid-validation/`、`build/cache-validation/` 与 `build/local-deps/`。它们是验证产物，不是运行时依赖；仓库维护的复跑入口为 Presets 和 `tests/`。
+现代公寓的既有验收记录对应 2026-10-29：通过 MCP 创建 322 个模型，保存并重载 328 个节点，646 个资源 GUID 唯一，输出全景和三个近景 PNG。本轮覆盖建模与场景保存自动回归，未重新生成这套公寓。V8、ozz、vcpkg 和编译缓存继续复用；Windows PowerShell 安装测试未在 macOS 执行。
 
 限制：
 
-- Android APK 均使用本机调试签名。16 KB ZIP 对齐检查通过，但 SDL3 的 ELF LOAD 仍为 4 KB 对齐，不能据此宣称完整支持 16 KB 内存页设备。
+- Android APK 均为本机调试签名。16 KiB ZIP 对齐通过，但 SDL3 ELF LOAD 仍为 4 KiB 对齐，不能据此宣称支持完整的 16 KiB 内存页设备。
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
-- 软件 Vulkan 不反映真机性能；Android 实体手机、Linux / iOS 及完整 Windows 运行时仍需对应平台验证。
+- 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
 - 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
-
-插件拆分前的建模与公寓验证（2026-10-29）：macOS Metal 下 Debug / Release 构建通过，49 项 CTest 的最终结果均通过，包含发现并修复问题后的受影响项复测。新增真实编辑器 MCP 回归覆盖渲染设置撤销、PNG 完成回执、截图路径边界、整场景保存与重新加载后继续编辑；修复了 toml++ 混合异常配置导致的格式化 ABI 冲突，以及 RGBA8 阴影编码产生的自阴影条纹。公寓通过 MCP 创建 322 个模型、保存并重新加载 328 个节点，646 个资源的 GUID 全部唯一，实际输出全景及三个近景 PNG。104 块类图已通过真实 Mermaid 解析及渲染；本轮 Shader 通过 Metal / Android SPIR-V 编译，未据此宣称 Android APK 或真机已验证。
-
-本轮插件目录、脚本契约与逐类型接口的最终类图验证：使用本机 Chrome 和 Mermaid 引擎逐块执行 `parse` 与 `render`，全部 116 块通过，其中本批变更文件包含 63 块；逐图源码哈希一致，402 个相对文档链接有效。结果和复跑脚本位于忽略的 `build/plugin-layout-validation/`；此记录仅覆盖图的语法、渲染与链接，构建及运行结果另行记录。
 
 ## 目录
 

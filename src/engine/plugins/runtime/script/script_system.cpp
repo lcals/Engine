@@ -21,7 +21,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::plugins::script
 {
 namespace
 {
@@ -278,7 +278,7 @@ struct ScriptSystem::State
         v8::Global<v8::Object> gameplay;
         std::vector<ResourcePtr> resources;
         bool initialization_entered = false;
-        script_bindings::BindingContext bindings;
+        bindings::BindingContext bindings;
 
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)), bindings(state.world)
@@ -430,7 +430,7 @@ struct ScriptSystem::State
     };
 
     ScriptStatus& status;
-    script_bindings::ScriptBindingRegistry binding_registry;
+    bindings::ScriptBindingRegistry binding_registry;
     WorldSystem* world = nullptr;
     double delta_time = 0.0;
     std::shared_ptr<V8Process> process;
@@ -855,4 +855,4 @@ void ScriptSystem::on_shutdown() noexcept
     state_.reset();
 }
 
-} // namespace engine
+} // namespace engine::plugins::script

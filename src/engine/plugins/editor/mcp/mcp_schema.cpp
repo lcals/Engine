@@ -9,7 +9,7 @@
 #include <string_view>
 #include <utility>
 
-namespace engine::mcp_protocol
+namespace engine::plugins::mcp::protocol
 {
 namespace
 {
@@ -252,4 +252,4 @@ bool valid_arguments(const Json& schema, const Json& arguments)
     return matches(schema, arguments);
 }
 
-} // namespace engine::mcp_protocol
+} // namespace engine::plugins::mcp::protocol

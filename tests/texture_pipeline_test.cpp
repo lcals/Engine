@@ -166,7 +166,8 @@ struct Fixture
     }
 };
 
-const schema::AssetEntryT* entry(const AssetPipelineSystem& pipeline, std::string_view path)
+const schema::AssetEntryT* entry(const engine::editor::AssetPipelineSystem& pipeline,
+                                 std::string_view path)
 {
     for (const auto& resource : pipeline.catalog().entries)
     {
@@ -178,7 +179,7 @@ const schema::AssetEntryT* entry(const AssetPipelineSystem& pipeline, std::strin
     return nullptr;
 }
 
-bool build(AssetPipelineSystem& pipeline, const Fixture& fixture)
+bool build(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     if (!pipeline.build_assets(fixture.root))
     {
@@ -223,7 +224,7 @@ bool transcode(const schema::TextureDataT& texture, bool red)
     return pixels[red ? 0 : 2] > 220 && pixels[red ? 2 : 0] < 30 && pixels[3] == 255;
 }
 
-bool shader_dependencies(AssetPipelineSystem& pipeline, const Fixture& fixture)
+bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     constexpr const char* shader_guid = "b0000000-0000-4000-8000-000000000010";
     constexpr std::array sources = {"vs_cube.sc", "fs_cube.sc", "varying.def.sc", "pbr_helpers.sh",
@@ -293,7 +294,7 @@ bool tests()
 {
     Fixture fixture;
     ResourceSystem resources;
-    AssetPipelineSystem pipeline;
+    engine::editor::AssetPipelineSystem pipeline;
     EngineConfig config;
     if (!fixture.initialize() || !resources.initialize(config) || !pipeline.initialize(config))
     {
@@ -406,13 +407,13 @@ bool tests()
     schema::SceneDataT scene_data;
     schema::SceneDataT roundtrip;
     std::string error;
-    if (!expect(
-            SceneImporter::read(scene_path, scene_data, error) &&
-                SceneImporter::write(fixture.root / "settings/roundtrip.scene", scene_data,
-                                     error) &&
-                SceneImporter::read(fixture.root / "settings/roundtrip.scene", roundtrip, error) &&
-                scene_data == roundtrip,
-            "camera/light/submesh material fields survive scene TOML round trip"))
+    if (!expect(engine::editor::SceneImporter::read(scene_path, scene_data, error) &&
+                    engine::editor::SceneImporter::write(fixture.root / "settings/roundtrip.scene",
+                                                         scene_data, error) &&
+                    engine::editor::SceneImporter::read(fixture.root / "settings/roundtrip.scene",
+                                                        roundtrip, error) &&
+                    scene_data == roundtrip,
+                "camera/light/submesh material fields survive scene TOML round trip"))
     {
         return false;
     }

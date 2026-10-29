@@ -1,5 +1,7 @@
 # 多边形拓扑操作
 
+图中的建模类、枚举和配置类型属于 `engine::plugins::modeling`；生成数据仍属于 `engine::schema`。
+
 ```mermaid
 classDiagram
     class MeshTopology {

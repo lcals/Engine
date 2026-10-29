@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <string_view>
 
-namespace engine
+namespace engine::plugins::mcp
 {
 
 class McpSystem;
@@ -29,4 +29,4 @@ private:
     McpTarget target_;
 };
 
-} // namespace engine
+} // namespace engine::plugins::mcp

@@ -20,7 +20,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -266,4 +266,4 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
     return true;
 }
 
-} // namespace engine
+} // namespace engine::editor

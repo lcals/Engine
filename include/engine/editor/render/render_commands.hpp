@@ -4,8 +4,12 @@
 
 namespace engine
 {
-class EditorCommands;
 class RenderSystem;
+}
+
+namespace engine::editor
+{
+class EditorCommands;
 
 class RenderCommands final
 {
@@ -20,4 +24,4 @@ private:
     std::filesystem::path capture_root_;
     std::filesystem::path capture_path_;
 };
-} // namespace engine
+} // namespace engine::editor

@@ -13,7 +13,7 @@
 #include <map>
 #include <system_error>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -278,4 +278,4 @@ bool ensure_asset_guid(const fs::path& project_root, const fs::path& source,
     guid = std::move(identity);
     return true;
 }
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

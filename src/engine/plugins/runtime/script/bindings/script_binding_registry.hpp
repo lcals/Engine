@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 
 class ScriptBindingRegistry final
@@ -28,4 +28,4 @@ private:
     std::vector<std::unique_ptr<ScriptBinding>> bindings_;
 };
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

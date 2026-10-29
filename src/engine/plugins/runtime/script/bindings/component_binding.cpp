@@ -3,7 +3,7 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/component.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -57,4 +57,4 @@ bool ComponentBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "ComponentEnabled", enabled);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

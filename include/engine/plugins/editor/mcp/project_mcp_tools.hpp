@@ -5,19 +5,33 @@
 #include <filesystem>
 #include <string>
 
-namespace engine
+namespace engine::editor
+{
+class AssetPipelineSystem;
+}
+
+namespace engine::plugins::asset_build
+{
+class AssetBuildSystem;
+}
+
+namespace engine::plugins::asset_sync
+{
+class AssetSyncSystem;
+}
+
+namespace engine::plugins::mcp
 {
 
 class McpSystem;
-class AssetPipelineSystem;
-class AssetBuildSystem;
-class AssetSyncSystem;
 
 class ProjectMcpTools final
 {
 public:
     // 借用系统须先初始化，并存活到模块及其注册回调销毁。
-    ProjectMcpTools(AssetPipelineSystem& pipeline, AssetBuildSystem& builder, AssetSyncSystem& sync,
+    ProjectMcpTools(engine::editor::AssetPipelineSystem& pipeline,
+                    engine::plugins::asset_build::AssetBuildSystem& builder,
+                    engine::plugins::asset_sync::AssetSyncSystem& sync,
                     std::filesystem::path project_root, McpTarget target);
 
     ProjectMcpTools(const ProjectMcpTools&) = delete;
@@ -36,12 +50,12 @@ private:
     [[nodiscard]] bool set_android_hot_reload(bool enabled, std::string& reply);
     [[nodiscard]] bool read_android_status(std::string& reply);
 
-    AssetPipelineSystem& pipeline_;
-    AssetBuildSystem& builder_;
-    AssetSyncSystem& sync_;
+    engine::editor::AssetPipelineSystem& pipeline_;
+    engine::plugins::asset_build::AssetBuildSystem& builder_;
+    engine::plugins::asset_sync::AssetSyncSystem& sync_;
     std::filesystem::path project_root_;
     McpTarget target_;
     bool initialized_ = false;
 };
 
-} // namespace engine
+} // namespace engine::plugins::mcp

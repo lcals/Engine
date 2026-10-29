@@ -24,7 +24,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -1547,4 +1547,4 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                      });
 }
 
-} // namespace engine
+} // namespace engine::editor

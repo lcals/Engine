@@ -4,6 +4,8 @@
 
 这里展示 TypeScript 门面；每个门面仍由对应 `ScriptBinding` 实现，原生组件不依赖 V8。
 
+C++ 绑定实现属于 `engine::plugins::script::bindings`，原生组件属于 `engine`。TypeScript 导出名称与 `engine` 模块入口保持不变。
+
 ```mermaid
 classDiagram
     direction TB

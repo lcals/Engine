@@ -10,7 +10,7 @@
 #include <initializer_list>
 #include <string_view>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 [[nodiscard]] bool read_table(const std::filesystem::path& path, toml::table& table,
                               std::string& error);
@@ -28,4 +28,4 @@ namespace engine::asset_pipeline
                                       std::string& fingerprint, std::string& error);
 [[nodiscard]] std::string source_extension(const std::filesystem::path& path);
 [[nodiscard]] std::string generic_path(const std::filesystem::path& path);
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

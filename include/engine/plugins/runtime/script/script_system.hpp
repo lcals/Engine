@@ -8,8 +8,12 @@
 
 namespace engine
 {
-
 class WorldSystem;
+} // namespace engine
+
+namespace engine::plugins::script
+{
+
 class ScriptSystem final : public ScriptRuntime
 {
 public:
@@ -40,4 +44,4 @@ private:
     std::unique_ptr<State> state_;
 };
 
-} // namespace engine
+} // namespace engine::plugins::script

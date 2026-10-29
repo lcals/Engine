@@ -6,7 +6,7 @@
 #include <cmath>
 #include <limits>
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -254,4 +254,4 @@ bool BindingContext::string(v8::Local<v8::Context> context, v8::Local<v8::Object
            define(context, native, name, text);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

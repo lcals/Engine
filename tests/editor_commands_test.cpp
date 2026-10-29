@@ -67,8 +67,9 @@ bool render_command_tests()
     {
         return false;
     }
-    engine::EditorCommands commands([&world]() { return world.scene() ? world.scene()->id() : 0; });
-    engine::SceneCommands module(world);
+    engine::editor::EditorCommands commands([&world]()
+                                            { return world.scene() ? world.scene()->id() : 0; });
+    engine::editor::SceneCommands module(world);
     if (!module.register_commands(commands))
     {
         return false;
@@ -172,9 +173,9 @@ bool command_tests()
     {
         return false;
     }
-    engine::SceneCommands module(world);
-    engine::EditorCommands commands([&world]()
-                                    { return world.scene() == nullptr ? 0 : world.scene()->id(); });
+    engine::editor::SceneCommands module(world);
+    engine::editor::EditorCommands commands(
+        [&world]() { return world.scene() == nullptr ? 0 : world.scene()->id(); });
     Json result;
     std::string error;
     const auto execute = [&](std::string_view name, const Json& arguments)
@@ -372,7 +373,7 @@ bool command_tests()
                   "new scene cannot reuse old generation edits");
 }
 
-class CountEdit final : public engine::EditorEdit
+class CountEdit final : public engine::editor::EditorEdit
 {
 public:
     explicit CountEdit(int& value) : value_(value), before_(value)
@@ -422,27 +423,28 @@ Json read(const fs::path& path)
 bool channel_tests(const fs::path& root)
 {
     int count = 0;
-    engine::EditorCommands commands([]() { return 1; });
+    engine::editor::EditorCommands commands([]() { return 1; });
     if (!commands.register_command("count", true,
                                    [&count](const Json&, Json& result,
-                                            std::unique_ptr<engine::EditorEdit>& edit, std::string&)
+                                            std::unique_ptr<engine::editor::EditorEdit>& edit,
+                                            std::string&)
                                    {
                                        result = {{"value", count + 1}};
                                        edit = std::make_unique<CountEdit>(count);
                                        return true;
                                    }) ||
-        !commands.register_command(
-            "large", false,
-            [](const Json&, Json& result, std::unique_ptr<engine::EditorEdit>&, std::string&)
-            {
-                result = {{"content", std::string(1024 * 1024, 'x')}};
-                return true;
-            }))
+        !commands.register_command("large", false,
+                                   [](const Json&, Json& result,
+                                      std::unique_ptr<engine::editor::EditorEdit>&, std::string&)
+                                   {
+                                       result = {{"content", std::string(1024 * 1024, 'x')}};
+                                       return true;
+                                   }))
     {
         return false;
     }
     const std::string identity = engine::PathUtils::to_utf8(root);
-    engine::EditorCommandChannel channel(commands, root, identity, "session_a");
+    engine::editor::EditorCommandChannel channel(commands, root, identity, "session_a");
     const auto request = [&](std::string_view id, std::string_view command = "count",
                              std::string_view session = "session_a")
     {

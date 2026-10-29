@@ -4,7 +4,7 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/node.hpp"
 
-namespace engine::script_bindings
+namespace engine::plugins::script::bindings
 {
 namespace
 {
@@ -137,4 +137,4 @@ bool LightBinding::register_functions(v8::Local<v8::Context> context,
            BindingContext::function(context, native, "LightSpot", spot);
 }
 
-} // namespace engine::script_bindings
+} // namespace engine::plugins::script::bindings

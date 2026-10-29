@@ -25,7 +25,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -426,4 +426,4 @@ bool ScenePersistence::register_commands(EditorCommands& commands)
         { return save_scene(world_, project_root_, writer_, arguments, result, error); });
 }
 
-} // namespace engine
+} // namespace engine::editor

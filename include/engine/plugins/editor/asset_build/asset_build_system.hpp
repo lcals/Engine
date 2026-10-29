@@ -7,10 +7,13 @@
 #include <span>
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
-
 class AssetPipelineSystem;
+}
+
+namespace engine::plugins::asset_build
+{
 
 struct ResourceBuildStats
 {
@@ -24,7 +27,7 @@ struct ResourceBuildStats
 class AssetBuildSystem final : public System
 {
 public:
-    explicit AssetBuildSystem(AssetPipelineSystem& pipeline) noexcept;
+    explicit AssetBuildSystem(engine::editor::AssetPipelineSystem& pipeline) noexcept;
     ~AssetBuildSystem() noexcept override;
 
     AssetBuildSystem(const AssetBuildSystem&) = delete;
@@ -44,10 +47,10 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    AssetPipelineSystem& pipeline_; // 借用；先初始化，后关闭。
+    engine::editor::AssetPipelineSystem& pipeline_; // 借用；先初始化，后关闭。
     ResourceBuildStats last_build_;
     std::string last_error_;
     bool building_ = false;
 };
 
-} // namespace engine
+} // namespace engine::plugins::asset_build
