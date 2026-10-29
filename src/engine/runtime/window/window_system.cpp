@@ -86,6 +86,26 @@ SDL_Window* WindowSystem::native_window() const noexcept
     return window_;
 }
 
+bool WindowSystem::key_down(WindowKey key) const noexcept
+{
+    const auto index = static_cast<std::size_t>(key);
+    return index < keys_.size() && keys_[index];
+}
+bool WindowSystem::key_pressed(WindowKey key) const noexcept
+{
+    const auto index = static_cast<std::size_t>(key);
+    return index < pressed_.size() && pressed_[index];
+}
+schema::Vec2 WindowSystem::pointer_delta() const noexcept
+{
+    return pointer_delta_;
+}
+bool WindowSystem::pointer_down(WindowPointerButton button) const noexcept
+{
+    const auto index = static_cast<std::size_t>(button);
+    return index < buttons_.size() && buttons_[index];
+}
+
 bool WindowSystem::on_initialize(const EngineConfig& config)
 {
     if (config.window_title.empty())
@@ -150,10 +170,48 @@ bool WindowSystem::on_tick(double)
         return false;
     }
 
+    pressed_.fill(false);
+    pointer_delta_ = {};
     const SDL_WindowID window_id = SDL_GetWindowID(window_);
     SDL_Event event{};
     while (SDL_PollEvent(&event))
     {
+        if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
+            event.key.windowID == window_id)
+        {
+            constexpr std::array<SDL_Scancode, 6> codes = {SDL_SCANCODE_W,     SDL_SCANCODE_A,
+                                                           SDL_SCANCODE_S,     SDL_SCANCODE_D,
+                                                           SDL_SCANCODE_SPACE, SDL_SCANCODE_TAB};
+            for (std::size_t index = 0; index < codes.size(); ++index)
+            {
+                if (event.key.scancode == codes[index])
+                {
+                    const bool down = event.type == SDL_EVENT_KEY_DOWN;
+                    pressed_[index] = pressed_[index] || (down && !keys_[index]);
+                    keys_[index] = down;
+                }
+            }
+        }
+        if (event.type == SDL_EVENT_MOUSE_MOTION && event.motion.windowID == window_id)
+        {
+            pointer_delta_ = {pointer_delta_.x() + event.motion.xrel,
+                              pointer_delta_.y() + event.motion.yrel};
+        }
+        if ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+             event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+            event.button.windowID == window_id && event.button.button >= 1 &&
+            event.button.button <= 3)
+        {
+            buttons_[event.button.button - 1] = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+        }
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST && event.window.windowID == window_id)
+        {
+            keys_.fill(false);
+            pressed_.fill(false);
+            buttons_.fill(false);
+            pointer_delta_ = {};
+        }
+
         if (event.type == SDL_EVENT_QUIT ||
             (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED && event.window.windowID == window_id))
         {
@@ -171,6 +229,10 @@ bool WindowSystem::on_tick(double)
 
 void WindowSystem::on_shutdown() noexcept
 {
+    keys_.fill(false);
+    pressed_.fill(false);
+    buttons_.fill(false);
+    pointer_delta_ = {};
     if (watching_events_)
     {
         SDL_RemoveEventWatch(watch_application_state, &background_);

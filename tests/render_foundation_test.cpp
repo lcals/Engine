@@ -9,6 +9,7 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/utils/mesh_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <cstdio>
@@ -184,6 +185,125 @@ bool check_mesh(engine::Scene& scene)
                   "removing an unused material slot invalidates its lookup");
 }
 
+bool check_deformation(engine::Scene& scene)
+{
+    auto* node = scene.create_node("Deformed mesh");
+    auto* renderer = node ? node->add_component<engine::MeshRenderer>() : nullptr;
+    if (!expect(renderer && renderer->set_material_count(2), "create deformation owner"))
+    {
+        return false;
+    }
+    const auto* source = renderer->mesh_data();
+    const auto original = *source;
+    const auto source_revision = renderer->mesh_revision();
+    const auto source_instance = renderer->mesh_instance_id();
+    engine::schema::ComponentDataT snapshot;
+    std::vector<engine::Vec4> tangents;
+    auto vertices = source->vertices;
+    if (!expect(renderer->build_data(snapshot) &&
+                    engine::MeshUtils::build_tangents(*source, tangents),
+                "capture bind geometry and persistent identity"))
+    {
+        return false;
+    }
+    for (auto& vertex : vertices)
+    {
+        vertex.mutate_x(vertex.x() + 3.0F);
+    }
+    if (!expect(renderer->set_deformation(vertices, tangents), "accept complete deformed frame"))
+    {
+        return false;
+    }
+    const auto revision = renderer->deformation_revision();
+    const auto first_x = renderer->deformed_vertices().front().x();
+    vertices.front().mutate_x(50.0F);
+    tangents.front().mutate_w(-tangents.front().w());
+    engine::schema::ComponentDataT after;
+    if (!expect(renderer->deformed_vertices().front().x() == first_x &&
+                    renderer->deformed_tangents().front().w() != tangents.front().w(),
+                "deformation owns caller-independent vertex and tangent copies") ||
+        !expect(renderer->mesh_data() == source && *renderer->mesh_data() == original &&
+                    renderer->mesh_revision() == source_revision &&
+                    renderer->mesh_path() == "builtin/meshes/cube" &&
+                    renderer->material_count() == 2,
+                "deformation preserves bind data, GUID ownership and material slots") ||
+        !expect(renderer->build_data(after) && after == snapshot,
+                "persistent snapshot excludes the transient pose"))
+    {
+        return false;
+    }
+    auto invalid = vertices;
+    invalid.pop_back();
+    if (!expect(!renderer->set_deformation(invalid, tangents) &&
+                    !renderer->set_deformation(vertices, {}),
+                "reject mismatched deformation streams"))
+    {
+        return false;
+    }
+    invalid = vertices;
+    invalid.front().mutate_x(std::numeric_limits<float>::quiet_NaN());
+    if (!expect(!renderer->set_deformation(invalid, tangents), "reject nonfinite pose"))
+    {
+        return false;
+    }
+    invalid = vertices;
+    invalid.front().mutate_nx(0);
+    invalid.front().mutate_ny(0);
+    invalid.front().mutate_nz(0);
+    auto invalid_tangents = tangents;
+    invalid_tangents.front().mutate_w(0);
+    if (!expect(!renderer->set_deformation(invalid, tangents) &&
+                    !renderer->set_deformation(vertices, invalid_tangents),
+                "reject zero normals and invalid tangent handedness"))
+    {
+        return false;
+    }
+    invalid_tangents = tangents;
+    invalid_tangents.front() = {vertices.front().nx(), vertices.front().ny(), vertices.front().nz(),
+                                1};
+    if (!expect(!renderer->set_deformation(vertices, invalid_tangents) &&
+                    renderer->deformation_revision() == revision &&
+                    renderer->deformed_vertices().front().x() == first_x,
+                "invalid tangent frame leaves the last complete pose intact") ||
+        !expect(!renderer->set_mesh("project/missing.mesh") &&
+                    renderer->deformation_revision() == revision &&
+                    !renderer->deformed_vertices().empty(),
+                "failed source change retains deformation"))
+    {
+        return false;
+    }
+    renderer->clear_deformation();
+    const auto cleared_revision = renderer->deformation_revision();
+    renderer->clear_deformation();
+    if (!expect(renderer->deformed_vertices().empty() && renderer->deformed_tangents().empty() &&
+                    cleared_revision > revision &&
+                    renderer->deformation_revision() == cleared_revision &&
+                    renderer->mesh_data() == source,
+                "clear restores source geometry and is repeatable") ||
+        !expect(renderer->set_deformation(vertices, tangents) && renderer->restore_data(snapshot) &&
+                    renderer->deformed_vertices().empty(),
+                "restoring persistent data discards transient pose") ||
+        !expect(renderer->set_deformation(vertices, tangents) &&
+                    renderer->set_mesh("builtin/meshes/cube") &&
+                    renderer->deformed_vertices().empty(),
+                "successful source replacement discards transient pose"))
+    {
+        return false;
+    }
+    if (!expect(renderer->set_deformation(vertices, tangents) && renderer->set_mesh_data(quad()) &&
+                    renderer->deformed_vertices().empty() &&
+                    renderer->mesh_instance_id() == source_instance,
+                "dynamic topology replacement discards pose and retains instance identity") ||
+        !node->remove_component(engine::MeshRenderer::component_type))
+    {
+        return false;
+    }
+    renderer = node->add_component<engine::MeshRenderer>();
+    return expect(renderer != nullptr && renderer->mesh_instance_id() != 0 &&
+                      renderer->mesh_instance_id() != source_instance,
+                  "replacement component has distinct identity even on the same node");
+}
+
 bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, bool shared)
 {
     test_support::ResourceFixture fixture;
@@ -255,7 +375,8 @@ int main()
     }
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_camera_and_light(*scene) ||
-        !check_mesh(*scene) || !check_textures(resources, *scene, false))
+        !check_mesh(*scene) || !check_deformation(*scene) ||
+        !check_textures(resources, *scene, false))
     {
         return 1;
     }

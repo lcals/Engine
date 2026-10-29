@@ -6,7 +6,10 @@ endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime window)
-    target_link_libraries(engine_window PRIVATE SDL3::SDL3)
+    target_link_libraries(
+        engine_window
+        PUBLIC engine::scene_data
+        PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
     target_link_libraries(
@@ -38,6 +41,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
                 src/engine/runtime/resource/codecs/texture_resource_codec.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
+                src/engine/runtime/resource/codecs/model_resource_codec.cpp
+                src/engine/runtime/resource/codecs/skeleton_resource_codec.cpp
+                src/engine/runtime/resource/codecs/animation_resource_codec.cpp
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
     target_include_directories(engine_resource PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -55,8 +61,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE src/engine/runtime/scene/component.cpp
                 src/engine/runtime/scene/component_registry.cpp
                 src/engine/runtime/scene/collider.cpp
+                src/engine/runtime/scene/character_motor.cpp
                 src/engine/runtime/scene/rigid_body.cpp
                 src/engine/runtime/scene/audio_source.cpp
+                src/engine/runtime/scene/animator.cpp
+                src/engine/runtime/scene/model_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
                 src/engine/runtime/scene/light.cpp
@@ -80,7 +89,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                                                     RecastNavigation::Detour)
 
     engine_add_system(runtime animation)
-    target_link_libraries(engine_animation PRIVATE ozz_animation)
+    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline ozz_geometry
+                                                   engine::world engine::resource)
     # 上游子项目头文件按第三方处理，保留本项目的严格警告。
     get_target_property(_ozz_include ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
     if(_ozz_include)
@@ -106,7 +116,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_gameplay
         PUBLIC engine::core engine::scene_data
-        PRIVATE engine::world engine::render engine::resource engine::physics engine::audio)
+        PRIVATE engine::world engine::render engine::resource engine::physics engine::audio
+                engine::animation)
     target_link_libraries(engine_gameplay PRIVATE engine::app engine::log
                                                   nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)

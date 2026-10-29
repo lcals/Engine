@@ -15,7 +15,9 @@
 namespace engine
 {
 
-Scene::Scene(ecs_world_t& world, std::uint64_t id, std::string_view name) : world_(world), id_(id)
+Scene::Scene(ecs_world_t& world, std::uint64_t id, std::string_view name,
+             const ComponentRegistry& components)
+    : world_(world), components_(components), id_(id)
 {
     info_.name = name;
 }
@@ -170,11 +172,6 @@ bool Scene::restore_data(const schema::SceneDataT& data)
     {
         return false;
     }
-    ComponentRegistry registry;
-    if (!register_scene_components(registry))
-    {
-        return false;
-    }
     std::set<std::uint64_t> identities;
     for (const auto& source : data.nodes)
     {
@@ -200,7 +197,7 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             Component* restored = node->get_component(component->payload.type);
             if (restored == nullptr)
             {
-                restored = registry.create(component->payload.type, *node);
+                restored = components_.create(component->payload.type, *node);
             }
             if (!restored || !restored->restore_data(*component))
             {

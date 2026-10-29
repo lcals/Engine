@@ -51,6 +51,9 @@ classDiagram
         +vector~Vec4~ tangents
         +vector~Color~ colors
         +vector~MeshSubmesh~ submeshes
+        +string skeleton_guid
+        +vector~SkinInfluence~ skin
+        +vector~float~ mesh_to_skeleton
     }
     class MeshVertex
     class MeshSubmesh {
@@ -218,3 +221,7 @@ classDiagram
 ```
 
 `audio.fbs` 使用 `EAUD` 标识，采样为交错 F32 PCM。采样率、声道、帧数与样本数经过[运行时解码器](resource-codecs.md)校验。资源目录的 `audio` 类型、场景依赖与音源共享引用使用同一 GUID；播放游标、SDL 句柄与瞬态状态不进入模型。
+
+## 模型、骨架与动画
+
+`model.fbs`、`skeleton.fbs`、`animation.fbs` 各自定义独立资源根，标识分别为 EMDL、ESKL、EANI。对象包节点通过 GUID 引用 Mesh/Material，骨架保存关节及逆绑定，动画保存针对骨架索引的 TRS 轨道；详情见[模型资源](model-resources.md)。Mesh 的 SkinInfluence 保存四个 ushort 关节索引及四个 float 权重，mesh_to_skeleton 使用 16 项列主序 float。新数据同样由 flatc 生成 C++/TS，插件和运行时不维护重复持久字段。

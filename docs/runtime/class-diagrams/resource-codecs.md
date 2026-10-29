@@ -19,6 +19,9 @@ classDiagram
         #store(Resource& output, unique_ptr~MaterialDataT~ data) void$
         #store(Resource& output, unique_ptr~TextureDataT~ data) void$
         #store(Resource& output, unique_ptr~AudioClipDataT~ data) void$
+        #store(Resource& output, unique_ptr~ModelDataT~ data) void$
+        #store(Resource& output, unique_ptr~SkeletonDataT~ data) void$
+        #store(Resource& output, unique_ptr~AnimationDataT~ data) void$
         #store(Resource& output, ByteView data) void$
         #valid_path(string_view path) bool$
         #declares(const ResourceCatalog& catalog, const Resource& resource, string_view guid, AssetKind kind) bool$
@@ -47,6 +50,7 @@ classDiagram
     }
     class MeshResourceCodec {
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
         +validate(const MeshDataT& data) bool$
     }
     class TextureResourceCodec {
@@ -92,3 +96,29 @@ classDiagram
 - 内置与项目数据使用同一类型校验。内置注册调用对应解码器的静态 validate；内置读取复制已注册定义，不执行 VFS I/O。
 
 ResourceSystem 在调用类型跨实体校验前统一验证当前目录代际、元数据一致性、直接依赖数量及唯一身份。解码器只校验调用方提供的实体，不读取文件或保留引用；依赖遍历、共享缓存及反向释放继续归运行时资源依赖图插件。
+
+## 模型与动画解码器
+
+```mermaid
+classDiagram
+    class ResourceCodec
+    class ModelResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        +validate(const ModelDataT& data) bool$
+    }
+    class SkeletonResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const SkeletonDataT& data) bool$
+    }
+    class AnimationResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        +validate(const AnimationDataT& data) bool$
+    }
+    ResourceCodec <|-- ModelResourceCodec
+    ResourceCodec <|-- SkeletonResourceCodec
+    ResourceCodec <|-- AnimationResourceCodec
+```
+
+Model 校验层级、变换及声明的 Mesh/Material/Skeleton/Animation GUID；Skeleton 校验有序父索引、关节名称、有限 TRS 与逆绑定矩阵；Animation 校验轨道、严格递增且不超出时长的关键帧，并验证关节索引属于声明骨架。Mesh 的蒙皮数组必须与顶点对应，权重归一、关节索引合法，mesh_to_skeleton 为有效仿射矩阵。所有解码与校验都属于核心单项能力，不调用 ufbx、USD 或离线管线。

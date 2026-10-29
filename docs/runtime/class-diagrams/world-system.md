@@ -8,6 +8,7 @@
 classDiagram
     direction TB
     class WorldSystem {
+        +component_registry() ComponentRegistry&
         <<final>>
         +WorldSystem()
         +~WorldSystem()
@@ -36,6 +37,9 @@ classDiagram
     WorldSystem ..> EngineConfig : on_initialize 参数
     WorldSystem ..> flecs : 编译及链接依赖
     WorldSystem "1" *-- "0..1" ecs_world_t : 拥有ECS 世界
+    class ComponentRegistry
+    WorldSystem *-- ComponentRegistry : 独占组件工厂表
+    WorldSystem --> ComponentRegistry : 返回可写借用供宿主登记
     class ResourceSystem
     class ResourceLoader
     class Scene
@@ -67,3 +71,5 @@ classDiagram
 C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 
 `load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景，失败保留当前场景。
+
+宿主在加载场景前通过 `component_registry()` 登记插件组件；WorldSystem 拥有登记表，Scene 在恢复时借用，不引用具体插件。登记函数地址须保持有效直到世界关闭。

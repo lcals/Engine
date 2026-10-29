@@ -1,0 +1,21 @@
+include "common.fbs";
+namespace engine.schema;
+
+table JointData {
+    name:string (required);
+    parent:int = -1;
+    translation:Vec3 (required, native_inline);
+    rotation:Vec4 (required, native_inline, native_default: "Vec4(0.0, 0.0, 0.0, 1.0)");
+    scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
+    // Column-major inverse bind matrix in skeleton/model space.
+    inverse_bind:[float] (required);
+}
+
+table SkeletonData {
+    schema_version:uint = 1;
+    path:string (required);
+    joints:[JointData] (required);
+}
+
+root_type SkeletonData;
+file_identifier "ESKL";

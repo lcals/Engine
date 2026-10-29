@@ -85,6 +85,9 @@ if(TARGET mcp_app)
     if(NOT TARGET engine_modeling_mcp_tools)
         list(APPEND _script_tooling_options --without-modeling)
     endif()
+    if(NOT TARGET engine_character_controller_mcp_tools)
+        list(APPEND _script_tooling_options --without-character-controller)
+    endif()
     find_package(
         Python3
         COMPONENTS Interpreter
@@ -353,8 +356,11 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
     endif()
 
-    set_tests_properties(engine.dependencies
-                         PROPERTIES ENVIRONMENT "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
+    if(TARGET usd)
+        set_tests_properties(
+            engine.dependencies PROPERTIES ENVIRONMENT
+                                           "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
+    endif()
 
     add_test(
         NAME engine.asset_tools
@@ -366,20 +372,23 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             "${CMAKE_CURRENT_SOURCE_DIR}/asset_tools_test.cmake")
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
 
-    add_executable(engine_tbb_test tbb_test.cpp)
-    target_compile_features(engine_tbb_test PRIVATE cxx_std_20)
-    target_link_libraries(engine_tbb_test PRIVATE TBB::tbb)
-    engine_apply_options(engine_tbb_test)
-    add_test(NAME engine.tbb COMMAND engine_tbb_test)
-    set_tests_properties(engine.tbb PROPERTIES TIMEOUT 60)
+    if(TARGET engine_usd_import)
+        add_executable(engine_tbb_test tbb_test.cpp)
+        target_compile_features(engine_tbb_test PRIVATE cxx_std_20)
+        target_link_libraries(engine_tbb_test PRIVATE TBB::tbb)
+        engine_apply_options(engine_tbb_test)
+        add_test(NAME engine.tbb COMMAND engine_tbb_test)
+        set_tests_properties(engine.tbb PROPERTIES TIMEOUT 60)
 
-    add_executable(engine_usd_test usd_test.cpp)
-    target_compile_features(engine_usd_test PRIVATE cxx_std_20)
-    target_link_libraries(engine_usd_test PRIVATE engine::core usdGeom)
-    engine_apply_options(engine_usd_test)
-    add_test(NAME engine.usd COMMAND engine_usd_test "${CMAKE_CURRENT_BINARY_DIR}/usd-test-output")
-    set_tests_properties(engine.usd PROPERTIES TIMEOUT 60 ENVIRONMENT
-                                               "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
+        add_executable(engine_usd_test usd_test.cpp)
+        target_compile_features(engine_usd_test PRIVATE cxx_std_20)
+        target_link_libraries(engine_usd_test PRIVATE engine::core usdGeom)
+        engine_apply_options(engine_usd_test)
+        add_test(NAME engine.usd COMMAND engine_usd_test
+                                         "${CMAKE_CURRENT_BINARY_DIR}/usd-test-output")
+        set_tests_properties(engine.usd PROPERTIES TIMEOUT 60 ENVIRONMENT
+                                                   "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
+    endif()
 endif()
 
 if(ENGINE_ENABLE_V8)
@@ -532,4 +541,79 @@ if(TARGET engine_asset_pipeline)
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     engine_apply_options(engine_asset_importer_registry_test)
     add_test(NAME editor.asset_importer_registry COMMAND engine_asset_importer_registry_test)
+endif()
+
+if(TARGET engine_animation)
+    add_executable(engine_animation_test animation_test.cpp)
+    target_link_libraries(engine_animation_test PRIVATE engine::animation engine::world
+                                                        engine::resource)
+    engine_apply_options(engine_animation_test)
+    add_test(NAME engine.animation COMMAND engine_animation_test)
+endif()
+if(TARGET engine_fbx_import)
+    add_executable(engine_fbx_pipeline_test fbx_pipeline_test.cpp)
+    target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::fbx_import engine::resource)
+    target_compile_definitions(
+        engine_fbx_pipeline_test
+        PRIVATE
+            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/animation-test/assets/models")
+    engine_apply_options(engine_fbx_pipeline_test)
+    add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
+endif()
+
+if(TARGET engine_editor AND TARGET engine_animation)
+    add_executable(engine_animation_commands_test animation_commands_test.cpp)
+    target_link_libraries(engine_animation_commands_test PRIVATE engine::editor engine::animation
+                                                                 engine::world engine::resource)
+    engine_apply_options(engine_animation_commands_test)
+    add_test(NAME editor.animation_commands COMMAND engine_animation_commands_test)
+endif()
+
+if(TARGET engine_character_controller)
+    add_executable(engine_character_controller_test character_controller_test.cpp)
+    target_link_libraries(engine_character_controller_test PRIVATE engine::character_controller)
+    engine_apply_options(engine_character_controller_test)
+    add_test(NAME engine.character_controller COMMAND engine_character_controller_test)
+endif()
+
+if(TARGET engine_usd_import AND TARGET engine_fbx_import)
+    add_executable(engine_usd_pipeline_test usd_pipeline_test.cpp)
+    target_link_libraries(engine_usd_pipeline_test PRIVATE engine::usd_import engine::fbx_import
+                                                           engine::resource)
+    target_compile_definitions(
+        engine_usd_pipeline_test
+        PRIVATE
+            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/animation-test/assets/models")
+    engine_apply_options(engine_usd_pipeline_test)
+    add_test(NAME editor.usd_pipeline COMMAND engine_usd_pipeline_test)
+endif()
+if(TARGET engine_animation)
+    add_executable(engine_model_resource_test model_resource_test.cpp)
+    target_link_libraries(engine_model_resource_test PRIVATE engine::world engine::resource
+                                                             engine::animation)
+    engine_apply_options(engine_model_resource_test)
+    add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
+endif()
+if(TARGET engine_editor AND TARGET engine_animation)
+    add_executable(engine_model_commands_test model_commands_test.cpp)
+    target_link_libraries(engine_model_commands_test PRIVATE engine::editor engine::world
+                                                             engine::resource engine::animation)
+    engine_apply_options(engine_model_commands_test)
+    add_test(NAME editor.model_commands COMMAND engine_model_commands_test)
+endif()
+
+if(TARGET engine_character_controller_editor AND TARGET engine_editor)
+    add_executable(engine_character_controller_editor_test character_controller_editor_test.cpp)
+    target_link_libraries(engine_character_controller_editor_test
+                          PRIVATE engine::character_controller_editor engine::editor)
+    engine_apply_options(engine_character_controller_editor_test)
+    add_test(NAME editor.character_controller COMMAND engine_character_controller_editor_test)
+endif()
+if(TARGET engine_script AND TARGET engine_animation)
+    add_executable(engine_model_animation_script_test model_animation_script_test.cpp)
+    target_link_libraries(
+        engine_model_animation_script_test PRIVATE engine::script engine::animation engine::world
+                                                   engine::resource engine::app engine::log)
+    engine_apply_options(engine_model_animation_script_test)
+    add_test(NAME engine.model_animation_script COMMAND engine_model_animation_script_test)
 endif()

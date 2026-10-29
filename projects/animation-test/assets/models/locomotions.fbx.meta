@@ -1,0 +1,20 @@
+guid = 'b0ba0001-0000-4000-8000-000000000002'
+importer = 'fbx'
+meta_version = 1
+sample_rate = 30
+skeleton = 'project/models/skeleton.fbx/skeleton'
+
+[[subresources]]
+guid = 'c89b6ae5-e5be-4f8b-86b7-8a2c70063e7b'
+key = 'animations/jog'
+kind = 'animation'
+
+[[subresources]]
+guid = 'ec8bbbda-31de-4970-ae8c-53a13d3dd050'
+key = 'animations/run'
+kind = 'animation'
+
+[[subresources]]
+guid = '6d18edf2-087d-4dbc-85cc-00259847b9ab'
+key = 'animations/walk'
+kind = 'animation'

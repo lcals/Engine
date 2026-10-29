@@ -15,10 +15,13 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
+                src/engine/editor/commands/model_commands.cpp
                 src/engine/editor/commands/components/component_edit.cpp
                 src/engine/editor/commands/components/collider_commands.cpp
                 src/engine/editor/commands/components/rigid_body_commands.cpp
                 src/engine/editor/commands/components/audio_source_commands.cpp
+                src/engine/editor/commands/components/animator_commands.cpp
+                src/engine/editor/commands/components/character_motor_commands.cpp
                 src/engine/editor/commands/components/audio_listener_commands.cpp
                 src/engine/editor/commands/editor_command_channel.cpp)
     target_include_directories(engine_editor PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -66,6 +69,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/components/collider_codec.cpp
                 src/engine/editor/asset_pipeline/components/rigid_body_codec.cpp
                 src/engine/editor/asset_pipeline/components/audio_source_codec.cpp
+                src/engine/editor/asset_pipeline/components/animator_codec.cpp
+                src/engine/editor/asset_pipeline/components/character_motor_codec.cpp
                 src/engine/editor/asset_pipeline/components/audio_listener_codec.cpp
                 src/engine/editor/asset_pipeline/components/camera_codec.cpp
                 src/engine/editor/asset_pipeline/components/light_codec.cpp
@@ -85,7 +90,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         PRIVATE engine::task
                 engine::world
                 engine::resource
-                usd
                 unofficial::sqlite3::sqlite3
                 efsw::efsw
                 basisu::basisu_encoder

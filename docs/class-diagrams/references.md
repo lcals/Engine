@@ -79,6 +79,7 @@ classDiagram
     class RuntimeHost
     class GameplaySession
     class ScriptRuntimeFactory
+    class RuntimeSetup
     class PhysicsSystem
     class AudioSystem
     RuntimeHost --> Engine : 借用框架并注册根系统
@@ -91,6 +92,7 @@ classDiagram
     RuntimeHost --> RenderSystem : 借用并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
+    RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
     GameplaySession --> WorldSystem : 借用并结束场景
@@ -590,6 +592,9 @@ classDiagram
     class SceneImporter
     class SceneComponentCodec
     class ComponentDataT
+    class WorldSystem
+    WorldSystem *-- ComponentRegistry : 独占创建登记
+    WorldSystem --> ComponentRegistry : 宿主登记时借用
     Scene ..> ComponentRegistry : 查询创建函数
     ComponentRegistry ..> Node : 调用泛型组件创建
     Node *-- Component : 独占实例
@@ -703,7 +708,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
 | AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
 | NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
-| AnimationSystem       | ozz-animation                                                                                                                                 | 空骨骼构造和析构                                       |
+| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样、CPU 蒙皮及实例缓存生命周期 |
 | UiSystem              | RmlUi                                                                                                                                         | 运行库版本入口                                         |
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或 V8 链接 |
 | ScriptSystem 插件 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
@@ -714,7 +719,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |
 | SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、Collider、RigidBody、AudioSource、AudioListener、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
 | EditorCommandChannel  | EditorCommands、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                                | 编辑器会话请求、持久回执和重复请求防护                 |
-| AssetPipelineSystem   | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
+| AssetPipelineSystem   | Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
 | AssetBuildSystem      | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++                                                                                  | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录   |
 | AssetSyncSystem       | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils                                                                             | 完整版本校验与原子发布                                 |
 | McpSystem             | System、nlohmann/json、标准函数对象                                                                                                           | stdio 协议、工具注册、参数检查与调用                   |
@@ -722,6 +727,9 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | EditorMcpTools        | McpSystem、ProjectLock、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                        | 编辑器工具注册、跨进程命令提交与回执查询               |
 | TS 构建工具           | Node.js、项目固定版本 TypeScript                                                                                                              | settings 中配置，assets 中源码，cache 中生成物         |
 | 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
+| FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 编辑器格式插件；不进入运行时 |
+| UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 编辑器格式插件；OpenUSD 从基础管线分离 |
+| CharacterControllerSystem | WorldSystem、PhysicsSystem、WindowSystem、CharacterMotor | 运行时插件；输入与相机策略 |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
@@ -918,3 +926,106 @@ classDiagram
 `EditorHost` 表示编辑器入口程序，`MeshSourceWriter` 是 `std::function` 类型别名。宿主提供的闭包借用 ModelingCommands，宿主先释放编辑器命令和持久化回调，再销毁建模对象；ScenePersistence 本身不依赖任何插件类型。
 
 截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影只支持首个启用方向光的单张 PCF 阴影图，不包含级联、点光/聚光阴影或 IBL。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
+
+## 模型格式、统一运行数据与实例化
+
+```mermaid
+classDiagram
+    class AssetPipelineSystem
+    class AssetImporterRegistry
+    class AssetImporter
+    class FbxImporter
+    class UsdImporter
+    class ImportAsset
+    class ImportSubresource
+    class ModelDataT
+    class MeshDataT
+    class SkeletonDataT
+    class AnimationDataT
+    class ufbx
+    class OpenUSD
+    AssetPipelineSystem *-- AssetImporterRegistry : 宿主转交登记实现
+    AssetImporterRegistry *-- AssetImporter : 以源格式 id 独占
+    AssetImporter <|-- FbxImporter
+    AssetImporter <|-- UsdImporter
+    AssetImporter ..> ImportSubresource : 描述稳定 key 与产物 kind
+    AssetPipelineSystem ..> ImportAsset : 填充主子 GUID 及依赖
+    FbxImporter ..> ufbx : 私有编辑器依赖
+    UsdImporter ..> OpenUSD : 私有编辑器依赖
+    FbxImporter ..> ModelDataT : 生成对象包
+    FbxImporter ..> MeshDataT : 生成几何与蒙皮
+    FbxImporter ..> SkeletonDataT : 生成绑定骨架
+    FbxImporter ..> AnimationDataT : 生成采样轨道
+    UsdImporter ..> ModelDataT : 生成静态层级
+    UsdImporter ..> MeshDataT : 生成静态几何
+```
+
+源格式与产物种类独立，FBX/USD 同时输出 `model` 不构成注册冲突。管线负责相邻 meta 的主子身份、缓存与发布；插件只负责源格式语义。路径、类型与 GUID 共用核心目录，运行时和 MCP 不扫描 FBX/USD 内部结构。独立契约见[导入接口](../editor/class-diagrams/asset-importers.md)、[FBX](../plugins/editor/class-diagrams/fbx-importer.md)、[USD](../plugins/editor/class-diagrams/usd-import.md)。
+
+```mermaid
+classDiagram
+    class ResourceCodec
+    class ModelResourceCodec
+    class SkeletonResourceCodec
+    class AnimationResourceCodec
+    class Resource
+    class ResourceLoader
+    class Scene
+    class Node
+    class MeshRenderer
+    class Animator
+    class AnimationSystem
+    class RenderSystem
+    ResourceCodec <|-- ModelResourceCodec
+    ResourceCodec <|-- SkeletonResourceCodec
+    ResourceCodec <|-- AnimationResourceCodec
+    ResourceCodec ..> Resource : 保存并校验统一生成载荷
+    Scene ..> ResourceLoader : 请求模型根与依赖
+    Scene *-- Node : 拥有实例化层级
+    Node *-- MeshRenderer : 普通渲染组件
+    Node *-- Animator : 可选动画组件
+    MeshRenderer o-- Resource : 持有 Mesh 与骨架引用
+    Animator o-- Resource : 持有动画及目标骨架引用
+    AnimationSystem ..> Animator : 读取请求与推进状态
+    AnimationSystem ..> MeshRenderer : 提交当前蒙皮顶点
+    RenderSystem ..> MeshRenderer : 读取普通动态网格
+```
+
+Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型包不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
+
+## 角色控制器与编辑器扩展装配
+
+```mermaid
+classDiagram
+    class RuntimeSetup
+    class WorldSystem
+    class ComponentRegistry
+    class CharacterController
+    class CharacterControllerSystem
+    class CharacterMotor
+    class PhysicsSystem
+    class WindowSystem
+    class CharacterControllerCodec
+    class SceneComponentCodec
+    class EditorSystem
+    class SceneCommands
+    class EditorCommands
+    CharacterControllerSystem ..> ComponentRegistry : 初始化时登记可选组件
+    RuntimeSetup ..> WorldSystem : 宿主附属可选子系统
+    WorldSystem *-- ComponentRegistry : 通用工厂表
+    WorldSystem *-- CharacterControllerSystem : 装配后统一生命周期
+    CharacterControllerSystem ..> CharacterController : 逐节点读取策略设置
+    CharacterControllerSystem ..> CharacterMotor : 提交运动请求
+    CharacterControllerSystem --> PhysicsSystem : 借用碰撞查询
+    CharacterControllerSystem --> WindowSystem : 可空输入借用
+    SceneComponentCodec <|-- CharacterControllerCodec
+    CharacterControllerCodec ..> CharacterController : 复用公开参数校验
+    EditorSystem *-- SceneCommands : 拥有场景身份映射
+    EditorSystem *-- EditorCommands : 拥有事务调度
+```
+
+- `RuntimeSetup` 是可空函数指针别名，运行宿主只调用它，不认识插件；默认空时基础系统照常初始化。宿主在回调内附属可选系统；WorldSystem 初始化基础组件表后，CharacterControllerSystem 在自己的初始化方法中登记可选组件，失败按现有生命周期清理。
+- `WorldSystem::component_registry()` 借出其拥有的通用表；Scene 的恢复只按登记工厂创建，不硬编码角色插件。
+- `SceneComponentCodec` 的公开注册函数由编辑器宿主调用。基础表静态存活，扩展表独占插件 Codec，注册与并行导入不能并发，代码不能在运行中卸载。
+- `EditorSystem::scene_commands()` 返回可空服务借用；插件编辑记录通过 `SceneCommands::node_identity` 共用可撤销节点的当前身份值。该值不是 Node 所有权，历史仍须核验原场景代次。
+- 角色输入/相机策略在[运行时角色插件](../plugins/runtime/class-diagrams/character-controller.md)，胶囊运动在[核心 CharacterMotor](../runtime/class-diagrams/character-motor.md)，TOML、撤销和 MCP 注册在[编辑器角色插件](../plugins/editor/class-diagrams/character-controller.md)。MCP 只把调用送入编辑器主线程。

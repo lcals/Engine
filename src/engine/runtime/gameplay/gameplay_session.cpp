@@ -1,5 +1,6 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 
+#include "runtime/animation/animation_system.hpp"
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 
@@ -600,8 +601,10 @@ struct GameplaySession::State
 };
 
 GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
-                                 PhysicsSystem* physics, AudioSystem* audio) noexcept
-    : world_(world), renderer_(renderer), script_(script), physics_(physics), audio_(audio)
+                                 PhysicsSystem* physics, AudioSystem* audio,
+                                 AnimationSystem* animation) noexcept
+    : world_(world), renderer_(renderer), script_(script), physics_(physics), audio_(audio),
+      animation_(animation)
 {
 }
 
@@ -742,6 +745,10 @@ bool GameplaySession::tick()
 
 void GameplaySession::release_scene() noexcept
 {
+    if (animation_ != nullptr)
+    {
+        animation_->clear();
+    }
     if (audio_ != nullptr)
     {
         audio_->clear();

@@ -114,7 +114,7 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 ### 插件选择
 
-插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph` 与 `script`；建模（包括纯几何）、MCP（包括协议）、资源构建与同步均属于编辑器插件。
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和 FBX/USD 格式导入均属于编辑器插件。
 
 例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
 
@@ -309,6 +309,11 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 | `set_audio_source` / `get_audio_source` | `sceneId`、`nodeId`；添加/编辑或查询 clip 路径、音量、音调、循环和空间衰减 |
 | `set_audio_listener` / `get_audio_listener` | `sceneId`、`nodeId`；添加/编辑或查询监听器音量 |
 | `play_audio` / `pause_audio` / `stop_audio` / `get_audio_state` | `sceneId`、`nodeId`；播放控制或状态查询，不可撤销 |
+| `instantiate_model` | `sceneId`、`path`、`name`；从对象包创建节点层级，支持撤销重做 |
+| `set_animator` / `get_animator` | `sceneId`、`nodeId`；配置独立动画资源、速度、循环及自动播放，或查询配置 |
+| `play_animation` / `pause_animation` / `stop_animation` / `seek_animation` / `get_animation_state` | `sceneId`、`nodeId`；播放、保留姿态暂停、恢复静态网格停止、按 `seconds` 定位或查询状态 |
+| `set_character_motor` / `get_character_motor` | `sceneId`、`nodeId`；配置或查询核心胶囊角色运动组件 |
+| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询第一／第三人称输入与相机策略，仅启用对应编辑器插件时注册 |
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
@@ -407,7 +412,7 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 ### 组件、数据模型与资源扩展
 
 - Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光、网格、碰撞体、刚体、音源与监听器也都是组件。
-- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
 - 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
 - ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
@@ -458,9 +463,53 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 `GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
-`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮，模型格式导入尚未实现；未配置专用导入器的原始文件按字节缓存。
+`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮；FBX/USD 模型格式由可选编辑器插件导入，未配置专用导入器的普通源文件按字节缓存。已有格式 meta 与当前导入器不匹配时明确失败，不能把已导入模型静默改成普通字节资源。
 
-各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-6` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
+各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-7` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
+
+### FBX / USD 对象包导入
+
+格式解析属于编辑器插件，运行包只读取统一生成资源。`ENGINE_EDITOR_PLUGINS` 分别选择 `fbx_import` / `usd_import`；宿主通过 `AssetPipelineSystem::add_importer` 注册新 id。已有 Mesh 建模转换通过 `set_importer` 替换同一 id；源格式 id 与产物 AssetKind 分开，所以多个格式均可输出 Model。
+
+| 范围 | 职责 |
+| --- | --- |
+| C++ 运行时核心 | Model/Mesh/Skeleton/Animation 的 FlatBuffers Schema 与单项 ResourceCodec、Scene 实例化、Animator 与 AnimationSystem；核心不读取 FBX/USD 源文件 |
+| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、Taskflow、SQLite、独立缓存与原子目录发布 |
+| 编辑器格式插件 | ufbx/OpenUSD 解析、源格式设置、子对象枚举、坐标转换与运行数据生成，各插件单独声明依赖 |
+| MCP | 使用现有资源导入、打包、同步命令及模型实例化/动画控制命令；协议层不复制模型解析、骨骼采样或场景业务 |
+
+一个 FBX/USD 源的 `.meta` 保存主 GUID 和 `[[subresources]]` 的 `key/kind/guid`。主 Model 保存节点层级及 Mesh/Material/Skeleton/Animation 引用，每个子资源有独立 `cache/gen/<完整GUID>`，无后缀。逻辑路径为 `project/models/person.fbx/meshes/<节点层级>`、`.../skeleton`、`.../animations/<动作名>`；USD 网格使用 `.../meshes/<Prim 路径>`。暂时消失的子资源保留 meta 身份以供再次出现时复用，活跃与保留 GUID 均参与冲突检查。
+
+- FBX 插件使用 MIT 许可的 ufbx v0.23.1，固定提交 `26a482ae66871d7de36eb722aa060bce95bce274`。将坐标统一为米和右手 Y-up，保留根变换；网格包含角点拆分后的 UV、顶点色与最高四项归一化蒙皮权重，骨架包含逆绑定矩阵，动画按 meta 的 `sample_rate`（默认 30）采样。仅支持线性/刚性蒙皮，双四元数、混合形状和几何缓存明确失败；源材质和贴图尚未转换，使用内置 PBR 材质，场景可覆盖项目材质。
+- FBX 动画源可在 meta 用 `skeleton = "project/models/person.fbx/skeleton"` 指定另一个 FBX 骨架；空值为本源独立骨架。外部动画按完整节点层级对应关节，必要加权骨骼或祖先缺失返回失败，未动画的可选末端保持绑定姿态。示例 `projects/animation-test` 使用可再分发的 PAB 模型和 jog/run/walk 动作，来源和许可保存在项目内。
+- USD 插件独立引入 `usd-import` vcpkg feature。当前只接受自包含的静态 Xform/Scope/Mesh，网格要求 `subdivisionScheme = "none"`、三角形或凸且共面的多边形；世界变换烘焙入顶点，生成平面法线和内置 PBR。外部 layer/reference/payload（包括缺失引用）、动画、实例、细分、洞、未知几何及 Material/Shader 节点明确拒绝。此范围不代表完整 USD 场景导入。
+
+后续格式增加自己的编辑器插件、独立 CMake 清单及 `AssetImporter::id/matches/discover/convert` 实现即可。`discover` 只描述稳定子资源 key 和类型，GUID 分配与发布仍由管线处理。尽量输出已有运行 Schema；新增运行语义时先评审 Schema/ResourceCodec 契约，再增加核心单项能力，不把源格式 SDK 或编辑器设置传入运行时。类图见 [FBX](docs/plugins/editor/class-diagrams/fbx-importer.md)、[USD](docs/plugins/editor/class-diagrams/usd-import.md)和[模型资源](docs/runtime/class-diagrams/model-resources.md)。
+
+### 动画与第一／第三人称测试场景
+
+`projects/animation-test` 包含地面、障碍、台阶、灯光、带物理的 Player 节点和 PAB 动画角色。完整引擎桌面预设默认装配 FBX 导入与角色控制器；显式选择插件时需要 `runtime/resource_graph`、`runtime/script`、`runtime/character_controller` 及相应编辑器导入、控制器与 MCP 插件。
+
+```sh
+npm ci --prefix projects/animation-test/settings
+cmake --preset ninja-engine-debug
+cmake --build --preset ninja-engine-debug
+./build/ninja-engine-debug/editor_app --project projects/animation-test --runtime-dir build/animation-runtime
+```
+
+编辑器待机后，在另一终端启动项目：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/animation-test --runtime-dir build/animation-runtime start
+```
+
+聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称临时隐藏自身模型，切回恢复；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
+
+`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动；输入和相机策略属于可选 `character_controller` 运行时插件。模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
+
+示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
+
+组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前登记组件和追加可选子系统；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
 
 ### 资源运行包
 
@@ -575,17 +624,21 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-10-30，物理、音频、资源导入和公寓示例已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-10-30，物理、音频、模型导入、动画和角色控制器已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
 | 环境 | 已验证范围 |
 | --- | --- |
-| macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过，各覆盖 61 项 CTest。Debug 全量运行后更新两处新增功能的旧预期，并复跑 13 项受影响测试；Release 分 56 项非窗口与 5 项窗口测试执行，全部通过 |
+| macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过，Release 全量 70 项 CTest 通过；Debug 先运行 68 项，修复后 4 项复测通过，新增 2 项单独通过，累计覆盖 70 项。法线及第一人称遮挡修正后，两配置各 13 项受影响测试及额外 FBX 参数校验回归通过 |
 | macOS Metal 公寓 | 330 节点、77 碰撞体；小球落地、施加冲量后再次落地；默认 SDL 设备播放、暂停、续播、停止、调整音量和项目重启；真实渲染截图保存成功 |
 | Android ARM64 / API 34 软件 Vulkan 模拟器 | 新增物理音频功能的 Debug APK 编译、安装和哈希核对通过；落球、音频状态、三次前后台、有限帧退出、冷重启、包含音频的 MCP 合并包同步及持久版本启动通过 |
+| Android 模型动画 / 角色控制器 | Debug APK 的 14 个实体与最新缓存逐字节匹配，人体 Mesh 与桌面相同；真实动画像素变化、移动、跳跃落地、视角切换、两次前后台、360 帧释放退出、冷启动及 MCP 合并包同步通过 |
 | 既有精简插件与 Android Release | 前次模块分层验证中，关闭脚本/V8/建模的桌面 Release 47 项测试通过，Android Debug / Release 完成资源目录和生命周期验证；本次物理音频未重建 Android Release APK |
-| Windows / Linux / iOS / Android 实体设备 | 未验证本次物理音频功能的端到端运行 |
+| 精简插件装配 | 关闭全部插件的 engine_app、关闭编辑器与 V8 的 pipeline-only asset_build_app 均实际编译、链接及启动帮助命令成功；检查链接命令与依赖边界，无反向链接 |
+| Windows / Linux / iOS / Android 实体设备 | 未验证本次新增功能的端到端运行 |
 
-架构检查覆盖源码包含方向和实际 CMake 目标的直接、传递链接；核心、编辑器和插件保持单向依赖。68 个新增或修改的自有 C++ 文件与 5 个 CMake 文件通过格式检查，127 块 Mermaid 图解析、渲染通过，变更文档的相对链接有效。
+架构检查覆盖源码包含方向和实际 CMake 目标的直接、传递链接；核心、编辑器和插件保持单向依赖。本轮 120 个新增或修改的自有 C++ 文件、17 个 CMake 文件、3 个 Python 文件和 2 个 TypeScript 文件按仓库规则格式化；145 块 Mermaid 图解析、渲染通过，41 份变更文档的相对链接有效。
+
+动画与对象包回归覆盖子资源身份稳定、增量导入、非法输入保留旧缓存、独立骨架映射、播放/暂停/停止/定位、模型实例化失败清理与撤销重做。FBX 源法线保留与显式重算均有回归；USD 限定范围的导入和拒绝路径独立测试。窗口测试比较真实变形网格与等价静态网格的主画面及阴影，检查瞬态隐藏/恢复与 GPU 资源释放。桌面通过 MCP 运行真实 PAB 模型的 169 节点场景，比较两个采样时刻的实际像素，切换视角并停止、重新启动。
 
 物理回归覆盖盒/球/胶囊接触、静态/运动学/动态体、固定步进、单次冲量、触发器、父变换约束、极小尺度、旋转奇异角度以及清理恢复。音频回归覆盖 WAV/meta 增量导入、损坏输入保留旧缓存、PCM 实体校验、多个声源、循环、暂停、修改参数、组件删除、换场景和释放；自动化输出使用 SDL dummy。MCP 在真实编辑器中完成添加组件、方块落地、音频控制、场景保存、重新导入和再次启动；组件历史测试覆盖批量回滚、无效参数原子性和节点重建后的身份关联。
 
@@ -595,14 +648,19 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 
 验证记录和截图位于忽略的 `build/physics-audio-*.log`、`build/physics-audio-apartment/`、`build/physics-audio-android/` 与 `build/plugin-layout-validation/`。Android 测试结束恢复资源版本指针并清理测试版本，只关闭本次启动的独立模拟器；已有模拟器和编辑器保持不动。验证产物不提交，桌面复跑入口保留在 Presets、`tests/` 和公寓示例脚本。
 
+模型与动画的本机验证记录位于忽略的 `build/animation-*.log`、`build/animation-playground/` 和 `build/model-animation-android/`。桌面实景截图保存到 `projects/animation-test/cache/screenshots/`，不提交生成缓存。
+
+动画 Android 包包含 Model、Skeleton、Animation 实体及 ozz 蒙皮和运行时控制器；包内容检查未发现编辑器、MCP、FBX/USD 导入实现。MCP 同步核对设备文件和 active/available 版本回执，测试结束恢复原版本指针。此轮只使用独立测试模拟器，不修改其他已运行模拟器。Android 新增动画与控制器仅验证 Debug/API 34 ARM64 模拟器，未重建 Release 或验证实体机。
+
 限制：
 
 - Android APK 均为本机调试签名。16 KiB ZIP 对齐通过，但 SDL3 ELF LOAD 仍为 4 KiB 对齐，不能据此宣称支持完整的 16 KiB 内存页设备。
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画新增范围见 Animator 与 FBX 对象包模块，导航请求、游戏 UI 与完整编辑器界面未实现。
 - 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
+- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画采用 CPU 蒙皮，尚未实现状态机混合、Root Motion、IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
 ## 目录

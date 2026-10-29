@@ -6,6 +6,7 @@
 #include "runtime/scene/audio_listener.hpp"
 #include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/rigid_body.hpp"
@@ -560,7 +561,7 @@ export default class extends Gameplay {
 bool run_physics_audio_binding_cases(const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
-import { Gameplay, Scene, Component, Collider, RigidBody, AudioSource, AudioListener } from 'engine';
+import { Gameplay, Scene, Component, Collider, RigidBody, CharacterMotor, AudioSource, AudioListener } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Create('physics-audio-bindings');
@@ -571,6 +572,15 @@ export default class extends Gameplay {
         const body = node.AddComponent(RigidBody);
         const audio = node.AddComponent(AudioSource);
         const listener = listenerNode.AddComponent(AudioListener);
+        const motor = listenerNode.AddComponent(CharacterMotor);
+        if (!motor || !(motor instanceof Component) ||
+            !(listenerNode.GetComponent(CharacterMotor) instanceof CharacterMotor) ||
+            motor.SetCapsule(-1, .5) || motor.SetSlopeLimit(90) || motor.SetStepHeight(-1) ||
+            motor.SetGroundSnapDistance(Infinity) || motor.SetGravityFactor(-1) ||
+            motor.SetVelocity(NaN, 0) || motor.Jump(5) || motor.grounded ||
+            !motor.SetCapsule(.4, .7) || !motor.SetSlopeLimit(45) || !motor.SetStepHeight(.25) ||
+            !motor.SetGroundSnapDistance(.15) || !motor.SetGravityFactor(1) ||
+            !motor.SetVelocity(2, -3) || motor.GetVelocity()?.y !== 0) return false;
         if (!collider || !body || !audio || !listener || !(collider instanceof Component) ||
             !(node.GetComponent(RigidBody) instanceof RigidBody) ||
             !(node.GetComponent(AudioSource) instanceof AudioSource) ||
@@ -602,7 +612,9 @@ export default class extends Gameplay {
         const staleBody = temporary?.AddComponent(RigidBody);
         const staleAudio = temporary?.AddComponent(AudioSource);
         const staleListener = temporary?.AddComponent(AudioListener);
-        if (!staleCollider || !staleBody || !staleAudio || !staleListener || !temporary.Destroy() ||
+        const staleMotor = temporary?.AddComponent(CharacterMotor);
+        if (!staleCollider || !staleBody || !staleAudio || !staleListener || !staleMotor || !temporary.Destroy() ||
+            staleMotor.GetVelocity() !== null || staleMotor.grounded || staleMotor.SetVelocity(1, 0) ||
             staleCollider.SetSphere(1) || staleBody.GetVelocity() !== null ||
             staleAudio.Play() || staleAudio.playback !== null || staleAudio.isPlaying ||
             staleListener.SetVolume(1)) return false;
@@ -639,8 +651,9 @@ export default class extends Gameplay {
     const auto* body = emitter->get_component<engine::RigidBody>();
     const auto* source_component = emitter->get_component<engine::AudioSource>();
     const auto* listener = scene->nodes().back()->get_component<engine::AudioListener>();
+    const auto* motor = scene->nodes().back()->get_component<engine::CharacterMotor>();
     if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
-                    listener != nullptr &&
+                    listener != nullptr && motor != nullptr && motor->settings().radius == .4F &&
                     collider->settings().shape == engine::schema::ColliderShape::box &&
                     body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
                     source_component->clip_data() != nullptr && source_component->settings().loop &&

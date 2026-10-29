@@ -1,10 +1,12 @@
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
+#include "plugins/runtime/script/bindings/animator_binding.hpp"
 
 #include "plugins/runtime/script/bindings/app_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_source_binding.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/script/bindings/camera_binding.hpp"
+#include "plugins/runtime/script/bindings/character_motor_binding.hpp"
 #include "plugins/runtime/script/bindings/collider_binding.hpp"
 #include "plugins/runtime/script/bindings/component_binding.hpp"
 #include "plugins/runtime/script/bindings/debug_binding.hpp"
@@ -35,8 +37,8 @@ bool ScriptBindingRegistry::initialize()
         !add<TimeBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||
         !add<ComponentBinding>() || !add<TransformBinding>() || !add<CameraBinding>() ||
         !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>() ||
-        !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<AudioSourceBinding>() ||
-        !add<AudioListenerBinding>())
+        !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() ||
+        !add<AudioSourceBinding>() || !add<AudioListenerBinding>() || !add<AnimatorBinding>())
     {
         bindings_.clear();
         return false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
+#include "editor/asset_pipeline/toml_helpers.hpp"
 
 namespace engine::editor::asset_pipeline
 {

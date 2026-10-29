@@ -1,5 +1,6 @@
 #include "runtime/physics/physics_system.hpp"
 
+#include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
@@ -13,6 +14,10 @@
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Character/CharacterVirtual.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -308,6 +313,46 @@ JPH::EMotionType motion_type(schema::BodyMotion motion)
     return JPH::EMotionType::Static;
 }
 
+class SolidBodyFilter final : public JPH::BodyFilter
+{
+public:
+    bool ShouldCollideLocked(const JPH::Body& body) const override
+    {
+        return !body.IsSensor();
+    }
+};
+
+struct CharacterSnapshot
+{
+    std::uint64_t node_id = 0;
+    std::uint64_t instance_id = 0;
+    schema::CharacterMotorDataT settings;
+    JPH::Vec3 position = JPH::Vec3::sZero();
+};
+
+bool read_character(const Node& node, const CharacterMotor& motor, CharacterSnapshot& output)
+{
+    const auto* transform = node.get_component<Transform>();
+    const auto* collider = node.get_component<Collider>();
+    const auto* rigid = node.get_component<RigidBody>();
+    if (node.parent() != nullptr || transform == nullptr ||
+        (collider != nullptr && collider->enabled()) || (rigid != nullptr && rigid->enabled()) ||
+        !CharacterMotor::valid_settings(motor.settings()))
+    {
+        return false;
+    }
+    const auto& pose = transform->settings();
+    if (pose.scale != Vec3(1, 1, 1) || pose.rotation.x() != 0.0 || pose.rotation.z() != 0.0 ||
+        !finite(vector(pose.position)) || vector(pose.position).Abs().ReduceMax() > 10000000.0F)
+    {
+        return false;
+    }
+    output.node_id = node.id();
+    output.settings = motor.settings();
+    output.position = vector(pose.position);
+    return true;
+}
+
 struct BodySnapshot
 {
     std::uint64_t node_id = 0;
@@ -417,6 +462,12 @@ struct PhysicsSystem::State
         JPH::BodyID body;
     };
 
+    struct CharacterEntry
+    {
+        CharacterSnapshot snapshot;
+        JPH::Ref<JPH::CharacterVirtual> character;
+    };
+
     BroadPhaseLayers layers;
     BroadPhaseFilter broad_filter;
     ObjectFilter object_filter;
@@ -424,11 +475,15 @@ struct PhysicsSystem::State
     JPH::JobSystemSingleThreaded jobs;
     JPH::PhysicsSystem physics;
     std::map<std::uint64_t, Entry> bodies;
+    JPH::CharacterVsCharacterCollisionSimple character_collisions;
+    std::map<std::uint64_t, CharacterEntry> characters;
     std::uint64_t scene_id = 0;
     double accumulated = 0.0;
 
     void clear() noexcept
     {
+        character_collisions.mCharacters.clear();
+        characters.clear();
         auto& interface = physics.GetBodyInterface();
         for (const auto& [id, entry] : bodies)
         {
@@ -511,6 +566,81 @@ struct PhysicsSystem::State
         }
         return true;
     }
+    bool synchronize_characters(const std::vector<CharacterSnapshot>& snapshots)
+    {
+        std::set<std::uint64_t> retained;
+        for (const auto& snapshot : snapshots)
+        {
+            retained.insert(snapshot.node_id);
+        }
+        for (auto iterator = characters.begin(); iterator != characters.end();)
+        {
+            if (!retained.contains(iterator->first))
+            {
+                character_collisions.Remove(iterator->second.character.GetPtr());
+                iterator = characters.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+        for (const auto& snapshot : snapshots)
+        {
+            auto found = characters.find(snapshot.node_id);
+            if (found == characters.end() || found->second.snapshot.settings != snapshot.settings ||
+                found->second.snapshot.instance_id != snapshot.instance_id)
+            {
+                if (found != characters.end())
+                {
+                    character_collisions.Remove(found->second.character.GetPtr());
+                    characters.erase(found);
+                }
+                const auto& settings = snapshot.settings;
+                auto capsule =
+                    JPH::CapsuleShapeSettings(settings.half_height, settings.radius).Create();
+                if (capsule.HasError() || !capsule.IsValid())
+                {
+                    return false;
+                }
+                auto shape = JPH::RotatedTranslatedShapeSettings(
+                                 JPH::Vec3(0, settings.radius + settings.half_height, 0),
+                                 JPH::Quat::sIdentity(), capsule.Get().GetPtr())
+                                 .Create();
+                if (shape.HasError() || !shape.IsValid())
+                {
+                    return false;
+                }
+                JPH::CharacterVirtualSettings configuration;
+                configuration.mShape = shape.Get();
+                configuration.mMaxSlopeAngle =
+                    settings.max_slope_degrees * std::numbers::pi_v<float> / 180.0F;
+                configuration.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -settings.radius);
+                CharacterEntry entry;
+                entry.snapshot = snapshot;
+                entry.character =
+                    new JPH::CharacterVirtual(&configuration, JPH::RVec3(snapshot.position),
+                                              JPH::Quat::sIdentity(), snapshot.node_id, &physics);
+                entry.character->SetCharacterVsCharacterCollision(&character_collisions);
+                character_collisions.Add(entry.character.GetPtr());
+                found = characters.emplace(snapshot.node_id, std::move(entry)).first;
+                found->second.character->RefreshContacts(
+                    physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                    physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
+            }
+            else if (!found->second.character->GetPosition().IsClose(JPH::RVec3(snapshot.position),
+                                                                     1.0e-10F))
+            {
+                found->second.character->SetPosition(JPH::RVec3(snapshot.position));
+                found->second.character->SetLinearVelocity(JPH::Vec3::sZero());
+                found->second.character->RefreshContacts(
+                    physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                    physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
+            }
+            found->second.snapshot = snapshot;
+        }
+        return true;
+    }
 };
 
 PhysicsSystem::PhysicsSystem(WorldSystem* world) noexcept : world_(world)
@@ -545,6 +675,19 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
 
 void PhysicsSystem::clear() noexcept
 {
+    if (auto* scene = world_ != nullptr ? world_->scene() : nullptr)
+    {
+        for (const auto& node : scene->nodes())
+        {
+            if (auto* motor = node->get_component<CharacterMotor>())
+            {
+                motor->desired_velocity_ = {};
+                motor->velocity_ = {};
+                motor->pending_jump_ = 0.0F;
+                motor->grounded_ = false;
+            }
+        }
+    }
     if (state_)
     {
         state_->clear();
@@ -554,6 +697,43 @@ void PhysicsSystem::clear() noexcept
 std::size_t PhysicsSystem::body_count() const noexcept
 {
     return state_ ? state_->bodies.size() : 0;
+}
+
+std::size_t PhysicsSystem::character_count() const noexcept
+{
+    return state_ ? state_->characters.size() : 0;
+}
+
+bool PhysicsSystem::cast_sphere(const Vec3& origin, const Vec3& displacement, float radius,
+                                float& fraction) const
+{
+    fraction = 0.0F;
+    const auto position = vector(origin);
+    const auto direction = vector(displacement);
+    if (!state_ || !finite(position) || !finite(direction) ||
+        position.Abs().ReduceMax() > 10000000.0F || direction.Abs().ReduceMax() > 100000.0F ||
+        !std::isfinite(radius) || radius < 0.0001F || radius > 1000.0F)
+    {
+        return false;
+    }
+    const auto shape = JPH::SphereShapeSettings(radius).Create();
+    if (shape.HasError() || !shape.IsValid())
+    {
+        return false;
+    }
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    JPH::ShapeCastSettings settings;
+    settings.mReturnDeepestPoint = true;
+    settings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
+    const auto cast = JPH::RShapeCast::sFromWorldTransform(
+        shape.Get().GetPtr(), JPH::Vec3::sOne(), JPH::RMat44::sTranslation(JPH::RVec3(position)),
+        direction);
+    state_->physics.GetNarrowPhaseQuery().CastShape(
+        cast, settings, JPH::RVec3::sZero(), collector,
+        state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+        state_->physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{});
+    fraction = collector.HadHit() ? std::clamp(collector.mHit.mFraction, 0.0F, 1.0F) : 1.0F;
+    return true;
 }
 
 bool PhysicsSystem::on_tick(double delta_time)
@@ -574,8 +754,32 @@ bool PhysicsSystem::on_tick(double delta_time)
         state_->scene_id = scene->id();
     }
     std::vector<BodySnapshot> snapshots;
+    std::vector<CharacterSnapshot> character_snapshots;
     for (const auto& node : scene->nodes())
     {
+        if (auto* motor = node->get_component<CharacterMotor>())
+        {
+            if (motor->enabled() && active_transform(*node))
+            {
+                CharacterSnapshot snapshot;
+                if (!read_character(*node, *motor, snapshot))
+                {
+                    std::fputs("Physics rejects character pose or conflicting body components\n",
+                               stderr);
+                    clear();
+                    return false;
+                }
+                snapshot.instance_id = motor->instance_id_;
+                character_snapshots.push_back(std::move(snapshot));
+            }
+            else
+            {
+                motor->desired_velocity_ = {};
+                motor->velocity_ = {};
+                motor->pending_jump_ = 0.0F;
+                motor->grounded_ = false;
+            }
+        }
         const auto* collider = node->get_component<Collider>();
         auto* rigid_body = node->get_component<RigidBody>();
         if (collider == nullptr || !collider->enabled() ||
@@ -610,7 +814,8 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         snapshots.push_back(std::move(snapshot));
     }
-    if (snapshots.size() > maximum_bodies || !state_->synchronize(snapshots))
+    if (snapshots.size() + character_snapshots.size() > maximum_bodies ||
+        !state_->synchronize(snapshots) || !state_->synchronize_characters(character_snapshots))
     {
         clear();
         return false;
@@ -634,6 +839,46 @@ bool PhysicsSystem::on_tick(double delta_time)
     for (unsigned int step = 0; step < maximum_steps && state_->accumulated + 1.0e-12 >= fixed_step;
          ++step)
     {
+        // 复用 Jolt CharacterVirtualTest 的速度/地面逻辑与 ExtendedUpdate 台阶求解。
+        // 来源 Jolt Physics v5.4.0, Jorrit Rouwe, MIT。
+        for (auto& [id, entry] : state_->characters)
+        {
+            auto* node = scene->find_node(id);
+            auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
+            if (motor == nullptr)
+            {
+                clear();
+                return false;
+            }
+            auto& character = *entry.character;
+            character.UpdateGroundVelocity();
+            const auto ground_velocity = character.GetGroundVelocity();
+            const bool on_ground =
+                character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+            const bool toward_ground =
+                character.GetLinearVelocity().GetY() - ground_velocity.GetY() < 0.1F;
+            JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
+            if (on_ground && toward_ground)
+            {
+                velocity = ground_velocity;
+                if (motor->pending_jump_ > 0.0F)
+                {
+                    velocity += JPH::Vec3(0, motor->pending_jump_, 0);
+                }
+            }
+            motor->pending_jump_ = 0.0F;
+            const auto gravity = state_->physics.GetGravity() * motor->settings().gravity_factor;
+            velocity += gravity * static_cast<float>(fixed_step) + vector(motor->desired_velocity_);
+            character.SetLinearVelocity(velocity);
+            JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+            settings.mStickToFloorStepDown =
+                JPH::Vec3(0, -motor->settings().ground_snap_distance, 0);
+            settings.mWalkStairsStepUp = JPH::Vec3(0, motor->settings().step_height, 0);
+            character.ExtendedUpdate(static_cast<float>(fixed_step), gravity, settings,
+                                     state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                                     state_->physics.GetDefaultLayerFilter(moving_layer),
+                                     SolidBodyFilter{}, {}, state_->allocator);
+        }
         if (state_->physics.Update(static_cast<float>(fixed_step), 1, &state_->allocator,
                                    &state_->jobs) != JPH::EPhysicsUpdateError::None)
         {
@@ -642,6 +887,30 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         state_->accumulated = std::max(0.0, state_->accumulated - fixed_step);
         advanced = true;
+    }
+    for (auto& [id, entry] : state_->characters)
+    {
+        auto* node = scene->find_node(id);
+        auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
+        auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
+        if (motor == nullptr || transform == nullptr)
+        {
+            clear();
+            return false;
+        }
+        auto pose = transform->settings();
+        pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
+        if (!transform->set_settings(pose))
+        {
+            clear();
+            return false;
+        }
+        motor->velocity_ = vector(entry.character->GetLinearVelocity());
+        motor->grounded_ =
+            entry.character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround &&
+            entry.character->GetLinearVelocity().GetY() -
+                    entry.character->GetGroundVelocity().GetY() <
+                0.1F;
     }
     for (auto& [id, entry] : state_->bodies)
     {

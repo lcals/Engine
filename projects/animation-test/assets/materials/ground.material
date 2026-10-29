@@ -1,0 +1,13 @@
+shader = "00000000-0000-4000-8000-000000000001"
+[[parameters]]
+name = "baseColor"
+type = "v4"
+value = [0.13, 0.2, 0.25, 1]
+[[parameters]]
+name = "metallic"
+type = "float"
+value = 0.05
+[[parameters]]
+name = "roughness"
+type = "float"
+value = 0.8

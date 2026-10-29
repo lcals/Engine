@@ -4,6 +4,8 @@
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <cmath>
 #include <limits>
 #include <new>
 #include <string>
@@ -13,6 +15,20 @@ namespace engine
 {
 namespace
 {
+
+std::uint64_t next_mesh_instance_id() noexcept
+{
+    static std::atomic<std::uint64_t> sequence{0};
+    auto current = sequence.load(std::memory_order_relaxed);
+    while (current != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
+        {
+            return current + 1;
+        }
+    }
+    return 0;
+}
 
 std::size_t required_materials(const schema::MeshDataT& data) noexcept
 {
@@ -34,13 +50,30 @@ schema::ComponentDataT make_mesh_renderer_data()
 
 } // namespace
 
-MeshRenderer::MeshRenderer(Node& node) : Component(node, make_mesh_renderer_data())
+MeshRenderer::MeshRenderer(Node& node)
+    : Component(node, make_mesh_renderer_data()), mesh_instance_id_(next_mesh_instance_id())
 {
+}
+
+std::uint64_t MeshRenderer::mesh_instance_id() const noexcept
+{
+    return mesh_instance_id_;
+}
+
+bool MeshRenderer::visible() const noexcept
+{
+    return visible_;
+}
+
+void MeshRenderer::set_visible(bool visible) noexcept
+{
+    visible_ = visible;
 }
 
 bool MeshRenderer::initialize()
 {
-    return set_mesh("builtin/meshes/cube") && material_.set_type("builtin/materials/default-pbr");
+    return mesh_instance_id_ != 0 && set_mesh("builtin/meshes/cube") &&
+           material_.set_type("builtin/materials/default-pbr");
 }
 
 std::string_view MeshRenderer::mesh_path() const noexcept
@@ -64,6 +97,7 @@ bool MeshRenderer::set_mesh(std::string_view path)
     mutable_data().payload.AsMeshRendererData()->mesh_guid = std::move(guid);
     mesh_resource_ = std::move(replacement);
     dynamic_mesh_.reset();
+    clear_deformation();
     ++mesh_revision_;
     return true;
 }
@@ -82,6 +116,7 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     dynamic_mesh_ = std::move(replacement);
     mesh_resource_.reset();
     mutable_data().payload.AsMeshRendererData()->mesh_guid.clear();
+    clear_deformation();
     ++mesh_revision_;
     return true;
 }
@@ -94,6 +129,78 @@ const schema::MeshDataT* MeshRenderer::mesh_data() const noexcept
 std::uint64_t MeshRenderer::mesh_revision() const noexcept
 {
     return mesh_revision_;
+}
+
+bool MeshRenderer::set_deformation(std::span<const schema::MeshVertex> vertices,
+                                   std::span<const Vec4> tangents)
+{
+    const auto* source = mesh_data();
+    if (source == nullptr || vertices.size() != source->vertices.size() || vertices.empty() ||
+        tangents.size() != vertices.size() ||
+        deformation_revision_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < vertices.size(); ++index)
+    {
+        const auto& vertex = vertices[index];
+        const auto& tangent = tangents[index];
+        const auto valid = [](double value)
+        { return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max(); };
+        if (!valid(vertex.x()) || !valid(vertex.y()) || !valid(vertex.z()) || !valid(vertex.nx()) ||
+            !valid(vertex.ny()) || !valid(vertex.nz()) || !valid(tangent.x()) ||
+            !valid(tangent.y()) || !valid(tangent.z()) ||
+            (tangent.w() != -1.0 && tangent.w() != 1.0))
+        {
+            return false;
+        }
+        const double normal_length =
+            std::hypot(static_cast<double>(vertex.nx()), static_cast<double>(vertex.ny()),
+                       static_cast<double>(vertex.nz()));
+        const double cross_length =
+            std::hypot(vertex.ny() * tangent.z() - vertex.nz() * tangent.y(),
+                       vertex.nz() * tangent.x() - vertex.nx() * tangent.z(),
+                       vertex.nx() * tangent.y() - vertex.ny() * tangent.x());
+        if (!(normal_length > 0.0) || !(cross_length > 0.0))
+        {
+            return false;
+        }
+    }
+    std::vector<schema::MeshVertex> replacement_vertices(vertices.begin(), vertices.end());
+    std::vector<Vec4> replacement_tangents(tangents.begin(), tangents.end());
+    deformed_vertices_.swap(replacement_vertices);
+    deformed_tangents_.swap(replacement_tangents);
+    ++deformation_revision_;
+    return true;
+}
+
+void MeshRenderer::clear_deformation() noexcept
+{
+    if (deformed_vertices_.empty())
+    {
+        return;
+    }
+    deformed_vertices_.clear();
+    deformed_tangents_.clear();
+    if (deformation_revision_ != std::numeric_limits<std::uint64_t>::max())
+    {
+        ++deformation_revision_;
+    }
+}
+
+std::span<const schema::MeshVertex> MeshRenderer::deformed_vertices() const noexcept
+{
+    return deformed_vertices_;
+}
+
+std::span<const Vec4> MeshRenderer::deformed_tangents() const noexcept
+{
+    return deformed_tangents_;
+}
+
+std::uint64_t MeshRenderer::deformation_revision() const noexcept
+{
+    return deformation_revision_;
 }
 
 std::size_t MeshRenderer::material_count() const noexcept
@@ -207,6 +314,7 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
     dynamic_mesh_.swap(replacement.dynamic_mesh_);
     material_.swap(replacement.material_);
     additional_materials_.swap(replacement.additional_materials_);
+    clear_deformation();
     ++mesh_revision_;
     return true;
 }

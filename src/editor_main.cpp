@@ -1,3 +1,9 @@
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+#include "plugins/editor/character_controller/character_controller_codec.hpp"
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+#include "plugins/editor/character_controller/character_controller_commands.hpp"
+#endif
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
@@ -8,6 +14,14 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime_plugins.hpp"
+
+#if ENGINE_HAS_FBX_IMPORTER
+#include "plugins/editor/fbx_import/fbx_importer.hpp"
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+#include "plugins/editor/usd_import/usd_importer.hpp"
+#endif
 
 #if ENGINE_HAS_MODELING_IMPORTER
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
@@ -93,6 +107,31 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Asset pipeline initialization failed");
             return 1;
         }
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+        if (!engine::plugins::character_controller::register_controller_codec())
+        {
+            std::fputs("Cannot register character controller scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_FBX_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =
+            std::make_unique<engine::plugins::fbx_import::FbxImporter>();
+        if (!pipeline.add_importer(fbx_importer))
+        {
+            std::fputs("Cannot register FBX importer\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> usd_importer =
+            std::make_unique<engine::plugins::usd_import::UsdImporter>();
+        if (!pipeline.add_importer(usd_importer))
+        {
+            std::fputs("Cannot register USD importer\n", stderr);
+            return 1;
+        }
+#endif
 #if ENGINE_HAS_MODELING_IMPORTER
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
             std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
@@ -115,9 +154,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
         resources.set_loader(&resource_graph);
-        const bool runtime_ready = runtime.initialize(config, &resources, script_factory);
+        const bool runtime_ready =
+            runtime.initialize(config, &resources, script_factory, configure_runtime_plugins);
 #else
-        const bool runtime_ready = runtime.initialize(config, nullptr, script_factory);
+        const bool runtime_ready =
+            runtime.initialize(config, nullptr, script_factory, configure_runtime_plugins);
 #endif
         if (!runtime_ready)
         {
@@ -139,6 +180,16 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Editor initialization failed");
             return 1;
         }
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+        if (!editor->scene_commands() || !editor->commands() ||
+            !engine::plugins::character_controller::register_controller_commands(
+                *runtime.world(), *editor->scene_commands(), *editor->commands()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register controller commands");
+            return 1;
+        }
+#endif
+
 #if ENGINE_HAS_MODELING_PLUGIN
         if (editor->commands() != nullptr && runtime.world() != nullptr)
         {

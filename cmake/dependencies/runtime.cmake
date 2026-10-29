@@ -128,6 +128,10 @@ if(MSVC)
         CACHE BOOL "Use the project's dynamic MSVC runtime" FORCE)
 endif()
 add_subdirectory("${_ozz_staged}" "${CMAKE_CURRENT_BINARY_DIR}/ozz-animation" EXCLUDE_FROM_ALL)
+# 上游使用目录级 include；显式向自有调用方传递 system include，保留上游警告策略。
+foreach(_ozz_target ozz_animation ozz_animation_offline ozz_geometry ozz_base)
+    target_include_directories(${_ozz_target} SYSTEM INTERFACE "${_ozz_staged}/include")
+endforeach()
 
 add_custom_command(
     OUTPUT "${_ozz_stamp}"

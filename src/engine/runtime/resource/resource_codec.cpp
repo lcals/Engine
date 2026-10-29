@@ -44,6 +44,21 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AudioClipDat
     output.audio_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::ModelDataT> data) noexcept
+{
+    output.model_ = std::move(data);
+}
+
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::SkeletonDataT> data) noexcept
+{
+    output.skeleton_ = std::move(data);
+}
+
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AnimationDataT> data) noexcept
+{
+    output.animation_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, ByteView data)
 {
     output.bytes_.assign(data.begin(), data.end());

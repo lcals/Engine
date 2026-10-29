@@ -8,6 +8,18 @@ bool register_physics_tools(McpSystem& system, EditorMcpTools& editor)
     const Json vector = {{"type", "array"}, {"items", number}, {"minItems", 3}, {"maxItems", 3}};
     const Json enabled = {{"type", "boolean"}};
     return tools::component_tool(
+               system, editor, "set_character_motor",
+               "Add or edit a physical capsule motor; undoable. Character origin is its feet.",
+               {{"enabled", enabled},
+                {"radius", number},
+                {"halfHeight", number},
+                {"maxSlopeDegrees", number},
+                {"stepHeight", number},
+                {"groundSnapDistance", number},
+                {"gravityFactor", number}}) &&
+           tools::component_tool(system, editor, "get_character_motor",
+                                 "Read character motor collision settings.", Json::object()) &&
+           tools::component_tool(
                system, editor, "set_collider", "Add or edit a collider; undoable.",
                {{"enabled", enabled},
                 {"shape", {{"type", "string"}, {"enum", {"box", "sphere", "capsule"}}}},

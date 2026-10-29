@@ -32,7 +32,9 @@ public:
     AssetPipelineSystem();
     ~AssetPipelineSystem() noexcept override;
 
-    // 初始化后且空闲时替换已有资源类型；成功才转移所有权。
+    // 初始化后且空闲时添加新 id；成功才转移所有权。
+    [[nodiscard]] bool add_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer);
+    // 初始化后且空闲时替换已有 id；成功才转移所有权。
     [[nodiscard]] bool set_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer);
     // target_platform 为空采用宿主；支持 macos/ios/windows/android/linux。
     [[nodiscard]] bool build_assets(const std::filesystem::path& project_root,
