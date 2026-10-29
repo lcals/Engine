@@ -42,12 +42,13 @@ include(cmake/project_options.cmake)
 
 add_subdirectory(third_party)
 
-add_library(engine_core STATIC src/engine/system/system.cpp)
+add_library(engine_core STATIC
+    src/engine/runtime/system/system.cpp
+    src/engine/runtime/utils/path_utils.cpp)
 add_library(engine::core ALIAS engine_core)
 target_compile_features(engine_core PUBLIC cxx_std_20)
 target_include_directories(engine_core PUBLIC
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/engine>"
-    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/engine/system>")
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include/engine>")
 engine_apply_options(engine_core)
 
 include(cmake/engine_modules.cmake)

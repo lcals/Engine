@@ -1,5 +1,5 @@
-#include "asset_sync_system.hpp"
-#include "engine_config.hpp"
+#include "editor/asset_sync/asset_sync_system.hpp"
+#include "runtime/engine_config.hpp"
 
 #include <nlohmann/json.hpp>
 

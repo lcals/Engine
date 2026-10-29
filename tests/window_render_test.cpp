@@ -1,7 +1,7 @@
-#include "engine.hpp"
-#include "engine_config.hpp"
-#include "render_system.hpp"
-#include "window_system.hpp"
+#include "runtime/engine.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/render/render_system.hpp"
+#include "runtime/window/window_system.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>

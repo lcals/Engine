@@ -7,8 +7,8 @@
 - 平台专用工程、入口和打包资源集中放在 `platforms/<platform>/`，例如 Android 的 Manifest、Java 入口和 Gradle 工程位于 `platforms/android/`；共享引擎系统继续按原目录组织。
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
-- 引擎按系统建立独立子目录，公开头文件与实现分别位于 `include/engine/<system>/`、`src/engine/<system>/`；引擎入口与公共配置位于各自引擎根目录。
-- 引擎自有头文件直接按文件名包含，例如 `#include "system.hpp"`；不写目录前缀或相对路径，由所属 CMake 目标传递头文件搜索路径。第三方头文件保留其标准包含路径。
+- 引擎源码与公开头文件按 `runtime/`、`editor/`、`plugins/` 三层组织，分别位于 `src/engine/<scope>/`、`include/engine/<scope>/`。运行时的引擎入口与公共类型位于 `runtime/`，各系统按职责建子目录，公共工具放 `runtime/utils/`；`EditorSystem` 直接位于 `editor/`，项目、资源管线与同步系统分别在其子目录；MCP 位于 `plugins/mcp/`。
+- 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
 - 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
 - 宿主环境安装统一检查和准备 Ninja 与编译缓存：Windows 默认 sccache，Linux / macOS 默认 ccache；跨平台 Ninja 缓存预设要求工具存在且可执行，不能默默退化为无缓存构建。保留 vcpkg 二进制缓存与上游增量产物，不在普通构建中反复清理、同步或触摸未改变的依赖。
@@ -23,13 +23,14 @@
 - 用户只需审阅和维护类图；代码实现、测试以及图与代码的同步由助手负责。新增架构类或改变已确认的公开契约，先更新图供评审。
 - 设计保持简单，只增加当前职责需要的类和接口；不为每个第三方库增加包装类，不提前建立通用框架。
 - 系统类继承通用抽象基类 `System`。系统支持子系统，子系统同样继承 `System`，由父系统独占并统一管理生命周期。
-- 类图保存在 `docs/class-diagrams/`：总图只定义 `Engine` 和 `System`，各具体系统及子系统分别维护独立类图，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
+- 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/`，独立类图位于各层级的 `class-diagrams/`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
 - 引擎启动不要求项目；`EngineConfig` 只保存运行时配置，`Engine` 不拥有或依赖项目系统、编辑器系统。
 - 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的项目系统，项目必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
 - `App` 路径接口跨平台语义一致；脚本模块处理加载和热重载的平台差异，按相对路径优先查持久目录中的可修改脚本缓存，再查包体内置资源。MCP 同步同一持久缓存，仅控制引擎热重载开关，不实现重载本身。
-- TS 工程配置归项目 `settings/`，源码归 `assets/`，生成物归 `cache/`。引擎维护 `engine.d.ts`，只声明已实现绑定，保持与类图同步。
+- TS 工程配置归项目 `settings/`，源码归 `assets/`，生成物归 `cache/`。引擎统一在 `include/engine.d.ts` 维护运行时类型声明，只声明已实现绑定，保持与类图同步。
+- UTF-8 与原生路径的通用转换由 `PathUtils`（`runtime/utils/path_utils.hpp`）提供；路径规范化、目录权限与越界检查仍由具体调用者负责。运行时工具不得反向依赖编辑器或插件。
 - 已合并且无未合并提交的功能分支应及时清理；新功能从主线另开分支。CI 仅手动触发，不因提交或合并擅自运行。
 
 ## C++ 书写规范

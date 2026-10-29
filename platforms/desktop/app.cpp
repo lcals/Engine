@@ -1,4 +1,6 @@
-#include "app.hpp"
+#include "runtime/app/app.hpp"
+
+#include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_stdinc.h>
@@ -35,12 +37,6 @@ AppState& state()
 {
     static AppState value;
     return value;
-}
-
-std::filesystem::path utf8_path(const char* value)
-{
-    const std::string_view bytes(value);
-    return std::filesystem::path(std::u8string(bytes.begin(), bytes.end()));
 }
 
 bool valid_application_name(std::string_view name)
@@ -105,19 +101,21 @@ bool default_cache_path(const std::string& application_name, std::filesystem::pa
         return false;
     }
     local_data.resize(written);
-    output = std::filesystem::path(local_data) / utf8_path(application_name.c_str()) / "cache";
+    output = std::filesystem::path(local_data) / PathUtils::from_utf8(application_name.c_str()) /
+             "cache";
 #elif defined(__APPLE__)
     const char* home_path = SDL_GetUserFolder(SDL_FOLDER_HOME);
     if (home_path == nullptr)
     {
         return false;
     }
-    output = utf8_path(home_path) / "Library" / "Caches" / utf8_path(application_name.c_str());
+    output = PathUtils::from_utf8(home_path) / "Library" / "Caches" /
+             PathUtils::from_utf8(application_name.c_str());
 #else
     const char* xdg_cache = std::getenv("XDG_CACHE_HOME");
-    if (xdg_cache != nullptr && *xdg_cache != '\0' && utf8_path(xdg_cache).is_absolute())
+    if (xdg_cache != nullptr && *xdg_cache != '\0' && PathUtils::from_utf8(xdg_cache).is_absolute())
     {
-        output = utf8_path(xdg_cache) / utf8_path(application_name.c_str());
+        output = PathUtils::from_utf8(xdg_cache) / PathUtils::from_utf8(application_name.c_str());
         return true;
     }
     const char* home_path = SDL_GetUserFolder(SDL_FOLDER_HOME);
@@ -125,7 +123,8 @@ bool default_cache_path(const std::string& application_name, std::filesystem::pa
     {
         return false;
     }
-    output = utf8_path(home_path) / ".cache" / utf8_path(application_name.c_str());
+    output =
+        PathUtils::from_utf8(home_path) / ".cache" / PathUtils::from_utf8(application_name.c_str());
 #endif
     return output.is_absolute();
 }
@@ -148,7 +147,7 @@ bool App::initialize(const AppConfig& config)
         {
             return false;
         }
-        builtin = utf8_path(base_path);
+        builtin = PathUtils::from_utf8(base_path);
     }
 
     auto persistent = config.persistent_data_path;
@@ -159,7 +158,7 @@ bool App::initialize(const AppConfig& config)
         {
             return false;
         }
-        persistent = utf8_path(pref_path);
+        persistent = PathUtils::from_utf8(pref_path);
         SDL_free(pref_path);
     }
 

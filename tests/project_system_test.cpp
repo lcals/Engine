@@ -1,5 +1,5 @@
-#include "engine_config.hpp"
-#include "project_system.hpp"
+#include "editor/project/project_system.hpp"
+#include "runtime/engine_config.hpp"
 
 #include <cstdio>
 #include <filesystem>

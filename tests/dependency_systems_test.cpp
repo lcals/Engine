@@ -1,26 +1,26 @@
-#include "engine_config.hpp"
-#include "system.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/system/system.hpp"
 
 #if ENGINE_HAS_RUNTIME
-#include "animation_system.hpp"
-#include "navigation_system.hpp"
-#include "physics_system.hpp"
-#include "resource_system.hpp"
-#include "ui_system.hpp"
-#include "world_system.hpp"
+#include "runtime/animation/animation_system.hpp"
+#include "runtime/navigation/navigation_system.hpp"
+#include "runtime/physics/physics_system.hpp"
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/ui/ui_system.hpp"
+#include "runtime/world/world_system.hpp"
 #endif
 
 #if ENGINE_HAS_EDITOR
-#include "editor_system.hpp"
-#include "project_system.hpp"
+#include "editor/editor_system.hpp"
+#include "editor/project/project_system.hpp"
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE
-#include "asset_pipeline_system.hpp"
+#include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #endif
 
 #if ENGINE_HAS_V8
-#include "script_system.hpp"
+#include "runtime/script/script_system.hpp"
 #endif
 
 #include <cstdio>

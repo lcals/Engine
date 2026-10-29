@@ -1,8 +1,9 @@
-#include "app.hpp"
-#include "engine_config.hpp"
-#include "log_system.hpp"
-#include "resource_system.hpp"
-#include "script_system.hpp"
+#include "runtime/app/app.hpp"
+#include "runtime/engine_config.hpp"
+#include "runtime/log/log_system.hpp"
+#include "runtime/resource/resource_system.hpp"
+#include "runtime/script/script_system.hpp"
+#include "runtime/utils/path_utils.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -131,10 +132,10 @@ bool run_cases(const fs::path& workspace)
         "  Debug.Log('builtin:start'); Debug.LogWarning('binding:warning');\n"
         "  Debug.LogError('binding:error');\n"
         "  return value === 2 && App.builtinAssetsPath === " +
-        Json(App::builtin_assets_path().generic_string()).dump() +
+        Json(engine::PathUtils::to_utf8(App::builtin_assets_path())).dump() +
         " && App.persistentDataPath === " +
-        Json(App::persistent_data_path().generic_string()).dump() +
-        " && App.cachePath === " + Json(App::cache_path().generic_string()).dump() +
+        Json(engine::PathUtils::to_utf8(App::persistent_data_path())).dump() +
+        " && App.cachePath === " + Json(engine::PathUtils::to_utf8(App::cache_path())).dump() +
         " && Object.getOwnPropertyDescriptor(App, 'cachePath').set === undefined;\n"
         " }\n"
         " Update() { Debug.Log('builtin:update:' + (++this.count)); }\n"
@@ -381,7 +382,7 @@ int main(int argc, char** argv)
         return 1;
     }
     std::error_code error;
-    const auto workspace = fs::absolute(argv[1], error);
+    const auto workspace = fs::absolute(engine::PathUtils::from_utf8(argv[1]), error);
     if (error || workspace == workspace.root_path())
     {
         return 1;
@@ -393,9 +394,9 @@ int main(int argc, char** argv)
     }
     engine::AppConfig app;
     app.application_name = "engine-script-runtime-test";
-    app.builtin_assets_path = workspace / "builtin";
-    app.persistent_data_path = workspace / "data";
-    app.cache_path = workspace / "cache";
+    app.builtin_assets_path = workspace / fs::path(u8"builtin-资源");
+    app.persistent_data_path = workspace / fs::path(u8"data-持久");
+    app.cache_path = workspace / fs::path(u8"cache-缓存");
     if (!engine::App::initialize(app))
     {
         return 1;

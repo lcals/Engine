@@ -7,9 +7,11 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 项目目标是开发跨平台游戏引擎。已确认的规划按模块记录：
 
 - [引擎架构总览](docs/architecture.md)：各模块规划文档入口。
-- [首个游戏](docs/first-game.md)：割草射击游戏的核心玩法循环。
+- [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。每个系统在 `include/engine/<system>/` 和 `src/engine/<system>/` 各有独立子目录与 CMake 目标；自有头文件直接按文件名包含，搜索路径由目标传递。`Engine` 持有窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 持有窗口、资源、世界和渲染根系统；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+
+规划文档及独立类图也按 `docs/runtime/`、`docs/editor/`、`docs/plugins/` 分层；统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和资源同步归编辑器层，MCP 归插件层；它们可以使用运行时能力，运行时不反向依赖它们。
 
 各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前尚未实现 PBR、场景加载、物理模拟、UI 绘制或完整编辑器界面。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
@@ -203,7 +205,7 @@ Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动
 
 热重载默认关闭；同一持久目录已有控制文件时读取其设置。关闭期间仍可同步新版本，当前实例和模块快照保持不变；开启后应用最新完整版本。候选脚本编译或静态链接失败时旧实例继续运行；新模块执行或 `OnInitialize` 失败会停止此次玩法并报告错误，不承诺撤销副作用或保留任意 JS 状态。`Update` 异常记录错误，后续引擎帧继续运行。
 
-运行 SDK 位于 [engine.d.ts](sdk/typescript/engine.d.ts)，由虚拟 ES 模块 `engine` 提供：
+运行 SDK 位于 [engine.d.ts](include/engine.d.ts)，由虚拟 ES 模块 `engine` 提供：
 
 ```ts
 import { Debug, Gameplay } from "engine";
@@ -390,6 +392,12 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 
 本轮新增能力尚未在 Windows / Linux 或 Android 上实机验证；Android 接入按约定等待桌面审核。本轮没有触发 CI，也没有把完整资源批次同步表述为真机或网络传输。
 
+### 运行时、编辑器与插件目录分层
+
+2026-10-29 在同一 macOS ARM64 环境完成目录迁移验证：Debug / Release 构建成功，CTest 各 22/22 通过；两种配置的编辑器均读取新的 `include/engine.d.ts` 编译示例，启动玩法、渲染 3 帧并执行关闭回调后退出 0。现有脚本测试同时验证中文应用目录与原生路径绑定。
+
+引擎头文件的作用域前缀与实际文件逐项核对通过，53 个受影响 C++ 文件符合格式规范；41 份 Markdown 中 198 条本地链接有效，38 张 Mermaid 图实际解析、渲染通过。运行记录位于忽略的 `build/scope-layout-validation/`。本轮仍复用依赖与 V8 缓存，未执行 Windows / Linux / Android 实机验证或触发 CI。
+
 ## 目录
 
 所有受版本管理的目录均使用小写；`CMakeLists.txt` 等标准文件名保持原样。
@@ -398,14 +406,14 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 .
 ├── .github/workflows/  # Windows、Linux、macOS 的构建与测试 CI
 ├── cmake/              # 目标级编译设置
-├── docs/               # 架构规划与开发说明
-├── include/engine/     # 引擎及各系统的公开头文件
+├── docs/               # 总说明及 runtime/editor/plugins 分层文档与类图
+├── include/engine.d.ts  # 运行时虚拟 engine 模块的类型声明
+├── include/engine/     # runtime/editor/plugins 三层公开头文件
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
 ├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
 ├── references/         # 本地参考文件，内容不纳入 Git
 ├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
-├── sdk/typescript/     # 运行时虚拟 engine 模块的类型声明
-├── src/engine/         # 按系统分目录的实现；src/main.cpp 为应用入口
+├── src/engine/         # 与 include/engine 对应的三层实现
 ├── tests/              # C++ 与命令行测试
 └── third_party/        # vcpkg 包查找及 Git 子模块
 ```
@@ -426,7 +434,7 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 | `ENGINE_ENABLE_V8` | `OFF` | 启用显式准备的 V8 monolith、构建目标与嵌入测试 |
 | `ENGINE_ENABLE_SCRIPT_RUNTIME` | `OFF` | 桌面 V8 玩法、日志/路径绑定与资源同步；完整 engine 预设开启，Android 不启用 |
 
-作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。只使用系统基类时链接 `engine::core`；使用完整引擎入口时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`，由目标传递直接包含头文件所需的搜索路径。Preset 用于独立开发，会显式开启对应系统与测试。
+作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。只使用系统基类时链接 `engine::core`；使用完整引擎入口时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/` 或 `plugins/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
 
 `references/` 用于本地放置参考文件，内容不纳入 Git。部分实现代码可参考该目录，但文档中不得记录其中的具体内容。
 

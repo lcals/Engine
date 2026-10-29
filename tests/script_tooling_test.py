@@ -55,7 +55,7 @@ def test(mcp, root, temporary):
     shutil.copytree(compiler, project / "settings/node_modules/typescript")
     config_path = project / "settings/tsconfig.json"
     config = json.loads(config_path.read_text())
-    config["files"] = [str(root / "sdk/typescript/engine.d.ts")]
+    config["files"] = [str(root / "include/engine.d.ts")]
     config_path.write_text(json.dumps(config), encoding="utf-8")
     unicode_asset = project / "assets/资料/文本.txt"
     unicode_asset.parent.mkdir()

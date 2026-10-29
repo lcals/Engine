@@ -6,6 +6,16 @@
 
 ## 构建边界
 
+代码和独立类图按职责使用相同分层：
+
+| 范围 | 头文件与实现位置 | 文档位置 |
+| --- | --- | --- |
+| 运行时 | `include/engine/runtime/`、`src/engine/runtime/` | `docs/runtime/` |
+| 编辑器 | `include/engine/editor/`、`src/engine/editor/` | `docs/editor/` |
+| 插件 | `include/engine/plugins/`、`src/engine/plugins/` | `docs/plugins/` |
+
+各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/` 或 `plugins/` 开始引用。编辑器和 MCP 可以使用运行时公共能力，运行时不反向依赖这些工具模块。
+
 | 配置 | ScriptSystem 的实际职责 | 宿主与平台边界 |
 | --- | --- | --- |
 | `ENGINE_ENABLE_V8=OFF` | 不装配脚本子系统 | 引擎仍可独立启动窗口 |
@@ -13,7 +23,7 @@
 | V8 与桌面脚本运行均开启 | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 要求桌面运行依赖；Android 本轮不允许开启该开关 |
 | 桌面脚本运行与资源管线均开启 | 可构建独立 `mcp_app` | 工具进程和编辑器进程通过指定运行目录交换文件 |
 
-Android 现有 V8 JNI 冒烟测试是显式触发的独立验证路径，不等于 ScriptSystem 已接入项目脚本、App 平台目录或设备同步。具体 Activity、Surface 与测试边界见[Android 宿主](android-host.md)。
+Android 现有 V8 JNI 冒烟测试是显式触发的独立验证路径，不等于 ScriptSystem 已接入项目脚本、App 平台目录或设备同步。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
 
 ## 引擎与系统所有权
 
@@ -120,7 +130,7 @@ App 和 LogSystem 的生命周期由宿主负责，Engine 不反向拥有它们�
 
 App 的三个路径访问器返回内部 `std::filesystem::path` 的只读借用；LogSystem 同样借用 App 的持久目录，并拥有日志文件。日志默认写入持久目录的 `logs/engine.log`，同时输出标准错误。宿主必须先停止所有日志使用者，再刷新、关闭 LogSystem，最后关闭 App。
 
-目录语义、失败状态和日志轮换分别见 [App](app.md) 与[日志系统](log-system.md)。内置资源根由资源系统解释；本轮桌面实现不代表 Android APK 内容已有普通磁盘路径。
+目录语义、失败状态和日志轮换分别见 [App](../runtime/class-diagrams/app.md) 与[日志系统](../runtime/class-diagrams/log-system.md)。内置资源根由资源系统解释；本轮桌面实现不代表 Android APK 内容已有普通磁盘路径。
 
 ## 编辑器宿主拥有的独立系统
 
@@ -147,7 +157,7 @@ classDiagram
 
 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetSyncSystem 均为宿主拥有的独立根系统。EditorSystem 借用已初始化的 ProjectSystem；项目必须保持就绪直到编辑器退出。
 
-当前 AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](project-system.md)、[编辑器](editor-system.md)、[资源管线](asset-pipeline-system.md)、[资源同步](asset-sync-system.md)。
+当前 AssetSyncSystem 属于编辑器或工具宿主，未挂入 ResourceSystem 子系统树。它使用 ResourceSystem 的静态读取入口，不拥有 ResourceSystem 实例，也不调用 ScriptSystem。独立类图见[项目](../editor/class-diagrams/project-system.md)、[编辑器](../editor/class-diagrams/editor-system.md)、[资源管线](../editor/class-diagrams/asset-pipeline-system.md)、[资源同步](../editor/class-diagrams/asset-sync-system.md)。
 
 启用完整脚本运行时，`editor_app` 启动顺序为：
 
@@ -184,7 +194,7 @@ classDiagram
 
 ScriptSystem 由 WorldSystem 独占；Engine 只通过借用转发玩法启动、停止、热重载开关及状态查询。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
 
-ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](resource-system.md)。
+ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](../runtime/class-diagrams/resource-system.md)。
 
 ```mermaid
 classDiagram
@@ -215,7 +225,7 @@ Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务�
 
 本轮没有实现 Node、Component 或场景加载 API，也没有 Behaviour、MonoBehaviour 继承层。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
 
-V8 平台按进程管理，完整退出前须先销毁全部 isolate。每个实际 ScriptSystem 拥有一个 isolate；单次玩法运行拥有独立 Context、模块缓存和 Game。热重载重建这些玩法对象，不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](script-system.md)和[玩法入口](gameplay.md)。
+V8 平台按进程管理，完整退出前须先销毁全部 isolate。每个实际 ScriptSystem 拥有一个 isolate；单次玩法运行拥有独立 Context、模块缓存和 Game。热重载重建这些玩法对象，不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
 
 ## MCP 宿主与跨进程文件关系
 
@@ -280,7 +290,39 @@ classDiagram
 - MCP 通过控制文件请求开关，由引擎读取后生效。状态查询独立读取实际发布版本；运行状态来自引擎最后上报，不作为进程实时在线证明。
 - 当前同步使用完整版本快照；相同版本复用已有目录，变化时准备完整批次。本轮没有网络传输或 Android 真机同步实现。
 
-资源同步与 MCP 具体契约见[资源同步系统](asset-sync-system.md)及 [MCP 系统](mcp-system.md)。
+资源同步与 MCP 具体契约见[资源同步系统](../editor/class-diagrams/asset-sync-system.md)及 [MCP 系统](../plugins/class-diagrams/mcp-system.md)。
+
+## 公共路径工具
+
+公共 [PathUtils](../runtime/class-diagrams/path-utils.md) 位于 `runtime/utils/`，提供 UTF-8 字符串与文件系统路径之间的静态转换，不继承 System、不持有实例，也不参与生命周期调度。其方法只在独立类图定义。
+
+```mermaid
+classDiagram
+    direction TB
+    class PathUtils
+    class App
+    class ScriptSystem
+    App ..> PathUtils : UTF-8 路径转换
+    ScriptSystem ..> PathUtils : UTF-8 路径转换
+```
+
+```mermaid
+classDiagram
+    direction TB
+    class PathUtils
+    class ProjectSystem
+    class AssetPipelineSystem
+    class AssetSyncSystem
+    class McpSystem
+    ProjectSystem ..> PathUtils : UTF-8 路径转换
+    AssetPipelineSystem ..> PathUtils : UTF-8 路径转换
+    AssetSyncSystem ..> PathUtils : UTF-8 路径转换
+    McpSystem ..> PathUtils : UTF-8 路径转换
+```
+
+桌面 App 实现、脚本系统、项目系统、资源管线、资源同步、MCP 及编辑器/MCP 宿主使用上述公共转换。转换保留路径内容，不负责路径存在性、规范化或目录越界检查；这些判断继续由使用者完成。
+
+ResourceSystem 的 SDL 文件读取保留原生 `path.u8string()` 编码，避免统一正斜杠转换改变 Windows 扩展长度路径语义，因此它与 LogSystem 均没有 PathUtils 调用依赖。
 
 ## System 继承与参数依赖
 
@@ -362,7 +404,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 
 | 引擎类或宿主工具 | 使用依赖 | 当前用途 |
 | --- | --- | --- |
-| App | SDL3、标准库文件系统 | 桌面平台目录与路径准备 |
+| PathUtils | 标准库文件系统与字符串 | UTF-8 路径编码转换 |
+| App | SDL3、PathUtils、标准库文件系统 | 桌面平台目录与路径准备 |
 | LogSystem | System、App、标准库线程与文件接口 | 进程日志、写盘、刷新和轮换 |
 | WindowSystem | SDL3 | 窗口、事件及平台生命周期 |
 | ResourceSystem | SDL3、FlatBuffers、Basis Universal | 同步文件读取、解析入口及转码表初始化 |
@@ -373,12 +416,12 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | AnimationSystem | ozz-animation | 空骨骼构造和析构 |
 | UiSystem | RmlUi | 运行库版本入口 |
 | ScriptSystem 探针实现 | V8 | V8 版本入口的实际链接验证 |
-| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem | JS 模块、原生绑定、玩法生命周期、状态与热重载 |
-| ProjectSystem | toml++、LogSystem | 项目目录检查及日志 |
+| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils | JS 模块、原生绑定、玩法生命周期、状态与热重载 |
+| ProjectSystem | toml++、LogSystem、PathUtils | 项目目录检查及日志 |
 | EditorSystem | Dear ImGui、ProjectSystem | 编辑器上下文及项目借用 |
-| AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3 | 保留依赖验证，启动本地 TS 编译进程 |
-| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem | 完整版本校验与原子发布 |
-| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetSyncSystem | stdio 协议、编译同步、控制与状态 |
+| AssetPipelineSystem | USD、Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils | 保留依赖验证，启动本地 TS 编译进程 |
+| AssetSyncSystem | nlohmann/json、SDL3、ResourceSystem、PathUtils | 完整版本校验与原子发布 |
+| McpSystem | nlohmann/json、SDL3、ResourceSystem、AssetPipelineSystem、AssetSyncSystem、PathUtils | stdio 协议、编译同步、控制与状态 |
 | TS 构建工具 | Node.js、项目固定版本 TypeScript | settings 中配置，assets 中源码，cache 中生成物 |
 | 资源构建工具 | shaderc、texturec、geometryc | 宿主工具，不进入运行时生命周期 |
 

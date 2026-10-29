@@ -1,6 +1,6 @@
-#include "editor_system.hpp"
+#include "editor/editor_system.hpp"
 
-#include "project_system.hpp"
+#include "editor/project/project_system.hpp"
 
 #include <imgui.h>
 
