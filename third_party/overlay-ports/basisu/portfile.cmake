@@ -7,18 +7,27 @@ vcpkg_from_github(
     PATCHES
         # Remove once https://github.com/BinomialLLC/basis_universal/pull/383 merged
         0001-cmake.patch
+        android-library.patch
 )
+
+set(BASISU_BUILD_TOOLS ON)
+if(VCPKG_TARGET_IS_ANDROID)
+    set(BASISU_BUILD_TOOLS OFF)
+endif()
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DEXAMPLES=OFF
+        -DBASISU_BUILD_TOOLS=${BASISU_BUILD_TOOLS}
 )
 
 vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
-vcpkg_copy_tools(TOOL_NAMES "basisu" AUTO_CLEAN)
+if(BASISU_BUILD_TOOLS)
+    vcpkg_copy_tools(TOOL_NAMES "basisu" AUTO_CLEAN)
+endif()
 set(VCPKG_POLICY_EMPTY_INCLUDE_FOLDER enabled)
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
