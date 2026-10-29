@@ -20,11 +20,25 @@ bool Camera::set_settings(const CameraSettings& settings) noexcept
     if (!std::isfinite(settings.fov_degrees) || settings.fov_degrees <= 0.0F ||
         settings.fov_degrees >= 180.0F || !std::isfinite(settings.near_clip) ||
         settings.near_clip <= 0.0F || !std::isfinite(settings.far_clip) ||
-        settings.far_clip <= settings.near_clip)
+        settings.far_clip <= settings.near_clip ||
+        (settings.projection != schema::Projection::perspective &&
+         settings.projection != schema::Projection::orthographic) ||
+        !std::isfinite(settings.orthographic_size) || settings.orthographic_size <= 0.0F)
     {
         return false;
     }
     *mutable_data().payload.AsCameraData() = settings;
+    return true;
+}
+
+bool Camera::restore_data(const schema::ComponentDataT& data)
+{
+    const auto* settings = data.payload.AsCameraData();
+    if (settings == nullptr || !set_settings(*settings))
+    {
+        return false;
+    }
+    set_enabled(data.enabled);
     return true;
 }
 

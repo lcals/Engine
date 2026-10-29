@@ -8,7 +8,7 @@
 #include <toml++/toml.hpp>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -192,4 +192,4 @@ bool publish_assets(const std::filesystem::path& cache, AssetDatabase& database,
     return true;
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

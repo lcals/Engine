@@ -1,14 +1,17 @@
 #pragma once
 
+#include "editor/asset_pipeline/asset_importer_registry.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
-namespace engine
+namespace engine::editor
 {
 
 class TaskSystem;
@@ -29,6 +32,8 @@ public:
     AssetPipelineSystem();
     ~AssetPipelineSystem() noexcept override;
 
+    // 初始化后且空闲时替换已有资源类型；成功才转移所有权。
+    [[nodiscard]] bool set_importer(std::unique_ptr<asset_pipeline::AssetImporter>& importer);
     // target_platform 为空采用宿主；支持 macos/ios/windows/android/linux。
     [[nodiscard]] bool build_assets(const std::filesystem::path& project_root,
                                     std::string_view target_platform = {});
@@ -44,10 +49,12 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    std::mutex build_mutex_;
+    asset_pipeline::AssetImporterRegistry importers_;
     TaskSystem* tasks_ = nullptr; // System 子系统树独占，本指针借用。
     AssetBuildStats last_build_;
     std::string last_error_;
     schema::AssetCatalogDataT catalog_;
 };
 
-} // namespace engine
+} // namespace engine::editor

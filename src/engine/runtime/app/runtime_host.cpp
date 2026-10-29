@@ -3,6 +3,7 @@
 #include "runtime/animation/animation_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
@@ -11,10 +12,6 @@
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
-
-#if ENGINE_HAS_V8
-#include "runtime/script/script_system.hpp"
-#endif
 
 #include <cmath>
 #include <utility>
@@ -31,9 +28,12 @@ RuntimeHost::~RuntimeHost() noexcept
     shutdown();
 }
 
-bool RuntimeHost::initialize(const EngineConfig& config)
+bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
+                             ScriptRuntimeFactory script_factory)
 {
-    if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0)
+    if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
+        (resources != nullptr &&
+         (!resources->is_initialized() || ResourceSystem::instance() != resources)))
     {
         return false;
     }
@@ -44,11 +44,14 @@ bool RuntimeHost::initialize(const EngineConfig& config)
         shutdown();
         return false;
     }
-    std::unique_ptr<System> resources = std::make_unique<ResourceSystem>();
-    if (!engine_.add_system(resources))
+    if (resources == nullptr)
     {
-        shutdown();
-        return false;
+        std::unique_ptr<System> owned_resources = std::make_unique<ResourceSystem>();
+        if (!engine_.add_system(owned_resources))
+        {
+            shutdown();
+            return false;
+        }
     }
 
     auto world = std::make_unique<WorldSystem>();
@@ -62,17 +65,18 @@ bool RuntimeHost::initialize(const EngineConfig& config)
         shutdown();
         return false;
     }
-    ScriptSystem* script = nullptr;
-#if ENGINE_HAS_V8
-    auto script_system = std::make_unique<ScriptSystem>(world.get());
-    script = script_system.get();
-    std::unique_ptr<System> script_base = std::move(script_system);
-    if (!world->add_subsystem(script_base))
+    ScriptRuntime* script = nullptr;
+    if (script_factory != nullptr)
     {
-        shutdown();
-        return false;
+        auto script_system = script_factory(*world);
+        script = script_system.get();
+        std::unique_ptr<System> script_base = std::move(script_system);
+        if (!world->add_subsystem(script_base))
+        {
+            shutdown();
+            return false;
+        }
     }
-#endif
     world_ = world.get();
     std::unique_ptr<System> world_base = std::move(world);
     if (!engine_.add_system(world_base))
@@ -151,6 +155,16 @@ FrameStatus RuntimeHost::tick(double delta_time)
 GameplaySession* RuntimeHost::gameplay() noexcept
 {
     return gameplay_.get();
+}
+
+WorldSystem* RuntimeHost::world() noexcept
+{
+    return initialized_ ? world_ : nullptr;
+}
+
+RenderSystem* RuntimeHost::renderer() noexcept
+{
+    return initialized_ ? renderer_ : nullptr;
 }
 
 void RuntimeHost::request_exit() noexcept

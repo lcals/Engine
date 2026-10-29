@@ -12,7 +12,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -80,4 +80,4 @@ void ProjectSystem::on_shutdown() noexcept
 {
 }
 
-} // namespace engine
+} // namespace engine::editor

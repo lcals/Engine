@@ -14,3 +14,7 @@ value = 0.35
 name = "roughness"
 type = "float"
 value = 0.3
+
+[[textures]]
+name = "baseColorTexture"
+texture = "9357b9b4-9332-45eb-b55e-50d2acc9585c"

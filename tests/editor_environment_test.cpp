@@ -66,8 +66,8 @@ bool run_cases(const fs::path& workspace)
     {
         return false;
     }
-    engine::ProjectSystem project(engine::PathUtils::to_utf8(root));
-    engine::EditorEnvironment environment(project, persistent);
+    engine::editor::ProjectSystem project(engine::PathUtils::to_utf8(root));
+    engine::editor::EditorEnvironment environment(project, persistent);
     const engine::EngineConfig config;
     if (!expect(!environment.initialize() && !engine::App::is_initialized(),
                 "uninitialized project cannot acquire App") ||
@@ -120,14 +120,14 @@ bool run_cases(const fs::path& workspace)
     {
         return false;
     }
-    engine::EditorEnvironment invalid(project, invalid_persistent);
+    engine::editor::EditorEnvironment invalid(project, invalid_persistent);
     if (!expect(!invalid.initialize() && !engine::App::is_initialized(),
                 "path failure leaves App unowned"))
     {
         return false;
     }
     {
-        engine::EditorEnvironment scoped(project, persistent);
+        engine::editor::EditorEnvironment scoped(project, persistent);
         if (!expect(scoped.initialize(), "initialize scoped environment"))
         {
             return false;

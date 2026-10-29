@@ -25,10 +25,7 @@ classDiagram
     class SceneInfoT
     class NodeInfoT
     class ComponentPayloadUnion
-    class MeshRendererDataT {
-        +string mesh_guid
-        +string material_guid
-    }
+    class MeshRendererDataT
     SceneDataT *-- SceneInfoT : 独占场景信息
     SceneDataT *-- NodeDataT : 独占节点集合
     NodeDataT *-- NodeInfoT : 独占节点信息
@@ -50,8 +47,18 @@ classDiagram
         +string path
         +vector~MeshVertex~ vertices
         +vector~uint32_t~ indices
+        +vector~Vec2~ texcoords
+        +vector~Vec4~ tangents
+        +vector~Color~ colors
+        +vector~MeshSubmesh~ submeshes
     }
     class MeshVertex
+    class MeshSubmesh {
+        +uint32_t first_index
+        +uint32_t index_count
+        +uint32_t material_slot
+    }
+    MeshDataT *-- MeshSubmesh : 索引范围与材质槽
     class MeshRendererDataT
     MeshDataT *-- MeshVertex : 值类型顶点集合
     MeshRendererDataT ..> MeshDataT : mesh_guid引用
@@ -69,11 +76,18 @@ classDiagram
         +string type_path
         +string shader_path
         +vector~unique_ptr~MaterialParameterT~~ parameters
+        +vector~unique_ptr~MaterialTextureT~~ textures
     }
     class MaterialParameterT {
         +string name
         +MaterialValueUnion value
     }
+    class MaterialTextureT {
+        +string name
+        +string texture_guid
+        +string texture_path
+    }
+    MaterialDataT *-- MaterialTextureT : 具名贴图引用
     class MaterialValueUnion
     class MeshRendererDataT
     class ShaderDataT
@@ -95,7 +109,16 @@ classDiagram
         +vector~uint8_t~ vertex_code
         +vector~uint8_t~ fragment_code
         +vector~unique_ptr~ShaderParameterT~~ parameters
+        +vector~unique_ptr~ShaderSamplerT~~ samplers
     }
+    class ShaderSamplerT {
+        +string name
+        +string uniform_name
+        +uint8_t stage
+        +string default_texture
+        +bool exposed
+    }
+    ShaderDataT *-- ShaderSamplerT : 采样槽声明
     class ShaderParameterT {
         +string name
         +string uniform_name
@@ -140,3 +163,39 @@ classDiagram
 ```
 
 每个目录条目关联唯一 GUID、逻辑路径及完整性信息，依赖列表保存其他资源的 GUID；`module_path` 为脚本保留模块解析路径。运行时只消费目录和其引用的 GUID 二进制，不解析 TOML、不依赖 SQLite。
+
+## 贴图
+
+```mermaid
+classDiagram
+    class TextureDataT {
+        +uint32_t schema_version
+        +string path
+        +uint32_t width
+        +uint32_t height
+        +uint32_t mip_count
+        +bool srgb
+        +TextureEncoding encoding
+        +TextureFormat format
+        +vector~uint8_t~ data
+    }
+    class MaterialTextureT
+    class TextureEncoding {
+        <<enum class>>
+        basis
+        rgba8
+    }
+    class TextureFormat {
+        <<enum class>>
+        auto_format
+        rgba8
+        bc7
+        astc4x4
+        etc2
+    }
+    MaterialTextureT ..> TextureDataT : GUID引用
+    TextureDataT ..> TextureEncoding : 缓存编码
+    TextureDataT ..> TextureFormat : 目标GPU格式
+```
+
+图片 `.meta` 声明格式、压缩模式、质量、颜色空间和 mipmap。编辑器调用 BasisU 生成缓存；运行时仅解析并按 GPU 能力转码。auto_format 由设备选择，明确指定但设备不支持的格式返回失败。内置默认贴图使用 RGBA8，避免运行时编码器参与生成。新增网格数组可省略，旧 MeshVertex 二进制布局不变；缺省 UV 为零、颜色为白色，切线按上游算法生成。

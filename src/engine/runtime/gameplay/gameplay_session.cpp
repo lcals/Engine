@@ -4,10 +4,9 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/world/world_system.hpp"
 
-#if ENGINE_HAS_SCRIPT_RUNTIME
 #include "runtime/app/app.hpp"
+#include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/log/log_system.hpp"
-#include "runtime/script/script_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL.h>
@@ -22,11 +21,9 @@
 #include <system_error>
 #include <utility>
 #include <vector>
-#endif
 
 namespace engine
 {
-#if ENGINE_HAS_SCRIPT_RUNTIME
 namespace
 {
 namespace fs = std::filesystem;
@@ -364,12 +361,16 @@ struct GameplaySession::State
         {
             return;
         }
-        const auto& status = *owner.script_status();
-        const Json document = {{"running", status.running},
-                               {"hotReload", status.hot_reload},
-                               {"activeRevision", status.active_revision},
-                               {"availableRevision", status.available_revision},
-                               {"lastError", status.last_error}};
+        const auto* status = owner.script_status();
+        if (status == nullptr)
+        {
+            return;
+        }
+        const Json document = {{"running", status->running},
+                               {"hotReload", status->hot_reload},
+                               {"activeRevision", status->active_revision},
+                               {"availableRevision", status->available_revision},
+                               {"lastError", status->last_error}};
         const std::string text = document.dump(-1, ' ', false, Json::error_handler_t::replace);
         if (text == last_status)
         {
@@ -595,14 +596,9 @@ struct GameplaySession::State
         return true;
     }
 };
-#else
-struct GameplaySession::State
-{
-};
-#endif
 
 GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer,
-                                 ScriptSystem* script) noexcept
+                                 ScriptRuntime* script) noexcept
     : world_(world), renderer_(renderer), script_(script)
 {
 }
@@ -615,9 +611,13 @@ GameplaySession::~GameplaySession() noexcept
 bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
                                     std::string_view entry)
 {
-#if ENGINE_HAS_SCRIPT_RUNTIME
     auto* resources = ResourceSystem::instance();
-    if (resources == nullptr || script_ == nullptr || script_->status().running)
+    if (resources == nullptr)
+    {
+        last_error_ = "Gameplay resource services are not initialized";
+        return false;
+    }
+    if (script_ != nullptr && script_->status().running)
     {
         last_error_ = "Stop gameplay before replacing its resource directory";
         return false;
@@ -661,21 +661,18 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
     state_ = std::move(candidate);
     last_error_.clear();
     return true;
-#else
-    static_cast<void>(data);
-    static_cast<void>(mounts);
-    static_cast<void>(entry);
-    last_error_ = "Script runtime is not enabled";
-    return false;
-#endif
 }
 
 bool GameplaySession::start(std::string_view entry)
 {
     last_error_.clear();
-#if ENGINE_HAS_SCRIPT_RUNTIME
-    if (!world_.is_initialized() || !renderer_.is_initialized() || script_ == nullptr ||
-        !script_->is_initialized() || !App::is_initialized())
+    if (script_ == nullptr)
+    {
+        last_error_ = "No script runtime was provided by the host";
+        return false;
+    }
+    if (!world_.is_initialized() || !renderer_.is_initialized() || !script_->is_initialized() ||
+        !App::is_initialized())
     {
         last_error_ = "The runtime is not ready for gameplay";
         return false;
@@ -715,16 +712,10 @@ bool GameplaySession::start(std::string_view entry)
     const bool result = state_->apply(selected);
     state_->publish();
     return result;
-#else
-    static_cast<void>(entry);
-    last_error_ = "Script runtime is not enabled";
-    return false;
-#endif
 }
 
 bool GameplaySession::tick()
 {
-#if ENGINE_HAS_SCRIPT_RUNTIME
     if (!state_ || script_ == nullptr || !App::is_initialized())
     {
         return true;
@@ -745,7 +736,6 @@ bool GameplaySession::tick()
         (void)state_->apply(*state_->available);
     }
     state_->publish();
-#endif
     return true;
 }
 
@@ -755,7 +745,6 @@ void GameplaySession::stop(std::string_view reason) noexcept
     {
         last_error_ = reason;
     }
-#if ENGINE_HAS_SCRIPT_RUNTIME
     if (state_)
     {
         state_->gameplay_requested = false;
@@ -764,20 +753,16 @@ void GameplaySession::stop(std::string_view reason) noexcept
     {
         script_->stop_gameplay();
     }
-#endif
     world_.destroy_scene();
     renderer_.release_scene();
-#if ENGINE_HAS_SCRIPT_RUNTIME
     if (state_)
     {
         state_->publish();
     }
-#endif
 }
 
 const ScriptStatus* GameplaySession::script_status() const noexcept
 {
-#if ENGINE_HAS_SCRIPT_RUNTIME
     if (script_ == nullptr)
     {
         return nullptr;
@@ -793,9 +778,6 @@ const ScriptStatus* GameplaySession::script_status() const noexcept
         state_->reported.last_error = last_error_;
     }
     return &state_->reported;
-#else
-    return nullptr;
-#endif
 }
 
 std::string_view GameplaySession::last_error() const noexcept

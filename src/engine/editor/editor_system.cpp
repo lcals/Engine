@@ -1,5 +1,8 @@
 #include "editor/editor_system.hpp"
 
+#include "editor/commands/editor_command_channel.hpp"
+#include "editor/commands/editor_commands.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "editor/editor_environment.hpp"
 
 #if ENGINE_HAS_ASSET_PIPELINE
@@ -7,10 +10,12 @@
 #endif
 #include "runtime/app/app.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/gameplay/script_status.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
-#include "runtime/script/script_system.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL.h>
 #include <imgui.h>
@@ -21,7 +26,7 @@
 #include <fstream>
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -73,6 +78,10 @@ struct EditorSystem::State
     std::string transition;
     std::string previous_status;
     std::chrono::steady_clock::time_point last_write{};
+    std::unique_ptr<SceneCommands> scene_commands;
+    std::unique_ptr<EditorCommands> commands;
+    std::unique_ptr<EditorCommandChannel> command_channel;
+    std::string channel_error;
 
     State(GameplaySession& session, EditorEnvironment& editor_environment)
         : gameplay(session), environment(editor_environment)
@@ -228,6 +237,10 @@ struct EditorSystem::State
             else
             {
                 gameplay.stop();
+                if (commands != nullptr)
+                {
+                    commands->clear_history();
+                }
                 last_success = true;
             }
             transition.clear();
@@ -243,8 +256,9 @@ struct EditorSystem::State
     }
 };
 
-EditorSystem::EditorSystem(EditorEnvironment& environment, GameplaySession* gameplay) noexcept
-    : environment_(environment), gameplay_(gameplay)
+EditorSystem::EditorSystem(EditorEnvironment& environment, GameplaySession* gameplay,
+                           WorldSystem* world) noexcept
+    : environment_(environment), gameplay_(gameplay), world_(world)
 {
 }
 
@@ -287,13 +301,55 @@ bool EditorSystem::on_initialize(const EngineConfig&)
         {
             return false;
         }
+        if (world_ != nullptr)
+        {
+            if (!world_->is_initialized())
+            {
+                return false;
+            }
+            state_->scene_commands = std::make_unique<SceneCommands>(*world_);
+            state_->commands = std::make_unique<EditorCommands>(
+                [world = world_]()
+                { return world->scene() == nullptr ? 0 : world->scene()->id(); });
+            if (!state_->scene_commands->register_commands(*state_->commands))
+            {
+                return false;
+            }
+            state_->command_channel = std::make_unique<EditorCommandChannel>(
+                *state_->commands, state_->directory, state_->project_root, state_->session);
+        }
     }
     return true;
 }
 
 bool EditorSystem::on_tick(double)
 {
-    return environment_.is_initialized() && (state_ == nullptr || state_->poll());
+    if (!environment_.is_initialized() || (state_ != nullptr && !state_->poll()))
+    {
+        return false;
+    }
+    if (state_ != nullptr && state_->command_channel != nullptr)
+    {
+        if (!state_->command_channel->poll())
+        {
+            const auto& error = state_->command_channel->last_error();
+            if (state_->channel_error != error)
+            {
+                LogSystem::write(LogLevel::error, error);
+                state_->channel_error = error;
+            }
+        }
+        else
+        {
+            state_->channel_error.clear();
+        }
+    }
+    return true;
+}
+
+EditorCommands* EditorSystem::commands() noexcept
+{
+    return is_initialized() && state_ != nullptr ? state_->commands.get() : nullptr;
 }
 
 void EditorSystem::on_shutdown() noexcept
@@ -314,4 +370,4 @@ void EditorSystem::on_shutdown() noexcept
         context_ = nullptr;
     }
 }
-} // namespace engine
+} // namespace engine::editor

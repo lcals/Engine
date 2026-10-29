@@ -1,6 +1,6 @@
 #pragma once
 
-#include "editor/asset_pipeline/asset_importers.hpp"
+#include "editor/asset_pipeline/import_asset.hpp"
 
 #include <cstdint>
 #include <map>
@@ -9,7 +9,7 @@ struct sqlite3;
 #include <string>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 struct AssetRecord
@@ -46,4 +46,4 @@ private:
     bool transaction_ = false;
 };
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

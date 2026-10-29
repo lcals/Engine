@@ -1,30 +1,39 @@
 # 引擎类图
 
+类图中的短类名按所在目录确定命名空间：核心为 `engine`，编辑器为 `engine::editor`，插件为 `engine::plugins::<插件名>`。核心不依赖编辑器或插件；编辑器库不依赖具体插件。插件通过底层接口提供扩展，由可执行宿主显式登记、装配；图中的借用接口不表示底层依赖其具体实现。
+
 类图是架构评审入口，维护类的职责、所有权、公开方法和完整引用关系。构建与平台验证范围见根 [README.md](../../README.md)。
 
 统一评审原则：**业务、运行宿主和编辑器都驱动最小核心，核心不承载调用方流程。** 评审每个方法时区分“提供能力”和“决定何时使用能力”，后者归调用方。完整边界见[调用方驱动核心](../architecture.md#调用方驱动核心)。
 
 ## 资源系统
 
-各图维护资源目录、同步加载和构建接口。说明见[资源目录与同步加载](../runtime/resource-loading.md)。
+各图分开维护核心单项能力、加载抽象接口、运行时资源依赖图插件以及编辑器构建插件。说明见[资源目录与同步加载](../runtime/resource-loading.md)。
 
-| 独立类图 | 评审内容 |
-| --- | --- |
-| [资源系统](../runtime/class-diagrams/resource-system.md) | 更新目录、按需同步加载、共享依赖及领域使用者 |
-| [资源目录](../runtime/class-diagrams/resource-catalog.md) | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
-| [已加载资源](../runtime/class-diagrams/resource.md) | 标准 shared_ptr 共享、生成数据借用和依赖释放 |
-| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务 |
-| [编辑器资源构建](../editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单 |
+| 独立类图                                                         | 评审内容                                      |
+| ---------------------------------------------------------------- | --------------------------------------------- |
+| [资源系统](../runtime/class-diagrams/resource-system.md) | 目录换代、单项读取解析及加载器借用 |
+| [资源解码器](../runtime/class-diagrams/resource-codecs.md) | 逐资源类型解码、生成数据与声明依赖校验 |
+| [加载接口](../runtime/class-diagrams/resource-loader.md) | 核心声明的 load/find/error 契约 |
+| [资源依赖图插件](../plugins/runtime/class-diagrams/resource-graph.md) | 同代际共享、依赖闭包及反向释放 |
+| [资源目录](../runtime/class-diagrams/resource-catalog.md)        | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
+| [已加载资源](../runtime/class-diagrams/resource.md) | 单项独立载荷、目录代际及只读数据借用 |
+| [虚拟文件访问](../runtime/class-diagrams/virtual-file-system.md) | SDL3 散文件与包内范围读取，不认识编辑器业务   |
+| [编辑器资源构建](../plugins/editor/class-diagrams/asset-build-system.md) | 项目打包清单、增量输出和精简运行清单          |
 
-核心不扫描、监听、导入或打包，也不区分编辑器模式。编辑器扫描全部 assets，直接更新核心目录；真机启动提交固定精简清单一次。两端共用加载与释放，编辑器无需打包即可运行。跨层调用见[资源调用关系](references.md#资源调用关系)。
+核心不扫描、监听、导入或打包，也不区分编辑器模式。编辑器扫描全部 assets，直接更新核心目录；真机启动提交固定精简清单一次。两端共用加载接口和选中的资源依赖图插件，编辑器无需打包即可运行。跨层调用见[资源调用关系](references.md#资源调用关系)。
 
 ## 当前宿主与导入模块
 
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
+- [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
 - [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
+- [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
+- [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
+- [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
 - [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
 
@@ -33,24 +42,47 @@
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
+- [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
 - [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
-- [MCP](../plugins/class-diagrams/mcp-system.md)：start_project、stop_project 完成回执；保留同步及热重载工具。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。
 
-- [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
+- [绑定接口与注册表](../plugins/runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
+
+- [网格工具](../runtime/class-diagrams/mesh-utils.md)：验证几何及按上游算法生成切线。
+- [贴图导入](../editor/class-diagrams/texture-importer.md)：按 meta 配置调用 BasisU 生成 GUID 资源。
 
 ## 脚本接口
 
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
-- [资源同步](../editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
-- [MCP 系统](../plugins/class-diagrams/mcp-system.md)：桌面 stdio 工具，向本机或 Android 调试包同步，并控制热重载与查询状态。
+- [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
+
+- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
+
+## MCP 与编辑器命令
+
+- [建模职责边界](../plugins/editor/modeling.md)：独立 C++ 几何核心、编辑器业务与 MCP 适配。
+- [可编辑网格](../plugins/editor/class-diagrams/editable-mesh.md)：生成模型、稳定身份、校验与渲染网格编译。
+- [基本体](../plugins/editor/class-diagrams/mesh-primitives.md)、[拓扑运算](../plugins/editor/class-diagrams/mesh-topology.md)、[几何与 UV](../plugins/editor/class-diagrams/mesh-geometry.md)：无项目和编辑器依赖的计算接口。
+- [建模编辑业务](../plugins/editor/class-diagrams/modeling-commands.md)：节点关联、选择、事务与资源保存。
+- [建模 MCP](../plugins/editor/class-diagrams/modeling-mcp-tools.md)：工具注册及命令转发。
+
+- [MCP 协议与注册](../plugins/editor/class-diagrams/mcp-system.md)：McpSystem 只管理协议、工具描述和执行函数，名称与参数模型来自同一注册项。
+- [项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)：ProjectMcpTools 显式配置项目与本机/Android 目标，按业务注册构建、同步、运行调试和启停工具。
+- [编辑器 MCP 工具](../plugins/editor/class-diagrams/editor-mcp-tools.md)：EditorMcpTools 注册场景查询、组件属性编辑、批量、撤销/重做及回执查询，通过文件通道交给编辑器执行。
+- [编辑器命令与撤销](../editor/class-diagrams/editor-commands.md)：EditorCommands 调度模块命令并拥有撤销历史，SceneCommands 借用世界并注册场景业务；EditorSystem 在主线程消费命令。
+
+MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与引擎核心不引用 MCP、JSON 协议或撤销框架；工具进程不持有编辑器进程中的场景指针。跨进程身份、完成回执与引用方向见[完整引用关系](references.md#编辑器命令与场景业务)。
+
+## 插件清单
+
+[插件目录与构建登记](../plugins/plugins.md)维护运行时/编辑器插件范围。每个插件对应一份 CMake 描述，注册器按显式选择及依赖闭包创建目标；未选插件不参与宿主装配。
 
 ## 阅读入口
 
@@ -59,36 +91,37 @@
 - [配置与状态](../runtime/class-diagrams/types.md)：`EngineConfig` 和 `FrameStatus`。
 - [公共路径工具](../runtime/class-diagrams/path-utils.md)：`PathUtils` 只负责 UTF-8 与文件系统路径转换。
 
-模块说明和独立类图跟随源码职责分为三层；本页与完整引用关系保留为跨层统一入口：
+模块说明和独立类图跟随源码职责，插件进一步区分运行时和编辑器；本页与完整引用关系保留为跨层统一入口：
 
-| 范围 | 文档与独立类图 | 源码职责 |
-| --- | --- | --- |
+| 范围   | 文档与独立类图                                  | 源码职责                                          |
+| ------ | ----------------------------------------------- | ------------------------------------------------- |
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
-| 编辑器 | `docs/editor/`、`docs/editor/class-diagrams/` | 编辑器、项目、资源管线和资源同步 |
-| 插件 | `docs/plugins/`、`docs/plugins/class-diagrams/` | MCP 工具集成及插件接口 |
+| 编辑器基础 | `docs/editor/`、`docs/editor/class-diagrams/` | 项目环境、资源管线、Task 与通用主线程命令 |
+| 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图、V8 脚本与逐类绑定 |
+| 编辑器插件 | `docs/plugins/editor/`、对应 `class-diagrams/` | 完整建模、完整 MCP、资源构建与同步 |
 
-头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。运行时不反向依赖编辑器或插件；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
+头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。核心不引用具体插件，运行时插件不反向依赖编辑器；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
 
 ## 运行时根系统
 
-RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；Engine 只通过 System 接口调度。
+RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借用，或由 RuntimeHost 默认装入 Engine；世界和渲染仍归 Engine。可执行宿主装配选中的资源依赖图插件，并通过 ScriptRuntime 工厂创建脚本插件；RuntimeHost 库不引用或链接具体插件。
 
-| 初始化顺序 | 独立类图 | 所有者及职责 |
-| --- | --- | --- |
-| 1 | [窗口系统](../runtime/class-diagrams/window-system.md) | RuntimeHost 独占；SDL3 窗口和事件 |
-| 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | Engine 独占；SDL3 同步读取、FlatBuffers、Basis Universal |
-| 3 | [世界系统](../runtime/class-diagrams/world-system.md) | Engine 独占；flecs 世界、场景和子系统生命周期 |
-| 4 | [渲染系统](../runtime/class-diagrams/render-system.md) | Engine 独占；bgfx 设备、空白帧和资源网格 PBR |
+| 初始化顺序 | 独立类图                                                 | 所有者及职责                                             |
+| ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
+| 1          | [窗口系统](../runtime/class-diagrams/window-system.md)   | RuntimeHost 独占；SDL3 窗口和事件                        |
+| 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | 外部宿主或 Engine 独占；SDL3、单项解析、目录代际 |
+| 3          | [世界系统](../runtime/class-diagrams/world-system.md)    | Engine 独占；flecs 世界、场景和子系统生命周期            |
+| 4          | [渲染系统](../runtime/class-diagrams/render-system.md)   | Engine 独占；bgfx 设备、空白帧和资源网格 PBR             |
 
 ## 世界子系统
 
-| 顺序 | 独立类图 | 当前依赖 |
-| --- | --- | --- |
-| 1 | [物理系统](../runtime/class-diagrams/physics-system.md) | Jolt |
-| 2 | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
-| 3 | [动画系统](../runtime/class-diagrams/animation-system.md) | ozz-animation |
-| 4 | [界面系统](../runtime/class-diagrams/ui-system.md) | RmlUi |
-| 5 | [脚本系统](../runtime/class-diagrams/script-system.md) | V8；启用时装配 |
+| 顺序 | 独立类图                                                   | 当前依赖       |
+| ---- | ---------------------------------------------------------- | -------------- |
+| 1    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt           |
+| 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
+| 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
+| 4    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi          |
+| 5    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
 
 ## 宿主模块
 
@@ -106,9 +139,13 @@ RuntimeHost 独占窗口并向 Engine 注册资源、世界和渲染根系统；
 - 遵守根 [AGENTS.md](../../AGENTS.md) 的 C++20 规范；不使用异常，通过返回值表达状态。
 - 用户评审类、职责、所有权、关系和公开方法；助手负责实现、测试和图与代码同步。
 - 每个类的方法只在所属图中定义一次。其他图出现同名类时仅表示外部引用，不重复维护接口。设计先于实现时明确标注状态，不能将设计方法写成已经可调用的功能。
-- 每个具体系统及子系统独立成图。共有生命周期只在 `System` 中维护；自有头文件以 `runtime/`、`editor/`、`plugins/` 开头，构建提供统一搜索根目录。
+- 每个具体系统及子系统独立成图。共有生命周期只在 `System` 中维护；自有头文件以 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 开头，构建提供统一搜索根目录。
 - `+`、`#`、`-` 分别表示公开、受保护、私有；`<|--` 表示继承，`*--` 表示独占拥有，`o--` 表示持有共享底层资源的原生引用，`-->` 表示非拥有引用，`..>` 表示使用依赖。
 - 方法采用 Mermaid 的“方法(参数) 返回类型”语法；静态方法用 `$`、纯虚方法用 `*`，C++ 限定符在图下注明。指针返回值的星号写为 `#42;`，避免被 Mermaid 误认成纯虚标记后省略。
 - 关系标签使用普通文本；带 `::` 的 C++ 类型写在成员声明或图外说明中，避免额外冒号触发解析错误。修改后检查 Mermaid 解析和渲染。
 - `library` 是第三方库，`external` 是第三方资源类型；标准库类型在方法签名中表达。拥有资源不等于拥有库本身。
 - 已选依赖必须实际编译和链接；最小接入检查不表示玩法、物理、动画、UI 或编辑器业务已实现。
+
+- [渲染编辑命令](../editor/class-diagrams/render-commands.md)：环境光、阴影、曝光与真实帧截图。
+- [渲染 MCP 适配](../plugins/editor/class-diagrams/render-mcp-tools.md)：效果控制、异步截图请求和状态。
+- [场景持久化](../editor/class-diagrams/scene-persistence.md)：模型、材质、灯光、相机和层级的完整源资源保存。

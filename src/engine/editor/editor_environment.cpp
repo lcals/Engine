@@ -16,7 +16,7 @@
 #include <fstream>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -191,4 +191,4 @@ bool EditorEnvironment::apply_resources(const schema::AssetCatalogDataT& data,
     return true;
 }
 
-} // namespace engine
+} // namespace engine::editor

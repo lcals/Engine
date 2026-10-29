@@ -28,6 +28,8 @@ classDiagram
     class Camera
     class Transform
     class ecs_world_t
+    class ComponentRegistry
+    class Component
     class SceneInfoT {
         <<FlatBuffers生成>>
         +string name
@@ -51,6 +53,8 @@ classDiagram
     Scene ..> Camera : 根据节点id查询与设置活动相机
     Scene ..> Transform : 创建节点时添加
     Scene ..> SceneDataT : 构造临时完整快照
+    Scene ..> ComponentRegistry : 创建已登记组件
+    Scene ..> Component : 调用统一保存和恢复接口
     SceneDataT *-- SceneInfoT : 快照元数据
     SceneDataT *-- NodeDataT : 快照节点
 ```
@@ -66,3 +70,7 @@ classDiagram
 `build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
 
 由 WorldSystem 加载的场景持有场景根资源及其必要依赖，节点销毁完成后才释放该引用。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。
+
+场景快照保存全部材质槽的 GUID：槽 0 为 material_guid，其余为 additional_material_guids。瞬时网格未落为独立资源、没有 GUID 时 build_data 返回 false，输出为空；不能悄悄序列化成旧网格或丢失动态几何。
+
+组件持久化行为由 [Component](component.md) 的 build_data/restore_data 契约承担，创建函数由[组件登记表](component-registry.md)选择；场景不再直接处理渲染组件的 GUID 或逐组件字段。

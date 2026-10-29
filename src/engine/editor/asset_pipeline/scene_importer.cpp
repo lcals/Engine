@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/scene_importer.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -19,7 +20,7 @@
 #include <system_error>
 #include <utility>
 
-namespace engine
+namespace engine::editor
 {
 namespace
 {
@@ -48,66 +49,14 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
                 error = "scene node components must be unique";
                 return false;
             }
-            switch (component->payload.type)
+            const auto* codec = asset_pipeline::find_scene_component_codec(component->payload.type);
+            if (codec == nullptr)
             {
-            case schema::ComponentPayload::TransformData:
-            {
-                const auto* value = component->payload.AsTransformData();
-                const auto finite = [](const schema::Vec3& vector)
-                {
-                    return std::isfinite(vector.x()) && std::isfinite(vector.y()) &&
-                           std::isfinite(vector.z());
-                };
-                if (value == nullptr || !finite(value->position) || !finite(value->rotation) ||
-                    !finite(value->scale) || value->scale.x() == 0 || value->scale.y() == 0 ||
-                    value->scale.z() == 0)
-                {
-                    error = "invalid scene transform";
-                    return false;
-                }
-                break;
-            }
-            case schema::ComponentPayload::CameraData:
-            {
-                const auto* value = component->payload.AsCameraData();
-                if (value == nullptr || !std::isfinite(value->fov_degrees) ||
-                    !std::isfinite(value->near_clip) || !std::isfinite(value->far_clip) ||
-                    value->fov_degrees <= 0 || value->fov_degrees >= 180 || value->near_clip <= 0 ||
-                    value->far_clip <= value->near_clip)
-                {
-                    error = "invalid scene camera";
-                    return false;
-                }
-                break;
-            }
-            case schema::ComponentPayload::LightData:
-            {
-                const auto* value = component->payload.AsLightData();
-                if (value == nullptr || !std::isfinite(value->intensity) || value->intensity < 0 ||
-                    !std::isfinite(value->color.r()) || !std::isfinite(value->color.g()) ||
-                    !std::isfinite(value->color.b()) || !std::isfinite(value->color.a()) ||
-                    value->color.r() < 0 || value->color.g() < 0 || value->color.b() < 0 ||
-                    value->color.a() < 0 || value->color.a() > 1 || value->color.r() > 1 ||
-                    value->color.g() > 1 || value->color.b() > 1)
-                {
-                    error = "invalid scene light";
-                    return false;
-                }
-                break;
-            }
-            case schema::ComponentPayload::MeshRendererData:
-            {
-                const auto* value = component->payload.AsMeshRendererData();
-                if (value == nullptr || !GuidMap::valid_guid(value->mesh_guid) ||
-                    !GuidMap::valid_guid(value->material_guid))
-                {
-                    error = "mesh renderer requires mesh and material GUIDs";
-                    return false;
-                }
-                break;
-            }
-            default:
                 error = "unknown scene component";
+                return false;
+            }
+            if (!codec->validate(*component, error))
+            {
                 return false;
             }
         }
@@ -160,73 +109,13 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
         return false;
     }
     const auto type = table["type"].value<std::string_view>();
-    if (type == "transform")
-    {
-        std::array<double, 3> position{0, 0, 0};
-        std::array<double, 3> rotation{0, 0, 0};
-        std::array<double, 3> scale{1, 1, 1};
-        if ((table.contains("position") && !numbers(table.get("position"), position)) ||
-            (table.contains("rotation") && !numbers(table.get("rotation"), rotation)) ||
-            (table.contains("scale") && !numbers(table.get("scale"), scale)))
-        {
-            error = "transform values must be finite three-element arrays";
-            return false;
-        }
-        schema::TransformDataT value;
-        value.position = {position[0], position[1], position[2]};
-        value.rotation = {rotation[0], rotation[1], rotation[2]};
-        value.scale = {scale[0], scale[1], scale[2]};
-        component.payload.Set(std::move(value));
-    }
-    else if (type == "camera")
-    {
-        schema::CameraDataT value;
-        if ((table.contains("fov_degrees") &&
-             !float_number(table.get("fov_degrees"), value.fov_degrees)) ||
-            (table.contains("near_clip") &&
-             !float_number(table.get("near_clip"), value.near_clip)) ||
-            (table.contains("far_clip") && !float_number(table.get("far_clip"), value.far_clip)))
-        {
-            error = "camera fields must be finite numbers";
-            return false;
-        }
-        component.payload.Set(std::move(value));
-    }
-    else if (type == "light")
-    {
-        schema::LightDataT value;
-        std::array<double, 4> color{1, 1, 1, 1};
-        if ((table.contains("color") && !numbers(table.get("color"), color)) ||
-            (table.contains("intensity") && !float_number(table.get("intensity"), value.intensity)))
-        {
-            error = "light color and intensity must be finite numbers";
-            return false;
-        }
-        for (const auto channel : color)
-        {
-            if (channel < 0 || channel > std::numeric_limits<float>::max())
-            {
-                error = "light color channel is out of range";
-                return false;
-            }
-        }
-        value.color = {static_cast<float>(color[0]), static_cast<float>(color[1]),
-                       static_cast<float>(color[2]), static_cast<float>(color[3])};
-        component.payload.Set(std::move(value));
-    }
-    else if (type == "mesh_renderer")
-    {
-        schema::MeshRendererDataT value;
-        value.mesh_guid = table["mesh"].value_or(std::string{});
-        value.material_guid = table["material"].value_or(std::string{});
-        component.payload.Set(std::move(value));
-    }
-    else
+    const auto* codec = find_scene_component_codec(type.value_or(std::string_view{}));
+    if (codec == nullptr)
     {
         error = "unknown scene component type";
         return false;
     }
-    return true;
+    return codec->read(table, component, error);
 }
 
 } // namespace
@@ -328,51 +217,13 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
         for (const auto& component : node->components)
         {
             toml::table value{{"enabled", component->enabled}};
-            switch (component->payload.type)
+            const auto* codec = asset_pipeline::find_scene_component_codec(component->payload.type);
+            if (codec == nullptr)
             {
-            case schema::ComponentPayload::TransformData:
-            {
-                const auto* transform = component->payload.AsTransformData();
-                value.insert("type", "transform");
-                value.insert("position",
-                             toml::array{transform->position.x(), transform->position.y(),
-                                         transform->position.z()});
-                value.insert("rotation",
-                             toml::array{transform->rotation.x(), transform->rotation.y(),
-                                         transform->rotation.z()});
-                value.insert("scale", toml::array{transform->scale.x(), transform->scale.y(),
-                                                  transform->scale.z()});
-                break;
-            }
-            case schema::ComponentPayload::CameraData:
-            {
-                const auto* camera = component->payload.AsCameraData();
-                value.insert("type", "camera");
-                value.insert("fov_degrees", camera->fov_degrees);
-                value.insert("near_clip", camera->near_clip);
-                value.insert("far_clip", camera->far_clip);
-                break;
-            }
-            case schema::ComponentPayload::LightData:
-            {
-                const auto* light = component->payload.AsLightData();
-                value.insert("type", "light");
-                value.insert("color", toml::array{light->color.r(), light->color.g(),
-                                                  light->color.b(), light->color.a()});
-                value.insert("intensity", light->intensity);
-                break;
-            }
-            case schema::ComponentPayload::MeshRendererData:
-            {
-                const auto* mesh = component->payload.AsMeshRendererData();
-                value.insert("type", "mesh_renderer");
-                value.insert("mesh", mesh->mesh_guid);
-                value.insert("material", mesh->material_guid);
-                break;
-            }
-            default:
+                error = "unknown scene component type";
                 return false;
             }
+            codec->write(*component, value);
             components.push_back(std::move(value));
         }
         table.insert("components", std::move(components));
@@ -415,4 +266,4 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
     return true;
 }
 
-} // namespace engine
+} // namespace engine::editor

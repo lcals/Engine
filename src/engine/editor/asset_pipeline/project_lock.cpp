@@ -15,7 +15,7 @@
 #endif
 #include <string>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 ProjectLock::~ProjectLock() noexcept
@@ -95,4 +95,4 @@ bool ProjectLock::try_acquire(const std::filesystem::path& file, bool& acquired,
     return true;
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

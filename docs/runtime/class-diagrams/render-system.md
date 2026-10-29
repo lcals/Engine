@@ -15,6 +15,10 @@ classDiagram
         +release_scene() void
         +scene_prepared() bool
         +gpu_resource_count() uint32_t
+        +set_settings(const RenderSettings& settings) bool
+        +settings() const RenderSettings&
+        +request_screenshot(string_view utf8_png_path) bool
+        +screenshot_status() ScreenshotStatus
         +render() bool
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
@@ -33,8 +37,29 @@ classDiagram
     class ResourceSystem
     class MeshDataT
     class ShaderDataT
+    class TextureDataT
+    class Resource
+    class MeshUtils
     class EngineConfig {
         <<struct>>
+    }
+    class RenderSettings {
+        <<struct>>
+        +ambient_color : float[3]
+        +ambient_intensity : float
+        +exposure : float
+        +filmic_tonemap : bool
+        +directional_shadows : bool
+        +shadow_resolution : uint16_t
+        +shadow_bias : float
+        +clear_color : uint32_t
+    }
+    class ScreenshotStatus {
+        <<enumeration>>
+        idle
+        pending
+        complete
+        failed
     }
     class bgfx {
         <<library>>
@@ -57,10 +82,16 @@ classDiagram
     RenderSystem ..> MeshRenderer : 从节点读取 Mesh 与材质
     RenderSystem ..> Transform : 从节点读取世界变换
     RenderSystem ..> Material : 读取实例 Shader 路径与命名参数
-    RenderSystem ..> ResourceSystem : 按完整资源路径查询定义
-    RenderSystem ..> MeshDataT : 复制独立资源顶点和索引
+    RenderSystem ..> ResourceSystem : 内置资源注册及身份查询
+    RenderSystem ..> Material : 借用其当前Shader数据
+    RenderSystem ..> MeshDataT : 读取组件持有几何并组装 GPU 顶点
+    RenderSystem ..> MeshUtils : 几何校验与切线生成
+    RenderSystem o-- Resource : 在用 GPU 纹理持有 CPU 引用
+    RenderSystem ..> TextureDataT : Basis 转码与 mip 上传
     RenderSystem ..> ShaderDataT : 读取生成的二进制与 uniform 映射
     RenderSystem ..> EngineConfig : on_initialize 参数
+    RenderSystem *-- RenderSettings : 拥有渲染配置
+    RenderSystem ..> ScreenshotStatus : 截图回执
     RenderSystem ..> bgfx : 图形资源及帧提交
     RenderSystem ..> SDL3 : 原生窗口及像素尺寸
     RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
@@ -84,10 +115,22 @@ classDiagram
 - 拥有 bgfx 创建的资源，使用对应 API 释放；不拥有窗口系统，也不拥有第三方库本身。初始化、清理和复制移动限制遵守[系统约定](engine-system.md)。
 
 - 使用 SDL3 提供原生窗口句柄，macOS / iOS 选择 Metal、Windows 选择 Direct3D12、Android / Linux 选择 Vulkan；拒绝 Noop 和回退到其他图形后端。待机清屏，无调试文字。窗口像素尺寸变化时重置交换链并更新相机宽高比。
-- 默认内置 Mesh 为 24 顶点、36 索引方块；项目 Mesh 来自独立缓存定义，可提供其他顶点和 uint32 索引。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。渲染器按 `builtin/...` 或 `project/...` 路径查找 ShaderData，不通过材质种类或路径分支选择效果。
+- 默认内置 Mesh 为 24 顶点、36 索引方块；项目 Mesh 来自独立缓存定义，可提供其他顶点和 uint32 索引。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。材质按 `builtin/...` 或 `project/...` 路径取得资源，渲染器通过 `Material::shader_data()` 借用该材质实际持有的 ShaderData，不经过全局缓存查询或按材质路径分支选择效果。
 - 每个在用 Shader 路径拥有一套 Program 和参数 Uniform；多个组件可使用不同 Shader。按生成数据中的 uniform 名称、偏移及数值类型映射参数，上传实例值和隐藏默认值。反射双向核对全部非引擎 Uniform，缺失声明或不存在的声明均拒绝，失败清理本次场景 GPU 资源。
-- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 调用 ScriptSystem 停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 根据场景标识释放旧 GPU 资源并建立新资源。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
+- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 根据场景标识释放旧 GPU 资源并建立新资源。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
 - Android 暂停关闭 bgfx 时同时释放场景 GPU 资源；恢复后根据仍存活的场景重新建立资源。平台运行验证范围见根 README。
 - Android Surface 处理代码集中在平台实现中；APK、模拟器暂停恢复和真机验证范围见根 [README.md](../../../README.md)。
 
 C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr`；析构、`release_scene()`、只读状态方法和 `on_shutdown()` 为 `noexcept`；只读状态方法为 `const`。析构及受保护钩子标注 `override`，状态返回值标注 `[[nodiscard]]`。
+
+## 几何、纹理与照明
+
+- 几何支持 UV0、切线、顶点色和子网格；GPU 顶点以明确 float 布局组装，不依赖 FlatBuffers struct 的内存布局。网格按所属节点完整 ID 与 mesh_revision 更新，仅改变的几何重新上传。
+- 每个子网格按材质槽独立提交，空子网格表绘制完整索引与槽 0。所有材质槽遵循相同 Shader 与命名参数规则。
+- 纹理来自 ResourcePtr 持有的 TextureData，Basis Universal 转码后上传全部 mip。auto 按实际 GPU 能力与 Basis 转码器支持情况选择 BC7、ASTC 4x4、ETC2 或 RGBA8；显式请求不支持的格式返回失败。sRGB 只用于颜色纹理，法线及 ORM 使用线性采样。
+- GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，停止项目、场景替换及设备关闭统一释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
+- 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
+- 最多 8 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。
+- `set_settings()` 接受调用方明确提交的渲染参数，非法值返回失败且保持原配置。默认环境光为 0、曝光为 1、Reinhard 色调映射、阴影关闭；不改变既有直接照明效果。可选择统一环境漫反射和 filmic 色调映射；环境参数不代表隐藏场景灯，也不实现 IBL。
+- 方向光阴影使用场景中第一个启用的方向光，其变换仍来自节点。按当前可绘制网格的世界边界拟合正交投影，复用 bgfx `15-shadowmaps-simple` 的 packed-depth 路径与 16 点 PCF 采样；无方向光不产生阴影。RGBA8 深度编码与 D16 深度附件避免依赖硬件比较采样；纹理、帧缓冲及程序随场景释放，设备不支持附件格式时返回失败，不假报开启。阴影使用保留纹理槽 15，项目材质不得占用该槽。ACES 色调映射直接适配 bgfx `shaderlib.sh` 的曲线，保留来源。
+- `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧经 bgfx 回调写入 PNG 后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。回调处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时完成或取消等待中的请求。请求和查询由主线程调用，回调状态跨线程同步。

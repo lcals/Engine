@@ -6,7 +6,7 @@
 
 Android 使用仓库锁定 baseline 的库版本，相关修复为：
 
-- `basisu`：保留完整编码器与转码器静态库，Android 不构建命令行工具；线程依赖使用 `Threads::Threads`，避免硬链接 Android 不提供的独立 `pthread` 库。
+- `basisu`：保留完整编码器与转码器静态库，Android 不构建命令行工具；线程依赖使用 `Threads::Threads`，避免硬链接 Android 不提供的独立 `pthread` 库。库编码遵守 `m_status_output`，诊断写入 stderr，避免污染调用方的 MCP stdio 协议。
 - `bgfx`：为导出的 Android 静态库传递 `android`、`EGL`、`GLESv2`、`dl` 系统依赖。原有 Android Vulkan 后端继续参与编译。
 - `sdl3`：安装本次原生库同版本的 Java 源码到 `share/sdl3/java`，由应用的 Gradle 工程编译，避免依赖临时构建目录或另一版本的 Java JNI 接口。
 

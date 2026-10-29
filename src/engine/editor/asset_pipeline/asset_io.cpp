@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 
 std::string hash_bytes(std::span<const std::byte> bytes)
@@ -141,4 +141,4 @@ std::string new_guid()
     return text.data();
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

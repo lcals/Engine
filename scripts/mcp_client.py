@@ -60,6 +60,11 @@ def main():
     build.add_argument("--item", action="append", default=[], help="Build item; may be repeated")
     hot_reload = commands.add_parser("hot-reload", help="Set the engine hot reload switch")
     hot_reload.add_argument("enabled", choices=["on", "off"])
+    call = commands.add_parser("call", help="Call any registered MCP tool")
+    call.add_argument("tool", help="Registered tool name")
+    inputs = call.add_mutually_exclusive_group()
+    inputs.add_argument("--arguments", help="Tool arguments as a JSON object; defaults to {}")
+    inputs.add_argument("--arguments-file", type=Path, help="UTF-8 file containing a JSON object")
     args = parser.parse_args()
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
@@ -74,8 +79,21 @@ def main():
         "sync": "sync_assets",
         "build": "build_resources",
         "hot-reload": "set_hot_reload",
-    }[args.command]
+    }.get(args.command)
     arguments = {"enabled": args.enabled == "on"} if args.command == "hot-reload" else {}
+    if args.command == "call":
+        tool = args.tool
+        try:
+            source = (
+                args.arguments_file.read_text(encoding="utf-8")
+                if args.arguments_file is not None
+                else args.arguments if args.arguments is not None else "{}"
+            )
+            arguments = json.loads(source)
+        except (OSError, ValueError) as error:
+            parser.error(f"Cannot read tool arguments: {error}")
+        if not isinstance(arguments, dict):
+            parser.error("Tool arguments must be a JSON object")
     if args.command == "sync" and args.source:
         arguments["source"] = args.source
     if args.command == "build":

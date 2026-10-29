@@ -1,21 +1,33 @@
-#include "editor/asset_build/asset_build_system.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "editor/asset_sync/asset_sync_system.hpp"
-#include "plugins/mcp/mcp_system.hpp"
+#include "plugins/editor/asset_build/asset_build_system.hpp"
+#include "plugins/editor/asset_sync/asset_sync_system.hpp"
+#include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/mcp_system.hpp"
+#include "plugins/editor/mcp/project_mcp_tools.hpp"
+#include "plugins/editor/mcp/render_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
+
+#if ENGINE_HAS_MODELING_IMPORTER
+#include "plugins/editor/modeling/modeling_mesh_importer.hpp"
+#endif
+
+#if ENGINE_HAS_MODELING_PLUGIN
+#include "plugins/editor/modeling/modeling_mcp_tools.hpp"
+#endif
 
 #include <SDL3/SDL_main.h>
 
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <string_view>
 #include <utility>
 
 int main(int argc, char** argv)
 {
     std::filesystem::path project;
-    engine::McpTarget target;
+    engine::plugins::mcp::McpTarget target;
     bool adb_supplied = false;
     for (int index = 1; index < argc; ++index)
     {
@@ -71,11 +83,36 @@ int main(int argc, char** argv)
         return 2;
     }
     const engine::EngineConfig config{};
-    engine::AssetPipelineSystem pipeline;
-    engine::AssetBuildSystem builder(pipeline);
-    engine::AssetSyncSystem sync;
-    engine::McpSystem mcp(pipeline, builder, sync, project, std::move(target));
-    if (!pipeline.initialize(config) || !builder.initialize(config) || !sync.initialize(config) ||
+    engine::editor::AssetPipelineSystem pipeline;
+    engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
+    engine::plugins::asset_sync::AssetSyncSystem sync;
+    engine::plugins::mcp::ProjectMcpTools project_tools(pipeline, builder, sync, project, target);
+    engine::plugins::mcp::EditorMcpTools editor_tools(project, target);
+#if ENGINE_HAS_MODELING_PLUGIN
+    engine::plugins::modeling::ModelingMcpTools modeling_tools(editor_tools);
+#endif
+    engine::plugins::mcp::RenderMcpTools render_tools(editor_tools);
+    engine::plugins::mcp::McpSystem mcp;
+    if (!pipeline.initialize(config))
+    {
+        std::fputs("Cannot initialize asset pipeline\n", stderr);
+        return 1;
+    }
+#if ENGINE_HAS_MODELING_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
+        std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
+    if (!pipeline.set_importer(importer))
+    {
+        std::fputs("Cannot register modeling importer\n", stderr);
+        return 1;
+    }
+#endif
+    if (!builder.initialize(config) || !sync.initialize(config) || !project_tools.initialize() ||
+        !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
+        (!android && !render_tools.register_tools(mcp)) ||
+#if ENGINE_HAS_MODELING_PLUGIN
+        (!android && !modeling_tools.register_tools(mcp)) ||
+#endif
         !mcp.initialize(config))
     {
         std::fputs("Cannot initialize MCP tool host\n", stderr);

@@ -4,7 +4,7 @@
 
 #include <string>
 
-namespace engine
+namespace engine::editor
 {
 
 class ProjectSystem final : public System
@@ -23,4 +23,4 @@ private:
     std::string project_root_;
 };
 
-} // namespace engine
+} // namespace engine::editor

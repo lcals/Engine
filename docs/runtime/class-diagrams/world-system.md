@@ -37,8 +37,10 @@ classDiagram
     WorldSystem ..> flecs : 编译及链接依赖
     WorldSystem "1" *-- "0..1" ecs_world_t : 拥有ECS 世界
     class ResourceSystem
+    class ResourceLoader
     class Scene
-    WorldSystem ..> ResourceSystem : 读取活动GUID缓存中的场景数据
+    WorldSystem ..> ResourceSystem : 查询目录与加载接口
+    WorldSystem ..> ResourceLoader : 加载场景根资源
     WorldSystem "1" *-- "0..1" Scene : 独占活动场景
     WorldSystem ..> Scene : 创建和查询返回借用
     class PhysicsSystem
@@ -49,8 +51,8 @@ classDiagram
     WorldSystem "1" *-- "0..1" AnimationSystem : 独占子系统
     class UiSystem
     WorldSystem "1" *-- "0..1" UiSystem : 独占子系统
-    class ScriptSystem
-    WorldSystem "1" *-- "0..1" ScriptSystem : 启用 V8 时独占
+    class ScriptRuntime
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主工厂提供可选实现
     note for WorldSystem "继承 System 生命周期；析构中调用 shutdown()"
 ```
 

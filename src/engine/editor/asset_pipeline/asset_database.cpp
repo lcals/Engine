@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace engine::asset_pipeline
+namespace engine::editor::asset_pipeline
 {
 namespace
 {
@@ -310,4 +310,4 @@ void AssetDatabase::rollback() noexcept
     }
 }
 
-} // namespace engine::asset_pipeline
+} // namespace engine::editor::asset_pipeline

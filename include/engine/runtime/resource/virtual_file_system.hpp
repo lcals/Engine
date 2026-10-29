@@ -1,7 +1,5 @@
 #pragma once
 
-#include "runtime/schema/asset_catalog_generated.h"
-
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -10,6 +8,11 @@
 
 namespace engine
 {
+
+namespace schema
+{
+struct FileLocationT;
+} // namespace schema
 
 using ByteBuffer = std::vector<std::byte>;
 

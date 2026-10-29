@@ -23,6 +23,9 @@ public:
     [[nodiscard]] bool enabled() const noexcept;
     void set_enabled(bool enabled) noexcept;
     [[nodiscard]] const schema::ComponentDataT& data() const noexcept;
+    // 快照失败输出为空；恢复失败保持原组件状态。
+    [[nodiscard]] virtual bool build_data(schema::ComponentDataT& output) const;
+    [[nodiscard]] virtual bool restore_data(const schema::ComponentDataT& data) = 0;
 
 protected:
     explicit Component(Node& node, schema::ComponentDataT data = {}) noexcept;

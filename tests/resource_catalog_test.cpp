@@ -11,6 +11,7 @@
 #include <TargetConditionals.h>
 #endif
 
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cstdint>
@@ -20,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <system_error>
+#include <vector>
 
 namespace
 {
@@ -253,6 +255,19 @@ bool run(const std::filesystem::path& root)
     world.destroy_scene();
     auto shader = *ResourceSystem::find_shader("builtin/shaders/pbr");
     shader.path = "project/shaders/test.shader";
+    std::vector<std::string> shader_dependencies;
+    for (const auto& sampler : shader.samplers)
+    {
+        Guid guid;
+        if (!ResourceSystem::path_to_guid(sampler->default_texture, guid))
+        {
+            return false;
+        }
+        shader_dependencies.push_back(std::move(guid));
+    }
+    std::sort(shader_dependencies.begin(), shader_dependencies.end());
+    shader_dependencies.erase(std::unique(shader_dependencies.begin(), shader_dependencies.end()),
+                              shader_dependencies.end());
     auto material = *ResourceSystem::find_material("builtin/materials/default-pbr");
     material.type_path = "project/materials/test.material";
     material.shader_guid = shader_guid;
@@ -271,7 +286,8 @@ bool run(const std::filesystem::path& root)
     fixture.data.schema_version = 2;
     fixture.data.revision = "test-revision";
     fixture.data.target_platform = platform();
-    if (!fixture.add(shader_guid, shader.path, schema::AssetKind::shader, pack(shader, "ESHD")) ||
+    if (!fixture.add(shader_guid, shader.path, schema::AssetKind::shader, pack(shader, "ESHD"),
+                     shader_dependencies) ||
         !fixture.add(material_guid, material.type_path, schema::AssetKind::material,
                      pack(material, "EMAT"), {shader_guid}) ||
         !fixture.add(mesh_guid, mesh.path, schema::AssetKind::mesh, pack(mesh, "EMSH")) ||
@@ -313,28 +329,36 @@ bool run(const std::filesystem::path& root)
         !expect(ResourceSystem::find_mesh(mesh.path) == nullptr,
                 "metadata and headers do not create resource objects") ||
         !expect(resources.load(scene_guid, loaded) && loaded->scene() &&
-                    ResourceSystem::find_mesh(mesh.path) &&
-                    ResourceSystem::find_shader(shader.path),
-                "top-level load creates all necessary resources"))
+                    ResourceSystem::find_mesh(mesh.path) == nullptr &&
+                    ResourceSystem::find_shader(shader.path) == nullptr &&
+                    !resources.find(scene_guid),
+                "core loads one scene entity without dependency reads or a resident cache"))
     {
         return false;
     }
     ResourcePtr shared;
-    if (!expect(resources.load(scene_guid, shared) && shared == loaded,
-                "live resources are shared by identity") ||
+    if (!expect(resources.load(scene_guid, shared) && shared != loaded &&
+                    *shared->scene() == *loaded->scene(),
+                "single-item core creates independent entities without sharing policy") ||
         !expect(resources.update_catalog(fixture.data, mounts),
-                "compatible metadata refresh keeps active resources"))
+                "metadata refresh does not invalidate active single-item data"))
     {
         return false;
     }
     auto changed = fixture.data;
     changed.revision = "changed";
     changed.entries.front()->content_hash = "0000000000000000";
-    if (!expect(!resources.update_catalog(changed, mounts) &&
-                    resources.catalog().revision() == "test-revision",
-                "active transitive dependency cannot change") ||
-        !expect(!resources.update_catalog(fixture.data, {{"content", root / "other"}}),
-                "active storage mount cannot change"))
+    const auto old_generation = loaded->generation();
+    ResourcePtr current;
+    if (!expect(resources.update_catalog(changed, mounts) &&
+                    resources.catalog().revision() == "changed" &&
+                    resources.generation() != old_generation && loaded->scene() &&
+                    resources.load(scene_guid, current) &&
+                    current->generation() == resources.generation(),
+                "new directory generation leaves old entities intact and reads no dependencies") ||
+        !expect(resources.update_catalog(fixture.data, {{"content", root / "other"}}) &&
+                    !resources.load(scene_guid, current) && !current && loaded->scene(),
+                "new storage mount affects new reads without changing old resource bytes"))
     {
         return false;
     }
@@ -382,14 +406,15 @@ bool run(const std::filesystem::path& root)
     std::weak_ptr<const Resource> weak = loaded;
     loaded.reset();
     shared.reset();
-    if (!expect(!weak.expired(), "scene lifetime keeps its resource root alive"))
+    if (!expect(weak.expired() && restored->nodes().size() == 2,
+                "core does not share roots; world owns its independently loaded scene"))
     {
         return false;
     }
     world.destroy_scene();
     if (!expect(weak.expired() && ResourceSystem::find_mesh(mesh.path) == nullptr &&
                     ResourceSystem::find_shader(shader.path) == nullptr,
-                "weak index does not keep scene or dependencies resident"))
+                "core contains no project residency index"))
     {
         return false;
     }
@@ -401,7 +426,7 @@ bool run(const std::filesystem::path& root)
                 "metadata and header reads do not eagerly read or hash payload") ||
         !expect(!resources.load(scene_guid, loaded) && !loaded &&
                     ResourceSystem::find_shader(shader.path) == nullptr,
-                "corrupted entity rejected and newly loaded dependencies rolled back"))
+                "corrupted single entity is rejected without creating dependencies"))
     {
         return false;
     }
@@ -421,7 +446,7 @@ bool run(const std::filesystem::path& root)
     return expect(resources.update_catalog(empty, {}) &&
                       resources.load("00000000-0000-4000-8000-000000000003", builtin) &&
                       builtin->material() && ResourceSystem::find_shader("builtin/shaders/pbr"),
-                  "empty project catalog still loads compiled builtin dependencies");
+                  "empty project catalog still loads a compiled builtin entity");
 }
 
 } // namespace
