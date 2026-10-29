@@ -1,0 +1,39 @@
+--- a/config/clang/clang.gni
++++ b/config/clang/clang.gni
+@@ -72,6 +72,10 @@
+ 
+   clang_base_path = default_clang_base_path
+ 
++  # Optional NDK compiler-rt directory for standalone Android embedders.
++  # Keep the pinned compiler and its headers; use NDK runtimes when linking.
++  android_clang_resource_dir = ""
++
+   # Specifies whether or not bitcode should be embedded during compilation.
+   # This is used for creating a MLGO corpus from Chromium in the non-ThinLTO case.
+   clang_embed_bitcode = false
+--- a/config/clang/BUILD.gn
++++ b/config/clang/BUILD.gn
+@@ -216,6 +216,9 @@
+       }
+ 
+       _clang_lib_dir = "$clang_base_path/lib/clang/$clang_version/lib"
++      if (is_android && android_clang_resource_dir != "") {
++        _clang_lib_dir = "$android_clang_resource_dir/lib"
++      }
+       _lib_file = "${_prefix}clang_rt.${_libname}${_suffix}.${_ext}"
+       libs = [ "$_clang_lib_dir/$_dir/$_lib_file" ]
+     }
+--- a/config/android/BUILD.gn
++++ b/config/android/BUILD.gn
+@@ -84,6 +84,11 @@
+ # that is Android-only. Please see that target for advice on what should go in
+ # :runtime_library vs. :compiler.
+ config("runtime_library") {
++  if (android_clang_resource_dir != "") {
++    # Select matching NDK builtins and libunwind without replacing compile headers.
++    ldflags = [ "-resource-dir=" +
++                rebase_path(android_clang_resource_dir, root_build_dir) ]
++  }
+ }
+ 
+ config("hide_all_but_jni_onload") {

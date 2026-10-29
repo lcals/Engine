@@ -5,6 +5,16 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
     set(${_ready_output} FALSE PARENT_SCOPE)
     set(_identity "${_revision}\n${_depot_revision}\n${_build_revision}\n${_partition_revision}\n")
     string(APPEND _identity "${CMAKE_HOST_SYSTEM_NAME}\n${ENGINE_V8_TARGET_CPU}\n")
+    if(DEFINED ENGINE_V8_TARGET_OS AND NOT ENGINE_V8_TARGET_OS STREQUAL "")
+        set(_target_os "${ENGINE_V8_TARGET_OS}")
+    elseif(CMAKE_HOST_WIN32)
+        set(_target_os win)
+    elseif(CMAKE_HOST_APPLE)
+        set(_target_os mac)
+    else()
+        set(_target_os linux)
+    endif()
+    string(APPEND _identity "target_os=${_target_os}\n")
 
     set(_roots "${_source}" "${_depot}" "${_source}/build"
         "${_source}/third_party/partition_alloc")
@@ -26,6 +36,29 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         endif()
         string(SHA256 _diff_hash "${_diff}")
         string(APPEND _identity "${_actual}:${_diff_hash}\n")
+    endforeach()
+    # 补丁可能位于其他独立 Git 依赖（如 simdutf）；这些根的全部已跟踪修改
+    # 也必须参与身份。原有四个根不重复计算，固定提交仍由 gclient 清单校验。
+    set(_additional_roots ${_patch_roots})
+    list(REMOVE_DUPLICATES _additional_roots)
+    foreach(_root IN LISTS _additional_roots)
+        if(_root IN_LIST _roots)
+            continue()
+        endif()
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}" rev-parse HEAD
+            RESULT_VARIABLE _status OUTPUT_VARIABLE _actual
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(NOT _status EQUAL 0)
+            return()
+        endif()
+        execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_root}"
+            diff --no-ext-diff --binary HEAD --
+            RESULT_VARIABLE _status OUTPUT_VARIABLE _diff ERROR_QUIET)
+        if(NOT _status EQUAL 0)
+            return()
+        endif()
+        string(SHA256 _diff_hash "${_diff}")
+        string(APPEND _identity "${_root}:${_actual}:${_diff_hash}\n")
     endforeach()
     foreach(_patch_root _patch IN ZIP_LISTS _patch_roots _patch_files)
         execute_process(COMMAND "${GIT_EXECUTABLE}" -C "${_patch_root}"
@@ -67,6 +100,35 @@ function(_engine_v8_cache_keys _prepare_output _build_output _ready_output)
         list(APPEND _files "${ENGINE_V8_HOST_TOOLCHAIN_FILE}")
     endif()
     set(_tools "${_gn}" "${_ninja}")
+    if(_target_os STREQUAL "android")
+        if(NOT ENGINE_V8_TARGET_CPU STREQUAL "arm64" OR
+           NOT DEFINED ENGINE_V8_ANDROID_NDK OR
+           NOT ENGINE_V8_ANDROID_API MATCHES "^[0-9]+$")
+            return()
+        endif()
+        file(REAL_PATH "${ENGINE_V8_ANDROID_NDK}" _ndk)
+        if(CMAKE_HOST_WIN32)
+            set(_ndk_host windows-x86_64)
+            set(_ndk_tool_suffix .exe)
+        elseif(CMAKE_HOST_APPLE)
+            set(_ndk_host darwin-x86_64)
+            set(_ndk_tool_suffix "")
+        else()
+            set(_ndk_host linux-x86_64)
+            set(_ndk_tool_suffix "")
+        endif()
+        string(APPEND _identity "android_ndk=${_ndk}\nandroid_api=${ENGINE_V8_ANDROID_API}\n")
+        list(APPEND _files "${_ndk}/source.properties" "${_ndk}/meta/platforms.json")
+        foreach(_tool IN ITEMS clang llvm-ar ld.lld)
+            list(APPEND _tools "${_ndk}/toolchains/llvm/prebuilt/${_ndk_host}/bin/${_tool}${_ndk_tool_suffix}")
+        endforeach()
+        # Windows 的 Android 归档仍由宿主可执行的 llvm-ar 处理，不能使用 COFF lld-link。
+        if(CMAKE_HOST_WIN32)
+            list(APPEND _tools
+                "${_source}/third_party/llvm-build/Release+Asserts/bin/clang.exe"
+                "${_source}/third_party/llvm-build/Release+Asserts/bin/llvm-ar.exe")
+        endif()
+    endif()
     if(CMAKE_HOST_WIN32)
         list(APPEND _tools
             "${_source}/third_party/llvm-build/Release+Asserts/bin/clang-cl.exe"
@@ -182,9 +244,15 @@ endfunction()
 
 function(_engine_v8_artifacts _output)
     set(${_output} FALSE PARENT_SCOPE)
-    foreach(_artifact IN ITEMS "${_out}/obj/${_library}" "${_out}/icudtl.dat"
-            "${_out}/gen/include/v8-gn.h" "${_sample}" "${_out}/args.gn"
-            "${_out}/build.ninja")
+    set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat"
+        "${_out}/gen/include/v8-gn.h" "${_out}/args.gn" "${_out}/build.ninja")
+    if(NOT ENGINE_V8_TARGET_OS STREQUAL "android" OR NOT "${_sample}" STREQUAL "")
+        if("${_sample}" STREQUAL "")
+            return()
+        endif()
+        list(APPEND _artifacts "${_sample}")
+    endif()
+    foreach(_artifact IN LISTS _artifacts)
         if(NOT EXISTS "${_artifact}")
             return()
         endif()

@@ -29,6 +29,7 @@ android {
         main {
             java.srcDir new File(nativeDirectory, 'java')
             jniLibs.srcDir new File(nativeDirectory, 'jniLibs')
+            assets.srcDir new File(nativeDirectory, 'assets')
         }
     }
     compileOptions {
@@ -45,13 +46,6 @@ android {
             signingConfig = signingConfigs.debug
         }
     }
-    packaging {
-        jniLibs {
-            if (nativeConfiguration == 'debug') {
-                keepDebugSymbols += ['**/*.so']
-            }
-        }
-    }
 }
 
 androidComponents {
@@ -63,8 +57,10 @@ androidComponents {
 tasks.named('preBuild') {
     doFirst {
         ['jniLibs/arm64-v8a/libmain.so', 'jniLibs/arm64-v8a/libSDL3.so',
-         'jniLibs/arm64-v8a/libc++_shared.so', 'java/org/libsdl/app/SDLActivity.java'].each { relative ->
-            if (!new File(nativeDirectory, relative).isFile()) {
+         'jniLibs/arm64-v8a/libc++_shared.so', 'java/org/libsdl/app/SDLActivity.java',
+         'assets/v8/icudtl.dat'].each { relative ->
+            File input = new File(nativeDirectory, relative)
+            if (!input.isFile() || input.length() == 0) {
                 throw new GradleException("Missing ${relative}; build CMake preset android-arm64-${nativeConfiguration} first")
             }
         }

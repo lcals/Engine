@@ -198,7 +198,7 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
-        "ENGINE_ENABLE_V8": false,
+        "ENGINE_ENABLE_V8": true,
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false
@@ -227,7 +227,7 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
-        "ENGINE_ENABLE_V8": false,
+        "ENGINE_ENABLE_V8": true,
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false
@@ -367,6 +367,22 @@
       "configuration": "Release",
       "targets": [
         "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-debug-prepare",
+      "configurePreset": "android-arm64-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-release-prepare",
+      "configurePreset": "android-arm64-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_v8_prepare"
       ]
     }
   ],

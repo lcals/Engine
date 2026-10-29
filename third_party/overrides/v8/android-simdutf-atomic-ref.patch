@@ -1,0 +1,96 @@
+diff --git a/simdutf.h b/simdutf.h
+--- a/simdutf.h
++++ b/simdutf.h
+@@ -82,7 +82,8 @@
+       !defined(SIMDUTF_SPAN_DISABLED)
+     #define SIMDUTF_SPAN 1
+   #endif // __cpp_concepts >= 201907L && __cpp_lib_span >= 202002L
+-  #if __cpp_lib_atomic_ref >= 201806L
++  #if __cpp_lib_atomic_ref >= 201806L || \
++      (defined(__ANDROID__) && defined(__clang__))
+     #define SIMDUTF_ATOMIC_REF 1
+   #endif // __cpp_lib_atomic_ref
+   #if __has_cpp_attribute(maybe_unused) >= 201603L
+diff --git a/simdutf.cpp b/simdutf.cpp
+--- a/simdutf.cpp
++++ b/simdutf.cpp
+@@ -16430,8 +16430,13 @@
+ // This function is a memcpy that uses atomic operations to read from the
+ // source.
+ inline void memcpy_atomic_read(char *dst, const char *src, size_t len) {
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++  static_assert(__atomic_always_lock_free(sizeof(char), nullptr));
++  static_assert(__atomic_always_lock_free(sizeof(uint64_t), nullptr));
++#else
+   static_assert(std::atomic_ref<char>::required_alignment == sizeof(char),
+                 "std::atomic_ref requires the same alignment as char_type");
++#endif
+   // We expect all 64-bit systems to be able to read 64-bit words from an
+   // aligned memory region atomically. You might be able to do better on
+   // specific systems, e.g., x64 systems can read 128-bit words atomically.
+@@ -16442,8 +16447,12 @@
+                                    size_t bytelen) noexcept {
+     char *mutable_src = const_cast<char *>(bytesrc);
+     for (size_t j = 0; j < bytelen; ++j) {
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++      bytedst[j] = __atomic_load_n(&mutable_src[j], __ATOMIC_RELAXED);
++#else
+       bytedst[j] =
+           std::atomic_ref<char>(mutable_src[j]).load(std::memory_order_relaxed);
++#endif
+     }
+   };
+ 
+@@ -16460,8 +16469,12 @@
+   // Process aligned 64-bit chunks
+   while (len >= alignment) {
+     auto *src_aligned = reinterpret_cast<uint64_t *>(const_cast<char *>(src));
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++    const auto dst_value = __atomic_load_n(src_aligned, __ATOMIC_RELAXED);
++#else
+     const auto dst_value =
+         std::atomic_ref<uint64_t>(*src_aligned).load(std::memory_order_relaxed);
++#endif
+     std::memcpy(dst, &dst_value, sizeof(uint64_t));
+     src += alignment;
+     dst += alignment;
+@@ -16477,8 +16490,13 @@
+ // This function is a memcpy that uses atomic operations to write to the
+ // destination.
+ inline void memcpy_atomic_write(char *dst, const char *src, size_t len) {
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++  static_assert(__atomic_always_lock_free(sizeof(char), nullptr));
++  static_assert(__atomic_always_lock_free(sizeof(uint64_t), nullptr));
++#else
+   static_assert(std::atomic_ref<char>::required_alignment == sizeof(char),
+                 "std::atomic_ref requires the same alignment as char");
++#endif
+   // We expect all 64-bit systems to be able to write 64-bit words to an aligned
+   // memory region atomically.
+   // You might be able to do better on specific systems, e.g., x64 systems can
+@@ -16489,8 +16507,12 @@
+   auto bbb_memcpy_atomic_write = [](char *bytedst, const char *bytesrc,
+                                     size_t bytelen) noexcept {
+     for (size_t j = 0; j < bytelen; ++j) {
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++      __atomic_store_n(&bytedst[j], bytesrc[j], __ATOMIC_RELAXED);
++#else
+       std::atomic_ref<char>(bytedst[j])
+           .store(bytesrc[j], std::memory_order_relaxed);
++#endif
+     }
+   };
+ 
+@@ -16509,8 +16531,12 @@
+     auto *dst_aligned = reinterpret_cast<uint64_t *>(dst);
+     uint64_t src_val;
+     std::memcpy(&src_val, src, sizeof(uint64_t)); // Non-atomic read from src
++#if defined(__ANDROID__) && !defined(__cpp_lib_atomic_ref)
++    __atomic_store_n(dst_aligned, src_val, __ATOMIC_RELAXED);
++#else
+     std::atomic_ref<uint64_t>(*dst_aligned)
+         .store(src_val, std::memory_order_relaxed);
++#endif
+     dst += alignment;
+     src += alignment;
+     len -= alignment;

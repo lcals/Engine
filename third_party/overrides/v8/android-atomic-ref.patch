@@ -1,0 +1,221 @@
+diff --git a/src/base/atomicops.h b/src/base/atomicops.h
+--- a/src/base/atomicops.h
++++ b/src/base/atomicops.h
+@@ -65,6 +65,9 @@
+     std::is_same_v<T, Atomic8> || std::is_same_v<T, Atomic16> ||
+     std::is_same_v<T, Atomic32>;
+ 
++// Android NDK r27 libc++ has no atomic_ref. Clang builtins access the
++// original scalar object atomically without changing its C++ type or lifetime.
++//
+ // Atomically execute:
+ //   result = *ptr;
+ //   if (result == old_value)
+@@ -78,99 +81,163 @@
+ inline std::type_identity_t<T> Relaxed_CompareAndSwap(
+     T* ptr, std::type_identity_t<T> old_value,
+     std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
++                              __ATOMIC_RELAXED, __ATOMIC_RELAXED);
++  return old_value;
++#else
+   std::atomic_ref<T>(*ptr).compare_exchange_strong(old_value, new_value,
+                                                    std::memory_order_relaxed);
+   return old_value;
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> AcquireRelease_CompareAndSwap(
+     T* ptr, std::type_identity_t<T> old_value,
+     std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
++                              __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
++  return old_value;
++#else
+   std::atomic_ref<T>(*ptr).compare_exchange_strong(old_value, new_value,
+                                                    std::memory_order_acq_rel,
+                                                    std::memory_order_acquire);
+   return old_value;
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> Release_CompareAndSwap(
+     T* ptr, std::type_identity_t<T> old_value,
+     std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
++                              __ATOMIC_RELEASE, __ATOMIC_RELAXED);
++  return old_value;
++#else
+   std::atomic_ref<T>(*ptr).compare_exchange_strong(old_value, new_value,
+                                                    std::memory_order_release,
+                                                    std::memory_order_relaxed);
+   return old_value;
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> SeqCst_CompareAndSwap(
+     T* ptr, std::type_identity_t<T> old_value,
+     std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_compare_exchange_n(ptr, &old_value, new_value, false,
++                              __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST);
++  return old_value;
++#else
+   std::atomic_ref<T>(*ptr).compare_exchange_strong(old_value, new_value,
+                                                    std::memory_order_seq_cst,
+                                                    std::memory_order_seq_cst);
+   return old_value;
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> Relaxed_AtomicExchange(
+     T* ptr, std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_exchange_n(ptr, new_value, __ATOMIC_RELAXED);
++#else
+   return std::atomic_ref<T>(*ptr).exchange(new_value,
+                                            std::memory_order_relaxed);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> SeqCst_AtomicExchange(
+     T* ptr, std::type_identity_t<T> new_value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_exchange_n(ptr, new_value, __ATOMIC_SEQ_CST);
++#else
+   return std::atomic_ref<T>(*ptr).exchange(new_value,
+                                            std::memory_order_seq_cst);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> Relaxed_FetchOr(T* ptr,
+                                                std::type_identity_t<T> bits) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_fetch_or(ptr, bits, __ATOMIC_RELAXED);
++#else
+   return std::atomic_ref<T>(*ptr).fetch_or(bits, std::memory_order_relaxed);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline std::type_identity_t<T> Relaxed_AtomicIncrement(
+     T* ptr, std::type_identity_t<T> increment) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_add_fetch(ptr, increment, __ATOMIC_RELAXED);
++#else
+   return increment + std::atomic_ref<T>(*ptr).fetch_add(
+                          increment, std::memory_order_relaxed);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline void Relaxed_Store(T* ptr, std::type_identity_t<T> value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_store_n(ptr, value, __ATOMIC_RELAXED);
++#else
+   std::atomic_ref<T>(*ptr).store(value, std::memory_order_relaxed);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline void Release_Store(T* ptr, std::type_identity_t<T> value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_store_n(ptr, value, __ATOMIC_RELEASE);
++#else
+   std::atomic_ref<T>(*ptr).store(value, std::memory_order_release);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline void SeqCst_Store(T* ptr, std::type_identity_t<T> value) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  __atomic_store_n(ptr, value, __ATOMIC_SEQ_CST);
++#else
+   std::atomic_ref<T>(*ptr).store(value, std::memory_order_seq_cst);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline T Relaxed_Load(const T* ptr) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_load_n(ptr, __ATOMIC_RELAXED);
++#else
+   return std::atomic_ref<T>(*const_cast<T*>(ptr))
+       .load(std::memory_order_relaxed);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline T Acquire_Load(const T* ptr) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_load_n(ptr, __ATOMIC_ACQUIRE);
++#else
+   return std::atomic_ref<T>(*const_cast<T*>(ptr))
+       .load(std::memory_order_acquire);
++#endif
+ }
+ 
+ template <AtomicTypeForTrivialOperations T>
+ inline T SeqCst_Load(const T* ptr) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++  return __atomic_load_n(ptr, __ATOMIC_SEQ_CST);
++#else
+   return std::atomic_ref<T>(*const_cast<T*>(ptr))
+       .load(std::memory_order_seq_cst);
++#endif
+ }
+ 
+ inline void Relaxed_Memcpy(Atomic8* dst, const Atomic8* src, size_t bytes) {
+diff --git a/src/utils/memcopy.h b/src/utils/memcopy.h
+--- a/src/utils/memcopy.h
++++ b/src/utils/memcopy.h
+@@ -378,7 +378,11 @@
+   requires std::is_integral_v<T>
+ {
+   for (size_t i = 0; i < count; i++) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++    __atomic_store_n(&destination[i], value, __ATOMIC_RELAXED);
++#else
+     std::atomic_ref<T>(destination[i]).store(value, std::memory_order_relaxed);
++#endif
+   }
+ }
+ 
+diff --git a/src/objects/simd.cc b/src/objects/simd.cc
+--- a/src/objects/simd.cc
++++ b/src/objects/simd.cc
+@@ -486,8 +486,12 @@
+   // from it.
+   char* mutable_bytes = const_cast<char*>(bytes);
+   for (size_t i = 0; i < length; i++) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++    uint8_t byte = __atomic_load_n(&mutable_bytes[i], __ATOMIC_RELAXED);
++#else
+     uint8_t byte =
+         std::atomic_ref<char>(mutable_bytes[i]).load(std::memory_order_relaxed);
++#endif
+     PerformNibbleToHexAndWriteIntoStringOutPut(byte, index, string_output);
+     index += 2;
+   }
+@@ -1085,8 +1089,12 @@
+     result = HandleRemainingHexValues(input_vector, i);
+     if (result.has_value()) {
+       if (is_shared) {
++#if defined(V8_OS_ANDROID) && !defined(__cpp_lib_atomic_ref)
++        __atomic_store_n(&buffer[index++], result.value(), __ATOMIC_RELAXED);
++#else
+         std::atomic_ref<uint8_t>(buffer[index++])
+             .store(result.value(), std::memory_order_relaxed);
++#endif
+       } else {
+         buffer[index++] = result.value();
+       }
