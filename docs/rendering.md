@@ -1,6 +1,6 @@
 # 渲染模块
 
-[bgfx](https://github.com/bkaradzic/bgfx) 提供跨平台渲染。初期先使用 Vulkan 后端跑通流程，其他渲染 API 后续考虑。引擎使用 PBR 渲染；渲染效果优先参考并复用 [bgfx 官方示例](https://bkaradzic.github.io/bgfx/examples.html)中的做法。
+[bgfx](https://github.com/bkaradzic/bgfx) 提供跨平台渲染。图形后端按平台固定：macOS / iOS 使用 Metal，Windows 使用 DirectX 12，Android / Linux 使用 Vulkan。所选后端初始化失败时返回失败，不接受 Noop 或其他后端回退。当前最小实现可创建窗口、清屏和绘制调试文字。引擎使用 PBR 渲染；渲染效果优先参考并复用 [bgfx 官方示例](https://bkaradzic.github.io/bgfx/examples.html)中的做法。
 
 引擎实现自己的材质系统，参考 Unity 和 Unreal Engine，并内置一套默认材质；bgfx 负责底层渲染。
 

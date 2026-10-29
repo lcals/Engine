@@ -1,0 +1,31 @@
+diff --git a/DEPS b/DEPS
+--- a/DEPS
++++ b/DEPS
+@@ -9,6 +9,9 @@
+ ]
+ 
+ vars = {
++  # Native embedders may supply an external Android SDK and NDK.
++  'checkout_android_toolchain': True,
++
+   # Fetches only the SDK boot images which match at least one of the whitelist
+   # entries in a comma-separated list.
+   #
+@@ -218,7 +221,7 @@
+               'version': Var('android_sdk_cmdline-tools_version'),
+           },
+       ],
+-      'condition': 'checkout_android',
++      'condition': 'checkout_android and checkout_android_toolchain',
+       'dep_type': 'cipd',
+   },
+   'third_party/android_toolchain/ndk': {
+@@ -228,7 +231,7 @@
+         'version': 'KXOia11cm9lVdUdPlbGLu8sCz6Y4ey_HV2s8_8qeqhgC',
+       },
+     ],
+-    'condition': 'checkout_android',
++    'condition': 'checkout_android and checkout_android_toolchain',
+     'dep_type': 'cipd',
+   },
+   'third_party/catapult': {

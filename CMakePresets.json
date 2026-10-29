@@ -12,6 +12,15 @@
       "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
     },
     {
+      "name": "ninja-cache",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "ENGINE_USE_COMPILER_CACHE": true,
+        "ENGINE_REQUIRE_COMPILER_CACHE": true
+      }
+    },
+    {
       "name": "debug",
       "displayName": "Debug",
       "inherits": "vcpkg",
@@ -20,7 +29,10 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": true,
-        "BUILD_TESTING": true
+        "BUILD_TESTING": true,
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/runtime"
       }
     },
     {
@@ -32,7 +44,10 @@
         "CMAKE_BUILD_TYPE": "Release",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": true,
-        "BUILD_TESTING": true
+        "BUILD_TESTING": true,
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/runtime"
       }
     },
     {
@@ -52,7 +67,10 @@
       "binaryDir": "${sourceDir}/build/asset-pipeline-deps",
       "cacheVariables": {
         "VCPKG_MANIFEST_FEATURES": "asset-pipeline",
-        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": false,
+        "ENGINE_BUILD_APP": false,
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/asset-pipeline"
       }
     },
     {
@@ -64,7 +82,8 @@
         "VCPKG_MANIFEST_FEATURES": "runtime;editor;asset-pipeline",
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_ENABLE_EDITOR_DEPS": true,
-        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": true,
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/editor"
       }
     },
     {
@@ -73,8 +92,7 @@
       "inherits": "editor-deps",
       "binaryDir": "${sourceDir}/build/editor-deps-release",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/editor-deps/vcpkg_installed"
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -83,7 +101,11 @@
       "inherits": "debug",
       "binaryDir": "${sourceDir}/build/v8-debug",
       "cacheVariables": {
-        "ENGINE_ENABLE_V8": true
+        "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": false,
+        "ENGINE_BUILD_APP": false,
+        "VCPKG_MANIFEST_FEATURES": "",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base"
       }
     },
     {
@@ -92,7 +114,123 @@
       "inherits": "release",
       "binaryDir": "${sourceDir}/build/v8-release",
       "cacheVariables": {
+        "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": false,
+        "ENGINE_BUILD_APP": false,
+        "VCPKG_MANIFEST_FEATURES": "",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base"
+      }
+    },
+    {
+      "name": "engine-debug",
+      "displayName": "All engine systems debug",
+      "inherits": "editor-deps",
+      "binaryDir": "${sourceDir}/build/engine-debug",
+      "cacheVariables": {
         "ENGINE_ENABLE_V8": true
+      }
+    },
+    {
+      "name": "engine-release",
+      "displayName": "All engine systems release",
+      "inherits": "editor-deps-release",
+      "binaryDir": "${sourceDir}/build/engine-release",
+      "cacheVariables": {
+        "ENGINE_ENABLE_V8": true
+      }
+    },
+    {
+      "name": "ninja-debug",
+      "displayName": "Ninja cached debug",
+      "inherits": [
+        "ninja-cache",
+        "debug"
+      ],
+      "binaryDir": "${sourceDir}/build/ninja-debug"
+    },
+    {
+      "name": "ninja-release",
+      "displayName": "Ninja cached release",
+      "inherits": [
+        "ninja-cache",
+        "release"
+      ],
+      "binaryDir": "${sourceDir}/build/ninja-release"
+    },
+    {
+      "name": "ninja-engine-debug",
+      "displayName": "Ninja cached engine-debug",
+      "inherits": [
+        "ninja-cache",
+        "engine-debug"
+      ],
+      "binaryDir": "${sourceDir}/build/ninja-engine-debug"
+    },
+    {
+      "name": "ninja-engine-release",
+      "displayName": "Ninja cached engine-release",
+      "inherits": [
+        "ninja-cache",
+        "engine-release"
+      ],
+      "binaryDir": "${sourceDir}/build/ninja-engine-release"
+    },
+    {
+      "name": "android-arm64-debug",
+      "displayName": "Android ARM64 Debug",
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "binaryDir": "${sourceDir}/build/android-arm64-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "arm64-android-engine",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/third_party/triplets",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ANDROID_STL": "c++_shared",
+        "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
+        "CMAKE_POSITION_INDEPENDENT_CODE": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_V8": true,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false
+      }
+    },
+    {
+      "name": "android-arm64-release",
+      "displayName": "Android ARM64 Release",
+      "inherits": [
+        "ninja-cache",
+        "vcpkg"
+      ],
+      "binaryDir": "${sourceDir}/build/android-arm64-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "VCPKG_TARGET_TRIPLET": "arm64-android-engine",
+        "VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/third_party/triplets",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/android",
+        "VCPKG_CHAINLOAD_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "VCPKG_MANIFEST_FEATURES": "runtime",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-28",
+        "ANDROID_STL": "c++_shared",
+        "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
+        "CMAKE_POSITION_INDEPENDENT_CODE": true,
+        "ENGINE_ENABLE_RUNTIME_DEPS": true,
+        "ENGINE_ENABLE_EDITOR_DEPS": false,
+        "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
+        "ENGINE_ENABLE_V8": true,
+        "ENGINE_BUILD_APP": true,
+        "ENGINE_BUILD_TESTS": false,
+        "BUILD_TESTING": false
       }
     }
   ],
@@ -121,25 +259,131 @@
       "name": "v8-prepare-release",
       "configurePreset": "v8-release",
       "configuration": "Release",
-      "targets": ["engine_v8_prepare"]
+      "targets": [
+        "engine_v8_prepare"
+      ]
     },
     {
       "name": "v8-prepare-debug",
       "configurePreset": "v8-debug",
       "configuration": "Debug",
-      "targets": ["engine_v8_prepare"]
+      "targets": [
+        "engine_v8_prepare"
+      ]
     },
     {
       "name": "v8-debug",
       "configurePreset": "v8-debug",
-      "configuration": "Debug",
-      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
+      "configuration": "Debug"
     },
     {
       "name": "v8-release",
       "configurePreset": "v8-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "engine-debug",
+      "configurePreset": "engine-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "engine-debug-prepare",
+      "configurePreset": "engine-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "engine-release",
+      "configurePreset": "engine-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "engine-release-prepare",
+      "configurePreset": "engine-release",
       "configuration": "Release",
-      "targets": ["engine_v8_test", "engine_app", "engine_tests"]
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "runtime-deps",
+      "configurePreset": "runtime-deps",
+      "configuration": "Debug"
+    },
+    {
+      "name": "asset-pipeline-deps",
+      "configurePreset": "asset-pipeline-deps",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-debug",
+      "configurePreset": "ninja-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-release",
+      "configurePreset": "ninja-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "ninja-engine-debug",
+      "configurePreset": "ninja-engine-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-engine-debug-prepare",
+      "configurePreset": "ninja-engine-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "ninja-engine-release",
+      "configurePreset": "ninja-engine-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "ninja-engine-release-prepare",
+      "configurePreset": "ninja-engine-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-debug",
+      "configurePreset": "android-arm64-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-release",
+      "configurePreset": "android-arm64-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-debug-prepare",
+      "configurePreset": "android-arm64-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-release-prepare",
+      "configurePreset": "android-arm64-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_v8_prepare"
+      ]
     }
   ],
   "testPresets": [
@@ -184,57 +428,309 @@
       "name": "v8-release",
       "inherits": "release",
       "configurePreset": "v8-release"
+    },
+    {
+      "name": "engine-debug",
+      "inherits": "debug",
+      "configurePreset": "engine-debug"
+    },
+    {
+      "name": "engine-release",
+      "inherits": "release",
+      "configurePreset": "engine-release"
+    },
+    {
+      "name": "runtime-deps",
+      "inherits": "debug",
+      "configurePreset": "runtime-deps"
+    },
+    {
+      "name": "asset-pipeline-deps",
+      "inherits": "debug",
+      "configurePreset": "asset-pipeline-deps"
+    },
+    {
+      "name": "ninja-debug",
+      "inherits": "debug",
+      "configurePreset": "ninja-debug"
+    },
+    {
+      "name": "ninja-release",
+      "inherits": "release",
+      "configurePreset": "ninja-release"
+    },
+    {
+      "name": "ninja-engine-debug",
+      "inherits": "engine-debug",
+      "configurePreset": "ninja-engine-debug"
+    },
+    {
+      "name": "ninja-engine-release",
+      "inherits": "engine-release",
+      "configurePreset": "ninja-engine-release"
     }
   ],
   "workflowPresets": [
     {
       "name": "editor-deps",
       "steps": [
-        { "type": "configure", "name": "editor-deps" },
-        { "type": "build", "name": "editor-deps" },
-        { "type": "test", "name": "editor-deps" }
+        {
+          "type": "configure",
+          "name": "editor-deps"
+        },
+        {
+          "type": "build",
+          "name": "editor-deps"
+        },
+        {
+          "type": "test",
+          "name": "editor-deps"
+        }
       ]
     },
     {
       "name": "editor-deps-release",
       "steps": [
-        { "type": "configure", "name": "editor-deps-release" },
-        { "type": "build", "name": "editor-deps-release" },
-        { "type": "test", "name": "editor-deps-release" }
+        {
+          "type": "configure",
+          "name": "editor-deps-release"
+        },
+        {
+          "type": "build",
+          "name": "editor-deps-release"
+        },
+        {
+          "type": "test",
+          "name": "editor-deps-release"
+        }
       ]
     },
     {
       "name": "debug",
       "steps": [
-        { "type": "configure", "name": "debug" },
-        { "type": "build", "name": "debug" },
-        { "type": "test", "name": "debug" }
+        {
+          "type": "configure",
+          "name": "debug"
+        },
+        {
+          "type": "build",
+          "name": "debug"
+        },
+        {
+          "type": "test",
+          "name": "debug"
+        }
       ]
     },
     {
       "name": "release",
       "steps": [
-        { "type": "configure", "name": "release" },
-        { "type": "build", "name": "release" },
-        { "type": "test", "name": "release" }
+        {
+          "type": "configure",
+          "name": "release"
+        },
+        {
+          "type": "build",
+          "name": "release"
+        },
+        {
+          "type": "test",
+          "name": "release"
+        }
       ]
     },
     {
       "name": "v8-debug",
       "steps": [
-        { "type": "configure", "name": "v8-debug" },
-        { "type": "build", "name": "v8-prepare-debug" },
-        { "type": "build", "name": "v8-debug" },
-        { "type": "test", "name": "v8-debug" }
+        {
+          "type": "configure",
+          "name": "v8-debug"
+        },
+        {
+          "type": "build",
+          "name": "v8-prepare-debug"
+        },
+        {
+          "type": "build",
+          "name": "v8-debug"
+        },
+        {
+          "type": "test",
+          "name": "v8-debug"
+        }
       ]
     },
     {
       "name": "v8-release",
       "steps": [
-        { "type": "configure", "name": "v8-release" },
-        { "type": "build", "name": "v8-prepare-release" },
-        { "type": "build", "name": "v8-release" },
-        { "type": "test", "name": "v8-release" }
+        {
+          "type": "configure",
+          "name": "v8-release"
+        },
+        {
+          "type": "build",
+          "name": "v8-prepare-release"
+        },
+        {
+          "type": "build",
+          "name": "v8-release"
+        },
+        {
+          "type": "test",
+          "name": "v8-release"
+        }
+      ]
+    },
+    {
+      "name": "engine-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "engine-debug"
+        },
+        {
+          "type": "build",
+          "name": "engine-debug-prepare"
+        },
+        {
+          "type": "build",
+          "name": "engine-debug"
+        },
+        {
+          "type": "test",
+          "name": "engine-debug"
+        }
+      ]
+    },
+    {
+      "name": "engine-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "engine-release"
+        },
+        {
+          "type": "build",
+          "name": "engine-release-prepare"
+        },
+        {
+          "type": "build",
+          "name": "engine-release"
+        },
+        {
+          "type": "test",
+          "name": "engine-release"
+        }
+      ]
+    },
+    {
+      "name": "runtime-deps",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "runtime-deps"
+        },
+        {
+          "type": "build",
+          "name": "runtime-deps"
+        },
+        {
+          "type": "test",
+          "name": "runtime-deps"
+        }
+      ]
+    },
+    {
+      "name": "asset-pipeline-deps",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "asset-pipeline-deps"
+        },
+        {
+          "type": "build",
+          "name": "asset-pipeline-deps"
+        },
+        {
+          "type": "test",
+          "name": "asset-pipeline-deps"
+        }
+      ]
+    },
+    {
+      "name": "ninja-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "ninja-debug"
+        },
+        {
+          "type": "build",
+          "name": "ninja-debug"
+        },
+        {
+          "type": "test",
+          "name": "ninja-debug"
+        }
+      ]
+    },
+    {
+      "name": "ninja-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "ninja-release"
+        },
+        {
+          "type": "build",
+          "name": "ninja-release"
+        },
+        {
+          "type": "test",
+          "name": "ninja-release"
+        }
+      ]
+    },
+    {
+      "name": "ninja-engine-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "ninja-engine-debug"
+        },
+        {
+          "type": "build",
+          "name": "ninja-engine-debug-prepare"
+        },
+        {
+          "type": "build",
+          "name": "ninja-engine-debug"
+        },
+        {
+          "type": "test",
+          "name": "ninja-engine-debug"
+        }
+      ]
+    },
+    {
+      "name": "ninja-engine-release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "ninja-engine-release"
+        },
+        {
+          "type": "build",
+          "name": "ninja-engine-release-prepare"
+        },
+        {
+          "type": "build",
+          "name": "ninja-engine-release"
+        },
+        {
+          "type": "test",
+          "name": "ninja-engine-release"
+        }
       ]
     }
   ]
