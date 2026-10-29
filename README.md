@@ -15,7 +15,7 @@ Engine 是一个 C++20 游戏引擎项目，使用 CMake 与 vcpkg。当前已�
 
 各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。当前尚未实现 PBR、场景加载、物理模拟、UI 绘制或完整编辑器界面。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
-Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 V8，并保留已完成的 JavaScript / Intl / Temporal 嵌入验证。新增玩法脚本闭环目前仅接入桌面；Android 继续使用系统版本探针及独立 V8 测试，待用户审核后再扩展，历史 APK 结果不能作为新增脚本能力的验证。
+Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久脚本版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。上述流程已在模拟器验证，JavaScript / Intl / Temporal 嵌入测试也已通过；实体手机尚未验证。
 
 仓库自带最小项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，生成 JS 与资源镜像放 `cache/assets/`。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
@@ -459,7 +459,7 @@ APK 验证证据保存在忽略的 `build/android-v8-validation/debug-verified/`
 | `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF` | 编译资源管线系统，查找并验证离线工具 |
 | `ENGINE_ENABLE_GPU_TESTS` | `OFF` | 注册需要图形桌面和真实 GPU 的窗口测试 |
 | `ENGINE_ENABLE_V8` | `OFF` | 启用显式准备的 V8 monolith、构建目标与嵌入测试 |
-| `ENGINE_ENABLE_SCRIPT_RUNTIME` | `OFF` | 桌面 V8 玩法、日志/路径绑定与资源同步；完整 engine 预设开启，Android 不启用 |
+| `ENGINE_ENABLE_SCRIPT_RUNTIME` | `OFF` | V8 玩法、日志/路径绑定与引擎热重载；完整桌面 engine 及 Android 预设开启，同步工具仅构建在桌面 |
 
 作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。只使用系统基类时链接 `engine::core`；使用完整引擎入口时启用运行时并链接 `engine::runtime`。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/` 或 `plugins/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
 
