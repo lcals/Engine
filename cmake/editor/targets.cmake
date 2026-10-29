@@ -49,12 +49,25 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_asset_pipeline
         PRIVATE src/engine/editor/asset_pipeline/asset_metadata.cpp
                 src/engine/editor/asset_pipeline/asset_database.cpp
-                src/engine/editor/asset_pipeline/asset_importers.cpp
+                src/engine/editor/asset_pipeline/asset_importer.cpp
+                src/engine/editor/asset_pipeline/asset_importer_registry.cpp
+                src/engine/editor/asset_pipeline/importer_utils.cpp
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
                 src/engine/editor/asset_pipeline/project_lock.cpp
                 src/engine/editor/asset_pipeline/scene_importer.cpp
-                src/engine/editor/asset_pipeline/texture_importer.cpp)
+                src/engine/editor/asset_pipeline/components/scene_component_codec.cpp
+                src/engine/editor/asset_pipeline/components/transform_codec.cpp
+                src/engine/editor/asset_pipeline/components/camera_codec.cpp
+                src/engine/editor/asset_pipeline/components/light_codec.cpp
+                src/engine/editor/asset_pipeline/components/mesh_renderer_codec.cpp
+                src/engine/editor/asset_pipeline/importers/mesh_importer.cpp
+                src/engine/editor/asset_pipeline/importers/shader_importer.cpp
+                src/engine/editor/asset_pipeline/importers/material_importer.cpp
+                src/engine/editor/asset_pipeline/importers/scene_importer.cpp
+                src/engine/editor/asset_pipeline/importers/texture_importer.cpp
+                src/engine/editor/asset_pipeline/importers/script_importer.cpp
+                src/engine/editor/asset_pipeline/importers/source_importer.cpp)
     target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_asset_pipeline

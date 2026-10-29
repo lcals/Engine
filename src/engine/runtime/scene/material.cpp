@@ -431,4 +431,13 @@ Material::find_parameter(std::string_view name, schema::MaterialValue type) cons
     return iterator == data_.parameters.end() ? nullptr : iterator->get();
 }
 
+void Material::swap(Material& other) noexcept
+{
+    using std::swap;
+    swap(material_resource_, other.material_resource_);
+    swap(shader_resource_, other.shader_resource_);
+    swap(data_, other.data_);
+    swap(textures_, other.textures_);
+}
+
 } // namespace engine

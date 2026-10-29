@@ -1,6 +1,6 @@
 # 项目玩法入口与脚本 SDK
 
-[类图索引](../../class-diagrams/index.md) · [脚本系统](script-system.md)
+[类图索引](../../class-diagrams/index.md) · [脚本系统](../../plugins/runtime/class-diagrams/script-system.md)
 
 桌面与 Android 共用这些脚本接口。Gameplay、Debug 是虚拟 `engine` 模块的脚本接口，Game 是项目默认导出的类型，不增加同名 C++ 所有者。
 

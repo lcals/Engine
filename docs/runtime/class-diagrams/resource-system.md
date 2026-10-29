@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [目录](resource-catalog.md) · [已加载资源](resource.md) · [文件访问](virtual-file-system.md)
 
-资源核心提供元数据目录、单项同步读取/解析与加载接口选择；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见根 [README](../../../README.md)。
+资源核心提供元数据目录、单项同步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见根 [README](../../../README.md)。
 
 ## 核心接口
 
@@ -40,9 +40,9 @@ classDiagram
 - 合法 `update_catalog` 原子替换目录并递增代际，失败保留旧目录与代际。已有资源引用不阻止目录更新；旧对象拥有独立数据，依赖图插件继续保活其旧闭包。新加载只使用当前目录和挂载，不从旧代际回退。
 - `catalog()` 返回只读借用。路径/GUID 转换继续使用目录内的 GuidMap，查询不触发 I/O 或增加引用。
 - `read_header()` 按目录给出的头部长度读取实体头，校验身份、格式和边界；不读取载荷、不加载依赖。失败输出为空。建立目录无需逐个调用它。
-- `load()` 只读取、校验并解析请求的单个资源，不递归加载依赖，不建立共享缓存；失败输出为空。`find()` 的核心实现返回空。
+- `load()` 只读取请求的单个资源，核心校验信封并按登记表交给对应 ResourceCodec 解码与类型校验；不递归加载依赖，不建立共享缓存，失败输出为空。`find()` 的核心实现返回空。
 - `loader()` 返回宿主设置的加载器借用；未设置时返回本系统。`set_loader()` 接收可空借用，null 恢复单项实现；调用方负责实现对象有效期，核心不拥有或识别具体插件。
-- `validate_dependencies()` 为 const 方法，仅检查提供的资源引用、当前代际和实体契约，不读取文件、不存储依赖。依赖插件在完成候选加载后调用。
+- `validate_dependencies()` 为 const 方法，统一检查提供的资源引用、当前代际与目录身份，再委派对应 ResourceCodec 校验跨实体契约，不读取文件、不存储依赖。依赖插件在完成候选加载后调用。
 - `generation()` 为 const noexcept；成功加载的 Resource 记录其目录代际。旧引用保持有效，释放自己的 shared_ptr 即结束一次使用，不通过 GUID 强制销毁别人的对象。
 - `last_error()` 是最近失败上下文的借用，下一次操作可能改变文本；状态以返回值为准。
 - 目录更新、加载与引用释放在宿主协调线程执行。无异步、优先级、文件监测、打包或版本发现业务。
@@ -59,6 +59,8 @@ classDiagram
     class VirtualFileSystem
     class Resource
     class ResourceLoader
+    class ResourceCodec
+    ResourceSystem ..> ResourceCodec : 查询固定类型登记表
     ResourceSystem *-- ResourceCatalog : 独占元数据和索引
     ResourceSystem *-- VirtualFileSystem : 独占挂载配置
     ResourceSystem --> ResourceLoader : 可空借用并回退自身

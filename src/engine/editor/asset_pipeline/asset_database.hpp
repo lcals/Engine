@@ -1,6 +1,6 @@
 #pragma once
 
-#include "editor/asset_pipeline/asset_importers.hpp"
+#include "editor/asset_pipeline/import_asset.hpp"
 
 #include <cstdint>
 #include <map>

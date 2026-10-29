@@ -17,16 +17,16 @@
 | 运行时插件 | `include/engine/plugins/runtime/`、`src/engine/plugins/runtime/` | `docs/plugins/runtime/` |
 | 编辑器插件 | `include/engine/plugins/editor/`、`src/engine/plugins/editor/` | `docs/plugins/editor/` |
 
-各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始引用。建模、MCP、资源构建与同步属于编辑器插件，资源依赖图属于运行时插件。插件使用核心接口，核心不 include 或链接具体插件。
+各范围独立类图位于其 `class-diagrams/` 子目录。平台入口与平台专用实现仍放在 `platforms/<platform>/`；TS 声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始引用。建模、MCP、资源构建与同步属于编辑器插件，资源依赖图、V8 脚本与逐类绑定属于运行时插件。插件使用核心接口，核心不 include 或链接具体插件。
 
 每个插件在 `cmake/plugins/<scope>/<name>.cmake` 声明目标、源码及依赖；注册器按清单解析闭包，宿主只装配实际创建的目标。CMake 按 install、dependencies、plugins、core、editor、platforms 六目录分工，详见[插件登记](../plugins/plugins.md)。
 
-| 配置                                        | ScriptSystem 的实际职责                                                | 宿主与平台边界                                           |
-| ------------------------------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------- |
-| `ENGINE_ENABLE_V8=OFF`                      | 不装配脚本子系统                                                       | 引擎仍可独立启动窗口                                     |
-| V8 开启，`ENGINE_ENABLE_SCRIPT_RUNTIME=OFF` | 编译 `script_system_probe.cpp`，仅调用 V8 版本入口验证链接             | 可选的依赖验证配置，不执行项目玩法                       |
-| V8 与脚本运行均开启                         | 编译实际 V8 运行实现，创建 isolate、加载 JS、绑定 API、运行及重载 Game | 桌面和 Android 共用脚本系统；Android 读取 APK 与持久版本 |
-| 桌面脚本运行与资源管线均开启                | 可构建独立 `mcp_app`                                                   | 工具进程通过本机目录或指定 adb 设备和包交换文件          |
+| 配置 | 脚本插件 | 宿主与验证边界 |
+| --- | --- | --- |
+| 不选择 `runtime/script` | 不编译或装配 ScriptSystem | 窗口、场景、资源和渲染仍可运行，脚本启动明确不可用 |
+| V8 依赖开启，脚本插件关闭 | 不创建脚本伪系统 | `engine_v8_smoke` 独立验证 V8 编译、链接及运行 |
+| 选择 `runtime/script` | V8 运行实现及逐类绑定 | 要求 V8 和运行时依赖；可执行宿主提供创建工厂，核心只使用 ScriptRuntime |
+| 选择 `editor/mcp` | 独立编辑器工具插件 | 工具通过本机目录或指定 adb 设备和包交换文件，不拥有脚本实例 |
 
 Android 普通启动使用完整 ScriptSystem 运行项目玩法；V8 JNI 冒烟测试仍为显式触发的独立验证路径，切换测试前须停止旧进程。具体 Activity、Surface 与测试边界见[Android 宿主](../runtime/class-diagrams/android-host.md)。
 
@@ -75,9 +75,10 @@ classDiagram
     class ResourceSystem
     class WorldSystem
     class RenderSystem
-    class ScriptSystem
+    class ScriptRuntime
     class RuntimeHost
     class GameplaySession
+    class ScriptRuntimeFactory
     RuntimeHost --> Engine : 借用框架并注册根系统
     RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
@@ -87,14 +88,16 @@ classDiagram
     Engine "1" *-- "0..1" RenderSystem : 第三个注册根系统
     RuntimeHost --> RenderSystem : 借用并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
-    GameplaySession --> ScriptSystem : 可空借用脚本系统
+    RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
+    RuntimeHost ..> ScriptRuntime : 移交世界独占
+    GameplaySession --> ScriptRuntime : 可空借用核心执行契约
     GameplaySession --> WorldSystem : 借用并结束场景
     GameplaySession --> RenderSystem : 借用并管理项目 GPU 资源
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
 ```
 
-默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptSystem 属于 WorldSystem。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
+默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
 
 ```mermaid
 classDiagram
@@ -104,15 +107,15 @@ classDiagram
     class NavigationSystem
     class AnimationSystem
     class UiSystem
-    class ScriptSystem
+    class ScriptRuntime
     WorldSystem "1" *-- "0..1" PhysicsSystem : 第一个子系统
     WorldSystem "1" *-- "0..1" NavigationSystem : 第二个子系统
     WorldSystem "1" *-- "0..1" AnimationSystem : 第三个子系统
     WorldSystem "1" *-- "0..1" UiSystem : 第四个子系统
-    WorldSystem "1" *-- "0..1" ScriptSystem : 启用 V8 时第五个子系统
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第五子系统
 ```
 
-RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。启用 V8 时即装配 ScriptSystem，具体是探针还是完整运行实现由上表区分。
+RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断 V8 或插件是否编译。
 
 每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时不继续执行资源、世界和脚本更新；编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
 
@@ -255,7 +258,7 @@ classDiagram
     GameplaySession ..> ScriptStatus : 返回可空只读借用
 ```
 
-ScriptSystem 由 WorldSystem 独占；GameplaySession 协调玩法启停、部署候选选择与资源清理，ScriptSystem 提供候选预检、运行和重建能力。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
+ScriptSystem 由 WorldSystem 独占；GameplaySession 通过核心 ScriptRuntime 契约协调玩法启停、部署候选选择与资源清理，具体 ScriptSystem 插件提供候选预检、运行和重建能力。ScriptStatus 是 ScriptSystem 的值成员，返回借用仅在所属系统存活期间有效，不能跨线程保留使用。
 
 ResourceSystem 的静态读取方法不要求 System、App 或 Engine 已初始化，供脚本、资源同步和 MCP 共用。它通过 SDL3 同步读取普通文件，成功输出由调用者拥有，失败清空；不为调用者创建隐藏的 ResourceSystem 实例。路径、文本和二进制缓冲区的参数依赖见[资源系统](../runtime/class-diagrams/resource-system.md)。
 
@@ -288,7 +291,7 @@ Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务�
 
 Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
 
-V8 平台按进程管理，完整退出前须先销毁全部 isolate。每个实际 ScriptSystem 拥有一个 isolate；单次玩法运行拥有独立 Context、模块缓存和 Game。热重载重建这些玩法对象，不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
+V8 平台按进程管理，完整退出前须先销毁全部 isolate。每个实际 ScriptSystem 拥有一个 isolate；单次玩法运行拥有独立 Context、模块缓存和 Game。热重载重建这些玩法对象，不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../plugins/runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
 
 ## MCP 宿主与跨进程文件关系
 
@@ -493,7 +496,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
 | 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
-| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptSystem | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
+| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、ScriptRuntime | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
 | 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
@@ -501,6 +504,70 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | 编辑器协议根系统 | McpSystem                                                                | EngineConfig；McpTool 登记值、JSON 参数及 McpCallStatus 返回状态，不依赖项目                   |
 
 App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通配置结构，按值保存运行目录、adb 路径、设备序列号与包名，ProjectMcpTools 与 EditorMcpTools 各自按值保存目标，字段关系见[项目工具图](../plugins/editor/class-diagrams/project-mcp-tools.md)。这两个业务模块以及 EditorCommands、SceneCommands 均不继承 System。ResourceSystem 的同步读取参数使用 Path 与调用者的文本或二进制输出缓冲区；AssetSyncSystem 返回的版本、错误字符串也是所属对象的只读借用。
+
+## 类型登记与框架分派
+
+脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
+
+```mermaid
+classDiagram
+    class System
+    class ScriptRuntime
+    class ScriptStatus
+    class ScriptSystem
+    class ScriptBinding
+    class ScriptBindingRegistry
+    class GameplaySession
+    System <|-- ScriptRuntime
+    ScriptRuntime <|-- ScriptSystem
+    GameplaySession --> ScriptRuntime : 借用核心执行契约
+    ScriptRuntime ..> ScriptStatus : 只读状态返回
+    ScriptSystem *-- ScriptStatus : 值拥有实现状态
+    ScriptSystem *-- ScriptBindingRegistry : 独占逐类注册表
+    ScriptBindingRegistry *-- ScriptBinding : 独占具体绑定
+```
+
+核心边界见 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md)，插件实现与模板登记见 [ScriptSystem](../plugins/runtime/class-diagrams/script-system.md)、[ScriptBindingRegistry](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptRuntimeFactory 是宿主创建函数的别名，不是新增管理器；未提供工厂时核心不创建脚本子系统。
+
+```mermaid
+classDiagram
+    class Scene
+    class Node
+    class Component
+    class ComponentRegistry
+    class SceneImporter
+    class SceneComponentCodec
+    class ComponentDataT
+    Scene ..> ComponentRegistry : 查询创建函数
+    ComponentRegistry ..> Node : 调用泛型组件创建
+    Node *-- Component : 独占实例
+    Scene ..> Component : 调用统一保存恢复契约
+    Component *-- ComponentDataT : 生成模型
+    SceneImporter ..> SceneComponentCodec : 描述类型读写分派
+    SceneComponentCodec ..> ComponentDataT : 编辑器描述与生成模型转换
+```
+
+运行时创建与恢复见 [ComponentRegistry](../runtime/class-diagrams/component-registry.md)，编辑器 TOML 转换见 [SceneComponentCodec](../editor/class-diagrams/scene-component-codecs.md)。二者共享 FlatBuffers 生成模型，组件行为不依赖编辑器描述格式。
+
+```mermaid
+classDiagram
+    class ResourceSystem
+    class ResourceCodec
+    class Resource
+    class ResourceCatalog
+    class AssetPipelineSystem
+    class AssetImporterRegistry
+    class AssetImporter
+    class ImportContext
+    ResourceSystem ..> ResourceCodec : 按资源类型解码和验证
+    ResourceCodec ..> Resource : 写入候选实体
+    ResourceCodec ..> ResourceCatalog : 借用引用元数据
+    AssetPipelineSystem ..> AssetImporterRegistry : 批次选择与类型登记
+    AssetImporterRegistry *-- AssetImporter : 独占每批实现
+    AssetImporter ..> ImportContext : 借用转换输入及目标信息
+```
+
+单项资源的类型校验见 [ResourceCodec](../runtime/class-diagrams/resource-codecs.md)，离线依赖、类型指纹和转换见 [AssetImporter](../editor/class-diagrams/asset-importers.md)。资源解码器不加载依赖；导入器不拥有 Taskflow 执行器或 SQLite 发布事务。
 
 ## 第三方资源拥有关系
 
@@ -583,9 +650,9 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
 | AnimationSystem       | ozz-animation                                                                                                                                 | 空骨骼构造和析构                                       |
 | UiSystem              | RmlUi                                                                                                                                         | 运行库版本入口                                         |
-| ScriptSystem 探针实现 | V8                                                                                                                                            | V8 版本入口的实际链接验证                              |
-| ScriptSystem 完整实现 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
-| GameplaySession       | ScriptSystem、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
+| ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或 V8 链接 |
+| ScriptSystem 插件 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
+| GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |
 | ProjectSystem         | toml++、LogSystem、PathUtils                                                                                                                  | 项目目录检查及日志                                     |
 | EditorEnvironment     | ProjectSystem、App、GameplaySession、ResourceSystem、LogSystem、PathUtils                                                                     | 编辑器路径映射、活动缓存租约与目录提交                 |
 | EditorSystem          | Dear ImGui、EditorEnvironment、GameplaySession、EditorCommands、SceneCommands、App、ResourceSystem、LogSystem、PathUtils、SDL3、nlohmann/json | 编辑器上下文、主线程命令、项目启停与状态回执           |
@@ -603,7 +670,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
-脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
+脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
 
 ## 资源身份与导入依赖
 

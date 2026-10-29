@@ -5,9 +5,8 @@ endif()
 if(NOT ENGINE_ENABLE_V8
    OR NOT TARGET engine::v8
    OR NOT ENGINE_V8_ICU_DATA
-   OR NOT ENGINE_ENABLE_SCRIPT_RUNTIME)
-    message(
-        FATAL_ERROR "The Android APK requires V8, its ICU data and ENGINE_ENABLE_SCRIPT_RUNTIME")
+   OR NOT TARGET engine_script)
+    message(FATAL_ERROR "The Android APK requires V8, its ICU data and runtime/script plugin")
 endif()
 set(ENGINE_ANDROID_PROJECT
     "${PROJECT_SOURCE_DIR}/projects/minimal"

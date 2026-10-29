@@ -5,6 +5,7 @@
 | 范围 | 源码与头文件下的相对目录 | 提供的能力 |
 | --- | --- | --- |
 | 运行时资源依赖图 | `plugins/runtime/resource_graph/` | 必要依赖加载、共享缓存及按引用反向释放，实现核心加载接口 |
+| 运行时脚本 | `plugins/runtime/script/` | V8、JS 模块与玩法执行、逐类绑定，实现核心 ScriptRuntime |
 | 编辑器建模 | `plugins/editor/modeling/` | 纯几何、拓扑、UV、网格编译、模型与节点映射、选择、撤销、源资源保存及本模块 MCP 适配 |
 | 编辑器 MCP | `plugins/editor/mcp/` | MCP 协议、工具注册、参数检查、项目/场景/渲染工具和固定目标通道 |
 | 编辑器资源构建 | `plugins/editor/asset_build/` | 项目打包清单、增量散文件/合并包及精简运行清单 |
@@ -16,7 +17,7 @@
 
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
-- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`，否则为空。
+- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`，脚本运行开启时再加入 `script`；显式设置优先。
 - `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`；可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
@@ -27,6 +28,7 @@
 | 插件 | 默认加入条件 | 声明的插件依赖 |
 | --- | --- | --- |
 | `runtime/resource_graph` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无 |
+| `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖与已准备的 V8 |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |
 | `editor/asset_build` | 非设备构建，资源管线依赖开启 | 无；需要资源管线基础 |
 | `editor/asset_sync` | 非设备构建，脚本运行开启，且编辑器或资源管线依赖开启 | 无；显式选择只要求运行时依赖 |
@@ -42,7 +44,7 @@ Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前�
 
 MCP 插件中的协议目标只拥有描述、输入模型与回调。编辑器业务模块自行注册工具，场景命令通过文件通道进入编辑器主线程；组件继续提供普通 C++ 方法。超时返回原请求身份，客户端查询完成回执，不重复执行未确认操作。
 
-V8 玩法和绑定仍位于 `runtime/script/`。原生绑定实现统一接口并显式登记，公开声明维护于 [include/engine.d.ts](../../include/engine.d.ts)。Gameplay 是场景外项目入口；场景对象使用 Node + Component。热重载由玩法会话驱动，MCP 同步资源并控制开关，不直接重载 V8。
+V8 玩法和绑定位于 `plugins/runtime/script/`。核心 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md) 只声明执行与状态契约；宿主通过工厂创建所选插件，世界统一管理生命周期。RuntimeHost 和 GameplaySession 不链接具体脚本插件。原生绑定实现统一接口并显式登记，公开声明维护于 [include/engine.d.ts](../../include/engine.d.ts)。Gameplay 是场景外项目入口；场景对象使用 Node + Component。热重载由玩法会话驱动，MCP 同步资源并控制开关，不直接重载 V8。
 
 ## 运行包与调试工具
 
@@ -52,6 +54,7 @@ V8 玩法和绑定仍位于 `runtime/script/`。原生绑定实现统一接口�
 
 ## 评审入口
 
+- [脚本运行契约](../runtime/class-diagrams/script-runtime.md)与[V8 脚本插件](runtime/class-diagrams/script-system.md)。
 - [资源加载接口](../runtime/class-diagrams/resource-loader.md)与[资源依赖图插件](runtime/class-diagrams/resource-graph.md)。
 - [建模功能与边界](editor/modeling.md)、[建模编辑业务](editor/class-diagrams/modeling-commands.md)。
 - [MCP 协议](editor/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。

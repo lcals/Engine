@@ -18,6 +18,7 @@ namespace engine
 
 class Resource;
 class ResourceSystem;
+class ResourceCodec;
 using ResourcePtr = std::shared_ptr<const Resource>;
 using ByteView = std::span<const std::byte>;
 
@@ -41,6 +42,7 @@ public:
 
 private:
     friend class ResourceSystem;
+    friend class ResourceCodec;
     Resource() noexcept = default;
 
     std::uint64_t generation_ = 0;

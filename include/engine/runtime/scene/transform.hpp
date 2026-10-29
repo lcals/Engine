@@ -9,6 +9,7 @@ class Transform final : public Component
 {
 public:
     static constexpr ComponentType component_type = ComponentType::TransformData;
+    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
 
     [[nodiscard]] const TransformSettings& settings() const noexcept;
     [[nodiscard]] bool set_settings(const TransformSettings& settings) noexcept;

@@ -20,8 +20,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #endif
 
-#if ENGINE_HAS_V8
-#include "runtime/script/script_system.hpp"
+#if ENGINE_TEST_SCRIPT_PLUGIN
+#include "plugins/runtime/script/script_system.hpp"
 #endif
 
 #include <cstdio>
@@ -108,7 +108,7 @@ int main()
     }
 #endif
 
-#if ENGINE_HAS_V8
+#if ENGINE_TEST_SCRIPT_PLUGIN
     engine::ScriptSystem script;
     if (!check_lifecycle(script, "ScriptSystem", config))
     {

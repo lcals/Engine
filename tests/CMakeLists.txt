@@ -37,7 +37,7 @@ if(TARGET engine_resource)
     set_tests_properties(engine.resource_read PROPERTIES TIMEOUT 30)
 endif()
 
-if(ENGINE_ENABLE_SCRIPT_RUNTIME)
+if(TARGET engine_script)
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(
         engine_script_runtime_test PRIVATE engine::script engine::app engine::log engine::resource
@@ -50,42 +50,41 @@ if(ENGINE_ENABLE_SCRIPT_RUNTIME)
                      "${CMAKE_CURRENT_BINARY_DIR}/script-runtime-test-output")
     set_tests_properties(engine.script_runtime PROPERTIES TIMEOUT 60)
 
-    if(TARGET engine_asset_sync)
-        add_executable(engine_asset_sync_test asset_sync_test.cpp)
-        target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync engine::resource
-                                                             nlohmann_json::nlohmann_json)
-        target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
-        engine_apply_options(engine_asset_sync_test)
-        add_test(NAME engine.asset_sync
-                 COMMAND engine_asset_sync_test
-                         "${CMAKE_CURRENT_BINARY_DIR}/asset-sync-test-output")
-        set_tests_properties(engine.asset_sync PROPERTIES TIMEOUT 30)
-    endif()
+endif()
 
-    if(TARGET mcp_app)
-        set(_script_tooling_options "")
-        if(NOT TARGET engine_modeling_mcp_tools)
-            list(APPEND _script_tooling_options --without-modeling)
-        endif()
-        find_package(
-            Python3
-            COMPONENTS Interpreter
-            REQUIRED)
-        add_test(NAME engine.android_asset_packaging
-                 COMMAND "${Python3_EXECUTABLE}"
-                         "${CMAKE_CURRENT_SOURCE_DIR}/prepare_android_assets_test.py")
-        set_tests_properties(engine.android_asset_packaging PROPERTIES TIMEOUT 60)
-        add_test(NAME engine.android_mcp
-                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/android_mcp_test.py"
-                         --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
-        set_tests_properties(engine.android_mcp PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
-        add_test(
-            NAME engine.script_tooling
-            COMMAND
-                "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/script_tooling_test.py" --mcp
-                "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}" ${_script_tooling_options})
-        set_tests_properties(engine.script_tooling PROPERTIES TIMEOUT 120)
+if(TARGET engine_asset_sync)
+    add_executable(engine_asset_sync_test asset_sync_test.cpp)
+    target_link_libraries(engine_asset_sync_test PRIVATE engine::asset_sync engine::resource
+                                                         nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_asset_sync_test PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_asset_sync_test)
+    add_test(NAME engine.asset_sync COMMAND engine_asset_sync_test
+                                            "${CMAKE_CURRENT_BINARY_DIR}/asset-sync-test-output")
+    set_tests_properties(engine.asset_sync PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET mcp_app)
+    set(_script_tooling_options "")
+    if(NOT TARGET engine_modeling_mcp_tools)
+        list(APPEND _script_tooling_options --without-modeling)
     endif()
+    find_package(
+        Python3
+        COMPONENTS Interpreter
+        REQUIRED)
+    add_test(NAME engine.android_asset_packaging
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/prepare_android_assets_test.py")
+    set_tests_properties(engine.android_asset_packaging PROPERTIES TIMEOUT 60)
+    add_test(NAME engine.android_mcp
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/android_mcp_test.py"
+                     --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(engine.android_mcp PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
+    add_test(
+        NAME engine.script_tooling
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/script_tooling_test.py" --mcp
+                "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}" ${_script_tooling_options})
+    set_tests_properties(engine.script_tooling PROPERTIES TIMEOUT 120)
 endif()
 
 if(TARGET engine_mcp)
@@ -120,7 +119,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS
                 ENGINE_HAS_RUNTIME=$<BOOL:${ENGINE_ENABLE_RUNTIME_DEPS}>
                 ENGINE_HAS_EDITOR=$<BOOL:${ENGINE_ENABLE_EDITOR_DEPS}>
                 ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>
-                ENGINE_HAS_V8=$<BOOL:${ENGINE_ENABLE_V8}>)
+                ENGINE_TEST_SCRIPT_PLUGIN=$<TARGET_EXISTS:engine_script>)
     if(ENGINE_ENABLE_RUNTIME_DEPS)
         target_link_libraries(engine_dependency_systems_test
                               PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
@@ -131,7 +130,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS
     if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         target_link_libraries(engine_dependency_systems_test PRIVATE engine::asset_pipeline)
     endif()
-    if(ENGINE_ENABLE_V8)
+    if(TARGET engine_script)
         target_link_libraries(engine_dependency_systems_test PRIVATE engine::script)
     endif()
     engine_apply_options(engine_dependency_systems_test)
@@ -192,6 +191,7 @@ endif()
 if(ENGINE_ENABLE_GPU_TESTS
    AND TARGET editor_app
    AND TARGET mcp_app
+   AND TARGET engine_script
    AND TARGET engine_modeling_mcp_tools)
     add_test(
         NAME modeling.mcp
@@ -394,6 +394,7 @@ endif()
 
 if(TARGET editor_app
    AND TARGET mcp_app
+   AND TARGET engine_script
    AND ENGINE_ENABLE_GPU_TESTS)
     add_test(
         NAME editor.project_lifecycle
@@ -409,6 +410,20 @@ if(TARGET editor_app
             "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
             "${PROJECT_SOURCE_DIR}")
     set_tests_properties(editor.mcp_commands PROPERTIES TIMEOUT 180 RUN_SERIAL TRUE)
+endif()
+
+if(TARGET editor_app
+   AND TARGET mcp_app
+   AND TARGET engine_asset_pipeline
+   AND NOT TARGET engine_script
+   AND ENGINE_ENABLE_GPU_TESTS)
+    add_test(
+        NAME editor.without_script
+        COMMAND
+            "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor_without_script_test.py"
+            --editor "$<TARGET_FILE:editor_app>" --mcp "$<TARGET_FILE:mcp_app>" --root
+            "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.without_script PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
 endif()
 
 if(TARGET engine_asset_pipeline)
@@ -448,3 +463,26 @@ add_test(
         "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/plugin-selection-test" -P
         "${CMAKE_CURRENT_SOURCE_DIR}/plugin_selection_test.cmake")
 set_tests_properties(engine.plugin_selection PROPERTIES TIMEOUT 30)
+
+if(TARGET engine_world)
+    add_executable(engine_component_registry_test component_registry_test.cpp)
+    target_link_libraries(engine_component_registry_test PRIVATE engine::world engine::resource)
+    engine_apply_options(engine_component_registry_test)
+    add_test(NAME engine.component_registry COMMAND engine_component_registry_test)
+endif()
+
+if(TARGET engine_resource)
+    add_executable(engine_resource_codecs_test resource_codecs_test.cpp)
+    target_link_libraries(engine_resource_codecs_test PRIVATE engine::resource)
+    engine_apply_options(engine_resource_codecs_test)
+    add_test(NAME resource.codecs COMMAND engine_resource_codecs_test)
+endif()
+
+if(TARGET engine_asset_pipeline)
+    add_executable(engine_asset_importer_registry_test asset_importer_registry_test.cpp)
+    target_link_libraries(engine_asset_importer_registry_test PRIVATE engine::asset_pipeline)
+    target_include_directories(engine_asset_importer_registry_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_asset_importer_registry_test)
+    add_test(NAME editor.asset_importer_registry COMMAND engine_asset_importer_registry_test)
+endif()

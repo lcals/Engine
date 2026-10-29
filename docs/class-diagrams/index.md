@@ -11,6 +11,7 @@
 | 独立类图                                                         | 评审内容                                      |
 | ---------------------------------------------------------------- | --------------------------------------------- |
 | [资源系统](../runtime/class-diagrams/resource-system.md) | 目录换代、单项读取解析及加载器借用 |
+| [资源解码器](../runtime/class-diagrams/resource-codecs.md) | 逐资源类型解码、生成数据与声明依赖校验 |
 | [加载接口](../runtime/class-diagrams/resource-loader.md) | 核心声明的 load/find/error 契约 |
 | [资源依赖图插件](../plugins/runtime/class-diagrams/resource-graph.md) | 同代际共享、依赖闭包及反向释放 |
 | [资源目录](../runtime/class-diagrams/resource-catalog.md)        | 只存元数据、GUID/路径索引、运行依赖与存储定位 |
@@ -23,10 +24,13 @@
 ## 当前宿主与导入模块
 
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
+- [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
 - [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
+- [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
+- [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
 - [资源管线](../editor/class-diagrams/asset-pipeline-system.md)：meta 身份、SQLite 索引、依赖增量和 GUID 缓存发布。
 
@@ -35,6 +39,7 @@
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
+- [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
 - [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
@@ -43,7 +48,7 @@
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。
 
-- [绑定接口与注册表](../runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
+- [绑定接口与注册表](../plugins/runtime/class-diagrams/script-bindings.md)：逐类实现 ScriptBinding，新增绑定只需增加类和注册项。
 
 - [网格工具](../runtime/class-diagrams/mesh-utils.md)：验证几何及按上游算法生成切线。
 - [贴图导入](../editor/class-diagrams/texture-importer.md)：按 meta 配置调用 BasisU 生成 GUID 资源。
@@ -55,7 +60,7 @@
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
-- [渲染脚本接口](../runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
+- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
 
 ## MCP 与编辑器命令
 
@@ -89,14 +94,14 @@ MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与�
 | ------ | ----------------------------------------------- | ------------------------------------------------- |
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
 | 编辑器基础 | `docs/editor/`、`docs/editor/class-diagrams/` | 项目环境、资源管线、Task 与通用主线程命令 |
-| 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图 |
+| 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图、V8 脚本与逐类绑定 |
 | 编辑器插件 | `docs/plugins/editor/`、对应 `class-diagrams/` | 完整建模、完整 MCP、资源构建与同步 |
 
 头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。核心不引用具体插件，运行时插件不反向依赖编辑器；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
 
 ## 运行时根系统
 
-RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借用，或由 RuntimeHost 默认装入 Engine；世界和渲染仍归 Engine。可执行宿主装配选中的资源依赖图插件，RuntimeHost 库不引用具体插件。
+RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借用，或由 RuntimeHost 默认装入 Engine；世界和渲染仍归 Engine。可执行宿主装配选中的资源依赖图插件，并通过 ScriptRuntime 工厂创建脚本插件；RuntimeHost 库不引用或链接具体插件。
 
 | 初始化顺序 | 独立类图                                                 | 所有者及职责                                             |
 | ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
@@ -113,7 +118,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
 | 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
 | 4    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi          |
-| 5    | [脚本系统](../runtime/class-diagrams/script-system.md)     | V8；启用时装配 |
+| 5    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
 
 ## 宿主模块
 

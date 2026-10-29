@@ -12,7 +12,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
-模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
+模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图与脚本执行属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
 各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
@@ -110,7 +110,7 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 ### 插件选择
 
-插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件目前只有 `resource_graph`；建模（包括纯几何）、MCP（包括协议）、资源构建与同步均属于编辑器插件。
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph` 与 `script`；建模（包括纯几何）、MCP（包括协议）、资源构建与同步均属于编辑器插件。
 
 例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
 
@@ -120,7 +120,9 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-如需恢复默认资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，同时要求启用 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+
+脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、V8 执行和逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接 V8，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。
 
 MCP 在电脑端经 adb 同步 Android 调试包，设备端不运行 MCP；正式游戏不链接建模、MCP 或编辑器构建/同步工具。仅开启运行时和脚本不会默认启用资源同步插件；默认同步插件还要求编辑器或资源管线能力。未来设备调试插件必须按构建用途区分正式运行与调试运行，不能仅靠程序中的运行开关隐藏调试接口。这些开关是构建期选择，不表示支持 C++ 插件热插拔。
 
@@ -270,7 +272,7 @@ export default class Game extends Gameplay {
 
 文件读取统一通过 SDL3 同步接口，单实体上限 64 MiB；资源目录最多 65536 项，合并包按成员范围读取，不要求整包进入内存；脚本源码及部署控制 JSON 文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
 
-MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及其他普通资源；按 GUID 将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；关闭时保留 V8 版本探针。Android 传输使用 adb，具体命令如下。
+MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及其他普通资源；按 GUID 将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；它决定 `runtime/script` 的默认选择，显式插件清单优先；关闭插件后核心和宿主不链接 V8。单独开启 V8 依赖时由独立测试验证上游库，不创建伪脚本系统。Android 传输使用 adb，具体命令如下。
 
 ### 渲染与项目控制
 
@@ -386,7 +388,8 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 - `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
 - 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
-- ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载、生命周期和热重载职责。
+- ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
+- Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。
 - EditorEnvironment 借用已校验的项目，配置 App 路径并直接提交导入目录与挂载。ProjectSystem 不提供重复的 root_path 入口；运行时继续通过 App 读取路径语义。
 
 ### 资源导入与 GUID
@@ -434,6 +437,8 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 `GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
 `SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮，模型格式导入尚未实现；未配置专用导入器的原始文件按字节缓存。
+
+各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-6` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
 
 ### 资源运行包
 
@@ -552,6 +557,8 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 插件与构建拆分已通过 macOS ARM64 的 Debug / Release 编译、Debug 全量 51/51，以及 Release 最终受影响回归 11/11。纯框架配置通过 5/5；关闭全部可选插件仍可编译运行宿主与编辑器；只启用 MCP、不启用建模的配置编译通过，工具清单、传输和插件选择回归 3/3。资源插件验证包含 4096 层依赖链、共享释放、同 GUID 跨代保活和失败不发布；未重跑此次改动的 Android APK 或 Windows 构建。
 
+脚本插件化与逐类型接口拆分随后通过 macOS ARM64 Debug / Release 最终增量构建。Debug 全量 54/54；Release 全量首轮 53 项通过，新增资源解码测试的空数组越界修复后，该项复测 1/1 通过。关闭脚本插件且 `ENGINE_ENABLE_V8=OFF` 的 Release 配置通过构建，全量首轮 49/50，新编辑器测试修正 macOS 临时目录规范化后复测 1/1 通过；正式路径校验未放宽。该配置真实验证资源导入、GPU 渲染、脚本启动明确失败及正常关闭，宿主链接无 V8 / ScriptSystem。新增注册、组件恢复与资源解码测试覆盖重复登记、未知类型和失败保留原状态。未重建本批改动的 Android APK 或 Windows 目标，未运行 CI；日志位于忽略的 `build/type-modules-*.log`。
+
 | 环境                                                 | 已验证范围                                                                                                                            |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | macOS ARM64 / AppleClang 21                          | 完整引擎 Debug / Release 构建及各 42 项回归通过；真实 Metal 画面、BasisU 贴图缓存、场景、脚本、模块化 MCP、主线程编辑与编辑器生命周期 |
@@ -585,7 +592,7 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 
 插件拆分前的建模与公寓验证（2026-10-29）：macOS Metal 下 Debug / Release 构建通过，49 项 CTest 的最终结果均通过，包含发现并修复问题后的受影响项复测。新增真实编辑器 MCP 回归覆盖渲染设置撤销、PNG 完成回执、截图路径边界、整场景保存与重新加载后继续编辑；修复了 toml++ 混合异常配置导致的格式化 ABI 冲突，以及 RGBA8 阴影编码产生的自阴影条纹。公寓通过 MCP 创建 322 个模型、保存并重新加载 328 个节点，646 个资源的 GUID 全部唯一，实际输出全景及三个近景 PNG。104 块类图已通过真实 Mermaid 解析及渲染；本轮 Shader 通过 Metal / Android SPIR-V 编译，未据此宣称 Android APK 或真机已验证。
 
-本轮插件目录与资源加载契约的类图验证：使用本机 Chrome 和 Mermaid 引擎逐块执行 `parse` 与 `render`，全部 106 块通过，其中本轮变更文件包含 60 块。结果和复跑脚本位于忽略的 `build/plugin-layout-validation/`；此记录仅覆盖图的语法与渲染，构建及运行结果另行记录。
+本轮插件目录、脚本契约与逐类型接口的最终类图验证：使用本机 Chrome 和 Mermaid 引擎逐块执行 `parse` 与 `render`，全部 116 块通过，其中本批变更文件包含 63 块；逐图源码哈希一致，402 个相对文档链接有效。结果和复跑脚本位于忽略的 `build/plugin-layout-validation/`；此记录仅覆盖图的语法、渲染与链接，构建及运行结果另行记录。
 
 ## 目录
 
@@ -624,7 +631,7 @@ MCP 模块化阶段另已验证关闭 V8 和资源管线的编辑器 Debug / Rel
 | `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
 | `ENGINE_ENABLE_V8`                  | `OFF`      | 启用显式准备的 V8 monolith、构建目标与嵌入测试                                                |
-| `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | V8 玩法、日志/路径绑定与引擎热重载；完整桌面 engine 及 Android 预设开启，同步工具仅构建在桌面 |
+| `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | 默认选择运行时 script 插件；显式插件清单优先，完整桌面 engine 及 Android 预设开启 |
 
 作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。使用 Engine 与系统基类时链接 `engine::core`；使用 RuntimeHost 装配运行时时启用运行时并链接 `engine::runtime`；可选插件由宿主另行链接及初始化。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。
 

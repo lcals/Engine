@@ -1,12 +1,12 @@
 # 玩法运行会话
 
-[类图索引](../../class-diagrams/index.md) · [脚本系统](script-system.md) · [运行宿主](runtime-host.md)
+[类图索引](../../class-diagrams/index.md) · [脚本运行契约](script-runtime.md) · [运行宿主](runtime-host.md)
 
 ```mermaid
 classDiagram
     class GameplaySession {
         <<final>>
-        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptSystem#42; script)
+        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script)
         +~GameplaySession()
         +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
@@ -17,12 +17,12 @@ classDiagram
     }
     class WorldSystem
     class RenderSystem
-    class ScriptSystem
+    class ScriptRuntime
     class ResourceSystem
     class ResourceCatalog
     GameplaySession --> WorldSystem : 必需借用
     GameplaySession --> RenderSystem : 必需借用
-    GameplaySession --> ScriptSystem : 可空借用
+    GameplaySession --> ScriptRuntime : 可空借用抽象执行契约
     GameplaySession ..> ResourceSystem : 显式提交资源目录
     GameplaySession *-- ResourceCatalog : 基线及候选元数据
 ```
@@ -41,7 +41,8 @@ classDiagram
 ```
 
 - 会话是调用方协调对象，不继承 System、不拥有其他系统。RuntimeHost 在系统就绪后创建并独占它，先销毁会话再关闭系统。
-- `set_resources()` 由编辑器直接提交已导入的完整目录与 content 挂载，入口默认 `scripts/game.js`。运行中拒绝替换；调用方须先停止。无编辑器配置进入资源核心。
+- 会话只调用 ScriptRuntime 的预检、启动、停止、重载开关和状态接口，不依赖 V8 或具体 ScriptSystem 插件。脚本实例为空时仍可关闭场景与渲染，脚本玩法启动返回明确失败。
+- `set_resources()` 由编辑器直接提交已导入的完整目录与 content 挂载，入口默认 `scripts/game.js`。运行中拒绝替换；调用方须先停止。未装配脚本时仍可提交资源目录，供原生场景和渲染使用；脚本启动另行报告不可用。无编辑器配置进入资源核心。
 - 真机首次 `start()` 读取内置运行清单，随后优先选用宿主明确发布的完整持久候选；正常运行不扫描源项目。Android 核验 APK 清单结构并将其导出为 `assets/builtin.json` 供首次设备同步计算删除项，启动不读取全部实体。
 - `start()` 已运行时幂等。先预检候选脚本，再停止旧玩法、销毁场景与 GPU，提交目录、启动已预检脚本并准备 GPU。候选预检失败保留旧玩法；目录应用或新入口失败保持停止并报告。
 - `tick()` 由 RuntimeHost 在系统更新后显式调用，处理 `script-control.json` 与 MCP 发布的 `assets/available.json`。这是调用方部署协议，核心不识别这些文件。完整目录元数据与发布文件校验通过后记录候选；热重载关闭只更新可用状态，不切换。
