@@ -1,5 +1,13 @@
 # 开发与第三方依赖
 
+## 源码与文档分层
+
+`include/engine/` 与 `src/engine/` 使用一致的 `runtime/`、`editor/`、`plugins/` 目录。运行时系统及公共工具归 runtime；编辑器主类、项目和资源处理工具归 editor；MCP 归 plugins。平台实现仍位于 `platforms/<platform>/`，不搬入通用运行时目录。
+
+目标传递 `include/engine/` 作为搜索根，自有头文件使用 `#include "runtime/engine.hpp"`、`#include "editor/project/project_system.hpp"` 等带层级路径；第三方 API 保留标准包含路径。UTF-8 路径转换由 [PathUtils](runtime/class-diagrams/path-utils.md) 复用，路径安全及规范化检查仍由调用者完成。运行时 TypeScript 声明统一位于 [include/engine.d.ts](../include/engine.d.ts)。
+
+规划文档与独立类图分别归入 `docs/runtime/`、`docs/editor/`、`docs/plugins/`；统一入口是[类图索引](class-diagrams/index.md)，跨层关系见[完整引用关系](class-diagrams/references.md)。新增类型或移动职责时同步更新所属图及引用链接。
+
 ## 跨平台构建
 
 根目录 `CMakePresets.json` 是 configure、build、test 的共同入口，推荐 `ninja-debug` / `ninja-release` workflow 将三步串联，环境安装与缓存说明统一见根 [README](../README.md#构建与测试)。原 `debug` / `release` 保留平台默认生成器。单配置生成器使用 `CMAKE_BUILD_TYPE`，多配置生成器由 build / test preset 的 `configuration` 选择同名配置。

@@ -43,10 +43,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", choices=("debug", "release"), default="debug")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
+    parser.add_argument("--project", type=Path,
+                        help="要编译并放入 APK 的项目目录，默认 projects/minimal")
     parser.add_argument("--skip-native", action="store_true", help="仅打包已由 CMake 生成的原生库")
     args = parser.parse_args()
     if args.jobs < 1:
         parser.error("--jobs 必须大于 0")
+    if args.skip_native and args.project is not None:
+        parser.error("--skip-native 复用已生成资源，不能同时指定 --project；选择项目时请执行完整构建。")
+    project = args.project or ROOT / "projects/minimal"
     require_directory("ANDROID_HOME")
     ndk_root = require_directory("ANDROID_NDK_HOME")
     properties = (ndk_root / "source.properties").read_text(encoding="utf-8")
@@ -68,7 +73,8 @@ def main():
         if not cmake:
             raise ValueError("没有找到 CMake，请先运行环境安装脚本。")
         preset = "android-arm64-" + args.config
-        run([cmake, "--preset", preset, "-DENGINE_V8_JOBS=" + str(args.jobs)])
+        run([cmake, "--preset", preset, "-DENGINE_V8_JOBS=" + str(args.jobs),
+             "-DENGINE_ANDROID_PROJECT=" + str(project.resolve())])
         run([cmake, "--build", "--preset", preset + "-prepare"])
         run([cmake, "--build", "--preset", preset, "--parallel", str(args.jobs)])
     source = (ROOT / "build/android-gradle" / args.config / "outputs/apk" /
