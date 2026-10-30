@@ -9,9 +9,12 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
+    target_include_directories(engine_editor SYSTEM PRIVATE ${_project_toml_includes})
+    target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
     target_sources(
         engine_editor
         PRIVATE src/engine/editor/render/render_commands.cpp
+                src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
@@ -38,6 +41,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 engine::log
                 engine::resource
                 engine::world
+                engine::window
                 imgui::imgui
                 SDL3::SDL3)
     target_compile_definitions(engine_editor PUBLIC JSON_NOEXCEPTION=1)
@@ -77,12 +81,15 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/components/audio_listener_codec.cpp
                 src/engine/editor/asset_pipeline/components/camera_codec.cpp
                 src/engine/editor/asset_pipeline/components/light_codec.cpp
+                src/engine/editor/asset_pipeline/components/environment_codec.cpp
+                src/engine/editor/asset_pipeline/components/post_process_codec.cpp
                 src/engine/editor/asset_pipeline/components/mesh_renderer_codec.cpp
                 src/engine/editor/asset_pipeline/importers/mesh_importer.cpp
                 src/engine/editor/asset_pipeline/importers/shader_importer.cpp
                 src/engine/editor/asset_pipeline/importers/material_importer.cpp
                 src/engine/editor/asset_pipeline/importers/scene_importer.cpp
                 src/engine/editor/asset_pipeline/importers/texture_importer.cpp
+                src/engine/editor/asset_pipeline/importers/ktx_texture_importer.cpp
                 src/engine/editor/asset_pipeline/importers/audio_importer.cpp
                 src/engine/editor/asset_pipeline/importers/script_importer.cpp
                 src/engine/editor/asset_pipeline/importers/source_importer.cpp)
@@ -96,6 +103,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_asset_pipeline
         PUBLIC engine::scene_data
         PRIVATE engine::task
+                engine::app
                 engine::world
                 engine::resource
                 unofficial::sqlite3::sqlite3
@@ -126,9 +134,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
     if(TARGET engine_editor)
         target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp)
-        target_include_directories(engine_editor SYSTEM PRIVATE ${_toml_includes})
-        target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
-        target_link_libraries(engine_editor PRIVATE engine::asset_pipeline)
+        target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()
 
 endif()

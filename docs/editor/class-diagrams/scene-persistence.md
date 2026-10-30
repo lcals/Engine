@@ -5,7 +5,7 @@
 ```mermaid
 classDiagram
     class ScenePersistence {
-        +ScenePersistence(WorldSystem& world, filesystem_path project_root, MeshSourceWriter writer)
+        +ScenePersistence(WorldSystem& world, filesystem_path project_root, MeshSourceWriter writer, SavedCallback saved)
         +register_commands(EditorCommands& commands) bool
     }
     class WorldSystem
@@ -21,6 +21,8 @@ classDiagram
 ```
 
 `MeshSourceWriter = std::function<bool(const Node&, const std::filesystem::path&, std::string&)>`，图中的名称是函数类型别名，不是新增业务类。`ScenePersistence` 属于 `engine::editor`，只使用该函数契约，不包含或链接 `ModelingCommands`；宿主创建捕获建模对象的回调，并保证该对象在回调释放前存活。
+
+`SavedCallback = std::function<void(std::string_view)>` 可空，成功发布场景后通知其 `project/` 逻辑路径。宿主用它更新 ScenePreview 的保存检查点；失败不触发，保存到其他路径不解除当前预览的未保存保护。
 保存由编辑器驱动：以 FlatBuffers 原生数据快照记录层级、组件、启用状态及活动相机，
 把当前 Mesh 与所有材质槽覆盖值写入场景相邻资源目录；邻接 meta 复用资源管线身份规则。
 保存不改变运行场景、不导入、不修改运行目录；完成后由调用方停止、同步资源并重启项目。

@@ -23,17 +23,41 @@ declare module "engine" {
         static readonly cachePath: string;
     }
 
+    /** Frame scheduling. Methods require an active gameplay or component callback. */
+    export class Engine {
+        private constructor();
+        /** -1 removes the cap; positive int32 values set its maximum. Invalid calls return false. */
+        static SetTargetFrameRate(fps: number): boolean;
+        /** The current cap, or null outside an active callback. */
+        static GetTargetFrameRate(): number | null;
+    }
+
     /** Seconds of the current Update; zero during initialization and shutdown. */
     export class Time {
         private constructor();
         static readonly deltaTime: number;
     }
 
-    /** Current renderer settings. Calls require an active Gameplay callback and renderer. */
+    /** Scene parameter facade. Requires an active callback and existing scene components. */
     export class Render {
         private constructor();
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
         static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
+        /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
+        static SetAmbientTricolor(
+            sky: readonly [number, number, number],
+            equator: readonly [number, number, number],
+            ground: readonly [number, number, number],
+            intensity: number
+        ): boolean;
+        /** Linear RGB and world distances. Requires 0 <= start < end, even when disabled. */
+        static SetLinearFog(
+            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+        ): boolean;
+        /** Nonnegative density, forward camera depth. squared defaults to false. */
+        static SetExponentialFog(
+            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+        ): boolean;
         /** Exposure in (0, 100]. */
         static SetExposure(value: number): boolean;
         static SetFilmicTonemap(enabled: boolean): boolean;
@@ -49,6 +73,8 @@ declare module "engine" {
         IsValid(): boolean;
         SetType(path: string): boolean;
         SetShader(path: string): boolean;
+        SetCullMode(mode: "back" | "front" | "none"): boolean;
+        GetCullMode(): "back" | "front" | "none" | null;
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
@@ -107,11 +133,40 @@ declare module "engine" {
         /** Size is the vertical half-height in world units. */
         SetOrthographic(size: number, nearClip: number, farClip: number): boolean;
     }
+    /** Scene-wide environment parameters, stored with the scene. */
+    export class EnvironmentComponent extends Component {
+        private constructor();
+        /** Uses the scene's precomputed IBL maps; baking does not change this switch. */
+        SetIbl(enabled: boolean, intensity?: number): boolean;
+        SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
+        SetAmbientTricolor(
+            sky: readonly [number, number, number],
+            equator: readonly [number, number, number],
+            ground: readonly [number, number, number],
+            intensity: number
+        ): boolean;
+        SetLinearFog(
+            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+        ): boolean;
+        SetExponentialFog(
+            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+        ): boolean;
+        /** Unsigned 32-bit 0xRRGGBBAA. */
+        SetClearColor(rgba: number): boolean;
+    }
+    /** Attach to a camera node; the active camera supplies the scene's post-processing. */
+    export class PostProcessComponent extends Component {
+        private constructor();
+        SetExposure(value: number): boolean;
+        SetFilmicTonemap(enabled: boolean): boolean;
+    }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
         SetDirectional(): boolean;
+        /** Directional lights only. Resolution defaults to 2048, bias to 0.001. */
+        SetShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         SetPoint(range: number): boolean;
         /** Cone half-angles in degrees. */
         SetSpot(range: number, innerAngle: number, outerAngle: number): boolean;
@@ -120,6 +175,8 @@ declare module "engine" {
         private constructor();
         readonly material: Material;
         readonly materialCount: number;
+        readonly castShadows: boolean;
+        SetCastShadows(enabled: boolean): boolean;
         SetMesh(path: string): boolean;
         GetMaterial(slot: number): Material | null;
         SetMaterialCount(count: number): boolean;
@@ -151,6 +208,8 @@ declare module "engine" {
         SetSphere(radius: number): boolean;
         /** Half-height is measured along the cylinder part, excluding the hemispheres. */
         SetCapsule(radius: number, halfHeight: number): boolean;
+        /** Static triangle Mesh by resource path; rejects dynamic and kinematic rigid bodies. */
+        SetMesh(path: string): boolean;
         SetFriction(value: number): boolean;
         SetRestitution(value: number): boolean;
         SetTrigger(value: boolean): boolean;

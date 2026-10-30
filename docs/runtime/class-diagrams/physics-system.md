@@ -29,10 +29,12 @@ classDiagram
     class EngineConfig
     class PhysicsState["PhysicsSystem::State"]
     class Jolt["Jolt"]
+    class Resource
     System <|-- PhysicsSystem
     PhysicsSystem --> WorldSystem : 可空借用
     PhysicsSystem *-- PhysicsState : 独占实现
     PhysicsState ..> Jolt : 私有实现依赖
+    PhysicsState o-- Resource : 碰撞体快照共享保留网格
     PhysicsSystem ..> Scene : 按ID重新解析节点
     PhysicsSystem ..> Collider : 读取形状
     PhysicsSystem ..> RigidBody : 消费冲量并同步速度
@@ -43,3 +45,5 @@ classDiagram
 ```
 
 世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。场景切换、对象禁用及删除在下一次更新同步，停止玩法由宿主显式清理。固定步进与变换限制见[物理模块](../physics.md)。
+
+静态网格由独立 Mesh 资源的顶点与三角形索引构建 Jolt MeshShape；正的非均匀世界缩放与 Collider center 在构建时应用，沿用现有刚体位置和旋转同步。无有效三角形、索引越界或非静态刚体返回失败。网格参与同一物理世界，角色胶囊、台阶检测及相机球扫共用这些碰撞体，不另建碰撞查询系统。

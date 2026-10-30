@@ -12,8 +12,10 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/mesh_utils.hpp"
@@ -860,6 +862,15 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     auto* scene = world.scene();
+    auto* environment_node = scene->create_node("Environment");
+    if (!expect(environment_node != nullptr &&
+                    environment_node->add_component<engine::EnvironmentComponent>() != nullptr &&
+                    scene->active_camera()->node().add_component<engine::PostProcessComponent>() !=
+                        nullptr,
+                "scene render settings are owned by environment and camera components"))
+    {
+        return false;
+    }
     auto* floor = scene->create_node("Shadow receiver");
     auto* floor_transform = floor != nullptr ? floor->get_component<engine::Transform>() : nullptr;
     auto* floor_mesh = floor != nullptr ? floor->add_component<engine::MeshRenderer>() : nullptr;

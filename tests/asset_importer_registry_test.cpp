@@ -90,7 +90,8 @@ int main()
     for (const auto& item : cases)
     {
         const auto* importer = registry.select(item.path);
-        if (!expect(importer != nullptr && importer == registry.find(item.kind),
+        if (!expect(importer != nullptr && importer->kind() == item.kind &&
+                        importer == registry.find(importer->id()),
                     "source selects its registered type"))
         {
             return 1;
@@ -101,9 +102,14 @@ int main()
                 "script owns module path mapping") ||
         !expect(registry.find(schema::AssetKind::source)->module_path("text.txt").empty(),
                 "ordinary sources do not become script modules") ||
-        !expect(registry.find(schema::AssetKind::texture)->default_meta().find("[texture]") !=
+        !expect(registry.find("texture")->default_meta().find("[texture]") !=
                     std::string_view::npos,
                 "texture supplies its own import settings") ||
+        !expect(registry.select("probe.KTX") == registry.find("texture_ktx") &&
+                    registry.find(schema::AssetKind::texture) == nullptr &&
+                    registry.find("texture_ktx")->default_meta().find("srgb = false") !=
+                        std::string_view::npos,
+                "KTX has independent linear metadata and shared texture output kind") ||
         !expect(registry.find(schema::AssetKind::mesh)->default_meta().empty(),
                 "mesh does not inherit texture settings"))
     {

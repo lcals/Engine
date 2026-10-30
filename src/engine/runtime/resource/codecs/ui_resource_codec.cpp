@@ -1,5 +1,6 @@
 #include "runtime/resource/codecs/ui_resource_codec.hpp"
 #include "runtime/resource/resource_catalog.hpp"
+#include <SDL3/SDL_log.h>
 #include <algorithm>
 #include <flatbuffers/verifier.h>
 #include <set>
@@ -99,6 +100,15 @@ bool UiResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
         const auto* texture = dependency(dependencies, guid);
         if (!texture || !texture->texture())
         {
+            return false;
+        }
+        const auto& data = *texture->texture();
+        if (data.cube_map || (data.encoding != schema::TextureEncoding::rgba8 &&
+                              data.encoding != schema::TextureEncoding::basis))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "UI requires 2D LDR rgba8/Basis textures: %s",
+                         texture->info().path.c_str());
             return false;
         }
     }

@@ -17,7 +17,8 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/audio_mcp_tools.cpp
         src/engine/plugins/editor/mcp/animation_mcp_tools.cpp
         src/engine/plugins/editor/mcp/model_mcp_tools.cpp
-        src/engine/plugins/editor/mcp/render_mcp_tools.cpp)
+        src/engine/plugins/editor/mcp/render_mcp_tools.cpp
+        src/engine/plugins/editor/mcp/scene_preview_mcp_tools.cpp)
     add_library(engine::project_mcp_tools ALIAS engine_project_mcp_tools)
     target_include_directories(engine_project_mcp_tools PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(

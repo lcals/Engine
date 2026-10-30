@@ -24,3 +24,7 @@ Thumbs.db
 /projects/*/cache/*
 !/projects/*/cache/.gitkeep
 node_modules/
+
+# 仅公开范例进入版本管理；其他项目完整保留在本地。
+/projects/*
+!/projects/showcase/

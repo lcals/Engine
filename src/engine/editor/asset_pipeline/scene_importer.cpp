@@ -33,6 +33,8 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
         return false;
     }
     std::map<std::uint64_t, const schema::NodeDataT*> nodes;
+    bool has_environment = false;
+    bool has_shadow_light = false;
     for (const auto& node : scene.nodes)
     {
         if (node == nullptr || node->info == nullptr || node->info->id == 0 ||
@@ -59,10 +61,36 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
             {
                 return false;
             }
+            if (component->enabled &&
+                component->payload.type == schema::ComponentPayload::EnvironmentData)
+            {
+                if (has_environment)
+                {
+                    error = "scene supports at most one enabled Environment component";
+                    return false;
+                }
+                has_environment = true;
+            }
+            if (const auto* light = component->payload.AsLightData();
+                component->enabled && light != nullptr && light->cast_shadows)
+            {
+                if (has_shadow_light)
+                {
+                    error = "scene supports at most one enabled shadow-casting directional light";
+                    return false;
+                }
+                has_shadow_light = true;
+            }
         }
         if (!components.contains(schema::ComponentPayload::TransformData))
         {
             error = "each scene node requires a Transform component";
+            return false;
+        }
+        if (components.contains(schema::ComponentPayload::PostProcessData) &&
+            !components.contains(schema::ComponentPayload::CameraData))
+        {
+            error = "PostProcess component requires a Camera on the same node";
             return false;
         }
     }

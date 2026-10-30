@@ -1,5 +1,6 @@
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
+#include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/render/render_system.hpp"
@@ -904,6 +905,59 @@ export default class extends Gameplay {
     return expect(cleared, "script shutdown releases component resource references with its scene");
 }
 
+bool run_frame_rate_binding_cases(const fs::path& workspace)
+{
+    auto& engine = engine::Engine::instance();
+    const engine::EngineConfig config;
+    engine::plugins::script::ScriptSystem script;
+    constexpr std::string_view source = R"js(
+import { Gameplay, Engine } from 'engine';
+const topLevelBlocked = !Engine.SetTargetFrameRate(120) && Engine.GetTargetFrameRate() === null;
+export default class extends Gameplay {
+    constructor() {
+        super();
+        this.constructorBlocked = !Engine.SetTargetFrameRate(90);
+    }
+    OnInitialize() {
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Engine) &&
+            Engine.SetTargetFrameRate(-1) && Engine.GetTargetFrameRate() === -1 &&
+            Engine.SetTargetFrameRate(45) && Engine.GetTargetFrameRate() === 45 &&
+            !Engine.SetTargetFrameRate(0) && !Engine.SetTargetFrameRate(-2) &&
+            !Engine.SetTargetFrameRate(45.5) && !Engine.SetTargetFrameRate('45') &&
+            !Engine.SetTargetFrameRate(true) && !Engine.SetTargetFrameRate(NaN) &&
+            !Engine.SetTargetFrameRate(Infinity) && !Engine.SetTargetFrameRate(2147483648) &&
+            Engine.GetTargetFrameRate() === 45;
+    }
+    Update() {
+        if (!Engine.SetTargetFrameRate(30)) throw new Error('Cannot change frame rate');
+    }
+    OnShutdown() {
+        if (!Engine.SetTargetFrameRate(-1)) throw new Error('Cannot release frame rate cap');
+    }
+}
+)js";
+    Fixture input;
+    if (!engine.set_target_frame_rate(60) || !script.initialize(config) ||
+        !fixture(workspace, "frame-rate", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+                    engine.target_frame_rate() == 60,
+                "candidate module and constructor cannot change the frame rate") ||
+        !engine::ResourceSystem::instance()->update_catalog(input.catalog.data(), input.mounts) ||
+        !expect(script.start_prepared_gameplay() && engine.target_frame_rate() == 45,
+                "gameplay sets the frame rate; invalid typed inputs preserve it") ||
+        !expect(script.tick(.016) && script.status().running && engine.target_frame_rate() == 30,
+                "gameplay can adjust the active cap during update") ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+                    engine.target_frame_rate() == 30,
+                "hot reload candidate leaves the active run's frame rate unchanged"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(engine.target_frame_rate() == -1 && script.status().last_error.empty(),
+                  "shutdown callback can remove the cap before the host restores its own value");
+}
+
 bool run_render_binding_cases(const fs::path& workspace)
 {
     const engine::EngineConfig config;
@@ -941,6 +995,16 @@ export default class extends Gameplay {
     OnInitialize() {
         return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
             Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
+            Render.SetAmbientTricolor([.5,.6,.7], [.3,.4,.5], [.1,.2,.3], .15) &&
+            Render.SetLinearFog(true, .2, .3, .4, 60, 300) &&
+            Render.SetExponentialFog(true, .2, .3, .4, .007, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, -.01, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, Infinity, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, .01, 1) &&
+            !Render.SetAmbientTricolor(null, [.3,.4,.5], [.1,.2,.3], .2) &&
+            !Render.SetAmbientTricolor([1,2,3], [.3,.4,.5], [.1,.2,.3], .2) &&
+            !Render.SetLinearFog(true, .8, .7, .6, 300, 60) &&
+            !Render.SetLinearFog(true, .8, .7, .6, -1, 60) &&
             Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
             Render.SetDirectionalShadows(true, 1024, .002) &&
             Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
@@ -972,36 +1036,136 @@ export default class extends Gameplay {
     {
         return false;
     }
-    const auto& settings = renderer.settings();
+    const auto settings = renderer.settings();
     if (!expect(settings.ambient_color == std::array<float, 3>{.2F, .3F, .4F} &&
                     settings.ambient_intensity == .15F && settings.exposure == 1.4F &&
+                    settings.ambient_tricolor &&
+                    settings.ambient_sky_color == std::array<float, 3>{.5F, .6F, .7F} &&
+                    settings.fog_mode == engine::FogMode::exponential_squared &&
+                    settings.fog_density == .007F && settings.fog_start == 60 &&
+                    settings.fog_end == 300 &&
+                    settings.fog_color == std::array<float, 3>{.2F, .3F, .4F} &&
                     settings.filmic_tonemap && settings.directional_shadows &&
                     settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
                     settings.clear_color == 0x56789aff,
                 "invalid calls preserve all fields, including partial ambient and shadow input") ||
-        !expect(script.tick(.016) && script.status().running && settings.exposure == .75F &&
-                    !settings.directional_shadows && settings.shadow_resolution == 2048 &&
-                    settings.shadow_bias == .001F,
+        !expect(script.tick(.016) && script.status().running &&
+                    renderer.settings().exposure == .75F &&
+                    !renderer.settings().directional_shadows &&
+                    renderer.settings().shadow_resolution == 2048 &&
+                    renderer.settings().shadow_bias == .001F,
                 "Update can change renderer settings and shadow defaults match the native API"))
     {
         return false;
     }
     script.stop_gameplay();
-    if (!expect(settings.exposure == .5F && !script.status().running,
+    if (!expect(renderer.settings().exposure == .5F && !script.status().running,
                 "shutdown callback runs while the injected renderer remains valid") ||
         !renderer.set_settings({}) ||
-        !expect(script.prepare_gameplay(input.catalog, input.mounts) && settings.exposure == 1.0F &&
-                    settings.ambient_intensity == 0.0F && !settings.directional_shadows,
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+                    renderer.settings().exposure == 1.0F &&
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    !renderer.settings().directional_shadows,
                 "preparing a candidate does not apply project render settings") ||
-        !expect(script.start_prepared_gameplay() && settings.exposure == 1.4F &&
-                    settings.ambient_intensity == .15F && settings.directional_shadows,
+        !expect(script.start_prepared_gameplay() && renderer.settings().exposure == 1.4F &&
+                    renderer.settings().ambient_intensity == .15F &&
+                    renderer.settings().directional_shadows,
                 "starting the project again reapplies its own render settings"))
     {
         return false;
     }
     script.stop_gameplay();
-    return expect(settings.exposure == .5F && script.status().last_error.empty(),
+    return expect(renderer.settings().exposure == .5F && script.status().last_error.empty(),
                   "repeated lifecycle preserves the renderer borrowing contract");
+}
+
+bool run_scene_render_binding_cases(const fs::path& workspace)
+{
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    engine::plugins::script::ScriptSystem script(&world, &renderer);
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Camera, Light, Render,
+         EnvironmentComponent, PostProcessComponent } from 'engine';
+export default class extends Gameplay {
+    frame = 0;
+    OnInitialize() {
+        this.scene = Scene.Create('Scene environment');
+        if (!this.scene || Render.SetExposure(2) || Render.SetAmbient(1, 1, 1, 2)) return false;
+        const environmentNode = this.scene.CreateNode('Environment');
+        this.environment = environmentNode.AddComponent(EnvironmentComponent);
+        const cameraNode = this.scene.CreateNode('Camera');
+        const camera = cameraNode.AddComponent(Camera);
+        this.post = cameraNode.AddComponent(PostProcessComponent);
+        const light = this.scene.CreateNode('Sun').AddComponent(Light);
+        if (!this.environment || !camera || !this.post || !light ||
+            !this.scene.SetActiveCamera(camera)) return false;
+        return environmentNode.GetComponent(EnvironmentComponent).IsValid() &&
+            !environmentNode.AddComponent(EnvironmentComponent) &&
+            this.environment.SetIbl(true, .5) &&
+            !this.environment.SetIbl(true, -1) && !this.environment.SetIbl(1, .5) &&
+            this.environment.SetAmbient(.2, .3, .4, .5) &&
+            this.environment.SetAmbientTricolor([.6,.7,.8], [.3,.4,.5], [.1,.2,.3], .6) &&
+            this.environment.SetLinearFog(true, .4, .5, .6, 2, 90) &&
+            this.environment.SetExponentialFog(true, .3, .4, .5, .03, true) &&
+            this.environment.SetClearColor(0x123456ff) &&
+            !this.environment.SetAmbient(.8, .7, -1, .9) &&
+            !this.environment.SetAmbientTricolor([1,2,3], [1,1,1], [1,1,1], .2) &&
+            !this.environment.SetLinearFog(true, .4, .5, .6, 90, 2) &&
+            !this.environment.SetExponentialFog(true, .4, .5, .6, -.1) &&
+            !this.environment.SetClearColor(-1) &&
+            this.post.SetExposure(1.7) && this.post.SetFilmicTonemap(true) &&
+            !this.post.SetExposure(0) && !this.post.SetFilmicTonemap(1) &&
+            light.SetDirectional() && light.SetShadows(true, 1024, .002) &&
+            !light.SetShadows(true, 1000, .01) && !light.SetShadows(true, 1024, .3);
+    }
+    Update() {
+        if (++this.frame === 1) {
+            if (!this.environment.SetAmbient(.1, .2, .3, .4) || !this.post.SetExposure(.8))
+                throw new Error('Cannot update scene component parameters');
+        } else {
+            if (!this.scene.Destroy() || this.environment.SetClearColor(0xffffffff) ||
+                this.post.SetExposure(1)) throw new Error('Stale component handle was accepted');
+            this.scene = Scene.Create('Fresh scene');
+            if (!this.scene) throw new Error('Cannot create replacement scene');
+        }
+    }
+}
+)js";
+    Fixture input;
+    if (!world.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "scene-render-components", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input), "new scene render component factories and typed setters"))
+    {
+        return false;
+    }
+    const auto settings = renderer.settings();
+    if (!expect(settings.ibl_enabled && settings.ibl_intensity == .5F &&
+                    settings.ambient_tricolor && settings.ambient_intensity == .6F &&
+                    settings.ambient_sky_color == std::array<float, 3>{.6F, .7F, .8F} &&
+                    settings.fog_mode == engine::FogMode::exponential_squared &&
+                    settings.fog_density == .03F && settings.fog_start == 2 &&
+                    settings.fog_end == 90 && settings.clear_color == 0x123456ff &&
+                    settings.exposure == 1.7F && settings.filmic_tonemap &&
+                    settings.directional_shadows && settings.shadow_resolution == 1024 &&
+                    settings.shadow_bias == .002F,
+                "renderer reads component state; invalid setters preserve prior fields") ||
+        !expect(script.tick(.016) && script.status().running &&
+                    renderer.settings().ambient_intensity == .4F &&
+                    !renderer.settings().ambient_tricolor && renderer.settings().exposure == .8F,
+                "live component changes affect the current scene") ||
+        !expect(script.tick(.016) && script.status().running &&
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().exposure == 1.0F &&
+                    !renderer.settings().directional_shadows,
+                "new scene does not inherit old environment or camera parameters"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(script.status().last_error.empty(), "scene render bindings shut down cleanly");
 }
 
 } // namespace
@@ -1044,7 +1208,9 @@ int main(int argc, char** argv)
                         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
                         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
                         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
-                        run_render_binding_cases(workspace);
+                        run_render_binding_cases(workspace) &&
+                        run_scene_render_binding_cases(workspace) &&
+                        run_frame_rate_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

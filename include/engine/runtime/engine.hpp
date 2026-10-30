@@ -1,6 +1,9 @@
 #pragma once
 
+#include "runtime/frame/frame_limiter.hpp"
+
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -25,6 +28,11 @@ public:
     [[nodiscard]] std::size_t system_count() const noexcept;
     [[nodiscard]] bool is_initialized() const noexcept;
     [[nodiscard]] bool initialize(const EngineConfig& config);
+    [[nodiscard]] bool set_target_frame_rate(std::int32_t rate) noexcept;
+    [[nodiscard]] std::int32_t target_frame_rate() const noexcept;
+    // 宿主包围完整帧调用，包含窗口事件、编辑器处理和渲染提交。
+    void begin_frame() noexcept;
+    void end_frame();
     [[nodiscard]] bool tick(double delta_time);
     void shutdown() noexcept;
 
@@ -33,6 +41,7 @@ private:
     ~Engine() noexcept;
 
     std::vector<std::unique_ptr<System>> systems_;
+    FrameLimiter frame_limiter_;
     bool initialized_ = false;
     bool executing_ = false;
     bool failed_ = false;

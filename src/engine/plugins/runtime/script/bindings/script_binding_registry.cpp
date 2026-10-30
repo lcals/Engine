@@ -9,11 +9,14 @@
 #include "plugins/runtime/script/bindings/collider_binding.hpp"
 #include "plugins/runtime/script/bindings/component_binding.hpp"
 #include "plugins/runtime/script/bindings/debug_binding.hpp"
+#include "plugins/runtime/script/bindings/engine_binding.hpp"
+#include "plugins/runtime/script/bindings/environment_component_binding.hpp"
 #include "plugins/runtime/script/bindings/gameplay_binding.hpp"
 #include "plugins/runtime/script/bindings/light_binding.hpp"
 #include "plugins/runtime/script/bindings/material_binding.hpp"
 #include "plugins/runtime/script/bindings/mesh_renderer_binding.hpp"
 #include "plugins/runtime/script/bindings/node_binding.hpp"
+#include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
 #include "plugins/runtime/script/bindings/render_binding.hpp"
 #include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
 #include "plugins/runtime/script/bindings/scene_binding.hpp"
@@ -37,11 +40,12 @@ bool ScriptBindingRegistry::initialize()
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
     if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
-        !add<TimeBinding>() || !add<RenderBinding>() || !add<SceneBinding>() ||
-        !add<NodeBinding>() || !add<ComponentBinding>() || !add<TransformBinding>() ||
-        !add<CameraBinding>() || !add<LightBinding>() || !add<MeshRendererBinding>() ||
-        !add<MaterialBinding>() || !add<ColliderBinding>() || !add<RigidBodyBinding>() ||
-        !add<CharacterMotorBinding>() || !add<AudioSourceBinding>() ||
+        !add<EngineBinding>() || !add<TimeBinding>() || !add<RenderBinding>() ||
+        !add<SceneBinding>() || !add<NodeBinding>() || !add<ComponentBinding>() ||
+        !add<TransformBinding>() || !add<CameraBinding>() || !add<EnvironmentComponentBinding>() ||
+        !add<PostProcessComponentBinding>() || !add<LightBinding>() ||
+        !add<MeshRendererBinding>() || !add<MaterialBinding>() || !add<ColliderBinding>() ||
+        !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() || !add<AudioSourceBinding>() ||
         !add<AudioListenerBinding>() || !add<AnimatorBinding>() || !add<UiComponentBinding>() ||
         !add<UiElementBinding>() || !add<UiControllerBinding>())
     {

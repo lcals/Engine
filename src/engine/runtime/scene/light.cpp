@@ -1,25 +1,9 @@
 #include "runtime/scene/light.hpp"
 
-#include <cmath>
+#include "runtime/scene/scene_settings_validation.hpp"
 
 namespace engine
 {
-namespace
-{
-
-bool unit_value(float value)
-{
-    return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
-}
-
-bool valid_color(const Color& color)
-{
-    return unit_value(color.r()) && unit_value(color.g()) && unit_value(color.b()) &&
-           unit_value(color.a());
-}
-
-} // namespace
-
 Light::Light(Node& node) : Component(node)
 {
     mutable_data().payload.Set(LightSettings{});
@@ -32,14 +16,7 @@ const LightSettings& Light::settings() const noexcept
 
 bool Light::set_settings(const LightSettings& settings) noexcept
 {
-    if (!valid_color(settings.color) || !std::isfinite(settings.intensity) ||
-        settings.intensity < 0.0F ||
-        (settings.kind != schema::LightKind::directional &&
-         settings.kind != schema::LightKind::point && settings.kind != schema::LightKind::spot) ||
-        !std::isfinite(settings.range) || settings.range <= 0.0F ||
-        !std::isfinite(settings.inner_angle) || !std::isfinite(settings.outer_angle) ||
-        settings.inner_angle < 0.0F || settings.inner_angle >= settings.outer_angle ||
-        settings.outer_angle >= 90.0F)
+    if (!scene_detail::valid_light(settings))
     {
         return false;
     }

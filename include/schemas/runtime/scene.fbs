@@ -25,15 +25,19 @@ table LightData {
     range:float = 10;
     inner_angle:float = 20;
     outer_angle:float = 30;
+    cast_shadows:bool = false;
+    shadow_resolution:ushort = 2048;
+    shadow_bias:float = 0.001;
 }
 
 table MeshRendererData {
     mesh_guid:string (required);
     material_guid:string (required);
     additional_material_guids:[string];
+    cast_shadows:bool = true;
 }
 
-enum ColliderShape:ubyte { box, sphere, capsule }
+enum ColliderShape:ubyte { box, sphere, capsule, mesh }
 enum BodyMotion:ubyte { static_body, kinematic, dynamic }
 
 table ColliderData {
@@ -45,6 +49,7 @@ table ColliderData {
     friction:float = 0.5;
     restitution:float = 0.1;
     is_trigger:bool = false;
+    mesh_guid:string;
 }
 
 table RigidBodyData {
@@ -114,10 +119,37 @@ table TextData {
     letter_spacing:float = 0;
 }
 
+enum FogMode:ubyte { none, linear, exponential, exponential_squared }
+
+table EnvironmentData {
+    ambient_color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+    ambient_intensity:float = 0;
+    ambient_tricolor:bool = false;
+    ambient_sky_color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+    ambient_equator_color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+    ambient_ground_color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+    fog_mode:FogMode = none;
+    fog_color:Color (required, native_inline, native_default: "Color(0.5f, 0.5f, 0.5f, 1.0f)");
+    fog_start:float = 0;
+    fog_end:float = 100;
+    fog_density:float = 0.01;
+    clear_color:uint = 0x181818ff;
+    ibl_enabled:bool = false;
+    ibl_intensity:float = 1;
+    ibl_irradiance_guid:string;
+    ibl_prefilter_guid:string;
+    ibl_lut_guid:string;
+}
+
+table PostProcessData {
+    exposure:float = 1;
+    filmic_tonemap:bool = false;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
-    CharacterControllerData, UiData, TextData
+    CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData
 }
 
 table ComponentData {

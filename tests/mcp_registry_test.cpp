@@ -1,6 +1,11 @@
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 
+#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
+#include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/scene_bake/scene_bake_mcp_tools.hpp"
+#endif
+
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
@@ -22,6 +27,32 @@ bool check(bool condition, const char* message)
         std::fprintf(stderr, "FAIL: %s\n", message);
     }
     return condition;
+}
+
+bool exercise_bake_tools()
+{
+#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
+    engine::plugins::mcp::EditorMcpTools editor({}, {});
+    engine::plugins::scene_bake::SceneBakeMcpTools tools(editor);
+    engine::plugins::mcp::McpSystem mcp;
+    if (!check(tools.register_tools(mcp) && mcp.initialize({}),
+               "scene bake tools provide valid registration schemas") ||
+        !check(mcp.list_tools()["tools"].size() == 3,
+               "scene bake registers start, query and cancel tools"))
+    {
+        return false;
+    }
+    Json result;
+    return check(mcp.call_tool("bake_scene",
+                               {{"scene", "project/scenes/test.scene"},
+                                {"environment", "project/sky.png"},
+                                {"effects", Json::array({"unknown"})}},
+                               result) == McpCallStatus::invalid_arguments &&
+                     result.empty(),
+                 "unknown bake effects are rejected before editor transport");
+#else
+    return true;
+#endif
 }
 
 bool exercise()
@@ -182,5 +213,5 @@ bool exercise()
 
 int main()
 {
-    return exercise() ? 0 : 1;
+    return exercise() && exercise_bake_tools() ? 0 : 1;
 }

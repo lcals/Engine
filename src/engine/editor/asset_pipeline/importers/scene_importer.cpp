@@ -37,6 +37,19 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
     {
         for (const auto& component : node->components)
         {
+            if (const auto* environment = component->payload.AsEnvironmentData(); environment)
+            {
+                for (const auto* guid :
+                     {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
+                      &environment->ibl_lut_guid})
+                {
+                    if (!guid->empty() && !reference(*guid, schema::AssetKind::texture, context,
+                                                     asset.build_dependencies, error))
+                    {
+                        return false;
+                    }
+                }
+            }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
                 if (!reference(ui->document_guid, schema::AssetKind::ui, context,
@@ -98,6 +111,15 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
                     {
                         return false;
                     }
+                }
+            }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                if (!reference(collider->mesh_guid, schema::AssetKind::mesh, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
                 }
             }
         }

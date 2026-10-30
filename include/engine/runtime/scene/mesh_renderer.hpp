@@ -34,6 +34,8 @@ public:
     [[nodiscard]] bool visible() const noexcept;
     // 瞬态绘制开关，不进入持久数据，不停用组件行为或动画。
     void set_visible(bool visible) noexcept;
+    [[nodiscard]] bool cast_shadows() const noexcept;
+    void set_cast_shadows(bool enabled) noexcept;
     // 瞬态顶点覆写，保留源资源身份、拓扑和材质；失败不改变已有变形。
     [[nodiscard]] bool set_deformation(std::span<const schema::MeshVertex> vertices,
                                        std::span<const Vec4> tangents);

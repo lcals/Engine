@@ -1,9 +1,14 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "ktx_fixture.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/scene.hpp"
 #include "runtime/schema/texture_generated.h"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/world/world_system.hpp"
 
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <flatbuffers/verifier.h>
@@ -227,12 +232,12 @@ bool transcode(const schema::TextureDataT& texture, bool red)
 bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     constexpr const char* shader_guid = "b0000000-0000-4000-8000-000000000010";
-    constexpr std::array sources = {"vs_cube.sc", "fs_cube.sc", "varying.def.sc", "pbr_helpers.sh",
-                                    "shadow_helpers.sh"};
+    constexpr std::array sources = {"vs_cube.sc",     "fs_cube.sc",        "varying.def.sc",
+                                    "pbr_helpers.sh", "shadow_helpers.sh", "material_helpers.sh"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
         "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
-        "b0000000-0000-4000-8000-000000000015"};
+        "b0000000-0000-4000-8000-000000000015", "b0000000-0000-4000-8000-000000000016"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)
@@ -501,9 +506,182 @@ bool tests()
            shader_dependencies(pipeline, fixture);
 }
 
+bool ktx_tests()
+{
+    Fixture fixture;
+    engine::editor::AssetPipelineSystem pipeline;
+    ResourceSystem resources;
+    const auto cube_bytes = test_support::ktx_image(true, true, 3);
+    const auto lut_bytes = test_support::ktx_image(false, false, 1);
+    if (!expect(fixture.initialize() && pipeline.initialize({}) && resources.initialize({}) &&
+                    !cube_bytes.empty() && !lut_bytes.empty(),
+                "create HDR KTX import fixture") ||
+        !expect(write(fixture.root / "assets/reflection.ktx", cube_bytes) &&
+                    write(fixture.root / "assets/brdf.ktx", lut_bytes) && build(pipeline, fixture),
+                "upstream bimg KTX files import with source-specific default metadata"))
+    {
+        return false;
+    }
+    const auto* cube_entry = entry(pipeline, "project/reflection.ktx");
+    const auto* lut_entry = entry(pipeline, "project/brdf.ktx");
+    if (!expect(cube_entry != nullptr && lut_entry != nullptr,
+                "KTX sources receive ordinary independent texture GUIDs"))
+    {
+        return false;
+    }
+    const auto cube_guid = cube_entry->guid;
+    const auto lut_guid = lut_entry->guid;
+    const auto meta_path = fixture.root / "assets/reflection.ktx.meta";
+    const auto default_meta = read(meta_path);
+    ResourcePtr cube;
+    ResourcePtr lut;
+    if (!expect(default_meta.find("texture_ktx") != std::string::npos &&
+                    default_meta.find("srgb = false") != std::string::npos &&
+                    resources.update_catalog(pipeline.catalog(),
+                                             {{"content", fixture.root / "cache"}}) &&
+                    resources.load(cube_guid, cube) && resources.load(lut_guid, lut) &&
+                    cube->texture() != nullptr && lut->texture() != nullptr,
+                "load HDR KTX resources through the runtime codec"))
+    {
+        return false;
+    }
+    const auto& data = *cube->texture();
+    const auto& lut_data = *lut->texture();
+    if (!expect(
+            data.encoding == schema::TextureEncoding::ktx && data.cube_map &&
+                data.format == schema::TextureFormat::rgba16f && !data.srgb && data.width == 4 &&
+                data.height == 4 && data.mip_count == 3 &&
+                std::string(reinterpret_cast<const char*>(data.data.data()), data.data.size()) ==
+                    cube_bytes &&
+                !lut_data.cube_map && lut_data.format == schema::TextureFormat::rg16f &&
+                lut_data.mip_count == 1 && !lut_data.srgb,
+            "retain all HDR faces, roughness mips and BRDF channel format without recompression") ||
+        !expect(build(pipeline, fixture) && pipeline.last_build().imported == 0 &&
+                    pipeline.last_build().reused == 2,
+                "unchanged HDR textures reuse standard GUID artifacts"))
+    {
+        return false;
+    }
+    WorldSystem world;
+    if (!expect(world.initialize({}), "initialize ordinary scene for material sampler checks"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Texture dimensions");
+    auto* node = scene ? scene->create_node("Mesh") : nullptr;
+    auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
+    if (!expect(mesh != nullptr, "create material through ordinary MeshRenderer component"))
+    {
+        return false;
+    }
+    auto& material = mesh->material();
+    std::string_view bound;
+    if (!expect(material.get_texture("baseColorTexture", bound), "read default 2D binding"))
+    {
+        return false;
+    }
+    const std::string original_binding(bound);
+    if (!expect(!material.set_texture("baseColorTexture", "project/reflection.ktx") &&
+                    material.get_texture("baseColorTexture", bound) && bound == original_binding,
+                "ordinary 2D material sampler rejects a cubemap without changing its binding") ||
+        !expect(material.set_texture("baseColorTexture", "project/brdf.ktx"),
+                "ordinary material accepts valid 2D HDR KTX"))
+    {
+        return false;
+    }
+    const std::string definition =
+        "shader = \"00000000-0000-4000-8000-000000000001\"\n[[textures]]\n"
+        "name = \"baseColorTexture\"\ntexture = \"" +
+        cube_guid + "\"\n";
+    ResourcePtr invalid_material;
+    ResourcePtr shader;
+    ResourcePtr cube_dependency;
+    if (!expect(write(fixture.root / "assets/cube.material", definition) &&
+                    write(fixture.root / "assets/cube.material.meta",
+                          meta(material_guid, "material")) &&
+                    build(pipeline, fixture) &&
+                    resources.update_catalog(pipeline.catalog(),
+                                             {{"content", fixture.root / "cache"}}) &&
+                    resources.load(material_guid, invalid_material) &&
+                    resources.load(invalid_material->material()->shader_guid, shader) &&
+                    resources.load(cube_guid, cube_dependency),
+                "load authored material and direct dependencies independently"))
+    {
+        return false;
+    }
+    const std::array dependencies{shader, cube_dependency};
+    if (!expect(!resources.validate_dependencies(*invalid_material, dependencies) &&
+                    !material.set_type("project/cube.material") &&
+                    material.get_texture("baseColorTexture", bound) && bound == "project/brdf.ktx",
+                "material dependency validation and type replacement reject cubemap samplers"))
+    {
+        return false;
+    }
+    world.shutdown();
+    auto invalid = data;
+    invalid.cube_map = false;
+    if (!expect(!TextureResourceCodec::validate(invalid), "reject mismatched cubemap metadata"))
+    {
+        return false;
+    }
+    invalid = data;
+    invalid.srgb = true;
+    if (!expect(!TextureResourceCodec::validate(invalid), "reject sRGB half-float KTX"))
+    {
+        return false;
+    }
+    invalid = data;
+    invalid.format = schema::TextureFormat::rg16f;
+    if (!expect(!TextureResourceCodec::validate(invalid), "reject mismatched HDR format"))
+    {
+        return false;
+    }
+    for (const auto offset : {std::size_t{48}, std::size_t{52}, std::size_t{56}, std::size_t{64}})
+    {
+        invalid = data;
+        invalid.data[offset] = 2;
+        if (!expect(!TextureResourceCodec::validate(invalid),
+                    "reject illegal array count, face count, mip count or face size"))
+        {
+            return false;
+        }
+    }
+    invalid = data;
+    invalid.data.pop_back();
+    if (!expect(!TextureResourceCodec::validate(invalid), "reject truncated final face/mip"))
+    {
+        return false;
+    }
+    invalid = data;
+    invalid.data.push_back(0);
+    if (!expect(!TextureResourceCodec::validate(invalid),
+                "reject trailing bytes outside KTX image"))
+    {
+        return false;
+    }
+    const auto stable_catalog = read(fixture.root / "cache/catalog.bin");
+    const auto stable_texture = read(fixture.root / "cache/gen" / cube_guid);
+    for (const auto* setting :
+         {"compression=\"uastc\"\nsrgb=false", "compression=\"none\"\nsrgb=true",
+          "compression=\"none\"\nsrgb=0", "compression=\"none\"\nsrgb=false\nformat=\"rg16f\"",
+          "compression=\"none\"\nsrgb=false\nmipmaps=false"})
+    {
+        if (!expect(
+                write(meta_path, meta(cube_guid, "texture_ktx") + "[texture]\n" + setting + "\n") &&
+                    !pipeline.build_assets(fixture.root) &&
+                    read(fixture.root / "cache/catalog.bin") == stable_catalog &&
+                    read(fixture.root / "cache/gen" / cube_guid) == stable_texture,
+                "invalid KTX meta preserves the published catalog and texture"))
+        {
+            return false;
+        }
+    }
+    return expect(write(meta_path, default_meta), "restore KTX meta");
+}
+
 } // namespace
 
 int main()
 {
-    return tests() ? 0 : 1;
+    return tests() && ktx_tests() ? 0 : 1;
 }

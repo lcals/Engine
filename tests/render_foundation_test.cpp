@@ -5,11 +5,15 @@
 #endif
 
 #include "runtime/engine_config.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/utils/mesh_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <cstdio>
@@ -121,6 +125,165 @@ bool check_camera_and_light(engine::Scene& scene)
         }
     }
     return expect(found_camera && found_light, "snapshot keeps projection and full light data");
+}
+
+bool check_scene_render_settings(const engine::EngineConfig& config)
+{
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    if (!world.initialize(config))
+    {
+        return false;
+    }
+    engine::RenderSettings idle;
+    idle.exposure = 3.0F;
+    idle.ambient_intensity = 9.0F;
+    if (!expect(renderer.set_settings(idle), "set idle settings without opening a GPU device"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Environment ownership");
+    if (!expect(scene != nullptr && renderer.settings().exposure == 1.0F &&
+                    renderer.settings().ambient_intensity == 0.0F,
+                "a new scene never inherits idle or preceding-scene settings"))
+    {
+        return false;
+    }
+    auto* node = scene->create_node("Environment");
+    auto* environment =
+        node != nullptr ? node->add_component<engine::EnvironmentComponent>() : nullptr;
+    auto changed = renderer.settings();
+    changed.ambient_intensity = 0.3F;
+    changed.exposure = 2.0F;
+    if (!expect(environment != nullptr && !renderer.set_settings(changed) &&
+                    environment->settings().ambient_intensity == 0.0F,
+                "missing post-process rejects the entire update without changing environment"))
+    {
+        return false;
+    }
+    auto* camera_node = scene->create_node("Camera");
+    auto* camera = camera_node != nullptr ? camera_node->add_component<engine::Camera>() : nullptr;
+    auto* post_process = camera_node != nullptr
+                             ? camera_node->add_component<engine::PostProcessComponent>()
+                             : nullptr;
+    if (!expect(camera != nullptr && post_process != nullptr && scene->set_active_camera(camera) &&
+                    renderer.set_settings(changed) &&
+                    environment->settings().ambient_intensity == 0.3F &&
+                    post_process->settings().exposure == 2.0F,
+                "aggregate updates write the current scene's generated component data"))
+    {
+        return false;
+    }
+    auto pending_ibl = environment->settings();
+    pending_ibl.ibl_enabled = true;
+    pending_ibl.ibl_intensity = 0.75F;
+    if (!expect(environment->set_settings(pending_ibl) && renderer.settings().ibl_enabled &&
+                    renderer.settings().ibl_intensity == 0.75F,
+                "IBL can be configured while all three bake outputs are still absent"))
+    {
+        return false;
+    }
+    auto partial_ibl = pending_ibl;
+    partial_ibl.ibl_irradiance_guid = "11111111-1111-1111-1111-111111111111";
+    if (!expect(!environment->set_settings(partial_ibl) &&
+                    environment->settings().ibl_irradiance_guid.empty(),
+                "a partial IBL result is rejected without publishing incomplete references"))
+    {
+        return false;
+    }
+    engine::WorldSystem observer_world;
+    if (!observer_world.initialize(config))
+    {
+        return false;
+    }
+    auto* observer_scene = observer_world.create_scene("Independent observation");
+    auto* observer_node =
+        observer_scene != nullptr ? observer_scene->create_node("Observer") : nullptr;
+    auto* observer =
+        observer_node != nullptr ? observer_node->add_component<engine::Camera>() : nullptr;
+    auto* observer_effects = observer_node != nullptr
+                                 ? observer_node->add_component<engine::PostProcessComponent>()
+                                 : nullptr;
+    engine::PostProcessSettings observer_settings;
+    observer_settings.exposure = 7.0F;
+    if (!expect(observer != nullptr && observer_effects != nullptr &&
+                    observer_scene->set_active_camera(observer) &&
+                    observer_effects->set_settings(observer_settings) &&
+                    renderer.settings().exposure == 2.0F,
+                "an independent observation camera does not supply the world's post-process"))
+    {
+        return false;
+    }
+    auto* duplicate_node = scene->create_node("Duplicate environment");
+    auto* duplicate = duplicate_node != nullptr
+                          ? duplicate_node->add_component<engine::EnvironmentComponent>()
+                          : nullptr;
+    changed.exposure = 4.0F;
+    if (!expect(duplicate != nullptr && !renderer.set_settings(changed) &&
+                    post_process->settings().exposure == 2.0F,
+                "multiple enabled environments fail without partial mutation"))
+    {
+        return false;
+    }
+    duplicate->set_enabled(false);
+    auto* first_light_node = scene->create_node("Fill direction");
+    auto* second_light_node = scene->create_node("Shadow direction");
+    auto* first_light =
+        first_light_node != nullptr ? first_light_node->add_component<engine::Light>() : nullptr;
+    auto* second_light =
+        second_light_node != nullptr ? second_light_node->add_component<engine::Light>() : nullptr;
+    engine::LightSettings shadows;
+    shadows.cast_shadows = true;
+    shadows.shadow_resolution = 512;
+    shadows.shadow_bias = 0.004F;
+    if (!expect(first_light != nullptr && second_light != nullptr &&
+                    second_light->set_settings(shadows) &&
+                    renderer.settings().directional_shadows &&
+                    renderer.settings().shadow_resolution == 512,
+                "shadow settings follow the actual casting light, not the first fill light"))
+    {
+        return false;
+    }
+    changed = renderer.settings();
+    changed.directional_shadows = false;
+    if (!expect(renderer.set_settings(changed) && !second_light->settings().cast_shadows &&
+                    !renderer.settings().directional_shadows,
+                "disabling aggregate shadows updates the previously selected caster"))
+    {
+        return false;
+    }
+    changed = renderer.settings();
+    changed.ambient_intensity = 0.7F;
+    if (!first_light->set_settings(shadows) || !second_light->set_settings(shadows) ||
+        !expect(!renderer.set_settings(changed) &&
+                    environment->settings().ambient_intensity == 0.3F,
+                "multiple shadow casters are rejected without silently discarding a light"))
+    {
+        return false;
+    }
+    first_light->set_enabled(false);
+    second_light->set_enabled(false);
+    post_process->set_enabled(false);
+    environment->set_enabled(false);
+    if (!expect(renderer.settings().exposure == 1.0F &&
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    !renderer.settings().directional_shadows,
+                "disabling scene effect components immediately restores fixed engine defaults"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    if (!expect(renderer.settings().exposure == 3.0F &&
+                    renderer.settings().ambient_intensity == 9.0F,
+                "stopping the scene returns to independent idle defaults"))
+    {
+        return false;
+    }
+    return expect(world.create_scene("Empty successor") != nullptr &&
+                      renderer.settings().exposure == 1.0F &&
+                      renderer.settings().ambient_intensity == 0.0F,
+                  "switching scenes does not preserve the previous scene's effects");
 }
 
 bool check_mesh(engine::Scene& scene)
@@ -392,6 +555,10 @@ int main()
     }
     resources.set_loader(nullptr);
 #endif
+    if (!check_scene_render_settings(config))
+    {
+        return 1;
+    }
     std::puts("Render component validation, dynamic mesh ownership and texture sharing passed.");
     return 0;
 }
