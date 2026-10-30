@@ -22,8 +22,9 @@ class ResourceSystem;
 class ScriptRuntime;
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
-// renderer 借用只用于玩法回调，宿主关闭渲染器前先结束玩法。
-using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&);
+// renderer 和 ui 借用只用于玩法回调，宿主关闭它们前先结束玩法。
+using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
+                                                                UiSystem&);
 
 // 宿主在世界初始化前追加可选子系统；失败按已有生命周期回滚。
 using RuntimeSetup = bool (*)(WorldSystem&, WindowSystem&, PhysicsSystem&);

@@ -40,7 +40,7 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
         <div class="card"><div class="number">03 / CHARACTER LAB</div><h2>Animation courtyard</h2><div class="description">Skinned animation, physical movement and space.</div><button id="scene-courtyard">Select courtyard</button></div>
         <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2>Letters in space</h2><div class="description">The same vector font, rendered as 3D scene text.</div><button id="scene-gallery">Select font gallery</button></div>
     </div>
-    <div class="footer">UI preview: hover, press or use Tab. Scene navigation will be connected in the next step.</div>
+    <div id="launcher-status" class="footer">Choose a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>
 </body>
 </rml>

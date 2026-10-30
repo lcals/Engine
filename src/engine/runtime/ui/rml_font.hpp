@@ -11,7 +11,11 @@ class RmlFont final : public Rml::FontEngineInterface
 {
 public:
     explicit RmlFont(FontSystem& fonts) noexcept;
-    [[nodiscard]] bool activate(const ResourcePtr& document);
+    [[nodiscard]] bool activate(const std::string& key, const ResourcePtr& document);
+    void prune(std::span<const std::string> keys);
+    [[nodiscard]] bool resolve_texture(std::string_view key, std::string_view font_guid,
+                                       std::string_view shader_guid, ResourcePtr& font,
+                                       ResourcePtr& shader) const;
     Rml::FontFaceHandle GetFontFaceHandle(const Rml::String& family, Rml::Style::FontStyle style,
                                           Rml::Style::FontWeight weight, int size) override;
     const Rml::FontMetrics& GetFontMetrics(Rml::FontFaceHandle handle) override;
@@ -29,6 +33,7 @@ private:
     struct Face
     {
         ResourcePtr resource;
+        std::string document_key;
         std::string shader_guid;
         Rml::FontMetrics metrics{};
     };

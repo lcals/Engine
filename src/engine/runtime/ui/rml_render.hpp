@@ -7,15 +7,19 @@
 
 namespace engine::ui_detail
 {
+class RmlFont;
 class RmlRender final : public Rml::RenderInterface
 {
 public:
-    explicit RmlRender(FontSystem& fonts) noexcept;
+    RmlRender(FontSystem& fonts, RmlFont& font_engine) noexcept;
     ~RmlRender() override;
     [[nodiscard]] bool begin(std::uint32_t width, std::uint32_t height, int logical_width,
                              int logical_height);
     void release() noexcept;
-    void set_document(const schema::UiDocumentDataT& data);
+    [[nodiscard]] bool activate(const std::string& key, const ResourcePtr& document);
+    void prune(std::span<const std::string> keys);
+    [[nodiscard]] bool texture_guid(std::string_view key, std::string_view path,
+                                    std::string& guid) const;
     [[nodiscard]] bool healthy() const noexcept;
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;
@@ -42,8 +46,15 @@ private:
         ResourcePtr shader;
         bgfx::TextureHandle gpu = BGFX_INVALID_HANDLE;
         float font_size = 0;
+        std::string document_key;
+    };
+    struct Document
+    {
+        std::map<std::string, ResourcePtr, std::less<>> textures;
     };
     FontSystem& fonts_;
+    RmlFont& font_engine_;
+    std::map<std::string, Document, std::less<>> documents_;
     std::map<Rml::CompiledGeometryHandle, Geometry> geometries_;
     std::map<Rml::TextureHandle, Texture> textures_;
     std::uintptr_t next_geometry_ = 1;
@@ -58,8 +69,7 @@ private:
     float scale_y_ = 1;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
-    const schema::UiDocumentDataT* document_ = nullptr;
-    std::span<const std::string> allowed_textures_;
+    std::string active_key_;
     bool scissor_enabled_ = false;
     bool healthy_ = true;
 };

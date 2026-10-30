@@ -93,9 +93,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     engine::RuntimeHost runtime;
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory = [](engine::WorldSystem& world,
-                        engine::RenderSystem& renderer) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer); };
+    script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
+                        engine::UiSystem& ui) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui); };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::plugins::modeling::ModelingCommands> modeling;

@@ -202,4 +202,67 @@ declare module "engine" {
         private constructor();
         SetVolume(value: number): boolean;
     }
+
+    /** One RmlUi document on an ordinary node; controls are not scene nodes. */
+    export class UiComponent extends Component {
+        private constructor();
+        /** Empty path clears the document; failed loads preserve the previous document. */
+        SetDocument(path: string): boolean;
+        /** Available immediately after Scene.Load, including during OnInitialize. */
+        FindElement(id: string): UiElement | null;
+        SetVisible(value: boolean): boolean;
+        readonly visible: boolean;
+    }
+
+    export type UiEventType = "click" | "change" | "input";
+    export interface UiEvent {
+        readonly type: UiEventType;
+        /** The original nearest element with an ID, fixed while the event bubbles. */
+        readonly target: UiElement;
+        /** The element whose subscription is currently receiving the event. */
+        readonly currentTarget: UiElement;
+        /** Form value captured when the native event occurred. */
+        readonly value: string;
+    }
+
+    /** A checked identity; deleted elements and replaced documents invalidate old handles. */
+    export class UiElement {
+        private constructor();
+        readonly isValid: boolean;
+        readonly id: string | null;
+        readonly text: string | null;
+        readonly value: string | null;
+        /** Sets plain text, not markup. */
+        SetText(value: string): boolean;
+        SetValue(value: string): boolean;
+        SetVisible(value: boolean): boolean;
+        SetEnabled(value: boolean): boolean;
+        SetClass(name: string, active: boolean): boolean;
+        SetStyle(name: string, value: string): boolean;
+        /** The texture must be declared by the UI resource. */
+        SetImage(path: string): boolean;
+        /** Returns a subscription ID, or zero on failure. */
+        On(type: UiEventType, callback: (event: UiEvent) => void): number;
+        /** Removal still works after the element becomes invalid. */
+        Off(subscription: number): boolean;
+    }
+
+    /** Project Model is ordinary TS data; derived controllers own business event handling. */
+    export class UiController<T = unknown> {
+        constructor(view: UiComponent, model: T);
+        readonly view: UiComponent;
+        readonly model: T;
+        readonly bound: boolean;
+        /** Runs OnBind then OnRefresh once; an already bound current view returns true. */
+        Bind(): boolean;
+        /** Explicitly refreshes the View from Model. */
+        Refresh(): boolean;
+        /** The element must belong to this controller's current View. */
+        Listen(element: UiElement, type: UiEventType, callback: (event: UiEvent) => void): boolean;
+        /** Removes all owned subscriptions; repeated calls are safe. */
+        Unbind(): void;
+        protected OnBind(): boolean;
+        protected OnRefresh(): boolean;
+        protected OnUnbind(): void;
+    }
 }
