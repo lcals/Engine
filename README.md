@@ -133,7 +133,9 @@ cmake --build --preset windows-static-release --target engine_project_export
 .\build\windows-static-release\output\engine-showcase\engine-showcase.exe
 ```
 
-Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `build/windows-static-release/output/engine-showcase/`，其中包含 `engine-showcase.exe`、`icudtl.dat`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `build/windows-static-release/output/engine-showcase/`，其中包含 `engine-showcase.exe`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件；启用 V8 国际化时额外部署 `icudtl.dat`。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+
+Windows 静态预设关闭 WebAssembly、Intl/ICU、Temporal 和 ETW，保留 Sparkplug、Maglev、TurboFan、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`；其他预设默认全部开启。关闭 Intl/Temporal 后，项目脚本不能使用相应全局 API。精简配置使用独立的 `out/engine.mt-<config>-f0000` 和头文件目录，沿用已有工具链与依赖缓存；完整配置的库保留在原目录。
 
 2026-10-30 Windows x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
 
@@ -184,9 +186,9 @@ Windows 使用本机 VS 2022 C++ 工具链和 Windows SDK 10.0.26100.0，SDK 需
 
 macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。另为 SDK 27 的 C++20 数学头补充缺失的 `INFINITY` / `NAN` 宏，并在编译器不支持 `stack_protector_ignore` 时，仅在 V8 的 signpost 调用处忽略该属性诊断。
 
-下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，验证共享内存、按配置启用的 Intl/Temporal/WebAssembly，或确认关闭的能力确实不存在。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。启用国际化时，将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署；关闭时不需要 ICU 数据。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
 
-GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
+GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。关闭 Temporal 时允许 GN 不生成 Rust 归档；启用时仍校验完整依赖。原 GN 库和上游样例保留。
 
 macOS 的 `macos-system-lto-library.patch` 与 `macos-system-math.patch` 适用于固定 Chromium build 提交 `81330a6e45719ab8c0d22e5548afbedb5482b068`，`macos-signpost-attribute.patch` 适用于固定 V8 源码。同步依赖前撤回已知补丁，同步后重新应用；缓存命中时不改写源码。升级工具链后，分别验证 LTO 库选择、SDK 数学宏和 signpost 属性，再移除对应补丁，不能只因版本变化而删除兼容处理。
 

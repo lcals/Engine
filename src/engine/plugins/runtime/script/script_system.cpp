@@ -138,6 +138,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
 
 #endif
 
+#if ENGINE_V8_HAS_I18N
 [[nodiscard]] bool prepare_icu_path(std::string& path)
 {
 #if defined(SDL_PLATFORM_ANDROID)
@@ -165,6 +166,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
 #endif
     return true;
 }
+#endif
 
 [[nodiscard]] v8::MaybeLocal<v8::String> js_string(v8::Isolate* isolate, std::string_view text)
 {
@@ -204,6 +206,7 @@ struct V8Process
         {
             return ready;
         }
+#if ENGINE_V8_HAS_I18N
         std::string icu;
         if (!prepare_icu_path(icu))
         {
@@ -213,8 +216,11 @@ struct V8Process
         {
             return false;
         }
+#endif
         attempted = true;
+#if ENGINE_V8_HAS_TEMPORAL
         v8::V8::SetFlagsFromString("--harmony-temporal");
+#endif
         platform = v8::platform::NewDefaultPlatform();
         if (!platform)
         {
@@ -759,7 +765,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     auto process = v8_process();
     if (!process->initialize())
     {
-        status_.last_error = "Cannot prepare ICU data or initialize the V8 platform";
+        status_.last_error = "Cannot initialize the V8 platform";
         LogSystem::write(LogLevel::error, status_.last_error);
         return false;
     }

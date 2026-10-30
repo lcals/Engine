@@ -43,13 +43,18 @@ engine_apply_options(engine_project_app)
 engine_copy_script_data(engine_project_app)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(_engine_windows_icu_arguments)
+if(ENGINE_V8_ICU_DATA)
+    list(APPEND _engine_windows_icu_arguments --icu "${ENGINE_V8_ICU_DATA}")
+endif()
 add_custom_target(
     engine_project_export
     COMMAND
         "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/platforms/windows/export_project.py"
         --project "${ENGINE_WINDOWS_PROJECT}" --manifest "${ENGINE_WINDOWS_MANIFEST}" --builder
-        "$<TARGET_FILE:asset_build_app>" --executable "$<TARGET_FILE:engine_project_app>" --icu
-        "${ENGINE_V8_ICU_DATA}" --output "${PROJECT_BINARY_DIR}/output/${ENGINE_WINDOWS_PRODUCT}"
+        "$<TARGET_FILE:asset_build_app>" --executable "$<TARGET_FILE:engine_project_app>"
+        ${_engine_windows_icu_arguments} --output
+        "${PROJECT_BINARY_DIR}/output/${ENGINE_WINDOWS_PRODUCT}"
     DEPENDS engine_project_app asset_build_app
     COMMENT "Exporting static Windows executable and independent project resources"
     VERBATIM)

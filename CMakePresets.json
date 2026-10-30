@@ -199,6 +199,10 @@
         "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
         "BUILD_SHARED_LIBS": false,
         "ENGINE_V8_JOBS": "16",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false,
         "ENGINE_ENABLE_GPU_TESTS": true
       }
     },

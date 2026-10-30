@@ -274,8 +274,11 @@ function(_engine_v8_artifacts _output)
     set(${_output}
         FALSE
         PARENT_SCOPE)
-    set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat" "${_out}/gen/include/v8-gn.h"
-                   "${_out}/args.gn" "${_out}/build.ninja")
+    set(_artifacts "${_out}/obj/${_library}" "${_out}/gen/include/v8-gn.h" "${_out}/args.gn"
+                   "${_out}/build.ninja")
+    if(NOT DEFINED ENGINE_V8_ENABLE_I18N OR ENGINE_V8_ENABLE_I18N)
+        list(APPEND _artifacts "${_out}/icudtl.dat")
+    endif()
     if(NOT ENGINE_V8_TARGET_OS STREQUAL "android" OR NOT "${_sample}" STREQUAL "")
         if("${_sample}" STREQUAL "")
             return()

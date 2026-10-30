@@ -2,7 +2,9 @@
 include("${CMAKE_CURRENT_LIST_DIR}/usd_data.cmake")
 
 function(engine_copy_script_data target)
-    if(TARGET engine_script AND NOT ANDROID)
+    if(TARGET engine_script
+       AND NOT ANDROID
+       AND ENGINE_V8_ICU_DATA)
         add_custom_command(
             TARGET ${target}
             POST_BUILD
