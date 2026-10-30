@@ -42,8 +42,11 @@ CMake 按 `install/`（环境、缓存和运行数据安装）、`dependencies/`
 | 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、Taskflow、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 | 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
+| 编辑器字体导入插件 | `font-import` | FreeType；仅选中 `font_import` 插件时加入 |
 
 编辑器建模插件另使用固定 Git 子模块 xatlas；未选中该插件时不查找或编译建模第三方目标。
+
+RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已导入的曲线字体资源。FreeType 仅供离线字体导入插件使用，不进入运行时依赖和 Android 包。
 
 运行时还通过固定提交的 Git 子模块引入 ozz-animation 和 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试；V8 使用独立 GN 工作副本，以 `ENGINE_ENABLE_V8` 显式启用准备、编译和 `engine::v8` 导入目标，命令与本机验证范围统一见根 [README](../README.md#v8-依赖)。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
 

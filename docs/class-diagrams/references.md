@@ -94,6 +94,7 @@ classDiagram
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
     ScriptRuntimeFactory ..> WorldSystem : 参数借用
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
+    ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -115,20 +116,71 @@ classDiagram
     class PhysicsSystem
     class NavigationSystem
     class AnimationSystem
+    class FontSystem
     class UiSystem
     class AudioSystem
     class ScriptRuntime
     WorldSystem "1" *-- "0..1" PhysicsSystem : 第一个子系统
     WorldSystem "1" *-- "0..1" NavigationSystem : 第二个子系统
     WorldSystem "1" *-- "0..1" AnimationSystem : 第三个子系统
-    WorldSystem "1" *-- "0..1" UiSystem : 第四个子系统
-    WorldSystem "1" *-- "0..1" AudioSystem : 第五个子系统
-    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第六子系统
+    WorldSystem "1" *-- "0..1" FontSystem : 第四个子系统
+    WorldSystem "1" *-- "0..1" UiSystem : 第五个子系统
+    WorldSystem "1" *-- "0..1" AudioSystem : 第六个子系统
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第七子系统
 ```
 
 RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断 V8 或插件是否编译。
 
 每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
+
+## 字体与场景 UI
+
+```mermaid
+classDiagram
+    System <|-- FontSystem
+    System <|-- UiSystem
+    Component <|-- TextComponent
+    Component <|-- UiComponent
+    Node *-- Component : 独占普通组件列表
+    UiComponent o-- Resource : 共享 UI 文档实体
+    TextComponent o-- Resource : 共享字体与 Shader 实体
+    UiSystem --> FontSystem : 借用字形与绘制能力
+    UiSystem --> WorldSystem : 借用活动场景
+    UiSystem --> WindowSystem : 借用事件与窗口
+    UiSystem ..> UiEvent : 输出节点和控件事件
+    UiSystem *-- RmlContext : 独占控件文档
+    FontSystem ..> FontGeometry : 生成临时绘制数据
+    FontSystem ..> FontLayout : 字号颜色与排布参数
+    FontSystem ..> FontDraw : 视图变换裁剪与深度参数
+    FontDraw o-- Resource : 已加载的 Shader 实体
+    FontSystem ..> ResourceLoader : 字体加载
+    TextComponent ..> ResourceLoader : 字体与 Shader 加载
+    FontSystem ..> FontDataT : 生成的只读字体模型
+    RenderSystem --> FontSystem : 借用以绘制场景文字
+    RenderSystem --> UiSystem : 借用以提交 UI 通道
+    RuntimeHost --> FontSystem : 装配后借用
+    RuntimeHost --> UiSystem : 装配后借用
+    GameplaySession --> UiSystem : 场景停止时清理文档
+    GameplaySession --> FontSystem : GPU 关闭前清理字体资源
+```
+
+字体与 UI 的公开方法分别维护在[字体系统](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。RmlContext 表示内部持有的第三方上下文，不是额外的引擎包装类。UI 控件不进入 Node 的子节点列表。UI 只提供事件，不执行项目场景跳转。
+
+```mermaid
+classDiagram
+    AssetImporter <|-- FontImporter
+    AssetImporter <|-- UiImporter
+    FontImporter ..> FreeType : 离线提取 TTF 轮廓与度量
+    FontImporter ..> FontDataT : 生成独立字体实体
+    UiImporter ..> UiDocumentDataT : 生成独立文档实体
+    UiImporter ..> ImportContext : 查询字体图片与 Shader 引用
+    ToolHost ..> FontImporter : 按插件清单登记
+    ToolHost ..> UiImporter : 按插件清单登记
+    ToolHost ..> AssetPipelineSystem : 调度扫描导入和发布
+    AssetPipelineSystem ..> AssetImporter : 调用通用导入契约
+```
+
+ToolHost 表示编辑器、构建和 MCP 入口；字体和 UI 导入器属于独立编辑器插件。依赖单向流向通用导入契约与核心资源，运行时不引用插件或离线 FreeType。源字体、meta 与文档属于项目 assets，运行时只使用转换后的独立 GUID 实体及标准目录依赖。
 
 ## 场景对象、组件及渲染引用
 
@@ -552,7 +604,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
 | 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
 | 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
-| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；实际脚本接口还使用入口字符串及 ScriptStatus                         |
+| 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、FontSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；UI 借用窗口、世界与字体，脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
 | 编辑器根系统       | ProjectSystem、EditorSystem                                              | EngineConfig；项目根目录字符串；EditorSystem 构造借用 EditorEnvironment 和可空 GameplaySession |
 | 资产工具根系统     | AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem                   | EngineConfig；项目、清单及运行目录 Path；AssetBuildSystem 借用管线                             |
@@ -718,7 +770,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
 | NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
 | AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样、CPU 蒙皮及实例缓存生命周期 |
-| UiSystem              | RmlUi                                                                                                                                         | 运行库版本入口                                         |
+| FontSystem | bgfx、ResourceLoader、FontDataT、TextComponent | 共享曲线资源、字形测量和排布、UI 与 3D 字体 GPU 绘制 |
+| UiSystem | RmlUi、FontSystem、WorldSystem、WindowSystem、UiComponent | 文档生命周期、正常绘制顺序、输入与控件事件 |
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或 V8 链接 |
 | ScriptSystem 插件 | V8、SDL3、nlohmann/json、App、LogSystem、ResourceSystem、PathUtils、WorldSystem                                                               | JS 模块预检与执行、原生绑定、玩法生命周期及状态        |
 | GameplaySession       | ScriptRuntime、ResourceSystem、VirtualFileSystem、WorldSystem、RenderSystem、PhysicsSystem、AudioSystem、App、nlohmann/json                                                | 宿主会话、候选版本预检、资源释放和目录提交、热重载调度 |

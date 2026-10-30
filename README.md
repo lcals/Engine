@@ -10,21 +10,35 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
 模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图与脚本执行属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。RmlUi 已支持场景 UI 文档绘制、鼠标键盘输入和控件事件；独立字体系统同时支持 UI 和 3D 曲线文字。完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，基础方块、现代公寓和动画庭院作为三个场景共用一套设置、资源目录和缓存。默认进入动画庭院；`assets/scripts/game.ts` 的导出指向 `modules/courtyard.js`，改为 `modules/minimal.js` 或 `modules/apartment.js` 后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存并切换，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；按钮通过 MVC 脚本控制器更新选择 Model 和界面状态，真正场景跳转待场景控制器接入。`assets/scripts/game.ts` 的导出指向 `modules/menu.js`，改为 `modules/minimal.js`、`modules/apartment.js`、`modules/courtyard.js` 或 `modules/font-gallery.js` 后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存并切换，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
 核心命名空间使用 `engine`，编辑器使用 `engine::editor`，插件使用 `engine::plugins::<插件名>`。核心不包含或链接编辑器、具体插件；编辑器基础库不包含或链接具体插件。插件实现下层声明的接口，由可执行宿主注入。建模 Mesh 导入扩展通过 `AssetPipelineSystem::set_importer` 登记；未启用建模插件时仍可导入普通 Mesh，权威建模源会明确报错。第三方类型尽量限制在实现中，FlatBuffers 唯一数据模型继续保留。
 
 绑定、导入器、资源解码和组件编解码按类型独立文件，以最小接口和显式注册扩展。详细规则见 [AGENTS.md](AGENTS.md) 与[架构总览](docs/architecture.md)。CTest 的 `engine.architecture_boundaries` 检查源码包含方向及当前配置实际 `engine_*` 目标的链接方向、别名和循环；`engine.architecture_rules` 验证检查器的正反例。
+
+## 字体与场景 UI
+
+普通 `Node` 挂载 `UiComponent` 并引用 `.rml` 资源，一个文档内部可包含多个控件。`.rml.meta` 中的 `textures` 支持多贴图；每个 `[[ui.fonts]]` 绑定字体族别名、字体资源与独立 Shader，支持同时使用多字体、多 Shader。同一字体也可以通过不同别名采用不同 Shader；引用会进入资源依赖图及运行包。配置示例见 [UI 导入](docs/plugins/editor/ui-import.md)。
+
+`font_import` 编辑器插件使用 FreeType 将原始 TTF 和 meta 参数转换为曲线与度量资源，`ui_import` 转换文档及引用。运行时核心 `FontSystem` 消费这些资源，UI 与普通节点上的 `TextComponent` 共用 GPU 字形缓存。默认 `builtin/shaders/font` 适配公开 bgfx / Slug 曲线覆盖率算法，项目 Shader 须符合[字体绘制契约](docs/runtime/font.md)。引擎不在运行时解析原始字体，也不按字号生成多份资源。示例使用 OFL 1.1 授权 Lato Regular / Bold，固定来源和许可随资源保存。
+
+UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElement` 提供 View，派生 `UiController<T>` 处理事件和显式刷新。`Bind()` 执行 `OnBind → OnRefresh`，`Listen()` 自动登记订阅，`Unbind()` 释放订阅；文档、控件或脚本上下文销毁后旧引用失效。支持 click/change/input 及输入值快照，事件按目标到祖先冒泡，`target` 保留目标，`currentTarget` 表示当前订阅控件，业务无需逐帧轮询。控件支持纯文本、表单值、显隐、禁用、样式、类名及已登记纹理切换。API 与职责见 [MVC 类图](docs/plugins/runtime/class-diagrams/ui-script-api.md)，示例拆分在 `assets/scripts/models/` 与 `controllers/`。
+
+当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及脚本组件和项目场景跳转。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
+
+字体/UI 基础接入已在 macOS Metal 完成 Debug / Release 构建，Debug 相关回归 9/9、Release 全套 CTest 74/74 通过；覆盖多字体、逐字体 Shader、多图片、多个文档同名字体别名隔离、鼠标捕获、输入焦点、3D 文字和停止后的 GPU 资源回收。正式编辑器经 MCP 验证待机、启动菜单、截图、停止恢复待机及有限帧退出。关闭 `font_import` / `ui_import` 后，编辑器与 MCP 仍构建、链接并启动成功；字体解析器仅由编辑器导入插件使用，RmlUi 的默认 FreeType 后端已关闭。 Android ARM64 Debug APK 已在独立 Vulkan 模拟器验证菜单、真实触摸设备事件、Tab 焦点、前后台恢复、120 帧正常退出、重启、MCP 完整资源同步及 3D 文字入口；APK 内不含 FreeType 和两个编辑器导入插件。该基础接入未验证 Android 实体设备、Windows DX12 或 iOS。
+
+2026-10-30 的 UI MVC 绑定验证在 macOS Metal 完成 Debug / Release 构建，两配置全套 CTest 均为 75/75。新增 `engine.ui_script` 使用真实 SDL 输入、V8 和 Metal，覆盖初始化绑定、Model/View 刷新、目标到祖先的冒泡顺序、订阅快照、解绑、文档/控件失效及脚本重载清理；异步事件回调会按脚本错误流程停止。字体/UI GPU 回归增加同 GUID 新旧资源并存与单个 View 替换释放检查。正式编辑器经 MCP 启动 MVC 菜单并截图、停止恢复待机，3600 帧正常退出。TypeScript 检查、154 个 Mermaid 块实际渲染和相关文档链接检查通过。记录保存在忽略的 `build/ui-mvc-*.log` 与 `build/ui-mvc-validation/`，截图在 `projects/showcase/cache/ui-mvc-validation/`；UI MVC 绑定尚未重建或运行 Android APK。
 
 ## 构建与测试
 
@@ -203,7 +217,7 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。`editor.mcp_commands` 验证场景查询、组件修改、批量回滚、撤销与会话隔离。这些窗口测试仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；命令执行、协议注册和文件传输测试无需 GPU。
+`engine.font_ui_render` 验证多字体、多 Shader、多图片、跨文档输入焦点、3D 文字、缩放与反复启停后的 GPU 资源回收。`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。`editor.mcp_commands` 验证场景查询、组件修改、批量回滚、撤销与会话隔离。这些窗口测试仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；命令执行、协议注册和文件传输测试无需 GPU。
 
 ### 桌面脚本与同步
 
@@ -665,7 +679,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画新增范围见 Animator 与 FBX 模型资源模块，导航请求、游戏 UI 与完整编辑器界面未实现。
+- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，导航请求与完整编辑器界面未实现。
 - 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画采用 CPU 蒙皮，尚未实现状态机混合、Root Motion、IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。

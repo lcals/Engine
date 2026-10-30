@@ -1,2 +1,2 @@
-// Change the selected module to minimal, apartment, or courtyard.
-export { default } from "./modules/courtyard.js";
+// Select menu, minimal, apartment, courtyard, or font-gallery.
+export { default } from "./modules/menu.js";

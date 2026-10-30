@@ -20,6 +20,9 @@
 #include "plugins/runtime/script/bindings/scene_binding.hpp"
 #include "plugins/runtime/script/bindings/time_binding.hpp"
 #include "plugins/runtime/script/bindings/transform_binding.hpp"
+#include "plugins/runtime/script/bindings/ui_component_binding.hpp"
+#include "plugins/runtime/script/bindings/ui_controller_binding.hpp"
+#include "plugins/runtime/script/bindings/ui_element_binding.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -40,7 +43,8 @@ bool ScriptBindingRegistry::initialize()
         !add<CameraBinding>() || !add<LightBinding>() || !add<MeshRendererBinding>() ||
         !add<MaterialBinding>() || !add<ColliderBinding>() || !add<RigidBodyBinding>() ||
         !add<CharacterMotorBinding>() || !add<AudioSourceBinding>() ||
-        !add<AudioListenerBinding>() || !add<AnimatorBinding>())
+        !add<AudioListenerBinding>() || !add<AnimatorBinding>() || !add<UiComponentBinding>() ||
+        !add<UiElementBinding>() || !add<UiControllerBinding>())
     {
         bindings_.clear();
         return false;
@@ -85,6 +89,8 @@ const native = globalThis.__engineNative;
 const key = {};
 const handles = new WeakMap();
 const componentTypes = new Map();
+const bindingEventHooks = [];
+const bindingCleanupHooks = [];
 function attach(object, token, scene, node = 0n, kind = -1) {
     if (token !== key) throw new TypeError('Use scene and node factory methods');
     handles.set(object, { scene, node, kind });
@@ -95,6 +101,19 @@ function attach(object, token, scene, node = 0n, kind = -1) {
         result += binding->source();
         result += '\n';
     }
+    result += R"js(
+export function __dispatchBindingEvents() {
+    for (const dispatch of bindingEventHooks) dispatch();
+}
+export function __clearBindings() {
+    let failed = false, failure;
+    for (const cleanup of bindingCleanupHooks) {
+        try { cleanup(); }
+        catch (error) { if (!failed) { failed = true; failure = error; } }
+    }
+    if (failed) throw failure;
+}
+)js";
     return result;
 }
 

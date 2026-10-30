@@ -10,7 +10,7 @@ C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对
 classDiagram
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer)
+        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui)
         +~ScriptSystem()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
@@ -26,6 +26,7 @@ classDiagram
     class ScriptRuntime
     class WorldSystem
     class RenderSystem
+    class UiSystem
     class ResourceCatalog
     class ResourceMount
     class Resource
@@ -35,6 +36,7 @@ classDiagram
     WorldSystem *-- ScriptSystem : 可选子系统
     ScriptSystem --> WorldSystem : 可空借用世界
     ScriptSystem --> RenderSystem : 可空借用，仅供有效玩法回调
+    ScriptSystem --> UiSystem : 可空借用，主线程控件事件
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入
@@ -62,7 +64,7 @@ classDiagram
     ScriptSystem ..> V8 : 平台及隔离环境
 ```
 
-- `world` 和 `renderer` 默认空指针；非空世界必须比本系统存活更久。渲染器必须覆盖全部玩法回调，调用方在销毁渲染器前停止玩法；停止后上下文清理不访问渲染器。初始化只准备 V8 和绑定，不启动项目，也不读取资源部署文件。
+- `world`、`renderer` 和 `ui` 默认空指针；非空世界必须比本系统存活更久。渲染器必须覆盖全部玩法回调，调用方在销毁渲染器前停止玩法；停止后上下文清理不访问渲染器。初始化只准备 V8 和绑定，不启动项目，也不读取资源部署文件。
 - `prepare_gameplay()` 接收调用方提供的目录和挂载，入口默认 `scripts/game.js`，修订默认目录修订。只沿静态 import 图读取候选 JS、编译和链接，不执行模块或用户回调、不更新核心目录、不停止旧玩法。失败保留旧运行。
 - 宿主预检成功后停止旧玩法及 GPU、更新资源目录，再调用 `start_prepared_gameplay()`。启动核对活动资源与预检脚本的内容及模块身份，取得共享引用，然后执行模块并创建入口。执行失败停止本次玩法，不承诺撤销外部副作用。
 - `start_gameplay()` 是从已经提交的活动目录直接准备并启动的入口；目录未提交或模块缺失时返回失败，不回退物理脚本目录。

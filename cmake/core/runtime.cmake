@@ -17,6 +17,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE engine::window
                 engine::world
                 engine::resource
+                engine::font
+                engine::ui
                 SDL3::SDL3
                 bgfx::bgfx
                 bgfx::bimg_encode
@@ -41,13 +43,15 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
                 src/engine/runtime/resource/codecs/texture_resource_codec.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
+                src/engine/runtime/resource/codecs/font_resource_codec.cpp
+                src/engine/runtime/resource/codecs/ui_resource_codec.cpp
                 src/engine/runtime/resource/codecs/model_resource_codec.cpp
                 src/engine/runtime/resource/codecs/skeleton_resource_codec.cpp
                 src/engine/runtime/resource/codecs/animation_resource_codec.cpp
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
     target_include_directories(engine_resource PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    engine_embed_render_shaders(engine_resource)
+    engine_embed_render_shaders(engine_resource cube font)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
@@ -65,6 +69,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/rigid_body.cpp
                 src/engine/runtime/scene/audio_source.cpp
                 src/engine/runtime/scene/animator.cpp
+                src/engine/runtime/scene/ui_component.cpp
+                src/engine/runtime/scene/text_component.cpp
                 src/engine/runtime/scene/model_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
@@ -97,8 +103,23 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         target_include_directories(engine_animation SYSTEM PRIVATE ${_ozz_include})
     endif()
 
+    engine_add_system(runtime font)
+    target_link_libraries(
+        engine_font
+        PUBLIC engine::scene_data
+        PRIVATE engine::resource engine::world bgfx::bgfx bgfx::bx)
     engine_add_system(runtime ui)
-    target_link_libraries(engine_ui PRIVATE RmlUi::Core)
+    target_sources(
+        engine_ui
+        PRIVATE src/engine/runtime/ui/rml_font.cpp
+                src/engine/runtime/ui/rml_render.cpp
+                src/engine/runtime/ui/rml_input.cpp)
+    target_include_directories(engine_ui PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(
+        engine_ui
+        PRIVATE RmlUi::Core engine::font engine::resource engine::world engine::window
+                SDL3::SDL3 bgfx::bgfx bgfx::bx basisu::basisu_encoder)
+    engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::window
@@ -108,6 +129,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine::audio
         engine::navigation
         engine::animation
+        engine::font
         engine::ui
         engine::render)
 
@@ -117,7 +139,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine_gameplay
         PUBLIC engine::core engine::scene_data
         PRIVATE engine::world engine::render engine::resource engine::physics engine::audio
-                engine::animation)
+                engine::animation engine::font engine::ui)
     target_link_libraries(engine_gameplay PRIVATE engine::app engine::log
                                                   nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)

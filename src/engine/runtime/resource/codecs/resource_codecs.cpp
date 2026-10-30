@@ -1,3 +1,5 @@
+#include "runtime/resource/codecs/font_resource_codec.hpp"
+#include "runtime/resource/codecs/ui_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
 
 #include "runtime/resource/codecs/audio_resource_codec.hpp"
@@ -32,6 +34,8 @@ const MeshResourceCodec mesh;
 const SceneResourceCodec scene;
 const ShaderResourceCodec shader;
 const TextureResourceCodec texture;
+const FontResourceCodec font;
+const UiResourceCodec ui;
 
 struct CodecEntry
 {
@@ -51,6 +55,8 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::skeleton, &skeleton},
     CodecEntry{schema::AssetKind::animation, &animation},
     CodecEntry{schema::AssetKind::audio, &audio},
+    CodecEntry{schema::AssetKind::font, &font},
+    CodecEntry{schema::AssetKind::ui, &ui},
 };
 
 } // namespace

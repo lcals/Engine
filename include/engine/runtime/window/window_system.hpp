@@ -7,6 +7,7 @@
 #include <atomic>
 
 struct SDL_Window;
+union SDL_Event;
 
 namespace engine
 {
@@ -28,6 +29,8 @@ enum class WindowPointerButton
     right
 };
 
+using WindowEventHandler = bool (*)(void*, const SDL_Event&);
+
 class WindowSystem final : public System
 {
 public:
@@ -39,6 +42,8 @@ public:
 
     // 借用窗口，未创建时为空；渲染系统必须先于窗口系统关闭。
     [[nodiscard]] SDL_Window* native_window() const noexcept;
+    // 单宿主输入接收者；返回 true 阻止本次按下进入玩法状态，释放和窗口事件照常处理。
+    void set_event_handler(WindowEventHandler handler, void* context) noexcept;
     [[nodiscard]] bool key_down(WindowKey key) const noexcept;
     [[nodiscard]] bool key_pressed(WindowKey key) const noexcept;
     [[nodiscard]] schema::Vec2 pointer_delta() const noexcept;
@@ -50,6 +55,8 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    WindowEventHandler event_handler_ = nullptr;
+    void* event_context_ = nullptr;
     SDL_Window* window_ = nullptr;
     std::atomic<bool> background_ = false;
     bool sdl_initialized_ = false;
