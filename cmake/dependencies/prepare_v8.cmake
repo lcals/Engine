@@ -21,6 +21,14 @@ endif()
 if(NOT ENGINE_V8_CONFIG MATCHES "^(Debug|Release)$")
     message(FATAL_ERROR "ENGINE_V8_CONFIG must be Debug or Release")
 endif()
+if(CMAKE_HOST_WIN32)
+    if(NOT DEFINED ENGINE_V8_WINDOWS_CRT)
+        set(ENGINE_V8_WINDOWS_CRT dynamic)
+    endif()
+    if(NOT ENGINE_V8_WINDOWS_CRT MATCHES "^(static|dynamic)$")
+        message(FATAL_ERROR "ENGINE_V8_WINDOWS_CRT must be static or dynamic")
+    endif()
+endif()
 if(NOT DEFINED ENGINE_V8_JOBS)
     set(ENGINE_V8_JOBS 4)
 endif()
@@ -97,9 +105,11 @@ set(_depot "${ENGINE_V8_BUILD_ROOT}/depot_tools")
 set(_workspace "${ENGINE_V8_BUILD_ROOT}/source")
 set(_source "${_workspace}/v8")
 if(CMAKE_HOST_WIN32)
-    set(_patch_roots "${_source}/build" "${_source}" "${_source}/third_party/partition_alloc")
+    set(_patch_roots "${_source}/build" "${_source}/build" "${_source}"
+                     "${_source}/third_party/partition_alloc")
     set(_patch_files
         "${_engine_root}/third_party/overrides/v8/windows-dynamic-crt.patch"
+        "${_engine_root}/third_party/overrides/v8/windows-static-crt.patch"
         "${_engine_root}/third_party/overrides/v8/windows-shared-ptr-atomic-warning.patch"
         "${_engine_root}/third_party/overrides/v8/windows-debug-quarantine.patch")
 elseif(CMAKE_HOST_APPLE)
@@ -130,6 +140,9 @@ if(_android)
         "${_engine_root}/third_party/overrides/v8/android-simdutf-atomic-ref.patch")
 endif()
 string(TOLOWER "${ENGINE_V8_CONFIG}" _config_lower)
+if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
+    set(_config_lower "mt-${_config_lower}")
+endif()
 set(_out "${_source}/out/engine.${_config_lower}")
 find_package(Git REQUIRED)
 execute_process(
@@ -217,6 +230,9 @@ endif()
 set(_args
     "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n"
 )
+if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
+    string(APPEND _args "engine_use_static_crt = true\n")
+endif()
 if(CMAKE_HOST_APPLE AND NOT _android)
     # 系统 SDK 的模块和 TAPI 格式可能新于固定 LLVM；使用常规头文件及 Xcode 链接器。
     string(APPEND _args "use_clang_modules = false\nuse_lld = false\n")
@@ -248,7 +264,7 @@ endif()
 if(ENGINE_V8_CONFIG STREQUAL "Debug")
     string(APPEND _args "is_debug = true\n")
     if(CMAKE_HOST_WIN32)
-        # Chromium 默认关闭此项；MSVC/vcpkg 的 /MDd 使用迭代器调试级别 2。
+        # Chromium 默认关闭此项；MSVC/vcpkg 的 Debug CRT 使用迭代器调试级别 2。
         # 在 V8 内启用相同 ABI，不向其他目标传播会冲突的 STL 禁用宏。
         string(APPEND _args "enable_iterator_debugging = true\n")
     endif()
@@ -320,6 +336,16 @@ if(EXISTS "${ENGINE_V8_BUILD_ROOT}/.gitconfig")
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/v8_cache.cmake")
 _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
+if(CMAKE_HOST_WIN32
+   AND NOT ENGINE_V8_ACTION STREQUAL "CHECK"
+   AND NOT _cache_ready
+   AND EXISTS "${_source}/build/.git")
+    # 为已准备的工作副本补充 CRT 选择，不因新构建变体重新同步未变的 DEPS。
+    _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
+    _engine_v8_patch("${_source}/build"
+                     "${_engine_root}/third_party/overrides/v8/windows-static-crt.patch" APPLY)
+    _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
+endif()
 _engine_v8_artifacts(_artifacts_present)
 if(ENGINE_V8_ACTION STREQUAL "CHECK")
     message(
@@ -348,9 +374,8 @@ if(_cache_ready)
     if(ENGINE_V8_ACTION STREQUAL "PREPARE")
         # 旧工作区也先核对提交、补丁、参数、完整工具链及已有构建产物。
         # 只复用准备结果；没有 BUILD 成功戳仍须经过 Ninja 和样例确认。
-        if(_prepared OR _artifacts_present)
-            set(_reuse_prepared TRUE)
-        endif()
+        # 固定检出、DEPS 和工具链已完整核对；新增 CRT/config 只需生成新的 GN 输出。
+        set(_reuse_prepared TRUE)
         if(_prepared
            AND _configured
            AND EXISTS "${_out}/build.ninja"
@@ -362,7 +387,7 @@ if(_cache_ready)
             endif()
         endif()
         if(_reuse_prepared)
-            message(STATUS "Reusing verified V8 workspace without removing or reapplying patches")
+            message(STATUS "Reusing verified V8 workspace; no dependency sync or hooks")
         endif()
     endif()
 endif()

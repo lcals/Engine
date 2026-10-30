@@ -4,6 +4,8 @@ import { Animator, Debug, Gameplay, MeshRenderer, Render, Scene, Transform } fro
 const avatar_ground_offset = 0.05;
 
 export default class Game extends Gameplay {
+    scene: Scene | null = null;
+
     override OnInitialize(): boolean {
         if (
             !Render.SetAmbient(0.82, 0.87, 1.0, 0.28) ||
@@ -13,7 +15,8 @@ export default class Game extends Gameplay {
             !Render.SetClearColor(0x668ca6ff)
         )
             return false;
-        const scene = Scene.Load("project/scenes/playground.scene");
+        this.scene = Scene.Load("project/scenes/playground.scene");
+        const scene = this.scene;
         if (!scene) return false;
         const avatar = scene.InstantiateModel("project/models/skeleton.fbx", "Avatar");
         const player = scene.FindNode("Player");
@@ -40,5 +43,9 @@ export default class Game extends Gameplay {
             "Animation playground ready: WASD move, Space jump, right mouse look, Tab camera.",
         );
         return true;
+    }
+
+    override OnShutdown(): void {
+        this.scene = null;
     }
 }

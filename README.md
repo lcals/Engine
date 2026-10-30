@@ -18,7 +18,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；按钮通过 MVC 脚本控制器更新选择 Model 和界面状态，真正场景跳转待场景控制器接入。`assets/scripts/game.ts` 的导出指向 `modules/menu.js`，改为 `modules/minimal.js`、`modules/apartment.js`、`modules/courtyard.js` 或 `modules/font-gallery.js` 后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存并切换，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；四个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -109,7 +109,7 @@ cmake --workflow --preset ninja-engine-release
 
 这两个 workflow 包括显式 V8 准备步骤，并启用桌面脚本运行；先按下节准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。启用脚本运行的应用及测试会自动将 `icudtl.dat` 部署到可执行文件旁。
 
-依赖安装缓存位于 `build/dependencies/`，按 `runtime`、`editor`、`asset-pipeline`、`base` 四组 feature 隔离；同组 Debug / Release 共用安装目录，避免重复安装。vcpkg 自带二进制缓存继续生效，并保留用户设置的 `VCPKG_BINARY_SOURCES`。删除某个应用构建目录不会清掉这些共享依赖；只修改引擎源码时，无需运行清理依赖或重新准备依赖的命令。
+依赖安装缓存位于 `build/dependencies/`，按 `runtime`、`editor`、`asset-pipeline`、`base` 四组 feature 隔离；Windows 静态预设另用 `build/dependencies/windows-static/`。同组 Debug / Release 共用安装目录，避免重复安装。vcpkg 自带二进制缓存继续生效，并保留用户设置的 `VCPKG_BINARY_SOURCES`。删除某个应用构建目录不会清掉这些共享依赖；只修改引擎源码时，无需运行清理依赖或重新准备依赖的命令。
 
 CMake 通过 `CXX_COMPILER_LAUNCHER` 等目标属性接入缓存，覆盖引擎、自有测试与 ozz；Windows 优先查找 sccache，其他宿主优先查找 ccache，也可用 `ENGINE_COMPILER_CACHE_PROGRAM` 指定可执行文件。已有 `CMAKE_CXX_COMPILER_LAUNCHER` 设置优先保留。Windows 缓存目标使用 `/Z7` 将调试信息放入对象文件，避免共享编译 PDB 阻止命中。用 `ccache --show-stats` 或 `sccache --show-stats` 查看实际命中。
 
@@ -119,14 +119,30 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 第三方本地补丁放在 `third_party/`，构建前的覆盖流程见[开发与第三方依赖](docs/development.md)。
 
-Windows 本机兼容修复包括 UTF-8 入口和 Shader 工具、MSVC/Ninja 诊断缓存、DX12 压缩纹理小 mip 与字体 Shader 布局，以及 SDL 只读共享和原子替换。CRT 断言和 abort 输出到 stderr，失败仍返回非零状态。当前 Windows 静态依赖与 CRT 配置尚未完成；资源继续沿用 App 的独立目录，不使用资源嵌入或自解压发布。
+Windows 本机兼容修复包括 UTF-8 入口和 Shader 工具、MSVC/Ninja 诊断缓存、DX12 压缩纹理小 mip 与字体 Shader 布局，以及 SDL 只读共享和原子替换。CRT 断言和 abort 输出到 stderr，失败仍返回非零状态。
+
+Windows 静态构建使用 `windows-static-debug` / `windows-static-release` 预设，选择 `x64-windows-static` 依赖及 `/MTd` / `/MT` CRT，构建与 V8 并行度为 16；对应的 `windows-static-debug-prepare` / `windows-static-release-prepare` 构建预设准备 V8。先完成环境与项目 TypeScript 依赖准备，再在仓库根目录的 Developer PowerShell 执行：
+
+```powershell
+cmake --preset windows-static-release
+cmake --build --preset windows-static-release-prepare
+cmake --build --preset windows-static-release
+ctest --preset windows-static-release
+cmake --build --preset windows-static-release --target engine_project_export
+.\build\windows-static-release\editor_app.exe --project .\projects\showcase
+.\build\windows-static-release\output\engine-showcase\engine-showcase.exe
+```
+
+Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `build/windows-static-release/output/engine-showcase/`，其中包含 `engine-showcase.exe`、`icudtl.dat`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+
+2026-10-30 Windows x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
 
 依赖维护需保留以下兼容约束：
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
 - Android SDL3 使用共享库并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
-- USD 插件资源在 Windows 位于对应配置的 `bin/usd/*/resources/`，macOS 位于 `lib/usd/*/resources/`；测试按构建配置设置 `PXR_PLUGINPATH_NAME`。TBB / USD 回归同时检查数据保存、加载和正常退出。
+- USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；现有 USD 测试按配置使用 SDK 或本地部署的数据。TBB / USD 回归同时检查数据保存、加载和正常退出。
 
 ### 插件选择
 
@@ -168,7 +184,7 @@ Windows 使用本机 VS 2022 C++ 工具链和 Windows SDK 10.0.26100.0，SDK 需
 
 macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。另为 SDK 27 的 C++20 数学头补充缺失的 `INFINITY` / `NAN` 宏，并在编译器不支持 `stack_protector_ignore` 时，仅在 V8 的 signpost 调用处忽略该属性诊断。
 
-下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，以匹配本项目 `/MDd` / `/MD`；关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
 
 GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
 
@@ -239,9 +255,9 @@ cmake --workflow --preset ninja-engine-release
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
-编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/main.scene")`，从 FlatBuffers 缓存恢复方块、相机和方向光三个节点，停止时释放场景及本次运行 GPU 资源。
+编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/launcher.scene")`，显示可进入四个场景的菜单，停止时释放场景及本次运行 GPU 资源。
 
-编辑器运行时，在另一终端修改 `projects/showcase/assets/scripts/game.ts`，然后执行：
+编辑器运行时，若在另一终端修改了项目源脚本或其他资源，可执行：
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status

@@ -1,0 +1,35 @@
+--- a/cmake/macros/Public.cmake
++++ b/cmake/macros/Public.cmake
+@@ -328,6 +328,13 @@ function(pxr_library NAME)
+         endforeach()
+     endif()
+ 
++    # Static applications retain plugin registration objects at link time.
++    # Leave the type implicit so the library participates in the normal static
++    # dependency/whole-archive handling instead of being skipped as a DSO.
++    if(args_TYPE STREQUAL "PLUGIN" AND NOT BUILD_SHARED_LIBS AND NOT PXR_BUILD_MONOLITHIC)
++        set(args_TYPE "")
++    endif()
++
+     # Collect libraries.
+     if(NOT args_TYPE STREQUAL "PLUGIN")
+         get_property(help CACHE PXR_ALL_LIBS PROPERTY HELPSTRING)
+--- a/pxr/pxrConfig.cmake.in
++++ b/pxr/pxrConfig.cmake.in
+@@ -153,7 +153,16 @@ endforeach()
+ if(NOT @BUILD_SHARED_LIBS@)
+     if(WIN32)
+         list(APPEND PXR_LIBRARIES Shlwapi.lib)
+         list(APPEND PXR_LIBRARIES Dbghelp.lib)
++        if(MSVC)
++            set(_pxr_explicit_static "@PXR_STATIC_LIBS@")
++            foreach(_pxr_library IN LISTS libs)
++                if(NOT _pxr_library IN_LIST _pxr_explicit_static)
++                    target_link_options(${_pxr_library} INTERFACE
++                        "LINKER:/WHOLEARCHIVE:$<TARGET_FILE:${_pxr_library}>")
++                endif()
++            endforeach()
++        endif()
+     endif()
+     add_definitions(-DPXR_STATIC)
+ endif()

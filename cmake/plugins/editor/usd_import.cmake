@@ -4,7 +4,7 @@ function(engine_configure_usd_import_plugin)
     target_link_libraries(
         engine_usd_import
         PUBLIC engine::asset_pipeline
-        PRIVATE engine::resource usdGeom)
+        PRIVATE engine::resource engine_usd_sdk)
     target_include_directories(engine_usd_import PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_compile_definitions(
         engine_usd_import

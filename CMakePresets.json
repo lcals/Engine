@@ -181,6 +181,38 @@
       "binaryDir": "${sourceDir}/build/ninja-engine-release"
     },
     {
+      "name": "windows-static",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "environment": {
+        "CMAKE_BUILD_PARALLEL_LEVEL": "16",
+        "VCPKG_MAX_CONCURRENCY": "16"
+      },
+      "cacheVariables": {
+        "VCPKG_TARGET_TRIPLET": "x64-windows-static",
+        "VCPKG_HOST_TRIPLET": "x64-windows-static",
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/windows-static",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "BUILD_SHARED_LIBS": false,
+        "ENGINE_V8_JOBS": "16",
+        "ENGINE_ENABLE_GPU_TESTS": true
+      }
+    },
+    {
+      "name": "windows-static-debug",
+      "inherits": ["windows-static", "ninja-engine-debug"],
+      "binaryDir": "${sourceDir}/build/windows-static-debug"
+    },
+    {
+      "name": "windows-static-release",
+      "inherits": ["windows-static", "ninja-engine-release"],
+      "binaryDir": "${sourceDir}/build/windows-static-release"
+    },
+    {
       "name": "android-arm64-debug",
       "displayName": "Android ARM64 Debug",
       "inherits": [
@@ -242,6 +274,28 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "windows-static-debug",
+      "configurePreset": "windows-static-debug",
+      "jobs": 16,
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-static-release",
+      "configurePreset": "windows-static-release",
+      "jobs": 16,
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-static-debug-prepare",
+      "inherits": "ninja-engine-debug-prepare",
+      "configurePreset": "windows-static-debug"
+    },
+    {
+      "name": "windows-static-release-prepare",
+      "inherits": "ninja-engine-release-prepare",
+      "configurePreset": "windows-static-release"
+    },
     {
       "name": "editor-deps",
       "configurePreset": "editor-deps",
@@ -394,6 +448,16 @@
     }
   ],
   "testPresets": [
+    {
+      "name": "windows-static-debug",
+      "inherits": "debug",
+      "configurePreset": "windows-static-debug"
+    },
+    {
+      "name": "windows-static-release",
+      "inherits": "release",
+      "configurePreset": "windows-static-release"
+    },
     {
       "name": "editor-deps",
       "inherits": "debug",
