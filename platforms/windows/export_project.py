@@ -60,7 +60,9 @@ def export(args):
         stage = Path(temporary) / "next"
         previous = Path(temporary) / "previous"
         files = [(safe_file(source, relative), relative) for relative in sorted(carriers)]
-        files += [(plain(args.executable), args.executable.name), (plain(args.icu), "icudtl.dat")]
+        files += [(plain(args.executable), args.executable.name)]
+        if args.icu is not None:
+            files += [(plain(args.icu), "icudtl.dat")]
         files += [(source / "catalog.bin", "catalog.bin")]
         for origin, relative in files:
             staged = stage / relative
@@ -97,7 +99,7 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--builder", type=Path, required=True)
     parser.add_argument("--executable", type=Path, required=True)
-    parser.add_argument("--icu", type=Path, required=True)
+    parser.add_argument("--icu", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
