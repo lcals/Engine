@@ -2,7 +2,28 @@ include_guard(GLOBAL)
 
 option(ENGINE_ENABLE_V8 "Enable explicitly prepared V8 monolith dependency" OFF)
 if(NOT ENGINE_ENABLE_V8)
+    # 原目录从 V8 切换至 QuickJS 后，不能继续部署旧的 ICU 数据。
+    set(ENGINE_V8_ICU_DATA
+        ""
+        CACHE INTERNAL "V8 ICU data to deploy beside a consuming executable" FORCE)
     return()
+endif()
+option(ENGINE_V8_ENABLE_WEBASSEMBLY "Enable V8 WebAssembly support" OFF)
+option(ENGINE_V8_ENABLE_I18N "Enable V8 internationalization support" OFF)
+option(ENGINE_V8_ENABLE_TEMPORAL "Enable V8 Temporal support" OFF)
+option(ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION "Enable V8 system instrumentation" OFF)
+set(_engine_v8_features WEBASSEMBLY I18N TEMPORAL SYSTEM_INSTRUMENTATION)
+set(_engine_v8_feature_bits "")
+foreach(_feature IN LISTS _engine_v8_features)
+    if(ENGINE_V8_ENABLE_${_feature})
+        string(APPEND _engine_v8_feature_bits "1")
+    else()
+        string(APPEND _engine_v8_feature_bits "0")
+    endif()
+endforeach()
+set(_engine_v8_feature_suffix "")
+if(NOT _engine_v8_feature_bits STREQUAL "1111")
+    set(_engine_v8_feature_suffix "-f${_engine_v8_feature_bits}")
 endif()
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
     message(FATAL_ERROR "The V8 preparation workflow requires a 64-bit target")
@@ -157,19 +178,39 @@ windows_sdk=@CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
 endif()
 if(WIN32)
     set(_engine_v8_library engine_v8.lib)
+    set(_engine_v8_windows_crt dynamic)
+    if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+            set(_engine_v8_windows_crt static)
+        elseif(NOT CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+            message(FATAL_ERROR "V8 requires the standard per-config MSVC runtime selection")
+        endif()
+    endif()
 else()
     set(_engine_v8_library libengine_v8.a)
 endif()
+set(_engine_v8_variant "$<IF:$<CONFIG:Debug>,debug,release>")
+if(WIN32 AND _engine_v8_windows_crt STREQUAL "static")
+    set(_engine_v8_variant "mt-${_engine_v8_variant}")
+endif()
+string(APPEND _engine_v8_variant "${_engine_v8_feature_suffix}")
 set(_engine_v8_arguments
     "-DENGINE_V8_BUILD_ROOT=${ENGINE_V8_BUILD_ROOT}" "-DENGINE_V8_CONFIG=${_engine_v8_config}"
     "-DENGINE_V8_TARGET_CPU=${_engine_v8_target_cpu}" "-DENGINE_V8_JOBS=${ENGINE_V8_JOBS}"
     "-DENGINE_V8_HOST_TOOLCHAIN_FILE=${_engine_v8_host_file}")
+foreach(_feature IN LISTS _engine_v8_features)
+    list(APPEND _engine_v8_arguments
+         "-DENGINE_V8_ENABLE_${_feature}=${ENGINE_V8_ENABLE_${_feature}}")
+endforeach()
 if(ANDROID)
     list(APPEND _engine_v8_arguments "-DENGINE_V8_TARGET_OS=android"
          "-DENGINE_V8_ANDROID_NDK=${ENGINE_V8_ANDROID_NDK}"
          "-DENGINE_V8_ANDROID_API=${ENGINE_V8_ANDROID_API}")
 else()
     list(APPEND _engine_v8_arguments "-DENGINE_V8_HOST_COMPILER=${CMAKE_CXX_COMPILER}")
+endif()
+if(WIN32)
+    list(APPEND _engine_v8_arguments "-DENGINE_V8_WINDOWS_CRT=${_engine_v8_windows_crt}")
 endif()
 
 # 准备目标包含网络操作，必须单独显式运行，不属于默认构建。
@@ -181,26 +222,39 @@ add_custom_target(
 # 每次只做轻量身份/产物检查；成功缓存命中时不启动 GN、Ninja 或归档器。
 # 入口保留为目标，确保跨 preset 共享产物缺失、工具链变化也能在构建时被检测。
 # BUILD 不隐式下载依赖；未准备时给出明确错误。
+set(_engine_v8_byproducts
+    "${_engine_v8_source}/out/engine.${_engine_v8_variant}/obj/${_engine_v8_library}"
+    "${ENGINE_V8_BUILD_ROOT}/include/${_engine_v8_variant}/v8-gn.h"
+    "${_engine_v8_source}/out/engine.${_engine_v8_variant}/.engine-v8-build.identity")
+if(ENGINE_V8_ENABLE_I18N)
+    list(APPEND _engine_v8_byproducts
+         "${_engine_v8_source}/out/engine.${_engine_v8_variant}/icudtl.dat")
+endif()
 add_custom_target(
     engine_v8_build
     COMMAND "${CMAKE_COMMAND}" ${_engine_v8_arguments} -DENGINE_V8_ACTION=BUILD -P
             "${_engine_v8_script}"
-    BYPRODUCTS
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/obj/${_engine_v8_library}"
-        "${ENGINE_V8_BUILD_ROOT}/include/$<IF:$<CONFIG:Debug>,debug,release>/v8-gn.h"
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/.engine-v8-build.identity"
+    BYPRODUCTS ${_engine_v8_byproducts}
     USES_TERMINAL VERBATIM)
 
 add_library(engine_v8 STATIC IMPORTED GLOBAL)
 add_library(engine::v8 ALIAS engine_v8)
 set_property(TARGET engine_v8 PROPERTY IMPORTED_CONFIGURATIONS Debug Release)
 set_property(TARGET engine_v8 PROPERTY INTERFACE_COMPILE_FEATURES cxx_std_20)
-set_property(TARGET engine_v8 PROPERTY INTERFACE_COMPILE_DEFINITIONS V8_GN_HEADER)
+set_property(
+    TARGET engine_v8
+    PROPERTY
+        INTERFACE_COMPILE_DEFINITIONS
+        "V8_GN_HEADER;ENGINE_V8_HAS_WEBASSEMBLY=$<BOOL:${ENGINE_V8_ENABLE_WEBASSEMBLY}>;ENGINE_V8_HAS_I18N=$<BOOL:${ENGINE_V8_ENABLE_I18N}>;ENGINE_V8_HAS_TEMPORAL=$<BOOL:${ENGINE_V8_ENABLE_TEMPORAL}>;ENGINE_V8_HAS_SYSTEM_INSTRUMENTATION=$<AND:$<BOOL:${ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION}>,$<PLATFORM_ID:Windows,Darwin>>"
+)
 set_property(TARGET engine_v8 PROPERTY INTERFACE_COMPILE_OPTIONS
                                        "$<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>")
 foreach(_configuration IN ITEMS Debug Release)
     string(TOLOWER "${_configuration}" _lower)
+    if(WIN32 AND _engine_v8_windows_crt STREQUAL "static")
+        set(_lower "mt-${_lower}")
+    endif()
+    string(APPEND _lower "${_engine_v8_feature_suffix}")
     string(TOUPPER "${_configuration}" _upper)
     set(_output "${_engine_v8_source}/out/engine.${_lower}")
     # include 副本独立于 Git 工作目录，允许先配置再显式准备。
@@ -215,11 +269,14 @@ set_property(
     TARGET engine_v8
     PROPERTY
         INTERFACE_INCLUDE_DIRECTORIES
-        "${ENGINE_V8_BUILD_ROOT}/include/v8;${ENGINE_V8_BUILD_ROOT}/include/$<IF:$<CONFIG:Debug>,debug,release>"
-)
+        "${ENGINE_V8_BUILD_ROOT}/include/v8;${ENGINE_V8_BUILD_ROOT}/include/${_engine_v8_variant}")
 # ICU 数据不在 monolith 中；最终使用者部署时需将其复制到程序旁。
+set(_engine_v8_icu_data "")
+if(ENGINE_V8_ENABLE_I18N)
+    set(_engine_v8_icu_data "${_engine_v8_source}/out/engine.${_engine_v8_variant}/icudtl.dat")
+endif()
 set(ENGINE_V8_ICU_DATA
-    "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
+    "${_engine_v8_icu_data}"
     CACHE INTERNAL "V8 ICU data to deploy beside a consuming executable" FORCE)
 set_property(TARGET engine_v8 PROPERTY ENGINE_V8_ICU_DATA "${ENGINE_V8_ICU_DATA}")
 if(ANDROID)

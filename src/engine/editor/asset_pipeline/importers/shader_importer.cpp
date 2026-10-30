@@ -2,6 +2,7 @@
 #include "editor/asset_pipeline/importer_utils.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/editor_tools.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/material_generated.h"
@@ -272,6 +273,13 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         return false;
     }
     const auto varying = context.assets / PathUtils::from_utf8(varying_path.substr(8));
+    std::filesystem::path compiler;
+    std::filesystem::path includes;
+    if (!editor_tool_path("shaderc", ENGINE_SHADERC_EXECUTABLE, compiler, error) ||
+        !editor_tool_data_path("bgfx", ENGINE_BGFX_SHADER_INCLUDE_DIR, includes, error))
+    {
+        return false;
+    }
     for (const auto stage : {std::string_view("vertex"), std::string_view("fragment")})
     {
         std::string source_path;
@@ -282,7 +290,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         }
         const auto source = context.assets / PathUtils::from_utf8(source_path.substr(8));
         auto compiled = context.output.parent_path() / (asset.guid + "." + std::string(stage));
-        const std::vector<std::string> arguments{ENGINE_SHADERC_EXECUTABLE,
+        const std::vector<std::string> arguments{PathUtils::to_utf8(compiler),
                                                  "-f",
                                                  PathUtils::to_utf8(source),
                                                  "-o",
@@ -296,7 +304,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                                                  "--varyingdef",
                                                  PathUtils::to_utf8(varying),
                                                  "-i",
-                                                 std::string(ENGINE_BGFX_SHADER_INCLUDE_DIR) + ";" +
+                                                 PathUtils::to_utf8(includes) + ";" +
                                                      PathUtils::to_utf8(source.parent_path()) +
                                                      ";" + PathUtils::to_utf8(context.assets)};
         if (!run_process(arguments, error))
@@ -329,11 +337,14 @@ bool ShaderImporter::inspect_batch(const ImportContext& context, std::string& fi
     std::string profile;
     std::string version;
     std::string include_hash;
-    if (!shader_target(context.target_platform, platform, profile) ||
+    std::filesystem::path compiler;
+    std::filesystem::path includes;
+    if (!editor_tool_path("shaderc", ENGINE_SHADERC_EXECUTABLE, compiler, error) ||
+        !editor_tool_data_path("bgfx", ENGINE_BGFX_SHADER_INCLUDE_DIR, includes, error) ||
+        !shader_target(context.target_platform, platform, profile) ||
         !schema_fingerprint({"shader.fbs"}, fingerprint, error) ||
-        !run_process({ENGINE_SHADERC_EXECUTABLE, "--version"}, error, &version) ||
-        !file_hash(std::filesystem::path(ENGINE_BGFX_SHADER_INCLUDE_DIR) / "bgfx_shader.sh",
-                   include_hash, error))
+        !run_process({PathUtils::to_utf8(compiler), "--version"}, error, &version) ||
+        !file_hash(includes / "bgfx_shader.sh", include_hash, error))
     {
         if (error.empty())
         {

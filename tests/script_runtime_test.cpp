@@ -20,22 +20,22 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace
 {
-#include <cstdint>
-#include <memory>
-#include <utility>
-
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
 
@@ -175,10 +175,15 @@ bool apply(engine::plugins::script::ScriptSystem& script, const Fixture& candida
 
 bool log_contains(std::string_view message)
 {
-    std::string text;
-    return engine::LogSystem::instance().flush() &&
-           engine::ResourceSystem::read_text(engine::LogSystem::instance().file_path(), text) &&
-           text.find(message) != std::string::npos;
+    auto& log = engine::LogSystem::instance();
+    if (!log.flush())
+    {
+        return false;
+    }
+    // 日志仍由 ofstream 写入；使用兼容共享读取的文件流，而非只读资源的 SDL 文件接口。
+    std::ifstream file(log.file_path(), std::ios::binary);
+    const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    return file.is_open() && !file.bad() && text.find(message) != std::string::npos;
 }
 
 std::string game_source(std::string_view name, int expected_value)
@@ -196,7 +201,7 @@ bool run_cases(const fs::path& workspace)
 {
     engine::plugins::script::ScriptSystem script;
     Fixture current;
-    if (!expect(script.initialize({}), "initialize V8") ||
+    if (!expect(script.initialize({}), "initialize selected JavaScript VM") ||
         !fixture(workspace, "first",
                  {{"scripts/game.js", game_source("first", 2)},
                   {"scripts/lib/value.js", "export const value=2;"}},
@@ -231,6 +236,13 @@ bool run_cases(const fs::path& workspace)
              {"missing", "import './missing.js'; export default class {}"},
              {"escape", "import '../../outside.js'; export default class {}"},
              {"exports", "import {missing} from './lib/value.js'; export default class {}"},
+             {"nul-import", R"js(import './lib/value.js\u0000ignored'; export default class {})js"},
+             {"nul-export", R"js(export {value} from './lib/value.js\u0000ignored';
+                                export default class {})js"},
+             {"import-attributes", R"js(import './lib/value.js' with {type:'json'};
+                                       export default class {})js"},
+             {"export-attributes", R"js(export {value} from './lib/value.js' with {type:'json'};
+                                       export default class {})js"},
              {"await", "import {Gameplay} from 'engine'; await Promise.resolve(); export default "
                        "class extends Gameplay{}"}})
     {
@@ -264,6 +276,9 @@ bool run_cases(const fs::path& workspace)
         return false;
     }
     for (const auto& [name, source] : std::map<std::string, std::string>{
+             {"plain-class", "export default class {}"},
+             {"non-class", "export default 1;"},
+             {"missing-default", "export const value=1;"},
              {"execute", "import {Gameplay} from 'engine';throw new Error('execution "
                          "failed');export default class extends Gameplay{}"},
              {"boolean",
@@ -295,7 +310,7 @@ bool run_cases(const fs::path& workspace)
     }
     script.shutdown();
     if (!expect(script.initialize({}) && apply(script, next) && script.tick(.01),
-                "isolate recreates while V8 process platform stays alive"))
+                "script runtime can shut down and initialize again"))
     {
         return false;
     }
@@ -303,6 +318,223 @@ bool run_cases(const fs::path& workspace)
     script.stop_gameplay();
     script.shutdown();
     return true;
+}
+
+bool run_module_contract_cases(const fs::path& workspace)
+{
+    engine::plugins::script::ScriptSystem script;
+    Fixture circular;
+    if (!script.initialize({}) ||
+        !fixture(workspace, "module-cycle",
+                 {{"scripts/game.js",
+                   "import {Gameplay,Debug} from 'engine';import {read} from './a.js';"
+                   "Debug.Log('module-cycle:entry');export default class extends Gameplay{"
+                   "OnInitialize(){return read()===12;}}"},
+                  {"scripts/a.js", "import {Debug} from 'engine';import {value} from './b.js';"
+                                   "Debug.Log('module-cycle:a');export const base=7;"
+                                   "export function read(){return value();}"},
+                  {"scripts/b.js",
+                   "import {Debug} from 'engine';import {base} from './a.js';"
+                   "Debug.Log('module-cycle:b');export function value(){return base+5;}"}},
+                 circular) ||
+        !expect(script.prepare_gameplay(circular.catalog, circular.mounts) &&
+                    !script.status().running && !log_contains("module-cycle:entry") &&
+                    !log_contains("module-cycle:a") && !log_contains("module-cycle:b"),
+                "cyclic module precheck resolves the graph without evaluating any top level") ||
+        !expect(engine::ResourceSystem::instance()->update_catalog(circular.catalog.data(),
+                                                                   circular.mounts) &&
+                    script.start_prepared_gameplay() && log_contains("module-cycle:entry") &&
+                    log_contains("module-cycle:a") && log_contains("module-cycle:b"),
+                "cyclic ES imports execute once started and preserve live bindings"))
+    {
+        return false;
+    }
+    for (const bool cycle : {false, true})
+    {
+        Fixture asynchronous;
+        const std::string tail =
+            std::string(cycle ? "import '../game.js';" : "") +
+            "import {Debug} from 'engine';Debug.Log('transitive-await:executed');"
+            "await Promise.resolve();export const value=1;";
+        if (!fixture(workspace, cycle ? "cycle-await" : "transitive-await",
+                     {{"scripts/game.js", "import {Gameplay} from 'engine';import './lib/await.js';"
+                                          "export default class extends Gameplay{}"},
+                      {"scripts/lib/await.js", tail}},
+                     asynchronous) ||
+            !expect(!script.prepare_gameplay(asynchronous.catalog, asynchronous.mounts) &&
+                        script.status().running &&
+                        script.status().active_revision == "module-cycle" &&
+                        !log_contains("transitive-await:executed") && script.tick(.01),
+                    "transitive top-level await is rejected before evaluation, including cycles"))
+        {
+            return false;
+        }
+    }
+    script.stop_gameplay();
+    return true;
+}
+
+bool run_job_contract_cases(const fs::path& workspace)
+{
+    engine::plugins::script::ScriptSystem script;
+    if (!script.initialize({}))
+    {
+        return false;
+    }
+    for (const bool cached : {false, true})
+    {
+        Fixture dynamic;
+        const std::string source =
+            std::string(cached ? "import './lib/value.js';" : "") +
+            "import {Gameplay} from 'engine';export default class extends Gameplay{"
+            "OnInitialize(){import('./lib/value.js').catch(()=>{});return true;}}";
+        if (!fixture(
+                workspace, cached ? "dynamic-cached" : "dynamic-uncached",
+                {{"scripts/game.js", source}, {"scripts/lib/value.js", "export const value=1;"}},
+                dynamic) ||
+            !expect(!apply(script, dynamic) && !script.status().running &&
+                        !script.status().last_error.empty(),
+                    "dynamic import is unsupported even when cached and its rejection is caught"))
+        {
+            return false;
+        }
+    }
+    Fixture handled;
+    if (!fixture(workspace, "promise-handled",
+                 {{"scripts/game.js",
+                   "import {Gameplay,Debug} from 'engine';export default class extends Gameplay{"
+                   "OnInitialize(){Promise.reject(new Error('handled-initialize'))"
+                   ".catch(()=>Debug.Log('jobs:handled:initialize'));return true;}"
+                   "Update(){Promise.reject(new Error('handled-update'))"
+                   ".catch(()=>Debug.Log('jobs:handled:update'));}}"}},
+                 handled) ||
+        !expect(apply(script, handled) && log_contains("jobs:handled:initialize") &&
+                    script.tick(.01) && log_contains("jobs:handled:update") &&
+                    script.status().running && script.status().last_error.empty(),
+                "rejections handled during the same job checkpoint do not stop gameplay"))
+    {
+        return false;
+    }
+    Fixture rejection;
+    if (!fixture(workspace, "promise-rejection",
+                 {{"scripts/game.js",
+                   "import {Gameplay,Debug} from 'engine';export default class extends Gameplay{"
+                   "Update(){Promise.reject(new Error('unhandled-job-marker'));}"
+                   "OnShutdown(){Debug.Log('jobs:rejected:shutdown');}}"}},
+                 rejection) ||
+        !expect(apply(script, rejection) && script.tick(.01) && !script.status().running &&
+                    script.status().last_error.find("unhandled-job-marker") != std::string::npos &&
+                    log_contains("jobs:rejected:shutdown"),
+                "unhandled Promise rejection stops gameplay and still runs OnShutdown"))
+    {
+        return false;
+    }
+    constexpr std::string_view old_source = R"js(
+import {Gameplay,Debug} from 'engine';
+globalThis.oldRunMarker = true;
+export default class extends Gameplay {
+    count=0;
+    OnInitialize() {
+        Promise.resolve().then(()=>Debug.Log('jobs:old:'+ ++this.count));
+        return true;
+    }
+    Update() {
+        if (this.count !== 1) throw new Error('initial job was not drained');
+        Promise.resolve().then(()=>Debug.Log('jobs:old:'+ ++this.count));
+    }
+    OnShutdown() {
+        Promise.resolve().then(()=>Debug.Log('jobs:old:shutdown'));
+    }
+}
+)js";
+    Fixture old;
+    if (!fixture(workspace, "jobs-old", {{"scripts/game.js", std::string(old_source)}}, old) ||
+        !expect(apply(script, old) && log_contains("jobs:old:1") && script.tick(.01) &&
+                    script.status().running && log_contains("jobs:old:2"),
+                "ordinary Promise jobs drain after their own gameplay callback"))
+    {
+        return false;
+    }
+    constexpr std::string_view next_source = R"js(
+import {Gameplay,Debug} from 'engine';
+export default class extends Gameplay {
+    count=0;
+    OnInitialize() {
+        if (globalThis.oldRunMarker !== undefined) return false;
+        Promise.resolve().then(()=>Debug.Log('jobs:new:'+ ++this.count));
+        return true;
+    }
+    Update() {
+        if (this.count !== 1 || globalThis.oldRunMarker !== undefined)
+            throw new Error('old context or jobs leaked into the replacement');
+    }
+}
+)js";
+    Fixture next;
+    if (!fixture(workspace, "jobs-new", {{"scripts/game.js", std::string(next_source)}}, next) ||
+        !expect(apply(script, next) && log_contains("jobs:old:shutdown") &&
+                    log_contains("jobs:new:1") && script.tick(.01) && script.tick(.01) &&
+                    script.status().running && script.status().active_revision == "jobs-new" &&
+                    !log_contains("jobs:old:3"),
+                "reload drains shutdown jobs and isolates the next context and Promise queue"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return true;
+}
+
+bool run_native_boundary_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const native = globalThis.__engineNative;
+        const scene = native.SceneCreate('boundary\0scene');
+        const node = native.NodeCreate(scene, 'node\0suffix');
+        if (typeof scene !== 'bigint' || typeof node !== 'bigint' ||
+            !native.SceneValid(scene) || !native.NodeValid(scene, node) ||
+            native.SceneFindNode(scene, 'node\0suffix') !== node ||
+            native.SceneFindNode(scene, 'node') !== null) return false;
+        const overflow = 1n << 64n;
+        // Native identities must not be coerced to Number or truncated modulo uint64.
+        for (const alias of [Number(scene), scene + overflow, scene - overflow, -1n]) {
+            if (native.SceneValid(alias) || native.SceneDestroy(alias)) return false;
+        }
+        for (const alias of [Number(node), node + overflow, node - overflow, -1n]) {
+            if (native.NodeValid(scene, alias) || native.NodeDestroy(scene, alias) ||
+                native.NodeParent(scene, node, alias)) return false;
+        }
+        return native.SceneValid(scene) && native.NodeValid(scene, node) &&
+            native.NodeParent(scene, node, 0n);
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture input;
+    if (!world.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "native-boundaries", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input),
+                "BigInt identities reject numeric and overflowing aliases without side effects"))
+    {
+        return false;
+    }
+    constexpr char scene_name[] = "boundary\0scene";
+    constexpr char node_name[] = "node\0suffix";
+    const auto* scene = world.scene();
+    if (!expect(scene != nullptr && scene->nodes().size() == 1 &&
+                    scene->name() == std::string_view(scene_name, sizeof(scene_name) - 1) &&
+                    scene->nodes().front()->name() ==
+                        std::string_view(node_name, sizeof(node_name) - 1),
+                "embedded NUL survives JavaScript conversion and native name lookup"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(world.scene() == nullptr, "boundary fixture releases its own scene");
 }
 
 const std::string scene_source = R"js(
@@ -809,8 +1041,9 @@ int main(int argc, char** argv)
     }
     engine::ResourceSystem resources;
     const bool passed = resources.initialize(config) && run_cases(workspace) &&
-                        run_scene_cases(workspace) && run_guid_cases(workspace) &&
-                        run_physics_audio_binding_cases(workspace) &&
+                        run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
+                        run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
+                        run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
                         run_render_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();

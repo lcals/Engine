@@ -60,6 +60,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/asset_importer.cpp
                 src/engine/editor/asset_pipeline/asset_importer_registry.cpp
                 src/engine/editor/asset_pipeline/importer_utils.cpp
+                src/engine/editor/asset_pipeline/editor_tools.cpp
                 src/engine/editor/asset_pipeline/asset_io.cpp
                 src/engine/editor/asset_pipeline/asset_publish.cpp
                 src/engine/editor/asset_pipeline/project_lock.cpp
@@ -86,6 +87,11 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/importers/script_importer.cpp
                 src/engine/editor/asset_pipeline/importers/source_importer.cpp)
     target_include_directories(engine_asset_pipeline PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    if(APPLE AND NOT IOS)
+        target_sources(engine_asset_pipeline PRIVATE platforms/macos/editor/tools.cpp)
+    else()
+        target_sources(engine_asset_pipeline PRIVATE platforms/desktop/editor/tools.cpp)
+    endif()
     target_link_libraries(
         engine_asset_pipeline
         PUBLIC engine::scene_data

@@ -1,0 +1,19 @@
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -126,6 +126,16 @@
+ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cmake/bimg)
+ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cmake/bgfx)
+ 
++# Narrow tool argv and filesystem calls use UTF-8 on Windows 10 1903 or later.
++if(WIN32 AND MSVC)
++    foreach(_bgfx_tool IN ITEMS shaderc texturec geometryc)
++        if(TARGET ${_bgfx_tool})
++            target_sources(${_bgfx_tool} PRIVATE
++                "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows-utf8.manifest")
++        endif()
++    endforeach()
++endif()
++
+ if(BGFX_INSTALL)
+ 	# Include module with fuction 'write_basic_package_version_file'
+ 	include(CMakePackageConfigHelpers)

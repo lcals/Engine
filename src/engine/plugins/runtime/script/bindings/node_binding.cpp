@@ -38,44 +38,42 @@ Object.freeze(Node);
 
 void create(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* scene = BindingContext::scene(arguments);
     std::string name;
-    if (scene == nullptr || arguments.Length() != 2 || !BindingContext::text(arguments, 1, name))
+    if (scene == nullptr || arguments.count() != 2 || !BindingContext::text(arguments, 1, name))
     {
         return;
     }
     if (auto* node = scene->create_node(name); node != nullptr)
     {
-        arguments.GetReturnValue().Set(
-            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), node->id()));
+        arguments.set_return(node->id());
     }
 }
 
 void valid(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(arguments.Length() == 2 &&
-                                   BindingContext::node(arguments) != nullptr);
+    arguments.set_return(arguments.count() == 2 && BindingContext::node(arguments) != nullptr);
 }
 
 void destroy(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->scene().destroy_node(node->id()));
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->scene().destroy_node(node->id()));
 }
 
 void set_parent(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     std::uint64_t id = 0;
-    if (node == nullptr || arguments.Length() != 3 || !BindingContext::identifier(arguments, 2, id))
+    if (node == nullptr || arguments.count() != 3 || !BindingContext::identifier(arguments, 2, id))
     {
         return;
     }
     auto* parent = id == 0 ? nullptr : node->scene().find_node(id);
-    arguments.GetReturnValue().Set((id == 0 || parent != nullptr) && node->set_parent(parent));
+    arguments.set_return((id == 0 || parent != nullptr) && node->set_parent(parent));
 }
 } // namespace
 
@@ -89,13 +87,10 @@ std::string_view NodeBinding::source() const noexcept
     return javascript;
 }
 
-bool NodeBinding::register_functions(v8::Local<v8::Context> context,
-                                     v8::Local<v8::Object> native) const
+bool NodeBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "NodeCreate", create) &&
-           BindingContext::function(context, native, "NodeValid", valid) &&
-           BindingContext::function(context, native, "NodeDestroy", destroy) &&
-           BindingContext::function(context, native, "NodeParent", set_parent);
+    return vm.function("NodeCreate", create) && vm.function("NodeValid", valid) &&
+           vm.function("NodeDestroy", destroy) && vm.function("NodeParent", set_parent);
 }
 
 } // namespace engine::plugins::script::bindings

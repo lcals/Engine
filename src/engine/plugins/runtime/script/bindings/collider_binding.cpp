@@ -43,17 +43,17 @@ Object.freeze(Collider);
 
 Collider* collider(const Arguments& arguments, int count)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.Length() == count ? node->get_component<Collider>()
-                                                          : nullptr;
+    return node != nullptr && arguments.count() == count ? node->get_component<Collider>()
+                                                         : nullptr;
 }
 
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<Collider>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<Collider>() != nullptr);
 }
 
 void box(const Arguments& arguments)
@@ -68,7 +68,7 @@ void box(const Arguments& arguments)
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::box;
         settings.half_extents = Vec3(x, y, z);
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -81,7 +81,7 @@ void sphere(const Arguments& arguments)
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::sphere;
         settings.radius = radius;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -97,7 +97,7 @@ void capsule(const Arguments& arguments)
         settings.shape = schema::ColliderShape::capsule;
         settings.radius = radius;
         settings.half_height = half_height;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -109,7 +109,7 @@ void set_scalar(const Arguments& arguments, float schema::ColliderDataT::* field
     {
         auto settings = value->settings();
         settings.*field = number;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -126,11 +126,11 @@ void restitution(const Arguments& arguments)
 void trigger(const Arguments& arguments)
 {
     auto* value = collider(arguments, 3);
-    if (value != nullptr && arguments[2]->IsBoolean())
+    if (value != nullptr && arguments.is_boolean(2))
     {
         auto settings = value->settings();
-        settings.is_trigger = arguments[2]->IsTrue();
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        settings.is_trigger = arguments.boolean(2);
+        arguments.set_return(value->set_settings(settings));
     }
 }
 } // namespace
@@ -145,17 +145,13 @@ std::string_view ColliderBinding::source() const noexcept
     return javascript;
 }
 
-bool ColliderBinding::register_functions(v8::Local<v8::Context> context,
-                                         v8::Local<v8::Object> native) const
+bool ColliderBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "ColliderKind",
-                                   static_cast<int>(Collider::component_type)) &&
-           BindingContext::function(context, native, "ColliderAdd", add) &&
-           BindingContext::function(context, native, "ColliderBox", box) &&
-           BindingContext::function(context, native, "ColliderSphere", sphere) &&
-           BindingContext::function(context, native, "ColliderCapsule", capsule) &&
-           BindingContext::function(context, native, "ColliderFriction", friction) &&
-           BindingContext::function(context, native, "ColliderRestitution", restitution) &&
-           BindingContext::function(context, native, "ColliderTrigger", trigger);
+    return vm.integer("ColliderKind", static_cast<int>(Collider::component_type)) &&
+           vm.function("ColliderAdd", add) && vm.function("ColliderBox", box) &&
+           vm.function("ColliderSphere", sphere) && vm.function("ColliderCapsule", capsule) &&
+           vm.function("ColliderFriction", friction) &&
+           vm.function("ColliderRestitution", restitution) &&
+           vm.function("ColliderTrigger", trigger);
 }
 } // namespace engine::plugins::script::bindings

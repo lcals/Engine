@@ -24,18 +24,17 @@ Object.freeze(Component);
 
 void valid(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(arguments.Length() == 3 &&
-                                   BindingContext::component(arguments) != nullptr);
+    arguments.set_return(arguments.count() == 3 && BindingContext::component(arguments) != nullptr);
 }
 
 void enabled(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* component = BindingContext::component(arguments);
-    if (component != nullptr && arguments.Length() == 4 && arguments[3]->IsBoolean())
+    if (component != nullptr && arguments.count() == 4 && arguments.is_boolean(3))
     {
-        component->set_enabled(arguments[3]->IsTrue());
-        arguments.GetReturnValue().Set(true);
+        component->set_enabled(arguments.boolean(3));
+        arguments.set_return(true);
     }
 }
 } // namespace
@@ -50,11 +49,9 @@ std::string_view ComponentBinding::source() const noexcept
     return javascript;
 }
 
-bool ComponentBinding::register_functions(v8::Local<v8::Context> context,
-                                          v8::Local<v8::Object> native) const
+bool ComponentBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "ComponentValid", valid) &&
-           BindingContext::function(context, native, "ComponentEnabled", enabled);
+    return vm.function("ComponentValid", valid) && vm.function("ComponentEnabled", enabled);
 }
 
 } // namespace engine::plugins::script::bindings

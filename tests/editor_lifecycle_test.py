@@ -40,13 +40,97 @@ def terminate(process):
         process.wait(timeout=5)
 
 
-def tool(mcp, project, runtime, name, arguments=None, expect_error=False):
-    reply = invoke(mcp, project, runtime, [call(name, arguments)])[0]
-    require("result" in reply, f"{name} protocol failure: {reply}")
-    body = contents(reply)
-    require(
-        reply["result"].get("isError", False) is expect_error, f"{name} unexpected result: {body}"
-    )
+def tool(mcp, project, runtime, name, arguments=None, expect_error=False, timeout=60):
+    def request(tool_name, tool_arguments):
+        reply = invoke(mcp, project, runtime, [call(tool_name, tool_arguments)])[0]
+        require("result" in reply, f"{tool_name} protocol failure: {reply}")
+        return reply["result"].get("isError", False), contents(reply)
+
+    failed, body = request(name, arguments)
+    if body.get("activation") == "pending":
+        deadline = time.monotonic() + timeout
+        project_root = project.resolve().as_posix()
+        runtime_directory = runtime.resolve().as_posix()
+        request_id = body.get("requestId")
+        require(isinstance(request_id, str) and request_id, f"pending identity missing: {body}")
+        if name in ("start_project", "stop_project"):
+            original = read_json(runtime / "project-control.json")
+            require(
+                original.get("requestId") == request_id
+                and original.get("command") == name
+                and original.get("session"),
+                f"{name} did not submit this project request: {body}: {original}",
+            )
+            session = original["session"]
+            while time.monotonic() < deadline:
+                status = read_json(runtime / "project-status.json")
+                require(
+                    status.get("session") == session and status.get("projectRoot") == project_root,
+                    f"{name} project/session changed before completion: {status}",
+                )
+                if status.get("lastRequestId") == request_id and status.get("projectState") not in (
+                    "starting",
+                    "stopping",
+                ):
+                    require(
+                        isinstance(status.get("lastRequestSucceeded"), bool),
+                        f"invalid project completion: {status}",
+                    )
+                    body = dict(
+                        status,
+                        activation="completed",
+                        requestId=request_id,
+                        runtimeDir=runtime_directory,
+                    )
+                    failed = not status["lastRequestSucceeded"]
+                    break
+                require(status.get("projectState") != "closed", f"{name} editor closed: {status}")
+                time.sleep(0.04)
+            else:
+                raise AssertionError(f"{name} original project request timed out: {original}")
+        else:
+            identity = {"session": body.get("session"), "requestId": request_id}
+            require(
+                isinstance(identity["session"], str)
+                and identity["session"]
+                and body.get("projectRoot") == project_root
+                and body.get("runtimeDir") == runtime_directory,
+                f"{name} pending project/runtime identity mismatch: {body}",
+            )
+            command = "batch" if name == "execute_batch" else name
+            if name != "get_editor_receipt":
+                original = read_json(runtime / "editor-command.json")
+                require(
+                    all(original.get(key) == value for key, value in identity.items())
+                    and original.get("projectRoot") == project_root
+                    and original.get("command") == command
+                    and original.get("arguments") == (arguments or {})
+                    and "Previous editor command" not in body.get("error", ""),
+                    f"{name} did not submit this editor request: {body}: {original}",
+                )
+            while time.monotonic() < deadline:
+                query_failed, receipt = request("get_editor_receipt", identity)
+                require(not query_failed, f"{name} receipt lookup failed: {receipt}")
+                require(
+                    all(receipt.get(key) == value for key, value in identity.items())
+                    and receipt.get("projectRoot") == project_root
+                    and receipt.get("runtimeDir") == runtime_directory,
+                    f"{name} polled a different editor request: {receipt}",
+                )
+                if receipt.get("activation") == "completed":
+                    require(
+                        isinstance(receipt.get("success"), bool)
+                        and (name == "get_editor_receipt" or receipt.get("command") == command),
+                        f"{name} invalid original completion: {receipt}",
+                    )
+                    body = receipt
+                    failed = False if name == "get_editor_receipt" else not receipt["success"]
+                    break
+                require(receipt.get("activation") == "pending", f"invalid receipt state: {receipt}")
+                time.sleep(0.04)
+            else:
+                raise AssertionError(f"{name} original editor request timed out: {identity}")
+    require(failed is expect_error, f"{name} unexpected result: {body}")
     return body
 
 

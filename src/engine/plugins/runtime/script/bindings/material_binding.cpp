@@ -48,12 +48,12 @@ Object.freeze(Material);
 
 Material* material(const Arguments& arguments, int count, std::string& name)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    return mesh != nullptr && arguments.Length() == count && arguments[2]->IsUint32() &&
+    return mesh != nullptr && arguments.count() == count && arguments.is_uint32(2) &&
                    BindingContext::text(arguments, 3, name)
-               ? mesh->material(arguments[2].As<v8::Uint32>()->Value())
+               ? mesh->material(arguments.unsigned_integer(2))
                : nullptr;
 }
 
@@ -61,9 +61,8 @@ void valid(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
     auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    arguments.GetReturnValue().Set(
-        mesh != nullptr && arguments.Length() == 3 && arguments[2]->IsUint32() &&
-        mesh->material(arguments[2].As<v8::Uint32>()->Value()) != nullptr);
+    arguments.set_return(mesh != nullptr && arguments.count() == 3 && arguments.is_uint32(2) &&
+                         mesh->material(arguments.unsigned_integer(2)) != nullptr);
 }
 
 void set_texture(const Arguments& arguments)
@@ -71,23 +70,19 @@ void set_texture(const Arguments& arguments)
     std::string name;
     std::string path;
     auto* value = material(arguments, 5, name);
-    arguments.GetReturnValue().Set(value != nullptr && BindingContext::text(arguments, 4, path) &&
-                                   value->set_texture(name, path));
+    arguments.set_return(value != nullptr && BindingContext::text(arguments, 4, path) &&
+                         value->set_texture(name, path));
 }
 
 void get_texture(const Arguments& arguments)
 {
     std::string name;
     auto* value = material(arguments, 4, name);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     std::string_view path;
-    v8::Local<v8::String> output;
-    if (value != nullptr && value->get_texture(name, path) &&
-        v8::String::NewFromUtf8(arguments.GetIsolate(), path.data(), v8::NewStringType::kNormal,
-                                static_cast<int>(path.size()))
-            .ToLocal(&output))
+    if (value != nullptr && value->get_texture(name, path))
     {
-        arguments.GetReturnValue().Set(output);
+        arguments.set_return(path);
     }
 }
 
@@ -95,14 +90,14 @@ void type(const Arguments& arguments)
 {
     std::string path;
     auto* value = material(arguments, 4, path);
-    arguments.GetReturnValue().Set(value != nullptr && value->set_type(path));
+    arguments.set_return(value != nullptr && value->set_type(path));
 }
 
 void shader(const Arguments& arguments)
 {
     std::string path;
     auto* value = material(arguments, 4, path);
-    arguments.GetReturnValue().Set(value != nullptr && value->set_shader(path));
+    arguments.set_return(value != nullptr && value->set_shader(path));
 }
 
 void set_float(const Arguments& arguments)
@@ -110,9 +105,8 @@ void set_float(const Arguments& arguments)
     std::string name;
     auto* value = material(arguments, 5, name);
     float number = 0.0F;
-    arguments.GetReturnValue().Set(value != nullptr &&
-                                   BindingContext::scalar(arguments, 4, number) &&
-                                   value->set_float(name, number));
+    arguments.set_return(value != nullptr && BindingContext::scalar(arguments, 4, number) &&
+                         value->set_float(name, number));
 }
 
 void set_v2(const Arguments& arguments)
@@ -121,9 +115,9 @@ void set_v2(const Arguments& arguments)
     auto* value = material(arguments, 6, name);
     double x = 0.0;
     double y = 0.0;
-    arguments.GetReturnValue().Set(value != nullptr && BindingContext::number(arguments, 4, x) &&
-                                   BindingContext::number(arguments, 5, y) &&
-                                   value->set_v2(name, Vec2(x, y)));
+    arguments.set_return(value != nullptr && BindingContext::number(arguments, 4, x) &&
+                         BindingContext::number(arguments, 5, y) &&
+                         value->set_v2(name, Vec2(x, y)));
 }
 
 void set_v3(const Arguments& arguments)
@@ -133,10 +127,10 @@ void set_v3(const Arguments& arguments)
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    arguments.GetReturnValue().Set(value != nullptr && BindingContext::number(arguments, 4, x) &&
-                                   BindingContext::number(arguments, 5, y) &&
-                                   BindingContext::number(arguments, 6, z) &&
-                                   value->set_v3(name, Vec3(x, y, z)));
+    arguments.set_return(value != nullptr && BindingContext::number(arguments, 4, x) &&
+                         BindingContext::number(arguments, 5, y) &&
+                         BindingContext::number(arguments, 6, z) &&
+                         value->set_v3(name, Vec3(x, y, z)));
 }
 
 void set_v4(const Arguments& arguments)
@@ -147,7 +141,7 @@ void set_v4(const Arguments& arguments)
     double y = 0.0;
     double z = 0.0;
     double w = 0.0;
-    arguments.GetReturnValue().Set(
+    arguments.set_return(
         value != nullptr && BindingContext::number(arguments, 4, x) &&
         BindingContext::number(arguments, 5, y) && BindingContext::number(arguments, 6, z) &&
         BindingContext::number(arguments, 7, w) && value->set_v4(name, Vec4(x, y, z, w)));
@@ -164,18 +158,13 @@ std::string_view MaterialBinding::source() const noexcept
     return javascript;
 }
 
-bool MaterialBinding::register_functions(v8::Local<v8::Context> context,
-                                         v8::Local<v8::Object> native) const
+bool MaterialBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "MaterialValid", valid) &&
-           BindingContext::function(context, native, "MaterialTexture", set_texture) &&
-           BindingContext::function(context, native, "MaterialGetTexture", get_texture) &&
-           BindingContext::function(context, native, "MaterialType", type) &&
-           BindingContext::function(context, native, "MaterialShader", shader) &&
-           BindingContext::function(context, native, "MaterialFloat", set_float) &&
-           BindingContext::function(context, native, "MaterialV2", set_v2) &&
-           BindingContext::function(context, native, "MaterialV3", set_v3) &&
-           BindingContext::function(context, native, "MaterialV4", set_v4);
+    return vm.function("MaterialValid", valid) && vm.function("MaterialTexture", set_texture) &&
+           vm.function("MaterialGetTexture", get_texture) && vm.function("MaterialType", type) &&
+           vm.function("MaterialShader", shader) && vm.function("MaterialFloat", set_float) &&
+           vm.function("MaterialV2", set_v2) && vm.function("MaterialV3", set_v3) &&
+           vm.function("MaterialV4", set_v4);
 }
 
 } // namespace engine::plugins::script::bindings

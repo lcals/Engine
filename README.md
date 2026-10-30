@@ -14,11 +14,11 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图与脚本执行属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。RmlUi 已支持场景 UI 文档绘制、鼠标键盘输入和控件事件；独立字体系统同时支持 UI 和 3D 曲线文字。完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。RmlUi 已支持场景 UI 文档绘制、鼠标键盘输入和控件事件；独立字体系统同时支持 UI 和 3D 曲线文字。完整编辑器界面尚未实现。桌面编辑器通过脚本插件接入 ES 模块（默认 QuickJS，可编译选择 V8）、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
-Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
+Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；按钮通过 MVC 脚本控制器更新选择 Model 和界面状态，真正场景跳转待场景控制器接入。`assets/scripts/game.ts` 的导出指向 `modules/menu.js`，改为 `modules/minimal.js`、`modules/apartment.js`、`modules/courtyard.js` 或 `modules/font-gallery.js` 后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存并切换，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；四个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -36,9 +36,9 @@ UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElemen
 
 当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及脚本组件和项目场景跳转。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
 
-字体/UI 基础接入已在 macOS Metal 完成 Debug / Release 构建，Debug 相关回归 9/9、Release 全套 CTest 74/74 通过；覆盖多字体、逐字体 Shader、多图片、多个文档同名字体别名隔离、鼠标捕获、输入焦点、3D 文字和停止后的 GPU 资源回收。正式编辑器经 MCP 验证待机、启动菜单、截图、停止恢复待机及有限帧退出。关闭 `font_import` / `ui_import` 后，编辑器与 MCP 仍构建、链接并启动成功；字体解析器仅由编辑器导入插件使用，RmlUi 的默认 FreeType 后端已关闭。 Android ARM64 Debug APK 已在独立 Vulkan 模拟器验证菜单、真实触摸设备事件、Tab 焦点、前后台恢复、120 帧正常退出、重启、MCP 完整资源同步及 3D 文字入口；APK 内不含 FreeType 和两个编辑器导入插件。该基础接入未验证 Android 实体设备、Windows DX12 或 iOS。
+字体/UI 基础接入阶段（V8 后端）已在 macOS Metal 完成 Debug / Release 构建，Debug 相关回归 9/9、Release 全套 CTest 74/74 通过；覆盖多字体、逐字体 Shader、多图片、多个文档同名字体别名隔离、鼠标捕获、输入焦点、3D 文字和停止后的 GPU 资源回收。正式编辑器经 MCP 验证待机、启动菜单、截图、停止恢复待机及有限帧退出。关闭 `font_import` / `ui_import` 后，编辑器与 MCP 仍构建、链接并启动成功；字体解析器仅由编辑器导入插件使用，RmlUi 的默认 FreeType 后端已关闭。 Android ARM64 Debug APK 已在独立 Vulkan 模拟器验证菜单、真实触摸设备事件、Tab 焦点、前后台恢复、120 帧正常退出、重启、MCP 完整资源同步及 3D 文字入口；APK 内不含 FreeType 和两个编辑器导入插件。该基础接入未验证 Android 实体设备、Windows DX12 或 iOS。
 
-2026-10-30 的 UI MVC 绑定验证在 macOS Metal 完成 Debug / Release 构建，两配置全套 CTest 均为 75/75。新增 `engine.ui_script` 使用真实 SDL 输入、V8 和 Metal，覆盖初始化绑定、Model/View 刷新、目标到祖先的冒泡顺序、订阅快照、解绑、文档/控件失效及脚本重载清理；异步事件回调会按脚本错误流程停止。字体/UI GPU 回归增加同 GUID 新旧资源并存与单个 View 替换释放检查。正式编辑器经 MCP 启动 MVC 菜单并截图、停止恢复待机，3600 帧正常退出。TypeScript 检查、154 个 Mermaid 块实际渲染和相关文档链接检查通过。记录保存在忽略的 `build/ui-mvc-*.log` 与 `build/ui-mvc-validation/`，截图在 `projects/showcase/cache/ui-mvc-validation/`；UI MVC 绑定尚未重建或运行 Android APK。
+2026-10-30 的 UI MVC 初次绑定阶段验证在 macOS Metal 完成 Debug / Release 构建，两配置全套 CTest 均为 75/75。新增 `engine.ui_script` 使用真实 SDL 输入、V8 和 Metal，覆盖初始化绑定、Model/View 刷新、目标到祖先的冒泡顺序、订阅快照、解绑、文档/控件失效及脚本重载清理；异步事件回调会按脚本错误流程停止。字体/UI GPU 回归增加同 GUID 新旧资源并存与单个 View 替换释放检查。正式编辑器经 MCP 启动 MVC 菜单并截图、停止恢复待机，3600 帧正常退出。TypeScript 检查、154 个 Mermaid 块实际渲染和相关文档链接检查通过。记录保存在忽略的 `build/ui-mvc-*.log` 与 `build/ui-mvc-validation/`，截图在 `projects/showcase/cache/ui-mvc-validation/`；该次 UI MVC 绑定验证未重建或运行 Android APK。
 
 ## 构建与测试
 
@@ -84,7 +84,7 @@ cmake --workflow --preset ninja-debug
 
 vcpkg 依赖版本由仓库中的 `vcpkg.json` 固定，Git 子模块由仓库提交固定；已有 vcpkg 安装时，直接设置 `VCPKG_ROOT` 即可。首次配置会自动安装所选依赖。
 
-推荐使用 `ninja-debug` / `ninja-release` Preset，构建窗口运行时（不含 V8），三端统一使用 Ninja 并要求可运行的编译缓存工具。`debug` / `release` 使用平台默认生成器。按需启用编辑器、资源管线或 V8；`editor-deps` 同时启用运行时与资源管线。
+推荐使用 `ninja-debug` / `ninja-release` Preset，构建窗口运行时（不包含脚本插件），三端统一使用 Ninja 并要求可运行的编译缓存工具。`debug` / `release` 使用平台默认生成器。按需启用编辑器、资源管线或脚本插件；`editor-deps` 同时启用运行时与资源管线。
 
 ```sh
 git submodule update --init
@@ -93,38 +93,86 @@ cmake --preset asset-pipeline-deps
 cmake --preset editor-deps
 ```
 
-这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译全部非 V8 系统，运行生命周期、依赖链接、命令行，以及 TBB / USD 回归测试：
+这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译编辑器及基础运行时系统，运行生命周期、依赖链接、命令行，以及 TBB / USD 回归测试：
 
 ```sh
 cmake --workflow --preset editor-deps
 cmake --workflow --preset editor-deps-release
 ```
 
-要把所有已选依赖（包括 V8）编译、链接并验证，使用：
+要把完整引擎的已选依赖及默认 QuickJS 脚本插件编译、链接并验证，使用：
 
 ```sh
 cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
-这两个 workflow 包括显式 V8 准备步骤，并启用桌面脚本运行；先按下节准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。启用脚本运行的应用及测试会自动将 `icudtl.dat` 部署到可执行文件旁。
+这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；先按下节准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
 
-依赖安装缓存位于 `build/dependencies/`，按 `runtime`、`editor`、`asset-pipeline`、`base` 四组 feature 隔离；同组 Debug / Release 共用安装目录，避免重复安装。vcpkg 自带二进制缓存继续生效，并保留用户设置的 `VCPKG_BINARY_SOURCES`。删除某个应用构建目录不会清掉这些共享依赖；只修改引擎源码时，无需运行清理依赖或重新准备依赖的命令。
+依赖安装缓存位于 `build/dependencies/`，按 `runtime`、`editor`、`asset-pipeline`、`base` 四组 feature 隔离；Windows 静态预设另用 `build/dependencies/windows-static/`。同组 Debug / Release 共用安装目录，避免重复安装。vcpkg 自带二进制缓存继续生效，并保留用户设置的 `VCPKG_BINARY_SOURCES`。删除某个应用构建目录不会清掉这些共享依赖；只修改引擎源码时，无需运行清理依赖或重新准备依赖的命令。
 
 CMake 通过 `CXX_COMPILER_LAUNCHER` 等目标属性接入缓存，覆盖引擎、自有测试与 ozz；Windows 优先查找 sccache，其他宿主优先查找 ccache，也可用 `ENGINE_COMPILER_CACHE_PROGRAM` 指定可执行文件。已有 `CMAKE_CXX_COMPILER_LAUNCHER` 设置优先保留。Windows 缓存目标使用 `/Z7` 将调试信息放入对象文件，避免共享编译 PDB 阻止命中。用 `ccache --show-stats` 或 `sccache --show-stats` 查看实际命中。
 
 该机制适用于 Makefiles / Ninja，Visual Studio 生成器不支持此启动器属性；`ninja-*` 预设要求缓存工具存在且可执行，缺失时提示运行环境安装脚本。需要显式关闭时同时传入 `-DENGINE_REQUIRE_COMPILER_CACHE=OFF -DENGINE_USE_COMPILER_CACHE=OFF`。配置缓存 `CMakeCache.txt` 不等于对象文件缓存，Debug / Release 的不同编译选项仍分别缓存。对应机制见 [CMake 启动器文档](https://cmake.org/cmake/help/latest/prop_tgt/LANG_COMPILER_LAUNCHER.html)和 [sccache 的 CMake / MSVC 说明](https://github.com/mozilla/sccache#usage)。
 
-ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以及副本缺失时更新；内容相同的文件保留时间戳，无变化构建不重复运行准备。V8 使用独立 GN 工具链及成功构建缓存，不经过 CMake 的编译启动器：校验固定源码、补丁、平台 / SDK / 工具链和 GN 参数后，Debug / Release 分别复用已验证的库和头文件；命中时跳过同步、GN、Ninja 与归档合并。缺失产物或输入变化会使缓存失效，失败的构建不会留下成功标记。V8 自带的固定版本 Ninja 保持独立，不替换为环境安装的版本。
+ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以及副本缺失时更新；内容相同的文件保留时间戳，无变化构建不重复运行准备。仅选择 V8 时使用独立 GN 工具链及成功构建缓存，不经过 CMake 的编译启动器：校验固定源码、补丁、平台 / SDK / 工具链和 GN 参数后，Debug / Release 分别复用已验证的库和头文件；命中时跳过同步、GN、Ninja 与归档合并。缺失产物或输入变化会使缓存失效，失败的构建不会留下成功标记。V8 自带的固定版本 Ninja 保持独立，不替换为环境安装的版本。
 
 第三方本地补丁放在 `third_party/`，构建前的覆盖流程见[开发与第三方依赖](docs/development.md)。
+
+Windows 本机兼容修复包括 UTF-8 入口和 Shader 工具、MSVC/Ninja 诊断缓存、DX12 压缩纹理小 mip 与字体 Shader 布局，以及 SDL 只读共享和原子替换。CRT 断言和 abort 输出到 stderr，失败仍返回非零状态。
+
+Windows 静态构建使用 `windows-static-debug` / `windows-static-release` 预设，选择 `x64-windows-static` 依赖及 `/MTd` / `/MT` CRT，构建并行度为 16，脚本默认使用 QuickJS；对应的 `windows-static-debug-prepare` / `windows-static-release-prepare` 调用统一脚本准备入口。选择 V8 时使用 `windows-static-v8-debug` / `windows-static-v8-release` 及各自 `-prepare` 预设，V8 并行度同为 16。先完成环境与项目 TypeScript 依赖准备，再在仓库根目录的 Developer PowerShell 执行：
+
+```powershell
+cmake --preset windows-static-release
+cmake --build --preset windows-static-release-prepare
+cmake --build --preset windows-static-release
+ctest --preset windows-static-release
+cmake --build --preset windows-static-release --target engine_export
+.\build\windows-static-release\editor_app.exe --project .\projects\showcase
+.\output\windows\x64\release\runtime\engine-showcase.exe
+```
+
+Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `output/windows/x64/release/runtime/`，其中包含 `engine-showcase.exe`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件。默认构建不部署 ICU 数据。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+
+V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation（包括 Windows ETW），保留 Sparkplug、Maglev、TurboFan 等 JIT、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`，全部默认 OFF。项目脚本不能使用已关闭的全局 API；默认没有 ICU 资源部署。裁剪参数参与缓存身份，精简归档与头文件存放在带 `-f0000` 的独立目录；此前完整配置的缓存保留。
+
+Windows 修复分支此前的验证记录（2026-10-30，本轮未重新执行 Windows）：x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
 
 依赖维护需保留以下兼容约束：
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
-- Android SDL3 使用共享库并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
+- Android SDL3 静态合入 `libmain.so` 并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
-- USD 插件资源在 Windows 位于对应配置的 `bin/usd/*/resources/`，macOS 位于 `lib/usd/*/resources/`；测试按构建配置设置 `PXR_PLUGINPATH_NAME`。TBB / USD 回归同时检查数据保存、加载和正常退出。
+- USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；现有 USD 测试按配置使用 SDK 或本地部署的数据。TBB / USD 回归同时检查数据保存、加载和正常退出。
+
+### 交付目录
+
+编译目录 `build/` 保留增量缓存、静态库和调试符号；最终交付物放在仓库根 `output/<platform>/<arch>/<debug|release>/`，其中 `editor/` 为桌面编辑器，`runtime/` 为项目运行包。`output/` 不提交 Git。依赖尽量静态合入程序，这与“把所有依赖改成动态库”不同。
+
+macOS 与 Windows 静态预设提供 `engine_editor_export`、`engine_project_export` 和合并目标 `engine_export`。例如 macOS 在完成根 Preset 的依赖准备和构建后执行：
+
+```sh
+cmake --preset macos-native-release
+cmake --build --preset macos-native-release-prepare
+cmake --build --preset macos-native-release --target engine_export
+```
+
+`ENGINE_EXPORT_PROJECT`、`ENGINE_EXPORT_MANIFEST`、`ENGINE_EXPORT_PRODUCT` 分别指定项目、资源构建清单和产品名，默认使用 showcase。运行资源按清单增量构建，复制后再次检查目录及实体，再替换输出；失败保留上一版，回滚失败保留备份并报告路径。
+
+- Windows：`output/windows/x64/release/runtime/engine-showcase.exe`；编辑器为相邻 `editor/engine-editor.exe`，使用静态依赖和 CRT。
+- macOS ARM64 默认原生模式：`output/macos/arm64/release/runtime/engine-showcase`；编辑器为相邻 `editor/editor_app`，直接从终端运行。必要私有库放 `lib/`，离线导入工具放 `tools/`，不经过 `.app` 安装或交互签名流程。`macos-native-debug` / `macos-native-release` 预设显式固定此模式；其他 Mac 桌面预设也默认 `ENGINE_MACOS_APP_BUNDLE=OFF`。
+- Android ARM64：`output/android/arm64/<debug|release>/runtime/engine-showcase.apk`；原生部分仅一个 `libmain.so`。APK 继续使用测试签名。
+
+原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 位于程序旁；默认不包含 ICU 数据。可选 `.app` 模式将它们放在 `Contents/Resources/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux / iOS 暂未提供或验证上述导出入口。
+
+编辑器导出包含 Shader 编译器、Node.js、引擎声明、Schema 和固定版本的 TypeScript。导入优先使用项目安装的 TypeScript；项目未安装时，只有声明版本与随包版本一致才使用随包编译器。部署目录存在但工具缺失会报告失败，避免意外借用构建电脑的工具。资源运行包不包含这些编辑器工具。
+
+macOS 编辑器的 `lib/` 同时包含 USD 导入所需的 `libusd_*` / TBB，以及随包 Node.js 工具的依赖。当前 Node.js 使用 `libnode`、`libicu*`、SSL 等动态库；这些属于离线 TypeScript 编译工具，不是引擎脚本 VM 的依赖，不受 `ENGINE_SCRIPT_BACKEND` 切换影响，也不进入项目运行包。引擎默认不部署的 `icudtl.dat` 与 Node.js 的 ICU 动态库需要区分。
+
+跨平台交付阶段的 Mac 复核（提交 `57f8bf6`，当时使用 V8）完成 Debug / Release CTest 各 78/78。原生运行包搬迁后以受限 PATH 完成 Metal 菜单及 120 帧退出；编辑器搬迁后，在无项目 node_modules 的独立项目中实际导入 TypeScript、Shader 和 USD，再运行 120 帧退出。可选 `.app` 内置资源直接读取及 120 帧退出、原生与应用包的 USD 注册和私有动态依赖闭包均通过。该阶段仅审查 Windows 代码及跨平台构建契约，未在 Windows 设备重跑。
+
+同一跨平台交付阶段的 V8 Android Debug / Release APK 均通过单 `libmain.so`、系统动态依赖、签名、ZIP / ELF 16 KiB 对齐及 1134 项资源完整性检查。在独立 API 34 ARM64 软件 Vulkan 模拟器上，两配置已验证菜单、四场景进入并返回、键盘焦点、前后台同进程恢复、120 帧正常退出和 V8 执行。最终 Release 包重新完成上述全流程；最终 Debug 包在此前全流程基础上复核安装哈希、菜单和有限帧退出。Android 预设显式装配角色控制器，避免旧 CMake 缓存遗漏插件导致庭院加载失败。日志、截图及安装哈希回执保存在忽略的 `build/windows-cross-platform-review/`；未验证 Android 实体设备或 16 KiB 页设备。
 
 ### 插件选择
 
@@ -138,17 +186,49 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，同时要求启用 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，默认选择 QuickJS，显式传入 `-DENGINE_SCRIPT_BACKEND=v8` 才选择 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
 
-脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、V8 执行和逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接 V8，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。当前宿主的 `save_scene` 命令需同时启用资源管线与建模插件；关闭建模插件后仍支持普通 Mesh 导入。
+脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、编译期选定的虚拟机执行与共享逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接脚本虚拟机，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。当前宿主的 `save_scene` 命令需同时启用资源管线与建模插件；关闭建模插件后仍支持普通 Mesh 导入。
 
 MCP 在电脑端经 adb 同步 Android 调试包，设备端不运行 MCP；正式游戏不链接建模、MCP 或编辑器构建/同步工具。仅开启运行时和脚本不会默认启用资源同步插件；默认同步插件还要求编辑器或资源管线能力。未来设备调试插件必须按构建用途区分正式运行与调试运行，不能仅靠程序中的运行开关隐藏调试接口。这些开关是构建期选择，不表示支持 C++ 插件热插拔。
 
 CMake 的其余职责分别位于 `install/`、`dependencies/`、`core/`、`editor/`、`platforms/`。新增插件在自己的声明文件维护源码，不向核心中央清单追加业务文件。
 
+### 脚本后端选择
+
+`ENGINE_SCRIPT_BACKEND` 只能设为 `quickjs` 或 `v8`，默认 `quickjs`。这是编译期互斥选择：脚本目标只定义 `ENGINE_SCRIPT_BACKEND_QUICKJS` 或 `ENGINE_SCRIPT_BACKEND_V8`，只加入对应适配源码和库，不提供运行时切换，不把两套虚拟机装进同一产物。具体 VM 的头文件和句柄限于脚本插件内部，逐类绑定通过同一个 [ScriptVm](docs/plugins/runtime/class-diagrams/script-vm.md) 接口工作；Gameplay 生命周期、UI MVC、资源快照及热重载共用实现。
+
+| 用途 | 默认 QuickJS 预设 | 显式 V8 预设 |
+| --- | --- | --- |
+| 完整桌面引擎 | `ninja-engine-debug/release` | `ninja-engine-v8-debug/release` |
+| macOS 原生交付 | `macos-native-debug/release` | `macos-native-v8-debug/release` |
+| Windows 静态交付 | `windows-static-debug/release` | `windows-static-v8-debug/release` |
+| Android ARM64 | `android-arm64-debug/release` | `android-arm64-v8-debug/release` |
+
+表中的 `debug/release` 表示两个独立预设。每个脚本宿主构建的 `-prepare` 预设统一调用 `engine_script_prepare`：QuickJS 由所选 `quickjs` vcpkg feature 在配置阶段安装，准备目标无需额外工作；V8 才触发 GN 准备。QuickJS 不查找、准备或链接 V8/ICU，V8 不加入 QuickJS feature。未选择 `runtime/script` 时不因默认后端值引入 VM。建议使用独立预设保留两种构建缓存；切换现有配置时须重新 configure，不能只改 C++ 宏。
+
+例如选择 V8 完整桌面构建：
+
+```sh
+cmake --preset ninja-engine-v8-debug
+cmake --build --preset ninja-engine-v8-debug-prepare
+cmake --build --preset ninja-engine-v8-debug
+ctest --preset ninja-engine-v8-debug
+```
+
+QuickJS 使用固定的 quickjs-ng 0.10.1 vcpkg port；其编译期模块图检查扩展由 `third_party/overlay-ports/quickjs-ng/` 的补丁维护，不修改上游安装目录。首次安装按 vcpkg 二进制缓存复用，日常代码修改不重新下载或准备依赖。两个后端均只运行项目 JavaScript，不加载 Node.js；模块预检不执行顶层代码，活动与候选 Run 的 VM、模块和 Promise 队列独立。顶层 await 与动态 import 不在当前同步契约内。
+
+本轮 QuickJS 验证（2026-10-30）：Mac Release 全量 CTest 77/77；Debug 77 项均已通过，其中 MCP 传输测试在并行重编和模拟器负载下两次超过原有 60 秒限制，停止重编后单独复跑在 47.75 秒通过，未放宽超时。最后的模块路径补丁另在两配置通过脚本、UI、动画、项目生命周期、插件选择和架构边界回归。覆盖循环模块、缺失导出、顶层 await 预检、拒绝动态 import、Promise 清理、BigInt 身份及 NUL 路径。默认原生运行包和编辑器搬迁到中文路径、限制 PATH 后均运行 120 帧正常退出，主程序符号确认只有 QuickJS，无 V8 或 ICU 数据。
+
+Mac 裁剪 V8 Debug / Release 均完成真实宿主链接，并通过 `engine.v8`、`engine.script_runtime`、`engine.ui_script`、`engine.model_animation_script` 四项定向回归；独立上游验证还覆盖 V8 缓存和插件选择。两配置运行包均从搬迁目录直接读取独立资源，启动菜单后运行 120 帧正常退出；未链接 QuickJS，未生成或部署 ICU 数据。Release 同项目主程序大小为 QuickJS 12,059,888 字节、V8 45,769,024 字节，独立资源另计。这些是本次构建结果，不是性能测试。
+
+Android QuickJS Debug / Release 最终 APK 均验证唯一 `libmain.so`、系统动态依赖、签名、ZIP / ELF 16 KiB 对齐和 1134 项运行资源。最终 Release 在独立 API 34 ARM64 软件 Vulkan 模拟器完成四场景进入/返回、键盘焦点、同进程前后台恢复和 120 帧正常退出；Debug 先完成全流程，更新模块路径补丁后的最终包再次核对安装哈希、菜单及 120 帧退出。APK 分别为 51,341,503 / 31,951,764 字节，不包含 V8/ICU；这些大小包含相同项目资源，不代表 VM 库本身体积。证据保留在忽略的 `build/quickjs-validation/`。本轮未在 Windows、Linux、iOS、Android 实体机或 16 KiB 页设备重新运行；统一配置不等于这些设备已经验证。
+
+按用户要求，后续验证已停止。裁剪 V8 的 Android 配置已生成，但首次依赖编译未完成，本轮没有该组合的 APK 运行结果；已完成的 QuickJS Android 和两种 VM 的 Mac 结果不受影响。
+
 ### V8 依赖
 
-桌面基础预设不启用 V8，完整引擎及 Android 预设启用。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
+只有显式选择 V8 后端或启用独立 V8 验证才准备 V8。`v8-debug/release` 用于单独验证上游嵌入库，不装配脚本插件，因此其 `v8-prepare-debug/release` 保留专用 `engine_v8_prepare` 目标。初始化子模块、设置 `VCPKG_ROOT` 后，在原生 x64 或 macOS ARM64 平台显式执行：
 
 ```sh
 cmake --preset v8-release
@@ -156,6 +236,7 @@ cmake --build --preset v8-prepare-release
 cmake --build --preset v8-release
 ctest --preset v8-release
 cmake --preset v8-debug
+cmake --build --preset v8-prepare-debug
 cmake --build --preset v8-debug
 ctest --preset v8-debug
 ```
@@ -166,9 +247,9 @@ Windows 使用本机 VS 2022 C++ 工具链和 Windows SDK 10.0.26100.0，SDK 需
 
 macOS 使用本机 Xcode SDK 与链接器，Clang、Rust 仍由固定 V8 `DEPS` 提供。与 Windows 相同，嵌入库保留宿主的 `malloc/new`，关闭全局 allocator shim。为兼容系统 SDK，GN 关闭显式 Clang 模块并使用 Xcode 链接器；当下载的 Clang 包缺少 `libLTO.dylib` 时，构建副本中的兼容补丁通过 `xcrun` 选择现有 Xcode 库，并让 Rust 编译期宏使用同一链接包装器。另为 SDK 27 的 C++20 数学头补充缺失的 `INFINITY` / `NAN` 宏，并在编译器不支持 `stack_protector_ignore` 时，仅在 V8 的 signpost 调用处忽略该属性诊断。
 
-下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，以匹配本项目 `/MDd` / `/MD`；关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，检查 Intl 格式化和 Temporal 日期及时区运算。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。嵌入 V8 的程序需要将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
+下载、源码副本、Git 配置和编译产物均位于忽略的 `build/v8/`，不会修改 `third_party/v8/` 或用户全局 Git 配置。Windows 源码副本应用仓库保存的兼容补丁，按 `CMAKE_MSVC_RUNTIME_LIBRARY` 匹配 `/MDd` / `/MD` 或 `/MTd` / `/MT`；静态 CRT 使用独立的 `out/engine.mt-debug`、`out/engine.mt-release` 和头文件缓存，不覆盖动态 CRT 产物。两种配置均关闭全局 allocator shim，保留宿主 CRT 分配器。桌面构建同时运行上游嵌入样例；`engine.v8` CTest 通过 CMake 的 `engine::v8` 目标执行 JavaScript，验证共享内存、按配置启用的 Intl/Temporal/WebAssembly，或确认关闭的能力确实不存在。Android 交叉编译只构建上游样例，执行验证放到目标设备上的 APK 测试中，不在宿主运行 Android 程序。启用国际化时，将 `ENGINE_V8_ICU_DATA` 指向的 `icudtl.dat` 复制到程序旁，测试目标已自动部署；关闭时不需要 ICU 数据。使用 `symbol_level=0` 控制产物体积，Debug 保留 V8 断言但不生成完整调试符号。
 
-GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。原 GN 库和上游样例保留，Temporal 功能未禁用。
+GN 的 monolith 未收集隐式 Rust 归档。`cmake/dependencies/package_v8.cmake` 按 GN 实际依赖清单额外合并 Rust 与 Clang 运行库，生成 `engine_v8.lib`（Windows）或 `libengine_v8.a`；macOS 先从 Clang 通用运行库提取本机架构的副本，再合并归档。`engine::v8` 自动使用这个完整嵌入库，并在 macOS 传递 Foundation、CoreFoundation 和 Security 框架依赖。关闭 Temporal 时允许 GN 不生成 Rust 归档；启用时仍校验完整依赖。原 GN 库和上游样例保留。
 
 macOS 的 `macos-system-lto-library.patch` 与 `macos-system-math.patch` 适用于固定 Chromium build 提交 `81330a6e45719ab8c0d22e5548afbedb5482b068`，`macos-signpost-attribute.patch` 适用于固定 V8 源码。同步依赖前撤回已知补丁，同步后重新应用；缓存命中时不改写源码。升级工具链后，分别验证 LTO 库选择、SDK 数学宏和 signpost 属性，再移除对应补丁，不能只因版本变化而删除兼容处理。
 
@@ -221,7 +302,7 @@ ctest --preset ninja-debug
 
 ### 桌面脚本与同步
 
-桌面编辑器与 Android 共用运行时脚本和热重载实现。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入 V8 玩法环境。先安装项目锁定的 TypeScript，再构建完整引擎预设：
+桌面编辑器与 Android 共用运行时脚本和热重载实现。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入玩法虚拟机。先安装项目锁定的 TypeScript，再构建完整引擎预设：
 
 ```sh
 npm ci --prefix projects/showcase/settings
@@ -237,9 +318,9 @@ cmake --workflow --preset ninja-engine-release
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
-编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/main.scene")`，从 FlatBuffers 缓存恢复方块、相机和方向光三个节点，停止时释放场景及本次运行 GPU 资源。
+编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/launcher.scene")`，显示可进入四个场景的菜单，停止时释放场景及本次运行 GPU 资源。
 
-编辑器运行时，在另一终端修改 `projects/showcase/assets/scripts/game.ts`，然后执行：
+编辑器运行时，若在另一终端修改了项目源脚本或其他资源，可执行：
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
@@ -290,7 +371,7 @@ export default class Game extends Gameplay {
 
 文件读取统一通过 SDL3 同步接口，单实体上限 64 MiB；资源目录最多 65536 项，合并包按成员范围读取，不要求整包进入内存；脚本源码及部署控制 JSON 文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。
 
-MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及其他普通资源；按 GUID 将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；它决定 `runtime/script` 的默认选择，显式插件清单优先；关闭插件后核心和宿主不链接 V8。单独开启 V8 依赖时由独立测试验证上游库，不创建伪脚本系统。Android 传输使用 adb，具体命令如下。
+MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及其他普通资源；按 GUID 将完整版本发布到本机或 Android Debug 包的持久目录，通过 `script-control.json` / `script-status.json` 控制引擎；不提供独立网络服务或差量同步。`ENGINE_ENABLE_SCRIPT_RUNTIME` 在完整桌面和 Android 预设均开启；它决定 `runtime/script` 的默认选择，显式插件清单优先；关闭插件后核心和宿主不链接脚本虚拟机。单独开启 V8 依赖时由独立测试验证上游库，不创建伪脚本系统。Android 传输使用 adb，具体命令如下。
 
 ### 渲染与项目控制
 
@@ -564,28 +645,28 @@ python3 scripts/build_android.py --config debug --project projects/showcase --as
 python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
 ```
 
-包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
+Android 默认使用 QuickJS；脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`（`engine_script_prepare`）、build Preset，再打包。传入 `--backend v8` 使用独立 `android-arm64-v8-debug` / `android-arm64-v8-release` 预设，不混用后端缓存。V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。产物为 `output/android/arm64/debug/runtime/engine-showcase.apk` 和 `output/android/arm64/release/runtime/engine-showcase.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
 
-两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
+两种 APK 内均只有 `lib/arm64-v8a/libmain.so`，SDL3、所选 QuickJS 或 V8、引擎及 NDK C++ 运行库静态链接在其中；Java 只加载 `main`，链接器显式保留 SDL 的 `JNI_OnLoad`。Gradle 去除原生库调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在对应构建目录的 `libmain.so`（默认 `build/android-arm64-debug/libmain.so`），可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
 脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：项目有 `settings/resource-build-android.toml` 时按该清单构建固定子集，读取构建回执的输出目录；没有该清单时沿用 `--target android` 导入模式。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
-Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
+Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和所选脚本后端的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
-V8 使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 `libc++_shared.so`；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
+选择 V8 时使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 libc++ ABI，由 `c++_static` 将 C++ 运行库合入最终产物；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
 
-APK 包含 `assets/v8/icudtl.dat`、`assets/project/` 下的编译资源和 `assets/project-manifest.json` 完整清单；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；ICU 根据内容复用应用临时缓存中的副本，JS 直接通过 SDL 读取 APK。
+APK 包含 `assets/project/` 下的编译资源和 `assets/project-manifest.json` 完整清单；默认 QuickJS 及裁剪 V8 均不包含 `icudtl.dat`；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；JS 直接通过 SDL 读取 APK，不在启动时解压运行资源。
 
-可选 V8 嵌入测试，ICU 副本写入应用 `cache/v8-smoke/`，在新的 SDL 进程执行 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换、Intl，以及 Temporal 的日期和时区运算。固定 V8 版本的 Temporal 测试显式启用 `--harmony-temporal`；这不增加脚本系统的公开接口。
+V8 构建才链接可选嵌入测试，在新的 SDL 进程验证 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换，并确认默认关闭的 Intl、Temporal、WebAssembly 不存在。QuickJS 包不包含 V8 测试主体；请求该测试时明确报告后端不匹配。这不增加脚本系统的公开接口。
 
 复用已有 ARM64 Android 模拟器，明确指定其序列号后安装和启动：
 
 ```sh
-adb -s emulator-5580 install -r build/apk/engine-arm64-debug.apk
+adb -s emulator-5580 install -r output/android/arm64/debug/runtime/engine-showcase.apk
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity
 # 有限帧运行，完成后正常退出 Activity。
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ei frames 120
-# 在新进程中运行 APK 内的 V8 验证；EngineV8 日志应逐项报告 PASS。
+# 仅在安装 --backend v8 构建的 APK 后运行；EngineV8 日志应逐项报告 PASS。
 adb -s emulator-5580 shell am force-stop org.engine.minimal
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v8_smoke true
 ```
@@ -598,7 +679,7 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 | -------------------- | ------------------------------------------------------------ |
 | `builtinAssetsPath`  | `apk:/assets/project`，由 ResourceSystem 读取 APK 的逻辑路径 |
 | `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留      |
-| `cachePath`          | 应用私有 `cache/`，可重建的 ICU 等临时数据                   |
+| `cachePath`          | 应用私有 `cache/`，存放可重建的临时数据                   |
 
 先启动 Debug APK，让引擎创建状态和内置清单。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
 
@@ -642,7 +723,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-10-30，物理、音频、模型导入、动画和角色控制器已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-10-30，以下表格保留各功能阶段的验证范围；最新跨平台交付验证见[交付目录](#交付目录)。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
 | 环境 | 已验证范围 |
 | --- | --- |
@@ -675,7 +756,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 
 限制：
 
-- Android APK 均为本机调试签名。16 KiB ZIP 对齐通过，但 SDL3 ELF LOAD 仍为 4 KiB 对齐，不能据此宣称支持完整的 16 KiB 内存页设备。
+- Android APK 均为本机调试签名。当前单 `libmain.so` 包的 ZIP 与 ELF LOAD 16 KiB 对齐检查通过；尚未在 16 KiB 内存页设备上运行验证。
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
@@ -720,7 +801,12 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 | `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 开启运行时依赖时为 `resource_graph`，否则为空；分号分隔，支持显式空列表 |
 | `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
-| `ENGINE_ENABLE_V8`                  | `OFF`      | 启用显式准备的 V8 monolith、构建目标与嵌入测试                                                |
+| `ENGINE_ENABLE_V8` | `OFF` | 未装配脚本插件时启用独立 V8 验证；脚本插件由 `ENGINE_SCRIPT_BACKEND` 决定依赖 |
+| `ENGINE_SCRIPT_BACKEND` | `quickjs` | 脚本插件编译期后端，只接受 `quickjs` 或 `v8` |
+| `ENGINE_V8_ENABLE_WEBASSEMBLY` | `OFF` | V8 WebAssembly，全部平台默认裁剪 |
+| `ENGINE_V8_ENABLE_I18N` | `OFF` | V8 Intl/ICU，默认不部署 ICU 数据 |
+| `ENGINE_V8_ENABLE_TEMPORAL` | `OFF` | V8 Temporal，全部平台默认裁剪 |
+| `ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION` | `OFF` | V8 系统 instrumentation，全部平台默认裁剪 |
 | `ENGINE_ENABLE_SCRIPT_RUNTIME`      | `OFF`      | 默认选择运行时 script 插件；显式插件清单优先，完整桌面 engine 及 Android 预设开启 |
 
 作为 `add_subdirectory()` 子项目使用时，应用与测试默认关闭。使用 Engine 与系统基类时链接 `engine::core`；使用 RuntimeHost 装配运行时时启用运行时并链接 `engine::runtime`；可选插件由宿主另行链接及初始化。各系统也提供单独目标，例如 `engine::project`、`engine::render`；目标统一传递 `include/engine/` 搜索根，调用方使用 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开头的头文件路径。Preset 用于独立开发，会显式开启对应系统与测试。

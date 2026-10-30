@@ -1,11 +1,13 @@
 include_guard(GLOBAL)
+include("${PROJECT_SOURCE_DIR}/cmake/platforms/target_options.cmake")
 
 function(engine_apply_options target)
     set_target_properties(${target} PROPERTIES CXX_EXTENSIONS OFF)
     engine_apply_compiler_cache(${target})
+    engine_apply_platform_options(${target})
 
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive- /EHs-c-)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /EHs-c- /utf-8)
         target_compile_definitions(${target} PRIVATE _HAS_EXCEPTIONS=0)
         if(ENGINE_WARNINGS_AS_ERRORS)
             target_compile_options(${target} PRIVATE /WX)

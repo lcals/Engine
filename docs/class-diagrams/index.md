@@ -116,7 +116,7 @@ MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与�
 | ------ | ----------------------------------------------- | ------------------------------------------------- |
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
 | 编辑器基础 | `docs/editor/`、`docs/editor/class-diagrams/` | 项目环境、资源管线、Task 与通用主线程命令 |
-| 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图、V8 脚本与逐类绑定、可选角色控制器 |
+| 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图、脚本虚拟机与逐类绑定、可选角色控制器 |
 | 编辑器插件 | `docs/plugins/editor/`、对应 `class-diagrams/` | 完整建模、完整 MCP、资源构建与同步、模型、字体与 UI 导入 |
 
 头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。核心不引用具体插件，运行时插件不反向依赖编辑器；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
@@ -142,7 +142,9 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | 4    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
 | 5    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
 | 6    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
-| 7    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
+| 7    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | QuickJS/V8 编译期二选一；宿主通过核心工厂装配 |
+
+[虚拟机中间层](../plugins/runtime/class-diagrams/script-vm.md)维护单后端构建和每 Run 环境；[逐类绑定](../plugins/runtime/class-diagrams/script-bindings.md)在两种后端间共用，不向核心增加虚拟机类型。
 
 ## 宿主模块
 

@@ -4,12 +4,15 @@ import importlib.util
 import json
 from pathlib import Path
 import subprocess
+import sys
 import struct
 import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
 SPEC = importlib.util.spec_from_file_location(
     "prepare_android_assets", ROOT / "scripts/prepare_android_assets.py"
 )
@@ -132,7 +135,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
         build = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(build)
         with tempfile.TemporaryDirectory(prefix="engine-android-command-") as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             sdk = root / "sdk"
             sdk.mkdir()
             (sdk / "source.properties").write_text("Pkg.Revision = 27.2.12479018\n")
@@ -148,7 +151,9 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                 if ":app:assembleDebug" in command:
                     apk = root / "build/android-gradle/debug/outputs/apk/debug/app-debug.apk"
                     apk.parent.mkdir(parents=True)
-                    apk.write_bytes(b"fixture apk")
+                    with zipfile.ZipFile(apk, "w") as archive:
+                        archive.writestr("lib/arm64-v8a/libmain.so", b"fixture ELF")
+                        archive.writestr("assets/project/catalog.bin", b"fixture catalog")
 
             with (
                 mock.patch.object(build, "ROOT", root),
@@ -201,6 +206,20 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
 
     def tearDown(self):
         self.temporary.cleanup()
+
+    def test_revision_change_during_copy_is_rejected(self):
+        copy = PACK.copy_asset
+
+        def changed(source, destination, relative, limit):
+            if relative == "catalog.bin":
+                source.write_bytes(
+                    source.read_bytes().replace(b"fixture-guid-catalog", b"changed-guid-catalog")
+                )
+            return copy(source, destination, relative, limit)
+
+        with mock.patch.object(PACK, "copy_asset", side_effect=changed):
+            with self.assertRaisesRegex(ValueError, "catalog 发生变化"):
+                self.prepare()
 
     def write_resources(self, target="android"):
         carriers = {}

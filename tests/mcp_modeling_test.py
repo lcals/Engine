@@ -7,7 +7,7 @@ import tempfile
 import tomllib
 
 from editor_lifecycle_test import launch, prepare_project, read_json, terminate, tool, wait_for
-from script_tooling_test import call, contents, invoke, require, resource_payload
+from script_tooling_test import require, resource_payload
 
 
 def test(editor, mcp, root, temporary):
@@ -29,31 +29,12 @@ def test(editor, mcp, root, temporary):
         identity = {"sceneId": scene["sceneId"]}
 
         def command(name, arguments, expect_error=False):
-            # A long editor operation may return isError with a durable pending receipt.
-            # Poll that identity; resubmitting the operation could save or edit twice.
-            reply = invoke(mcp, project, runtime, [call(name, arguments)])[0]
-            require("result" in reply, f"{name} protocol failure: {reply}")
-            receipt = contents(reply)
-            if receipt.get("activation") == "pending":
-                request = {"session": receipt["session"], "requestId": receipt["requestId"]}
-
-                def completed():
-                    polled = tool(mcp, project, runtime, "get_editor_receipt", request)
-                    require(
-                        all(polled.get(key) == value for key, value in request.items()),
-                        "polled a different editor request",
-                    )
-                    return polled if polled.get("activation") == "completed" else None
-
-                receipt = wait_for(process, completed, f"{name} original receipt", timeout=60)
-            else:
-                require(
-                    reply["result"].get("isError", False) is expect_error,
-                    f"{name} unexpected result: {receipt}",
-                )
+            receipt = tool(mcp, project, runtime, name, arguments, expect_error)
             require(receipt.get("activation") == "completed", f"pending command: {receipt}")
-            require(receipt.get("projectRoot") == str(project.resolve()), "wrong project")
-            require(receipt.get("runtimeDir") == str(runtime.resolve()), "wrong editor runtime")
+            require(receipt.get("projectRoot") == project.resolve().as_posix(), "wrong project")
+            require(
+                receipt.get("runtimeDir") == runtime.resolve().as_posix(), "wrong editor runtime"
+            )
             require(receipt.get("success") is (not expect_error), f"failed command: {receipt}")
             return receipt.get("result")
 
@@ -122,7 +103,10 @@ def test(editor, mcp, root, temporary):
         require(command("modeling_get", target)["faces"] == restored["faces"], "failed edit mutated model")
         command("modeling_save", target | {"path": "models/mcp-cube.mesh"})
         source = project / "assets/models/mcp-cube.mesh"
-        require(source.is_file() and "flatbuffers-hex" in source.read_text(), "source data not saved")
+        require(
+            source.is_file() and "flatbuffers-hex" in source.read_text(encoding="utf-8"),
+            "source data not saved",
+        )
         command("modeling_save", target | {"path": "../escape.mesh"}, True)
         command("modeling_load", identity | {"path": "models/mcp-cube.mesh", "name": "Reloaded cube"})
         models = command("modeling_get", identity)["models"]
@@ -150,7 +134,9 @@ def test(editor, mcp, root, temporary):
         screenshot = project / "cache/screenshots/mcp-modeling.png"
         queued = command("capture_frame", {"path": "screenshots/mcp-modeling.png"})
         require(queued.get("state") == "pending", "screenshot request must report queued work")
-        require(queued.get("path") == str(screenshot.resolve()), "wrong screenshot destination")
+        require(
+            queued.get("path") == screenshot.resolve().as_posix(), "wrong screenshot destination"
+        )
 
         def screenshot_complete():
             current = command("get_frame_capture", {})

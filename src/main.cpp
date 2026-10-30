@@ -70,7 +70,11 @@ int main(int argc, char* argv[])
         }
     }
 #if ENGINE_HAS_APP_SERVICES
-    if (!engine::App::initialize(engine::AppConfig{}))
+    engine::AppConfig app_config{};
+#if defined(ENGINE_PROJECT_APPLICATION_NAME)
+    app_config.application_name = ENGINE_PROJECT_APPLICATION_NAME;
+#endif
+    if (!engine::App::initialize(app_config))
     {
         engine::LogSystem::write(engine::LogLevel::error, "Application path initialization failed");
         return 1;

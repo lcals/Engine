@@ -67,17 +67,17 @@ Object.freeze(AudioSource);
 
 AudioSource* audio_source(const Arguments& arguments, int count)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.Length() == count ? node->get_component<AudioSource>()
-                                                          : nullptr;
+    return node != nullptr && arguments.count() == count ? node->get_component<AudioSource>()
+                                                         : nullptr;
 }
 
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<AudioSource>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<AudioSource>() != nullptr);
 }
 
 void clip(const Arguments& arguments)
@@ -86,7 +86,7 @@ void clip(const Arguments& arguments)
     std::string path;
     if (value != nullptr && BindingContext::text(arguments, 2, path))
     {
-        arguments.GetReturnValue().Set(value->set_clip(path));
+        arguments.set_return(value->set_clip(path));
     }
 }
 
@@ -98,7 +98,7 @@ void set_scalar(const Arguments& arguments, float schema::AudioSourceDataT::* fi
     {
         auto settings = value->settings();
         settings.*field = number;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -115,11 +115,11 @@ void pitch(const Arguments& arguments)
 void set_boolean(const Arguments& arguments, bool schema::AudioSourceDataT::* field)
 {
     auto* value = audio_source(arguments, 3);
-    if (value != nullptr && arguments[2]->IsBoolean())
+    if (value != nullptr && arguments.is_boolean(2))
     {
         auto settings = value->settings();
-        settings.*field = arguments[2]->IsTrue();
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        settings.*field = arguments.boolean(2);
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -149,38 +149,38 @@ void distances(const Arguments& arguments)
         auto settings = value->settings();
         settings.min_distance = minimum;
         settings.max_distance = maximum;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
 void play(const Arguments& arguments)
 {
     auto* value = audio_source(arguments, 2);
-    arguments.GetReturnValue().Set(value != nullptr && value->play());
+    arguments.set_return(value != nullptr && value->play());
 }
 
 void pause(const Arguments& arguments)
 {
     auto* value = audio_source(arguments, 2);
-    arguments.GetReturnValue().Set(value != nullptr && value->pause());
+    arguments.set_return(value != nullptr && value->pause());
 }
 
 void stop(const Arguments& arguments)
 {
     auto* value = audio_source(arguments, 2);
-    arguments.GetReturnValue().Set(value != nullptr && value->stop());
+    arguments.set_return(value != nullptr && value->stop());
 }
 
 void playing(const Arguments& arguments)
 {
     const auto* value = audio_source(arguments, 2);
-    arguments.GetReturnValue().Set(value != nullptr && value->playing());
+    arguments.set_return(value != nullptr && value->playing());
 }
 
 void playback(const Arguments& arguments)
 {
     const auto* value = audio_source(arguments, 2);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     if (value == nullptr)
     {
         return;
@@ -204,10 +204,9 @@ void playback(const Arguments& arguments)
         state = "failed";
         break;
     }
-    v8::Local<v8::String> text;
-    if (state != nullptr && v8::String::NewFromUtf8(arguments.GetIsolate(), state).ToLocal(&text))
+    if (state != nullptr)
     {
-        arguments.GetReturnValue().Set(text);
+        arguments.set_return(state);
     }
 }
 } // namespace
@@ -222,23 +221,16 @@ std::string_view AudioSourceBinding::source() const noexcept
     return javascript;
 }
 
-bool AudioSourceBinding::register_functions(v8::Local<v8::Context> context,
-                                            v8::Local<v8::Object> native) const
+bool AudioSourceBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "AudioSourceKind",
-                                   static_cast<int>(AudioSource::component_type)) &&
-           BindingContext::function(context, native, "AudioSourceAdd", add) &&
-           BindingContext::function(context, native, "AudioSourceClip", clip) &&
-           BindingContext::function(context, native, "AudioSourceVolume", volume) &&
-           BindingContext::function(context, native, "AudioSourcePitch", pitch) &&
-           BindingContext::function(context, native, "AudioSourceLoop", loop) &&
-           BindingContext::function(context, native, "AudioSourceSpatial", spatial) &&
-           BindingContext::function(context, native, "AudioSourceAwake", awake) &&
-           BindingContext::function(context, native, "AudioSourceDistances", distances) &&
-           BindingContext::function(context, native, "AudioSourcePlay", play) &&
-           BindingContext::function(context, native, "AudioSourcePause", pause) &&
-           BindingContext::function(context, native, "AudioSourceStop", stop) &&
-           BindingContext::function(context, native, "AudioSourcePlaying", playing) &&
-           BindingContext::function(context, native, "AudioSourcePlayback", playback);
+    return vm.integer("AudioSourceKind", static_cast<int>(AudioSource::component_type)) &&
+           vm.function("AudioSourceAdd", add) && vm.function("AudioSourceClip", clip) &&
+           vm.function("AudioSourceVolume", volume) && vm.function("AudioSourcePitch", pitch) &&
+           vm.function("AudioSourceLoop", loop) && vm.function("AudioSourceSpatial", spatial) &&
+           vm.function("AudioSourceAwake", awake) &&
+           vm.function("AudioSourceDistances", distances) && vm.function("AudioSourcePlay", play) &&
+           vm.function("AudioSourcePause", pause) && vm.function("AudioSourceStop", stop) &&
+           vm.function("AudioSourcePlaying", playing) &&
+           vm.function("AudioSourcePlayback", playback);
 }
 } // namespace engine::plugins::script::bindings

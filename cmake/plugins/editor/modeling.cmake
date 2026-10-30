@@ -36,6 +36,8 @@ function(engine_configure_modeling_plugin)
         add_library(engine_modeling_importer STATIC
                     src/engine/plugins/editor/modeling/modeling_mesh_importer.cpp)
         add_library(engine::modeling_importer ALIAS engine_modeling_importer)
+        target_include_directories(engine_modeling_importer
+                                   PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
         get_target_property(_modeling_importer_toml_includes tomlplusplus::tomlplusplus
                             INTERFACE_INCLUDE_DIRECTORIES)
         target_include_directories(engine_modeling_importer SYSTEM

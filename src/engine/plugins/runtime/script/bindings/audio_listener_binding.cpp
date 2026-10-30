@@ -24,22 +24,22 @@ Object.freeze(AudioListener);
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<AudioListener>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<AudioListener>() != nullptr);
 }
 
 void volume(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* listener = node == nullptr ? nullptr : node->get_component<AudioListener>();
     float value = 0.0F;
-    if (listener != nullptr && arguments.Length() == 3 &&
+    if (listener != nullptr && arguments.count() == 3 &&
         BindingContext::scalar(arguments, 2, value))
     {
         auto settings = listener->settings();
         settings.volume = value;
-        arguments.GetReturnValue().Set(listener->set_settings(settings));
+        arguments.set_return(listener->set_settings(settings));
     }
 }
 } // namespace
@@ -54,12 +54,9 @@ std::string_view AudioListenerBinding::source() const noexcept
     return javascript;
 }
 
-bool AudioListenerBinding::register_functions(v8::Local<v8::Context> context,
-                                              v8::Local<v8::Object> native) const
+bool AudioListenerBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "AudioListenerKind",
-                                   static_cast<int>(AudioListener::component_type)) &&
-           BindingContext::function(context, native, "AudioListenerAdd", add) &&
-           BindingContext::function(context, native, "AudioListenerVolume", volume);
+    return vm.integer("AudioListenerKind", static_cast<int>(AudioListener::component_type)) &&
+           vm.function("AudioListenerAdd", add) && vm.function("AudioListenerVolume", volume);
 }
 } // namespace engine::plugins::script::bindings

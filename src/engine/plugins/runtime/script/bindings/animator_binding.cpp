@@ -63,16 +63,15 @@ Object.freeze(Animator);
 
 Animator* animator(const Arguments& arguments, int count)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
-    return node && arguments.Length() == count ? node->get_component<Animator>() : nullptr;
+    return node && arguments.count() == count ? node->get_component<Animator>() : nullptr;
 }
 
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node &&
-                                   node->add_component<Animator>());
+    arguments.set_return(arguments.count() == 2 && node && node->add_component<Animator>());
 }
 
 void animation(const Arguments& arguments)
@@ -81,7 +80,7 @@ void animation(const Arguments& arguments)
     std::string path;
     if (value && BindingContext::text(arguments, 2, path))
     {
-        arguments.GetReturnValue().Set(value->set_animation(path));
+        arguments.set_return(value->set_animation(path));
     }
 }
 
@@ -93,18 +92,18 @@ void speed(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.speed = number;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
 void set_boolean(const Arguments& arguments, bool schema::AnimatorDataT::* field)
 {
     auto* value = animator(arguments, 3);
-    if (value && arguments[2]->IsBoolean())
+    if (value && arguments.is_boolean(2))
     {
         auto settings = value->settings();
-        settings.*field = arguments[2]->IsTrue();
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        settings.*field = arguments.boolean(2);
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -121,19 +120,19 @@ void awake(const Arguments& arguments)
 void play(const Arguments& arguments)
 {
     auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().Set(value && value->play());
+    arguments.set_return(value && value->play());
 }
 
 void pause(const Arguments& arguments)
 {
     auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().Set(value && value->pause());
+    arguments.set_return(value && value->pause());
 }
 
 void stop(const Arguments& arguments)
 {
     auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().Set(value && value->stop());
+    arguments.set_return(value && value->stop());
 }
 
 void seek(const Arguments& arguments)
@@ -142,20 +141,20 @@ void seek(const Arguments& arguments)
     double seconds = 0;
     if (value && BindingContext::number(arguments, 2, seconds))
     {
-        arguments.GetReturnValue().Set(value->seek(seconds));
+        arguments.set_return(value->seek(seconds));
     }
 }
 
 void playing(const Arguments& arguments)
 {
     const auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().Set(value && value->playback() == AnimationPlayback::playing);
+    arguments.set_return(value && value->playback() == AnimationPlayback::playing);
 }
 
 void playback(const Arguments& arguments)
 {
     const auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     if (!value)
     {
         return;
@@ -173,20 +172,19 @@ void playback(const Arguments& arguments)
         state = "paused";
         break;
     }
-    v8::Local<v8::String> text;
-    if (state && v8::String::NewFromUtf8(arguments.GetIsolate(), state).ToLocal(&text))
+    if (state != nullptr)
     {
-        arguments.GetReturnValue().Set(text);
+        arguments.set_return(state);
     }
 }
 
 void time(const Arguments& arguments)
 {
     const auto* value = animator(arguments, 2);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     if (value)
     {
-        arguments.GetReturnValue().Set(value->time());
+        arguments.set_return(value->time());
     }
 }
 } // namespace
@@ -201,22 +199,14 @@ std::string_view AnimatorBinding::source() const noexcept
     return javascript;
 }
 
-bool AnimatorBinding::register_functions(v8::Local<v8::Context> context,
-                                         v8::Local<v8::Object> native) const
+bool AnimatorBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "AnimatorKind",
-                                   static_cast<int>(Animator::component_type)) &&
-           BindingContext::function(context, native, "AnimatorAdd", add) &&
-           BindingContext::function(context, native, "AnimatorAnimation", animation) &&
-           BindingContext::function(context, native, "AnimatorSpeed", speed) &&
-           BindingContext::function(context, native, "AnimatorLoop", loop) &&
-           BindingContext::function(context, native, "AnimatorAwake", awake) &&
-           BindingContext::function(context, native, "AnimatorPlay", play) &&
-           BindingContext::function(context, native, "AnimatorPause", pause) &&
-           BindingContext::function(context, native, "AnimatorStop", stop) &&
-           BindingContext::function(context, native, "AnimatorSeek", seek) &&
-           BindingContext::function(context, native, "AnimatorPlaying", playing) &&
-           BindingContext::function(context, native, "AnimatorPlayback", playback) &&
-           BindingContext::function(context, native, "AnimatorTime", time);
+    return vm.integer("AnimatorKind", static_cast<int>(Animator::component_type)) &&
+           vm.function("AnimatorAdd", add) && vm.function("AnimatorAnimation", animation) &&
+           vm.function("AnimatorSpeed", speed) && vm.function("AnimatorLoop", loop) &&
+           vm.function("AnimatorAwake", awake) && vm.function("AnimatorPlay", play) &&
+           vm.function("AnimatorPause", pause) && vm.function("AnimatorStop", stop) &&
+           vm.function("AnimatorSeek", seek) && vm.function("AnimatorPlaying", playing) &&
+           vm.function("AnimatorPlayback", playback) && vm.function("AnimatorTime", time);
 }
 } // namespace engine::plugins::script::bindings

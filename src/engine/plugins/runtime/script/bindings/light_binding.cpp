@@ -35,81 +35,81 @@ Object.freeze(Light);
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<Light>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<Light>() != nullptr);
 }
 
 void color(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* light = node == nullptr ? nullptr : node->get_component<Light>();
     float r = 0.0F;
     float g = 0.0F;
     float b = 0.0F;
-    if (light == nullptr || arguments.Length() != 5 || !BindingContext::scalar(arguments, 2, r) ||
+    if (light == nullptr || arguments.count() != 5 || !BindingContext::scalar(arguments, 2, r) ||
         !BindingContext::scalar(arguments, 3, g) || !BindingContext::scalar(arguments, 4, b))
     {
         return;
     }
     auto settings = light->settings();
     settings.color = Color(r, g, b, 1.0F);
-    arguments.GetReturnValue().Set(light->set_settings(settings));
+    arguments.set_return(light->set_settings(settings));
 }
 
 void intensity(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* light = node == nullptr ? nullptr : node->get_component<Light>();
     float value = 0.0F;
-    if (light != nullptr && arguments.Length() == 3 && BindingContext::scalar(arguments, 2, value))
+    if (light != nullptr && arguments.count() == 3 && BindingContext::scalar(arguments, 2, value))
     {
         auto settings = light->settings();
         settings.intensity = value;
-        arguments.GetReturnValue().Set(light->set_settings(settings));
+        arguments.set_return(light->set_settings(settings));
     }
 }
 void directional(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* light = node == nullptr ? nullptr : node->get_component<Light>();
-    if (light != nullptr && arguments.Length() == 2)
+    if (light != nullptr && arguments.count() == 2)
     {
         auto value = light->settings();
         value.kind = schema::LightKind::directional;
-        arguments.GetReturnValue().Set(light->set_settings(value));
+        arguments.set_return(light->set_settings(value));
     }
 }
 
 void point(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* light = node == nullptr ? nullptr : node->get_component<Light>();
-    if (light != nullptr && arguments.Length() == 3)
+    if (light != nullptr && arguments.count() == 3)
     {
         auto value = light->settings();
         value.kind = schema::LightKind::point;
-        arguments.GetReturnValue().Set(BindingContext::scalar(arguments, 2, value.range) &&
-                                       light->set_settings(value));
+        arguments.set_return(BindingContext::scalar(arguments, 2, value.range) &&
+                             light->set_settings(value));
     }
 }
 
 void spot(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* light = node == nullptr ? nullptr : node->get_component<Light>();
-    if (light != nullptr && arguments.Length() == 5)
+    if (light != nullptr && arguments.count() == 5)
     {
         auto value = light->settings();
         value.kind = schema::LightKind::spot;
-        arguments.GetReturnValue().Set(BindingContext::scalar(arguments, 2, value.range) &&
-                                       BindingContext::scalar(arguments, 3, value.inner_angle) &&
-                                       BindingContext::scalar(arguments, 4, value.outer_angle) &&
-                                       light->set_settings(value));
+        arguments.set_return(BindingContext::scalar(arguments, 2, value.range) &&
+                             BindingContext::scalar(arguments, 3, value.inner_angle) &&
+                             BindingContext::scalar(arguments, 4, value.outer_angle) &&
+                             light->set_settings(value));
     }
 }
 } // namespace
@@ -124,17 +124,13 @@ std::string_view LightBinding::source() const noexcept
     return javascript;
 }
 
-bool LightBinding::register_functions(v8::Local<v8::Context> context,
-                                      v8::Local<v8::Object> native) const
+bool LightBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "LightKind",
-                                   static_cast<int>(Light::component_type)) &&
-           BindingContext::function(context, native, "LightAdd", add) &&
-           BindingContext::function(context, native, "LightColor", color) &&
-           BindingContext::function(context, native, "LightIntensity", intensity) &&
-           BindingContext::function(context, native, "LightDirectional", directional) &&
-           BindingContext::function(context, native, "LightPoint", point) &&
-           BindingContext::function(context, native, "LightSpot", spot);
+    return vm.integer("LightKind", static_cast<int>(Light::component_type)) &&
+           vm.function("LightAdd", add) && vm.function("LightColor", color) &&
+           vm.function("LightIntensity", intensity) &&
+           vm.function("LightDirectional", directional) && vm.function("LightPoint", point) &&
+           vm.function("LightSpot", spot);
 }
 
 } // namespace engine::plugins::script::bindings

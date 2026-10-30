@@ -23,3 +23,5 @@ if("editor/usd_import" IN_LIST ENGINE_SELECTED_PLUGINS)
 endif()
 
 include("${PROJECT_SOURCE_DIR}/cmake/dependencies/v8.cmake")
+
+include("${PROJECT_SOURCE_DIR}/cmake/dependencies/script.cmake")

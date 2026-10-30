@@ -1,3 +1,25 @@
+# 只接受已知固定参数的迁移；不能覆盖用户手工改变的 GN 配置。
+function(_engine_v8_arguments_compatible _existing _expected _output)
+    set(_compatible FALSE)
+    if(_existing STREQUAL _expected)
+        set(_compatible TRUE)
+    else()
+        set(_icu_flags
+            "v8_depend_on_icu_data_file = false\nicu_copy_icudata_to_root_build_dir = false\n")
+        string(FIND "${_expected}" "${_icu_flags}" _has_icu_flags)
+        string(FIND "${_expected}" "v8_enable_i18n_support = false\n" _no_i18n)
+        if(NOT _has_icu_flags LESS 0 AND NOT _no_i18n LESS 0)
+            string(REPLACE "${_icu_flags}" "" _previous "${_expected}")
+            if(_existing STREQUAL _previous)
+                set(_compatible TRUE)
+            endif()
+        endif()
+    endif()
+    set(${_output}
+        ${_compatible}
+        PARENT_SCOPE)
+endfunction()
+
 # V8 专用成功缓存。只读取固定检出、补丁、小型版本文件和工具元数据，
 # 不递归散列源码树，不运行 GN/Ninja，也不把“归档存在”当成构建成功证明。
 
@@ -274,8 +296,13 @@ function(_engine_v8_artifacts _output)
     set(${_output}
         FALSE
         PARENT_SCOPE)
-    set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat" "${_out}/gen/include/v8-gn.h"
-                   "${_out}/args.gn" "${_out}/build.ninja")
+    set(_artifacts "${_out}/obj/${_library}" "${_out}/gen/include/v8-gn.h" "${_out}/args.gn"
+                   "${_out}/build.ninja")
+    if(ENGINE_V8_ENABLE_I18N)
+        list(APPEND _artifacts "${_out}/icudtl.dat")
+    elseif(EXISTS "${_out}/icudtl.dat" OR EXISTS "${_out}/icudtb.dat")
+        return()
+    endif()
     if(NOT ENGINE_V8_TARGET_OS STREQUAL "android" OR NOT "${_sample}" STREQUAL "")
         if("${_sample}" STREQUAL "")
             return()

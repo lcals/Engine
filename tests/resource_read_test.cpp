@@ -1,4 +1,8 @@
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/utils/path_utils.hpp"
+
+#include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_iostream.h>
 
 #include <array>
 #include <chrono>
@@ -109,6 +113,46 @@ bool binary_and_text(const std::filesystem::path& root)
     }
     success &= expect(engine::ResourceSystem::read_text(text_path, text) && text == script,
                       "text read preserves UTF-8 source contents");
+    return success;
+}
+
+bool atomic_replace_with_open_reader(const std::filesystem::path& root)
+{
+    const auto path = root / std::filesystem::path(u8"原子-替换-🐟.bin");
+    const auto replacement = root / std::filesystem::path(u8"临时-替换-🐟.bin");
+    constexpr std::string_view previous_contents = "previous file snapshot\n";
+    constexpr std::string_view replacement_contents = "replacement file snapshot\n";
+    if (!write_file(path, previous_contents) || !write_file(replacement, replacement_contents))
+    {
+        return expect(false, "create the atomic replacement fixtures");
+    }
+    const auto utf8_path = engine::PathUtils::to_utf8(path);
+    const auto utf8_replacement = engine::PathUtils::to_utf8(replacement);
+    SDL_IOStream* previous = SDL_IOFromFile(utf8_path.c_str(), "rb");
+    if (previous == nullptr)
+    {
+        return expect(false, "keep a Unicode file open through the SDL reader");
+    }
+    bool success = true;
+#if defined(_WIN32)
+    SDL_IOStream* writer = SDL_IOFromFile(utf8_path.c_str(), "r+b");
+    success &= expect(writer == nullptr, "the old SDL reader still excludes in-place writers");
+    if (writer != nullptr)
+    {
+        success &= expect(SDL_CloseIO(writer), "close an unexpected writable SDL stream");
+    }
+#endif
+    success &= expect(SDL_RenamePath(utf8_replacement.c_str(), utf8_path.c_str()),
+                      "atomically replace a file while its old SDL reader remains open");
+    std::array<char, previous_contents.size()> bytes{};
+    const auto size = SDL_ReadIO(previous, bytes.data(), bytes.size());
+    success &=
+        expect(size == bytes.size() && std::string_view(bytes.data(), size) == previous_contents,
+               "the old SDL reader retains the previous file snapshot");
+    std::string text;
+    success &= expect(engine::ResourceSystem::read_text(path, text) && text == replacement_contents,
+                      "a new VFS reader sees the complete replacement contents");
+    success &= expect(SDL_CloseIO(previous), "close the old SDL reader");
     return success;
 }
 
@@ -250,6 +294,7 @@ int main()
     }
     int failures = 0;
     failures += !binary_and_text(directory.path);
+    failures += !atomic_replace_with_open_reader(directory.path);
     failures += !empty_and_failures(directory.path);
     failures += !oversized_file(directory.path);
     failures += !apk_path_failures(directory.path);
