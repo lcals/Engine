@@ -20,14 +20,13 @@ std::string normalized(std::string value)
 RmlFont::RmlFont(FontSystem& fonts) noexcept : fonts_(fonts)
 {
 }
-bool RmlFont::activate(const ResourcePtr& document)
+bool RmlFont::activate(const std::string& key, const ResourcePtr& document)
 {
     active_ = nullptr;
     if (!document || !document->ui())
     {
         return false;
     }
-    const auto key = document->info().guid + ":" + std::to_string(document->generation());
     auto found = documents_.find(key);
     if (found == documents_.end())
     {
@@ -44,7 +43,8 @@ bool RmlFont::activate(const ResourcePtr& document)
             if (!reference || !fonts_.load_font(reference->font_guid, binding.font) ||
                 !ResourceSystem::path_to_guid(reference->shader_path, shader_guid) ||
                 !resources->loader().load(shader_guid, binding.shader) || !binding.shader ||
-                !binding.shader->shader() ||
+                !binding.shader->shader() || binding.font->generation() != document->generation() ||
+                binding.shader->generation() != document->generation() ||
                 !bindings.emplace(normalized(reference->family), std::move(binding)).second)
             {
                 return false;
@@ -55,6 +55,40 @@ bool RmlFont::activate(const ResourcePtr& document)
     active_key_ = key;
     active_ = &found->second;
     return true;
+}
+void RmlFont::prune(std::span<const std::string> keys)
+{
+    const auto alive = [&](const std::string& key)
+    { return std::find(keys.begin(), keys.end(), key) != keys.end(); };
+    if (!alive(active_key_))
+    {
+        active_ = nullptr;
+        active_key_.clear();
+    }
+    std::erase_if(faces_, [&](const auto& entry) { return !alive(entry.second->document_key); });
+    std::erase_if(documents_, [&](const auto& entry) { return !alive(entry.first); });
+}
+bool RmlFont::resolve_texture(std::string_view key, std::string_view font_guid,
+                              std::string_view shader_guid, ResourcePtr& font,
+                              ResourcePtr& shader) const
+{
+    font.reset();
+    shader.reset();
+    const auto document = documents_.find(std::string(key));
+    if (document == documents_.end())
+    {
+        return false;
+    }
+    for (const auto& [family, binding] : document->second)
+    {
+        if (binding.font->info().guid == font_guid && binding.shader->info().guid == shader_guid)
+        {
+            font = binding.font;
+            shader = binding.shader;
+            return true;
+        }
+    }
+    return false;
 }
 Rml::FontFaceHandle RmlFont::GetFontFaceHandle(const Rml::String& family, Rml::Style::FontStyle,
                                                Rml::Style::FontWeight, int size)
@@ -74,6 +108,7 @@ Rml::FontFaceHandle RmlFont::GetFontFaceHandle(const Rml::String& family, Rml::S
     {
         face = std::make_unique<Face>();
         face->resource = found->second.font;
+        face->document_key = active_key_;
         face->shader_guid = found->second.shader->info().guid;
         const auto& data = *face->resource->font();
         const float scale = static_cast<float>(size);
@@ -130,8 +165,9 @@ int RmlFont::GenerateString(Rml::RenderManager& manager, Rml::FontFaceHandle han
     const auto& face = *reinterpret_cast<Face*>(handle);
     const auto& data = *face.resource->font();
     Rml::TexturedMesh mesh;
-    mesh.texture = manager.LoadTexture("engine-font/" + face.resource->info().guid + "/" +
-                                       face.shader_guid + "/" + std::to_string(face.metrics.size));
+    mesh.texture =
+        manager.LoadTexture("engine-font/" + face.document_key + "/" + face.resource->info().guid +
+                            "/" + face.shader_guid + "/" + std::to_string(face.metrics.size));
     float x = 0.0F;
     std::uint32_t previous = 0;
     std::uint32_t packed = 0;

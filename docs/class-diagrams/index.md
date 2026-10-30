@@ -170,3 +170,5 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 - [渲染编辑命令](../editor/class-diagrams/render-commands.md)：环境光、阴影、曝光与真实帧截图。
 - [渲染 MCP 适配](../plugins/editor/class-diagrams/render-mcp-tools.md)：效果控制、异步截图请求和状态。
 - [场景持久化](../editor/class-diagrams/scene-persistence.md)：模型、材质、灯光、相机和层级的完整源资源保存。
+
+- [UI 脚本与 MVC](../plugins/runtime/class-diagrams/ui-script-api.md)：Model、View、Controller 的职责，控件绑定与事件订阅生命周期。

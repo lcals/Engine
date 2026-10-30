@@ -1367,7 +1367,16 @@ bool RenderSystem::prepare_scene()
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene->id() != scene_id_)
     {
-        release_scene();
+        // UI 可能已在玩法初始化中准备，切换绘制资源不销毁新的 View。
+        release_draw_resources();
+        if (fonts_)
+        {
+            fonts_->release_scene();
+        }
+        if (ui_ && !ui_->synchronize())
+        {
+            return false;
+        }
     }
     if (scene == nullptr)
     {
@@ -1377,7 +1386,7 @@ bool RenderSystem::prepare_scene()
     {
         if (scene_resources_)
         {
-            release_scene();
+            release_draw_resources();
         }
         scene_id_ = scene->id();
         return true;
@@ -1623,6 +1632,11 @@ void RenderSystem::release_scene() noexcept
     {
         fonts_->release_scene();
     }
+    release_draw_resources();
+}
+
+void RenderSystem::release_draw_resources() noexcept
+{
     if (scene_resources_ != nullptr && renderer_initialized_)
     {
         auto& resources = *scene_resources_;
@@ -2075,14 +2089,6 @@ void RenderSystem::on_shutdown() noexcept
 
 void RenderSystem::shutdown_renderer() noexcept
 {
-    if (ui_)
-    {
-        ui_->release_scene();
-    }
-    if (fonts_)
-    {
-        fonts_->release_scene();
-    }
     release_scene();
     if (renderer_initialized_)
     {

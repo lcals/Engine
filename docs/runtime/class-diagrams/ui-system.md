@@ -13,11 +13,29 @@ classDiagram
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
         +document() const ResourcePtr&
+        +view_id() uint64
+        +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }
     class UiSystem {
         +UiSystem(WindowSystem& window, WorldSystem& world, FontSystem& fonts)
         +render(uint32 width, uint32 height) bool
+        +synchronize() bool
+        +find_element(uint64 node, string_view id, UiElementHandle& output) bool
+        +is_valid(UiElementHandle handle) bool
+        +document_id(uint64 node) uint64
+        +set_document_visible(uint64 node, bool visible) bool
+        +document_visible(uint64 node) bool
+        +element_id(UiElementHandle handle, string& output) bool
+        +text(UiElementHandle handle, string& output) bool
+        +value(UiElementHandle handle, string& output) bool
+        +set_text(UiElementHandle handle, string_view value) bool
+        +set_value(UiElementHandle handle, string_view value) bool
+        +set_visible(UiElementHandle handle, bool value) bool
+        +set_enabled(UiElementHandle handle, bool value) bool
+        +set_class(UiElementHandle handle, string_view name, bool active) bool
+        +set_style(UiElementHandle handle, string_view name, string_view value) bool
+        +set_image(UiElementHandle handle, string_view path) bool
         +release_scene() void
         +process_event(const SDL_Event& event) bool
         +document_count() size_t
@@ -30,6 +48,15 @@ classDiagram
         +uint64 node_id
         +string element_id
         +string type
+        +uint64 scene_id
+        +UiElementHandle target
+        +vector~UiElementHandle~ path
+        +string value
+    }
+    class UiElementHandle {
+        <<struct>>
+        +uint64 document_id
+        +uint64 element_id
     }
     System <|-- UiSystem
     Component <|-- UiComponent
@@ -40,6 +67,8 @@ classDiagram
     UiSystem --> FontSystem : 借用字体能力
     UiSystem *-- RmlContext : 独占文档及控件
     UiSystem ..> UiEvent : 输出控件事件
+    UiSystem ..> UiElementHandle : 校验文档及控件身份
+    UiEvent ..> UiElementHandle : 保存事件目标身份
     RenderSystem --> UiSystem : 绘制 UI 通道
     RuntimeHost ..> UiSystem : 装配与释放顺序
 ```
@@ -49,3 +78,9 @@ classDiagram
 - RmlUi 的渲染与字体接口在 UI 模块内部实现；提交顺序、预乘透明度、裁剪和变换保留在 UI 绘制阶段。
 - 文档先销毁，再释放字体和 GPU 对象，最后关闭渲染设备。反复启停及平台 Surface 重建使用同样顺序。
 - C++ 返回失败状态；公开接口不暴露 RmlUi 类型。SDL 事件借用仅在调用期间有效。
+- synchronize 准备当前场景文档，不提交绘制；允许玩法初始化中查询和修改 View。文档身份跨重建不复用，控件使用内部弱观察引用校验存活；UiComponent 的 view_id 区分同节点上先移除再添加的组件。
+- 文档按节点独立同步，其他文档的增加或移除不会清空未变更的 View。失效事件不返回给调用方。
+- document_revision 在成功替换文档时递增；同一次调用中 A → B → A 也使旧 View 失效，不依赖共享缓存是否复用了相同资源地址。
+- 控件事件保存从最近有 ID 的目标到有 ID 祖先的身份路径；脚本可按冒泡顺序分发，不能在分发时按名字重新查找新控件。
+- UI 内部图片与字体纹理定位包含文档资源代际；独立文档更新不会复用同路径旧版本纹理，释放按仍存活的文档集合进行。
+- MVC 的 Model 和 Controller 位于项目/脚本层，见 [UI 脚本类图](../../plugins/runtime/class-diagrams/ui-script-api.md)。

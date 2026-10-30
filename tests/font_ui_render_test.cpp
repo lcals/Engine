@@ -28,6 +28,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace
 {
@@ -399,6 +400,156 @@ struct Systems
                       "GPU callback wrote a PNG image");
     }
 };
+
+class TrackedLoader final : public engine::ResourceLoader
+{
+public:
+    explicit TrackedLoader(engine::ResourceSystem& resources) : resources_(resources)
+    {
+        resources_.set_loader(this);
+    }
+    ~TrackedLoader() noexcept override
+    {
+        resources_.set_loader(nullptr);
+    }
+    bool load(std::string_view guid, engine::ResourcePtr& output) override
+    {
+        if (!resources_.load(guid, output))
+        {
+            return false;
+        }
+        loaded_.push_back(output);
+        return true;
+    }
+    engine::ResourcePtr find(std::string_view guid) const noexcept override
+    {
+        return resources_.find(guid);
+    }
+    const std::string& last_error() const noexcept override
+    {
+        return resources_.last_error();
+    }
+    std::size_t live(std::string_view guid, std::uint64_t generation) const
+    {
+        return std::count_if(loaded_.begin(), loaded_.end(),
+                             [&](const auto& weak)
+                             {
+                                 const auto resource = weak.lock();
+                                 return resource && resource->info().guid == guid &&
+                                        resource->generation() == generation;
+                             });
+    }
+
+private:
+    engine::ResourceSystem& resources_;
+    std::vector<std::weak_ptr<const engine::Resource>> loaded_;
+};
+
+bool document_generations(Systems& systems, const fs::path& project, const GpuCounts& idle)
+{
+    TrackedLoader tracked(systems.resources);
+    auto* scene = systems.world.load_scene("project/scenes/launcher.scene");
+    if (!expect(scene != nullptr, "load the first view for document generation isolation"))
+    {
+        return false;
+    }
+    auto* original = scene->nodes().front()->get_component<engine::UiComponent>();
+    auto* stable_node = scene->create_node("Stable view");
+    auto* stable = stable_node ? stable_node->add_component<engine::UiComponent>() : nullptr;
+    engine::UiElementHandle stable_button;
+    if (!expect(original && stable && stable->set_document("project/ui/launcher.rml"),
+                "two independent views share a document generation") ||
+        !systems.frames() ||
+        !expect(systems.ui.find_element(stable_node->id(), "scene-cube", stable_button) &&
+                    systems.ui.set_text(stable_button, "Persistent View"),
+                "store independent state and a handle in the unchanged view"))
+    {
+        return false;
+    }
+    const auto old_generation = systems.resources.generation();
+    const auto font_guid = original->document()->ui()->fonts.front()->font_guid;
+    const auto before = gpu_counts();
+    if (!expect(tracked.live(red_texture_guid, old_generation) > 0 &&
+                    tracked.live(font_guid, old_generation) > 0,
+                "the visible document owns its image and font snapshot"))
+    {
+        return false;
+    }
+    std::string shader_source;
+    const auto fragment = project / "assets/shaders/fs_font.sc";
+    if (!expect(engine::ResourceSystem::read_text(fragment, shader_source),
+                "read the authored font shader for a same-GUID revision"))
+    {
+        return false;
+    }
+    const auto tint = shader_source.find("vec3(0.35, 1.0, 0.65)");
+    if (!expect(tint != std::string::npos, "the project shader has a distinct authored tint"))
+    {
+        return false;
+    }
+    shader_source.replace(tint, std::string_view("vec3(0.35, 1.0, 0.65)").size(),
+                          "vec3(1.0, 0.45, 0.20)");
+    std::error_code error;
+    fs::copy_file(project / "assets/fonts/lato-bold.ttf", project / "assets/fonts/lato-regular.ttf",
+                  fs::copy_options::overwrite_existing, error);
+    if (!expect(!error && write_text(fragment, shader_source) &&
+                    write_text(project / "assets/textures/red.png",
+                               {reinterpret_cast<const char*>(blue_png), sizeof(blue_png)}),
+                "revise font, image and shader without changing their GUIDs") ||
+        !expect(systems.pipeline.build_assets(project), systems.pipeline.last_error()) ||
+        !expect(systems.resources.update_catalog(systems.pipeline.catalog(),
+                                                 {{"content", project / "cache"}}),
+                systems.resources.last_error()) ||
+        !expect(original->set_document("") && original->set_document("project/ui/launcher.rml"),
+                "replace one view with the newly published document generation") ||
+        !systems.frames())
+    {
+        return false;
+    }
+    std::string text;
+    const auto after = gpu_counts();
+    const auto new_generation = systems.resources.generation();
+    if (!expect(new_generation != old_generation &&
+                    original->document()->generation() == new_generation &&
+                    stable->document()->generation() == old_generation &&
+                    systems.ui.is_valid(stable_button) && systems.ui.text(stable_button, text) &&
+                    text == "Persistent View",
+                "the unchanged view retains its old document, handle and edited text") ||
+        !expect(after.textures >= before.textures + 4 && after.programs >= before.programs + 1,
+                "new image, font curve and shader versions create independent GPU resources") ||
+        !expect(tracked.live(red_texture_guid, old_generation) > 0 &&
+                    tracked.live(red_texture_guid, new_generation) > 0 &&
+                    tracked.live(font_guid, old_generation) > 0 &&
+                    tracked.live(font_guid, new_generation) > 0,
+                "both live document generations retain only their own resource snapshots"))
+    {
+        return false;
+    }
+    if (!expect(scene->destroy_node(stable_node->id()),
+                "remove the last view of the old version") ||
+        !systems.frames() ||
+        !expect(!systems.ui.is_valid(stable_button) &&
+                    tracked.live(red_texture_guid, old_generation) == 0 &&
+                    tracked.live(font_guid, old_generation) == 0 &&
+                    tracked.live(red_texture_guid, new_generation) > 0 &&
+                    tracked.live(font_guid, new_generation) > 0,
+                "removing one generation releases its UI font and texture references only"))
+    {
+        return false;
+    }
+    original->set_enabled(false);
+    if (!systems.frames() ||
+        !expect(systems.ui.document_count() == 0 &&
+                    tracked.live(red_texture_guid, new_generation) == 0 &&
+                    tracked.live(font_guid, new_generation) == 0,
+                "the last disabled view releases all UI-owned font and image snapshots"))
+    {
+        return false;
+    }
+    systems.stop_scene();
+    return systems.frames() &&
+           expect(gpu_counts() == idle, "scene stop retires both shader versions");
+}
 
 bool keyboard_launcher(Systems& systems, std::uint64_t node_id)
 {
@@ -810,6 +961,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
     }
     return custom_shader_scenes(systems, project, screenshots, idle) &&
            multiple_documents(systems, screenshots, idle) &&
+           document_generations(systems, project, idle) &&
            systems.screenshot(screenshots, "stopped.png");
 }
 } // namespace

@@ -2,7 +2,9 @@
 
 #include "fs_ui.bin.h"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/ui/rml_font.hpp"
 #include "vs_ui.bin.h"
+#include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/Rectangle.h>
 #include <algorithm>
 #include <basisu/transcoder/basisu_transcoder.h>
@@ -19,7 +21,8 @@ namespace
 constexpr bgfx::ViewId ui_view = 200;
 constexpr auto sampler_flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
 } // namespace
-RmlRender::RmlRender(FontSystem& fonts) noexcept : fonts_(fonts)
+RmlRender::RmlRender(FontSystem& fonts, RmlFont& font_engine) noexcept
+    : fonts_(fonts), font_engine_(font_engine)
 {
     bx::mtxIdentity(transform_.data());
 }
@@ -89,10 +92,79 @@ bool RmlRender::begin(std::uint32_t width, std::uint32_t height, int logical_wid
     bx::mtxIdentity(transform_.data());
     return true;
 }
-void RmlRender::set_document(const schema::UiDocumentDataT& data)
+bool RmlRender::activate(const std::string& key, const ResourcePtr& document)
 {
-    document_ = &data;
-    allowed_textures_ = data.texture_guids;
+    active_key_.clear();
+    if (!document || !document->ui())
+    {
+        return false;
+    }
+    if (!documents_.contains(key))
+    {
+        auto* resources = ResourceSystem::instance();
+        if (!resources)
+        {
+            return false;
+        }
+        Document snapshot;
+        for (const auto& guid : document->ui()->texture_guids)
+        {
+            ResourcePtr texture;
+            if (!resources->loader().load(guid, texture) || !texture || !texture->texture() ||
+                texture->generation() != document->generation())
+            {
+                return false;
+            }
+            snapshot.textures.emplace(guid, texture);
+            snapshot.textures.emplace(texture->info().path, texture);
+        }
+        documents_.emplace(key, std::move(snapshot));
+    }
+    active_key_ = key;
+    return true;
+}
+void RmlRender::prune(std::span<const std::string> keys)
+{
+    const auto alive = [&](const std::string& key)
+    { return std::find(keys.begin(), keys.end(), key) != keys.end(); };
+    if (!alive(active_key_))
+    {
+        active_key_.clear();
+    }
+    std::erase_if(documents_,
+                  [&](const auto& entry)
+                  {
+                      if (alive(entry.first))
+                      {
+                          return false;
+                      }
+                      const auto image_prefix = "engine-ui/" + entry.first + "/";
+                      const auto font_prefix = "engine-font/" + entry.first + "/";
+                      for (const auto& source : Rml::GetTextureSourceList())
+                      {
+                          if (source.starts_with(image_prefix) || source.starts_with(font_prefix))
+                          {
+                              static_cast<void>(Rml::ReleaseTexture(source, this));
+                          }
+                      }
+                      return true;
+                  });
+}
+bool RmlRender::texture_guid(std::string_view key, std::string_view path, std::string& guid) const
+{
+    guid.clear();
+    const auto document = documents_.find(key);
+    if (document == documents_.end())
+    {
+        return false;
+    }
+    const auto image = document->second.textures.find(path);
+    if (image == document->second.textures.end())
+    {
+        return false;
+    }
+    guid = image->second->info().guid;
+    return true;
 }
 bool RmlRender::healthy() const noexcept
 {
@@ -145,28 +217,13 @@ void RmlRender::RenderGeometry(Rml::CompiledGeometryHandle handle, Rml::Vector2f
             return;
         }
         image = &entry->second;
-        if (image->resource)
+        if (image->resource && image->document_key != active_key_)
         {
-            const bool font_allowed =
-                image->font_size > 0 && document_ && image->shader &&
-                std::any_of(document_->fonts.begin(), document_->fonts.end(),
-                            [&](const auto& binding)
-                            {
-                                return binding &&
-                                       binding->font_guid == image->resource->info().guid &&
-                                       binding->shader_path == image->shader->info().path;
-                            });
-            const bool texture_allowed =
-                image->font_size == 0 &&
-                std::find(allowed_textures_.begin(), allowed_textures_.end(),
-                          image->resource->info().guid) != allowed_textures_.end();
-            if (!font_allowed && !texture_allowed)
-            {
-                healthy_ = false;
-                return;
-            }
+            healthy_ = false;
+            return;
         }
     }
+
     const auto& mesh = found->second;
     float offset[16];
     bx::mtxTranslate(offset, translation.x, translation.y, 0.0F);
@@ -254,72 +311,70 @@ void RmlRender::ReleaseGeometry(Rml::CompiledGeometryHandle geometry)
 Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::String& source)
 {
     dimensions = {};
-    if (source.starts_with("engine-font/"))
+    const bool is_font = source.starts_with("engine-font/");
+    const std::string_view prefix = is_font ? "engine-font/" : "engine-ui/";
+    const auto key_end = source.find('/', prefix.size());
+    if (!source.starts_with(prefix) || key_end == std::string::npos)
     {
-        const auto split = source.rfind('/');
-        if (split <= 12)
+        healthy_ = false;
+        return 0;
+    }
+    const auto key = std::string_view(source).substr(prefix.size(), key_end - prefix.size());
+    const auto path = std::string_view(source).substr(key_end + 1);
+    if (key != active_key_)
+    {
+        healthy_ = false;
+        return 0;
+    }
+    if (is_font)
+    {
+        const auto split = path.rfind('/');
+        const auto shader_split = split != std::string_view::npos && split > 0
+                                      ? path.rfind('/', split - 1)
+                                      : std::string_view::npos;
+        if (split == std::string_view::npos || shader_split == std::string_view::npos)
         {
             healthy_ = false;
             return 0;
         }
         int size = 0;
         const auto result =
-            std::from_chars(source.data() + split + 1, source.data() + source.size(), size);
-        if (result.ec != std::errc{} || result.ptr != source.data() + source.size() || size <= 0 ||
+            std::from_chars(path.data() + split + 1, path.data() + path.size(), size);
+        if (result.ec != std::errc{} || result.ptr != path.data() + path.size() || size <= 0 ||
             size > 4096)
         {
             healthy_ = false;
             return 0;
         }
-        const auto shader_split = source.rfind('/', split - 1);
-        if (shader_split <= 12)
-        {
-            healthy_ = false;
-            return 0;
-        }
-        const auto font_guid = std::string_view(source).substr(12, shader_split - 12);
-        const auto shader_guid =
-            std::string_view(source).substr(shader_split + 1, split - shader_split - 1);
+        const auto font_guid = path.substr(0, shader_split);
+        const auto shader_guid = path.substr(shader_split + 1, split - shader_split - 1);
         Texture texture;
-        auto* resources = ResourceSystem::instance();
-        if (!resources || !fonts_.load_font(font_guid, texture.resource) ||
-            !resources->loader().load(shader_guid, texture.shader) || !texture.shader ||
-            !texture.shader->shader() || !document_ ||
-            !std::any_of(document_->fonts.begin(), document_->fonts.end(),
-                         [&](const auto& binding)
-                         {
-                             return binding && binding->font_guid == font_guid &&
-                                    binding->shader_path == texture.shader->info().path;
-                         }))
+        if (!font_engine_.resolve_texture(key, font_guid, shader_guid, texture.resource,
+                                          texture.shader))
         {
             healthy_ = false;
             return 0;
         }
         texture.font_size = static_cast<float>(size);
+        texture.document_key = key;
         const auto handle = next_texture_++;
         textures_.emplace(handle, std::move(texture));
         dimensions = {1, 1};
         return handle;
     }
-    auto* resources = ResourceSystem::instance();
-    Guid guid;
-    ResourcePtr resource;
-    if (GuidMap::valid_guid(source))
-    {
-        guid = source;
-    }
-    if (!resources || (guid.empty() && !ResourceSystem::path_to_guid(source, guid)) ||
-        !resources->loader().load(guid, resource) || !resource || !resource->texture())
+    const auto document = documents_.find(key);
+    if (document == documents_.end())
     {
         healthy_ = false;
         return 0;
     }
-    if (std::find(allowed_textures_.begin(), allowed_textures_.end(), guid) ==
-        allowed_textures_.end())
+    const auto image = document->second.textures.find(path);
+    if (image == document->second.textures.end())
     {
         healthy_ = false;
         return 0;
     }
+    const auto& resource = image->second;
     const auto& data = *resource->texture();
     if (data.width == 0 || data.height == 0 || data.width > 8192 || data.height > 8192)
     {
@@ -363,7 +418,8 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
         GenerateTexture(Rml::Span<const Rml::byte>(pixels.data(), pixels.size()), dimensions);
     if (handle)
     {
-        textures_[handle].resource = std::move(resource);
+        textures_[handle].resource = resource;
+        textures_[handle].document_key = key;
     }
     return handle;
 }
@@ -451,8 +507,8 @@ void RmlRender::release() noexcept
     }
     textures_.clear();
     geometries_.clear();
-    document_ = nullptr;
-    allowed_textures_ = {};
+    documents_.clear();
+    active_key_.clear();
     if (bgfx::isValid(white_))
     {
         bgfx::destroy(white_);

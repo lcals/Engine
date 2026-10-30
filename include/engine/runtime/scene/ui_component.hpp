@@ -3,6 +3,7 @@
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/component.hpp"
 
+#include <cstdint>
 #include <string_view>
 
 namespace engine
@@ -16,11 +17,16 @@ public:
     [[nodiscard]] bool set_settings(const schema::UiDataT& settings);
     [[nodiscard]] bool set_document(std::string_view path);
     [[nodiscard]] const ResourcePtr& document() const noexcept;
+    [[nodiscard]] std::uint64_t view_id() const noexcept;
+    [[nodiscard]] std::uint64_t document_revision() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
 
 private:
     friend class Node;
     explicit UiComponent(Node& node);
+    [[nodiscard]] bool initialize() override;
+    std::uint64_t view_id_ = 0;
+    std::uint64_t document_revision_ = 0;
     ResourcePtr document_;
 };
 } // namespace engine

@@ -94,6 +94,7 @@ classDiagram
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
     ScriptRuntimeFactory ..> WorldSystem : 参数借用
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
+    ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约

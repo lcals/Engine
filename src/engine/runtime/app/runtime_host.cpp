@@ -84,7 +84,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world, *renderer);
+        auto script_system = script_factory(*world, *renderer, *ui_);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))

@@ -64,6 +64,7 @@ private:
     static bool watch_surface_lifecycle(void* userdata, SDL_Event* event);
     [[nodiscard]] bool initialize_renderer();
     void shutdown_renderer() noexcept;
+    void release_draw_resources() noexcept;
     [[nodiscard]] bool draw_scene();
 
     struct SceneGpuResources;

@@ -637,6 +637,21 @@ if(TARGET engine_animation)
     engine_apply_options(engine_model_resource_test)
     add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
 endif()
+if(TARGET engine_script AND TARGET engine_ui_import AND TARGET engine_font_import
+   AND TARGET engine_ui AND TARGET engine_font AND TARGET engine_render)
+    add_executable(engine_ui_script_test ui_script_test.cpp)
+    target_link_libraries(engine_ui_script_test PRIVATE engine::script engine::app engine::log
+        engine::ui_import engine::font_import engine::resource engine::world engine::window
+        engine::render engine::font engine::ui SDL3::SDL3 bgfx::bgfx)
+    engine_apply_options(engine_ui_script_test)
+    engine_copy_script_data(engine_ui_script_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.ui_script COMMAND engine_ui_script_test
+            "${PROJECT_SOURCE_DIR}/projects/showcase")
+        set_tests_properties(engine.ui_script PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET engine_editor AND TARGET engine_animation)
     add_executable(engine_model_commands_test model_commands_test.cpp)
     target_link_libraries(engine_model_commands_test PRIVATE engine::editor engine::world

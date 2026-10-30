@@ -3,11 +3,36 @@
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
+#include <atomic>
+#include <limits>
+
 namespace engine
 {
 UiComponent::UiComponent(Node& node) : Component(node)
 {
+    static std::atomic<std::uint64_t> sequence{0};
+    auto previous = sequence.load(std::memory_order_relaxed);
+    while (previous != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (sequence.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed))
+        {
+            view_id_ = previous + 1;
+            break;
+        }
+    }
     mutable_data().payload.Set(schema::UiDataT{});
+}
+bool UiComponent::initialize()
+{
+    return view_id_ != 0;
+}
+std::uint64_t UiComponent::view_id() const noexcept
+{
+    return view_id_;
+}
+std::uint64_t UiComponent::document_revision() const noexcept
+{
+    return document_revision_;
 }
 bool UiComponent::valid_settings(const schema::UiDataT& settings) noexcept
 {
@@ -26,6 +51,10 @@ bool UiComponent::set_settings(const schema::UiDataT& value)
     ResourcePtr next = document_;
     if (value.document_guid != settings().document_guid)
     {
+        if (document_revision_ == std::numeric_limits<std::uint64_t>::max())
+        {
+            return false;
+        }
         next.reset();
         if (!value.document_guid.empty())
         {
@@ -36,6 +65,7 @@ bool UiComponent::set_settings(const schema::UiDataT& value)
                 return false;
             }
         }
+        ++document_revision_;
     }
     *mutable_data().payload.AsUiData() = value;
     document_ = std::move(next);
