@@ -62,6 +62,8 @@ bool RenderMcpTools::register_tools(McpSystem& system)
                         {{"type", "integer"}, {"minimum", 256}, {"maximum", 8192}}},
                        {"shadowBias", {{"type", "number"}, {"minimum", 0}}},
                        {"clearColor", color(4)}})) &&
+           add("set_render_stats", "开启或关闭 bgfx 统计面板，适用于待机、场景预览及玩法。",
+               object({{"enabled", {{"type", "boolean"}}}}, {"enabled"})) &&
            add("capture_frame", "请求引擎真实渲染帧 PNG；path 相对于项目 cache，完成需查询。",
                object({{"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}}}},
                       {"path"})) &&

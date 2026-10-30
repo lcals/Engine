@@ -70,6 +70,9 @@ public:
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
     [[nodiscard]] bool set_settings(const RenderSettings& settings);
     [[nodiscard]] const RenderSettings& settings() const noexcept;
+    // 主线程调用；开关与场景无关，图形设备临时关闭后保留并恢复。
+    void set_stats_visible(bool visible);
+    [[nodiscard]] bool stats_visible() const noexcept;
     // 主线程传入绝对 PNG 路径；true 仅表示排队，须继续提交帧并查询状态。
     [[nodiscard]] bool request_screenshot(std::string_view utf8_png_path);
     [[nodiscard]] ScreenshotStatus screenshot_status() const noexcept;
@@ -105,6 +108,7 @@ private:
     bool surface_registered_ = false;
     bool watching_events_ = false;
     bool renderer_initialized_ = false;
+    bool stats_visible_ = false;
 };
 
 } // namespace engine

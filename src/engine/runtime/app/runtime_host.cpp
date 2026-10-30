@@ -7,6 +7,7 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/navigation/navigation_system.hpp"
+#include "runtime/performance/performance_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -54,6 +55,13 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             shutdown();
             return false;
         }
+    }
+
+    std::unique_ptr<System> performance = std::make_unique<PerformanceSystem>();
+    if (!engine_.add_system(performance))
+    {
+        shutdown();
+        return false;
     }
 
     auto world = std::make_unique<WorldSystem>();

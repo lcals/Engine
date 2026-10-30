@@ -1513,7 +1513,7 @@ bool RenderSystem::initialize_renderer()
     bgfx::setViewName(shadow_view, "Directional shadow");
     bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, settings_.clear_color, 1.0F,
                        0);
-    bgfx::setDebug(BGFX_DEBUG_NONE);
+    bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
     SDL_Log("Renderer initialized: %s (%u x %u)", bgfx::getRendererName(bgfx::getRendererType()),
             width_, height_);
     return true;
@@ -1888,6 +1888,20 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
 const RenderSettings& RenderSystem::settings() const noexcept
 {
     return settings_;
+}
+
+void RenderSystem::set_stats_visible(bool visible)
+{
+    stats_visible_ = visible;
+    if (renderer_initialized_)
+    {
+        bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
+    }
+}
+
+bool RenderSystem::stats_visible() const noexcept
+{
+    return stats_visible_;
 }
 
 bool RenderSystem::request_screenshot(std::string_view utf8_png_path)

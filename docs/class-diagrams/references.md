@@ -75,6 +75,7 @@ classDiagram
     class ResourceSystem
     class WorldSystem
     class RenderSystem
+    class PerformanceSystem
     class ScriptRuntime
     class RuntimeHost
     class GameplaySession
@@ -87,8 +88,10 @@ classDiagram
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
     Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
-    Engine "1" *-- "0..1" WorldSystem : 第二个注册根系统
-    Engine "1" *-- "0..1" RenderSystem : 第三个注册根系统
+    Engine "1" *-- "0..1" PerformanceSystem : 独占性能根系统
+    RuntimeHost ..> PerformanceSystem : 创建并移交引擎
+    Engine "1" *-- "0..1" WorldSystem : 独占世界根系统
+    Engine "1" *-- "0..1" RenderSystem : 独占渲染根系统
     RuntimeHost --> RenderSystem : 借用并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
@@ -107,7 +110,7 @@ classDiagram
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
 ```
 
-默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
+默认初始化顺序为 Window → Resource → Performance → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、性能系统、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。PerformanceSystem 的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
 
 ```mermaid
 classDiagram
