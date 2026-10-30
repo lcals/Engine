@@ -1,7 +1,9 @@
 """真实 MCP 进程配合文件传输替身，验证等待、回执身份和未完成请求保护。"""
 
 import argparse
+import errno
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -10,11 +12,26 @@ import time
 from script_tooling_test import call, contents, invoke, require
 
 
+def retry_sharing(operation):
+    # Windows 原子替换与读者打开路径时都可能短暂返回 ACCESS_DENIED。
+    deadline = time.monotonic() + 1
+    while True:
+        try:
+            return operation()
+        except OSError as error:
+            sharing = os.name == "nt" and (
+                getattr(error, "winerror", None) in (5, 32, 33) or error.errno == errno.EACCES
+            )
+            if not sharing or time.monotonic() >= deadline:
+                raise
+            time.sleep(0.01)
+
+
 def publish(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(".test-" + path.name)
     temporary.write_text(json.dumps(value), encoding="utf-8")
-    temporary.replace(path)
+    retry_sharing(lambda: temporary.replace(path))
 
 
 def response(mcp, project, runtime, name, arguments=None):
@@ -30,7 +47,8 @@ class EditorFixture:
         self.project = project
         self.runtime = runtime
         self.session = "transport-session-001"
-        self.project_root = str(project.resolve())
+        # Match PathUtils::to_utf8: project identity uses UTF-8 and generic separators.
+        self.project_root = project.resolve().as_posix()
         self.stop = threading.Event()
         self.lock = threading.Lock()
         self.failure = None
@@ -101,7 +119,7 @@ def test(mcp, temporary):
             failed
             and pending.get("activation") == "pending"
             and pending.get("session") == editor.session
-            and pending.get("projectRoot") == str(project.resolve())
+            and pending.get("projectRoot") == project.resolve().as_posix()
             and pending.get("requestId"),
             f"unacknowledged command must return a queryable pending identity: {pending}",
         )
@@ -110,7 +128,7 @@ def test(mcp, temporary):
         require(
             envelope["requestId"] == pending["requestId"]
             and envelope["session"] == editor.session
-            and envelope["projectRoot"] == str(project.resolve())
+            and envelope["projectRoot"] == project.resolve().as_posix()
             and envelope["command"] == "get_scene"
             and envelope["arguments"] == {},
             "MCP response does not identify the submitted command envelope",
@@ -252,7 +270,9 @@ def test(mcp, temporary):
             finally:
                 session_link.unlink()
 
-        forged = dict(completed, requestId="wrong-project", projectRoot=str(temporary / "other"))
+        forged = dict(
+            completed, requestId="wrong-project", projectRoot=(temporary / "other").as_posix()
+        )
         publish(runtime / "editor-receipts" / editor.session / "wrong-project.json", forged)
         failed, invalid = response(
             mcp,
@@ -276,10 +296,12 @@ def test(mcp, temporary):
 
         # 目标项目身份必须在写入控制文件之前确认。
         with editor.lock:
-            editor.project_root = str(temporary / "another-project")
+            editor.project_root = (temporary / "another-project").as_posix()
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
-            status = json.loads((runtime / "project-status.json").read_text(encoding="utf-8"))
+            status = retry_sharing(
+                lambda: json.loads((runtime / "project-status.json").read_text(encoding="utf-8"))
+            )
             if status["projectRoot"] == editor.project_root:
                 break
             time.sleep(0.02)

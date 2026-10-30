@@ -119,6 +119,8 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 第三方本地补丁放在 `third_party/`，构建前的覆盖流程见[开发与第三方依赖](docs/development.md)。
 
+Windows 本机兼容修复包括 UTF-8 入口和 Shader 工具、MSVC/Ninja 诊断缓存、DX12 压缩纹理小 mip 与字体 Shader 布局，以及 SDL 只读共享和原子替换。CRT 断言和 abort 输出到 stderr，失败仍返回非零状态。当前 Windows 静态依赖与 CRT 配置尚未完成；资源继续沿用 App 的独立目录，不使用资源嵌入或自解压发布。
+
 依赖维护需保留以下兼容约束：
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。

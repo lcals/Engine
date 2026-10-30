@@ -1,6 +1,7 @@
 """Verify real compiler input fingerprints and project-scoped GUID publication."""
 
 import argparse
+from contextlib import closing
 import json
 from pathlib import Path
 import re
@@ -24,6 +25,7 @@ def build(builder, project, success=True):
         [str(builder), "--project", str(project)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=90,
         check=False,
     )
@@ -207,7 +209,7 @@ def test(builder, source_project, temporary):
         encoding="utf-8",
     )
     build(builder, project)
-    with sqlite3.connect(project / "cache/assets.sqlite") as database:
+    with closing(sqlite3.connect(project / "cache/assets.sqlite")) as database:
         runtime = database.execute(
             "SELECT dependency.path FROM runtime_dependencies edge "
             "JOIN assets owner ON owner.guid=edge.asset_guid "

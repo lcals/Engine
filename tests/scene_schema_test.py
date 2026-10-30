@@ -9,7 +9,7 @@ import tempfile
 
 
 def run(command):
-    result = subprocess.run(command, text=True, capture_output=True, timeout=60)
+    result = subprocess.run(command, text=True, encoding="utf-8", capture_output=True, timeout=60)
     if result.returncode:
         raise RuntimeError(
             f"Command failed ({result.returncode}): {command}\n{result.stdout}\n{result.stderr}"

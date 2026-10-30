@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <span>
 #include <string>
@@ -175,10 +176,15 @@ bool apply(engine::plugins::script::ScriptSystem& script, const Fixture& candida
 
 bool log_contains(std::string_view message)
 {
-    std::string text;
-    return engine::LogSystem::instance().flush() &&
-           engine::ResourceSystem::read_text(engine::LogSystem::instance().file_path(), text) &&
-           text.find(message) != std::string::npos;
+    auto& log = engine::LogSystem::instance();
+    if (!log.flush())
+    {
+        return false;
+    }
+    // 日志仍由 ofstream 写入；使用兼容共享读取的文件流，而非只读资源的 SDL 文件接口。
+    std::ifstream file(log.file_path(), std::ios::binary);
+    const std::string text{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    return file.is_open() && !file.bad() && text.find(message) != std::string::npos;
 }
 
 std::string game_source(std::string_view name, int expected_value)

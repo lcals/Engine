@@ -1,0 +1,53 @@
+diff --git a/src/io/SDL_iostream.c b/src/io/SDL_iostream.c
+--- a/src/io/SDL_iostream.c
++++ b/src/io/SDL_iostream.c
+@@ -119,7 +119,7 @@ static HANDLE SDLCALL windows_file_open(const char *filename, const char *mode)
+         LPWSTR str = WIN_UTF8ToStringW(filename);
+         h = CreateFileW(str,
+                        (w_right | r_right),
+-                       (w_right) ? 0 : FILE_SHARE_READ,
++                       (w_right) ? 0 : (FILE_SHARE_READ | FILE_SHARE_DELETE),
+                        NULL,
+                        (must_exist | truncate | a_mode),
+                        FILE_ATTRIBUTE_NORMAL,
+diff --git a/src/filesystem/windows/SDL_sysfsops.c b/src/filesystem/windows/SDL_sysfsops.c
+--- a/src/filesystem/windows/SDL_sysfsops.c
++++ b/src/filesystem/windows/SDL_sysfsops.c
+@@ -142,10 +142,36 @@ bool SDL_SYS_RenamePath(const char *oldpath, const char *newpath)
+         return false;
+     }
+ 
+-    const BOOL rc = MoveFileExW(woldpath, wnewpath, MOVEFILE_REPLACE_EXISTING);
++    BOOL rc = FALSE;
++    DWORD error = ERROR_SUCCESS;
++    for (int attempt = 0; attempt < 2; ++attempt) {
++        rc = MoveFileExW(woldpath, wnewpath, MOVEFILE_REPLACE_EXISTING);
++        if (rc) {
++            break;
++        }
++        error = GetLastError();
++        if (error != ERROR_ACCESS_DENIED && error != ERROR_SHARING_VIOLATION) {
++            break;
++        }
++        const DWORD attributes = GetFileAttributesW(woldpath);
++        if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_DIRECTORY)) {
++            break;
++        }
++        // Unlike MoveFileExW, ReplaceFileW can replace a file held open by readers.
++        rc = ReplaceFileW(wnewpath, woldpath, NULL, 0, NULL, NULL);
++        if (rc) {
++            break;
++        }
++        error = GetLastError();
++        // The destination may have disappeared; retry the ordinary rename once.
++        if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) {
++            break;
++        }
++    }
+     SDL_free(wnewpath);
+     SDL_free(woldpath);
+     if (!rc) {
++        SetLastError(error);
+         return WIN_SetError("Couldn't rename path");
+     }
+     return true;
