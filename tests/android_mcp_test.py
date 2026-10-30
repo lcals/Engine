@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 
+from sample_project import prepare_minimal_project
 from script_tooling_test import (
     call,
     contents,
@@ -134,17 +135,7 @@ def entry(path):
 def test(server, root, work):
     (work / "fake-adb.py").write_text(FAKE_ADB, encoding="utf-8")
     project = work / "project 中文 $literal"
-    shutil.copytree(
-        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
-    )
-    (project / "cache").mkdir()
-    compiler = root / "projects/minimal/settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
-    shutil.copytree(compiler, project / "settings/node_modules/typescript")
-    config_path = project / "settings/tsconfig.json"
-    config = json.loads(config_path.read_text())
-    config["files"] = [str(root / "include/engine.d.ts")]
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    prepare_minimal_project(root, project)
     unusual = project / "assets" / "quote' $(touch injected) 中文.bin"
     unusual.write_bytes(bytes(range(256)) + b"\x00binary\r\n")
     image_asset = project / "assets/raw-image.png"

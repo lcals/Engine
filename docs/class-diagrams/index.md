@@ -32,7 +32,7 @@
 
 - [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
-- [FBX 对象包导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
+- [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
 - [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
@@ -47,7 +47,7 @@
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
 - [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
-- [模型资源](../runtime/class-diagrams/model-resources.md)：对象包层级、骨架/动画与子资源 GUID，核心读取统一生成数据。
+- [模型资源](../runtime/class-diagrams/model-resources.md)：模型节点层级、骨架/动画与子资源 GUID，核心读取统一生成数据。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、播放、暂停、定位及运行状态。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
@@ -72,7 +72,7 @@
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
-- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：投影、灯光类型、具名贴图及材质槽。
+- [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定及播放状态。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 
@@ -88,7 +88,7 @@
 - [项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)：ProjectMcpTools 显式配置项目与本机/Android 目标，按业务注册构建、同步、运行调试和启停工具。
 - [编辑器 MCP 工具](../plugins/editor/class-diagrams/editor-mcp-tools.md)：EditorMcpTools 注册场景查询、组件属性编辑、批量、撤销/重做及回执查询，通过文件通道交给编辑器执行。
 - [编辑器命令与撤销](../editor/class-diagrams/editor-commands.md)：EditorCommands 调度模块命令并拥有撤销历史，SceneCommands 借用世界并注册场景业务；EditorSystem 在主线程消费命令。
-- [模型实例化命令](../editor/class-diagrams/model-commands.md)：对象包整组创建、资源版本快照及撤销/重做。
+- [模型实例化命令](../editor/class-diagrams/model-commands.md)：展开完整模型节点层级、资源版本快照及撤销/重做。
 - [角色控制器编辑器插件](../plugins/editor/class-diagrams/character-controller.md)：类型自己的 TOML、编辑命令与 MCP 注册。
 - [按类型组件命令](../editor/class-diagrams/component-commands.md)：逐类型注册，ComponentEdit 管理添加、属性快照、回滚与撤销。
 - [物理与音频 MCP](../plugins/editor/class-diagrams/physics-audio-mcp-tools.md)：参数 schema、工具登记与主线程命令转发。

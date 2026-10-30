@@ -58,7 +58,7 @@ if(TARGET engine_script)
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(
         engine_script_runtime_test PRIVATE engine::script engine::app engine::log engine::resource
-                                           engine::world nlohmann_json::nlohmann_json)
+                                           engine::world engine::render nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_script_runtime_test)
     engine_copy_script_data(engine_script_runtime_test)
@@ -135,7 +135,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS
     target_link_libraries(engine_dependency_systems_test PRIVATE engine::core)
     target_compile_definitions(
         engine_dependency_systems_test
-        PRIVATE ENGINE_TEST_PROJECT="${PROJECT_SOURCE_DIR}/projects/minimal"
+        PRIVATE ENGINE_TEST_PROJECT="${PROJECT_SOURCE_DIR}/projects/showcase"
                 ENGINE_HAS_RUNTIME=$<BOOL:${ENGINE_ENABLE_RUNTIME_DEPS}>
                 ENGINE_HAS_EDITOR=$<BOOL:${ENGINE_ENABLE_EDITOR_DEPS}>
                 ENGINE_HAS_ASSET_PIPELINE=$<BOOL:${ENGINE_ENABLE_ASSET_PIPELINE_DEPS}>
@@ -255,7 +255,7 @@ if(TARGET engine_editor)
     add_executable(engine_editor_test editor_system_test.cpp)
     target_link_libraries(engine_editor_test PRIVATE engine::editor engine::project imgui::imgui)
     engine_apply_options(engine_editor_test)
-    add_test(NAME engine.editor COMMAND engine_editor_test "${PROJECT_SOURCE_DIR}/projects/minimal")
+    add_test(NAME engine.editor COMMAND engine_editor_test "${PROJECT_SOURCE_DIR}/projects/showcase")
 endif()
 
 if(TARGET editor_app)
@@ -265,7 +265,7 @@ if(TARGET editor_app)
     add_test(NAME editor.cli_invalid_project
              COMMAND editor_app --project "${CMAKE_CURRENT_BINARY_DIR}/missing-project" --frames 1)
     add_test(NAME editor.cli_invalid_frames
-             COMMAND editor_app --project "${PROJECT_SOURCE_DIR}/projects/minimal" --frames invalid)
+             COMMAND editor_app --project "${PROJECT_SOURCE_DIR}/projects/showcase" --frames invalid)
     set_tests_properties(editor.cli_missing_project editor.cli_invalid_project
                          editor.cli_invalid_frames PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
 endif()
@@ -352,7 +352,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             COMMAND
                 "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/asset_pipeline_script_test.py"
                 --builder "$<TARGET_FILE:asset_build_app>" --project
-                "${PROJECT_SOURCE_DIR}/projects/minimal")
+                "${PROJECT_SOURCE_DIR}/projects/showcase")
         set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
     endif()
 
@@ -433,7 +433,7 @@ if(TARGET engine_world)
                 "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scene_schema_test.py" --binary
                 "$<TARGET_FILE:engine_scene_data_test>" --generated
                 "${PROJECT_BINARY_DIR}/generated/typescript" --settings
-                "${PROJECT_SOURCE_DIR}/projects/minimal/settings" --work-dir
+                "${PROJECT_SOURCE_DIR}/projects/showcase/settings" --work-dir
                 "${CMAKE_CURRENT_BINARY_DIR}" --node "${ENGINE_NODE_EXECUTABLE}")
         set_tests_properties(engine.scene_schema_cross_language PROPERTIES TIMEOUT 180)
     endif()
@@ -553,10 +553,18 @@ endif()
 if(TARGET engine_fbx_import)
     add_executable(engine_fbx_pipeline_test fbx_pipeline_test.cpp)
     target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::fbx_import engine::resource)
+    if(TARGET engine_asset_build)
+        target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::asset_build)
+        target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_BUILD=1)
+    endif()
+    if(TARGET engine_resource_graph)
+        target_link_libraries(engine_fbx_pipeline_test PRIVATE engine::resource_graph)
+        target_compile_definitions(engine_fbx_pipeline_test PRIVATE ENGINE_FBX_TEST_GRAPH=1)
+    endif()
     target_compile_definitions(
         engine_fbx_pipeline_test
         PRIVATE
-            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/animation-test/assets/models")
+            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_fbx_pipeline_test)
     add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
 endif()
@@ -583,7 +591,7 @@ if(TARGET engine_usd_import AND TARGET engine_fbx_import)
     target_compile_definitions(
         engine_usd_pipeline_test
         PRIVATE
-            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/animation-test/assets/models")
+            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_usd_pipeline_test)
     add_test(NAME editor.usd_pipeline COMMAND engine_usd_pipeline_test)
 endif()

@@ -165,7 +165,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                 self.assertEqual(build.main(), 0)
             self.assertIn("-DENGINE_ANDROID_ASSET_BUILDER=" + str(builder.resolve()), commands[0])
             self.assertIn(
-                "-DENGINE_ANDROID_PROJECT=" + str((root / "projects/minimal").resolve()),
+                "-DENGINE_ANDROID_PROJECT=" + str((root / "projects/showcase").resolve()),
                 commands[0],
             )
 

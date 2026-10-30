@@ -181,8 +181,8 @@ inline bool add(test_support::ResourceFixture& files, std::string_view guid, std
 inline engine::schema::ModelDataT model()
 {
     engine::schema::ModelDataT result;
+    result.schema_version = 2;
     result.path = model_path;
-    result.skeleton_guid = target_guid;
     auto parent = std::make_unique<engine::schema::ModelNodeDataT>();
     parent->name = "Assembly";
     result.nodes.push_back(std::move(parent));
@@ -192,10 +192,6 @@ inline engine::schema::ModelDataT model()
     child->position = {0, 2, 0};
     child->mesh_guid = mesh_guid;
     result.nodes.push_back(std::move(child));
-    auto action = std::make_unique<engine::schema::ModelAnimationDataT>();
-    action->name = "Move";
-    action->guid = clip_guid;
-    result.animations.push_back(std::move(action));
     return result;
 }
 
@@ -215,7 +211,7 @@ inline bool add_model(test_support::ResourceFixture& files)
     engine::schema::FinishModelDataBuffer(
         model_builder, engine::schema::ModelData::Pack(model_builder, &model_data));
     return add(files, model_guid, model_path, engine::schema::AssetKind::model, model_builder,
-               {target_guid, mesh_guid, clip_guid});
+               {mesh_guid});
 }
 
 struct Fixture

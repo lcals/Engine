@@ -1,0 +1,4568 @@
+active_camera = '2'
+name = 'Sunlit courtyard'
+
+[[nodes]]
+id = '2'
+name = 'Camera'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 1.5999998711049557, 6.5999999046325684 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    far_clip = 100.0
+    fov_degrees = 55.0
+    near_clip = 0.079999998211860657
+    orthographic_size = 5.0
+    projection = 'perspective'
+    type = 'camera'
+
+[[nodes]]
+id = '3'
+name = 'Sun'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 9.0, 0.0 ]
+    rotation = [ -34.0, -38.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.89999997615814209, 0.75999999046325684, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 3.0999999046325684
+    kind = 'directional'
+    outer_angle = 30.0
+    range = 40.0
+    type = 'light'
+
+[[nodes]]
+id = '4'
+name = 'Player'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.049999918788671494, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    gravity_factor = 1.0
+    ground_snap_distance = 0.20000000298023224
+    half_height = 0.60000002384185791
+    max_slope_degrees = 50.0
+    radius = 0.30000001192092896
+    step_height = 0.34999999403953552
+    type = 'character_motor'
+
+    [[nodes.components]]
+    camera_distance = 4.5999999046325684
+    camera_node_id = '2'
+    enabled = true
+    eye_height = 1.5499999523162842
+    jump_speed = 5.0
+    look_sensitivity = 0.11999999731779099
+    mode = 'third_person'
+    move_speed = 3.0
+    pitch_max = 80.0
+    pitch_min = -80.0
+    type = 'character_controller'
+
+[[nodes]]
+id = '12'
+name = 'Fill light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 8.0, 0.0 ]
+    rotation = [ -35.0, 140.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 0.68999999761581421, 0.81999999284744263, 1.0, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 0.47999998927116394
+    kind = 'directional'
+    outer_angle = 30.0
+    range = 40.0
+    type = 'light'
+
+[[nodes]]
+id = '13'
+name = 'courtyard_portico_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 3.2000000000000002, -13.4 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.74000000953674316, 0.47999998927116394, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 2.0
+    kind = 'point'
+    outer_angle = 30.0
+    range = 5.0
+    type = 'light'
+
+[[nodes]]
+id = '14'
+name = 'courtyard_pergola_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.2999999999999998, 2.8999999999999999, -4.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.81000000238418579, 0.60000002384185791, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 1.5
+    kind = 'point'
+    outer_angle = 30.0
+    range = 5.0
+    type = 'light'
+
+[[nodes]]
+id = '15'
+name = 'courtyard_foundation'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, -0.125, -5.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1678c4fb-8072-4cb9-8c4f-9713d39457b7'
+    mesh = '10a47292-0ab9-44ae-8dc8-827c285dd9c0'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 11.0, 0.17499999999999999, 14.0 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '16'
+name = 'courtyard_paver_0_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, 3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '29de4e33-0974-4d50-b2c2-1b9b077904ff'
+    mesh = '19c2b2dc-30c0-4378-a0c7-c544e98b38e1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '17'
+name = 'courtyard_paver_0_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, 3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9750b0dd-202b-4105-8da8-6a16b9550879'
+    mesh = '61fb3b60-3ed7-4e6a-a042-dd65adfa9b89'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '18'
+name = 'courtyard_paver_0_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, 3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f5198e4d-9d63-4fa3-ac7a-6cd8a96e3f45'
+    mesh = 'e597e09d-ab29-472a-91e3-59b79d97f27f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '19'
+name = 'courtyard_paver_0_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, 3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e8a60e9c-10db-4ad4-af2e-15eeb18dc11c'
+    mesh = '0fdf45b2-5711-4b9a-852a-0d4c2dcf9b09'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '20'
+name = 'courtyard_paver_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, 1.7899999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1ad4db3a-94da-45ee-bca3-d73f4165606e'
+    mesh = '683bf762-bd75-43ed-8f0b-9692c0b5b950'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '21'
+name = 'courtyard_paver_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, 1.7899999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd3ba67ff-b647-44d9-90a1-7d19c8de8902'
+    mesh = 'ce506bbe-c5fe-44ac-ad3a-a9e8c70c9951'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '22'
+name = 'courtyard_paver_1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, 1.7899999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3464237f-a079-46e4-b38d-4ed82cae3ba0'
+    mesh = '446fde06-e558-4d8f-982e-85e82adf9dbf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '23'
+name = 'courtyard_paver_1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, 1.7899999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cdb38790-90e8-4b55-8960-526ba0e548a2'
+    mesh = 'c5c0b1b3-d75c-447d-82b1-43f57c94e38f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '24'
+name = 'courtyard_paver_2_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, 0.17999999999999972 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '395e59d0-94c2-4f32-943d-e80fde80e916'
+    mesh = '09a818c1-fa9e-414f-b27b-cbaf6e065579'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '25'
+name = 'courtyard_paver_2_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, 0.17999999999999972 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2fdca8c0-de0b-4364-a8a9-08ca4ea34d6f'
+    mesh = 'a0319697-6d6e-4e22-94c1-98ca92cac040'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '26'
+name = 'courtyard_paver_2_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, 0.17999999999999972 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ad4e5fe1-e973-4408-8787-89ecb39e29ee'
+    mesh = '3f14ce2d-a571-4d85-b49e-a2f80eae0b88'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '27'
+name = 'courtyard_paver_2_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, 0.17999999999999972 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dc52ff8f-b4f2-445a-bf8d-28808efbe7f0'
+    mesh = 'a4e00cbd-46ae-4e6f-867e-3b54b2cfe147'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '28'
+name = 'courtyard_paver_3_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, -1.4300000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5a28d40e-7734-4e6b-b975-d5ce3c37e44d'
+    mesh = '12da9e98-f8ab-49d0-bd69-1c35bc5d28ac'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '29'
+name = 'courtyard_paver_3_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, -1.4300000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '975608d8-b424-4b87-b381-fef9c68c61f0'
+    mesh = '5386975b-eb95-4351-9346-7e618c515ba5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '30'
+name = 'courtyard_paver_3_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, -1.4300000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a287c0fc-068c-4b77-9d04-ef96c208ebb5'
+    mesh = 'e2a0ced0-b702-44ac-9ce3-f0432eeef9aa'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '31'
+name = 'courtyard_paver_3_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, -1.4300000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8374912e-e603-4f15-9a25-62706c663bff'
+    mesh = 'c84d93dd-4e72-4a1b-8d95-c575c172d0e2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '32'
+name = 'courtyard_paver_4_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, -3.0400000000000005 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c784b0b4-8acc-4e8e-8155-bf7d523983be'
+    mesh = 'cbdc1e61-aea1-4b4d-a8d2-c0cfb1450d23'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '33'
+name = 'courtyard_paver_4_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, -3.0400000000000005 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2935dc01-8e1a-4c55-9eab-29948f45bcc9'
+    mesh = '475e4881-c5dd-45d5-a527-9510660b3ab7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '34'
+name = 'courtyard_paver_4_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, -3.0400000000000005 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '63c683eb-7dee-4044-a12c-2754e744a935'
+    mesh = 'e3d41469-ba8c-4795-8f77-5ccf0817edda'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '35'
+name = 'courtyard_paver_4_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, -3.0400000000000005 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6ad8b1d4-ec4d-4325-b384-3026e6135d6b'
+    mesh = 'a0593d6e-e18a-472c-b472-03dfb20db352'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '36'
+name = 'courtyard_paver_5_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, -4.6500000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b918a90c-570e-4a9c-8619-aaf66051ba4a'
+    mesh = '2978b4c3-9136-4731-9dfb-5f2c474c0c15'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '37'
+name = 'courtyard_paver_5_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, -4.6500000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7eb8cdb0-72fd-4650-b14a-1cd5c0f80b5b'
+    mesh = 'c3fdc848-369c-4adf-a5e1-f6bd75f0236d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '38'
+name = 'courtyard_paver_5_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, -4.6500000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2b683066-8942-4c76-a6b0-1e568830e0c2'
+    mesh = '23ed1d8e-1926-4d5b-8423-b4468aec2ddb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '39'
+name = 'courtyard_paver_5_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, -4.6500000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8ec2164c-92eb-4af4-aa13-985c4e46b1ac'
+    mesh = '686684ec-26cb-4fa1-a077-7b0266b21a10'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '40'
+name = 'courtyard_paver_6_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, -6.2599999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1398b257-50c3-4a6f-bdb7-62f2165a9162'
+    mesh = 'b01ac660-9648-4fde-804b-3cab12e0e202'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '41'
+name = 'courtyard_paver_6_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, -6.2599999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8428f276-4d87-46c8-8c44-1c291a4a2048'
+    mesh = 'bc9d1846-2302-4b50-bbe2-104b52c9006a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '42'
+name = 'courtyard_paver_6_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, -6.2599999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ffa99f27-3573-4e40-8233-fcd654cfc5f9'
+    mesh = '1af27650-de6e-4b0d-afa5-1467921e1b9e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '43'
+name = 'courtyard_paver_6_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, -6.2599999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3e340e89-622c-434d-8711-076cef557e61'
+    mesh = '0e85bded-5e93-4cb6-b9e6-095b4ab7cd80'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '44'
+name = 'courtyard_paver_7_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.635, 0.044999999999999998, -7.870000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3f4835f0-aff6-4432-98d7-29a3f7606c41'
+    mesh = 'fe3d2dc5-562f-4d07-a216-64242d317720'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '45'
+name = 'courtyard_paver_7_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.54499999999999993, 0.044999999999999998, -7.870000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b3196bf4-3134-432d-b4cf-34a3cb1029ed'
+    mesh = '88f26f69-f368-407f-b351-5c4bfe3a9a3e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '46'
+name = 'courtyard_paver_7_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.54500000000000015, 0.044999999999999998, -7.870000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8c75572c-ed97-4116-817f-8099fb205bb5'
+    mesh = '48ca5cd2-e903-4afd-a571-ad1b5eb31422'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '47'
+name = 'courtyard_paver_7_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.6350000000000005, 0.044999999999999998, -7.870000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cdf0b2e6-608e-4c8a-904b-5766fde3cfc7'
+    mesh = 'dd278a03-1aa8-4f3d-ba3b-84e80f05ba06'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '48'
+name = 'courtyard_path_border_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 0.055, -2.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '675d9171-3185-4926-9804-f2c182177852'
+    mesh = '5dbfc0ec-5846-403a-afbc-e7589fd412e4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '49'
+name = 'courtyard_side_gravel_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0, 0.063, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2a63841d-6ca7-450d-95d5-d8f50f33e483'
+    mesh = '845a20c0-baa1-4724-bd1b-6f13fabea42b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '50'
+name = 'courtyard_cross_paver_-1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8999999999999999, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c4d0d47b-e763-44eb-8669-44ef31d41d9c'
+    mesh = 'c0db2b62-2294-427c-95f8-9a0467039d0b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '51'
+name = 'courtyard_cross_paver_-1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.9500000000000002, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '528b09c7-3780-4d99-b438-afc136c5a8e8'
+    mesh = '66d04236-761e-42af-9e9a-4505df919411'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '52'
+name = 'courtyard_cross_paver_-1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.0, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '476cd81c-7a05-4c53-8dc3-2eaf00bef196'
+    mesh = '1ba41188-f69d-462d-899a-dbcb198ee706'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '53'
+name = 'courtyard_cross_paver_-1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0500000000000007, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b3c54b2a-28e0-4298-bc32-9e50133f0d1d'
+    mesh = '1696af23-20fb-4b11-b068-c42a877c797f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '54'
+name = 'courtyard_cross_paver_-1_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0999999999999996, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6fbab3fc-2a27-45e5-adc6-d7ce92228cc9'
+    mesh = '2f0bf19d-9987-4f80-b9c7-ecf2c88acd5f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '55'
+name = 'courtyard_path_border_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.25, 0.055, -2.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'aa39ddfb-c438-472e-be9f-83ade8d4f656'
+    mesh = '978aa1a0-2f98-4b5a-b553-0dd447698a91'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '56'
+name = 'courtyard_side_gravel_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.0, 0.063, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '421eb868-4c83-4c9c-9ed2-23e97a8668db'
+    mesh = '938ca71c-c4c1-401a-af9c-bcabc2ed82d1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '57'
+name = 'courtyard_cross_paver_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.8999999999999999, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '71b4da05-69ce-44ef-80b2-a84e4688ec9a'
+    mesh = '5ad9713f-c686-429f-b931-53d8f7cc6a22'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '58'
+name = 'courtyard_cross_paver_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.9500000000000002, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a4fb68fd-d3a0-4f81-a90c-3e86a5e22aa6'
+    mesh = 'd577b5e0-5118-4009-abf3-1a8abd63d7f1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '59'
+name = 'courtyard_cross_paver_1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.0, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4ac70af0-e9c3-4d9d-b833-658c4f228064'
+    mesh = 'f14b3b18-036a-4142-8359-778fa2e8e14d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '60'
+name = 'courtyard_cross_paver_1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.0500000000000007, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '44b51222-f280-4bdf-8b06-201896728f0e'
+    mesh = 'bc9da2f0-7c2c-4a70-bbfa-cb883b9627ee'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '61'
+name = 'courtyard_cross_paver_1_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.0999999999999996, 0.065000000000000002, -3.4500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8328a37f-6fe6-4278-9172-9f080b6b8a8d'
+    mesh = '1244fba6-8109-41a5-a6f2-765038de7d97'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '62'
+name = 'courtyard_rear_pavilion'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 2.79, -14.6 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c1a2f034-1c47-42e4-bd72-fe84f4079379'
+    mesh = '008f1b20-2967-4919-9566-034932b2ae1d'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 10.300000000000001, 2.25, 0.20000000000000001 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '63'
+name = 'courtyard_roof_shadow_reveal'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 5.04, -14.050000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4dd43c00-e538-4cca-9cae-ef249dce1318'
+    mesh = '05d4bac6-4dfa-435c-a9d4-8710c3fc52b0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '64'
+name = 'courtyard_roof_coping'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 5.1799999999999997, -14.050000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0b2aac76-0afe-4ec2-946f-8bcfd8d437b2'
+    mesh = '84e17bc1-ad08-426f-ad51-2b8c7a0ed977'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '65'
+name = 'courtyard_terrace'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.27000000000000002, -12.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '94e4f56a-21e7-4690-a9b5-fca1cc9f7d6b'
+    mesh = '2fe69f42-600f-4de5-967c-fdc6c1a635c5'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 10.300000000000001, 0.27000000000000002, 2.25 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '66'
+name = 'courtyard_stair_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.089999999999999997, -8.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4ab8f302-4590-4f7e-b4bf-45a5263e2867'
+    mesh = '6daef56d-69d4-46f6-8745-2585803b1823'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 2.6000000000000001, 0.089999999999999997, 0.29999999999999999 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '67'
+name = 'courtyard_stair_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.17999999999999999, -9.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd34b3de3-c776-4f78-b206-e2d9b0e123cd'
+    mesh = 'c2717dc5-320e-46a1-bfab-cb384c823855'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 2.6000000000000001, 0.17999999999999999, 0.29999999999999999 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '68'
+name = 'courtyard_stair_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.27000000000000002, -9.5999999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '02b63d2d-283c-42f5-86e2-0ec8ecf2c747'
+    mesh = '9c7b3b38-f0db-4076-b048-37b4acc4eec8'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 2.6000000000000001, 0.27000000000000002, 0.29999999999999999 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '69'
+name = 'courtyard_stair_nosing_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.17599999999999999, -8.1300000000000008 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'edb05228-2093-42a0-90bd-0a59b7a788dd'
+    mesh = '7ae7cd28-c100-43bf-8705-ca08e3a3df8d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '70'
+name = 'courtyard_stair_nosing_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.35599999999999998, -8.7300000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a109a0e2-112a-42eb-9351-654414f1c894'
+    mesh = '047a3d5e-d850-424c-938c-4a3fbcd09734'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '71'
+name = 'courtyard_stair_nosing_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.53600000000000003, -9.3300000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0b9fd225-35bc-4b2c-8873-8a202c32d138'
+    mesh = 'd607c0d4-e84c-4b49-9835-100822e1b259'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '72'
+name = 'courtyard_garden_wall_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -10.35, 0.52500000000000002, -3.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '46c1a9bd-bc17-47cf-baf9-eb6b595781a0'
+    mesh = '3ddf8a62-9f72-4813-a70a-1cc7eab2e7bd'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.14999999999999999, 0.52500000000000002, 9.5 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '73'
+name = 'courtyard_garden_coping_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -10.35, 1.085, -3.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e921eb8c-0e6d-4ceb-994b-1b7c16c18c1e'
+    mesh = 'b6b0ce01-ff1e-4266-a0eb-0eb2eb738877'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '74'
+name = 'courtyard_terrace_return_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -10.15, 2.4399999999999999, -12.800000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7be3d1f6-e12c-41b9-990a-e2babca642f2'
+    mesh = '0e59201b-8581-4507-a985-30ba5d0e9cd0'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.14999999999999999, 1.8999999999999999, 1.6000000000000001 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '75'
+name = 'courtyard_garden_wall_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 10.35, 0.52500000000000002, -3.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5f83106d-0c2b-4cd3-a960-b142ad6f7789'
+    mesh = '5ac6febb-acde-40dc-bd5e-76c6b07b4900'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.14999999999999999, 0.52500000000000002, 9.5 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '76'
+name = 'courtyard_garden_coping_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 10.35, 1.085, -3.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '29853988-074c-4596-8f58-ae7353d66c3b'
+    mesh = '05af8fa5-d41f-4292-a51c-0835bad5bf57'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '77'
+name = 'courtyard_terrace_return_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 10.15, 2.4399999999999999, -12.800000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '217224d4-cfe2-47bb-89ad-be2a40a31b43'
+    mesh = '28c3ce57-1e8f-4ac1-aff4-5935cd19658c'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.14999999999999999, 1.8999999999999999, 1.6000000000000001 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '78'
+name = 'courtyard_window_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4000000000000004, 2.6000000000000001, -14.365 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '73653d84-0dee-4662-a0a9-959e687d4269'
+    mesh = '04c6873a-72b8-449d-a11d-bf188e51b169'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '79'
+name = 'courtyard_window_jamb_0_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -8.9100000000000001, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c9ec600e-d624-45ad-bcd0-23afe73451c6'
+    mesh = '158d757a-32c2-4ec9-95bf-1cfb31250ce8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '80'
+name = 'courtyard_window_jamb_0_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.8900000000000006, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1f592a2d-db0b-4132-b607-fac507bb0074'
+    mesh = '0743426a-f39f-4a7e-9148-e895037801dd'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '81'
+name = 'courtyard_window_rail_0_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4000000000000004, 1.1699999999999999, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6e08d105-5a13-49b2-93ba-c240853d0ac8'
+    mesh = '003b643c-f9d1-4bf9-9f9e-c101687842eb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '82'
+name = 'courtyard_window_rail_0_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4000000000000004, 4.0300000000000002, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b6c169a2-b2ef-4152-a779-dcc423cd72fb'
+    mesh = '3e03c43b-6045-4b23-817f-06cb2d920277'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '83'
+name = 'courtyard_window_mullion_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4000000000000004, 2.6000000000000001, -14.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9eb056d1-aed9-41a2-b316-6706a6aea747'
+    mesh = 'a051c037-84b9-4c4e-9f79-8b81b26413b9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '84'
+name = 'courtyard_window_sill_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4000000000000004, 1.1099999999999999, -14.199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e3578490-4aa2-4e8a-b3d0-c7a1ac2e224a'
+    mesh = 'a6e85e19-26a7-4239-8443-cd62da87ff08'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '85'
+name = 'courtyard_window_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7000000000000002, 2.6000000000000001, -14.365 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '27bc6fa7-761c-4825-9b55-9576674564f8'
+    mesh = 'fcdd43d9-55a1-4328-8bc6-e6e9a381daed'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '86'
+name = 'courtyard_window_jamb_1_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.21, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e1f2e902-108f-4550-9130-871a99cfcf7a'
+    mesh = '9c60a0c7-9329-4969-8b48-0e20efeb7667'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '87'
+name = 'courtyard_window_jamb_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1900000000000004, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a0fa65bf-b7fb-4820-8571-e408b19b9ba6'
+    mesh = '7d2a367c-dbb7-41e4-a94e-6ae1fd26c980'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '88'
+name = 'courtyard_window_rail_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7000000000000002, 1.1699999999999999, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6ebd5875-bfef-4b81-99ed-8dcc0733de27'
+    mesh = '95bf3596-229d-404f-b882-fc664f7a498d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '89'
+name = 'courtyard_window_rail_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7000000000000002, 4.0300000000000002, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'de635866-6db4-4ec5-a855-c536fa35cec1'
+    mesh = '9fccddef-0e0e-4d56-9442-835271780856'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '90'
+name = 'courtyard_window_mullion_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7000000000000002, 2.6000000000000001, -14.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '27237327-c2c7-4a30-a22d-7bf00c264491'
+    mesh = '487c1f80-cb03-4565-b053-53097536e60c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '91'
+name = 'courtyard_window_sill_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7000000000000002, 1.1099999999999999, -14.199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '21984b40-26b7-4971-a3ed-5f5c3c8fc3d6'
+    mesh = '579b7bad-49f2-4d55-992e-e432854686ec'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '92'
+name = 'courtyard_window_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 2.2999999999999998, -14.365 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '57bdcc45-3efe-4c7d-87e4-ceeb42120b5c'
+    mesh = '5127fe60-bc09-47d1-bf4f-c0853fa30240'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '93'
+name = 'courtyard_window_jamb_2_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.51, 2.2999999999999998, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c38434c4-e6b8-4faf-87b4-0305602e0be9'
+    mesh = '7f497a1d-8a04-423b-8ef8-26410685088b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '94'
+name = 'courtyard_window_jamb_2_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.51, 2.2999999999999998, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9b280c10-49c0-4f4e-a325-30400fad146a'
+    mesh = '0f864fcd-ef23-41d0-af51-fd01dc92d6ee'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '95'
+name = 'courtyard_window_rail_2_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.56999999999999995, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '08aefc6b-d871-42fc-b03c-64a961204150'
+    mesh = '23167105-a01e-4416-abd4-ed343bfa28f1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '96'
+name = 'courtyard_window_rail_2_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 4.0300000000000002, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '171dfccd-c783-460f-870f-43313cdb3834'
+    mesh = '400d6eb8-78b6-46da-9c98-a0e5eec44fee'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '97'
+name = 'courtyard_window_mullion_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 2.2999999999999998, -14.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '92ebe8cc-55d8-42ee-bdcd-0fd9a32c70d0'
+    mesh = '3e1cf41d-1e4f-43ea-9948-47f94b7ceb3b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '98'
+name = 'courtyard_window_sill_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.51000000000000001, -14.199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dbf5ca21-6e6b-48e5-8131-2bfbc9df2e14'
+    mesh = 'eda71ccd-1e06-41b9-83cc-eecf786729ff'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '99'
+name = 'courtyard_window_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7000000000000002, 2.6000000000000001, -14.365 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4bf988a2-275e-4e5d-a369-7626cc6a6fe5'
+    mesh = '3a95382e-9d8f-4b1a-b3fa-755585b449a7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '100'
+name = 'courtyard_window_jamb_3_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.1900000000000004, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0e1dbdee-1dfb-4415-8a17-22b38f32c49d'
+    mesh = 'cb35eebf-728a-4c8f-95d2-c45abe6a6835'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '101'
+name = 'courtyard_window_jamb_3_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.21, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '321b87c2-c0f3-4136-9363-d32597a8df03'
+    mesh = 'a453a7d7-62fd-42b6-8e46-b93c184f03bd'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '102'
+name = 'courtyard_window_rail_3_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7000000000000002, 1.1699999999999999, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c2a146c3-47b6-467f-a0a4-046db6e7cc7d'
+    mesh = '3717e4eb-1942-4f20-9f4d-0bc8c6ced72b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '103'
+name = 'courtyard_window_rail_3_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7000000000000002, 4.0300000000000002, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '16b89f50-5c4a-48b4-b8fc-ae31cdad4d76'
+    mesh = '1a54b065-2379-4204-b208-f0bcd2ce3eb9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '104'
+name = 'courtyard_window_mullion_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7000000000000002, 2.6000000000000001, -14.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4f81b84a-4b83-4afc-ba77-6a346e21e785'
+    mesh = '95fe225e-f24b-4ee3-bc93-1bfbe6a7ace9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '105'
+name = 'courtyard_window_sill_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7000000000000002, 1.1099999999999999, -14.199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5532a82f-9624-41b5-85c4-3e2082184305'
+    mesh = '7062ce72-b0d1-4baf-9828-53f566328dc9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '106'
+name = 'courtyard_window_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4000000000000004, 2.6000000000000001, -14.365 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7b31407a-94c5-4788-801c-c89131eed59b'
+    mesh = '41a5f573-9ec6-43b0-bdbe-2d2f7f0b5720'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '107'
+name = 'courtyard_window_jamb_4_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.8900000000000006, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0d115bc6-700f-4baf-9933-b2a977db7bfc'
+    mesh = '00a020d6-c434-44f4-a7ad-2f5c59a36fa9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '108'
+name = 'courtyard_window_jamb_4_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.9100000000000001, 2.6000000000000001, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6f56d77d-0513-485f-82cc-2c5271b0c9a8'
+    mesh = 'cc291c1d-93e2-45ca-98ea-525760de452b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '109'
+name = 'courtyard_window_rail_4_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4000000000000004, 1.1699999999999999, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '94047f61-a63c-4053-8b4d-b018ec77ff38'
+    mesh = '4389c023-4b08-4d09-bd83-d65a1d4620b3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '110'
+name = 'courtyard_window_rail_4_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4000000000000004, 4.0300000000000002, -14.279999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '49935ad3-b770-4aaa-bd05-e3497c59a8f3'
+    mesh = '0ce508cb-6c67-458d-a582-1f18c9c1de1f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '111'
+name = 'courtyard_window_mullion_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4000000000000004, 2.6000000000000001, -14.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f9146877-005c-4a84-a451-800ed87239f8'
+    mesh = 'cd0c6f7d-9280-4289-ab39-d8b5d9bb0b8f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '112'
+name = 'courtyard_window_sill_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4000000000000004, 1.1099999999999999, -14.199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c90ab4f2-0f4b-4c3d-9605-26110b50ec7d'
+    mesh = '309a497b-1c54-4f17-8a47-ee5c8a22c559'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '113'
+name = 'courtyard_door_pull_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.16, 1.6000000000000001, -14.15 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8bc8b79d-00e6-4818-8e30-36a01bf61c00'
+    mesh = '4c823ad9-599a-42af-898d-3b828cb68da0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '114'
+name = 'courtyard_door_pull_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.16, 1.6000000000000001, -14.15 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '00f6dc0c-aa76-4e9d-a86c-aa8028106cc6'
+    mesh = '8af04a83-8590-49d9-9356-3647e7f0dac5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '115'
+name = 'courtyard_pergola_post_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2000000000000002, 1.6499999999999999, -1.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e7bbe3bb-1cc5-4777-af9a-59e00338edce'
+    mesh = '620d63cc-f189-4122-8040-c8a926cda459'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 1.6000000000000001, 0.070000000000000007 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '116'
+name = 'courtyard_pergola_post_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.5999999999999996, 1.6499999999999999, -1.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0e0e9741-1406-4523-88b1-ef832efdb403'
+    mesh = 'f5b6866c-035a-45c4-826b-c9597f93cb76'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 1.6000000000000001, 0.070000000000000007 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '117'
+name = 'courtyard_pergola_post_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2000000000000002, 1.6499999999999999, -7.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '754eccee-26d1-46af-ba9b-3041064708aa'
+    mesh = '5e9a6ebc-24b4-468d-b2aa-a128965beddf'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 1.6000000000000001, 0.070000000000000007 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '118'
+name = 'courtyard_pergola_post_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.5999999999999996, 1.6499999999999999, -7.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9ea4fdb7-749c-4379-8364-394b42b0835a'
+    mesh = 'd4e2e331-d2c5-404f-8e16-21fb267ea07a'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 1.6000000000000001, 0.070000000000000007 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '119'
+name = 'courtyard_pergola_side_beam_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2000000000000002, 3.2799999999999998, -4.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c29a6214-c613-4d1d-8812-b445f8bd0e28'
+    mesh = 'e082301f-4515-4a0a-9cc3-de2102d9dbc1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '120'
+name = 'courtyard_pergola_side_beam_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.5999999999999996, 3.2799999999999998, -4.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0e3b6718-d7fd-4e79-a48c-94edcc5d0a91'
+    mesh = '988767a5-e67b-41cd-836d-7fa8c874825f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '121'
+name = 'courtyard_pergola_roof_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -1.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6e23de5c-0d55-43bd-b211-b209296a5ff6'
+    mesh = '643589ce-4130-4a0d-a07e-6875acfc9db6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '122'
+name = 'courtyard_pergola_roof_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -1.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a4d53933-8885-426e-93d7-6b84d6380bd9'
+    mesh = '224ac9b5-5a08-4f00-834a-08ad1b927da4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '123'
+name = 'courtyard_pergola_roof_slat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -2.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '831fc659-3972-459c-b159-45c2ea98d51d'
+    mesh = 'ee05ebae-02e3-4e8e-bd69-34afefa842ad'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '124'
+name = 'courtyard_pergola_roof_slat_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -2.6000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '60e63875-39e5-4f23-9fb3-25188fb83898'
+    mesh = '5f59e374-4d94-4ffa-a863-c888d8df3efc'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '125'
+name = 'courtyard_pergola_roof_slat_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -3.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '80a87df6-4817-429c-a376-59ed946116cd'
+    mesh = '0bc065f1-ed69-4471-b430-8cb81571e6a8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '126'
+name = 'courtyard_pergola_roof_slat_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '722f11a0-4ab6-40ac-9870-469152c0b819'
+    mesh = '2590e1e7-35aa-4c0b-a8cc-5eb6f36e963c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '127'
+name = 'courtyard_pergola_roof_slat_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -3.8000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ccb55eaa-4177-4d3b-bb30-260defa006e7'
+    mesh = 'd18c85a8-f4a6-4305-9700-17b38a6ef1b5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '128'
+name = 'courtyard_pergola_roof_slat_7'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -4.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8291cd95-c453-4135-a4a6-003408f50126'
+    mesh = 'eeb12222-c957-4ecd-9aa0-0c2ad241e682'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '129'
+name = 'courtyard_pergola_roof_slat_8'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -4.5999999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '907654f6-e9ab-4da9-a126-51067d36e09a'
+    mesh = 'c21b7e26-70a0-4bf6-883c-4b502b163906'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '130'
+name = 'courtyard_pergola_roof_slat_9'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -5.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '61465959-1c6e-4417-9e3b-59194149eabe'
+    mesh = '63908500-8cd8-4766-9308-c77677f984a6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '131'
+name = 'courtyard_pergola_roof_slat_10'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1aa6e65f-85c0-4fab-ba97-0e8ab0c6547c'
+    mesh = '354f6653-fdd8-4bf6-ba1e-34181b1d8ef9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '132'
+name = 'courtyard_pergola_roof_slat_11'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -5.8000000000000007 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '316a84d5-facd-4b29-9913-ac9fdd3b2e52'
+    mesh = '29badee0-ca02-438c-902c-1ff445db1354'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '133'
+name = 'courtyard_pergola_roof_slat_12'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -6.2000000000000011 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2c341319-619c-4970-9c04-7f12a20a5be6'
+    mesh = '05f2fadc-116e-4a5d-bfc0-26f3cba8a128'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '134'
+name = 'courtyard_pergola_roof_slat_13'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -6.5999999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '314e5c36-e222-41a0-85e4-9d4dccf91a32'
+    mesh = '87b1f45b-2b3b-47d6-87a1-50f1319a22d5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '135'
+name = 'courtyard_pergola_roof_slat_14'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 3.3799999999999999, -7.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3b08cb21-c35e-4a82-bc54-687c3683bd55'
+    mesh = 'b7831fd0-f11d-4d49-afe5-f1560ce9a44f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '136'
+name = 'courtyard_screen_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fbdcbd89-3aac-4dbb-bf37-ada3c105e584'
+    mesh = '62e8b111-758b-47f3-b446-5f967bef6ce7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '137'
+name = 'courtyard_screen_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -2.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3ad0746b-e565-4e4d-8be6-1ca866bbee30'
+    mesh = '107f4aa6-eb72-499f-a559-5745af052d1c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '138'
+name = 'courtyard_screen_slat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -2.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a59458b8-d9fb-4d75-97ed-faedde80699f'
+    mesh = '371dc74c-68cf-4a05-a2ec-080d20d865c8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '139'
+name = 'courtyard_screen_slat_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -3.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f186beac-8e4c-4865-8bbf-9f7b89cd9e4b'
+    mesh = 'b2930cbc-8c79-4a56-814b-7f11cf5c48eb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '140'
+name = 'courtyard_screen_slat_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -3.6000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '40820c4b-7716-4434-9f30-20270e422cf2'
+    mesh = 'e47156e6-124a-4e84-8d1b-c887892af484'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '141'
+name = 'courtyard_screen_slat_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -4.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd284481e-3cc0-4b5a-a21e-a80b525ce515'
+    mesh = '984b8de2-3b9c-4f21-a3fc-4bc77a44e739'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '142'
+name = 'courtyard_screen_slat_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '43aac746-7f8c-4d4a-bb8a-a8b9a626d00c'
+    mesh = '544a0d2f-02ba-4a6f-8c8e-b173695154bf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '143'
+name = 'courtyard_screen_slat_7'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -4.8000000000000007 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '620924d6-34f0-4e0a-a895-2de472d4abb8'
+    mesh = 'ebb2305b-4971-49b1-a9f8-890ef260c88a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '144'
+name = 'courtyard_screen_slat_8'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -5.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2678c1ff-5e8c-4e10-8f2f-e2a2b9b9c24b'
+    mesh = 'feef362e-3383-4a9f-aa00-d34409fb4e12'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '145'
+name = 'courtyard_screen_slat_9'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.6500000000000004, 1.3999999999999999, -5.5999999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3ee8ab53-13f2-4901-a741-c009c9e509b2'
+    mesh = '9f51377e-f046-491e-a43e-eb664208be92'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '146'
+name = 'courtyard_west_bench_support_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.2000000000000002, 0.28000000000000003, -2.25 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8c865b4c-f6d4-4566-b2f6-eb3c4972d063'
+    mesh = '76c4d4f6-c444-4480-b0cb-aad5278d3c32'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 0.23000000000000001, 0.31 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '147'
+name = 'courtyard_west_bench_support_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.2000000000000002, 0.28000000000000003, -4.6500000000000004 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bd92a964-88c5-47b6-8175-63daf978e231'
+    mesh = '9ebb5368-ebfd-40dc-a84d-3de72390277a'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 0.23000000000000001, 0.31 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '148'
+name = 'courtyard_west_bench_seat_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.4800000000000004, 0.53500000000000003, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '55d2e1e5-3b22-49cb-95cf-d57f7c197309'
+    mesh = '9797fbb8-2811-471a-ac2b-a69a8c83ed5f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '149'
+name = 'courtyard_west_bench_seat_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.3399999999999999, 0.53500000000000003, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd333df76-3194-4866-a727-e09cd30be13a'
+    mesh = '62cda909-ec9c-4176-ac33-e055dd43d963'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '150'
+name = 'courtyard_west_bench_seat_slat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.2000000000000002, 0.53500000000000003, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '76548c6b-1d21-44f8-84f3-fb6725101b09'
+    mesh = '614b0081-1409-48aa-b448-f4dc9b018b27'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.69999998807907104
+    half_extents = [ 1.5, 0.048000000000000001, 0.35999999999999999 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '151'
+name = 'courtyard_west_bench_seat_slat_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.0600000000000005, 0.53500000000000003, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7ac4c636-7683-4f20-a546-58183b2feba5'
+    mesh = 'f5fda685-f770-497a-9b2a-1fad2df25b9e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '152'
+name = 'courtyard_west_bench_seat_slat_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.9199999999999999, 0.53500000000000003, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2748ccf2-91a6-46cb-af6f-e48583e52faf'
+    mesh = '9a6f8cbd-abf3-470a-a247-4bc0b7081a9c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '153'
+name = 'courtyard_west_bench_back_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.54, 0.83999999999999997, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '683027de-1e88-4eab-9e63-b229726addcd'
+    mesh = '890a019f-fe46-4feb-a441-da8f5bfb6c92'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '154'
+name = 'courtyard_west_bench_back_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.54, 1.04, -3.4500000000000002 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f2130487-7dba-4058-ad18-15a1d7d57da4'
+    mesh = 'e25c395c-af39-43d9-b9f4-e0931d7a5b20'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '155'
+name = 'courtyard_west_bench_back_support_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.5899999999999999, 0.78000000000000003, -2.25 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6db7bca4-3c0c-47e3-81e6-56470f527622'
+    mesh = '5d1ef180-8c84-4f40-963e-8094688bb73c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '156'
+name = 'courtyard_west_bench_back_support_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.5899999999999999, 0.78000000000000003, -4.6500000000000004 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7c6379a9-3132-4d97-b6ad-ab24ea22251e'
+    mesh = 'd25771d7-9fd4-4849-9672-3d92bcf3299f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '157'
+name = 'courtyard_pergola_bench_support_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.2000000000000002, 0.28000000000000003, -5.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ac7acdfe-cbae-4168-bd58-7b8e35dac5cf'
+    mesh = '2853d50b-b5bc-45de-a331-bd38cdd0ee3a'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 0.23000000000000001, 0.31 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '158'
+name = 'courtyard_pergola_bench_support_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.6000000000000005, 0.28000000000000003, -5.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '87a89ad6-741a-4586-8054-71c960958c21'
+    mesh = '9069af97-7997-4167-919f-07474cb4fff6'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.070000000000000007, 0.23000000000000001, 0.31 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '159'
+name = 'courtyard_pergola_bench_seat_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.53500000000000003, -6.0800000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5d02c47c-438d-4c80-b539-bcab8754efbd'
+    mesh = '019be8a8-6102-4447-a424-9a3b76f47a8d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '160'
+name = 'courtyard_pergola_bench_seat_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.53500000000000003, -5.9399999999999995 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c918ae4c-bf0e-40b6-93fc-f6c9aa87258d'
+    mesh = 'c8bc33ba-41b4-4a63-8c7b-5a4a3ba8a537'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '161'
+name = 'courtyard_pergola_bench_seat_slat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.53500000000000003, -5.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4c3188cb-a6f2-4b07-851b-921bb40811e1'
+    mesh = 'f1faa5ea-4c87-42df-8731-f9b27f2849cc'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.69999998807907104
+    half_extents = [ 1.5, 0.048000000000000001, 0.35999999999999999 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '162'
+name = 'courtyard_pergola_bench_seat_slat_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.53500000000000003, -5.6600000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0df9fcf7-f63c-4610-b770-6cd9fec21bc4'
+    mesh = '13f24bf4-777e-4199-9112-0c1b5fe94979'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '163'
+name = 'courtyard_pergola_bench_seat_slat_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.53500000000000003, -5.5199999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '636e47bb-4cb2-4b1b-a23d-c9ad63322ced'
+    mesh = '6b484b21-48de-42e1-b886-11efeecb5147'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '164'
+name = 'courtyard_pergola_bench_back_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 0.83999999999999997, -6.1399999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2ccee301-f15f-410f-8d2c-25b7b8639c65'
+    mesh = 'ecaf0ea1-9fdf-4882-b503-7dd720395b53'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '165'
+name = 'courtyard_pergola_bench_back_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4000000000000004, 1.04, -6.1399999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '281ea64b-976b-4fee-8557-95cb084d1a74'
+    mesh = '372cd59c-1964-4a4d-b958-3c20f865fa6e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '166'
+name = 'courtyard_pergola_bench_back_support_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.2000000000000002, 0.78000000000000003, -6.1899999999999995 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7ce1d98c-451c-43d9-863a-60fc74d62b91'
+    mesh = '912de2c5-6de7-4d07-b6a9-2a4da7f43f2d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '167'
+name = 'courtyard_pergola_bench_back_support_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.6000000000000005, 0.78000000000000003, -6.1899999999999995 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ed6c7f8b-0bac-4a09-a1df-53578ad70c8f'
+    mesh = '55c033fc-206c-45b4-ad35-645b8b8a3287'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '168'
+name = 'courtyard_side_table_top'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7000000000000002, 0.64000000000000001, -3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fa0917de-1241-4515-ac65-7f6b5a5c3c11'
+    mesh = '9e783020-8723-4135-ba3d-8e3f4c7f8b13'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '169'
+name = 'courtyard_side_table_stem'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7000000000000002, 0.33000000000000002, -3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0795a233-e50c-44a5-8f44-af3c0972d830'
+    mesh = '98b542e9-0c42-4df2-8e27-6180204974b5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '170'
+name = 'courtyard_side_table_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7000000000000002, 0.080000000000000002, -3.3999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '701a6984-5933-49c0-9525-4b24b5744afd'
+    mesh = 'bbb12dc0-5d57-4c14-b1ac-103e0b3c9612'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '171'
+name = 'courtyard_west_tree_planter'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 0.050000000000000003, 1.3 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '464eb1c2-3f0a-4d3e-a0be-46bd25904f3b'
+    mesh = '19311283-603f-4b38-80b6-100bef996935'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.35999999999999999, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.80000000000000004, 0.35999999999999999, 0.80000000000000004 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '172'
+name = 'courtyard_west_tree_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 0.68000000000000005, 1.3 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6d01bd57-e788-481a-8c80-5ae63d45b948'
+    mesh = 'ff2de115-e38d-4da5-8443-882e7b5781cb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '173'
+name = 'courtyard_west_tree_trunk'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 1.6460000000000001, 1.3 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '07ff3702-e690-4061-b083-fe8a353fad62'
+    mesh = '7b9ba33e-1a20-4842-b32d-9927a561f29a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '174'
+name = 'courtyard_west_tree_branch_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.1989999999999998, 2.609, 1.415 ]
+    rotation = [ 10.716641173689032, 0.0, 29.47588900324574 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7bb91439-b1ec-49c6-9330-ca138424c9be'
+    mesh = 'f9335155-07e6-497d-a32f-16382a893872'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '175'
+name = 'courtyard_west_tree_branch_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5780000000000003, 2.7240000000000002, 1.3919999999999999 ]
+    rotation = [ 7.2815298548296363, 0.0, -26.56505117707799 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9a180b08-3136-4fcc-b478-7567fd250c0a'
+    mesh = '506e2d6d-6523-407e-bb24-37c20a4caabf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '176'
+name = 'courtyard_west_tree_branch_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.854000000000001, 2.8528000000000002, 1.0332000000000001 ]
+    rotation = [ -19.015390937030002, 0.0, -3.4064437549947049 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '93110a00-15f7-41a7-bd5e-0052e0ad585a'
+    mesh = '9310a033-f303-49ac-8df3-b48f22abaa1f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '184'
+name = 'courtyard_rear_tree_planter'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.7999999999999998, 0.050000000000000003, -8.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4d0a288c-df8c-43c2-99bb-8f73e07a8a5d'
+    mesh = '8d42a000-abec-49cf-bd5f-114e74a4fe36'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.35999999999999999, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.80000000000000004, 0.35999999999999999, 0.80000000000000004 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '185'
+name = 'courtyard_rear_tree_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.7999999999999998, 0.68000000000000005, -8.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2afa3b47-f26f-4b26-9bd9-c3e13e961eec'
+    mesh = '19e4e2ef-2394-410f-b09d-94aec700d54f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '186'
+name = 'courtyard_rear_tree_trunk'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.7999999999999998, 1.8140000000000001, -8.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e9419273-7cf1-4cf7-92f0-b3f2c7428659'
+    mesh = '05d95ea7-9d67-4c8d-84dc-d35b530a775b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '187'
+name = 'courtyard_rear_tree_branch_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -8.1509999999999998, 2.9410000000000003, -7.8650000000000002 ]
+    rotation = [ 10.716641173689013, 0.0, 29.475889003245772 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c2386705-db0e-4e6a-b6d2-fd2dd4fb54a7'
+    mesh = 'c57eb279-6fff-41ed-9edd-5028c515ea00'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '188'
+name = 'courtyard_rear_tree_branch_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4219999999999997, 3.0760000000000001, -7.8919999999999995 ]
+    rotation = [ 7.2815298548296488, 0.0, -26.565051177078004 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a031a73b-f85c-4e38-86c8-a06e99d64d69'
+    mesh = 'e6198986-e866-4158-bf3c-401ab582fc51'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '189'
+name = 'courtyard_rear_tree_branch_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.7460000000000004, 3.2272000000000003, -8.3132000000000001 ]
+    rotation = [ -19.015390937030016, 0.0, -3.406443754994708 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7a4c945a-fc75-4bb9-abf0-cd51f7dbfa02'
+    mesh = '6092ec6e-e176-41f8-8589-216d0ed54620'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '197'
+name = 'courtyard_east_tree_planter'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7999999999999998, 0.050000000000000003, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '095bf8a8-7b66-40a6-93e9-16871c03c1be'
+    mesh = 'aefda870-0374-47d0-a828-e8a00d59f488'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.35999999999999999, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.80000000000000004, 0.35999999999999999, 0.80000000000000004 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '198'
+name = 'courtyard_east_tree_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7999999999999998, 0.68000000000000005, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c6cefa00-04ae-4907-adfa-54a028bf7220'
+    mesh = '95f9ba18-6b23-4310-9451-455dc297373b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '199'
+name = 'courtyard_east_tree_trunk'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.7999999999999998, 1.6460000000000001, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c7dbfd34-dfc6-4b2a-814c-c0cc2e18cf9d'
+    mesh = 'b6be1054-351e-4990-b2c6-6e9c1a5315b5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '200'
+name = 'courtyard_east_tree_branch_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.5009999999999994, 2.609, 2.6150000000000002 ]
+    rotation = [ 10.716641173689032, 0.0, 29.47588900324574 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '86a3a387-4fdb-41c1-adb6-bafad61a6c76'
+    mesh = 'e2413b64-8923-482c-b444-18e557cdcdd3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '201'
+name = 'courtyard_east_tree_branch_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.1219999999999999, 2.7240000000000002, 2.5920000000000001 ]
+    rotation = [ 7.2815298548296479, 0.0, -26.565051177077958 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8dc23f50-c62f-4279-b538-98f783b3d420'
+    mesh = 'f9bdf882-260e-4fad-8e4e-763752f6782b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '202'
+name = 'courtyard_east_tree_branch_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.8460000000000001, 2.8528000000000002, 2.2332000000000001 ]
+    rotation = [ -19.015390937029995, 0.0, -3.4064437549947049 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '407fc166-784a-4f38-a96c-701881d24345'
+    mesh = 'ac291008-1bda-43b7-a92d-9dcce9aff278'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '210'
+name = 'courtyard_entry_agave_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7999999999999998, 0.050000000000000003, 3.7000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.05, 1.05, 1.05 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bc1a272e-b5c2-42b8-af68-285ab139a17f'
+    mesh = 'a8d68dc3-52c4-4397-a3fb-fc5d616b1a66'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.29999999999999999, 0.0 ]
+    enabled = true
+    friction = 0.80000001192092896
+    half_extents = [ 0.40000000000000002, 0.29999999999999999, 0.40000000000000002 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '211'
+name = 'courtyard_entry_agave_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7999999999999998, 0.6170000000000001, 3.7000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '761ce7ce-06ae-44e3-81dd-c6eca14a1ea7'
+    mesh = '5c065712-60b2-4753-aa8a-1e6fabe529fa'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '212'
+name = 'courtyard_entry_agave_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.5585, 0.93200000000000005, 3.7000000000000002 ]
+    rotation = [ 32.0, 90.0, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '168d7830-d167-4469-9bfa-19e1a00bb44c'
+    mesh = 'cd184b65-ed4b-4c51-a21f-e4f3cdf4a165'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '213'
+name = 'courtyard_entry_agave_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.6494272128511156, 1.016, 3.8888123030160293 ]
+    rotation = [ 32.0, 38.571428571428569, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f72c7f48-89d7-4f0e-b6c8-b03f4bfe8493'
+    mesh = '644835f7-42db-47ef-856d-67a7ab56e36d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '214'
+name = 'courtyard_entry_agave_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.8537388055504498, 0.93200000000000005, 3.9354450907919105 ]
+    rotation = [ 32.0, -12.857142857142861, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '15065f5e-3f40-4206-a584-58aed9d041b7'
+    mesh = '043cef03-38f7-4fc1-a08d-4e9c6faafb2b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '215'
+name = 'courtyard_entry_agave_leaf_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0175839815984338, 1.016, 3.8047829229968904 ]
+    rotation = [ 32.0, -64.285714285714278, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e0786acb-4407-4242-9afe-6592a22231ad'
+    mesh = '17ccd4d6-fe53-4da2-9b3f-52b53171a4d8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '216'
+name = 'courtyard_entry_agave_leaf_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0175839815984338, 0.93200000000000005, 3.59521707700311 ]
+    rotation = [ 32.0, -115.71428571428572, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4a462e6a-9e8e-4640-945e-d6f32cc57441'
+    mesh = '88713ae7-3eca-4cb0-bb64-67c95e8f48ba'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '217'
+name = 'courtyard_entry_agave_leaf_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.8537388055504498, 1.016, 3.4645549092080898 ]
+    rotation = [ 32.0, -167.14285714285717, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9fe2c088-2f61-473f-8397-da52d6a945c2'
+    mesh = 'a01cd48e-a779-4f28-a7dd-1c3467f894b6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '218'
+name = 'courtyard_entry_agave_leaf_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.6494272128511156, 0.93200000000000005, 3.511187696983971 ]
+    rotation = [ 32.0, -218.57142857142856, 0.0 ]
+    scale = [ 0.084000000000000005, 0.036750000000000005, 0.55650000000000011 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd9d5f2a4-6166-45c0-963a-5593102674e4'
+    mesh = 'a982e3f8-9456-4ab6-9cda-afc1fc825883'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '219'
+name = 'courtyard_pergola_agave_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.0999999999999996, 0.050000000000000003, -0.10000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.90000000000000002, 0.90000000000000002, 0.90000000000000002 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9cb7b26e-ba51-4122-b7df-7508df31efe4'
+    mesh = '0e4e12c5-02f9-4976-a5cb-9023ce94e9ab'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.29999999999999999, 0.0 ]
+    enabled = true
+    friction = 0.80000001192092896
+    half_extents = [ 0.40000000000000002, 0.29999999999999999, 0.40000000000000002 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '220'
+name = 'courtyard_pergola_agave_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.0999999999999996, 0.53600000000000003, -0.10000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f0c6c6b3-f370-491a-bbc9-d1e6e8bb9dbc'
+    mesh = '150c02d5-b662-4894-a5f8-39ea87677c38'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '221'
+name = 'courtyard_pergola_agave_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.3069999999999995, 0.80600000000000005, -0.10000000000000001 ]
+    rotation = [ 32.0, 90.0, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '724d745f-171f-416a-8964-3c0d7cd96c86'
+    mesh = 'e1b44d10-2abb-4b69-af1e-5eee3ee88a3c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '222'
+name = 'courtyard_pergola_agave_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2290623889847572, 0.878, 0.061839116870882171 ]
+    rotation = [ 32.0, 38.571428571428569, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '350ac357-9ed9-4fb0-95db-8182b5e117a5'
+    mesh = '77fced34-6b9a-4de0-8b70-f2cc3607d7b9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '223'
+name = 'courtyard_pergola_agave_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.0539381666710428, 0.80600000000000005, 0.10181007782163748 ]
+    rotation = [ 32.0, -12.857142857142861, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '032fb8d0-7d48-4764-af85-f995dd28c497'
+    mesh = '37953388-332d-4857-bee2-9fdd2b7d98b4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '224'
+name = 'courtyard_pergola_agave_leaf_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.9134994443441991, 0.878, -0.010186066002665445 ]
+    rotation = [ 32.0, -64.285714285714278, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2bac59fb-6e75-4f45-bdbd-b40b43c0586a'
+    mesh = '4e8e0b7a-2c61-47af-8bcf-337baa81811c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '225'
+name = 'courtyard_pergola_agave_leaf_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.9134994443441991, 0.80600000000000005, -0.18981393399733454 ]
+    rotation = [ 32.0, -115.71428571428572, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b92ddb22-c102-4adc-962a-34b08787b0fc'
+    mesh = '0ba191b2-30e7-47b9-8c8f-370e61cba037'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '226'
+name = 'courtyard_pergola_agave_leaf_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.0539381666710428, 0.878, -0.30181007782163749 ]
+    rotation = [ 32.0, -167.14285714285717, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'edb0e517-b83a-4b96-8148-7aee44b66f3c'
+    mesh = '3fdf9950-2bb7-41a0-95a1-60b073e81e19'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '227'
+name = 'courtyard_pergola_agave_leaf_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2290623889847572, 0.80600000000000005, -0.26183911687088224 ]
+    rotation = [ 32.0, -218.57142857142856, 0.0 ]
+    scale = [ 0.072000000000000008, 0.031500000000000007, 0.47700000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '747d10b8-58ff-40c5-95fa-17788c7ad034'
+    mesh = 'cd3a4211-83ff-4e7e-a68c-105afdfddc2f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '228'
+name = 'courtyard_raised_planter_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 0.29999999999999999, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '56a9d575-1c33-4104-9838-f6c68c06e7c7'
+    mesh = '70f2d3a3-48c7-4034-8279-183a648f4273'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 1.6000000000000001, 0.23999999999999999, 0.55000000000000004 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '229'
+name = 'courtyard_raised_soil_-1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 0.55000000000000004, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd8297f9b-e9d9-4056-8b04-d53dd13bb990'
+    mesh = '6025ffc2-0ff6-44af-9bcf-bfc975882f6e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '230'
+name = 'courtyard_border_shrub_-1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -8.0, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '42ae2a6a-6525-4838-93d9-00b6613d8364'
+    mesh = '7e2c25c0-7856-4997-8153-266a38a5fb70'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '231'
+name = 'courtyard_border_shrub_-1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.4500000000000002, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 37.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.45999999999999996, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'da5fc7a0-c683-4d99-b191-4f16e8052ffb'
+    mesh = '2555bc35-8007-4d6e-b47d-da8b855f9e07'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '232'
+name = 'courtyard_border_shrub_-1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9000000000000004, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 74.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b7e07190-f7ea-4ac1-8c16-b75615eff289'
+    mesh = '58e7c68f-6688-4b6a-992f-249053bdc050'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '233'
+name = 'courtyard_border_shrub_-1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3499999999999996, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 111.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.45999999999999996, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f0f30152-37ce-4daf-b33b-214e107dce0e'
+    mesh = 'efc2f14b-b092-45ce-91e7-41e74418820b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '234'
+name = 'courtyard_border_shrub_-1_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.7999999999999998, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 148.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '43217d9f-9223-4d5e-985d-8595e7c4a638'
+    mesh = 'c8ef7cea-4607-4579-97a9-e2672df0ff7d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '235'
+name = 'courtyard_raised_planter_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.9000000000000004, 0.29999999999999999, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ffb0a7e0-e0b3-46a4-98f4-8d76d9f1c3f5'
+    mesh = 'd80ed013-5116-4c31-a828-bfea2da5bea2'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 1.6000000000000001, 0.23999999999999999, 0.55000000000000004 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '236'
+name = 'courtyard_raised_soil_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.9000000000000004, 0.55000000000000004, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9f0d2358-8376-4c2e-8206-493ca3410dca'
+    mesh = 'c051d03d-4f7d-4c90-b61f-d86d6c0458e2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '237'
+name = 'courtyard_border_shrub_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.8000000000000007, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '80e86740-f841-4463-86df-372f8ecba1fe'
+    mesh = '516f0424-64a4-4cd9-851d-8b16b9116ec6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '238'
+name = 'courtyard_border_shrub_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.3500000000000005, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 37.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.45999999999999996, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1a6fde2b-4eb1-4c67-ab5d-fa90112b7b2a'
+    mesh = '26879218-bca4-45c9-8c86-69165b3ed370'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '239'
+name = 'courtyard_border_shrub_1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.9000000000000004, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 74.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b18726c3-568a-4f56-b6d1-7f49256893ff'
+    mesh = 'bc22e239-bf28-4a05-b53a-dc20f2ae4a8a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '240'
+name = 'courtyard_border_shrub_1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 7.4500000000000011, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 111.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.45999999999999996, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '69b79374-c3d7-4ef6-9255-dd17a7fb08c9'
+    mesh = '0cc090bb-5baa-4d8c-adb2-ffea28421e94'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '241'
+name = 'courtyard_border_shrub_1_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 8.0, 0.81999999999999995, -10.1 ]
+    rotation = [ 0.0, 148.0, 0.0 ]
+    scale = [ 0.41999999999999998, 0.35999999999999999, 0.39000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '97543da2-bc6a-49a4-9dd5-5446f3fe5b74'
+    mesh = 'b05c1528-6450-415f-a006-2df82b2ec3fa'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '242'
+name = 'courtyard_bollard_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.45000000000000001, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '485f0591-3cec-4261-8fb3-45bf410153db'
+    mesh = '553d10b6-8bf1-4fef-b022-0b1f3e0b7e18'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.059999999999999998, 0.40000000000000002, 0.059999999999999998 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '243'
+name = 'courtyard_bollard_lens_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.77000000000000002, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6369f649-2716-4c9e-9264-95e71744400c'
+    mesh = 'c3477940-0f97-40fe-b7f2-d454d659355f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '244'
+name = 'courtyard_bollard_cap_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.84999999999999998, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '921f5b2c-7957-426e-8551-259b27fbbfa0'
+    mesh = '8844f499-7e07-4250-81d0-71cd08f45416'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '245'
+name = 'courtyard_bollard_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.45000000000000001, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cc03cbf4-0f0f-4388-a5ff-932f3b53fc3d'
+    mesh = '0e317394-aa66-4355-a037-056832a9e0af'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.059999999999999998, 0.40000000000000002, 0.059999999999999998 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '246'
+name = 'courtyard_bollard_lens_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.77000000000000002, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0d279c84-07d5-4136-a25e-d794e0cc094c'
+    mesh = '82601afe-49c8-436a-b9ea-c61e6475a490'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '247'
+name = 'courtyard_bollard_cap_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.84999999999999998, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2dd3562c-c9bd-4aa0-9691-1549af69668d'
+    mesh = '1f491272-4d4a-4b9d-8ee4-8f78404133f7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '248'
+name = 'courtyard_bollard_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.45000000000000001, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9fd77d2f-4894-45d0-a5d4-af9a818322e9'
+    mesh = '88d5129f-03d0-4f43-9604-3078ab4d59e8'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.059999999999999998, 0.40000000000000002, 0.059999999999999998 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '249'
+name = 'courtyard_bollard_lens_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.77000000000000002, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '470f1b91-8909-441f-bbe3-32a4bea4c512'
+    mesh = 'dd25c1ab-9065-4fb4-9e7f-8bf6b5676f83'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '250'
+name = 'courtyard_bollard_cap_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.7999999999999998, 0.84999999999999998, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '353f430b-449a-4975-9cad-63ecc7197278'
+    mesh = 'f7c06bf7-09c1-4d3a-b7cd-b97199de7be5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '251'
+name = 'courtyard_bollard_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.45000000000000001, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a53952cb-405e-4634-bf7e-d81df6f28a24'
+    mesh = '756de398-ec98-4954-9d49-7b5bcface79b'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    center = [ 0.0, 0.0, 0.0 ]
+    enabled = true
+    friction = 0.85000002384185791
+    half_extents = [ 0.059999999999999998, 0.40000000000000002, 0.059999999999999998 ]
+    half_height = 0.5
+    is_trigger = false
+    radius = 0.5
+    restitution = 0.10000000149011612
+    shape = 'box'
+    type = 'collider'
+
+[[nodes]]
+id = '252'
+name = 'courtyard_bollard_lens_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.77000000000000002, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '30bc7de7-917a-40c8-8b54-770bce663af1'
+    mesh = '7005a5d1-3f87-495b-b748-cc4df597f7a9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '253'
+name = 'courtyard_bollard_cap_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7999999999999998, 0.84999999999999998, -5.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '23a98b27-fb71-4701-89cc-5839ba62ccfb'
+    mesh = 'ddec1542-88c6-4899-9e42-6cb508566857'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '254'
+name = 'courtyard_wall_lamp_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.8500000000000001, 2.6499999999999999, -14.26 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '86aadd44-b159-48c7-8384-b2bdb680cd8d'
+    mesh = '48b8d4e0-77c5-4ceb-a3f2-8a6985327d06'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '255'
+name = 'courtyard_wall_lamp_diffuser_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.8500000000000001, 2.6499999999999999, -14.19 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8a693caa-2906-425f-99fc-96d2701fe3a3'
+    mesh = '7ac28975-1c82-428d-9280-29ccdd3f4858'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '256'
+name = 'courtyard_wall_lamp_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.8500000000000001, 2.6499999999999999, -14.26 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '668f6e50-666e-43eb-b829-940aebc07067'
+    mesh = '33c16e5e-268a-49b6-87b2-bf11a06c5a78'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '257'
+name = 'courtyard_wall_lamp_diffuser_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.8500000000000001, 2.6499999999999999, -14.19 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2c18c0bf-e787-480a-b434-646e99eee5c4'
+    mesh = 'bbaa792a-76cc-4708-b1ec-c37866b5d3f8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '259'
+name = 'courtyard_west_tree_leaves'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.0, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e7471351-6832-490f-846c-1328298138a4'
+    mesh = '4dddb9ac-e268-46c0-b8ec-8261204106b4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '261'
+name = 'courtyard_rear_tree_leaves'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.0, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0d166ae5-b0ed-442e-a0e7-6c921b96ec1b'
+    mesh = '001a0ed4-58c4-45f5-9ad5-1d96fd028564'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '263'
+name = 'courtyard_east_tree_leaves'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.0, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6c856590-b29e-4f13-9927-623ab546cbf8'
+    mesh = 'a3f5b1cb-f978-4c14-ad61-0ab2a06ec811'
+    type = 'mesh_renderer'

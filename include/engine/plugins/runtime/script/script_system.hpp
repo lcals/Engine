@@ -9,6 +9,7 @@
 namespace engine
 {
 class WorldSystem;
+class RenderSystem;
 } // namespace engine
 
 namespace engine::plugins::script
@@ -17,7 +18,7 @@ namespace engine::plugins::script
 class ScriptSystem final : public ScriptRuntime
 {
 public:
-    explicit ScriptSystem(WorldSystem* world = nullptr) noexcept;
+    explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
@@ -40,6 +41,8 @@ private:
     struct State;
     // 可空借用，非空时必须活到脚本系统关闭。
     WorldSystem* world_ = nullptr;
+    // 可空借用；调用方须在销毁渲染器前停止玩法，结束后的上下文清理不访问它。
+    RenderSystem* renderer_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

@@ -45,7 +45,7 @@ def test(builder, source_project, temporary):
     for name in ("assets", "settings", "cache"):
         (project / name).mkdir(parents=True)
     compiler = source_project / "settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
+    require(compiler.is_dir(), "Run npm ci --prefix projects/showcase/settings first")
     shutil.copytree(compiler, project / "settings/node_modules/typescript")
     write_json(project / "settings/package.json", {"private": True, "type": "module"})
     write_json(

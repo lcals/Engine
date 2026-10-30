@@ -9,6 +9,7 @@
 namespace engine
 {
 class WorldSystem;
+class RenderSystem;
 class Scene;
 class Node;
 class Component;
@@ -22,7 +23,7 @@ using Arguments = v8::FunctionCallbackInfo<v8::Value>;
 class BindingContext final
 {
 public:
-    explicit BindingContext(WorldSystem* world) noexcept;
+    explicit BindingContext(WorldSystem* world, RenderSystem* renderer = nullptr) noexcept;
     ~BindingContext() noexcept;
     BindingContext(const BindingContext&) = delete;
     BindingContext& operator=(const BindingContext&) = delete;
@@ -35,6 +36,7 @@ public:
     void end_call() noexcept;
     void shutdown() noexcept;
     [[nodiscard]] WorldSystem* world() const noexcept;
+    [[nodiscard]] RenderSystem* renderer() const noexcept;
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
     [[nodiscard]] double delta_time() const noexcept;
@@ -62,6 +64,7 @@ public:
 
 private:
     WorldSystem* world_ = nullptr;
+    RenderSystem* renderer_ = nullptr;
     v8::Global<v8::Context> context_;
     v8::Isolate* isolate_ = nullptr;
     std::uint64_t scene_id_ = 0;

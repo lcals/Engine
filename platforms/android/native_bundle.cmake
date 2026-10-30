@@ -9,7 +9,7 @@ if(NOT ENGINE_ENABLE_V8
     message(FATAL_ERROR "The Android APK requires V8, its ICU data and runtime/script plugin")
 endif()
 set(ENGINE_ANDROID_PROJECT
-    "${PROJECT_SOURCE_DIR}/projects/minimal"
+    "${PROJECT_SOURCE_DIR}/projects/showcase"
     CACHE PATH "Project whose compiled assets are packaged in the Android application")
 set(ENGINE_ANDROID_ASSET_BUILDER
     ""

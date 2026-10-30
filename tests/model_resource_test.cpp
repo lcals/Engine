@@ -5,6 +5,9 @@
 #include "runtime/resource/codecs/model_resource_codec.hpp"
 #include "runtime/resource/codecs/skeleton_resource_codec.hpp"
 
+#include <algorithm>
+#include <string_view>
+
 namespace
 {
 using namespace test_support::animation;
@@ -44,6 +47,13 @@ bool validation()
         return false;
     }
     auto bad_model = good_model;
+    bad_model.schema_version = 1;
+    if (!expect(!engine::ModelResourceCodec::validate(bad_model),
+                "old Model version 1 requires explicit reimport"))
+    {
+        return false;
+    }
+    bad_model = good_model;
     bad_model.nodes[1]->parent = 50;
     if (!expect(!engine::ModelResourceCodec::validate(bad_model), "reject missing model parent"))
     {
@@ -132,10 +142,10 @@ bool loading_and_instantiation()
                     fixture.resources.load(clip_guid, animation_resource),
                 "independent resources can be loaded by GUID") ||
         !expect(!fixture.resources.validate_dependencies(*package, {}) &&
+                    package->info().dependencies == std::vector<std::string>{mesh_guid} &&
                     fixture.resources.validate_dependencies(
-                        *package, std::vector<engine::ResourcePtr>{skeleton_resource, mesh_resource,
-                                                                   animation_resource}),
-                "package validates explicitly loaded direct references") ||
+                        *package, std::vector<engine::ResourcePtr>{mesh_resource}),
+                "Model depends only on its referenced mesh, not skeleton or action siblings") ||
         !expect(fixture.resources.validate_dependencies(
                     *mesh_resource, std::vector<engine::ResourcePtr>{skeleton_resource}),
                 "skin indices validate against the actual target skeleton"))
@@ -178,9 +188,79 @@ bool loading_and_instantiation()
                       scene.nodes().size() == count && scene.find_node(existing->id()) == existing,
                   "mid-instantiation resource failure rolls back the whole candidate hierarchy");
 }
+
+bool migration_and_dependency_contract()
+{
+    Fixture fixture;
+    if (!fixture.initialize() || !add_model(fixture.files))
+    {
+        return false;
+    }
+    for (const auto* guid : {model_guid, mesh_guid, clip_guid, target_guid})
+    {
+        auto found =
+            std::find_if(fixture.files.catalog.entries.begin(), fixture.files.catalog.entries.end(),
+                         [guid](const auto& entry) { return entry->guid == guid; });
+        if (found == fixture.files.catalog.entries.end())
+        {
+            return false;
+        }
+        // 额外引用不形成环，必须由资源类型自身拒绝，而非目录的环检测代替。
+        auto& dependencies = (*found)->dependencies;
+        dependencies.push_back(std::string_view(guid) == clip_guid ? model_guid : clip_guid);
+        engine::ResourcePtr loaded;
+        if (!expect(fixture.files.publish(fixture.resources) &&
+                        !fixture.resources.load(guid, loaded) && !loaded,
+                    "Model, Mesh, Animation and Skeleton reject unrelated source dependencies"))
+        {
+            return false;
+        }
+        dependencies.pop_back();
+    }
+
+    auto old_model = model();
+    old_model.schema_version = 1;
+    flatbuffers::FlatBufferBuilder old_builder;
+    engine::schema::FinishModelDataBuffer(old_builder,
+                                          engine::schema::ModelData::Pack(old_builder, &old_model));
+    if (!expect(
+            engine::schema::ModelDataT{}.schema_version == 1 &&
+                engine::schema::GetModelData(old_builder.GetBufferPointer())->schema_version() == 1,
+            "omitted legacy version field retains its original default of 1"))
+    {
+        return false;
+    }
+    std::erase_if(fixture.files.catalog.entries,
+                  [](const auto& entry) { return entry->guid == model_guid; });
+    engine::ResourcePtr loaded;
+    if (!expect(add(fixture.files, model_guid, model_path, engine::schema::AssetKind::model,
+                    old_builder, {mesh_guid}) &&
+                    fixture.files.publish(fixture.resources) &&
+                    !fixture.resources.load(model_guid, loaded) && !loaded,
+                "old Model payload is rejected until the editor rebuilds the runtime package"))
+    {
+        return false;
+    }
+
+    auto static_mesh = mesh();
+    static_mesh.skeleton_guid.clear();
+    static_mesh.skin.clear();
+    static_mesh.mesh_to_skeleton.clear();
+    flatbuffers::FlatBufferBuilder mesh_builder;
+    engine::schema::FinishMeshDataBuffer(
+        mesh_builder, engine::schema::MeshData::Pack(mesh_builder, &static_mesh));
+    std::erase_if(fixture.files.catalog.entries,
+                  [](const auto& entry) { return entry->guid == mesh_guid; });
+    return expect(add(fixture.files, mesh_guid, static_mesh.path, engine::schema::AssetKind::mesh,
+                      mesh_builder, {clip_guid}) &&
+                      fixture.files.publish(fixture.resources) &&
+                      !fixture.resources.load(mesh_guid, loaded) && !loaded,
+                  "static Mesh cannot pull an unrelated animation into its dependency graph");
+}
 } // namespace
 
 int main()
 {
-    return validation() && loading_and_instantiation() ? 0 : 1;
+    return validation() && loading_and_instantiation() && migration_and_dependency_contract() ? 0
+                                                                                              : 1;
 }

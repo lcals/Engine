@@ -14,6 +14,7 @@ function(engine_configure_script_plugin)
                 engine::log
                 engine::resource
                 engine::world
+                engine::render
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)

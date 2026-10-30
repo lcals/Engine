@@ -284,7 +284,7 @@ def prepare(project):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project", type=Path, default=Path("projects/modern-apartment"))
+    parser.add_argument("--project", type=Path, default=Path("projects/showcase"))
     parser.add_argument("--check", action="store_true", help="只检查是否已生成相同配置")
     args = parser.parse_args()
     outputs, collider_count = prepare(args.project)

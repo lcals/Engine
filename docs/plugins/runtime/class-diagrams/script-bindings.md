@@ -26,7 +26,7 @@ classDiagram
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem#42; world)
+        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer)
         +~BindingContext()
         +initialize(v8Context context) bool
         +activate() void
@@ -34,20 +34,23 @@ classDiagram
         +end_call() void
         +shutdown() void
         +world() WorldSystem#42;
+        +renderer() RenderSystem#42;
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
     }
     class ScriptSystem
     class WorldSystem
+    class RenderSystem
     ScriptBindingRegistry "1" *-- "0..*" ScriptBinding : 独占实现对象
     ScriptBinding ..> BindingContext : 共用身份和参数检查
     ScriptSystem *-- ScriptBindingRegistry : 每个系统一个注册表
     ScriptSystem *-- BindingContext : 每个Run一个上下文
     BindingContext --> WorldSystem : 可空借用
+    BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
 ```
 
-`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 返回可修改世界的可空借用。成员函数的 `const` 在此说明，不写入返回类型。
+`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 和 renderer 返回可修改服务的可空借用。构造的 renderer 默认空；renderer 查询在非生命周期回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 为 `const v8::FunctionCallbackInfo<v8::Value>&`；`v8Context`、`v8Object`、`v8Value` 分别为对应 `v8::Local` 句柄，`v8FunctionCallback` 为 V8 原生回调函数指针。
 
@@ -95,6 +98,7 @@ classDiagram
     class DebugBinding
     class GameplayBinding
     class TimeBinding
+    class RenderBinding
     class SceneBinding
     class NodeBinding
     class ComponentBinding
@@ -113,6 +117,7 @@ classDiagram
     ScriptBinding <|-- DebugBinding
     ScriptBinding <|-- GameplayBinding
     ScriptBinding <|-- TimeBinding
+    ScriptBinding <|-- RenderBinding
     ScriptBinding <|-- SceneBinding
     ScriptBinding <|-- NodeBinding
     ScriptBinding <|-- ComponentBinding
@@ -136,6 +141,7 @@ classDiagram
 - BindingContext 的共享静态帮助方法负责数值/字符串/64位标识校验、场景/节点查找和只读原生属性注册；所有失败返回状态或空借用。
 - 绑定上下文借用 World，保存 Run 所属场景 ID 和本帧时间，不持有原生 Node/Component 指针。活动 isolate 指针、当前 V8 Context 和回调许可三者全部匹配后才允许访问；退出时清空 embedder 指针并仅清理自己的场景。
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
+- `RenderBinding` 独立复用 RenderSystem 的设置查询与提交；BindingContext 接受宿主注入的可空渲染器，不查找进程全局实例、不持有所有权，也不负责渲染帧或样例策略。公开静态门面见[渲染脚本接口](render-script-api.md)。
 - MaterialBinding 将 SetType/SetShader/SetTexture 的资源路径与 SetFloat/SetV2/SetV3/SetV4 交给材质接口校验。材质门面保存槽号，每次调用按场景与节点身份解析当前槽，失效槽不访问原生对象；GetTexture 返回已解析的路径。
 - CameraBinding 提供透视与正交设置；LightBinding 提供方向、点和聚光设置；MeshRendererBinding 提供资源网格切换与材质槽访问。所有范围及资源匹配由对应原生组件负责。
 - ColliderBinding、RigidBodyBinding、AudioSourceBinding、AudioListenerBinding 各有独立文件，提供[物理与音频组件接口](physics-audio-script-api.md)。几何、质量、速度、冲量、音频设置与播放请求交原生组件处理，不在绑定中实现仿真或混音。

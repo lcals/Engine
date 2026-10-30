@@ -53,4 +53,4 @@ classDiagram
 - 完整依赖闭包由运行时资源依赖图插件的私有 Bundle 保活；输出仍使用 ResourcePtr 标准别名，最后一个使用者释放时由插件按正确顺序释放资源和依赖。
 - `generation()` 标识创建时目录代际，const noexcept；目录更新不改变旧对象。当前代际查询与缓存隔离由加载器处理，不通过 GUID 强制删除其他使用者的对象。
 
-Model、Skeleton、Animation 同样只拥有对应 FlatBuffers 生成载荷，结构与依赖见[模型资源](model-resources.md)。对象包实例化在 Scene；骨架采样在 AnimationSystem；源文件转换在编辑器格式插件，均不进入 Resource 的只读实体职责。
+Model、Skeleton、Animation 同样只拥有对应 FlatBuffers 生成载荷，结构与依赖见[模型资源](model-resources.md)。模型资源实例化在 Scene；骨架采样在 AnimationSystem；源文件转换在编辑器格式插件，均不进入 Resource 的只读实体职责。

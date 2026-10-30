@@ -1,5 +1,11 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
+#if defined(ENGINE_FBX_TEST_BUILD)
+#include "plugins/editor/asset_build/asset_build_system.hpp"
+#endif
+#if defined(ENGINE_FBX_TEST_GRAPH)
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#endif
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/animation_generated.h"
@@ -15,6 +21,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace
 {
@@ -84,6 +91,121 @@ double mean_normal_orientation(const schema::MeshData& mesh)
     }
     return count == 0 ? 0.0 : sum / static_cast<double>(count);
 }
+
+#if defined(ENGINE_FBX_TEST_GRAPH)
+bool model_loading(const Project& project, const ResourceCatalog& catalog, const Guid& model_guid,
+                   const Guid& mesh_guid, const Guid& skeleton_guid)
+{
+    ResourceSystem resources;
+    plugins::resource_graph::ResourceGraphSystem graph(resources);
+    ResourcePtr model;
+    if (!expect(
+            resources.initialize({}) &&
+                resources.update_catalog(catalog.data(), {{"content", project.root / "cache"}}) &&
+                graph.initialize({}) && graph.load(model_guid, model) && model->model() &&
+                graph.find(mesh_guid) && graph.find(skeleton_guid),
+            "model loading resolves its mesh and the mesh's skeleton"))
+    {
+        return false;
+    }
+    for (const auto& entry : catalog.data().entries)
+    {
+        if (entry->kind == schema::AssetKind::animation &&
+            !expect(!graph.find(entry->guid), "model loading does not retain any source animation"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+#endif
+
+#if defined(ENGINE_FBX_TEST_BUILD)
+bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& project,
+                     const Guid& model_guid, const Guid& mesh_guid, const Guid& skeleton_guid)
+{
+    constexpr auto manifest = "settings/fbx-selection.toml";
+    if (!write(project.root / manifest,
+               "target_platform = \"\"\noutput = \"cache/build/selection\"\n"
+               "[[items]]\nname = \"model\"\nstorage = \"package\"\n"
+               "roots = [\"project/models/skeleton.fbx\"]\n"
+               "[[items]]\nname = \"walk\"\nstorage = \"package\"\n"
+               "roots = [\"project/models/locomotions.fbx/animations/walk\"]\n"
+               "[[items]]\nname = \"walk-files\"\nstorage = \"files\"\n"
+               "roots = [\"project/models/locomotions.fbx/animations/walk\"]\n"))
+    {
+        return false;
+    }
+    plugins::asset_build::AssetBuildSystem builder(pipeline);
+    const auto output = project.root / "cache/build/selection";
+    if (!builder.initialize({}))
+    {
+        return false;
+    }
+    Guid walk_guid;
+    ResourceCatalog catalog;
+    ByteBuffer payload;
+    const std::vector<std::string> model_only{"model"};
+    const std::vector<std::string> model_walk{"model", "walk"};
+    const std::vector<std::string> walk_only{"walk-files"};
+    if (!expect(builder.build(project.root, manifest, model_only), builder.last_error()) ||
+        !expect(ResourceSystem::read_catalog(output, catalog) &&
+                    catalog.data().entries.size() == 3 && catalog.find(model_guid) &&
+                    catalog.find(mesh_guid) && catalog.find(skeleton_guid) &&
+                    ResourceSystem::read_resource(catalog, {{"content", output}}, model_guid,
+                                                  payload) &&
+                    schema::GetModelData(payload.data())->schema_version() == 2,
+                "model-only package contains and reads only Model, Mesh and Skeleton"))
+    {
+        return false;
+    }
+    if (!expect(builder.build(project.root, manifest, model_walk), builder.last_error()) ||
+        !expect(
+            ResourceSystem::read_catalog(output, catalog) && catalog.data().entries.size() == 4 &&
+                catalog.identities().path_to_guid("project/models/locomotions.fbx/animations/walk",
+                                                  walk_guid) &&
+                catalog.find(model_guid) && catalog.find(mesh_guid) &&
+                catalog.find(skeleton_guid) && catalog.find(walk_guid) &&
+                catalog.find(walk_guid)->location->path.starts_with("packs/walk-") &&
+                ResourceSystem::read_resource(catalog, {{"content", output}}, walk_guid, payload) &&
+                schema::GetAnimationData(payload.data())->skeleton_guid()->str() == skeleton_guid,
+            "explicit walk selection adds one independently readable GUID action"))
+    {
+        return false;
+    }
+    for (const auto* excluded : {"project/models/locomotions.fbx/animations/run",
+                                 "project/models/locomotions.fbx/animations/jog",
+                                 "project/models/skeleton.fbx/animations/Take 001",
+                                 "project/models/locomotions.fbx", "project/untouched.txt"})
+    {
+        Guid guid;
+        if (!expect(!catalog.identities().path_to_guid(excluded, guid),
+                    std::string("unselected source sibling is absent from the runtime catalog: ") +
+                        excluded))
+        {
+            return false;
+        }
+    }
+    const auto revision = builder.last_build().revision;
+    if (!expect(builder.build(project.root, manifest, model_walk) &&
+                    builder.last_build().revision == revision &&
+                    builder.last_build().reused_package_count == 2,
+                "unchanged selected entities reuse their package incrementally") ||
+        !expect(builder.build(project.root, manifest, walk_only), builder.last_error()) ||
+        !expect(
+            ResourceSystem::read_catalog(output, catalog) && catalog.data().entries.size() == 2 &&
+                catalog.find(walk_guid) && catalog.find(skeleton_guid) &&
+                !catalog.find(model_guid) && !catalog.find(mesh_guid) &&
+                catalog.find(walk_guid)->location->path == "gen/" + walk_guid &&
+                catalog.find(skeleton_guid)->location->path == "gen/" + skeleton_guid &&
+                ResourceSystem::read_resource(catalog, {{"content", output}}, walk_guid, payload),
+            "walk-only build consumes only the action and skeleton, without a Model root"))
+    {
+        return false;
+    }
+    return true;
+}
+#endif
 } // namespace
 
 int main()
@@ -141,19 +263,19 @@ int main()
     if (!expect(ResourceSystem::read_catalog(project.root / "cache", catalog),
                 "read runtime catalog") ||
         !expect(read(catalog, project.root, "project/models/skeleton.fbx", bytes),
-                "read FBX object package"))
+                "read independent FBX Model resource"))
     {
         return 1;
     }
     flatbuffers::Verifier model_verifier(reinterpret_cast<const std::uint8_t*>(bytes.data()),
                                          bytes.size());
-    if (!expect(schema::VerifyModelDataBuffer(model_verifier), "object package uses Model schema"))
+    if (!expect(schema::VerifyModelDataBuffer(model_verifier), "Model resource uses Model schema"))
     {
         return 1;
     }
     const auto* model = schema::GetModelData(bytes.data());
+    Guid model_guid;
     Guid mesh_guid;
-    Guid skeleton_guid = model->skeleton_guid()->str();
     for (const auto* node : *model->nodes())
     {
         if (node->mesh_guid() != nullptr && !node->mesh_guid()->str().empty())
@@ -162,8 +284,10 @@ int main()
             break;
         }
     }
-    if (!expect(!mesh_guid.empty() && !skeleton_guid.empty() && model->nodes()->size() > 60,
-                "model retains hierarchy and references separate mesh/skeleton GUIDs") ||
+    if (!expect(model->schema_version() == 2 && !mesh_guid.empty() && model->nodes()->size() > 60 &&
+                    catalog.identities().path_to_guid("project/models/skeleton.fbx", model_guid) &&
+                    catalog.find(model_guid)->dependencies.size() == 2,
+                "Model v2 references only its nodes' mesh and default material") ||
         !expect(ResourceSystem::read_resource(catalog, {{"content", project.root / "cache"}},
                                               mesh_guid, bytes),
                 "read mesh subresource"))
@@ -171,12 +295,12 @@ int main()
         return 1;
     }
     const auto* mesh = schema::GetMeshData(bytes.data());
+    const Guid skeleton_guid = mesh->skeleton_guid()->str();
     const auto original_vertex_count = mesh->vertices()->size();
     if (!expect(mesh->indices()->size() / 3 == 2811 &&
                     mesh->skin()->size() == mesh->vertices()->size(),
                 "real FBX geometry and split-corner skin weights imported") ||
-        !expect(mesh->skeleton_guid()->str() == skeleton_guid &&
-                    mesh->mesh_to_skeleton()->size() == 16,
+        !expect(!skeleton_guid.empty() && mesh->mesh_to_skeleton()->size() == 16,
                 "mesh skin references skeleton and bind transform") ||
         !expect(mean_normal_orientation(*mesh) < -0.8,
                 "default mode preserves the sample's original inward normals"))
@@ -218,6 +342,18 @@ int main()
     {
         return 1;
     }
+#if defined(ENGINE_FBX_TEST_GRAPH)
+    if (!model_loading(project, catalog, model_guid, mesh_guid, skeleton_guid))
+    {
+        return 1;
+    }
+#endif
+#if defined(ENGINE_FBX_TEST_BUILD)
+    if (!build_selection(pipeline, project, model_guid, mesh_guid, skeleton_guid))
+    {
+        return 1;
+    }
+#endif
     const auto revision = pipeline.last_build().revision;
     const auto count = pipeline.last_build().scanned;
     std::string original_meta;
