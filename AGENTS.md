@@ -46,6 +46,7 @@
 - 资源描述文件使用 TOML 内容并只保留 .scene/.mesh/.shader/.material/.meta 类型后缀，不追加 .toml。Schema 源文件统一放 include/schemas/runtime；项目生成物必须为 cache/gen/<完整GUID>，无扩展名、无类型前缀、无版本子目录。SQLite 与资源目录索引放 cache 根，不能混入 gen。
 - 按类型扩展的功能采用统一最小接口和显式登记入口，具体类型各自独立文件；类型较多时建立 `importers/`、`codecs/` 或 `components/` 子目录。框架只负责选择和调度，具体类型拥有自己的识别、转换和校验，不把这些逻辑重新集中到大 switch；泛型登记用简单 `add<T>()`，不引入 RTTI、宏反射或通用 Manager。
 - 资源导入器负责本类型的识别、meta 默认值、依赖和工具指纹；管线负责扫描、增量、任务、数据库和原子发布。脚本保持每批一次项目级编译，各脚本转换复用该批结果。
+- FBX 等美术源文件在编辑器按虚拟资源包组织，子资源身份及导入配置放源文件 meta；虚拟分组不成为运行时聚合容器。Model、Mesh、Skeleton、Animation、Material、Texture 等运行资源各自独立，只声明真实引用，不能因同源关系或父子分组自动互相依赖。构建从选定入口收集必要子资源，未使用项不进入运行包，保留美术源文件。
 - 组件生成数据的保存和恢复由 Component 的统一契约及具体组件实现，Scene 只组织节点与层级；编辑器 TOML 编解码按组件类型拆分，不能进入运行时组件。
 - 编辑器 TaskSystem 使用 Taskflow，项目 settings/import.toml 的 import_threads 默认 4。资源管线负责 meta、SQLite 版本、依赖和发布；任务系统只调度转换，运行时不反向依赖它们。
 - MCP 同步完整运行资源版本，覆盖场景、Mesh、材质、Shader、脚本及其他资源；以 catalog 及其中定位的散文件或合并包为共同契约，不能限制为脚本同步。散文件保持 gen/GUID 命名，整批校验后发布，SQLite、源 meta 与项目设置留在编辑器端。

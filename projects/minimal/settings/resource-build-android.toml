@@ -1,8 +1,0 @@
-target_platform = "android"
-output = "cache/build/minimal-android"
-
-[[items]]
-name = "game"
-storage = "package"
-roots = ["project/scripts/game.ts", "project/scenes/main.scene"]
-keep = []

@@ -1224,6 +1224,7 @@ bool test_borrowed_resource_host(const engine::EngineConfig& config)
 struct ScriptLifecycle
 {
     engine::WorldSystem* world = nullptr;
+    engine::RenderSystem* renderer = nullptr;
     std::size_t initialized = 0;
     std::size_t ticks = 0;
     std::size_t shutdowns = 0;
@@ -1303,7 +1304,8 @@ private:
 bool test_script_runtime_factory(const engine::EngineConfig& config)
 {
     engine::RuntimeHost host;
-    const auto failed_factory = [](engine::WorldSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+    const auto failed_factory = [](engine::WorldSystem&,
+                                   engine::RenderSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -1312,12 +1314,18 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
         return false;
     }
     script_lifecycle = {};
-    const auto factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<ObservedScriptRuntime>(world); };
-    if (!expect(host.initialize(config, nullptr, factory) &&
-                    script_lifecycle.world == host.world() && script_lifecycle.initialized == 1 &&
-                    host.gameplay()->script_status() != nullptr,
-                "host factory supplies an abstract script child without a concrete plugin") ||
+    const auto factory =
+        [](engine::WorldSystem& world,
+           engine::RenderSystem& renderer) -> std::unique_ptr<engine::ScriptRuntime>
+    {
+        script_lifecycle.renderer = &renderer;
+        return std::make_unique<ObservedScriptRuntime>(world);
+    };
+    if (!expect(
+            host.initialize(config, nullptr, factory) && script_lifecycle.world == host.world() &&
+                script_lifecycle.renderer == host.renderer() && script_lifecycle.initialized == 1 &&
+                host.gameplay()->script_status() != nullptr,
+            "host factory supplies an abstract script child without a concrete plugin") ||
         !expect(create_cube_scene(*host.world(), false), "create scene owned by the caller") ||
         !tick_engine_frames(host, 3) ||
         !expect(script_lifecycle.ticks == 3,

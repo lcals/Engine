@@ -1,6 +1,6 @@
 # 公寓物理与音频示例
 
-`projects/modern-apartment` 使用普通场景、组件和资源目录展示物理与音频。运行时没有公寓专用分支；玩法仍通过 `Scene.Load("project/scenes/apartment.scene")` 加载场景。
+`projects/showcase` 使用普通场景、组件和资源目录展示物理与音频。运行时没有公寓专用分支；玩法仍通过 `Scene.Load("project/scenes/apartment.scene")` 加载场景。
 
 - 活动相机添加一个 `AudioListener`。
 - 76 个建筑和主要家具节点添加静态 Box Collider；没有 RigidBody 的 Collider 为静态体。地面用连续碰撞体覆盖拼板缝隙，顶面与可见地板一致；圆桌等家具使用局部包围盒近似，不宣称精确 Mesh 碰撞。

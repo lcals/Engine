@@ -224,4 +224,4 @@ classDiagram
 
 ## 模型、骨架与动画
 
-`model.fbs`、`skeleton.fbs`、`animation.fbs` 各自定义独立资源根，标识分别为 EMDL、ESKL、EANI。对象包节点通过 GUID 引用 Mesh/Material，骨架保存关节及逆绑定，动画保存针对骨架索引的 TRS 轨道；详情见[模型资源](model-resources.md)。Mesh 的 SkinInfluence 保存四个 ushort 关节索引及四个 float 权重，mesh_to_skeleton 使用 16 项列主序 float。新数据同样由 flatc 生成 C++/TS，插件和运行时不维护重复持久字段。
+`model.fbs`、`skeleton.fbs`、`animation.fbs` 各自定义独立资源根，标识分别为 EMDL、ESKL、EANI。模型资源节点通过 GUID 引用 Mesh/Material，骨架保存关节及逆绑定，动画保存针对骨架索引的 TRS 轨道；详情见[模型资源](model-resources.md)。Mesh 的 SkinInfluence 保存四个 ushort 关节索引及四个 float 权重，mesh_to_skeleton 使用 16 项列主序 float。新数据同样由 flatc 生成 C++/TS，插件和运行时不维护重复持久字段。

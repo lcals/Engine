@@ -121,4 +121,6 @@ classDiagram
     ResourceCodec <|-- AnimationResourceCodec
 ```
 
-Model 校验层级、变换及声明的 Mesh/Material/Skeleton/Animation GUID；Skeleton 校验有序父索引、关节名称、有限 TRS 与逆绑定矩阵；Animation 校验轨道、严格递增且不超出时长的关键帧，并验证关节索引属于声明骨架。Mesh 的蒙皮数组必须与顶点对应，权重归一、关节索引合法，mesh_to_skeleton 为有效仿射矩阵。所有解码与校验都属于核心单项能力，不调用 ufbx、USD 或离线管线。
+Model 仅接受版本 2，校验层级、变换和节点引用的 Mesh/Material GUID，目录中的直接依赖必须与这些引用一致；不聚合同源骨架或动画。Skeleton 校验有序父索引、关节名称、有限 TRS 与逆绑定矩阵；Animation 校验轨道、严格递增且不超出时长的关键帧，并验证关节索引属于声明骨架。Mesh 的蒙皮数组必须与顶点对应，权重归一、关节索引合法，mesh_to_skeleton 为有效仿射矩阵。所有解码与校验都属于核心单项能力，不调用 ufbx、USD 或离线管线。
+
+Animation 的直接依赖只能是其声明的一个 Skeleton；蒙皮 Mesh 同样只依赖自己的 Skeleton，静态 Mesh 不含依赖。多余的父 Model 或同源兄弟资源引用在单项解码时返回失败，不能借错误目录把未使用资源带入运行闭包。

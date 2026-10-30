@@ -92,6 +92,8 @@ classDiagram
     RuntimeHost --> RenderSystem : 借用并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
+    ScriptRuntimeFactory ..> WorldSystem : 参数借用
+    ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -579,6 +581,13 @@ classDiagram
     ScriptSystem *-- ScriptStatus : 值拥有实现状态
     ScriptSystem *-- ScriptBindingRegistry : 独占逐类注册表
     ScriptBindingRegistry *-- ScriptBinding : 独占具体绑定
+    class BindingContext
+    class RenderBinding
+    class RenderSystem
+    ScriptSystem *-- BindingContext : 每个玩法上下文
+    ScriptBinding <|-- RenderBinding
+    BindingContext --> RenderSystem : 有效回调期间可空借用
+    RenderBinding ..> RenderSystem : 查询及原子提交渲染设置
 ```
 
 核心边界见 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md)，插件实现与模板登记见 [ScriptSystem](../plugins/runtime/class-diagrams/script-system.md)、[ScriptBindingRegistry](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptRuntimeFactory 是宿主创建函数的别名，不是新增管理器；未提供工厂时核心不创建脚本子系统。
@@ -952,7 +961,7 @@ classDiagram
     AssetPipelineSystem ..> ImportAsset : 填充主子 GUID 及依赖
     FbxImporter ..> ufbx : 私有编辑器依赖
     UsdImporter ..> OpenUSD : 私有编辑器依赖
-    FbxImporter ..> ModelDataT : 生成对象包
+    FbxImporter ..> ModelDataT : 生成模型资源
     FbxImporter ..> MeshDataT : 生成几何与蒙皮
     FbxImporter ..> SkeletonDataT : 生成绑定骨架
     FbxImporter ..> AnimationDataT : 生成采样轨道
@@ -991,7 +1000,7 @@ classDiagram
     RenderSystem ..> MeshRenderer : 读取普通动态网格
 ```
 
-Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型包不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
+Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型资源不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
 
 ## 角色控制器与编辑器扩展装配
 

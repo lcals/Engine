@@ -2,6 +2,7 @@
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/audio_listener.hpp"
 #include "runtime/scene/audio_source.hpp"
@@ -13,6 +14,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
@@ -670,6 +672,106 @@ export default class extends Gameplay {
     return expect(cleared, "script shutdown releases component resource references with its scene");
 }
 
+bool run_render_binding_cases(const fs::path& workspace)
+{
+    const engine::EngineConfig config;
+    Fixture missing;
+    constexpr std::string_view missing_source = R"js(
+import { Gameplay, Render } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        return !Render.SetAmbient(1, 1, 1, 1) && !Render.SetExposure(1) &&
+            !Render.SetFilmicTonemap(true) && !Render.SetDirectionalShadows(true) &&
+            !Render.SetClearColor(0xffffffff);
+    }
+}
+)js";
+    {
+        engine::plugins::script::ScriptSystem script;
+        if (!script.initialize(config) ||
+            !fixture(workspace, "render-without-service",
+                     {{"scripts/game.js", std::string(missing_source)}}, missing) ||
+            !expect(apply(script, missing), "render binding rejects an absent injected service"))
+        {
+            return false;
+        }
+    }
+
+    // 设置接口不要求初始化图形设备，本测试不创建窗口或依赖 GPU。
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows);
+    engine::plugins::script::ScriptSystem script(nullptr, &renderer);
+    constexpr std::string_view source = R"js(
+import { Gameplay, Render } from 'engine';
+const topLevelBlocked = !Render.SetExposure(9) && !Render.SetAmbient(1, 1, 1, 5);
+export default class extends Gameplay {
+    constructor() { super(); this.constructorBlocked = !Render.SetExposure(8); }
+    OnInitialize() {
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
+            Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
+            Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
+            Render.SetDirectionalShadows(true, 1024, .002) &&
+            Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
+            !Render.SetAmbient(.8, .7, -1, .9) && !Render.SetAmbient(.8, .7, .6, -1) &&
+            !Render.SetAmbient(.8, .7, .6, 1001) && !Render.SetAmbient(NaN, 0, 0, 1) &&
+            !Render.SetAmbient('1', 0, 0, 1) && !Render.SetExposure(0) &&
+            !Render.SetExposure(Infinity) && !Render.SetExposure(101) &&
+            !Render.SetFilmicTonemap(1) && !Render.SetDirectionalShadows(1) &&
+            !Render.SetDirectionalShadows(false, 65536, .02) &&
+            !Render.SetDirectionalShadows(false, 1000, .03) &&
+            !Render.SetDirectionalShadows(false, 1024.5, .03) &&
+            !Render.SetDirectionalShadows(false, 128, .2) &&
+            !Render.SetClearColor(-1) && !Render.SetClearColor(0x100000000) &&
+            !Render.SetClearColor(.5) && !Render.SetClearColor('0x123456ff');
+    }
+    Update() {
+        if (!Render.SetExposure(.75) || !Render.SetDirectionalShadows(false))
+            throw new Error('Cannot set render options during Update');
+    }
+    OnShutdown() {
+        if (!Render.SetExposure(.5)) throw new Error('Renderer must outlive gameplay callbacks');
+    }
+}
+)js";
+    Fixture input;
+    if (!script.initialize(config) ||
+        !fixture(workspace, "render-settings", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input), "render settings apply in OnInitialize with typed inputs"))
+    {
+        return false;
+    }
+    const auto& settings = renderer.settings();
+    if (!expect(settings.ambient_color == std::array<float, 3>{.2F, .3F, .4F} &&
+                    settings.ambient_intensity == .15F && settings.exposure == 1.4F &&
+                    settings.filmic_tonemap && settings.directional_shadows &&
+                    settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
+                    settings.clear_color == 0x56789aff,
+                "invalid calls preserve all fields, including partial ambient and shadow input") ||
+        !expect(script.tick(.016) && script.status().running && settings.exposure == .75F &&
+                    !settings.directional_shadows && settings.shadow_resolution == 2048 &&
+                    settings.shadow_bias == .001F,
+                "Update can change renderer settings and shadow defaults match the native API"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(settings.exposure == .5F && !script.status().running,
+                "shutdown callback runs while the injected renderer remains valid") ||
+        !renderer.set_settings({}) ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) && settings.exposure == 1.0F &&
+                    settings.ambient_intensity == 0.0F && !settings.directional_shadows,
+                "preparing a candidate does not apply project render settings") ||
+        !expect(script.start_prepared_gameplay() && settings.exposure == 1.4F &&
+                    settings.ambient_intensity == .15F && settings.directional_shadows,
+                "starting the project again reapplies its own render settings"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(settings.exposure == .5F && script.status().last_error.empty(),
+                  "repeated lifecycle preserves the renderer borrowing contract");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -708,7 +810,8 @@ int main(int argc, char** argv)
     engine::ResourceSystem resources;
     const bool passed = resources.initialize(config) && run_cases(workspace) &&
                         run_scene_cases(workspace) && run_guid_cases(workspace) &&
-                        run_physics_audio_binding_cases(workspace);
+                        run_physics_audio_binding_cases(workspace) &&
+                        run_render_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

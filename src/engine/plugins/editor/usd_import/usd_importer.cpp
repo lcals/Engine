@@ -211,7 +211,7 @@ bool UsdImporter::inspect_batch(const editor::asset_pipeline::ImportContext& con
     {
         return false;
     }
-    fingerprint += ":usd-static-2:" + std::to_string(PXR_VERSION);
+    fingerprint += ":usd-static-3:" + std::to_string(PXR_VERSION);
     return true;
 }
 bool UsdImporter::discover(const editor::asset_pipeline::ImportAsset& source,
@@ -260,6 +260,7 @@ bool UsdImporter::discover(const editor::asset_pipeline::ImportAsset& source,
             return false;
         }
     }
+    parsed.model.schema_version = 2;
     parsed.model.path = source.path;
     std::map<pxr::SdfPath, int> node_indices;
     pxr::UsdGeomXformCache transforms;

@@ -1,7 +1,0 @@
-target_platform = ""
-output = "cache/build/animation-test"
-[[items]]
-name = "game"
-storage = "package"
-roots = ["project/scripts/game.ts", "project/scenes/playground.scene", "project/models/skeleton.fbx", "project/models/locomotions.fbx", "project/materials/character.material"]
-keep = []

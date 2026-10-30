@@ -29,6 +29,20 @@ declare module "engine" {
         static readonly deltaTime: number;
     }
 
+    /** Current renderer settings. Calls require an active Gameplay callback and renderer. */
+    export class Render {
+        private constructor();
+        /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
+        static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
+        /** Exposure in (0, 100]. */
+        static SetExposure(value: number): boolean;
+        static SetFilmicTonemap(enabled: boolean): boolean;
+        /** Resolution defaults to 2048; bias defaults to 0.001. */
+        static SetDirectionalShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
+        /** Unsigned 32-bit 0xRRGGBBAA; MCP uses a normalized [r,g,b,a] array in the same order. */
+        static SetClearColor(rgba: number): boolean;
+    }
+
     /** Resource paths start with builtin/ or project/. Parameters match the selected shader. */
     export class Material {
         private constructor();

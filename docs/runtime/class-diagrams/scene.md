@@ -76,4 +76,4 @@ classDiagram
 
 组件持久化行为由 [Component](component.md) 的 build_data/restore_data 契约承担，创建函数由[组件登记表](component-registry.md)选择；场景不再直接处理渲染组件的 GUID 或逐组件字段。
 
-`instantiate_model(path, name)` 通过当前加载器获取模型包及依赖，创建普通 Node/Transform/MeshRenderer 层级，返回本场景拥有的根节点借用。失败回滚本次候选节点而保留原场景；调用方另行添加 Animator 并指定动画。数据关系见[模型资源](model-resources.md)，编辑器撤销流程见[模型命令](../../editor/class-diagrams/model-commands.md)。
+`instantiate_model(path, name)` 通过当前加载器获取模型资源及依赖，创建普通 Node/Transform/MeshRenderer 层级，返回本场景拥有的根节点借用。失败回滚本次候选节点而保留原场景；调用方另行添加 Animator 并指定动画。数据关系见[模型资源](model-resources.md)，编辑器撤销流程见[模型命令](../../editor/class-diagrams/model-commands.md)。

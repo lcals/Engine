@@ -11,17 +11,20 @@ table ModelNodeData {
     material_guids:[string];
 }
 
+// Legacy table retained only for the deprecated ModelData.animations field slot.
 table ModelAnimationData {
     name:string (required);
     guid:string (required);
 }
 
 table ModelData {
+    // Keep the old default so omitted version-1 fields cannot decode as version 2.
+    // Current producers explicitly write 2; runtime rejects older model payloads.
     schema_version:uint = 1;
     path:string (required);
     nodes:[ModelNodeData] (required);
-    skeleton_guid:string;
-    animations:[ModelAnimationData];
+    skeleton_guid:string (deprecated);
+    animations:[ModelAnimationData] (deprecated);
 }
 
 root_type ModelData;

@@ -74,10 +74,11 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
+    auto renderer = std::make_unique<RenderSystem>(*window_, world.get());
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world);
+        auto script_system = script_factory(*world, *renderer);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -98,7 +99,6 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    auto renderer = std::make_unique<RenderSystem>(*window_, world_);
     renderer_ = renderer.get();
     std::unique_ptr<System> renderer_base = std::move(renderer);
     if (!engine_.add_system(renderer_base) || !engine_.initialize(config))

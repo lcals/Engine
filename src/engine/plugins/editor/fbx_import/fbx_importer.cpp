@@ -207,7 +207,7 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:fbx-importer-2";
+    fingerprint += ":ufbx-0.23.1:fbx-importer-3";
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
@@ -231,16 +231,16 @@ bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& con
     { return reference(guid, kind, context, asset.runtime_dependencies, error); };
     if (asset.subresource_key.empty())
     {
-        for (const auto* child : context.sources)
+        for (const auto& [key, node] : document->second.meshes)
         {
-            if (child->parent_guid == asset.guid && !add(child->guid, child->kind))
+            (void)node;
+            Guid mesh_guid;
+            if (!context.identities.path_to_guid(asset.path + "/" + key, mesh_guid) ||
+                !add(mesh_guid, schema::AssetKind::mesh))
             {
+                error = "FBX model mesh identity is unavailable";
                 return false;
             }
-        }
-        if (!skeleton_guid.empty() && !add(skeleton_guid, schema::AssetKind::skeleton))
-        {
-            return false;
         }
         if (!document->second.meshes.empty())
         {
@@ -290,8 +290,8 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
     if (asset.subresource_key.empty())
     {
         schema::ModelDataT model;
+        model.schema_version = 2;
         model.path = asset.path;
-        model.skeleton_guid = skeleton_guid;
         Guid material;
         if (!document.meshes.empty() &&
             !context.identities.path_to_guid("builtin/materials/default-pbr", material))
@@ -303,21 +303,6 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
                                model, error))
         {
             return false;
-        }
-        for (const auto& [key, stack] : document.animations)
-        {
-            auto animation = std::make_unique<schema::ModelAnimationDataT>();
-            animation->name.assign(stack->name.data, stack->name.length);
-            if (animation->name.empty())
-            {
-                animation->name = "unnamed";
-            }
-            if (!context.identities.path_to_guid(asset.path + "/" + key, animation->guid))
-            {
-                error = "FBX animation child identity is missing";
-                return false;
-            }
-            model.animations.push_back(std::move(animation));
         }
         if (!ModelResourceCodec::validate(model))
         {

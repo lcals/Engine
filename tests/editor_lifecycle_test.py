@@ -3,11 +3,11 @@
 import argparse
 import json
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 import time
 
+from sample_project import prepare_minimal_project
 from script_tooling_test import call, contents, invoke, require
 
 
@@ -52,17 +52,7 @@ def tool(mcp, project, runtime, name, arguments=None, expect_error=False):
 
 def prepare_project(root, temporary):
     project = temporary / "project 中文"
-    shutil.copytree(
-        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
-    )
-    (project / "cache").mkdir()
-    compiler = root / "projects/minimal/settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
-    shutil.copytree(compiler, project / "settings/node_modules/typescript")
-    config_path = project / "settings/tsconfig.json"
-    config = read_json(config_path)
-    config["files"] = [str(root / "include/engine.d.ts")]
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    prepare_minimal_project(root, project)
     return project
 
 

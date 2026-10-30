@@ -38,6 +38,8 @@
 
 [FBX](../plugins/editor/class-diagrams/fbx-importer.md)与[USD](../plugins/editor/class-diagrams/usd-import.md)均为可选编辑器插件。`AssetImporter::id()` 描述源格式，`kind()` 描述主产物；多个格式可以输出 `model`。插件 `discover` 返回稳定子资源 key/kind，管线在源 meta 的 `[[subresources]]` 分配并保留 GUID。主产物及每个子产物各有目录记录、构建键和独立 `gen/GUID`，主 Model 用 GUID 组织节点和依赖。
 
+一个美术源文件在编辑器组织为虚拟资源包，`.meta` 的 `[[subresources]]` 维护子项 key、类型和独立 GUID；格式导入参数同样由该 meta 管理。这个分组不生成运行时包对象。Model 只包含节点层级与 Mesh/Material 引用，蒙皮 Mesh 和 Animation 分别引用需要的 Skeleton，Material 引用 Texture。运行时各项均为独立资源；使用一个模型或动作不引用同源其他动画。构建按选定入口的实际依赖输出，无用子项不进入运行包，不删除美术源文件。散文件或合并包只改变存储方式。
+
 已消失的子资源不会进入本批运行目录，但身份保留在源 meta 并参与全项目冲突检查。源文件、meta、Schema 或导入器指纹变化按依赖传播；没有变化时整批复用，不改写正式版本。发现阶段已知子资源丢失身份时失败，防止引用被悄悄重分配。
 
 FBX 生成层级、几何、骨架和采样动画；USD 当前只生成自包含的静态凸多边形模型。具体格式限制由各插件校验。核心只定义运行 Schema、ResourceCodec 和场景实例化，格式依赖不进入运行包；MCP 调用现有导入/构建/同步能力，无需复制每种格式的算法。

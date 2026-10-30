@@ -120,8 +120,9 @@ int main()
         return 1;
     }
     const auto* model = schema::GetModelData(bytes.data());
-    if (!expect(model->nodes()->size() == 2 && model->nodes()->Get(1)->parent() == 0,
-                "USD hierarchy retained in object package") ||
+    if (!expect(model->schema_version() == 2 && model->nodes()->size() == 2 &&
+                    model->nodes()->Get(1)->parent() == 0,
+                "USD hierarchy retained in independent Model v2") ||
         !expect(catalog.identities().path_to_guid("project/models/quad.usda/meshes/Root/Quad",
                                                   original_mesh_guid),
                 "USD child uses its stable prim path") ||

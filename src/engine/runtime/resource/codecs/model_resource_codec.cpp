@@ -12,9 +12,8 @@ namespace engine
 {
 bool ModelResourceCodec::validate(const schema::ModelDataT& data)
 {
-    if (data.schema_version != 1 || !valid_path(data.path) || data.nodes.empty() ||
-        data.nodes.size() > 65536 ||
-        (!data.skeleton_guid.empty() && !GuidMap::valid_guid(data.skeleton_guid)))
+    if (data.schema_version != 2 || !valid_path(data.path) || data.nodes.empty() ||
+        data.nodes.size() > 65536)
     {
         return false;
     }
@@ -38,15 +37,6 @@ bool ModelResourceCodec::validate(const schema::ModelDataT& data)
             }
         }
     }
-    std::set<std::string> names;
-    for (const auto& animation : data.animations)
-    {
-        if (!animation || animation->name.empty() || !names.insert(animation->name).second ||
-            !GuidMap::valid_guid(animation->guid))
-        {
-            return false;
-        }
-    }
     return true;
 }
 bool ModelResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
@@ -59,12 +49,11 @@ bool ModelResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
         return false;
     }
     auto data = schema::UnPackModelData(bytes);
-    if (data->path != output.info().path || !validate(*data) ||
-        (!data->skeleton_guid.empty() &&
-         !declares(catalog, output, data->skeleton_guid, schema::AssetKind::skeleton)))
+    if (data->path != output.info().path || !validate(*data))
     {
         return false;
     }
+    std::set<Guid> references;
     for (const auto& node : data->nodes)
     {
         if (!node->mesh_guid.empty() &&
@@ -72,17 +61,26 @@ bool ModelResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
         {
             return false;
         }
+        if (!node->mesh_guid.empty())
+        {
+            references.insert(node->mesh_guid);
+        }
         for (const auto& guid : node->material_guids)
         {
             if (!declares(catalog, output, guid, schema::AssetKind::material))
             {
                 return false;
             }
+            references.insert(guid);
         }
     }
-    for (const auto& animation : data->animations)
+    if (output.info().dependencies.size() != references.size())
     {
-        if (!declares(catalog, output, animation->guid, schema::AssetKind::animation))
+        return false;
+    }
+    for (const auto& guid : output.info().dependencies)
+    {
+        if (!references.contains(guid))
         {
             return false;
         }
@@ -97,14 +95,6 @@ bool ModelResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
     if (!data)
     {
         return false;
-    }
-    if (!data->skeleton_guid.empty())
-    {
-        const auto* item = dependency(dependencies, data->skeleton_guid);
-        if (!item || !item->skeleton())
-        {
-            return false;
-        }
     }
     for (const auto& node : data->nodes)
     {
@@ -131,14 +121,6 @@ bool ModelResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
             {
                 return false;
             }
-        }
-    }
-    for (const auto& animation : data->animations)
-    {
-        const auto* item = dependency(dependencies, animation->guid);
-        if (!item || !item->animation())
-        {
-            return false;
         }
     }
     return true;

@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 
+from sample_project import prepare_minimal_project
+
 
 def require(condition, message):
     if not condition:
@@ -187,17 +189,7 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
     runtime = temporary / "runtime"
-    shutil.copytree(
-        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
-    )
-    (project / "cache").mkdir()
-    compiler = root / "projects/minimal/settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
-    shutil.copytree(compiler, project / "settings/node_modules/typescript")
-    config_path = project / "settings/tsconfig.json"
-    config = json.loads(config_path.read_text())
-    config["files"] = [str(root / "include/engine.d.ts")]
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    prepare_minimal_project(root, project)
     check_compiler_inputs(root, project, temporary)
     unicode_asset = project / "assets/资料/文本.txt"
     unicode_asset.parent.mkdir()

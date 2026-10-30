@@ -99,6 +99,7 @@ bool AnimationResourceCodec::decode(const ResourceCatalog& catalog, ByteView pay
     }
     auto data = schema::UnPackAnimationData(bytes);
     if (data->path != output.info().path || !validate(*data) ||
+        output.info().dependencies.size() != 1 ||
         !declares(catalog, output, data->skeleton_guid, schema::AssetKind::skeleton))
     {
         return false;

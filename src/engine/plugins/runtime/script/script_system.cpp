@@ -281,7 +281,7 @@ struct ScriptSystem::State
         bindings::BindingContext bindings;
 
         Run(State& state, Snapshot version)
-            : owner(state), snapshot(std::move(version)), bindings(state.world)
+            : owner(state), snapshot(std::move(version)), bindings(state.world, state.renderer)
         {
         }
 
@@ -432,6 +432,7 @@ struct ScriptSystem::State
     ScriptStatus& status;
     bindings::ScriptBindingRegistry binding_registry;
     WorldSystem* world = nullptr;
+    RenderSystem* renderer = nullptr;
     double delta_time = 0.0;
     std::shared_ptr<V8Process> process;
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
@@ -439,8 +440,9 @@ struct ScriptSystem::State
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
-    State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world)
-        : status(state), world(scene_world), process(std::move(platform))
+    State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world,
+          RenderSystem* scene_renderer)
+        : status(state), world(scene_world), renderer(scene_renderer), process(std::move(platform))
     {
     }
 
@@ -706,7 +708,8 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem(WorldSystem* world) noexcept : world_(world)
+ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer) noexcept
+    : world_(world), renderer_(renderer)
 {
 }
 
@@ -726,7 +729,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     }
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, std::move(process), world_);
+    state_ = std::make_unique<State>(status_, std::move(process), world_, renderer_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");

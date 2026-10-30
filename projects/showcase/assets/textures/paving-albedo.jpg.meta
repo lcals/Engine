@@ -1,0 +1,11 @@
+guid = "42aa5725-61d6-5757-98ec-a4b2784d2b0d"
+importer = "texture"
+meta_version = 1
+
+[texture]
+format = "auto"
+compression = "uastc"
+compression_level = 3
+rdo_quality_scalar = 0.25
+srgb = true
+mipmaps = true

@@ -110,8 +110,9 @@ int main(int argc, char* argv[])
     engine::RuntimeHost engine;
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world); };
+    script_factory = [](engine::WorldSystem& world,
+                        engine::RenderSystem& renderer) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer); };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready =

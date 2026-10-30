@@ -74,6 +74,7 @@ bool MeshResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
         data = schema::UnPackMeshData(bytes);
     }
     if (data->path != entry.path || !validate(*data) ||
+        entry.dependencies.size() != (data->skeleton_guid.empty() ? 0U : 1U) ||
         (!data->skeleton_guid.empty() &&
          !declares(catalog, output, data->skeleton_guid, schema::AssetKind::skeleton)))
     {
