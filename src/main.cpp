@@ -1,4 +1,5 @@
 #include "runtime/app/runtime_host.hpp"
+#include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime_plugins.hpp"
@@ -159,6 +160,7 @@ int main(int argc, char* argv[])
     int result = 0;
     for (;;)
     {
+        engine::Engine::instance().begin_frame();
         const auto current_time = std::chrono::steady_clock::now();
         const double delta_time =
             std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
@@ -189,6 +191,7 @@ int main(int argc, char* argv[])
         {
             engine.request_exit();
         }
+        engine::Engine::instance().end_frame();
     }
     engine.shutdown();
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

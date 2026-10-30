@@ -144,9 +144,41 @@ bool check_framework()
     return expect(recovered, "framework can be assembled again after rollback");
 }
 
+bool check_frame_rate()
+{
+    auto& framework = engine::Engine::instance();
+    framework.shutdown();
+    if (!expect(framework.target_frame_rate() == -1 && framework.set_target_frame_rate(45) &&
+                    framework.target_frame_rate() == 45 && !framework.set_target_frame_rate(0) &&
+                    !framework.set_target_frame_rate(-2) && framework.target_frame_rate() == 45,
+                "frame limit defaults to unlimited and rejects invalid rates without mutation"))
+    {
+        framework.shutdown();
+        return false;
+    }
+    std::vector<int> events;
+    std::unique_ptr<engine::System> system = std::make_unique<RecordingSystem>(1, events);
+    engine::EngineConfig config;
+    config.target_frame_rate = 0;
+    if (!expect(framework.add_system(system) && !framework.initialize(config) && events.empty() &&
+                    framework.system_count() == 1 && framework.target_frame_rate() == 45,
+                "invalid configured rate rejects initialization before starting systems"))
+    {
+        framework.shutdown();
+        return false;
+    }
+    config.target_frame_rate = 60;
+    const bool initialized = framework.initialize(config) && framework.target_frame_rate() == 60;
+    framework.begin_frame();
+    framework.shutdown();
+    framework.end_frame();
+    return expect(initialized && framework.target_frame_rate() == -1,
+                  "configuration sets the frame limit and shutdown cancels pending frame pacing");
+}
+
 } // namespace
 
 int main()
 {
-    return check_framework() ? 0 : 1;
+    return check_framework() && check_frame_rate() ? 0 : 1;
 }

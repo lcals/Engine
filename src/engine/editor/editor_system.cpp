@@ -10,6 +10,7 @@
 #include "editor/asset_pipeline/project_lock.hpp"
 #endif
 #include "runtime/app/app.hpp"
+#include "runtime/engine.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_status.hpp"
 #include "runtime/log/log_system.hpp"
@@ -21,10 +22,14 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <nlohmann/json.hpp>
+#include <toml++/toml.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <string>
 
 namespace engine::editor
@@ -61,6 +66,62 @@ bool plain_path(const fs::path& path)
     }
     return true;
 }
+
+bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
+{
+    target = 60;
+    const auto path = project_root / "settings" / "editor.toml";
+    std::error_code error;
+    const bool exists = fs::exists(path, error);
+    if (error)
+    {
+        LogSystem::write(LogLevel::error, "Cannot inspect editor settings: " + error.message());
+        return false;
+    }
+    if (!exists)
+    {
+        return true;
+    }
+    std::string source;
+    if (!ResourceSystem::read_text(path, source))
+    {
+        LogSystem::write(LogLevel::error, "Cannot read editor settings: " +
+                                              PathUtils::to_utf8(path));
+        return false;
+    }
+    const auto document = toml::parse(source);
+    if (!document)
+    {
+        LogSystem::write(LogLevel::error, "Invalid editor settings: " +
+                                              std::string(document.error().description()));
+        return false;
+    }
+    const auto editor = document["editor"];
+    if (!editor)
+    {
+        return true;
+    }
+    if (!editor.is_table())
+    {
+        LogSystem::write(LogLevel::error, "Editor settings require an [editor] table");
+        return false;
+    }
+    const auto setting = editor["target_frame_rate"];
+    if (!setting)
+    {
+        return true;
+    }
+    const auto value = setting.value_exact<std::int64_t>();
+    if (!value || (*value != -1 && *value <= 0) ||
+        *value > std::numeric_limits<std::int32_t>::max())
+    {
+        LogSystem::write(LogLevel::error,
+                         "Editor target_frame_rate must be -1 or a positive 32-bit integer");
+        return false;
+    }
+    target = static_cast<std::int32_t>(*value);
+    return true;
+}
 } // namespace
 
 struct EditorSystem::State
@@ -84,10 +145,58 @@ struct EditorSystem::State
     std::unique_ptr<EditorCommands> commands;
     std::unique_ptr<EditorCommandChannel> command_channel;
     std::string channel_error;
+    std::optional<std::int32_t> editor_frame_rate;
 
     State(GameplaySession& session, EditorEnvironment& editor_environment, ScenePreview* scene_preview)
         : gameplay(session), environment(editor_environment), preview(scene_preview)
     {
+    }
+
+    void restore_frame_rate() noexcept
+    {
+        if (editor_frame_rate)
+        {
+            if (!Engine::instance().set_target_frame_rate(*editor_frame_rate))
+            {
+                LogSystem::write(LogLevel::error, "Cannot restore the editor frame rate");
+            }
+            editor_frame_rate.reset();
+        }
+    }
+
+    void restore_frame_rate_if_stopped() noexcept
+    {
+        const auto* status = gameplay.script_status();
+        if (status == nullptr || !status->running)
+        {
+            restore_frame_rate();
+        }
+    }
+
+    bool start_gameplay()
+    {
+        const auto* current = gameplay.script_status();
+        if (current != nullptr && current->running)
+        {
+            return gameplay.start();
+        }
+        if (!environment.refresh_resources(gameplay))
+        {
+            return false;
+        }
+        auto& engine = Engine::instance();
+        editor_frame_rate = engine.target_frame_rate();
+        if (!engine.set_target_frame_rate(-1))
+        {
+            restore_frame_rate();
+            return false;
+        }
+        if (!gameplay.start())
+        {
+            restore_frame_rate();
+            return false;
+        }
+        return true;
     }
 
     bool publish(bool force = false)
@@ -111,6 +220,7 @@ struct EditorSystem::State
                                                                : running ? "running" : "idle")
                                                              : transition},
                        {"running", running},
+                       {"targetFrameRate", Engine::instance().target_frame_rate()},
                        {"lastRequestId", last_request},
                        {"lastCommand", last_command},
                        {"lastRequestSucceeded", last_success},
@@ -227,10 +337,7 @@ struct EditorSystem::State
                     {
                         preview->close();
                     }
-                    const auto* current = gameplay.script_status();
-                    const bool already_running = current != nullptr && current->running;
-                    last_success = (already_running || environment.refresh_resources(gameplay)) &&
-                                   gameplay.start();
+                    last_success = start_gameplay();
                     if (!last_success)
                     {
                         last_error = gameplay.last_error().empty()
@@ -249,6 +356,7 @@ struct EditorSystem::State
                     preview->close();
                 }
                 gameplay.stop();
+                restore_frame_rate();
                 if (commands != nullptr)
                 {
                     commands->clear_history();
@@ -282,6 +390,12 @@ EditorSystem::~EditorSystem() noexcept
 bool EditorSystem::on_initialize(const EngineConfig&)
 {
     if (!environment_.is_initialized() || !IMGUI_CHECKVERSION())
+    {
+        return false;
+    }
+    std::int32_t target_frame_rate = 60;
+    if (!read_frame_rate(PathUtils::from_utf8(environment_.project_identity_), target_frame_rate) ||
+        !Engine::instance().set_target_frame_rate(target_frame_rate))
     {
         return false;
     }
@@ -336,6 +450,10 @@ bool EditorSystem::on_initialize(const EngineConfig&)
 
 bool EditorSystem::on_tick(double)
 {
+    if (state_ != nullptr)
+    {
+        state_->restore_frame_rate_if_stopped();
+    }
     if (!environment_.is_initialized() || (state_ != nullptr && !state_->poll()))
     {
         return false;
@@ -355,6 +473,8 @@ bool EditorSystem::on_tick(double)
         {
             state_->channel_error.clear();
         }
+        // 预览命令可能结束玩法；恢复发生在其停止回调之后。
+        state_->restore_frame_rate_if_stopped();
     }
     return true;
 }
@@ -378,6 +498,7 @@ void EditorSystem::on_shutdown() noexcept
             preview_->close();
         }
         gameplay_->stop();
+        state_->restore_frame_rate();
         state_->closed = true;
         if (!state_->session.empty() && !state_->publish(true))
         {

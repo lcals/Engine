@@ -11,6 +11,7 @@
 #include "editor/scene/scene_preview.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/app/runtime_host.hpp"
+#include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
@@ -284,9 +285,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         }
 #endif
         LogSystem::write(LogLevel::info, "Editor ready; waiting for MCP start_project");
+        auto& frame_engine = engine::Engine::instance();
         auto previous_time = std::chrono::steady_clock::now();
         for (;;)
         {
+            frame_engine.begin_frame();
             const auto current_time = std::chrono::steady_clock::now();
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
@@ -358,6 +361,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 previous_time = std::chrono::steady_clock::now();
                 continue;
             }
+            frame_engine.end_frame();
             ++frames;
             if (frame_limit != 0 && frames >= frame_limit)
             {

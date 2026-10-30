@@ -44,10 +44,12 @@ classDiagram
     class EngineConfig {
         <<struct>>
     }
+    class FrameLimiter
     class FrameStatus {
         <<enumeration>>
     }
     Engine "0..1" *-- "0..*" System : 独占引擎根系统
+    Engine "1" *-- "1" FrameLimiter : 值持有帧调度状态
     System "0..1" *-- "0..*" System : 独占子系统
     Engine ..> EngineConfig : 初始化参数
     System ..> EngineConfig : 生命周期参数
@@ -57,6 +59,8 @@ classDiagram
 ```
 
 一个 System 对象只由引擎、父系统或独立宿主管理。`add_subsystem()` 成功后转移独占所有权；`parent()` 和 `subsystem()` 只返回借用。公开生命周期只接受根系统调度，子系统由父系统递归管理。
+
+[FrameLimiter](../runtime/class-diagrams/frame-limiter.md) 是纯标准库轻量类，不属于系统树。运行和编辑器宿主通过 Engine 的帧边界方法执行限速，脚本绑定调用 Engine 调整当前上限；编辑器配置与玩法切换策略不进入核心。完整帧末尾的休眠自然计入下一帧的 `delta_time`。
 
 ```mermaid
 classDiagram

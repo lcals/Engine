@@ -25,6 +25,7 @@
 
 ## 当前宿主与导入模块
 
+- [帧率限制](../runtime/class-diagrams/frame-limiter.md)：核心整帧休眠能力，编辑器和项目选择上限。
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
 - [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。

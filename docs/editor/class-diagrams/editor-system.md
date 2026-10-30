@@ -23,6 +23,7 @@ classDiagram
     class EngineConfig {
         <<struct>>
     }
+    class Engine
     class EditorEnvironment
     class GameplaySession
     class WorldSystem
@@ -43,6 +44,7 @@ classDiagram
     EditorSystem *-- EditorCommands : 独占命令与撤销历史
     EditorSystem *-- SceneCommands : 独占场景命令注册模块
     EditorSystem ..> EngineConfig : on_initialize 参数
+    EditorSystem ..> Engine : 提交及恢复当前帧率上限
     EditorSystem ..> DearImGui : 编译及链接依赖
     EditorSystem "1" *-- "0..1" ImGuiContext : 拥有编辑器上下文
     note for EditorSystem "继承 System 生命周期；析构中调用 shutdown()"
@@ -53,8 +55,11 @@ classDiagram
 - `editor_app` 必须接收 `--project <path>`，依次初始化项目、编辑器环境、运行宿主和编辑器，反序关闭；`engine_app` 启动不接收项目路径。编辑器仍通过继承的 `add_subsystem()` 独占和统一管理其他编辑器子系统。
 - 创建和销毁 Dear ImGui 上下文；尚未接入窗口后端或绘制编辑器界面。场景编辑由独立命令模块提供。
 - 公开接口包含构造、析构与命令服务借用；具体业务由模块注册，继承 `System` 的公共生命周期方法。初始化失败和清理遵守[系统约定](../../runtime/class-diagrams/engine-system.md)。
-- `gameplay` 默认为空，此时仅管理编辑器上下文；非空时借用运行宿主提供的玩法会话，接入本机项目控制协议，App 必须先就绪。宿主必须让 GameplaySession 和 EditorEnvironment 存活到 EditorSystem 关闭。编辑器作为环境友元读取私有规范化项目身份，仅用于会话回执和 MCP 目标校验；不公开第二套路径接口。
-- 编辑器启动默认空白，不自动执行 Gameplay。`on_tick()` 在主线程读取带会话标识与请求编号的 `project-control.json`，调用 GameplaySession 启停，原子发布 `project-status.json`；旧会话请求不重放，重复请求不重复执行。状态包含待机、启动中、运行中、停止中、关闭及最近错误。
+- `gameplay` 默认为空，此时管理编辑器上下文与编辑器帧率配置；非空时借用运行宿主提供的玩法会话，接入本机项目控制协议，App 必须先就绪。宿主必须让 GameplaySession 和 EditorEnvironment 存活到 EditorSystem 关闭。编辑器作为环境友元读取私有规范化项目身份，用于项目编辑器配置、会话回执和 MCP 目标校验；不公开第二套路径接口。
+- 编辑器启动默认空白，不自动执行 Gameplay。`on_tick()` 在主线程读取带会话标识与请求编号的 `project-control.json`，调用 GameplaySession 启停，原子发布 `project-status.json`；旧会话请求不重放，重复请求不重复执行。状态包含待机、启动中、运行中、停止中、关闭、最近错误，以及核心当前生效的 `targetFrameRate`。
+- 编辑器启动读取项目 `settings/editor.toml` 的 `[editor].target_frame_rate`，缺文件或缺键默认 `60`；仅接受 `-1` 或正的 32 位整数，非法配置返回失败。此配置仅属于编辑器，核心不读取项目文件。
+- 启动玩法前保存核心当前帧率上限，切换到 `-1` 后调用 GameplaySession；业务可设置自己的上限。启动失败、停止、脚本自动停止、切到预览及关闭编辑器时，在玩法清理之后恢复保存值；重复启动和停止不会覆盖备份，玩法设置不写回编辑器配置。
+- 宿主每帧以核心 `begin_frame()/end_frame()` 包围编辑器命令、预览或玩法更新及渲染，待机与预览共用编辑器上限；窗口暂停沿用事件轮询等待，不额外叠加限帧等待。
 - 配置 ScenePreview 时，预览状态发布为 `preview`；start_project 先关闭预览，stop_project 同时关闭预览并停止玩法，禁止项目和预览同时驱动世界。宿主在预览期间跳过 RuntimeHost::tick，仅更新窗口、预览输入与渲染。
 - 宿主在每轮引擎更新之前调用编辑器更新，窗口最小化时仍处理停止请求。项目画面占满同一窗口，停止后清理运行资源并恢复空白。
 - `world` 默认空，非空时须与 GameplaySession 一起存活到编辑器关闭；编辑器主线程处理独立 editor-command 通道，并保存去重回执。业务与撤销契约见[编辑器命令](editor-commands.md)，不在 EditorSystem 展开具体组件处理。

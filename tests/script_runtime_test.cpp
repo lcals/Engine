@@ -1,5 +1,6 @@
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
+#include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/render/render_system.hpp"
@@ -904,6 +905,59 @@ export default class extends Gameplay {
     return expect(cleared, "script shutdown releases component resource references with its scene");
 }
 
+bool run_frame_rate_binding_cases(const fs::path& workspace)
+{
+    auto& engine = engine::Engine::instance();
+    const engine::EngineConfig config;
+    engine::plugins::script::ScriptSystem script;
+    constexpr std::string_view source = R"js(
+import { Gameplay, Engine } from 'engine';
+const topLevelBlocked = !Engine.SetTargetFrameRate(120) && Engine.GetTargetFrameRate() === null;
+export default class extends Gameplay {
+    constructor() {
+        super();
+        this.constructorBlocked = !Engine.SetTargetFrameRate(90);
+    }
+    OnInitialize() {
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Engine) &&
+            Engine.SetTargetFrameRate(-1) && Engine.GetTargetFrameRate() === -1 &&
+            Engine.SetTargetFrameRate(45) && Engine.GetTargetFrameRate() === 45 &&
+            !Engine.SetTargetFrameRate(0) && !Engine.SetTargetFrameRate(-2) &&
+            !Engine.SetTargetFrameRate(45.5) && !Engine.SetTargetFrameRate('45') &&
+            !Engine.SetTargetFrameRate(true) && !Engine.SetTargetFrameRate(NaN) &&
+            !Engine.SetTargetFrameRate(Infinity) && !Engine.SetTargetFrameRate(2147483648) &&
+            Engine.GetTargetFrameRate() === 45;
+    }
+    Update() {
+        if (!Engine.SetTargetFrameRate(30)) throw new Error('Cannot change frame rate');
+    }
+    OnShutdown() {
+        if (!Engine.SetTargetFrameRate(-1)) throw new Error('Cannot release frame rate cap');
+    }
+}
+)js";
+    Fixture input;
+    if (!engine.set_target_frame_rate(60) || !script.initialize(config) ||
+        !fixture(workspace, "frame-rate", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+                    engine.target_frame_rate() == 60,
+                "candidate module and constructor cannot change the frame rate") ||
+        !engine::ResourceSystem::instance()->update_catalog(input.catalog.data(), input.mounts) ||
+        !expect(script.start_prepared_gameplay() && engine.target_frame_rate() == 45,
+                "gameplay sets the frame rate; invalid typed inputs preserve it") ||
+        !expect(script.tick(.016) && script.status().running && engine.target_frame_rate() == 30,
+                "gameplay can adjust the active cap during update") ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
+                    engine.target_frame_rate() == 30,
+                "hot reload candidate leaves the active run's frame rate unchanged"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(engine.target_frame_rate() == -1 && script.status().last_error.empty(),
+                  "shutdown callback can remove the cap before the host restores its own value");
+}
+
 bool run_render_binding_cases(const fs::path& workspace)
 {
     const engine::EngineConfig config;
@@ -1060,7 +1114,8 @@ int main(int argc, char** argv)
                         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
                         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
                         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
-                        run_render_binding_cases(workspace);
+                        run_render_binding_cases(workspace) &&
+                        run_frame_rate_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
