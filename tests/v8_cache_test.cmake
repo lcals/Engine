@@ -5,6 +5,30 @@ endif()
 find_package(Git REQUIRED)
 include("${CMAKE_CURRENT_LIST_DIR}/../cmake/dependencies/v8_cache.cmake")
 
+# 关闭 Intl 后只允许移除旧生成物依赖的精确升级，保留其他手工配置保护。
+set(_legacy_args "v8_enable_i18n_support = false\nis_debug = false\n")
+set(_current_args
+    "${_legacy_args}v8_depend_on_icu_data_file = false\nicu_copy_icudata_to_root_build_dir = false\n"
+)
+_engine_v8_arguments_compatible("${_legacy_args}" "${_current_args}" _compatible)
+if(NOT _compatible)
+    message(FATAL_ERROR "The known no-ICU GN argument migration must preserve the existing cache")
+endif()
+_engine_v8_arguments_compatible("${_current_args}" "${_current_args}" _compatible)
+if(NOT _compatible)
+    message(FATAL_ERROR "Identical GN arguments must remain accepted")
+endif()
+_engine_v8_arguments_compatible("${_legacy_args}use_lld = true\n" "${_current_args}" _compatible)
+if(_compatible)
+    message(FATAL_ERROR "Manual GN changes must not be overwritten by the ICU migration")
+endif()
+string(REPLACE "v8_enable_i18n_support = false" "v8_enable_i18n_support = true" _full_args
+               "${_current_args}")
+_engine_v8_arguments_compatible("${_legacy_args}" "${_full_args}" _compatible)
+if(_compatible)
+    message(FATAL_ERROR "ICU migration must not change the requested Intl configuration")
+endif()
+
 # 仅使用独立小型假产物；此测试不运行 V8、GN、Ninja 或归档器。
 set(_engine_root "${ENGINE_OUTPUT_DIR}/fixture")
 file(REMOVE_RECURSE "${_engine_root}")
@@ -89,9 +113,13 @@ set(_original_args "${_args}")
 set(_variant_keys)
 foreach(
     _argument IN
-    ITEMS "v8_enable_webassembly = false" "v8_enable_i18n_support = false"
-          "v8_enable_temporal_support = false" "v8_enable_system_instrumentation = false"
-          "engine_use_static_crt = true")
+    ITEMS "v8_enable_webassembly = false"
+          "v8_enable_i18n_support = false"
+          "v8_enable_temporal_support = false"
+          "v8_enable_system_instrumentation = false"
+          "engine_use_static_crt = true"
+          "v8_depend_on_icu_data_file = false"
+          "icu_copy_icudata_to_root_build_dir = false")
     set(_args "${_original_args}${_argument}\n")
     _engine_v8_cache_keys(_variant_prepare_key _variant_build_key _ready)
     if(NOT _ready
@@ -258,6 +286,7 @@ unset(ENGINE_V8_ANDROID_NDK)
 unset(ENGINE_V8_ANDROID_API)
 set(ENGINE_V8_TARGET_CPU "${_saved_cpu}")
 
+set(ENGINE_V8_ENABLE_I18N ON)
 set(_artifacts "${_out}/obj/${_library}" "${_out}/icudtl.dat" "${_out}/gen/include/v8-gn.h"
                "${_sample}" "${_out}/build.ninja")
 foreach(_artifact IN LISTS _artifacts)
@@ -282,6 +311,10 @@ foreach(_artifact IN LISTS _artifacts)
     write_fixture("${_artifact}" "fixture-output\n")
 endforeach()
 set(ENGINE_V8_ENABLE_I18N OFF)
+_engine_v8_artifacts(_present)
+if(_present)
+    message(FATAL_ERROR "V8 without internationalization must reject stale ICU generated data")
+endif()
 file(REMOVE "${_out}/icudtl.dat")
 _engine_v8_artifacts(_present)
 if(NOT _present)

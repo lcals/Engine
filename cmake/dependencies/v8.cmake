@@ -2,12 +2,16 @@ include_guard(GLOBAL)
 
 option(ENGINE_ENABLE_V8 "Enable explicitly prepared V8 monolith dependency" OFF)
 if(NOT ENGINE_ENABLE_V8)
+    # 原目录从 V8 切换至 QuickJS 后，不能继续部署旧的 ICU 数据。
+    set(ENGINE_V8_ICU_DATA
+        ""
+        CACHE INTERNAL "V8 ICU data to deploy beside a consuming executable" FORCE)
     return()
 endif()
-option(ENGINE_V8_ENABLE_WEBASSEMBLY "Enable V8 WebAssembly support" ON)
-option(ENGINE_V8_ENABLE_I18N "Enable V8 internationalization support" ON)
-option(ENGINE_V8_ENABLE_TEMPORAL "Enable V8 Temporal support" ON)
-option(ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION "Enable V8 system instrumentation" ON)
+option(ENGINE_V8_ENABLE_WEBASSEMBLY "Enable V8 WebAssembly support" OFF)
+option(ENGINE_V8_ENABLE_I18N "Enable V8 internationalization support" OFF)
+option(ENGINE_V8_ENABLE_TEMPORAL "Enable V8 Temporal support" OFF)
+option(ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION "Enable V8 system instrumentation" OFF)
 set(_engine_v8_features WEBASSEMBLY I18N TEMPORAL SYSTEM_INSTRUMENTATION)
 set(_engine_v8_feature_bits "")
 foreach(_feature IN LISTS _engine_v8_features)

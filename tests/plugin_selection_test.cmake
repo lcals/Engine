@@ -250,19 +250,76 @@ run_case(
 set(ENGINE_RUNTIME_PLUGINS resource_graph CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS)
-    message(FATAL_ERROR "Explicit selection must override scripting default")
+if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS OR "quickjs" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Disabled scripting must not select a VM dependency")
 endif()
 ]=])
 
 run_case(
-    script_requires_v8
-    "requires ENGINE_ENABLE_V8"
+    script_default_quickjs
+    ""
     [=[
-set(ENGINE_ENABLE_V8 OFF)
 set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SCRIPT_BACKEND STREQUAL "quickjs" OR ENGINE_ENABLE_V8 OR
+   NOT "quickjs" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Default script backend must select only QuickJS, even with old V8 cache")
+endif()
+]=])
+
+run_case(
+    script_explicit_v8
+    ""
+    [=[
+set(ENGINE_SCRIPT_BACKEND v8 CACHE STRING "" FORCE)
+set(ENGINE_ENABLE_V8 OFF)
+set(VCPKG_MANIFEST_FEATURES "runtime;quickjs")
+set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_ENABLE_V8 OR "quickjs" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "V8 script backend must not select QuickJS dependencies")
+endif()
+]=])
+
+run_case(
+    script_invalid_backend
+    "ENGINE_SCRIPT_BACKEND must be quickjs or v8"
+    [=[
+set(ENGINE_SCRIPT_BACKEND both CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+]=])
+
+run_case(
+    script_switch_backend
+    ""
+    [=[
+file(MAKE_DIRECTORY "${CASE_ROOT}/source")
+file(WRITE "${CASE_ROOT}/source/CMakeLists.txt"
+    "cmake_minimum_required(VERSION 3.25)\n"
+    "include([==[${ROOT}/cmake/plugins/selection.cmake]==])\n"
+    "project(script_selection_fixture NONE)\n"
+    "file(WRITE \"\${CMAKE_BINARY_DIR}/selection.txt\" \"\${VCPKG_MANIFEST_FEATURES}|\${ENGINE_ENABLE_V8}\")\n")
+foreach(_backend quickjs v8 quickjs)
+    execute_process(COMMAND "${CMAKE_COMMAND}" -S "${CASE_ROOT}/source" -B "${CASE_ROOT}/build"
+        -DENGINE_ENABLE_RUNTIME_DEPS=ON -DENGINE_ENABLE_V8=ON
+        -DENGINE_RUNTIME_PLUGINS=script -DENGINE_EDITOR_PLUGINS=
+        "-DENGINE_SCRIPT_BACKEND=${_backend}" -DVCPKG_MANIFEST_FEATURES=runtime
+        RESULT_VARIABLE _result OUTPUT_VARIABLE _out ERROR_VARIABLE _error)
+    if(NOT _result EQUAL 0)
+        message(FATAL_ERROR "Script backend switch failed: ${_out}${_error}")
+    endif()
+    file(READ "${CASE_ROOT}/build/selection.txt" _selection)
+    if(_backend STREQUAL "quickjs")
+        set(_expected "runtime;quickjs|OFF")
+    else()
+        set(_expected "runtime|ON")
+    endif()
+    if(NOT _selection STREQUAL _expected)
+        message(FATAL_ERROR "Backend ${_backend} left stale dependencies: ${_selection}")
+    endif()
+endforeach()
 ]=])
 
 run_case(
@@ -314,6 +371,18 @@ include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/ui_import" OR
    NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime")
     message(FATAL_ERROR "UI import alone must not select font import, FreeType or unrelated plugins: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
+endif()
+]=])
+
+run_case(
+    disabled_v8_clears_icu
+    ""
+    [=[
+set(ENGINE_ENABLE_V8 OFF)
+set(ENGINE_V8_ICU_DATA stale-icu-data CACHE INTERNAL "" FORCE)
+include("${ROOT}/cmake/dependencies/v8.cmake")
+if(ENGINE_V8_ICU_DATA)
+    message(FATAL_ERROR "Disabled V8 must clear deployment metadata from the previous backend")
 endif()
 ]=])
 

@@ -92,6 +92,12 @@
       "dependencies": [
         "usd"
       ]
+    },
+    "quickjs": {
+      "description": "Optional lightweight QuickJS JavaScript runtime",
+      "dependencies": [
+        "quickjs-ng"
+      ]
     }
   },
   "overrides": [
@@ -110,6 +116,10 @@
     {
       "name": "fmt",
       "version": "12.0.0"
+    },
+    {
+      "name": "quickjs-ng",
+      "version": "0.10.1"
     }
   ]
 }

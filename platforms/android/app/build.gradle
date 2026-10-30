@@ -6,7 +6,27 @@ def nativeConfiguration = providers.gradleProperty('engineConfiguration').getOrE
 if (!(nativeConfiguration in ['debug', 'release'])) {
     throw new GradleException('engineConfiguration must be debug or release')
 }
-def nativeDirectory = file("../../../build/android-arm64-${nativeConfiguration}/android")
+def scriptBackend = providers.gradleProperty('engineScriptBackend').getOrElse('quickjs')
+if (!(scriptBackend in ['quickjs', 'v8'])) {
+    throw new GradleException('engineScriptBackend must be quickjs or v8')
+}
+def preset = "android-arm64-${scriptBackend == 'v8' ? 'v8-' : ''}${nativeConfiguration}"
+def nativeDirectory = file("../../../build/${preset}/android")
+def runtimeProperties = new Properties()
+def runtimeConfiguration = new File(nativeDirectory, 'script-runtime.properties')
+if (!runtimeConfiguration.isFile()) {
+    throw new GradleException("Missing script runtime configuration; build CMake preset ${preset} first")
+}
+runtimeConfiguration.withInputStream { runtimeProperties.load(it) }
+if (!(runtimeProperties.backend in [scriptBackend, 'none']) ||
+    !(runtimeProperties.icu in ['true', 'false'])) {
+    throw new GradleException("Script runtime configuration does not match ${preset}; rebuild the CMake preset")
+}
+def hasV8 = runtimeProperties.backend == 'v8'
+def hasIcu = runtimeProperties.icu == 'true'
+if (hasIcu && !hasV8) {
+    throw new GradleException('ICU data is only supported by the V8 runtime')
+}
 layout.buildDirectory.set(file("../../../build/android-gradle/${nativeConfiguration}"))
 
 android {
@@ -21,9 +41,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = '0.1.0'
+        buildConfigField 'boolean', 'ENGINE_SCRIPT_V8', hasV8.toString()
+        buildConfigField 'boolean', 'ENGINE_SCRIPT_ICU', hasIcu.toString()
         ndk {
             abiFilters 'arm64-v8a'
         }
+    }
+    buildFeatures {
+        buildConfig = true
     }
     sourceSets {
         main {
@@ -56,16 +81,21 @@ androidComponents {
 
 tasks.named('preBuild') {
     doFirst {
-        [
+        def inputs = [
             'jniLibs/arm64-v8a/libmain.so',
             'java/org/libsdl/app/SDLActivity.java',
-            'assets/v8/icudtl.dat',
             'assets/project/catalog.bin',
             'assets/project-manifest.json'
-        ].each { relative ->
+        ]
+        if (hasIcu) {
+            inputs.add('assets/v8/icudtl.dat')
+        } else if (new File(nativeDirectory, 'assets/v8/icudtl.dat').exists()) {
+            throw new GradleException('Stale ICU data remains in a runtime that does not use it; rebuild the CMake bundle')
+        }
+        inputs.each { relative ->
             File input = new File(nativeDirectory, relative)
             if (!input.isFile() || input.length() == 0) {
-                throw new GradleException("Missing ${relative}; build CMake preset android-arm64-${nativeConfiguration} first")
+                throw new GradleException("Missing ${relative}; build CMake preset ${preset} first")
             }
         }
         Set<File> nativeLibraries = fileTree(new File(nativeDirectory, 'jniLibs')) {

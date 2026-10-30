@@ -23,9 +23,8 @@ option(ENGINE_ENABLE_EDITOR_DEPS "Build editor system and dependencies" OFF)
 option(ENGINE_ENABLE_ASSET_PIPELINE_DEPS "Build asset pipeline system and dependencies" OFF)
 option(ENGINE_ENABLE_SCRIPT_RUNTIME "Build the gameplay scripting runtime" OFF)
 
-if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS AND (NOT ENGINE_ENABLE_V8
-                                                         OR NOT ENGINE_ENABLE_RUNTIME_DEPS))
-    message(FATAL_ERROR "Script runtime requires runtime dependencies and V8")
+if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)
+    message(FATAL_ERROR "Script runtime requires runtime dependencies")
 endif()
 
 if(ENGINE_ENABLE_EDITOR_DEPS AND NOT ENGINE_ENABLE_RUNTIME_DEPS)

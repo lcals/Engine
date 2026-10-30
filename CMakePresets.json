@@ -108,7 +108,11 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": false,
         "ENGINE_BUILD_APP": false,
         "VCPKG_MANIFEST_FEATURES": "",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base"
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -121,7 +125,11 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": false,
         "ENGINE_BUILD_APP": false,
         "VCPKG_MANIFEST_FEATURES": "",
-        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base"
+        "VCPKG_INSTALLED_DIR": "${sourceDir}/build/dependencies/base",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -130,8 +138,13 @@
       "inherits": "editor-deps",
       "binaryDir": "${sourceDir}/build/engine-debug",
       "cacheVariables": {
-        "ENGINE_ENABLE_V8": true,
-        "ENGINE_ENABLE_SCRIPT_RUNTIME": true
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -140,8 +153,13 @@
       "inherits": "editor-deps-release",
       "binaryDir": "${sourceDir}/build/engine-release",
       "cacheVariables": {
-        "ENGINE_ENABLE_V8": true,
-        "ENGINE_ENABLE_SCRIPT_RUNTIME": true
+        "ENGINE_ENABLE_V8": false,
+        "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -245,12 +263,17 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
-        "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_V8": false,
         "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
         "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;character_controller",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
-        "BUILD_TESTING": false
+        "BUILD_TESTING": false,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -276,12 +299,17 @@
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
         "ENGINE_ENABLE_EDITOR_DEPS": false,
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
-        "ENGINE_ENABLE_V8": true,
+        "ENGINE_ENABLE_V8": false,
         "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
         "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;character_controller",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
-        "BUILD_TESTING": false
+        "BUILD_TESTING": false,
+        "ENGINE_SCRIPT_BACKEND": "quickjs",
+        "ENGINE_V8_ENABLE_WEBASSEMBLY": false,
+        "ENGINE_V8_ENABLE_I18N": false,
+        "ENGINE_V8_ENABLE_TEMPORAL": false,
+        "ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION": false
       }
     },
     {
@@ -310,6 +338,78 @@
       },
       "cacheVariables": {
         "ENGINE_MACOS_APP_BUNDLE": false
+      }
+    },
+    {
+      "name": "ninja-engine-v8-debug",
+      "displayName": "ninja-engine V8 debug",
+      "inherits": "ninja-engine-debug",
+      "binaryDir": "${sourceDir}/build/ninja-engine-v8-debug",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "ninja-engine-v8-release",
+      "displayName": "ninja-engine V8 release",
+      "inherits": "ninja-engine-release",
+      "binaryDir": "${sourceDir}/build/ninja-engine-v8-release",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "macos-native-v8-debug",
+      "displayName": "macos-native V8 debug",
+      "inherits": "macos-native-debug",
+      "binaryDir": "${sourceDir}/build/macos-native-v8-debug",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "macos-native-v8-release",
+      "displayName": "macos-native V8 release",
+      "inherits": "macos-native-release",
+      "binaryDir": "${sourceDir}/build/macos-native-v8-release",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "windows-static-v8-debug",
+      "displayName": "windows-static V8 debug",
+      "inherits": "windows-static-debug",
+      "binaryDir": "${sourceDir}/build/windows-static-v8-debug",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "windows-static-v8-release",
+      "displayName": "windows-static V8 release",
+      "inherits": "windows-static-release",
+      "binaryDir": "${sourceDir}/build/windows-static-v8-release",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "android-arm64-v8-debug",
+      "displayName": "android-arm64 V8 debug",
+      "inherits": "android-arm64-debug",
+      "binaryDir": "${sourceDir}/build/android-arm64-v8-debug",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
+      }
+    },
+    {
+      "name": "android-arm64-v8-release",
+      "displayName": "android-arm64 V8 release",
+      "inherits": "android-arm64-release",
+      "binaryDir": "${sourceDir}/build/android-arm64-v8-release",
+      "cacheVariables": {
+        "ENGINE_SCRIPT_BACKEND": "v8"
       }
     }
   ],
@@ -392,7 +492,7 @@
       "configurePreset": "engine-debug",
       "configuration": "Debug",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -405,7 +505,7 @@
       "configurePreset": "engine-release",
       "configuration": "Release",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -438,7 +538,7 @@
       "configurePreset": "ninja-engine-debug",
       "configuration": "Debug",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -451,7 +551,7 @@
       "configurePreset": "ninja-engine-release",
       "configuration": "Release",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -475,7 +575,7 @@
       "configurePreset": "android-arm64-debug",
       "configuration": "Debug",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -483,7 +583,7 @@
       "configurePreset": "android-arm64-release",
       "configuration": "Release",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -494,7 +594,7 @@
       "name": "macos-native-debug-prepare",
       "configurePreset": "macos-native-debug",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
       ]
     },
     {
@@ -505,7 +605,109 @@
       "name": "macos-native-release-prepare",
       "configurePreset": "macos-native-release",
       "targets": [
-        "engine_v8_prepare"
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "ninja-engine-v8-debug",
+      "configurePreset": "ninja-engine-v8-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "ninja-engine-v8-debug-prepare",
+      "configurePreset": "ninja-engine-v8-debug",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "ninja-engine-v8-release",
+      "configurePreset": "ninja-engine-v8-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "ninja-engine-v8-release-prepare",
+      "configurePreset": "ninja-engine-v8-release",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "macos-native-v8-debug",
+      "configurePreset": "macos-native-v8-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "macos-native-v8-debug-prepare",
+      "configurePreset": "macos-native-v8-debug",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "macos-native-v8-release",
+      "configurePreset": "macos-native-v8-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "macos-native-v8-release-prepare",
+      "configurePreset": "macos-native-v8-release",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "windows-static-v8-debug",
+      "configurePreset": "windows-static-v8-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-static-v8-debug-prepare",
+      "configurePreset": "windows-static-v8-debug",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "windows-static-v8-release",
+      "configurePreset": "windows-static-v8-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-static-v8-release-prepare",
+      "configurePreset": "windows-static-v8-release",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-v8-debug",
+      "configurePreset": "android-arm64-v8-debug",
+      "configuration": "Debug",
+      "targets": [
+        "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-v8-debug-prepare",
+      "configurePreset": "android-arm64-v8-debug",
+      "targets": [
+        "engine_script_prepare"
+      ]
+    },
+    {
+      "name": "android-arm64-v8-release",
+      "configurePreset": "android-arm64-v8-release",
+      "configuration": "Release",
+      "targets": [
+        "engine_android_bundle"
+      ]
+    },
+    {
+      "name": "android-arm64-v8-release-prepare",
+      "configurePreset": "android-arm64-v8-release",
+      "targets": [
+        "engine_script_prepare"
       ]
     }
   ],
@@ -615,6 +817,36 @@
       "output": {
         "outputOnFailure": true
       }
+    },
+    {
+      "name": "ninja-engine-v8-debug",
+      "inherits": "debug",
+      "configurePreset": "ninja-engine-v8-debug"
+    },
+    {
+      "name": "ninja-engine-v8-release",
+      "inherits": "release",
+      "configurePreset": "ninja-engine-v8-release"
+    },
+    {
+      "name": "macos-native-v8-debug",
+      "inherits": "debug",
+      "configurePreset": "macos-native-v8-debug"
+    },
+    {
+      "name": "macos-native-v8-release",
+      "inherits": "release",
+      "configurePreset": "macos-native-v8-release"
+    },
+    {
+      "name": "windows-static-v8-debug",
+      "inherits": "debug",
+      "configurePreset": "windows-static-v8-debug"
+    },
+    {
+      "name": "windows-static-v8-release",
+      "inherits": "release",
+      "configurePreset": "windows-static-v8-release"
     }
   ],
   "workflowPresets": [

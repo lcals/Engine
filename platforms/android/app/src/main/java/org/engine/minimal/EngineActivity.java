@@ -23,6 +23,16 @@ public final class EngineActivity extends SDLActivity
 
     private void runV8Smoke()
     {
+        if (!BuildConfig.ENGINE_SCRIPT_V8)
+        {
+            Log.e("EngineV8", "APK V8 smoke unavailable: this package uses another script backend");
+            return;
+        }
+        if (!BuildConfig.ENGINE_SCRIPT_ICU)
+        {
+            reportV8Smoke(nativeRunV8Smoke(""));
+            return;
+        }
         File directory = new File(getCacheDir(), "v8-smoke");
         if (!directory.isDirectory() && !directory.mkdirs())
         {
@@ -46,7 +56,11 @@ public final class EngineActivity extends SDLActivity
             Log.e("EngineV8", "APK V8 smoke FAIL: cannot copy ICU data", error);
             return;
         }
-        boolean passed = nativeRunV8Smoke(data.getAbsolutePath());
+        reportV8Smoke(nativeRunV8Smoke(data.getAbsolutePath()));
+    }
+
+    private static void reportV8Smoke(boolean passed)
+    {
         Log.println(passed ? Log.INFO : Log.ERROR, "EngineV8",
                     passed ? "APK V8 smoke PASS" : "APK V8 smoke FAIL");
     }

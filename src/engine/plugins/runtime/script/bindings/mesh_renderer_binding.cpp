@@ -36,34 +36,32 @@ Object.freeze(MeshRenderer);
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<MeshRenderer>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<MeshRenderer>() != nullptr);
 }
 void mesh(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
     auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
     std::string path;
-    arguments.GetReturnValue().Set(mesh != nullptr && arguments.Length() == 3 &&
-                                   BindingContext::text(arguments, 2, path) &&
-                                   mesh->set_mesh(path));
+    arguments.set_return(mesh != nullptr && arguments.count() == 3 &&
+                         BindingContext::text(arguments, 2, path) && mesh->set_mesh(path));
 }
 
 void material_count(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
     auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    const auto count = mesh != nullptr && arguments.Length() == 2 ? mesh->material_count() : 0;
-    arguments.GetReturnValue().Set(static_cast<std::uint32_t>(count));
+    const auto count = mesh != nullptr && arguments.count() == 2 ? mesh->material_count() : 0;
+    arguments.set_return(static_cast<std::uint32_t>(count));
 }
 
 void set_material_count(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
     auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    arguments.GetReturnValue().Set(
-        mesh != nullptr && arguments.Length() == 3 && arguments[2]->IsUint32() &&
-        mesh->set_material_count(arguments[2].As<v8::Uint32>()->Value()));
+    arguments.set_return(mesh != nullptr && arguments.count() == 3 && arguments.is_uint32(2) &&
+                         mesh->set_material_count(arguments.unsigned_integer(2)));
 }
 } // namespace
 
@@ -77,16 +75,12 @@ std::string_view MeshRendererBinding::source() const noexcept
     return javascript;
 }
 
-bool MeshRendererBinding::register_functions(v8::Local<v8::Context> context,
-                                             v8::Local<v8::Object> native) const
+bool MeshRendererBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "MeshRendererKind",
-                                   static_cast<int>(MeshRenderer::component_type)) &&
-           BindingContext::function(context, native, "MeshRendererAdd", add) &&
-           BindingContext::function(context, native, "MeshRendererMesh", mesh) &&
-           BindingContext::function(context, native, "MeshRendererMaterialCount", material_count) &&
-           BindingContext::function(context, native, "MeshRendererSetMaterialCount",
-                                    set_material_count);
+    return vm.integer("MeshRendererKind", static_cast<int>(MeshRenderer::component_type)) &&
+           vm.function("MeshRendererAdd", add) && vm.function("MeshRendererMesh", mesh) &&
+           vm.function("MeshRendererMaterialCount", material_count) &&
+           vm.function("MeshRendererSetMaterialCount", set_material_count);
 }
 
 } // namespace engine::plugins::script::bindings

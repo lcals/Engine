@@ -37,7 +37,7 @@ Engine/System 框架只依赖标准库。SDL、bgfx 等必要的系统实现依�
 
 - `runtime/`：系统框架、运行时宿主、玩法会话、脚本执行契约、平台路径、窗口、日志、资源、世界、渲染、物理与音频；公共工具位于 `runtime/utils/`。
 - `editor/`：编辑器环境、项目约束、通用命令、任务调度和资源导入基础。
-- `plugins/runtime/`：可独立选择的资源依赖图、V8 脚本执行与逐类绑定实现。
+- `plugins/runtime/`：可独立选择的资源依赖图、脚本执行、编译期可选 QuickJS/V8 后端与逐类绑定实现。
 - `plugins/editor/`：完整建模、MCP 协议及业务适配、资源构建和资源同步插件。
 
 运行时插件调用核心接口，编辑器插件可以组合运行时插件及编辑器基础。核心通过自己定义的接口接收宿主注入的实现，不引用具体插件；运行时插件不得反向依赖编辑器或具体项目。平台专用实现、入口与打包资源集中于 `platforms/<platform>/`。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始包含；CMake 目标传递搜索根，不使用相对目录回跳。
@@ -50,7 +50,7 @@ CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录�
 
 资源加载契约由核心 `ResourceLoader` 定义；`ResourceSystem` 提供单项实现并借用宿主设置的加载器，`ResourceGraphSystem` 插件以相同契约提供依赖树与共享缓存。宿主先初始化核心，再启用插件，关闭时先停止使用者、解除接口借用，再释放插件和核心。方法和完整所有权见独立类图。
 
-脚本执行契约由核心 [ScriptRuntime](runtime/class-diagrams/script-runtime.md) 定义，状态使用普通 ScriptStatus。可执行宿主按插件清单向 RuntimeHost 提供创建函数，取得实现该契约的 ScriptSystem 并交给 WorldSystem 独占调度。RuntimeHost 和 GameplaySession 不包含或链接具体脚本插件；未选择插件仍可提交资源目录和运行原生场景，脚本玩法启动明确返回不可用。V8 依赖验证使用独立测试，不向核心装配脚本伪系统。
+脚本执行契约由核心 [ScriptRuntime](runtime/class-diagrams/script-runtime.md) 定义，状态使用普通 ScriptStatus。可执行宿主按插件清单向 RuntimeHost 提供创建函数，取得实现该契约的 ScriptSystem 并交给 WorldSystem 独占调度。RuntimeHost 和 GameplaySession 不包含或链接具体脚本插件；未选择插件仍可提交资源目录和运行原生场景，脚本玩法启动明确返回不可用。脚本插件内部以 ScriptVm 隔离 VM，`ENGINE_SCRIPT_BACKEND` 默认 `quickjs`，也可在构建时选择 `v8`；互斥宏仅编译和链接所选后端，没有运行时切换。每个 Run 独占 VM 环境、模块、Gameplay 与任务队列，共用逐类绑定、UI MVC 和热重载流程。独立 V8 依赖验证不向核心装配脚本伪系统。
 
 ## 框架与领域职责
 
@@ -60,7 +60,7 @@ CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录�
 
 场景对象统一为 Node 与 Component，Node 只管理身份、层级和组件集合。场景、组件及资源数据由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite 与转换；构建和同步插件组织发布。资源核心读取单项并解析，依赖图插件加载必要依赖并维持共享使用关系。
 
-物理与音频同样分层：`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 以及 `PhysicsSystem`、`AudioSystem` 属于运行时核心。Jolt 物体、SDL 输出设备与流由对应系统管理，公开组件只暴露生成设置和普通 C++ 请求。WAV/meta 转 PCM、场景 TOML 读写、组件快照与撤销属于编辑器。MCP 插件只注册工具并转发编辑器命令；V8 插件逐类绑定核心接口。两类插件都不复制模拟或播放逻辑，核心也不读取 JSON 命令与编辑器设置。
+物理与音频同样分层：`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 以及 `PhysicsSystem`、`AudioSystem` 属于运行时核心。Jolt 物体、SDL 输出设备与流由对应系统管理，公开组件只暴露生成设置和普通 C++ 请求。WAV/meta 转 PCM、场景 TOML 读写、组件快照与撤销属于编辑器。MCP 插件只注册工具并转发编辑器命令；脚本插件逐类绑定核心接口。两类插件都不复制模拟或播放逻辑，核心也不读取 JSON 命令与编辑器设置。
 
 MCP 协议层只登记、校验并调用工具。项目工具和场景工具各自注册；场景操作通过命令通道交给编辑器主线程，编辑器命令模块组织批量执行、回滚与撤销，场景模块调用普通组件接口。组件和 Engine 不知道 MCP、命令历史或编辑器项目。新业务模块分别登记需要暴露的工具和执行函数，所有权与线程边界保持显式。
 
@@ -76,7 +76,7 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [资源构建](plugins/editor/resource-build.md)：项目清单、依赖闭包、散文件和合并包。
 - [物理](runtime/physics.md)、[音频](runtime/audio.md)：节点组件、固定步模拟、PCM 播放与清理边界。
 - [导航](runtime/navigation.md)、[动画](runtime/animation.md)、[运行时 UI](runtime/ui.md)：各系统的依赖接入与能力范围。
-- [脚本与插件](plugins/plugins.md)：V8 绑定、Gameplay、热重载和 MCP。
+- [脚本与插件](plugins/plugins.md)：虚拟机选择、共享绑定、Gameplay、热重载和 MCP。
 - [编辑器](editor/editor.md)、[编辑器配置](editor/configuration.md)：环境、项目控制和工具设置。
 - [项目与出包](editor/project.md)：项目目录契约、运行内容与平台部署。
 - [首个游戏](runtime/first-game.md)：玩法目标及引擎验证需求。

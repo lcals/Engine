@@ -44,6 +44,7 @@ def run(command):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", choices=("debug", "release"), default="debug")
+    parser.add_argument("--backend", choices=("quickjs", "v8"), default="quickjs")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
     parser.add_argument(
         "--project", type=Path, help="要编译并放入 APK 的项目目录，默认 projects/showcase"
@@ -93,7 +94,7 @@ def main():
         cmake = shutil.which("cmake")
         if not cmake:
             raise ValueError("没有找到 CMake，请先运行环境安装脚本。")
-        preset = "android-arm64-" + args.config
+        preset = "android-arm64-" + ("v8-" if args.backend == "v8" else "") + args.config
         run(
             [
                 cmake,
@@ -126,6 +127,7 @@ def main():
             "-p",
             str(ROOT / "platforms/android"),
             "-PengineConfiguration=" + args.config,
+            "-PengineScriptBackend=" + args.backend,
             ":app:assemble" + args.config.title(),
         ]
     )
