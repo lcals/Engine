@@ -36,6 +36,18 @@ class ArchitectureRulesTest(unittest.TestCase):
         ]
         self.assertEqual(target_errors(targets, self.root), [])
 
+    def test_platform_editor_code_retains_editor_boundaries(self):
+        editor = self.target("engine_editor", "editor")
+        editor["sources"].append("platforms/macos/editor/tools.cpp")
+        self.assertEqual(target_errors([editor], self.root), [])
+        core = self.target("engine_core", "runtime", ["engine_editor"])
+        self.assertTrue(
+            any(
+                "forbidden target dependency" in error
+                for error in target_errors([core, editor], self.root)
+            )
+        )
+
     def test_actual_alias_and_private_edge(self):
         targets = [
             self.target(

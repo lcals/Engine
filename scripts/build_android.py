@@ -6,6 +6,9 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import zipfile
+
+from artifact_output import staged_output, validate_output
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -128,9 +131,21 @@ def main():
     )
     if not source.is_file():
         raise ValueError(f"Gradle 没有生成预期 APK：{source}")
-    destination = ROOT / "build/apk" / ("engine-arm64-" + args.config + ".apk")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(source, destination)
+    output = validate_output(
+        ROOT / "output/android/arm64" / args.config / "runtime",
+        ROOT / "output",
+        [source, project.resolve()],
+    )
+    with staged_output(output) as stage:
+        staged_apk = stage / "engine-showcase.apk"
+        shutil.copy2(source, staged_apk)
+        with zipfile.ZipFile(staged_apk) as archive:
+            native = sorted(name for name in archive.namelist() if name.endswith(".so"))
+            if native != ["lib/arm64-v8a/libmain.so"]:
+                raise ValueError(f"Android 交付必须只含 libmain.so，实际为：{native}")
+            if "assets/project/catalog.bin" not in archive.namelist():
+                raise ValueError("APK 缺少独立的运行资源清单")
+    destination = output / "engine-showcase.apk"
     print(f"APK 已生成：{destination}")
     print("Debug / Release APK 均使用本机调试签名，仅供安装测试。")
     return 0

@@ -15,6 +15,12 @@ public final class EngineActivity extends SDLActivity
     private static native void nativeResumeRendering();
     private static native boolean nativeRunV8Smoke(String icuDataFile);
 
+    @Override protected String[] getLibraries()
+    {
+        // SDL3 和 C++ 运行库已静态链接到唯一的原生库。
+        return new String[] {"main"};
+    }
+
     private void runV8Smoke()
     {
         File directory = new File(getCacheDir(), "v8-smoke");

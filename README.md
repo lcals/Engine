@@ -128,23 +128,49 @@ cmake --preset windows-static-release
 cmake --build --preset windows-static-release-prepare
 cmake --build --preset windows-static-release
 ctest --preset windows-static-release
-cmake --build --preset windows-static-release --target engine_project_export
+cmake --build --preset windows-static-release --target engine_export
 .\build\windows-static-release\editor_app.exe --project .\projects\showcase
-.\build\windows-static-release\output\engine-showcase\engine-showcase.exe
+.\output\windows\x64\release\runtime\engine-showcase.exe
 ```
 
-Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `build/windows-static-release/output/engine-showcase/`，其中包含 `engine-showcase.exe`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件；启用 V8 国际化时额外部署 `icudtl.dat`。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `output/windows/x64/release/runtime/`，其中包含 `engine-showcase.exe`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件；启用 V8 国际化时额外部署 `icudtl.dat`。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
 
 Windows 静态预设关闭 WebAssembly、Intl/ICU、Temporal 和 ETW，保留 Sparkplug、Maglev、TurboFan、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`；其他预设默认全部开启。关闭 Intl/Temporal 后，项目脚本不能使用相应全局 API。精简配置使用独立的 `out/engine.mt-<config>-f0000` 和头文件目录，沿用已有工具链与依赖缓存；完整配置的库保留在原目录。
 
-2026-10-30 Windows x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
+Windows 修复分支此前的验证记录（2026-10-30，本轮未重新执行 Windows）：x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
 
 依赖维护需保留以下兼容约束：
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
-- Android SDL3 使用共享库并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
+- Android SDL3 静态合入 `libmain.so` 并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
 - USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；现有 USD 测试按配置使用 SDK 或本地部署的数据。TBB / USD 回归同时检查数据保存、加载和正常退出。
+
+### 交付目录
+
+编译目录 `build/` 保留增量缓存、静态库和调试符号；最终交付物放在仓库根 `output/<platform>/<arch>/<debug|release>/`，其中 `editor/` 为桌面编辑器，`runtime/` 为项目运行包。`output/` 不提交 Git。依赖尽量静态合入程序，这与“把所有依赖改成动态库”不同。
+
+macOS 与 Windows 静态预设提供 `engine_editor_export`、`engine_project_export` 和合并目标 `engine_export`。例如 macOS 在完成根 Preset 的依赖准备和构建后执行：
+
+```sh
+cmake --preset macos-native-release
+cmake --build --preset macos-native-release-prepare
+cmake --build --preset macos-native-release --target engine_export
+```
+
+`ENGINE_EXPORT_PROJECT`、`ENGINE_EXPORT_MANIFEST`、`ENGINE_EXPORT_PRODUCT` 分别指定项目、资源构建清单和产品名，默认使用 showcase。运行资源按清单增量构建，复制后再次检查目录及实体，再替换输出；失败保留上一版，回滚失败保留备份并报告路径。
+
+- Windows：`output/windows/x64/release/runtime/engine-showcase.exe`；编辑器为相邻 `editor/engine-editor.exe`，使用静态依赖和 CRT。
+- macOS ARM64 默认原生模式：`output/macos/arm64/release/runtime/engine-showcase`；编辑器为相邻 `editor/editor_app`，直接从终端运行。必要私有库放 `lib/`，离线导入工具放 `tools/`，不经过 `.app` 安装或交互签名流程。`macos-native-debug` / `macos-native-release` 预设显式固定此模式；其他 Mac 桌面预设也默认 `ENGINE_MACOS_APP_BUNDLE=OFF`。
+- Android ARM64：`output/android/arm64/<debug|release>/runtime/engine-showcase.apk`；原生部分仅一个 `libmain.so`。APK 继续使用测试签名。
+
+原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 以及启用 Intl 时的 `icudtl.dat` 均位于程序旁。可选 `.app` 模式将它们放在 `Contents/Resources/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux / iOS 暂未提供或验证上述导出入口。
+
+编辑器导出包含 Shader 编译器、Node.js、引擎声明、Schema 和固定版本的 TypeScript。导入优先使用项目安装的 TypeScript；项目未安装时，只有声明版本与随包版本一致才使用随包编译器。部署目录存在但工具缺失会报告失败，避免意外借用构建电脑的工具。资源运行包不包含这些编辑器工具。
+
+本轮 Mac 复核已完成 Debug / Release CTest 各 78/78。原生运行包搬迁后以受限 PATH 完成 Metal 菜单及 120 帧退出；编辑器搬迁后，在无项目 node_modules 的独立项目中实际导入 TypeScript、Shader 和 USD，再运行 120 帧退出。可选 `.app` 内置资源直接读取及 120 帧退出、原生与应用包的 USD 注册和私有动态依赖闭包均通过。Windows 本轮仅审查代码及跨平台构建契约，未在 Windows 设备重跑。
+
+Android Debug / Release APK 均通过单 `libmain.so`、系统动态依赖、签名、ZIP / ELF 16 KiB 对齐及 1134 项资源完整性检查。在独立 API 34 ARM64 软件 Vulkan 模拟器上，两配置已验证菜单、四场景进入并返回、键盘焦点、前后台同进程恢复、120 帧正常退出和 V8 执行。最终 Release 包重新完成上述全流程；最终 Debug 包在此前全流程基础上复核安装哈希、菜单和有限帧退出。Android 预设显式装配角色控制器，避免旧 CMake 缓存遗漏插件导致庭院加载失败。日志、截图及安装哈希回执保存在忽略的 `build/windows-cross-platform-review/`；未验证 Android 实体设备或 16 KiB 页设备。
 
 ### 插件选择
 
@@ -584,15 +610,15 @@ python3 scripts/build_android.py --config debug --project projects/showcase --as
 python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
 ```
 
-包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
+包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `output/android/arm64/debug/runtime/engine-showcase.apk` 和 `output/android/arm64/release/runtime/engine-showcase.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
 
-两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
+两种 APK 内均只有 `lib/arm64-v8a/libmain.so`，SDL3、V8、引擎及 NDK C++ 运行库静态链接在其中；Java 只加载 `main`，链接器显式保留 SDL 的 `JNI_OnLoad`。Gradle 去除原生库调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
 脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：项目有 `settings/resource-build-android.toml` 时按该清单构建固定子集，读取构建回执的输出目录；没有该清单时沿用 `--target android` 导入模式。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
-V8 使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 `libc++_shared.so`；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
+V8 使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 libc++ ABI，由 `c++_static` 将 C++ 运行库合入最终产物；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
 
 APK 包含 `assets/v8/icudtl.dat`、`assets/project/` 下的编译资源和 `assets/project-manifest.json` 完整清单；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；ICU 根据内容复用应用临时缓存中的副本，JS 直接通过 SDL 读取 APK。
 
@@ -601,7 +627,7 @@ APK 包含 `assets/v8/icudtl.dat`、`assets/project/` 下的编译资源和 `ass
 复用已有 ARM64 Android 模拟器，明确指定其序列号后安装和启动：
 
 ```sh
-adb -s emulator-5580 install -r build/apk/engine-arm64-debug.apk
+adb -s emulator-5580 install -r output/android/arm64/debug/runtime/engine-showcase.apk
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity
 # 有限帧运行，完成后正常退出 Activity。
 adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ei frames 120
@@ -662,7 +688,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-10-30，物理、音频、模型导入、动画和角色控制器已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-10-30，以下表格保留各功能阶段的验证范围；最新跨平台交付验证见[交付目录](#交付目录)。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
 | 环境 | 已验证范围 |
 | --- | --- |
@@ -695,7 +721,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 
 限制：
 
-- Android APK 均为本机调试签名。16 KiB ZIP 对齐通过，但 SDL3 ELF LOAD 仍为 4 KiB 对齐，不能据此宣称支持完整的 16 KiB 内存页设备。
+- Android APK 均为本机调试签名。当前单 `libmain.so` 包的 ZIP 与 ELF LOAD 16 KiB 对齐检查通过；尚未在 16 KiB 内存页设备上运行验证。
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。

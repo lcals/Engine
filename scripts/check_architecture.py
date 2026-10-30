@@ -29,6 +29,10 @@ def file_scope(path, root):
             for scope in reversed(ALLOWED):
                 if suffix.startswith(scope + "/"):
                     return scope
+    if relative.startswith("platforms/") and len(path.parts) >= 4:
+        parts = Path(relative).parts
+        if len(parts) >= 4 and parts[2] == "editor":
+            return "editor"
     if relative.startswith(("platforms/", "include/schemas/runtime/")):
         return "runtime"
     if relative.startswith(("src/", "tests/")):

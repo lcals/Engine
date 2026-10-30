@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/importer_utils.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/editor_tools.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -137,10 +138,15 @@ bool schema_fingerprint(std::initializer_list<std::string_view> names, std::stri
                         std::string& error)
 {
     fingerprint.clear();
+    std::filesystem::path schemas;
+    if (!editor_tool_data_path("include/schemas/runtime", ENGINE_SCHEMA_SOURCE_DIR, schemas, error))
+    {
+        return false;
+    }
     for (const auto name : names)
     {
         std::string hash;
-        if (!file_hash(std::filesystem::path(ENGINE_SCHEMA_SOURCE_DIR) / name, hash, error))
+        if (!file_hash(schemas / name, hash, error))
         {
             fingerprint.clear();
             return false;

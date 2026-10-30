@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/importers/script_importer.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/editor_tools.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -34,8 +35,12 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
 {
     fingerprint.clear();
     std::string key;
-    if (std::string_view(ENGINE_NODE_EXECUTABLE).empty() ||
-        !run_process({ENGINE_NODE_EXECUTABLE, "--version"}, error, &key))
+    std::filesystem::path node;
+    std::filesystem::path builder;
+    if (!editor_tool_path("node", ENGINE_NODE_EXECUTABLE, node, error) ||
+        !editor_tool_data_path("scripts/build_scripts.mjs", ENGINE_SCRIPT_BUILDER, builder,
+                               error) ||
+        !run_process({PathUtils::to_utf8(node), "--version"}, error, &key))
     {
         if (error.empty())
         {
@@ -47,10 +52,8 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
          {context.project / "settings" / "package.json",
           context.project / "settings" / "package-lock.json",
           context.project / "settings" / "tsconfig.json",
-          context.project / "settings" / "node_modules" / "typescript" / "package.json",
-          std::filesystem::path(ENGINE_SCRIPT_BUILDER),
-          std::filesystem::path(ENGINE_SCRIPT_BUILDER).parent_path().parent_path() / "include" /
-              "engine.d.ts"})
+          context.project / "settings" / "node_modules" / "typescript" / "package.json", builder,
+          builder.parent_path().parent_path() / "include" / "engine.d.ts"})
     {
         std::string hash;
         if (!hash_optional_file(path, hash, error))
@@ -60,7 +63,7 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
         key += ":" + hash;
     }
     std::string input_snapshot;
-    if (!run_process({ENGINE_NODE_EXECUTABLE, ENGINE_SCRIPT_BUILDER, "--project",
+    if (!run_process({PathUtils::to_utf8(node), PathUtils::to_utf8(builder), "--project",
                       PathUtils::to_utf8(context.project), "--inputs"},
                      error, &input_snapshot))
     {
@@ -148,16 +151,21 @@ bool ScriptImporter::scan_dependencies(ImportAsset& asset, const ImportContext&,
 bool ScriptImporter::prepare_batch(const ImportContext& context, TaskDescription& task,
                                    std::string& error) const
 {
+    std::filesystem::path node;
+    std::filesystem::path builder;
+    if (!editor_tool_path("node", ENGINE_NODE_EXECUTABLE, node, error) ||
+        !editor_tool_data_path("scripts/build_scripts.mjs", ENGINE_SCRIPT_BUILDER, builder, error))
+    {
+        return false;
+    }
     const auto project = PathUtils::to_utf8(context.project);
     const auto output = PathUtils::to_utf8(context.output.parent_path() / "scripts");
-    task = {"Compile project TypeScript",
-            [project, output, &error]()
-            {
-                return run_process({ENGINE_NODE_EXECUTABLE, ENGINE_SCRIPT_BUILDER, "--project",
-                                    project, "--output", output},
-                                   error);
-            },
-            {}};
+    task = {
+        "Compile project TypeScript",
+        [project, output, node = PathUtils::to_utf8(node), builder = PathUtils::to_utf8(builder),
+         &error]()
+        { return run_process({node, builder, "--project", project, "--output", output}, error); },
+        {}};
     return true;
 }
 

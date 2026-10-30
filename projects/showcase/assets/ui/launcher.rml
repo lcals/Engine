@@ -22,6 +22,9 @@ button:hover { background-color: #375973; color: #ffffff; }
 button:focus { background-color: #375973; border-width: 1px; border-color: #73dfc3; }
 button:active { background-color: #73dfc3; color: #102a2c; }
 #back-menu { display: none; position: absolute; top: 24px; left: 24px; width: 190px; pointer-events: auto; }
+#launcher-root.in-world { background-color: #00000000; pointer-events: none; overflow-y: hidden; }
+#launcher-root.in-world #launcher-page { display: none; }
+#launcher-root.in-world #back-menu { display: block; }
 .footer { color: #7d94af; font-size: 14px; margin-top: 14px; }
 @media (max-width: 700px) { scrollbarvertical { width: 12px; background-color: #101d2d; }
 scrollbarvertical slidertrack { width: 12px; }

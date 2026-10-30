@@ -208,12 +208,18 @@
     },
     {
       "name": "windows-static-debug",
-      "inherits": ["windows-static", "ninja-engine-debug"],
+      "inherits": [
+        "windows-static",
+        "ninja-engine-debug"
+      ],
       "binaryDir": "${sourceDir}/build/windows-static-debug"
     },
     {
       "name": "windows-static-release",
-      "inherits": ["windows-static", "ninja-engine-release"],
+      "inherits": [
+        "windows-static",
+        "ninja-engine-release"
+      ],
       "binaryDir": "${sourceDir}/build/windows-static-release"
     },
     {
@@ -233,7 +239,7 @@
         "VCPKG_MANIFEST_FEATURES": "runtime",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-28",
-        "ANDROID_STL": "c++_shared",
+        "ANDROID_STL": "c++_static",
         "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
         "CMAKE_POSITION_INDEPENDENT_CODE": true,
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
@@ -241,6 +247,7 @@
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
         "ENGINE_ENABLE_V8": true,
         "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;character_controller",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false
@@ -263,7 +270,7 @@
         "VCPKG_MANIFEST_FEATURES": "runtime",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-28",
-        "ANDROID_STL": "c++_shared",
+        "ANDROID_STL": "c++_static",
         "ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES": true,
         "CMAKE_POSITION_INDEPENDENT_CODE": true,
         "ENGINE_ENABLE_RUNTIME_DEPS": true,
@@ -271,9 +278,38 @@
         "ENGINE_ENABLE_ASSET_PIPELINE_DEPS": false,
         "ENGINE_ENABLE_V8": true,
         "ENGINE_ENABLE_SCRIPT_RUNTIME": true,
+        "ENGINE_RUNTIME_PLUGINS": "resource_graph;script;character_controller",
         "ENGINE_BUILD_APP": true,
         "ENGINE_BUILD_TESTS": false,
         "BUILD_TESTING": false
+      }
+    },
+    {
+      "name": "macos-native-debug",
+      "displayName": "macOS direct native debug",
+      "inherits": "ninja-engine-debug",
+      "binaryDir": "${sourceDir}/build/macos-native-debug",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "ENGINE_MACOS_APP_BUNDLE": false
+      }
+    },
+    {
+      "name": "macos-native-release",
+      "displayName": "macOS direct native release",
+      "inherits": "ninja-engine-release",
+      "binaryDir": "${sourceDir}/build/macos-native-release",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "ENGINE_MACOS_APP_BUNDLE": false
       }
     }
   ],
@@ -449,6 +485,28 @@
       "targets": [
         "engine_v8_prepare"
       ]
+    },
+    {
+      "name": "macos-native-debug",
+      "configurePreset": "macos-native-debug"
+    },
+    {
+      "name": "macos-native-debug-prepare",
+      "configurePreset": "macos-native-debug",
+      "targets": [
+        "engine_v8_prepare"
+      ]
+    },
+    {
+      "name": "macos-native-release",
+      "configurePreset": "macos-native-release"
+    },
+    {
+      "name": "macos-native-release-prepare",
+      "configurePreset": "macos-native-release",
+      "targets": [
+        "engine_v8_prepare"
+      ]
     }
   ],
   "testPresets": [
@@ -543,6 +601,20 @@
       "name": "ninja-engine-release",
       "inherits": "engine-release",
       "configurePreset": "ninja-engine-release"
+    },
+    {
+      "name": "macos-native-debug",
+      "configurePreset": "macos-native-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-native-release",
+      "configurePreset": "macos-native-release",
+      "output": {
+        "outputOnFailure": true
+      }
     }
   ],
   "workflowPresets": [

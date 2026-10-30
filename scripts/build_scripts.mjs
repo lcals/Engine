@@ -1,21 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 // 诊断写 stderr；--inputs 仅向 stdout 输出稳定的输入指纹 JSON。
 function requireDirectory(directory) {
-    if (!fs.lstatSync(directory).isDirectory())
-        throw new Error(`Expected directory: ${directory}`);
+    if (!fs.lstatSync(directory).isDirectory()) throw new Error(`Expected directory: ${directory}`);
 }
 
 function validateAssetTree(directory) {
     for (const item of fs.readdirSync(directory, { withFileTypes: true })) {
         const filename = path.join(directory, item.name);
-        if (item.isSymbolicLink())
-            throw new Error(`Asset symlinks are not supported: ${filename}`);
+        if (item.isSymbolicLink()) throw new Error(`Asset symlinks are not supported: ${filename}`);
         if (item.isDirectory()) validateAssetTree(filename);
-        else if (!item.isFile())
-            throw new Error(`Unsupported asset type: ${filename}`);
+        else if (!item.isFile()) throw new Error(`Unsupported asset type: ${filename}`);
     }
 }
 
@@ -26,13 +24,10 @@ function hashBytes(bytes) {
     for (const byte of bytes) {
         low = (low ^ byte) >>> 0;
         const product = low * 435;
-        high =
-            (high * 435 + low * 256 + Math.floor(product / 0x100000000)) >>> 0;
+        high = (high * 435 + low * 256 + Math.floor(product / 0x100000000)) >>> 0;
         low = product >>> 0;
     }
-    return (
-        high.toString(16).padStart(8, "0") + low.toString(16).padStart(8, "0")
-    );
+    return high.toString(16).padStart(8, "0") + low.toString(16).padStart(8, "0");
 }
 
 let staging;
@@ -48,32 +43,43 @@ try {
     const project = path.resolve(args[1]);
     const settings = path.join(project, "settings");
     const cache = path.join(project, "cache");
-    for (const name of ["settings", "assets", "cache"])
-        requireDirectory(path.join(project, name));
+    for (const name of ["settings", "assets", "cache"]) requireDirectory(path.join(project, name));
     validateAssetTree(path.join(project, "assets"));
-    const require = createRequire(path.join(settings, "package.json"));
-    const ts = require("typescript");
+    const projectRequire = createRequire(path.join(settings, "package.json"));
+    let compilerRequire = projectRequire;
+    try {
+        projectRequire.resolve("typescript");
+    } catch (error) {
+        if (error.code !== "MODULE_NOT_FOUND") throw error;
+        // 独立编辑器自带编译器；项目明确指定不同版本时必须由项目安装，不能静默替换。
+        compilerRequire = createRequire(import.meta.url);
+        const bundled = compilerRequire("typescript/package.json").version;
+        const packagePath = path.join(settings, "package.json");
+        const definition = JSON.parse(fs.readFileSync(packagePath, "utf8"));
+        const requested =
+            definition.devDependencies?.typescript ?? definition.dependencies?.typescript;
+        if (requested !== undefined && requested !== bundled)
+            throw new Error(
+                `Project requires TypeScript ${requested}; bundled compiler is ${bundled}. Install the project dependencies.`,
+            );
+    }
+    const ts = compilerRequire("typescript");
     const inputHashes = new Map();
     function record(filename) {
         const absolute = path.resolve(filename);
-        inputHashes.set(
-            absolute.split(path.sep).join("/"),
-            hashBytes(fs.readFileSync(absolute)),
-        );
+        inputHashes.set(absolute.split(path.sep).join("/"), hashBytes(fs.readFileSync(absolute)));
     }
     function readFile(filename) {
         const contents = ts.sys.readFile(filename);
         if (contents !== undefined) record(filename);
         return contents;
     }
-    record(require.resolve("typescript"));
-    record(require.resolve("typescript/package.json"));
+    record(compilerRequire.resolve("typescript"));
+    record(compilerRequire.resolve("typescript/package.json"));
     const configPath = path.join(settings, "tsconfig.json");
     const config = ts.readConfigFile(configPath, readFile);
     if (config.error)
-        throw new Error(
-            ts.flattenDiagnosticMessageText(config.error.messageText, "\n"),
-        );
+        throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, "\n"));
     // readFile 同时捕获实际 extends 链（包括项目树以外的配置和 npm 包配置）。
     const parsed = ts.parseJsonConfigFileContent(
         config.config,
@@ -82,12 +88,27 @@ try {
         undefined,
         configPath,
     );
+    // 仓库外层 include/engine.d.ts 是约定的引擎声明入口，随编辑器交付。
+    // 项目内部的同名文件和其他外部声明保留，不能按 basename 吞掉用户声明。
+    const engineDeclarations = path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../include/engine.d.ts",
+    );
+    parsed.fileNames = parsed.fileNames.filter((filename) => {
+        const relative = path.relative(project, filename);
+        const external =
+            relative === ".." || relative.startsWith(".." + path.sep) || path.isAbsolute(relative);
+        return !(
+            external &&
+            path.basename(filename) === "engine.d.ts" &&
+            path.basename(path.dirname(filename)) === "include"
+        );
+    });
+    parsed.fileNames.push(engineDeclarations);
     if (parsed.fileNames.some((filename) => !filename.endsWith(".ts"))) {
         throw new Error("Only .ts TypeScript inputs are supported");
     }
-    const output = outputMode
-        ? path.resolve(args[3])
-        : path.join(cache, ".script-output");
+    const output = outputMode ? path.resolve(args[3]) : path.join(cache, ".script-output");
     const options = {
         ...parsed.options,
         target: ts.ScriptTarget.ES2022,
@@ -132,16 +153,12 @@ try {
     if (diagnostics.length !== 0)
         throw new Error(ts.formatDiagnostics(diagnostics, diagnosticHost));
     const compiledOutputs = [];
-    const emitted = program.emit(
-        undefined,
-        (filename, text, bom, onError, sources) => {
-            compiledOutputs.push({ filename, text, sources: sources ?? [] });
-        },
-    );
+    const emitted = program.emit(undefined, (filename, text, bom, onError, sources) => {
+        compiledOutputs.push({ filename, text, sources: sources ?? [] });
+    });
     if (emitted.emitSkipped || emitted.diagnostics.length !== 0)
         throw new Error(
-            ts.formatDiagnostics(emitted.diagnostics, diagnosticHost) ||
-                "TypeScript emit failed",
+            ts.formatDiagnostics(emitted.diagnostics, diagnosticHost) || "TypeScript emit failed",
         );
     const modules = [];
     for (const { filename, text, sources } of compiledOutputs) {
@@ -162,8 +179,7 @@ try {
                 node.expression.kind === ts.SyntaxKind.ImportKeyword
             )
                 specifier = node.arguments[0];
-            if (specifier && ts.isStringLiteralLike(specifier))
-                imports.add(specifier.text);
+            if (specifier && ts.isStringLiteralLike(specifier)) imports.add(specifier.text);
             ts.forEachChild(node, visit);
         }
         visit(syntax);
@@ -172,9 +188,7 @@ try {
             for (const specifier of imports) {
                 if (specifier === "engine") continue;
                 if (!specifier.startsWith("./") && !specifier.startsWith("../"))
-                    throw new Error(
-                        `Unsupported runtime module import: ${specifier}`,
-                    );
+                    throw new Error(`Unsupported runtime module import: ${specifier}`);
                 const resolved = ts.resolveModuleName(
                     specifier,
                     source.fileName,
@@ -182,17 +196,13 @@ try {
                     host,
                 ).resolvedModule;
                 if (!resolved || resolved.resolvedFileName.endsWith(".d.ts"))
-                    throw new Error(
-                        `Runtime module has no emitted source: ${specifier}`,
-                    );
+                    throw new Error(`Runtime module has no emitted source: ${specifier}`);
                 const relative = path.relative(
                     path.join(project, "assets"),
                     resolved.resolvedFileName,
                 );
                 if (relative.startsWith("..") || path.isAbsolute(relative))
-                    throw new Error(
-                        `Runtime module is outside project assets: ${specifier}`,
-                    );
+                    throw new Error(`Runtime module is outside project assets: ${specifier}`);
                 dependencies.add(relative.split(path.sep).join("/"));
             }
             modules.push({

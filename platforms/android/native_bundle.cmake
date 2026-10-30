@@ -2,6 +2,13 @@
 if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "The current Android APK preset requires arm64-v8a")
 endif()
+if(NOT ANDROID_STL STREQUAL "c++_static")
+    message(FATAL_ERROR "The Android application requires c++_static for its single native library")
+endif()
+get_target_property(_engine_android_sdl_type SDL3::SDL3 TYPE)
+if(NOT _engine_android_sdl_type STREQUAL "STATIC_LIBRARY")
+    message(FATAL_ERROR "The Android application requires a static SDL3 library")
+endif()
 if(NOT ENGINE_ENABLE_V8
    OR NOT TARGET engine::v8
    OR NOT ENGINE_V8_ICU_DATA
@@ -36,12 +43,10 @@ target_include_directories(engine_app PRIVATE "${PROJECT_SOURCE_DIR}/tests")
 target_link_libraries(engine_app PRIVATE engine::v8 log)
 # 保存实际链接输入，配合未剥离 ELF 和 APK 内 smoke 验证 V8 / ICU / Temporal。
 target_link_options(engine_app PRIVATE "LINKER:-Map,${CMAKE_CURRENT_BINARY_DIR}/engine_app.map")
+# SDL 的 JNI 注册由 Java 虚拟机调用，静态链接时显式保留其入口。
+target_link_options(engine_app PRIVATE "LINKER:--undefined=JNI_OnLoad")
 set(_engine_android_lib_dir "${CMAKE_CURRENT_BINARY_DIR}/android/jniLibs/${ANDROID_ABI}")
 set(_engine_android_v8_assets "${CMAKE_CURRENT_BINARY_DIR}/android/assets/v8")
-set(_engine_android_stl "${CMAKE_SYSROOT}/usr/lib/aarch64-linux-android/libc++_shared.so")
-if(NOT EXISTS "${_engine_android_stl}")
-    message(FATAL_ERROR "Android shared C++ runtime is missing: ${_engine_android_stl}")
-endif()
 set(_engine_sdl_java "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/share/sdl3/java")
 if(NOT EXISTS "${_engine_sdl_java}/org/libsdl/app/SDLActivity.java")
     message(FATAL_ERROR "The SDL3 Android Java sources are missing; reinstall the SDL3 overlay")
@@ -52,8 +57,11 @@ set(_engine_android_java_dir "${CMAKE_CURRENT_BINARY_DIR}/android/java/org/libsd
 add_custom_target(
     engine_android_bundle
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_engine_android_lib_dir}"
+    # 只清理旧打包布局留下的生成副本，保留依赖及所有编译缓存。
+    COMMAND "${CMAKE_COMMAND}" -E rm -f "${_engine_android_lib_dir}/libSDL3.so"
+            "${_engine_android_lib_dir}/libc++_shared.so"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:engine_app>"
-            "$<TARGET_FILE:SDL3::SDL3>" "${_engine_android_stl}" "${_engine_android_lib_dir}"
+            "${_engine_android_lib_dir}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${_engine_android_java_dir}"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${_engine_sdl_java_sources}
             "${_engine_android_java_dir}"
