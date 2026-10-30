@@ -3,6 +3,7 @@
 #include "runtime/animation/animation_system.hpp"
 #include "runtime/audio/audio_system.hpp"
 #include "runtime/engine.hpp"
+#include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/navigation/navigation_system.hpp"
@@ -66,15 +67,20 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto animation_system = std::make_unique<AnimationSystem>(world.get());
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
-    std::unique_ptr<System> ui = std::make_unique<UiSystem>();
+    auto font_system = std::make_unique<FontSystem>();
+    fonts_ = font_system.get();
+    std::unique_ptr<System> fonts = std::move(font_system);
+    auto ui_system = std::make_unique<UiSystem>(*window_, *world, *fonts_);
+    ui_ = ui_system.get();
+    std::unique_ptr<System> ui = std::move(ui_system);
     if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
-        !world->add_subsystem(animation) || !world->add_subsystem(ui) ||
-        !world->add_subsystem(audio))
+        !world->add_subsystem(animation) || !world->add_subsystem(fonts) ||
+        !world->add_subsystem(ui) || !world->add_subsystem(audio))
     {
         shutdown();
         return false;
     }
-    auto renderer = std::make_unique<RenderSystem>(*window_, world.get());
+    auto renderer = std::make_unique<RenderSystem>(*window_, world.get(), fonts_, ui_);
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
@@ -107,7 +113,10 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         return false;
     }
     gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
-                                                  animation_);
+                                                  animation_, fonts_, ui_);
+    window_->set_event_handler([](void* context, const SDL_Event& event)
+                               { return static_cast<UiSystem*>(context)->process_event(event); },
+                               ui_);
     initialized_ = true;
     return true;
 }
@@ -195,7 +204,13 @@ void RuntimeHost::request_exit() noexcept
 void RuntimeHost::shutdown() noexcept
 {
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
+    if (window_)
+    {
+        window_->set_event_handler(nullptr, nullptr);
+    }
     gameplay_.reset();
+    fonts_ = nullptr;
+    ui_ = nullptr;
     animation_ = nullptr;
     audio_ = nullptr;
     physics_ = nullptr;

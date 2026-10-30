@@ -1,0 +1,81 @@
+name = "Font gallery"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Camera"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 8.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "camera"
+fov_degrees = 50.0
+near_clip = 0.1
+far_clip = 100.0
+
+[[nodes]]
+id = 2
+name = "Title"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [-4.0, 1.6, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "Letters in space."
+size = 0.92
+color = [0.95, 0.96, 1.0, 1.0]
+
+[[nodes]]
+id = 3
+name = "Subtitle"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [-4.0, 0.6, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "One font resource. UI and world space."
+size = 0.34
+color = [0.55, 0.76, 0.94, 1.0]
+
+[[nodes]]
+id = 4
+name = "Tilted sample"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [-3.7, -0.75, 0.0]
+rotation = [0.0, -20.0, 7.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "Aa Bb Cc 0123456789"
+size = 0.58
+color = [0.96, 0.72, 0.40, 1.0]
+
+[[nodes]]
+id = 5
+name = "Fine print"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [-4.0, -1.8, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "Quadratic outlines / shared GPU curves / Lato Regular"
+size = 0.24
+color = [0.65, 0.68, 0.75, 1.0]

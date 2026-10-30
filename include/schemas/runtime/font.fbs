@@ -1,0 +1,49 @@
+namespace engine.schema;
+
+// Quadratic Bezier, in em units; contour direction is preserved.
+struct FontCurve {
+    x0:float;
+    y0:float;
+    x1:float;
+    y1:float;
+    x2:float;
+    y2:float;
+}
+
+table FontGlyph {
+    codepoint:uint;
+    glyph_index:uint;
+    advance_x:float;
+    min_x:float;
+    min_y:float;
+    max_x:float;
+    max_y:float;
+    curve_offset:uint;
+    curve_count:uint;
+}
+
+// Pairs use Unicode codepoints, sorted by (left,right).
+struct FontKerning {
+    left:uint;
+    right:uint;
+    advance:float;
+}
+
+table FontData {
+    schema_version:uint = 1;
+    family:string (required);
+    style:string (required);
+    units_per_em:uint;
+    ascender:float;
+    descender:float;
+    line_gap:float;
+    underline_position:float;
+    underline_thickness:float;
+    // Sorted by codepoint; entry zero is the .notdef glyph with codepoint zero.
+    glyphs:[FontGlyph] (required);
+    curves:[FontCurve] (required);
+    kerning:[FontKerning];
+}
+
+root_type FontData;
+file_identifier "EFNT";

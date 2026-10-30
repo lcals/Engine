@@ -56,8 +56,8 @@ include("${ROOT}/cmake/plugins/selection.cmake")
 if(ENGINE_SELECTED_PLUGINS)
     message(FATAL_ERROR "Explicit empty lists must select no plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
-if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
-    message(FATAL_ERROR "Empty plugin lists must not enable modeling dependencies")
+if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR "font-import" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Empty plugin lists must not enable modeling or font importer dependencies")
 endif()
 ]=])
 
@@ -131,8 +131,9 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
    NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
-if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
-    message(FATAL_ERROR "Android must not prepare editor modeling features")
+if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
+   "font-import" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Android must not prepare editor modeling or font importer features")
 endif()
 ]=])
 
@@ -161,7 +162,7 @@ endif()
 ]=])
 
 run_case(
-    modeling_feature_disabled
+    plugin_features_disabled
     ""
     [=[
 # 同一配置目录真实重配：插件自动增加普通变量，不污染用户 feature 的 CACHE 初值。
@@ -173,15 +174,16 @@ file(WRITE "${CASE_ROOT}/source/CMakeLists.txt"
     "file(WRITE \"\${CMAKE_BINARY_DIR}/features.txt\" \"\${VCPKG_MANIFEST_FEATURES}\")\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${CASE_ROOT}/source" -B "${CASE_ROOT}/build"
     -DENGINE_ENABLE_RUNTIME_DEPS=ON -DENGINE_ENABLE_EDITOR_DEPS=ON
-    -DENGINE_RUNTIME_PLUGINS= -DENGINE_EDITOR_PLUGINS=modeling
+    -DENGINE_ENABLE_ASSET_PIPELINE_DEPS=ON
+    -DENGINE_RUNTIME_PLUGINS= "-DENGINE_EDITOR_PLUGINS=modeling;font_import;ui_import"
     -DVCPKG_MANIFEST_FEATURES=runtime
     RESULT_VARIABLE _first OUTPUT_VARIABLE _first_out ERROR_VARIABLE _first_error)
 if(NOT _first EQUAL 0)
     message(FATAL_ERROR "First selection configure failed: ${_first_out}${_first_error}")
 endif()
 file(READ "${CASE_ROOT}/build/features.txt" _enabled)
-if(NOT "modeling" IN_LIST _enabled)
-    message(FATAL_ERROR "First configure did not add modeling feature")
+if(NOT "modeling" IN_LIST _enabled OR NOT "font-import" IN_LIST _enabled)
+    message(FATAL_ERROR "First configure did not add modeling and font importer features")
 endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${CASE_ROOT}/source" -B "${CASE_ROOT}/build"
     -DENGINE_EDITOR_PLUGINS=
@@ -191,7 +193,7 @@ if(NOT _second EQUAL 0)
 endif()
 file(READ "${CASE_ROOT}/build/features.txt" _disabled)
 if(NOT _disabled STREQUAL "runtime")
-    message(FATAL_ERROR "Deselected modeling leaked an auto-added feature across configures: ${_disabled}")
+    message(FATAL_ERROR "Deselected plugins leaked an auto-added feature across configures: ${_disabled}")
 endif()
 ]=])
 
@@ -199,11 +201,11 @@ run_case(
     explicit_user_feature
     ""
     [=[
-set(VCPKG_MANIFEST_FEATURES "runtime;modeling")
+set(VCPKG_MANIFEST_FEATURES "runtime;modeling;font-import")
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime;modeling")
+if(NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime;modeling;font-import")
     message(FATAL_ERROR "Explicit caller features must not be silently removed")
 endif()
 ]=])
@@ -286,6 +288,32 @@ include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/fbx_import" OR
    "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
     message(FATAL_ERROR "FBX alone must not select controller, USD or modeling: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
+    independent_font_importer
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS font_import CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/font_import" OR
+   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime;font-import")
+    message(FATAL_ERROR "Font import alone must select only its plugin and FreeType feature: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
+endif()
+]=])
+
+run_case(
+    independent_ui_importer
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS ui_import CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/ui_import" OR
+   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime")
+    message(FATAL_ERROR "UI import alone must not select font import, FreeType or unrelated plugins: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
 endif()
 ]=])
 

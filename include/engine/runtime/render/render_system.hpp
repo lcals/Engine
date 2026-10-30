@@ -14,6 +14,8 @@ namespace engine
 
 class WindowSystem;
 class WorldSystem;
+class FontSystem;
+class UiSystem;
 
 struct RenderSettings
 {
@@ -39,7 +41,8 @@ class RenderSystem final : public System
 {
 public:
     // windows 和可空 world 的有效期须覆盖本对象整个生命周期。
-    explicit RenderSystem(WindowSystem& windows, WorldSystem* world = nullptr) noexcept;
+    explicit RenderSystem(WindowSystem& windows, WorldSystem* world = nullptr,
+                          FontSystem* fonts = nullptr, UiSystem* ui = nullptr) noexcept;
     ~RenderSystem() noexcept override;
 
     [[nodiscard]] bool prepare_scene();
@@ -68,6 +71,8 @@ private:
 
     WindowSystem& windows_;
     WorldSystem* world_ = nullptr;
+    FontSystem* fonts_ = nullptr;
+    UiSystem* ui_ = nullptr;
     std::unique_ptr<SceneGpuResources> scene_resources_;
     std::unique_ptr<RendererCallbacks> callbacks_;
     RenderSettings settings_{};

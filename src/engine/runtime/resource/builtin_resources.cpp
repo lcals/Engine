@@ -7,7 +7,9 @@
 #include "runtime/schema/shader_generated.h"
 
 #include "fs_cube.bin.h"
+#include "fs_font.bin.h"
 #include "vs_cube.bin.h"
+#include "vs_font.bin.h"
 
 #include <iterator>
 #include <memory>
@@ -53,6 +55,8 @@ const schema::AssetCatalogDataT& builtin_resource_catalog()
             schema::AssetKind::texture, nullptr);
         add("00000000-0000-4000-8000-000000000008", "builtin/textures/white-linear",
             schema::AssetKind::texture, nullptr);
+        add("00000000-0000-4000-8000-000000000009", "builtin/shaders/font",
+            schema::AssetKind::shader, nullptr);
         for (std::size_t index = 0; index < 2; ++index)
         {
             result.entries[index]->dependencies = {"00000000-0000-4000-8000-000000000006",
@@ -159,6 +163,15 @@ bool register_definition(bool unlit)
 
 bool register_builtin_render_resources()
 {
+    schema::ShaderDataT font;
+    font.path = "builtin/shaders/font";
+    font.vertex_code.assign(std::begin(vs_font), std::end(vs_font));
+    font.fragment_code.assign(std::begin(fs_font), std::end(fs_font));
+    const auto* existing_font = ResourceSystem::find_shader(font.path);
+    if (existing_font ? *existing_font != font : !ResourceSystem::register_shader(font))
+    {
+        return false;
+    }
     const auto add_texture = [](const char* path, bool srgb, std::vector<std::uint8_t> pixels)
     {
         schema::TextureDataT texture;

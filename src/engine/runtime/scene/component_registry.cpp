@@ -9,7 +9,9 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/rigid_body.hpp"
+#include "runtime/scene/text_component.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/scene/ui_component.hpp"
 
 namespace engine
 {
@@ -30,7 +32,8 @@ bool register_scene_components(ComponentRegistry& registry)
     return registry.add<Transform>() && registry.add<Camera>() && registry.add<Light>() &&
            registry.add<MeshRenderer>() && registry.add<Collider>() && registry.add<RigidBody>() &&
            registry.add<AudioSource>() && registry.add<AudioListener>() &&
-           registry.add<Animator>() && registry.add<CharacterMotor>();
+           registry.add<Animator>() && registry.add<CharacterMotor>() &&
+           registry.add<UiComponent>() && registry.add<TextComponent>();
 }
 
 } // namespace engine

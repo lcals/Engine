@@ -16,6 +16,12 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime_plugins.hpp"
 
+#if ENGINE_HAS_FONT_IMPORTER
+#include "plugins/editor/font_import/font_importer.hpp"
+#endif
+#if ENGINE_HAS_UI_IMPORTER
+#include "plugins/editor/ui_import/ui_importer.hpp"
+#endif
 #if ENGINE_HAS_FBX_IMPORTER
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
 #endif
@@ -112,6 +118,24 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         if (!engine::plugins::character_controller::register_controller_codec())
         {
             std::fputs("Cannot register character controller scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_FONT_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font_importer =
+            std::make_unique<engine::plugins::font_import::FontImporter>();
+        if (!pipeline.add_importer(font_importer))
+        {
+            std::fputs("Cannot register font importer\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_UI_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> ui_importer =
+            std::make_unique<engine::plugins::ui_import::UiImporter>();
+        if (!pipeline.add_importer(ui_importer))
+        {
+            std::fputs("Cannot register ui importer\n", stderr);
             return 1;
         }
 #endif

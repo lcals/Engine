@@ -34,6 +34,8 @@
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
+- [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：独立编辑器插件读取 TTF 和 meta，生成共享字形曲线与度量资源。
+- [UI 资源导入](../plugins/editor/class-diagrams/ui-importer.md)：文档、字体和图片引用转换为标准运行资源依赖。
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
 - [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
@@ -53,6 +55,8 @@
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。
 - [音频组件](../runtime/class-diagrams/audio-components.md)：AudioSource、AudioListener、共享音频资源与播放状态。
+- [字体系统与 3D 文字](../runtime/class-diagrams/font-system.md)：核心 FontSystem 共享曲线资源、文字排布和 GPU 绘制，普通节点挂载 TextComponent。
+- [场景界面](../runtime/class-diagrams/ui-system.md)：普通节点挂载 UiComponent，RmlUi 文档内部控件不展开为场景节点。
 - [材质](../runtime/class-diagrams/material.md)：内置/项目路径选择材质与 Shader，按名字和数值类型匹配参数。
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
@@ -113,7 +117,7 @@ MCP 适配器和编辑器业务分别注册各自接口。Node、Component 与�
 | 运行时 | `docs/runtime/`、`docs/runtime/class-diagrams/` | 引擎、系统、App、日志、资源、世界子系统及公共工具 |
 | 编辑器基础 | `docs/editor/`、`docs/editor/class-diagrams/` | 项目环境、资源管线、Task 与通用主线程命令 |
 | 运行时插件 | `docs/plugins/runtime/`、对应 `class-diagrams/` | 资源依赖图、V8 脚本与逐类绑定、可选角色控制器 |
-| 编辑器插件 | `docs/plugins/editor/`、对应 `class-diagrams/` | 完整建模、完整 MCP、资源构建与同步、模型格式导入 |
+| 编辑器插件 | `docs/plugins/editor/`、对应 `class-diagrams/` | 完整建模、完整 MCP、资源构建与同步、模型、字体与 UI 导入 |
 
 头文件和实现对应 `include/engine/<scope>/` 与 `src/engine/<scope>/`。核心不引用具体插件，运行时插件不反向依赖编辑器；TS 公开声明集中在 [include/engine.d.ts](../../include/engine.d.ts)。
 
@@ -135,9 +139,10 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | 1    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt           |
 | 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
 | 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
-| 4    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi          |
-| 5    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
-| 6    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
+| 4    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
+| 5    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
+| 6    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
+| 7    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | V8；宿主选择插件并通过核心工厂装配 |
 
 ## 宿主模块
 

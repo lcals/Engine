@@ -1,0 +1,17 @@
+name = "Scene launcher"
+active_camera = 0
+
+[[nodes]]
+id = 1
+name = "Launcher UI"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "ui"
+document = "eb4bec4f-7f2e-4fc0-97c5-92cc7cd68f3e"

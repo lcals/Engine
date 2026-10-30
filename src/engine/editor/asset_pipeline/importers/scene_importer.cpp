@@ -37,6 +37,33 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
     {
         for (const auto& component : node->components)
         {
+            if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
+            {
+                if (!reference(ui->document_guid, schema::AssetKind::ui, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
+                }
+            }
+            if (const auto* text = component->payload.AsTextData();
+                text && !text->font_guid.empty())
+            {
+                Guid shader;
+                const auto path =
+                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                if (!context.identities.path_to_guid(path, shader) ||
+                    !reference(shader, schema::AssetKind::shader, context, asset.build_dependencies,
+                               error) ||
+                    !reference(text->font_guid, schema::AssetKind::font, context,
+                               asset.build_dependencies, error))
+                {
+                    if (error.empty())
+                    {
+                        error = "text references an unknown font shader";
+                    }
+                    return false;
+                }
+            }
             if (const auto* animator = component->payload.AsAnimatorData();
                 animator != nullptr && !animator->animation_guid.empty())
             {

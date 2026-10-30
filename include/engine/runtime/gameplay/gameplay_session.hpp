@@ -19,6 +19,8 @@ class RenderSystem;
 class PhysicsSystem;
 class AudioSystem;
 class AnimationSystem;
+class FontSystem;
+class UiSystem;
 class ScriptRuntime;
 struct ScriptStatus;
 
@@ -28,7 +30,8 @@ public:
     // 系统由运行宿主装配并保持就绪，生命周期须覆盖此会话；script 可以为空。
     GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
                     PhysicsSystem* physics = nullptr, AudioSystem* audio = nullptr,
-                    AnimationSystem* animation = nullptr) noexcept;
+                    AnimationSystem* animation = nullptr, FontSystem* fonts = nullptr,
+                    UiSystem* ui = nullptr) noexcept;
     ~GameplaySession() noexcept;
 
     GameplaySession(const GameplaySession&) = delete;
@@ -54,6 +57,8 @@ private:
     PhysicsSystem* physics_ = nullptr;
     AudioSystem* audio_ = nullptr;
     AnimationSystem* animation_ = nullptr;
+    FontSystem* fonts_ = nullptr;
+    UiSystem* ui_ = nullptr;
     std::string last_error_;
 };
 
