@@ -12,6 +12,7 @@ classDiagram
         +tick(double delta_time) FrameStatus
         +gameplay() GameplaySession#42;
         +world() WorldSystem#42;
+        +window() WindowSystem#42;
         +renderer() RenderSystem#42;
         +request_exit() void
         +shutdown() void
@@ -56,6 +57,7 @@ classDiagram
 - 项目场景渲染失败时停止 GameplaySession 并尝试空白渲染；恢复成功继续运行，错误保留在会话中。系统更新或空白渲染失败保持 failed，直到关闭后重新初始化。渲染过程中收到平台暂停时返回 paused。
 - `gameplay()` 返回可空借用，仅在本宿主初始化成功至关闭前有效。宿主调用者必须先关闭借用会话的 EditorSystem，再销毁 RuntimeHost。
 - `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
+- `window()` 返回同生命周期的可空窗口借用，供调用方独立组织事件处理和渲染帧；核心不判断调用方模式。
 - `renderer()` 返回同生命周期的可空渲染器借用，宿主据此装配编辑器渲染命令；截图和渲染设置接口由 RenderSystem 提供。
 - 关闭先销毁玩法会话，再关闭 Engine 拥有的渲染、世界及可选资源根系统，最后销毁窗口。借用的外部 ResourceSystem 由调用宿主继续管理，本对象不关闭它。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。

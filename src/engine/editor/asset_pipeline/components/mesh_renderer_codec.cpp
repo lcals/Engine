@@ -46,6 +46,12 @@ bool MeshRendererCodec::read(const toml::table& table, schema::ComponentDataT& c
     schema::MeshRendererDataT value;
     value.mesh_guid = table["mesh"].value_or(std::string{});
     value.material_guid = table["material"].value_or(std::string{});
+    if (table.contains("cast_shadows") && !table["cast_shadows"].is_boolean())
+    {
+        error = "mesh renderer cast_shadows must be boolean";
+        return false;
+    }
+    value.cast_shadows = table["cast_shadows"].value_or(true);
     if (table.contains("additional_materials"))
     {
         const auto* materials = table["additional_materials"].as_array();
@@ -77,6 +83,7 @@ void MeshRendererCodec::write(const schema::ComponentDataT& component, toml::tab
     value.insert("type", "mesh_renderer");
     value.insert("mesh", mesh->mesh_guid);
     value.insert("material", mesh->material_guid);
+    value.insert("cast_shadows", mesh->cast_shadows);
     if (!mesh->additional_material_guids.empty())
     {
         toml::array materials;

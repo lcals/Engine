@@ -1,6 +1,8 @@
 include "common.fbs";
 namespace engine.schema;
 
+enum CullMode:ubyte { back, front, none }
+
 table MaterialParameter {
     name:string (required);
     value:MaterialValue (required);
@@ -21,6 +23,8 @@ table MaterialData {
     shader_path:string (required);
     parameters:[MaterialParameter] (required);
     textures:[MaterialTexture];
+    // Geometric face selection, shared by color and shadow passes.
+    cull_mode:CullMode = back;
 }
 
 root_type MaterialData;

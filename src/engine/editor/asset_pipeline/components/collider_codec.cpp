@@ -41,11 +41,25 @@ bool ColliderCodec::read(const toml::table& table, schema::ComponentDataT& compo
         {
             value.shape = schema::ColliderShape::capsule;
         }
+        else if (parsed == "mesh")
+        {
+            value.shape = schema::ColliderShape::mesh;
+        }
         else
         {
             error = "invalid collider.shape";
             return false;
         }
+    }
+    if (table.contains("mesh"))
+    {
+        const auto mesh = table["mesh"].value<std::string>();
+        if (!mesh)
+        {
+            error = "collider.mesh must be a Mesh GUID";
+            return false;
+        }
+        value.mesh_guid = *mesh;
     }
     if (table.contains("half_extents"))
     {
@@ -117,6 +131,10 @@ void ColliderCodec::write(const schema::ComponentDataT& component, toml::table& 
     const auto* value = component.payload.AsColliderData();
     table.insert("type", "collider");
     table.insert("shape", schema::EnumNameColliderShape(value->shape));
+    if (!value->mesh_guid.empty())
+    {
+        table.insert("mesh", value->mesh_guid);
+    }
     table.insert("half_extents", toml::array{value->half_extents.x(), value->half_extents.y(),
                                              value->half_extents.z()});
     table.insert("radius", value->radius);

@@ -80,6 +80,7 @@ classDiagram
         +string shader_path
         +vector~unique_ptr~MaterialParameterT~~ parameters
         +vector~unique_ptr~MaterialTextureT~~ textures
+        +CullMode cull_mode
     }
     class MaterialParameterT {
         +string name
@@ -92,6 +93,13 @@ classDiagram
     }
     MaterialDataT *-- MaterialTextureT : 具名贴图引用
     class MaterialValueUnion
+    class CullMode {
+        <<enum class>>
+        back
+        front
+        none
+    }
+    MaterialDataT ..> CullMode : 默认背面剔除
     class MeshRendererDataT
     class ShaderDataT
     MaterialDataT *-- MaterialParameterT : 独占参数集合

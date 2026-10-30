@@ -4,6 +4,8 @@
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/node.hpp"
 
+#include <string>
+
 namespace engine::plugins::script::bindings
 {
 namespace
@@ -22,6 +24,10 @@ export class Collider extends Component {
     SetCapsule(radius, halfHeight) {
         const h = handles.get(this);
         return native.ColliderCapsule(h.scene, h.node, radius, halfHeight);
+    }
+    SetMesh(path) {
+        const h = handles.get(this);
+        return native.ColliderMesh(h.scene, h.node, path);
     }
     SetFriction(value) {
         const h = handles.get(this);
@@ -67,6 +73,7 @@ void box(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::box;
+        settings.mesh_guid.clear();
         settings.half_extents = Vec3(x, y, z);
         arguments.set_return(value->set_settings(settings));
     }
@@ -80,6 +87,7 @@ void sphere(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::sphere;
+        settings.mesh_guid.clear();
         settings.radius = radius;
         arguments.set_return(value->set_settings(settings));
     }
@@ -95,9 +103,20 @@ void capsule(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::capsule;
+        settings.mesh_guid.clear();
         settings.radius = radius;
         settings.half_height = half_height;
         arguments.set_return(value->set_settings(settings));
+    }
+}
+
+void mesh(const Arguments& arguments)
+{
+    auto* value = collider(arguments, 3);
+    std::string path;
+    if (value != nullptr && BindingContext::text(arguments, 2, path))
+    {
+        arguments.set_return(value->set_mesh(path));
     }
 }
 
@@ -150,6 +169,7 @@ bool ColliderBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("ColliderKind", static_cast<int>(Collider::component_type)) &&
            vm.function("ColliderAdd", add) && vm.function("ColliderBox", box) &&
            vm.function("ColliderSphere", sphere) && vm.function("ColliderCapsule", capsule) &&
+           vm.function("ColliderMesh", mesh) &&
            vm.function("ColliderFriction", friction) &&
            vm.function("ColliderRestitution", restitution) &&
            vm.function("ColliderTrigger", trigger);

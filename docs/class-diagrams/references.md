@@ -955,6 +955,8 @@ classDiagram
 | RenderCommands | RenderSystem | 借用渲染设置与截图接口；编辑器负责撤销、截图根目录、越界检查及输出目录创建 |
 | RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
 | RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
+| ScenePreviewMcpTools | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
+| ScenePreviewMcpTools | McpSystem | 登记预览启停、查询、镜头设置与刷新；宿主保持适配器存活到 MCP 关闭 |
 | RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
 | RenderSystem | RenderSettings / RendererCallbacks | 拥有当前配置及 bgfx 回调；GPU 资源、阴影和实际帧 PNG 输出属于渲染系统 |
 

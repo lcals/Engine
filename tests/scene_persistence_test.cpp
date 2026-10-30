@@ -151,13 +151,17 @@ bool run(const fs::path& root)
     }
     auto* first = named(*scene, "First");
     auto* second = named(*scene, "Second");
-    auto* renderer = first->get_component<MeshRenderer>();
-    if (!first || !second || !second->set_parent(first) || !renderer->set_material_count(2) ||
+    auto* renderer = first != nullptr ? first->get_component<MeshRenderer>() : nullptr;
+    if (!first || !second || !renderer || !second->set_parent(first) ||
+        !renderer->set_material_count(2) ||
         !renderer->material(1)->set_v4("baseColor", Vec4(0.2, 0.3, 0.4, 1)) ||
-        !renderer->material(1)->set_float("roughness", 0.75F))
+        !renderer->material(1)->set_float("roughness", 0.75F) ||
+        !renderer->material(1)->set_float("alphaCutoff", 0.4F) ||
+        !renderer->material(1)->set_cull_mode(schema::CullMode::none))
     {
         return false;
     }
+    renderer->set_cast_shadows(false);
     const Json material_type = {{"sceneId", id},
                                 {"nodeId", std::to_string(first->id())},
                                 {"slot", 1},
@@ -168,6 +172,7 @@ bool run(const fs::path& root)
                 "switch material resource", error) ||
         !expect(execute("undo", identity) &&
                     renderer->material(1)->type_path() == "builtin/materials/default-pbr" &&
+                    renderer->material(1)->cull_mode() == schema::CullMode::none &&
                     renderer->material(1)->get_float("roughness", restored_roughness) &&
                     restored_roughness == 0.75F,
                 "undo material type restores previous overrides", error) ||
@@ -254,9 +259,13 @@ bool run(const fs::path& root)
     renderer = first->get_component<MeshRenderer>();
     Vec4 color;
     float roughness = 0;
+    float cutoff = 0;
     if (!expect(second->parent() == first &&
                     first->get_component<Transform>()->settings().position.x() == 3 &&
                     renderer->material_count() == 2 &&
+                    !renderer->cast_shadows() &&
+                    renderer->material(1)->cull_mode() == schema::CullMode::none &&
+                    renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
                     renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&
                     renderer->material(1)->get_float("roughness", roughness) && roughness == 0.75F,
                 "reload hierarchy, transform and all material slot values") ||

@@ -47,6 +47,8 @@ classDiagram
         +mesh_instance_id() uint64_t
         +visible() bool
         +set_visible(bool value) void
+        +cast_shadows() bool
+        +set_cast_shadows(bool value) void
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
         +clear_deformation() void
         +deformed_vertices() span~const MeshVertex~
@@ -91,6 +93,7 @@ classDiagram
         +string mesh_guid
         +string material_guid
         +vector~string~ additional_material_guids
+        +bool cast_shadows
     }
     class MeshDataT
     class MeshUtils
@@ -123,6 +126,7 @@ classDiagram
 - 所有状态类型由 FlatBuffers schema 生成。`TransformSettings`、`CameraSettings`、`LightSettings` 是生成类型的别名；Material 是按名字设置参数的行为类；Vec2/Vec3/Vec4/Color 也是生成结构，通过 `x()` / `mutate_x()`、`r()` / `mutate_r()` 访问。没有手写重复字段。
 - Node 拥有者在组件进入列表之前调用受保护的 `initialize()`；默认实现成功，MeshRenderer 以私有 override 实现该钩子，选择 `builtin/materials/default-pbr`。失败销毁未发布组件并返回空指针。
 - Component 独占生成的 `ComponentDataT`，包含 enabled 与带类型的 payload；派生组件直接读写自己的 payload，不另保存一份参数。具体组件提供静态 `component_type`，Node 只用通用枚举比较。
+- MeshRenderer 的 `cast_shadows` 默认 true，直接存储于生成的组件载荷并随场景保存；false 时仍参与主绘制，但不参与阴影边界拟合和阴影绘制，供天空等表面使用。`visible` 仍为不落盘的瞬态开关，两者不互相替代。
 - Transform 是普通组件。Scene 创建 Node 后添加 Transform，变换逻辑全部位于 Transform。位置和欧拉角用 double，角度单位为度，矩阵为 `T * Rz * Ry * Rx * S`，Y 向上、局部前向 -Z。
 - 变换必须全部有限，缩放非零，可为负数；失败保持原值。`world_matrix()` 写 16 个列主序 float，父链缺失变换或溢出时返回 false，非空输出保持单位矩阵。
 - Camera 从同节点 Transform 获得位置和朝向；视场角在 (0,180)，近裁面大于 0，远裁面大于近裁面。Camera 支持透视与正交投影；orthographic_size 为竖直半高且大于零。Light 支持方向光、点光与聚光；方向使用世界 -Z，强度非负且有限，range 大于零，聚光半角满足 0 <= inner_angle < outer_angle < 90。

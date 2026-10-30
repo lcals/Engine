@@ -22,6 +22,21 @@ namespace
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
 
+const char* fog_mode_name(FogMode mode)
+{
+    switch (mode)
+    {
+    case FogMode::linear:
+        return "linear";
+    case FogMode::exponential:
+        return "exponential";
+    case FogMode::exponential_squared:
+        return "exponential_squared";
+    default:
+        return "none";
+    }
+}
+
 Json settings_json(const RenderSettings& value)
 {
     std::array<double, 4> clear{};
@@ -31,6 +46,16 @@ Json settings_json(const RenderSettings& value)
     }
     return {{"ambientColor", value.ambient_color},
             {"ambientIntensity", value.ambient_intensity},
+            {"ambientTricolor", value.ambient_tricolor},
+            {"ambientSkyColor", value.ambient_sky_color},
+            {"ambientEquatorColor", value.ambient_equator_color},
+            {"ambientGroundColor", value.ambient_ground_color},
+            {"linearFog", value.fog_mode == FogMode::linear},
+            {"fogMode", fog_mode_name(value.fog_mode)},
+            {"fogColor", value.fog_color},
+            {"fogStart", value.fog_start},
+            {"fogEnd", value.fog_end},
+            {"fogDensity", value.fog_density},
             {"exposure", value.exposure},
             {"filmicTonemap", value.filmic_tonemap},
             {"directionalShadows", value.directional_shadows},
@@ -49,9 +74,11 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             error = "Unknown render setting: " + item.key();
             return false;
         }
-        if (item.key() == "ambientColor" || item.key() == "clearColor")
+        if (item.key() == "ambientColor" || item.key() == "clearColor" ||
+            item.key() == "ambientSkyColor" || item.key() == "ambientEquatorColor" ||
+            item.key() == "ambientGroundColor" || item.key() == "fogColor")
         {
-            const auto count = item.key() == "ambientColor" ? 3U : 4U;
+            const auto count = item.key() == "clearColor" ? 4U : 3U;
             if (!item->is_array() || item->size() != count)
             {
                 error = "Render color requires the declared component count";
@@ -74,7 +101,13 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                 }
                 if (count == 3)
                 {
-                    settings.ambient_color[index] = static_cast<float>(value);
+                    auto& color =
+                        item.key() == "ambientSkyColor"       ? settings.ambient_sky_color
+                        : item.key() == "ambientEquatorColor" ? settings.ambient_equator_color
+                        : item.key() == "ambientGroundColor"  ? settings.ambient_ground_color
+                        : item.key() == "fogColor"            ? settings.fog_color
+                                                              : settings.ambient_color;
+                    color[index] = static_cast<float>(value);
                 }
                 else
                 {
@@ -86,15 +119,54 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                 settings.clear_color = packed;
             }
         }
-        else if (item.key() == "filmicTonemap" || item.key() == "directionalShadows")
+        else if (item.key() == "fogMode")
+        {
+            if (*item == "none")
+            {
+                settings.fog_mode = FogMode::none;
+            }
+            else if (*item == "linear")
+            {
+                settings.fog_mode = FogMode::linear;
+            }
+            else if (*item == "exponential")
+            {
+                settings.fog_mode = FogMode::exponential;
+            }
+            else if (*item == "exponential_squared")
+            {
+                settings.fog_mode = FogMode::exponential_squared;
+            }
+            else
+            {
+                error = "Unknown fog mode";
+                return false;
+            }
+        }
+        else if (item.key() == "linearFog")
+        {
+            if (!item->is_boolean())
+            {
+                error = "linearFog must be boolean";
+                return false;
+            }
+            if (!arguments.contains("fogMode"))
+            {
+                settings.fog_mode = item->get<bool>() ? FogMode::linear : FogMode::none;
+            }
+        }
+        else if (item.key() == "filmicTonemap" || item.key() == "directionalShadows" ||
+                 item.key() == "ambientTricolor")
         {
             if (!item->is_boolean())
             {
                 error = "Render option must be boolean";
                 return false;
             }
-            (item.key() == "filmicTonemap" ? settings.filmic_tonemap
-                                           : settings.directional_shadows) = item->get<bool>();
+            bool& value = item.key() == "filmicTonemap" ? settings.filmic_tonemap
+                          : item.key() == "ambientTricolor" ? settings.ambient_tricolor
+                                                      : settings.directional_shadows;
+            value = item->get<bool>();
         }
         else if (item.key() == "shadowResolution")
         {
@@ -116,9 +188,18 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             }
             float& value = item.key() == "ambientIntensity" ? settings.ambient_intensity
                            : item.key() == "exposure"       ? settings.exposure
+                           : item.key() == "fogStart"       ? settings.fog_start
+                           : item.key() == "fogEnd"         ? settings.fog_end
+                           : item.key() == "fogDensity"     ? settings.fog_density
                                                             : settings.shadow_bias;
             value = item->get<float>();
         }
+    }
+    if (arguments.contains("fogMode") && arguments.contains("linearFog") &&
+        arguments["linearFog"].get<bool>() != (settings.fog_mode == FogMode::linear))
+    {
+        error = "linearFog and fogMode disagree";
+        return false;
     }
     return true;
 }
@@ -129,6 +210,10 @@ public:
     SettingsEdit(RenderSystem& renderer, RenderSettings before, RenderSettings after)
         : renderer_(renderer), before_(before), after_(after)
     {
+    }
+    bool affects_scene() const noexcept override
+    {
+        return false;
     }
     bool apply(std::string& error) override
     {

@@ -182,6 +182,7 @@ bool write_material(const Material& material, const fs::path& path, std::string&
     }
     toml::table document;
     document.insert("shader", shader_guid);
+    document.insert("cull", schema::EnumNameCullMode(material.cull_mode()));
     toml::array parameters;
     for (const auto& parameter : shader->parameters)
     {
@@ -418,8 +419,9 @@ bool save_scene(WorldSystem& world, const fs::path& project_root,
 } // namespace
 
 ScenePersistence::ScenePersistence(WorldSystem& world, fs::path project_root,
-                                   MeshSourceWriter writer)
-    : world_(world), project_root_(std::move(project_root)), writer_(std::move(writer))
+                                   MeshSourceWriter writer, SavedCallback saved)
+    : world_(world), project_root_(std::move(project_root)), writer_(std::move(writer)),
+      saved_(std::move(saved))
 {
 }
 
@@ -429,7 +431,17 @@ bool ScenePersistence::register_commands(EditorCommands& commands)
         "save_scene", false,
         [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
                std::string& error)
-        { return save_scene(world_, project_root_, writer_, arguments, result, error); });
+        {
+            if (!save_scene(world_, project_root_, writer_, arguments, result, error))
+            {
+                return false;
+            }
+            if (saved_)
+            {
+                saved_(result["path"].get_ref<const std::string&>());
+            }
+            return true;
+        });
 }
 
 } // namespace engine::editor

@@ -1,0 +1,230 @@
+--- a/bgfx/src/renderer_mtl.mm
++++ b/bgfx/src/renderer_mtl.mm
+@@ -18,6 +18,7 @@
+ #import <Foundation/Foundation.h>
+ 
+ #define UNIFORM_BUFFER_SIZE (8*1024*1024)
++#define UNIFORM_BUFFER_MAX_SIZE (64*1024*1024)
+ 
+ namespace bgfx { namespace mtl
+ {
+@@ -1447,23 +1448,18 @@
+ 				const uint32_t vertexUniformBufferSize   = pso->m_vshConstantBufferSize;
+ 				const uint32_t fragmentUniformBufferSize = pso->m_fshConstantBufferSize;
+ 
+-				if (vertexUniformBufferSize)
+-				{
+-					m_uniformBufferVertexOffset = bx::alignUp(
+-						  m_uniformBufferVertexOffset
+-						, pso->m_vshConstantBufferAlignment
+-						);
++				if (!reserveUniformBuffer(vertexUniformBufferSize, pso->m_vshConstantBufferAlignment,
++					fragmentUniformBufferSize, pso->m_fshConstantBufferAlignment) )
++				{
++					return;
++				}
++
++				if (0 != vertexUniformBufferSize)
++				{
+ 					rce.setVertexBuffer(m_uniformBuffer, m_uniformBufferVertexOffset, 0);
+ 				}
+-
+-				m_uniformBufferFragmentOffset = m_uniformBufferVertexOffset + vertexUniformBufferSize;
+-
+ 				if (0 != fragmentUniformBufferSize)
+ 				{
+-					m_uniformBufferFragmentOffset = bx::alignUp(
+-						  m_uniformBufferFragmentOffset
+-						, pso->m_fshConstantBufferAlignment
+-						);
+ 					rce.setFragmentBuffer(m_uniformBuffer, m_uniformBufferFragmentOffset, 0);
+ 				}
+ 
+@@ -1473,6 +1469,7 @@
+ 				PredefinedUniform& predefined = pso->m_predefined[0];
+ 				uint8_t flags = predefined.m_type;
+ 				setShaderUniform(flags, predefined.m_loc, proj, 4);
++				m_uniformBufferVertexOffset = m_uniformBufferFragmentOffset + fragmentUniformBufferSize;
+ 
+ 				m_textures[_blitter.m_texture.idx].commit(0, false, true);
+ 
+@@ -1718,14 +1715,89 @@
+ 		}
+ 
+ 
++		// Reserve before binding: submitted draws keep their old Metal buffer, while
++		// the current draw starts a fresh segment when the frame exhausts capacity.
++		bool reserveUniformBuffer(uint32_t _vertexSize, uint32_t _vertexAlignment, uint32_t _fragmentSize, uint32_t _fragmentAlignment)
++		{
++			const uint32_t vertexAlignment   = bx::uint32_max(1, _vertexAlignment);
++			const uint32_t fragmentAlignment = bx::uint32_max(1, _fragmentAlignment);
++			uint64_t vertexOffset = 0 != _vertexSize
++				? bx::alignUp(uint64_t(m_uniformBufferVertexOffset), vertexAlignment)
++				: m_uniformBufferVertexOffset;
++			uint64_t fragmentOffset = vertexOffset + _vertexSize;
++			if (0 != _fragmentSize)
++			{
++				fragmentOffset = bx::alignUp(fragmentOffset, fragmentAlignment);
++			}
++			uint64_t end = fragmentOffset + _fragmentSize;
++
++			if (end > m_uniformBuffer.length() )
++			{
++				vertexOffset   = 0;
++				fragmentOffset = 0 != _fragmentSize
++					? bx::alignUp(uint64_t(_vertexSize), fragmentAlignment)
++					: _vertexSize;
++				end = fragmentOffset + _fragmentSize;
++				if (end > UNIFORM_BUFFER_MAX_SIZE)
++				{
++					BGFX_FATAL(false, Fatal::InvalidShader, "Metal uniform block exceeds maximum segment capacity.");
++					return false;
++				}
++
++				const uint64_t capacity = bx::min<uint64_t>(UNIFORM_BUFFER_MAX_SIZE,
++					bx::max<uint64_t>(UNIFORM_BUFFER_SIZE,
++						bx::max<uint64_t>(uint64_t(m_uniformBuffer.length() ) * 2, end) ) );
++				Buffer replacement = m_device.newBufferWithLength(uint32_t(capacity), 0);
++				if (NULL == replacement || NULL == replacement.contents() )
++				{
++					MTL_RELEASE(replacement);
++					BGFX_FATAL(false, Fatal::UnableToInitialize, "Unable to allocate Metal uniform buffer segment.");
++					return false;
++				}
++
++				// Use the existing GPU completion queue, not an immediate release: earlier
++				// draw/compute commands still reference this frame's previous segment.
++				if (NULL != m_uniformBuffer)
++				{
++					m_cmd.release(m_uniformBuffer);
++				}
++				const uint8_t slot = (m_bufferIndex + BGFX_CONFIG_MAX_FRAME_LATENCY - 1) % BGFX_CONFIG_MAX_FRAME_LATENCY;
++				m_uniformBuffers[slot] = replacement;
++				m_uniformBuffer = replacement;
++			}
++
++			if (0 != end && NULL == m_uniformBuffer.contents() )
++			{
++				BGFX_FATAL(false, Fatal::UnableToInitialize, "Metal uniform buffer is not CPU accessible.");
++				return false;
++			}
++			m_uniformBufferVertexOffset   = uint32_t(vertexOffset);
++			m_uniformBufferFragmentOffset = uint32_t(fragmentOffset);
++			m_uniformBufferVertexSize     = _vertexSize;
++			m_uniformBufferFragmentSize   = _fragmentSize;
++			return true;
++		}
++
+ 		void setShaderUniform(uint8_t _flags, uint32_t _loc, const void* _val, uint32_t _numRegs)
+ 		{
+ 			uint32_t offset = 0 != (_flags&kUniformFragmentBit)
+ 				? m_uniformBufferFragmentOffset
+ 				: m_uniformBufferVertexOffset
+ 				;
++			const uint32_t stageSize = 0 != (_flags&kUniformFragmentBit)
++				? m_uniformBufferFragmentSize
++				: m_uniformBufferVertexSize;
++			const uint64_t begin = uint64_t(offset) + _loc;
++			const uint64_t size  = uint64_t(_numRegs) * 16;
+ 			uint8_t* dst = (uint8_t*)m_uniformBuffer.contents();
+-			bx::memCopy(&dst[offset + _loc], _val, _numRegs*16);
++			if (_loc > stageSize || size > uint64_t(stageSize - _loc)
++			||  begin > m_uniformBuffer.length() || size > m_uniformBuffer.length() - begin
++			||  NULL == dst || (0 != size && NULL == _val) )
++			{
++				BGFX_FATAL(false, Fatal::InvalidShader, "Metal uniform write exceeds its reserved stage range.");
++				return;
++			}
++			bx::memCopy(&dst[begin], _val, size);
+ 		}
+ 
+ 		void setShaderUniform4f(uint8_t _flags, uint32_t _loc, const void* _val, uint32_t _numRegs)
+@@ -1858,22 +1930,18 @@
+ 			const uint32_t vertexUniformBufferSize   = pso->m_vshConstantBufferSize;
+ 			const uint32_t fragmentUniformBufferSize = pso->m_fshConstantBufferSize;
+ 
++			if (!reserveUniformBuffer(vertexUniformBufferSize, pso->m_vshConstantBufferAlignment,
++				fragmentUniformBufferSize, pso->m_fshConstantBufferAlignment) )
++			{
++				return;
++			}
++
+ 			if (0 != vertexUniformBufferSize)
+ 			{
+-				m_uniformBufferVertexOffset = bx::alignUp(
+-					  m_uniformBufferVertexOffset
+-					, pso->m_vshConstantBufferAlignment
+-					);
+ 				m_renderCommandEncoder.setVertexBuffer(m_uniformBuffer, m_uniformBufferVertexOffset, 0);
+ 			}
+-
+-			m_uniformBufferFragmentOffset = m_uniformBufferVertexOffset + vertexUniformBufferSize;
+-			if (fragmentUniformBufferSize)
+-			{
+-				m_uniformBufferFragmentOffset = bx::alignUp(
+-					  m_uniformBufferFragmentOffset
+-					, pso->m_fshConstantBufferAlignment
+-					);
++			if (0 != fragmentUniformBufferSize)
++			{
+ 				m_renderCommandEncoder.setFragmentBuffer(m_uniformBuffer, m_uniformBufferFragmentOffset, 0);
+ 			}
+ 
+@@ -2759,6 +2827,8 @@
+ 		Buffer   m_uniformBuffers[BGFX_CONFIG_MAX_FRAME_LATENCY];
+ 		uint32_t m_uniformBufferVertexOffset;
+ 		uint32_t m_uniformBufferFragmentOffset;
++		uint32_t m_uniformBufferVertexSize = 0;
++		uint32_t m_uniformBufferFragmentSize = 0;
+ 
+ 		uint8_t  m_bufferIndex;
+ 
+@@ -4705,12 +4775,14 @@
+ 					{
+ 						uint32_t vertexUniformBufferSize = currentPso->m_vshConstantBufferSize;
+ 
++						if (!reserveUniformBuffer(vertexUniformBufferSize, currentPso->m_vshConstantBufferAlignment, 0, 1) )
++						{
++							currentProgram = BGFX_INVALID_HANDLE;
++							continue;
++						}
++
+ 						if (0 != vertexUniformBufferSize)
+ 						{
+-							m_uniformBufferVertexOffset = bx::alignUp(
+-								  m_uniformBufferVertexOffset
+-								, currentPso->m_vshConstantBufferAlignment
+-								);
+ 							m_computeCommandEncoder.setBuffer(m_uniformBuffer, m_uniformBufferVertexOffset, 0);
+ 						}
+ 
+@@ -5074,22 +5146,19 @@
+ 					const uint32_t vertexUniformBufferSize   = currentPso->m_vshConstantBufferSize;
+ 					const uint32_t fragmentUniformBufferSize = currentPso->m_fshConstantBufferSize;
+ 
++					if (!reserveUniformBuffer(vertexUniformBufferSize, currentPso->m_vshConstantBufferAlignment,
++						fragmentUniformBufferSize, currentPso->m_fshConstantBufferAlignment) )
++					{
++						currentProgram = BGFX_INVALID_HANDLE;
++						continue;
++					}
++
+ 					if (0 != vertexUniformBufferSize)
+ 					{
+-						m_uniformBufferVertexOffset = bx::alignUp(
+-							  m_uniformBufferVertexOffset
+-							, currentPso->m_vshConstantBufferAlignment
+-							);
+ 						rce.setVertexBuffer(m_uniformBuffer, m_uniformBufferVertexOffset, 0);
+ 					}
+-
+-					m_uniformBufferFragmentOffset = m_uniformBufferVertexOffset + vertexUniformBufferSize;
+ 					if (0 != fragmentUniformBufferSize)
+ 					{
+-						m_uniformBufferFragmentOffset = bx::alignUp(
+-							  m_uniformBufferFragmentOffset
+-							, currentPso->m_fshConstantBufferAlignment
+-							);
+ 						rce.setFragmentBuffer(m_uniformBuffer, m_uniformBufferFragmentOffset, 0);
+ 					}
+ 

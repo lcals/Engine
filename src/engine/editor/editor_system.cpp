@@ -4,6 +4,7 @@
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/editor_environment.hpp"
+#include "editor/scene/scene_preview.hpp"
 
 #if ENGINE_HAS_ASSET_PIPELINE
 #include "editor/asset_pipeline/project_lock.hpp"
@@ -66,6 +67,7 @@ struct EditorSystem::State
 {
     GameplaySession& gameplay;
     EditorEnvironment& environment;
+    ScenePreview* preview = nullptr;
     fs::path directory;
     std::string project_root;
     std::string session;
@@ -83,8 +85,8 @@ struct EditorSystem::State
     std::unique_ptr<EditorCommandChannel> command_channel;
     std::string channel_error;
 
-    State(GameplaySession& session, EditorEnvironment& editor_environment)
-        : gameplay(session), environment(editor_environment)
+    State(GameplaySession& session, EditorEnvironment& editor_environment, ScenePreview* scene_preview)
+        : gameplay(session), environment(editor_environment), preview(scene_preview)
     {
     }
 
@@ -101,10 +103,12 @@ struct EditorSystem::State
         {
             error = script->last_error;
         }
+        const bool previewing = !closed && preview != nullptr && preview->active();
         Json status = {{"session", session},
                        {"projectRoot", project_root},
                        {"projectState", closed               ? "closed"
-                                        : transition.empty() ? (running ? "running" : "idle")
+                                        : transition.empty() ? (previewing ? "preview"
+                                                               : running ? "running" : "idle")
                                                              : transition},
                        {"running", running},
                        {"lastRequestId", last_request},
@@ -219,6 +223,10 @@ struct EditorSystem::State
                 }
                 else
                 {
+                    if (preview != nullptr)
+                    {
+                        preview->close();
+                    }
                     const auto* current = gameplay.script_status();
                     const bool already_running = current != nullptr && current->running;
                     last_success = (already_running || environment.refresh_resources(gameplay)) &&
@@ -236,6 +244,10 @@ struct EditorSystem::State
             }
             else
             {
+                if (preview != nullptr)
+                {
+                    preview->close();
+                }
                 gameplay.stop();
                 if (commands != nullptr)
                 {
@@ -257,8 +269,8 @@ struct EditorSystem::State
 };
 
 EditorSystem::EditorSystem(EditorEnvironment& environment, GameplaySession* gameplay,
-                           WorldSystem* world) noexcept
-    : environment_(environment), gameplay_(gameplay), world_(world)
+                           WorldSystem* world, ScenePreview* preview) noexcept
+    : environment_(environment), gameplay_(gameplay), world_(world), preview_(preview)
 {
 }
 
@@ -286,7 +298,7 @@ bool EditorSystem::on_initialize(const EngineConfig&)
         {
             return false;
         }
-        state_ = std::make_unique<State>(*gameplay_, environment_);
+        state_ = std::make_unique<State>(*gameplay_, environment_, preview_);
         state_->directory = App::persistent_data_path();
         if (!plain_path(state_->directory))
         {
@@ -361,6 +373,10 @@ void EditorSystem::on_shutdown() noexcept
 {
     if (state_ != nullptr)
     {
+        if (preview_ != nullptr)
+        {
+            preview_->close();
+        }
         gameplay_->stop();
         state_->closed = true;
         if (!state_->session.empty() && !state_->publish(true))

@@ -12,15 +12,33 @@ union SDL_Event;
 namespace engine
 {
 
+class Camera;
 class WindowSystem;
 class WorldSystem;
 class FontSystem;
 class UiSystem;
 
+enum class FogMode : std::uint8_t
+{
+    none,
+    linear,
+    exponential,
+    exponential_squared
+};
+
 struct RenderSettings
 {
     std::array<float, 3> ambient_color{1.0F, 1.0F, 1.0F};
     float ambient_intensity = 0.0F;
+    bool ambient_tricolor = false;
+    std::array<float, 3> ambient_sky_color{1.0F, 1.0F, 1.0F};
+    std::array<float, 3> ambient_equator_color{1.0F, 1.0F, 1.0F};
+    std::array<float, 3> ambient_ground_color{1.0F, 1.0F, 1.0F};
+    FogMode fog_mode = FogMode::none;
+    std::array<float, 3> fog_color{0.5F, 0.5F, 0.5F};
+    float fog_start = 0.0F;
+    float fog_end = 100.0F;
+    float fog_density = 0.01F;
     float exposure = 1.0F;
     bool filmic_tonemap = false;
     bool directional_shadows = false;
@@ -45,7 +63,8 @@ public:
                           FontSystem* fonts = nullptr, UiSystem* ui = nullptr) noexcept;
     ~RenderSystem() noexcept override;
 
-    [[nodiscard]] bool prepare_scene();
+    // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
+    [[nodiscard]] bool prepare_scene(const Camera* camera = nullptr);
     void release_scene() noexcept;
     [[nodiscard]] bool scene_prepared() const noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
@@ -54,7 +73,7 @@ public:
     // 主线程传入绝对 PNG 路径；true 仅表示排队，须继续提交帧并查询状态。
     [[nodiscard]] bool request_screenshot(std::string_view utf8_png_path);
     [[nodiscard]] ScreenshotStatus screenshot_status() const noexcept;
-    [[nodiscard]] bool render();
+    [[nodiscard]] bool render(const Camera* camera = nullptr);
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -65,7 +84,7 @@ private:
     [[nodiscard]] bool initialize_renderer();
     void shutdown_renderer() noexcept;
     void release_draw_resources() noexcept;
-    [[nodiscard]] bool draw_scene();
+    [[nodiscard]] bool draw_scene(const Camera* camera);
 
     struct SceneGpuResources;
     struct RendererCallbacks;

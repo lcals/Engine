@@ -57,7 +57,7 @@ constexpr std::uint16_t shadow_view = 0;
 constexpr std::uint16_t main_view = 1;
 constexpr std::uint8_t shadow_sampler_stage = 15;
 constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
-constexpr std::size_t maximum_lights = 8;
+constexpr std::size_t maximum_lights = 64;
 
 bool finite_matrix(const float* matrix)
 {
@@ -72,6 +72,17 @@ double linear_determinant(const float* matrix)
                                              static_cast<double>(matrix[9]) * matrix[2]) +
            static_cast<double>(matrix[8]) * (static_cast<double>(matrix[1]) * matrix[6] -
                                              static_cast<double>(matrix[5]) * matrix[2]);
+}
+
+std::uint64_t cull_state(schema::CullMode mode, const float* model)
+{
+    if (mode == schema::CullMode::none)
+    {
+        return 0;
+    }
+    const bool mirrored = linear_determinant(model) < 0.0;
+    return mirrored != (mode == schema::CullMode::front) ? BGFX_STATE_CULL_CCW
+                                                        : BGFX_STATE_CULL_CW;
 }
 
 bool camera_view(const float* world, float* view)
@@ -154,9 +165,9 @@ bool normal_matrix(const float* model, float* normal)
     return finite_matrix(normal);
 }
 
-bool drawable_scene(const Scene& scene)
+bool drawable_scene(const Scene& scene, const Camera* camera)
 {
-    const Camera* camera = scene.active_camera();
+    camera = camera != nullptr ? camera : scene.active_camera();
     if (camera == nullptr || !camera->enabled())
     {
         return false;
@@ -603,6 +614,9 @@ struct RenderSystem::SceneGpuResources
                     if (name == "u_normal_transform" || name == "u_camera_position" ||
                         name == "u_light_direction" || name == "u_light_color" ||
                         name == "u_light_count" || name == "u_ambient" || name == "u_tonemap" ||
+                        name == "u_surface" || name == "u_ambient_sky" ||
+                        name == "u_ambient_equator" || name == "u_ambient_ground" ||
+                        name == "u_fog_color" || name == "u_fog_range" ||
                         name == "u_shadow_transform" || name == "u_shadow_settings" ||
                         name == "u_shadow_depth" || name == "s_shadow_map" || light_array)
                     {
@@ -1022,6 +1036,9 @@ struct RenderSystem::SceneGpuResources
         bgfx::ShaderHandle vertex = BGFX_INVALID_HANDLE;
         bgfx::ShaderHandle fragment = BGFX_INVALID_HANDLE;
         bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
+        bgfx::UniformHandle alpha = BGFX_INVALID_HANDLE;
+        bgfx::UniformHandle alpha_sampler = BGFX_INVALID_HANDLE;
+        bgfx::UniformHandle uv_transform = BGFX_INVALID_HANDLE;
         std::uint16_t resolution = 0;
 
         void release() noexcept
@@ -1050,6 +1067,18 @@ struct RenderSystem::SceneGpuResources
             if (bgfx::isValid(fragment))
             {
                 bgfx::destroy(fragment);
+            }
+            if (bgfx::isValid(alpha))
+            {
+                bgfx::destroy(alpha);
+            }
+            if (bgfx::isValid(alpha_sampler))
+            {
+                bgfx::destroy(alpha_sampler);
+            }
+            if (bgfx::isValid(uv_transform))
+            {
+                bgfx::destroy(uv_transform);
             }
             *this = {};
         }
@@ -1088,7 +1117,12 @@ struct RenderSystem::SceneGpuResources
             {
                 program = bgfx::createProgram(vertex, fragment);
             }
-            if (!bgfx::isValid(framebuffer) || !bgfx::isValid(program))
+            alpha = bgfx::createUniform("u_shadow_alpha", bgfx::UniformType::Vec4);
+            alpha_sampler = bgfx::createUniform("s_shadow_alpha", bgfx::UniformType::Sampler);
+            uv_transform = bgfx::createUniform("u_shadow_uv", bgfx::UniformType::Vec4);
+            if (!bgfx::isValid(framebuffer) || !bgfx::isValid(program) ||
+                !bgfx::isValid(alpha) || !bgfx::isValid(alpha_sampler) ||
+                !bgfx::isValid(uv_transform))
             {
                 release();
                 return false;
@@ -1104,7 +1138,10 @@ struct RenderSystem::SceneGpuResources
                    static_cast<std::uint32_t>(bgfx::isValid(framebuffer)) +
                    static_cast<std::uint32_t>(bgfx::isValid(vertex)) +
                    static_cast<std::uint32_t>(bgfx::isValid(fragment)) +
-                   static_cast<std::uint32_t>(bgfx::isValid(program));
+                   static_cast<std::uint32_t>(bgfx::isValid(program)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(alpha)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(alpha_sampler)) +
+                   static_cast<std::uint32_t>(bgfx::isValid(uv_transform));
         }
     };
 
@@ -1120,7 +1157,13 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle light_color_intensity = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_kind_inner = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ambient = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ambient_sky = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ambient_equator = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ambient_ground = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle fog_color = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle fog_range = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle tonemap = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle surface = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_transform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_settings = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_depth = BGFX_INVALID_HANDLE;
@@ -1129,8 +1172,92 @@ struct RenderSystem::SceneGpuResources
     Shadow shadow;
     std::vector<Program> programs;
 
+    bool bind_shadow_material(const Material& material)
+    {
+        const auto* shader = material.shader_data();
+        if (shader == nullptr)
+        {
+            return false;
+        }
+        const auto parameter = [&shader](std::string_view name)
+        {
+            const auto found =
+                std::find_if(shader->parameters.begin(), shader->parameters.end(),
+                             [name](const auto& item) { return item->name == name; });
+            return found != shader->parameters.end() ? found->get() : nullptr;
+        };
+        float cutoff = 0.0F;
+        if (const auto* definition = parameter("alphaCutoff"))
+        {
+            const auto* value = definition->default_value.AsFloatValue();
+            if (value == nullptr)
+            {
+                return false;
+            }
+            cutoff = value->value;
+            if ((definition->exposed && !material.get_float("alphaCutoff", cutoff)) ||
+                !std::isfinite(cutoff) || cutoff < 0.0F || cutoff > 1.0F)
+            {
+                return false;
+            }
+        }
+        float base_alpha = 1.0F;
+        Vec4 uv_transform(1.0, 1.0, 0.0, 0.0);
+        bgfx::TextureHandle texture = shadow_fallback;
+        if (cutoff > 0.0F)
+        {
+            const auto* color = parameter("baseColor");
+            const auto* value = color != nullptr ? color->default_value.AsVec4Value() : nullptr;
+            if (value == nullptr)
+            {
+                return false;
+            }
+            Vec4 tint = value->value;
+            if (color->exposed && !material.get_v4("baseColor", tint))
+            {
+                return false;
+            }
+            base_alpha = static_cast<float>(tint.w());
+            const auto& resource = material.texture("baseColorTexture");
+            const auto found = std::find_if(textures.begin(), textures.end(),
+                                            [&resource](const auto& item)
+                                            { return item.resource == resource; });
+            if (!resource || found == textures.end())
+            {
+                return false;
+            }
+            texture = found->handle;
+            if (const auto* uv = parameter("uvTransform"))
+            {
+                const auto* transform = uv->default_value.AsVec4Value();
+                if (transform == nullptr)
+                {
+                    return false;
+                }
+                uv_transform = transform->value;
+                if (uv->exposed && !material.get_v4("uvTransform", uv_transform))
+                {
+                    return false;
+                }
+            }
+        }
+        const float alpha[] = {cutoff, base_alpha, 0.0F, 0.0F};
+        bgfx::setUniform(shadow.alpha, alpha);
+        const float uv[] = {static_cast<float>(uv_transform.x()),
+                             static_cast<float>(uv_transform.y()),
+                             static_cast<float>(uv_transform.z()),
+                             static_cast<float>(uv_transform.w())};
+        bgfx::setUniform(shadow.uv_transform, uv);
+        bgfx::setTexture(0, shadow.alpha_sampler, texture);
+        return true;
+    }
+
     bool draw_shadow(const Scene& scene, const std::array<float, 4>& direction, float* matrix)
     {
+        bgfx::setViewFrameBuffer(shadow_view, shadow.framebuffer);
+        bgfx::setViewRect(shadow_view, 0, 0, shadow.resolution, shadow.resolution);
+        bgfx::setViewClear(shadow_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xffffffff, 1.0F, 0);
+        bgfx::touch(shadow_view);
         // bgfx 15-shadowmaps-simple 的投影与 crop；边界由当前组件几何计算。
         float view[16]{};
         const bx::Vec3 up = std::abs(direction[1]) > 0.95F ? bx::Vec3{0.0F, 0.0F, 1.0F}
@@ -1141,9 +1268,15 @@ struct RenderSystem::SceneGpuResources
         std::array<float, 3> maximum{};
         minimum.fill(std::numeric_limits<float>::max());
         maximum.fill(std::numeric_limits<float>::lowest());
+        bool has_caster = false;
         for (const auto& mesh : meshes)
         {
             const Node* node = scene.find_node(mesh.node_id);
+            const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+            if (renderer != nullptr && !renderer->cast_shadows())
+            {
+                continue;
+            }
             const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
             float model[16]{};
             float combined[16]{};
@@ -1152,6 +1285,7 @@ struct RenderSystem::SceneGpuResources
                 return false;
             }
             bx::mtxMul(combined, model, view);
+            has_caster = true;
             for (std::uint32_t corner = 0; corner < 8; ++corner)
             {
                 const float coordinates[] = {(corner & 1) ? mesh.maximum[0] : mesh.minimum[0],
@@ -1166,6 +1300,11 @@ struct RenderSystem::SceneGpuResources
                     maximum[axis] = std::max(maximum[axis], value);
                 }
             }
+        }
+        if (!has_caster)
+        {
+            bx::mtxIdentity(matrix);
+            return true;
         }
         for (std::size_t axis = 0; axis < 3; ++axis)
         {
@@ -1200,31 +1339,53 @@ struct RenderSystem::SceneGpuResources
         {
             return false;
         }
-        bgfx::setViewFrameBuffer(shadow_view, shadow.framebuffer);
-        bgfx::setViewRect(shadow_view, 0, 0, shadow.resolution, shadow.resolution);
-        bgfx::setViewClear(shadow_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xffffffff, 1.0F, 0);
         bgfx::setViewTransform(shadow_view, view, projection);
-        bgfx::touch(shadow_view);
         const float depth_scale[] = {caps->homogeneousDepth ? 0.5F : 1.0F,
                                      caps->homogeneousDepth ? 0.5F : 0.0F, 0.0F, 0.0F};
         for (const auto& mesh : meshes)
         {
             const Node* node = scene.find_node(mesh.node_id);
             const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
+            const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+            if (renderer != nullptr && !renderer->cast_shadows())
+            {
+                continue;
+            }
+            const auto* data = renderer != nullptr ? renderer->mesh_data() : nullptr;
             float model[16]{};
-            if (transform == nullptr || !transform->world_matrix(model))
+            if (transform == nullptr || data == nullptr || !transform->world_matrix(model))
             {
                 return false;
             }
-            bgfx::setTransform(model);
-            bgfx::setUniform(shadow_depth, depth_scale);
-            mesh.bind_vertices();
-            bgfx::setIndexBuffer(mesh.indices);
-            const auto cull =
-                linear_determinant(model) < 0.0 ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
-            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                           BGFX_STATE_DEPTH_TEST_LESS | cull);
-            bgfx::submit(shadow_view, shadow.program);
+            const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
+            {
+                const auto* material = renderer->material(slot);
+                if (material == nullptr || !bind_shadow_material(*material))
+                {
+                    return false;
+                }
+                bgfx::setTransform(model);
+                bgfx::setUniform(shadow_depth, depth_scale);
+                mesh.bind_vertices();
+                bgfx::setIndexBuffer(mesh.indices, first, count);
+                bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
+                               BGFX_STATE_DEPTH_TEST_LESS |
+                               cull_state(material->cull_mode(), model));
+                bgfx::submit(shadow_view, shadow.program);
+                return true;
+            };
+            if (data->submeshes.empty() &&
+                !submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+            {
+                return false;
+            }
+            for (const auto& submesh : data->submeshes)
+            {
+                if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
+                {
+                    return false;
+                }
+            }
         }
         return true;
     }
@@ -1358,7 +1519,7 @@ bool RenderSystem::initialize_renderer()
     return true;
 }
 
-bool RenderSystem::prepare_scene()
+bool RenderSystem::prepare_scene(const Camera* camera)
 {
     if (!is_initialized())
     {
@@ -1382,7 +1543,7 @@ bool RenderSystem::prepare_scene()
     {
         return true;
     }
-    if (!drawable_scene(*scene))
+    if (!drawable_scene(*scene, camera))
     {
         if (scene_resources_)
         {
@@ -1434,7 +1595,14 @@ bool RenderSystem::prepare_scene()
         resources.light_kind_inner =
             bgfx::createUniform("u_light_kind_inner", bgfx::UniformType::Vec4, maximum_lights);
         resources.ambient = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
+        resources.ambient_sky = bgfx::createUniform("u_ambient_sky", bgfx::UniformType::Vec4);
+        resources.ambient_equator =
+            bgfx::createUniform("u_ambient_equator", bgfx::UniformType::Vec4);
+        resources.ambient_ground = bgfx::createUniform("u_ambient_ground", bgfx::UniformType::Vec4);
+        resources.fog_color = bgfx::createUniform("u_fog_color", bgfx::UniformType::Vec4);
+        resources.fog_range = bgfx::createUniform("u_fog_range", bgfx::UniformType::Vec4);
         resources.tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformType::Vec4);
+        resources.surface = bgfx::createUniform("u_surface", bgfx::UniformType::Vec4);
         resources.shadow_transform =
             bgfx::createUniform("u_shadow_transform", bgfx::UniformType::Mat4);
         resources.shadow_settings =
@@ -1445,7 +1613,9 @@ bool RenderSystem::prepare_scene()
              {resources.normal_transform, resources.camera_position, resources.light_direction,
               resources.light_color, resources.light_count, resources.light_position_range,
               resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner, resources.ambient, resources.tonemap,
+              resources.light_kind_inner, resources.ambient, resources.tonemap, resources.surface,
+              resources.ambient_sky, resources.ambient_equator, resources.ambient_ground,
+              resources.fog_color, resources.fog_range,
               resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
               resources.shadow_sampler})
         {
@@ -1661,7 +1831,9 @@ void RenderSystem::release_draw_resources() noexcept
              {resources.normal_transform, resources.camera_position, resources.light_direction,
               resources.light_color, resources.light_count, resources.light_position_range,
               resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner, resources.ambient, resources.tonemap,
+              resources.light_kind_inner, resources.ambient, resources.tonemap, resources.surface,
+              resources.ambient_sky, resources.ambient_equator, resources.ambient_ground,
+              resources.fog_color, resources.fog_range,
               resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
               resources.shadow_sampler})
         {
@@ -1682,8 +1854,21 @@ bool RenderSystem::scene_prepared() const noexcept
 
 bool RenderSystem::set_settings(const RenderSettings& settings)
 {
-    if (!std::all_of(settings.ambient_color.begin(), settings.ambient_color.end(), [](float value)
-                     { return std::isfinite(value) && value >= 0.0F && value <= 1.0F; }) ||
+    const auto valid_color = [](const std::array<float, 3>& color)
+    {
+        return std::all_of(color.begin(), color.end(), [](float value)
+                           { return std::isfinite(value) && value >= 0.0F && value <= 1.0F; });
+    };
+    if (!valid_color(settings.ambient_color) || !valid_color(settings.ambient_sky_color) ||
+        !valid_color(settings.ambient_equator_color) ||
+        !valid_color(settings.ambient_ground_color) ||
+        !valid_color(settings.fog_color) || !std::isfinite(settings.fog_start) ||
+        !std::isfinite(settings.fog_end) || settings.fog_start < 0.0F ||
+        settings.fog_end <= settings.fog_start ||
+        !std::isfinite(settings.fog_density) || settings.fog_density < 0.0F ||
+        (settings.fog_mode != FogMode::none && settings.fog_mode != FogMode::linear &&
+         settings.fog_mode != FogMode::exponential &&
+         settings.fog_mode != FogMode::exponential_squared) ||
         !std::isfinite(settings.ambient_intensity) || settings.ambient_intensity < 0.0F ||
         settings.ambient_intensity > 1000.0F || !std::isfinite(settings.exposure) ||
         settings.exposure <= 0.0F || settings.exposure > 100.0F ||
@@ -1753,7 +1938,13 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         static_cast<std::uint32_t>(bgfx::isValid(resources.light_color_intensity)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.light_kind_inner)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.ambient)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ambient_sky)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ambient_equator)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ambient_ground)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.fog_color)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.fog_range)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.tonemap)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.surface)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_transform)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_settings)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_depth)) +
@@ -1787,18 +1978,18 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::draw_scene()
+bool RenderSystem::draw_scene(const Camera* view_camera)
 {
-    if (!prepare_scene())
+    if (!prepare_scene(view_camera))
     {
         return false;
     }
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
-    if (scene == nullptr || scene_resources_ == nullptr || !drawable_scene(*scene))
+    if (scene == nullptr || scene_resources_ == nullptr || !drawable_scene(*scene, view_camera))
     {
         return true;
     }
-    const Camera& camera = *scene->active_camera();
+    const Camera& camera = view_camera != nullptr ? *view_camera : *scene->active_camera();
     float camera_world[16]{};
     const auto* camera_transform = camera.node().get_component<Transform>();
     if (camera_transform == nullptr || !camera_transform->world_matrix(camera_world))
@@ -1919,6 +2110,19 @@ bool RenderSystem::draw_scene()
                                      shadow_enabled ? 1.0F : 0.0F};
     const float ambient[] = {settings_.ambient_color[0], settings_.ambient_color[1],
                              settings_.ambient_color[2], settings_.ambient_intensity};
+    const float ambient_sky[] = {settings_.ambient_sky_color[0], settings_.ambient_sky_color[1],
+                                 settings_.ambient_sky_color[2],
+                                 settings_.ambient_tricolor ? 1.0F : 0.0F};
+    const float ambient_equator[] = {
+        settings_.ambient_equator_color[0], settings_.ambient_equator_color[1],
+        settings_.ambient_equator_color[2], 0.0F};
+    const float ambient_ground[] = {settings_.ambient_ground_color[0],
+                                    settings_.ambient_ground_color[1],
+                                    settings_.ambient_ground_color[2], 0.0F};
+    const float fog_color[] = {settings_.fog_color[0], settings_.fog_color[1],
+                               settings_.fog_color[2], static_cast<float>(settings_.fog_mode)};
+    const float fog_range[] = {settings_.fog_start, settings_.fog_end, settings_.fog_density,
+                               settings.near_clip};
     const float tonemap[] = {settings_.exposure, settings_.filmic_tonemap ? 1.0F : 0.0F, 0.0F,
                              0.0F};
     for (const auto& node : scene->nodes())
@@ -1979,7 +2183,15 @@ bool RenderSystem::draw_scene()
                              maximum_lights);
             bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(), maximum_lights);
             bgfx::setUniform(resources.ambient, ambient);
+            bgfx::setUniform(resources.ambient_sky, ambient_sky);
+            bgfx::setUniform(resources.ambient_equator, ambient_equator);
+            bgfx::setUniform(resources.ambient_ground, ambient_ground);
+            bgfx::setUniform(resources.fog_color, fog_color);
+            bgfx::setUniform(resources.fog_range, fog_range);
             bgfx::setUniform(resources.tonemap, tonemap);
+            const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F : 0.0F,
+                                      0.0F, 0.0F, 0.0F};
+            bgfx::setUniform(resources.surface, surface);
             bgfx::setUniform(resources.shadow_transform, shadow_transform);
             bgfx::setUniform(resources.shadow_settings, shadow_settings);
             bgfx::setTexture(shadow_sampler_stage, resources.shadow_sampler,
@@ -1987,10 +2199,9 @@ bool RenderSystem::draw_scene()
             bgfx::setTransform(model);
             mesh->bind_vertices();
             bgfx::setIndexBuffer(mesh->indices, first, count);
-            const std::uint64_t cull =
-                linear_determinant(model) < 0.0 ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
             bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                           BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA | cull);
+                           BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA |
+                           cull_state(material->cull_mode(), model));
             bgfx::submit(main_view, program->program);
             return true;
         };
@@ -2012,7 +2223,7 @@ bool RenderSystem::draw_scene()
     return fonts_ == nullptr || fonts_->render_scene(*scene, main_view);
 }
 
-bool RenderSystem::render()
+bool RenderSystem::render(const Camera* camera)
 {
     if (!is_initialized() || !windows_.can_render())
     {
@@ -2070,7 +2281,7 @@ bool RenderSystem::render()
     bgfx::setViewRect(main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(main_view);
-    const bool drawn = draw_scene() && (ui_ == nullptr || ui_->render(width_, height_));
+    const bool drawn = draw_scene(camera) && (ui_ == nullptr || ui_->render(width_, height_));
     bgfx::frame();
     return drawn;
 }

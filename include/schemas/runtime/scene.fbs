@@ -31,9 +31,10 @@ table MeshRendererData {
     mesh_guid:string (required);
     material_guid:string (required);
     additional_material_guids:[string];
+    cast_shadows:bool = true;
 }
 
-enum ColliderShape:ubyte { box, sphere, capsule }
+enum ColliderShape:ubyte { box, sphere, capsule, mesh }
 enum BodyMotion:ubyte { static_body, kinematic, dynamic }
 
 table ColliderData {
@@ -45,6 +46,7 @@ table ColliderData {
     friction:float = 0.5;
     restitution:float = 0.1;
     is_trigger:bool = false;
+    mesh_guid:string;
 }
 
 table RigidBodyData {

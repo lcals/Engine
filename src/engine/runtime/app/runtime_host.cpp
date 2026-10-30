@@ -191,6 +191,11 @@ WorldSystem* RuntimeHost::world() noexcept
     return initialized_ ? world_ : nullptr;
 }
 
+WindowSystem* RuntimeHost::window() noexcept
+{
+    return initialized_ ? window_.get() : nullptr;
+}
+
 RenderSystem* RuntimeHost::renderer() noexcept
 {
     return initialized_ ? renderer_ : nullptr;

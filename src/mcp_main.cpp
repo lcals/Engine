@@ -11,6 +11,7 @@
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_mcp_tools.hpp"
 #include "plugins/editor/mcp/render_mcp_tools.hpp"
+#include "plugins/editor/mcp/scene_preview_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -111,6 +112,7 @@ int main(int argc, char** argv)
     engine::plugins::modeling::ModelingMcpTools modeling_tools(editor_tools);
 #endif
     engine::plugins::mcp::RenderMcpTools render_tools(editor_tools);
+    engine::plugins::mcp::ScenePreviewMcpTools preview_tools(editor_tools);
     engine::plugins::mcp::McpSystem mcp;
     if (!pipeline.initialize(config))
     {
@@ -179,6 +181,7 @@ int main(int argc, char** argv)
     if (!builder.initialize(config) || !sync.initialize(config) || !project_tools.initialize() ||
         !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
         (!android && !render_tools.register_tools(mcp)) ||
+        (!android && !preview_tools.register_tools(mcp)) ||
 #if ENGINE_HAS_MODELING_PLUGIN
         (!android && !modeling_tools.register_tools(mcp)) ||
 #endif

@@ -11,10 +11,10 @@ uniform vec4 u_base_color;
 uniform vec4 u_material;
 uniform vec4 u_camera_position;
 uniform vec4 u_light_count;
-uniform vec4 u_light_position_range[8];
-uniform vec4 u_light_direction_outer[8];
-uniform vec4 u_light_color_intensity[8];
-uniform vec4 u_light_kind_inner[8];
+uniform vec4 u_light_position_range[64];
+uniform vec4 u_light_direction_outer[64];
+uniform vec4 u_light_color_intensity[64];
+uniform vec4 u_light_kind_inner[64];
 
 vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, vec3 base_color,
                   float metallic, float roughness)
@@ -71,7 +71,7 @@ void main()
         vec3 view_offset = u_camera_position.xyz - v_world_position;
         vec3 view_dir = view_offset / max(length(view_offset), 0.0001);
         color = vec3_splat(0.0);
-        for (int index = 0; index < 8; ++index)
+        for (int index = 0; index < 64; ++index)
         {
             if (float(index) < u_light_count.x)
             {

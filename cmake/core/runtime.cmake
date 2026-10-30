@@ -86,7 +86,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE flecs::flecs_static engine::resource)
 
     engine_add_system(runtime physics)
-    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world)
+    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource)
     engine_add_system(runtime audio)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 

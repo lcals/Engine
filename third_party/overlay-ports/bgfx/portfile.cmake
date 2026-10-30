@@ -17,6 +17,7 @@ vcpkg_extract_source_archive(
     android-link-libraries.patch
     windows-tool-utf8.patch
     d3d12-compressed-mip-update.patch
+    metal-uniform-buffer-segments.patch
 )
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/windows-utf8.manifest"
      DESTINATION "${SOURCE_PATH}/cmake")

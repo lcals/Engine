@@ -1,5 +1,8 @@
 #include "runtime/scene/rigid_body.hpp"
 
+#include "runtime/scene/collider.hpp"
+#include "runtime/scene/node.hpp"
+
 #include <cmath>
 
 namespace engine
@@ -50,6 +53,12 @@ const schema::RigidBodyDataT& RigidBody::settings() const noexcept
 bool RigidBody::set_settings(const schema::RigidBodyDataT& value) noexcept
 {
     if (!valid_settings(value))
+    {
+        return false;
+    }
+    const auto* collider = node().get_component<Collider>();
+    if (value.motion != schema::BodyMotion::static_body && collider != nullptr &&
+        collider->settings().shape == schema::ColliderShape::mesh)
     {
         return false;
     }

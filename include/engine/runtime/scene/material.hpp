@@ -35,6 +35,8 @@ public:
     [[nodiscard]] bool set_type(std::string_view path);
     // Shader 资源路径；切换后采用新 Shader 默认值，同路径保留已有参数。
     [[nodiscard]] bool set_shader(std::string_view path);
+    [[nodiscard]] schema::CullMode cull_mode() const noexcept;
+    [[nodiscard]] bool set_cull_mode(schema::CullMode mode) noexcept;
     [[nodiscard]] bool set_float(std::string_view name, float value) noexcept;
     [[nodiscard]] bool set_v2(std::string_view name, const Vec2& value) noexcept;
     [[nodiscard]] bool set_v3(std::string_view name, const Vec3& value) noexcept;

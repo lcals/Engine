@@ -100,6 +100,15 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
                     }
                 }
             }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                if (!reference(collider->mesh_guid, schema::AssetKind::mesh, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
+                }
+            }
         }
     }
     std::sort(asset.build_dependencies.begin(), asset.build_dependencies.end());

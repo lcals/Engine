@@ -70,6 +70,16 @@ void MeshRenderer::set_visible(bool visible) noexcept
     visible_ = visible;
 }
 
+bool MeshRenderer::cast_shadows() const noexcept
+{
+    return data().payload.AsMeshRendererData()->cast_shadows;
+}
+
+void MeshRenderer::set_cast_shadows(bool enabled) noexcept
+{
+    mutable_data().payload.AsMeshRendererData()->cast_shadows = enabled;
+}
+
 bool MeshRenderer::initialize()
 {
     return mesh_instance_id_ != 0 && set_mesh("builtin/meshes/cube") &&

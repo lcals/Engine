@@ -12,6 +12,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_sources(
         engine_editor
         PRIVATE src/engine/editor/render/render_commands.cpp
+                src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
@@ -38,6 +39,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 engine::log
                 engine::resource
                 engine::world
+                engine::window
                 imgui::imgui
                 SDL3::SDL3)
     target_compile_definitions(engine_editor PUBLIC JSON_NOEXCEPTION=1)
@@ -96,6 +98,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         engine_asset_pipeline
         PUBLIC engine::scene_data
         PRIVATE engine::task
+                engine::app
                 engine::world
                 engine::resource
                 unofficial::sqlite3::sqlite3
@@ -128,7 +131,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
         target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp)
         target_include_directories(engine_editor SYSTEM PRIVATE ${_toml_includes})
         target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
-        target_link_libraries(engine_editor PRIVATE engine::asset_pipeline)
+        target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()
 
 endif()

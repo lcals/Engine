@@ -93,6 +93,14 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                     }
                 }
             }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                if (!declares(catalog, output, collider->mesh_guid, schema::AssetKind::mesh))
+                {
+                    return false;
+                }
+            }
         }
     }
     store(output, std::move(data));
@@ -170,6 +178,15 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                     {
                         return false;
                     }
+                }
+            }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                const auto* mesh = dependency(dependencies, collider->mesh_guid);
+                if (mesh == nullptr || mesh->mesh() == nullptr)
+                {
+                    return false;
                 }
             }
         }

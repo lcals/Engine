@@ -17,6 +17,8 @@
 #include <array>
 #include <charconv>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -1171,6 +1173,7 @@ Json material_json(const Material& material)
     return {{"textures", std::move(textures)},
             {"typePath", material.type_path()},
             {"shaderPath", material.shader_path()},
+            {"cullMode", schema::EnumNameCullMode(material.cull_mode())},
             {"parameters", std::move(parameters)}};
 }
 
@@ -1178,6 +1181,14 @@ bool restore_material(Material& material, const Json& saved)
 {
     if (!material.set_type(saved["typePath"].get<std::string>()) ||
         !material.set_shader(saved["shaderPath"].get<std::string>()))
+    {
+        return false;
+    }
+    const auto cull = saved.value("cullMode", std::string("back"));
+    if ((cull != "back" && cull != "front" && cull != "none") ||
+        !material.set_cull_mode(cull == "back"    ? schema::CullMode::back
+                                : cull == "front" ? schema::CullMode::front
+                                                  : schema::CullMode::none))
     {
         return false;
     }
@@ -1370,20 +1381,52 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
 
 bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::string& error)
 {
-    if (!arguments.empty())
+    if (!fields(arguments, {"offset", "limit"}))
     {
-        error = "get_scene takes no arguments";
+        error = "get_scene accepts only offset and limit";
+        return false;
+    }
+    const auto read_count = [&arguments](const char* name, std::size_t& output)
+    {
+        const auto found = arguments.find(name);
+        if (found == arguments.end())
+        {
+            return true;
+        }
+        if (!found->is_number_integer() ||
+            (!found->is_number_unsigned() && found->get<std::int64_t>() < 0))
+        {
+            return false;
+        }
+        const auto value = found->get<std::uint64_t>();
+        if (value > std::numeric_limits<std::size_t>::max())
+        {
+            return false;
+        }
+        output = static_cast<std::size_t>(value);
+        return true;
+    };
+    std::size_t offset = 0;
+    std::size_t limit = std::numeric_limits<std::size_t>::max();
+    if (!read_count("offset", offset) || !read_count("limit", limit))
+    {
+        error = "get_scene offset and limit must be nonnegative integers in platform size range";
         return false;
     }
     const auto* scene = world.scene();
-    result = {{"scene", nullptr}};
+    result = {{"scene", nullptr}, {"totalNodes", 0}, {"offset", offset}};
     if (scene == nullptr)
     {
         return true;
     }
+    const auto& scene_nodes = scene->nodes();
+    result["totalNodes"] = scene_nodes.size();
+    const auto start = std::min(offset, scene_nodes.size());
+    const auto end = start + std::min(limit, scene_nodes.size() - start);
     Json nodes = Json::array();
-    for (const auto& node : scene->nodes())
+    for (std::size_t index = start; index < end; ++index)
     {
+        const auto& node = scene_nodes[index];
         Json components = Json::array();
         for (const auto& component : node->components())
         {
@@ -1434,6 +1477,7 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 data["materials"] = std::move(materials);
                 data.update({{"type", "mesh_renderer"},
                              {"meshPath", value.mesh_path()},
+                             {"castShadows", value.cast_shadows()},
                              {"material", material_json(value.material())}});
                 break;
             }
