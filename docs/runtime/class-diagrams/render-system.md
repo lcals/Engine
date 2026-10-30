@@ -9,7 +9,7 @@ classDiagram
     direction TB
     class RenderSystem {
         <<final>>
-        +RenderSystem(WindowSystem& windows, WorldSystem#42; world)
+        +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui)
         +~RenderSystem()
         +prepare_scene() bool
         +release_scene() void
@@ -76,6 +76,8 @@ classDiagram
     System <|-- RenderSystem
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空借用 活动场景来源
+    RenderSystem --> FontSystem : 可空借用 3D 文字绘制
+    RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 从节点读取视角与投影
     RenderSystem ..> Light : 从节点读取方向与光照
@@ -99,7 +101,8 @@ classDiagram
     note for RenderSystem "拥有 bgfx 创建的资源；析构中调用 shutdown()"
 ```
 
-- 构造时借用窗口系统，以及可空的世界系统；两者必须比渲染系统存活更久。世界系统为空时只显示空白。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
+- 构造时借用窗口系统，以及可空的世界、字体和 UI 系统；借用必须覆盖渲染系统生命周期。世界系统为空时只显示空白。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
+- 3D 文字与网格使用同一场景相机，由 FontSystem 按普通文字组件绘制；UI 由 UiSystem 在场景之后的有序视图提交。Renderer 只协调通道，不复制字体排布或 RmlUi 文档业务。关闭 GPU 前先释放 UI 和字体 GPU 数据。
 - `prepare_scene()` 在主线程按当前场景引用的独立 Mesh 资源准备顶点和索引缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。

@@ -22,6 +22,8 @@ classDiagram
         #store(Resource& output, unique_ptr~ModelDataT~ data) void$
         #store(Resource& output, unique_ptr~SkeletonDataT~ data) void$
         #store(Resource& output, unique_ptr~AnimationDataT~ data) void$
+        #store(Resource& output, unique_ptr~FontDataT~ data) void$
+        #store(Resource& output, unique_ptr~UiDocumentDataT~ data) void$
         #store(Resource& output, ByteView data) void$
         #valid_path(string_view path) bool$
         #declares(const ResourceCatalog& catalog, const Resource& resource, string_view guid, AssetKind kind) bool$
@@ -65,6 +67,22 @@ classDiagram
     ResourceCodec <|-- MeshResourceCodec
     ResourceCodec <|-- TextureResourceCodec
     ResourceCodec <|-- AudioResourceCodec
+```
+
+```mermaid
+classDiagram
+    class FontResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const FontDataT& data) bool$
+    }
+    class UiResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+    }
+    ResourceCodec <|-- FontResourceCodec
+    ResourceCodec <|-- UiResourceCodec
+    FontResourceCodec ..> FontDataT : 验证归一化度量与曲线区间
+    UiResourceCodec ..> UiDocumentDataT : 验证文档与字体图片引用
 ```
 
 ```mermaid

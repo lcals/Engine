@@ -4,10 +4,12 @@
 #if ENGINE_HAS_RUNTIME
 #include "runtime/animation/animation_system.hpp"
 #include "runtime/audio/audio_system.hpp"
+#include "runtime/font/font_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/ui/ui_system.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 #endif
 
@@ -69,7 +71,9 @@ int main()
     engine::AudioSystem audio;
     engine::NavigationSystem navigation;
     engine::AnimationSystem animation;
-    engine::UiSystem ui;
+    engine::WindowSystem ui_window;
+    engine::FontSystem fonts;
+    engine::UiSystem ui(ui_window, world, fonts);
     if (!check_lifecycle(resource, "ResourceSystem", config) ||
         !check_lifecycle(world, "WorldSystem", config) ||
         !check_lifecycle(physics, "PhysicsSystem", config) ||

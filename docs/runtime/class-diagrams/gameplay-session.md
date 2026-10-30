@@ -6,7 +6,7 @@
 classDiagram
     class GameplaySession {
         <<final>>
-        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation)
+        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation, FontSystem#42; fonts, UiSystem#42; ui)
         +~GameplaySession()
         +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
@@ -29,6 +29,8 @@ classDiagram
     GameplaySession --> PhysicsSystem : 可空借用 清理物理场景
     GameplaySession --> AnimationSystem : 可空借用并清理采样缓存
     GameplaySession --> AudioSystem : 可空借用 停止并释放声部
+    GameplaySession --> UiSystem : 可空借用 先释放控件文档
+    GameplaySession --> FontSystem : 可空借用 释放字体 GPU 缓存
     GameplaySession ..> ResourceSystem : 显式提交资源目录
     GameplaySession *-- ResourceCatalog : 基线及候选元数据
 ```

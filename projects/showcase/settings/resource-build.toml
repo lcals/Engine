@@ -6,6 +6,10 @@ name = "game"
 storage = "package"
 roots = [
     "project/scripts/game.ts",
+    "project/scripts/modules/menu.ts",
+    "project/scripts/modules/font-gallery.ts",
+    "project/scenes/launcher.scene",
+    "project/scenes/font-gallery.scene",
     "project/scripts/modules/minimal.ts",
     "project/scripts/modules/apartment.ts",
     "project/scripts/modules/courtyard.ts",
@@ -16,4 +20,4 @@ roots = [
     "project/models/locomotions.fbx/animations/walk",
     "project/materials/character.material",
 ]
-keep = []
+keep = ["project/fonts/ofl.txt", "project/fonts/source.md"]

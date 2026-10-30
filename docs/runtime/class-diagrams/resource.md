@@ -19,6 +19,8 @@ classDiagram
         +model() const ModelDataT#42;
         +skeleton() const SkeletonDataT#42;
         +animation() const AnimationDataT#42;
+        +font() const FontDataT#42;
+        +ui() const UiDocumentDataT#42;
         +bytes() ByteView
     }
     class AssetEntryT
@@ -43,6 +45,8 @@ classDiagram
     Resource *-- MaterialDataT : 材质类型时拥有
     Resource *-- TextureDataT : 贴图类型时拥有
     Resource *-- AudioClipDataT : 音频类型时拥有
+    Resource *-- FontDataT : 字体类型时拥有
+    Resource *-- UiDocumentDataT : UI 文档类型时拥有
 ```
 
 - `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。

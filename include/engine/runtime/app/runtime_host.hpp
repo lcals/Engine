@@ -15,6 +15,8 @@ class RenderSystem;
 class PhysicsSystem;
 class AudioSystem;
 class AnimationSystem;
+class FontSystem;
+class UiSystem;
 class GameplaySession;
 class ResourceSystem;
 class ScriptRuntime;
@@ -59,6 +61,8 @@ private:
     PhysicsSystem* physics_ = nullptr;
     AudioSystem* audio_ = nullptr;
     AnimationSystem* animation_ = nullptr;
+    FontSystem* fonts_ = nullptr;
+    UiSystem* ui_ = nullptr;
     bool owns_engine_ = false;
     bool initialized_ = false;
     bool exit_requested_ = false;

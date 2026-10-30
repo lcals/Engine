@@ -211,7 +211,7 @@ def catalog_entries(source):
             or logical in paths
             or not logical.startswith("project/")
             or kind
-            > 10  # Model, skeleton and animation are appended without changing existing kinds.
+            > 12  # Font and UI append to the stable AssetKind values in asset_catalog.fbs.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

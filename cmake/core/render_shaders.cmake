@@ -90,6 +90,10 @@ function(engine_embed_render_shaders target)
         set(_shaders cube)
     endif()
     foreach(_shader IN LISTS _shaders)
+        set(_varying "${_source}/varying.def.sc")
+        if(EXISTS "${_source}/${_shader}_varying.def.sc")
+            set(_varying "${_source}/${_shader}_varying.def.sc")
+        endif()
         foreach(_stage vs fs)
             if(_stage STREQUAL "vs")
                 set(_type vertex)
@@ -103,10 +107,10 @@ function(engine_embed_render_shaders target)
                 COMMAND
                     "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/${_stage}_${_shader}.sc" -o
                     "${_header}" --type "${_type}" --platform "${_platform}" --profile "${_profile}"
-                    --varyingdef "${_source}/varying.def.sc" -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
+                    --varyingdef "${_varying}" -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
                     --bin2c "${_stage}_${_shader}"
                 DEPENDS "${_source}/${_stage}_${_shader}.sc"
-                        "${_source}/varying.def.sc"
+                        "${_varying}"
                         "${_source}/pbr_helpers.sh"
                         "${_source}/shadow_helpers.sh"
                         "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"

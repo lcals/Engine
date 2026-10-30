@@ -59,6 +59,16 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AnimationDat
     output.animation_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::FontDataT> data) noexcept
+{
+    output.font_ = std::move(data);
+}
+
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::UiDocumentDataT> data) noexcept
+{
+    output.ui_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, ByteView data)
 {
     output.bytes_.assign(data.begin(), data.end());

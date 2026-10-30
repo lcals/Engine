@@ -60,6 +60,16 @@ const schema::AnimationDataT* Resource::animation() const noexcept
     return animation_.get();
 }
 
+const schema::FontDataT* Resource::font() const noexcept
+{
+    return font_.get();
+}
+
+const schema::UiDocumentDataT* Resource::ui() const noexcept
+{
+    return ui_.get();
+}
+
 ByteView Resource::bytes() const noexcept
 {
     return bytes_;

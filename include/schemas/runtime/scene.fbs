@@ -101,10 +101,23 @@ table CharacterControllerData {
     camera_node_id:ulong;
 }
 
+table UiData {
+    document_guid:string;
+}
+
+table TextData {
+    font_guid:string;
+    shader_path:string;
+    text:string;
+    size:float = 1;
+    color:Color (required, native_inline, native_default: "Color(1.0f, 1.0f, 1.0f, 1.0f)");
+    letter_spacing:float = 0;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
-    CharacterControllerData
+    CharacterControllerData, UiData, TextData
 }
 
 table ComponentData {

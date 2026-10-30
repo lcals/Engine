@@ -294,7 +294,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.prepare()
         previous = self.snapshot()
         self.entries.append(
-            resource_entry(b"unsupported resource", 2, 11, "project/future.bin", "")
+            resource_entry(b"unsupported resource", 2, 13, "project/future.bin", "")
         )
         self.write_resources()
         with self.assertRaises(ValueError):
@@ -310,6 +310,20 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assertEqual(
             (self.output / "project" / "gen" / audio["guid"]).read_bytes(), audio["entity"]
         )
+        self.assert_clean()
+
+    def test_font_and_ui_resources_preserve_identity_and_dependencies(self):
+        font = resource_entry(b"compiled font curves", 2, 11, "project/fonts/lato.ttf", "")
+        ui = resource_entry(b"compiled UI document", 3, 12, "project/ui/menu.rml", "")
+        ui["dependencies"] = [font["guid"]]
+        self.entries.extend([font, ui])
+        self.write_resources()
+        manifest = self.prepare()
+        for entry in (font, ui):
+            self.assertEqual(
+                (self.output / "project" / "gen" / entry["guid"]).read_bytes(), entry["entity"]
+            )
+        self.assertEqual(len(manifest["files"]), 4)
         self.assert_clean()
 
     def test_catalog_missing_does_not_fall_back_to_scanning(self):
