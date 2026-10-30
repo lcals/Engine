@@ -1,5 +1,6 @@
 #include "runtime/engine.hpp"
 
+#include "runtime/engine_config.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cmath>
@@ -44,7 +45,8 @@ bool Engine::is_initialized() const noexcept
 
 bool Engine::initialize(const EngineConfig& config)
 {
-    if (initialized_ || executing_ || systems_.empty())
+    if (initialized_ || executing_ || systems_.empty() ||
+        !frame_limiter_.set_target_frame_rate(config.target_frame_rate))
     {
         return false;
     }
@@ -61,6 +63,26 @@ bool Engine::initialize(const EngineConfig& config)
     initialized_ = true;
     executing_ = false;
     return true;
+}
+
+bool Engine::set_target_frame_rate(std::int32_t rate) noexcept
+{
+    return frame_limiter_.set_target_frame_rate(rate);
+}
+
+std::int32_t Engine::target_frame_rate() const noexcept
+{
+    return frame_limiter_.target_frame_rate();
+}
+
+void Engine::begin_frame() noexcept
+{
+    frame_limiter_.begin_frame();
+}
+
+void Engine::end_frame()
+{
+    frame_limiter_.end_frame();
 }
 
 bool Engine::tick(double delta_time)
@@ -97,6 +119,7 @@ void Engine::shutdown() noexcept
     }
     initialized_ = false;
     failed_ = false;
+    frame_limiter_.reset();
     executing_ = false;
 }
 

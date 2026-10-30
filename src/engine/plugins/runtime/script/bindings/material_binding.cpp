@@ -23,6 +23,12 @@ export class Material {
     SetShader(path) {
         const h = handles.get(this); return native.MaterialShader(h.scene, h.node, h.slot, path);
     }
+    SetCullMode(mode) {
+        const h = handles.get(this); return native.MaterialCullMode(h.scene, h.node, h.slot, mode);
+    }
+    GetCullMode() {
+        const h = handles.get(this); return native.MaterialGetCullMode(h.scene, h.node, h.slot);
+    }
     SetFloat(name, value) {
         const h = handles.get(this); return native.MaterialFloat(h.scene, h.node, h.slot, name, value);
     }
@@ -100,6 +106,35 @@ void shader(const Arguments& arguments)
     arguments.set_return(value != nullptr && value->set_shader(path));
 }
 
+void set_cull_mode(const Arguments& arguments)
+{
+    std::string mode;
+    auto* value = material(arguments, 4, mode);
+    if (value == nullptr || (mode != "back" && mode != "front" && mode != "none"))
+    {
+        return;
+    }
+    const auto cull = mode == "back"    ? schema::CullMode::back
+                      : mode == "front" ? schema::CullMode::front
+                                        : schema::CullMode::none;
+    arguments.set_return(value->set_cull_mode(cull));
+}
+
+void get_cull_mode(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+    if (mesh == nullptr || arguments.count() != 3 || !arguments.is_uint32(2))
+    {
+        return;
+    }
+    if (const auto* value = mesh->material(arguments.unsigned_integer(2)))
+    {
+        arguments.set_return(std::string_view(schema::EnumNameCullMode(value->cull_mode())));
+    }
+}
+
 void set_float(const Arguments& arguments)
 {
     std::string name;
@@ -163,6 +198,8 @@ bool MaterialBinding::register_functions(vm::ScriptVm& vm) const
     return vm.function("MaterialValid", valid) && vm.function("MaterialTexture", set_texture) &&
            vm.function("MaterialGetTexture", get_texture) && vm.function("MaterialType", type) &&
            vm.function("MaterialShader", shader) && vm.function("MaterialFloat", set_float) &&
+           vm.function("MaterialCullMode", set_cull_mode) &&
+           vm.function("MaterialGetCullMode", get_cull_mode) &&
            vm.function("MaterialV2", set_v2) && vm.function("MaterialV3", set_v3) &&
            vm.function("MaterialV4", set_v4);
 }

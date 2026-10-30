@@ -326,6 +326,36 @@ bool component_contracts()
     {
         return false;
     }
+    float cutoff = -1.0F;
+    float highlight = -1.0F;
+    if (!expect(material.set_shader("builtin/shaders/blinn-phong") &&
+                    material.get_float("specularHighlights", highlight) && highlight == 1.0F &&
+                    material.set_float("smoothnessSource", 1.0F) &&
+                    material.set_float("specularHighlights", 0.0F) &&
+                    !material.set_float("specularHighlights", 2.0F) &&
+                    !material.set_float("lightingMode", 0.0F),
+                "Blinn-Phong is selected by shader path with named material parameters"))
+    {
+        return false;
+    }
+    if (!expect(material.cull_mode() == engine::schema::CullMode::back &&
+                    material.get_float("alphaCutoff", cutoff) && cutoff == 0.0F &&
+                    material.set_cull_mode(engine::schema::CullMode::none) &&
+                    !material.set_cull_mode(static_cast<engine::schema::CullMode>(255)) &&
+                    material.cull_mode() == engine::schema::CullMode::none &&
+                    material.set_float("alphaCutoff", 0.5F) &&
+                    !material.set_float("alphaCutoff", 1.1F) &&
+                    material.get_float("alphaCutoff", cutoff) && cutoff == 0.5F &&
+                    material.set_shader("builtin/shaders/unlit") &&
+                    material.cull_mode() == engine::schema::CullMode::none &&
+                    material.get_float("alphaCutoff", cutoff) && cutoff == 0.0F &&
+                    material.set_type("builtin/materials/default-unlit") &&
+                    material.cull_mode() == engine::schema::CullMode::back,
+                "coverage defaults, invalid states and shader/type changes preserve "
+                "their contracts"))
+    {
+        return false;
+    }
     mesh->set_enabled(false);
     if (!expect(!mesh->enabled() && node->get_component<engine::MeshRenderer>() == mesh,
                 "disable retains component ownership"))

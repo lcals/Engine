@@ -12,6 +12,8 @@ using Color = schema::Color;
 using TransformSettings = schema::TransformDataT;
 using CameraSettings = schema::CameraDataT;
 using LightSettings = schema::LightDataT;
+using EnvironmentSettings = schema::EnvironmentDataT;
+using PostProcessSettings = schema::PostProcessDataT;
 using ComponentType = schema::ComponentPayload;
 
 } // namespace engine

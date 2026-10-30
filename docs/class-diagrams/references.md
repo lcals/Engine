@@ -44,10 +44,12 @@ classDiagram
     class EngineConfig {
         <<struct>>
     }
+    class FrameLimiter
     class FrameStatus {
         <<enumeration>>
     }
     Engine "0..1" *-- "0..*" System : 独占引擎根系统
+    Engine "1" *-- "1" FrameLimiter : 值持有帧调度状态
     System "0..1" *-- "0..*" System : 独占子系统
     Engine ..> EngineConfig : 初始化参数
     System ..> EngineConfig : 生命周期参数
@@ -57,6 +59,8 @@ classDiagram
 ```
 
 一个 System 对象只由引擎、父系统或独立宿主管理。`add_subsystem()` 成功后转移独占所有权；`parent()` 和 `subsystem()` 只返回借用。公开生命周期只接受根系统调度，子系统由父系统递归管理。
+
+[FrameLimiter](../runtime/class-diagrams/frame-limiter.md) 是纯标准库轻量类，不属于系统树。运行和编辑器宿主通过 Engine 的帧边界方法执行限速，脚本绑定调用 Engine 调整当前上限；编辑器配置与玩法切换策略不进入核心。完整帧末尾的休眠自然计入下一帧的 `delta_time`。
 
 ```mermaid
 classDiagram
@@ -75,6 +79,7 @@ classDiagram
     class ResourceSystem
     class WorldSystem
     class RenderSystem
+    class PerformanceSystem
     class ScriptRuntime
     class RuntimeHost
     class GameplaySession
@@ -87,8 +92,10 @@ classDiagram
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
     Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
-    Engine "1" *-- "0..1" WorldSystem : 第二个注册根系统
-    Engine "1" *-- "0..1" RenderSystem : 第三个注册根系统
+    Engine "1" *-- "0..1" PerformanceSystem : 独占性能根系统
+    RuntimeHost ..> PerformanceSystem : 创建并移交引擎
+    Engine "1" *-- "0..1" WorldSystem : 独占世界根系统
+    Engine "1" *-- "0..1" RenderSystem : 独占渲染根系统
     RuntimeHost --> RenderSystem : 借用并提交帧
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost ..> ScriptRuntimeFactory : 调用宿主创建函数
@@ -107,7 +114,7 @@ classDiagram
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
 ```
 
-默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。
+默认初始化顺序为 Window → Resource → Performance → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、性能系统、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。PerformanceSystem 的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
 
 ```mermaid
 classDiagram
@@ -955,6 +962,8 @@ classDiagram
 | RenderCommands | RenderSystem | 借用渲染设置与截图接口；编辑器负责撤销、截图根目录、越界检查及输出目录创建 |
 | RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
 | RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
+| ScenePreviewMcpTools | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
+| ScenePreviewMcpTools | McpSystem | 登记预览启停、查询、镜头设置与刷新；宿主保持适配器存活到 MCP 关闭 |
 | RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
 | RenderSystem | RenderSettings / RendererCallbacks | 拥有当前配置及 bgfx 回调；GPU 资源、阴影和实际帧 PNG 输出属于渲染系统 |
 

@@ -5,6 +5,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    engine_add_system(runtime performance)
+    if(ENGINE_ENABLE_TRACY)
+        target_compile_definitions(engine_performance PRIVATE ENGINE_ENABLE_TRACY=1)
+        target_link_libraries(engine_performance PRIVATE Tracy::TracyClient)
+    endif()
+
     engine_add_system(runtime window)
     target_link_libraries(
         engine_window
@@ -42,6 +48,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/shader_resource_codec.cpp
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
                 src/engine/runtime/resource/codecs/texture_resource_codec.cpp
+                src/engine/runtime/resource/ktx_texture.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
                 src/engine/runtime/resource/codecs/font_resource_codec.cpp
                 src/engine/runtime/resource/codecs/ui_resource_codec.cpp
@@ -55,7 +62,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
-        PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3)
+        PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg)
 
     engine_add_system(runtime world)
     include(${PROJECT_SOURCE_DIR}/cmake/core/scene_schema.cmake)
@@ -75,6 +82,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
                 src/engine/runtime/scene/light.cpp
+                src/engine/runtime/scene/environment_component.cpp
+                src/engine/runtime/scene/post_process_component.cpp
                 src/engine/runtime/scene/mesh_renderer.cpp
                 src/engine/runtime/scene/material.cpp
                 src/engine/runtime/scene/node.cpp
@@ -83,10 +92,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE flecs::flecs_static engine::resource)
+        PRIVATE flecs::flecs_static engine::resource engine::log)
+    target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
-    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world)
+    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource)
     engine_add_system(runtime audio)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 
@@ -122,6 +132,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
+        engine::performance
         engine::window
         engine::resource
         engine::world

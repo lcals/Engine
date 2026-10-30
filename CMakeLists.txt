@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.25)
 
 # 插件清单在工具链初始化前确定所需 vcpkg features。
 include(cmake/plugins/selection.cmake)
+include(cmake/dependencies/features.cmake)
 
 project(
     engine

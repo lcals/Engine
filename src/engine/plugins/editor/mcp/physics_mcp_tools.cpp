@@ -20,9 +20,11 @@ bool register_physics_tools(McpSystem& system, EditorMcpTools& editor)
            tools::component_tool(system, editor, "get_character_motor",
                                  "Read character motor collision settings.", Json::object()) &&
            tools::component_tool(
-               system, editor, "set_collider", "Add or edit a collider; undoable.",
+               system, editor, "set_collider",
+               "Add or edit a collider; undoable. Mesh colliders require a static body or no body.",
                {{"enabled", enabled},
-                {"shape", {{"type", "string"}, {"enum", {"box", "sphere", "capsule"}}}},
+                {"shape", {{"type", "string"}, {"enum", {"box", "sphere", "capsule", "mesh"}}}},
+                {"mesh", {{"type", "string"}}},
                 {"halfExtents", vector},
                 {"radius", number},
                 {"halfHeight", number},

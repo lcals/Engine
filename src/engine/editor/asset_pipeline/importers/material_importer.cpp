@@ -116,6 +116,18 @@ bool MaterialImporter::convert(const ImportAsset& asset, const ImportContext& co
     }
     schema::MaterialDataT material;
     material.type_path = asset.path;
+    if (table.contains("cull"))
+    {
+        const auto cull = table["cull"].value<std::string>();
+        if (!cull || (*cull != "back" && *cull != "front" && *cull != "none"))
+        {
+            error = "material cull must be back, front or none";
+            return false;
+        }
+        material.cull_mode = *cull == "back"    ? schema::CullMode::back
+                             : *cull == "front" ? schema::CullMode::front
+                                                : schema::CullMode::none;
+    }
     material.shader_guid = table["shader"].value_or(std::string{});
     if (!context.identities.guid_to_path(material.shader_guid, material.shader_path))
     {

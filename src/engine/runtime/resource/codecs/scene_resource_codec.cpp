@@ -2,6 +2,7 @@
 
 #include "runtime/resource/resource_catalog.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/scene_settings_validation.hpp"
 
 #include <flatbuffers/verifier.h>
 
@@ -28,17 +29,58 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
     {
         return false;
     }
+    bool has_environment = false;
+    bool has_shadow_light = false;
     for (const auto& node : data->nodes)
     {
         if (!node || !node->info)
         {
             return false;
         }
+        bool has_camera = false;
+        bool has_post_process = false;
         for (const auto& component : node->components)
         {
             if (!component || !component->payload.value)
             {
                 return false;
+            }
+            if (const auto* environment = component->payload.AsEnvironmentData())
+            {
+                if (!scene_detail::valid_environment(*environment) ||
+                    (component->enabled && has_environment))
+                {
+                    return false;
+                }
+                has_environment = has_environment || component->enabled;
+                for (const auto* guid :
+                     {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
+                      &environment->ibl_lut_guid})
+                {
+                    if (!guid->empty() &&
+                        !declares(catalog, output, *guid, schema::AssetKind::texture))
+                    {
+                        return false;
+                    }
+                }
+            }
+            if (const auto* post_process = component->payload.AsPostProcessData())
+            {
+                if (!scene_detail::valid_post_process(*post_process))
+                {
+                    return false;
+                }
+                has_post_process = true;
+            }
+            has_camera = has_camera || component->payload.AsCameraData() != nullptr;
+            if (const auto* light = component->payload.AsLightData())
+            {
+                if (!scene_detail::valid_light(*light) ||
+                    (component->enabled && light->cast_shadows && has_shadow_light))
+                {
+                    return false;
+                }
+                has_shadow_light = has_shadow_light || (component->enabled && light->cast_shadows);
             }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
@@ -93,6 +135,18 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                     }
                 }
             }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                if (!declares(catalog, output, collider->mesh_guid, schema::AssetKind::mesh))
+                {
+                    return false;
+                }
+            }
+        }
+        if (has_post_process && !has_camera)
+        {
+            return false;
         }
     }
     store(output, std::move(data));
@@ -112,6 +166,25 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
     {
         for (const auto& component : node->components)
         {
+            if (const auto* environment = component->payload.AsEnvironmentData();
+                environment && !environment->ibl_irradiance_guid.empty())
+            {
+                const auto* irradiance = dependency(dependencies, environment->ibl_irradiance_guid);
+                const auto* prefilter = dependency(dependencies, environment->ibl_prefilter_guid);
+                const auto* lut = dependency(dependencies, environment->ibl_lut_guid);
+                const auto* diffuse_data = irradiance ? irradiance->texture() : nullptr;
+                const auto* specular_data = prefilter ? prefilter->texture() : nullptr;
+                const auto* lut_data = lut ? lut->texture() : nullptr;
+                if (diffuse_data == nullptr || specular_data == nullptr || lut_data == nullptr ||
+                    !diffuse_data->cube_map || !specular_data->cube_map || lut_data->cube_map ||
+                    diffuse_data->srgb || specular_data->srgb || lut_data->srgb ||
+                    diffuse_data->format != schema::TextureFormat::rgba16f ||
+                    specular_data->format != schema::TextureFormat::rgba16f ||
+                    lut_data->format != schema::TextureFormat::rg16f)
+                {
+                    return false;
+                }
+            }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
                 const auto* document = dependency(dependencies, ui->document_guid);
@@ -170,6 +243,15 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                     {
                         return false;
                     }
+                }
+            }
+            if (const auto* collider = component->payload.AsColliderData();
+                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
+            {
+                const auto* mesh = dependency(dependencies, collider->mesh_guid);
+                if (mesh == nullptr || mesh->mesh() == nullptr)
+                {
+                    return false;
                 }
             }
         }

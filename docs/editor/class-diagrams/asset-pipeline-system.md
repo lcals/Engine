@@ -32,6 +32,7 @@ classDiagram
     class AssetImporter
     class SQLite
     class ResourceSystem
+    class App
     class AssetCatalogDataT
     System <|-- AssetPipelineSystem
     AssetPipelineSystem *-- TaskSystem : 子系统独占
@@ -41,6 +42,7 @@ classDiagram
     AssetPipelineSystem ..> AssetImporter : 通用指纹依赖与转换契约
     AssetPipelineSystem ..> SQLite : cache/assets.sqlite
     AssetPipelineSystem ..> ResourceSystem : 同步文件读取
+    AssetPipelineSystem ..> App : 验证本进程预览宿主路径身份
     AssetPipelineSystem *-- AssetCatalogDataT : 最近成功导入完整目录及只读返回
 ```
 
@@ -64,7 +66,7 @@ Shader 源码的 include 保守依赖全部项目普通源文件（不按 .sc/.s
 
 Shader 源码依赖不进入运行依赖；普通源资源仍有实体及完整目录条目，供编辑器访问和打包显式保留。转换结束后统一使用核心 `encode_resource()` 封装 `ERS1` 实体。目录版本为 2，存储定位使用 `content` 挂载及 `gen/<GUID>` 路径；`catalog()` 返回最近成功目录的只读借用，不含资源字节，失败保留上一份目录，关闭后清空。
 
-资源管线在项目锁内探测 `cache/editor-hosts/` 的会话 OS 租约。有活租约时，必须读取到身份匹配的 idle/closed 状态；启动中、运行中、停止中或状态读取失败均拒绝覆盖，要求先停止项目，不自动停启。心跳过期不能授予写权限；进程退出自动解锁，残留登记不阻塞导入。编辑器调用方负责在导入成功后将 `catalog()` 及挂载直接提交给核心。独立打包职责见[资源构建系统](../../plugins/editor/class-diagrams/asset-build-system.md)。
+资源管线在项目锁内探测 `cache/editor-hosts/` 的会话 OS 租约。有活租约时，必须读取到身份匹配的 idle/closed 状态；本进程编辑器主线程也可在 preview 状态增量导入，但必须同时确认 running=false、App 已初始化、登记的持久目录与本进程一致、App 内置资源目录对应本项目 cache。外部工具不能借其他编辑器的 preview 状态覆盖缓存。启动中、运行中、停止中或状态读取失败均拒绝覆盖，要求先停止项目，不自动停启。心跳过期不能授予写权限；进程退出自动解锁，残留登记不阻塞导入。编辑器调用方负责在导入成功后将 `catalog()` 及挂载直接提交给核心。独立打包职责见[资源构建系统](../../plugins/editor/class-diagrams/asset-build-system.md)。
 
 逐类型接口与批准备见[资源导入器](asset-importers.md)。管线不按具体资源类型分派，类型识别、meta默认值、模块路径、工具指纹、依赖和转换由所选导入器实现。
 

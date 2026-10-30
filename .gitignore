@@ -24,3 +24,6 @@ Thumbs.db
 /projects/*/cache/*
 !/projects/*/cache/.gitkeep
 node_modules/
+
+# 本地授权资源项目，不提交付费资源或派生内容。
+/projects/eternal-temple/

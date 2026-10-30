@@ -16,6 +16,7 @@
 | 编辑器 MCP | `plugins/editor/mcp/` | MCP 协议、工具注册、参数检查、项目/场景/渲染工具和固定目标通道 |
 | 编辑器资源构建 | `plugins/editor/asset_build/` | 项目打包清单、增量散文件/合并包及精简运行清单 |
 | 编辑器资源同步 | `plugins/editor/asset_sync/` | 向本机或 Android 调试包发布完整资源版本 |
+| 编辑器场景烘焙 | `plugins/editor/scene_bake/` | 分帧 GPU IBL 烘焙、KTX 资源发布与 MCP 作业控制 |
 
 头文件以完整作用域引用，例如 `plugins/editor/modeling/editable_mesh.hpp`、`plugins/editor/mcp/editor_mcp_tools.hpp`。纯运行时插件不得引用编辑器基础或编辑器插件；编辑器插件可以组合运行时插件和编辑器基础。核心通过自己的抽象接口使用可选实现，不 include 或链接具体插件。
 
@@ -24,7 +25,7 @@
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
 - `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph` 与 `character_controller`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import` 与 `character_controller`；可显式设置为空。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import` 与 `character_controller`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -39,6 +40,7 @@
 | `editor/usd_import` | 非设备构建，资源管线依赖开启 | 无；独立 `usd-import` vcpkg feature |
 | `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
 | `editor/ui_import` | 非设备构建，资源管线依赖开启 | 无；通过资源管线解析标准引用 |
+| `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | `runtime/resource_graph`；运行包不包含此插件 |
 | `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |
@@ -80,6 +82,7 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 - [资源加载接口](../runtime/class-diagrams/resource-loader.md)与[资源依赖图插件](runtime/class-diagrams/resource-graph.md)。
 - [建模功能与边界](editor/modeling.md)、[建模编辑业务](editor/class-diagrams/modeling-commands.md)。
 - [MCP 协议](editor/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。
+- [场景 GPU 烘焙](editor/class-diagrams/scene-bake.md)。
 - [资源构建](editor/resource-build.md)、[资源同步](editor/class-diagrams/asset-sync-system.md)。
 - [字体导入](editor/class-diagrams/font-importer.md)、[UI 导入](editor/class-diagrams/ui-importer.md)、[核心字体](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。
 - [跨层完整引用关系](../class-diagrams/references.md)。

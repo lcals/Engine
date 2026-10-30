@@ -34,6 +34,8 @@ public:
     void clear_history() noexcept;
     [[nodiscard]] std::size_t undo_count() const noexcept;
     [[nodiscard]] std::size_t redo_count() const noexcept;
+    // 影响场景的修改、批量、撤销或重做成功后递增；全局设置不改变代次。
+    [[nodiscard]] std::uint64_t mutation_revision() const noexcept;
 
 private:
     struct State;

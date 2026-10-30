@@ -1,5 +1,6 @@
 #include "runtime/scene/scene.hpp"
 
+#include "runtime/log/log_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/transform.hpp"
@@ -10,6 +11,7 @@
 #include <limits>
 #include <new>
 #include <set>
+#include <string>
 #include <utility>
 
 namespace engine
@@ -201,6 +203,11 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             }
             if (!restored || !restored->restore_data(*component))
             {
+                LogSystem::write(LogLevel::error,
+                                 "Cannot restore component " +
+                                     std::string(schema::EnumNameComponentPayload(
+                                         component->payload.type)) +
+                                     " on scene node: " + source->info->name);
                 return false;
             }
         }

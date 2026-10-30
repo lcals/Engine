@@ -2,14 +2,19 @@
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
+#include "editor/render/render_commands.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
@@ -48,6 +53,105 @@ bool same_texture(const engine::ResourcePtr& first, const engine::ResourcePtr& s
     return first && second && first->info() == second->info() &&
            first->generation() == second->generation() && first->texture() && second->texture() &&
            *first->texture() == *second->texture();
+}
+
+bool scene_render_settings_tests()
+{
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    engine::editor::EditorCommands commands(
+        [&world]() { return world.scene() == nullptr ? 0 : world.scene()->id(); });
+    engine::editor::RenderCommands module(renderer, world, {});
+    if (!module.register_commands(commands))
+    {
+        return false;
+    }
+    Json result;
+    std::string error;
+    const auto execute = [&](std::string_view name, const Json& arguments)
+    {
+        const bool success = commands.execute(name, arguments, result, error);
+        if (!success && name != "set_render_settings")
+        {
+            std::fprintf(stderr, "scene render settings: %s\n", error.c_str());
+        }
+        return success;
+    };
+    const auto initial_revision = commands.mutation_revision();
+    if (!expect(execute("set_render_settings", {{"ambientIntensity", .3}}) &&
+                    renderer.settings().ambient_intensity == .3F &&
+                    commands.mutation_revision() == initial_revision,
+                "idle defaults do not mutate or create a scene"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Persistent scene settings");
+    auto* camera_node = scene == nullptr ? nullptr : scene->create_node("Camera");
+    auto* camera = camera_node == nullptr ? nullptr : camera_node->add_component<engine::Camera>();
+    auto* first_node = scene == nullptr ? nullptr : scene->create_node("Fill light");
+    auto* second_node = scene == nullptr ? nullptr : scene->create_node("Shadow light");
+    auto* first = first_node == nullptr ? nullptr : first_node->add_component<engine::Light>();
+    auto* second = second_node == nullptr ? nullptr : second_node->add_component<engine::Light>();
+    if (camera == nullptr || first == nullptr || second == nullptr ||
+        !scene->set_active_camera(camera))
+    {
+        return false;
+    }
+    auto shadow = second->settings();
+    shadow.cast_shadows = true;
+    shadow.shadow_resolution = 1024;
+    shadow.shadow_bias = .004F;
+    if (!second->set_settings(shadow))
+    {
+        return false;
+    }
+    const auto count = scene->nodes().size();
+    const Json identity = {{"sceneId", std::to_string(scene->id())}};
+    if (!expect(execute("set_render_settings", {{"ambientIntensity", .7},
+                                                {"exposure", 1.3},
+                                                {"directionalShadows", false},
+                                                {"iblEnabled", true},
+                                                {"iblIntensity", .5}}) &&
+                    scene->nodes().size() == count + 1 &&
+                    camera_node->get_component<engine::PostProcessComponent>() != nullptr &&
+                    renderer.settings().ambient_intensity == .7F &&
+                    renderer.settings().ibl_enabled && renderer.settings().ibl_intensity == .5F &&
+                    renderer.settings().exposure == 1.3F && !second->settings().cast_shadows &&
+                    !first->settings().cast_shadows &&
+                    result["shadowResolution"] == first->settings().shadow_resolution &&
+                    commands.mutation_revision() > initial_revision,
+                "scene edits create components, mark dirty and target the active shadow caster"))
+    {
+        std::fprintf(stderr, "scene render settings: %s\n", error.c_str());
+        return false;
+    }
+    engine::schema::SceneDataT saved;
+    if (!expect(scene->build_data(saved) && saved.nodes.size() == count + 1,
+                "scene snapshot contains the environment node") ||
+        !expect(execute("undo", identity) && scene->nodes().size() == count &&
+                    camera_node->get_component<engine::PostProcessComponent>() == nullptr &&
+                    second->settings().cast_shadows &&
+                    second->settings().shadow_resolution == 1024 &&
+                    second->settings().shadow_bias == .004F && !first->settings().cast_shadows,
+                "undo removes created components and restores the exact second light") ||
+        !expect(execute("redo", identity) && scene->nodes().size() == count + 1 &&
+                    renderer.settings().exposure == 1.3F && !second->settings().cast_shadows,
+                "redo recreates the environment with a new node identity") ||
+        !expect(execute("undo", identity), "undo before checking rejected settings") ||
+        !expect(!execute("set_render_settings", {{"ambientIntensity", .8}, {"exposure", 0}}) &&
+                    scene->nodes().size() == count &&
+                    camera_node->get_component<engine::PostProcessComponent>() == nullptr &&
+                    second->settings().cast_shadows && renderer.settings().ambient_intensity == 0,
+                "invalid combined edits leave no partial nodes or components"))
+    {
+        return false;
+    }
+    return true;
 }
 
 bool render_command_tests()
@@ -512,7 +616,7 @@ bool channel_tests(const fs::path& root)
 
 int main()
 {
-    if (!command_tests() || !render_command_tests())
+    if (!command_tests() || !render_command_tests() || !scene_render_settings_tests())
     {
         return 1;
     }

@@ -1,4 +1,5 @@
 Copyright 2010-2025 Branimir Karadzic
+Copyright 2013-2016 Dario Manesku (adapted 16-shadowmaps and 18-ibl shaders)
 
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:

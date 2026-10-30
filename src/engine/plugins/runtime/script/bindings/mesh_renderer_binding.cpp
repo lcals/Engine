@@ -14,6 +14,12 @@ export class MeshRenderer extends Component {
     SetMesh(path) {
         const h = handles.get(this); return native.MeshRendererMesh(h.scene, h.node, path);
     }
+    get castShadows() {
+        const h = handles.get(this); return native.MeshRendererCastShadows(h.scene, h.node);
+    }
+    SetCastShadows(enabled) {
+        const h = handles.get(this); return native.MeshRendererSetCastShadows(h.scene, h.node, enabled);
+    }
     get materialCount() {
         const h = handles.get(this); return native.MeshRendererMaterialCount(h.scene, h.node);
     }
@@ -56,6 +62,25 @@ void material_count(const Arguments& arguments)
     arguments.set_return(static_cast<std::uint32_t>(count));
 }
 
+void cast_shadows(const Arguments& arguments)
+{
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+    arguments.set_return(mesh != nullptr && arguments.count() == 2 && mesh->cast_shadows());
+}
+
+void set_cast_shadows(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+    if (mesh != nullptr && arguments.count() == 3 && arguments.is_boolean(2))
+    {
+        mesh->set_cast_shadows(arguments.boolean(2));
+        arguments.set_return(true);
+    }
+}
+
 void set_material_count(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
@@ -79,6 +104,8 @@ bool MeshRendererBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("MeshRendererKind", static_cast<int>(MeshRenderer::component_type)) &&
            vm.function("MeshRendererAdd", add) && vm.function("MeshRendererMesh", mesh) &&
+           vm.function("MeshRendererCastShadows", cast_shadows) &&
+           vm.function("MeshRendererSetCastShadows", set_cast_shadows) &&
            vm.function("MeshRendererMaterialCount", material_count) &&
            vm.function("MeshRendererSetMaterialCount", set_material_count);
 }

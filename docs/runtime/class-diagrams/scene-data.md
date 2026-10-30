@@ -38,6 +38,8 @@ classDiagram
 
 场景节点 ID 为稳定局部 ID。加载时映射到运行实体 ID，恢复父子关系和活动相机；保存时反向映射，不将 flecs ID 落盘。TypeScript 节点 ID 使用 bigint。
 
+`EnvironmentData` 与 `PostProcessData` 追加于组件 union 末尾，保留既有类型编号；环境、相机后处理和灯光投影参数随场景一起保存并热重载，定义见[环境与后处理组件](environment-components.md)。旧场景省略它们时使用默认画面参数，不借用上一场景的瞬态设置。
+
 ## 网格
 
 ```mermaid
@@ -80,6 +82,7 @@ classDiagram
         +string shader_path
         +vector~unique_ptr~MaterialParameterT~~ parameters
         +vector~unique_ptr~MaterialTextureT~~ textures
+        +CullMode cull_mode
     }
     class MaterialParameterT {
         +string name
@@ -92,6 +95,13 @@ classDiagram
     }
     MaterialDataT *-- MaterialTextureT : 具名贴图引用
     class MaterialValueUnion
+    class CullMode {
+        <<enum class>>
+        back
+        front
+        none
+    }
+    MaterialDataT ..> CullMode : 默认背面剔除
     class MeshRendererDataT
     class ShaderDataT
     MaterialDataT *-- MaterialParameterT : 独占参数集合
@@ -181,12 +191,14 @@ classDiagram
         +TextureEncoding encoding
         +TextureFormat format
         +vector~uint8_t~ data
+        +bool cube_map
     }
     class MaterialTextureT
     class TextureEncoding {
         <<enum class>>
         basis
         rgba8
+        ktx
     }
     class TextureFormat {
         <<enum class>>
@@ -195,6 +207,8 @@ classDiagram
         bc7
         astc4x4
         etc2
+        rgba16f
+        rg16f
     }
     MaterialTextureT ..> TextureDataT : GUID引用
     TextureDataT ..> TextureEncoding : 缓存编码
