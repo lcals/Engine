@@ -384,6 +384,33 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 - 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
 - 一个运行目录供一个编辑器实例使用；并行编辑器使用不同 `--runtime-dir`。MCP 通过 `project-control.lock` 串行化控制；若 MCP 被强制中止留下锁，先确认相关客户端已退出且状态中没有正在执行的请求，再移除该运行目录中的锁目录。不能删除其他活动操作的锁。
 
+### 帧率上限
+
+核心 `Engine` 提供整帧限速，运行时默认 `-1` 表示不限帧。正整数为每秒帧数上限，`0`、小于 `-1` 的值或脚本非整数输入被拒绝，原设置保持不变。宿主在完整帧开始和结束调用限帧接口，休眠只补足剩余帧预算，超预算不额外等待；下一帧真实时间差包含等待时间，物理固定步长不变。
+
+项目编辑器配置放 `settings/editor.toml`，文件或字段缺失时默认 60，格式或数值错误拒绝启动：
+
+```toml
+[editor]
+target_frame_rate = 60
+```
+
+该上限用于编辑器待机和场景预览。启动游戏前暂存当前上限并切到 `-1`，再执行项目入口；业务可通过脚本设置自己的上限。停止游戏、启动失败或运行异常停止后恢复暂存值，业务修改不写回编辑器配置。独立运行包不读取编辑器配置。
+
+脚本在 `OnInitialize`、`Update` 或组件生命周期回调中使用：
+
+```ts
+import { Engine, Gameplay } from "engine";
+
+export default class Game extends Gameplay {
+    override OnInitialize(): boolean {
+        return Engine.SetTargetFrameRate(45);
+    }
+}
+```
+
+模块顶层、构造与热重载候选预检阶段禁止修改上限；查询在这些阶段返回 `null`。限帧是上限而非保底帧率，设备负载和 VSync 仍可能使实际帧率更低。C++ 接口与所有权见[帧率限制](docs/runtime/class-diagrams/frame-limiter.md)。
+
 ### 编辑器场景预览
 
 编辑器可直接预览已导入的 `.scene` 资源，不启动 Gameplay、角色控制、物理模拟或音频播放；窗口显示场景，不添加编辑器 UI。调用 `open_scene_preview` 后，既有 MCP 节点、组件和材质命令直接编辑该预览，下一帧显示结果。

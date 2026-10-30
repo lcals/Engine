@@ -23,6 +23,15 @@ declare module "engine" {
         static readonly cachePath: string;
     }
 
+    /** Frame scheduling. Methods require an active gameplay or component callback. */
+    export class Engine {
+        private constructor();
+        /** -1 removes the cap; positive int32 values set its maximum. Invalid calls return false. */
+        static SetTargetFrameRate(fps: number): boolean;
+        /** The current cap, or null outside an active callback. */
+        static GetTargetFrameRate(): number | null;
+    }
+
     /** Seconds of the current Update; zero during initialization and shutdown. */
     export class Time {
         private constructor();

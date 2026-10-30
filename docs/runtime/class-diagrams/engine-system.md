@@ -14,6 +14,10 @@ classDiagram
         +add_system(std::unique_ptr~System~& system) bool
         +system_count() std::size_t
         +is_initialized() bool
+        +set_target_frame_rate(std::int32_t rate) bool
+        +target_frame_rate() std::int32_t
+        +begin_frame() void
+        +end_frame() void
         +tick(double delta_time) bool
         +shutdown() void
         -Engine()
@@ -52,11 +56,13 @@ classDiagram
 
 ## 接口约定
 
-- Engine 只负责根系统的所有权、初始化、逐帧更新和反序关闭，编译在纯标准库核心目标中，不依赖窗口、渲染、脚本、场景或编辑器。
+- Engine 负责根系统的所有权、初始化、逐帧更新、帧调度和反序关闭，编译在纯标准库核心目标中，不依赖窗口、渲染、脚本、场景或编辑器。
+- Engine 值持有轻量 [FrameLimiter](frame-limiter.md)，不额外注册限帧系统。`set_target_frame_rate()`、`target_frame_rate()` 与 `begin_frame()` 为 `noexcept`，前两者为 `[[nodiscard]]`，查询方法为 `const`。`end_frame()` 执行标准库休眠。
+- `target_frame_rate` 默认 `-1` 表示不限帧，正整数表示每秒最大帧数。`0` 和小于 `-1` 的值被拒绝且不修改原设置；初始化配置同样校验。宿主在完整帧开始、结束调用 `begin_frame()` / `end_frame()`，包含事件、编辑器处理、系统更新和渲染提交；等待计入下一帧的时间差。框架不判断调用方模式，编辑器和项目业务选择当前上限。
 - `add_system()` 只能在引擎未初始化且未执行生命周期回调时调用。对象必须是未初始化的独立根系统；成功后转移所有权并清空输入，失败保持输入和系统列表不变。
 - `initialize()` 要求至少一个根系统，按添加顺序初始化。重复初始化被拒绝；失败反序关闭并销毁已装配系统，允许重新装配。
 - `tick()` 要求已初始化，时间为有限且非负的秒数。非法时间只拒绝本次调用；系统更新失败则保持失败状态，必须关闭后重新装配。系统按注册顺序更新，失败停止本帧后续调度。
-- `shutdown()` 反序关闭并销毁根系统，重复调用安全。生命周期回调中不允许重入初始化、更新、关闭或装配操作。
+- `shutdown()` 反序关闭并销毁根系统，清除正在计时的帧并恢复不限帧，重复调用安全。生命周期回调中不允许重入初始化、更新、关闭或装配操作。
 - `system_count()` 与 `is_initialized()` 只查询框架自身状态，不汇总任何具体模块数据。
 - 窗口配置校验属于 WindowSystem，运行宿主 [RuntimeHost](runtime-host.md) 负责具体系统装配、窗口事件、暂停和帧提交；[GameplaySession](gameplay-session.md) 负责玩法启停与场景、GPU、项目定义的释放。
 - Engine 不要求项目，不拥有 ProjectSystem；编辑器项目路径与平台目录由 EditorEnvironment 和 App 管理。

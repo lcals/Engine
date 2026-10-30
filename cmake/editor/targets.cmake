@@ -9,6 +9,8 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_project PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
 
     engine_add_system(editor editor src/engine/editor/editor_system.cpp)
+    target_include_directories(engine_editor SYSTEM PRIVATE ${_project_toml_includes})
+    target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
     target_sources(
         engine_editor
         PRIVATE src/engine/editor/render/render_commands.cpp
@@ -129,8 +131,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
     if(TARGET engine_editor)
         target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp)
-        target_include_directories(engine_editor SYSTEM PRIVATE ${_toml_includes})
-        target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
         target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()
 
