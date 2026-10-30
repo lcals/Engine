@@ -34,6 +34,21 @@ declare module "engine" {
         private constructor();
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
         static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
+        /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
+        static SetAmbientTricolor(
+            sky: readonly [number, number, number],
+            equator: readonly [number, number, number],
+            ground: readonly [number, number, number],
+            intensity: number
+        ): boolean;
+        /** Linear RGB and world distances. Requires 0 <= start < end, even when disabled. */
+        static SetLinearFog(
+            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+        ): boolean;
+        /** Nonnegative density, forward camera depth. squared defaults to false. */
+        static SetExponentialFog(
+            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+        ): boolean;
         /** Exposure in (0, 100]. */
         static SetExposure(value: number): boolean;
         static SetFilmicTonemap(enabled: boolean): boolean;
@@ -49,6 +64,8 @@ declare module "engine" {
         IsValid(): boolean;
         SetType(path: string): boolean;
         SetShader(path: string): boolean;
+        SetCullMode(mode: "back" | "front" | "none"): boolean;
+        GetCullMode(): "back" | "front" | "none" | null;
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
@@ -120,6 +137,8 @@ declare module "engine" {
         private constructor();
         readonly material: Material;
         readonly materialCount: number;
+        readonly castShadows: boolean;
+        SetCastShadows(enabled: boolean): boolean;
         SetMesh(path: string): boolean;
         GetMaterial(slot: number): Material | null;
         SetMaterialCount(count: number): boolean;
@@ -151,6 +170,8 @@ declare module "engine" {
         SetSphere(radius: number): boolean;
         /** Half-height is measured along the cylinder part, excluding the hemispheres. */
         SetCapsule(radius: number, halfHeight: number): boolean;
+        /** Static triangle Mesh by resource path; rejects dynamic and kinematic rigid bodies. */
+        SetMesh(path: string): boolean;
         SetFriction(value: number): boolean;
         SetRestitution(value: number): boolean;
         SetTrigger(value: boolean): boolean;

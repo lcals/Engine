@@ -11,7 +11,7 @@ classDiagram
         <<final>>
         +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui)
         +~RenderSystem()
-        +prepare_scene() bool
+        +prepare_scene(const Camera#42; camera) bool
         +release_scene() void
         +scene_prepared() bool
         +gpu_resource_count() uint32_t
@@ -19,7 +19,7 @@ classDiagram
         +settings() const RenderSettings&
         +request_screenshot(string_view utf8_png_path) bool
         +screenshot_status() ScreenshotStatus
-        +render() bool
+        +render(const Camera#42; camera) bool
         #on_initialize(const EngineConfig& config) bool
         #on_shutdown() void
     }
@@ -47,6 +47,15 @@ classDiagram
         <<struct>>
         +ambient_color : float[3]
         +ambient_intensity : float
+        +ambient_tricolor : bool
+        +ambient_sky_color : float[3]
+        +ambient_equator_color : float[3]
+        +ambient_ground_color : float[3]
+        +fog_mode : FogMode
+        +fog_color : float[3]
+        +fog_start : float
+        +fog_end : float
+        +fog_density : float
         +exposure : float
         +filmic_tonemap : bool
         +directional_shadows : bool
@@ -54,6 +63,14 @@ classDiagram
         +shadow_bias : float
         +clear_color : uint32_t
     }
+    class FogMode {
+        <<enumeration>>
+        none
+        linear
+        exponential
+        exponential_squared
+    }
+    RenderSettings --> FogMode : 雾模式值
     class ScreenshotStatus {
         <<enumeration>>
         idle
@@ -79,7 +96,7 @@ classDiagram
     RenderSystem --> FontSystem : 可空借用 3D 文字绘制
     RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
-    RenderSystem ..> Camera : 从节点读取视角与投影
+    RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
     RenderSystem ..> Light : 从节点读取方向与光照
     RenderSystem ..> MeshRenderer : 读取源Mesh和瞬态变形及材质
     RenderSystem ..> Transform : 从节点读取世界变换
@@ -103,7 +120,8 @@ classDiagram
 
 - 构造时借用窗口系统，以及可空的世界、字体和 UI 系统；借用必须覆盖渲染系统生命周期。世界系统为空时只显示空白。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
 - 3D 文字与网格使用同一场景相机，由 FontSystem 按普通文字组件绘制；UI 由 UiSystem 在场景之后的有序视图提交。Renderer 只协调通道，不复制字体排布或 RmlUi 文档业务。关闭 GPU 前先释放 UI 和字体 GPU 数据。
-- `prepare_scene()` 在主线程按当前场景引用的独立 Mesh 资源准备顶点和索引缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
+- `prepare_scene(camera)` 在主线程按当前场景引用的独立 Mesh 资源准备顶点和索引缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
+- `prepare_scene` 与 `render` 的 `camera` 默认空，使用世界场景的活动镜头；显式传入时仅在本次调用借用。镜头可来自调用方独立场景，其 Node、Transform 和 Camera 必须在调用期间有效。渲染器不保存镜头指针、不改变项目场景的活动镜头，也不判断调用方用途。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
@@ -130,10 +148,12 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 
 - 几何支持 UV0、切线、顶点色和子网格；GPU 顶点以明确 float 布局组装，不依赖 FlatBuffers struct 的内存布局。网格按所属节点完整 ID 与 mesh_revision 更新，仅改变的几何重新上传。
 - 每个子网格按材质槽独立提交，空子网格表绘制完整索引与槽 0。所有材质槽遵循相同 Shader 与命名参数规则。
+- 主 pass 与阴影 pass 共用材质面剔除状态和 alpha 裁切语义；cast_shadows=false 的组件不进入阴影边界拟合和投射，仍保留主绘制。UV 变换、基础色和纹理 alpha 在两个 pass 保持一致。
 - 纹理来自 ResourcePtr 持有的 TextureData，Basis Universal 转码后上传全部 mip。auto 按实际 GPU 能力与 Basis 转码器支持情况选择 BC7、ASTC 4x4、ETC2 或 RGBA8；显式请求不支持的格式返回失败。sRGB 只用于颜色纹理，法线及 ORM 使用线性采样。
 - GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，停止项目、场景替换及设备关闭统一释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
 - 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
-- 最多 8 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。
+- 最多 64 个启用灯光，方向、点光、聚光均由节点组件表达；超出限制明确失败，不静默丢灯。相机支持透视和正交投影。
 - `set_settings()` 接受调用方明确提交的渲染参数，非法值返回失败且保持原配置。默认环境光为 0、曝光为 1、Reinhard 色调映射、阴影关闭；不改变既有直接照明效果。可选择统一环境漫反射和 filmic 色调映射；环境参数不代表隐藏场景灯，也不实现 IBL。
+- 可选 `ambient_tricolor` 根据世界法线 Y 在天空、赤道与地面线性颜色间插值，仍乘 `ambient_intensity`；关闭时使用原有 `ambient_color`。`fog_mode` 选择关闭、线性、指数或平方指数雾。线性模式保留相机到片元的世界距离，在 `fog_start` 到 `fog_end` 间混合；指数模式用相机前向深度减近裁面，透过率分别为 `exp(-density*d)` 与 `exp(-(density*d)^2)`，density 为非负有限数。颜色均为线性 `fog_color`，要求 `0 <= start < end`。两者默认关闭，数据由调用方明确提交，不识别 Unity 或具体项目。
 - 方向光阴影使用场景中第一个启用的方向光，其变换仍来自节点。按当前可绘制网格的世界边界拟合正交投影，复用 bgfx `15-shadowmaps-simple` 的 packed-depth 路径与 16 点 PCF 采样；无方向光不产生阴影。RGBA8 深度编码与 D16 深度附件避免依赖硬件比较采样；纹理、帧缓冲及程序随场景释放，设备不支持附件格式时返回失败，不假报开启。阴影使用保留纹理槽 15，项目材质不得占用该槽。ACES 色调映射直接适配 bgfx `shaderlib.sh` 的曲线，保留来源。
 - `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧经 bgfx 回调写入 PNG 后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。回调处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时完成或取消等待中的请求。请求和查询由主线程调用，回调状态跨线程同步。

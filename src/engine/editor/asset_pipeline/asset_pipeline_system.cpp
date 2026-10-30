@@ -8,6 +8,7 @@
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "editor/task/task_system.hpp"
+#include "runtime/app/app.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
@@ -179,7 +180,15 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
                 error = "Stop the active editor project before rebuilding its resource cache";
                 return false;
             }
-            if (state != "idle" && state != "closed")
+            // 预览宿主的协调线程同步导入，期间不执行渲染或玩法帧。
+            // 工具进程未持有相同 App 环境，不能借另一宿主的 preview 状态覆盖缓存。
+            const bool own_preview =
+                state == "preview" && status.contains("running") &&
+                status["running"].is_boolean() && !status["running"].get<bool>() &&
+                App::is_initialized() &&
+                std::filesystem::equivalent(runtime, App::persistent_data_path(), code) &&
+                std::filesystem::equivalent(root / "cache", App::builtin_assets_path(), code);
+            if (state != "idle" && state != "closed" && !own_preview)
             {
                 error = "editor project status does not confirm that the cache is idle";
                 return false;

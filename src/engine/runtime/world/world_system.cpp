@@ -1,5 +1,6 @@
 #include "runtime/world/world_system.hpp"
 
+#include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/scene.hpp"
 
@@ -8,6 +9,7 @@
 #include <cstdio>
 #include <limits>
 #include <new>
+#include <string>
 
 namespace engine
 {
@@ -44,9 +46,16 @@ Scene* WorldSystem::load_scene(std::string_view path)
     auto* resources = ResourceSystem::instance();
     Guid guid;
     ResourcePtr resource;
-    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, resource))
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
     {
+        LogSystem::write(LogLevel::error, "Scene path is unavailable: " + std::string(path));
+        return nullptr;
+    }
+    if (!resources->loader().load(guid, resource))
+    {
+        LogSystem::write(LogLevel::error,
+                         "Cannot load scene " + std::string(path) + ": " +
+                             resources->loader().last_error());
         return nullptr;
     }
     const auto* data = resource->scene();
@@ -58,6 +67,7 @@ Scene* WorldSystem::load_scene(std::string_view path)
         new (std::nothrow) Scene(*world_, scene_sequence_ + 1, data->info->name, components_));
     if (!candidate || !candidate->restore_data(*data))
     {
+        LogSystem::write(LogLevel::error, "Cannot restore scene: " + std::string(path));
         return nullptr;
     }
     candidate->resource_ = std::move(resource);

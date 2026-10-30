@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <map>
 #include <utility>
@@ -35,6 +36,12 @@ class BatchEdit final : public EditorEdit
 {
 public:
     std::vector<std::unique_ptr<EditorEdit>> edits;
+
+    bool affects_scene() const noexcept override
+    {
+        return std::any_of(edits.begin(), edits.end(),
+                           [](const auto& edit) { return edit->affects_scene(); });
+    }
 
     bool apply(std::string& error) override
     {
@@ -88,6 +95,7 @@ struct EditorCommands::State
 
     SceneIdProvider scene_id;
     std::uint64_t generation = 0;
+    std::uint64_t mutation_revision = 0;
     std::map<std::string, Command, std::less<>> commands;
     std::vector<std::unique_ptr<EditorEdit>> undo;
     std::vector<std::unique_ptr<EditorEdit>> redo;
@@ -102,6 +110,10 @@ struct EditorCommands::State
         if (undo.size() == history_limit)
         {
             undo.erase(undo.begin());
+        }
+        if (edit->affects_scene())
+        {
+            ++mutation_revision;
         }
         undo.push_back(std::move(edit));
     }
@@ -220,6 +232,10 @@ bool EditorCommands::execute(std::string_view name, const Json& arguments, Json&
         }
         else if (name == "undo" ? from.back()->revert(error) : from.back()->apply(error))
         {
+            if (from.back()->affects_scene())
+            {
+                ++state_->mutation_revision;
+            }
             to.push_back(std::move(from.back()));
             from.pop_back();
             result = {{"sceneId", std::to_string(generation)}};
@@ -283,6 +299,11 @@ std::size_t EditorCommands::undo_count() const noexcept
 std::size_t EditorCommands::redo_count() const noexcept
 {
     return state_->redo.size();
+}
+
+std::uint64_t EditorCommands::mutation_revision() const noexcept
+{
+    return state_->mutation_revision;
 }
 
 } // namespace engine::editor

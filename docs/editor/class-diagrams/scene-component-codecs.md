@@ -2,6 +2,8 @@
 
 [类图索引](../../class-diagrams/index.md) · [场景导入](scene-importer.md)
 
+`ColliderCodec` 支持基本形状和静态三角网格；TOML 的 `shape = "mesh"` 搭配 `mesh = "<GUID>"` 对应 ColliderData 的 mesh_guid。SceneAssetImporter 将该独立 Mesh 引用加入场景依赖，运行时沿用统一资源目录加载。
+
 ```mermaid
 classDiagram
     class SceneComponentCodec {

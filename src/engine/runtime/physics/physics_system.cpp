@@ -1,5 +1,6 @@
 #include "runtime/physics/physics_system.hpp"
 
+#include "runtime/resource/resource.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/rigid_body.hpp"
@@ -21,6 +22,7 @@
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
@@ -30,7 +32,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <map>
 #include <mutex>
 #include <new>
@@ -237,8 +241,8 @@ bool world_matrix(const Transform& transform, JPH::Mat44& output)
     return true;
 }
 
-bool make_shape(const schema::ColliderDataT& collider, JPH::Vec3Arg scale,
-                JPH::RefConst<JPH::Shape>& output)
+bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* mesh,
+                JPH::Vec3Arg scale, JPH::RefConst<JPH::Shape>& output)
 {
     output = nullptr;
     JPH::Shape::ShapeResult result;
@@ -273,6 +277,48 @@ bool make_shape(const schema::ColliderDataT& collider, JPH::Vec3Arg scale,
                                            collider.radius * scale.GetX())
                      .Create();
         break;
+    case schema::ColliderShape::mesh:
+    {
+        if (mesh == nullptr || mesh->vertices.empty() || mesh->indices.empty() ||
+            mesh->indices.size() % 3 != 0 ||
+            mesh->vertices.size() > std::numeric_limits<std::uint32_t>::max() ||
+            mesh->indices.size() / 3 > std::numeric_limits<std::uint32_t>::max())
+        {
+            return false;
+        }
+        JPH::VertexList vertices;
+        vertices.reserve(mesh->vertices.size());
+        for (const auto& vertex : mesh->vertices)
+        {
+            const JPH::Vec3 position = JPH::Vec3(vertex.x(), vertex.y(), vertex.z()) * scale;
+            if (!finite(position) || position.Abs().ReduceMax() > 100000.0F)
+            {
+                return false;
+            }
+            vertices.emplace_back(position.GetX(), position.GetY(), position.GetZ());
+        }
+        JPH::IndexedTriangleList triangles;
+        triangles.reserve(mesh->indices.size() / 3);
+        for (std::size_t index = 0; index < mesh->indices.size(); index += 3)
+        {
+            const auto a = mesh->indices[index];
+            const auto b = mesh->indices[index + 1];
+            const auto c = mesh->indices[index + 2];
+            if (a >= vertices.size() || b >= vertices.size() || c >= vertices.size())
+            {
+                return false;
+            }
+            triangles.emplace_back(a, b, c, 0U);
+        }
+        // Jolt 清理退化三角形并建立三角形树；保留源 Mesh 的逆时针绕序。
+        const JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+        if (settings.mIndexedTriangles.empty())
+        {
+            return false;
+        }
+        result = settings.Create();
+        break;
+    }
     default:
         return false;
     }
@@ -361,6 +407,7 @@ struct BodySnapshot
     JPH::Vec3 position = JPH::Vec3::sZero();
     JPH::Quat rotation = JPH::Quat::sIdentity();
     JPH::Vec3 scale = JPH::Vec3::sReplicate(1.0F);
+    ResourcePtr mesh;
     JPH::RefConst<JPH::Shape> shape;
 };
 
@@ -398,6 +445,8 @@ bool read_snapshot(const Node& node, const Collider& collider, const RigidBody* 
         output.rigid_body.motion = schema::BodyMotion::static_body;
     }
     return (output.rigid_body.motion != schema::BodyMotion::dynamic || node.parent() == nullptr) &&
+           (output.collider.shape != schema::ColliderShape::mesh ||
+            output.rigid_body.motion == schema::BodyMotion::static_body) &&
            Collider::valid_settings(output.collider) &&
            RigidBody::valid_settings(output.rigid_body);
 }
@@ -522,6 +571,7 @@ struct PhysicsSystem::State
             auto found = bodies.find(snapshot.node_id);
             const bool rebuild = found == bodies.end() ||
                                  found->second.snapshot.collider != snapshot.collider ||
+                                 found->second.snapshot.mesh != snapshot.mesh ||
                                  found->second.snapshot.rigid_body != snapshot.rigid_body ||
                                  !found->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F);
             if (rebuild)
@@ -800,13 +850,16 @@ bool PhysicsSystem::on_tick(double delta_time)
             return false;
         }
         const auto existing = state_->bodies.find(node->id());
+        snapshot.mesh = collider->mesh_;
         if (existing != state_->bodies.end() &&
             existing->second.snapshot.collider == snapshot.collider &&
+            existing->second.snapshot.mesh == snapshot.mesh &&
             existing->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F))
         {
             snapshot.shape = existing->second.snapshot.shape;
         }
-        else if (!make_shape(snapshot.collider, snapshot.scale, snapshot.shape))
+        else if (!make_shape(snapshot.collider, snapshot.mesh ? snapshot.mesh->mesh() : nullptr,
+                             snapshot.scale, snapshot.shape))
         {
             std::fputs("Physics cannot create collider with the requested world scale\n", stderr);
             clear();

@@ -38,11 +38,23 @@ bool RenderMcpTools::register_tools(McpSystem& system)
                                      [this, command](const Json& arguments, Json& reply)
                                      { return editor_.call_command(command, arguments, reply); }});
     };
-    return add("get_render_settings", "读取当前环境光、曝光、阴影与背景设置。",
+    return add("get_render_settings", "读取当前环境光、雾、曝光、阴影与背景设置。",
                object(Json::object())) &&
            add("set_render_settings", "设置渲染效果；沿用编辑器事务和撤销。",
                object({{"ambientColor", color(3)},
                        {"ambientIntensity", {{"type", "number"}, {"minimum", 0}}},
+                       {"ambientTricolor", {{"type", "boolean"}}},
+                       {"ambientSkyColor", color(3)},
+                       {"ambientEquatorColor", color(3)},
+                       {"ambientGroundColor", color(3)},
+                       {"linearFog", {{"type", "boolean"}}},
+                       {"fogMode", {{"type", "string"},
+                                    {"enum", {"none", "linear", "exponential",
+                                              "exponential_squared"}}}},
+                       {"fogColor", color(3)},
+                       {"fogStart", {{"type", "number"}, {"minimum", 0}}},
+                       {"fogEnd", {{"type", "number"}, {"minimum", 0}}},
+                       {"fogDensity", {{"type", "number"}, {"minimum", 0}}},
                        {"exposure", {{"type", "number"}, {"minimum", 0.000001}}},
                        {"filmicTonemap", {{"type", "boolean"}}},
                        {"directionalShadows", {{"type", "boolean"}}},

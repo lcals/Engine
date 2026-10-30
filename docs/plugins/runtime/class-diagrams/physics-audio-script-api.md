@@ -9,6 +9,7 @@ classDiagram
         +SetBox(number x, number y, number z) boolean
         +SetSphere(number radius) boolean
         +SetCapsule(number radius, number halfHeight) boolean
+        +SetMesh(string path) boolean
         +SetFriction(number value) boolean
         +SetRestitution(number value) boolean
         +SetTrigger(boolean value) boolean
@@ -25,6 +26,8 @@ classDiagram
 ```
 
 Box 参数为半尺寸，Capsule 的 halfHeight 为圆柱段半高。刚体 motion 为 `static`、`kinematic`、`dynamic`；切换 static 前须将速度清零，状态由原生组件校验。速度和冲量使用世界空间，冲量请求在下一次物理同步消费。GetVelocity 返回普通 `{x,y,z}` 值快照，失效时返回 null。
+
+`SetMesh(path)` 使用资源目录中的独立 Mesh，加载失败保留已有形状；只允许无刚体或静态刚体。`SetBox/SetSphere/SetCapsule` 会清空碰撞网格引用。网格三角面不跟随蒙皮动画改变。
 
 ```mermaid
 classDiagram

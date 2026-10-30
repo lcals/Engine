@@ -14,10 +14,12 @@ classDiagram
         +clear_history() void
         +undo_count() size_t
         +redo_count() size_t
+        +mutation_revision() uint64_t
     }
     class EditorEdit {
         <<abstract>>
         +~EditorEdit()
+        +affects_scene() bool
         +apply(string& error) bool
         +revert(string& error) bool
     }
@@ -42,7 +44,10 @@ classDiagram
 - `Handler = std::function<bool(const Json&, Json&, std::unique_ptr<EditorEdit>&, std::string&)>`。查询返回结果及空记录；修改仅创建尚未应用的独占记录，由命令服务执行。注册不允许覆盖已有名称或内置 batch/undo/redo。
 - `EditorEdit::apply/revert` 检查场景、完整节点身份和相关属性期望值；失败保持当前对象不变。属性记录只修改涉及字段；组件快照记录比较并恢复整个组件生成数据。已有对象不重建，创建命令及新组件的撤销/重做按各自契约销毁与重建对象。
 - batch 最多 64 条修改，按顺序执行，任一失败反序回滚已应用部分；一批只产生一次撤销记录。禁止嵌套 batch、查询及 undo/redo。撤销反序恢复，重做正序恢复；发现陈旧值则拒绝并恢复本次已执行部分。最多保留 128 批，新的修改清空 redo。
+- `EditorEdit::affects_scene()` 为 const、noexcept 虚函数，默认 true；不改场景的记录自行返回 false。批量记录只要任一子记录影响场景就返回 true。
+- `mutation_revision()` 返回单调场景修改代次，仅影响场景的成功修改、批量、撤销、重做递增；查询、全局渲染设置和清空历史不改变代次。编辑器预览用它保护尚未保存的场景，不依赖撤销栈长度推测修改状态。
 - SceneCommands 注册 `get_scene`、`create_node`、`set_active_camera`、`set_transform`、`set_light`、`set_material_parameter`。仅操作已有活动场景；无场景查询返回 null，修改失败。`create_node` 创建 Transform 和可选 Camera/Light；同场景名称唯一，返回名称后可查询节点身份。撤销删除自身创建的无后代节点，重做可分配新的运行时 ID；其他修改仍检查身份与期望状态。不新增建模、渲染或资源导入职责。
+- `get_scene(offset?, limit?)` 按场景节点顺序分页，参数均为非负整数。offset 默认 0，省略 limit 返回该偏移后的全部节点，保持无参数查询行为；limit 为 0 或 offset 超出节点总数时返回空节点数组。结果顶层返回 `totalNodes` 和请求的 `offset`，`scene.nodes` 仅包含当前页；无活动场景时 `scene=null`、`totalNodes=0`。分页不锁定跨请求快照，调用方应核对 sceneId，并在结构变化后重新查询。
 - 节点 ID 与 sceneId 使用完整十进制 uint64 字符串；数值 JSON ID、零值、溢出及旧场景身份均拒绝。材料参数支持 float/v2/v3/v4，遵守原生材质类型与值域检查。
 
 通道位于编辑器持久目录：`editor-command.json` 输入，`editor-receipt.json` 为最新回执，`editor-receipts/<session>/<requestId>.json` 保存各请求原回执。输入上限 1 MiB。请求为 `{session,projectRoot,requestId,command,arguments}`；回执为 `{session,projectRoot,requestId,command,success,result,error,completedAtMs}`。session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。会话与项目必须匹配；同会话 requestId 只执行一次，先写独立回执再更新最新快照。写回失败保留已执行结果供重试。旧 `project-control.json` 启停协议保持兼容。

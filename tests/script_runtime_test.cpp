@@ -941,6 +941,16 @@ export default class extends Gameplay {
     OnInitialize() {
         return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
             Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
+            Render.SetAmbientTricolor([.5,.6,.7], [.3,.4,.5], [.1,.2,.3], .15) &&
+            Render.SetLinearFog(true, .2, .3, .4, 60, 300) &&
+            Render.SetExponentialFog(true, .2, .3, .4, .007, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, -.01, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, Infinity, true) &&
+            !Render.SetExponentialFog(true, .8, .7, .6, .01, 1) &&
+            !Render.SetAmbientTricolor(null, [.3,.4,.5], [.1,.2,.3], .2) &&
+            !Render.SetAmbientTricolor([1,2,3], [.3,.4,.5], [.1,.2,.3], .2) &&
+            !Render.SetLinearFog(true, .8, .7, .6, 300, 60) &&
+            !Render.SetLinearFog(true, .8, .7, .6, -1, 60) &&
             Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
             Render.SetDirectionalShadows(true, 1024, .002) &&
             Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
@@ -975,6 +985,12 @@ export default class extends Gameplay {
     const auto& settings = renderer.settings();
     if (!expect(settings.ambient_color == std::array<float, 3>{.2F, .3F, .4F} &&
                     settings.ambient_intensity == .15F && settings.exposure == 1.4F &&
+                    settings.ambient_tricolor &&
+                    settings.ambient_sky_color == std::array<float, 3>{.5F, .6F, .7F} &&
+                    settings.fog_mode == engine::FogMode::exponential_squared &&
+                    settings.fog_density == .007F &&
+                    settings.fog_start == 60 && settings.fog_end == 300 &&
+                    settings.fog_color == std::array<float, 3>{.2F, .3F, .4F} &&
                     settings.filmic_tonemap && settings.directional_shadows &&
                     settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
                     settings.clear_color == 0x56789aff,

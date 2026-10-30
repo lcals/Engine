@@ -167,6 +167,7 @@ bool Material::set_type(std::string_view path)
         return false;
     }
     auto replacement = shader_defaults(definition->type_path, *shader);
+    replacement.cull_mode = definition->cull_mode;
     for (const auto& parameter : definition->parameters)
     {
         const auto destination =
@@ -231,6 +232,7 @@ bool Material::set_shader(std::string_view path)
         return false;
     }
     auto replacement = shader_defaults(data_.type_path, *shader);
+    replacement.cull_mode = data_.cull_mode;
     std::map<std::string, ResourcePtr, std::less<>> textures;
     if (!load_textures(*shader, nullptr, replacement, textures))
     {
@@ -239,6 +241,22 @@ bool Material::set_shader(std::string_view path)
     data_ = std::move(replacement);
     textures_ = std::move(textures);
     shader_resource_ = std::move(shader);
+    return true;
+}
+
+schema::CullMode Material::cull_mode() const noexcept
+{
+    return data_.cull_mode;
+}
+
+bool Material::set_cull_mode(schema::CullMode mode) noexcept
+{
+    if (mode != schema::CullMode::back && mode != schema::CullMode::front &&
+        mode != schema::CullMode::none)
+    {
+        return false;
+    }
+    data_.cull_mode = mode;
     return true;
 }
 

@@ -37,7 +37,7 @@ classDiagram
 
 | 注册函数 | 可撤销设置与查询 | 非撤销运行操作 |
 | --- | --- | --- |
-| `register_collider(world, commands, aliases)` | `set_collider`、`get_collider` | 无 |
+| `register_collider(world, commands, aliases)` | `set_collider`、`get_collider` | 静态 mesh 形状通过资源目录解析独立 Mesh 路径 |
 | `register_rigid_body(world, commands, aliases)` | `set_rigid_body`、`get_rigid_body` | `add_impulse` |
 | `register_audio_source(world, commands, aliases)` | `set_audio_source`、`get_audio_source` | `play_audio`、`pause_audio`、`stop_audio`、`get_audio_state` |
 | `register_audio_listener(world, commands, aliases)` | `set_audio_listener`、`get_audio_listener` | 无 |

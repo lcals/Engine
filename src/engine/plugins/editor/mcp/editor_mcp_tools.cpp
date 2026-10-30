@@ -233,8 +233,13 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                       {"command", "arguments"});
     return register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
            register_animation_tools(system, *this) && register_model_tools(system, *this) &&
-           register_command("get_scene", "get_scene", "Read the active scene and its components.",
-                            object_schema(Json::object())) &&
+           register_command(
+               "get_scene", "get_scene",
+               "Read the active scene and its components. Optional offset/limit page nodes; "
+               "The result includes totalNodes and offset. "
+               "Omitted limit returns all remaining nodes.",
+               object_schema({{"offset", {{"type", "integer"}, {"minimum", 0}}},
+                              {"limit", {{"type", "integer"}, {"minimum", 0}}}})) &&
            register_command(
                "create_node", "create_node",
                "Create a named node with Transform and an optional component.",

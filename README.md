@@ -143,6 +143,7 @@ Windows 修复分支此前的验证记录（2026-10-30，本轮未重新执行 W
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
 - Android SDL3 静态合入 `libmain.so` 并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
+- bgfx Metal overlay 在绑定 uniform 前按需分段预留空间，并检查每次写入边界；旧段等待 GPU 完成后释放，避免大型场景超过固定 8 MiB 缓冲时越界。macOS / iOS 使用该补丁；上游提供等效修复后再移除，详见 `third_party/overlay-ports/README.md`。
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。
 - USD 插件资源在 Windows 动态依赖中位于对应配置的 `bin/usd/*/resources/`，静态依赖及 macOS 位于 `lib/usd/*/resources/`。Windows 静态编辑器将注册信息和 schema 数据部署到 EXE 旁的 `usd/`，数据继续外置；现有 USD 测试按配置使用 SDK 或本地部署的数据。TBB / USD 回归同时检查数据保存、加载和正常退出。
 
@@ -376,12 +377,37 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 ### 渲染与项目控制
 
 - 同一编辑器窗口在空白与项目画面间整体切换。场景、节点和组件归当前运行；共享窗口与图形设备保留到编辑器关闭。停止会清除最后一帧，重复启动不会创建第二套实例。
-- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；最多 8 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。支持首个启用方向光的单张阴影图、环境光常量、曝光与 ACES 色调映射；尚未实现 IBL、级联阴影、点光/聚光阴影或透明混合。
+- 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的直接光照 PBR。光照采用 GGX、Smith、Schlick；最多 64 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。支持首个启用方向光的单张阴影图、环境光常量、曝光与 ACES 色调映射；尚未实现 IBL、级联阴影、点光/聚光阴影或透明混合。
 - 内置 Shader 使用宿主 shaderc 在构建时编译为数组，项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
 - 桌面 MCP 提供无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具提供同步、热重载和状态查询；Android 由平台宿主启动 Gameplay，不提供编辑器项目启停。
 - `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
 - 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
 - 一个运行目录供一个编辑器实例使用；并行编辑器使用不同 `--runtime-dir`。MCP 通过 `project-control.lock` 串行化控制；若 MCP 被强制中止留下锁，先确认相关客户端已退出且状态中没有正在执行的请求，再移除该运行目录中的锁目录。不能删除其他活动操作的锁。
+
+### 编辑器场景预览
+
+编辑器可直接预览已导入的 `.scene` 资源，不启动 Gameplay、角色控制、物理模拟或音频播放；窗口显示场景，不添加编辑器 UI。调用 `open_scene_preview` 后，既有 MCP 节点、组件和材质命令直接编辑该预览，下一帧显示结果。
+
+| 工具 | 参数与作用 |
+| --- | --- |
+| `open_scene_preview` | `path` 为完整逻辑资源路径；可选 `camera` 对象含 `position`、`rotation`、`speed`；替换当前场景并丢弃未保存内存编辑 |
+| `get_scene_preview` | 无参数；查询 active、path、sceneId、camera、modified、reloadPending、lastError |
+| `set_preview_camera` | 至少一项 position、rotation、speed；修改独立镜头，不改变场景内容 |
+| `refresh_scene_preview` | 可选 `discardChanges`，默认 false；先增量导入源资源再重建预览，丢弃未保存编辑须显式传 true |
+| `close_scene_preview` | 无参数；丢弃未保存内存编辑，释放预览场景和 GPU 资源，恢复空白窗口 |
+
+镜头默认复制场景活动相机的世界姿态和投影；无活动相机时使用位置 `[0,2,5]`、旋转 `[0,0,0]`。它由编辑器独立持有，不进入项目场景节点、`get_scene` 或 `save_scene`。旋转为 `[pitch,yaw,roll]` 度，移动速度为 0.01..1000 米/秒，默认 5；按住鼠标右键后转动视角，WASD 移动，Q/E 世界竖直升降，Shift 四倍加速。移动镜头不标记场景已编辑。Gameplay 中的环境光与曝光设置不会自动执行，可通过 `set_render_settings` 调整预览效果。
+
+源资源或项目设置变化后，编辑器监听并增量导入；无未保存编辑时自动刷新预览。有未保存的 MCP 编辑时保留当前画面并标记 `modified`、`reloadPending`，调用方可 `save_scene` 保存到当前源路径，或明确 `refresh_scene_preview` 并传 `discardChanges=true`。显式打开其他场景或关闭预览会丢弃未保存内存编辑，不会自动保存；回执的 `discardedChanges` 说明是否丢弃了修改。刷新、关闭和切换场景后，继续编辑前重新查询 sceneId/nodeId。
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call open_scene_preview --arguments '{"path":"project/scenes/apartment.scene"}'
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_preview_camera --arguments '{"position":[0,2,5],"rotation":[0,0,0],"speed":5}'
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene_preview
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call close_scene_preview
+```
+
+这些工具只在桌面编辑器目标注册，沿用主线程命令通道及原执行回执；超时仍按 pending 查询，MCP 不直接创建场景、驱动镜头或执行导入。类图见[场景预览 MCP](docs/plugins/editor/class-diagrams/scene-preview-mcp-tools.md)。
 
 ### MCP 模块注册与场景编辑
 
@@ -389,7 +415,7 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 
 | 工具 | 参数与作用 |
 | --- | --- |
-| `get_scene` | 无参数；查询活动场景、节点和组件，待机返回 `scene: null` |
+| `get_scene` | 可选 `offset`、`limit` 分页查询活动场景、节点和组件，待机返回 `scene: null` |
 | `create_node` | `sceneId`、`name`、`component`（`empty` / `camera` / `light`）；创建带 Transform 的唯一命名节点 |
 | `set_active_camera` | `sceneId`、`nodeId`；选择场景中的 Camera 节点 |
 | `set_transform` | `sceneId`、`nodeId`，以及至少一项 `position` / `rotation` / `scale` 三分量数组 |
@@ -414,7 +440,7 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
 | `get_editor_receipt` | `session`、`requestId`；查询原请求的持久回执 |
 
-场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin/materials/default-pbr`、`builtin/materials/default-unlit` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
+场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin/materials/default-pbr`、`builtin/materials/default-unlit`、`builtin/materials/default-blinn-phong` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
@@ -508,7 +534,7 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 
 - Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光、网格、碰撞体、刚体、音源与监听器也都是组件。
 - `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
-- 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
+- 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` / `default-blinn-phong` 分别引用 `builtin/shaders/pbr` / `unlit` / `blinn-phong`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
 - ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
 - Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。
@@ -520,9 +546,15 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 ./build/ninja-engine-debug/asset_build_app --project projects/showcase
 ```
 
-渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 8 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。方向光阴影适配 bgfx `15-shadowmaps-simple`，支持环境漫反射与可选 ACES 曝光；尚无 IBL 或透明排序。几何生成与编辑归上文的建模插件。
+渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 64 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。方向光阴影适配 bgfx `15-shadowmaps-simple`，支持环境漫反射与可选 ACES 曝光；尚无 IBL 或透明排序。几何生成与编辑归上文的建模插件。
 
 `Material.SetTexture(name, path)` 按 Shader 的 sampler 声明设置贴图，`GetTexture(name)` 返回当前资源路径。内置参数为 `baseColorTexture`、`normalTexture`、`ormTexture`（AO/Roughness/Metallic）；法线与 ORM 使用线性贴图。`MeshRenderer.GetMaterial(slot)` 访问 0..15 的材质槽，`SetMaterialCount(count)` 设置槽数。C++ `set_mesh_data()` 深拷贝生成的 MeshDataT，成功递增修订号并更新 GPU；未落盘的动态网格不能保存成包含无效 GUID 的场景。
+
+材质 `.material` 可设置 `cull = "back"`（默认）、`"front"` 或 `"none"`；脚本以 `Material.SetCullMode()` / `GetCullMode()` 访问同一状态。`none` 用于双面几何，主 pass 和阴影保持相同剔除规则。内置 Shader 通过命名参数 `alphaCutoff`（float，0..1，默认 0 关闭）裁切 `baseColorTexture.a * baseColor.a * vertexColor.a`，适用于叶片和镂空贴图；阴影使用同一阈值。通过 `SetFloat("alphaCutoff", 0.5)` 或 `.material` 的 `[[parameters]]` 设置，不使用专用材质业务字段。自定义 Shader 若采用该阴影契约，须声明同名 `baseColor`（v4）、`baseColorTexture`（sampler）并在主 pass 执行相同裁切。此功能不包含透明混合与排序。
+
+内置 PBR 还支持 `specularWorkflow`（默认 0，保留 metallic）、`specularColor`（v3）、`specularTexture`（RGB 反射色 / A 光滑度）与 `smoothness`（float）；反射色流程的粗糙度为 `1 - smoothness * texture.a`。`normalScale`（默认 1，0..8）调整法线强度，`uvTransform`（v4，默认 1,1,0,0）在主 pass 和阴影中使用同一 UV 缩放偏移。`emissionColor`（v3，默认 0，非负 HDR）乘 `emissionTexture` 添加发光，不创建 Light 或 Bloom。所有参数通过现有命名接口设置，材质类没有特定来源 Shader 的业务字段。
+
+项目脚本可调用 `Render.SetAmbientTricolor(sky, equator, ground, intensity)` 设置三个 `[r,g,b]` 线性颜色；`SetAmbient()` 切回单色环境光。`Render.SetLinearFog(enabled, r, g, b, start, end)` 设置线性雾，要求 `0 <= start < end`。`Render.SetExponentialFog(enabled, r, g, b, density, squared=false)` 设置指数雾，squared=true 为平方指数雾；两种指数模式使用相机前向深度减近裁面。MCP `set_render_settings` 对应支持 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`（none/linear/exponential/exponential_squared）、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。两种效果默认关闭，材质 `fogInfluence` 默认 1，天空可设 0。MeshRenderer 的 `.scene` 字段 `cast_shadows`（默认 true）及脚本 `SetCastShadows()` 控制是否参与阴影拟合和投射；天空应设置 false。
 
 图片支持 PNG/JPG/JPEG。新图片的 `.meta` 自动生成贴图导入设置，示例：
 

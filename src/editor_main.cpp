@@ -8,12 +8,15 @@
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
 #include "editor/render/render_commands.hpp"
+#include "editor/scene/scene_preview.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime_plugins.hpp"
 
 #if ENGINE_HAS_FONT_IMPORTER
@@ -65,6 +68,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 namespace
 {
@@ -101,6 +105,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::unique_ptr<engine::plugins::modeling::ModelingCommands> modeling;
 #endif
     std::unique_ptr<engine::editor::RenderCommands> render_commands;
+    std::unique_ptr<engine::editor::ScenePreview> preview;
 #if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
@@ -198,11 +203,36 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
 #endif
-        editor = std::make_unique<engine::editor::EditorSystem>(environment, runtime.gameplay(),
-                                                                runtime.world());
+        engine::editor::ScenePreview::ImportCallback import;
+#if ENGINE_HAS_ASSET_PIPELINE
+        import = [&pipeline, &project_root](std::string& error)
+        {
+            if (!pipeline.build_assets(project_root))
+            {
+                error = pipeline.last_error();
+                return false;
+            }
+            return true;
+        };
+#endif
+        preview = std::make_unique<engine::editor::ScenePreview>(
+            environment, *runtime.gameplay(), *runtime.world(), *runtime.renderer(),
+            *runtime.window(), project_root, std::move(import));
+        if (!preview->initialize(config))
+        {
+            LogSystem::write(LogLevel::error, preview->last_error());
+            return 1;
+        }
+        editor = std::make_unique<engine::editor::EditorSystem>(
+            environment, runtime.gameplay(), runtime.world(), preview.get());
         if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");
+            return 1;
+        }
+        if (!editor->commands() || !preview->register_commands(*editor->commands()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register scene preview commands");
             return 1;
         }
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
@@ -244,7 +274,8 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 *runtime.world(), project_root,
                 [&modeling](const engine::Node& node, const fs::path& destination,
                             std::string& error)
-                { return modeling->export_mesh(node, destination, error); });
+                { return modeling->export_mesh(node, destination, error); },
+                [&preview](std::string_view path) { preview->mark_saved(path); });
             if (!persistence->register_commands(*editor->commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register scene persistence commands");
@@ -271,7 +302,41 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 modeling->synchronize_scene();
             }
 #endif
-            const auto status = runtime.tick(delta_time);
+            auto status = engine::FrameStatus::running;
+            if (preview->active())
+            {
+                auto& window = *runtime.window();
+                if (!window.tick(delta_time))
+                {
+                    status = engine::FrameStatus::failed;
+                }
+                else if (window.exit_requested())
+                {
+                    status = engine::FrameStatus::exit_requested;
+                }
+                else if (!preview->tick(delta_time))
+                {
+                    LogSystem::write(LogLevel::error, preview->last_error());
+                    status = engine::FrameStatus::failed;
+                }
+                else if (!window.can_render())
+                {
+                    status = engine::FrameStatus::paused;
+                }
+                else if (!runtime.renderer()->render(preview->camera()))
+                {
+                    LogSystem::write(LogLevel::error, "Scene preview rendering failed");
+                    preview->close();
+                    if (!runtime.renderer()->render())
+                    {
+                        status = engine::FrameStatus::failed;
+                    }
+                }
+            }
+            else
+            {
+                status = runtime.tick(delta_time);
+            }
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
@@ -296,13 +361,17 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             ++frames;
             if (frame_limit != 0 && frames >= frame_limit)
             {
-                runtime.request_exit();
+                break;
             }
         }
         return 0;
     }();
 
     // 玩法回调执行时编辑器和全部引擎系统仍就绪。
+    if (preview != nullptr)
+    {
+        preview->close();
+    }
     if (editor != nullptr)
     {
         editor->shutdown();
@@ -312,6 +381,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     persistence.reset();
 #endif
     render_commands.reset();
+    preview.reset();
 #if ENGINE_HAS_MODELING_PLUGIN
     modeling.reset();
 #endif

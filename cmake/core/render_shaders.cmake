@@ -112,6 +112,7 @@ function(engine_embed_render_shaders target)
                 DEPENDS "${_source}/${_stage}_${_shader}.sc"
                         "${_varying}"
                         "${_source}/pbr_helpers.sh"
+                        "${_source}/material_helpers.sh"
                         "${_source}/shadow_helpers.sh"
                         "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
                         "${ENGINE_SHADERC_EXECUTABLE}"

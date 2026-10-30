@@ -15,6 +15,8 @@ namespace engine
 bool MaterialResourceCodec::valid_shape(const schema::MaterialDataT& data)
 {
     if (!valid_path(data.type_path) || !valid_path(data.shader_path) || data.schema_version != 1 ||
+        (data.cull_mode != schema::CullMode::back && data.cull_mode != schema::CullMode::front &&
+         data.cull_mode != schema::CullMode::none) ||
         (data.type_path.starts_with("builtin/") && data.shader_path.starts_with("project/")))
     {
         return false;

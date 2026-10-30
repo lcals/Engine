@@ -11,6 +11,9 @@ classDiagram
     class Render {
         <<static facade>>
         +SetAmbient(number r, number g, number b, number intensity) boolean$
+        +SetAmbientTricolor(number[] sky, number[] equator, number[] ground, number intensity) boolean$
+        +SetLinearFog(boolean enabled, number r, number g, number b, number start, number end) boolean$
+        +SetExponentialFog(boolean enabled, number r, number g, number b, number density, boolean squared) boolean$
         +SetExposure(number value) boolean$
         +SetFilmicTonemap(boolean enabled) boolean$
         +SetDirectionalShadows(boolean enabled, number resolution, number bias) boolean$
@@ -27,6 +30,7 @@ classDiagram
 
 - `Render` 是不可构造的静态门面；各方法复制当前 RenderSettings，仅修改对应字段后调用 `RenderSystem::set_settings()`。一次调用的参数或原生校验失败时返回 false，整份设置不变。
 - `SetAmbient` 的 RGB 为线性颜色 `0..1`，强度为 `0..1000`；曝光为 `(0, 100]`。阴影分辨率默认 2048，为 `128..8192` 的二次幂，bias 默认 0.001、范围 `0..0.1`，实际设备限制仍由 RenderSystem 校验。
+- `SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个 `[r,g,b]` 线性颜色数组并开启三色模式；调用 `SetAmbient` 恢复常量色模式。`SetLinearFog(enabled, r, g, b, start, end)` 提交线性雾，颜色为线性 `0..1`，距离为世界单位，要求 `0 <= start < end`。`SetExponentialFog(enabled, r, g, b, density, squared=false)` 使用指数雾，squared=true 使用平方指数雾；density 为非负有限数，距离取前向深度减近裁面。两个雾接口写入同一 fog_mode，互相替换；关闭雾同样提交并保留参数，后续可再次开启。
 - `SetClearColor` 接收无符号 32 位整数，按 `0xRRGGBBAA` 打包；不接受负数、小数或溢出值。MCP 的 `clearColor` 输入为归一化 `[r,g,b,a]` 数组，两者采用相同的 RGBA 通道顺序，并提交同一个原生字段。
 - 预检、模块顶层、构造和旧 Context 不得修改设置；未注入渲染器时返回 false。宿主保证渲染器覆盖全部玩法回调，停止脚本后再销毁渲染器；绑定不拥有该服务。
 - 项目可在 Gameplay.OnInitialize 中应用自己的环境色、阴影和曝光，重启、热重载及 Android 使用同一绑定。设置不自动写入 Scene，也不改变引擎默认值；项目选择的值由项目脚本保存。
@@ -50,6 +54,8 @@ classDiagram
         +SetType(string path) boolean
         +SetShader(string path) boolean
         +SetFloat(string name, number value) boolean
+        +SetCullMode(string mode) boolean
+        +GetCullMode() string_or_null
         +SetV2(string name, number x, number y) boolean
         +SetV3(string name, number x, number y, number z) boolean
         +SetV4(string name, number x, number y, number z, number w) boolean
@@ -62,6 +68,8 @@ classDiagram
         +SetMesh(string path) boolean
         +GetMaterial(number slot) Material_or_null
         +SetMaterialCount(number count) boolean
+        +castShadows boolean
+        +SetCastShadows(boolean enabled) boolean
     }
     class Component
     Component <|-- Camera
@@ -73,5 +81,6 @@ classDiagram
 - `SetOrthographic` 的 size 为竖直半高；角度使用度。Spot 的 innerAngle、outerAngle 均为锥体半角。
 - `material` 等同第 0 槽，`materialCount` 只读；超范围槽返回 null，移除槽后原有门面的 IsValid 返回 false。
 - 纹理路径通过资源目录解析，失败保留原材质。GetTexture 对未知或非纹理参数返回 null。
+- `SetCullMode("back" | "front" | "none")` 设置通用面剔除状态，默认 `back`；`GetCullMode()` 在句柄失效时返回 null。`SetFloat("alphaCutoff", value)` 使用既有具名参数通道启用内置 Shader 的 alpha 裁切，范围为 0..1，0 关闭。
 - 每次调用校验场景、节点和材质槽，不在脚本对象中保留 C++ 指针。失效对象的修改返回 false。
 - 动态 MeshData 使用生成的 FlatBuffers C++ 数据，通过 MeshRenderer 提交；此脚本门面只声明已经绑定的接口。
