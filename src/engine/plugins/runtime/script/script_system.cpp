@@ -281,7 +281,8 @@ struct ScriptSystem::State
         bindings::BindingContext bindings;
 
         Run(State& state, Snapshot version)
-            : owner(state), snapshot(std::move(version)), bindings(state.world, state.renderer)
+            : owner(state), snapshot(std::move(version)),
+              bindings(state.world, state.renderer, state.ui)
         {
         }
 
@@ -433,6 +434,7 @@ struct ScriptSystem::State
     bindings::ScriptBindingRegistry binding_registry;
     WorldSystem* world = nullptr;
     RenderSystem* renderer = nullptr;
+    UiSystem* ui = nullptr;
     double delta_time = 0.0;
     std::shared_ptr<V8Process> process;
     std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
@@ -441,8 +443,9 @@ struct ScriptSystem::State
     std::unique_ptr<Run> prepared;
 
     State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world,
-          RenderSystem* scene_renderer)
-        : status(state), world(scene_world), renderer(scene_renderer), process(std::move(platform))
+          RenderSystem* scene_renderer, UiSystem* scene_ui)
+        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
+          process(std::move(platform))
     {
     }
 
@@ -559,6 +562,37 @@ struct ScriptSystem::State
         return true;
     }
 
+    [[nodiscard]] bool call_binding(Run& run, const char* name)
+    {
+        const auto module = run.modules.find("engine");
+        if (module == run.modules.end() ||
+            module->second.Get(isolate)->GetStatus() != v8::Module::kEvaluated)
+        {
+            return true;
+        }
+        const auto context = run.context.Get(isolate);
+        const auto object = module->second.Get(isolate)->GetModuleNamespace().As<v8::Object>();
+        v8::TryCatch caught(isolate);
+        v8::Local<v8::String> key;
+        v8::Local<v8::Value> member;
+        v8::Local<v8::Value> result;
+        run.bindings.begin_call(delta_time);
+        const bool called =
+            js_string(isolate, name).ToLocal(&key) && object->Get(context, key).ToLocal(&member) &&
+            member->IsFunction() &&
+            member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result);
+        run.bindings.end_call();
+        if (!called)
+        {
+            return exception(caught, std::string("Script binding callback ") + name + " failed");
+        }
+        if (result->IsPromise())
+        {
+            return fail("Script binding callbacks must be synchronous");
+        }
+        return true;
+    }
+
     void stop()
     {
         if (active)
@@ -572,6 +606,8 @@ struct ScriptSystem::State
                 delta_time = 0.0;
                 (void)call(*active, "OnShutdown", false);
             }
+            // Run 内部订阅释放后再销毁场景和 V8 Context。
+            (void)call_binding(*active, "__clearBindings");
             active.reset();
         }
         delta_time = 0.0;
@@ -708,8 +744,8 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer) noexcept
-    : world_(world), renderer_(renderer)
+ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui) noexcept
+    : world_(world), renderer_(renderer), ui_(ui)
 {
 }
 
@@ -729,7 +765,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     }
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, std::move(process), world_, renderer_);
+    state_ = std::make_unique<State>(status_, std::move(process), world_, renderer_, ui_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
@@ -841,7 +877,8 @@ bool ScriptSystem::on_tick(double delta_time)
         v8::HandleScope handles(state_->isolate);
         v8::Context::Scope context_scope(state_->active->context.Get(state_->isolate));
         state_->delta_time = delta_time;
-        if (!state_->call(*state_->active, "Update", false))
+        if (!state_->call_binding(*state_->active, "__dispatchBindingEvents") ||
+            !state_->call(*state_->active, "Update", false))
         {
             const auto failure = status_.last_error;
             state_->stop();

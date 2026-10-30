@@ -26,7 +26,7 @@ classDiagram
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer)
+        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui)
         +~BindingContext()
         +initialize(v8Context context) bool
         +activate() void
@@ -35,6 +35,7 @@ classDiagram
         +shutdown() void
         +world() WorldSystem#42;
         +renderer() RenderSystem#42;
+        +ui() UiSystem#42;
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
@@ -42,15 +43,17 @@ classDiagram
     class ScriptSystem
     class WorldSystem
     class RenderSystem
+    class UiSystem
     ScriptBindingRegistry "1" *-- "0..*" ScriptBinding : 独占实现对象
     ScriptBinding ..> BindingContext : 共用身份和参数检查
     ScriptSystem *-- ScriptBindingRegistry : 每个系统一个注册表
     ScriptSystem *-- BindingContext : 每个Run一个上下文
+    BindingContext --> UiSystem : 有效回调期间的可空借用
     BindingContext --> WorldSystem : 可空借用
     BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
 ```
 
-`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 和 renderer 返回可修改服务的可空借用。构造的 renderer 默认空；renderer 查询在非生命周期回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
+`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 和 renderer 返回可修改服务的可空借用。构造的 renderer 和 ui 默认空；renderer / ui 查询在非生命周期及绑定回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 为 `const v8::FunctionCallbackInfo<v8::Value>&`；`v8Context`、`v8Object`、`v8Value` 分别为对应 `v8::Local` 句柄，`v8FunctionCallback` 为 V8 原生回调函数指针。
 
@@ -113,6 +116,9 @@ classDiagram
     class AudioSourceBinding
     class AudioListenerBinding
     class AnimatorBinding
+    class UiComponentBinding
+    class UiElementBinding
+    class UiControllerBinding
     ScriptBinding <|-- AppBinding
     ScriptBinding <|-- DebugBinding
     ScriptBinding <|-- GameplayBinding
@@ -132,6 +138,9 @@ classDiagram
     ScriptBinding <|-- AudioSourceBinding
     ScriptBinding <|-- AudioListenerBinding
     ScriptBinding <|-- AnimatorBinding
+    ScriptBinding <|-- UiComponentBinding
+    ScriptBinding <|-- UiElementBinding
+    ScriptBinding <|-- UiControllerBinding
 ```
 
 实现均为 final，分别保存于 `src/engine/plugins/runtime/script/bindings/` 下的 `app_binding`、`debug_binding`、`gameplay_binding`、`time_binding`、`scene_binding`、`node_binding`、`component_binding`、`transform_binding`、`camera_binding`、`light_binding`、`mesh_renderer_binding`、`material_binding` 头文件与实现文件。接口、注册表和公共上下文同目录独立维护。
@@ -151,3 +160,5 @@ classDiagram
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
 
 CharacterMotorBinding 独立提供胶囊移动设置、水平速度请求、实际速度查询、地面状态和跳跃；仅转发 CharacterMotor，不读取键鼠或设置相机。第一/第三人称控制器属于另一个可选插件，未在通用脚本插件中声明未实现的绑定。
+
+UI 绑定见 [UI 脚本与 MVC](ui-script-api.md)。绑定模块可登记事件与停止清理 hook；ScriptSystem 只调用注册表导出的统一派发/清理入口，不逐个判断业务模块。UiSystem 为宿主注入的可空借用；关闭时先停止脚本及清理订阅，再销毁文档。

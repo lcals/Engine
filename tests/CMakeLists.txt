@@ -569,6 +569,41 @@ if(TARGET engine_fbx_import)
     add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
 endif()
 
+if(TARGET engine_font_import)
+    add_executable(engine_font_pipeline_test font_pipeline_test.cpp)
+    target_link_libraries(engine_font_pipeline_test PRIVATE engine::font_import engine::resource)
+    engine_apply_options(engine_font_pipeline_test)
+    add_test(NAME editor.font_pipeline COMMAND engine_font_pipeline_test
+             "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
+    set_tests_properties(editor.font_pipeline PROPERTIES TIMEOUT 120)
+endif()
+
+if(TARGET engine_ui_import AND TARGET engine_font_import)
+    add_executable(engine_ui_pipeline_test ui_pipeline_test.cpp)
+    target_link_libraries(engine_ui_pipeline_test PRIVATE engine::ui_import engine::font_import
+                                                        engine::resource)
+    engine_apply_options(engine_ui_pipeline_test)
+    add_test(NAME editor.ui_pipeline COMMAND engine_ui_pipeline_test
+             "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
+    set_tests_properties(editor.ui_pipeline PROPERTIES TIMEOUT 120)
+endif()
+
+if(TARGET engine_ui_import AND TARGET engine_font_import AND TARGET engine_ui AND TARGET engine_font
+   AND TARGET engine_render AND TARGET engine_window AND TARGET engine_world)
+    add_executable(engine_font_ui_render_test font_ui_render_test.cpp)
+    target_link_libraries(engine_font_ui_render_test PRIVATE engine::ui_import engine::font_import
+        engine::resource engine::world engine::window engine::render engine::font engine::ui
+        SDL3::SDL3 bgfx::bgfx)
+    target_compile_definitions(engine_font_ui_render_test PRIVATE
+        ENGINE_FONT_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+    engine_apply_options(engine_font_ui_render_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.font_ui_render COMMAND engine_font_ui_render_test
+            "${PROJECT_SOURCE_DIR}/projects/showcase")
+        set_tests_properties(engine.font_ui_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET engine_editor AND TARGET engine_animation)
     add_executable(engine_animation_commands_test animation_commands_test.cpp)
     target_link_libraries(engine_animation_commands_test PRIVATE engine::editor engine::animation
@@ -602,6 +637,21 @@ if(TARGET engine_animation)
     engine_apply_options(engine_model_resource_test)
     add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
 endif()
+if(TARGET engine_script AND TARGET engine_ui_import AND TARGET engine_font_import
+   AND TARGET engine_ui AND TARGET engine_font AND TARGET engine_render)
+    add_executable(engine_ui_script_test ui_script_test.cpp)
+    target_link_libraries(engine_ui_script_test PRIVATE engine::script engine::app engine::log
+        engine::ui_import engine::font_import engine::resource engine::world engine::window
+        engine::render engine::font engine::ui SDL3::SDL3 bgfx::bgfx)
+    engine_apply_options(engine_ui_script_test)
+    engine_copy_script_data(engine_ui_script_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.ui_script COMMAND engine_ui_script_test
+            "${PROJECT_SOURCE_DIR}/projects/showcase")
+        set_tests_properties(engine.ui_script PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET engine_editor AND TARGET engine_animation)
     add_executable(engine_model_commands_test model_commands_test.cpp)
     target_link_libraries(engine_model_commands_test PRIVATE engine::editor engine::world
@@ -624,4 +674,11 @@ if(TARGET engine_script AND TARGET engine_animation)
                                                    engine::resource engine::app engine::log)
     engine_apply_options(engine_model_animation_script_test)
     add_test(NAME engine.model_animation_script COMMAND engine_model_animation_script_test)
+endif()
+
+if(TARGET engine_font)
+    add_executable(engine_font_system_test font_system_test.cpp)
+    target_link_libraries(engine_font_system_test PRIVATE engine::font engine::world engine::resource)
+    engine_apply_options(engine_font_system_test)
+    add_test(NAME engine.font_system COMMAND engine_font_system_test)
 endif()

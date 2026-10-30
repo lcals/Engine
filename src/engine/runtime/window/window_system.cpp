@@ -86,6 +86,12 @@ SDL_Window* WindowSystem::native_window() const noexcept
     return window_;
 }
 
+void WindowSystem::set_event_handler(WindowEventHandler handler, void* context) noexcept
+{
+    event_handler_ = handler;
+    event_context_ = context;
+}
+
 bool WindowSystem::key_down(WindowKey key) const noexcept
 {
     const auto index = static_cast<std::size_t>(key);
@@ -176,6 +182,13 @@ bool WindowSystem::on_tick(double)
     SDL_Event event{};
     while (SDL_PollEvent(&event))
     {
+        const bool consumed = event_handler_ && event_handler_(event_context_, event);
+        if (consumed &&
+            (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+             event.type == SDL_EVENT_MOUSE_MOTION))
+        {
+            continue;
+        }
         if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
             event.key.windowID == window_id)
         {
@@ -229,6 +242,7 @@ bool WindowSystem::on_tick(double)
 
 void WindowSystem::on_shutdown() noexcept
 {
+    set_event_handler(nullptr, nullptr);
     keys_.fill(false);
     pressed_.fill(false);
     buttons_.fill(false);

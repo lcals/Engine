@@ -27,7 +27,10 @@
         "flecs",
         "joltphysics",
         "recastnavigation",
-        "rmlui",
+        {
+          "name": "rmlui",
+          "default-features": false
+        },
         "sdl3",
         {
           "name": "sdl3",
@@ -76,6 +79,12 @@
       "dependencies": [
         "earcut-hpp",
         "manifold"
+      ]
+    },
+    "font-import": {
+      "description": "Optional editor TrueType font import plugin",
+      "dependencies": [
+        "freetype"
       ]
     },
     "usd-import": {

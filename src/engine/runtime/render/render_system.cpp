@@ -1,4 +1,7 @@
 #include "runtime/render/render_system.hpp"
+#include "runtime/font/font_system.hpp"
+#include "runtime/scene/text_component.hpp"
+#include "runtime/ui/ui_system.hpp"
 
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/camera.hpp"
@@ -162,7 +165,8 @@ bool drawable_scene(const Scene& scene)
                        [](const std::unique_ptr<Node>& node)
                        {
                            const MeshRenderer* mesh = node->get_component<MeshRenderer>();
-                           return mesh != nullptr && mesh->enabled();
+                           const auto* text = node->get_component<TextComponent>();
+                           return (mesh && mesh->enabled()) || (text && text->enabled());
                        });
 }
 
@@ -1226,8 +1230,9 @@ struct RenderSystem::SceneGpuResources
     }
 };
 
-RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world) noexcept
-    : windows_(windows), world_(world)
+RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem* fonts,
+                           UiSystem* ui) noexcept
+    : windows_(windows), world_(world), fonts_(fonts), ui_(ui)
 {
 }
 
@@ -1362,11 +1367,28 @@ bool RenderSystem::prepare_scene()
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene->id() != scene_id_)
     {
-        release_scene();
+        // UI 可能已在玩法初始化中准备，切换绘制资源不销毁新的 View。
+        release_draw_resources();
+        if (fonts_)
+        {
+            fonts_->release_scene();
+        }
+        if (ui_ && !ui_->synchronize())
+        {
+            return false;
+        }
     }
-    if (scene == nullptr || !drawable_scene(*scene))
+    if (scene == nullptr)
     {
-        release_scene();
+        return true;
+    }
+    if (!drawable_scene(*scene))
+    {
+        if (scene_resources_)
+        {
+            release_draw_resources();
+        }
+        scene_id_ = scene->id();
         return true;
     }
     const auto lights = std::count_if(scene->nodes().begin(), scene->nodes().end(),
@@ -1601,6 +1623,19 @@ bool RenderSystem::prepare_scene()
 }
 
 void RenderSystem::release_scene() noexcept
+{
+    if (ui_)
+    {
+        ui_->release_scene();
+    }
+    if (fonts_)
+    {
+        fonts_->release_scene();
+    }
+    release_draw_resources();
+}
+
+void RenderSystem::release_draw_resources() noexcept
 {
     if (scene_resources_ != nullptr && renderer_initialized_)
     {
@@ -1974,7 +2009,7 @@ bool RenderSystem::draw_scene()
             }
         }
     }
-    return true;
+    return fonts_ == nullptr || fonts_->render_scene(*scene, main_view);
 }
 
 bool RenderSystem::render()
@@ -2035,7 +2070,7 @@ bool RenderSystem::render()
     bgfx::setViewRect(main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(main_view);
-    const bool drawn = draw_scene();
+    const bool drawn = draw_scene() && (ui_ == nullptr || ui_->render(width_, height_));
     bgfx::frame();
     return drawn;
 }

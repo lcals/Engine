@@ -24,8 +24,8 @@ v8::MaybeLocal<v8::String> make_string(v8::Isolate* isolate, std::string_view va
 }
 } // namespace
 
-BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer) noexcept
-    : world_(world), renderer_(renderer)
+BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui) noexcept
+    : world_(world), renderer_(renderer), ui_(ui)
 {
 }
 
@@ -97,6 +97,11 @@ WorldSystem* BindingContext::world() const noexcept
 RenderSystem* BindingContext::renderer() const noexcept
 {
     return callable_ ? renderer_ : nullptr;
+}
+
+UiSystem* BindingContext::ui() const noexcept
+{
+    return callable_ ? ui_ : nullptr;
 }
 
 std::uint64_t BindingContext::scene_id() const noexcept

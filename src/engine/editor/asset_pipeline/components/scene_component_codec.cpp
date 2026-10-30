@@ -14,6 +14,9 @@
 
 #include "editor/asset_pipeline/components/character_motor_codec.hpp"
 
+#include "editor/asset_pipeline/components/text_codec.hpp"
+#include "editor/asset_pipeline/components/ui_codec.hpp"
+
 #include <array>
 #include <vector>
 
@@ -28,8 +31,10 @@ std::vector<std::unique_ptr<SceneComponentCodec>>& extensions()
     return entries;
 }
 
-const std::array<const SceneComponentCodec*, 10>& codecs()
+const std::array<const SceneComponentCodec*, 12>& codecs()
 {
+    static const UiCodec ui;
+    static const TextCodec text;
     static const AnimatorCodec animator;
     static const CharacterMotorCodec motor;
     static const TransformCodec transform;
@@ -41,9 +46,9 @@ const std::array<const SceneComponentCodec*, 10>& codecs()
     static const AudioSourceCodec audio_source;
     static const AudioListenerCodec audio_listener;
 
-    static const std::array<const SceneComponentCodec*, 10> entries{
-        &motor, &animator, &transform,  &camera,       &light,
-        &mesh,  &collider, &rigid_body, &audio_source, &audio_listener};
+    static const std::array<const SceneComponentCodec*, 12> entries{
+        &ui,    &text, &motor,    &animator,   &transform,    &camera,
+        &light, &mesh, &collider, &rigid_body, &audio_source, &audio_listener};
     return entries;
 }
 

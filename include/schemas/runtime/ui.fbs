@@ -1,0 +1,17 @@
+namespace engine.schema;
+
+table UiFontBinding {
+    family:string (required);
+    font_guid:string (required);
+    shader_path:string (required);
+}
+
+table UiDocumentData {
+    schema_version:uint = 1;
+    markup:string (required);
+    fonts:[UiFontBinding] (required);
+    texture_guids:[string];
+}
+
+root_type UiDocumentData;
+file_identifier "EUID";

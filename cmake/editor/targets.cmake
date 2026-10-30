@@ -69,6 +69,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/components/collider_codec.cpp
                 src/engine/editor/asset_pipeline/components/rigid_body_codec.cpp
                 src/engine/editor/asset_pipeline/components/audio_source_codec.cpp
+                src/engine/editor/asset_pipeline/components/ui_codec.cpp
+                src/engine/editor/asset_pipeline/components/text_codec.cpp
                 src/engine/editor/asset_pipeline/components/animator_codec.cpp
                 src/engine/editor/asset_pipeline/components/character_motor_codec.cpp
                 src/engine/editor/asset_pipeline/components/audio_listener_codec.cpp

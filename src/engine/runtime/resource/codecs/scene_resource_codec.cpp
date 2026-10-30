@@ -40,6 +40,26 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             {
                 return false;
             }
+            if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
+            {
+                if (!declares(catalog, output, ui->document_guid, schema::AssetKind::ui))
+                {
+                    return false;
+                }
+            }
+            if (const auto* text = component->payload.AsTextData();
+                text && !text->font_guid.empty())
+            {
+                Guid shader;
+                const auto path =
+                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                if (!catalog.identities().path_to_guid(path, shader) ||
+                    !declares(catalog, output, shader, schema::AssetKind::shader) ||
+                    !declares(catalog, output, text->font_guid, schema::AssetKind::font))
+                {
+                    return false;
+                }
+            }
             if (const auto* animator = component->payload.AsAnimatorData();
                 animator != nullptr && !animator->animation_guid.empty())
             {
@@ -79,7 +99,8 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
     return true;
 }
 
-bool SceneResourceCodec::validate_dependencies(const ResourceCatalog&, const Resource& resource,
+bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
+                                               const Resource& resource,
                                                std::span<const ResourcePtr> dependencies) const
 {
     const auto* scene = resource.scene();
@@ -91,6 +112,31 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
     {
         for (const auto& component : node->components)
         {
+            if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
+            {
+                const auto* document = dependency(dependencies, ui->document_guid);
+                if (!document || !document->ui())
+                {
+                    return false;
+                }
+            }
+            if (const auto* text = component->payload.AsTextData();
+                text && !text->font_guid.empty())
+            {
+                const auto* font = dependency(dependencies, text->font_guid);
+                Guid shader;
+                const auto path =
+                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                if (!font || !font->font() || !catalog.identities().path_to_guid(path, shader))
+                {
+                    return false;
+                }
+                const auto* shader_resource = dependency(dependencies, shader);
+                if (!shader_resource || !shader_resource->shader())
+                {
+                    return false;
+                }
+            }
             if (const auto* animator = component->payload.AsAnimatorData();
                 animator != nullptr && !animator->animation_guid.empty())
             {
