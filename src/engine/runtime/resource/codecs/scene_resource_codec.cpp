@@ -40,6 +40,23 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             {
                 return false;
             }
+            if (const auto* animator = component->payload.AsAnimatorData();
+                animator != nullptr && !animator->animation_guid.empty())
+            {
+                if (!declares(catalog, output, animator->animation_guid,
+                              schema::AssetKind::animation))
+                {
+                    return false;
+                }
+            }
+            if (const auto* audio = component->payload.AsAudioSourceData();
+                audio != nullptr && !audio->clip_guid.empty())
+            {
+                if (!declares(catalog, output, audio->clip_guid, schema::AssetKind::audio))
+                {
+                    return false;
+                }
+            }
             if (const auto* renderer = component->payload.AsMeshRendererData())
             {
                 if (!declares(catalog, output, renderer->mesh_guid, schema::AssetKind::mesh) ||
@@ -74,6 +91,24 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog&, const Res
     {
         for (const auto& component : node->components)
         {
+            if (const auto* animator = component->payload.AsAnimatorData();
+                animator != nullptr && !animator->animation_guid.empty())
+            {
+                const auto* animation = dependency(dependencies, animator->animation_guid);
+                if (!animation || !animation->animation())
+                {
+                    return false;
+                }
+            }
+            if (const auto* audio = component->payload.AsAudioSourceData();
+                audio != nullptr && !audio->clip_guid.empty())
+            {
+                const auto* clip = dependency(dependencies, audio->clip_guid);
+                if (clip == nullptr || clip->audio() == nullptr)
+                {
+                    return false;
+                }
+            }
             if (const auto* renderer = component->payload.AsMeshRendererData())
             {
                 const auto* mesh = dependency(dependencies, renderer->mesh_guid);

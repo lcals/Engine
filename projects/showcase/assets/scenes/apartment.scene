@@ -1,0 +1,6757 @@
+active_camera = '2'
+name = 'Warm Modern Apartment'
+
+[[nodes]]
+id = '2'
+name = 'Camera'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 14.800000000000001, 13.4, 18.199999999999999 ]
+    rotation = [ -28.351538305741865, 38.963963483331554, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    far_clip = 100.0
+    fov_degrees = 43.0
+    near_clip = 0.10000000149011612
+    orthographic_size = 6.4000000953674316
+    projection = 'orthographic'
+    type = 'camera'
+
+    [[nodes.components]]
+    type = "audio_listener"
+    enabled = true
+    volume = 1.0
+
+[[nodes]]
+id = '3'
+name = 'Sun'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 8.0, 0.0 ]
+    rotation = [ -55.0, -35.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.88999998569488525, 0.72000002861022949, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 3.5999999046325684
+    kind = 'directional'
+    outer_angle = 30.0
+    range = 50.0
+    type = 'light'
+
+[[nodes]]
+id = '4'
+name = 'apartment_fill'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 8.0, 0.0 ]
+    rotation = [ -38.0, 145.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 0.73000001907348633, 0.8399999737739563, 1.0, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 0.64999997615814209
+    kind = 'directional'
+    outer_angle = 30.0
+    range = 50.0
+    type = 'light'
+
+[[nodes]]
+id = '5'
+name = 'apartment_living_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 1.78, 0.66000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.67000001668930054, 0.36000001430511475, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 2.2000000476837158
+    kind = 'point'
+    outer_angle = 30.0
+    range = 6.0
+    type = 'light'
+
+[[nodes]]
+id = '6'
+name = 'apartment_dining_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 2.04, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.75999999046325684, 0.4699999988079071, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 3.4000000953674316
+    kind = 'point'
+    outer_angle = 30.0
+    range = 7.0
+    type = 'light'
+
+[[nodes]]
+id = '7'
+name = 'apartment_bedroom_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 2.6499999999999999, -3.6000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    color = [ 1.0, 0.77999997138977051, 0.51999998092651367, 1.0 ]
+    enabled = true
+    inner_angle = 20.0
+    intensity = 2.2999999523162842
+    kind = 'point'
+    outer_angle = 30.0
+    range = 6.0
+    type = 'light'
+
+[[nodes]]
+id = '8'
+name = 'apartment_foundation'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, -0.20000000000000001, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '39211a19-4b66-44d6-bf6d-8818cccf1c07'
+    mesh = '806360fe-52a0-48fa-8af1-c6e70b99d773'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '9'
+name = 'apartment_plinth'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, -0.40999999999999998, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fb3b3081-90a1-44f6-a4ed-a4bd3a9a2619'
+    mesh = '58a40f6e-91da-4a90-adaa-b7cae2146952'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '10'
+name = 'apartment_floor_underlay'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, -0.025000000000000001, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd2b631cd-93d2-4a21-aa19-1457e1f38074'
+    mesh = '44f49635-d747-4063-8434-5427a6ac5765'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [7.0, 0.04374999992549419, 5.0]
+    center = [0.0, 0.01625000007450581, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '11'
+name = 'apartment_floor_0_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, -4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ab68deb7-7c19-4b0e-9b64-a2086f632d53'
+    mesh = '0d5ecb33-1b84-458e-bdcd-1963a18adbb1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '12'
+name = 'apartment_floor_0_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, -4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '05bb93c0-e19c-4851-9f3a-96b3744abab5'
+    mesh = '37c96bd0-f904-4799-b6bd-e462dc7c2213'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '13'
+name = 'apartment_floor_0_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, -4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '528c6aa6-f779-4f69-bec9-d87a24cea162'
+    mesh = '57c9a934-a63b-4521-9157-fb4c86a865d0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '14'
+name = 'apartment_floor_0_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, -4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dad8fdf2-60b3-4719-b731-5617d3083716'
+    mesh = '673dc4c2-8ab9-45aa-a9e0-b9d238494e6c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '15'
+name = 'apartment_floor_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, -3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e1716a8e-338d-4007-8d34-7b0c3a9a221a'
+    mesh = 'dd248c93-12ea-4590-83cc-d976b4e9dba5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '16'
+name = 'apartment_floor_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, -3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0c51969b-9216-4037-9919-8ce9833eb34d'
+    mesh = '84a6f3eb-1fbf-4ec3-99c2-63775b2145fb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '17'
+name = 'apartment_floor_1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, -3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a76f037c-2aa2-41f5-b488-e43d0753e523'
+    mesh = '964fd789-6899-4cdc-8c4e-0bf44aab9112'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '18'
+name = 'apartment_floor_1_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, -3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a39877a1-7e0a-4df9-a8e4-be5eccd143da'
+    mesh = '5aef7020-9d5e-4e12-806b-d53395dbffb8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '19'
+name = 'apartment_floor_2_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '51c8c161-6f46-4698-84c9-74bb36b9cc78'
+    mesh = '764bf868-e2bb-4142-be3e-830554f2f5f0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '20'
+name = 'apartment_floor_2_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5ee03ddc-c6c8-4527-8c99-5243f5af6e22'
+    mesh = 'ccd2985d-d3d0-4f63-9e3e-4933c27c9b91'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '21'
+name = 'apartment_floor_2_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '700780b2-921b-4f6e-a8ec-ec1479d9aefc'
+    mesh = 'cde0ba01-ce59-4a12-b0ea-01c51b01a0e3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '22'
+name = 'apartment_floor_2_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4d28df2c-9ac6-4b11-b028-61b126ad9358'
+    mesh = 'd4b782fb-b1af-4c3b-b726-1b012857710b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '23'
+name = 'apartment_floor_3_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, -1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '85d575d5-0abc-4083-9d2d-3d65e20af0b7'
+    mesh = '52b55ff2-ae16-48d0-bd70-8579fb666dd4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '24'
+name = 'apartment_floor_3_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, -1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '55879ed1-584c-4528-ab11-de45a44b8e00'
+    mesh = '19b1604e-d324-49e6-bf30-a5a8e7fd55de'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '25'
+name = 'apartment_floor_3_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, -1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '23919a7c-a97f-47a1-93f8-715d9e363464'
+    mesh = '6ef86781-ee45-4a6c-8f8e-2a29a1c8f5e8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '26'
+name = 'apartment_floor_3_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, -1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '81bde462-da32-47d0-85f5-6ce09ef1214e'
+    mesh = '3dc38d60-3ee4-4673-8035-a2ef426a74e3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '27'
+name = 'apartment_floor_4_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, -0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '27287b1f-c226-4beb-95a0-cff0f50dc25c'
+    mesh = '7ed0c5c9-07b8-4165-854a-081a9b6681f5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '28'
+name = 'apartment_floor_4_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, -0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f0ee6aff-7ae7-4604-9df8-166e621bddfd'
+    mesh = '2ff8cbf3-566b-44db-a774-1a5f823f916a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '29'
+name = 'apartment_floor_4_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, -0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3d2d6813-a02f-4c40-8c41-7a4eede78355'
+    mesh = 'df2de6a5-e1a6-4ad2-9135-8436ce2c39f2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '30'
+name = 'apartment_floor_4_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, -0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f7dcef09-8d19-4d4b-ae6e-4d96c268b462'
+    mesh = 'a7a46afb-9d78-4174-b0bd-82cfecccb4f1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '31'
+name = 'apartment_floor_5_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, 0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fbf224a0-479a-4fdb-8bb5-ae46b9cabe06'
+    mesh = '85b51494-6ce7-454f-828d-68b89e657c49'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '32'
+name = 'apartment_floor_5_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, 0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '14c8265c-6106-47e6-8920-16601bb54cad'
+    mesh = 'edae7c74-cd71-41e3-8bd1-9bfa5554493a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '33'
+name = 'apartment_floor_5_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, 0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6e0ea6fa-18fb-4e1f-9d4e-380a31106ac4'
+    mesh = '720ddacf-1123-46a2-9bb2-ee56d50ca108'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '34'
+name = 'apartment_floor_5_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, 0.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e6207a54-67b8-4b85-ba19-278a7278e0ba'
+    mesh = '9a76019e-38e1-4e76-aceb-83a603600732'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '35'
+name = 'apartment_floor_6_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b35681f3-3165-4327-8a31-5348cadb2c44'
+    mesh = '086aebbc-9222-4a6f-8289-193ac5b4d8bc'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '36'
+name = 'apartment_floor_6_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '944b698e-9b86-4d1b-88a5-13a4b70bfe65'
+    mesh = '6446b2ad-5c9c-4f78-acbf-d1393f5da70d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '37'
+name = 'apartment_floor_6_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ae697857-e89e-4973-916a-f5038f02c19a'
+    mesh = 'af015302-224c-4bb3-a14b-8b7cdbba8ddd'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '38'
+name = 'apartment_floor_6_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '03886d9e-72e7-42c9-9b18-c8b2a38616fa'
+    mesh = 'e481e8ed-f37e-4cad-8344-4ceeef4f46f4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '39'
+name = 'apartment_floor_7_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7dcb1d09-43a2-4be3-902a-bb4bca0f29e5'
+    mesh = '39ebc9e8-b9b6-4db8-933e-b57f8364b5c3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '40'
+name = 'apartment_floor_7_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a4b26b4e-17aa-41a6-b463-b64f31a2402e'
+    mesh = 'f14da0ff-182a-4ec2-93c8-4ea837d45c4c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '41'
+name = 'apartment_floor_7_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e76bbab0-f546-4172-97e1-8c0e3dc46ca6'
+    mesh = 'ffeab6e6-14e6-4325-bde5-4ca4c40abced'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '42'
+name = 'apartment_floor_7_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '59a9d7a8-24a1-484d-90c8-ce5443f27284'
+    mesh = 'c9e25dd2-1cd9-43d8-a74f-5c1e546e4c80'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '43'
+name = 'apartment_floor_8_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, 3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ee2067b4-1599-44a3-a891-5cb16a6de2e9'
+    mesh = 'b83912d0-bf59-4154-bc40-c8e688a4c084'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '44'
+name = 'apartment_floor_8_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, 3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7b3f97d5-5050-4f1d-8014-045900929936'
+    mesh = '2ffdc8e9-4c95-4952-ab4b-ac5338873008'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '45'
+name = 'apartment_floor_8_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, 3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '55cc5e3d-3c9c-4ca9-813e-b010f4bc3c1c'
+    mesh = '708bc3c8-051e-490b-9f7e-38b51292d2ed'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '46'
+name = 'apartment_floor_8_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, 3.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '61fd7f16-e8b1-443f-9643-2f23d32e88b0'
+    mesh = '45004e6b-e524-451c-956a-eb45295cf9ee'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '47'
+name = 'apartment_floor_9_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.25, 0.014999999999999999, 4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '111fa469-8eec-40e2-b913-9cbddac6d9a2'
+    mesh = '9520fbc5-b157-4307-95f0-decf8a6a1026'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '48'
+name = 'apartment_floor_9_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.75, 0.014999999999999999, 4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5b1247d7-7ba6-4e94-ae1f-d48409c7bdc3'
+    mesh = '342442e9-b7e3-4039-b2a5-592211db6f54'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '49'
+name = 'apartment_floor_9_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 0.014999999999999999, 4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9b5691f8-0c95-4d7e-b795-21ec4366c8b4'
+    mesh = 'b418feb3-eaec-4f00-a1f9-291501568f8f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '50'
+name = 'apartment_floor_9_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.25, 0.014999999999999999, 4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2a6c9bcc-975f-423b-af79-41924a470296'
+    mesh = '22b1dcda-bd85-4a60-97ba-844b0b2d76a0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '51'
+name = 'apartment_back_wall'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 1.55, -5.0499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2c4fe819-14f3-4202-bdd5-d496eb830a33'
+    mesh = '2713956c-a620-44a5-8cc9-275e9f3871af'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [7.099999904632568, 1.5499999523162842, 0.10000000149011612]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '52'
+name = 'apartment_left_wall_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0499999999999998, 1.55, -2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f50e593d-616b-416e-b03e-5c4c91639e7a'
+    mesh = 'c1028e8f-b822-4fc5-aff9-a810bd0444a2'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 1.5499999523162842, 2.5999999046325684]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '53'
+name = 'apartment_left_wall_front'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0499999999999998, 1.55, 4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '24bddf4f-c599-458a-b8d8-5bd13caff7d3'
+    mesh = '191fc17a-6062-4bc9-9007-7fb8057e4669'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 1.5499999523162842, 0.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '54'
+name = 'apartment_window_low_wall'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0499999999999998, 0.375, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '50b51d80-4a8b-45eb-86ca-955b4c1d3361'
+    mesh = 'f1ab646f-9a27-44da-8334-7323c4e11b50'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 0.375, 1.9500000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '55'
+name = 'apartment_window_top_wall'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0499999999999998, 2.9249999999999998, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1735030a-f790-4c61-8705-d200d79db50d'
+    mesh = '0f513013-094b-4a7b-8237-56970655f53e'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.10000000149011612, 0.17499999701976776, 1.9500000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '56'
+name = 'apartment_window_glass'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -7.0599999999999996, 1.75, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fd075bed-4eed-490c-ad12-6a7c4f77e9c0'
+    mesh = '40b3a22d-4a18-42ed-8fd8-27389f9ad9e5'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.012500000186264515, 0.9750000238418579, 1.8250000476837158]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '57'
+name = 'apartment_window_mullion_0.1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9500000000000002, 1.78, 0.10000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a2c8df47-f17b-443e-9e7d-2f28b6ba35df'
+    mesh = 'ce8a0286-cdcf-4d3e-90de-a4c41d16e9e6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '58'
+name = 'apartment_window_mullion_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9500000000000002, 1.78, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bcf7c390-48cc-47a0-a822-d72dcdb82b7b'
+    mesh = 'e9b240a3-e0cb-4e50-b1c7-b59f7557f2ef'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '59'
+name = 'apartment_window_mullion_3.9'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9500000000000002, 1.78, 3.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cf6c4efa-0e46-4771-9792-ae2e71bdcc6c'
+    mesh = '4375e2a0-79ce-4445-b236-18c55ae10666'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '60'
+name = 'apartment_window_rail_0.75'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9500000000000002, 0.75, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c58bc592-5ffd-4838-aae4-786f2bc85c5c'
+    mesh = '7ba09dc7-4987-4e0a-8696-a2d0ac4a0f85'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '61'
+name = 'apartment_window_rail_2.78'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9500000000000002, 2.7799999999999998, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e152df92-5c02-4e14-8869-afbb1f76ff02'
+    mesh = '5e2faeaf-b422-4f2f-b0f7-446d52823e14'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '62'
+name = 'apartment_window_sill'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.8700000000000001, 0.77000000000000002, 2.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '69068b03-10e0-4c0b-963d-95b9fd0bafed'
+    mesh = '6473332e-7fc5-4eea-90dc-bb66fe15bfe0'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.17000000178813934, 0.03500000014901161, 2.0]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '63'
+name = 'apartment_back_skirting'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.0, 0.10000000000000001, -4.9199999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0e61a157-cf0e-46ee-8770-6dceae2144d2'
+    mesh = '971fd865-84b9-417a-abc0-891fbf79bc5a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '64'
+name = 'apartment_left_skirting'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.9199999999999999, 0.10000000000000001, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cd9ebc8c-f791-4c5e-8459-2a96fa88342e'
+    mesh = 'a66ec31c-cf48-429c-9463-29b544db1fbb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '65'
+name = 'apartment_bedroom_partition'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.3999999999999999, 0.72499999999999998, -2.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e118630f-d9c9-4511-829e-d403c0bf64f4'
+    mesh = 'e10cc164-4243-47e9-90f4-e4e696311053'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.07999999821186066, 0.7250000238418579, 2.049999952316284]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '66'
+name = 'apartment_bedroom_partition_cap'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.3999999999999999, 1.4850000000000001, -2.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1ce95f9a-ca40-492d-b4ea-f5ebb55a9b65'
+    mesh = '1d9bb236-14a6-4d9a-8acd-6e01b728f58c'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11500000208616257, 0.03500000014901161, 2.049999952316284]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '67'
+name = 'apartment_bedroom_low_wall'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.0, 0.47499999999999998, -0.65000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e6356810-7ca4-4ff5-9c7b-48c1803f3c18'
+    mesh = '1d975cdd-d933-41d6-8f85-27048ceb19a3'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.975000023841858, 0.4749999940395355, 0.07999999821186066]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '68'
+name = 'apartment_bedroom_low_wall_cap'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.0, 0.98499999999999999, -0.65000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '29912d73-490e-40fd-9bee-fbe62e9f38a7'
+    mesh = 'd61490b4-85e3-474e-906e-c7a1c1842638'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.0, 0.03500000014901161, 0.11500000208616257]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '69'
+name = 'apartment_living_rug_border'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.065000000000000002, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bfff0279-ee75-4991-b7e8-f07f3fccff32'
+    mesh = '5a5ef596-78cd-45ca-9eca-57c15d359839'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '70'
+name = 'apartment_living_rug'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.091999999999999998, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8018e2cd-3775-42ea-a2a9-a88e39993ebc'
+    mesh = 'ac393260-d98a-4e43-85d7-0a6f1b4bb4c1'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.240000009536743, 0.012500000186264515, 1.7400000095367432]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '71'
+name = 'apartment_rug_stripe_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 1.22 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '38f8dd9b-afec-4986-beb1-5dd5b090ef04'
+    mesh = '1be5a222-6100-451a-979d-edf6a7d0285a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '72'
+name = 'apartment_rug_stripe_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 1.6499999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6a0da8ba-422f-46b2-a57a-45e0ce172ebf'
+    mesh = 'bae448c9-98b1-4741-bc7a-f7e9a53439ee'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '73'
+name = 'apartment_rug_stripe_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 2.0800000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ca221b43-f79d-42c2-a915-bc6955e18363'
+    mesh = 'bfb4eb78-a75b-4215-b5a3-d5f5d0b4e873'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '74'
+name = 'apartment_rug_stripe_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 2.5099999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '13b8570d-47d9-4e9d-99dc-a1700a6bfc3e'
+    mesh = 'd4047adf-0ecf-4804-90d1-b8baf17946c7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '75'
+name = 'apartment_rug_stripe_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 2.9399999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2146cd3f-901d-4c3e-9cac-3c68fa80468d'
+    mesh = '26694939-269d-4c3d-8f79-e6c5dad4b504'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '76'
+name = 'apartment_rug_stripe_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 3.3700000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5b7b4f23-b283-4b6f-b2c7-907e2ef3d80b'
+    mesh = '0eb69929-3445-436f-a2ab-e3d88d98e731'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '77'
+name = 'apartment_rug_stripe_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.108, 3.7999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c620e5c6-b31a-4c7e-b773-45c54a43d79f'
+    mesh = 'aabf741b-8f82-468c-8c43-f50301349040'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '78'
+name = 'apartment_sofa_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.4500000000000002, 0.42999999999999999, 0.41999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ed92c5d1-2eac-444a-8afa-ef8a5afc684c'
+    mesh = '941dd60f-2fda-4af4-90d0-088813e48fe1'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.75, 0.17499999701976776, 0.5400000214576721]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '79'
+name = 'apartment_sofa_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.4500000000000002, 0.93999999999999995, 0.0 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9da21642-6f6b-4430-bf44-9a6d4d73d16c'
+    mesh = 'b06c44bb-2fdf-4124-b7fa-c56f4343883b'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.75, 0.36000001430511475, 0.13500000536441803]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '80'
+name = 'apartment_sofa_arm_-6.08'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0800000000000001, 0.78000000000000003, 0.42999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dc4bd4db-7d04-4991-8aa9-90409dfa6f1e'
+    mesh = 'ac764333-e158-4515-8038-9ec4d4f41c85'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11999999731779099, 0.28999999165534973, 0.5649999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '81'
+name = 'apartment_sofa_arm_-2.82'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8199999999999998, 0.78000000000000003, 0.42999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd316fc50-bf1d-49f8-bfc4-2b84414e4443'
+    mesh = '67786f0e-86fe-411e-b1ad-17997bddccfa'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.11999999731779099, 0.28999999165534973, 0.5649999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '82'
+name = 'apartment_sofa_seat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.5, 0.68999999999999995, 0.47999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '83418588-34a9-4614-834c-0613a5bd0237'
+    mesh = '6caadb12-9ed5-4623-b6c0-a26c68832130'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '83'
+name = 'apartment_sofa_back_cushion_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.5, 1.02, 0.23999999999999999 ]
+    rotation = [ -10.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '61c3d0eb-2fc3-4c9a-90d3-b51c3656ada8'
+    mesh = 'f0fc47d8-a781-4c42-b530-f3552ee11d10'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '84'
+name = 'apartment_sofa_seat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.4500000000000002, 0.68999999999999995, 0.47999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '10e47893-65aa-4d1f-8f0f-66e4aec8a23d'
+    mesh = '1e3e4147-851c-4e3e-9366-0e3bf37a6c35'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '85'
+name = 'apartment_sofa_back_cushion_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.4500000000000002, 1.02, 0.23999999999999999 ]
+    rotation = [ -10.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cab2394b-6b19-4b76-b931-137860e71f98'
+    mesh = '082e18fc-8951-40bf-af27-6266709c73a2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '86'
+name = 'apartment_sofa_seat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.3999999999999999, 0.68999999999999995, 0.47999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3150ff39-1f31-4fac-8727-c5e64bd70d4a'
+    mesh = 'd16d7ece-fdda-4c55-9cbc-92dad58ac9b2'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.10999999940395355, 0.41499999165534973]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '87'
+name = 'apartment_sofa_back_cushion_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.3999999999999999, 1.02, 0.23999999999999999 ]
+    rotation = [ -10.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8679cdbe-b7b8-4877-a12f-0844d7b4b692'
+    mesh = '73610d0b-b199-4ae7-8088-9fa4829ad1f4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '88'
+name = 'apartment_sofa_throw_pillow_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.6600000000000001, 0.98999999999999999, 0.52000000000000002 ]
+    rotation = [ -18.0, 0.0, -13.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '073f5440-be6f-4265-a64e-dd4316fe04af'
+    mesh = '570f1caa-3804-470d-bbfe-aa9500d6d541'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '89'
+name = 'apartment_sofa_throw_pillow_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.2799999999999998, 0.98999999999999999, 0.52000000000000002 ]
+    rotation = [ -18.0, 0.0, 11.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0e5711a0-c010-4c2d-9f0b-a315dd2c33e8'
+    mesh = '983d56fd-ac31-4fab-9afa-f6afe8ee90eb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '90'
+name = 'apartment_sofa_foot_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.8499999999999996, 0.17000000000000001, 0.42999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '081104ea-ecd8-494f-a8c5-a1e97e18b8fb'
+    mesh = '017431e0-4d4a-48d7-9555-39031e81e68a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '91'
+name = 'apartment_sofa_foot_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.0499999999999998, 0.17000000000000001, 0.42999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '057736e8-ad4c-46ec-bb60-8a7b211f074c'
+    mesh = 'b6e1f9a1-91ed-482f-ae9f-f23681fd3b1f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '92'
+name = 'apartment_sofa_throw'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7599999999999998, 0.82199999999999995, 0.59999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a233b019-f594-4c88-a6e1-8fe20c2bb46f'
+    mesh = 'b669f55d-4df0-49ed-b4b0-1f252ffe5f71'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '93'
+name = 'apartment_sofa_throw_drape'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.7599999999999998, 0.65000000000000002, 0.97999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '24112802-b223-48d5-a7a8-00a3fbc55ba4'
+    mesh = '29a18f9b-26d6-4c2b-a69d-85062c2e6a9e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '94'
+name = 'apartment_coffee_table_top'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.25, 0.52000000000000002, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.25, 1.0, 0.71999999999999997 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '55b2e1f6-be89-4b12-9597-7dfad22b551b'
+    mesh = 'df016c22-2f14-4532-8665-ebbe82fbfeaa'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.0, 0.05999999865889549, 1.0]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '95'
+name = 'apartment_coffee_table_pedestal'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.25, 0.26000000000000001, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5c26b7c9-1c14-43d0-b80b-a6a7cc61f7cc'
+    mesh = '4f9ace9a-0782-4649-9bf4-6aad94f59345'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.4399999976158142, 0.20000000298023224, 0.4399999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '96'
+name = 'apartment_coffee_table_tray'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.60199999999999998, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0dccde2d-ebe0-4235-9fff-3ac897c56e8c'
+    mesh = 'd36ea74b-a55f-4ea7-a326-20484b1cdf2b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '97'
+name = 'apartment_coffee_vase'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0999999999999996, 0.63, 2.5499999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c01459e2-1e10-458a-b87b-94ed8a6c5d22'
+    mesh = '5adae887-9cc2-4720-b768-df1e24991037'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '98'
+name = 'apartment_coffee_book_cover'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7999999999999998, 0.61499999999999999, 2.5699999999999998 ]
+    rotation = [ 0.0, 12.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '28aa8273-70f0-4321-9728-4bdf5775d127'
+    mesh = 'd13e36dc-a452-487a-86ca-daaa7c609906'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '99'
+name = 'apartment_coffee_book_pages'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7999999999999998, 0.62, 2.5699999999999998 ]
+    rotation = [ 0.0, 12.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0f9d63d3-70e6-415d-a81f-c7bdf44acfbe'
+    mesh = 'a4973237-c92a-49cd-9818-b4d5f711b3fb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '100'
+name = 'apartment_side_table'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3700000000000001, 0.62, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e92cc2c1-72b7-43c7-8e9f-f244d6a72c3c'
+    mesh = '1db05a21-eda2-48a6-b3e7-a8851b6842d8'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.38999998569488525, 0.03999999910593033, 0.38999998569488525]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '101'
+name = 'apartment_side_table_stem'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3700000000000001, 0.31, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1eebc003-14bd-491f-b6ba-808594b605cd'
+    mesh = '6dd69a2c-19f0-4c33-a4bc-c0530e7dfc38'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '102'
+name = 'apartment_side_table_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3700000000000001, 0.065000000000000002, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9c81d531-3405-4007-99f6-654b463626c8'
+    mesh = 'c9487235-acc7-4680-9124-47557891d5eb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '103'
+name = 'apartment_side_ceramic'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3700000000000001, 0.67000000000000004, 1.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c2a66b2e-09e6-4be5-b7de-f52d12754528'
+    mesh = '3760eb3e-1b4c-4749-88f2-e971d3100386'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '104'
+name = 'apartment_lounge_chair_seat'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.95, 0.47999999999999998, 3.1699999999999999 ]
+    rotation = [ 0.0, -35.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '74ac77ee-611d-4f12-b561-65c75388f4fb'
+    mesh = '8071478e-5ae4-4d86-ba1d-89afebd6c76e'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.47999998927116394, 0.125, 0.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '105'
+name = 'apartment_lounge_chair_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.71, 0.89000000000000001, 3.48 ]
+    rotation = [ 10.0, -35.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ce52a551-ef1c-4284-9d53-5f48b2f59290'
+    mesh = '099f84fd-7a12-42e1-98b6-8414aa307035'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.47999998927116394, 0.3700000047683716, 0.11999999731779099]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '106'
+name = 'apartment_lounge_chair_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.95, 0.23000000000000001, 3.1699999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f6f2c203-0bc8-4f14-9e27-c46703301291'
+    mesh = 'a6987396-194c-4aaf-8242-9b62b33b3ddf'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.16500000655651093, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '107'
+name = 'apartment_living_plant_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.25, 0.070000000000000007, 4.1299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.3, 1.3, 1.3 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '875d103c-4bd5-474b-ac53-50156aed6bed'
+    mesh = '4fb269ba-1540-4986-b22f-5ec7c5d5d8e9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '108'
+name = 'apartment_living_plant_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.25, 0.64200000000000013, 4.1299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f68bd1d9-1859-4d48-b518-a3b1d1b634d3'
+    mesh = 'b52b6963-c166-41d4-95d9-2c4ba3e5fe91'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '109'
+name = 'apartment_living_plant_stem_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0993155710989058, 0.9345, 4.1703757710359932 ]
+    rotation = [ 5.7643090639572359, 0.0, -22.131851406653112 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8be635c3-7504-4873-889a-4ec5225c93a8'
+    mesh = 'c2c24756-c8c5-48e0-97cf-81f5c5bffab9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '110'
+name = 'apartment_living_plant_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.9486311421978106, 1.3049999999999999, 4.2107515420719865 ]
+    rotation = [ 18.0, 75.0, -15.0 ]
+    scale = [ 0.22100000000000003, 0.071500000000000008, 0.49400000000000005 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3f18a23d-1617-4620-bd9d-53efeb5d1c9b'
+    mesh = '990485a0-6fb1-4a83-8ec0-34d2bee3de4b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '111'
+name = 'apartment_living_plant_stem_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.2364037041313658, 1.0190000000000001, 4.2854063729023117 ]
+    rotation = [ 18.849908738701131, 0.0, -1.7116013772522616 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b6579659-28aa-40a7-9fef-6ea869913b6c'
+    mesh = '7705c000-4934-4ce2-a0bc-090411ceb84b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '112'
+name = 'apartment_living_plant_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.2228074082627307, 1.4740000000000002, 4.4408127458046245 ]
+    rotation = [ 18.0, 5.0, -15.0 ]
+    scale = [ 0.22100000000000003, 0.071500000000000008, 0.49400000000000005 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e05662f8-674d-4b35-8e9d-0d5804c3183a'
+    mesh = '23f21122-6b22-4c29-8e91-74e12043eead'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '113'
+name = 'apartment_living_plant_stem_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3850999629903722, 1.1034999999999999, 4.2080000000000002 ]
+    rotation = [ 7.9835346167161232, 0.0, 14.058727318506749 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd5717ac8-3765-4ecf-84f2-f9395c229926'
+    mesh = 'd45a6894-45e4-4fd7-aa55-e6ab4287ad26'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '114'
+name = 'apartment_living_plant_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5201999259807453, 1.643, 4.2859999999999996 ]
+    rotation = [ 18.0, -60.0, -15.0 ]
+    scale = [ 0.22100000000000003, 0.071500000000000008, 0.49400000000000005 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1ac48b1d-2705-4c28-98d3-6015f61070fa'
+    mesh = '1604bd95-b75c-495c-b293-0d5f53dee51f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '115'
+name = 'apartment_living_plant_stem_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.3695029331265607, 0.9345, 4.0297251328888999 ]
+    rotation = [ -14.444272119426731, 0.0, 17.876848237607845 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6f889887-ae4e-4396-b46f-77d9521cbf06'
+    mesh = 'badc80ab-ba7b-4253-9699-1b9be2f57487'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '116'
+name = 'apartment_living_plant_leaf_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.4890058662531214, 1.3049999999999999, 3.9294502657777999 ]
+    rotation = [ 18.0, -130.0, -15.0 ]
+    scale = [ 0.22100000000000003, 0.071500000000000008, 0.49400000000000005 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dbf1514c-607a-48dd-beea-beb7e905caac'
+    mesh = 'e1b833c8-7751-4e9d-81f9-733adddeffdf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '117'
+name = 'apartment_living_plant_stem_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.1840715511684508, 1.0190000000000001, 3.9886159852222827 ]
+    rotation = [ -17.093845791501678, 0.0, -8.2446459088881987 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fe2a4161-0ffb-4a2e-9a96-8cc914fb0ca9'
+    mesh = '6cba702a-0458-43a0-988f-4ae7ff86a20a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '118'
+name = 'apartment_living_plant_leaf_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.1181431023369015, 1.4740000000000002, 3.847231970444565 ]
+    rotation = [ 18.0, -205.0, -15.0 ]
+    scale = [ 0.22100000000000003, 0.071500000000000008, 0.49400000000000005 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '47f1667e-e260-4d1b-abee-746a023816e9'
+    mesh = 'fde8c62c-a0c4-46b7-92f0-4001f9c11961'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '119'
+name = 'apartment_floor_lamp_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 0.070000000000000007, 0.66000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6026d6cb-e147-4d6f-b2e7-bf8240f5ed61'
+    mesh = 'abde955f-2325-476e-b4d7-ced56c9f4cba'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '120'
+name = 'apartment_floor_lamp_stem'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 0.96999999999999997, 0.66000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '066154fb-7690-446e-a781-1e11032fb98f'
+    mesh = '3eb46e85-d3a5-4fd4-81e0-0beb9a5305a7'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '121'
+name = 'apartment_floor_lamp_shade'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 1.6699999999999999, 0.66000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a61bd731-9727-40c6-a46c-46e1017077cd'
+    mesh = '7256dbb9-8364-4e03-9489-12a860845885'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '122'
+name = 'apartment_floor_lamp_bulb'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.25, 1.8200000000000001, 0.66000000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.089999999999999997, 0.089999999999999997, 0.089999999999999997 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '46513819-9c24-42e4-995e-471aac7ecf4f'
+    mesh = '1a621594-face-4641-a3e7-a3f9583ebf27'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '123'
+name = 'apartment_bedroom_rug'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7999999999999998, 0.065000000000000002, -2.8999999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '955e2f1c-1f1f-4f27-baf1-f6990409b9aa'
+    mesh = '6a0feb0f-9d1a-4bb9-aff8-68cd654e28bd'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.8250000476837158, 0.019999999552965164, 1.875]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '124'
+name = 'apartment_bed_frame'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.33000000000000002, -2.9500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f90724b7-e123-4319-bcd3-a91fbe55e504'
+    mesh = '58f3a759-9c0c-440d-a72c-23d336209bfb'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.375, 0.14000000059604645, 1.5]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '125'
+name = 'apartment_mattress'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.58999999999999997, -2.9500000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c347f39f-d000-4e98-b812-51e8aac5d793'
+    mesh = '7999daee-45c0-4bcc-9d90-2ab27b1a9a3f'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.3250000476837158, 0.14000000059604645, 1.4249999523162842]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '126'
+name = 'apartment_duvet'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.80000000000000004, -2.5299999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '47f9a831-040e-4371-a6e8-e306293161ce'
+    mesh = '26dc157b-d98b-4d56-9c33-62d897e68cc7'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.3600000143051147, 0.09000000357627869, 1.0099999904632568]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '127'
+name = 'apartment_bed_runner'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.92500000000000004, -1.9299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7be189e8-44d6-44fd-b0c9-db3d22a4d8ca'
+    mesh = '25f5ded1-822c-4d05-a506-ea5df81f21a2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '128'
+name = 'apartment_runner_drape_left'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0999999999999996, 0.77000000000000002, -1.9299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '36cb6059-fd0f-4206-88d2-f247004239a9'
+    mesh = '2390f8f9-2146-46f1-8236-b5072e9d2b4f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '129'
+name = 'apartment_runner_drape_right'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.2999999999999998, 0.77000000000000002, -1.9299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fe0c32da-e443-4527-9120-7201c1e8d09f'
+    mesh = 'b83554f9-9eb4-41ce-8ed9-407987f073a9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '130'
+name = 'apartment_headboard'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.71999999999999997, -4.4100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '378e0edf-5f7b-4204-a1d7-c609136b646b'
+    mesh = '2e3a53d3-4db1-455f-8d0c-91989f167b47'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.465000033378601, 0.6499999761581421, 0.0949999988079071]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '131'
+name = 'apartment_headboard_slat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.0300000000000002, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'eb6e3918-7ef0-4110-935e-6b85e81ca2ad'
+    mesh = '54e8cd13-0fd3-4fde-8f0f-1c132682690b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '132'
+name = 'apartment_headboard_slat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.8399999999999999, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'aecf80b6-73dd-4901-b4cf-774444084686'
+    mesh = 'ba7fe1dc-bda5-48e8-a2f2-7942f31a71d9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '133'
+name = 'apartment_headboard_slat_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.6500000000000004, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '88907af0-f361-4d96-a81a-2616697a78e0'
+    mesh = 'd92be70c-001f-4d9e-a195-f9e8c41899f5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '134'
+name = 'apartment_headboard_slat_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.46, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '18043431-3618-4d17-86b6-b6a40b49e3b1'
+    mesh = 'a1e9b3c1-e3d2-4a4b-b1de-f19bce10932e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '135'
+name = 'apartment_headboard_slat_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.2700000000000005, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd488127b-757c-43de-9f3e-be3dbf8d9baf'
+    mesh = 'dab1efeb-f2f4-45ae-9ffa-4b67e4846ed9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '136'
+name = 'apartment_headboard_slat_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.0800000000000001, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f7e01f5b-8f08-49e2-8f53-b1b940084aa8'
+    mesh = 'c94fa6ad-e74e-4e3f-aff5-a2462022836c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '137'
+name = 'apartment_headboard_slat_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.8900000000000006, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '227dd5d9-7063-416d-b5c1-4ce4d20f768d'
+    mesh = '2471adbc-fb29-443e-bbb8-ffd77531195f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '138'
+name = 'apartment_headboard_slat_7'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '156d1eed-5211-41de-b5ad-93ee598b1e86'
+    mesh = '68c1474d-8ff9-4b3d-90bf-e344b1f77bb9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '139'
+name = 'apartment_headboard_slat_8'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.5099999999999998, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e82ff583-e913-4f44-957b-75a914cd4713'
+    mesh = 'acc27a38-1234-4a7b-a253-8f52ea61f2c1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '140'
+name = 'apartment_headboard_slat_9'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.3200000000000003, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a5d750da-e72c-4601-a71d-1a7149a74bb2'
+    mesh = 'c25c9a0a-016c-4baa-b06e-0d0fb7485911'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '141'
+name = 'apartment_headboard_slat_10'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.1300000000000008, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f802d7c3-d488-4dee-a6c5-8e149a8253bc'
+    mesh = '601a62ef-873c-43c5-b96b-8ab055acd4fe'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '142'
+name = 'apartment_headboard_slat_11'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.9400000000000004, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '528a209d-5735-4c12-92a0-0a51f6736915'
+    mesh = 'b8c81db9-ed86-410c-9e73-10b19c3e9880'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '143'
+name = 'apartment_headboard_slat_12'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.75, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '23e1d1e7-fce1-4e95-9f03-1271e0b745d9'
+    mesh = '3c97a99a-45b0-4b11-aa7f-4afd88e00477'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '144'
+name = 'apartment_headboard_slat_13'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.5600000000000001, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '82c7a4b5-8974-41fd-bf15-964bfcbf3ff3'
+    mesh = '028f62eb-55f5-4681-ac00-9db1bd4523ed'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '145'
+name = 'apartment_headboard_slat_14'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -3.3700000000000001, 0.81999999999999995, -4.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7694b28b-e77b-48f0-809f-abafdbe7bd93'
+    mesh = '84022946-b7e3-4a3d-9e68-5a57cfa75575'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '146'
+name = 'apartment_bed_pillow_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.4000000000000004, 0.85999999999999999, -3.9199999999999999 ]
+    rotation = [ 8.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '491461da-4bfb-4175-b866-fcbf1dea7b82'
+    mesh = 'd36faa5b-b25a-4e85-87a7-0b91a136a67a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '147'
+name = 'apartment_bed_accent_pillow_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -5.4000000000000004, 0.97999999999999998, -3.5600000000000001 ]
+    rotation = [ 12.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a0fc0ae9-0687-48e1-9b7c-5e1a930efea1'
+    mesh = '90b76c46-a0f0-4ed7-b66b-dc5e71a6038f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '148'
+name = 'apartment_bed_pillow_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0, 0.85999999999999999, -3.9199999999999999 ]
+    rotation = [ 8.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b8eb3bac-7ebe-4ba8-9891-d57d75834128'
+    mesh = '88c67d7c-5393-419c-9b05-2e276c85e0c5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '149'
+name = 'apartment_bed_accent_pillow_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.0, 0.97999999999999998, -3.5600000000000001 ]
+    rotation = [ 12.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e7143e79-df35-4cbf-9ba0-8f7a8ce40b88'
+    mesh = '53942dd9-9144-4063-820c-bb1131496978'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '150'
+name = 'apartment_nightstand_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5, 0.35999999999999999, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1cebba0b-6a85-4b4d-9f37-a4262003c2a9'
+    mesh = '1e810633-583a-4913-af05-0d4f081e4b24'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.29499998688697815, 0.23999999463558197, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '151'
+name = 'apartment_nightstand_drawer_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5, 0.42999999999999999, -3.7040000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e0cb10c7-2ae0-479d-8c57-c9c0917cb5a8'
+    mesh = '6dd3cea6-ec88-4d30-a0e9-214b10e396f4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '152'
+name = 'apartment_nightstand_knob_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5, 0.44, -3.6699999999999999 ]
+    rotation = [ 90.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '801ecdbf-f564-4a92-b660-d4d588c9f07c'
+    mesh = '1de6c8e6-7899-48fe-a84b-582b5c5ca5bf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '153'
+name = 'apartment_bedside_lamp_base_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5, 0.60999999999999999, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c22366c4-abb1-4bd0-8c31-ccd5079f131e'
+    mesh = 'ad8488b9-4cd6-456b-9abe-61008417ee29'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '154'
+name = 'apartment_bedside_lamp_shade_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -6.5, 0.91000000000000003, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '570a8a7f-2c82-47a5-a5cb-2e0684521148'
+    mesh = '13ad3634-087f-4be7-927d-bf94ba86a905'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '155'
+name = 'apartment_nightstand_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8799999999999999, 0.35999999999999999, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0336344e-2839-44c9-8edc-aea5cfd1c72b'
+    mesh = '348bbe42-d7ab-4e1c-b48b-e5515ed18e1e'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.29499998688697815, 0.23999999463558197, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '156'
+name = 'apartment_nightstand_drawer_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8799999999999999, 0.42999999999999999, -3.7040000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5b174efa-dc2e-4aed-ab11-50a792ae0d80'
+    mesh = '5c4cb090-44a1-4cb0-8662-20a3ddc1adf5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '157'
+name = 'apartment_nightstand_knob_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8799999999999999, 0.44, -3.6699999999999999 ]
+    rotation = [ 90.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3b5114ef-4c1e-4751-b91f-a6deb5926096'
+    mesh = '3aa8569b-08f0-4f6b-ad78-19bce2d9359f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '158'
+name = 'apartment_bedside_lamp_base_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8799999999999999, 0.60999999999999999, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fda153a8-2499-4087-9a93-aef663b7ebf8'
+    mesh = '3c0a6bbb-01b1-4b73-be7f-a4631a87638d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '159'
+name = 'apartment_bedside_lamp_shade_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.8799999999999999, 0.91000000000000003, -4.04 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '951b4c08-eccd-4620-a856-f98037f20e04'
+    mesh = '6a857a0b-215a-4a17-8641-ac3926bb1cd4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '160'
+name = 'apartment_bed_art_frame'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 2.25, -4.9000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '34fab2c1-c09b-4d24-bbaa-b6148d2d1ef9'
+    mesh = '97e4e69b-4aff-42ac-a3c9-8c5603c3f4ad'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '161'
+name = 'apartment_bed_art_canvas'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 2.25, -4.8499999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '07783ae3-6c7b-486d-9e76-cea69026c87d'
+    mesh = '746d0714-8b73-438c-8cdb-5ada1e006b33'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '162'
+name = 'apartment_bed_art_sun'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.9400000000000004, 2.4199999999999999, -4.8300000000000001 ]
+    rotation = [ 90.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a792890b-c5aa-461e-a7e6-f2ad439de13b'
+    mesh = '81e81f57-aae4-4373-84c3-545cc7d66a05'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '163'
+name = 'apartment_bed_art_field'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -4.7000000000000002, 1.97, -4.8300000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '22d08964-20ea-456d-804f-ec50cbeb089c'
+    mesh = '3ff286c8-cf29-443e-9446-b4bb14a702fd'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '164'
+name = 'apartment_wardrobe'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -1.8300000000000001, 1.1200000000000001, -3.3599999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '94a5dcc9-df4d-484c-8b60-4349d36fd07c'
+    mesh = '18d4f40d-4015-4b1f-9403-f36d4963e535'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.2750000059604645, 1.100000023841858, 1.225000023841858]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '165'
+name = 'apartment_wardrobe_door_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1219999999999999, 1.1200000000000001, -4.1600000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5e06572d-bea5-4a08-b7d4-2ae0a93f6fd2'
+    mesh = '1ba4e170-2980-4c75-b1af-8f13c4b8f5a5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '166'
+name = 'apartment_wardrobe_pull_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1699999999999999, 1.1699999999999999, -3.8799999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e2dee823-d825-468b-a037-aa95222a06e3'
+    mesh = '2ef1215b-0baf-4124-a585-68655fa0e22d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '167'
+name = 'apartment_wardrobe_door_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1219999999999999, 1.1200000000000001, -3.3600000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cc29c432-ebd4-48c9-8383-9b7a216d8ab9'
+    mesh = 'ff8f26a4-c9a5-4e06-9d19-6970e7216a51'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '168'
+name = 'apartment_wardrobe_pull_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1699999999999999, 1.1699999999999999, -3.0800000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '07e5b1f4-8b00-4ae2-8de6-c6879b0fed9d'
+    mesh = '8ab4fc0b-f287-4b09-b07d-e94614e08ce6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '169'
+name = 'apartment_wardrobe_door_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1219999999999999, 1.1200000000000001, -2.5600000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b9eab0ff-2145-47bc-b6db-8ff649ff3e06'
+    mesh = '2744cff1-9f3e-49c5-9bc1-685af19c6834'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '170'
+name = 'apartment_wardrobe_pull_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.1699999999999999, 1.1699999999999999, -2.2800000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd420282d-43ae-4c21-95a9-1eb3755ce8bc'
+    mesh = 'fee276fc-ba75-41d7-b27a-8b8a8a49bb9c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '171'
+name = 'apartment_kitchen_tile_floor'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7000000000000002, 0.065000000000000002, -2.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7f17a21d-4e01-4b87-8fa7-4c9a27b10f73'
+    mesh = 'f4420325-11e6-418c-adce-0a37ae379bcc'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '172'
+name = 'apartment_kitchen_toekick'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.5499999999999998, 0.16, -4.4100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0160b848-a8a4-449d-a592-ad048eb3c923'
+    mesh = '34ed9270-bf23-468d-a842-04334908537d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '173'
+name = 'apartment_kitchen_cabinet_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.12, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '96ed5c66-5b78-45c1-81a1-1b629f87fda7'
+    mesh = '3a77de29-0417-49eb-98db-1541dc4a361d'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '174'
+name = 'apartment_kitchen_front_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.12, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '676c12f7-8167-4186-aaa1-9323b968b573'
+    mesh = '58b02aeb-380c-4482-a535-175f594fa668'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '175'
+name = 'apartment_kitchen_handle_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -0.12, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7d2fe5c5-47a0-4783-9d8c-04e895ed5878'
+    mesh = '187abad7-b71e-44c9-9db7-86fe1557053b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '176'
+name = 'apartment_kitchen_cabinet_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.95000000000000007, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9b9bef4f-f1e0-4a80-817f-c64f469e7df0'
+    mesh = '8ba213ea-c9b5-4635-9540-d39b95252156'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '177'
+name = 'apartment_kitchen_front_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.95000000000000007, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '44f87436-9c9c-42c0-9bca-6b6b9044022a'
+    mesh = 'b43b8fad-7d4b-4609-adec-37ebf299e10a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '178'
+name = 'apartment_kitchen_handle_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.95000000000000007, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '75e098b2-375c-4de1-b4e9-d117db31f282'
+    mesh = 'e9d5e808-ec00-4302-9862-69e251db040a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '179'
+name = 'apartment_kitchen_cabinet_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.02, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3ee100a7-6bd8-4828-b7b2-704fd55e638d'
+    mesh = '8617f362-e358-4587-aaa1-74badaba6eca'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '180'
+name = 'apartment_kitchen_front_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.02, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'aaf87684-6a90-42d7-9e18-72ef9e5c5884'
+    mesh = 'f23ed98c-4db7-4041-904b-b483486e8eb8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '181'
+name = 'apartment_kitchen_handle_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.02, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '954abb43-3e10-4516-a8f9-9462d00f5a49'
+    mesh = 'f4cdb100-52b7-495f-8ff5-1f09e97504c5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '182'
+name = 'apartment_kitchen_cabinet_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.0899999999999999, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '52663557-cea5-4a10-866d-cefbe6c26f7d'
+    mesh = 'aac7ad3e-3c80-4dba-b020-cbde0a32902b'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '183'
+name = 'apartment_kitchen_front_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.0899999999999999, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9d127cc6-c87d-43da-9af3-f05d7eb89f5d'
+    mesh = '3e1c92c8-fdff-42b7-8d62-102ea130938c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '184'
+name = 'apartment_kitchen_handle_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.0899999999999999, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8d80b397-265f-4f13-b2f9-2c9d4bf7897f'
+    mesh = '74cff74b-8409-4e2d-89db-1b35badcdedb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '185'
+name = 'apartment_kitchen_cabinet_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1600000000000001, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ae750553-4ca0-407c-b5b1-1b3da2672ba8'
+    mesh = 'a19c1305-1eef-4fa2-b5e2-4d923ad3237c'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '186'
+name = 'apartment_kitchen_front_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1600000000000001, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1ac5e074-87eb-4481-91ae-07a50585ad10'
+    mesh = 'e91faa64-72e8-45eb-8e25-7ca21d61da6d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '187'
+name = 'apartment_kitchen_handle_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1600000000000001, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f1dbd772-9be5-4484-9aca-1cabbb1f3272'
+    mesh = 'a61838e6-625e-4081-a01f-852477c31e38'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '188'
+name = 'apartment_kitchen_cabinet_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.2300000000000004, 0.58999999999999997, -4.4000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '598f241a-7b5f-4ea2-9ae3-d244ac71dd5c'
+    mesh = '2083f3bc-22ae-459c-9f7e-305063032584'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5224999785423279, 0.38999998569488525, 0.42500001192092896]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '189'
+name = 'apartment_kitchen_front_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.2300000000000004, 0.58999999999999997, -3.9550000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0bbfa07b-0c6f-4522-8cea-87ea57a28d15'
+    mesh = '45bb0cb4-bfd4-4cd6-9d69-a528be2b6f68'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '190'
+name = 'apartment_kitchen_handle_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.2300000000000004, 0.88, -3.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a58f09d9-9816-42b3-b10e-334735f6b629'
+    mesh = '76be4ac1-3bc8-495d-9155-5961f38c34e4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '191'
+name = 'apartment_kitchen_counter'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.5499999999999998, 1.04, -4.3600000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd519e67f-29a6-4f20-a279-40312dead2f9'
+    mesh = 'c357c24e-a802-4328-a263-e33d1fc43bab'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [3.325000047683716, 0.05000000074505806, 0.5099999904632568]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '192'
+name = 'apartment_kitchen_backsplash'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.5499999999999998, 1.4099999999999999, -4.9100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'cb433407-8770-4783-8cbd-831924be27f1'
+    mesh = '2e9d88ea-2520-4b67-b870-ad22e9c4df8c'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [3.3499999046325684, 0.33000001311302185, 0.017500000074505806]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '193'
+name = 'apartment_kitchen_upper_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.080000000000000002, 2.1800000000000002, -4.6900000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7cc89ab6-0bc0-4c48-8809-5ea67d6278f3'
+    mesh = '8607d314-557f-47f5-b6f0-6692b43cce8d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '194'
+name = 'apartment_kitchen_upper_reveal_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 0.080000000000000002, 1.8600000000000001, -4.4699999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'aa93e5fc-938d-44c4-9950-8cb96cbada86'
+    mesh = '6796b1bc-1604-47f0-be9a-8a171dc9086f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '195'
+name = 'apartment_kitchen_upper_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.2000000000000002, 2.1800000000000002, -4.6900000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4408ccb3-6ec4-4a78-82a4-f6bc8d4dde0b'
+    mesh = '31378494-16e3-474a-ae27-19a70326cb48'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '196'
+name = 'apartment_kitchen_upper_reveal_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.2000000000000002, 1.8600000000000001, -4.4699999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e1c83e06-b84c-4032-8a22-355e737c01ae'
+    mesh = '8c00d1a0-a22b-4184-a932-5f9b5aa953a2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '197'
+name = 'apartment_kitchen_upper_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3200000000000003, 2.1800000000000002, -4.6900000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2ff09545-466a-41dd-a4f9-a6fdfb1d5db8'
+    mesh = '668c2a3e-8257-4c25-88e7-a1f24f02d6f5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '198'
+name = 'apartment_kitchen_upper_reveal_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3200000000000003, 1.8600000000000001, -4.4699999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ea00ea80-0ca3-4bd7-9ee7-0c48f7044a9c'
+    mesh = 'b1d7c1b3-611c-46a4-a38a-1e75fe008e34'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '199'
+name = 'apartment_kitchen_upper_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.4400000000000004, 2.1800000000000002, -4.6900000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '09569e18-3f29-4ba5-aed5-8eb31dc4d070'
+    mesh = '0efcf362-66b7-4d61-b31a-422d7deb76d8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '200'
+name = 'apartment_kitchen_upper_reveal_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.4400000000000004, 1.8600000000000001, -4.4699999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '64511307-da2d-4441-bf0b-8e38da5ce0d7'
+    mesh = '2a5434fa-25aa-4ecb-94aa-307833379677'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '201'
+name = 'apartment_kitchen_upper_light'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.75, 1.8260000000000001, -4.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f907b91a-3008-4d4e-81df-22b903e9ee1e'
+    mesh = 'a1dc9302-3da2-451e-9584-295ddea78f07'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '202'
+name = 'apartment_sink_rim'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.0, 1.101, -4.2999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f65b29b9-25b1-423f-b3bc-061a1d509ca8'
+    mesh = '4073c6b7-85c0-4451-800a-20c7f013b02c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '203'
+name = 'apartment_sink_bowl'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.0, 1.117, -4.2999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '48b8a0f4-9ed1-4a4d-b8c3-193decde1528'
+    mesh = '91951f1a-2450-400a-a4b3-1e4ac183ac44'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '204'
+name = 'apartment_sink_drain'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.0, 1.1379999999999999, -4.2999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '09cc5518-085c-4339-b662-f61f89ff169e'
+    mesh = 'e72d5ecf-a968-42c5-8b26-f281a6eafdea'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '205'
+name = 'apartment_tap'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.0, 1.1100000000000001, -4.6600000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c7be6f36-bb0a-42dc-9bf0-c06cf8d2e30d'
+    mesh = '6261525f-d87b-4946-8152-b8703c8a4e0d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '206'
+name = 'apartment_hob'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.8999999999999999, 1.1080000000000001, -4.2999999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '840e8dff-7efc-46f3-932a-c52056499856'
+    mesh = '4e3b6301-b923-4e7e-b9ec-f2cb659d0a5b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '207'
+name = 'apartment_hob_ring_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6299999999999999, 1.1319999999999999, -4.4800000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0ea47dc2-c77b-409b-8f64-bbe24db77280'
+    mesh = '0c3ddb0d-d958-4a55-85eb-0d8b0ad52684'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '208'
+name = 'apartment_hob_ring_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1799999999999997, 1.1319999999999999, -4.4800000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '835ecf71-2eb4-479d-bed3-f089b184b57f'
+    mesh = '46fde0a2-f94c-4a66-9b1a-8f88e24ed703'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '209'
+name = 'apartment_hob_ring_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6299999999999999, 1.1319999999999999, -4.1299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4166f63b-3454-4867-93d5-7ae4a2695ba5'
+    mesh = 'fb7f5739-214a-48f8-ae73-576b05932f28'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '210'
+name = 'apartment_hob_ring_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1799999999999997, 1.1319999999999999, -4.1299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8aba6e69-a36f-45f1-8a91-1ef6e88c7b98'
+    mesh = 'c15936c1-693a-461b-8736-0bc03c4ea800'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '211'
+name = 'apartment_cooking_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6299999999999999, 1.26, -4.4800000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '37d636c4-97b9-45ec-886f-265432b0f023'
+    mesh = '38586deb-864e-486a-a3c2-ebd8171518c9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '212'
+name = 'apartment_cooking_pot_lid'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6299999999999999, 1.3839999999999999, -4.4800000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e5c2236b-e1e5-4e45-a897-47d845fd49bc'
+    mesh = 'c686da67-1a70-4a4f-8eff-1808170fbeff'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '213'
+name = 'apartment_pot_handle'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6299999999999999, 1.4159999999999999, -4.4800000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1fe5ea87-21bc-491d-9c50-dba4f754cab9'
+    mesh = '4fefec6e-1381-47c9-a995-33c35d6c9ed1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '214'
+name = 'apartment_cutting_board'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3999999999999999, 1.1100000000000001, -4.25 ]
+    rotation = [ 0.0, -9.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dc6d83e5-8698-473b-9d85-5907c5cd0d41'
+    mesh = 'c308f72f-d2fa-4412-b4dc-767cd38ddaf5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '215'
+name = 'apartment_bread'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3999999999999999, 1.21, -4.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.19, 0.089999999999999997, 0.12 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c529c987-e71f-484b-99f8-26e51366d61e'
+    mesh = '88aaf340-4fb3-4f2d-9631-04b4222962f9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '216'
+name = 'apartment_fridge'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4199999999999999, 1.1200000000000001, -4.3899999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0dea48dd-58e7-4561-81ea-494aa18f8b46'
+    mesh = '958d2f47-76e1-420d-89d6-da55f2df44f4'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.48500001430511475, 1.0750000476837158, 0.4749999940395355]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '217'
+name = 'apartment_fridge_door'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4199999999999999, 1.47, -3.8969999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '92e27987-899b-450c-8989-702fcd9a5ddf'
+    mesh = '85f7cf49-37cb-4d05-917c-07d18b7cf028'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '218'
+name = 'apartment_fridge_drawer'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4199999999999999, 0.46000000000000002, -3.8969999999999998 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'be2d5e9c-eb12-46ca-a34a-7e1420cd66e6'
+    mesh = '8835c178-6535-4b14-a6b6-63912158e886'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '219'
+name = 'apartment_fridge_handle'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.0599999999999996, 1.45, -3.8399999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fba15cc5-4f71-4b70-9826-96c29cea9cbb'
+    mesh = '4a3f4546-4efb-4bc9-a3ef-2933c88246ac'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '220'
+name = 'apartment_island_plinth'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.6499999999999999, 0.13, -1.3 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b0a032b2-7d87-4574-9fbf-0487de44ffeb'
+    mesh = 'cd7a6c3f-0e24-4449-998c-f92790ba4ee5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '221'
+name = 'apartment_island_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.6499999999999999, 0.62, -1.3 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ccd2ef8a-896c-4547-aae6-cd140c273c99'
+    mesh = '6760f5c5-71b7-4f04-94d4-235cfcc615ef'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.4249999523162842, 0.42500001192092896, 0.5600000023841858]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '222'
+name = 'apartment_island_counter'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.6499999999999999, 1.1200000000000001, -1.1299999999999999 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '40a90753-269e-479a-97fd-09fc2bda1f2e'
+    mesh = '83ec508a-3871-4b0d-a3b2-92a7296dcee4'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.600000023841858, 0.05999999865889549, 0.7749999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '223'
+name = 'apartment_island_flute_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.3400000000000001, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2b1f3b45-7c93-4a41-a518-241b0ab9ed24'
+    mesh = 'ec57342a-9506-41bd-9a10-f9fb55c36be3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '224'
+name = 'apartment_island_flute_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.5780000000000001, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e16d29f3-2ec9-42f9-8ec8-be6853d61ca5'
+    mesh = 'd815142c-7beb-47eb-8ed6-c19637b518ea'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '225'
+name = 'apartment_island_flute_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.8160000000000001, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'da0452f2-4b0f-4efb-968b-2d0a4e96771d'
+    mesh = '979677e6-5bef-44a5-b41f-8d305d7e670c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '226'
+name = 'apartment_island_flute_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.0540000000000003, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0fa2dc02-2732-4566-80fd-6cfe4229cc3a'
+    mesh = '364c4c73-9dcc-4388-a5fb-f2ef29d78b25'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '227'
+name = 'apartment_island_flute_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.2919999999999998, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ad606f2b-2d99-48f2-b912-0a612b0f8408'
+    mesh = 'd71d10f5-6594-41c6-afa1-dd0b2bd0dfa5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '228'
+name = 'apartment_island_flute_5'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.5300000000000002, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8cb28460-616b-4c01-b3a9-16322f0cf123'
+    mesh = '7d483271-8536-44ee-b8e1-42ed52f83fb9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '229'
+name = 'apartment_island_flute_6'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.7679999999999998, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7555dcbf-3acd-4753-9c32-a641f497f49f'
+    mesh = '6c4f6aae-7d96-4ce2-a547-dbd3c954122c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '230'
+name = 'apartment_island_flute_7'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.0060000000000002, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2eb7e28a-324f-426d-8c41-2b9f947b4127'
+    mesh = '6a89a1cd-8027-47b4-bac8-f89e19c80f66'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '231'
+name = 'apartment_island_flute_8'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.2439999999999998, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6a7a8367-9cc6-4dfd-a7f3-c7012b3aa123'
+    mesh = '6ac7cb54-c4c2-4354-a478-7408a9d75c0e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '232'
+name = 'apartment_island_flute_9'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.4820000000000002, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b0a44bcd-0457-4789-9339-f3f29eb40e33'
+    mesh = '7a16b39a-c223-40dd-8b50-2e2cd515a315'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '233'
+name = 'apartment_island_flute_10'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.7199999999999998, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '42453963-f2ba-4b9b-aa2c-36c7c24065c6'
+    mesh = 'e6ccf871-54db-4520-a486-91582582feec'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '234'
+name = 'apartment_island_flute_11'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.9580000000000002, 0.62, -0.71999999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dc8374cf-46df-4ea9-9714-67817dc575e0'
+    mesh = 'a8bd67f4-9470-4a54-9a8a-a6cd38e8a4e3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '235'
+name = 'apartment_stool_seat_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.7, 0.71999999999999997, -0.12 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '84847080-85d1-44ac-a232-cda4728a9307'
+    mesh = 'e256b9b1-b08b-4b5a-97ea-6f00f4a8e357'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.05000000074505806, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '236'
+name = 'apartment_stool_leg_0_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.472, 0.36500000000000005, -0.33599999999999997 ]
+    rotation = [ 6.4732724678280542, 0.0, -6.8786325765013538 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '88a0d5a8-bb91-40ce-bd53-901180aedd00'
+    mesh = '087aadfd-4991-4388-9431-c0e388f2aac0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '237'
+name = 'apartment_stool_leg_0_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.9279999999999999, 0.36500000000000005, -0.33599999999999997 ]
+    rotation = [ 6.4732724678280542, 0.0, 6.8786325765013538 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '49ef5aeb-c8f3-4d4a-ae62-e96276c0b6c6'
+    mesh = '7674edfd-452f-4117-a5cb-5c213e539dc8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '238'
+name = 'apartment_stool_leg_0_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.7, 0.36500000000000005, 0.14400000000000002 ]
+    rotation = [ -7.951770134743132, 0.0, -0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '67063741-5bb0-43b3-87df-af85a1049fa6'
+    mesh = 'b6985205-6080-4433-b1a2-718c3618f264'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '239'
+name = 'apartment_stool_seat_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.5699999999999998, 0.71999999999999997, -0.12 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c1fbb164-2313-427c-88ab-ef7a553e9a18'
+    mesh = '4070d245-68a5-4a14-b079-e7ab600dc4fc'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.3199999928474426, 0.05000000074505806, 0.3199999928474426]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '240'
+name = 'apartment_stool_leg_1_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.3419999999999996, 0.36500000000000005, -0.33599999999999997 ]
+    rotation = [ 6.4732724678280542, 0.0, -6.8786325765013538 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dac82303-fd53-453f-a3f0-44b7f8a32501'
+    mesh = 'd93cbc44-7298-43b6-b24a-47a1fbe52f01'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '241'
+name = 'apartment_stool_leg_1_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.798, 0.36500000000000005, -0.33599999999999997 ]
+    rotation = [ 6.4732724678280542, 0.0, 6.8786325765013538 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9f261344-3125-45f9-8067-e64f070c5c25'
+    mesh = '99048a61-2da9-43b6-a3ba-a7d944acb959'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '242'
+name = 'apartment_stool_leg_1_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.5699999999999998, 0.36500000000000005, 0.14400000000000002 ]
+    rotation = [ -7.951770134743132, 0.0, -0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e00192b8-8ad6-4092-961e-8a1c69f53cab'
+    mesh = '7bd023ae-3c75-478d-aa26-72943fbda648'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '243'
+name = 'apartment_fruit_bowl'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.6499999999999999, 1.1899999999999999, -1.1000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3cbcc0f8-278a-49e3-a3c3-76b6b54acf1e'
+    mesh = '779c4fef-0270-4075-98d7-b4c62898e1dc'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '244'
+name = 'apartment_fruit_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.5299999999999998, 1.3600000000000001, -1.1300000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.10000000000000001, 0.10000000000000001, 0.10000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5bc73cdc-f1ea-49c2-8df0-b82f459ac34e'
+    mesh = 'afbf65ad-2372-4621-9f32-756bf746acb6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '245'
+name = 'apartment_fruit_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.77, 1.3600000000000001, -1.1000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.10000000000000001, 0.10000000000000001, 0.10000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '79a0f1a0-b8e8-41be-9055-8933c220ac6e'
+    mesh = '1fb3b453-89c5-49a6-a219-65ae73b71d54'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '246'
+name = 'apartment_fruit_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.6499999999999999, 1.3600000000000001, -0.97000000000000008 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.10000000000000001, 0.10000000000000001, 0.10000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f001aa6a-6ce5-4d95-ad59-36446fbab24d'
+    mesh = 'bde6885c-7c66-4459-94d6-dd89e5e7967f'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '247'
+name = 'apartment_dining_rug'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.072999999999999995, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bf20f16d-de06-4659-86c9-cc028574bf4d'
+    mesh = '4a05c76d-795e-41a8-a7f9-a16d45877716'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [2.1500000953674316, 0.012500000186264515, 2.1500000953674316]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '248'
+name = 'apartment_dining_table_top'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.87, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'daf93f3f-0690-48bd-a315-5de7a7a667ef'
+    mesh = '1f9ac29f-7ba7-4f58-af12-82013c3be4d1'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [1.0800000429153442, 0.05999999865889549, 1.0800000429153442]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '249'
+name = 'apartment_dining_table_base'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.10000000000000001, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2b3dae05-3410-4b4f-908f-5713b938f336'
+    mesh = '84dfa08b-4e1c-4472-88fb-55e0de0cc7f9'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.5, 0.36500000953674316, 0.5]
+    center = [0.0, 0.36500000953674316, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '250'
+name = 'apartment_dining_chair_0_seat'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.52000000000000002, 0.94999999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '498ea9d4-cdd0-4558-a930-1c5949a441f8'
+    mesh = 'c51ac107-8e32-4714-96ad-87b6ea1a72f4'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '251'
+name = 'apartment_dining_chair_0_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.91000000000000003, 0.64999999999999991 ]
+    rotation = [ -7.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6dadc6a6-460f-4ebd-8b4e-b42872b9b713'
+    mesh = '3eaa65df-3e27-4e1a-b8d7-689bd0f50e34'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '252'
+name = 'apartment_dining_chair_0_leg_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.3166000000000002, 0.255, 0.69930000000000003 ]
+    rotation = [ 5.4673444009850698, 0.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '18db625b-5b88-4879-9ead-3c2652cd9ede'
+    mesh = 'd83a996e-0844-4b4f-91b3-2615086470ca'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '253'
+name = 'apartment_dining_chair_0_leg_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.8834, 0.255, 0.69930000000000003 ]
+    rotation = [ 5.4673444009850698, 0.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '0b487f67-28c3-4860-a35d-ee2afcd5ef57'
+    mesh = '7d2f245b-4a21-4da3-947a-eae324ad58fc'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '254'
+name = 'apartment_dining_chair_0_leg_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.3166000000000002, 0.255, 1.2006999999999999 ]
+    rotation = [ -5.4673444009850698, 0.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e0f6cdf3-d027-42d0-b873-eea7b8070e04'
+    mesh = '08942d0f-7f68-4739-a918-b89040b15404'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '255'
+name = 'apartment_dining_chair_0_leg_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.8834, 0.255, 1.2006999999999999 ]
+    rotation = [ -5.4673444009850698, 0.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fd4facc6-f812-41e3-bf60-495454dd496d'
+    mesh = '54da6140-e671-4e89-8e4a-d56e8ab127eb'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '256'
+name = 'apartment_dining_chair_1_seat'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.1500000000000004, 0.52000000000000002, 2.5 ]
+    rotation = [ 0.0, -90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fcf7bb96-a6a3-49bf-a73c-624e9a1aa484'
+    mesh = 'd05c3217-e48f-4595-88ce-d1a8fd5b1fc9'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '257'
+name = 'apartment_dining_chair_1_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.4500000000000002, 0.91000000000000003, 2.5 ]
+    rotation = [ -7.0, -90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '88586ae3-ea33-4eda-b6f7-e17ff74311a4'
+    mesh = 'd884da20-f7d0-42b3-8de6-54c196b4cb90'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '258'
+name = 'apartment_dining_chair_1_leg_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.4007000000000005, 0.255, 2.2166000000000001 ]
+    rotation = [ 5.4673444009850698, -90.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3e4c0db6-090c-4406-b336-cb78dd1956d6'
+    mesh = '3fa52e94-7189-4aae-9c3e-020d819b4e36'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '259'
+name = 'apartment_dining_chair_1_leg_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.4007000000000005, 0.255, 2.7833999999999999 ]
+    rotation = [ 5.4673444009850698, -90.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a6491f57-2e9e-4592-b0e3-881e4e8272bb'
+    mesh = 'd1578184-f596-4130-aea4-1c8a96ecfa23'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '260'
+name = 'apartment_dining_chair_1_leg_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.8993000000000002, 0.255, 2.2166000000000001 ]
+    rotation = [ -5.4673444009850698, -90.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '64f04bfa-d5f0-42e4-9909-dfd0a3151980'
+    mesh = '9aa8f874-51d3-48e3-9d8b-7db8368d65a7'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '261'
+name = 'apartment_dining_chair_1_leg_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.8993000000000002, 0.255, 2.7833999999999999 ]
+    rotation = [ -5.4673444009850698, -90.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6bd2503b-17f1-4d3b-b74e-9b4e57366c66'
+    mesh = 'a613c523-52d5-4a3f-b708-865348efe5fa'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '262'
+name = 'apartment_dining_chair_2_seat'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.52000000000000002, 4.0499999999999998 ]
+    rotation = [ 0.0, 180.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9459261e-cfa2-49ec-9c62-651c3420585b'
+    mesh = 'b3e850f8-0897-4e6d-9cb4-8920b9017880'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '263'
+name = 'apartment_dining_chair_2_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.91000000000000003, 4.3499999999999996 ]
+    rotation = [ -7.0, 180.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '91607ce3-bfc1-4b35-a1d6-095c37df4133'
+    mesh = 'bc2e718b-b44a-4d52-aa98-a91b4d91ac11'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '264'
+name = 'apartment_dining_chair_2_leg_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.8834, 0.255, 4.3007 ]
+    rotation = [ 5.4673444009850698, 180.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '3083ed04-b56d-45a8-930c-cba3b532e3d4'
+    mesh = '8250cc63-2e27-4866-aeb7-11e364157ce5'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '265'
+name = 'apartment_dining_chair_2_leg_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.3166000000000002, 0.255, 4.3007 ]
+    rotation = [ 5.4673444009850698, 180.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c5d456c2-5e08-40d9-b84b-a7fd4c3e930a'
+    mesh = 'a2c0f728-2f17-4dd8-be58-9f2bf8d3db38'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '266'
+name = 'apartment_dining_chair_2_leg_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.8834, 0.255, 3.7992999999999997 ]
+    rotation = [ -5.4673444009850698, 180.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b70207f5-65c4-4cd9-842f-3972ec78380c'
+    mesh = '1c3fb7b5-2abc-4d33-8353-69d525a977bd'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '267'
+name = 'apartment_dining_chair_2_leg_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.3166000000000002, 0.255, 3.7992999999999997 ]
+    rotation = [ -5.4673444009850698, 180.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '872e18ad-6da6-4018-8275-0cf744871219'
+    mesh = '37ec2366-afe1-4381-89b1-a8c138dde521'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '268'
+name = 'apartment_dining_chair_3_seat'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.0499999999999998, 0.52000000000000002, 2.5 ]
+    rotation = [ 0.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '690e7b96-31ac-4f97-9d96-4c5517e9dd4a'
+    mesh = 'b6757efb-3a59-45a9-8445-d362c8382eb5'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.07999999821186066, 0.36000001430511475]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '269'
+name = 'apartment_dining_chair_3_back'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.7499999999999998, 0.91000000000000003, 2.5 ]
+    rotation = [ -7.0, 90.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6d655661-4e98-458a-bcb9-a1efa0dde84e'
+    mesh = 'ec180013-ec90-4762-9712-708f8414f2bd'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.36000001430511475, 0.2849999964237213, 0.06499999761581421]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '270'
+name = 'apartment_dining_chair_3_leg_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.7992999999999999, 0.255, 2.7833999999999999 ]
+    rotation = [ 5.4673444009850698, 90.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '528c4cda-4f29-4566-b46b-619f06188345'
+    mesh = 'e04022ad-bd44-4a20-b422-5092546b7931'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '271'
+name = 'apartment_dining_chair_3_leg_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 1.7992999999999999, 0.255, 2.2166000000000001 ]
+    rotation = [ 5.4673444009850698, 90.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7b073307-5b7c-4ad3-952e-44700b41e72f'
+    mesh = '6bea71f9-3692-4e7b-a15c-a1d5df106d98'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '272'
+name = 'apartment_dining_chair_3_leg_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3007, 0.255, 2.7833999999999999 ]
+    rotation = [ -5.4673444009850698, 90.0, -6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1b98367a-6f64-43ae-b5da-7ad50da04ae7'
+    mesh = 'bfe3d8ce-53e5-417c-acf7-282d6d2aa563'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '273'
+name = 'apartment_dining_chair_3_leg_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.3007, 0.255, 2.2166000000000001 ]
+    rotation = [ -5.4673444009850698, 90.0, 6.2114636997127208 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bb94b380-71ce-4728-8f38-bade17bf839b'
+    mesh = 'd0a0e63b-87a5-4212-88a7-d8483d3e0f1c'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.03200000151991844, 0.217258021235466, 0.03200000151991844]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '274'
+name = 'apartment_dining_vase'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.93999999999999995, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '9016a397-d140-4808-a246-7f667e092ea5'
+    mesh = 'b80f3652-fe59-4868-ae71-e68b37073b7d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '275'
+name = 'apartment_dining_branch_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.5250000000000004, 1.4099999999999999, 2.4249999999999998 ]
+    rotation = [ -15.491279894193548, 0.0, 16.090816348852162 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '6be5e58e-0e7a-4fbe-84a5-18f1a2b9e765'
+    mesh = '068f0fff-19de-4286-b6e5-220cccb609fb'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '276'
+name = 'apartment_dining_branch_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.4500000000000002, 1.6000000000000001, 2.3500000000000001 ]
+    rotation = [ 15.0, 0.0, 0.0 ]
+    scale = [ 0.089999999999999997, 0.035000000000000003, 0.20000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fc5b3a4a-1100-4d05-b2bf-bf81fd2ad023'
+    mesh = '7ccc4d73-f14a-433a-a42b-b911d8ee76e2'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '277'
+name = 'apartment_dining_branch_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 1.4399999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, -0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '474745af-a8c3-4c59-ba6f-e7448c3bcad1'
+    mesh = '9b3f7293-c147-4bb4-8113-76f884339744'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '278'
+name = 'apartment_dining_branch_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 1.6600000000000001, 2.5 ]
+    rotation = [ 15.0, 65.0, 0.0 ]
+    scale = [ 0.089999999999999997, 0.035000000000000003, 0.20000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b144a05e-217d-47cb-b0f3-d4fe29fe95f3'
+    mesh = 'a3fc519f-a462-4c3c-82e8-a977ec982e53'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '279'
+name = 'apartment_dining_branch_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6850000000000001, 1.47, 2.585 ]
+    rotation = [ 14.398185926724967, 0.0, -14.87568200163879 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c13fbfca-868f-4bf6-92ee-3ffdfbc6ac07'
+    mesh = '60c9d10e-018d-408e-a44e-ca29787230bf'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '280'
+name = 'apartment_dining_branch_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.77, 1.7200000000000002, 2.6699999999999999 ]
+    rotation = [ 15.0, 130.0, 0.0 ]
+    scale = [ 0.089999999999999997, 0.035000000000000003, 0.20000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fee0a024-4a69-40ad-b54c-0ad86a1cd0f7'
+    mesh = '8f5a7b82-65b9-4200-be0f-5e2d65edad03'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '281'
+name = 'apartment_dining_plate_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.94399999999999995, 1.8100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '00e08eae-8f6b-4c96-bcf3-82393a30c33d'
+    mesh = '53766b31-9fcc-4155-90cf-75360d57ab9a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '282'
+name = 'apartment_dining_plate_center_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.95699999999999996, 1.8100000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '188cfa5c-fc84-4c79-85e6-baa6ba314a56'
+    mesh = '703ad5a0-60a3-443d-ab5f-3e5b51aa5b92'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '283'
+name = 'apartment_dining_plate_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2999999999999998, 0.94399999999999995, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '79f9d6e7-f709-4da0-b656-24d9e856ffa5'
+    mesh = '0170afe7-97dc-4ac1-a05c-c7d37f5a21c3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '284'
+name = 'apartment_dining_plate_center_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2999999999999998, 0.95699999999999996, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '4ab4f360-5cb3-4041-a75e-16da708abe6b'
+    mesh = '5f8a4451-2ac1-466d-8f29-46fe3466de00'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '285'
+name = 'apartment_dining_plate_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.94399999999999995, 3.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7df01291-be72-4bc0-a9f4-a6672eb50f29'
+    mesh = '73b60656-9fbe-48a6-968c-f2700e96051c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '286'
+name = 'apartment_dining_plate_center_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 0.95699999999999996, 3.2000000000000002 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2e4ddf47-c491-4a1d-b390-2a38852ad0c9'
+    mesh = 'e84c0319-422f-45ff-bff5-059be054d361'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '287'
+name = 'apartment_dining_plate_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.8999999999999999, 0.94399999999999995, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ad8a180e-87c0-40b6-bf4c-5467ce60dd8d'
+    mesh = 'fb00fa4d-3c9e-46d4-9567-5f105406afc1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '288'
+name = 'apartment_dining_plate_center_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 2.8999999999999999, 0.95699999999999996, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a235bd16-92c3-4940-b7d6-9f5fda579074'
+    mesh = '6bf6be99-76e7-4787-8a4a-00b0914bacd9'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '289'
+name = 'apartment_pendant_stem'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 2.8900000000000001, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1eb25682-457e-46c0-9bef-06c41fec07d6'
+    mesh = '1b892fc2-1e81-497f-b129-c790af90cdb1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '290'
+name = 'apartment_pendant_shade'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 2.0899999999999999, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '59c58c9f-6ac8-4988-8bbd-ef33f69a1571'
+    mesh = '7432aff3-9984-49da-8db3-b0494f2acb84'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '291'
+name = 'apartment_pendant_diffuser'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 3.6000000000000001, 2.105, 2.5 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '963d1d30-bb5a-4a19-8004-26cdaf3757aa'
+    mesh = '557b7ae7-24e0-4355-b173-95f5c8e235a1'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '292'
+name = 'apartment_entry_console'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5, 0.47999999999999998, -0.67000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fe3c12dc-64b3-4b39-89df-8f3d5ee68d9c'
+    mesh = 'a0b36c92-29bf-4e82-bf4a-a3384c58e9f0'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.2750000059604645, 0.3499999940395355, 1.024999976158142]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '293'
+name = 'apartment_entry_console_top'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5, 0.88, -0.67000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '66ce35ef-e456-4cc5-92f1-ad07356bb0cb'
+    mesh = '7c7b9b87-fd29-451b-9365-d5e4fde07cbf'
+    type = 'mesh_renderer'
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "box"
+    half_extents = [0.33000001311302185, 0.03500000014901161, 1.0850000381469727]
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.12
+    is_trigger = false
+
+[[nodes]]
+id = '294'
+name = 'apartment_entry_plant_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.2000000000000002, 0.070000000000000007, 4.0700000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.1000000000000001, 1.1000000000000001, 1.1000000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '82340819-6864-40fe-9d6e-76316a0be39a'
+    mesh = '3d36ba02-4cbc-4c0f-b274-2b07d4c1065e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '295'
+name = 'apartment_entry_plant_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.2000000000000002, 0.55400000000000005, 4.0700000000000003 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c0f1e865-f40b-4978-84fb-843e056aa8e1'
+    mesh = '683652f4-58be-45ec-83c4-152bee9283bd'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '296'
+name = 'apartment_entry_plant_stem_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.3275022090701576, 0.80149999999999999, 4.1041641139535336 ]
+    rotation = [ 5.7643090639572527, 0.0, -22.131851406653098 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e4b340b0-b5ef-46d4-ad90-f6ef82451ca9'
+    mesh = '46f5142c-6720-4762-960c-c14b514cc810'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '297'
+name = 'apartment_entry_plant_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4550044181403141, 1.115, 4.1383282279070661 ]
+    rotation = [ 18.0, 75.0, -15.0 ]
+    scale = [ 0.18700000000000003, 0.060500000000000005, 0.41800000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7b49d857-3bbd-4f6e-a382-2175d14a2a3d'
+    mesh = 'f0638656-9151-4048-b359-5f59a0e68213'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '298'
+name = 'apartment_entry_plant_stem_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.2115045580426909, 0.87300000000000011, 4.2014977001481109 ]
+    rotation = [ 18.849908738701153, 0.0, -1.711601377252236 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'e161b416-7b97-49f8-a29b-6285175f2642'
+    mesh = 'f92227ac-c95c-4ab0-a8c7-7f5bdd447668'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '299'
+name = 'apartment_entry_plant_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.2230091160853815, 1.2580000000000002, 4.3329954002962214 ]
+    rotation = [ 18.0, 5.0, -15.0 ]
+    scale = [ 0.18700000000000003, 0.060500000000000005, 0.41800000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'd51f575b-ba0b-4500-b897-517436172453'
+    mesh = '905a3aca-4be7-427f-9943-2dba0cafe710'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '300'
+name = 'apartment_entry_plant_stem_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.0856846467004537, 0.94450000000000001, 4.1360000000000001 ]
+    rotation = [ 7.9835346167161187, 0.0, 14.05872731850674 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2d609675-53cf-41dc-995f-e96f741ece30'
+    mesh = 'fa17f3a9-2a1b-4936-b007-0c62d07b7574'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '301'
+name = 'apartment_entry_plant_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.9713692934009082, 1.401, 4.202 ]
+    rotation = [ 18.0, -60.0, -15.0 ]
+    scale = [ 0.18700000000000003, 0.060500000000000005, 0.41800000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'bc9ea006-87bf-4524-baf0-d772f964ff35'
+    mesh = '590715bf-f557-4bd5-b26c-08ed39818030'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '302'
+name = 'apartment_entry_plant_stem_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.0988821335082957, 0.80149999999999999, 3.9851520355213772 ]
+    rotation = [ -14.444272119426731, 0.0, 17.876848237607803 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '10cb7ca3-4151-421b-beca-e69d020aea2b'
+    mesh = '92aaac83-0fdd-497e-8512-022c6113889e'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '303'
+name = 'apartment_entry_plant_leaf_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 5.9977642670165903, 1.115, 3.9003040710427541 ]
+    rotation = [ 18.0, -130.0, -15.0 ]
+    scale = [ 0.18700000000000003, 0.060500000000000005, 0.41800000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c22c74a9-f5f1-4b4e-a434-468ee6efcdd7'
+    mesh = 'f1032ec8-bd33-4835-88eb-a2463c873577'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '304'
+name = 'apartment_entry_plant_stem_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.255785610549772, 0.87300000000000011, 3.9503673721111623 ]
+    rotation = [ -17.093845791501671, 0.0, -8.2446459088881721 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '40c49861-29ac-4ea5-aa84-5ad2e734bb42'
+    mesh = '6289ed28-f862-4bd6-b6a9-4f0cfe906642'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '305'
+name = 'apartment_entry_plant_leaf_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.3115712210995447, 1.2580000000000002, 3.8307347442223247 ]
+    rotation = [ 18.0, -205.0, -15.0 ]
+    scale = [ 0.18700000000000003, 0.060500000000000005, 0.41800000000000004 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'efaa410b-cee4-4cb9-94a6-70e5a9f7ac82'
+    mesh = 'a41c5279-d21f-43bd-8d98-1525f5a96cb3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '306'
+name = 'apartment_console_plant_pot'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5, 0.92000000000000004, -1.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 0.47999999999999998, 0.47999999999999998, 0.47999999999999998 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ce96dada-588b-44ab-abe1-56d3e9bac1c8'
+    mesh = '08c1c743-7c0d-4eed-8990-64f282e4c4ab'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '307'
+name = 'apartment_console_plant_soil'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5, 1.1312, -1.25 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '7cf916d7-0d79-4d0b-9725-e925246652a4'
+    mesh = 'e7f61788-89e2-41a5-bec4-b44a88fc2d48'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '308'
+name = 'apartment_console_plant_stem_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5556373275942503, 1.2391999999999999, -1.2350920230020948 ]
+    rotation = [ 5.7643090639572456, 0.0, -22.131851406653116 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '5fd35dce-9dca-41f2-8ccf-9e1d7fae4e29'
+    mesh = 'e194ad51-8cf4-40c0-acd0-3032a197aaf8'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '309'
+name = 'apartment_console_plant_leaf_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.6112746551885007, 1.3759999999999999, -1.2201840460041895 ]
+    rotation = [ 18.0, 75.0, -15.0 ]
+    scale = [ 0.081600000000000006, 0.0264, 0.18240000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'c8affd29-c341-4fc5-b3ff-90b8874748e9'
+    mesh = '88fa72c2-45c7-4ef3-90ec-38c9bd04741c'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '310'
+name = 'apartment_console_plant_stem_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5050201707822648, 1.2704, -1.1926191853899155 ]
+    rotation = [ 18.84990873870111, 0.0, -1.7116013772523104 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '1a9d738a-d1be-4763-9cdb-3c2695423182'
+    mesh = 'aff640db-f30d-4b05-9784-c50c238cad92'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '311'
+name = 'apartment_console_plant_leaf_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5100403415645305, 1.4384000000000001, -1.135238370779831 ]
+    rotation = [ 18.0, 5.0, -15.0 ]
+    scale = [ 0.081600000000000006, 0.0264, 0.18240000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '03574738-1017-4354-be65-b8a5d5e08aaf'
+    mesh = '5267074f-f8f1-4c1c-8c32-958ada2d4ff6'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '312'
+name = 'apartment_console_plant_stem_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4501169367420168, 1.3016000000000001, -1.2212000000000001 ]
+    rotation = [ 7.9835346167161534, 0.0, 14.058727318506724 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '93edd8a5-23f1-4104-a8b4-60bbd3adb0ff'
+    mesh = '1e6e17dc-8b37-423d-b46e-3ac5f3c58210'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '313'
+name = 'apartment_console_plant_leaf_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4002338734840327, 1.5007999999999999, -1.1923999999999999 ]
+    rotation = [ 18.0, -60.0, -15.0 ]
+    scale = [ 0.081600000000000006, 0.0264, 0.18240000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '140904d7-a97e-4e6b-889c-a58e83dbdc11'
+    mesh = '36f9bb3c-7ecb-4a55-9a7c-8b6d463b6a35'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '314'
+name = 'apartment_console_plant_stem_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.455875840076347, 1.2391999999999999, -1.2870245663179447 ]
+    rotation = [ -14.444272119426774, 0.0, 17.876848237607799 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '37b41b1d-a514-4821-9a1e-19cb67ea9607'
+    mesh = 'ec6912b7-4a77-4491-8567-a25f48d993d3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '315'
+name = 'apartment_console_plant_leaf_3'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4117516801526939, 1.3759999999999999, -1.3240491326358894 ]
+    rotation = [ 18.0, -130.0, -15.0 ]
+    scale = [ 0.081600000000000006, 0.0264, 0.18240000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2745a036-5253-4d0f-b2c7-430cf2c1d6f0'
+    mesh = '84fd267a-8e7f-43f2-a382-e6b6345ce6be'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '316'
+name = 'apartment_console_plant_stem_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5243428118762647, 1.2704, -1.302203328533311 ]
+    rotation = [ -17.093845791501661, 0.0, -8.2446459088881863 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'ee6e913e-cead-490a-a605-4f2bab99b26e'
+    mesh = 'af544cfa-6aa9-4a7c-bd86-da330b640905'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '317'
+name = 'apartment_console_plant_leaf_4'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5486856237525286, 1.4384000000000001, -1.354406657066622 ]
+    rotation = [ 18.0, -205.0, -15.0 ]
+    scale = [ 0.081600000000000006, 0.0264, 0.18240000000000001 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a7f26362-d525-4d23-a9e2-fcea294fd328'
+    mesh = '118c0fa6-19de-4b66-9c87-076f0e99b0a0'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '318'
+name = 'apartment_console_books_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.3200000000000003, 1.1100000000000001, -0.23000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '04de3665-57c7-418f-9339-c1ba84319dd7'
+    mesh = '87d9979a-d136-4220-8a58-2982bda22717'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '319'
+name = 'apartment_console_books_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.4350000000000005, 1.1100000000000001, -0.23000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'a513f4e7-66ba-49b5-bbb2-2f8091032301'
+    mesh = '4de84f4b-1d4a-4edd-98db-23064a142412'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '320'
+name = 'apartment_console_books_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 6.5500000000000007, 1.1100000000000001, -0.23000000000000001 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'fc1abc48-ed5f-4071-83ad-4f7b8d5cfe89'
+    mesh = '3ea8b764-659a-43a0-b190-061d1f50ec0a'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '321'
+name = 'apartment_back_art_frame'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.2200000000000002, 2.2000000000000002, -4.9000000000000004 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '8bc18708-31f3-4add-9892-298608eaa363'
+    mesh = '49ac3fd0-470d-44a3-942b-f1d03f97604b'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '322'
+name = 'apartment_back_art_canvas'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.2200000000000002, 2.2000000000000002, -4.8499999999999996 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'adc7c39b-cd43-45c4-b4d1-ec96198f727a'
+    mesh = '8097764f-50db-4544-a596-3a6bf5532be5'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '323'
+name = 'apartment_back_art_circle'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.2200000000000002, 2.4100000000000001, -4.8300000000000001 ]
+    rotation = [ 90.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '44a2fa61-a247-4741-93b8-ee78a5786611'
+    mesh = '98dec17b-f67e-4cbc-9f98-1b24a85631a3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '324'
+name = 'apartment_back_art_line'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ -2.3700000000000001, 2.0, -4.8200000000000003 ]
+    rotation = [ 0.0, 0.0, -18.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '2a2b3d0a-9464-48b5-92a3-e1ee2bf10bde'
+    mesh = '97ea9ef6-c813-4ad9-ae9b-ed0b8f91e3e4'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '325'
+name = 'apartment_kitchen_open_shelf'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.6399999999999997, 2.0899999999999999, -4.71 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '510efdda-b43b-4010-8de8-736ca6791b8a'
+    mesh = 'bcefc3ee-5f3a-44c9-95d7-b02ed3dd7226'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '326'
+name = 'apartment_shelf_books_0'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.1699999999999999, 2.3100000000000001, -4.6799999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = '420babd3-b6e9-4942-a40a-0a61535b9a99'
+    mesh = 'dc65b824-251a-422e-ace4-44f8f8a38b82'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '327'
+name = 'apartment_shelf_books_1'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.2850000000000001, 2.3100000000000001, -4.6799999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'b99455b6-76f2-40ff-89b2-8202c160645f'
+    mesh = '94fa0a27-37b6-42e3-9f9e-7a9600ac1cf3'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '328'
+name = 'apartment_shelf_books_2'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.4000000000000004, 2.3100000000000001, -4.6799999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'f4a2bbf1-2b67-4578-b57d-6214a086e5bb'
+    mesh = '2784bffb-6891-406f-94ec-2201c19fb1ba'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '329'
+name = 'apartment_shelf_vase'
+parent = '0'
+
+    [[nodes.components]]
+    enabled = true
+    position = [ 4.9400000000000004, 2.1299999999999999, -4.6799999999999997 ]
+    rotation = [ 0.0, 0.0, 0.0 ]
+    scale = [ 1.0, 1.0, 1.0 ]
+    type = 'transform'
+
+    [[nodes.components]]
+    enabled = true
+    material = 'dcfdabed-b681-42a9-81e5-3e22e2f9f78f'
+    mesh = '6623d816-4313-4dd0-b9d4-3ee2cfa2a92d'
+    type = 'mesh_renderer'
+
+[[nodes]]
+id = '330'
+name = 'apartment_physics_ball'
+parent = '0'
+
+    [[nodes.components]]
+    type = "transform"
+    enabled = true
+    position = [0.1, 2.2, 2.4]
+    rotation = [0.0, 0.0, 0.0]
+    scale = [0.22, 0.22, 0.22]
+
+    [[nodes.components]]
+    enabled = true
+    material = "5bc73cdc-f1ea-49c2-8df0-b82f459ac34e"
+    mesh = "afbf65ad-2372-4621-9f32-756bf746acb6"
+    type = "mesh_renderer"
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "sphere"
+    radius = 1.0
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.48
+    is_trigger = false
+
+    [[nodes.components]]
+    type = "rigid_body"
+    enabled = true
+    motion = "dynamic"
+    mass = 0.35
+    gravity_factor = 1.0
+    linear_damping = 0.15
+    angular_damping = 0.25
+    linear_velocity = [0.0, 0.0, 0.0]
+    angular_velocity = [0.0, 0.0, 0.0]
+
+[[nodes]]
+id = '331'
+name = 'apartment_ambience'
+parent = '0'
+
+    [[nodes.components]]
+    type = "transform"
+    enabled = true
+    position = [0.0, 1.0, 0.0]
+    rotation = [0.0, 0.0, 0.0]
+    scale = [1.0, 1.0, 1.0]
+
+    [[nodes.components]]
+    type = "audio_source"
+    enabled = true
+    clip = "d29c372d-35fc-5daf-a634-ecb1ead1096f"
+    volume = 0.2
+    pitch = 1.0
+    loop = true
+    play_on_awake = true
+    spatial = false
+    min_distance = 1.0
+    max_distance = 20.0

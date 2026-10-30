@@ -1,6 +1,7 @@
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime_plugins.hpp"
 
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
@@ -109,13 +110,16 @@ int main(int argc, char* argv[])
     engine::RuntimeHost engine;
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
-    script_factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world); };
+    script_factory = [](engine::WorldSystem& world,
+                        engine::RenderSystem& renderer) -> std::unique_ptr<engine::ScriptRuntime>
+    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer); };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-    const bool engine_ready = engine.initialize(config, &resources, script_factory);
+    const bool engine_ready =
+        engine.initialize(config, &resources, script_factory, configure_runtime_plugins);
 #else
-    const bool engine_ready = engine.initialize(config, nullptr, script_factory);
+    const bool engine_ready =
+        engine.initialize(config, nullptr, script_factory, configure_runtime_plugins);
 #endif
     if (!engine_ready)
     {

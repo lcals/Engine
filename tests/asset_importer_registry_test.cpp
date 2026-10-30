@@ -48,6 +48,21 @@ public:
     {
     }
 };
+class AlternateMeshImporter final : public TestImporter
+{
+public:
+    AlternateMeshImporter() noexcept : TestImporter(schema::AssetKind::mesh)
+    {
+    }
+    [[nodiscard]] std::string_view id() const noexcept override
+    {
+        return "alternate_mesh";
+    }
+    [[nodiscard]] bool matches(const std::filesystem::path& source) const override
+    {
+        return source.extension() == ".alternate";
+    }
+};
 } // namespace
 
 int main()
@@ -68,6 +83,7 @@ int main()
                  {"surface.material", schema::AssetKind::material},
                  {"program.shader", schema::AssetKind::shader},
                  {"albedo.JPEG", schema::AssetKind::texture},
+                 {"sound.WAV", schema::AssetKind::audio},
                  {"logic.ts", schema::AssetKind::script},
                  {"types.d.ts", schema::AssetKind::source},
                  {"custom.blob", schema::AssetKind::source}};
@@ -153,6 +169,25 @@ int main()
                     extension.select("unknown.bin") == nullptr,
                 "clear removes implementations and fallback") ||
         !expect(extension.initialize(), "cleared registry can restore defaults"))
+    {
+        return 1;
+    }
+    AssetImporterRegistry formats;
+    if (!expect(formats.initialize() && formats.add<AlternateMeshImporter>(),
+                "distinct source format ids may produce the same resource kind") ||
+        !expect(formats.find(schema::AssetKind::mesh) == nullptr,
+                "kind-only lookup rejects ambiguous format implementations") ||
+        !expect(formats.select("object.mesh") == formats.find("mesh") &&
+                    formats.select("object.alternate") == formats.find("alternate_mesh"),
+                "source selection and id dispatch retain distinct implementations"))
+    {
+        return 1;
+    }
+    std::unique_ptr<AssetImporter> alternate = std::make_unique<AlternateMeshImporter>();
+    if (!expect(!formats.add(alternate) && alternate,
+                "duplicate importer id preserves ownership") ||
+        !expect(formats.replace(alternate) && !alternate,
+                "replacement uses importer id rather than output kind"))
     {
         return 1;
     }

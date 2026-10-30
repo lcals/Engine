@@ -1,6 +1,6 @@
 # 项目与出包模块
 
-项目根目录固定包含资源目录 `assets/`、生成缓存目录 `cache/` 和设置目录 `settings/`。示例为 `projects/minimal/`：TypeScript 配置、package、锁文件与导入线程设置位于 settings；每个源资源旁有唯一 GUID 的 meta，生成 JavaScript 与资源二进制位于 `cache/gen/<完整GUID>`，无后缀。资源目录与 SQLite 索引位于 cache 根。运行 SDK 声明统一位于引擎 [include/engine.d.ts](../../include/engine.d.ts)。
+项目根目录固定包含资源目录 `assets/`、生成缓存目录 `cache/` 和设置目录 `settings/`。示例为 `projects/showcase/`：TypeScript 配置、package、锁文件与导入线程设置位于 settings；每个源资源旁有唯一 GUID 的 meta，生成 JavaScript 与资源二进制位于 `cache/gen/<完整GUID>`，无后缀。资源目录与 SQLite 索引位于 cache 根。运行 SDK 声明统一位于引擎 [include/engine.d.ts](../../include/engine.d.ts)。
 
 编辑器启动必须传入项目路径。宿主先检查根目录及三个子目录存在且为目录，失败不创建窗口。`ProjectSystem` 负责目录约束；`AssetPipelineSystem` 读取设置并构建资源；`AssetSyncSystem` 发布完整版本。三者都属于编辑器层。`EditorEnvironment` 借用项目，准备 App 路径并向核心提交完整导入目录，供 `EditorSystem` 使用。
 

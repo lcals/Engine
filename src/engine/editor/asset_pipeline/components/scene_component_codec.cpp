@@ -5,21 +5,45 @@
 #include "editor/asset_pipeline/components/mesh_renderer_codec.hpp"
 #include "editor/asset_pipeline/components/transform_codec.hpp"
 
+#include "editor/asset_pipeline/components/audio_listener_codec.hpp"
+#include "editor/asset_pipeline/components/audio_source_codec.hpp"
+#include "editor/asset_pipeline/components/collider_codec.hpp"
+#include "editor/asset_pipeline/components/rigid_body_codec.hpp"
+
+#include "editor/asset_pipeline/components/animator_codec.hpp"
+
+#include "editor/asset_pipeline/components/character_motor_codec.hpp"
+
 #include <array>
+#include <vector>
 
 namespace engine::editor::asset_pipeline
 {
 namespace
 {
 
-const std::array<const SceneComponentCodec*, 4>& codecs()
+std::vector<std::unique_ptr<SceneComponentCodec>>& extensions()
 {
+    static std::vector<std::unique_ptr<SceneComponentCodec>> entries;
+    return entries;
+}
+
+const std::array<const SceneComponentCodec*, 10>& codecs()
+{
+    static const AnimatorCodec animator;
+    static const CharacterMotorCodec motor;
     static const TransformCodec transform;
     static const CameraCodec camera;
     static const LightCodec light;
     static const MeshRendererCodec mesh;
-    static const std::array<const SceneComponentCodec*, 4> entries{&transform, &camera, &light,
-                                                                   &mesh};
+    static const ColliderCodec collider;
+    static const RigidBodyCodec rigid_body;
+    static const AudioSourceCodec audio_source;
+    static const AudioListenerCodec audio_listener;
+
+    static const std::array<const SceneComponentCodec*, 10> entries{
+        &motor, &animator, &transform,  &camera,       &light,
+        &mesh,  &collider, &rigid_body, &audio_source, &audio_listener};
     return entries;
 }
 
@@ -34,6 +58,13 @@ const SceneComponentCodec* find_scene_component_codec(schema::ComponentPayload t
             return codec;
         }
     }
+    for (const auto& codec : extensions())
+    {
+        if (codec->type() == type)
+        {
+            return codec.get();
+        }
+    }
     return nullptr;
 }
 
@@ -46,7 +77,25 @@ const SceneComponentCodec* find_scene_component_codec(std::string_view name) noe
             return codec;
         }
     }
+    for (const auto& codec : extensions())
+    {
+        if (codec->name() == name)
+        {
+            return codec.get();
+        }
+    }
     return nullptr;
+}
+
+bool register_scene_component_codec(std::unique_ptr<SceneComponentCodec>& codec)
+{
+    if (!codec || codec->type() == schema::ComponentPayload::NONE || codec->name().empty() ||
+        find_scene_component_codec(codec->type()) || find_scene_component_codec(codec->name()))
+    {
+        return false;
+    }
+    extensions().push_back(std::move(codec));
+    return true;
 }
 
 } // namespace engine::editor::asset_pipeline

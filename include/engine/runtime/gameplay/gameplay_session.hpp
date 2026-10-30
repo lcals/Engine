@@ -16,6 +16,9 @@ struct AssetCatalogDataT;
 
 class WorldSystem;
 class RenderSystem;
+class PhysicsSystem;
+class AudioSystem;
+class AnimationSystem;
 class ScriptRuntime;
 struct ScriptStatus;
 
@@ -23,7 +26,9 @@ class GameplaySession final
 {
 public:
     // 系统由运行宿主装配并保持就绪，生命周期须覆盖此会话；script 可以为空。
-    GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script) noexcept;
+    GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
+                    PhysicsSystem* physics = nullptr, AudioSystem* audio = nullptr,
+                    AnimationSystem* animation = nullptr) noexcept;
     ~GameplaySession() noexcept;
 
     GameplaySession(const GameplaySession&) = delete;
@@ -40,11 +45,15 @@ public:
     [[nodiscard]] std::string_view last_error() const noexcept;
 
 private:
+    void release_scene() noexcept;
     struct State;
     std::unique_ptr<State> state_;
     WorldSystem& world_;
     RenderSystem& renderer_;
     ScriptRuntime* script_ = nullptr;
+    PhysicsSystem* physics_ = nullptr;
+    AudioSystem* audio_ = nullptr;
+    AnimationSystem* animation_ = nullptr;
     std::string last_error_;
 };
 

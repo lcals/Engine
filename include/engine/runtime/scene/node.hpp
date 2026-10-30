@@ -62,6 +62,8 @@ public:
         return static_cast<const T*>(get_component(T::component_type));
     }
 
+    // 销毁指定类型组件，缺失返回 false；该组件的既有借用立即失效。
+    [[nodiscard]] bool remove_component(ComponentType type) noexcept;
     [[nodiscard]] Component* get_component(ComponentType type) noexcept;
     [[nodiscard]] const Component* get_component(ComponentType type) const noexcept;
     [[nodiscard]] const std::vector<std::unique_ptr<Component>>& components() const noexcept;

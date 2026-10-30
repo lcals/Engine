@@ -2,12 +2,19 @@
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/audio_listener.hpp"
+#include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/character_motor.hpp"
+#include "runtime/scene/collider.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
@@ -93,7 +100,7 @@ std::string guid_for(std::string_view path)
 
 bool fixture(const fs::path& workspace, std::string_view revision,
              const std::map<std::string, std::string>& scripts, Fixture& output,
-             std::string_view scene_bytes = {})
+             std::string_view scene_bytes = {}, std::string_view audio_bytes = {})
 {
     output = {};
     output.root = workspace / "versions" / engine::PathUtils::from_utf8(revision);
@@ -141,6 +148,11 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     }
     if (!scene_bytes.empty() &&
         !add("project/scenes/main.scene", "", engine::schema::AssetKind::scene, scene_bytes))
+    {
+        return false;
+    }
+    if (!audio_bytes.empty() &&
+        !add("project/sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
     {
         return false;
     }
@@ -548,6 +560,218 @@ export default class extends Gameplay {
     return true;
 }
 
+bool run_physics_audio_binding_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Component, Collider, RigidBody, CharacterMotor, AudioSource, AudioListener } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const scene = Scene.Create('physics-audio-bindings');
+        const node = scene?.CreateNode('emitter');
+        const listenerNode = scene?.CreateNode('listener');
+        if (!scene || !node || !listenerNode) return false;
+        const collider = node.AddComponent(Collider);
+        const body = node.AddComponent(RigidBody);
+        const audio = node.AddComponent(AudioSource);
+        const listener = listenerNode.AddComponent(AudioListener);
+        const motor = listenerNode.AddComponent(CharacterMotor);
+        if (!motor || !(motor instanceof Component) ||
+            !(listenerNode.GetComponent(CharacterMotor) instanceof CharacterMotor) ||
+            motor.SetCapsule(-1, .5) || motor.SetSlopeLimit(90) || motor.SetStepHeight(-1) ||
+            motor.SetGroundSnapDistance(Infinity) || motor.SetGravityFactor(-1) ||
+            motor.SetVelocity(NaN, 0) || motor.Jump(5) || motor.grounded ||
+            !motor.SetCapsule(.4, .7) || !motor.SetSlopeLimit(45) || !motor.SetStepHeight(.25) ||
+            !motor.SetGroundSnapDistance(.15) || !motor.SetGravityFactor(1) ||
+            !motor.SetVelocity(2, -3) || motor.GetVelocity()?.y !== 0) return false;
+        if (!collider || !body || !audio || !listener || !(collider instanceof Component) ||
+            !(node.GetComponent(RigidBody) instanceof RigidBody) ||
+            !(node.GetComponent(AudioSource) instanceof AudioSource) ||
+            !(listenerNode.GetComponent(AudioListener) instanceof AudioListener) ||
+            node.AddComponent(Collider) !== null) return false;
+        if (collider.SetBox(0, 1, 1) || collider.SetSphere(NaN) ||
+            collider.SetCapsule(-1, 1) || collider.SetTrigger('yes') ||
+            !collider.SetSphere(.4) || !collider.SetCapsule(.25, .5) ||
+            !collider.SetBox(.5, 1, .5) || !collider.SetFriction(.6) ||
+            !collider.SetRestitution(.2) || !collider.SetTrigger(false)) return false;
+        if (body.SetMass(0) || body.SetMotion('flying') || body.SetVelocity(Infinity, 0, 0) ||
+            !body.SetMass(2) || !body.SetVelocity(1, 2, 3) || body.GetVelocity()?.y !== 2 ||
+            body.SetMotion('static') || !body.SetVelocity(0, 0, 0) ||
+            !body.SetMotion('static') || body.AddImpulse(1, 0, 0) ||
+            !body.SetMotion('kinematic') || !body.SetMotion('dynamic') ||
+            !body.AddImpulse(0, 1, 0) || !body.SetVelocity(1, 2, 3)) return false;
+        if (audio.Play() || audio.SetVolume(-1) || audio.SetPitch(0) ||
+            audio.SetLoop(1) || audio.SetSpatial('false') || audio.SetDistances(10, 1) ||
+            listener.SetVolume(NaN) || !listener.SetVolume(.75) ||
+            !audio.SetVolume(.5) || !audio.SetPitch(1.25) || !audio.SetLoop(true) ||
+            !audio.SetSpatial(false) || !audio.SetPlayOnAwake(false) ||
+            !audio.SetDistances(1, 25) || !audio.SetClip('project/sounds/test.wav') ||
+            audio.SetClip('builtin/meshes/cube') || !audio.Play() ||
+            audio.isPlaying || audio.playback !== 'pending' || !audio.Pause() ||
+            audio.playback !== 'paused' || !audio.Play() || !audio.Stop() ||
+            audio.playback !== 'stopped' || audio.isPlaying) return false;
+        const temporary = scene.CreateNode('temporary');
+        const staleCollider = temporary?.AddComponent(Collider);
+        const staleBody = temporary?.AddComponent(RigidBody);
+        const staleAudio = temporary?.AddComponent(AudioSource);
+        const staleListener = temporary?.AddComponent(AudioListener);
+        const staleMotor = temporary?.AddComponent(CharacterMotor);
+        if (!staleCollider || !staleBody || !staleAudio || !staleListener || !staleMotor || !temporary.Destroy() ||
+            staleMotor.GetVelocity() !== null || staleMotor.grounded || staleMotor.SetVelocity(1, 0) ||
+            staleCollider.SetSphere(1) || staleBody.GetVelocity() !== null ||
+            staleAudio.Play() || staleAudio.playback !== null || staleAudio.isPlaying ||
+            staleListener.SetVolume(1)) return false;
+        return true;
+    }
+}
+)js";
+    engine::schema::AudioClipDataT clip;
+    clip.frames = 16;
+    clip.samples.assign(32, 0.25F);
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishAudioClipDataBuffer(builder,
+                                              engine::schema::AudioClipData::Pack(builder, &clip));
+    const std::string_view audio(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                                 builder.GetSize());
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture input;
+    if (!expect(world.initialize({}) && script.initialize({}),
+                "initialize physics and audio bindings") ||
+        !fixture(workspace, "physics-audio-bindings", {{"scripts/game.js", std::string(source)}},
+                 input, {}, audio) ||
+        !expect(apply(script, input), "typed physics/audio bindings, validation and stale handles"))
+    {
+        return false;
+    }
+    const auto* scene = world.scene();
+    if (!expect(scene != nullptr && scene->nodes().size() == 2, "binding scene retains two nodes"))
+    {
+        return false;
+    }
+    const auto* emitter = scene->nodes().front().get();
+    const auto* collider = emitter->get_component<engine::Collider>();
+    const auto* body = emitter->get_component<engine::RigidBody>();
+    const auto* source_component = emitter->get_component<engine::AudioSource>();
+    const auto* listener = scene->nodes().back()->get_component<engine::AudioListener>();
+    const auto* motor = scene->nodes().back()->get_component<engine::CharacterMotor>();
+    if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
+                    listener != nullptr && motor != nullptr && motor->settings().radius == .4F &&
+                    collider->settings().shape == engine::schema::ColliderShape::box &&
+                    body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
+                    source_component->clip_data() != nullptr && source_component->settings().loop &&
+                    source_component->settings().volume == .5F &&
+                    listener->settings().volume == .75F,
+                "script settings reach native physics and audio components"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    const bool cleared = world.scene() == nullptr;
+    script.shutdown();
+    world.shutdown();
+    return expect(cleared, "script shutdown releases component resource references with its scene");
+}
+
+bool run_render_binding_cases(const fs::path& workspace)
+{
+    const engine::EngineConfig config;
+    Fixture missing;
+    constexpr std::string_view missing_source = R"js(
+import { Gameplay, Render } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        return !Render.SetAmbient(1, 1, 1, 1) && !Render.SetExposure(1) &&
+            !Render.SetFilmicTonemap(true) && !Render.SetDirectionalShadows(true) &&
+            !Render.SetClearColor(0xffffffff);
+    }
+}
+)js";
+    {
+        engine::plugins::script::ScriptSystem script;
+        if (!script.initialize(config) ||
+            !fixture(workspace, "render-without-service",
+                     {{"scripts/game.js", std::string(missing_source)}}, missing) ||
+            !expect(apply(script, missing), "render binding rejects an absent injected service"))
+        {
+            return false;
+        }
+    }
+
+    // 设置接口不要求初始化图形设备，本测试不创建窗口或依赖 GPU。
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows);
+    engine::plugins::script::ScriptSystem script(nullptr, &renderer);
+    constexpr std::string_view source = R"js(
+import { Gameplay, Render } from 'engine';
+const topLevelBlocked = !Render.SetExposure(9) && !Render.SetAmbient(1, 1, 1, 5);
+export default class extends Gameplay {
+    constructor() { super(); this.constructorBlocked = !Render.SetExposure(8); }
+    OnInitialize() {
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
+            Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
+            Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
+            Render.SetDirectionalShadows(true, 1024, .002) &&
+            Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
+            !Render.SetAmbient(.8, .7, -1, .9) && !Render.SetAmbient(.8, .7, .6, -1) &&
+            !Render.SetAmbient(.8, .7, .6, 1001) && !Render.SetAmbient(NaN, 0, 0, 1) &&
+            !Render.SetAmbient('1', 0, 0, 1) && !Render.SetExposure(0) &&
+            !Render.SetExposure(Infinity) && !Render.SetExposure(101) &&
+            !Render.SetFilmicTonemap(1) && !Render.SetDirectionalShadows(1) &&
+            !Render.SetDirectionalShadows(false, 65536, .02) &&
+            !Render.SetDirectionalShadows(false, 1000, .03) &&
+            !Render.SetDirectionalShadows(false, 1024.5, .03) &&
+            !Render.SetDirectionalShadows(false, 128, .2) &&
+            !Render.SetClearColor(-1) && !Render.SetClearColor(0x100000000) &&
+            !Render.SetClearColor(.5) && !Render.SetClearColor('0x123456ff');
+    }
+    Update() {
+        if (!Render.SetExposure(.75) || !Render.SetDirectionalShadows(false))
+            throw new Error('Cannot set render options during Update');
+    }
+    OnShutdown() {
+        if (!Render.SetExposure(.5)) throw new Error('Renderer must outlive gameplay callbacks');
+    }
+}
+)js";
+    Fixture input;
+    if (!script.initialize(config) ||
+        !fixture(workspace, "render-settings", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input), "render settings apply in OnInitialize with typed inputs"))
+    {
+        return false;
+    }
+    const auto& settings = renderer.settings();
+    if (!expect(settings.ambient_color == std::array<float, 3>{.2F, .3F, .4F} &&
+                    settings.ambient_intensity == .15F && settings.exposure == 1.4F &&
+                    settings.filmic_tonemap && settings.directional_shadows &&
+                    settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
+                    settings.clear_color == 0x56789aff,
+                "invalid calls preserve all fields, including partial ambient and shadow input") ||
+        !expect(script.tick(.016) && script.status().running && settings.exposure == .75F &&
+                    !settings.directional_shadows && settings.shadow_resolution == 2048 &&
+                    settings.shadow_bias == .001F,
+                "Update can change renderer settings and shadow defaults match the native API"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(settings.exposure == .5F && !script.status().running,
+                "shutdown callback runs while the injected renderer remains valid") ||
+        !renderer.set_settings({}) ||
+        !expect(script.prepare_gameplay(input.catalog, input.mounts) && settings.exposure == 1.0F &&
+                    settings.ambient_intensity == 0.0F && !settings.directional_shadows,
+                "preparing a candidate does not apply project render settings") ||
+        !expect(script.start_prepared_gameplay() && settings.exposure == 1.4F &&
+                    settings.ambient_intensity == .15F && settings.directional_shadows,
+                "starting the project again reapplies its own render settings"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(settings.exposure == .5F && script.status().last_error.empty(),
+                  "repeated lifecycle preserves the renderer borrowing contract");
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -585,7 +809,9 @@ int main(int argc, char** argv)
     }
     engine::ResourceSystem resources;
     const bool passed = resources.initialize(config) && run_cases(workspace) &&
-                        run_scene_cases(workspace) && run_guid_cases(workspace);
+                        run_scene_cases(workspace) && run_guid_cases(workspace) &&
+                        run_physics_audio_binding_cases(workspace) &&
+                        run_render_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

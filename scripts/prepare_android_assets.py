@@ -210,7 +210,8 @@ def catalog_entries(source):
             or guid in identities
             or logical in paths
             or not logical.startswith("project/")
-            or kind > 6
+            or kind
+            > 10  # Model, skeleton and animation are appended without changing existing kinds.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

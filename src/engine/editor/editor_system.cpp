@@ -347,6 +347,11 @@ bool EditorSystem::on_tick(double)
     return true;
 }
 
+SceneCommands* EditorSystem::scene_commands() noexcept
+{
+    return state_ ? state_->scene_commands.get() : nullptr;
+}
+
 EditorCommands* EditorSystem::commands() noexcept
 {
     return is_initialized() && state_ != nullptr ? state_->commands.get() : nullptr;

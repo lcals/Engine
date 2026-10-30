@@ -26,7 +26,7 @@ Scene* WorldSystem::create_scene(std::string_view name)
     {
         return nullptr;
     }
-    scene_.reset(new (std::nothrow) Scene(*world_, scene_sequence_ + 1, name));
+    scene_.reset(new (std::nothrow) Scene(*world_, scene_sequence_ + 1, name, components_));
     if (scene_ != nullptr)
     {
         ++scene_sequence_;
@@ -54,8 +54,8 @@ Scene* WorldSystem::load_scene(std::string_view path)
     {
         return nullptr;
     }
-    std::unique_ptr<Scene> candidate(new (std::nothrow)
-                                         Scene(*world_, scene_sequence_ + 1, data->info->name));
+    std::unique_ptr<Scene> candidate(
+        new (std::nothrow) Scene(*world_, scene_sequence_ + 1, data->info->name, components_));
     if (!candidate || !candidate->restore_data(*data))
     {
         return nullptr;
@@ -81,8 +81,18 @@ const Scene* WorldSystem::scene() const noexcept
     return scene_.get();
 }
 
+ComponentRegistry& WorldSystem::component_registry() noexcept
+{
+    return components_;
+}
+
 bool WorldSystem::on_initialize(const EngineConfig&)
 {
+    components_ = {};
+    if (!register_scene_components(components_))
+    {
+        return false;
+    }
     world_ = ecs_init();
     return world_ != nullptr;
 }

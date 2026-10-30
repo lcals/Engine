@@ -12,6 +12,7 @@ classDiagram
         +EditorSystem(EditorEnvironment& environment, GameplaySession#42; gameplay, WorldSystem#42; world)
         +~EditorSystem()
         +commands() EditorCommands#42;
+        +scene_commands() SceneCommands#42;
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -59,3 +60,5 @@ classDiagram
 C++ 限定符：构造为 `explicit`；构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 
 资源重整接入：start_project 使用管线相同的 ProjectLock 保护 environment.refresh_resources 与 GameplaySession.start；导入占用锁时返回失败，已运行时重复启动仍幂等。资源导入和构建不自动停止或重启项目。
+
+`scene_commands()` 与 `commands()` 都为 nodiscard、noexcept，返回本编辑器拥有的服务借用；无世界、初始化前或关闭后为空。宿主据此给独立插件提供通用节点身份与事务入口，EditorSystem 不识别插件的具体命令。

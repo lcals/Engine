@@ -1,0 +1,28 @@
+shader = "00000000-0000-4000-8000-000000000001"
+
+[[parameters]]
+name = "baseColor"
+type = "v4"
+value = [1, 1, 1, 1]
+
+[[parameters]]
+name = "roughness"
+type = "float"
+value = 1
+
+[[parameters]]
+name = "metallic"
+type = "float"
+value = 1
+
+[[textures]]
+name = "baseColorTexture"
+texture = "42aa5725-61d6-5757-98ec-a4b2784d2b0d"
+
+[[textures]]
+name = "normalTexture"
+texture = "6ff84e08-7ba8-5af6-8364-abf7ef72ae7e"
+
+[[textures]]
+name = "ormTexture"
+texture = "261aa48b-1207-5991-8578-49e45020a9d9"

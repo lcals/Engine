@@ -1,0 +1,6 @@
+shader = "00000000-0000-4000-8000-000000000002"
+
+[[parameters]]
+name = "baseColor"
+type = "v4"
+value = [1, 0.8, 0.48, 1]

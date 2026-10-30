@@ -10,15 +10,15 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
 
-架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI 及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
+架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
 模块文档及独立类图按相同范围分层，统一评审入口与跨层引用关系保留在 `docs/class-diagrams/`。项目、资源管线和命令执行属于编辑器基础；资源构建、同步、建模编辑与 MCP 业务适配属于编辑器插件。资源依赖图与脚本执行属于运行时插件；纯几何建模与 MCP 协议属于编辑器插件。核心只声明最小能力和接口，宿主装配插件，核心不引用具体插件。插件清单与依赖边界见[插件说明](docs/plugins/plugins.md)。
 
-各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质和 Shader 已支持资源文件导入与运行时二进制加载；物理模拟、UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
+各系统已接入相应依赖的头文件和实际库调用，Debug / Release 链接测试会实例化所有启用的系统。项目、编辑器和资源管线是独立宿主模块，运行时不依赖它们。已实现网格资源加载与直接光照 PBR；场景中的全部对象使用 Node + Component 表达，相机与灯光同样是节点组件。场景、网格、材质、Shader 和音频已支持资源文件导入与运行时二进制加载；Jolt 负责基础形状碰撞与刚体固定步模拟，SDL3 负责 PCM 音源播放、监听器空间衰减和生命周期。UI 绘制及完整编辑器界面尚未实现。桌面编辑器已接入 V8 ES 模块、项目玩法入口、默认写盘日志、完整资源版本同步和引擎热重载；使用方式见下方“桌面脚本与同步”。
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用完整 V8 脚本运行时。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库提供示例项目 `projects/minimal/`：TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，基础方块、现代公寓和动画庭院作为三个场景共用一套设置、资源目录和缓存。默认进入动画庭院；`assets/scripts/game.ts` 的导出指向 `modules/courtyard.js`，改为 `modules/minimal.js` 或 `modules/apartment.js` 后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存并切换，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -114,7 +114,7 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 ### 插件选择
 
-插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph` 与 `script`；建模（包括纯几何）、MCP（包括协议）、资源构建与同步均属于编辑器插件。
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和 FBX/USD 格式导入均属于编辑器插件。
 
 例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
 
@@ -190,7 +190,7 @@ Windows 的 Ninja 预设对应 `.\build\ninja-debug\engine_app.exe`；Visual Stu
 编辑器宿主由 `editor-deps` 或 `ninja-engine-debug` 等启用编辑器的预设提供，启动时传入项目：
 
 ```sh
-./build/ninja-engine-debug/editor_app --project projects/minimal
+./build/ninja-engine-debug/editor_app --project projects/showcase
 ```
 
 该入口验证项目并建立引擎、ImGui 上下文；完整引擎预设还会构建并同步项目脚本，等待 MCP `start_project` 后运行。尚未绘制完整编辑器界面。
@@ -210,7 +210,7 @@ ctest --preset ninja-debug
 桌面编辑器与 Android 共用运行时脚本和热重载实现。宿主需有可执行的 Node.js、npm 和 Python 3；Node.js 仅用于编译工具，不进入 V8 玩法环境。先安装项目锁定的 TypeScript，再构建完整引擎预设：
 
 ```sh
-npm ci --prefix projects/minimal/settings
+npm ci --prefix projects/showcase/settings
 cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
@@ -218,23 +218,23 @@ cmake --workflow --preset ninja-engine-release
 从仓库根目录启动编辑器，指定一个持久运行目录，让编辑器和 MCP 工具访问同一份缓存与状态：
 
 ```sh
-./build/ninja-engine-debug/editor_app --project projects/minimal --runtime-dir build/editor-runtime
+./build/ninja-engine-debug/editor_app --project projects/showcase --runtime-dir build/editor-runtime
 ```
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
 编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/main.scene")`，从 FlatBuffers 缓存恢复方块、相机和方向光三个节点，停止时释放场景及本次运行 GPU 资源。
 
-编辑器运行时，在另一终端修改 `projects/minimal/assets/scripts/game.ts`，然后执行：
+编辑器运行时，在另一终端修改 `projects/showcase/assets/scripts/game.ts`，然后执行：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime start
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime sync
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload on
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime hot-reload off
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime stop
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime start
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime sync
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload on
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload off
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime stop
 ```
 
 Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动 `mcp_app`，完成 MCP 初始化并调用一次工具；也可将这个可执行文件及相同参数配置到其他 MCP 客户端。`sync` 同时导入项目资源和同步完整版本；热重载开关只写控制请求，切换由引擎在帧边界执行。同步成功或返回 `pending engine decision` 不等于新资源版本已经启用，应通过 `status` 的 `activeRevision`、`availableRevision`、`running` 和 `lastError` 确认。运行资源版本是引擎最近一次上报；编辑器另有带心跳的项目状态，超过 5 秒无更新会标记离线。
@@ -260,7 +260,7 @@ export default class Game extends Gameplay {
 }
 ```
 
-每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前目录按需加载场景及必要依赖，`Scene.FindNode(name)` 查找节点；`Scene.Create` 可以动态创建所属玩法会话的场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer` 组件。全部场景对象都遵守这个结构。节点管理父子关系，Transform 提供局部位置、旋转与缩放；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/minimal/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
+每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前目录按需加载场景及必要依赖，`Scene.FindNode(name)` 查找节点；`Scene.Create` 可以动态创建所属玩法会话的场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer`、`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 组件。物理与音频接口见[脚本类图](docs/plugins/runtime/class-diagrams/physics-audio-script-api.md)。全部场景对象都遵守这个结构。节点管理父子关系，Transform 提供局部位置、旋转与缩放；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/showcase/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
 
 `App` 的静态只读路径具有以下含义：
 
@@ -303,6 +303,17 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 | `set_material_type` | `sceneId`、`nodeId`、`path`、可选 `slot`；按完整路径选择材质资源 |
 | `set_material_parameter` | `sceneId`、`nodeId`、`name`、`type`、`value`、可选 `slot`；类型为 `float` / `v2` / `v3` / `v4` |
 | `set_material_texture` | `sceneId`、`nodeId`、`name`、`path`、可选 `slot`；按采样器名设置贴图资源 |
+| `set_collider` / `get_collider` | `sceneId`、`nodeId`；添加/编辑或查询 box、sphere、capsule 碰撞体及摩擦、弹性、触发器 |
+| `set_rigid_body` / `get_rigid_body` | `sceneId`、`nodeId`；添加/编辑或查询运动类型、质量、重力、阻尼和速度 |
+| `add_impulse` | `sceneId`、`nodeId`、`impulse` 三分量数组；提交动态刚体冲量，不可撤销 |
+| `set_audio_source` / `get_audio_source` | `sceneId`、`nodeId`；添加/编辑或查询 clip 路径、音量、音调、循环和空间衰减 |
+| `set_audio_listener` / `get_audio_listener` | `sceneId`、`nodeId`；添加/编辑或查询监听器音量 |
+| `play_audio` / `pause_audio` / `stop_audio` / `get_audio_state` | `sceneId`、`nodeId`；播放控制或状态查询，不可撤销 |
+| `instantiate_model` | `sceneId`、`path`、`name`；从模型资源创建节点层级，支持撤销重做 |
+| `set_animator` / `get_animator` | `sceneId`、`nodeId`；配置独立动画资源、速度、循环及自动播放，或查询配置 |
+| `play_animation` / `pause_animation` / `stop_animation` / `seek_animation` / `get_animation_state` | `sceneId`、`nodeId`；播放、保留姿态暂停、恢复静态网格停止、按 `seconds` 定位或查询状态 |
+| `set_character_motor` / `get_character_motor` | `sceneId`、`nodeId`；配置或查询核心胶囊角色运动组件 |
+| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询第一／第三人称输入与相机策略，仅启用对应编辑器插件时注册 |
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
@@ -311,10 +322,10 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin/materials/default-pbr`、`builtin/materials/default-unlit` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call get_scene
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
 # edit.json 使用查询到的 sceneId/nodeId，内容例如：
 # {"sceneId":"1","nodeId":"42","position":[1,0,0]}
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call set_transform --arguments-file edit.json
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_transform --arguments-file edit.json
 ```
 
 通用 `call <工具名>` 接受 `--arguments '<JSON对象>'` 或 `--arguments-file <文件>`，二者互斥，省略时传空对象。示例 ID 只演示格式，实际操作必须使用当前查询值。
@@ -324,6 +335,18 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 提交使用操作系统文件锁 `editor-command.lock`，进程退出自动释放；当前会话的待完成请求不会被覆盖。请求和回执均核对项目、会话及编号，单文件最多 1 MiB。等待 10 秒仍未确认时返回 `activation: pending` 及原请求身份，表示**结果未确认而非取消**。回执保存在 `editor-receipts/<session>/<requestId>.json`，最新快照为 `editor-receipt.json`；同一 ID 重放不重复执行。查询回执无需编辑器在线；查询成功不代表原修改成功，须检查其中的 `success` 和 `error`。`execute_batch` 的回执命令名为编辑器内部的 `batch`。
 
 编辑器命令模块通过 `EditorCommands::register_command` 登记处理函数，修改返回一个实现 `EditorEdit::apply/revert` 的记录。宿主可借用 `EditorSystem::commands()` 在初始化后、进入主循环前登记模块；全部访问限于编辑器线程。运行时组件保持普通 C++ 接口，不引用 MCP、撤销系统或编辑器。对应类图见[命令执行](docs/editor/class-diagrams/editor-commands.md)及[编辑器 MCP 工具](docs/plugins/editor/class-diagrams/editor-mcp-tools.md)。
+
+### 物理与音频组件
+
+运行时核心使用 `Collider` + `RigidBody` 表达物理对象，使用 `AudioSource` + `AudioListener` 表达音频对象，位置与朝向继续来自 `Transform`。Jolt 与 SDL 句柄只存在于对应系统实现；编辑器负责导入、保存和撤销，MCP 负责工具描述与转发。完整边界见[物理](docs/runtime/physics.md)、[音频](docs/runtime/audio.md)、[组件命令](docs/editor/class-diagrams/component-commands.md)与[MCP 参数](docs/plugins/editor/class-diagrams/physics-audio-mcp-tools.md)。
+
+`set_collider`、`set_rigid_body`、`set_audio_source`、`set_audio_listener` 可添加节点缺少的组件，支持批量与撤销；`get_*` 要求组件存在。动态模拟可能改变速度，撤销会检查完整组件快照并拒绝覆盖新状态。冲量与播放控制属于瞬态运行请求，不进入撤销批次。音频 `playback` 为 0 stopped、1 pending、2 playing、3 paused、4 failed；播放回执成功只表示请求接受，实际输出须查询后续状态。
+
+音频源目前支持 WAV，转换为 `audio.fbs` 描述的交错 F32 PCM。相邻 `.meta` 使用 `[audio]` 的 `sample_rate`（默认 48000）、`channels`（默认 2）和 `gain`（默认 1），变化参与增量导入。生成物仍为无后缀 `cache/gen/<GUID>`，场景用 clip GUID 建立依赖，构建和同步共用现有资源清单。详见[音频导入](docs/editor/class-diagrams/audio-importer.md)。
+
+基础物理包括盒、球、胶囊，静态、运动学、动态刚体及冲量；动态刚体必须位于场景根节点。音频支持单/双声道、循环、音调、音量、暂停、距离衰减和左右声像。结束项目显式清理物理对象、流和逻辑设备；普通场景替换由各系统在下一次更新按场景身份清理。
+
+[公寓物理与音频示例](docs/editor/apartment-physics-audio.md)复用已有场景与资源，增加静态家具碰撞体、动态落球、相机监听器及原创合成循环音频；示例配置不进入引擎核心。
 
 ### 渲染设置与真实帧截图
 
@@ -347,8 +370,8 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 编辑器启动项目后，可通过 MCP 完成模型创建与编辑，无需从 DCC 导入基本几何：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call modeling_help
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/editor-runtime call get_scene
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call modeling_help
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
 ```
 
 取得实际 `sceneId` 后，调用 `modeling_create`（`shape` 与 `parameters`）获得稳定 `modelId`；`modeling_get` 返回当前节点身份、分页顶点/面、选择及镜像状态。`modeling_help` 提供各操作参数示例，`modeling_select` 设置或拓展选择，`modeling_edit` 调用核心操作。复制、组合、分离、删除分别使用 `modeling_duplicate`、`modeling_combine`、`modeling_separate`、`modeling_delete`。编辑和选择共用已有 `undo`、`redo`、`execute_batch`。撤销删除会重新创建节点，因此 `modelId` 保持、运行时 `nodeId` 更新，查询后再调用节点组件工具。
@@ -365,13 +388,13 @@ Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封�
 
 ### 现代公寓示例
 
-`projects/modern-apartment/` 保存四个区域的开放切面公寓：客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机和 5 个灯光节点。家具、摆件、倒角、变换、材质与灯光均由 `scripts/create_modern_apartment.py` 通过正式 MCP 工具创建；Gameplay 加载已保存的 `project/scenes/apartment.scene`。
+统一项目 `projects/showcase/` 的 `assets/scenes/apartment.scene` 保存四个区域的开放切面公寓：客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机和 5 个灯光节点。家具、摆件、倒角、变换、材质与灯光均由 `scripts/create_modern_apartment.py` 通过正式 MCP 工具创建；Gameplay 加载已保存的 `project/scenes/apartment.scene`。
 
-准备完整 Release 构建后，安装本示例的 TS 依赖并启动编辑器（Windows 使用对应 `.exe`）：
+先将统一入口 `projects/showcase/assets/scripts/game.ts` 的导出改为 `./modules/apartment.js`。准备完整 Release 构建后，安装共用的 TS 依赖并启动编辑器（Windows 使用对应 `.exe`）：
 
 ```sh
-npm ci --prefix projects/modern-apartment/settings
-build/ninja-engine-release/editor_app --project projects/modern-apartment --runtime-dir build/apartment-runtime --width 1600 --height 1000
+npm ci --prefix projects/showcase/settings
+build/ninja-engine-release/editor_app --project projects/showcase --runtime-dir build/apartment-runtime --width 1600 --height 1000
 ```
 
 保持编辑器运行，在另一个终端启动已保存的场景、应用渲染设置并截图：
@@ -384,12 +407,12 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 
 使用其他构建目录时通过 `--server <mcp_app路径>` 指定。图片位于项目 `cache/screenshots/`，只有收到截图 `complete` 且 PNG 文件校验通过才报告成功。`--view bedroom` 切换卧室，`--save-only` 保存当前完整场景；不带 `--view-only` 时会按唯一名称复用或创建模型并重新设置示例布局。`--dry-run` 只打印构图清单。MCP 回执默认保存到 `build/apartment-mcp-receipts.jsonl`。
 
-节点、网格、材质和灯光已落盘；环境光、曝光、背景色及阴影设置由 `--configure-view` 显式提交，不写入场景。示例使用几何造型与颜色材质，采用实时 PBR、方向光阴影和局部点光；不包含烘焙光照或 IBL。
+节点、网格、材质和灯光已落盘；公寓 Gameplay 使用 `Render` 脚本接口恢复环境光、曝光、背景色及阴影设置，`--configure-view` 可在编辑时重新提交，不写入 `.scene`。示例使用几何造型与颜色材质，采用实时 PBR、方向光阴影和局部点光；不包含烘焙光照或 IBL。
 
 ### 组件、数据模型与资源扩展
 
-- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光和网格也都是组件。
-- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`shader.fbs`、`material.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+- Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光、网格、碰撞体、刚体、音源与监听器也都是组件。
+- `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
 - 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` 分别引用 `builtin/shaders/pbr` / `unlit`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
 - ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
@@ -399,7 +422,7 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 ### 资源导入与 GUID
 
 ```sh
-./build/ninja-engine-debug/asset_build_app --project projects/minimal
+./build/ninja-engine-debug/asset_build_app --project projects/showcase
 ```
 
 渲染基础支持 UV0、切线、顶点色、子网格材质槽、动态网格提交、透视/正交相机及最多 8 个方向/点/聚光灯。PBR 的 GGX/Smith/Schlick 实现适配 The Forge `ShaderUtilities.h.fsl`，切线空间采样参考 bgfx `06-bump`；版权及许可保存在 `third_party/notices/`。方向光阴影适配 bgfx `15-shadowmaps-simple`，支持环境漫反射与可选 ACES 曝光；尚无 IBL 或透明排序。几何生成与编辑归上文的建模插件。
@@ -440,27 +463,75 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 `GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
-`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮，模型格式导入尚未实现；未配置专用导入器的原始文件按字节缓存。
+`SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮；FBX/USD 模型格式由可选编辑器插件导入，未配置专用导入器的普通源文件按字节缓存。已有格式 meta 与当前导入器不匹配时明确失败，不能把已导入模型静默改成普通字节资源。
 
-各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-6` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
+各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-7` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
+
+### FBX / USD 模型资源导入
+
+编辑器把一个 FBX 等美术源文件按“虚拟资源包”展示和组织：`.meta` 的 `[[subresources]]` 分别登记内部资源的 key、类型与独立 GUID，格式导入参数同样保存在 meta。运行时没有这个容器：Model 只保存可实例化的节点层级及 Mesh/Material 引用，蒙皮 Mesh 引用 Skeleton，Animation 独立引用 Skeleton，Material 引用 Texture。场景与业务可以单独使用其中一项；构建按选定入口的实际依赖输出，未使用的子资源不进入包，源文件仍保留。合并存储包只改变独立资源的位置，不扩大加载依赖。
+
+格式解析属于编辑器插件，运行包只读取统一生成资源。`ENGINE_EDITOR_PLUGINS` 分别选择 `fbx_import` / `usd_import`；宿主通过 `AssetPipelineSystem::add_importer` 注册新 id。已有 Mesh 建模转换通过 `set_importer` 替换同一 id；源格式 id 与产物 AssetKind 分开，所以多个格式均可输出 Model。
+
+| 范围 | 职责 |
+| --- | --- |
+| C++ 运行时核心 | Model/Mesh/Skeleton/Animation 的 FlatBuffers Schema 与单项 ResourceCodec、Scene 实例化、Animator 与 AnimationSystem；核心不读取 FBX/USD 源文件 |
+| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、Taskflow、SQLite、独立缓存与原子目录发布 |
+| 编辑器格式插件 | ufbx/OpenUSD 解析、源格式设置、子对象枚举、坐标转换与运行数据生成，各插件单独声明依赖 |
+| MCP | 使用现有资源导入、打包、同步命令及模型实例化/动画控制命令；协议层不复制模型解析、骨骼采样或场景业务 |
+
+一个 FBX/USD 源的 `.meta` 保存主 GUID 和 `[[subresources]]` 的 `key/kind/guid`。Model 保存节点层级及 Mesh/Material 引用；Skeleton、Animation 独立存在，分别通过实际使用它们的资源引用。每个资源有独立 `cache/gen/<完整GUID>`，无后缀。逻辑路径为 `project/models/person.fbx/meshes/<节点层级>`、`.../skeleton`、`.../animations/<动作名>`；USD 网格使用 `.../meshes/<Prim 路径>`。暂时消失的子资源保留 meta 身份以供再次出现时复用，活跃与保留 GUID 均参与冲突检查。
+
+- FBX 插件使用 MIT 许可的 ufbx v0.23.1，固定提交 `26a482ae66871d7de36eb722aa060bce95bce274`。将坐标统一为米和右手 Y-up，保留根变换；网格包含角点拆分后的 UV、顶点色与最高四项归一化蒙皮权重，骨架包含逆绑定矩阵，动画按 meta 的 `sample_rate`（默认 30）采样。仅支持线性/刚性蒙皮，双四元数、混合形状和几何缓存明确失败；源材质和贴图尚未转换，使用内置 PBR 材质，场景可覆盖项目材质。
+- FBX 动画源可在 meta 用 `skeleton = "project/models/person.fbx/skeleton"` 指定另一个 FBX 骨架；空值为本源独立骨架。外部动画按完整节点层级对应关节，必要加权骨骼或祖先缺失返回失败，未动画的可选末端保持绑定姿态。示例 `projects/showcase` 在编辑器导入可再分发的 PAB 模型和 jog/run/walk 动作；默认运行清单只选 walk，jog/run 和源静止 Take 不进入运行包。来源和许可保存在项目内。
+- USD 插件独立引入 `usd-import` vcpkg feature。当前只接受自包含的静态 Xform/Scope/Mesh，网格要求 `subdivisionScheme = "none"`、三角形或凸且共面的多边形；世界变换烘焙入顶点，生成平面法线和内置 PBR。外部 layer/reference/payload（包括缺失引用）、动画、实例、细分、洞、未知几何及 Material/Shader 节点明确拒绝。此范围不代表完整 USD 场景导入。
+
+后续格式增加自己的编辑器插件、独立 CMake 清单及 `AssetImporter::id/matches/discover/convert` 实现即可。`discover` 只描述稳定子资源 key 和类型，GUID 分配与发布仍由管线处理。尽量输出已有运行 Schema；新增运行语义时先评审 Schema/ResourceCodec 契约，再增加核心单项能力，不把源格式 SDK 或编辑器设置传入运行时。类图见 [FBX](docs/plugins/editor/class-diagrams/fbx-importer.md)、[USD](docs/plugins/editor/class-diagrams/usd-import.md)和[模型资源](docs/runtime/class-diagrams/model-resources.md)。
+
+### 动画与第一／第三人称测试场景
+
+统一项目 `projects/showcase` 的默认庭院场景包括铺装、建筑立面、台阶、木廊架、长椅和绿植，保留带物理的 Player 与 PAB 蒙皮角色。基础色、法线与 ORM 贴图来源和处理见 [庭院资源说明](projects/showcase/courtyard-source.md)。庭院 Gameplay 每次启动通过 `Render` 绑定恢复环境光、曝光、背景色和方向光阴影。完整引擎桌面预设默认装配 FBX 导入与角色控制器；显式选择插件时需要 `runtime/resource_graph`、`runtime/script`、`runtime/character_controller` 及相应编辑器导入、控制器与 MCP 插件。
+
+```sh
+npm ci --prefix projects/showcase/settings
+cmake --preset ninja-engine-debug
+cmake --build --preset ninja-engine-debug
+./build/ninja-engine-debug/editor_app --project projects/showcase --runtime-dir build/animation-runtime
+```
+
+编辑器待机后，在另一终端启动项目：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/animation-runtime start
+```
+
+聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称临时隐藏自身模型，切回恢复；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
+
+`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动；输入和相机策略属于可选 `character_controller` 运行时插件。模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
+
+示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
+
+庭院由 MCP 创建并保存为 231 个节点、225 个环境 Mesh、47,004 个环境三角形和 31 个静态碰撞体；三棵树共 840 片薄叶，每树合为一个 Mesh。人物由 Gameplay 在加载场景后实例化，避免保存后重复生成。项目启动使用与建图脚本一致的渲染设置；截图和动作采样来自真实渲染器。
+
+组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前登记组件和追加可选子系统；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
 
 ### 资源运行包
 
 ```sh
-./build/ninja-engine-debug/asset_build_app --project projects/minimal --manifest settings/resource-build.toml
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
 # 可重复 --item；省略时选择清单的全部构建项。
-./build/ninja-engine-debug/asset_build_app --project projects/minimal --manifest settings/resource-build.toml --item game
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
 ```
 
 项目清单在 `settings/`，指定目标平台、`cache/build/` 下的输出位置、入口与显式保留项。构建按运行依赖计算闭包，支持 `storage = "files"` 的独立 GUID 文件和 `storage = "package"` 的未压缩合并包；统一 `catalog.bin` 为每个 GUID 保存一个实际位置。构建输入依赖仍归 SQLite 增量导入，Shader 源码与 TypeScript 声明不会因为参与编译而自动打进运行包。未变化的文件和包直接复用，失败保留上一份成功发布。
 
-MCP 提供 `build_resources`，参数为 `manifest` 和可选的 `items` 数组。`sync_assets` 可传 `source`（例如 `cache/build/minimal`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
+MCP 提供 `build_resources`，参数为 `manifest` 和可选的 `items` 数组。`sync_assets` 可传 `source`（例如 `cache/build/showcase`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
 
 命令行客户端使用同一工具协议：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --runtime-dir build/minimal-runtime sync --source cache/build/minimal
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/showcase
 ```
 
 编辑器直接使用 `cache/gen`，不要求打包。会覆盖该目录的导入或构建要求先 `stop_project`；运行中会返回明确错误。同步已有的独立运行包不覆盖该缓存，可以在关闭热重载时准备候选版本。`cache/gen` 同时只保存一个目标平台的产物，构建 Android 后要先重新导入宿主平台产物，再启动桌面项目。
@@ -474,16 +545,16 @@ Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JN
 准备 Python 3、JDK 17、Android SDK Platform 35、Build Tools 36.1.0、NDK 27.2.12479018，以及上文的 CMake / Ninja / 编译缓存 / vcpkg。设置 `ANDROID_HOME`、`ANDROID_NDK_HOME`、`JAVA_HOME` 和 `VCPKG_ROOT` 指向已有安装；可复用其他工程的安装目录。Android Gradle Plugin 固定 9.0.0，wrapper 固定 Gradle 9.1.0 并核对官方 SHA-256；也可通过 `GRADLE_HOME` 复用相同版本，脚本会检查版本。
 
 ```sh
-npm ci --prefix projects/minimal/settings
-python3 scripts/build_android.py --config debug --project projects/minimal --asset-builder build/ninja-engine-debug/asset_build_app
-python3 scripts/build_android.py --config release --project projects/minimal --asset-builder build/ninja-engine-debug/asset_build_app
+npm ci --prefix projects/showcase/settings
+python3 scripts/build_android.py --config debug --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
+python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
 ```
 
 包含 V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`、build Preset，再打包。产物为 `build/apk/engine-arm64-debug.apk` 和 `build/apk/engine-arm64-release.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。
 
 两种 APK 内的原生库均由 Gradle 去除调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在 `build/android-arm64-debug/libmain.so`，可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
-脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/minimal`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：项目有 `settings/resource-build-android.toml` 时按该清单构建固定子集，读取构建回执的输出目录；没有该清单时沿用 `--target android` 导入模式。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：项目有 `settings/resource-build-android.toml` 时按该清单构建固定子集，读取构建回执的输出目录；没有该清单时沿用 `--target android` 导入模式。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和 V8 的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
@@ -518,11 +589,11 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 先启动 Debug APK，让引擎创建状态和内置清单。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
 # 修改项目 assets 下的脚本、场景、材质等资源后同步；无需重新打 APK。
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal sync
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/minimal --android-serial emulator-5580 --android-package org.engine.minimal status
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal sync
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
 ```
 
 adb 不在 PATH 时添加 `--adb <adb可执行文件>`。真机使用 `adb devices` 中的实际序列号；需要设备已经授权 adb 调试。MCP 运行在电脑，通过 `run-as` 写入该调试包的私有持久目录，手机不安装 MCP 服务。此通路仅支持 debuggable APK；Release 保持不可调试，同步请求会返回明确错误。
@@ -550,32 +621,43 @@ CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页
 | Android Gradle、Shell 与 PowerShell                                                       | 4 空格、UTF-8、LF、无行尾空白；保留各语言语法及现有行为                      |
 
 ```sh
-prettier --check --tab-width 4 --print-width 100 include/engine.d.ts projects/minimal/assets/scripts/game.ts scripts/build_scripts.mjs tests/scene_schema_bridge.ts
+prettier --check --tab-width 4 --print-width 100 include/engine.d.ts "projects/showcase/assets/scripts/**/*.ts" scripts/build_scripts.mjs tests/scene_schema_bridge.ts
 ```
 
 Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎构建依赖；可在独立工具环境安装。格式检查不能替代命名、模块职责、返回值错误处理及资源释放顺序的代码审查，C++ 修改仍需 Debug / Release 构建和受影响的 CTest。
 
 ## 验证范围与限制
 
-截至 2026-10-30，模块分层、脚本插件化、逐类型接口、命名空间和建模导入器装配已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-10-30，物理、音频、模型导入、动画和角色控制器已完成以下验证。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
 
 | 环境 | 已验证范围 |
 | --- | --- |
-| macOS ARM64 / AppleClang 21 | 完整 Debug / Release 构建与 CTest 各 56/56 通过，包含真实 Metal 窗口、项目启停、MCP 建模、场景保存和资源管线 |
-| macOS 精简插件 Release | 关闭脚本、V8 和建模插件后构建通过；47 项测试分非窗口 45 项与窗口 2 项执行，全部通过。资源导入、渲染、脚本启动失败返回及关闭均正常；宿主无上述插件符号 |
-| Android ARM64 / API 34 软件 Vulkan 模拟器 | Debug / Release APK 构建、安装与设备 APK 哈希匹配；Vulkan 画面、V8、前后台及有限帧退出通过。Debug 资源同步、热重载、合并包及持久恢复通过；Release 拒绝 `run-as` |
-| Windows x64 / VS 2022 | 既有依赖准备、基础构建、ozz / USD 和 V8 嵌入记录保留；未验证本次重构及完整 DirectX 编辑器 |
-| Linux / iOS / Android 实体设备 | 尚未完成端到端运行验证 |
+| macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过；统一项目与 Model v2 改动后，Debug 全量 70 项通过，Release 首轮 69 项通过，修正 FBX 构建测试清单的共享骨架存储冲突后，该项在两配置复测通过，分别覆盖全部 70 项 |
+| macOS Metal 公寓 | 330 节点、77 碰撞体；小球落地、施加冲量后再次落地；默认 SDL 设备播放、暂停、续播、停止、调整音量和项目重启；真实渲染截图保存成功 |
+| macOS Metal 统一项目 | 同一编辑器会话依次切换基础方块、公寓、动画庭院，再返回方块，分别为 3 / 330 / 388 / 3 节点；公寓音频与庭院 walk 动画正常运行，返回方块后显式恢复其渲染参数；各次停止后场景、脚本及编辑历史清空，入口与 meta 恢复且全部源文件哈希不变 |
+| Android ARM64 / API 34 软件 Vulkan 模拟器 | 新增物理音频功能的 Debug APK 编译、安装和哈希核对通过；落球、音频状态、三次前后台、有限帧退出、冷重启、包含音频的 MCP 合并包同步及持久版本启动通过 |
+| Android 统一项目 / 模型动画 / 角色控制器 | 最终 Debug APK 的 1123 个独立资源实体与 Android 缓存匹配，含三场景、Model v2、一个骨架和 walk，排除 jog/run/静止 Take 及未引用模型；正式包的 Vulkan 画面、双视角、前后台、120 帧退出和冷启动通过；同源探针包覆盖真实蒙皮、移动、跳跃落地及 360 帧释放，MCP 完整目录同步与持久版激活通过 |
+| 既有精简插件与 Android Release | 前次模块分层验证中，关闭脚本/V8/建模的桌面 Release 47 项测试通过，Android Debug / Release 完成资源目录和生命周期验证；本次物理音频未重建 Android Release APK |
+| 精简插件装配 | 关闭全部插件的 engine_app、关闭编辑器与 V8 的 pipeline-only asset_build_app 均实际编译、链接及启动帮助命令成功；检查链接命令与依赖边界，无反向链接 |
+| Windows / Linux / iOS / Android 实体设备 | 未验证本次新增功能的端到端运行 |
 
-架构检查覆盖源码包含方向、当前配置实际 CMake 目标的直接与传递链接、真实别名和循环；桌面完整、精简配置及 Android Debug / Release 均通过。检查器包含 8 个正反例，其中使用真实 CMake 接口目标核对 `LINK_ONLY` 内的别名。267 个自有 C++ 文件通过格式检查；本次 CMake、Python 改动通过各自格式检查。117 块 Mermaid 类图解析与渲染通过，后续变更的 5 块已复核；相对文档链接有效。
+架构检查覆盖源码包含方向和实际 CMake 目标的直接、传递链接；核心、编辑器和插件保持单向依赖。物理音频及初版动画阶段已检查自有代码格式、145 块 Mermaid 图和文档链接；统一项目及 Model v2 阶段另对 20 块受影响类图实际解析、渲染，并检查对应源码格式和文档链接。
 
-导入器回归覆盖普通 Mesh、插件注册的所有权转移、构建中拒绝替换、关闭插件后拒绝权威建模源、失败保留旧产物及恢复插件后的增量命中。资源与编辑器测试覆盖 Taskflow 调度、导入线程设置、SQLite 增量、GUID 冲突、meta 移动、输入变化、产物损坏、场景 TOML / C++ / TS FlatBuffers 往返，以及共享引用、深依赖链和目录代际隔离。MCP 回归覆盖注册、参数校验、编辑事务、撤销重做、回执与会话隔离；真实 Metal 测试包含材质变化、纹理、项目反复启停和资源释放。
+动画与模型资源回归覆盖子资源身份稳定、增量导入、非法输入保留旧缓存、独立骨架映射、播放/暂停/停止/定位、模型实例化失败清理与撤销重做。FBX 源法线保留与显式重算均有回归；USD 限定范围的导入和拒绝路径独立测试。窗口测试比较真实变形网格与等价静态网格的主画面及阴影，检查瞬态隐藏/恢复与 GPU 资源释放。桌面通过 MCP 运行含真实 PAB 模型的 388 节点庭院，比较两个采样时刻的实际像素，验证地面及两级台阶落地、切换视角并停止、重新启动。最终画面采用 4096 阴影图与 0.0015 bias；32 个真实渲染姿态编码为演示视频，视频帧率不代表引擎性能。统一项目最后的入口修正另通过 Debug `engine.script_tooling` 与 Release `editor.project_lifecycle` 回归。
 
-Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的定位、实体头和完整性，原生代码包含脚本和资源图插件，不包含编辑器、建模、MCP、构建或同步插件。Debug 真 MCP 验证 14 个实体对应的 15 个散文件，材质重载保持同一进程；关闭热重载时画面不变，开启后应用新版。坏 TS、错误源 GUID 和损坏设备 catalog 均保留旧活动版本。另通过 MCP 构建 7 个实体的合并包，重复构建复用产物，完成同步、激活及跨进程持久恢复。Debug / Release 均完成 V8 JavaScript、SharedArrayBuffer / Atomics、Intl、Temporal、三次前后台和有限帧释放；日志未发现崩溃、ANR 或图形设备丢失。
+物理回归覆盖盒/球/胶囊接触、静态/运动学/动态体、固定步进、单次冲量、触发器、父变换约束、极小尺度、旋转奇异角度以及清理恢复。音频回归覆盖 WAV/meta 增量导入、损坏输入保留旧缓存、PCM 实体校验、多个声源、循环、暂停、修改参数、组件删除、换场景和释放；自动化输出使用 SDL dummy。MCP 在真实编辑器中完成添加组件、方块落地、音频控制、场景保存、重新导入和再次启动；组件历史测试覆盖批量回滚、无效参数原子性和节点重建后的身份关联。
 
-本轮记录位于忽略的 `build/namespace-*.log`、`build/namespace-android-validation/` 和 `build/plugin-layout-validation/`。Android 目录包含包体与安装哈希、日志、截图、同步回执、清理结果及复跑命令；验证使用独立模拟器，已有 GameDev 模拟器保持运行。验证产物不提交，复跑入口保留在 Presets 和 `tests/`。
+公寓保留原有家具与灯光，新增 76 个静态家具/建筑碰撞体、一个动态球和原创循环音频。通过 MCP 施加冲量后球心最终稳定在约 0.255 米，符合地面高度与球半径；停止后场景释放，再次启动恢复播放。音频实际打开了桌面默认 SDL 输出设备，但这些检查不代表主观听觉评测。
 
-现代公寓的既有验收记录对应 2026-10-29：通过 MCP 创建 322 个模型，保存并重载 328 个节点，646 个资源 GUID 唯一，输出全景和三个近景 PNG。本轮覆盖建模与场景保存自动回归，未重新生成这套公寓。V8、ozz、vcpkg 和编译缓存继续复用；Windows PowerShell 安装测试未在 macOS 执行。
+Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含编辑器、建模或 MCP 插件。设备端落球接触后速度归零，播放、暂停、续播、停止和重播状态正常；360 帧运行正常退出。MCP 同步后的 catalog 与包文件逐字节匹配，冷启动使用已发布持久版本。日志未发现崩溃、ANR 或图形设备丢失；模拟器关闭宿主音频输出，不代表实体扬声器验证。
+
+验证记录和截图位于忽略的 `build/physics-audio-*.log`、`build/physics-audio-apartment/`、`build/physics-audio-android/` 与 `build/plugin-layout-validation/`。Android 测试结束恢复资源版本指针并清理测试版本，只关闭本次启动的独立模拟器；已有模拟器和编辑器保持不动。验证产物不提交，桌面复跑入口保留在 Presets、`tests/` 和公寓示例脚本。
+
+模型与动画的本机验证记录位于忽略的 `build/animation-*.log`、`build/animation-playground/` 和 `build/model-animation-android/`。桌面实景截图保存到 `projects/showcase/cache/screenshots/`，不提交生成缓存。
+
+统一项目、独立模型子资源和庭院的本轮回执位于忽略的 `build/animation-courtyard/`：`verified-final/report.json` 记录实景及生命周期，`verify-samples-release-3/report.json` 记录四次样例切换，`showcase-preview.html` 内嵌真实截图和动画视频。最终原始帧位于 `projects/showcase/cache/courtyard-verification/`；独立 GUID、meta 冲突和项目路径检查均通过。
+
+动画 Android 包包含 Model、Skeleton、Animation 实体及 ozz 蒙皮和运行时控制器；包内容检查未发现编辑器、MCP、FBX/USD 导入实现。MCP 同步核对设备文件和 active/available 版本回执，测试结束恢复原版本指针。此轮只使用独立测试模拟器，不修改其他已运行模拟器。Android 新增动画与控制器仅验证 Debug/API 34 ARM64 模拟器，未重建 Release 或验证实体机。统一项目的最终 APK、资源及设备回执位于 `build/showcase-android-validation/`；无探针正式资源 APK 与带状态日志的测试 APK 分别验证。冷启动在 Gameplay ready 后约 4.51 秒观察到首个庭院画面，固定 2 秒的截图早于首帧，后续校验等待实际出图。MCP 激活检查等待当前进程的新状态，不能把上一次进程残留的 builtin 报告当作最终结果；正式 catalog 和合并包上传后逐字节一致，确认新版本激活再清理测试部署。
 
 限制：
 
@@ -583,7 +665,9 @@ Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。物理模拟、动画播放、导航请求、游戏 UI 与完整编辑器界面未实现。
+- 阴影仅覆盖首个启用方向光的单张阴影图，尚无级联、点光/聚光阴影或 IBL；贴图导入支持 PNG/JPG/JPEG、UASTC/ETC1S、二维单图。动画新增范围见 Animator 与 FBX 模型资源模块，导航请求、游戏 UI 与完整编辑器界面未实现。
+- 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
+- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画采用 CPU 蒙皮，尚未实现状态机混合、Root Motion、IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
 ## 目录
@@ -599,7 +683,7 @@ Android 两份 APK 均核验 v2 catalog、6 个资源实体及 1 个合并包的
 ├── include/engine/     # runtime/editor/plugins/{runtime,editor} 公开头文件
 ├── include/schemas/    # FlatBuffers 跨语言资源数据模型
 ├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
-├── projects/minimal/   # settings 中的 TS 配置、assets 源码和 cache 生成目录
+├── projects/showcase/  # 共用设置、缓存，内含方块、公寓与动画庭院场景
 ├── references/         # 本地参考文件，内容不纳入 Git
 ├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
 ├── src/engine/         # 与 include/engine 对应的基础与插件实现

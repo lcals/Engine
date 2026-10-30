@@ -352,6 +352,12 @@ bool save_scene(WorldSystem& world, const fs::path& project_root,
         for (const auto& component : node->components())
         {
             auto value = std::make_unique<schema::ComponentDataT>(component->data());
+            if (component->type() != ComponentType::MeshRendererData &&
+                !component->build_data(*value))
+            {
+                error = "Cannot save component data";
+                return rollback();
+            }
             if (component->type() == ComponentType::MeshRendererData)
             {
                 const auto* renderer = node->get_component<MeshRenderer>();

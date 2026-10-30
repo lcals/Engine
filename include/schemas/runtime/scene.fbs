@@ -33,7 +33,79 @@ table MeshRendererData {
     additional_material_guids:[string];
 }
 
-union ComponentPayload { TransformData, CameraData, LightData, MeshRendererData }
+enum ColliderShape:ubyte { box, sphere, capsule }
+enum BodyMotion:ubyte { static_body, kinematic, dynamic }
+
+table ColliderData {
+    shape:ColliderShape = box;
+    half_extents:Vec3 (required, native_inline, native_default: "Vec3(0.5, 0.5, 0.5)");
+    radius:float = 0.5;
+    half_height:float = 0.5;
+    center:Vec3 (required, native_inline);
+    friction:float = 0.5;
+    restitution:float = 0.1;
+    is_trigger:bool = false;
+}
+
+table RigidBodyData {
+    motion:BodyMotion = dynamic;
+    mass:float = 1;
+    gravity_factor:float = 1;
+    linear_damping:float = 0.05;
+    angular_damping:float = 0.05;
+    linear_velocity:Vec3 (required, native_inline);
+    angular_velocity:Vec3 (required, native_inline);
+}
+
+table AudioSourceData {
+    clip_guid:string;
+    volume:float = 1;
+    pitch:float = 1;
+    loop:bool = false;
+    play_on_awake:bool = true;
+    spatial:bool = true;
+    min_distance:float = 1;
+    max_distance:float = 20;
+}
+
+table AudioListenerData {
+    volume:float = 1;
+}
+
+table AnimatorData {
+    animation_guid:string;
+    speed:float = 1;
+    loop:bool = true;
+    play_on_awake:bool = true;
+}
+
+table CharacterMotorData {
+    radius:float = 0.3;
+    half_height:float = 0.6;
+    max_slope_degrees:float = 50;
+    step_height:float = 0.35;
+    ground_snap_distance:float = 0.2;
+    gravity_factor:float = 1;
+}
+
+enum CharacterView:ubyte { first_person, third_person }
+table CharacterControllerData {
+    mode:CharacterView = third_person;
+    move_speed:float = 4;
+    jump_speed:float = 5;
+    look_sensitivity:float = 0.12;
+    eye_height:float = 1.6;
+    camera_distance:float = 4;
+    pitch_min:float = -80;
+    pitch_max:float = 80;
+    camera_node_id:ulong;
+}
+
+union ComponentPayload {
+    TransformData, CameraData, LightData, MeshRendererData,
+    ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
+    CharacterControllerData
+}
 
 table ComponentData {
     enabled:bool = true;

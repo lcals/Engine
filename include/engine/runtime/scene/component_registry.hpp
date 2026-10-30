@@ -18,6 +18,7 @@ public:
         }
         return factories_.emplace(T::component_type, &create_component<T>).second;
     }
+    [[nodiscard]] bool contains(ComponentType type) const noexcept;
     // 返回由 node 拥有的借用；未知类型或重复组件返回空。
     [[nodiscard]] Component* create(ComponentType type, Node& node) const;
 

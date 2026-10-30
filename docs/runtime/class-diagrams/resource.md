@@ -15,6 +15,10 @@ classDiagram
         +shader() const ShaderDataT#42;
         +material() const MaterialDataT#42;
         +texture() const TextureDataT#42;
+        +audio() const AudioClipDataT#42;
+        +model() const ModelDataT#42;
+        +skeleton() const SkeletonDataT#42;
+        +animation() const AnimationDataT#42;
         +bytes() ByteView
     }
     class AssetEntryT
@@ -32,11 +36,13 @@ classDiagram
     class ShaderDataT
     class MaterialDataT
     class TextureDataT
+    class AudioClipDataT
     Resource *-- SceneDataT : 场景类型时拥有
     Resource *-- MeshDataT : 网格类型时拥有
     Resource *-- ShaderDataT : Shader 类型时拥有
     Resource *-- MaterialDataT : 材质类型时拥有
     Resource *-- TextureDataT : 贴图类型时拥有
+    Resource *-- AudioClipDataT : 音频类型时拥有
 ```
 
 - `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。
@@ -46,3 +52,5 @@ classDiagram
 - Resource 只拥有本项元数据、目录代际和载荷，不拥有依赖或共享缓存。析构为 noexcept，不调用脚本或 GPU API。
 - 完整依赖闭包由运行时资源依赖图插件的私有 Bundle 保活；输出仍使用 ResourcePtr 标准别名，最后一个使用者释放时由插件按正确顺序释放资源和依赖。
 - `generation()` 标识创建时目录代际，const noexcept；目录更新不改变旧对象。当前代际查询与缓存隔离由加载器处理，不通过 GUID 强制删除其他使用者的对象。
+
+Model、Skeleton、Animation 同样只拥有对应 FlatBuffers 生成载荷，结构与依赖见[模型资源](model-resources.md)。模型资源实例化在 Scene；骨架采样在 AnimationSystem；源文件转换在编辑器格式插件，均不进入 Resource 的只读实体职责。

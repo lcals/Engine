@@ -1,0 +1,21 @@
+guid = 'b0ba0001-0000-4000-8000-000000000001'
+importer = 'fbx'
+meta_version = 1
+sample_rate = 30
+normals = 'generate'
+skeleton = ''
+
+[[subresources]]
+guid = 'f1114b28-647f-4d31-8828-e9a4cc89d435'
+key = 'meshes/root/GENERIC MAN new'
+kind = 'mesh'
+
+[[subresources]]
+guid = 'c3b03cc9-fc87-4b26-a642-6307b8a549c9'
+key = 'skeleton'
+kind = 'skeleton'
+
+[[subresources]]
+guid = '0f28f817-bdff-41b1-92eb-ac9c6044f4f9'
+key = 'animations/Take 001'
+kind = 'animation'

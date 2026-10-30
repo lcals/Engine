@@ -1,37 +1,45 @@
 # 物理系统
 
-[类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
+[类图索引](../../class-diagrams/index.md) · [物理组件](physics-components.md) · [物理模块](../physics.md)
 
-本图仅定义 `PhysicsSystem` 的方法；其他节点为跨图引用或第三方类型。
+`engine::PhysicsSystem` 借用世界并拥有 Jolt 碰撞世界；场景行为类和公开头不依赖 Jolt。
 
 ```mermaid
 classDiagram
-    direction TB
     class PhysicsSystem {
         <<final>>
-        +PhysicsSystem()
+        +PhysicsSystem(WorldSystem#42; world)
         +~PhysicsSystem()
+        +clear() void
+        +body_count() size_t
+        +character_count() size_t
+        +cast_sphere(const Vec3& origin, const Vec3& displacement, float radius, float& fraction) bool
         #on_initialize(const EngineConfig& config) bool
+        #on_tick(double delta_time) bool
         #on_shutdown() void
     }
-    class System {
-        <<abstract>>
-    }
-    class EngineConfig {
-        <<struct>>
-    }
-    class Jolt["Jolt"] {
-        <<library>>
-    }
+    class System
+    class WorldSystem
+    class Scene
+    class Collider
+    class RigidBody
+    class CharacterMotor
+    class Vec3
+    class Transform
+    class EngineConfig
+    class PhysicsState["PhysicsSystem::State"]
+    class Jolt["Jolt"]
     System <|-- PhysicsSystem
-    PhysicsSystem ..> EngineConfig : on_initialize 参数
-    PhysicsSystem ..> Jolt : 编译及链接依赖
-    note for PhysicsSystem "继承 System 生命周期；析构中调用 shutdown()"
+    PhysicsSystem --> WorldSystem : 可空借用
+    PhysicsSystem *-- PhysicsState : 独占实现
+    PhysicsState ..> Jolt : 私有实现依赖
+    PhysicsSystem ..> Scene : 按ID重新解析节点
+    PhysicsSystem ..> Collider : 读取形状
+    PhysicsSystem ..> RigidBody : 消费冲量并同步速度
+    PhysicsSystem ..> CharacterMotor : 消费移动与跳跃并回写地面状态
+    PhysicsSystem ..> Vec3 : 球体扫掠输入
+    PhysicsSystem ..> Transform : 同步世界和局部变换
+    PhysicsSystem ..> EngineConfig : 初始化参数
 ```
 
-- 由 `WorldSystem` 独占，通过父系统统一初始化、更新和关闭。
-- 调用 Jolt 版本一致性入口以验证编译和链接；尚未创建物理世界、刚体或执行物理模拟。
-- 公开接口包含构造、析构及继承自 `System` 的生命周期方法。初始化失败和清理遵守[系统约定](engine-system.md)。
-- 不重写 `on_tick()`，沿用基类默认成功的空更新；无逐帧业务任务。
-
-C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
+世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。场景切换、对象禁用及删除在下一次更新同步，停止玩法由宿主显式清理。固定步进与变换限制见[物理模块](../physics.md)。

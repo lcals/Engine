@@ -16,6 +16,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/utils/mesh_utils.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -206,6 +207,8 @@ struct GpuCounts
 {
     std::uint16_t vertices;
     std::uint16_t indices;
+    std::uint16_t dynamic_vertices;
+    std::uint16_t dynamic_indices;
     std::uint16_t shaders;
     std::uint16_t programs;
     std::uint16_t uniforms;
@@ -217,8 +220,14 @@ struct GpuCounts
 GpuCounts gpu_counts()
 {
     const bgfx::Stats& stats = *bgfx::getStats();
-    return {stats.numVertexBuffers, stats.numIndexBuffers, stats.numShaders,
-            stats.numPrograms,      stats.numUniforms,     stats.numTextures};
+    return {stats.numVertexBuffers,
+            stats.numIndexBuffers,
+            stats.numDynamicVertexBuffers,
+            stats.numDynamicIndexBuffers,
+            stats.numShaders,
+            stats.numPrograms,
+            stats.numUniforms,
+            stats.numTextures};
 }
 
 bool create_cube_scene(engine::WorldSystem& world, bool unlit)
@@ -646,6 +655,58 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
 
     const auto single_mesh = gpu_counts();
+    const auto single_resource_count = renderer.gpu_resource_count();
+    const auto source_revision = mesh->mesh_revision();
+    auto deformed = data.vertices;
+    for (auto& vertex : deformed)
+    {
+        vertex.mutate_x(vertex.x() + 5);
+    }
+    if (!expect(mesh->set_deformation(deformed, data.tangents), "submit transient deformed pose") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "deformed-vertices", image) ||
+        !expect(image.pixel(cx, cy)[0] < 80 && gpu_counts().indices == single_mesh.indices &&
+                    gpu_counts().dynamic_vertices == single_mesh.dynamic_vertices + 1 &&
+                    renderer.gpu_resource_count() == single_resource_count + 1 &&
+                    mesh->mesh_revision() == source_revision,
+                "pose changes GPU pixels with one dynamic VB and unchanged source topology"))
+    {
+        return false;
+    }
+    const auto active_pose = gpu_counts();
+    if (!expect(mesh->set_deformation(data.vertices, data.tangents),
+                "update existing dynamic VB") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "deformed-rest-pose", image) ||
+        !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == active_pose,
+                "another pose updates the existing GPU allocation"))
+    {
+        return false;
+    }
+    mesh->clear_deformation();
+    if (!render_frames(windows, renderer, 8) ||
+        !expect(gpu_counts() == single_mesh &&
+                    renderer.gpu_resource_count() == single_resource_count,
+                "clearing deformation releases dynamic VB and restores source buffers"))
+    {
+        return false;
+    }
+    mesh->set_visible(false);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hidden-mesh", image) ||
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh->enabled(),
+                "transient visibility removes GPU draw without disabling the component"))
+    {
+        return false;
+    }
+    mesh->set_visible(true);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "visible-mesh-restored", image) ||
+        !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
+                "showing mesh restores the same pixels and resource allocation"))
+    {
+        return false;
+    }
     for (auto& vertex : data.vertices)
     {
         vertex.mutate_x(vertex.x() + 5);
@@ -700,6 +761,17 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
+    const auto multi_slot = gpu_counts();
+    if (!expect(mesh->set_deformation(data.vertices, data.tangents),
+                "deformation supports multiple material slots") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 3 && mesh->material_count() == 2 &&
+                    gpu_counts().indices == multi_slot.indices,
+                "deformed submeshes retain material submissions and shared topology"))
+    {
+        return false;
+    }
+    mesh->clear_deformation();
     std::vector<engine::Light*> lights;
     for (const auto kind : {engine::schema::LightKind::directional,
                             engine::schema::LightKind::point, engine::schema::LightKind::spot})
@@ -843,6 +915,78 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         shaded_pixels += before > after + 30;
     }
     if (!expect(shaded_pixels > 100, "directional shadow darkens receiver pixels"))
+    {
+        return false;
+    }
+    const auto cube_node = std::find_if(scene->nodes().begin(), scene->nodes().end(),
+                                        [](const auto& node) { return node->name() == "Cube"; });
+    auto* cube_mesh = cube_node != scene->nodes().end()
+                          ? (*cube_node)->get_component<engine::MeshRenderer>()
+                          : nullptr;
+    if (!expect(cube_mesh != nullptr, "find shadow caster for deformation"))
+    {
+        return false;
+    }
+    auto posed = *cube_mesh->mesh_data();
+    if (!expect(engine::MeshUtils::build_tangents(posed, posed.tangents),
+                "prepare shadow caster tangent frame"))
+    {
+        return false;
+    }
+    const float cosine = std::cos(0.5F);
+    const float sine = std::sin(0.5F);
+    for (std::size_t index = 0; index < posed.vertices.size(); ++index)
+    {
+        const auto original = posed.vertices[index];
+        posed.vertices[index] = {cosine * original.x() - sine * original.y() + 1.5F,
+                                 sine * original.x() + cosine * original.y() + 2.0F,
+                                 original.z(),
+                                 cosine * original.nx() - sine * original.ny(),
+                                 sine * original.nx() + cosine * original.ny(),
+                                 original.nz()};
+        const auto tangent = posed.tangents[index];
+        posed.tangents[index] = {cosine * tangent.x() - sine * tangent.y(),
+                                 sine * tangent.x() + cosine * tangent.y(), tangent.z(),
+                                 tangent.w()};
+    }
+    Screenshot deformed_shadow;
+    Screenshot reference_shadow;
+    if (!expect(cube_mesh->set_deformation(posed.vertices, posed.tangents),
+                "deform shadow caster without changing source mesh") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "deformed-shadow", deformed_shadow) ||
+        !expect(cube_mesh->set_mesh_data(posed), "publish equivalent static reference geometry") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "reference-shadow", reference_shadow) ||
+        !expect(deformed_shadow.width == reference_shadow.width &&
+                    deformed_shadow.height == reference_shadow.height,
+                "deformed and static reference screenshots have equal dimensions"))
+    {
+        return false;
+    }
+    std::size_t pose_changes = 0;
+    std::size_t reference_mismatches = 0;
+    for (std::size_t index = 0; index < reference_shadow.pixels.size(); ++index)
+    {
+        int pose_difference = 0;
+        int reference_difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            pose_difference += std::abs(static_cast<int>(shadowed.pixels[index][channel]) -
+                                        deformed_shadow.pixels[index][channel]);
+            reference_difference +=
+                std::abs(static_cast<int>(reference_shadow.pixels[index][channel]) -
+                         deformed_shadow.pixels[index][channel]);
+        }
+        pose_changes += pose_difference > 30;
+        reference_mismatches += reference_difference > 6;
+    }
+    if (!expect(pose_changes > 100 &&
+                    reference_mismatches < reference_shadow.pixels.size() / 1000 + 1,
+                "deformed positions, normals, tangents, shadow bounds and shadow pass match "
+                "equivalent static geometry") ||
+        !expect(cube_mesh->set_mesh("builtin/meshes/cube"), "restore original shadow caster") ||
+        !render_frames(windows, renderer, 8))
     {
         return false;
     }
@@ -1080,6 +1224,7 @@ bool test_borrowed_resource_host(const engine::EngineConfig& config)
 struct ScriptLifecycle
 {
     engine::WorldSystem* world = nullptr;
+    engine::RenderSystem* renderer = nullptr;
     std::size_t initialized = 0;
     std::size_t ticks = 0;
     std::size_t shutdowns = 0;
@@ -1159,7 +1304,8 @@ private:
 bool test_script_runtime_factory(const engine::EngineConfig& config)
 {
     engine::RuntimeHost host;
-    const auto failed_factory = [](engine::WorldSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+    const auto failed_factory = [](engine::WorldSystem&,
+                                   engine::RenderSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -1168,12 +1314,18 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
         return false;
     }
     script_lifecycle = {};
-    const auto factory = [](engine::WorldSystem& world) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<ObservedScriptRuntime>(world); };
-    if (!expect(host.initialize(config, nullptr, factory) &&
-                    script_lifecycle.world == host.world() && script_lifecycle.initialized == 1 &&
-                    host.gameplay()->script_status() != nullptr,
-                "host factory supplies an abstract script child without a concrete plugin") ||
+    const auto factory =
+        [](engine::WorldSystem& world,
+           engine::RenderSystem& renderer) -> std::unique_ptr<engine::ScriptRuntime>
+    {
+        script_lifecycle.renderer = &renderer;
+        return std::make_unique<ObservedScriptRuntime>(world);
+    };
+    if (!expect(
+            host.initialize(config, nullptr, factory) && script_lifecycle.world == host.world() &&
+                script_lifecycle.renderer == host.renderer() && script_lifecycle.initialized == 1 &&
+                host.gameplay()->script_status() != nullptr,
+            "host factory supplies an abstract script child without a concrete plugin") ||
         !expect(create_cube_scene(*host.world(), false), "create scene owned by the caller") ||
         !tick_engine_frames(host, 3) ||
         !expect(script_lifecycle.ticks == 3,

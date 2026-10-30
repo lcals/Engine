@@ -1,0 +1,31 @@
+include "common.fbs";
+namespace engine.schema;
+
+table ModelNodeData {
+    name:string (required);
+    parent:int = -1;
+    position:Vec3 (required, native_inline);
+    rotation:Vec3 (required, native_inline);
+    scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
+    mesh_guid:string;
+    material_guids:[string];
+}
+
+// Legacy table retained only for the deprecated ModelData.animations field slot.
+table ModelAnimationData {
+    name:string (required);
+    guid:string (required);
+}
+
+table ModelData {
+    // Keep the old default so omitted version-1 fields cannot decode as version 2.
+    // Current producers explicitly write 2; runtime rejects older model payloads.
+    schema_version:uint = 1;
+    path:string (required);
+    nodes:[ModelNodeData] (required);
+    skeleton_guid:string (deprecated);
+    animations:[ModelAnimationData] (deprecated);
+}
+
+root_type ModelData;
+file_identifier "EMDL";
