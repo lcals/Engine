@@ -479,6 +479,11 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 | `set_render_settings` | `ambientColor`、`ambientIntensity`、`exposure`、`filmicTonemap`、`directionalShadows`、`shadowResolution`、`shadowBias`、`clearColor` 中至少一项；支持撤销 |
 | `capture_frame` | `path`，相对于项目 `cache/` 的 `.png` 路径；请求真实引擎帧截图 |
 | `get_frame_capture` | 无参数；查询截图 `state` 与文件 `path`，`complete` 才表示文件写入完成 |
+| `set_render_stats` | 必填 `enabled` 布尔值；开关 bgfx 自带统计面板，默认关闭 |
+
+`set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
+
+独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主，当前没有业务采样逻辑。`ENGINE_ENABLE_TRACY=ON` 在配置期选择并私有链接 Tracy 0.14.1 客户端，使用按需连接模式、不启用崩溃处理器；默认 `OFF` 时不引入 Tracy 依赖。客户端保留上游进程生命周期与后台连接线程，尚未接入 CPU 区域、GPU 或内存跟踪。此选项与 bgfx 面板开关独立。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
@@ -833,6 +838,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 | `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 开启运行时依赖时为 `resource_graph`，否则为空；分号分隔，支持显式空列表 |
 | `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
+| `ENGINE_ENABLE_TRACY` | `OFF` | 编译性能系统的 Tracy 按需客户端；仅占位接入，未添加业务采样 |
 | `ENGINE_ENABLE_V8` | `OFF` | 未装配脚本插件时启用独立 V8 验证；脚本插件由 `ENGINE_SCRIPT_BACKEND` 决定依赖 |
 | `ENGINE_SCRIPT_BACKEND` | `quickjs` | 脚本插件编译期后端，只接受 `quickjs` 或 `v8` |
 | `ENGINE_V8_ENABLE_WEBASSEMBLY` | `OFF` | V8 WebAssembly，全部平台默认裁剪 |

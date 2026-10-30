@@ -5,6 +5,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    engine_add_system(runtime performance)
+    if(ENGINE_ENABLE_TRACY)
+        target_compile_definitions(engine_performance PRIVATE ENGINE_ENABLE_TRACY=1)
+        target_link_libraries(engine_performance PRIVATE Tracy::TracyClient)
+    endif()
+
     engine_add_system(runtime window)
     target_link_libraries(
         engine_window
@@ -122,6 +128,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
+        engine::performance
         engine::window
         engine::resource
         engine::world

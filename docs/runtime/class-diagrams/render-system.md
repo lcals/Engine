@@ -17,6 +17,8 @@ classDiagram
         +gpu_resource_count() uint32_t
         +set_settings(const RenderSettings& settings) bool
         +settings() const RenderSettings&
+        +set_stats_visible(bool visible) void
+        +stats_visible() bool
         +request_screenshot(string_view utf8_png_path) bool
         +screenshot_status() ScreenshotStatus
         +render(const Camera#42; camera) bool
@@ -118,7 +120,7 @@ classDiagram
     note for RenderSystem "拥有 bgfx 创建的资源；析构中调用 shutdown()"
 ```
 
-- 构造时借用窗口系统，以及可空的世界、字体和 UI 系统；借用必须覆盖渲染系统生命周期。世界系统为空时只显示空白。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
+- 构造时借用窗口系统，以及可空的世界、字体和 UI 系统；借用必须覆盖渲染系统生命周期。世界系统为空时不绘制项目场景。初始化时检查窗口已就绪，不创建项目 Mesh、Shader 和材质资源。
 - 3D 文字与网格使用同一场景相机，由 FontSystem 按普通文字组件绘制；UI 由 UiSystem 在场景之后的有序视图提交。Renderer 只协调通道，不复制字体排布或 RmlUi 文档业务。关闭 GPU 前先释放 UI 和字体 GPU 数据。
 - `prepare_scene(camera)` 在主线程按当前场景引用的独立 Mesh 资源准备顶点和索引缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
 - `prepare_scene` 与 `render` 的 `camera` 默认空，使用世界场景的活动镜头；显式传入时仅在本次调用借用。镜头可来自调用方独立场景，其 Node、Transform 和 Camera 必须在调用期间有效。渲染器不保存镜头指针、不改变项目场景的活动镜头，也不判断调用方用途。
@@ -135,7 +137,8 @@ classDiagram
 - RuntimeHost 在提交前检查窗口退出和暂停状态。恢复和表面重建由渲染系统与[窗口系统](window-system.md)协作处理。
 - 拥有 bgfx 创建的资源，使用对应 API 释放；不拥有窗口系统，也不拥有第三方库本身。初始化、清理和复制移动限制遵守[系统约定](engine-system.md)。
 
-- 使用 SDL3 提供原生窗口句柄，macOS / iOS 选择 Metal、Windows 选择 Direct3D12、Android / Linux 选择 Vulkan；拒绝 Noop 和回退到其他图形后端。待机清屏，无调试文字。窗口像素尺寸变化时重置交换链并更新相机宽高比。
+- 使用 SDL3 提供原生窗口句柄，macOS / iOS 选择 Metal、Windows 选择 Direct3D12、Android / Linux 选择 Vulkan；拒绝 Noop 和回退到其他图形后端。默认待机清屏，无调试文字。窗口像素尺寸变化时重置交换链并更新相机宽高比。
+- `set_stats_visible()` 在主线程控制 bgfx 自带的 `BGFX_DEBUG_STATS` 面板，默认关闭，`stats_visible()` 返回保存的开关。开关独立于场景与渲染效果配置，适用于待机、预览及玩法；切换场景、释放场景资源和临时重建图形设备均保留设置，设备恢复后重新应用。该面板只显示上游可提供的统计，不另外启用 `BGFX_DEBUG_PROFILER`。
 - 默认内置 Mesh 为 24 顶点、36 索引方块；项目 Mesh 来自独立缓存定义，可提供其他顶点和 uint32 索引。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。材质按 `builtin/...` 或 `project/...` 路径取得资源，渲染器通过 `Material::shader_data()` 借用该材质实际持有的 ShaderData，不经过全局缓存查询或按材质路径分支选择效果。
 - 每个在用 Shader 路径拥有一套 Program 和参数 Uniform；多个组件可使用不同 Shader。按生成数据中的 uniform 名称、偏移及数值类型映射参数，上传实例值和隐藏默认值。反射双向核对全部非引擎 Uniform，缺失声明或不存在的声明均拒绝，失败清理本次场景 GPU 资源。
 - 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 根据场景标识释放旧 GPU 资源并建立新资源。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。

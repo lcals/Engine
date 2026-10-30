@@ -295,6 +295,21 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                    return true;
                }) &&
            commands.register_command(
+               "set_render_stats", false,
+               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
+                      std::string& error)
+               {
+                   if (!arguments.is_object() || arguments.size() != 1 ||
+                       !arguments.contains("enabled") || !arguments["enabled"].is_boolean())
+                   {
+                       error = "set_render_stats requires an enabled boolean";
+                       return false;
+                   }
+                   renderer_.set_stats_visible(arguments["enabled"].get<bool>());
+                   result = {{"enabled", renderer_.stats_visible()}};
+                   return true;
+               }) &&
+           commands.register_command(
                "capture_frame", false,
                [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
                       std::string& error)

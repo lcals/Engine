@@ -23,6 +23,8 @@ classDiagram
 
 编辑器决定截图目录并检查相对路径；渲染器只接收明确的文件路径。渲染设置支持撤销；截图是异步请求，回执中的 pending 不代表文件完成，get_frame_capture 返回真实完成状态。
 
+`set_render_stats` 要求唯一的布尔参数 `enabled`，调用渲染系统的统计面板开关并返回保存的状态。该命令跨待机、场景预览及玩法生效，不进入撤销历史，不改变场景保存状态。
+
 `SettingsEdit::affects_scene()` 为 const、noexcept、override 并返回 false。曝光、环境光等全局渲染设置仍进入撤销历史，但不改变场景保存状态，不阻止预览自动刷新。
 
 宿主独占 RenderCommands，命令注册和撤销历史释放之后销毁它；渲染系统的有效期覆盖命令对象。
