@@ -1,6 +1,7 @@
 import { Debug, Gameplay, Render, Transform, Scene, Time } from "engine";
 
 export default class Game extends Gameplay {
+    scene: Scene | null = null;
     private cube: Transform | null = null;
     private angle = 0;
 
@@ -13,8 +14,8 @@ export default class Game extends Gameplay {
             !Render.SetClearColor(0x181818ff)
         )
             return false;
-        const scene = Scene.Load("project/scenes/main.scene");
-        const cube = scene?.FindNode("Cube");
+        this.scene = Scene.Load("project/scenes/main.scene");
+        const cube = this.scene?.FindNode("Cube");
         this.cube = cube?.GetComponent(Transform) ?? null;
         if (!this.cube) return false;
         Debug.Log("Game.OnInitialize: PBR cube scene ready");
@@ -30,6 +31,7 @@ export default class Game extends Gameplay {
 
     override OnShutdown(): void {
         this.cube = null;
+        this.scene = null;
         Debug.Log("Game.OnShutdown: scene released");
     }
 }

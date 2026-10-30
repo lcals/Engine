@@ -21,6 +21,7 @@ button { tab-index: auto; display: block; box-sizing: border-box; width: 100%; t
 button:hover { background-color: #375973; color: #ffffff; }
 button:focus { background-color: #375973; border-width: 1px; border-color: #73dfc3; }
 button:active { background-color: #73dfc3; color: #102a2c; }
+#back-menu { display: none; position: absolute; top: 24px; left: 24px; width: 190px; pointer-events: auto; }
 .footer { color: #7d94af; font-size: 14px; margin-top: 14px; }
 @media (max-width: 700px) { scrollbarvertical { width: 12px; background-color: #101d2d; }
 scrollbarvertical slidertrack { width: 12px; }
@@ -29,18 +30,19 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
 .page { margin: 24px; } h1 { font-family: heading; font-size: 34px; } .card { width: 100%; } .cards { display: block; } body { overflow-y: auto; } }
 </style>
 </head>
-<body>
-<div class="page">
+<body id="launcher-root">
+<button id="back-menu">Back to scenes</button>
+<div id="launcher-page" class="page">
     <div class="eyebrow">ENGINE / SCENE COLLECTION</div>
     <h1>Choose your next scene.</h1>
     <div class="lead">One project. Four worlds to explore.</div>
     <div class="cards">
-        <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2>PBR essentials</h2><div class="description">A rotating cube. Light, surface and reflection.</div><button id="scene-cube">Select PBR cube</button></div>
-        <div class="card"><div class="number">02 / INTERIOR</div><h2>Modern apartment</h2><div class="description">A furnished home with warm, layered lighting.</div><button id="scene-apartment">Select apartment</button></div>
-        <div class="card"><div class="number">03 / CHARACTER LAB</div><h2>Animation courtyard</h2><div class="description">Skinned animation, physical movement and space.</div><button id="scene-courtyard">Select courtyard</button></div>
-        <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2>Letters in space</h2><div class="description">The same vector font, rendered as 3D scene text.</div><button id="scene-gallery">Select font gallery</button></div>
+        <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2>PBR essentials</h2><div class="description">A rotating cube. Light, surface and reflection.</div><button id="scene-cube">Open PBR cube</button></div>
+        <div class="card"><div class="number">02 / INTERIOR</div><h2>Modern apartment</h2><div class="description">A furnished home with warm, layered lighting.</div><button id="scene-apartment">Open apartment</button></div>
+        <div class="card"><div class="number">03 / CHARACTER LAB</div><h2>Animation courtyard</h2><div class="description">Skinned animation, physical movement and space.</div><button id="scene-courtyard">Open courtyard</button></div>
+        <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2>Letters in space</h2><div class="description">The same vector font, rendered as 3D scene text.</div><button id="scene-gallery">Open font gallery</button></div>
     </div>
-    <div id="launcher-status" class="footer">Choose a scene. Mouse, touch and keyboard share the same controller.</div>
+    <div id="launcher-status" class="footer">Open a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>
 </body>
 </rml>

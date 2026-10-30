@@ -382,8 +382,9 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
         add_executable(engine_usd_test usd_test.cpp)
         target_compile_features(engine_usd_test PRIVATE cxx_std_20)
-        target_link_libraries(engine_usd_test PRIVATE engine::core usdGeom)
+        target_link_libraries(engine_usd_test PRIVATE engine::core engine_usd_sdk)
         engine_apply_options(engine_usd_test)
+        engine_copy_usd_data(engine_usd_test)
         add_test(NAME engine.usd COMMAND engine_usd_test
                                          "${CMAKE_CURRENT_BINARY_DIR}/usd-test-output")
         set_tests_properties(engine.usd PROPERTIES TIMEOUT 60 ENVIRONMENT
@@ -628,6 +629,7 @@ if(TARGET engine_usd_import AND TARGET engine_fbx_import)
         PRIVATE
             ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_usd_pipeline_test)
+    engine_copy_usd_data(engine_usd_pipeline_test)
     add_test(NAME editor.usd_pipeline COMMAND engine_usd_pipeline_test)
 endif()
 if(TARGET engine_animation)

@@ -174,7 +174,7 @@ class FlatBuffer:
         return [vector + 4 + index * 4 for index in range(count)]
 
 
-def catalog_entries(source):
+def catalog_entries(source, target_platform="android"):
     path = safe_file(source, "catalog.bin")
     if path.stat().st_size > MAX_MANIFEST_SIZE:
         raise ValueError("GUID catalog.bin 超过清单大小上限")
@@ -183,8 +183,8 @@ def catalog_entries(source):
         raise ValueError("不支持的 GUID catalog 版本；请重新构建 v2 运行资源")
     if not data.string(data.root, 1):
         raise ValueError("GUID catalog 缺少修订标识")
-    if data.string(data.root, 2) != "android":
-        raise ValueError("资源目录目标必须是 android；不能把桌面 Metal 产物打进 Android 包。")
+    if data.string(data.root, 2) != target_platform:
+        raise ValueError(f"资源目录目标必须是 {target_platform}，不能混用其他平台产物。")
     entries = []
     identities, paths, modules = set(), set(), set()
     guid_pattern = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -210,8 +210,7 @@ def catalog_entries(source):
             or guid in identities
             or logical in paths
             or not logical.startswith("project/")
-            or kind
-            > 12  # Font and UI append to the stable AssetKind values in asset_catalog.fbs.
+            or kind > 12  # Font and UI append to the stable AssetKind values in asset_catalog.fbs.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

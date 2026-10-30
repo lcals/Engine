@@ -157,8 +157,20 @@ windows_sdk=@CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION@
 endif()
 if(WIN32)
     set(_engine_v8_library engine_v8.lib)
+    set(_engine_v8_windows_crt dynamic)
+    if(DEFINED CMAKE_MSVC_RUNTIME_LIBRARY)
+        if(CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+            set(_engine_v8_windows_crt static)
+        elseif(NOT CMAKE_MSVC_RUNTIME_LIBRARY STREQUAL "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+            message(FATAL_ERROR "V8 requires the standard per-config MSVC runtime selection")
+        endif()
+    endif()
 else()
     set(_engine_v8_library libengine_v8.a)
+endif()
+set(_engine_v8_variant "$<IF:$<CONFIG:Debug>,debug,release>")
+if(WIN32 AND _engine_v8_windows_crt STREQUAL "static")
+    set(_engine_v8_variant "mt-${_engine_v8_variant}")
 endif()
 set(_engine_v8_arguments
     "-DENGINE_V8_BUILD_ROOT=${ENGINE_V8_BUILD_ROOT}" "-DENGINE_V8_CONFIG=${_engine_v8_config}"
@@ -170,6 +182,9 @@ if(ANDROID)
          "-DENGINE_V8_ANDROID_API=${ENGINE_V8_ANDROID_API}")
 else()
     list(APPEND _engine_v8_arguments "-DENGINE_V8_HOST_COMPILER=${CMAKE_CXX_COMPILER}")
+endif()
+if(WIN32)
+    list(APPEND _engine_v8_arguments "-DENGINE_V8_WINDOWS_CRT=${_engine_v8_windows_crt}")
 endif()
 
 # 准备目标包含网络操作，必须单独显式运行，不属于默认构建。
@@ -185,11 +200,10 @@ add_custom_target(
     engine_v8_build
     COMMAND "${CMAKE_COMMAND}" ${_engine_v8_arguments} -DENGINE_V8_ACTION=BUILD -P
             "${_engine_v8_script}"
-    BYPRODUCTS
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/obj/${_engine_v8_library}"
-        "${ENGINE_V8_BUILD_ROOT}/include/$<IF:$<CONFIG:Debug>,debug,release>/v8-gn.h"
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
-        "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/.engine-v8-build.identity"
+    BYPRODUCTS "${_engine_v8_source}/out/engine.${_engine_v8_variant}/obj/${_engine_v8_library}"
+               "${ENGINE_V8_BUILD_ROOT}/include/${_engine_v8_variant}/v8-gn.h"
+               "${_engine_v8_source}/out/engine.${_engine_v8_variant}/icudtl.dat"
+               "${_engine_v8_source}/out/engine.${_engine_v8_variant}/.engine-v8-build.identity"
     USES_TERMINAL VERBATIM)
 
 add_library(engine_v8 STATIC IMPORTED GLOBAL)
@@ -201,6 +215,9 @@ set_property(TARGET engine_v8 PROPERTY INTERFACE_COMPILE_OPTIONS
                                        "$<$<CXX_COMPILER_ID:MSVC>:/Zc:__cplusplus>")
 foreach(_configuration IN ITEMS Debug Release)
     string(TOLOWER "${_configuration}" _lower)
+    if(WIN32 AND _engine_v8_windows_crt STREQUAL "static")
+        set(_lower "mt-${_lower}")
+    endif()
     string(TOUPPER "${_configuration}" _upper)
     set(_output "${_engine_v8_source}/out/engine.${_lower}")
     # include 副本独立于 Git 工作目录，允许先配置再显式准备。
@@ -215,11 +232,10 @@ set_property(
     TARGET engine_v8
     PROPERTY
         INTERFACE_INCLUDE_DIRECTORIES
-        "${ENGINE_V8_BUILD_ROOT}/include/v8;${ENGINE_V8_BUILD_ROOT}/include/$<IF:$<CONFIG:Debug>,debug,release>"
-)
+        "${ENGINE_V8_BUILD_ROOT}/include/v8;${ENGINE_V8_BUILD_ROOT}/include/${_engine_v8_variant}")
 # ICU 数据不在 monolith 中；最终使用者部署时需将其复制到程序旁。
 set(ENGINE_V8_ICU_DATA
-    "${_engine_v8_source}/out/engine.$<IF:$<CONFIG:Debug>,debug,release>/icudtl.dat"
+    "${_engine_v8_source}/out/engine.${_engine_v8_variant}/icudtl.dat"
     CACHE INTERNAL "V8 ICU data to deploy beside a consuming executable" FORCE)
 set_property(TARGET engine_v8 PROPERTY ENGINE_V8_ICU_DATA "${ENGINE_V8_ICU_DATA}")
 if(ANDROID)
