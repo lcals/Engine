@@ -35,6 +35,8 @@ def send(process, message):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Call the configured editor runtime's MCP tools")
     parser.add_argument("--server", required=True, type=Path, help="Path to mcp_app")
     parser.add_argument("--project", required=True, type=Path)

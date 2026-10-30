@@ -9,7 +9,10 @@
     {
       "name": "vcpkg",
       "hidden": true,
-      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+      "environment": {
+        "VSLANG": "1033"
+      }
     },
     {
       "name": "ninja-cache",

@@ -1,0 +1,27 @@
+--- a/bgfx/src/renderer_d3d12.cpp
++++ b/bgfx/src/renderer_d3d12.cpp
+@@ -5474,7 +5474,7 @@
+ 		if (bimg::isCompressed(bimg::TextureFormat::Enum(m_textureFormat)))
+ 		{
+ 			const bimg::ImageBlockInfo& blockInfo = bimg::getBlockInfo(bimg::TextureFormat::Enum(m_textureFormat));
+-			rectpitch = (_rect.m_width / blockInfo.blockWidth) * blockInfo.blockSize;
++			rectpitch = ( (_rect.m_width + blockInfo.blockWidth - 1) / blockInfo.blockWidth) * blockInfo.blockSize;
+ 		}
+ 
+ 		const uint32_t srcpitch   = UINT16_MAX == _pitch ? rectpitch : _pitch;
+@@ -5519,6 +5519,15 @@
+ 		desc.Width  = _rect.m_width;
+ 		desc.Height = _rect.m_height;
+ 
++		if (bimg::isCompressed(bimg::TextureFormat::Enum(m_textureFormat)))
++		{
++			const bimg::ImageBlockInfo& blockInfo = bimg::getBlockInfo(bimg::TextureFormat::Enum(m_textureFormat));
++			desc.Width  = bx::alignUp(desc.Width, blockInfo.blockWidth);
++			desc.Height = bx::alignUp(desc.Height, blockInfo.blockHeight);
++			box.right   = uint32_t(desc.Width);
++			box.bottom  = desc.Height;
++		}
++
+ 		uint32_t numRows;
+ 		uint64_t totalBytes;
+ 		D3D12_PLACED_SUBRESOURCE_FOOTPRINT layout;

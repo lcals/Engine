@@ -33,7 +33,10 @@ def test(editor, mcp, root, temporary):
     process = launch(editor, project, runtime, log, frames=4)
     try:
         require(process.wait(timeout=30) == 0, "no-script editor must render and close normally")
-        require("stopped after 4 rendered frames" in log.read_text(), "real GPU frames required")
+        require(
+            "stopped after 4 rendered frames" in log.read_text(encoding="utf-8"),
+            "real GPU frames required",
+        )
     finally:
         terminate(process)
 

@@ -29,7 +29,7 @@ endif()
 
 if(TARGET engine_resource)
     add_executable(engine_resource_read_test resource_read_test.cpp)
-    target_link_libraries(engine_resource_read_test PRIVATE engine::resource)
+    target_link_libraries(engine_resource_read_test PRIVATE engine::resource SDL3::SDL3)
     engine_apply_options(engine_resource_read_test)
     add_test(NAME engine.resource_read
              COMMAND engine_resource_read_test

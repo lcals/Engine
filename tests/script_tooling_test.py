@@ -31,7 +31,7 @@ def metadata_guid(source):
 def check_compiler_inputs(root, project, temporary):
     builder = root / "scripts/build_scripts.mjs"
     config_path = project / "settings/tsconfig.json"
-    config = json.loads(config_path.read_text())
+    config = json.loads(config_path.read_text(encoding="utf-8"))
     inherited = temporary / "shared-tsconfig.json"
     inherited.write_text('{"compilerOptions":{"noUnusedLocals":false}}', encoding="utf-8")
     declarations = temporary / "external-types.d.ts"
@@ -45,6 +45,7 @@ def check_compiler_inputs(root, project, temporary):
             ["node", str(builder), "--project", str(project), "--inputs"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=30,
             check=False,
         )
@@ -66,12 +67,13 @@ def check_compiler_inputs(root, project, temporary):
     require(inputs() != second, "external declaration mutation did not change fingerprint")
     lock = project / "cache/.script-build-lock"
     lock.mkdir()
-    (lock / "old-owner").write_text("abandoned fixture")
+    (lock / "old-owner").write_text("abandoned fixture", encoding="utf-8")
     output = temporary / "explicit-ts-staging"
     result = subprocess.run(
         ["node", str(builder), "--project", str(project), "--output", str(output)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
         check=False,
     )
@@ -79,7 +81,7 @@ def check_compiler_inputs(root, project, temporary):
         result.returncode == 0, f"explicit staging must ignore old directory lock: {result.stderr}"
     )
     require(
-        (lock / "old-owner").read_text() == "abandoned fixture",
+        (lock / "old-owner").read_text(encoding="utf-8") == "abandoned fixture",
         "compiler must not remove another operation's lock",
     )
     shutil.rmtree(lock)
@@ -87,6 +89,7 @@ def check_compiler_inputs(root, project, temporary):
         ["node", str(builder), "--project", str(project)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=30,
         check=False,
     )
@@ -157,6 +160,7 @@ def invoke(mcp, project, runtime, requests):
         + "\n",
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=90,
         check=False,
     )
@@ -306,7 +310,7 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
     require(replies[5]["error"]["code"] == -32602, "invalid boolean accepted")
     require(replies[6]["error"]["code"] == -32700, "parse error not reported")
     require(replies[7]["result"] == {}, "ping failed after malformed request")
-    control = json.loads((runtime / "script-control.json").read_text())
+    control = json.loads((runtime / "script-control.json").read_text(encoding="utf-8"))
     require(control == {"hotReload": True}, "control file was not atomically replaced")
     manifest_path = runtime / "assets/available.json"
     original_manifest = manifest_path.read_bytes()
@@ -345,9 +349,11 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
     original_output = script_output.read_bytes()
     require(b"sourceMappingURL=data:" in original_output, "GUID JS must carry an inline source map")
     source = project / "assets/scripts/game.ts"
-    original_source = source.read_text()
+    original_source = source.read_text(encoding="utf-8")
 
-    source.write_text(original_source + "\nconst broken: number = 'not a number';\n")
+    source.write_text(
+        original_source + "\nconst broken: number = 'not a number';\n", encoding="utf-8"
+    )
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(reply["result"]["isError"], "TypeScript error must fail sync")
     require(manifest_path.read_bytes() == original_manifest, "failed compile published old assets")
@@ -355,13 +361,13 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         script_output.read_bytes() == original_output,
         "failed compile damaged prior compiler output",
     )
-    source.write_text(original_source)
+    source.write_text(original_source, encoding="utf-8")
 
     helper = project / "assets/scripts/helper.ts"
-    helper.write_text("export const value = 1;\n")
+    helper.write_text("export const value = 1;\n", encoding="utf-8")
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "adding a module failed")
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     helper_guid = metadata_guid(helper)
     require(
         "gen/" + helper_guid in {item["path"] for item in manifest["files"]}, "added module missing"
@@ -369,7 +375,7 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
     helper.unlink()
     reply = invoke(mcp, project, runtime, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "deleting a module failed")
-    manifest = json.loads(manifest_path.read_text())
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
 
     (project / "settings/test-package.toml").write_text(
@@ -401,6 +407,7 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         ],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=120,
         check=False,
     )
@@ -432,7 +439,12 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         ),
     ):
         called = subprocess.run(
-            client_prefix + arguments, capture_output=True, text=True, timeout=30, check=False
+            client_prefix + arguments,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=30,
+            check=False,
         )
         require(
             called.returncode == 0 and json.loads(called.stdout).get(field) == expected,
@@ -444,7 +456,12 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         ["get_status", "--arguments", "{}", "--arguments-file", str(argument_file)],
     ):
         invalid = subprocess.run(
-            client_prefix + arguments, capture_output=True, text=True, timeout=10, check=False
+            client_prefix + arguments,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+            check=False,
         )
         require(
             invalid.returncode != 0 and not invalid.stdout,
@@ -457,7 +474,7 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         not packed["result"]["isError"],
         f"prebuilt package synchronization failed: {contents(packed)}",
     )
-    packed_manifest = json.loads(manifest_path.read_text())
+    packed_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     require(
         any(item["path"].startswith("packs/") for item in packed_manifest["files"]),
         "merged package was not included in deployment",
@@ -476,13 +493,13 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         "availableRevision": manifest["revision"],
         "lastError": "",
     }
-    (runtime / "script-status.json").write_text(json.dumps(expected))
+    (runtime / "script-status.json").write_text(json.dumps(expected), encoding="utf-8")
     reply = contents(invoke(mcp, project, runtime, [call("get_status")])[0])
     require(
         reply["activeRevision"] == "older" and reply["hotReload"] is False,
         "status incorrectly claims synchronized code is active",
     )
-    (runtime / "script-status.json").write_text('{"running":"invalid"}')
+    (runtime / "script-status.json").write_text('{"running":"invalid"}', encoding="utf-8")
     reply = invoke(mcp, project, runtime, [call("get_status")])[0]
     require(reply["result"]["isError"], "invalid status fields must not abort the MCP process")
     replies = invoke(
@@ -507,7 +524,11 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         "malformed tool params must return errors without stopping the protocol",
     )
     missing_target = subprocess.run(
-        [str(mcp), "--project", str(project)], capture_output=True, text=True, timeout=10
+        [str(mcp), "--project", str(project)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=10,
     )
     require(
         missing_target.returncode != 0 and not missing_target.stdout,

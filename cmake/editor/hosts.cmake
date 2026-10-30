@@ -69,7 +69,7 @@ endif()
 if(ENGINE_BUILD_APP AND TARGET engine_asset_build)
     add_executable(asset_build_app src/asset_build_main.cpp)
     target_link_libraries(asset_build_app PRIVATE engine::asset_build engine::asset_pipeline
-                                                  nlohmann_json::nlohmann_json)
+                                                  nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(asset_build_app PRIVATE JSON_NOEXCEPTION=1)
     engine_link_modeling_importer(asset_build_app)
     engine_link_asset_importers(asset_build_app)

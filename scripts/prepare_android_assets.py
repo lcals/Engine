@@ -81,7 +81,7 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
     if manifest is None:
         command += ["--target", "android"]
     else:
-        command += ["--manifest", str(manifest)]
+        command += ["--manifest", Path(manifest).as_posix()]
     result = subprocess.run(
         command,
         cwd=ROOT,

@@ -23,6 +23,7 @@
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #endif
 
+#include <SDL3/SDL_main.h>
 #include <nlohmann/json.hpp>
 
 #include <cstdio>
