@@ -31,15 +31,11 @@ std::string_view AppBinding::source() const noexcept
     return javascript;
 }
 
-bool AppBinding::register_functions(v8::Local<v8::Context> context,
-                                    v8::Local<v8::Object> native) const
+bool AppBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::string(context, native, "builtinAssetsPath",
-                                  PathUtils::to_utf8(App::builtin_assets_path())) &&
-           BindingContext::string(context, native, "persistentDataPath",
-                                  PathUtils::to_utf8(App::persistent_data_path())) &&
-           BindingContext::string(context, native, "cachePath",
-                                  PathUtils::to_utf8(App::cache_path()));
+    return vm.string("builtinAssetsPath", PathUtils::to_utf8(App::builtin_assets_path())) &&
+           vm.string("persistentDataPath", PathUtils::to_utf8(App::persistent_data_path())) &&
+           vm.string("cachePath", PathUtils::to_utf8(App::cache_path()));
 }
 
 } // namespace engine::plugins::script::bindings

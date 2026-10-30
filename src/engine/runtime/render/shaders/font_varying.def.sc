@@ -1,5 +1,5 @@
 vec2 v_font_coord : TEXCOORD0;
-flat vec2 v_font_range : TEXCOORD1;
+flat vec4 v_font_range : TEXCOORD1;
 vec4 v_color0 : COLOR0;
 
 vec3 a_position : POSITION;

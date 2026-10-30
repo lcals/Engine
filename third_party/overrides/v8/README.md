@@ -8,6 +8,12 @@
 上游已有的 `dynamic_crt`，按 Debug / Release 分别采用 `/MDd` / `/MD`。
 这是嵌入方 ABI 配置，不代表已报告的上游缺陷。
 
+`windows-static-crt.patch` 在同一 Chromium build 提交中增加默认关闭的
+`engine_use_static_crt` GN 参数。启用后使用上游已有的 `static_crt` 配置，
+C++ 与 Rust 同时采用 `/MTd` / `/MT` 对应的 CRT；保留原动态 CRT 配置供旧产物复用。
+CMake 根据 `CMAKE_MSVC_RUNTIME_LIBRARY` 选择，静态 CRT 使用独立的
+`out/engine.mt-debug`、`out/engine.mt-release` 与生成头文件目录，不覆盖动态 CRT 缓存。
+
 `windows-shared-ptr-atomic-warning.patch` 适用于 V8 固定提交
 `13c7e3135187c1b0c7344e42529fbc27ba0e47f1`。此版本的
 `src/wasm/wasm-code-manager.h` 仍调用 C++20 已弃用的 `std::atomic_load(shared_ptr*)`；

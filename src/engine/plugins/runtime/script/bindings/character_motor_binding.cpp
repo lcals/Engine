@@ -56,17 +56,17 @@ Object.freeze(CharacterMotor);
 
 CharacterMotor* motor(const Arguments& arguments, int count)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.Length() == count ? node->get_component<CharacterMotor>()
-                                                          : nullptr;
+    return node != nullptr && arguments.count() == count ? node->get_component<CharacterMotor>()
+                                                         : nullptr;
 }
 
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<CharacterMotor>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<CharacterMotor>() != nullptr);
 }
 
 void capsule(const Arguments& arguments)
@@ -80,7 +80,7 @@ void capsule(const Arguments& arguments)
         auto settings = value->settings();
         settings.radius = radius;
         settings.half_height = half_height;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -92,7 +92,7 @@ void set_number(const Arguments& arguments, float schema::CharacterMotorDataT::*
     {
         auto settings = value->settings();
         settings.*field = number;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -124,28 +124,21 @@ void velocity(const Arguments& arguments)
     if (value != nullptr && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, z))
     {
-        arguments.GetReturnValue().Set(value->set_velocity({x, 0, z}));
+        arguments.set_return(value->set_velocity({x, 0, z}));
     }
 }
 
 void get_velocity(const Arguments& arguments)
 {
     const auto* value = motor(arguments, 2);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     if (value == nullptr)
     {
         return;
     }
-    auto* isolate = arguments.GetIsolate();
-    const auto context = isolate->GetCurrentContext();
-    const auto output = v8::Object::New(isolate);
     const auto& velocity = value->velocity();
-    if (BindingContext::define(context, output, "x", v8::Number::New(isolate, velocity.x())) &&
-        BindingContext::define(context, output, "y", v8::Number::New(isolate, velocity.y())) &&
-        BindingContext::define(context, output, "z", v8::Number::New(isolate, velocity.z())))
-    {
-        arguments.GetReturnValue().Set(output);
-    }
+    arguments.set_return(
+        vm::NativeValue::Object{{"x", velocity.x()}, {"y", velocity.y()}, {"z", velocity.z()}});
 }
 
 void jump(const Arguments& arguments)
@@ -154,14 +147,14 @@ void jump(const Arguments& arguments)
     float speed = 0;
     if (value != nullptr && BindingContext::scalar(arguments, 2, speed))
     {
-        arguments.GetReturnValue().Set(value->jump(speed));
+        arguments.set_return(value->jump(speed));
     }
 }
 
 void grounded(const Arguments& arguments)
 {
     const auto* value = motor(arguments, 2);
-    arguments.GetReturnValue().Set(value != nullptr && value->grounded());
+    arguments.set_return(value != nullptr && value->grounded());
 }
 
 } // namespace
@@ -176,21 +169,17 @@ std::string_view CharacterMotorBinding::source() const noexcept
     return javascript;
 }
 
-bool CharacterMotorBinding::register_functions(v8::Local<v8::Context> context,
-                                               v8::Local<v8::Object> native) const
+bool CharacterMotorBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "CharacterMotorKind",
-                                   static_cast<int>(CharacterMotor::component_type)) &&
-           BindingContext::function(context, native, "CharacterMotorAdd", add) &&
-           BindingContext::function(context, native, "CharacterMotorCapsule", capsule) &&
-           BindingContext::function(context, native, "CharacterMotorSlope", slope) &&
-           BindingContext::function(context, native, "CharacterMotorStep", step) &&
-           BindingContext::function(context, native, "CharacterMotorSnap", snap) &&
-           BindingContext::function(context, native, "CharacterMotorGravity", gravity) &&
-           BindingContext::function(context, native, "CharacterMotorVelocity", velocity) &&
-           BindingContext::function(context, native, "CharacterMotorGetVelocity", get_velocity) &&
-           BindingContext::function(context, native, "CharacterMotorJump", jump) &&
-           BindingContext::function(context, native, "CharacterMotorGrounded", grounded);
+    return vm.integer("CharacterMotorKind", static_cast<int>(CharacterMotor::component_type)) &&
+           vm.function("CharacterMotorAdd", add) && vm.function("CharacterMotorCapsule", capsule) &&
+           vm.function("CharacterMotorSlope", slope) && vm.function("CharacterMotorStep", step) &&
+           vm.function("CharacterMotorSnap", snap) &&
+           vm.function("CharacterMotorGravity", gravity) &&
+           vm.function("CharacterMotorVelocity", velocity) &&
+           vm.function("CharacterMotorGetVelocity", get_velocity) &&
+           vm.function("CharacterMotorJump", jump) &&
+           vm.function("CharacterMotorGrounded", grounded);
 }
 
 } // namespace engine::plugins::script::bindings

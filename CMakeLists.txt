@@ -24,6 +24,8 @@ engine_configure_selected_plugins()
 include(cmake/core/hosts.cmake)
 include(cmake/editor/hosts.cmake)
 include(cmake/install/runtime_data.cmake)
+include(cmake/platforms/desktop.cmake)
+include(cmake/install/exports.cmake)
 
 if(PROJECT_IS_TOP_LEVEL OR ENGINE_BUILD_TESTS)
     include(CTest)

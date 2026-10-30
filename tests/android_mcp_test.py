@@ -29,9 +29,9 @@ import subprocess
 import sys
 
 root = Path(os.environ["ENGINE_FAKE_ANDROID_ROOT"])
-config = json.loads((root / "config.json").read_text())
+config = json.loads((root / "config.json").read_text(encoding="utf-8"))
 arguments = sys.argv[1:]
-with (root / "calls.jsonl").open("a") as log:
+with (root / "calls.jsonl").open("a", encoding="utf-8") as log:
     log.write(json.dumps(arguments) + "\n")
 if arguments == ["get-state"]:
     print("offline" if config.get("offline") else "device")
@@ -57,8 +57,13 @@ else:
         payload += b"corrupt"
     if upload and config.get("fail_upload"):
         payload = payload[:len(payload) // 2]
-    result = subprocess.run(["/bin/sh", "-c", script], cwd=root / "app",
-                            input=payload, capture_output=True)
+    environment = dict(os.environ)
+    shell_path = environment.get("ENGINE_FAKE_ANDROID_SHELL_PATH", "")
+    if shell_path:
+        environment["PATH"] = shell_path + os.pathsep + environment.get("PATH", "")
+    result = subprocess.run([environment["ENGINE_FAKE_ANDROID_SHELL"], "-c", script],
+                            cwd=root / "app", env=environment, input=payload,
+                            capture_output=True, timeout=30)
     output, code = result.stdout + result.stderr, result.returncode
     chunk = re.search(r"dd if=.* bs=1048576 skip=([0-9]+) count=1", script)
     if chunk and int(chunk.group(1)) == 1:
@@ -83,6 +88,38 @@ if not drop_receipt:
 """
 
 
+def posix_shell():
+    if os.name != "nt":
+        shell = Path("/bin/sh")
+        require(shell.is_file(), "Android MCP fixture requires /bin/sh")
+        return shell, []
+
+    candidates = []
+    for name in ("sh", "bash"):
+        found = shutil.which(name)
+        if found:
+            candidates.append(Path(found).resolve())
+    git = shutil.which("git")
+    if git:
+        for prefix in list(Path(git).resolve().parents)[:3]:
+            for relative in ("bin/sh.exe", "usr/bin/sh.exe", "bin/bash.exe", "usr/bin/bash.exe"):
+                candidates.append(prefix / relative)
+    for shell in candidates:
+        if not shell.is_file():
+            continue
+        directories = [shell.parent]
+        for prefix in list(shell.parents)[:3]:
+            for relative in ("usr/bin", "bin"):
+                directory = prefix / relative
+                if directory.is_dir() and directory not in directories:
+                    directories.append(directory)
+        return shell, directories
+    raise RuntimeError(
+        "Android MCP fixture requires a POSIX shell; install Git for Windows "
+        "and make git.exe available on PATH (or add sh.exe/bash.exe to PATH)"
+    )
+
+
 def invoke(server, project, work, device, requests, package="org.engine.minimal"):
     messages = [
         {
@@ -97,7 +134,13 @@ def invoke(server, project, work, device, requests, package="org.engine.minimal"
         },
         {"jsonrpc": "2.0", "method": "notifications/initialized"},
     ] + requests
-    environment = dict(os.environ, ENGINE_FAKE_ANDROID_ROOT=str(device))
+    shell, shell_directories = posix_shell()
+    environment = dict(
+        os.environ,
+        ENGINE_FAKE_ANDROID_ROOT=str(device),
+        ENGINE_FAKE_ANDROID_SHELL=str(shell),
+        ENGINE_FAKE_ANDROID_SHELL_PATH=os.pathsep.join(map(str, shell_directories)),
+    )
     # Python -s <serial> executes this private fixture; no platform shell launcher is needed.
     result = subprocess.run(
         [
@@ -145,7 +188,7 @@ def test(server, root, work):
     runtime = device / "app/files"
     (runtime / "assets").mkdir(parents=True)
     settings = device / "config.json"
-    settings.write_text("{}")
+    settings.write_text("{}", encoding="utf-8")
     builtin = {
         "revision": "0123456789abcdef",
         "entry": "scripts/game.js",
@@ -153,7 +196,7 @@ def test(server, root, work):
         "deleted": ["scripts/previously-deleted.js"],
     }
     builtin_path = runtime / "assets/builtin.json"
-    builtin_path.write_text(json.dumps(builtin))
+    builtin_path.write_text(json.dumps(builtin), encoding="utf-8")
     available_path = runtime / "assets/available.json"
     status = {
         "running": True,
@@ -163,7 +206,7 @@ def test(server, root, work):
         "lastError": "",
     }
     status_path = runtime / "script-status.json"
-    status_path.write_text(json.dumps(status))
+    status_path.write_text(json.dumps(status), encoding="utf-8")
 
     replies = invoke(
         server, project, work, device, [call("sync_assets"), call("get_status", request_id=2)]
@@ -178,7 +221,7 @@ def test(server, root, work):
         and receipt["runtimeDir"] == "/data/user/0/org.engine.minimal/files",
         "wrong Android receipt target",
     )
-    published = json.loads(available_path.read_text())
+    published = json.loads(available_path.read_text(encoding="utf-8"))
     verify_complete_asset_snapshot(project, runtime, published)
     image_guid = metadata_guid(image_asset)
     texture_entity = (project / "cache/gen" / image_guid).read_bytes()
@@ -223,25 +266,27 @@ def test(server, root, work):
 
     # A newer installed APK can add built-in paths absent from the older available manifest.
     builtin["files"].append(entry("scripts/new-apk-only.js"))
-    builtin_path.write_text(json.dumps(builtin))
+    builtin_path.write_text(json.dumps(builtin), encoding="utf-8")
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "sync after APK baseline upgrade failed")
-    published = json.loads(available_path.read_text())
+    published = json.loads(available_path.read_text(encoding="utf-8"))
     require(
         "scripts/new-apk-only.js" in published["deleted"], "APK upgrade deletion escaped baseline"
     )
     original = available_path.read_bytes()
     source = project / "assets/scripts/game.ts"
-    source.write_text(source.read_text() + "\n// changed Android version\n")
+    source.write_text(
+        source.read_text(encoding="utf-8") + "\n// changed Android version\n", encoding="utf-8"
+    )
 
     for mode in ["fail_upload", "corrupt_upload"]:
-        settings.write_text(json.dumps({mode: True}))
+        settings.write_text(json.dumps({mode: True}), encoding="utf-8")
         reply = invoke(server, project, work, device, [call("sync_assets")])[0]
         require(reply["result"]["isError"], f"{mode} was not rejected")
         require(available_path.read_bytes() == original, f"{mode} changed active publication")
         require(not (runtime / "assets/.sync-lock").exists(), f"{mode} leaked owned lock")
         require(not list((runtime / "assets").glob(".staging-*")), f"{mode} leaked staged files")
-    settings.write_text("{}")
+    settings.write_text("{}", encoding="utf-8")
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(not reply["result"]["isError"], "retry after interrupted upload failed")
     require(
@@ -262,10 +307,14 @@ def test(server, root, work):
         all(not reply["result"]["isError"] for reply in replies), "Android control update failed"
     )
     require(
-        json.loads((runtime / "script-control.json").read_text()) == {"hotReload": False},
+        json.loads((runtime / "script-control.json").read_text(encoding="utf-8"))
+        == {"hotReload": False},
         "Android control replacement failed",
     )
-    require(json.loads(status_path.read_text()) == status, "MCP wrote fabricated engine status")
+    require(
+        json.loads(status_path.read_text(encoding="utf-8")) == status,
+        "MCP wrote fabricated engine status",
+    )
 
     control = runtime / "script-control.json"
     control.unlink()
@@ -276,20 +325,20 @@ def test(server, root, work):
         "control publication falsely succeeded into a directory",
     )
     control.rmdir()
-    settings.write_text('{"drop_control_receipt":true}')
+    settings.write_text('{"drop_control_receipt":true}', encoding="utf-8")
     reply = invoke(server, project, work, device, [call("set_hot_reload", {"enabled": True})])[0]
     require(
         reply["result"]["isError"] and "not confirmed" in contents(reply)["error"],
         "missing control receipt did not report uncertainty",
     )
     require(
-        json.loads(control.read_text()) == {"hotReload": True},
+        json.loads(control.read_text(encoding="utf-8")) == {"hotReload": True},
         "fixture did not actually commit the unconfirmed control",
     )
-    settings.write_text("{}")
+    settings.write_text("{}", encoding="utf-8")
 
     (runtime / "assets/.sync-lock").mkdir()
-    (runtime / "assets/.sync-lock/owner").write_text("another-host")
+    (runtime / "assets/.sync-lock/owner").write_text("another-host", encoding="utf-8")
     before_lock = available_path.read_bytes()
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(
@@ -297,22 +346,24 @@ def test(server, root, work):
         "another publisher's lock was bypassed",
     )
     require(
-        (runtime / "assets/.sync-lock/owner").read_text() == "another-host",
+        (runtime / "assets/.sync-lock/owner").read_text(encoding="utf-8") == "another-host",
         "another publisher's lock was removed",
     )
     shutil.rmtree(runtime / "assets/.sync-lock")
 
     for mode in ["release", "offline"]:
-        settings.write_text(json.dumps({mode: True}))
+        settings.write_text(json.dumps({mode: True}), encoding="utf-8")
         reply = invoke(server, project, work, device, [call("get_status")])[0]
         require(reply["result"]["isError"], f"{mode} device reported success")
-    settings.write_text("{}")
+    settings.write_text("{}", encoding="utf-8")
     invalid = invoke(server, project, work, device, [], package="org.engine.minimal;touch bad")
     require(invalid.returncode != 0 and not invalid.stdout, "unsafe package name was accepted")
 
     # Commit succeeded but the final network receipt was lost: report uncertainty, query device.
-    source.write_text(source.read_text() + "\n// another version\n")
-    settings.write_text('{"drop_publish_receipt":true}')
+    source.write_text(
+        source.read_text(encoding="utf-8") + "\n// another version\n", encoding="utf-8"
+    )
+    settings.write_text('{"drop_publish_receipt":true}', encoding="utf-8")
     before_unknown = available_path.read_bytes()
     reply = invoke(server, project, work, device, [call("sync_assets")])[0]
     require(
@@ -322,10 +373,11 @@ def test(server, root, work):
     require(
         available_path.read_bytes() != before_unknown, "fixture did not actually commit publication"
     )
-    settings.write_text("{}")
+    settings.write_text("{}", encoding="utf-8")
     actual = contents(invoke(server, project, work, device, [call("get_status")])[0])
     require(
-        actual["availableRevision"] == json.loads(available_path.read_text())["revision"],
+        actual["availableRevision"]
+        == json.loads(available_path.read_text(encoding="utf-8"))["revision"],
         "status used a host mirror instead of the device after uncertain publication",
     )
 
@@ -358,26 +410,29 @@ def test(server, root, work):
     previous = available_path.read_bytes()
     request = call("sync_assets", {"source": "cache/build/android-package"})
     for mode in ("fail_readback_chunk", "short_readback_chunk", "corrupt_readback_chunk"):
-        settings.write_text(json.dumps({mode: True}))
+        settings.write_text(json.dumps({mode: True}), encoding="utf-8")
         rejected = invoke(server, project, work, device, [request])[0]
         require(rejected["result"]["isError"], f"{mode} was not rejected")
         require(available_path.read_bytes() == previous, f"{mode} changed the published version")
         require(not (runtime / "assets/.sync-lock").exists(), f"{mode} leaked owned lock")
         require(not list((runtime / "assets").glob(".staging-*")), f"{mode} leaked staged files")
-    settings.write_text("{}")
-    (device / "calls.jsonl").write_text("")
+    settings.write_text("{}", encoding="utf-8")
+    (device / "calls.jsonl").write_text("", encoding="utf-8")
     transferred = invoke(server, project, work, device, [request])[0]
     require(
         not transferred["result"]["isError"],
         f"large Android package transfer failed: {contents(transferred)}",
     )
-    manifest = json.loads(available_path.read_text())
+    manifest = json.loads(available_path.read_text(encoding="utf-8"))
     package_entries = [item for item in manifest["files"] if item["path"].startswith("packs/")]
     require(
         len(package_entries) == 1 and package_entries[0]["size"] == packages[0].stat().st_size,
         "large carrier length changed during device transfer",
     )
-    calls = [json.loads(line) for line in (device / "calls.jsonl").read_text().splitlines()]
+    calls = [
+        json.loads(line)
+        for line in (device / "calls.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
     commands = [arguments[-1] for arguments in calls if arguments[0] in ("exec-out", "shell")]
     chunks = [command for command in commands if "dd if=" in command and "/packs/" in command]
     require(
@@ -395,9 +450,10 @@ if __name__ == "__main__":
     parser.add_argument("--mcp", type=Path, required=True)
     parser.add_argument("--root", type=Path, required=True)
     args = parser.parse_args()
-    if not Path("/bin/sh").is_file():
-        print("Fake Android shell fixture requires /bin/sh; use real-device tests on this host")
-        raise SystemExit(77)
+    try:
+        posix_shell()
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from None
     with tempfile.TemporaryDirectory(prefix="engine-android-mcp-") as directory:
         test(args.mcp.resolve(), args.root.resolve(), Path(directory).resolve())
     print("Android MCP target, binary sync, deletion baseline, failure and control tests passed")

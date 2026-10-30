@@ -15,7 +15,11 @@ vcpkg_extract_source_archive(
   PATCHES
     fix-dependencies.patch
     android-link-libraries.patch
+    windows-tool-utf8.patch
+    d3d12-compressed-mip-update.patch
 )
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/windows-utf8.manifest"
+     DESTINATION "${SOURCE_PATH}/cmake")
 file(REMOVE_RECURSE
   "${SOURCE_PATH}/bgfx/3rdparty/dear-imgui"
   "${SOURCE_PATH}/bgfx/3rdparty/glslang"

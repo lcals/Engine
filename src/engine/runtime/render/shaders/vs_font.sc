@@ -32,6 +32,7 @@ void main()
         }
     }
     gl_Position = mul(u_modelViewProj, vec4(position, 1.0));
-    v_font_range = a_texcoord1;
+    // Keep the flat range in a full register so DX12 VS/PS signature packing agrees.
+    v_font_range = vec4(a_texcoord1, 0.0, 0.0);
     v_color0 = a_color0;
 }

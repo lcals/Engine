@@ -98,6 +98,7 @@ bool check_context(v8::Isolate* isolate, V8SmokeLog log)
         return false;
     }
     log("PASS: SharedArrayBuffer Atomics, hex, Base64");
+#if ENGINE_V8_HAS_I18N
     if (!check_script(isolate, context,
                       "new Intl.NumberFormat('en-US').format(1234.5) === '1,234.5' && "
                       "new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', year: 'numeric', "
@@ -109,6 +110,15 @@ bool check_context(v8::Isolate* isolate, V8SmokeLog log)
         return false;
     }
     log("PASS: Intl");
+#else
+    if (!check_script(isolate, context, "typeof Intl === 'undefined'", log))
+    {
+        log("FAIL: Intl must be unavailable in this build");
+        return false;
+    }
+    log("PASS: Intl disabled");
+#endif
+#if ENGINE_V8_HAS_TEMPORAL
     if (!check_script(isolate, context,
                       "typeof Temporal === 'object' && "
                       "Temporal.PlainDate.from('2024-02-28').add({ days: 1 }).toString() "
@@ -121,6 +131,33 @@ bool check_context(v8::Isolate* isolate, V8SmokeLog log)
         return false;
     }
     log("PASS: Temporal");
+#else
+    if (!check_script(isolate, context, "typeof Temporal === 'undefined'", log))
+    {
+        log("FAIL: Temporal must be unavailable in this build");
+        return false;
+    }
+    log("PASS: Temporal disabled");
+#endif
+#if ENGINE_V8_HAS_WEBASSEMBLY
+    if (!check_script(isolate, context,
+                      "typeof WebAssembly === 'object' && "
+                      "new WebAssembly.Module(new Uint8Array([0,97,115,109,1,0,0,0])) "
+                      "instanceof WebAssembly.Module",
+                      log))
+    {
+        log("FAIL: WebAssembly");
+        return false;
+    }
+    log("PASS: WebAssembly");
+#else
+    if (!check_script(isolate, context, "typeof WebAssembly === 'undefined'", log))
+    {
+        log("FAIL: WebAssembly must be unavailable in this build");
+        return false;
+    }
+    log("PASS: WebAssembly disabled");
+#endif
     return true;
 }
 
@@ -138,13 +175,20 @@ bool run_v8_smoke(const char* executable_path, const char* icu_data_file, V8Smok
         return false;
     }
     log(v8::V8::GetVersion());
+#if ENGINE_V8_HAS_I18N
     if (!v8::V8::InitializeICUDefaultLocation(executable_path, icu_data_file))
     {
         log("FAIL: V8 ICU data initialization");
         return false;
     }
+#else
+    (void)executable_path;
+    (void)icu_data_file;
+#endif
+#if ENGINE_V8_HAS_TEMPORAL
     // 固定 V8 版本的 Temporal 仍需显式启用运行时标志。
     v8::V8::SetFlagsFromString("--harmony-temporal");
+#endif
     auto platform = v8::platform::NewDefaultPlatform();
     if (!platform)
     {
@@ -190,7 +234,7 @@ bool run_v8_smoke(const char* executable_path, const char* icu_data_file, V8Smok
     v8::V8::DisposePlatform();
     if (passed)
     {
-        log("V8 smoke PASS: JavaScript, SharedArrayBuffer, Intl, Temporal");
+        log("V8 smoke PASS: JavaScript, SharedArrayBuffer and configured optional features");
     }
     return passed;
 }

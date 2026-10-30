@@ -2,22 +2,15 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/script/bindings/script_binding_registry.hpp"
+#include "plugins/runtime/script/vm/script_vm.hpp"
 
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
-#include <SDL3/SDL.h>
-#include <libplatform/libplatform.h>
-#include <v8.h>
-
-#include <cstdint>
 #include <filesystem>
-#include <fstream>
 #include <map>
-#include <set>
-#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -25,9 +18,8 @@ namespace engine::plugins::script
 {
 namespace
 {
-
 namespace fs = std::filesystem;
-constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
+constexpr std::size_t maximum_text_size = vm::maximum_text_size;
 
 [[nodiscard]] bool relative_path(std::string_view input, std::string& normalized)
 {
@@ -54,188 +46,9 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return !normalized.empty() && normalized != "." && normalized.back() != '/';
 }
 
-#if defined(SDL_PLATFORM_ANDROID)
-[[nodiscard]] bool contained_file(const fs::path& root, std::string_view relative, fs::path& path,
-                                  bool directory = false)
-{
-    std::error_code error;
-    const auto canonical_root = fs::canonical(root, error);
-    if (error || !fs::is_directory(canonical_root, error) || error)
-    {
-        return false;
-    }
-    const auto candidate = fs::canonical(canonical_root / PathUtils::from_utf8(relative), error);
-    if (error)
-    {
-        return false;
-    }
-    auto component = candidate.begin();
-    for (const auto& root_component : canonical_root)
-    {
-        if (component == candidate.end() || *component != root_component)
-        {
-            return false;
-        }
-        ++component;
-    }
-    const bool correct_type =
-        directory ? fs::is_directory(candidate, error) : fs::is_regular_file(candidate, error);
-    if (component == candidate.end() || !correct_type || error)
-    {
-        return false;
-    }
-    path = candidate;
-    return true;
-}
-
-#endif
-
 [[nodiscard]] bool script_path(std::string_view path)
 {
     return path.ends_with(".js") || path.ends_with(".mjs");
-}
-
-#if defined(SDL_PLATFORM_ANDROID)
-[[nodiscard]] bool prepare_directory(const fs::path& root, std::string_view relative,
-                                     fs::path& directory)
-{
-    std::error_code error;
-    fs::create_directories(root / PathUtils::from_utf8(relative), error);
-    return !error && contained_file(root, relative, directory, true);
-}
-
-[[nodiscard]] bool cache_file(const fs::path& directory, std::string_view name,
-                              std::string_view bytes)
-{
-    const fs::path target = directory / PathUtils::from_utf8(name);
-    std::error_code error;
-    const auto status = fs::symlink_status(target, error);
-    std::string previous;
-    if (!error && fs::is_regular_file(status) && ResourceSystem::read_text(target, previous) &&
-        previous == bytes)
-    {
-        return true;
-    }
-
-    // 临时文件位于已校验目录；先移除残留链接，发布时替换目标本身而不跟随目标链接。
-    const fs::path temporary = directory / PathUtils::from_utf8(std::string(name) + ".tmp");
-    fs::remove(temporary, error);
-    if (error)
-    {
-        return false;
-    }
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    file.close();
-    if (!file ||
-        !SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(target).c_str()))
-    {
-        fs::remove(temporary, error);
-        return false;
-    }
-    return true;
-}
-
-#endif
-
-[[nodiscard]] bool prepare_icu_path(std::string& path)
-{
-#if defined(SDL_PLATFORM_ANDROID)
-    if (!App::is_initialized())
-    {
-        return false;
-    }
-    std::vector<std::byte> bytes;
-    fs::path directory;
-    if (!ResourceSystem::read_binary(PathUtils::from_utf8("apk:/assets/v8/icudtl.dat"), bytes) ||
-        bytes.empty() || !prepare_directory(App::cache_path(), "v8", directory) ||
-        !cache_file(directory, "icudtl.dat",
-                    std::string_view(reinterpret_cast<const char*>(bytes.data()), bytes.size())))
-    {
-        return false;
-    }
-    path = PathUtils::to_utf8(directory / "icudtl.dat");
-#else
-    const char* base = SDL_GetBasePath();
-    if (base == nullptr)
-    {
-        return false;
-    }
-    path = PathUtils::to_utf8(PathUtils::from_utf8(base) / "icudtl.dat");
-#endif
-    return true;
-}
-
-[[nodiscard]] v8::MaybeLocal<v8::String> js_string(v8::Isolate* isolate, std::string_view text)
-{
-    if (text.size() > maximum_text_size)
-    {
-        return {};
-    }
-    return v8::String::NewFromUtf8(isolate, text.data(), v8::NewStringType::kNormal,
-                                   static_cast<int>(text.size()));
-}
-
-std::string value_text(v8::Isolate* isolate, v8::Local<v8::Value> value)
-{
-    const v8::String::Utf8Value text(isolate, value);
-    return *text == nullptr ? std::string{}
-                            : std::string(*text, static_cast<std::size_t>(text.length()));
-}
-
-struct V8Process
-{
-    std::unique_ptr<v8::Platform> platform;
-    bool ready = false;
-    bool attempted = false;
-
-    ~V8Process()
-    {
-        if (ready)
-        {
-            (void)v8::V8::Dispose();
-            v8::V8::DisposePlatform();
-        }
-    }
-
-    [[nodiscard]] bool initialize()
-    {
-        if (ready || attempted)
-        {
-            return ready;
-        }
-        std::string icu;
-        if (!prepare_icu_path(icu))
-        {
-            return false;
-        }
-        if (!v8::V8::InitializeICUDefaultLocation(nullptr, icu.c_str()))
-        {
-            return false;
-        }
-        attempted = true;
-        v8::V8::SetFlagsFromString("--harmony-temporal");
-        platform = v8::platform::NewDefaultPlatform();
-        if (!platform)
-        {
-            return false;
-        }
-        v8::V8::InitializePlatform(platform.get());
-        ready = v8::V8::Initialize();
-        if (!ready)
-        {
-            v8::V8::DisposePlatform();
-            platform.reset();
-        }
-        return ready;
-    }
-};
-
-std::shared_ptr<V8Process> v8_process()
-{
-    // 静态引用保留平台到进程退出；isolate 的引用覆盖静态析构顺序，不能先释放平台。
-    static const auto process = std::make_shared<V8Process>();
-    return process;
 }
 
 struct Snapshot
@@ -273,160 +86,66 @@ struct ScriptSystem::State
     {
         State& owner;
         Snapshot snapshot;
-        v8::Global<v8::Context> context;
-        std::map<std::string, v8::Global<v8::Module>> modules;
-        v8::Global<v8::Object> gameplay;
         std::vector<ResourcePtr> resources;
         bool initialization_entered = false;
         bindings::BindingContext bindings;
+        std::unique_ptr<vm::ScriptVm> machine;
 
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)),
-              bindings(state.world, state.renderer, state.ui)
+              bindings(state.world, state.renderer, state.ui), machine(vm::create_script_vm())
         {
         }
 
         ~Run()
         {
-            v8::Isolate::Scope isolate_scope(owner.isolate);
-            v8::HandleScope handles(owner.isolate);
-            if (!context.IsEmpty())
-            {
-                context.Get(owner.isolate)
-                    ->SetAlignedPointerInEmbedderData(0, nullptr, v8::kEmbedderDataTypeTagDefault);
-            }
-            // 清空原生入口，再释放本次Run的场景；旧Context不能保留已销毁Run地址。
+            // VM 与队列先释放，再撤销场景；不存在仍能调用旧 BindingContext 的函数。
+            machine.reset();
             bindings.shutdown();
         }
 
-        [[nodiscard]] v8::MaybeLocal<v8::Module> load_module(const std::string& path)
+        [[nodiscard]] bool read_source(std::string_view path, std::string& source)
         {
-            auto* isolate = owner.isolate;
-            const auto existing = modules.find(path);
-            if (existing != modules.end())
-            {
-                return existing->second.Get(isolate);
-            }
-            if (modules.size() >= 256)
-            {
-                owner.module_error("Module graph exceeds 256 files");
-                return {};
-            }
-            std::string source;
+            source.clear();
             if (path == "engine")
             {
                 source = owner.binding_registry.source();
+                return true;
             }
-            else
+            if (!script_path(path) || snapshot.catalog == nullptr)
             {
-                if (!script_path(path))
+                return owner.fail("Module is deleted or is not JavaScript: " + std::string(path));
+            }
+            const auto mapped = snapshot.module_guids.find(path);
+            ByteBuffer bytes;
+            bool success = mapped != snapshot.module_guids.end();
+            if (success && snapshot.active_catalog)
+            {
+                ResourcePtr resource;
+                auto* system = ResourceSystem::instance();
+                success = system != nullptr && system->loader().load(mapped->second, resource);
+                if (success)
                 {
-                    owner.module_error("Module is deleted or is not JavaScript: " + path);
-                    return {};
-                }
-                if (snapshot.catalog != nullptr)
-                {
-                    const auto mapped = snapshot.module_guids.find(path);
-                    ByteBuffer bytes;
-                    bool success = mapped != snapshot.module_guids.end();
-                    if (success && snapshot.active_catalog)
-                    {
-                        ResourcePtr resource;
-                        auto* system = ResourceSystem::instance();
-                        success =
-                            system != nullptr && system->loader().load(mapped->second, resource);
-                        if (success)
-                        {
-                            const auto content = resource->bytes();
-                            bytes.assign(content.begin(), content.end());
-                            resources.push_back(std::move(resource));
-                        }
-                    }
-                    else if (success)
-                    {
-                        success = ResourceSystem::read_resource(*snapshot.catalog, snapshot.mounts,
-                                                                mapped->second, bytes);
-                    }
-                    if (!success || bytes.size() > maximum_text_size)
-                    {
-                        owner.module_error("Cannot read GUID module from supplied catalog: " +
-                                           path);
-                        return {};
-                    }
-                    if (!bytes.empty())
-                    {
-                        source.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
-                    }
-                }
-                else
-                {
-                    owner.module_error("Gameplay requires a supplied resource catalog");
-                    return {};
+                    const auto content = resource->bytes();
+                    bytes.assign(content.begin(), content.end());
+                    resources.push_back(std::move(resource));
                 }
             }
-            v8::Local<v8::String> text;
-            v8::Local<v8::String> name;
-            if (!js_string(isolate, source).ToLocal(&text) ||
-                !js_string(isolate, path).ToLocal(&name))
+            else if (success)
             {
-                return {};
+                success = ResourceSystem::read_resource(*snapshot.catalog, snapshot.mounts,
+                                                        mapped->second, bytes);
             }
-            const v8::ScriptOrigin origin(name, 0, 0, false, -1, {}, false, false, true);
-            v8::ScriptCompiler::Source input(text, origin);
-            v8::Local<v8::Module> module;
-            if (!v8::ScriptCompiler::CompileModule(isolate, &input).ToLocal(&module))
+            if (!success || bytes.size() > maximum_text_size)
             {
-                return {};
+                return owner.fail("Cannot read GUID module from supplied catalog: " +
+                                  std::string(path));
             }
-            modules.emplace(path, v8::Global<v8::Module>(isolate, module));
-            return module;
-        }
-
-        static v8::MaybeLocal<v8::Module> resolve(v8::Local<v8::Context> context,
-                                                  v8::Local<v8::String> specifier,
-                                                  v8::Local<v8::FixedArray> attributes,
-                                                  v8::Local<v8::Module> referrer)
-        {
-            auto* run = static_cast<Run*>(
-                context->GetAlignedPointerFromEmbedderData(0, v8::kEmbedderDataTypeTagDefault));
-            if (run == nullptr)
+            if (!bytes.empty())
             {
-                return {};
+                source.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
             }
-            auto* isolate = run->owner.isolate;
-            if (attributes->Length() != 0)
-            {
-                run->owner.module_error("Import attributes are not supported");
-                return {};
-            }
-            const std::string request = value_text(isolate, specifier);
-            if (request == "engine")
-            {
-                return run->load_module(request);
-            }
-            if (!request.starts_with("./") && !request.starts_with("../"))
-            {
-                run->owner.module_error("Only relative imports and engine are supported: " +
-                                        request);
-                return {};
-            }
-            for (const auto& [name, module] : run->modules)
-            {
-                if (module.Get(isolate) == referrer)
-                {
-                    std::string path;
-                    if (!relative_path(PathUtils::to_utf8(PathUtils::from_utf8(name).parent_path() /
-                                                          PathUtils::from_utf8(request)),
-                                       path))
-                    {
-                        run->owner.module_error("Import escapes the asset tree: " + request);
-                        return {};
-                    }
-                    return run->load_module(path);
-                }
-            }
-            run->owner.module_error("Unknown module referrer");
-            return {};
+            return true;
         }
     };
 
@@ -436,16 +155,12 @@ struct ScriptSystem::State
     RenderSystem* renderer = nullptr;
     UiSystem* ui = nullptr;
     double delta_time = 0.0;
-    std::shared_ptr<V8Process> process;
-    std::unique_ptr<v8::ArrayBuffer::Allocator> allocator;
-    v8::Isolate* isolate = nullptr;
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
-    State(ScriptStatus& state, std::shared_ptr<V8Process> platform, WorldSystem* scene_world,
-          RenderSystem* scene_renderer, UiSystem* scene_ui)
-        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
-          process(std::move(platform))
+    State(ScriptStatus& state, WorldSystem* scene_world, RenderSystem* scene_renderer,
+          UiSystem* scene_ui)
+        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui)
     {
     }
 
@@ -453,10 +168,6 @@ struct ScriptSystem::State
     {
         prepared.reset();
         stop();
-        if (isolate != nullptr)
-        {
-            isolate->Dispose();
-        }
     }
 
     bool fail(std::string message)
@@ -469,64 +180,17 @@ struct ScriptSystem::State
         return false;
     }
 
-    void module_error(const std::string& message)
-    {
-        v8::Local<v8::String> text;
-        if (js_string(isolate, message).ToLocal(&text))
-        {
-            isolate->ThrowException(v8::Exception::Error(text));
-        }
-    }
-
-    bool exception(v8::TryCatch& caught, const std::string& operation)
-    {
-        std::string message = operation;
-        if (caught.HasCaught())
-        {
-            message += ": " + value_text(isolate, caught.Exception());
-            const auto location = caught.Message();
-            if (!location.IsEmpty())
-            {
-                message += " (" + value_text(isolate, location->GetScriptResourceName()) + ":" +
-                           std::to_string(
-                               location->GetLineNumber(isolate->GetCurrentContext()).FromMaybe(0)) +
-                           ")";
-            }
-        }
-        return fail(std::move(message));
-    }
-
     [[nodiscard]] std::unique_ptr<Run> precheck(Snapshot snapshot)
     {
         auto candidate = std::make_unique<Run>(*this, std::move(snapshot));
-        v8::Isolate::Scope isolate_scope(isolate);
-        v8::HandleScope handles(isolate);
-        v8::TryCatch caught(isolate);
-        const auto context = v8::Context::New(isolate);
-        if (context.IsEmpty())
+        auto& machine = candidate->machine;
+        if (!machine || !machine->initialize(&candidate->bindings) ||
+            !binding_registry.register_functions(*machine) ||
+            !machine->prepare(candidate->snapshot.entry,
+                              [&run = *candidate](std::string_view path, std::string& source)
+                              { return run.read_source(path, source); }))
         {
-            (void)fail("Cannot create gameplay context");
-            return {};
-        }
-        v8::Context::Scope context_scope(context);
-        context->SetAlignedPointerInEmbedderData(0, candidate.get(),
-                                                 v8::kEmbedderDataTypeTagDefault);
-        candidate->context.Reset(isolate, context);
-        v8::Local<v8::Module> module;
-        // 加载 engine 但不执行，后续校验入口实例确实继承该 Context 的 Gameplay。
-        v8::Local<v8::Module> engine;
-        if (!candidate->bindings.initialize(context) ||
-            !binding_registry.register_functions(context) ||
-            !candidate->load_module("engine").ToLocal(&engine) ||
-            !candidate->load_module(candidate->snapshot.entry).ToLocal(&module) ||
-            !module->InstantiateModule(context, Run::resolve).FromMaybe(false))
-        {
-            (void)exception(caught, "Gameplay module precheck failed");
-            return {};
-        }
-        if (module->IsGraphAsync())
-        {
-            (void)fail("Top-level await is not supported by gameplay lifecycle");
+            (void)fail(machine ? machine->last_error() : "Cannot create script virtual machine");
             return {};
         }
         return candidate;
@@ -534,79 +198,30 @@ struct ScriptSystem::State
 
     [[nodiscard]] bool call(Run& run, const char* name, bool initialize)
     {
-        const auto context = run.context.Get(isolate);
-        const auto object = run.gameplay.Get(isolate);
-        v8::TryCatch caught(isolate);
-        v8::Local<v8::String> key;
-        v8::Local<v8::Value> member;
-        v8::Local<v8::Value> result;
         run.bindings.begin_call(delta_time);
-        const bool called =
-            js_string(isolate, name).ToLocal(&key) && object->Get(context, key).ToLocal(&member) &&
-            member->IsFunction() &&
-            member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result);
+        const bool called = run.machine->call_gameplay(name, initialize);
         run.bindings.end_call();
-        if (!called)
-        {
-            return exception(caught, std::string("Gameplay.") + name + " failed");
-        }
-        if (initialize && (!result->IsBoolean() || !result->IsTrue()))
-        {
-            return fail("Gameplay.OnInitialize must return true to start");
-        }
-        if (result->IsPromise())
-        {
-            return fail(std::string("Gameplay.") + name + " must be synchronous");
-        }
-        isolate->PerformMicrotaskCheckpoint();
-        return true;
+        return (called && run.machine->drain_jobs()) || fail(run.machine->last_error());
     }
 
     [[nodiscard]] bool call_binding(Run& run, const char* name)
     {
-        const auto module = run.modules.find("engine");
-        if (module == run.modules.end() ||
-            module->second.Get(isolate)->GetStatus() != v8::Module::kEvaluated)
-        {
-            return true;
-        }
-        const auto context = run.context.Get(isolate);
-        const auto object = module->second.Get(isolate)->GetModuleNamespace().As<v8::Object>();
-        v8::TryCatch caught(isolate);
-        v8::Local<v8::String> key;
-        v8::Local<v8::Value> member;
-        v8::Local<v8::Value> result;
         run.bindings.begin_call(delta_time);
-        const bool called =
-            js_string(isolate, name).ToLocal(&key) && object->Get(context, key).ToLocal(&member) &&
-            member->IsFunction() &&
-            member.As<v8::Function>()->Call(context, object, 0, nullptr).ToLocal(&result);
+        const bool called = run.machine->call_binding(name);
         run.bindings.end_call();
-        if (!called)
-        {
-            return exception(caught, std::string("Script binding callback ") + name + " failed");
-        }
-        if (result->IsPromise())
-        {
-            return fail("Script binding callbacks must be synchronous");
-        }
-        return true;
+        return called || fail(run.machine->last_error());
     }
 
     void stop()
     {
         if (active)
         {
-            v8::Isolate::Scope isolate_scope(isolate);
-            v8::HandleScope handles(isolate);
-            v8::Context::Scope context_scope(active->context.Get(isolate));
             if (active->initialization_entered)
             {
                 active->initialization_entered = false;
                 delta_time = 0.0;
                 (void)call(*active, "OnShutdown", false);
             }
-            // Run 内部订阅释放后再销毁场景和 V8 Context。
             (void)call_binding(*active, "__clearBindings");
             active.reset();
         }
@@ -626,9 +241,8 @@ struct ScriptSystem::State
             {
                 return fail("Gameplay requires an active resource system");
             }
-            for (const auto& [name, module] : candidate->modules)
+            for (const auto& name : candidate->machine->loaded_modules())
             {
-                static_cast<void>(module);
                 if (name == "engine")
                 {
                     continue;
@@ -648,57 +262,13 @@ struct ScriptSystem::State
             }
         }
         active = std::move(candidate);
-        v8::Isolate::Scope isolate_scope(isolate);
-        v8::HandleScope handles(isolate);
-        v8::TryCatch caught(isolate);
-        const auto context = active->context.Get(isolate);
-        v8::Context::Scope context_scope(context);
         active->bindings.activate();
-        const auto module = active->modules.find(active->snapshot.entry)->second.Get(isolate);
-        v8::Local<v8::Value> evaluation;
-        bool passed = module->Evaluate(context).ToLocal(&evaluation);
-        if (passed && evaluation->IsPromise())
+        if (!active->machine->start())
         {
-            const auto promise = evaluation.As<v8::Promise>();
-            passed = promise->State() == v8::Promise::kFulfilled;
-            if (!passed && promise->State() == v8::Promise::kRejected)
-            {
-                (void)fail("Gameplay module execution failed: " +
-                           value_text(isolate, promise->Result()));
-            }
-        }
-        if (!passed)
-        {
-            if (status.last_error.empty())
-            {
-                (void)exception(caught, "Gameplay module execution failed");
-            }
+            const auto failure = active->machine->last_error();
             stop();
-            return false;
+            return fail(failure);
         }
-        const auto engine = active->modules.find("engine")->second.Get(isolate);
-        v8::Local<v8::Value> constructor;
-        v8::Local<v8::Value> base;
-        v8::Local<v8::Object> object;
-        if (engine->GetStatus() != v8::Module::kEvaluated ||
-            !module->GetModuleNamespace()
-                 .As<v8::Object>()
-                 ->Get(context, v8::String::NewFromUtf8Literal(isolate, "default"))
-                 .ToLocal(&constructor) ||
-            !constructor->IsFunction() ||
-            !constructor.As<v8::Function>()->NewInstance(context).ToLocal(&object) ||
-            !engine->GetModuleNamespace()
-                 .As<v8::Object>()
-                 ->Get(context, v8::String::NewFromUtf8Literal(isolate, "Gameplay"))
-                 .ToLocal(&base) ||
-            !base->IsObject() ||
-            !object->InstanceOf(context, base.As<v8::Object>()).FromMaybe(false))
-        {
-            (void)exception(caught, "Entry must default-export a class extending Gameplay");
-            stop();
-            return false;
-        }
-        active->gameplay.Reset(isolate, object);
         active->initialization_entered = true;
         if (!call(*active, "OnInitialize", true))
         {
@@ -710,37 +280,6 @@ struct ScriptSystem::State
         status.active_revision = active->snapshot.revision;
         status.running = true;
         return true;
-    }
-
-    static v8::MaybeLocal<v8::Promise> dynamic_import(v8::Local<v8::Context> context,
-                                                      v8::Local<v8::Data>, v8::Local<v8::Value>,
-                                                      v8::Local<v8::String>,
-                                                      v8::Local<v8::FixedArray>)
-    {
-        auto* isolate = v8::Isolate::GetCurrent();
-        auto* state = static_cast<State*>(isolate->GetData(0));
-        (void)state->fail("Dynamic import is not supported");
-        v8::Local<v8::Promise::Resolver> resolver;
-        if (!v8::Promise::Resolver::New(context).ToLocal(&resolver) ||
-            !resolver
-                 ->Reject(context, v8::Exception::Error(v8::String::NewFromUtf8Literal(
-                                       isolate, "Dynamic import is not supported")))
-                 .FromMaybe(false))
-        {
-            return {};
-        }
-        return resolver->GetPromise();
-    }
-
-    static void promise_rejection(v8::PromiseRejectMessage message)
-    {
-        if (message.GetEvent() == v8::kPromiseRejectWithNoHandler)
-        {
-            auto* isolate = v8::Isolate::GetCurrent();
-            auto* state = static_cast<State*>(isolate->GetData(0));
-            (void)state->fail("Unhandled script promise: " +
-                              value_text(isolate, message.GetValue()));
-        }
     }
 };
 
@@ -756,36 +295,19 @@ ScriptSystem::~ScriptSystem() noexcept
 
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
-    auto process = v8_process();
-    if (!process->initialize())
-    {
-        status_.last_error = "Cannot prepare ICU data or initialize the V8 platform";
-        LogSystem::write(LogLevel::error, status_.last_error);
-        return false;
-    }
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, std::move(process), world_, renderer_, ui_);
+    state_ = std::make_unique<State>(status_, world_, renderer_, ui_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
     }
-    state_->allocator.reset(v8::ArrayBuffer::Allocator::NewDefaultAllocator());
-    if (!state_->allocator)
+    auto machine = vm::create_script_vm();
+    if (!machine || !machine->initialize(nullptr))
     {
-        return state_->fail("Cannot create V8 allocator");
+        return state_->fail(machine ? machine->last_error()
+                                    : "Cannot create script virtual machine");
     }
-    v8::Isolate::CreateParams parameters;
-    parameters.array_buffer_allocator = state_->allocator.get();
-    state_->isolate = v8::Isolate::New(parameters);
-    if (state_->isolate == nullptr)
-    {
-        return state_->fail("Cannot create V8 isolate");
-    }
-    state_->isolate->SetData(0, state_.get());
-    state_->isolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
-    state_->isolate->SetHostImportModuleDynamicallyCallback(State::dynamic_import);
-    state_->isolate->SetPromiseRejectCallback(State::promise_rejection);
     return true;
 }
 
@@ -873,9 +395,6 @@ bool ScriptSystem::on_tick(double delta_time)
     }
     if (status_.running && state_->active)
     {
-        v8::Isolate::Scope isolate_scope(state_->isolate);
-        v8::HandleScope handles(state_->isolate);
-        v8::Context::Scope context_scope(state_->active->context.Get(state_->isolate));
         state_->delta_time = delta_time;
         if (!state_->call_binding(*state_->active, "__dispatchBindingEvents") ||
             !state_->call(*state_->active, "Update", false))

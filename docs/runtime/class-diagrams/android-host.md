@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-Android 使用 SDL3 自带 Activity 框架加载同版本的 `libSDL3.so` 与引擎 `libmain.so`。
+Android 使用 SDL3 自带 Activity 框架，只加载 `libmain.so`。SDL3、引擎、所选 QuickJS 或 V8 和 NDK C++ 运行库静态合入该库，链接器保留 SDL 的 `JNI_OnLoad` 注册入口。`ENGINE_SCRIPT_BACKEND` 默认 `quickjs`；构建期二选一，只有 V8 构建链接其 JNI 测试，默认不包含 ICU 数据。
 
 正常启动由原生入口初始化 App、LogSystem 与 RuntimeHost；所有系统就绪后通过 GameplaySession 运行 APK 项目的入口。引擎不接收编辑器项目目录。退出由 RuntimeHost 先结束玩法会话、关闭引擎系统和窗口，再刷新并关闭日志及 App。后台暂停保留玩法实例，恢复后继续运行；宿主将单帧时间限制为 0.1 秒并丢弃等待期间时间。
 
@@ -23,9 +23,11 @@ classDiagram
         #onResume() void
         #main() void
         #getArguments() String[]
+        #getLibraries() String[]
         ~pauseRendering() void$
         ~resumeRenderingIfReady() void$
         -runV8Smoke() void
+        -reportV8Smoke(boolean passed) void$
         -nativePauseRendering() boolean$
         -nativeResumeRendering() void$
         -nativeRunV8Smoke(String icuDataFile) boolean$
@@ -49,13 +51,14 @@ classDiagram
     EngineActivity ..> Context : 创建视图的参数
     EngineActivity ..> SDLSurface : 创建视图的返回类型
     EngineActivity ..> RuntimeHost : 经 SDL_main 启动
-    EngineActivity ..> V8 : 可选 JNI 冒烟测试
+    EngineActivity ..> V8 : 仅V8构建的可选JNI测试
 ```
 
 - `getArguments()` 把可选的测试帧数交给原生入口；返回数组交由 SDL 使用。
+- `getLibraries()` 只返回 `main`，不再单独加载 SDL3 或 C++ 运行库。
 - `main()` 在 SDL 原生线程上运行。普通启动调用 SDL 父类入口；只有显式传入 `v8_smoke=true` 时，才调用 `runV8Smoke()`，不创建引擎窗口或运行玩法。
-- `runV8Smoke()` 把 APK 内 `assets/v8/icudtl.dat` 复制到应用私有 `cache/v8-smoke/`，再将路径借给私有 JNI 方法 `nativeRunV8Smoke()`；后者通过返回值报告测试结果。读取或复制失败时记录原因并结束测试。
-- JNI 复用桌面测试的普通自由函数，实际创建 V8 平台、isolate 与 context，验证 JavaScript、SharedArrayBuffer 的 Atomics / 十六进制 / Base64、Intl 和 Temporal。测试主体始终链接进 `libmain.so`，普通启动不执行；它不增加 `ScriptSystem` 的公共接口。
+- `runV8Smoke()` 先检查构建时后端标记，QuickJS 包报告不支持该测试，不调用未链接的 JNI。默认 V8 裁剪 Intl/ICU，向 `nativeRunV8Smoke()` 传入空路径，通过 `reportV8Smoke()` 记录返回结果。显式启用国际化的非默认构建才使用 ICU 路径分支。
+- JNI 复用桌面测试的普通自由函数，实际创建 V8 平台、isolate 与 context，验证 JavaScript、SharedArrayBuffer 的 Atomics / 十六进制 / Base64，并按编译开关检查 Intl、Temporal 和 WebAssembly 的有无。测试主体只在 V8 构建链接进 `libmain.so`，普通启动不执行；它不增加 `ScriptSystem` 的公共接口。
 - V8 完整关闭后不能在同一进程重新初始化。测试函数只允许每个进程调用一次，重复调用返回失败；下一次测试或普通启动使用新应用进程。正常引擎退出后的 Activity 重建不执行此测试。
 - `onPause()` 在调用父类之前请求暂停渲染；`onResume()` 在父类处理恢复后检查视图是否就绪。
 - `pauseRendering()` 和 `resumeRenderingIfReady()` 是包内静态辅助方法，由 Activity 和视图共同使用；`~` 表示 Java 包内可见。负责渲染同步的两个私有静态 `native` 方法通过 JNI 调用平台内部同步代码，不是引擎公共接口。

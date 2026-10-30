@@ -79,7 +79,7 @@ def test(editor, mcp, root, temporary):
             require(
                 receipt.get("activation") == "completed"
                 and receipt.get("session") == session
-                and receipt.get("projectRoot") == str(project.resolve())
+                and receipt.get("projectRoot") == project.resolve().as_posix()
                 and receipt.get("command") == ("batch" if name == "execute_batch" else name)
                 and receipt.get("success") is not expect_error
                 and isinstance(receipt.get("requestId"), str)
@@ -271,7 +271,7 @@ def test(editor, mcp, root, temporary):
 
         envelope = {
             "session": session,
-            "projectRoot": str(project.resolve()),
+            "projectRoot": project.resolve().as_posix(),
             "requestId": undo_receipt["requestId"],
             "command": "undo",
             "arguments": {"sceneId": scene["sceneId"]},

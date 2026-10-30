@@ -29,19 +29,19 @@ Object.freeze(Transform);
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<Transform>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<Transform>() != nullptr);
 }
 
 void set_vector(const Arguments& arguments, Vec3 TransformSettings::* field)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
     auto* transform = node == nullptr ? nullptr : node->get_component<Transform>();
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    if (transform == nullptr || arguments.Length() != 5 ||
+    if (transform == nullptr || arguments.count() != 5 ||
         !BindingContext::number(arguments, 2, x) || !BindingContext::number(arguments, 3, y) ||
         !BindingContext::number(arguments, 4, z))
     {
@@ -49,7 +49,7 @@ void set_vector(const Arguments& arguments, Vec3 TransformSettings::* field)
     }
     auto settings = transform->settings();
     settings.*field = Vec3(x, y, z);
-    arguments.GetReturnValue().Set(transform->set_settings(settings));
+    arguments.set_return(transform->set_settings(settings));
 }
 
 void position(const Arguments& arguments)
@@ -77,15 +77,11 @@ std::string_view TransformBinding::source() const noexcept
     return javascript;
 }
 
-bool TransformBinding::register_functions(v8::Local<v8::Context> context,
-                                          v8::Local<v8::Object> native) const
+bool TransformBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "TransformKind",
-                                   static_cast<int>(Transform::component_type)) &&
-           BindingContext::function(context, native, "TransformAdd", add) &&
-           BindingContext::function(context, native, "TransformPosition", position) &&
-           BindingContext::function(context, native, "TransformRotation", rotation) &&
-           BindingContext::function(context, native, "TransformScale", scale);
+    return vm.integer("TransformKind", static_cast<int>(Transform::component_type)) &&
+           vm.function("TransformAdd", add) && vm.function("TransformPosition", position) &&
+           vm.function("TransformRotation", rotation) && vm.function("TransformScale", scale);
 }
 
 } // namespace engine::plugins::script::bindings

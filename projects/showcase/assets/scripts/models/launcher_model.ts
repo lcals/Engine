@@ -12,5 +12,7 @@ export class LauncherModel {
         { button: "scene-gallery", title: "Letters in space", scene: "project/scenes/font-gallery.scene" },
     ];
     selected: LauncherChoice | null = null;
+    pending: LauncherChoice | "menu" | null = null;
+    error: string | null = null;
     selection_count = 0;
 }

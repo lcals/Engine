@@ -21,6 +21,28 @@ endif()
 if(NOT ENGINE_V8_CONFIG MATCHES "^(Debug|Release)$")
     message(FATAL_ERROR "ENGINE_V8_CONFIG must be Debug or Release")
 endif()
+set(_features WEBASSEMBLY I18N TEMPORAL SYSTEM_INSTRUMENTATION)
+set(_feature_gn_names v8_enable_webassembly v8_enable_i18n_support v8_enable_temporal_support
+                      v8_enable_system_instrumentation)
+set(_feature_bits "")
+foreach(_feature IN LISTS _features)
+    if(NOT DEFINED ENGINE_V8_ENABLE_${_feature})
+        set(ENGINE_V8_ENABLE_${_feature} OFF)
+    endif()
+    if(ENGINE_V8_ENABLE_${_feature})
+        string(APPEND _feature_bits "1")
+    else()
+        string(APPEND _feature_bits "0")
+    endif()
+endforeach()
+if(CMAKE_HOST_WIN32)
+    if(NOT DEFINED ENGINE_V8_WINDOWS_CRT)
+        set(ENGINE_V8_WINDOWS_CRT dynamic)
+    endif()
+    if(NOT ENGINE_V8_WINDOWS_CRT MATCHES "^(static|dynamic)$")
+        message(FATAL_ERROR "ENGINE_V8_WINDOWS_CRT must be static or dynamic")
+    endif()
+endif()
 if(NOT DEFINED ENGINE_V8_JOBS)
     set(ENGINE_V8_JOBS 4)
 endif()
@@ -97,9 +119,11 @@ set(_depot "${ENGINE_V8_BUILD_ROOT}/depot_tools")
 set(_workspace "${ENGINE_V8_BUILD_ROOT}/source")
 set(_source "${_workspace}/v8")
 if(CMAKE_HOST_WIN32)
-    set(_patch_roots "${_source}/build" "${_source}" "${_source}/third_party/partition_alloc")
+    set(_patch_roots "${_source}/build" "${_source}/build" "${_source}"
+                     "${_source}/third_party/partition_alloc")
     set(_patch_files
         "${_engine_root}/third_party/overrides/v8/windows-dynamic-crt.patch"
+        "${_engine_root}/third_party/overrides/v8/windows-static-crt.patch"
         "${_engine_root}/third_party/overrides/v8/windows-shared-ptr-atomic-warning.patch"
         "${_engine_root}/third_party/overrides/v8/windows-debug-quarantine.patch")
 elseif(CMAKE_HOST_APPLE)
@@ -109,6 +133,9 @@ elseif(CMAKE_HOST_APPLE)
         "${_engine_root}/third_party/overrides/v8/macos-system-math.patch"
         "${_engine_root}/third_party/overrides/v8/macos-signpost-attribute.patch")
 endif()
+set(_sample_patch "${_engine_root}/third_party/overrides/v8/hello-world-optional-webassembly.patch")
+list(APPEND _patch_roots "${_source}")
+list(APPEND _patch_files "${_sample_patch}")
 if(_android)
     set(_android_deps_patch
         "${_engine_root}/third_party/overrides/v8/android-external-toolchain.patch")
@@ -130,6 +157,12 @@ if(_android)
         "${_engine_root}/third_party/overrides/v8/android-simdutf-atomic-ref.patch")
 endif()
 string(TOLOWER "${ENGINE_V8_CONFIG}" _config_lower)
+if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
+    set(_config_lower "mt-${_config_lower}")
+endif()
+if(NOT _feature_bits STREQUAL "1111")
+    string(APPEND _config_lower "-f${_feature_bits}")
+endif()
 set(_out "${_source}/out/engine.${_config_lower}")
 find_package(Git REQUIRED)
 execute_process(
@@ -217,6 +250,22 @@ endif()
 set(_args
     "target_cpu = \"${ENGINE_V8_TARGET_CPU}\"\nis_component_build = false\nv8_monolithic = true\nv8_use_external_startup_data = false\nuse_custom_libcxx = false\nuse_custom_libcxx_for_host = false\nv8_generate_external_defines_header = true\nuse_remoteexec = false\nuse_siso = false\nsymbol_level = 0\n"
 )
+if(CMAKE_HOST_WIN32 AND ENGINE_V8_WINDOWS_CRT STREQUAL "static")
+    string(APPEND _args "engine_use_static_crt = true\n")
+endif()
+foreach(_feature _gn_name IN ZIP_LISTS _features _feature_gn_names)
+    if(NOT ENGINE_V8_ENABLE_${_feature})
+        string(APPEND _args "${_gn_name} = false\n")
+    endif()
+endforeach()
+if(NOT ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION)
+    string(APPEND _args "v8_enable_etw_stack_walking = false\n")
+endif()
+if(NOT ENGINE_V8_ENABLE_I18N)
+    # 上游快照规则默认依赖 ICU 文件，即使 Intl 已关闭也会复制；同步移除该依赖。
+    string(APPEND _args
+           "v8_depend_on_icu_data_file = false\nicu_copy_icudata_to_root_build_dir = false\n")
+endif()
 if(CMAKE_HOST_APPLE AND NOT _android)
     # 系统 SDK 的模块和 TAPI 格式可能新于固定 LLVM；使用常规头文件及 Xcode 链接器。
     string(APPEND _args "use_clang_modules = false\nuse_lld = false\n")
@@ -248,7 +297,7 @@ endif()
 if(ENGINE_V8_CONFIG STREQUAL "Debug")
     string(APPEND _args "is_debug = true\n")
     if(CMAKE_HOST_WIN32)
-        # Chromium 默认关闭此项；MSVC/vcpkg 的 /MDd 使用迭代器调试级别 2。
+        # Chromium 默认关闭此项；MSVC/vcpkg 的 Debug CRT 使用迭代器调试级别 2。
         # 在 V8 内启用相同 ABI，不向其他目标传播会冲突的 STL 禁用宏。
         string(APPEND _args "enable_iterator_debugging = true\n")
     endif()
@@ -320,6 +369,19 @@ if(EXISTS "${ENGINE_V8_BUILD_ROOT}/.gitconfig")
 endif()
 include("${CMAKE_CURRENT_LIST_DIR}/v8_cache.cmake")
 _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
+if(NOT ENGINE_V8_ACTION STREQUAL "CHECK"
+   AND NOT _cache_ready
+   AND EXISTS "${_source}/.git")
+    # 已准备的固定工作副本只补充已知补丁，不重新同步未变的 DEPS。
+    _engine_v8_assert_revision("${_source}" "${_revision}")
+    _engine_v8_patch("${_source}" "${_sample_patch}" APPLY)
+    if(CMAKE_HOST_WIN32 AND EXISTS "${_source}/build/.git")
+        _engine_v8_assert_revision("${_source}/build" "${_build_revision}")
+        _engine_v8_patch("${_source}/build"
+                         "${_engine_root}/third_party/overrides/v8/windows-static-crt.patch" APPLY)
+    endif()
+    _engine_v8_cache_keys(_prepare_key _build_key _cache_ready)
+endif()
 _engine_v8_artifacts(_artifacts_present)
 if(ENGINE_V8_ACTION STREQUAL "CHECK")
     message(
@@ -348,9 +410,8 @@ if(_cache_ready)
     if(ENGINE_V8_ACTION STREQUAL "PREPARE")
         # 旧工作区也先核对提交、补丁、参数、完整工具链及已有构建产物。
         # 只复用准备结果；没有 BUILD 成功戳仍须经过 Ninja 和样例确认。
-        if(_prepared OR _artifacts_present)
-            set(_reuse_prepared TRUE)
-        endif()
+        # 固定检出、DEPS 和工具链已完整核对；新增 CRT/config 只需生成新的 GN 输出。
+        set(_reuse_prepared TRUE)
         if(_prepared
            AND _configured
            AND EXISTS "${_out}/build.ninja"
@@ -362,7 +423,7 @@ if(_cache_ready)
             endif()
         endif()
         if(_reuse_prepared)
-            message(STATUS "Reusing verified V8 workspace without removing or reapplying patches")
+            message(STATUS "Reusing verified V8 workspace; no dependency sync or hooks")
         endif()
     endif()
 endif()
@@ -596,11 +657,15 @@ endif()
 file(MAKE_DIRECTORY "${_out}")
 if(EXISTS "${_out}/args.gn")
     file(READ "${_out}/args.gn" _existing_args)
-    if(NOT _existing_args STREQUAL _args)
+    _engine_v8_arguments_compatible("${_existing_args}" "${_args}" _arguments_compatible)
+    if(NOT _arguments_compatible)
         message(
             FATAL_ERROR
                 "Existing ${_out}/args.gn differs from the fixed engine arguments; use another build root or inspect and remove that args.gn"
         )
+    endif()
+    if(NOT _existing_args STREQUAL _args)
+        file(WRITE "${_out}/args.gn" "${_args}")
     endif()
 else()
     file(WRITE "${_out}/args.gn" "${_args}")
@@ -620,6 +685,10 @@ if(NOT _configured OR NOT EXISTS "${_out}/build.ninja")
     _engine_v8_write_stamp("${_configure_stamp}" "${_build_key}")
 endif()
 _engine_v8_write_stamp("${_prepare_stamp}" "${_prepare_key}")
+if(NOT ENGINE_V8_ENABLE_I18N)
+    # 只移除当前关闭 Intl 的构建变体里旧的生成副本，保留源码与其他变体缓存。
+    file(REMOVE "${_out}/icudtl.dat" "${_out}/icudtb.dat")
+endif()
 file(MAKE_DIRECTORY "${ENGINE_V8_BUILD_ROOT}/include/v8")
 file(COPY "${_source}/include/" DESTINATION "${ENGINE_V8_BUILD_ROOT}/include/v8")
 if(ENGINE_V8_ACTION STREQUAL "BUILD")
@@ -632,7 +701,7 @@ if(ENGINE_V8_ACTION STREQUAL "BUILD")
         "${ENGINE_V8_JOBS}"
         v8_monolith
         v8_hello_world)
-    set(_package_arguments)
+    set(_package_arguments "-DENGINE_V8_ENABLE_TEMPORAL=${ENGINE_V8_ENABLE_TEMPORAL}")
     if(_android)
         list(APPEND _package_arguments -DENGINE_V8_TARGET_OS=android
              "-DENGINE_V8_TARGET_CPU=${ENGINE_V8_TARGET_CPU}")
@@ -649,7 +718,7 @@ if(ENGINE_V8_ACTION STREQUAL "BUILD")
     _engine_v8_headers_current(_headers_current)
     if(NOT _artifacts_present OR NOT _headers_current)
         message(
-            FATAL_ERROR "V8 build finished without all required library, ICU, or header outputs")
+            FATAL_ERROR "V8 build finished without all required library, data, or header outputs")
     endif()
     _engine_v8_write_stamp("${_build_stamp}" "${_build_key}")
     message(STATUS "Recorded verified V8 ${ENGINE_V8_CONFIG} build cache")
