@@ -9,6 +9,7 @@
 
 #include <flatbuffers/verifier.h>
 
+#include <array>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -21,7 +22,9 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace
@@ -76,11 +79,23 @@ std::string scene()
            "[[nodes]]\nid = \"1\"\nname = \"Camera\"\n[[nodes.components]]\ntype = "
            "\"transform\"\nposition = [0, 0, 5]\n"
            "[[nodes.components]]\ntype = \"camera\"\n"
+           "[[nodes.components]]\ntype = \"post_process\"\n"
+           "exposure = 1.5\nfilmic_tonemap = true\n"
+           "[[nodes.components]]\ntype = \"environment\"\n"
+           "ambient_color = [0.25, 0.5, 0.75]\nambient_intensity = 0.75\n"
+           "ambient_tricolor = true\nambient_sky_color = [0.4, 0.6, 0.8, 1.0]\n"
+           "ambient_equator_color = [0.3, 0.2, 0.1]\n"
+           "ambient_ground_color = [0.1, 0.2, 0.3]\n"
+           "fog_mode = \"exponential_squared\"\nfog_color = [0.7, 0.8, 0.9]\n"
+           "fog_start = 5\nfog_end = 250\nfog_density = 0.025\nclear_color = 0x123456ff\n"
            "[[nodes]]\nid = \"18446744073709551615\"\nname = \"Cube\"\nparent = \"1\"\n"
            "[[nodes.components]]\ntype = \"transform\"\n"
            "[[nodes.components]]\ntype = \"mesh_renderer\"\n"
            "mesh = \"00000000-0000-4000-8000-000000000005\"\nmaterial = \"" +
-           material_guid + "\"\n";
+           material_guid +
+           "\"\n"
+           "[[nodes.components]]\ntype = \"light\"\ncast_shadows = true\n"
+           "shadow_resolution = 1024\nshadow_bias = 0.002\n";
 }
 
 struct Fixture
@@ -261,6 +276,109 @@ bool editor_guard(engine::editor::AssetPipelineSystem& pipeline, const Fixture& 
     return !code;
 }
 
+bool scene_effects(engine::ResourceSystem& resources,
+                   const engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture,
+                   const engine::schema::SceneDataT& source)
+{
+    engine::ResourcePtr loaded;
+    if (!expect(
+            resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}) &&
+                resources.load(scene_guid, loaded) && loaded->scene() != nullptr &&
+                *loaded->scene() == source,
+            "TOML effects import to GUID bytes and load as identical runtime scene data"))
+    {
+        return false;
+    }
+    const auto& camera_components = loaded->scene()->nodes[0]->components;
+    const auto* post_process = camera_components[2]->payload.AsPostProcessData();
+    const auto* environment = camera_components[3]->payload.AsEnvironmentData();
+    const auto* light = loaded->scene()->nodes[1]->components[2]->payload.AsLightData();
+    if (!expect(environment != nullptr && post_process != nullptr && light != nullptr &&
+                    environment->ambient_color.a() == 1.0F &&
+                    environment->ambient_intensity == 0.75F && environment->ambient_tricolor &&
+                    environment->ambient_sky_color.g() == 0.6F &&
+                    environment->ambient_equator_color.r() == 0.3F &&
+                    environment->ambient_ground_color.b() == 0.3F &&
+                    environment->fog_mode == engine::schema::FogMode::exponential_squared &&
+                    environment->fog_start == 5.0F && environment->fog_end == 250.0F &&
+                    environment->fog_density == 0.025F && environment->clear_color == 0x123456ff &&
+                    post_process->exposure == 1.5F && post_process->filmic_tonemap &&
+                    light->cast_shadows && light->shadow_resolution == 1024 &&
+                    light->shadow_bias == 0.002F,
+                "import preserves ambient, fog, exposure and light shadow fields"))
+    {
+        return false;
+    }
+    const auto invalid_path = fixture.root / "settings/invalid-effects.scene";
+    std::string error;
+    const auto reject = [&](const engine::schema::SceneDataT& data, const char* message)
+    {
+        return expect(!engine::editor::SceneImporter::write(invalid_path, data, error) &&
+                          !error.empty(),
+                      message);
+    };
+    auto invalid = source;
+    invalid.nodes[1]->components.push_back(
+        std::make_unique<engine::schema::ComponentDataT>(*source.nodes[0]->components[3]));
+    if (!reject(invalid, "two enabled environments are rejected"))
+    {
+        return false;
+    }
+    invalid.nodes[1]->components.back()->enabled = false;
+    if (!expect(engine::editor::SceneImporter::write(invalid_path, invalid, error),
+                "disabled alternate environment may be saved"))
+    {
+        return false;
+    }
+    invalid = source;
+    invalid.nodes[0]->components.push_back(
+        std::make_unique<engine::schema::ComponentDataT>(*source.nodes[1]->components[2]));
+    if (!reject(invalid, "two enabled shadow-casting lights are rejected"))
+    {
+        return false;
+    }
+    invalid = source;
+    invalid.info->active_camera_node = 0;
+    invalid.nodes[0]->components.erase(invalid.nodes[0]->components.begin() + 1);
+    if (!reject(invalid, "post-process without same-node camera is rejected"))
+    {
+        return false;
+    }
+    for (const auto& [field, bad_value] :
+         std::array<std::pair<std::string_view, std::string_view>, 11>{
+             {{"ambient_intensity = 0.75", "ambient_intensity = inf"},
+              {"fog_end = 250", "fog_end = 5"},
+              {"fog_density = 0.025", "fog_density = -1"},
+              {"fog_mode = \"exponential_squared\"", "fog_mode = \"unknown\""},
+              {"exposure = 1.5", "exposure = 0"},
+              {"filmic_tonemap = true", "filmic_tonemap = 1"},
+              {"ambient_tricolor = true", "ambient_tricolor = 1"},
+              {"cast_shadows = true", "cast_shadows = 1"},
+              {"shadow_resolution = 1024", "shadow_resolution = 1024.0"},
+              {"shadow_resolution = 1024", "shadow_resolution = 1000"},
+              {"clear_color = 0x123456ff", "clear_color = -1"}}})
+    {
+        auto text = scene();
+        const auto offset = text.find(field);
+        if (offset == std::string::npos)
+        {
+            std::fprintf(stderr, "invalid field case: %.*s\n", static_cast<int>(bad_value.size()),
+                         bad_value.data());
+            return false;
+        }
+        text.replace(offset, field.size(), bad_value);
+        engine::schema::SceneDataT parsed;
+        if (!expect(write(invalid_path, text) &&
+                        !engine::editor::SceneImporter::read(invalid_path, parsed, error) &&
+                        !error.empty(),
+                    "invalid TOML effect value is rejected before publication"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool tests()
 {
     Fixture fixture;
@@ -271,9 +389,12 @@ bool tests()
     std::error_code filesystem_error;
     const auto assets = fixture.root / "assets";
     const auto cache = fixture.root / "cache";
+    engine::ResourceSystem resources;
     engine::editor::AssetPipelineSystem pipeline;
     const engine::EngineConfig config;
     if (!expect(!pipeline.build_assets(fixture.root), "uninitialized build rejected") ||
+        !expect(resources.initialize(config),
+                "resource definitions live for the complete fixture") ||
         !expect(pipeline.initialize(config), "initialize pipeline and Taskflow subsystem") ||
         !expect(pipeline.subsystem_count() == 1, "TaskSystem is owned as a System child") ||
         !expect(write(assets / "message.txt", "first"), "write source") ||
@@ -443,7 +564,8 @@ bool tests()
     engine::schema::SceneDataT roundtrip;
     if (!expect(engine::editor::SceneImporter::read(saved_scene, roundtrip, import_error) &&
                     data == roundtrip,
-                "scene TOML save/read preserves all generated fields"))
+                "scene TOML save/read preserves all generated fields") ||
+        !scene_effects(resources, pipeline, fixture, data))
     {
         return false;
     }

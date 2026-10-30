@@ -1,5 +1,6 @@
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
 
+#include "runtime/resource/ktx_texture.hpp"
 #include "runtime/resource/resource_catalog.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -29,12 +30,23 @@ bool TextureResourceCodec::validate(const schema::TextureDataT& data)
     }
     if (data.encoding == schema::TextureEncoding::rgba8)
     {
-        return data.mip_count == 1 &&
+        return !data.cube_map && data.mip_count == 1 &&
                (data.format == schema::TextureFormat::auto_format ||
                 data.format == schema::TextureFormat::rgba8) &&
                data.data.size() == static_cast<std::uint64_t>(data.width) * data.height * 4;
     }
-    if (data.encoding != schema::TextureEncoding::basis)
+    if (data.encoding == schema::TextureEncoding::ktx)
+    {
+        resource_detail::KtxTextureInfo info;
+        return !data.srgb &&
+               resource_detail::read_ktx_info(std::as_bytes(std::span(data.data)), info) &&
+               info.width == data.width && info.height == data.height &&
+               info.mip_count == data.mip_count && info.cube_map == data.cube_map &&
+               info.format == data.format;
+    }
+    if (data.encoding != schema::TextureEncoding::basis || data.cube_map ||
+        data.format == schema::TextureFormat::rgba16f ||
+        data.format == schema::TextureFormat::rg16f)
     {
         return false;
     }

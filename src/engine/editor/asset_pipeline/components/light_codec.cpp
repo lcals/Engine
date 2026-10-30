@@ -1,6 +1,6 @@
 #include "editor/asset_pipeline/components/light_codec.hpp"
 
-#include "runtime/core/guid_map.hpp"
+#include "runtime/scene/scene_settings_validation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -25,16 +25,7 @@ bool LightCodec::validate(const schema::ComponentDataT& component, std::string& 
 {
 
     const auto* value = component.payload.AsLightData();
-    if (value == nullptr || !std::isfinite(value->intensity) || value->intensity < 0 ||
-        !std::isfinite(value->color.r()) || !std::isfinite(value->color.g()) ||
-        !std::isfinite(value->color.b()) || !std::isfinite(value->color.a()) ||
-        value->color.r() < 0 || value->color.g() < 0 || value->color.b() < 0 ||
-        value->color.a() < 0 || value->color.a() > 1 || value->color.r() > 1 ||
-        value->color.g() > 1 || value->color.b() > 1 || value->kind < schema::LightKind::MIN ||
-        value->kind > schema::LightKind::MAX || !std::isfinite(value->range) || value->range <= 0 ||
-        !std::isfinite(value->inner_angle) || !std::isfinite(value->outer_angle) ||
-        value->inner_angle < 0 || value->outer_angle <= 0 || value->outer_angle >= 90 ||
-        value->inner_angle > value->outer_angle)
+    if (value == nullptr || !scene_detail::valid_light(*value))
     {
         error = "invalid scene light";
         return false;
@@ -55,10 +46,33 @@ bool LightCodec::read(const toml::table& table, schema::ComponentDataT& componen
         (table.contains("inner_angle") &&
          !float_number(table.get("inner_angle"), value.inner_angle)) ||
         (table.contains("outer_angle") &&
-         !float_number(table.get("outer_angle"), value.outer_angle)))
+         !float_number(table.get("outer_angle"), value.outer_angle)) ||
+        (table.contains("shadow_bias") &&
+         !float_number(table.get("shadow_bias"), value.shadow_bias)))
     {
-        error = "light color and intensity must be finite numbers";
+        error = "light numeric fields must be finite numbers";
         return false;
+    }
+    if (table.contains("cast_shadows"))
+    {
+        const auto cast_shadows = table["cast_shadows"].value_exact<bool>();
+        if (!cast_shadows)
+        {
+            error = "light cast_shadows must be boolean";
+            return false;
+        }
+        value.cast_shadows = *cast_shadows;
+    }
+    if (table.contains("shadow_resolution"))
+    {
+        const auto resolution = table["shadow_resolution"].value_exact<std::int64_t>();
+        if (!resolution || *resolution < 128 || *resolution > 8192 ||
+            (*resolution & (*resolution - 1)) != 0)
+        {
+            error = "light shadow_resolution must be a power of two in 128..8192";
+            return false;
+        }
+        value.shadow_resolution = static_cast<std::uint16_t>(*resolution);
     }
     if (table.contains("kind"))
     {
@@ -99,6 +113,9 @@ void LightCodec::write(const schema::ComponentDataT& component, toml::table& val
     value.insert("range", light->range);
     value.insert("inner_angle", light->inner_angle);
     value.insert("outer_angle", light->outer_angle);
+    value.insert("cast_shadows", light->cast_shadows);
+    value.insert("shadow_resolution", light->shadow_resolution);
+    value.insert("shadow_bias", light->shadow_bias);
 }
 
 } // namespace engine::editor::asset_pipeline

@@ -1,8 +1,10 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -16,6 +18,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -81,7 +84,10 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     engine::Camera* camera = camera_node->add_component<engine::Camera>();
     engine::Light* light = light_node->add_component<engine::Light>();
     engine::MeshRenderer* mesh = cube_node->add_component<engine::MeshRenderer>();
-    if (!expect(camera != nullptr && light != nullptr && mesh != nullptr,
+    auto* environment = root->add_component<engine::EnvironmentComponent>();
+    auto* post_process = camera_node->add_component<engine::PostProcessComponent>();
+    if (!expect(camera != nullptr && light != nullptr && mesh != nullptr &&
+                    environment != nullptr && post_process != nullptr,
                 "create model components") ||
         !expect(scene->set_active_camera(camera), "select camera"))
     {
@@ -98,16 +104,64 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     engine::LightSettings light_settings;
     light_settings.color = {0.25F, 0.5F, 0.75F, 1.0F};
     light_settings.intensity = 4.5F;
+    light_settings.cast_shadows = true;
+    light_settings.shadow_resolution = 1024;
+    light_settings.shadow_bias = 0.002F;
+    engine::EnvironmentSettings environment_settings;
+    environment_settings.ambient_color = {0.25F, 0.5F, 0.75F, 1.0F};
+    environment_settings.ambient_intensity = 0.75F;
+    environment_settings.ambient_tricolor = true;
+    environment_settings.ambient_sky_color = {0.5F, 0.75F, 1.0F, 1.0F};
+    environment_settings.ambient_equator_color = {0.4F, 0.3F, 0.2F, 1.0F};
+    environment_settings.ambient_ground_color = {0.1F, 0.2F, 0.3F, 1.0F};
+    environment_settings.fog_mode = engine::schema::FogMode::exponential_squared;
+    environment_settings.fog_color = {0.7F, 0.8F, 0.9F, 1.0F};
+    environment_settings.fog_start = 5.0F;
+    environment_settings.fog_end = 250.0F;
+    environment_settings.fog_density = 0.025F;
+    environment_settings.clear_color = 0x123456ff;
+    engine::PostProcessSettings post_process_settings;
+    post_process_settings.exposure = 1.5F;
+    post_process_settings.filmic_tonemap = true;
     auto& material = mesh->material();
     if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
                     material.shader_path() == "builtin/shaders/pbr",
                 "default material uses resource paths") ||
         !expect(cube_node->get_component<engine::Transform>()->set_settings(transform) &&
                     camera->set_settings(camera_settings) && light->set_settings(light_settings) &&
+                    environment->set_settings(environment_settings) &&
+                    post_process->set_settings(post_process_settings) &&
                     material.set_v4("baseColor", {0.75, 0.25, 0.125, 1.0}) &&
                     material.set_float("metallic", 0.625F) &&
                     material.set_float("roughness", 0.25F),
                 "set generated component values and typed material parameters"))
+    {
+        return false;
+    }
+    auto invalid_environment = environment_settings;
+    invalid_environment.ambient_color.mutate_r(std::numeric_limits<float>::quiet_NaN());
+    auto invalid_post_process = post_process_settings;
+    invalid_post_process.exposure = 0.0F;
+    auto invalid_light = light_settings;
+    invalid_light.kind = engine::schema::LightKind::point;
+    if (!expect(!environment->set_settings(invalid_environment) &&
+                    environment->settings() == environment_settings &&
+                    !post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings &&
+                    !light->set_settings(invalid_light) && light->settings() == light_settings,
+                "invalid scene effects preserve the previous component settings"))
+    {
+        return false;
+    }
+    invalid_environment = environment_settings;
+    invalid_environment.fog_end = invalid_environment.fog_start;
+    invalid_post_process.exposure = 101.0F;
+    invalid_light = light_settings;
+    invalid_light.shadow_resolution = 1000;
+    if (!expect(!environment->set_settings(invalid_environment) &&
+                    !post_process->set_settings(invalid_post_process) &&
+                    !light->set_settings(invalid_light),
+                "fog range, exposure limit and non-power-of-two shadow size are rejected"))
     {
         return false;
     }
@@ -157,7 +211,9 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     const auto* decoded_cube = find_node(*restored, "Cube");
     const auto* decoded_camera = find_node(*restored, "Camera");
     const auto* decoded_light = find_node(*restored, "Light");
+    const auto* decoded_root = find_node(*restored, "Root");
     if (!expect(decoded_cube != nullptr && decoded_camera != nullptr && decoded_light != nullptr &&
+                    decoded_root != nullptr &&
                     decoded_cube->info->id == cube_node->info().id + identity_offset &&
                     decoded_cube->info->parent_id == root->info().id + identity_offset &&
                     decoded_camera->info->parent_id == root->info().id + identity_offset &&
@@ -170,8 +226,13 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     const auto* mesh_data = find_component(*decoded_cube, engine::MeshRenderer::component_type);
     const auto* camera_data = find_component(*decoded_camera, engine::Camera::component_type);
     const auto* light_data = find_component(*decoded_light, engine::Light::component_type);
+    const auto* environment_data =
+        find_component(*decoded_root, engine::EnvironmentComponent::component_type);
+    const auto* post_process_data =
+        find_component(*decoded_camera, engine::PostProcessComponent::component_type);
     if (!expect(transform_data != nullptr && mesh_data != nullptr && camera_data != nullptr &&
-                    light_data != nullptr,
+                    light_data != nullptr && environment_data != nullptr &&
+                    post_process_data != nullptr,
                 "union discriminators preserve component types"))
     {
         return false;
@@ -194,8 +255,36 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     decoded_camera_settings->near_clip == 0.2F &&
                     decoded_camera_settings->far_clip == 200.0F &&
                     decoded_light_settings->intensity == 4.5F &&
-                    decoded_light_settings->color.g() == 0.5F,
-                "camera and light generated data survive round trip"))
+                    decoded_light_settings->color.g() == 0.5F &&
+                    *decoded_light_settings == light_settings,
+                "camera and light generated data survive round trip") ||
+        !expect(*environment_data->payload.AsEnvironmentData() == environment_settings &&
+                    *post_process_data->payload.AsPostProcessData() == post_process_settings,
+                "all environment and camera post-process fields survive FlatBuffers round trip"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    engine::Scene* loaded = world.create_scene("Restored scene");
+    if (!expect(loaded != nullptr, "create scene for restored component data"))
+    {
+        return false;
+    }
+    auto* loaded_root = loaded->create_node("Environment");
+    auto* loaded_camera = loaded->create_node("Camera");
+    auto* loaded_environment = loaded_root == nullptr
+                                   ? nullptr
+                                   : loaded_root->add_component<engine::EnvironmentComponent>();
+    auto* loaded_post_process = loaded_camera == nullptr
+                                    ? nullptr
+                                    : loaded_camera->add_component<engine::PostProcessComponent>();
+    if (!expect(loaded_environment != nullptr && loaded_post_process != nullptr &&
+                    loaded_camera->add_component<engine::Camera>() != nullptr &&
+                    loaded_environment->restore_data(*environment_data) &&
+                    loaded_post_process->restore_data(*post_process_data) &&
+                    loaded_environment->settings() == environment_settings &&
+                    loaded_post_process->settings() == post_process_settings,
+                "public component contract restores environment and post-process behavior"))
     {
         return false;
     }

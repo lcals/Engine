@@ -4,9 +4,12 @@
 #include "runtime/ui/ui_system.hpp"
 
 #include "runtime/resource/resource.hpp"
+#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/mesh_utils.hpp"
@@ -44,6 +47,7 @@
 #include <set>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace engine
@@ -56,8 +60,139 @@ RenderSystem* active_renderer = nullptr;
 constexpr std::uint16_t shadow_view = 0;
 constexpr std::uint16_t main_view = 1;
 constexpr std::uint8_t shadow_sampler_stage = 15;
+constexpr std::uint8_t ibl_irradiance_stage = 12;
+constexpr std::uint8_t ibl_prefilter_stage = 13;
+constexpr std::uint8_t ibl_lut_stage = 14;
 constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
 constexpr std::size_t maximum_lights = 64;
+
+// 仅在当前主线程调用期间借用；不缓存跨帧或跨场景的组件指针。
+struct SceneRenderComponents
+{
+    EnvironmentComponent* environment = nullptr;
+    PostProcessComponent* post_process = nullptr;
+    Light* shadow_light = nullptr;
+};
+
+bool scene_render_components(Scene& scene, SceneRenderComponents& output)
+{
+    output = {};
+    Light* first_directional = nullptr;
+    for (const auto& node : scene.nodes())
+    {
+        auto* environment = node->get_component<EnvironmentComponent>();
+        if (environment != nullptr && environment->enabled())
+        {
+            if (output.environment != nullptr)
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                             "Scene contains multiple enabled environment components");
+                output = {};
+                return false;
+            }
+            output.environment = environment;
+        }
+        auto* light = node->get_component<Light>();
+        if (light == nullptr || !light->enabled() ||
+            light->settings().kind != schema::LightKind::directional)
+        {
+            continue;
+        }
+        if (first_directional == nullptr)
+        {
+            first_directional = light;
+        }
+        if (light->settings().cast_shadows)
+        {
+            if (output.shadow_light != nullptr)
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                             "Scene contains multiple shadow-casting directional lights");
+                output = {};
+                return false;
+            }
+            output.shadow_light = light;
+        }
+    }
+    if (output.shadow_light == nullptr)
+    {
+        output.shadow_light = first_directional;
+    }
+    // 独立观察镜头只决定观察位置；后处理始终来自世界场景的活动相机。
+    if (auto* camera = scene.active_camera(); camera != nullptr && camera->enabled())
+    {
+        auto* post_process = camera->node().get_component<PostProcessComponent>();
+        if (post_process != nullptr && post_process->enabled())
+        {
+            output.post_process = post_process;
+        }
+    }
+    return true;
+}
+
+std::array<float, 3> color_channels(const Color& color)
+{
+    return {color.r(), color.g(), color.b()};
+}
+
+RenderSettings render_settings(const SceneRenderComponents& components)
+{
+    RenderSettings settings;
+    if (components.environment != nullptr)
+    {
+        const auto& environment = components.environment->settings();
+        settings.ambient_color = color_channels(environment.ambient_color);
+        settings.ambient_intensity = environment.ambient_intensity;
+        settings.ambient_tricolor = environment.ambient_tricolor;
+        settings.ambient_sky_color = color_channels(environment.ambient_sky_color);
+        settings.ambient_equator_color = color_channels(environment.ambient_equator_color);
+        settings.ambient_ground_color = color_channels(environment.ambient_ground_color);
+        settings.fog_mode = static_cast<FogMode>(environment.fog_mode);
+        settings.fog_color = color_channels(environment.fog_color);
+        settings.fog_start = environment.fog_start;
+        settings.fog_end = environment.fog_end;
+        settings.fog_density = environment.fog_density;
+        settings.clear_color = environment.clear_color;
+        settings.ibl_enabled = environment.ibl_enabled;
+        settings.ibl_intensity = environment.ibl_intensity;
+    }
+    if (components.post_process != nullptr)
+    {
+        settings.exposure = components.post_process->settings().exposure;
+        settings.filmic_tonemap = components.post_process->settings().filmic_tonemap;
+    }
+    if (components.shadow_light != nullptr)
+    {
+        const auto& light = components.shadow_light->settings();
+        settings.directional_shadows = light.cast_shadows;
+        settings.shadow_resolution = light.shadow_resolution;
+        settings.shadow_bias = light.shadow_bias;
+    }
+    return settings;
+}
+
+void update_environment(const RenderSettings& settings, EnvironmentSettings& environment)
+{
+    const auto color = [](const std::array<float, 3>& channels, const Color& previous)
+    { return Color{channels[0], channels[1], channels[2], previous.a()}; };
+    environment.ambient_color = color(settings.ambient_color, environment.ambient_color);
+    environment.ambient_intensity = settings.ambient_intensity;
+    environment.ambient_tricolor = settings.ambient_tricolor;
+    environment.ambient_sky_color =
+        color(settings.ambient_sky_color, environment.ambient_sky_color);
+    environment.ambient_equator_color =
+        color(settings.ambient_equator_color, environment.ambient_equator_color);
+    environment.ambient_ground_color =
+        color(settings.ambient_ground_color, environment.ambient_ground_color);
+    environment.fog_mode = static_cast<schema::FogMode>(settings.fog_mode);
+    environment.fog_color = color(settings.fog_color, environment.fog_color);
+    environment.fog_start = settings.fog_start;
+    environment.fog_end = settings.fog_end;
+    environment.fog_density = settings.fog_density;
+    environment.clear_color = settings.clear_color;
+    environment.ibl_enabled = settings.ibl_enabled;
+    environment.ibl_intensity = settings.ibl_intensity;
+}
 
 bool finite_matrix(const float* matrix)
 {
@@ -81,8 +216,7 @@ std::uint64_t cull_state(schema::CullMode mode, const float* model)
         return 0;
     }
     const bool mirrored = linear_determinant(model) < 0.0;
-    return mirrored != (mode == schema::CullMode::front) ? BGFX_STATE_CULL_CCW
-                                                        : BGFX_STATE_CULL_CW;
+    return mirrored != (mode == schema::CullMode::front) ? BGFX_STATE_CULL_CCW : BGFX_STATE_CULL_CW;
 }
 
 bool camera_view(const float* world, float* view)
@@ -390,6 +524,39 @@ struct RenderSystem::SceneGpuResources
                 return false;
             }
             const auto size = static_cast<std::uint32_t>(data->data.size());
+            if (data->encoding == schema::TextureEncoding::ktx)
+            {
+                const auto format = data->format == schema::TextureFormat::rgba16f
+                                        ? bgfx::TextureFormat::RGBA16F
+                                        : bgfx::TextureFormat::RG16F;
+                const auto required =
+                    data->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D;
+                if (data->srgb ||
+                    (data->format != schema::TextureFormat::rgba16f &&
+                     data->format != schema::TextureFormat::rg16f) ||
+                    (caps->formats[format] & required) == 0 ||
+                    !bgfx::isTextureValid(0, data->cube_map, 1, format, 0))
+                {
+                    return false;
+                }
+                bgfx::TextureInfo info{};
+                handle = bgfx::createTexture(
+                    bgfx::copy(data->data.data(), size),
+                    BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP, 0, &info);
+                if (!bgfx::isValid(handle) || info.width != data->width ||
+                    info.height != data->height || info.cubeMap != data->cube_map ||
+                    info.numLayers != 1 || info.numMips != data->mip_count || info.format != format)
+                {
+                    if (bgfx::isValid(handle))
+                    {
+                        bgfx::destroy(handle);
+                        handle = BGFX_INVALID_HANDLE;
+                    }
+                    return false;
+                }
+                resource = source;
+                return true;
+            }
             basist::basisu_transcoder decoder;
             if (data->encoding == schema::TextureEncoding::basis &&
                 (!decoder.validate_header(data->data.data(), size) ||
@@ -618,13 +785,17 @@ struct RenderSystem::SceneGpuResources
                         name == "u_ambient_equator" || name == "u_ambient_ground" ||
                         name == "u_fog_color" || name == "u_fog_range" ||
                         name == "u_shadow_transform" || name == "u_shadow_settings" ||
-                        name == "u_shadow_depth" || name == "s_shadow_map" || light_array)
+                        name == "u_shadow_depth" || name == "s_shadow_map" ||
+                        name == "u_ibl_params" || name == "s_ibl_irradiance" ||
+                        name == "s_ibl_prefilter" || name == "s_ibl_lut" || light_array)
                     {
                         const auto type =
                             name == "u_normal_transform" || name == "u_shadow_transform"
                                 ? bgfx::UniformType::Mat4
-                            : name == "s_shadow_map" ? bgfx::UniformType::Sampler
-                                                     : bgfx::UniformType::Vec4;
+                            : name == "s_shadow_map" || name == "s_ibl_irradiance" ||
+                                    name == "s_ibl_prefilter" || name == "s_ibl_lut"
+                                ? bgfx::UniformType::Sampler
+                                : bgfx::UniformType::Vec4;
                         const auto expected_count = light_array ? maximum_lights : 1;
                         if (info.type != type || info.num != expected_count)
                         {
@@ -676,7 +847,7 @@ struct RenderSystem::SceneGpuResources
             {
                 if (!declared(item->uniform_name) ||
                     item->stage >= bgfx::getCaps()->limits.maxTextureSamplers ||
-                    item->stage == shadow_sampler_stage)
+                    item->stage >= ibl_irradiance_stage)
                 {
                     return false;
                 }
@@ -814,7 +985,8 @@ struct RenderSystem::SceneGpuResources
                 const auto texture =
                     std::find_if(textures.begin(), textures.end(), [&resource](const auto& item)
                                  { return item.resource == resource; });
-                if (!resource || texture == textures.end())
+                if (!resource || resource->texture() == nullptr || resource->texture()->cube_map ||
+                    texture == textures.end())
                 {
                     return false;
                 }
@@ -1120,9 +1292,8 @@ struct RenderSystem::SceneGpuResources
             alpha = bgfx::createUniform("u_shadow_alpha", bgfx::UniformType::Vec4);
             alpha_sampler = bgfx::createUniform("s_shadow_alpha", bgfx::UniformType::Sampler);
             uv_transform = bgfx::createUniform("u_shadow_uv", bgfx::UniformType::Vec4);
-            if (!bgfx::isValid(framebuffer) || !bgfx::isValid(program) ||
-                !bgfx::isValid(alpha) || !bgfx::isValid(alpha_sampler) ||
-                !bgfx::isValid(uv_transform))
+            if (!bgfx::isValid(framebuffer) || !bgfx::isValid(program) || !bgfx::isValid(alpha) ||
+                !bgfx::isValid(alpha_sampler) || !bgfx::isValid(uv_transform))
             {
                 release();
                 return false;
@@ -1169,8 +1340,84 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle shadow_depth = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_sampler = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle shadow_fallback = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ibl_params = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ibl_irradiance_sampler = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ibl_prefilter_sampler = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ibl_lut_sampler = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle ibl_cube_fallback = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle ibl_lut_fallback = BGFX_INVALID_HANDLE;
+    std::array<Texture, 3> ibl_textures;
+    std::uint64_t ibl_generation = 0;
     Shadow shadow;
     std::vector<Program> programs;
+
+    bool prepare_ibl(const Scene& scene)
+    {
+        const EnvironmentSettings* environment = nullptr;
+        for (const auto& node : scene.nodes())
+        {
+            const auto* component = node->get_component<EnvironmentComponent>();
+            if (component != nullptr && component->enabled())
+            {
+                environment = &component->settings();
+                break;
+            }
+        }
+        if (environment == nullptr || environment->ibl_irradiance_guid.empty())
+        {
+            for (auto& texture : ibl_textures)
+            {
+                texture.release();
+            }
+            ibl_generation = 0;
+            return true;
+        }
+        auto* resources = ResourceSystem::instance();
+        if (resources == nullptr)
+        {
+            return false;
+        }
+        const std::array guids = {&environment->ibl_irradiance_guid,
+                                  &environment->ibl_prefilter_guid, &environment->ibl_lut_guid};
+        bool changed = ibl_generation != resources->generation();
+        for (std::size_t index = 0; index < guids.size(); ++index)
+        {
+            changed = changed || !ibl_textures[index].resource ||
+                      ibl_textures[index].resource->info().guid != *guids[index];
+        }
+        if (!changed)
+        {
+            return true;
+        }
+        std::array<Texture, 3> candidate;
+        for (std::size_t index = 0; index < guids.size(); ++index)
+        {
+            ResourcePtr source;
+            const bool loaded = resources->loader().load(*guids[index], source);
+            const auto* texture = source ? source->texture() : nullptr;
+            const bool cube = index < 2;
+            const auto format =
+                cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
+            if (!loaded || texture == nullptr || texture->cube_map != cube || texture->srgb ||
+                texture->format != format || !candidate[index].create(source))
+            {
+                for (auto& item : candidate)
+                {
+                    item.release();
+                }
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Invalid IBL texture resource: %s",
+                             guids[index]->c_str());
+                return false;
+            }
+        }
+        for (std::size_t index = 0; index < candidate.size(); ++index)
+        {
+            ibl_textures[index].release();
+            ibl_textures[index] = std::move(candidate[index]);
+        }
+        ibl_generation = resources->generation();
+        return true;
+    }
 
     bool bind_shadow_material(const Material& material)
     {
@@ -1219,9 +1466,9 @@ struct RenderSystem::SceneGpuResources
             }
             base_alpha = static_cast<float>(tint.w());
             const auto& resource = material.texture("baseColorTexture");
-            const auto found = std::find_if(textures.begin(), textures.end(),
-                                            [&resource](const auto& item)
-                                            { return item.resource == resource; });
+            const auto found =
+                std::find_if(textures.begin(), textures.end(),
+                             [&resource](const auto& item) { return item.resource == resource; });
             if (!resource || found == textures.end())
             {
                 return false;
@@ -1243,10 +1490,9 @@ struct RenderSystem::SceneGpuResources
         }
         const float alpha[] = {cutoff, base_alpha, 0.0F, 0.0F};
         bgfx::setUniform(shadow.alpha, alpha);
-        const float uv[] = {static_cast<float>(uv_transform.x()),
-                             static_cast<float>(uv_transform.y()),
-                             static_cast<float>(uv_transform.z()),
-                             static_cast<float>(uv_transform.w())};
+        const float uv[] = {
+            static_cast<float>(uv_transform.x()), static_cast<float>(uv_transform.y()),
+            static_cast<float>(uv_transform.z()), static_cast<float>(uv_transform.w())};
         bgfx::setUniform(shadow.uv_transform, uv);
         bgfx::setTexture(0, shadow.alpha_sampler, texture);
         return true;
@@ -1511,8 +1757,8 @@ bool RenderSystem::initialize_renderer()
 
     bgfx::setViewName(main_view, "Main window");
     bgfx::setViewName(shadow_view, "Directional shadow");
-    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, settings_.clear_color, 1.0F,
-                       0);
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, idle_settings_.clear_color,
+                       1.0F, 0);
     bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
     SDL_Log("Renderer initialized: %s (%u x %u)", bgfx::getRendererName(bgfx::getRendererType()),
             width_, height_);
@@ -1522,6 +1768,11 @@ bool RenderSystem::initialize_renderer()
 bool RenderSystem::prepare_scene(const Camera* camera)
 {
     if (!is_initialized())
+    {
+        return false;
+    }
+    RenderSettings current_settings;
+    if (!resolve_settings(current_settings))
     {
         return false;
     }
@@ -1609,15 +1860,37 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             bgfx::createUniform("u_shadow_settings", bgfx::UniformType::Vec4);
         resources.shadow_depth = bgfx::createUniform("u_shadow_depth", bgfx::UniformType::Vec4);
         resources.shadow_sampler = bgfx::createUniform("s_shadow_map", bgfx::UniformType::Sampler);
-        for (auto uniform :
-             {resources.normal_transform, resources.camera_position, resources.light_direction,
-              resources.light_color, resources.light_count, resources.light_position_range,
-              resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner, resources.ambient, resources.tonemap, resources.surface,
-              resources.ambient_sky, resources.ambient_equator, resources.ambient_ground,
-              resources.fog_color, resources.fog_range,
-              resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
-              resources.shadow_sampler})
+        resources.ibl_params = bgfx::createUniform("u_ibl_params", bgfx::UniformType::Vec4);
+        resources.ibl_irradiance_sampler =
+            bgfx::createUniform("s_ibl_irradiance", bgfx::UniformType::Sampler);
+        resources.ibl_prefilter_sampler =
+            bgfx::createUniform("s_ibl_prefilter", bgfx::UniformType::Sampler);
+        resources.ibl_lut_sampler = bgfx::createUniform("s_ibl_lut", bgfx::UniformType::Sampler);
+        for (auto uniform : {resources.normal_transform,
+                             resources.camera_position,
+                             resources.light_direction,
+                             resources.light_color,
+                             resources.light_count,
+                             resources.light_position_range,
+                             resources.light_direction_outer,
+                             resources.light_color_intensity,
+                             resources.light_kind_inner,
+                             resources.ambient,
+                             resources.tonemap,
+                             resources.surface,
+                             resources.ambient_sky,
+                             resources.ambient_equator,
+                             resources.ambient_ground,
+                             resources.fog_color,
+                             resources.fog_range,
+                             resources.shadow_transform,
+                             resources.shadow_settings,
+                             resources.shadow_depth,
+                             resources.shadow_sampler,
+                             resources.ibl_params,
+                             resources.ibl_irradiance_sampler,
+                             resources.ibl_prefilter_sampler,
+                             resources.ibl_lut_sampler})
         {
             if (!bgfx::isValid(uniform))
             {
@@ -1631,7 +1904,18 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
                 BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT,
             bgfx::copy(&white, sizeof(white)));
+        constexpr std::array<std::uint32_t, 6> black_cube{};
+        constexpr std::uint64_t ibl_flags =
+            BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_W_CLAMP;
+        resources.ibl_cube_fallback =
+            bgfx::createTextureCube(1, false, 1, bgfx::TextureFormat::RGBA8, ibl_flags,
+                                    bgfx::copy(black_cube.data(), sizeof(black_cube)));
+        resources.ibl_lut_fallback =
+            bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, ibl_flags,
+                                  bgfx::copy(black_cube.data(), sizeof(std::uint32_t)));
         if (!bgfx::isValid(resources.shadow_fallback) ||
+            !bgfx::isValid(resources.ibl_cube_fallback) ||
+            !bgfx::isValid(resources.ibl_lut_fallback) ||
             bgfx::getCaps()->limits.maxTextureSamplers <= shadow_sampler_stage)
         {
             release_scene();
@@ -1640,6 +1924,11 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         scene_id_ = scene->id();
     }
     auto& resources = *scene_resources_;
+    if (!resources.prepare_ibl(*scene))
+    {
+        release_scene();
+        return false;
+    }
     auto& programs = resources.programs;
     auto& meshes = resources.meshes;
     auto& textures = resources.textures;
@@ -1822,20 +2111,47 @@ void RenderSystem::release_draw_resources() noexcept
         {
             texture.release();
         }
+        for (auto& texture : resources.ibl_textures)
+        {
+            texture.release();
+        }
         resources.shadow.release();
         if (bgfx::isValid(resources.shadow_fallback))
         {
             bgfx::destroy(resources.shadow_fallback);
         }
-        for (auto uniform :
-             {resources.normal_transform, resources.camera_position, resources.light_direction,
-              resources.light_color, resources.light_count, resources.light_position_range,
-              resources.light_direction_outer, resources.light_color_intensity,
-              resources.light_kind_inner, resources.ambient, resources.tonemap, resources.surface,
-              resources.ambient_sky, resources.ambient_equator, resources.ambient_ground,
-              resources.fog_color, resources.fog_range,
-              resources.shadow_transform, resources.shadow_settings, resources.shadow_depth,
-              resources.shadow_sampler})
+        for (auto fallback : {resources.ibl_cube_fallback, resources.ibl_lut_fallback})
+        {
+            if (bgfx::isValid(fallback))
+            {
+                bgfx::destroy(fallback);
+            }
+        }
+        for (auto uniform : {resources.normal_transform,
+                             resources.camera_position,
+                             resources.light_direction,
+                             resources.light_color,
+                             resources.light_count,
+                             resources.light_position_range,
+                             resources.light_direction_outer,
+                             resources.light_color_intensity,
+                             resources.light_kind_inner,
+                             resources.ambient,
+                             resources.tonemap,
+                             resources.surface,
+                             resources.ambient_sky,
+                             resources.ambient_equator,
+                             resources.ambient_ground,
+                             resources.fog_color,
+                             resources.fog_range,
+                             resources.shadow_transform,
+                             resources.shadow_settings,
+                             resources.shadow_depth,
+                             resources.shadow_sampler,
+                             resources.ibl_params,
+                             resources.ibl_irradiance_sampler,
+                             resources.ibl_prefilter_sampler,
+                             resources.ibl_lut_sampler})
         {
             if (bgfx::isValid(uniform))
             {
@@ -1852,6 +2168,16 @@ bool RenderSystem::scene_prepared() const noexcept
     return scene_resources_ != nullptr;
 }
 
+bool RenderSystem::gpu_ready() const noexcept
+{
+    return renderer_initialized_;
+}
+
+std::uint32_t RenderSystem::frame_number() const noexcept
+{
+    return frame_number_;
+}
+
 bool RenderSystem::set_settings(const RenderSettings& settings)
 {
     const auto valid_color = [](const std::array<float, 3>& color)
@@ -1861,10 +2187,9 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
     };
     if (!valid_color(settings.ambient_color) || !valid_color(settings.ambient_sky_color) ||
         !valid_color(settings.ambient_equator_color) ||
-        !valid_color(settings.ambient_ground_color) ||
-        !valid_color(settings.fog_color) || !std::isfinite(settings.fog_start) ||
-        !std::isfinite(settings.fog_end) || settings.fog_start < 0.0F ||
-        settings.fog_end <= settings.fog_start ||
+        !valid_color(settings.ambient_ground_color) || !valid_color(settings.fog_color) ||
+        !std::isfinite(settings.fog_start) || !std::isfinite(settings.fog_end) ||
+        settings.fog_start < 0.0F || settings.fog_end <= settings.fog_start ||
         !std::isfinite(settings.fog_density) || settings.fog_density < 0.0F ||
         (settings.fog_mode != FogMode::none && settings.fog_mode != FogMode::linear &&
          settings.fog_mode != FogMode::exponential &&
@@ -1872,22 +2197,115 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
         !std::isfinite(settings.ambient_intensity) || settings.ambient_intensity < 0.0F ||
         settings.ambient_intensity > 1000.0F || !std::isfinite(settings.exposure) ||
         settings.exposure <= 0.0F || settings.exposure > 100.0F ||
-        !std::isfinite(settings.shadow_bias) || settings.shadow_bias < 0.0F ||
-        settings.shadow_bias > 0.1F || settings.shadow_resolution < 128 ||
-        settings.shadow_resolution > 8192 ||
+        !std::isfinite(settings.ibl_intensity) || settings.ibl_intensity < 0.0F ||
+        settings.ibl_intensity > 1000.0F || !std::isfinite(settings.shadow_bias) ||
+        settings.shadow_bias < 0.0F || settings.shadow_bias > 0.1F ||
+        settings.shadow_resolution < 128 || settings.shadow_resolution > 8192 ||
         (settings.shadow_resolution & (settings.shadow_resolution - 1)) != 0 ||
         (renderer_initialized_ && settings.directional_shadows &&
          settings.shadow_resolution > bgfx::getCaps()->limits.maxTextureSize))
     {
         return false;
     }
-    settings_ = settings;
+    Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
+    if (scene == nullptr)
+    {
+        idle_settings_ = settings;
+        return true;
+    }
+    SceneRenderComponents components;
+    if (!scene_render_components(*scene, components))
+    {
+        return false;
+    }
+
+    const EnvironmentSettings before_environment = components.environment != nullptr
+                                                       ? components.environment->settings()
+                                                       : EnvironmentSettings{};
+    auto after_environment = before_environment;
+    update_environment(settings, after_environment);
+    const PostProcessSettings before_post_process = components.post_process != nullptr
+                                                        ? components.post_process->settings()
+                                                        : PostProcessSettings{};
+    auto after_post_process = before_post_process;
+    after_post_process.exposure = settings.exposure;
+    after_post_process.filmic_tonemap = settings.filmic_tonemap;
+    const LightSettings before_light =
+        components.shadow_light != nullptr ? components.shadow_light->settings() : LightSettings{};
+    auto after_light = before_light;
+    after_light.cast_shadows = settings.directional_shadows;
+    after_light.shadow_resolution = settings.shadow_resolution;
+    after_light.shadow_bias = settings.shadow_bias;
+
+    const bool environment_changed = before_environment != after_environment;
+    const bool post_process_changed = before_post_process != after_post_process;
+    const bool light_changed = before_light != after_light;
+    if ((environment_changed && components.environment == nullptr) ||
+        (post_process_changed && components.post_process == nullptr) ||
+        (light_changed && components.shadow_light == nullptr))
+    {
+        return false;
+    }
+    if (environment_changed && !components.environment->set_settings(after_environment))
+    {
+        return false;
+    }
+    if (post_process_changed && !components.post_process->set_settings(after_post_process))
+    {
+        if (environment_changed && !components.environment->set_settings(before_environment))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot restore previous environment settings");
+        }
+        return false;
+    }
+    if (light_changed && !components.shadow_light->set_settings(after_light))
+    {
+        if (post_process_changed && !components.post_process->set_settings(before_post_process))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot restore previous post-process settings");
+        }
+        if (environment_changed && !components.environment->set_settings(before_environment))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot restore previous environment settings");
+        }
+        return false;
+    }
     return true;
 }
 
-const RenderSettings& RenderSystem::settings() const noexcept
+bool RenderSystem::resolve_settings(RenderSettings& settings) const noexcept
 {
-    return settings_;
+    settings = {};
+    Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
+    if (scene == nullptr)
+    {
+        settings = idle_settings_;
+        return true;
+    }
+    SceneRenderComponents components;
+    if (!scene_render_components(*scene, components))
+    {
+        return false;
+    }
+    settings = render_settings(components);
+    if (renderer_initialized_ && settings.directional_shadows &&
+        settings.shadow_resolution > bgfx::getCaps()->limits.maxTextureSize)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Directional shadow resolution exceeds device limit");
+        settings = {};
+        return false;
+    }
+    return true;
+}
+
+RenderSettings RenderSystem::settings() const noexcept
+{
+    RenderSettings current;
+    if (!resolve_settings(current))
+    {
+        return {};
+    }
+    return current;
 }
 
 void RenderSystem::set_stats_visible(bool visible)
@@ -1964,7 +2382,17 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_depth)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_sampler)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_fallback)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_params)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_irradiance_sampler)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_prefilter_sampler)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_lut_sampler)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_cube_fallback)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_lut_fallback)) +
         resources.shadow.resource_count();
+    for (const auto& texture : resources.ibl_textures)
+    {
+        count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
+    }
     for (const auto& mesh : resources.meshes)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
@@ -1992,7 +2420,7 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::draw_scene(const Camera* view_camera)
+bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& rendering)
 {
     if (!prepare_scene(view_camera))
     {
@@ -2041,6 +2469,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera)
     std::array<std::array<float, 4>, maximum_lights> light_color_intensity{};
     std::array<std::array<float, 4>, maximum_lights> light_kind_inner{};
     std::size_t light_count = 0;
+    std::size_t shadow_light = maximum_lights;
     for (const auto& node : scene->nodes())
     {
         const Light* light = node->get_component<Light>();
@@ -2069,6 +2498,10 @@ bool RenderSystem::draw_scene(const Camera* view_camera)
         }
         constexpr float degrees_to_radians = 0.01745329251994329577F;
         const LightSettings& lighting = light->settings();
+        if (lighting.kind == schema::LightKind::directional && lighting.cast_shadows)
+        {
+            shadow_light = light_count;
+        }
         light_position_range[light_count] = {world[12], world[13], world[14], lighting.range};
         light_direction_outer[light_count] = {static_cast<float>(-world[8] / length),
                                               static_cast<float>(-world[9] / length),
@@ -2091,24 +2524,12 @@ bool RenderSystem::draw_scene(const Camera* view_camera)
     }
     const float count_value[] = {static_cast<float>(light_count), 0.0F, 0.0F, 0.0F};
     SceneGpuResources& resources = *scene_resources_;
-    std::size_t shadow_light = light_count;
-    if (settings_.directional_shadows)
-    {
-        for (std::size_t index = 0; index < light_count; ++index)
-        {
-            if (light_kind_inner[index][0] == static_cast<float>(schema::LightKind::directional))
-            {
-                shadow_light = index;
-                break;
-            }
-        }
-    }
     float shadow_transform[16]{};
     bx::mtxIdentity(shadow_transform);
     const bool shadow_enabled = shadow_light < light_count;
     if (shadow_enabled)
     {
-        if (!resources.shadow.prepare(settings_.shadow_resolution) ||
+        if (!resources.shadow.prepare(rendering.shadow_resolution) ||
             !resources.draw_shadow(*scene, light_direction_outer[shadow_light], shadow_transform))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot render directional shadow map");
@@ -2119,26 +2540,35 @@ bool RenderSystem::draw_scene(const Camera* view_camera)
     {
         resources.shadow.release();
     }
-    const float shadow_settings[] = {settings_.shadow_bias, 1.0F / settings_.shadow_resolution,
+    const float shadow_settings[] = {rendering.shadow_bias, 1.0F / rendering.shadow_resolution,
                                      static_cast<float>(shadow_light),
                                      shadow_enabled ? 1.0F : 0.0F};
-    const float ambient[] = {settings_.ambient_color[0], settings_.ambient_color[1],
-                             settings_.ambient_color[2], settings_.ambient_intensity};
-    const float ambient_sky[] = {settings_.ambient_sky_color[0], settings_.ambient_sky_color[1],
-                                 settings_.ambient_sky_color[2],
-                                 settings_.ambient_tricolor ? 1.0F : 0.0F};
-    const float ambient_equator[] = {
-        settings_.ambient_equator_color[0], settings_.ambient_equator_color[1],
-        settings_.ambient_equator_color[2], 0.0F};
-    const float ambient_ground[] = {settings_.ambient_ground_color[0],
-                                    settings_.ambient_ground_color[1],
-                                    settings_.ambient_ground_color[2], 0.0F};
-    const float fog_color[] = {settings_.fog_color[0], settings_.fog_color[1],
-                               settings_.fog_color[2], static_cast<float>(settings_.fog_mode)};
-    const float fog_range[] = {settings_.fog_start, settings_.fog_end, settings_.fog_density,
+    const float ambient[] = {rendering.ambient_color[0], rendering.ambient_color[1],
+                             rendering.ambient_color[2], rendering.ambient_intensity};
+    const float ambient_sky[] = {rendering.ambient_sky_color[0], rendering.ambient_sky_color[1],
+                                 rendering.ambient_sky_color[2],
+                                 rendering.ambient_tricolor ? 1.0F : 0.0F};
+    const float ambient_equator[] = {rendering.ambient_equator_color[0],
+                                     rendering.ambient_equator_color[1],
+                                     rendering.ambient_equator_color[2], 0.0F};
+    const float ambient_ground[] = {rendering.ambient_ground_color[0],
+                                    rendering.ambient_ground_color[1],
+                                    rendering.ambient_ground_color[2], 0.0F};
+    const float fog_color[] = {rendering.fog_color[0], rendering.fog_color[1],
+                               rendering.fog_color[2], static_cast<float>(rendering.fog_mode)};
+    const float fog_range[] = {rendering.fog_start, rendering.fog_end, rendering.fog_density,
                                settings.near_clip};
-    const float tonemap[] = {settings_.exposure, settings_.filmic_tonemap ? 1.0F : 0.0F, 0.0F,
+    const float tonemap[] = {rendering.exposure, rendering.filmic_tonemap ? 1.0F : 0.0F, 0.0F,
                              0.0F};
+    const bool ibl_ready =
+        rendering.ibl_enabled &&
+        std::all_of(resources.ibl_textures.begin(), resources.ibl_textures.end(),
+                    [](const auto& texture) { return bgfx::isValid(texture.handle); });
+    const float ibl_params[] = {
+        ibl_ready ? 1.0F : 0.0F, rendering.ibl_intensity,
+        ibl_ready ? static_cast<float>(resources.ibl_textures[1].resource->texture()->mip_count - 1)
+                  : 0.0F,
+        0.0F};
     for (const auto& node : scene->nodes())
     {
         const MeshRenderer* renderer = node->get_component<MeshRenderer>();
@@ -2203,8 +2633,18 @@ bool RenderSystem::draw_scene(const Camera* view_camera)
             bgfx::setUniform(resources.fog_color, fog_color);
             bgfx::setUniform(resources.fog_range, fog_range);
             bgfx::setUniform(resources.tonemap, tonemap);
+            bgfx::setUniform(resources.ibl_params, ibl_params);
+            bgfx::setTexture(ibl_irradiance_stage, resources.ibl_irradiance_sampler,
+                             ibl_ready ? resources.ibl_textures[0].handle
+                                       : resources.ibl_cube_fallback);
+            bgfx::setTexture(ibl_prefilter_stage, resources.ibl_prefilter_sampler,
+                             ibl_ready ? resources.ibl_textures[1].handle
+                                       : resources.ibl_cube_fallback);
+            bgfx::setTexture(ibl_lut_stage, resources.ibl_lut_sampler,
+                             ibl_ready ? resources.ibl_textures[2].handle
+                                       : resources.ibl_lut_fallback);
             const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F : 0.0F,
-                                      0.0F, 0.0F, 0.0F};
+                                     0.0F, 0.0F, 0.0F};
             bgfx::setUniform(resources.surface, surface);
             bgfx::setUniform(resources.shadow_transform, shadow_transform);
             bgfx::setUniform(resources.shadow_settings, shadow_settings);
@@ -2290,13 +2730,19 @@ bool RenderSystem::render(const Camera* camera)
         height_ = height;
     }
 
-    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, settings_.clear_color, 1.0F,
-                       0);
+    RenderSettings current_settings;
+    if (!resolve_settings(current_settings))
+    {
+        return false;
+    }
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, current_settings.clear_color,
+                       1.0F, 0);
     bgfx::setViewRect(main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(main_view);
-    const bool drawn = draw_scene(camera) && (ui_ == nullptr || ui_->render(width_, height_));
-    bgfx::frame();
+    const bool drawn =
+        draw_scene(camera, current_settings) && (ui_ == nullptr || ui_->render(width_, height_));
+    frame_number_ = bgfx::frame();
     return drawn;
 }
 
@@ -2319,6 +2765,7 @@ void RenderSystem::shutdown_renderer() noexcept
     {
         bgfx::shutdown();
         renderer_initialized_ = false;
+        frame_number_ = 0;
         active_renderer = nullptr;
     }
     if (callbacks_ != nullptr && callbacks_->status.load() == ScreenshotStatus::pending)

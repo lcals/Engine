@@ -1,4 +1,4 @@
-import { Debug, Gameplay, Render, Scene, UiComponent } from "engine";
+import { Debug, Gameplay, Scene, UiComponent } from "engine";
 import { LauncherController } from "../controllers/launcher_controller.js";
 import { LauncherChoice, LauncherModel } from "../models/launcher_model.js";
 import Minimal from "./minimal.js";
@@ -41,14 +41,6 @@ export default class Game extends Gameplay {
     private open_menu(): boolean {
         this.model.selected = null;
         this.model.pending = null;
-        if (
-            !Render.SetAmbient(1, 1, 1, 0) ||
-            !Render.SetExposure(1) ||
-            !Render.SetFilmicTonemap(false) ||
-            !Render.SetDirectionalShadows(false, 2048, 0.001) ||
-            !Render.SetClearColor(0x0e1726ff)
-        )
-            return false;
         const scene = Scene.Load("project/scenes/launcher.scene");
         const view = scene?.FindNode("Launcher UI")?.GetComponent(UiComponent);
         if (!view) return false;

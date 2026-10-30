@@ -33,7 +33,7 @@ classDiagram
 - `SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个 `[r,g,b]` 线性颜色数组并开启三色模式；调用 `SetAmbient` 恢复常量色模式。`SetLinearFog(enabled, r, g, b, start, end)` 提交线性雾，颜色为线性 `0..1`，距离为世界单位，要求 `0 <= start < end`。`SetExponentialFog(enabled, r, g, b, density, squared=false)` 使用指数雾，squared=true 使用平方指数雾；density 为非负有限数，距离取前向深度减近裁面。两个雾接口写入同一 fog_mode，互相替换；关闭雾同样提交并保留参数，后续可再次开启。
 - `SetClearColor` 接收无符号 32 位整数，按 `0xRRGGBBAA` 打包；不接受负数、小数或溢出值。MCP 的 `clearColor` 输入为归一化 `[r,g,b,a]` 数组，两者采用相同的 RGBA 通道顺序，并提交同一个原生字段。
 - 预检、模块顶层、构造和旧 Context 不得修改设置；未注入渲染器时返回 false。宿主保证渲染器覆盖全部玩法回调，停止脚本后再销毁渲染器；绑定不拥有该服务。
-- 项目可在 Gameplay.OnInitialize 中应用自己的环境色、阴影和曝光，重启、热重载及 Android 使用同一绑定。设置不自动写入 Scene，也不改变引擎默认值；项目选择的值由项目脚本保存。
+- 场景初始外观保存在 EnvironmentComponent、活动相机上的 PostProcessComponent 与 Light 中。Render 静态门面更新当前场景的已有组件，缺少所需组件时返回 false，不隐式创建节点；无场景时仅修改待机默认值。项目脚本优先获取组件并动态修改，停止或切换场景不会留下上一场景的覆盖参数。
 
 ```mermaid
 classDiagram
@@ -42,7 +42,20 @@ classDiagram
         +SetPerspective(number fovDegrees, number nearClip, number farClip) boolean
         +SetOrthographic(number size, number nearClip, number farClip) boolean
     }
+    class EnvironmentComponent {
+        +SetIbl(boolean enabled, number intensity) boolean
+        +SetAmbient(number r, number g, number b, number intensity) boolean
+        +SetAmbientTricolor(number[] sky, number[] equator, number[] ground, number intensity) boolean
+        +SetLinearFog(boolean enabled, number r, number g, number b, number start, number end) boolean
+        +SetExponentialFog(boolean enabled, number r, number g, number b, number density, boolean squared) boolean
+        +SetClearColor(number rgba) boolean
+    }
+    class PostProcessComponent {
+        +SetExposure(number value) boolean
+        +SetFilmicTonemap(boolean enabled) boolean
+    }
     class Light {
+        +SetShadows(boolean enabled, number resolution, number bias) boolean
         +SetColor(number r, number g, number b) boolean
         +SetIntensity(number intensity) boolean
         +SetDirectional() boolean
@@ -73,6 +86,8 @@ classDiagram
     }
     class Component
     Component <|-- Camera
+    Component <|-- EnvironmentComponent
+    Component <|-- PostProcessComponent
     Component <|-- Light
     Component <|-- MeshRenderer
     MeshRenderer --> Material : 场景和节点身份加材质槽借用
@@ -84,3 +99,5 @@ classDiagram
 - `SetCullMode("back" | "front" | "none")` 设置通用面剔除状态，默认 `back`；`GetCullMode()` 在句柄失效时返回 null。`SetFloat("alphaCutoff", value)` 使用既有具名参数通道启用内置 Shader 的 alpha 裁切，范围为 0..1，0 关闭。
 - 每次调用校验场景、节点和材质槽，不在脚本对象中保留 C++ 指针。失效对象的修改返回 false。
 - 动态 MeshData 使用生成的 FlatBuffers C++ 数据，通过 MeshRenderer 提交；此脚本门面只声明已经绑定的接口。
+
+EnvironmentComponentBinding 与 PostProcessComponentBinding 各自独立实现 ScriptBinding，只通过 BindingContext 校验当前场景与节点后访问对应原生组件。Node.AddComponent/GetComponent 使用既有组件登记，无需新增节点专用接口。EnvironmentComponent 只允许一个启用组件参与渲染；PostProcessComponent 由活动场景相机节点提供，预览镜头借用同一份参数。Light.SetShadows 只支持方向光，分辨率、bias 与原生组件保持同一校验。

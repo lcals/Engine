@@ -81,12 +81,15 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/components/audio_listener_codec.cpp
                 src/engine/editor/asset_pipeline/components/camera_codec.cpp
                 src/engine/editor/asset_pipeline/components/light_codec.cpp
+                src/engine/editor/asset_pipeline/components/environment_codec.cpp
+                src/engine/editor/asset_pipeline/components/post_process_codec.cpp
                 src/engine/editor/asset_pipeline/components/mesh_renderer_codec.cpp
                 src/engine/editor/asset_pipeline/importers/mesh_importer.cpp
                 src/engine/editor/asset_pipeline/importers/shader_importer.cpp
                 src/engine/editor/asset_pipeline/importers/material_importer.cpp
                 src/engine/editor/asset_pipeline/importers/scene_importer.cpp
                 src/engine/editor/asset_pipeline/importers/texture_importer.cpp
+                src/engine/editor/asset_pipeline/importers/ktx_texture_importer.cpp
                 src/engine/editor/asset_pipeline/importers/audio_importer.cpp
                 src/engine/editor/asset_pipeline/importers/script_importer.cpp
                 src/engine/editor/asset_pipeline/importers/source_importer.cpp)

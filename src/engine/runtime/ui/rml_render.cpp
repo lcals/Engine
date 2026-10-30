@@ -6,6 +6,7 @@
 #include "vs_ui.bin.h"
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/Rectangle.h>
+#include <SDL3/SDL_log.h>
 #include <algorithm>
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <bx/math.h>
@@ -20,6 +21,20 @@ namespace
 {
 constexpr bgfx::ViewId ui_view = 200;
 constexpr auto sampler_flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
+
+bool supported_texture(const Resource& resource)
+{
+    const auto* data = resource.texture();
+    if (data && !data->cube_map &&
+        (data->encoding == schema::TextureEncoding::rgba8 ||
+         data->encoding == schema::TextureEncoding::basis))
+    {
+        return true;
+    }
+    SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "UI requires 2D LDR rgba8/Basis textures: %s",
+                 resource.info().path.c_str());
+    return false;
+}
 } // namespace
 RmlRender::RmlRender(FontSystem& fonts, RmlFont& font_engine) noexcept
     : fonts_(fonts), font_engine_(font_engine)
@@ -111,7 +126,7 @@ bool RmlRender::activate(const std::string& key, const ResourcePtr& document)
         {
             ResourcePtr texture;
             if (!resources->loader().load(guid, texture) || !texture || !texture->texture() ||
-                texture->generation() != document->generation())
+                texture->generation() != document->generation() || !supported_texture(*texture))
             {
                 return false;
             }
@@ -375,6 +390,11 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
         return 0;
     }
     const auto& resource = image->second;
+    if (!supported_texture(*resource))
+    {
+        healthy_ = false;
+        return 0;
+    }
     const auto& data = *resource->texture();
     if (data.width == 0 || data.height == 0 || data.width > 8192 || data.height > 8192)
     {

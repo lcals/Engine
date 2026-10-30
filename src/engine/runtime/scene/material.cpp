@@ -110,7 +110,7 @@ bool load_textures(const Resource& shader, const schema::MaterialDataT* material
         Guid guid;
         ResourcePtr texture;
         if (!ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, texture) ||
-            !texture->texture())
+            !texture->texture() || texture->texture()->cube_map)
         {
             return false;
         }
@@ -267,7 +267,8 @@ bool Material::set_texture(std::string_view name, std::string_view path)
     Guid guid;
     ResourcePtr replacement;
     if (!sampler || !sampler->exposed || !resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, replacement) || !replacement->texture())
+        !resources->loader().load(guid, replacement) || !replacement->texture() ||
+        replacement->texture()->cube_map)
     {
         return false;
     }

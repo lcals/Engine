@@ -41,6 +41,8 @@ struct RenderSettings
     float fog_density = 0.01F;
     float exposure = 1.0F;
     bool filmic_tonemap = false;
+    bool ibl_enabled = false;
+    float ibl_intensity = 1.0F;
     bool directional_shadows = false;
     std::uint16_t shadow_resolution = 2048;
     float shadow_bias = 0.001F;
@@ -68,8 +70,14 @@ public:
     void release_scene() noexcept;
     [[nodiscard]] bool scene_prepared() const noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
+    // 通用 GPU 生命周期与提交进度；帧号为当前图形设备的 bgfx 提交帧号。
+    [[nodiscard]] bool gpu_ready() const noexcept;
+    [[nodiscard]] std::uint32_t frame_number() const noexcept;
+    // 有场景时只修改现有组件；缺少变更域的组件时失败，不创建节点。
+    // 无场景时保存空白窗口配置，该配置不成为后续场景的默认值。
     [[nodiscard]] bool set_settings(const RenderSettings& settings);
-    [[nodiscard]] const RenderSettings& settings() const noexcept;
+    // 返回当前场景组件快照；场景无相应组件时使用固定引擎默认值。
+    [[nodiscard]] RenderSettings settings() const noexcept;
     // 主线程调用；开关与场景无关，图形设备临时关闭后保留并恢复。
     void set_stats_visible(bool visible);
     [[nodiscard]] bool stats_visible() const noexcept;
@@ -85,9 +93,10 @@ protected:
 private:
     static bool watch_surface_lifecycle(void* userdata, SDL_Event* event);
     [[nodiscard]] bool initialize_renderer();
+    [[nodiscard]] bool resolve_settings(RenderSettings& settings) const noexcept;
     void shutdown_renderer() noexcept;
     void release_draw_resources() noexcept;
-    [[nodiscard]] bool draw_scene(const Camera* camera);
+    [[nodiscard]] bool draw_scene(const Camera* camera, const RenderSettings& settings);
 
     struct SceneGpuResources;
     struct RendererCallbacks;
@@ -98,13 +107,14 @@ private:
     UiSystem* ui_ = nullptr;
     std::unique_ptr<SceneGpuResources> scene_resources_;
     std::unique_ptr<RendererCallbacks> callbacks_;
-    RenderSettings settings_{};
+    RenderSettings idle_settings_{};
     std::uint64_t scene_id_ = 0;
     void* metal_view_ = nullptr;
     void* native_window_ = nullptr;
     void* native_display_ = nullptr;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
+    std::uint32_t frame_number_ = 0;
     bool surface_registered_ = false;
     bool watching_events_ = false;
     bool renderer_initialized_ = false;

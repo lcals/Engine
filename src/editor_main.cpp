@@ -18,6 +18,7 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
+#include "runtime/world/world_system.hpp"
 #include "runtime_plugins.hpp"
 
 #if ENGINE_HAS_FONT_IMPORTER
@@ -39,6 +40,13 @@
 
 #if ENGINE_HAS_MODELING_PLUGIN
 #include "plugins/editor/modeling/modeling_commands.hpp"
+#endif
+
+#if ENGINE_HAS_SCENE_BAKE
+#include "editor/commands/editor_commands.hpp"
+#include "plugins/editor/scene_bake/scene_bake_system.hpp"
+#include "runtime/scene/scene.hpp"
+#include <nlohmann/json.hpp>
 #endif
 
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -107,6 +115,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
     std::unique_ptr<engine::editor::RenderCommands> render_commands;
     std::unique_ptr<engine::editor::ScenePreview> preview;
+#if ENGINE_HAS_SCENE_BAKE
+    std::unique_ptr<engine::plugins::scene_bake::SceneBakeSystem> scene_bake;
+#endif
 #if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
     std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
@@ -224,8 +235,8 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, preview->last_error());
             return 1;
         }
-        editor = std::make_unique<engine::editor::EditorSystem>(
-            environment, runtime.gameplay(), runtime.world(), preview.get());
+        editor = std::make_unique<engine::editor::EditorSystem>(environment, runtime.gameplay(),
+                                                                runtime.world(), preview.get());
         if (!editor->initialize(config))
         {
             LogSystem::write(LogLevel::error, "Editor initialization failed");
@@ -261,7 +272,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         if (editor->commands() != nullptr && runtime.renderer() != nullptr)
         {
             render_commands = std::make_unique<engine::editor::RenderCommands>(
-                *runtime.renderer(), project_root / "cache");
+                *runtime.renderer(), *runtime.world(), project_root / "cache");
             if (!render_commands->register_commands(*editor->commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register render commands");
@@ -284,6 +295,42 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             }
         }
 #endif
+#if ENGINE_HAS_SCENE_BAKE
+        scene_bake = std::make_unique<engine::plugins::scene_bake::SceneBakeSystem>(
+            resources, *runtime.renderer(), project_root,
+            [&editor, &preview, &runtime](std::string_view path, std::uint64_t& scene_id,
+                                          std::string& error)
+            {
+                scene_id = 0;
+                nlohmann::json status;
+                if (!preview->active() || runtime.world()->scene() == nullptr ||
+                    !editor->commands()->execute("get_scene_preview", nlohmann::json::object(),
+                                                 status, error))
+                {
+                    error = "Baking requires an active saved scene preview";
+                    return false;
+                }
+                if (status.value("path", std::string{}) != path || status.value("modified", true) ||
+                    status.value("reloadPending", true))
+                {
+                    error = "Save or refresh the matching scene preview before baking";
+                    return false;
+                }
+                scene_id = runtime.world()->scene()->id();
+                return true;
+            },
+            [&editor](std::string& error)
+            {
+                nlohmann::json result;
+                return editor->commands()->execute("refresh_scene_preview",
+                                                   {{"discardChanges", false}}, result, error);
+            });
+        if (!scene_bake->initialize(config) || !scene_bake->register_commands(*editor->commands()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot initialize scene baking plugin");
+            return 1;
+        }
+#endif
         LogSystem::write(LogLevel::info, "Editor ready; waiting for MCP start_project");
         auto& frame_engine = engine::Engine::instance();
         auto previous_time = std::chrono::steady_clock::now();
@@ -299,6 +346,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
             }
+#if ENGINE_HAS_SCENE_BAKE
+            if (!scene_bake->tick(delta_time))
+            {
+                LogSystem::write(LogLevel::error, "Scene baking plugin frame failed");
+                return 1;
+            }
+#endif
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
@@ -371,6 +425,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         return 0;
     }();
 
+    // 停止烘焙提交；在途 GPU 读回内存保留至渲染器彻底关闭。
+#if ENGINE_HAS_SCENE_BAKE
+    if (scene_bake != nullptr)
+    {
+        scene_bake->shutdown();
+    }
+#endif
     // 玩法回调执行时编辑器和全部引擎系统仍就绪。
     if (preview != nullptr)
     {
@@ -390,6 +451,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     modeling.reset();
 #endif
     runtime.shutdown();
+#if ENGINE_HAS_SCENE_BAKE
+    scene_bake.reset();
+#endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     resources.set_loader(nullptr);
     resource_graph.shutdown();

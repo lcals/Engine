@@ -79,3 +79,19 @@ font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
 text = "Quadratic outlines / shared GPU curves / Lato Regular"
 size = 0.24
 color = [0.65, 0.68, 0.75, 1.0]
+
+[[nodes]]
+id = "6"
+name = "Environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "environment"
+enabled = true
+clear_color = 269951743

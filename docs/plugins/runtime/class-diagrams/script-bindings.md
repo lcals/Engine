@@ -103,6 +103,8 @@ classDiagram
     class ComponentBinding
     class TransformBinding
     class CameraBinding
+    class EnvironmentComponentBinding
+    class PostProcessComponentBinding
     class LightBinding
     class MeshRendererBinding
     class MaterialBinding
@@ -126,6 +128,8 @@ classDiagram
     ScriptBinding <|-- ComponentBinding
     ScriptBinding <|-- TransformBinding
     ScriptBinding <|-- CameraBinding
+    ScriptBinding <|-- EnvironmentComponentBinding
+    ScriptBinding <|-- PostProcessComponentBinding
     ScriptBinding <|-- LightBinding
     ScriptBinding <|-- MeshRendererBinding
     ScriptBinding <|-- MaterialBinding

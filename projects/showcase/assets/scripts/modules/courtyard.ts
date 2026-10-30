@@ -1,4 +1,4 @@
-import { Animator, Debug, Gameplay, MeshRenderer, Render, Scene, Transform } from "engine";
+import { Animator, Debug, Gameplay, MeshRenderer, Scene, Transform } from "engine";
 
 // 源 walk 采样的足底最低约 -0.0372 m；仅补偿样例模型的放置高度，不执行足部 IK。
 const avatar_ground_offset = 0.05;
@@ -7,14 +7,6 @@ export default class Game extends Gameplay {
     scene: Scene | null = null;
 
     override OnInitialize(): boolean {
-        if (
-            !Render.SetAmbient(0.82, 0.87, 1.0, 0.28) ||
-            !Render.SetExposure(1.05) ||
-            !Render.SetFilmicTonemap(true) ||
-            !Render.SetDirectionalShadows(true, 4096, 0.0015) ||
-            !Render.SetClearColor(0x668ca6ff)
-        )
-            return false;
         this.scene = Scene.Load("project/scenes/playground.scene");
         const scene = this.scene;
         if (!scene) return false;

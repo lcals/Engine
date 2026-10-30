@@ -18,6 +18,8 @@ classDiagram
     class TransformCodec
     class CameraCodec
     class LightCodec
+    class EnvironmentCodec
+    class PostProcessCodec
     class MeshRendererCodec
     class ColliderCodec
     class RigidBodyCodec
@@ -29,6 +31,8 @@ classDiagram
     SceneComponentCodec <|-- TransformCodec
     SceneComponentCodec <|-- CameraCodec
     SceneComponentCodec <|-- LightCodec
+    SceneComponentCodec <|-- EnvironmentCodec
+    SceneComponentCodec <|-- PostProcessCodec
     SceneComponentCodec <|-- MeshRendererCodec
     SceneComponentCodec <|-- ColliderCodec
     SceneComponentCodec <|-- RigidBodyCodec
@@ -42,6 +46,8 @@ classDiagram
 每个组件类型在 `editor/asset_pipeline/components/` 独立文件实现 TOML 读取、载荷验证与写出。基础实现静态登记，宿主可显式追加插件实现，未知类型明确失败。SceneImporter 负责节点身份、层级、enabled 和原子写入；运行时 Component 不依赖 TOML。生成的 ComponentDataT 是双方共享的唯一模型。
 
 物理与音频 codec 复用运行时组件的纯设置校验，不加载设备或建立模拟对象。AudioSource 的 `clip_guid` 是场景资源依赖；导入器和运行时 Scene codec 分别检查其目录身份和 `audio` 类型。空 GUID 表示尚未指定 clip。
+
+`EnvironmentCodec` 和 `PostProcessCodec` 分别处理 `environment` 与 `post_process`；环境颜色接受 RGB 或 RGBA 数组，RGB 的 alpha 默认为 1，写出统一为 RGBA。清屏色为无符号 32 位 RGBA 整数。环境、后处理与 Light 的值域校验由运行时内部纯函数共用，资源解码不反向链接世界系统。SceneImporter 校验最多一个启用环境、一个启用的投影方向光，以及后处理与 Camera 同节点；这些参数不声明额外资源依赖，天空几何仍按 Mesh/Material 原有依赖加载。
 
 公开契约位于 `include/engine/editor/asset_pipeline/components/scene_component_codec.hpp`：
 

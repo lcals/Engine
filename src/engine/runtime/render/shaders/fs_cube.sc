@@ -8,7 +8,10 @@ $input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
  * License and attribution: third_party/notices/bgfx.txt.
  * Changes: empirical unnormalized highlight, exponent bias 1, named texture parameters;
  * fog uses configurable density, forward camera depth, linear color and a negative exponent.
- * The 18-ibl environment-map and IBL code is not part of this shader.
+ * Image-based lighting adapts Ant's pbr/ibl.sh split-sum sampling and bgfx 18-ibl
+ * environment-map combination. Ant copyright 2017-2024 lingxigames.com, MIT.
+ * Linear HDR maps, explicit resource slots and the existing material workflow are retained.
+ * See third_party/notices/ant.txt for the Ant license.
  */
 
 #include <bgfx_shader.sh>
@@ -21,7 +24,12 @@ SAMPLER2D(s_normal, 1);
 SAMPLER2D(s_orm, 2);
 SAMPLER2D(s_specular, 3);
 SAMPLER2D(s_emission, 4);
+SAMPLERCUBE(s_ibl_irradiance, 12);
+SAMPLERCUBE(s_ibl_prefilter, 13);
+SAMPLER2D(s_ibl_lut, 14);
 SAMPLER2D(s_shadow_map, 15);
+// enabled, intensity, last prefiltered mip, reserved.
+uniform vec4 u_ibl_params;
 uniform vec4 u_base_color;
 // x: metallic, y: roughness, z: lighting (0 PBR, 1 unlit, 2 Blinn-Phong), w: alpha cutoff.
 uniform vec4 u_material;
@@ -75,6 +83,25 @@ float shadow_visibility(vec3 world_position)
         }
     }
     return visible / 16.0;
+}
+
+vec3 indirect_light(vec3 normal, vec3 view_dir, vec3 base_color, vec3 specular_color,
+                    float diffuse_weight, float roughness)
+{
+    if (u_ibl_params.x < 0.5)
+    {
+        return vec3_splat(0.0);
+    }
+    float n_dot_v = saturate(dot(normal, view_dir));
+    vec3 reflection = reflect(-view_dir, normal);
+    float mip = clamp(roughness * u_ibl_params.z, 0.0, u_ibl_params.z);
+    // Diffuse map stores cosine-weighted mean radiance; no additional PI division.
+    vec3 irradiance = textureCube(s_ibl_irradiance, normal).rgb;
+    vec3 prefiltered = textureCubeLod(s_ibl_prefilter, reflection, mip).rgb;
+    vec2 lut = texture2D(s_ibl_lut, vec2(n_dot_v, roughness)).rg;
+    vec3 diffuse = base_color * diffuse_weight * irradiance;
+    vec3 specular = prefiltered * (specular_color * lut.x + vec3_splat(lut.y));
+    return (diffuse + specular) * u_ibl_params.y;
 }
 
 vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, vec3 base_color,
@@ -187,6 +214,8 @@ void main()
         }
         float ambient_weight = u_material.z > 1.5 ? 1.0 : diffuse_weight;
         color = base_color.rgb * ambient_weight * ambient_color * u_ambient.w;
+        color += indirect_light(normal, view_dir, base_color.rgb, specular_color,
+                                diffuse_weight, roughness);
         for (int index = 0; index < 64; ++index)
         {
             if (float(index) < u_light_count.x)
