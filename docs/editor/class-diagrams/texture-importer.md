@@ -16,12 +16,24 @@ classDiagram
         +convert(const ImportAsset& asset, const ImportContext& context, string& error) bool
     }
     class AssetPipelineSystem
+    class KtxTextureImporter {
+        <<final>>
+        +id() string_view
+        +kind() AssetKind
+        +matches(const Path& source) bool
+        +default_meta() string_view
+        +inspect_batch(const ImportContext& context, string& fingerprint, string& error) bool
+        +convert(const ImportAsset& asset, const ImportContext& context, string& error) bool
+    }
     class ImportAsset
     class ImportContext
     class TextureDataT
     class ResourceSystem
     class AssetImporter
     AssetImporter <|-- TextureImporter
+    AssetImporter <|-- KtxTextureImporter
+    KtxTextureImporter ..> TextureDataT : 保留完整KTX容器
+    KtxTextureImporter ..> ResourceSystem : SDL同步读取
     AssetPipelineSystem ..> AssetImporter : 通用批次调度
     TextureImporter ..> ImportAsset : 源文件与稳定GUID
     TextureImporter ..> ImportContext : 批次暂存目录
@@ -40,3 +52,11 @@ PNG、JPG、JPEG 文件作为贴图导入。所有导入设置保存在同名 `.
 缓存携带生成 `TextureDataT`、完整 mip 链与 BasisU 数据，经公共实体封装后保存为 `cache/gen/<完整GUID>`；不追加后缀。生成设置、源内容、Schema 与 BasisU 版本共同参与增量键。材质的具名纹理引用进入构建及运行依赖，打包与同步沿用统一 catalog。
 
 实现位于 `src/engine/editor/asset_pipeline/importers/texture_importer.cpp`，通过[导入器注册表](asset-importers.md)选择。kind/default_meta/version 为 noexcept；除 inspect_batch 外的实例方法均为 const。prepare_batch 在协调线程初始化 BasisU，不提供额外任务；后续转换按资源并行。版本与 texture.fbs 指纹只影响贴图及其构建依赖，不使无关资源因编码库升级全部失效。
+
+## HDR 烘焙纹理
+
+`.ktx` 由独立 `KtxTextureImporter` 处理，meta 的 `importer = "texture_ktx"`，运行类型仍为 texture。只接入小端 KTX1 的 RGBA16F、RG16F，支持二维和六面立方体，不接入数组或三维纹理。原始完整容器保留于 TextureData.data，encoding 为 ktx，cube_map 明确形状；运行时以相同上游 KTX 解析方式创建纹理，不进行 LDR BasisU 转码。
+
+新 meta 默认 `[texture] format="auto"; compression="none"; srgb=false`。format 可显式指定 rgba16f/rg16f 且必须与容器一致；这些 HDR 资源必须保持线性。mipmaps 可省略表示保留源链，显式值须与源是否包含多级一致。导入不重算 GGX mip，不压缩 HDR；BasisU 的 quality/compression_level/rdo_quality_scalar 等设置在 KTX 中报错。
+
+容器验证先检查完整标识、整数边界、1/6 面数、每个 face/mip 字节范围与精确总长度，再交给 bimg 交叉验证。接受单 mip 或完整链；cubemap 必须正方形。单个 KTX 最多 63 MiB，为 64 MiB 的运行资源实体上限预留封装空间；RGBA16F 全 mip cubemap 的推荐最大面尺寸为 512。尺寸、面数、mip、格式与生成元数据必须完全一致，截断和错误头不能以缓存命中绕过验证。

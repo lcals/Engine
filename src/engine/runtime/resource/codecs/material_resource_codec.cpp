@@ -158,7 +158,8 @@ bool MaterialResourceCodec::validate_dependencies(const ResourceCatalog&, const 
     for (const auto& binding : material->textures)
     {
         const auto* texture = dependency(dependencies, binding->texture_guid);
-        if (!texture || !texture->texture() || texture->info().path != binding->texture_path)
+        if (!texture || !texture->texture() || texture->texture()->cube_map ||
+            texture->info().path != binding->texture_path)
         {
             return false;
         }

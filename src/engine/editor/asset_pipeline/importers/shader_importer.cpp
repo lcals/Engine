@@ -95,6 +95,10 @@ bool reserved_uniform(std::string_view name)
                                      "u_shadow_settings",
                                      "u_shadow_depth",
                                      "s_shadow_map",
+                                     "u_ibl_params",
+                                     "s_ibl_irradiance",
+                                     "s_ibl_prefilter",
+                                     "s_ibl_lut",
                                      "u_camera_position",
                                      "u_light_direction",
                                      "u_light_color",
@@ -253,7 +257,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                 !uniform_name(sampler->uniform_name) || slots.contains(sampler->uniform_name) ||
                 reserved_uniform(sampler->uniform_name) ||
                 !uniforms.insert(sampler->uniform_name).second ||
-                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 15 ||
+                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 12 ||
                 !stages.insert(*stage).second ||
                 (sampler_table->contains("exposed") && !(*sampler_table)["exposed"].is_boolean()) ||
                 !builtin_texture(sampler->default_texture, context, dependencies, error))

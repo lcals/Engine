@@ -38,7 +38,7 @@ declare module "engine" {
         static readonly deltaTime: number;
     }
 
-    /** Current renderer settings. Calls require an active Gameplay callback and renderer. */
+    /** Scene parameter facade. Requires an active callback and existing scene components. */
     export class Render {
         private constructor();
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
@@ -133,11 +133,40 @@ declare module "engine" {
         /** Size is the vertical half-height in world units. */
         SetOrthographic(size: number, nearClip: number, farClip: number): boolean;
     }
+    /** Scene-wide environment parameters, stored with the scene. */
+    export class EnvironmentComponent extends Component {
+        private constructor();
+        /** Uses the scene's precomputed IBL maps; baking does not change this switch. */
+        SetIbl(enabled: boolean, intensity?: number): boolean;
+        SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
+        SetAmbientTricolor(
+            sky: readonly [number, number, number],
+            equator: readonly [number, number, number],
+            ground: readonly [number, number, number],
+            intensity: number
+        ): boolean;
+        SetLinearFog(
+            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+        ): boolean;
+        SetExponentialFog(
+            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+        ): boolean;
+        /** Unsigned 32-bit 0xRRGGBBAA. */
+        SetClearColor(rgba: number): boolean;
+    }
+    /** Attach to a camera node; the active camera supplies the scene's post-processing. */
+    export class PostProcessComponent extends Component {
+        private constructor();
+        SetExposure(value: number): boolean;
+        SetFilmicTonemap(enabled: boolean): boolean;
+    }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
         SetDirectional(): boolean;
+        /** Directional lights only. Resolution defaults to 2048, bias to 0.001. */
+        SetShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         SetPoint(range: number): boolean;
         /** Cone half-angles in degrees. */
         SetSpot(range: number, innerAngle: number, outerAngle: number): boolean;

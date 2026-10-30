@@ -12,6 +12,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/editor/usd_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/character_controller.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/asset_build.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/asset_sync.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/editor/scene_bake.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/mcp.cmake")
 
 # project() 前 Android 工具链可能尚未设置 ANDROID。
@@ -44,6 +45,9 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD)
             character_controller
             font_import
             ui_import)
+        if(ENGINE_ENABLE_EDITOR_DEPS AND ENGINE_ENABLE_RUNTIME_DEPS)
+            list(APPEND _editor_plugins scene_bake)
+        endif()
     endif()
     if(ENGINE_ENABLE_SCRIPT_RUNTIME AND (ENGINE_ENABLE_EDITOR_DEPS
                                          OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS))

@@ -119,6 +119,10 @@ endif()
 if(TARGET engine_mcp)
     add_executable(engine_mcp_registry_test mcp_registry_test.cpp)
     target_link_libraries(engine_mcp_registry_test PRIVATE engine::mcp)
+    if(TARGET engine_scene_bake_mcp_tools)
+        target_link_libraries(engine_mcp_registry_test PRIVATE engine::scene_bake_mcp_tools)
+        target_compile_definitions(engine_mcp_registry_test PRIVATE ENGINE_TEST_SCENE_BAKE_TOOLS=1)
+    endif()
     engine_apply_options(engine_mcp_registry_test)
     add_test(NAME engine.mcp_registry COMMAND engine_mcp_registry_test)
     set_tests_properties(engine.mcp_registry PROPERTIES TIMEOUT 30)
@@ -283,7 +287,8 @@ endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_executable(engine_render_foundation_test render_foundation_test.cpp)
-    target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource)
+    target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource
+                                                              engine::render)
     if(TARGET engine_resource_graph)
         target_link_libraries(engine_render_foundation_test PRIVATE engine::resource_graph)
         target_compile_definitions(engine_render_foundation_test
@@ -329,7 +334,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     add_executable(engine_texture_pipeline_test texture_pipeline_test.cpp)
     target_link_libraries(
         engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource
-                                             engine::scene_data basisu::basisu_encoder)
+                                             engine::world engine::scene_data basisu::basisu_encoder bgfx::bimg)
     target_compile_definitions(engine_texture_pipeline_test
                                PRIVATE ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     engine_apply_options(engine_texture_pipeline_test)
@@ -605,7 +610,7 @@ endif()
 if(TARGET engine_ui_import AND TARGET engine_font_import)
     add_executable(engine_ui_pipeline_test ui_pipeline_test.cpp)
     target_link_libraries(engine_ui_pipeline_test PRIVATE engine::ui_import engine::font_import
-                                                          engine::resource)
+                                                          engine::resource bgfx::bimg)
     engine_apply_options(engine_ui_pipeline_test)
     add_test(NAME editor.ui_pipeline
              COMMAND engine_ui_pipeline_test

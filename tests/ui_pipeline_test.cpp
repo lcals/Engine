@@ -1,4 +1,5 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "ktx_fixture.hpp"
 #include "plugins/editor/font_import/font_importer.hpp"
 #include "plugins/editor/ui_import/ui_importer.hpp"
 #include "runtime/engine_config.hpp"
@@ -13,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace
 {
@@ -82,6 +84,57 @@ struct Project
         }
     }
 };
+
+bool texture_dimensions(const Project& project, engine::editor::AssetPipelineSystem& pipeline,
+                        engine::ResourceSystem& resources, std::string_view ui_guid)
+{
+    const auto hdr = test_support::ktx_image(false, true, 1);
+    const auto cube = test_support::ktx_image(true, true, 3);
+    if (!expect(!hdr.empty() && !cube.empty() && write(project.root / "assets/hdr.ktx", hdr) &&
+                    write(project.root / "assets/cube.ktx", cube),
+                "create valid 2D HDR and cube texture fixtures"))
+    {
+        return false;
+    }
+    for (const auto* texture :
+         {"builtin/textures/white-srgb", "project/hdr.ktx", "project/cube.ktx"})
+    {
+        const std::string markup =
+            std::string("<rml><body><img src=\"") + texture + "\"/></body></rml>";
+        const auto settings = metadata(
+            ui_guid, std::string("textures = [\"") + texture +
+                         "\"]\n[[ui.fonts]]\nfamily = \"body\"\nasset = \"project/lato.ttf\"\n");
+        engine::ResourcePtr document;
+        if (!expect(write(project.root / "assets/menu.rml", markup) &&
+                        write(project.root / "assets/menu.rml.meta", settings) &&
+                        pipeline.build_assets(project.root),
+                    pipeline.last_error()) ||
+            !expect(resources.update_catalog(pipeline.catalog(),
+                                             {{"content", project.root / "cache"}}) &&
+                        resources.load(ui_guid, document),
+                    resources.last_error()))
+        {
+            return false;
+        }
+        std::vector<engine::ResourcePtr> dependencies;
+        for (const auto& guid : document->info().dependencies)
+        {
+            engine::ResourcePtr resource;
+            if (!expect(resources.load(guid, resource), resources.last_error()))
+            {
+                return false;
+            }
+            dependencies.push_back(std::move(resource));
+        }
+        const bool ldr = std::string_view(texture).starts_with("builtin/");
+        if (!expect(resources.validate_dependencies(*document, dependencies) == ldr,
+                    "UI accepts 2D LDR and rejects HDR KTX/cubemap dependencies"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -209,6 +262,10 @@ int main(int argc, char** argv)
         }
     }
     if (!expect(original->ui()->markup == markup, "loaded UI reference remains immutable"))
+    {
+        return 1;
+    }
+    if (!texture_dimensions(project, pipeline, resources, ui_guid))
     {
         return 1;
     }

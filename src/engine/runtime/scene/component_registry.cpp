@@ -6,8 +6,10 @@
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/text_component.hpp"
 #include "runtime/scene/transform.hpp"
@@ -33,7 +35,8 @@ bool register_scene_components(ComponentRegistry& registry)
            registry.add<MeshRenderer>() && registry.add<Collider>() && registry.add<RigidBody>() &&
            registry.add<AudioSource>() && registry.add<AudioListener>() &&
            registry.add<Animator>() && registry.add<CharacterMotor>() &&
-           registry.add<UiComponent>() && registry.add<TextComponent>();
+           registry.add<UiComponent>() && registry.add<TextComponent>() &&
+           registry.add<EnvironmentComponent>() && registry.add<PostProcessComponent>();
 }
 
 } // namespace engine

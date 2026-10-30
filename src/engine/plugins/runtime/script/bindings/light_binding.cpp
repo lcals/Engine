@@ -4,6 +4,8 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/node.hpp"
 
+#include <limits>
+
 namespace engine::plugins::script::bindings
 {
 namespace
@@ -11,6 +13,10 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Light extends Component {
     constructor(token, scene, node) { super(token, scene, node, native.LightKind); }
+    SetShadows(enabled, resolution = 2048, bias = 0.001) {
+        const h = handles.get(this);
+        return native.LightShadows(h.scene, h.node, enabled, resolution, bias);
+    }
     SetDirectional() {
         const h = handles.get(this); return native.LightDirectional(h.scene, h.node);
     }
@@ -70,6 +76,26 @@ void intensity(const Arguments& arguments)
         arguments.set_return(light->set_settings(settings));
     }
 }
+void shadows(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* node = BindingContext::node(arguments);
+    auto* light = node == nullptr ? nullptr : node->get_component<Light>();
+    if (light == nullptr || arguments.count() != 5 || !arguments.is_boolean(2) ||
+        !arguments.is_uint32(3) ||
+        arguments.unsigned_integer(3) > std::numeric_limits<std::uint16_t>::max())
+    {
+        return;
+    }
+    auto value = light->settings();
+    value.cast_shadows = arguments.boolean(2);
+    value.shadow_resolution = static_cast<std::uint16_t>(arguments.unsigned_integer(3));
+    if (BindingContext::scalar(arguments, 4, value.shadow_bias))
+    {
+        arguments.set_return(light->set_settings(value));
+    }
+}
+
 void directional(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -128,7 +154,7 @@ bool LightBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("LightKind", static_cast<int>(Light::component_type)) &&
            vm.function("LightAdd", add) && vm.function("LightColor", color) &&
-           vm.function("LightIntensity", intensity) &&
+           vm.function("LightIntensity", intensity) && vm.function("LightShadows", shadows) &&
            vm.function("LightDirectional", directional) && vm.function("LightPoint", point) &&
            vm.function("LightSpot", spot);
 }

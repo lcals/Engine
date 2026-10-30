@@ -46,6 +46,10 @@ bool reserved_uniform(std::string_view name)
                                   std::string_view("u_shadow_settings"),
                                   std::string_view("u_shadow_depth"),
                                   std::string_view("s_shadow_map"),
+                                  std::string_view("u_ibl_params"),
+                                  std::string_view("s_ibl_irradiance"),
+                                  std::string_view("s_ibl_prefilter"),
+                                  std::string_view("s_ibl_lut"),
                                   std::string_view("u_camera_position"),
                                   std::string_view("u_light_direction"),
                                   std::string_view("u_light_color"),
@@ -114,7 +118,7 @@ bool ShaderResourceCodec::validate(const schema::ShaderDataT& data)
             !names.insert(sampler->name).second || !valid_uniform_name(sampler->uniform_name) ||
             reserved_uniform(sampler->uniform_name) ||
             uniform_slots.contains(sampler->uniform_name) ||
-            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 15 ||
+            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 12 ||
             !stages.insert(sampler->stage).second ||
             !sampler->default_texture.starts_with("builtin/") ||
             !valid_path(sampler->default_texture))
@@ -183,7 +187,7 @@ bool ShaderResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
             return false;
         }
         const auto* texture = dependency(dependencies, guid);
-        if (!texture || !texture->texture())
+        if (!texture || !texture->texture() || texture->texture()->cube_map)
         {
             return false;
         }

@@ -27,19 +27,25 @@ parent = '0'
     enabled = true
     volume = 1.0
 
+[[nodes.components]]
+type = "post_process"
+enabled = true
+exposure = 1.15
+filmic_tonemap = true
+
 [[nodes]]
 id = '3'
 name = 'Sun'
 parent = '0'
 
-    [[nodes.components]]
+[[nodes.components]]
     enabled = true
     position = [ 0.0, 8.0, 0.0 ]
     rotation = [ -55.0, -35.0, 0.0 ]
     scale = [ 1.0, 1.0, 1.0 ]
     type = 'transform'
 
-    [[nodes.components]]
+[[nodes.components]]
     color = [ 1.0, 0.88999998569488525, 0.72000002861022949, 1.0 ]
     enabled = true
     inner_angle = 20.0
@@ -48,6 +54,9 @@ parent = '0'
     outer_angle = 30.0
     range = 50.0
     type = 'light'
+cast_shadows = true
+shadow_resolution = 2048
+shadow_bias = 0.002
 
 [[nodes]]
 id = '4'
@@ -6755,3 +6764,21 @@ parent = '0'
     spatial = false
     min_distance = 1.0
     max_distance = 20.0
+
+[[nodes]]
+id = "332"
+name = "Environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "environment"
+enabled = true
+ambient_color = [0.8, 0.86, 1.0]
+ambient_intensity = 0.35
+clear_color = 438577663

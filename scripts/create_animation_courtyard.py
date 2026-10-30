@@ -446,7 +446,7 @@ def setup_lighting(session, scene_id):
                 },
             ]
         )
-    # 渲染设置属于运行会话；重启后可使用 --lighting-only 恢复。
+    # 渲染设置写入场景组件；随后 save_scene 与几何、灯光一同保存。
     session.call(
         "set_render_settings",
         {
