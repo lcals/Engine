@@ -18,7 +18,7 @@ Object.freeze(Time);
 void delta_time(const Arguments& arguments)
 {
     auto* binding = BindingContext::current(arguments);
-    arguments.GetReturnValue().Set(binding == nullptr ? 0.0 : binding->delta_time());
+    arguments.set_return(binding == nullptr ? 0.0 : binding->delta_time());
 }
 } // namespace
 
@@ -32,10 +32,9 @@ std::string_view TimeBinding::source() const noexcept
     return javascript;
 }
 
-bool TimeBinding::register_functions(v8::Local<v8::Context> context,
-                                     v8::Local<v8::Object> native) const
+bool TimeBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "DeltaTime", delta_time);
+    return vm.function("DeltaTime", delta_time);
 }
 
 } // namespace engine::plugins::script::bindings

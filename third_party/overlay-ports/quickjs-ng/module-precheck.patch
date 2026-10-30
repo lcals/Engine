@@ -1,0 +1,131 @@
+--- a/quickjs.c
++++ b/quickjs.c
+@@ -28045,6 +28045,27 @@
+     return m;
+ }
+ 
++/* Loader callbacks accept NUL-terminated paths. Reject embedded NUL before
++   losing the atom's length, including names from import and re-export. */
++static const char *js_module_atom_to_cstring(JSContext *ctx, JSAtom atom)
++{
++    JSValue string;
++    const char *name;
++    size_t length;
++
++    string = JS_AtomToString(ctx, atom);
++    if (JS_IsException(string))
++        return NULL;
++    name = JS_ToCStringLen(ctx, &length, string);
++    JS_FreeValue(ctx, string);
++    if (name && memchr(name, '\0', length)) {
++        JS_FreeCString(ctx, name);
++        JS_ThrowReferenceError(ctx, "module path contains a NUL character");
++        return NULL;
++    }
++    return name;
++}
++
+ static JSModuleDef *js_host_resolve_imported_module_atom(JSContext *ctx,
+                                                     JSAtom base_module_name,
+                                                     JSAtom module_name1)
+@@ -28052,10 +28073,10 @@
+     const char *base_cname, *cname;
+     JSModuleDef *m;
+ 
+-    base_cname = JS_AtomToCString(ctx, base_module_name);
++    base_cname = js_module_atom_to_cstring(ctx, base_module_name);
+     if (!base_cname)
+         return NULL;
+-    cname = JS_AtomToCString(ctx, module_name1);
++    cname = js_module_atom_to_cstring(ctx, module_name1);
+     if (!cname) {
+         JS_FreeCString(ctx, base_cname);
+         return NULL;
+@@ -35105,6 +35126,72 @@
+     return 0;
+ }
+ 
++
++/* Link the complete module graph without evaluating module bodies. */
++int JS_InstantiateModule(JSContext *ctx, JSValueConst obj)
++{
++    JSModuleDef *m;
++
++    if (JS_VALUE_GET_TAG(obj) != JS_TAG_MODULE) {
++        JS_ThrowTypeError(ctx, "module expected");
++        return -1;
++    }
++    m = JS_VALUE_GET_PTR(obj);
++    if (JS_ResolveModule(ctx, obj) < 0 ||
++        js_create_module_function(ctx, m) < 0)
++        return -1;
++    return js_link_module(ctx, m);
++}
++
++/* Inspect parser metadata, including transitive and cyclic dependencies.
++   Do not change module status or execute code to discover top-level await. */
++int JS_IsModuleGraphAsync(JSContext *ctx, JSValueConst obj)
++{
++    JSModuleDef **modules = NULL;
++    JSModuleDef *m, *dependency;
++    int count = 0, capacity = 0, index, i, j, result = 0;
++
++    if (JS_VALUE_GET_TAG(obj) != JS_TAG_MODULE) {
++        JS_ThrowTypeError(ctx, "module expected");
++        return -1;
++    }
++    if (JS_ResolveModule(ctx, obj) < 0)
++        return -1;
++    if (js_resize_array(ctx, (void **)&modules, sizeof(*modules), &capacity, 1))
++        return -1;
++    modules[count++] = JS_VALUE_GET_PTR(obj);
++    for (index = 0; index < count; index++) {
++        m = modules[index];
++        if (m->has_tla) {
++            result = 1;
++            break;
++        }
++        for (i = 0; i < m->req_module_entries_count; i++) {
++            dependency = m->req_module_entries[i].module;
++            for (j = 0; j < count; j++) {
++                if (modules[j] == dependency)
++                    break;
++            }
++            if (j != count)
++                continue;
++            if (count == INT_MAX) {
++                JS_ThrowInternalError(ctx, "module graph is too large");
++                result = -1;
++                goto done;
++            }
++            if (js_resize_array(ctx, (void **)&modules, sizeof(*modules),
++                                &capacity, count + 1)) {
++                result = -1;
++                goto done;
++            }
++            modules[count++] = dependency;
++        }
++    }
++ done:
++    js_free(ctx, modules);
++    return result;
++}
++
+ /*******************************************************************/
+ /* object list */
+ 
+--- a/quickjs.h
++++ b/quickjs.h
+@@ -1093,6 +1093,12 @@
+ /* load the dependencies of the module 'obj'. Useful when JS_ReadObject()
+    returns a module. */
+ JS_EXTERN int JS_ResolveModule(JSContext *ctx, JSValueConst obj);
++/* Instantiate imports/exports without executing module bodies. Returns 0
++   on success and -1 with a pending exception on failure. Does not consume obj. */
++JS_EXTERN int JS_InstantiateModule(JSContext *ctx, JSValueConst obj);
++/* Return 1 if the resolved graph contains top-level await, 0 if synchronous,
++   or -1 with a pending exception on failure. Does not consume obj. */
++JS_EXTERN int JS_IsModuleGraphAsync(JSContext *ctx, JSValueConst obj);
+ 
+ /* only exported for os.Worker() */
+ JS_EXTERN JSAtom JS_GetScriptOrModuleName(JSContext *ctx, int n_stack_levels);

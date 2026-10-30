@@ -7,6 +7,7 @@
 #include "runtime/world/world_system.hpp"
 
 #include <limits>
+#include <utility>
 
 namespace engine::plugins::script::bindings
 {
@@ -100,7 +101,7 @@ UiSystem* element(const Arguments& arguments, UiElementHandle& handle)
     auto* node = BindingContext::node(arguments);
     auto* binding = BindingContext::current(arguments);
     auto* ui = binding == nullptr ? nullptr : binding->ui();
-    if (arguments.Length() < 4 || node == nullptr || ui == nullptr || !ui->is_initialized() ||
+    if (arguments.count() < 4 || node == nullptr || ui == nullptr || !ui->is_initialized() ||
         !BindingContext::identifier(arguments, 2, handle.document_id) ||
         !BindingContext::identifier(arguments, 3, handle.element_id) || handle.document_id == 0 ||
         handle.element_id == 0 || ui->document_id(node->id()) != handle.document_id ||
@@ -115,28 +116,21 @@ UiSystem* element(const Arguments& arguments, UiElementHandle& handle)
 void valid(const Arguments& arguments)
 {
     UiElementHandle handle;
-    arguments.GetReturnValue().Set(arguments.Length() == 4 &&
-                                   element(arguments, handle) != nullptr);
+    arguments.set_return(arguments.count() == 4 && element(arguments, handle) != nullptr);
 }
 
 void get_string(const Arguments& arguments, bool (UiSystem::*read)(UiElementHandle, std::string&))
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     UiElementHandle handle;
     auto* ui = element(arguments, handle);
     std::string value;
-    if (arguments.Length() != 4 || ui == nullptr || !(ui->*read)(handle, value) ||
+    if (arguments.count() != 4 || ui == nullptr || !(ui->*read)(handle, value) ||
         value.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
     {
         return;
     }
-    v8::Local<v8::String> result;
-    if (v8::String::NewFromUtf8(arguments.GetIsolate(), value.data(), v8::NewStringType::kNormal,
-                                static_cast<int>(value.size()))
-            .ToLocal(&result))
-    {
-        arguments.GetReturnValue().Set(result);
-    }
+    arguments.set_return(value);
 }
 
 void identifier(const Arguments& arguments)
@@ -157,13 +151,13 @@ void value(const Arguments& arguments)
 void set_string(const Arguments& arguments,
                 bool (UiSystem::*write)(UiElementHandle, std::string_view))
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     UiElementHandle handle;
     auto* ui = element(arguments, handle);
     std::string value;
-    if (arguments.Length() == 5 && ui != nullptr && BindingContext::text(arguments, 4, value))
+    if (arguments.count() == 5 && ui != nullptr && BindingContext::text(arguments, 4, value))
     {
-        arguments.GetReturnValue().Set((ui->*write)(handle, value));
+        arguments.set_return((ui->*write)(handle, value));
     }
 }
 
@@ -186,9 +180,8 @@ void set_boolean(const Arguments& arguments, bool (UiSystem::*write)(UiElementHa
 {
     UiElementHandle handle;
     auto* ui = element(arguments, handle);
-    arguments.GetReturnValue().Set(arguments.Length() == 5 && ui != nullptr &&
-                                   arguments[4]->IsBoolean() &&
-                                   (ui->*write)(handle, arguments[4]->IsTrue()));
+    arguments.set_return(arguments.count() == 5 && ui != nullptr && arguments.is_boolean(4) &&
+                         (ui->*write)(handle, arguments.boolean(4)));
 }
 
 void set_visible(const Arguments& arguments)
@@ -206,9 +199,9 @@ void set_class(const Arguments& arguments)
     UiElementHandle handle;
     auto* ui = element(arguments, handle);
     std::string name;
-    arguments.GetReturnValue().Set(
-        arguments.Length() == 6 && ui != nullptr && BindingContext::text(arguments, 4, name) &&
-        arguments[5]->IsBoolean() && ui->set_class(handle, name, arguments[5]->IsTrue()));
+    arguments.set_return(arguments.count() == 6 && ui != nullptr &&
+                         BindingContext::text(arguments, 4, name) && arguments.is_boolean(5) &&
+                         ui->set_class(handle, name, arguments.boolean(5)));
 }
 
 void set_style(const Arguments& arguments)
@@ -216,19 +209,19 @@ void set_style(const Arguments& arguments)
     UiElementHandle handle;
     auto* ui = element(arguments, handle);
     std::string name, value;
-    arguments.GetReturnValue().Set(
-        arguments.Length() == 6 && ui != nullptr && BindingContext::text(arguments, 4, name) &&
+    arguments.set_return(
+        arguments.count() == 6 && ui != nullptr && BindingContext::text(arguments, 4, name) &&
         BindingContext::text(arguments, 5, value) && ui->set_style(handle, name, value));
 }
 
 void poll_event(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
     auto* ui = binding == nullptr ? nullptr : binding->ui();
     auto* world = binding == nullptr ? nullptr : binding->world();
     const auto* scene = world == nullptr ? nullptr : world->scene();
-    if (arguments.Length() != 0 || ui == nullptr || !ui->is_initialized() || scene == nullptr ||
+    if (arguments.count() != 0 || ui == nullptr || !ui->is_initialized() || scene == nullptr ||
         binding->scene_id() != scene->id())
     {
         return;
@@ -242,44 +235,29 @@ void poll_event(const Arguments& arguments)
         {
             continue;
         }
-        auto* isolate = arguments.GetIsolate();
-        const auto context = isolate->GetCurrentContext();
-        const auto result = v8::Object::New(isolate);
         if (event.path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
         {
             return;
         }
-        const auto route = v8::Array::New(isolate, static_cast<int>(event.path.size()));
-        std::uint32_t index = 0;
+        vm::NativeValue::Array route;
+        route.reserve(event.path.size());
         for (const auto& handle : event.path)
         {
-            const auto ancestor = v8::Object::New(isolate);
-            if (handle.document_id != event.target.document_id || handle.element_id == 0 ||
-                !BindingContext::define(context, ancestor, "document",
-                                        v8::BigInt::NewFromUnsigned(isolate, handle.document_id)) ||
-                !BindingContext::define(context, ancestor, "element",
-                                        v8::BigInt::NewFromUnsigned(isolate, handle.element_id)) ||
-                !route->Set(context, index++, ancestor).FromMaybe(false))
+            if (handle.document_id != event.target.document_id || handle.element_id == 0)
             {
                 return;
             }
+            route.emplace_back(vm::NativeValue::Object{{"document", handle.document_id},
+                                                       {"element", handle.element_id}});
         }
-        if (BindingContext::define(context, result, "scene",
-                                   v8::BigInt::NewFromUnsigned(isolate, event.scene_id)) &&
-            BindingContext::define(context, result, "node",
-                                   v8::BigInt::NewFromUnsigned(isolate, event.node_id)) &&
-            BindingContext::define(
-                context, result, "document",
-                v8::BigInt::NewFromUnsigned(isolate, event.target.document_id)) &&
-            BindingContext::define(context, result, "element",
-                                   v8::BigInt::NewFromUnsigned(isolate, event.target.element_id)) &&
-            BindingContext::string(context, result, "type", event.type) &&
-            BindingContext::string(context, result, "id", event.element_id) &&
-            BindingContext::string(context, result, "value", event.value) &&
-            BindingContext::define(context, result, "route", route))
-        {
-            arguments.GetReturnValue().Set(result);
-        }
+        arguments.set_return(vm::NativeValue::Object{{"scene", event.scene_id},
+                                                     {"node", event.node_id},
+                                                     {"document", event.target.document_id},
+                                                     {"element", event.target.element_id},
+                                                     {"type", event.type},
+                                                     {"id", event.element_id},
+                                                     {"value", event.value},
+                                                     {"route", std::move(route)}});
         return;
     }
 }
@@ -295,21 +273,17 @@ std::string_view UiElementBinding::source() const noexcept
     return javascript;
 }
 
-bool UiElementBinding::register_functions(v8::Local<v8::Context> context,
-                                          v8::Local<v8::Object> native) const
+bool UiElementBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "UiElementValid", valid) &&
-           BindingContext::function(context, native, "UiElementId", identifier) &&
-           BindingContext::function(context, native, "UiElementText", text) &&
-           BindingContext::function(context, native, "UiElementValue", value) &&
-           BindingContext::function(context, native, "UiElementTextSet", set_text) &&
-           BindingContext::function(context, native, "UiElementValueSet", set_value) &&
-           BindingContext::function(context, native, "UiElementVisibleSet", set_visible) &&
-           BindingContext::function(context, native, "UiElementEnabledSet", set_enabled) &&
-           BindingContext::function(context, native, "UiElementClassSet", set_class) &&
-           BindingContext::function(context, native, "UiElementStyleSet", set_style) &&
-           BindingContext::function(context, native, "UiElementImageSet", set_image) &&
-           BindingContext::function(context, native, "UiPollEvent", poll_event);
+    return vm.function("UiElementValid", valid) && vm.function("UiElementId", identifier) &&
+           vm.function("UiElementText", text) && vm.function("UiElementValue", value) &&
+           vm.function("UiElementTextSet", set_text) &&
+           vm.function("UiElementValueSet", set_value) &&
+           vm.function("UiElementVisibleSet", set_visible) &&
+           vm.function("UiElementEnabledSet", set_enabled) &&
+           vm.function("UiElementClassSet", set_class) &&
+           vm.function("UiElementStyleSet", set_style) &&
+           vm.function("UiElementImageSet", set_image) && vm.function("UiPollEvent", poll_event);
 }
 
 } // namespace engine::plugins::script::bindings

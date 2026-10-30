@@ -35,7 +35,15 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD)
         list(APPEND _editor_plugins modeling)
     endif()
     if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-        list(APPEND _editor_plugins asset_build fbx_import usd_import character_controller font_import ui_import)
+        list(
+            APPEND
+            _editor_plugins
+            asset_build
+            fbx_import
+            usd_import
+            character_controller
+            font_import
+            ui_import)
     endif()
     if(ENGINE_ENABLE_SCRIPT_RUNTIME AND (ENGINE_ENABLE_EDITOR_DEPS
                                          OR ENGINE_ENABLE_ASSET_PIPELINE_DEPS))
@@ -69,6 +77,17 @@ foreach(_plugin IN LISTS ENGINE_SELECTED_PLUGINS)
     get_property(_features GLOBAL PROPERTY "ENGINE_PLUGIN_${_plugin}_VCPKG_FEATURES")
     list(APPEND VCPKG_MANIFEST_FEATURES ${_features})
 endforeach()
+# VM 依赖只能由实际后端选择产生，切换时删除旧预设显式遗留的 feature。
+list(REMOVE_ITEM VCPKG_MANIFEST_FEATURES quickjs)
+if("runtime/script" IN_LIST ENGINE_SELECTED_PLUGINS)
+    if(ENGINE_SCRIPT_BACKEND STREQUAL "quickjs")
+        list(APPEND VCPKG_MANIFEST_FEATURES quickjs)
+        # 覆盖旧构建缓存中的 V8 开关，默认后端不会准备或链接另一个 VM。
+        set(ENGINE_ENABLE_V8 OFF)
+    else()
+        set(ENGINE_ENABLE_V8 ON)
+    endif()
+endif()
 if(VCPKG_MANIFEST_FEATURES)
     list(REMOVE_DUPLICATES VCPKG_MANIFEST_FEATURES)
 endif()

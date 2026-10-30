@@ -9,7 +9,6 @@ class RigidBodyBinding final : public ScriptBinding
 public:
     [[nodiscard]] std::string_view name() const noexcept override;
     [[nodiscard]] std::string_view source() const noexcept override;
-    [[nodiscard]] bool register_functions(v8::Local<v8::Context> context,
-                                          v8::Local<v8::Object> native) const override;
+    [[nodiscard]] bool register_functions(vm::ScriptVm& vm) const override;
 };
 } // namespace engine::plugins::script::bindings

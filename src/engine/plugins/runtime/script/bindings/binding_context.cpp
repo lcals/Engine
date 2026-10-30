@@ -8,22 +8,6 @@
 
 namespace engine::plugins::script::bindings
 {
-namespace
-{
-constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
-constexpr auto attributes = static_cast<v8::PropertyAttribute>(v8::ReadOnly | v8::DontDelete);
-
-v8::MaybeLocal<v8::String> make_string(v8::Isolate* isolate, std::string_view value)
-{
-    if (value.size() > maximum_text_size)
-    {
-        return {};
-    }
-    return v8::String::NewFromUtf8(isolate, value.data(), v8::NewStringType::kNormal,
-                                   static_cast<int>(value.size()));
-}
-} // namespace
-
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui) noexcept
     : world_(world), renderer_(renderer), ui_(ui)
 {
@@ -34,29 +18,14 @@ BindingContext::~BindingContext() noexcept
     shutdown();
 }
 
-bool BindingContext::initialize(v8::Local<v8::Context> context)
+void BindingContext::activate() noexcept
 {
-    if (!context_.IsEmpty() || context.IsEmpty() || v8::Isolate::GetCurrent() == nullptr)
-    {
-        return false;
-    }
-    isolate_ = v8::Isolate::GetCurrent();
-    context_.Reset(isolate_, context);
-    context->SetAlignedPointerInEmbedderData(1, this, v8::kEmbedderDataTypeTagDefault);
-    return true;
-}
-
-void BindingContext::activate()
-{
-    if (!context_.IsEmpty())
-    {
-        isolate_->SetData(1, this);
-    }
+    active_ = true;
 }
 
 void BindingContext::begin_call(double delta_time) noexcept
 {
-    callable_ = true;
+    callable_ = active_;
     delta_time_ = std::isfinite(delta_time) ? delta_time : 0.0;
 }
 
@@ -68,25 +37,13 @@ void BindingContext::end_call() noexcept
 
 void BindingContext::shutdown() noexcept
 {
+    active_ = false;
     end_call();
     if (world_ != nullptr && world_->scene() != nullptr && world_->scene()->id() == scene_id_)
     {
         world_->destroy_scene();
     }
     scene_id_ = 0;
-    if (!context_.IsEmpty())
-    {
-        v8::Isolate::Scope isolate_scope(isolate_);
-        v8::HandleScope handles(isolate_);
-        const auto context = context_.Get(isolate_);
-        if (isolate_->GetData(1) == this)
-        {
-            isolate_->SetData(1, nullptr);
-        }
-        context->SetAlignedPointerInEmbedderData(1, nullptr, v8::kEmbedderDataTypeTagDefault);
-        context_.Reset();
-        isolate_ = nullptr;
-    }
 }
 
 WorldSystem* BindingContext::world() const noexcept
@@ -121,16 +78,8 @@ double BindingContext::delta_time() const noexcept
 
 BindingContext* BindingContext::current(const Arguments& arguments, bool require_callable)
 {
-    auto* isolate = arguments.GetIsolate();
-    const auto context = isolate->GetCurrentContext();
-    auto* active = static_cast<BindingContext*>(isolate->GetData(1));
-    if (active == nullptr || context.IsEmpty() || context->GetNumberOfEmbedderDataFields() < 2 ||
-        context->GetAlignedPointerFromEmbedderData(1, v8::kEmbedderDataTypeTagDefault) != active)
-    {
-        return nullptr;
-    }
-    if (active->context_.IsEmpty() || active->context_.Get(isolate) != context ||
-        (require_callable && !active->callable_))
+    auto* active = static_cast<BindingContext*>(arguments.owner());
+    if (active == nullptr || !active->active_ || (require_callable && !active->callable_))
     {
         return nullptr;
     }
@@ -160,11 +109,11 @@ Node* BindingContext::node(const Arguments& arguments)
 Component* BindingContext::component(const Arguments& arguments)
 {
     auto* value = node(arguments);
-    if (value == nullptr || arguments.Length() < 3 || !arguments[2]->IsInt32())
+    if (value == nullptr || arguments.count() < 3 || !arguments.is_int32(2))
     {
         return nullptr;
     }
-    const auto kind = arguments[2].As<v8::Int32>()->Value();
+    const auto kind = arguments.integer(2);
     if (kind <= 0 || kind > std::numeric_limits<std::uint8_t>::max())
     {
         return nullptr;
@@ -175,33 +124,13 @@ Component* BindingContext::component(const Arguments& arguments)
 bool BindingContext::identifier(const Arguments& arguments, int index, std::uint64_t& output)
 {
     output = 0;
-    if (index < 0 || index >= arguments.Length() || !arguments[index]->IsBigInt())
-    {
-        return false;
-    }
-    bool lossless = false;
-    const auto value = arguments[index].As<v8::BigInt>()->Uint64Value(&lossless);
-    if (lossless)
-    {
-        output = value;
-    }
-    return lossless;
+    return arguments.identifier(index, output);
 }
 
 bool BindingContext::number(const Arguments& arguments, int index, double& output)
 {
     output = 0.0;
-    if (index < 0 || index >= arguments.Length() || !arguments[index]->IsNumber())
-    {
-        return false;
-    }
-    const auto value = arguments[index].As<v8::Number>()->Value();
-    if (!std::isfinite(value))
-    {
-        return false;
-    }
-    output = value;
-    return true;
+    return arguments.number(index, output);
 }
 
 bool BindingContext::scalar(const Arguments& arguments, int index, float& output)
@@ -219,50 +148,7 @@ bool BindingContext::scalar(const Arguments& arguments, int index, float& output
 bool BindingContext::text(const Arguments& arguments, int index, std::string& output)
 {
     output.clear();
-    if (index < 0 || index >= arguments.Length() || !arguments[index]->IsString() ||
-        arguments[index].As<v8::String>()->Length() > static_cast<int>(maximum_text_size))
-    {
-        return false;
-    }
-    const v8::String::Utf8Value value(arguments.GetIsolate(), arguments[index]);
-    if (*value == nullptr || static_cast<std::size_t>(value.length()) > maximum_text_size)
-    {
-        return false;
-    }
-    output.assign(*value, static_cast<std::size_t>(value.length()));
-    return true;
-}
-
-bool BindingContext::define(v8::Local<v8::Context> context, v8::Local<v8::Object> native,
-                            std::string_view name, v8::Local<v8::Value> value)
-{
-    v8::Local<v8::String> key;
-    return make_string(v8::Isolate::GetCurrent(), name).ToLocal(&key) &&
-           !native->HasOwnProperty(context, key).FromMaybe(true) &&
-           native->DefineOwnProperty(context, key, value, attributes).FromMaybe(false);
-}
-
-bool BindingContext::function(v8::Local<v8::Context> context, v8::Local<v8::Object> native,
-                              std::string_view name, v8::FunctionCallback callback,
-                              v8::Local<v8::Value> data)
-{
-    v8::Local<v8::Function> value;
-    return v8::Function::New(context, callback, data).ToLocal(&value) &&
-           define(context, native, name, value);
-}
-
-bool BindingContext::integer(v8::Local<v8::Context> context, v8::Local<v8::Object> native,
-                             std::string_view name, std::int32_t value)
-{
-    return define(context, native, name, v8::Int32::New(v8::Isolate::GetCurrent(), value));
-}
-
-bool BindingContext::string(v8::Local<v8::Context> context, v8::Local<v8::Object> native,
-                            std::string_view name, std::string_view value)
-{
-    v8::Local<v8::String> text;
-    return make_string(v8::Isolate::GetCurrent(), value).ToLocal(&text) &&
-           define(context, native, name, text);
+    return arguments.text(index, output);
 }
 
 } // namespace engine::plugins::script::bindings

@@ -5,7 +5,7 @@
 | 范围 | 源码与头文件下的相对目录 | 提供的能力 |
 | --- | --- | --- |
 | 运行时资源依赖图 | `plugins/runtime/resource_graph/` | 必要依赖加载、共享缓存及按引用反向释放，实现核心加载接口 |
-| 运行时脚本 | `plugins/runtime/script/` | V8、JS 模块与玩法执行、逐类绑定，实现核心 ScriptRuntime |
+| 运行时脚本 | `plugins/runtime/script/` | QuickJS/V8 二选一、JS 模块与玩法执行、共享逐类绑定，实现核心 ScriptRuntime |
 | 运行时角色控制器 | `plugins/runtime/character_controller/` | 输入与第一/第三人称相机策略，调用核心 CharacterMotor |
 | 编辑器 FBX | `plugins/editor/fbx_import/` | 固定版本 ufbx，模型/骨架/动画多子资源转换 |
 | 编辑器 USD | `plugins/editor/usd_import/` | 独立 OpenUSD 依赖，自包含静态模型转换 |
@@ -40,7 +40,7 @@
 | `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
 | `editor/ui_import` | 非设备构建，资源管线依赖开启 | 无；通过资源管线解析标准引用 |
 | `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
-| `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖与已准备的 V8 |
+| `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |
 | `editor/asset_build` | 非设备构建，资源管线依赖开启 | 无；需要资源管线基础 |
 | `editor/asset_sync` | 非设备构建，脚本运行开启，且编辑器或资源管线依赖开启 | 无；显式选择只要求运行时依赖 |
@@ -48,7 +48,7 @@
 
 Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前置配置或运行时插件反向依赖编辑器均在配置时失败。`modeling` 插件提供几何目标；编辑器基础存在时再提供建模命令目标，导入管线存在时接入源网格编译。MCP 与建模同时启用时建立建模工具适配目标；几何计算不因此依赖 MCP。
 
-这是构建期插件装配；不据此声明已提供 DLL 热插拔、C++ 模块热重载或状态迁移。插件 CMake 开关与 V8 玩法热重载是不同机制。具体配置命令及实际验证范围见根 [README](../../README.md)。
+这是构建期插件装配；不据此声明已提供 DLL 热插拔、C++ 模块热重载或状态迁移。插件 CMake 开关、虚拟机编译期选择与玩法热重载是不同机制。具体配置命令及实际验证范围见根 [README](../../README.md)。
 
 ## 核心与调用方
 
@@ -62,7 +62,11 @@ Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前�
 
 MCP 插件中的协议目标只拥有描述、输入模型与回调。编辑器业务模块自行注册工具，场景命令通过文件通道进入编辑器主线程；组件继续提供普通 C++ 方法。超时返回原请求身份，客户端查询完成回执，不重复执行未确认操作。
 
-V8 玩法和绑定位于 `plugins/runtime/script/`。核心 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md) 只声明执行与状态契约；宿主通过工厂创建所选插件，世界统一管理生命周期。RuntimeHost 和 GameplaySession 不链接具体脚本插件。原生绑定实现统一接口并显式登记，公开声明维护于 [include/engine.d.ts](../../include/engine.d.ts)。Gameplay 是场景外项目入口；场景对象使用 Node + Component。热重载由玩法会话驱动，MCP 同步资源并控制开关，不直接重载 V8。
+脚本玩法、VM 适配与共享绑定位于 `plugins/runtime/script/`。核心 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md) 只声明执行与状态契约；宿主通过工厂创建所选插件，世界统一管理生命周期。RuntimeHost 和 GameplaySession 不链接具体脚本插件。原生绑定实现统一接口并显式登记，公开声明维护于 [include/engine.d.ts](../../include/engine.d.ts)。Gameplay 是场景外项目入口；场景对象使用 Node + Component。热重载由玩法会话驱动，MCP 同步资源并控制开关，不直接重载虚拟机。
+
+`ENGINE_SCRIPT_BACKEND=quickjs|v8` 只在配置时选择，默认为 `quickjs`；插件目标只定义选中的 `ENGINE_SCRIPT_BACKEND_QUICKJS` 或 `ENGINE_SCRIPT_BACKEND_V8` 宏。注册表通过 [ScriptVm](runtime/class-diagrams/script-vm.md) 登记同一套绑定，没有运行时选择后端的 API。QuickJS 构建只启用 `quickjs` vcpkg feature，不准备或链接 V8/ICU；V8 构建不查找或链接 QuickJS。两种后端分别在独立构建目录保留缓存，宿主脚本准备入口统一为 `engine_script_prepare`。
+
+V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平台默认关闭，JIT 保留，默认包无 `icudtl.dat`。每个 Run 独占 ScriptVm；QuickJS 拥有自己的 runtime/context，V8 拥有自己的 isolate/context，只有 V8 platform 按进程共享。重载释放旧 Run 的任务与绑定，不迁移 VM 句柄。
 
 ## 运行包与调试工具
 
@@ -72,7 +76,7 @@ V8 玩法和绑定位于 `plugins/runtime/script/`。核心 [ScriptRuntime](../r
 
 ## 评审入口
 
-- [脚本运行契约](../runtime/class-diagrams/script-runtime.md)与[V8 脚本插件](runtime/class-diagrams/script-system.md)。
+- [脚本运行契约](../runtime/class-diagrams/script-runtime.md)与[脚本插件](runtime/class-diagrams/script-system.md)。
 - [资源加载接口](../runtime/class-diagrams/resource-loader.md)与[资源依赖图插件](runtime/class-diagrams/resource-graph.md)。
 - [建模功能与边界](editor/modeling.md)、[建模编辑业务](editor/class-diagrams/modeling-commands.md)。
 - [MCP 协议](editor/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。

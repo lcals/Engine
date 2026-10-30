@@ -39,17 +39,17 @@ Object.freeze(RigidBody);
 
 RigidBody* body(const Arguments& arguments, int count)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.Length() == count ? node->get_component<RigidBody>()
-                                                          : nullptr;
+    return node != nullptr && arguments.count() == count ? node->get_component<RigidBody>()
+                                                         : nullptr;
 }
 
 void add(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
-    arguments.GetReturnValue().Set(arguments.Length() == 2 && node != nullptr &&
-                                   node->add_component<RigidBody>() != nullptr);
+    arguments.set_return(arguments.count() == 2 && node != nullptr &&
+                         node->add_component<RigidBody>() != nullptr);
 }
 
 void motion(const Arguments& arguments)
@@ -77,7 +77,7 @@ void motion(const Arguments& arguments)
     {
         return;
     }
-    arguments.GetReturnValue().Set(value->set_settings(settings));
+    arguments.set_return(value->set_settings(settings));
 }
 
 void mass(const Arguments& arguments)
@@ -88,7 +88,7 @@ void mass(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.mass = number;
-        arguments.GetReturnValue().Set(value->set_settings(settings));
+        arguments.set_return(value->set_settings(settings));
     }
 }
 
@@ -102,8 +102,8 @@ void set_vector(const Arguments& arguments, bool impulse)
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
         const Vec3 vector(x, y, z);
-        arguments.GetReturnValue().Set(impulse ? value->add_impulse(vector)
-                                               : value->set_linear_velocity(vector));
+        arguments.set_return(impulse ? value->add_impulse(vector)
+                                     : value->set_linear_velocity(vector));
     }
 }
 
@@ -120,21 +120,14 @@ void impulse(const Arguments& arguments)
 void get_velocity(const Arguments& arguments)
 {
     const auto* value = body(arguments, 2);
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     if (value == nullptr)
     {
         return;
     }
-    auto* isolate = arguments.GetIsolate();
-    const auto context = isolate->GetCurrentContext();
-    const auto output = v8::Object::New(isolate);
     const auto& vector = value->linear_velocity();
-    if (BindingContext::define(context, output, "x", v8::Number::New(isolate, vector.x())) &&
-        BindingContext::define(context, output, "y", v8::Number::New(isolate, vector.y())) &&
-        BindingContext::define(context, output, "z", v8::Number::New(isolate, vector.z())))
-    {
-        arguments.GetReturnValue().Set(output);
-    }
+    arguments.set_return(
+        vm::NativeValue::Object{{"x", vector.x()}, {"y", vector.y()}, {"z", vector.z()}});
 }
 } // namespace
 
@@ -148,16 +141,12 @@ std::string_view RigidBodyBinding::source() const noexcept
     return javascript;
 }
 
-bool RigidBodyBinding::register_functions(v8::Local<v8::Context> context,
-                                          v8::Local<v8::Object> native) const
+bool RigidBodyBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::integer(context, native, "RigidBodyKind",
-                                   static_cast<int>(RigidBody::component_type)) &&
-           BindingContext::function(context, native, "RigidBodyAdd", add) &&
-           BindingContext::function(context, native, "RigidBodyMotion", motion) &&
-           BindingContext::function(context, native, "RigidBodyMass", mass) &&
-           BindingContext::function(context, native, "RigidBodyVelocity", velocity) &&
-           BindingContext::function(context, native, "RigidBodyGetVelocity", get_velocity) &&
-           BindingContext::function(context, native, "RigidBodyImpulse", impulse);
+    return vm.integer("RigidBodyKind", static_cast<int>(RigidBody::component_type)) &&
+           vm.function("RigidBodyAdd", add) && vm.function("RigidBodyMotion", motion) &&
+           vm.function("RigidBodyMass", mass) && vm.function("RigidBodyVelocity", velocity) &&
+           vm.function("RigidBodyGetVelocity", get_velocity) &&
+           vm.function("RigidBodyImpulse", impulse);
 }
 } // namespace engine::plugins::script::bindings

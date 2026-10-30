@@ -158,7 +158,7 @@ std::string_view UiControllerBinding::source() const noexcept
     return javascript;
 }
 
-bool UiControllerBinding::register_functions(v8::Local<v8::Context>, v8::Local<v8::Object>) const
+bool UiControllerBinding::register_functions(vm::ScriptVm&) const
 {
     return true;
 }

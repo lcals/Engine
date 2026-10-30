@@ -26,7 +26,7 @@ std::string_view GameplayBinding::source() const noexcept
     return javascript;
 }
 
-bool GameplayBinding::register_functions(v8::Local<v8::Context>, v8::Local<v8::Object>) const
+bool GameplayBinding::register_functions(vm::ScriptVm&) const
 {
     return true;
 }

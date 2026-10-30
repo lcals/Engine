@@ -51,29 +51,28 @@ Object.freeze(Scene);
 
 void create(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
     std::string name;
     if (binding == nullptr || binding->world() == nullptr || !binding->world()->is_initialized() ||
-        arguments.Length() != 1 || !BindingContext::text(arguments, 0, name))
+        arguments.count() != 1 || !BindingContext::text(arguments, 0, name))
     {
         return;
     }
     if (auto* scene = binding->world()->create_scene(name); scene != nullptr)
     {
         binding->set_scene_id(scene->id());
-        arguments.GetReturnValue().Set(
-            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), scene->id()));
+        arguments.set_return(scene->id());
     }
 }
 
 void load(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
     std::string path;
     if (binding == nullptr || binding->world() == nullptr || !binding->world()->is_initialized() ||
-        arguments.Length() != 1 || !BindingContext::text(arguments, 0, path))
+        arguments.count() != 1 || !BindingContext::text(arguments, 0, path))
     {
         return;
     }
@@ -85,17 +84,16 @@ void load(const Arguments& arguments)
     if (auto* scene = binding->world()->load_scene(path); scene != nullptr)
     {
         binding->set_scene_id(scene->id());
-        arguments.GetReturnValue().Set(
-            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), scene->id()));
+        arguments.set_return(scene->id());
     }
 }
 
 void find_node(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* scene = BindingContext::scene(arguments);
     std::string name;
-    if (scene == nullptr || arguments.Length() != 2 || !BindingContext::text(arguments, 1, name))
+    if (scene == nullptr || arguments.count() != 2 || !BindingContext::text(arguments, 1, name))
     {
         return;
     }
@@ -103,8 +101,7 @@ void find_node(const Arguments& arguments)
     {
         if (node->name() == name)
         {
-            arguments.GetReturnValue().Set(
-                v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), node->id()));
+            arguments.set_return(node->id());
             return;
         }
     }
@@ -112,58 +109,55 @@ void find_node(const Arguments& arguments)
 
 void valid(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(arguments.Length() == 1 &&
-                                   BindingContext::scene(arguments) != nullptr);
+    arguments.set_return(arguments.count() == 1 && BindingContext::scene(arguments) != nullptr);
 }
 
 void instantiate_model(const Arguments& arguments)
 {
-    arguments.GetReturnValue().SetNull();
+    arguments.set_return({});
     auto* scene = BindingContext::scene(arguments);
     std::string path;
     std::string name;
-    if (!scene || arguments.Length() != 3 || !BindingContext::text(arguments, 1, path) ||
+    if (!scene || arguments.count() != 3 || !BindingContext::text(arguments, 1, path) ||
         !BindingContext::text(arguments, 2, name))
     {
         return;
     }
     if (const auto* root = scene->instantiate_model(path, name))
     {
-        arguments.GetReturnValue().Set(
-            v8::BigInt::NewFromUnsigned(arguments.GetIsolate(), root->id()));
+        arguments.set_return(root->id());
     }
 }
 
 void destroy(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
-    if (arguments.Length() == 1 && BindingContext::scene(arguments) != nullptr)
+    arguments.set_return(false);
+    if (arguments.count() == 1 && BindingContext::scene(arguments) != nullptr)
     {
         auto* binding = BindingContext::current(arguments);
         binding->world()->destroy_scene();
         binding->set_scene_id(0);
-        arguments.GetReturnValue().Set(true);
+        arguments.set_return(true);
     }
 }
 
 void active_camera(const Arguments& arguments)
 {
-    arguments.GetReturnValue().Set(false);
+    arguments.set_return(false);
     auto* scene = BindingContext::scene(arguments);
     std::uint64_t id = 0;
-    if (scene == nullptr || arguments.Length() != 2 ||
-        !BindingContext::identifier(arguments, 1, id))
+    if (scene == nullptr || arguments.count() != 2 || !BindingContext::identifier(arguments, 1, id))
     {
         return;
     }
     if (id == 0)
     {
-        arguments.GetReturnValue().Set(scene->set_active_camera(nullptr));
+        arguments.set_return(scene->set_active_camera(nullptr));
         return;
     }
     auto* node = scene->find_node(id);
     auto* camera = node == nullptr ? nullptr : node->get_component<Camera>();
-    arguments.GetReturnValue().Set(camera != nullptr && scene->set_active_camera(camera));
+    arguments.set_return(camera != nullptr && scene->set_active_camera(camera));
 }
 } // namespace
 
@@ -177,16 +171,13 @@ std::string_view SceneBinding::source() const noexcept
     return javascript;
 }
 
-bool SceneBinding::register_functions(v8::Local<v8::Context> context,
-                                      v8::Local<v8::Object> native) const
+bool SceneBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return BindingContext::function(context, native, "SceneCreate", create) &&
-           BindingContext::function(context, native, "SceneLoad", load) &&
-           BindingContext::function(context, native, "SceneFindNode", find_node) &&
-           BindingContext::function(context, native, "SceneInstantiateModel", instantiate_model) &&
-           BindingContext::function(context, native, "SceneValid", valid) &&
-           BindingContext::function(context, native, "SceneDestroy", destroy) &&
-           BindingContext::function(context, native, "ActiveCamera", active_camera);
+    return vm.function("SceneCreate", create) && vm.function("SceneLoad", load) &&
+           vm.function("SceneFindNode", find_node) &&
+           vm.function("SceneInstantiateModel", instantiate_model) &&
+           vm.function("SceneValid", valid) && vm.function("SceneDestroy", destroy) &&
+           vm.function("ActiveCamera", active_camera);
 }
 
 } // namespace engine::plugins::script::bindings

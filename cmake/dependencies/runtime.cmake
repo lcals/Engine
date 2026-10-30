@@ -173,6 +173,6 @@ endfunction()
 _engine_ozz_add_prepare_dependency("${_ozz_staged}")
 
 # V8 使用独立 GN 构建，由 v8.cmake 中的 ENGINE_ENABLE_V8 显式启用。
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/v8/BUILD.gn")
+if(ENGINE_ENABLE_V8 AND NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/v8/BUILD.gn")
     message(FATAL_ERROR "V8 is missing; run git submodule update --init")
 endif()

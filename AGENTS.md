@@ -32,8 +32,9 @@
 - 规划文档及独立类图按所属层级放在 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/`、`docs/plugins/editor/`，独立类图位于各层级的 `class-diagrams/`；插件总索引保留 `docs/plugins/plugins.md`。跨层级入口保留 `docs/class-diagrams/index.md` 与 `references.md`，总说明保留 `docs/architecture.md`、`docs/development.md`。引擎总图只定义 `Engine` 和 `System`，其他类独立维护，完整标注继承、拥有、借用以及参数和返回类型依赖；跨图引用不重复定义方法。
 - 引擎启动不要求项目；`EngineConfig` 只保存运行时配置，`Engine` 不拥有或依赖项目系统、编辑器系统。
 - `Engine` 负责系统生命周期与运行调度，不增加场景节点数量、渲染资源数量等跨模块统计便利函数；领域查询归对应系统。
-- ScriptSystem、V8 执行和逐类绑定属于 `plugins/runtime/script/` 可选插件；核心只声明 `ScriptRuntime` 与 `ScriptStatus`，运行宿主通过可空工厂注入实现并统一生命周期，关闭插件后仍可启动和渲染，不链接 V8。
-- 脚本绑定按类/模块拆分为实现统一接口的绑定类；新增绑定只增加一个绑定类并在注册表登记，各自定义脚本外观与原生方法；ScriptSystem 负责 V8、模块预检与执行、玩法回调，不集中放置所有类的绑定实现。部署选择、目录提交与热重载流程由 GameplaySession 协调。
+- ScriptSystem、虚拟机中间层和逐类绑定属于 `plugins/runtime/script/` 可选插件；核心只声明 `ScriptRuntime` 与 `ScriptStatus`，运行宿主通过可空工厂注入实现并统一生命周期，关闭插件后仍可启动和渲染，不链接脚本虚拟机。`ENGINE_SCRIPT_BACKEND` 在构建期选择 `quickjs`（默认）或 `v8`，只定义所选的 `ENGINE_SCRIPT_BACKEND_QUICKJS` / `ENGINE_SCRIPT_BACKEND_V8` 宏；一次构建只查找、准备、编译和链接一种后端，不保留另一后端的依赖、源码或运行时选择分支。
+- 脚本绑定按类/模块拆分为实现统一接口的绑定类；新增绑定只增加一个绑定类并在注册表登记，各自定义脚本外观与原生方法；ScriptSystem 通过插件内部 ScriptVm 接口组织模块预检与执行、玩法回调，不集中放置所有类的绑定实现，也不直接操作具体 VM 句柄。每个候选或活动 Run 独占虚拟机环境、模块和任务队列；逐类绑定与 UI MVC 共用一套实现，保持生命周期与热重载语义。部署选择、目录提交与热重载流程由 GameplaySession 协调。
+- V8 在所有平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation，保留 JIT；对应 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION` 均默认 OFF。默认包不生成或部署 `icudtl.dat`。V8 平台进程共享，每个 Run 独占 isolate；QuickJS 每个 Run 独占 runtime/context。虚拟机对象不进入核心或编辑器公开接口。
 - 编辑器启动必须传入项目根目录，由编辑器宿主先初始化独立的 `ProjectSystem`，检查根目录及 `settings/`、`cache/`、`assets/` 均存在且为目录，再启动引擎窗口和编辑器系统；失败通过返回值报告。`EditorSystem` 借用已初始化的 `EditorEnvironment`，环境借用项目系统；两者必须存活并保持就绪直到编辑器关闭。
 - 已选依赖须参与相应目标的实际编译和链接验证，不能仅以登记或 `find_package` 成功作为完成；具体功能可分阶段启用。
 - 插件由 CMake 清单登记，使用 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS` 选择；每个插件独占 `cmake/plugins/<scope>/<name>.cmake`，在其中声明目标、源码及依赖。注册器统一解析依赖闭包，未选且不在依赖闭包内的插件不创建目标，宿主只装配实际启用的插件；不在核心或宿主中央文件积累每个插件的源码列表。

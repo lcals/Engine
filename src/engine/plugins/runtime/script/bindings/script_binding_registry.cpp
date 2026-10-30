@@ -4,7 +4,6 @@
 #include "plugins/runtime/script/bindings/app_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_source_binding.hpp"
-#include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/script/bindings/camera_binding.hpp"
 #include "plugins/runtime/script/bindings/character_motor_binding.hpp"
 #include "plugins/runtime/script/bindings/collider_binding.hpp"
@@ -64,22 +63,20 @@ bool ScriptBindingRegistry::add_binding(std::unique_ptr<ScriptBinding>& binding)
     return true;
 }
 
-bool ScriptBindingRegistry::register_functions(v8::Local<v8::Context> context) const
+bool ScriptBindingRegistry::register_functions(vm::ScriptVm& vm) const
 {
-    if (context.IsEmpty() || bindings_.empty())
+    if (bindings_.empty())
     {
         return false;
     }
-    const auto native = v8::Object::New(v8::Isolate::GetCurrent());
     for (const auto& binding : bindings_)
     {
-        if (!binding->register_functions(context, native))
+        if (!binding->register_functions(vm))
         {
             return false;
         }
     }
-    return native->SetIntegrityLevel(context, v8::IntegrityLevel::kFrozen).FromMaybe(false) &&
-           BindingContext::define(context, context->Global(), "__engineNative", native);
+    return vm.seal_bindings();
 }
 
 std::string ScriptBindingRegistry::source() const
