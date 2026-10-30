@@ -1,11 +1,18 @@
 #include "runtime/resource/resource_codec.hpp"
 
+#include "runtime/resource/codecs/audio_resource_codec.hpp"
 #include "runtime/resource/codecs/binary_resource_codec.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
 #include "runtime/resource/codecs/scene_resource_codec.hpp"
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
+
+#include "runtime/resource/codecs/model_resource_codec.hpp"
+
+#include "runtime/resource/codecs/skeleton_resource_codec.hpp"
+
+#include "runtime/resource/codecs/animation_resource_codec.hpp"
 
 #include <algorithm>
 #include <array>
@@ -15,7 +22,11 @@ namespace engine
 namespace
 {
 
+const ModelResourceCodec model;
+const SkeletonResourceCodec skeleton;
+const AnimationResourceCodec animation;
 const BinaryResourceCodec binary;
+const AudioResourceCodec audio;
 const MaterialResourceCodec material;
 const MeshResourceCodec mesh;
 const SceneResourceCodec scene;
@@ -36,6 +47,10 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::texture, &texture},
     CodecEntry{schema::AssetKind::script, &binary},
     CodecEntry{schema::AssetKind::source, &binary},
+    CodecEntry{schema::AssetKind::model, &model},
+    CodecEntry{schema::AssetKind::skeleton, &skeleton},
+    CodecEntry{schema::AssetKind::animation, &animation},
+    CodecEntry{schema::AssetKind::audio, &audio},
 };
 
 } // namespace

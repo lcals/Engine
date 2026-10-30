@@ -128,7 +128,7 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/script")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
@@ -261,6 +261,32 @@ set(ENGINE_ENABLE_V8 OFF)
 set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
+]=])
+
+run_case(
+    character_controller_editor_closure
+    ""
+    [=[
+set(ENGINE_ENABLE_EDITOR_DEPS OFF)
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS character_controller CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/character_controller;editor/character_controller")
+    message(FATAL_ERROR "Controller codec must select its runtime without unrelated plugins: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
+    independent_format_importer
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS fbx_import CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/fbx_import" OR
+   "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "FBX alone must not select controller, USD or modeling: ${ENGINE_SELECTED_PLUGINS}")
+endif()
 ]=])
 
 message(STATUS "Plugin selection regression cases passed")

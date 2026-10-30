@@ -43,7 +43,7 @@ def main():
     parser.add_argument("--config", choices=("debug", "release"), default="debug")
     parser.add_argument("--jobs", type=int, default=min(os.cpu_count() or 1, 8))
     parser.add_argument(
-        "--project", type=Path, help="要编译并放入 APK 的项目目录，默认 projects/minimal"
+        "--project", type=Path, help="要编译并放入 APK 的项目目录，默认 projects/showcase"
     )
     parser.add_argument(
         "--asset-builder",
@@ -63,7 +63,7 @@ def main():
         not asset_builder.is_file() or not os.access(asset_builder, os.X_OK)
     ):
         parser.error("--asset-builder 必须指向可执行的宿主 asset_build_app，请先构建桌面资源工具。")
-    project = args.project or ROOT / "projects/minimal"
+    project = args.project or ROOT / "projects/showcase"
     require_directory("ANDROID_HOME")
     ndk_root = require_directory("ANDROID_NDK_HOME")
     properties = (ndk_root / "source.properties").read_text(encoding="utf-8")

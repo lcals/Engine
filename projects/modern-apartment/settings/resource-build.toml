@@ -1,8 +1,0 @@
-target_platform = ""
-output = "cache/build/apartment"
-
-[[items]]
-name = "apartment"
-storage = "package"
-roots = ["project/scripts/game.ts", "project/scenes/apartment.scene"]
-keep = []

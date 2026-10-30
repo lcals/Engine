@@ -2,7 +2,6 @@
 find_package(Taskflow CONFIG REQUIRED GLOBAL)
 find_package(unofficial-sqlite3 CONFIG REQUIRED GLOBAL)
 find_package(efsw CONFIG REQUIRED GLOBAL)
-find_package(pxr CONFIG REQUIRED GLOBAL)
 find_package(basisu CONFIG REQUIRED GLOBAL)
 find_package(meshoptimizer CONFIG REQUIRED GLOBAL)
 find_package(flatbuffers CONFIG REQUIRED GLOBAL)

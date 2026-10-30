@@ -2,6 +2,16 @@
 
 namespace engine::editor::asset_pipeline
 {
+std::string_view AssetImporter::id() const noexcept
+{
+    return schema::EnumNameAssetKind(kind());
+}
+bool AssetImporter::discover(const ImportAsset&, std::vector<ImportSubresource>& output,
+                             std::string&) const
+{
+    output.clear();
+    return true;
+}
 std::string_view AssetImporter::default_meta() const noexcept
 {
     return {};

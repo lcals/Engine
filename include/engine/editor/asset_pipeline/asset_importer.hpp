@@ -1,6 +1,7 @@
 #pragma once
 
 #include "editor/asset_pipeline/import_context.hpp"
+#include "editor/asset_pipeline/import_subresource.hpp"
 #include "editor/task/task_system.hpp"
 
 #include <string_view>
@@ -11,6 +12,11 @@ class AssetImporter
 {
 public:
     virtual ~AssetImporter() noexcept = default;
+    [[nodiscard]] virtual std::string_view id() const noexcept;
+    // 协调线程枚举稳定子资源；只描述身份，不写缓存。
+    [[nodiscard]] virtual bool discover(const ImportAsset& source,
+                                        std::vector<ImportSubresource>& output,
+                                        std::string& error) const;
     [[nodiscard]] virtual schema::AssetKind kind() const noexcept = 0;
     [[nodiscard]] virtual bool matches(const std::filesystem::path& source) const = 0;
     [[nodiscard]] virtual std::string_view default_meta() const noexcept;

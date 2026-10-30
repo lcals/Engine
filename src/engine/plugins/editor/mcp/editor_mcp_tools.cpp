@@ -1,4 +1,5 @@
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#include "plugins/editor/mcp/component_mcp_tools.hpp"
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
@@ -230,7 +231,9 @@ bool EditorMcpTools::register_tools(McpSystem& system)
         object_schema({{"command", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
                        {"arguments", {{"type", "object"}, {"additionalProperties", true}}}},
                       {"command", "arguments"});
-    return register_command("get_scene", "get_scene", "Read the active scene and its components.",
+    return register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
+           register_animation_tools(system, *this) && register_model_tools(system, *this) &&
+           register_command("get_scene", "get_scene", "Read the active scene and its components.",
                             object_schema(Json::object())) &&
            register_command(
                "create_node", "create_node",

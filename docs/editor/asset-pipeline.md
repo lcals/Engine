@@ -16,7 +16,7 @@
 
 `AssetPipelineSystem` 扫描源文件、校验 meta、建立依赖图，通过 `TaskSystem` 下发转换任务。任务系统使用 Taskflow，只负责依赖调度；`settings/import.toml` 的 `import_threads` 默认为 4，允许 1–64。源扫描、版本决策、文件发布和错误报告归资源管线。
 
-系统属于 `engine::editor`，逐类型导入接口与实现属于 `engine::editor::asset_pipeline`。每种资源在独立导入器文件中实现识别、默认 meta、指纹、依赖与转换；管线只通过登记接口调度。初始化登记默认实现，宿主可在空闲时通过 `set_importer` 注入替换实现，关闭后清空。编辑器基础不引用或链接具体插件。
+系统属于 `engine::editor`，逐类型导入接口与实现属于 `engine::editor::asset_pipeline`。每种资源在独立导入器文件中实现识别、默认 meta、指纹、依赖与转换；管线只通过登记接口调度。初始化登记默认实现，宿主可在空闲时通过 `add_importer` 登记新 id，或通过 `set_importer` 替换已有 id 的实现，关闭后清空。编辑器基础不引用或链接具体插件。
 
 转换结果写入 `cache/gen/<完整GUID>`：文件名无扩展名、类型前缀或版本子目录。每个文件是 `ERS1` 资源实体，包含带 `ERSH` 标识的 FlatBuffers 实体头与载荷。`cache/catalog.bin` 使用版本 2，保存 GUID、逻辑路径、类型、必要运行依赖、完整实体大小和哈希、头长度、存储定位及目标平台；导入缓存的定位为 `content` 挂载下的 `gen/<GUID>`。
 
@@ -34,6 +34,16 @@
 
 `AssetPipelineSystem.catalog()` 返回最近成功导入的完整内存目录，只包含元数据；下一次成功导入更新内容，失败保留旧目录，关闭时清空。编辑器协调层使用该数据及 `content` 挂载直接调用核心 `update_catalog()`。运行中的编辑器项目会阻止覆盖同一 `cache/gen/`；调用方必须先停止，导入工具不自动停启。管线也提供 `asset_build_app` 离线入口，命令见根 [README](../../README.md#资源导入与-guid)。
 
+## 格式插件与子资源
+
+[FBX](../plugins/editor/class-diagrams/fbx-importer.md)与[USD](../plugins/editor/class-diagrams/usd-import.md)均为可选编辑器插件。`AssetImporter::id()` 描述源格式，`kind()` 描述主产物；多个格式可以输出 `model`。插件 `discover` 返回稳定子资源 key/kind，管线在源 meta 的 `[[subresources]]` 分配并保留 GUID。主产物及每个子产物各有目录记录、构建键和独立 `gen/GUID`，主 Model 用 GUID 组织节点和依赖。
+
+一个美术源文件在编辑器组织为虚拟资源包，`.meta` 的 `[[subresources]]` 维护子项 key、类型和独立 GUID；格式导入参数同样由该 meta 管理。这个分组不生成运行时包对象。Model 只包含节点层级与 Mesh/Material 引用，蒙皮 Mesh 和 Animation 分别引用需要的 Skeleton，Material 引用 Texture。运行时各项均为独立资源；使用一个模型或动作不引用同源其他动画。构建按选定入口的实际依赖输出，无用子项不进入运行包，不删除美术源文件。散文件或合并包只改变存储方式。
+
+已消失的子资源不会进入本批运行目录，但身份保留在源 meta 并参与全项目冲突检查。源文件、meta、Schema 或导入器指纹变化按依赖传播；没有变化时整批复用，不改写正式版本。发现阶段已知子资源丢失身份时失败，防止引用被悄悄重分配。
+
+FBX 生成层级、几何、骨架和采样动画；USD 当前只生成自包含的静态凸多边形模型。具体格式限制由各插件校验。核心只定义运行 Schema、ResourceCodec 和场景实例化，格式依赖不进入运行包；MCP 调用现有导入/构建/同步能力，无需复制每种格式的算法。
+
 ## 运行资源与同步
 
 运行时读取 catalog 元数据，并在使用时读取所需资源，不在启动时把所有实体读入内存；可从独立 GUID 文件或合并包中的区间读取。运行时不依赖 TOML、SQLite、源 meta 或编辑器。Android 出包使用目标平台 catalog，拒绝把桌面 Shader 缓存混入 APK。
@@ -44,6 +54,6 @@
 
 ## 尚未实现的能力
 
-文件监听自动导入、USD 场景与模型转换及 Mesh 优化导入尚未接入资源转换流程；efsw、OpenUSD 和 meshoptimizer 已参与编译、链接与依赖验证。Basis Universal 的编辑器压缩与运行时转码已接入贴图流程。
+文件监听自动导入、完整 USD 场景语义和 Mesh 优化导入尚未接入。基础管线保留 efsw/meshoptimizer 依赖验证，OpenUSD 已转入独立格式插件；Basis Universal 的编辑器压缩与运行时转码已接入贴图流程。
 
 DCC 集成采用 USD 交换场景，专有材质与数据由 DCC 适配插件转换；贴图采用 Basis Universal 作为跨平台格式，渲染器按设备能力选择目标格式。这些扩展须通过资源管线的 GUID、依赖和完整版本契约接入。

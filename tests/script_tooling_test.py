@@ -9,6 +9,8 @@ import subprocess
 import sys
 import tempfile
 
+from sample_project import prepare_minimal_project
+
 
 def require(condition, message):
     if not condition:
@@ -183,21 +185,11 @@ def contents(reply):
     return json.loads(reply["result"]["content"][0]["text"])
 
 
-def test(mcp, root, temporary, without_modeling=False):
+def test(mcp, root, temporary, without_modeling=False, without_character_controller=False):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
     runtime = temporary / "runtime"
-    shutil.copytree(
-        root / "projects/minimal", project, ignore=shutil.ignore_patterns("node_modules", "cache")
-    )
-    (project / "cache").mkdir()
-    compiler = root / "projects/minimal/settings/node_modules/typescript"
-    require(compiler.is_dir(), "Run npm ci --prefix projects/minimal/settings first")
-    shutil.copytree(compiler, project / "settings/node_modules/typescript")
-    config_path = project / "settings/tsconfig.json"
-    config = json.loads(config_path.read_text())
-    config["files"] = [str(root / "include/engine.d.ts")]
-    config_path.write_text(json.dumps(config), encoding="utf-8")
+    prepare_minimal_project(root, project)
     check_compiler_inputs(root, project, temporary)
     unicode_asset = project / "assets/资料/文本.txt"
     unicode_asset.parent.mkdir()
@@ -234,6 +226,29 @@ def test(mcp, root, temporary, without_modeling=False):
         "set_transform",
         "set_light",
         "set_camera",
+        "set_collider",
+        "get_collider",
+        "set_rigid_body",
+        "get_rigid_body",
+        "add_impulse",
+        "set_audio_source",
+        "get_audio_source",
+        "set_audio_listener",
+        "get_audio_listener",
+        "play_audio",
+        "pause_audio",
+        "stop_audio",
+        "get_audio_state",
+        "set_animator",
+        "get_animator",
+        "play_animation",
+        "pause_animation",
+        "stop_animation",
+        "seek_animation",
+        "get_animation_state",
+        "instantiate_model",
+        "set_character_motor",
+        "get_character_motor",
         "set_material_texture",
         "set_material_parameter",
         "execute_batch",
@@ -262,10 +277,22 @@ def test(mcp, root, temporary, without_modeling=False):
     }
     if without_modeling:
         expected_tools = {name for name in expected_tools if not name.startswith("modeling_")}
+    controller_tools = {"set_character_controller", "get_character_controller"}
+    if not without_character_controller:
+        expected_tools.update(controller_tools)
+    actual_tools = {tool["name"] for tool in replies[0]["result"]["tools"]}
     require(
-        {tool["name"] for tool in replies[0]["result"]["tools"]} == expected_tools,
-        "wrong tool list",
+        actual_tools == expected_tools,
+        f"wrong tool list: missing={sorted(expected_tools - actual_tools)}, "
+        f"unexpected={sorted(actual_tools - expected_tools)}",
     )
+    if without_character_controller:
+        for name in sorted(controller_tools):
+            unavailable = invoke(mcp, project, runtime, [call(name)])[0]
+            require(
+                unavailable.get("error", {}).get("message") == "Unknown tool",
+                f"disabled character controller plugin still exposes {name}",
+            )
     if without_modeling:
         unavailable = invoke(mcp, project, runtime, [call("modeling_help")])[0]
         require(
@@ -497,6 +524,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Validate the editor MCP host with the modeling plugin disabled",
     )
+    parser.add_argument(
+        "--without-character-controller",
+        action="store_true",
+        help="Validate that the optional character controller MCP adapter is absent",
+    )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="engine-script-tooling-") as directory:
         test(
@@ -504,5 +536,6 @@ if __name__ == "__main__":
             arguments.root.resolve(),
             Path(directory).resolve(),
             without_modeling=arguments.without_modeling,
+            without_character_controller=arguments.without_character_controller,
         )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

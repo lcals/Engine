@@ -68,8 +68,7 @@
         "sqlite3",
         "sdl3",
         "taskflow",
-        "tomlplusplus",
-        "usd"
+        "tomlplusplus"
       ]
     },
     "modeling": {
@@ -77,6 +76,12 @@
       "dependencies": [
         "earcut-hpp",
         "manifold"
+      ]
+    },
+    "usd-import": {
+      "description": "Optional editor USD model import plugin",
+      "dependencies": [
+        "usd"
       ]
     }
   },

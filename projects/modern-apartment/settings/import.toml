@@ -1,2 +1,0 @@
-# 导入资源的 Taskflow 工作线程数。
-import_threads = 4

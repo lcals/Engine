@@ -6,7 +6,7 @@
 classDiagram
     class GameplaySession {
         <<final>>
-        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script)
+        +GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime#42; script, PhysicsSystem#42; physics, AudioSystem#42; audio, AnimationSystem#42; animation)
         +~GameplaySession()
         +set_resources(const AssetCatalogDataT& data, const MountList& mounts, string_view entry) bool
         +start(string_view entry) bool
@@ -18,11 +18,17 @@ classDiagram
     class WorldSystem
     class RenderSystem
     class ScriptRuntime
+    class PhysicsSystem
+    class AudioSystem
+    class AnimationSystem
     class ResourceSystem
     class ResourceCatalog
     GameplaySession --> WorldSystem : 必需借用
     GameplaySession --> RenderSystem : 必需借用
     GameplaySession --> ScriptRuntime : 可空借用抽象执行契约
+    GameplaySession --> PhysicsSystem : 可空借用 清理物理场景
+    GameplaySession --> AnimationSystem : 可空借用并清理采样缓存
+    GameplaySession --> AudioSystem : 可空借用 停止并释放声部
     GameplaySession ..> ResourceSystem : 显式提交资源目录
     GameplaySession *-- ResourceCatalog : 基线及候选元数据
 ```
@@ -48,6 +54,6 @@ classDiagram
 - `tick()` 由 RuntimeHost 在系统更新后显式调用，处理 `script-control.json` 与 MCP 发布的 `assets/available.json`。这是调用方部署协议，核心不识别这些文件。完整目录元数据与发布文件校验通过后记录候选；热重载关闭只更新可用状态，不切换。
 - 持久部署版本位于 `assets/versions/<revision>`，不可原地覆盖。目录中的位置可指向散文件或包成员；清单与存储集合必须一致。发布文件用固定缓冲区流式校验，不解包整个目录。实体只在脚本预检或核心按需加载时读取；包体尺寸不受单实体上限约束。
 - 显式 stop 或 Update 失败后不因新候选而自动重启。重新开启重载允许重试最新候选。普通运行集合固定，只有显式发布部署文件才触发候选处理。
-- `stop()` 先退出脚本，再销毁场景和 GPU；资源随共享引用释放，保留资源索引和内置定义以供下次启动。重复关闭安全。
+- `stop()` 先退出脚本，再停止音频、清理物理、销毁场景和 GPU；资源随共享引用释放，保留资源索引和内置定义以供下次启动。重复关闭安全。
 - `script_status()` 返回合并脚本与部署状态的只读借用；无脚本模块返回空。状态原子写入 `script-status.json`，错误仍通过返回值与 last_error 表达。
 - 类型不可复制或移动。构造、析构、stop 与查询为 noexcept；查询为 const，可能失败方法与重要查询标注 nodiscard。entry/reason 默认空。

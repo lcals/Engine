@@ -5,6 +5,7 @@
 ```mermaid
 classDiagram
     class ComponentRegistry {
+        +contains(ComponentType type) bool
         +add~T~() bool
         +create(ComponentType type, Node& node) Component#42;
     }

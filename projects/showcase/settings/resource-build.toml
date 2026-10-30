@@ -1,0 +1,19 @@
+target_platform = ""
+output = "cache/build/showcase"
+
+[[items]]
+name = "game"
+storage = "package"
+roots = [
+    "project/scripts/game.ts",
+    "project/scripts/modules/minimal.ts",
+    "project/scripts/modules/apartment.ts",
+    "project/scripts/modules/courtyard.ts",
+    "project/scenes/main.scene",
+    "project/scenes/apartment.scene",
+    "project/scenes/playground.scene",
+    "project/models/skeleton.fbx",
+    "project/models/locomotions.fbx/animations/walk",
+    "project/materials/character.material",
+]
+keep = []

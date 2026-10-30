@@ -23,6 +23,7 @@ classDiagram
     }
     class SceneCommands {
         +SceneCommands(WorldSystem& world)
+        +node_identity(uint64_t id) shared_ptr~uint64_t~
         +register_commands(EditorCommands& commands) bool
     }
     class WorldSystem
@@ -39,7 +40,7 @@ classDiagram
 
 - `SceneIdProvider = std::function<std::uint64_t()>`，无场景返回 0。每次执行先读取代次，变化时清空历史。提供者与模块借用的世界须存活到命令服务销毁。
 - `Handler = std::function<bool(const Json&, Json&, std::unique_ptr<EditorEdit>&, std::string&)>`。查询返回结果及空记录；修改仅创建尚未应用的独占记录，由命令服务执行。注册不允许覆盖已有名称或内置 batch/undo/redo。
-- `EditorEdit::apply/revert` 检查场景、完整节点身份和相关属性期望值；失败保持当前对象不变。仅修改涉及的字段，保留脚本对其他字段的修改。不会重建场景、节点或组件。
+- `EditorEdit::apply/revert` 检查场景、完整节点身份和相关属性期望值；失败保持当前对象不变。属性记录只修改涉及字段；组件快照记录比较并恢复整个组件生成数据。已有对象不重建，创建命令及新组件的撤销/重做按各自契约销毁与重建对象。
 - batch 最多 64 条修改，按顺序执行，任一失败反序回滚已应用部分；一批只产生一次撤销记录。禁止嵌套 batch、查询及 undo/redo。撤销反序恢复，重做正序恢复；发现陈旧值则拒绝并恢复本次已执行部分。最多保留 128 批，新的修改清空 redo。
 - SceneCommands 注册 `get_scene`、`create_node`、`set_active_camera`、`set_transform`、`set_light`、`set_material_parameter`。仅操作已有活动场景；无场景查询返回 null，修改失败。`create_node` 创建 Transform 和可选 Camera/Light；同场景名称唯一，返回名称后可查询节点身份。撤销删除自身创建的无后代节点，重做可分配新的运行时 ID；其他修改仍检查身份与期望状态。不新增建模、渲染或资源导入职责。
 - 节点 ID 与 sceneId 使用完整十进制 uint64 字符串；数值 JSON ID、零值、溢出及旧场景身份均拒绝。材料参数支持 float/v2/v3/v4，遵守原生材质类型与值域检查。
@@ -90,6 +91,12 @@ classDiagram
 
 这些具体编辑记录是命令模块的内部实现，仅实现基类 apply/revert，不向运行时公开。
 
+物理与音频组件使用独立的[按类型组件命令](component-commands.md)，共用 ComponentEdit 保存前后生成快照，并由 SceneCommands 显式登记。播放控制和冲量调用普通运行时接口，作为非撤销操作执行；不放进可撤销批次。
+
 `set_material_type(sceneId,nodeId,slot?,path)` 选择已有材质资源。内部 MaterialTypeEdit 保存前后参数与贴图快照和依赖版本；不在历史中保留 ResourcePtr，执行时重新校验并临时加载。撤销恢复原材质全部覆盖值，资源版本改变拒绝陈旧操作；普通参数修改仍只改变请求字段。
 
 创建命令在编辑器内部共享自身节点的当前运行时 ID，后续属性历史随重做重建重新定位；外部仍须使用 get_scene 得到的新 ID，旧 ID 不接受。映射随场景代次清理，不向 Node 增加编辑器身份字段。
+
+`SceneCommands::node_identity(id)` 返回当前场景中已存在节点的共享 ID 单元；调用前核验场景代次，不存在返回空。插件编辑记录共享同一单元，创建命令重做更新单元值后可继续定位；共享的是身份值，不是节点或场景所有权。场景改变清空当前映射，历史执行仍须核验其原场景代次。
+
+模型实例化的事务与资源版本校验见[模型命令](model-commands.md)。

@@ -16,6 +16,17 @@ struct MeshSubmesh {
     material_slot:uint;
 }
 
+struct SkinInfluence {
+    j0:ushort;
+    j1:ushort;
+    j2:ushort;
+    j3:ushort;
+    w0:float;
+    w1:float;
+    w2:float;
+    w3:float;
+}
+
 table MeshData {
     schema_version:uint = 1;
     path:string (required);
@@ -25,6 +36,10 @@ table MeshData {
     tangents:[Vec4];
     colors:[Color];
     submeshes:[MeshSubmesh];
+    skeleton_guid:string;
+    skin:[SkinInfluence];
+    // Column-major bind transform from mesh local space to skeleton/model space.
+    mesh_to_skeleton:[float];
 }
 
 root_type MeshData;

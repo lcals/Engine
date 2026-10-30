@@ -18,6 +18,10 @@ classDiagram
         #store(Resource& output, unique_ptr~ShaderDataT~ data) void$
         #store(Resource& output, unique_ptr~MaterialDataT~ data) void$
         #store(Resource& output, unique_ptr~TextureDataT~ data) void$
+        #store(Resource& output, unique_ptr~AudioClipDataT~ data) void$
+        #store(Resource& output, unique_ptr~ModelDataT~ data) void$
+        #store(Resource& output, unique_ptr~SkeletonDataT~ data) void$
+        #store(Resource& output, unique_ptr~AnimationDataT~ data) void$
         #store(Resource& output, ByteView data) void$
         #valid_path(string_view path) bool$
         #declares(const ResourceCatalog& catalog, const Resource& resource, string_view guid, AssetKind kind) bool$
@@ -46,15 +50,21 @@ classDiagram
     }
     class MeshResourceCodec {
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
         +validate(const MeshDataT& data) bool$
     }
     class TextureResourceCodec {
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate(const TextureDataT& data) bool$
     }
+    class AudioResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const AudioClipDataT& data) bool$
+    }
     ResourceCodec <|-- SceneResourceCodec
     ResourceCodec <|-- MeshResourceCodec
     ResourceCodec <|-- TextureResourceCodec
+    ResourceCodec <|-- AudioResourceCodec
 ```
 
 ```mermaid
@@ -80,8 +90,37 @@ classDiagram
 
 - Scene 校验 FlatBuffers 场景、节点和组件结构及资源引用，跨实体校验接收已加载网格与材质。
 - Mesh 复用 MeshUtils 的拓扑与数据校验；Texture 校验像素、Basis 文件、尺寸、格式与 mip 元数据，不创建 GPU 对象。
+- Audio 只校验并保存 `AudioClipDataT`：版本为 1、采样率 8000–192000、1/2 声道、非零帧数、交错样本数精确匹配帧数与声道，所有样本有限且在 [-1,1]，PCM 大小不超过 64 MiB 减 128 KiB。失败不发布候选；不创建音频设备或决定播放行为。
 - Shader 校验参数、Uniform、Sampler 和默认贴图声明；Material 校验结构与声明引用，跨实体校验材质参数是否匹配 Shader。
 - Binary 原样保存脚本和通用 source 载荷，脚本执行或具体二进制解释由使用者负责。
 - 内置与项目数据使用同一类型校验。内置注册调用对应解码器的静态 validate；内置读取复制已注册定义，不执行 VFS I/O。
 
 ResourceSystem 在调用类型跨实体校验前统一验证当前目录代际、元数据一致性、直接依赖数量及唯一身份。解码器只校验调用方提供的实体，不读取文件或保留引用；依赖遍历、共享缓存及反向释放继续归运行时资源依赖图插件。
+
+## 模型与动画解码器
+
+```mermaid
+classDiagram
+    class ResourceCodec
+    class ModelResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        +validate(const ModelDataT& data) bool$
+    }
+    class SkeletonResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const SkeletonDataT& data) bool$
+    }
+    class AnimationResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        +validate(const AnimationDataT& data) bool$
+    }
+    ResourceCodec <|-- ModelResourceCodec
+    ResourceCodec <|-- SkeletonResourceCodec
+    ResourceCodec <|-- AnimationResourceCodec
+```
+
+Model 仅接受版本 2，校验层级、变换和节点引用的 Mesh/Material GUID，目录中的直接依赖必须与这些引用一致；不聚合同源骨架或动画。Skeleton 校验有序父索引、关节名称、有限 TRS 与逆绑定矩阵；Animation 校验轨道、严格递增且不超出时长的关键帧，并验证关节索引属于声明骨架。Mesh 的蒙皮数组必须与顶点对应，权重归一、关节索引合法，mesh_to_skeleton 为有效仿射矩阵。所有解码与校验都属于核心单项能力，不调用 ufbx、USD 或离线管线。
+
+Animation 的直接依赖只能是其声明的一个 Skeleton；蒙皮 Mesh 同样只依赖自己的 Skeleton，静态 Mesh 不含依赖。多余的父 Model 或同源兄弟资源引用在单项解码时返回失败，不能借错误目录把未使用资源带入运行闭包。

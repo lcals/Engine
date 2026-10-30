@@ -1,6 +1,7 @@
 #include "runtime/app/runtime_host.hpp"
 
 #include "runtime/animation/animation_system.hpp"
+#include "runtime/audio/audio_system.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
@@ -29,7 +30,7 @@ RuntimeHost::~RuntimeHost() noexcept
 }
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
-                             ScriptRuntimeFactory script_factory)
+                             ScriptRuntimeFactory script_factory, RuntimeSetup setup)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
@@ -55,20 +56,29 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     }
 
     auto world = std::make_unique<WorldSystem>();
-    std::unique_ptr<System> physics = std::make_unique<PhysicsSystem>();
+    auto physics_system = std::make_unique<PhysicsSystem>(world.get());
+    physics_ = physics_system.get();
+    std::unique_ptr<System> physics = std::move(physics_system);
+    auto audio_system = std::make_unique<AudioSystem>(world.get());
+    audio_ = audio_system.get();
+    std::unique_ptr<System> audio = std::move(audio_system);
     std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
-    std::unique_ptr<System> animation = std::make_unique<AnimationSystem>();
+    auto animation_system = std::make_unique<AnimationSystem>(world.get());
+    animation_ = animation_system.get();
+    std::unique_ptr<System> animation = std::move(animation_system);
     std::unique_ptr<System> ui = std::make_unique<UiSystem>();
     if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
-        !world->add_subsystem(animation) || !world->add_subsystem(ui))
+        !world->add_subsystem(animation) || !world->add_subsystem(ui) ||
+        !world->add_subsystem(audio))
     {
         shutdown();
         return false;
     }
+    auto renderer = std::make_unique<RenderSystem>(*window_, world.get());
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world);
+        auto script_system = script_factory(*world, *renderer);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -77,6 +87,11 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             return false;
         }
     }
+    if (setup != nullptr && !setup(*world, *window_, *physics_))
+    {
+        shutdown();
+        return false;
+    }
     world_ = world.get();
     std::unique_ptr<System> world_base = std::move(world);
     if (!engine_.add_system(world_base))
@@ -84,7 +99,6 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    auto renderer = std::make_unique<RenderSystem>(*window_, world_);
     renderer_ = renderer.get();
     std::unique_ptr<System> renderer_base = std::move(renderer);
     if (!engine_.add_system(renderer_base) || !engine_.initialize(config))
@@ -92,7 +106,8 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script);
+    gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
+                                                  animation_);
     initialized_ = true;
     return true;
 }
@@ -116,6 +131,11 @@ FrameStatus RuntimeHost::tick(double delta_time)
     {
         request_exit();
         return FrameStatus::exit_requested;
+    }
+    if (!audio_->set_paused(!window_->can_render()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
     }
     if (!window_->can_render())
     {
@@ -176,6 +196,9 @@ void RuntimeHost::shutdown() noexcept
 {
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
     gameplay_.reset();
+    animation_ = nullptr;
+    audio_ = nullptr;
+    physics_ = nullptr;
     renderer_ = nullptr;
     world_ = nullptr;
     if (owns_engine_)

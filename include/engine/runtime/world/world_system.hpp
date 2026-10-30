@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/scene/component_registry.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstdint>
@@ -19,6 +20,8 @@ public:
     WorldSystem() noexcept;
     ~WorldSystem() noexcept override;
 
+    [[nodiscard]] ComponentRegistry& component_registry() noexcept;
+
     // 返回借用；已有场景或世界未初始化时失败。
     [[nodiscard]] Scene* create_scene(std::string_view name);
     // 从活动资源目录加载候选，失败保留当前场景。
@@ -33,6 +36,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    ComponentRegistry components_;
     ecs_world_t* world_ = nullptr;
     std::unique_ptr<Scene> scene_;
     std::uint64_t scene_sequence_ = 0;

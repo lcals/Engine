@@ -1,3 +1,9 @@
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+#include "plugins/editor/character_controller/character_controller_codec.hpp"
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER_MCP
+#include "plugins/editor/character_controller/character_controller_mcp_tools.hpp"
+#endif
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "plugins/editor/asset_sync/asset_sync_system.hpp"
@@ -7,6 +13,13 @@
 #include "plugins/editor/mcp/render_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/utils/path_utils.hpp"
+
+#if ENGINE_HAS_FBX_IMPORTER
+#include "plugins/editor/fbx_import/fbx_importer.hpp"
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+#include "plugins/editor/usd_import/usd_importer.hpp"
+#endif
 
 #if ENGINE_HAS_MODELING_IMPORTER
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
@@ -98,12 +111,44 @@ int main(int argc, char** argv)
         std::fputs("Cannot initialize asset pipeline\n", stderr);
         return 1;
     }
+#if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
+    if (!engine::plugins::character_controller::register_controller_codec())
+    {
+        std::fputs("Cannot register character controller scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_FBX_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =
+        std::make_unique<engine::plugins::fbx_import::FbxImporter>();
+    if (!pipeline.add_importer(fbx_importer))
+    {
+        std::fputs("Cannot register FBX importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_USD_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> usd_importer =
+        std::make_unique<engine::plugins::usd_import::UsdImporter>();
+    if (!pipeline.add_importer(usd_importer))
+    {
+        std::fputs("Cannot register USD importer\n", stderr);
+        return 1;
+    }
+#endif
 #if ENGINE_HAS_MODELING_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<engine::plugins::modeling::ModelingMeshImporter>();
     if (!pipeline.set_importer(importer))
     {
         std::fputs("Cannot register modeling importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_CHARACTER_CONTROLLER_MCP
+    if (!engine::plugins::character_controller::register_controller_mcp_tools(mcp, editor_tools))
+    {
+        std::fputs("Cannot register character controller MCP tools\n", stderr);
         return 1;
     }
 #endif

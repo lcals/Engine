@@ -10,3 +10,6 @@
 	path = third_party/xatlas
 	url = https://github.com/jpcy/xatlas.git
 	shallow = true
+[submodule "third_party/ufbx"]
+	path = third_party/ufbx
+	url = https://github.com/ufbx/ufbx.git
