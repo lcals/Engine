@@ -54,7 +54,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return !normalized.empty() && normalized != "." && normalized.back() != '/';
 }
 
-#if defined(SDL_PLATFORM_ANDROID)
+#if defined(SDL_PLATFORM_ANDROID) && ENGINE_V8_HAS_I18N
 [[nodiscard]] bool contained_file(const fs::path& root, std::string_view relative, fs::path& path,
                                   bool directory = false)
 {
@@ -95,7 +95,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return path.ends_with(".js") || path.ends_with(".mjs");
 }
 
-#if defined(SDL_PLATFORM_ANDROID)
+#if defined(SDL_PLATFORM_ANDROID) && ENGINE_V8_HAS_I18N
 [[nodiscard]] bool prepare_directory(const fs::path& root, std::string_view relative,
                                      fs::path& directory)
 {

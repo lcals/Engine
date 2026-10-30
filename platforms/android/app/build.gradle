@@ -58,8 +58,6 @@ tasks.named('preBuild') {
     doFirst {
         [
             'jniLibs/arm64-v8a/libmain.so',
-            'jniLibs/arm64-v8a/libSDL3.so',
-            'jniLibs/arm64-v8a/libc++_shared.so',
             'java/org/libsdl/app/SDLActivity.java',
             'assets/v8/icudtl.dat',
             'assets/project/catalog.bin',
@@ -69,6 +67,13 @@ tasks.named('preBuild') {
             if (!input.isFile() || input.length() == 0) {
                 throw new GradleException("Missing ${relative}; build CMake preset android-arm64-${nativeConfiguration} first")
             }
+        }
+        Set<File> nativeLibraries = fileTree(new File(nativeDirectory, 'jniLibs')) {
+            include '**/*.so'
+        }.files
+        Set<File> expectedLibraries = [new File(nativeDirectory, 'jniLibs/arm64-v8a/libmain.so')] as Set
+        if (nativeLibraries != expectedLibraries) {
+            throw new GradleException('Android packaging requires exactly one native library: arm64-v8a/libmain.so')
         }
     }
 }

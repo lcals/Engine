@@ -1,3 +1,9 @@
+# Static plugin registration and runtime data deployment are provided for Windows.
+# Preserve the upstream shared-library layout on other platforms.
+if(NOT VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
+endif()
+
 # Shared USD plugins do not produce import libraries. Static builds retain
 # registration objects in ordinary archives instead of shipping plugin DLLs.
 if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")

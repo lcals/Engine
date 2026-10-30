@@ -5,6 +5,8 @@
 - 解释和文档默认中文；代码标识、文件名、命令保持英文。
 - 所有受版本管理的目录使用小写英文，可用连字符或下划线；保留 `CMakeLists.txt` 等工具要求的标准文件名。
 - 平台专用工程、入口和打包资源集中放在 `platforms/<platform>/`，例如 Android 的 Manifest、Java 入口和 Gradle 工程位于 `platforms/android/`；共享引擎系统继续按原目录组织。
+- 平台专用编辑器实现放在 `platforms/<platform>/editor/`，仍属于编辑器作用域，不能链接进运行时核心。
+- 最终产物统一导出到仓库根 `output/<platform>/<arch>/<debug|release>/<editor|runtime>/`，不提交版本管理。编译缓存、静态归档与调试符号保留在 `build/`。桌面依赖优先静态合入程序；macOS 默认导出直接运行的原生可执行文件，必要私有动态库和编辑器工具随目录部署；`.app` 仅为显式启用的可选模式。Android APK 的原生库只能有 `libmain.so`，SDL3 和 NDK C++ 运行库静态合入。项目运行资源保持独立的 `catalog.bin`、`packs/` 或 `gen/`；原生桌面模式放程序旁，可选 `.app` 模式放 `Contents/Resources/` 并配合外部持久资源版本。宿主优先选择完整的已发布外部版本，否则使用内置版本，不把资源嵌入可执行文件后在启动时解压；Android 继续通过 SDL 读取 APK assets。
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
 - 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图和脚本执行归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。

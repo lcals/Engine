@@ -1,5 +1,6 @@
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 
+#include "editor/asset_pipeline/importer_utils.hpp"
 #include "plugins/editor/modeling/editable_mesh.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -69,21 +70,13 @@ bool ModelingMeshImporter::inspect_batch(const editor::asset_pipeline::ImportCon
     {
         return false;
     }
-    std::string schema_text;
-    if (!ResourceSystem::read_text(std::filesystem::path(ENGINE_SCHEMA_SOURCE_DIR) / "modeling.fbs",
-                                   schema_text))
+    std::string schema_hash;
+    if (!editor::asset_pipeline::schema_fingerprint({"modeling.fbs"}, schema_hash, error))
     {
         fingerprint.clear();
-        error = "cannot read modeling schema for importer fingerprint";
         return false;
     }
-    std::uint64_t hash = 14695981039346656037ULL;
-    for (const unsigned char value : schema_text)
-    {
-        hash ^= value;
-        hash *= 1099511628211ULL;
-    }
-    fingerprint += ":modeling-importer-1:" + std::to_string(hash);
+    fingerprint += ":modeling-importer-1:" + schema_hash;
     return true;
 }
 

@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-Android 使用 SDL3 自带 Activity 框架加载同版本的 `libSDL3.so` 与引擎 `libmain.so`。
+Android 使用 SDL3 自带 Activity 框架，只加载 `libmain.so`。SDL3、引擎、V8 和 NDK C++ 运行库静态合入该库，链接器保留 SDL 的 `JNI_OnLoad` 注册入口。
 
 正常启动由原生入口初始化 App、LogSystem 与 RuntimeHost；所有系统就绪后通过 GameplaySession 运行 APK 项目的入口。引擎不接收编辑器项目目录。退出由 RuntimeHost 先结束玩法会话、关闭引擎系统和窗口，再刷新并关闭日志及 App。后台暂停保留玩法实例，恢复后继续运行；宿主将单帧时间限制为 0.1 秒并丢弃等待期间时间。
 
@@ -23,6 +23,7 @@ classDiagram
         #onResume() void
         #main() void
         #getArguments() String[]
+        #getLibraries() String[]
         ~pauseRendering() void$
         ~resumeRenderingIfReady() void$
         -runV8Smoke() void
@@ -53,6 +54,7 @@ classDiagram
 ```
 
 - `getArguments()` 把可选的测试帧数交给原生入口；返回数组交由 SDL 使用。
+- `getLibraries()` 只返回 `main`，不再单独加载 SDL3 或 C++ 运行库。
 - `main()` 在 SDL 原生线程上运行。普通启动调用 SDL 父类入口；只有显式传入 `v8_smoke=true` 时，才调用 `runV8Smoke()`，不创建引擎窗口或运行玩法。
 - `runV8Smoke()` 把 APK 内 `assets/v8/icudtl.dat` 复制到应用私有 `cache/v8-smoke/`，再将路径借给私有 JNI 方法 `nativeRunV8Smoke()`；后者通过返回值报告测试结果。读取或复制失败时记录原因并结束测试。
 - JNI 复用桌面测试的普通自由函数，实际创建 V8 平台、isolate 与 context，验证 JavaScript、SharedArrayBuffer 的 Atomics / 十六进制 / Base64、Intl 和 Temporal。测试主体始终链接进 `libmain.so`，普通启动不执行；它不增加 `ScriptSystem` 的公共接口。

@@ -83,6 +83,28 @@ if(NOT _matches)
     message(FATAL_ERROR "Identical inputs must match a completed cache stamp")
 endif()
 
+# Feature and CRT variants reuse the prepared toolchain, but never its compiled ABI.
+set(_original_prepare_key "${_prepare_key}")
+set(_original_args "${_args}")
+set(_variant_keys)
+foreach(
+    _argument IN
+    ITEMS "v8_enable_webassembly = false" "v8_enable_i18n_support = false"
+          "v8_enable_temporal_support = false" "v8_enable_system_instrumentation = false"
+          "engine_use_static_crt = true")
+    set(_args "${_original_args}${_argument}\n")
+    _engine_v8_cache_keys(_variant_prepare_key _variant_build_key _ready)
+    if(NOT _ready
+       OR NOT _variant_prepare_key STREQUAL _original_prepare_key
+       OR _variant_build_key STREQUAL _original_key
+       OR _variant_build_key IN_LIST _variant_keys)
+        message(
+            FATAL_ERROR "Feature/CRT variants must have distinct build identities: ${_argument}")
+    endif()
+    list(APPEND _variant_keys "${_variant_build_key}")
+endforeach()
+set(_args "${_original_args}")
+
 foreach(_input IN ITEMS "${_source}/DEPS" "${_engine_root}/cmake/dependencies/v8.cmake"
                         "${_source}/third_party/rust-toolchain/VERSION")
     write_fixture("${_input}" "changed-input\n")
@@ -315,6 +337,30 @@ _engine_v8_headers_current(_current)
 if(_current)
     message(FATAL_ERROR "Changed copied public header must reject a cache hit")
 endif()
+write_fixture("${ENGINE_V8_BUILD_ROOT}/include/v8/v8.h" "public-header\n")
+
+# A static/reduced variant must use its own generated feature/ABI header, even
+# when a complete default header and archive are present beside it.
+set(_default_out "${_out}")
+set(_config_lower "mt-debug-f0000")
+set(_out "${_source}/out/engine.${_config_lower}")
+write_fixture("${_out}/gen/include/v8-gn.h" "static-reduced-header\n")
+_engine_v8_headers_current(_current)
+if(_current)
+    message(FATAL_ERROR "A variant must not fall back to the default generated header")
+endif()
+write_fixture("${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h" "fixture-output\n")
+_engine_v8_headers_current(_current)
+if(_current)
+    message(FATAL_ERROR "A header copied from another V8 variant must be rejected")
+endif()
+write_fixture("${ENGINE_V8_BUILD_ROOT}/include/${_config_lower}/v8-gn.h" "static-reduced-header\n")
+_engine_v8_headers_current(_current)
+if(NOT _current)
+    message(FATAL_ERROR "The matching variant-specific generated header must be accepted")
+endif()
+set(_config_lower debug)
+set(_out "${_default_out}")
 file(REMOVE "${_stamp}")
 _engine_v8_stamp_matches("${_stamp}" "${_original_key}" _matches)
 if(_matches)

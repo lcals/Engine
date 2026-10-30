@@ -57,8 +57,14 @@ endif()
 if(TARGET engine_script)
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(
-        engine_script_runtime_test PRIVATE engine::script engine::app engine::log engine::resource
-                                           engine::world engine::render nlohmann_json::nlohmann_json)
+        engine_script_runtime_test
+        PRIVATE engine::script
+                engine::app
+                engine::log
+                engine::resource
+                engine::world
+                engine::render
+                nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_script_runtime_test)
     engine_copy_script_data(engine_script_runtime_test)
@@ -96,6 +102,9 @@ if(TARGET mcp_app)
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_CURRENT_SOURCE_DIR}/prepare_android_assets_test.py")
     set_tests_properties(engine.android_asset_packaging PROPERTIES TIMEOUT 60)
+    add_test(NAME engine.desktop_export
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/desktop_export_test.py")
+    set_tests_properties(engine.desktop_export PROPERTIES TIMEOUT 60)
     add_test(NAME engine.android_mcp
              COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/android_mcp_test.py"
                      --mcp "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}")
@@ -255,7 +264,8 @@ if(TARGET engine_editor)
     add_executable(engine_editor_test editor_system_test.cpp)
     target_link_libraries(engine_editor_test PRIVATE engine::editor engine::project imgui::imgui)
     engine_apply_options(engine_editor_test)
-    add_test(NAME engine.editor COMMAND engine_editor_test "${PROJECT_SOURCE_DIR}/projects/showcase")
+    add_test(NAME engine.editor COMMAND engine_editor_test
+                                        "${PROJECT_SOURCE_DIR}/projects/showcase")
 endif()
 
 if(TARGET editor_app)
@@ -265,7 +275,8 @@ if(TARGET editor_app)
     add_test(NAME editor.cli_invalid_project
              COMMAND editor_app --project "${CMAKE_CURRENT_BINARY_DIR}/missing-project" --frames 1)
     add_test(NAME editor.cli_invalid_frames
-             COMMAND editor_app --project "${PROJECT_SOURCE_DIR}/projects/showcase" --frames invalid)
+             COMMAND editor_app --project "${PROJECT_SOURCE_DIR}/projects/showcase" --frames
+                     invalid)
     set_tests_properties(editor.cli_missing_project editor.cli_invalid_project
                          editor.cli_invalid_frames PROPERTIES WILL_FAIL TRUE TIMEOUT 10)
 endif()
@@ -343,6 +354,12 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     endif()
 
     if(TARGET asset_build_app AND ENGINE_NODE_EXECUTABLE)
+        add_test(
+            NAME editor.showcase_navigation
+            COMMAND
+                "${ENGINE_NODE_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_test.mjs" "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_navigation PROPERTIES TIMEOUT 60)
         find_package(
             Python3
             COMPONENTS Interpreter
@@ -354,6 +371,10 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 --builder "$<TARGET_FILE:asset_build_app>" --project
                 "${PROJECT_SOURCE_DIR}/projects/showcase")
         set_tests_properties(editor.asset_pipeline_scripts PROPERTIES TIMEOUT 180)
+        add_test(NAME editor.portable_tools
+                 COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/editor_tools_test.py"
+                         --root "${PROJECT_SOURCE_DIR}" --node "${ENGINE_NODE_EXECUTABLE}")
+        set_tests_properties(editor.portable_tools PROPERTIES TIMEOUT 90)
     endif()
 
     if(TARGET usd)
@@ -566,8 +587,7 @@ if(TARGET engine_fbx_import)
     endif()
     target_compile_definitions(
         engine_fbx_pipeline_test
-        PRIVATE
-            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_fbx_pipeline_test)
     add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
 endif()
@@ -576,33 +596,51 @@ if(TARGET engine_font_import)
     add_executable(engine_font_pipeline_test font_pipeline_test.cpp)
     target_link_libraries(engine_font_pipeline_test PRIVATE engine::font_import engine::resource)
     engine_apply_options(engine_font_pipeline_test)
-    add_test(NAME editor.font_pipeline COMMAND engine_font_pipeline_test
-             "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
+    add_test(NAME editor.font_pipeline
+             COMMAND engine_font_pipeline_test
+                     "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
     set_tests_properties(editor.font_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
 if(TARGET engine_ui_import AND TARGET engine_font_import)
     add_executable(engine_ui_pipeline_test ui_pipeline_test.cpp)
     target_link_libraries(engine_ui_pipeline_test PRIVATE engine::ui_import engine::font_import
-                                                        engine::resource)
+                                                          engine::resource)
     engine_apply_options(engine_ui_pipeline_test)
-    add_test(NAME editor.ui_pipeline COMMAND engine_ui_pipeline_test
-             "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
+    add_test(NAME editor.ui_pipeline
+             COMMAND engine_ui_pipeline_test
+                     "${PROJECT_SOURCE_DIR}/projects/showcase/assets/fonts/lato-regular.ttf")
     set_tests_properties(editor.ui_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
-if(TARGET engine_ui_import AND TARGET engine_font_import AND TARGET engine_ui AND TARGET engine_font
-   AND TARGET engine_render AND TARGET engine_window AND TARGET engine_world)
+if(TARGET engine_ui_import
+   AND TARGET engine_font_import
+   AND TARGET engine_ui
+   AND TARGET engine_font
+   AND TARGET engine_render
+   AND TARGET engine_window
+   AND TARGET engine_world)
     add_executable(engine_font_ui_render_test font_ui_render_test.cpp)
-    target_link_libraries(engine_font_ui_render_test PRIVATE engine::ui_import engine::font_import
-        engine::resource engine::world engine::window engine::render engine::font engine::ui
-        SDL3::SDL3 bgfx::bgfx)
-    target_compile_definitions(engine_font_ui_render_test PRIVATE
-        ENGINE_FONT_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+    target_link_libraries(
+        engine_font_ui_render_test
+        PRIVATE engine::ui_import
+                engine::font_import
+                engine::resource
+                engine::world
+                engine::window
+                engine::render
+                engine::font
+                engine::ui
+                SDL3::SDL3
+                bgfx::bgfx)
+    target_compile_definitions(
+        engine_font_ui_render_test
+        PRIVATE
+            ENGINE_FONT_TEST_SHADER_DIR="${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
     engine_apply_options(engine_font_ui_render_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.font_ui_render COMMAND engine_font_ui_render_test
-            "${PROJECT_SOURCE_DIR}/projects/showcase")
+                                                    "${PROJECT_SOURCE_DIR}/projects/showcase")
         set_tests_properties(engine.font_ui_render PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endif()
 endif()
@@ -628,8 +666,7 @@ if(TARGET engine_usd_import AND TARGET engine_fbx_import)
                                                            engine::resource)
     target_compile_definitions(
         engine_usd_pipeline_test
-        PRIVATE
-            ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_usd_pipeline_test)
     engine_copy_usd_data(engine_usd_pipeline_test)
     add_test(NAME editor.usd_pipeline COMMAND engine_usd_pipeline_test)
@@ -641,17 +678,33 @@ if(TARGET engine_animation)
     engine_apply_options(engine_model_resource_test)
     add_test(NAME engine.model_resource COMMAND engine_model_resource_test)
 endif()
-if(TARGET engine_script AND TARGET engine_ui_import AND TARGET engine_font_import
-   AND TARGET engine_ui AND TARGET engine_font AND TARGET engine_render)
+if(TARGET engine_script
+   AND TARGET engine_ui_import
+   AND TARGET engine_font_import
+   AND TARGET engine_ui
+   AND TARGET engine_font
+   AND TARGET engine_render)
     add_executable(engine_ui_script_test ui_script_test.cpp)
-    target_link_libraries(engine_ui_script_test PRIVATE engine::script engine::app engine::log
-        engine::ui_import engine::font_import engine::resource engine::world engine::window
-        engine::render engine::font engine::ui SDL3::SDL3 bgfx::bgfx)
+    target_link_libraries(
+        engine_ui_script_test
+        PRIVATE engine::script
+                engine::app
+                engine::log
+                engine::ui_import
+                engine::font_import
+                engine::resource
+                engine::world
+                engine::window
+                engine::render
+                engine::font
+                engine::ui
+                SDL3::SDL3
+                bgfx::bgfx)
     engine_apply_options(engine_ui_script_test)
     engine_copy_script_data(engine_ui_script_test)
     if(ENGINE_ENABLE_GPU_TESTS)
         add_test(NAME engine.ui_script COMMAND engine_ui_script_test
-            "${PROJECT_SOURCE_DIR}/projects/showcase")
+                                               "${PROJECT_SOURCE_DIR}/projects/showcase")
         set_tests_properties(engine.ui_script PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
     endif()
 endif()
@@ -682,7 +735,8 @@ endif()
 
 if(TARGET engine_font)
     add_executable(engine_font_system_test font_system_test.cpp)
-    target_link_libraries(engine_font_system_test PRIVATE engine::font engine::world engine::resource)
+    target_link_libraries(engine_font_system_test PRIVATE engine::font engine::world
+                                                          engine::resource)
     engine_apply_options(engine_font_system_test)
     add_test(NAME engine.font_system COMMAND engine_font_system_test)
 endif()
