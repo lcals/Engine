@@ -11,6 +11,8 @@ export class LauncherModel {
         { button: "scene-courtyard", title: "Animation courtyard", scene: "project/scenes/playground.scene" },
         { button: "scene-gallery", title: "Letters in space", scene: "project/scenes/font-gallery.scene" },
         { button: "scene-effects", title: "Effects laboratory", scene: "project/scenes/effects.scene" },
+        { button: "scene-terrain", title: "Terrain laboratory", scene: "project/scenes/terrain.scene" },
+        { button: "scene-destruction", title: "Destruction laboratory", scene: "project/scenes/destruction.scene" },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

@@ -21,3 +21,9 @@
 	path = third_party/efkbgfx
 	url = https://github.com/cloudwu/efkbgfx.git
 	shallow = true
+[submodule "third_party/transvoxel"]
+	path = third_party/transvoxel
+	url = https://github.com/EricLengyel/Transvoxel.git
+[submodule "third_party/blast"]
+	path = third_party/blast
+	url = https://github.com/NVIDIAGameWorks/Blast.git

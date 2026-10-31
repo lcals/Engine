@@ -138,16 +138,28 @@ bool Scene::set_active_camera(Camera* camera) noexcept
 bool Scene::build_data(schema::SceneDataT& output) const
 {
     output = {};
+    if (const auto* camera = active_camera(); camera != nullptr && camera->node().transient())
+    {
+        return false;
+    }
     schema::SceneDataT snapshot;
     snapshot.info = std::make_unique<schema::SceneInfoT>(info_);
     snapshot.nodes.reserve(nodes_.size());
     for (const auto& node : nodes_)
     {
+        if (node->transient())
+        {
+            continue;
+        }
         auto node_data = std::make_unique<schema::NodeDataT>();
         node_data->info = std::make_unique<schema::NodeInfoT>(node->info());
         node_data->components.reserve(node->components().size());
         for (const auto& component : node->components())
         {
+            if (component->transient())
+            {
+                continue;
+            }
             auto component_data = std::make_unique<schema::ComponentDataT>();
             if (!component->build_data(*component_data))
             {
@@ -203,11 +215,10 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             }
             if (!restored || !restored->restore_data(*component))
             {
-                LogSystem::write(LogLevel::error,
-                                 "Cannot restore component " +
-                                     std::string(schema::EnumNameComponentPayload(
-                                         component->payload.type)) +
-                                     " on scene node: " + source->info->name);
+                LogSystem::write(LogLevel::error, "Cannot restore component " +
+                                                      std::string(schema::EnumNameComponentPayload(
+                                                          component->payload.type)) +
+                                                      " on scene node: " + source->info->name);
                 return false;
             }
         }

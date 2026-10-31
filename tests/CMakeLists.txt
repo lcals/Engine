@@ -135,6 +135,14 @@ if(TARGET engine_mcp)
         target_link_libraries(engine_mcp_registry_test PRIVATE engine::scene_bake_mcp_tools)
         target_compile_definitions(engine_mcp_registry_test PRIVATE ENGINE_TEST_SCENE_BAKE_TOOLS=1)
     endif()
+    if(TARGET engine_terrain_mcp_tools)
+        target_link_libraries(engine_mcp_registry_test PRIVATE engine::terrain_mcp_tools)
+        target_compile_definitions(engine_mcp_registry_test PRIVATE ENGINE_TEST_TERRAIN_TOOLS=1)
+    endif()
+    if(TARGET engine_destruction_mcp_tools)
+        target_link_libraries(engine_mcp_registry_test PRIVATE engine::destruction_mcp_tools)
+        target_compile_definitions(engine_mcp_registry_test PRIVATE ENGINE_TEST_DESTRUCTION_TOOLS=1)
+    endif()
     engine_apply_options(engine_mcp_registry_test)
     add_test(NAME engine.mcp_registry COMMAND engine_mcp_registry_test)
     set_tests_properties(engine.mcp_registry PROPERTIES TIMEOUT 30)
@@ -300,7 +308,7 @@ endif()
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_executable(engine_render_foundation_test render_foundation_test.cpp)
     target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource
-                                                              engine::render)
+                                                                engine::render)
     if(TARGET engine_resource_graph)
         target_link_libraries(engine_render_foundation_test PRIVATE engine::resource_graph)
         target_compile_definitions(engine_render_foundation_test
@@ -345,8 +353,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
 
     add_executable(engine_texture_pipeline_test texture_pipeline_test.cpp)
     target_link_libraries(
-        engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource
-                                             engine::world engine::scene_data basisu::basisu_encoder bgfx::bimg)
+        engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource engine::world
+                                             engine::scene_data basisu::basisu_encoder bgfx::bimg)
     target_compile_definitions(engine_texture_pipeline_test
                                PRIVATE ENGINE_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     engine_apply_options(engine_texture_pipeline_test)
@@ -686,10 +694,12 @@ if(TARGET engine_character_controller)
     add_test(NAME engine.character_controller COMMAND engine_character_controller_test)
     if(TARGET engine_runtime)
         add_executable(engine_character_host_test character_host_test.cpp)
-        target_link_libraries(engine_character_host_test PRIVATE engine::runtime
-                              engine::character_controller engine::resource engine::render SDL3::SDL3)
+        target_link_libraries(
+            engine_character_host_test PRIVATE engine::runtime engine::character_controller
+                                               engine::resource engine::render SDL3::SDL3)
         target_include_directories(engine_character_host_test PRIVATE "${PROJECT_SOURCE_DIR}/src")
-        target_compile_definitions(engine_character_host_test PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1)
+        target_compile_definitions(engine_character_host_test
+                                   PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER=1)
         engine_apply_options(engine_character_host_test)
         if(ENGINE_ENABLE_GPU_TESTS)
             add_test(NAME engine.character_host COMMAND engine_character_host_test)
@@ -781,23 +791,65 @@ endif()
 
 if(TARGET engine_effects_editor)
     add_executable(engine_effects_pipeline_test effects_pipeline_test.cpp)
-    target_link_libraries(engine_effects_pipeline_test PRIVATE engine::effects_editor
-                                                              engine::effects_backend
-                                                              engine::resource)
+    target_link_libraries(engine_effects_pipeline_test
+                          PRIVATE engine::effects_editor engine::effects_backend engine::resource)
     engine_apply_options(engine_effects_pipeline_test)
-    add_test(NAME editor.effects_pipeline
-             COMMAND engine_effects_pipeline_test "${PROJECT_SOURCE_DIR}")
+    add_test(NAME editor.effects_pipeline COMMAND engine_effects_pipeline_test
+                                                  "${PROJECT_SOURCE_DIR}")
     set_tests_properties(editor.effects_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
 if(TARGET engine_effects)
     add_executable(engine_effects_runtime_test effects_runtime_test.cpp)
-    target_link_libraries(engine_effects_runtime_test PRIVATE engine::effects engine::effects_backend
-                                                             SDL3::SDL3 bgfx::bgfx)
+    target_link_libraries(engine_effects_runtime_test
+                          PRIVATE engine::effects engine::effects_backend SDL3::SDL3 bgfx::bgfx)
     engine_apply_options(engine_effects_runtime_test)
     if(ENGINE_ENABLE_GPU_TESTS)
-        add_test(NAME engine.effects_runtime
-                 COMMAND engine_effects_runtime_test "${PROJECT_SOURCE_DIR}")
+        add_test(NAME engine.effects_runtime COMMAND engine_effects_runtime_test
+                                                     "${PROJECT_SOURCE_DIR}")
         set_tests_properties(engine.effects_runtime PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
     endif()
+endif()
+
+if(TARGET engine_terrain)
+    add_executable(engine_terrain_runtime_test terrain_runtime_test.cpp)
+    target_link_libraries(engine_terrain_runtime_test PRIVATE engine::terrain)
+    engine_apply_options(engine_terrain_runtime_test)
+    add_test(NAME engine.terrain_runtime COMMAND engine_terrain_runtime_test)
+    set_tests_properties(engine.terrain_runtime PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_terrain_editor)
+    add_executable(engine_terrain_pipeline_test terrain_pipeline_test.cpp)
+    target_link_libraries(engine_terrain_pipeline_test PRIVATE engine::terrain_editor)
+    engine_apply_options(engine_terrain_pipeline_test)
+    add_test(NAME editor.terrain_pipeline COMMAND engine_terrain_pipeline_test)
+    set_tests_properties(editor.terrain_pipeline PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_destruction)
+    foreach(_test graph runtime)
+        add_executable(engine_destruction_${_test}_test destruction_${_test}_test.cpp)
+        target_link_libraries(engine_destruction_${_test}_test PRIVATE engine::destruction)
+        engine_apply_options(engine_destruction_${_test}_test)
+        add_test(NAME engine.destruction_${_test} COMMAND engine_destruction_${_test}_test)
+        set_tests_properties(engine.destruction_${_test} PROPERTIES TIMEOUT 60)
+    endforeach()
+endif()
+if(TARGET engine_destruction_editor)
+    foreach(_test authoring pipeline)
+        add_executable(engine_destruction_${_test}_test destruction_${_test}_test.cpp)
+        target_link_libraries(engine_destruction_${_test}_test PRIVATE engine::destruction_editor)
+        engine_apply_options(engine_destruction_${_test}_test)
+        add_test(NAME editor.destruction_${_test} COMMAND engine_destruction_${_test}_test)
+        set_tests_properties(editor.destruction_${_test} PROPERTIES TIMEOUT 60)
+    endforeach()
+endif()
+if(TARGET engine_destruction_editor AND TARGET engine_editor)
+    add_executable(engine_destruction_commands_test destruction_commands_test.cpp)
+    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor engine::editor)
+    target_compile_definitions(engine_destruction_commands_test PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_destruction_commands_test)
+    add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)
+    set_tests_properties(editor.destruction_commands PROPERTIES TIMEOUT 60)
 endif()

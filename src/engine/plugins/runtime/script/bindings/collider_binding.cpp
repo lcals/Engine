@@ -73,6 +73,7 @@ void box(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::box;
+        settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.half_extents = Vec3(x, y, z);
         arguments.set_return(value->set_settings(settings));
@@ -87,6 +88,7 @@ void sphere(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::sphere;
+        settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.radius = radius;
         arguments.set_return(value->set_settings(settings));
@@ -103,6 +105,7 @@ void capsule(const Arguments& arguments)
     {
         auto settings = value->settings();
         settings.shape = schema::ColliderShape::capsule;
+        settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.radius = radius;
         settings.half_height = half_height;
@@ -169,8 +172,7 @@ bool ColliderBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("ColliderKind", static_cast<int>(Collider::component_type)) &&
            vm.function("ColliderAdd", add) && vm.function("ColliderBox", box) &&
            vm.function("ColliderSphere", sphere) && vm.function("ColliderCapsule", capsule) &&
-           vm.function("ColliderMesh", mesh) &&
-           vm.function("ColliderFriction", friction) &&
+           vm.function("ColliderMesh", mesh) && vm.function("ColliderFriction", friction) &&
            vm.function("ColliderRestitution", restitution) &&
            vm.function("ColliderTrigger", trigger);
 }

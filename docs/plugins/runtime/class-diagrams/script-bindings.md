@@ -114,6 +114,7 @@ classDiagram
     class AudioSourceBinding
     class AudioListenerBinding
     class AnimatorBinding
+    class TerrainBinding
     class UiComponentBinding
     class UiElementBinding
     class UiControllerBinding
@@ -139,6 +140,7 @@ classDiagram
     ScriptBinding <|-- AudioSourceBinding
     ScriptBinding <|-- AudioListenerBinding
     ScriptBinding <|-- AnimatorBinding
+    ScriptBinding <|-- TerrainBinding
     ScriptBinding <|-- UiComponentBinding
     ScriptBinding <|-- UiElementBinding
     ScriptBinding <|-- UiControllerBinding
@@ -187,3 +189,5 @@ NodeBinding 提供 `Node.FindChild(path)`：从当前实例逐段匹配直接子
 CharacterMotorBinding 独立提供胶囊移动设置、水平速度请求、实际速度查询、地面状态和跳跃；仅转发 CharacterMotor，不读取键鼠或设置相机。第一/第三人称控制器属于另一个可选插件，未在通用脚本插件中声明未实现的绑定。
 
 UI 绑定见 [UI 脚本与 MVC](ui-script-api.md)。绑定模块可登记事件与停止清理 hook；ScriptSystem 只调用注册表导出的统一派发/清理入口，不逐个判断业务模块。UiSystem 为宿主注入的可空借用；关闭时先停止脚本及清理订阅，再销毁文档。
+
+TerrainBinding 在 `ENGINE_HAS_TERRAIN_PLUGIN=1` 时登记，脚本插件的地形依赖由插件清单显式声明；关闭时不生成该门面或引用地形符号。公开契约见[地形脚本接口](terrain-script-api.md)。

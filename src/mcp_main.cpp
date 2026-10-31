@@ -1,3 +1,17 @@
+#if ENGINE_HAS_TERRAIN_EDITOR
+#include "plugins/editor/terrain/terrain_codec.hpp"
+#include "plugins/editor/terrain/terrain_importer.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+#include "plugins/editor/destruction/destruction_codec.hpp"
+#include "plugins/editor/destruction/destruction_importer.hpp"
+#endif
+#if ENGINE_HAS_TERRAIN_MCP
+#include "plugins/editor/terrain/terrain_mcp_tools.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_MCP
+#include "plugins/editor/destruction/destruction_mcp_tools.hpp"
+#endif
 #if ENGINE_HAS_EFFECTS_EDITOR
 #include "plugins/editor/effects/effect_codec.hpp"
 #include "plugins/editor/effects/effect_importer.hpp"
@@ -150,6 +164,26 @@ int main(int argc, char** argv)
         return 1;
     }
 #endif
+#if ENGINE_HAS_TERRAIN_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> terrain_importer =
+        std::make_unique<engine::plugins::terrain::TerrainImporter>();
+    if (!engine::plugins::terrain::register_terrain_codec() ||
+        !pipeline.add_importer(terrain_importer))
+    {
+        std::fputs("Cannot register terrain importer and scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> destruction_importer =
+        std::make_unique<engine::plugins::destruction::DestructionImporter>();
+    if (!engine::plugins::destruction::register_destruction_codec() ||
+        !pipeline.add_importer(destruction_importer))
+    {
+        std::fputs("Cannot register destruction importer and scene codec\n", stderr);
+        return 1;
+    }
+#endif
 #if ENGINE_HAS_FONT_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font_importer =
         std::make_unique<engine::plugins::font_import::FontImporter>();
@@ -206,6 +240,20 @@ int main(int argc, char** argv)
     if (!engine::plugins::effects::register_effect_mcp_tools(mcp, editor_tools))
     {
         std::fputs("Cannot register effects MCP tools\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_TERRAIN_MCP
+    if (!engine::plugins::terrain::register_terrain_mcp_tools(mcp, editor_tools))
+    {
+        std::fputs("Cannot register terrain MCP tools\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_DESTRUCTION_MCP
+    if (!engine::plugins::destruction::register_destruction_mcp_tools(mcp, editor_tools))
+    {
+        std::fputs("Cannot register destruction MCP tools\n", stderr);
         return 1;
     }
 #endif

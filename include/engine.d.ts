@@ -241,6 +241,36 @@ declare module "engine" {
         readonly playback: "stopped" | "playing" | "paused" | null;
         readonly time: number | null;
     }
+    /** Available when the optional terrain runtime plugin is enabled. */
+    export class TerrainComponent extends Component {
+        private constructor();
+        /** Sphere center and radius are in terrain-node local space. */
+        DigSphere(x: number, y: number, z: number, radius: number): boolean;
+        FillSphere(x: number, y: number, z: number, radius: number): boolean;
+        Reset(): boolean;
+        /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
+        Save(slot: string): boolean;
+        Load(slot: string): boolean;
+        readonly ready: boolean;
+        readonly revision: bigint | null;
+        readonly chunkCount: number | null;
+        readonly rebuiltChunks: number | null;
+        readonly triangleCount: number | null;
+        readonly lastError: string | null;
+    }
+    export class DestructionComponent extends Component {
+        private constructor();
+        /** World-space damage sphere; impulse is in newton-seconds. */
+        DamageSphere(x: number, y: number, z: number, radius: number,
+                     damage: number, impulse?: number): boolean;
+        Reset(): boolean;
+        readonly ready: boolean;
+        readonly revision: bigint | null;
+        readonly chunkCount: number | null;
+        readonly groupCount: number | null;
+        readonly dynamicGroups: number | null;
+        readonly lastError: string | null;
+    }
     export class Collider extends Component {
         private constructor();
         /** Local half-extents of a box. */

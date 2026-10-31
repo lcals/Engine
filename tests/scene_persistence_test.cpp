@@ -115,8 +115,7 @@ bool unchanged_sources(const SourceSnapshots& before, const SourceSnapshots& aft
     return true;
 }
 
-const schema::MeshRendererDataT* saved_mesh(const schema::SceneDataT& scene,
-                                          std::uint64_t node_id)
+const schema::MeshRendererDataT* saved_mesh(const schema::SceneDataT& scene, std::uint64_t node_id)
 {
     for (const auto& node : scene.nodes)
     {
@@ -143,6 +142,39 @@ bool write_text(const fs::path& path, std::string_view text)
     return static_cast<bool>(output);
 }
 
+bool compound_scene_round_trip(const fs::path& root)
+{
+    schema::SceneDataT source;
+    source.info = std::make_unique<schema::SceneInfoT>();
+    source.info->name = "Compound collider";
+    auto node = std::make_unique<schema::NodeDataT>();
+    node->info = std::make_unique<schema::NodeInfoT>();
+    node->info->id = 1;
+    node->info->name = "One compound";
+    auto transform = std::make_unique<schema::ComponentDataT>();
+    transform->payload.Set(schema::TransformDataT{});
+    node->components.push_back(std::move(transform));
+    auto collider = std::make_unique<schema::ComponentDataT>();
+    schema::ColliderDataT data;
+    data.shape = schema::ColliderShape::compound;
+    for (const double offset : {-1.0, 1.0})
+    {
+        auto hull = std::make_unique<schema::ColliderHullDataT>();
+        hull->vertices = {{offset, 0, 0}, {offset + 0.5, 0, 0}, {offset, 0.5, 0}, {offset, 0, 0.5}};
+        data.hulls.push_back(std::move(hull));
+    }
+    collider->payload.Set(std::move(data));
+    node->components.push_back(std::move(collider));
+    source.nodes.push_back(std::move(node));
+    schema::SceneDataT restored;
+    std::string error;
+    const auto path = root / "cache/compound.scene";
+    return expect(engine::editor::SceneImporter::write(path, source, error) &&
+                      engine::editor::SceneImporter::read(path, restored, error) &&
+                      source == restored,
+                  "compound hull vertices round trip through the standard scene TOML codec", error);
+}
+
 bool run(const fs::path& root)
 {
     // 与 editor_app 同样装配项目系统，捕获跨模块 TOML ABI/符号冲突。
@@ -151,7 +183,7 @@ bool run(const fs::path& root)
     WorldSystem world;
     engine::editor::AssetPipelineSystem pipeline;
     if (!project.initialize({}) || !resources.initialize({}) || !world.initialize({}) ||
-        !pipeline.initialize({}))
+        !pipeline.initialize({}) || !compound_scene_round_trip(root))
     {
         return false;
     }
@@ -268,8 +300,7 @@ bool run(const fs::path& root)
                     renderer->material().set_cull_mode(schema::CullMode::back) &&
                     !renderer->material().has_overrides(),
                 "restoring material coverage clears its persistent override") ||
-        !second->set_parent(first) ||
-        !renderer->set_material_count(2) ||
+        !second->set_parent(first) || !renderer->set_material_count(2) ||
         !renderer->material(1)->set_v4("baseColor", Vec4(0.2, 0.3, 0.4, 1)) ||
         !renderer->material(1)->set_float("roughness", 0.75F) ||
         !renderer->material(1)->set_float("alphaCutoff", 0.4F) ||
@@ -304,6 +335,14 @@ bool run(const fs::path& root)
         return false;
     }
     const Json save = {{"sceneId", id}, {"path", "scenes/room.scene"}};
+    auto* transient_root = scene->create_node("Generated fragment");
+    auto* transient_child = scene->create_node("Generated child");
+    if (!transient_root || !transient_child || !transient_child->set_parent(transient_root) ||
+        !transient_root->add_component<MeshRenderer>())
+    {
+        return false;
+    }
+    transient_root->set_transient(true);
     const auto history = commands.undo_count();
     if (!expect(execute("save_scene", save) && result["nodeCount"] == 4 &&
                     result["importRequired"] == true && result["resourceCount"] == 4 &&
@@ -328,10 +367,18 @@ bool run(const fs::path& root)
     schema::SceneDataT saved;
     if (!expect(engine::editor::SceneImporter::read(path, saved, error) &&
                     saved.nodes.size() == 4 && saved.info->active_camera_node == camera->info().id,
-                "saved schema contains camera and all nodes", error))
+                "saved schema omits transient nodes and descendants, retaining the camera", error))
     {
         return false;
     }
+    camera->set_transient(true);
+    const auto saved_count = save_count;
+    if (!expect(!execute("save_scene", save) && save_count == saved_count,
+                "transient active camera cannot publish a scene with a dangling reference", error))
+    {
+        return false;
+    }
+    camera->set_transient(false);
     const auto mesh_path = root / "assets/scenes/room-resources/meshes" /
                            ("node-" + std::to_string(first->info().id) + ".mesh");
     std::string original_mesh;
@@ -423,8 +470,8 @@ bool run(const fs::path& root)
     }
     std::string mesh_meta;
     std::error_code ec;
-    if (!ResourceSystem::read_text(mesh_meta_path, mesh_meta) ||
-        !fs::remove(mesh_meta_path, ec) || ec ||
+    if (!ResourceSystem::read_text(mesh_meta_path, mesh_meta) || !fs::remove(mesh_meta_path, ec) ||
+        ec ||
         !expect(!execute("save_scene", save), "missing saved mesh identity is not regenerated",
                 error) ||
         !write_text(mesh_meta_path, mesh_meta) ||
@@ -459,8 +506,7 @@ bool run(const fs::path& root)
     float cutoff = 0;
     if (!expect(second->parent() == first &&
                     first->get_component<Transform>()->settings().position.x() == 3 &&
-                    renderer->material_count() == 2 &&
-                    !renderer->cast_shadows() &&
+                    renderer->material_count() == 2 && !renderer->cast_shadows() &&
                     renderer->material(1)->cull_mode() == schema::CullMode::none &&
                     renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
                     renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&

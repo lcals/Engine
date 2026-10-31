@@ -1,6 +1,7 @@
 #include "runtime/physics/physics_system.hpp"
 
 #include "runtime/resource/resource.hpp"
+#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/rigid_body.hpp"
@@ -19,12 +20,15 @@
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/MeshShape.h>
 #include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
 // clang-format on
@@ -277,6 +281,43 @@ bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* 
                                            collider.radius * scale.GetX())
                      .Create();
         break;
+    case schema::ColliderShape::compound:
+    {
+        if (!close(scale.GetX(), scale.GetY()) || !close(scale.GetX(), scale.GetZ()) ||
+            scale.GetX() <= 0.0F || collider.hulls.empty())
+        {
+            return false;
+        }
+        // Jolt 5.4.0 官方凸包/不可变复合形状，MIT。StaticCompound 可用于动态刚体。
+        JPH::StaticCompoundShapeSettings compound;
+        for (const auto& hull : collider.hulls)
+        {
+            JPH::Array<JPH::Vec3> points;
+            points.reserve(hull->vertices.size());
+            for (const auto& vertex : hull->vertices)
+            {
+                const auto point = vector(vertex) * scale;
+                if (!finite(point) || point.Abs().ReduceMax() > 100000.0F)
+                {
+                    return false;
+                }
+                points.push_back(point);
+            }
+            result = JPH::ConvexHullShapeSettings(points).Create();
+            if (result.HasError() || !result.IsValid() ||
+                !std::isfinite(result.Get()->GetVolume()) || result.Get()->GetVolume() <= 0.0F)
+            {
+                return false;
+            }
+            compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), result.Get().GetPtr());
+        }
+        // 单个 hull 已完整表达其局部坐标，无需再套一个复合形状。
+        if (collider.hulls.size() > 1)
+        {
+            result = compound.Create();
+        }
+        break;
+    }
     case schema::ColliderShape::mesh:
     {
         if (mesh == nullptr || mesh->vertices.empty() || mesh->indices.empty() ||
@@ -409,11 +450,12 @@ struct BodySnapshot
     JPH::Quat rotation = JPH::Quat::sIdentity();
     JPH::Vec3 scale = JPH::Vec3::sReplicate(1.0F);
     ResourcePtr mesh;
+    std::shared_ptr<const schema::MeshDataT> transient_mesh;
     JPH::RefConst<JPH::Shape> shape;
 };
 
-bool read_snapshot(const Node& node, const Collider& collider, const RigidBody* body,
-                   BodySnapshot& output)
+bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
+                   const schema::MeshDataT* mesh, const RigidBody* body, BodySnapshot& output)
 {
     for (const Node* ancestor = &node; ancestor != nullptr; ancestor = ancestor->parent())
     {
@@ -436,7 +478,7 @@ bool read_snapshot(const Node& node, const Collider& collider, const RigidBody* 
         return false;
     }
     output.node_id = node.id();
-    output.collider = collider.settings();
+    output.collider = collider;
     if (body != nullptr)
     {
         output.rigid_body = body->settings();
@@ -448,7 +490,7 @@ bool read_snapshot(const Node& node, const Collider& collider, const RigidBody* 
     return (output.rigid_body.motion != schema::BodyMotion::dynamic || node.parent() == nullptr) &&
            (output.collider.shape != schema::ColliderShape::mesh ||
             output.rigid_body.motion == schema::BodyMotion::static_body) &&
-           Collider::valid_settings(output.collider) &&
+           Collider::valid_settings(output.collider, mesh) &&
            RigidBody::valid_settings(output.rigid_body);
 }
 
@@ -547,9 +589,110 @@ struct PhysicsSystem::State
         accumulated = 0.0;
     }
 
-    bool synchronize(const std::vector<BodySnapshot>& snapshots)
+    void remove_body(std::uint64_t node_id)
+    {
+        const auto found = bodies.find(node_id);
+        if (found == bodies.end())
+        {
+            return;
+        }
+        auto& interface = physics.GetBodyInterface();
+        auto affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
+        affected.ExpandBy(JPH::Vec3::sReplicate(0.1F));
+        interface.RemoveBody(found->second.body);
+        interface.DestroyBody(found->second.body);
+        bodies.erase(found);
+        interface.ActivateBodiesInAABox(affected,
+                                        physics.GetDefaultBroadPhaseLayerFilter(static_layer),
+                                        physics.GetDefaultLayerFilter(static_layer));
+    }
+
+    bool publish_body(const BodySnapshot& snapshot)
     {
         auto& interface = physics.GetBodyInterface();
+        auto found = bodies.find(snapshot.node_id);
+        const bool rebuild = found == bodies.end() ||
+                             found->second.snapshot.collider != snapshot.collider ||
+                             found->second.snapshot.mesh != snapshot.mesh ||
+                             found->second.snapshot.transient_mesh != snapshot.transient_mesh ||
+                             found->second.snapshot.rigid_body != snapshot.rigid_body ||
+                             !found->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F);
+        if (!rebuild)
+        {
+            interface.SetPositionAndRotationWhenChanged(
+                found->second.body, JPH::RVec3(snapshot.position), snapshot.rotation,
+                JPH::EActivation::Activate);
+            found->second.snapshot = snapshot;
+            return true;
+        }
+        JPH::AABox affected;
+        if (found != bodies.end())
+        {
+            affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
+        }
+        const bool moving = snapshot.rigid_body.motion != schema::BodyMotion::static_body;
+        if (found != bodies.end() && !moving &&
+            found->second.snapshot.rigid_body == snapshot.rigid_body &&
+            found->second.snapshot.collider.is_trigger == snapshot.collider.is_trigger)
+        {
+            // 候选形状已完整准备；静态形状替换不会销毁原 BodyID。
+            interface.SetShape(found->second.body, snapshot.shape.GetPtr(), false,
+                               JPH::EActivation::DontActivate);
+            interface.SetPositionAndRotation(found->second.body, JPH::RVec3(snapshot.position),
+                                             snapshot.rotation, JPH::EActivation::DontActivate);
+            interface.SetFriction(found->second.body, snapshot.collider.friction);
+            interface.SetRestitution(found->second.body, snapshot.collider.restitution);
+            found->second.snapshot = snapshot;
+        }
+        else
+        {
+            JPH::BodyCreationSettings settings(
+                snapshot.shape.GetPtr(), JPH::RVec3(snapshot.position), snapshot.rotation,
+                motion_type(snapshot.rigid_body.motion), moving ? moving_layer : static_layer);
+            settings.mIsSensor = snapshot.collider.is_trigger;
+            settings.mFriction = snapshot.collider.friction;
+            settings.mRestitution = snapshot.collider.restitution;
+            settings.mLinearDamping = snapshot.rigid_body.linear_damping;
+            settings.mAngularDamping = snapshot.rigid_body.angular_damping;
+            settings.mGravityFactor = snapshot.rigid_body.gravity_factor;
+            settings.mLinearVelocity = vector(snapshot.rigid_body.linear_velocity);
+            settings.mAngularVelocity = vector(snapshot.rigid_body.angular_velocity);
+            settings.mMaxLinearVelocity = 10000.0F;
+            settings.mMaxAngularVelocity = 10000.0F;
+            settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
+            settings.mMassPropertiesOverride.mMass = snapshot.rigid_body.mass;
+            const auto body = interface.CreateAndAddBody(
+                settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+            if (body.IsInvalid())
+            {
+                return false;
+            }
+            // 创建失败时旧物体仍存在；成功后才移除旧物体。
+            if (found != bodies.end())
+            {
+                interface.RemoveBody(found->second.body);
+                interface.DestroyBody(found->second.body);
+                found->second = Entry{snapshot, body};
+            }
+            else
+            {
+                found = bodies.emplace(snapshot.node_id, Entry{snapshot, body}).first;
+            }
+        }
+        if (!moving)
+        {
+            affected.Encapsulate(
+                interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds());
+            affected.ExpandBy(JPH::Vec3::sReplicate(0.1F));
+            interface.ActivateBodiesInAABox(affected,
+                                            physics.GetDefaultBroadPhaseLayerFilter(static_layer),
+                                            physics.GetDefaultLayerFilter(static_layer));
+        }
+        return true;
+    }
+
+    bool synchronize(const std::vector<BodySnapshot>& snapshots)
+    {
         std::set<std::uint64_t> retained;
         for (const auto& snapshot : snapshots)
         {
@@ -559,9 +702,9 @@ struct PhysicsSystem::State
         {
             if (!retained.contains(iterator->first))
             {
-                interface.RemoveBody(iterator->second.body);
-                interface.DestroyBody(iterator->second.body);
-                iterator = bodies.erase(iterator);
+                const auto id = iterator->first;
+                ++iterator;
+                remove_body(id);
             }
             else
             {
@@ -570,50 +713,9 @@ struct PhysicsSystem::State
         }
         for (const auto& snapshot : snapshots)
         {
-            auto found = bodies.find(snapshot.node_id);
-            const bool rebuild = found == bodies.end() ||
-                                 found->second.snapshot.collider != snapshot.collider ||
-                                 found->second.snapshot.mesh != snapshot.mesh ||
-                                 found->second.snapshot.rigid_body != snapshot.rigid_body ||
-                                 !found->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F);
-            if (rebuild)
+            if (!publish_body(snapshot))
             {
-                if (found != bodies.end())
-                {
-                    interface.RemoveBody(found->second.body);
-                    interface.DestroyBody(found->second.body);
-                    bodies.erase(found);
-                }
-                const bool moving = snapshot.rigid_body.motion != schema::BodyMotion::static_body;
-                JPH::BodyCreationSettings settings(
-                    snapshot.shape.GetPtr(), JPH::RVec3(snapshot.position), snapshot.rotation,
-                    motion_type(snapshot.rigid_body.motion), moving ? moving_layer : static_layer);
-                settings.mIsSensor = snapshot.collider.is_trigger;
-                settings.mFriction = snapshot.collider.friction;
-                settings.mRestitution = snapshot.collider.restitution;
-                settings.mLinearDamping = snapshot.rigid_body.linear_damping;
-                settings.mAngularDamping = snapshot.rigid_body.angular_damping;
-                settings.mGravityFactor = snapshot.rigid_body.gravity_factor;
-                settings.mLinearVelocity = vector(snapshot.rigid_body.linear_velocity);
-                settings.mAngularVelocity = vector(snapshot.rigid_body.angular_velocity);
-                settings.mMaxLinearVelocity = 10000.0F;
-                settings.mMaxAngularVelocity = 10000.0F;
-                settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
-                settings.mMassPropertiesOverride.mMass = snapshot.rigid_body.mass;
-                const auto body = interface.CreateAndAddBody(
-                    settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
-                if (body.IsInvalid())
-                {
-                    return false;
-                }
-                bodies.emplace(snapshot.node_id, Entry{snapshot, body});
-            }
-            else
-            {
-                interface.SetPositionAndRotationWhenChanged(
-                    found->second.body, JPH::RVec3(snapshot.position), snapshot.rotation,
-                    JPH::EActivation::Activate);
-                found->second.snapshot = snapshot;
+                return false;
             }
         }
         return true;
@@ -797,6 +899,114 @@ bool PhysicsSystem::cast_sphere(const Vec3& origin, const Vec3& displacement, fl
     return true;
 }
 
+bool PhysicsSystem::set_collider_data(Collider& collider, const schema::ColliderDataT& settings)
+{
+    auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    auto& node = collider.node();
+    if (state_ == nullptr || scene == nullptr || &node.scene() != scene ||
+        node.get_component<Collider>() != &collider || !Collider::valid_settings(settings))
+    {
+        return false;
+    }
+    const auto* rigid = node.get_component<RigidBody>();
+    const auto* motor = node.get_component<CharacterMotor>();
+    if (motor != nullptr && motor->enabled() && collider.enabled())
+    {
+        return false;
+    }
+    BodySnapshot snapshot;
+    if (settings.shape == schema::ColliderShape::mesh)
+    {
+        auto* resources = ResourceSystem::instance();
+        if (resources == nullptr || !resources->loader().load(settings.mesh_guid, snapshot.mesh) ||
+            !snapshot.mesh || snapshot.mesh->mesh() == nullptr)
+        {
+            return false;
+        }
+    }
+    const auto* mesh = snapshot.mesh ? snapshot.mesh->mesh() : nullptr;
+    if (!read_snapshot(node, settings, mesh, rigid, snapshot))
+    {
+        return false;
+    }
+    const bool active =
+        collider.enabled() && active_transform(node) && (rigid == nullptr || rigid->enabled());
+    if (active && !make_shape(snapshot.collider, mesh, snapshot.scale, snapshot.shape))
+    {
+        return false;
+    }
+    if (state_->scene_id != scene->id())
+    {
+        state_->clear();
+        state_->scene_id = scene->id();
+    }
+    if (active && !state_->publish_body(snapshot))
+    {
+        return false;
+    }
+    if (!active)
+    {
+        state_->remove_body(node.id());
+    }
+    *collider.mutable_data().payload.AsColliderData() = std::move(snapshot.collider);
+    collider.mesh_ = std::move(snapshot.mesh);
+    collider.transient_mesh_.reset();
+    return true;
+}
+
+bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& mesh)
+{
+    auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    auto& node = collider.node();
+    if (state_ == nullptr || scene == nullptr || &node.scene() != scene ||
+        node.get_component<Collider>() != &collider || mesh.schema_version != 1)
+    {
+        return false;
+    }
+    const auto* rigid = node.get_component<RigidBody>();
+    const auto* motor = node.get_component<CharacterMotor>();
+    if ((rigid != nullptr && rigid->settings().motion != schema::BodyMotion::static_body) ||
+        (motor != nullptr && motor->enabled() && collider.enabled()))
+    {
+        return false;
+    }
+    BodySnapshot snapshot;
+    if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
+    {
+        return false;
+    }
+    snapshot.collider.shape = schema::ColliderShape::mesh;
+    snapshot.collider.mesh_guid.clear();
+    snapshot.collider.hulls.clear();
+    // 拷贝隔离调用方后续修改；不发布未完成的 Jolt Shape。
+    snapshot.transient_mesh = std::make_shared<const schema::MeshDataT>(mesh);
+    const bool empty = mesh.vertices.empty() && mesh.indices.empty();
+    if (!empty && !make_shape(snapshot.collider, snapshot.transient_mesh.get(), snapshot.scale,
+                              snapshot.shape))
+    {
+        return false;
+    }
+    const bool active = !empty && collider.enabled() && active_transform(node) &&
+                        (rigid == nullptr || rigid->enabled());
+    if (state_->scene_id != scene->id())
+    {
+        state_->clear();
+        state_->scene_id = scene->id();
+    }
+    if (active && !state_->publish_body(snapshot))
+    {
+        return false;
+    }
+    if (!active)
+    {
+        state_->remove_body(node.id());
+    }
+    *collider.mutable_data().payload.AsColliderData() = snapshot.collider;
+    collider.mesh_.reset();
+    collider.transient_mesh_ = std::move(snapshot.transient_mesh);
+    return true;
+}
+
 bool PhysicsSystem::on_tick(double delta_time)
 {
     auto* scene = world_ != nullptr ? world_->scene() : nullptr;
@@ -857,7 +1067,8 @@ bool PhysicsSystem::on_tick(double delta_time)
             continue;
         }
         BodySnapshot snapshot;
-        if (!read_snapshot(*node, *collider, rigid_body, snapshot))
+        if (!read_snapshot(*node, collider->settings(), collider->mesh_data(), rigid_body,
+                           snapshot))
         {
             std::fputs("Physics rejects invalid settings, shear, reflection or a dynamic parent\n",
                        stderr);
@@ -866,15 +1077,22 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         const auto existing = state_->bodies.find(node->id());
         snapshot.mesh = collider->mesh_;
+        snapshot.transient_mesh = collider->transient_mesh_;
+        if (snapshot.transient_mesh && snapshot.transient_mesh->vertices.empty() &&
+            snapshot.transient_mesh->indices.empty())
+        {
+            continue;
+        }
         if (existing != state_->bodies.end() &&
             existing->second.snapshot.collider == snapshot.collider &&
             existing->second.snapshot.mesh == snapshot.mesh &&
+            existing->second.snapshot.transient_mesh == snapshot.transient_mesh &&
             existing->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F))
         {
             snapshot.shape = existing->second.snapshot.shape;
         }
-        else if (!make_shape(snapshot.collider, snapshot.mesh ? snapshot.mesh->mesh() : nullptr,
-                             snapshot.scale, snapshot.shape))
+        else if (!make_shape(snapshot.collider, collider->mesh_data(), snapshot.scale,
+                             snapshot.shape))
         {
             std::fputs("Physics cannot create collider with the requested world scale\n", stderr);
             clear();

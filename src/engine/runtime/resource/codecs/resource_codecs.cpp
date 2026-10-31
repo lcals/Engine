@@ -58,6 +58,8 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::font, &font},
     CodecEntry{schema::AssetKind::ui, &ui},
     CodecEntry{schema::AssetKind::effect, &binary},
+    CodecEntry{schema::AssetKind::terrain, &binary},
+    CodecEntry{schema::AssetKind::destruction, &binary},
 };
 
 } // namespace

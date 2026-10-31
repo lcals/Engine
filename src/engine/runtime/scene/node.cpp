@@ -78,6 +78,23 @@ bool Node::remove_component(ComponentType type) noexcept
                          [type](const auto& value) { return value->type() == type; }) != 0;
 }
 
+bool Node::transient() const noexcept
+{
+    for (const Node* current = this; current != nullptr; current = current->parent())
+    {
+        if (current->transient_)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Node::set_transient(bool transient) noexcept
+{
+    transient_ = transient;
+}
+
 Component* Node::get_component(ComponentType type) noexcept
 {
     return const_cast<Component*>(std::as_const(*this).get_component(type));

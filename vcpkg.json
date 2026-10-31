@@ -110,6 +110,12 @@
       "dependencies": [
         "quickjs-ng"
       ]
+    },
+    "destruction-authoring": {
+      "description": "Optional editor Blast fracture authoring exact arithmetic",
+      "dependencies": [
+        "boost-multiprecision"
+      ]
     }
   },
   "overrides": [

@@ -1,0 +1,21 @@
+include "scene.fbs";
+namespace engine.schema;
+
+table DestructionGroupState {
+    chunks:[uint] (required);
+    transform:TransformData (required);
+    linear_velocity:Vec3 (required, native_inline);
+    angular_velocity:Vec3 (required, native_inline);
+}
+
+table DestructionStateData {
+    schema_version:uint = 1;
+    base_guid:string (required);
+    base_hash:string (required);
+    // Stable resource bond order, followed by world bonds in ascending anchored chunk order.
+    bond_health:[float] (required);
+    groups:[DestructionGroupState] (required);
+}
+
+root_type DestructionStateData;
+file_identifier "EDSS";

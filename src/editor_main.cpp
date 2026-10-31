@@ -1,3 +1,17 @@
+#if ENGINE_HAS_TERRAIN_EDITOR
+#include "plugins/editor/terrain/terrain_codec.hpp"
+#include "plugins/editor/terrain/terrain_importer.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+#include "plugins/editor/destruction/destruction_codec.hpp"
+#include "plugins/editor/destruction/destruction_importer.hpp"
+#endif
+#if ENGINE_HAS_TERRAIN_EDITOR
+#include "plugins/editor/terrain/terrain_commands.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+#include "plugins/editor/destruction/destruction_commands.hpp"
+#endif
 #if ENGINE_HAS_EFFECTS_EDITOR
 #include "plugins/editor/effects/effect_codec.hpp"
 #include "plugins/editor/effects/effect_importer.hpp"
@@ -28,6 +42,15 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 #include "runtime_plugins.hpp"
+
+#if ENGINE_HAS_TERRAIN_PLUGIN
+#include "plugins/runtime/terrain/terrain_component.hpp"
+#include "runtime/scene/scene.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_PLUGIN
+#include "plugins/runtime/destruction/destruction_component.hpp"
+#include "runtime/scene/scene.hpp"
+#endif
 
 #if ENGINE_HAS_FONT_IMPORTER
 #include "plugins/editor/font_import/font_importer.hpp"
@@ -152,6 +175,26 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             !pipeline.add_importer(effect_importer))
         {
             std::fputs("Cannot register effects importer and scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_TERRAIN_EDITOR
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> terrain_importer =
+            std::make_unique<engine::plugins::terrain::TerrainImporter>();
+        if (!engine::plugins::terrain::register_terrain_codec() ||
+            !pipeline.add_importer(terrain_importer))
+        {
+            std::fputs("Cannot register terrain importer and scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> destruction_importer =
+            std::make_unique<engine::plugins::destruction::DestructionImporter>();
+        if (!engine::plugins::destruction::register_destruction_codec() ||
+            !pipeline.add_importer(destruction_importer))
+        {
+            std::fputs("Cannot register destruction importer and scene codec\n", stderr);
             return 1;
         }
 #endif
@@ -280,6 +323,24 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 *runtime.world(), *editor->scene_commands(), *editor->commands()))
         {
             LogSystem::write(LogLevel::error, "Cannot register effects commands");
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_TERRAIN_EDITOR
+        if (!editor->scene_commands() || !editor->commands() ||
+            !engine::plugins::terrain::register_terrain_commands(
+                *runtime.world(), *editor->scene_commands(), *editor->commands(), project_root))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register terrain commands");
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+        if (!editor->scene_commands() || !editor->commands() ||
+            !engine::plugins::destruction::register_destruction_commands(
+                *runtime.world(), *editor->scene_commands(), *editor->commands(), project_root))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register destruction commands");
             return 1;
         }
 #endif
@@ -415,6 +476,59 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 {
                     status = engine::FrameStatus::paused;
                 }
+#if ENGINE_HAS_TERRAIN_PLUGIN
+                else if (engine::plugins::terrain::TerrainSystem::instance() &&
+                         !engine::plugins::terrain::TerrainSystem::instance()->synchronize())
+                {
+                    LogSystem::write(LogLevel::error,
+                                     "Scene preview terrain synchronization failed");
+                    if (const auto* scene = runtime.world()->scene())
+                    {
+                        for (const auto& node : scene->nodes())
+                        {
+                            const auto* terrain =
+                                node->get_component<engine::plugins::terrain::TerrainComponent>();
+                            if (terrain != nullptr && !terrain->last_error().empty())
+                            {
+                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
+                                                                      terrain->last_error());
+                            }
+                        }
+                    }
+                    preview->close();
+                    if (!runtime.renderer()->render())
+                    {
+                        status = engine::FrameStatus::failed;
+                    }
+                }
+#endif
+#if ENGINE_HAS_DESTRUCTION_PLUGIN
+                else if (engine::plugins::destruction::DestructionSystem::instance() &&
+                         !engine::plugins::destruction::DestructionSystem::instance()
+                              ->synchronize())
+                {
+                    LogSystem::write(LogLevel::error,
+                                     "Scene preview destruction synchronization failed");
+                    if (const auto* scene = runtime.world()->scene())
+                    {
+                        for (const auto& node : scene->nodes())
+                        {
+                            const auto* destruction = node->get_component<
+                                engine::plugins::destruction::DestructionComponent>();
+                            if (destruction != nullptr && !destruction->last_error().empty())
+                            {
+                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
+                                                                      destruction->last_error());
+                            }
+                        }
+                    }
+                    preview->close();
+                    if (!runtime.renderer()->render())
+                    {
+                        status = engine::FrameStatus::failed;
+                    }
+                }
+#endif
                 else if (!runtime.renderer()->render(preview->camera()))
                 {
                     LogSystem::write(LogLevel::error, "Scene preview rendering failed");

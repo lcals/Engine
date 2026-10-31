@@ -128,12 +128,36 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/script")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
    "font-import" IN_LIST VCPKG_MANIFEST_FEATURES)
     message(FATAL_ERROR "Android must not prepare editor modeling or font importer features")
+endif()
+]=])
+
+run_case(
+    terrain_editor_closure
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS terrain CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/terrain;editor/terrain")
+    message(FATAL_ERROR "Terrain editor dependency closure differs: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
+    script_without_terrain
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/script")
+    message(FATAL_ERROR "Script-only selection must not pull in terrain: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 ]=])
 
@@ -387,3 +411,28 @@ endif()
 ]=])
 
 message(STATUS "Plugin selection regression cases passed")
+
+run_case(
+    destruction_editor_closure
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS destruction CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/destruction;editor/destruction" OR
+   NOT "destruction-authoring" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Destruction editor closure is incomplete: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+run_case(
+    destruction_runtime_only
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS destruction CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS "" CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/destruction" OR
+   "destruction-authoring" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Runtime destruction must not pull in authoring")
+endif()
+]=])

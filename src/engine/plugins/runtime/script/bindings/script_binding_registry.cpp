@@ -26,6 +26,13 @@
 #include "plugins/runtime/script/bindings/ui_controller_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_element_binding.hpp"
 
+#if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
+#include "plugins/runtime/script/bindings/terrain_binding.hpp"
+#endif
+#if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
+#include "plugins/runtime/script/bindings/destruction_binding.hpp"
+#endif
+
 #include <algorithm>
 #include <utility>
 
@@ -52,6 +59,20 @@ bool ScriptBindingRegistry::initialize()
         bindings_.clear();
         return false;
     }
+#if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
+    if (!add<TerrainBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
+    if (!add<DestructionBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
     return true;
 }
 

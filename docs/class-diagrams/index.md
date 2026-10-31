@@ -87,6 +87,17 @@
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定及播放状态。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 
+- [地形脚本接口](../plugins/runtime/class-diagrams/terrain-script-api.md)：条件装配地形组件绑定、球形挖填、固定槽位保存与恢复。
+
+## 建筑破坏插件
+
+- [组件与系统](../plugins/runtime/class-diagrams/destruction.md)：普通节点绑定破坏资源，世界子系统拥有瞬态连通组，调用核心物理能力。
+- [Blast 损伤图](../plugins/runtime/class-diagrams/destruction-graph.md)：官方图、部分损伤、支撑拆分与候选状态克隆，不依赖渲染或编辑器。
+- [官方预破碎](../plugins/editor/class-diagrams/destruction-authoring.md)：参数盒体切片/Voronoi 与连接生成，离线依赖留在编辑器插件。
+- [导入、编辑事务与 MCP](../plugins/editor/class-diagrams/destruction-editor.md)：独立资源、场景 GUID、完整状态撤销及工具转发。
+
+步骤 2 代码已接入，Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；完整结果及剩余范围见[步骤 2 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。类图表达当前契约，不代表完整建筑力学或全部平台已经验收。
+
 ## MCP 与编辑器命令
 
 - [建模职责边界](../plugins/editor/modeling.md)：独立 C++ 几何核心、编辑器业务与 MCP 适配。

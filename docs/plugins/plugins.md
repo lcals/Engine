@@ -9,6 +9,10 @@
 | 运行时角色控制器 | `plugins/runtime/character_controller/` | 输入与第一/第三人称相机策略，调用核心 CharacterMotor |
 | 运行时特效 | `plugins/runtime/effects/` | 独立 EffectSystem、节点 EffectComponent、官方 Effekseer 模拟与 efkbgfx 绘制 |
 | 编辑器特效 | `plugins/editor/effects/` | 特效资源导入、meta 依赖映射、组件编解码、可撤销编辑与 MCP |
+| 运行时地形 | `plugins/runtime/terrain/` | Transvoxel 普通单元、同步体积修改与分块网格缓存、瞬态显示/碰撞提交和状态保存 |
+| 编辑器地形 | `plugins/editor/terrain/` | 参数化 `.terrain` 导入、组件编解码、可撤销设置/笔刷/恢复及 MCP |
+| 运行时建筑破坏 | `plugins/runtime/destruction/` | 官方 Blast 支撑图/损伤/拆分、瞬态组节点、Jolt 凸形复合碰撞与完整状态快照 |
+| 编辑器建筑破坏 | `plugins/editor/destruction/` | 官方 Authoring 盒体切片/Voronoi、`.destruction` 导入、组件 codec、可撤销损伤/设置及 MCP |
 | 编辑器 FBX | `plugins/editor/fbx_import/` | 固定版本 ufbx，模型/骨架/动画多子资源转换 |
 | 编辑器 USD | `plugins/editor/usd_import/` | 独立 OpenUSD 依赖，自包含静态模型转换 |
 | 编辑器字体导入 | `plugins/editor/font_import/` | FreeType 读取 TTF 轮廓及度量，meta 控制字符集与转换参数 |
@@ -24,10 +28,12 @@
 
 ## 插件清单
 
+[可修改地形与建筑破坏](runtime/terrain-destruction-plan.md)按阶段推进：[地形编辑器制作与资源流程](editor/terrain-destruction-authoring.md)已实现同步步骤 1，`runtime/terrain` 与 `editor/terrain` 已登记；步骤 2 的 `runtime/destruction` 与 `editor/destruction` 代码已接入，正式窗口及各平台验收范围继续单独记录。[步骤 0](runtime/terrain-destruction-feasibility.md#步骤-0-实测记录)的独立 ARM 验证与正式插件的测试范围分别记录，不混为全平台功能验收。
+
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
-- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller` 与 `effects`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`character_controller` 与 `effects`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
+- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`character_controller`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -40,6 +46,10 @@
 | `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界、物理和窗口 |
 | `runtime/effects` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Effekseer 和 efkbgfx，复用核心渲染扩展 |
 | `editor/effects` | 非设备构建，资源管线依赖开启 | `runtime/effects` |
+| `runtime/terrain` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Transvoxel，调用核心世界、物理和资源接口 |
+| `editor/terrain` | 非设备构建，资源管线依赖开启 | `runtime/terrain` |
+| `runtime/destruction` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定 Blast CPU low-level/ExtShaders，使用核心 Jolt 凸形复合碰撞 |
+| `editor/destruction` | 非设备构建，资源管线依赖开启 | `runtime/destruction`；官方 ExtAuthoring 和 `destruction-authoring` vcpkg feature（Boost Multiprecision） |
 | `editor/fbx_import` | 非设备构建，资源管线依赖开启 | 无；固定版本 ufbx 子模块 |
 | `editor/usd_import` | 非设备构建，资源管线依赖开启 | 无；独立 `usd-import` vcpkg feature |
 | `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
@@ -87,6 +97,8 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 - [建模功能与边界](editor/modeling.md)、[建模编辑业务](editor/class-diagrams/modeling-commands.md)。
 - [MCP 协议](editor/class-diagrams/mcp-system.md)、[编辑器 MCP](editor/class-diagrams/editor-mcp-tools.md)。
 - [场景 GPU 烘焙](editor/class-diagrams/scene-bake.md)。
+- [地形运行时](runtime/class-diagrams/terrain.md)、[地形制作](editor/class-diagrams/terrain-editor.md)与[地形脚本接口](runtime/class-diagrams/terrain-script-api.md)。
+- [建筑破坏组件与系统](runtime/class-diagrams/destruction.md)、[Blast 图](runtime/class-diagrams/destruction-graph.md)、[官方预破碎](editor/class-diagrams/destruction-authoring.md)与[编辑器事务/MCP](editor/class-diagrams/destruction-editor.md)。
 - [资源构建](editor/resource-build.md)、[资源同步](editor/class-diagrams/asset-sync-system.md)。
 - [字体导入](editor/class-diagrams/font-importer.md)、[UI 导入](editor/class-diagrams/ui-importer.md)、[核心字体](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。
 - [跨层完整引用关系](../class-diagrams/references.md)。
@@ -96,3 +108,9 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 ## 特效系统
 
 特效由独立 `EffectSystem` 运行时插件统一推进和绘制；普通 Node 挂载 `EffectComponent`，引用独立特效资源。组件保存播放参数与实例身份，系统拥有第三方 Manager、每实例句柄以及共享效果资源。引擎 `RenderSystem` 只登记 `RenderExtension`，向插件提供当前场景、镜头与绘制阶段，不识别 Effekseer 类型。编辑器基础只负责通用导入调度和命令事务；特效导入、资源映射及 MCP 工具归编辑器特效插件。参见[运行时类图](runtime/class-diagrams/effects.md)与[导入类图](editor/class-diagrams/effect-importer.md)。
+
+## 建筑破坏系统
+
+`DestructionSystem` 作为世界子系统管理独立的 `DestructionComponent`，同步提交官方 Blast 拆分后的瞬态渲染/碰撞组；核心物理只提供通用凸包与 compound 形状。编辑器插件拥有离线 Authoring、导入器、组件 codec 和撤销命令。MCP 工具目标只在选择 MCP 时建立，不进入设备运行包；Boost、Authoring 和 PhysX 均不进入正式运行时。
+
+当前制作输入为最多 256 块的参数盒体；根节点须使用正等比缩放。showcase 第七入口验证墙、柱和塔的连接损伤，地形地基联动、应力、撞击再破坏和异步调度留到后续。Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；具体事实与其他平台范围见[步骤 2 验证记录](runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，不能由插件清单推断平台验收完成。

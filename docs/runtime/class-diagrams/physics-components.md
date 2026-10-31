@@ -8,10 +8,12 @@
 classDiagram
     class Collider {
         <<final>>
-        +valid_settings(const ColliderDataT& settings) bool$
+        +valid_settings(const ColliderDataT& settings, const MeshDataT* transient_mesh = nullptr) bool$
         +settings() const ColliderDataT&
         +set_settings(const ColliderDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
+        +build_data(ComponentDataT& output) const bool
+        +mesh_data() const MeshDataT*
         +set_mesh(string_view path) bool
         +mesh_path() const string_view
     }
@@ -29,16 +31,20 @@ classDiagram
     class Node
     class PhysicsSystem
     class ColliderDataT
+    class ColliderHullDataT
     class RigidBodyDataT
     class ComponentDataT
     class Vec3
     class Resource
     class ResourceSystem
+    class MeshDataT
     Component <|-- Collider
     Component <|-- RigidBody
     Node *-- Component : 独占无类型组件列表
     Collider ..> ColliderDataT : 生成数据
+    ColliderDataT *-- ColliderHullDataT : 生成的复合凸包列表
     Collider o-- Resource : 共享持有独立碰撞网格
+    Collider o-- MeshDataT : 共享持有不可变瞬时网格
     Collider ..> ResourceSystem : 通过加载接口解析网格
     RigidBody ..> RigidBodyDataT : 生成数据
     Collider ..> RigidBody : 校验静态网格运动限制
@@ -53,3 +59,7 @@ classDiagram
 设置失败保持已有数据。冲量只接受启用的动态刚体；静态刚体拒绝非零速度。`valid_settings` 可由编辑器导入器复用。所有尺寸、质量和速度必须有限并处于校验范围；瞬态冲量不进入持久数据。
 
 `ColliderShape::mesh` 以 `ColliderDataT::mesh_guid` 引用独立 Mesh 资源，不依赖同节点的 MeshRenderer。`set_mesh(path)` 选择静态三角网格并同步加载资源，路径不存在或类型错误时保持旧设置；`mesh_path()` 返回当前持有网格的逻辑路径。切回基本形状须清空 mesh_guid 并释放引用。网格仅允许无 RigidBody 或 static_body；Collider 和 RigidBody 两端的设置操作都拒绝动态、运动学组合，物理同步再次校验。网格是资源中的静态顶点，不随蒙皮动画变形。
+
+瞬时静态网格通过 `PhysicsSystem::set_mesh_data(collider, mesh)` 提交：系统先复制生成数据、校验并构建碰撞形状，成功后才更新组件与当前物理世界。`mesh_data()` 借用当前资源或瞬时网格；瞬时网格的 `mesh_guid` 与 `mesh_path()` 为空，不反向依赖生成它的插件。默认 `valid_settings(settings)` 继续要求资源 GUID；可空的瞬时几何参数仅供运行时验证已持有的网格。`build_data()` 遇到瞬时网格返回失败并清空输出，`restore_data()` 拒绝缺少 GUID 的网格描述，不能静默丢失运行时几何。切回资源或基本形状释放瞬时引用。
+
+`ColliderShape::compound` 使用 ColliderData 的 hulls，每个 ColliderHullData 只保存所属节点局部空间 vertices；现有 center 对整体再偏移。描述允许 1–4096 个凸包、每个至少 4 点、累计最多 1M 点，点必须有限且有界；非 compound 不携带 hulls，compound 不引用 mesh_guid。几何凸包和最终 256 个凸包顶点的上游限制由 Jolt 构建验证，退化或超限返回失败，不以包围盒静默替代。多个凸包共用一个 RigidBody，质量来自该组件，惯量及质心由 Jolt 计算。普通 set_settings 仍在下一次物理同步生效，需要同步确认创建/替换结果时使用 PhysicsSystem::set_collider_data。

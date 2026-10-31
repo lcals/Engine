@@ -57,6 +57,10 @@ bool read(const Json& arguments, schema::ColliderDataT& value, std::string& erro
     {
         value.mesh_guid.clear();
     }
+    if (value.shape != schema::ColliderShape::compound)
+    {
+        value.hulls.clear();
+    }
     if (arguments.contains("halfExtents") && !vector(arguments["halfExtents"], value.half_extents))
     {
         error = "Invalid halfExtents";

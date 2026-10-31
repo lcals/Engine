@@ -9,6 +9,8 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
+- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、后续联动、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
+- [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
@@ -18,7 +20,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；四个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场和建筑破坏实验场共用一套设置、资源目录和缓存。默认进入 UI 菜单；七个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -972,8 +974,8 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 | `ENGINE_ENABLE_RUNTIME_DEPS`        | `OFF`      | 编译运行时系统与依赖；debug/release Preset 开启                                               |
 | `ENGINE_ENABLE_EDITOR_DEPS`         | `OFF`      | 编译编辑器系统与专用依赖                                                                      |
 | `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF`      | 编译资源管线系统，查找并验证离线工具                                                          |
-| `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 开启运行时依赖时为 `resource_graph`，否则为空；分号分隔，支持显式空列表 |
-| `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
+| `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 运行时依赖开启时包含 `resource_graph;character_controller;effects;terrain;destruction`，脚本开启时加入 `script`；分号分隔，支持显式空列表 |
+| `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | 选择满足依赖的编辑器插件，含资源管线启用时的 `terrain` 和 `destruction`；完整默认清单见[插件说明](docs/plugins/plugins.md)，支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
 | `ENGINE_ENABLE_TRACY` | `OFF` | 编译性能系统的 Tracy 按需客户端；仅占位接入，未添加业务采样 |
 | `ENGINE_ENABLE_V8` | `OFF` | 未装配脚本插件时启用独立 V8 验证；脚本插件由 `ENGINE_SCRIPT_BACKEND` 决定依赖 |
@@ -1020,3 +1022,74 @@ Showcase 主菜单的 `Effects laboratory` 打开两个公开上游示例：Lase
 
 模型实景验证修正了 efkbgfx 与 Effekseer 1808 的三处适配：采用官方独立模型渲染器工厂完成 Shader 初始化，顶点布局包含新增 UV2，模型实例常量容量与现有 Shader 的 40 项一致。布局偏移及大小具有编译期检查，补丁只应用到构建副本；最后的 Debug／Release 模型回归同时验证真实网格上传、与粒子同屏及删除后的 GPU 资源释放。
 
+
+## 地形插件与实验场
+
+同步步骤 1 由 `runtime/terrain` 和 `editor/terrain` 两个插件实现。前者提供 `TerrainVolume`、`TerrainSystem` 及普通节点上的 `TerrainComponent`；后者负责源数据导入、组件编解码、可撤销编辑与 MCP。核心只补通用瞬时网格碰撞提交，不依赖地形插件。运行时复用现有 MeshRenderer 和 Jolt，生成的显示/碰撞组件标记为瞬态，不重复写入场景文件。
+
+默认插件清单包含两者；显式选择时将 `terrain` 加入对应 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS`。Transvoxel 固定版本 `51a494f03c5b024cd153b596bcc7152eb3cc93a6` 作为子模块，只使用普通单元查找表；初始化方式为：
+
+```sh
+git submodule update --init third_party/transvoxel
+```
+
+`.terrain` TOML 描述尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏和球形洞穴，邻接 `.meta` 保存唯一 GUID，资源管线增量生成 `cache/gen/<GUID>`。运行时密度为浮点数；每轴最多 256 格且总样本最多 4M。高度图、FastNoise2、LOD 过渡、土石塌方和自动地基联动留待后续步骤；建筑连接损伤由下述独立破坏插件实现。
+
+Showcase 第六个菜单入口 `Terrain laboratory` 打开 `project/scenes/terrain.scene`：64×64 米、32 米高的自制地形，提供挖隧道、爆炸挖坑、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续使用已有示例角色。桌面与 Android 的运行资源清单均登记该场景；登记资源不代表 Android 本次运行验证已完成。
+
+MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terrain_brush`、`terrain_reset`、`terrain_save_state` 和 `terrain_load_state`。笔刷、设置、重置与加载支持现有撤销/重做事务；保存源文件或状态文件本身不使用场景撤销。球形修改采用节点局部坐标，失败保留有效版本。脚本 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`Reset`、`Save`、`Load` 和只读统计。
+
+状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
+
+当前脚本直接调用 `TerrainComponent::apply_sphere` 时复用块缓存，CPU 只重建脏块及相邻梯度边界。MCP 笔刷经 `TerrainStateEdit` 提交候选 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置会重建全部块；脚本 `Load`/`Reset` 同样全块重建。两条路径最终都合并成单个 Mesh，完整 GPU 上传与 Jolt cook，并同步占用调用线程。分块 GPU/碰撞提交、后台线程和差量存档尚未实现，不能将局部 CPU 重建能力概括为所有编辑入口均已增量。
+
+本次 macOS ARM64 Debug/Release 构建及累计各六项定向 CTest 均通过：首批 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline` 总时长分别 6.74/3.35 秒；地形 MCP 参数约束改用注册器支持的 `minimum` 后，补跑 `engine.mcp_registry`，分别为 0.76/0.61 秒。日志在忽略目录 `build/terrain-step1/`。真实 Metal 窗口的地形操作与预览生命周期已通过，正式 Android 插件代码尚未验证；步骤 0 的 Android ARM64 独立探针结果不能替代这次新插件验证。未运行全仓库测试、V8 构建或 CI。
+
+实景验证包含隧道穿过 z=0、z=-16 两条块边界、挖坑/填充、MCP 撤销/重做和设置颜色后保持体积，以及 UI 保存→重置→加载的 ETRS 字节哈希比对。脚本直接挖掘实测重建 4/32 块；这一数量不是所有笔刷位置的固定承诺。场景阴影偏移调整到 0.004，消除了初始参数导致的主要自阴影条纹。预览通过显式 `TerrainSystem::synchronize()` 同步，未绕过核心对子系统直接 Tick 的限制；关闭预览后场景和节点归零、窗口空白。该修复补跑 Debug/Release `engine.terrain_runtime`，分别 2.26/0.75 秒通过。回执与截图见忽略的 `build/terrain-step1/terrain-r1-report.json`、`terrain-r1-extra-report.json`、`terrain-r3-report.json` 和 `projects/showcase/cache/screenshots/terrain-*.png`。
+
+最终运行还验证了角色短走 2.373 米并稳定停留在地形上，以及 UI 爆炸挖坑重建 6/32 块。回执为 `build/terrain-step1/terrain-r3-finish-report.json`，最终画面为 `projects/showcase/cache/screenshots/terrain-r3-final-crater-overview.png`；角色行走仍需键鼠，触屏当前仅操作实验按钮。
+
+架构见[运行时类图](docs/plugins/runtime/class-diagrams/terrain.md)、[编辑器类图](docs/plugins/editor/class-diagrams/terrain-editor.md)和[脚本接口](docs/plugins/runtime/class-diagrams/terrain-script-api.md)；阶段范围及实测限制见[总体方案](docs/plugins/runtime/terrain-destruction-plan.md)与[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)。
+
+### 建筑破坏实验场
+
+`runtime/destruction` 使用固定版本 NVIDIA Blast 5.1 的 low-level 支撑图和
+`NvBlastExtFalloffGraphShader`，保留部分连接损伤，由官方拆分结果决定连通碎块组。
+`editor/destruction` 使用 Blast Authoring 切片/Voronoi、官方三角体积积分与 EXACT 接触连接生成器；
+没有新增自研 Voronoi、连通性或应力算法。预破碎的 Boost Multiprecision 仅为编辑器依赖，
+运行包不包含 Authoring、Boost 或 PhysX。
+
+Showcase 第七个入口 **Destruction laboratory** 提供切片塔、Voronoi 墙、分段柱等实心结构试件，
+可通过 UI 按钮施加固定球形损伤、重置和切换观察镜头。
+自制试件由 `.destruction` TOML 资源描述：`size`、`fracture`、`slices_x/y/z`（最终块数）、
+`sites`、`seed`、`bond_health` 与 `anchor_height`，源文件和邻接唯一 GUID `.meta` 进入现有增量管线。
+当前输入为参数盒体，最多 256 个碎块；不是任意复杂 FBX 建筑预破碎工具。
+生成资源内的片段几何、体积、质心与连接全部是该可破坏体所需数据，不保留 Blast 平台内存镜像。
+
+普通根节点挂 `DestructionComponent`，绑定资源和材料；每个连通组生成一个瞬态节点，
+使用 `MeshRenderer + Collider(compound) + RigidBody`。核心使用 Jolt 官方凸包与复合形状，
+支持多碎块保持一个刚体，断开锚点后参与动态模拟；剩余接触仍可能支撑碎块，
+实际位移由重力、碰撞和项目配置的冲量决定。初版要求根节点和正等比缩放。
+场景保存排除生成节点，组件移除或项目关闭时回收。
+
+脚本 `DamageSphere(x,y,z,radius,damage,impulse=0)` 接收世界坐标，移动中的组仍按当前姿态受损；
+`Reset()` 恢复初始图。`ready/revision/chunkCount/groupCount/dynamicGroups/lastError` 报告状态。
+MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
+`destruction_damage`、`destruction_reset`。损伤与重置使用完整快照支持撤销重做，
+包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
+外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
+
+实现仍同步：每次成功损伤提交会重建组的网格与碰撞，尚未针对大规模连续爆炸优化。
+地形地基联动、撞击再破坏、烟尘音效联动、承重应力和异步调度属于后续阶段。
+macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物理、Authoring、导入、
+编辑事务、MCP 注册和相关核心回归。真实窗口已验证预览损伤/撤销重做/关闭空白，
+以及正常菜单第七入口和 wall/column/base/top/reset 按钮；重置后三个试件均回到 1 组、0 动态组。
+针对源 Transform 禁用补充的运行时回归也已在 Debug/Release 通过。
+本轮只调整示例脚本的爆心和冲量以展示运动，不将塔体下沉宣称为高楼承重应力坍塌。
+最终脚本参数刷新后的 UI 损伤/重置、两台观察镜头和返回菜单均已实测通过；
+停止项目后场景为空、节点数归零。完整事实统一见
+[步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
+Android 目前仅有独立 Graph 检查，完整 APK 场景、ExtStress、地基地形联动与异步处理均未完成。
+
+移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
+架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。

@@ -14,6 +14,8 @@ classDiagram
         +type() ComponentType
         +enabled() bool
         +set_enabled(bool enabled) void
+        +transient() bool
+        +set_transient(bool transient) void
         +data() const ComponentDataT&
         +build_data(ComponentDataT& output) bool
         +restore_data(const ComponentDataT& data) bool

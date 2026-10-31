@@ -183,7 +183,7 @@ public:
         }
         fs::create_directories(path.parent_path(), ec);
         if (ec || !SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(),
-                                 PathUtils::to_utf8(path).c_str()))
+                                  PathUtils::to_utf8(path).c_str()))
         {
             error = "Cannot publish scene resource";
             return false;
@@ -337,7 +337,7 @@ bool existing_guid(const fs::path& source, std::string_view importer, Guid& guid
 {
     std::string text;
     if (!asset_pipeline::read_or_create_asset_meta(source, {}, importer, {}, false, text, guid,
-                                                  error))
+                                                   error))
     {
         return false;
     }
@@ -366,9 +366,8 @@ struct ScenePersistence::State
               std::string& error);
 };
 
-bool ScenePersistence::State::matches_saved_source(const fs::path& path,
-                                                    std::uint64_t scene_id,
-                                                    std::string& error) const
+bool ScenePersistence::State::matches_saved_source(const fs::path& path, std::uint64_t scene_id,
+                                                   std::string& error) const
 {
     if (saved_scene_id != scene_id)
     {
@@ -394,9 +393,9 @@ bool ScenePersistence::State::matches_saved_source(const fs::path& path,
 }
 
 bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_root,
-                                    const MeshSourceWriter& writer, const Json& arguments,
-                                    Json& result, std::vector<SceneSavedResource>& changes,
-                                    std::string& error)
+                                   const MeshSourceWriter& writer, const Json& arguments,
+                                   Json& result, std::vector<SceneSavedResource>& changes,
+                                   std::string& error)
 {
     changes.clear();
     if (!arguments.is_object() || arguments.size() != 2 || !arguments.contains("sceneId") ||
@@ -483,8 +482,9 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             const auto filename = name + (suffix ? "-override-" + std::to_string(suffix) : "") +
                                   std::string(extension);
             const auto candidate = folder / filename;
-            const auto logical = "project/" + PathUtils::to_utf8(
-                candidate.lexically_relative(root / "assets").generic_u8string());
+            const auto logical =
+                "project/" + PathUtils::to_utf8(
+                                 candidate.lexically_relative(root / "assets").generic_u8string());
             if (referenced_sources.contains(logical))
             {
                 continue;
@@ -534,8 +534,9 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             {
                 return false;
             }
-            const auto logical = "project/" + PathUtils::to_utf8(
-                path.lexically_relative(root / "assets").generic_u8string());
+            const auto logical =
+                "project/" +
+                PathUtils::to_utf8(path.lexically_relative(root / "assets").generic_u8string());
             std::string assigned_path;
             if ((known != sources.end() && guid != known->second.guid) ||
                 (ResourceSystem::guid_to_path(guid, assigned_path) && assigned_path != logical))
@@ -557,8 +558,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                 return false;
             }
             // ensure_asset_guid 新建 meta 的固定格式；不把发布后的外部编辑当成本次写入。
-            const auto metadata = "guid = \"" + guid + "\"\nimporter = \"" +
-                                  std::string(importer) + "\"\nmeta_version = 1\n";
+            const auto metadata = "guid = \"" + guid + "\"\nimporter = \"" + std::string(importer) +
+                                  "\"\nmeta_version = 1\n";
             meta_hash = asset_pipeline::hash_text(metadata);
             changed = true;
         }
@@ -598,14 +599,28 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
     schema::SceneDataT data;
     data.info = std::make_unique<schema::SceneInfoT>();
     data.info->name = scene->name();
+    if (const auto* camera = scene->active_camera();
+        camera != nullptr && camera->node().transient())
+    {
+        error = "Cannot save a scene whose active camera is transient";
+        return rollback();
+    }
     data.info->active_camera_node =
         scene->active_camera() ? scene->active_camera()->node().info().id : 0;
     for (const auto& node : scene->nodes())
     {
+        if (node->transient())
+        {
+            continue;
+        }
         auto saved = std::make_unique<schema::NodeDataT>();
         saved->info = std::make_unique<schema::NodeInfoT>(node->info());
         for (const auto& component : node->components())
         {
+            if (component->transient())
+            {
+                continue;
+            }
             auto value = std::make_unique<schema::ComponentDataT>(component->data());
             if (component->type() != ComponentType::MeshRendererData &&
                 !component->build_data(*value))
@@ -647,10 +662,10 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                     const auto cached = meshes.find(mesh_path);
                     MeshSnapshot snapshot{scene_id, renderer->mesh_instance_id(),
                                           renderer->mesh_revision()};
-                    const bool reused =
-                        cached != meshes.end() && cached->second.scene_id == scene_id &&
-                        cached->second.instance_id == snapshot.instance_id &&
-                        cached->second.revision == snapshot.revision;
+                    const bool reused = cached != meshes.end() &&
+                                        cached->second.scene_id == scene_id &&
+                                        cached->second.instance_id == snapshot.instance_id &&
+                                        cached->second.revision == snapshot.revision;
                     bool changed = false;
                     if (reused)
                     {

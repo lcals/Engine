@@ -8,6 +8,14 @@
 #include "plugins/runtime/character_controller/character_controller_system.hpp"
 #endif
 
+#if ENGINE_HAS_DESTRUCTION_PLUGIN
+#include "plugins/runtime/destruction/destruction_system.hpp"
+#endif
+
+#if ENGINE_HAS_TERRAIN_PLUGIN
+#include "plugins/runtime/terrain/terrain_system.hpp"
+#endif
+
 #if ENGINE_HAS_EFFECTS_PLUGIN
 #include "plugins/runtime/effects/effect_system.hpp"
 #endif
@@ -29,6 +37,28 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
     (void)window;
     (void)physics;
     (void)renderer;
+#if ENGINE_HAS_TERRAIN_PLUGIN
+    if (stage == engine::RuntimeStage::before_physics)
+    {
+        std::unique_ptr<engine::System> terrain =
+            std::make_unique<engine::plugins::terrain::TerrainSystem>(world, physics);
+        if (!world.add_subsystem(terrain))
+        {
+            return false;
+        }
+    }
+#endif
+#if ENGINE_HAS_DESTRUCTION_PLUGIN
+    if (stage == engine::RuntimeStage::before_physics)
+    {
+        std::unique_ptr<engine::System> destruction =
+            std::make_unique<engine::plugins::destruction::DestructionSystem>(world, physics);
+        if (!world.add_subsystem(destruction))
+        {
+            return false;
+        }
+    }
+#endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER
     if (stage == engine::RuntimeStage::before_physics)
     {

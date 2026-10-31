@@ -366,6 +366,58 @@ bool component_contracts()
                   "active camera can be cleared");
 }
 
+bool transient_nodes()
+{
+    engine::WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Generated hierarchy");
+    auto* persistent = scene ? scene->create_node("Source") : nullptr;
+    auto* generated = scene ? scene->create_node("Generated") : nullptr;
+    auto* child = scene ? scene->create_node("Generated child") : nullptr;
+    if (!expect(persistent && generated && child && child->set_parent(generated) &&
+                    !generated->transient() && !child->transient(),
+                "nodes start persistent"))
+    {
+        return false;
+    }
+    generated->set_transient(true);
+    child->set_transient(false);
+    engine::schema::SceneDataT saved;
+    if (!expect(generated->transient() && child->transient() && !persistent->transient() &&
+                    scene->build_data(saved) && saved.nodes.size() == 1 &&
+                    saved.nodes.front()->info->id == persistent->info().id &&
+                    scene->nodes().size() == 3,
+                "snapshot excludes generated subtree without changing live nodes"))
+    {
+        return false;
+    }
+    auto* camera = child->add_component<engine::Camera>();
+    if (!expect(camera && scene->set_active_camera(camera) && !scene->build_data(saved) &&
+                    saved.nodes.empty() && !saved.info,
+                "snapshot rejects a transient active camera without leaving partial output"))
+    {
+        return false;
+    }
+    generated->set_transient(false);
+    if (!expect(!child->transient() && scene->build_data(saved) && saved.nodes.size() == 3 &&
+                    saved.info->active_camera_node == child->info().id,
+                "clearing parent marker restores descendant persistence and camera identity"))
+    {
+        return false;
+    }
+    child->set_transient(true);
+    if (!scene->set_active_camera(nullptr) || !child->set_parent(nullptr))
+    {
+        return false;
+    }
+    return expect(child->transient() && !generated->transient() && scene->build_data(saved) &&
+                      saved.nodes.size() == 2,
+                  "own transient marker survives reparenting");
+}
+
 bool missing_material_resources()
 {
     const engine::EngineConfig config;
@@ -582,8 +634,8 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !hierarchy_and_transforms() || !component_contracts() || !material_contracts() ||
-        !resource_namespaces())
+        !hierarchy_and_transforms() || !component_contracts() || !transient_nodes() ||
+        !material_contracts() || !resource_namespaces())
     {
         return 1;
     }

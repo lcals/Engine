@@ -18,6 +18,10 @@ if("runtime/effects" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/effects.cmake")
 endif()
 
+if("runtime/destruction" IN_LIST ENGINE_SELECTED_PLUGINS)
+    include("${PROJECT_SOURCE_DIR}/cmake/dependencies/destruction.cmake")
+endif()
+
 if("editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
     include("${PROJECT_SOURCE_DIR}/cmake/dependencies/modeling.cmake")
 endif()

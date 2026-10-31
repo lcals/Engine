@@ -73,6 +73,30 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 has_post_process = true;
             }
             has_camera = has_camera || component->payload.AsCameraData() != nullptr;
+            if (const auto* terrain = component->payload.AsTerrainData())
+            {
+                if ((!terrain->terrain_guid.empty() &&
+                     !declares(catalog, output, terrain->terrain_guid,
+                               schema::AssetKind::terrain)) ||
+                    (!terrain->material_guid.empty() &&
+                     !declares(catalog, output, terrain->material_guid,
+                               schema::AssetKind::material)))
+                {
+                    return false;
+                }
+            }
+            if (const auto* destruction = component->payload.AsDestructionData())
+            {
+                if ((!destruction->destruction_guid.empty() &&
+                     !declares(catalog, output, destruction->destruction_guid,
+                               schema::AssetKind::destruction)) ||
+                    (!destruction->material_guid.empty() &&
+                     !declares(catalog, output, destruction->material_guid,
+                               schema::AssetKind::material)))
+                {
+                    return false;
+                }
+            }
             if (const auto* light = component->payload.AsLightData())
             {
                 if (!scene_detail::valid_light(*light) ||

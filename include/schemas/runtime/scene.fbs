@@ -41,8 +41,13 @@ table MeshRendererData {
     cast_shadows:bool = true;
 }
 
-enum ColliderShape:ubyte { box, sphere, capsule, mesh }
+enum ColliderShape:ubyte { box, sphere, capsule, mesh, compound }
 enum BodyMotion:ubyte { static_body, kinematic, dynamic }
+
+// Each hull uses the owning body's local coordinates. Jolt computes its convex hull.
+table ColliderHullData {
+    vertices:[Vec3] (required);
+}
 
 table ColliderData {
     shape:ColliderShape = box;
@@ -54,6 +59,7 @@ table ColliderData {
     restitution:float = 0.1;
     is_trigger:bool = false;
     mesh_guid:string;
+    hulls:[ColliderHullData];
 }
 
 table RigidBodyData {
@@ -185,11 +191,28 @@ table EffectData {
     play_on_awake:bool = true;
 }
 
+table TerrainData {
+    terrain_guid:string;
+    material_guid:string;
+    collision:bool = true;
+    surface_color:Color (required, native_inline, native_default: "Color(0.35f, 0.48f, 0.24f, 1.0f)");
+    wall_color:Color (required, native_inline, native_default: "Color(0.48f, 0.36f, 0.24f, 1.0f)");
+    uv_scale:float = 0.2;
+}
+
+table DestructionData {
+    destruction_guid:string;
+    material_guid:string;
+    density:float = 100;
+    friction:float = 0.65;
+    restitution:float = 0.05;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
     CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
-    CharacterCameraData, CharacterVisualData, EffectData
+    CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData
 }
 
 table ComponentData {

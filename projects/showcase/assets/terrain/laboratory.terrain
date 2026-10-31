@@ -1,0 +1,28 @@
+cells_x = 64
+cells_y = 32
+cells_z = 64
+voxel_size = 1.0
+chunk_cells = 16
+origin = [-32, -12, -32]
+height = 0.0
+amplitude = 4.0
+frequency = 0.08
+seed = 1
+
+# A surface entrance joins an underground chamber. The scripted brush extends
+# the tunnel through z = 0 and z = -16, independently remeshing adjacent chunks.
+[[cavities]]
+center = [-4, -2, 14]
+radius = 4.8
+
+[[cavities]]
+center = [-4, -4, 10]
+radius = 3.8
+
+[[cavities]]
+center = [-4, -5.5, 6]
+radius = 3.8
+
+[[cavities]]
+center = [-4, -5.5, 3]
+radius = 3.5

@@ -1,0 +1,104 @@
+--- a/source/sdk/extensions/authoring/NvBlastExtApexSharedParts.cpp
++++ b/source/sdk/extensions/authoring/NvBlastExtApexSharedParts.cpp
+@@ -876,10 +876,10 @@
+     const uint32_t num4 = num >> 2;
+     for (uint32_t i = 0; i < num4; i++, dst += 3, src += 4)
+     {
+-        Vec3V v0 = V3LoadU(&src[0].x);
+-        Vec3V v1 = V3LoadU(&src[1].x);
+-        Vec3V v2 = V3LoadU(&src[2].x);
+-        Vec3V v3 = V3LoadU(&src[3].x);
++        Vec4V v0 = Vec4V_From_Vec3V(V3LoadU(&src[0].x));
++        Vec4V v1 = Vec4V_From_Vec3V(V3LoadU(&src[1].x));
++        Vec4V v2 = Vec4V_From_Vec3V(V3LoadU(&src[2].x));
++        Vec4V v3 = Vec4V_From_Vec3V(V3LoadU(&src[3].x));
+         // Transpose
+         V4Transpose(v0, v1, v2, v3);
+         // Save 
+@@ -890,9 +890,9 @@
+     const uint32_t remain = num & 3;
+     if (remain)
+     {
+-        Vec3V work[4];
++        Vec4V work[4];
+         uint32_t i = 0;
+-        for (; i < remain; i++) work[i] = V3LoadU(&src[i].x);
++        for (; i < remain; i++) work[i] = Vec4V_From_Vec3V(V3LoadU(&src[i].x));
+         for (; i < 4; i++) work[i] = work[remain - 1];
+         V4Transpose(work[0], work[1], work[2], work[3]);
+         dst[0] = work[0];
+@@ -913,10 +913,10 @@
+     const uint32_t num4 = num >> 2;
+     for (uint32_t i = 0; i < num4; i++, dst += 3, src += 4)
+     {
+-        Vec3V v0 = V3Mul(scale, V3LoadU(&src[0].x));
+-        Vec3V v1 = V3Mul(scale, V3LoadU(&src[1].x));
+-        Vec3V v2 = V3Mul(scale, V3LoadU(&src[2].x));
+-        Vec3V v3 = V3Mul(scale, V3LoadU(&src[3].x));
++        Vec4V v0 = Vec4V_From_Vec3V(V3Mul(scale, V3LoadU(&src[0].x)));
++        Vec4V v1 = Vec4V_From_Vec3V(V3Mul(scale, V3LoadU(&src[1].x)));
++        Vec4V v2 = Vec4V_From_Vec3V(V3Mul(scale, V3LoadU(&src[2].x)));
++        Vec4V v3 = Vec4V_From_Vec3V(V3Mul(scale, V3LoadU(&src[3].x)));
+         // Transpose
+         V4Transpose(v0, v1, v2, v3);
+         // Save 
+@@ -927,9 +927,9 @@
+     const uint32_t remain = num & 3;
+     if (remain)
+     {
+-        Vec3V work[4];
++        Vec4V work[4];
+         uint32_t i = 0;
+-        for (; i < remain; i++) work[i] = V3Mul(scale, V3LoadU(&src[i].x));
++        for (; i < remain; i++) work[i] = Vec4V_From_Vec3V(V3Mul(scale, V3LoadU(&src[i].x)));
+         for (; i < 4; i++) work[i] = work[remain - 1];
+         V4Transpose(work[0], work[1], work[2], work[3]);
+         dst[0] = work[0];
+--- a/source/shared/NsFoundation/include/NsArray.h
++++ b/source/shared/NsFoundation/include/NsArray.h
+@@ -32,16 +32,7 @@
+ #include "NsBasicTemplates.h"
+ #include "NvIntrinsics.h"
+ 
+-#if NV_LINUX || NV_ANDROID || (NV_IOS && !NV_A64) || NV_OSX || NV_PS3 || NV_PSP2 || NV_WIIU
+-#include <tr1/type_traits>
+-#elif NV_WINRT || NV_XBOXONE || (NV_IOS && NV_A64) || NV_WIN64 || NV_X360 || NV_WIN32 || NV_PS4
+ #include <type_traits>
+-#if NV_IOS && NV_A64
+-namespace std { namespace tr1 { using std::is_pod; } }
+-#endif
+-#else
+-#error "OS with no defined path to type_traits.h"
+-#endif
+ 
+ #if NV_VC == 9 || NV_VC == 10
+ #pragma warning(push)
+@@ -165,7 +156,7 @@
+ #if NV_VC>=14
+         return std::is_trivially_copyable<T>::value;
+ #else
+-        return std::tr1::is_pod<T>::value;
++        return std::is_trivial<T>::value && std::is_standard_layout<T>::value;
+ #endif
+     }
+ 
+--- a/source/sdk/extensions/authoring/NvBlastExtAuthoringBondGeneratorImpl.h
++++ b/source/sdk/extensions/authoring/NvBlastExtAuthoringBondGeneratorImpl.h
+@@ -31,6 +31,7 @@
+ #include "NvBlastExtAuthoringBondGenerator.h"
+ #include "NvBlastExtAuthoringFractureTool.h"
+ #include "NvPlane.h"
++#include "NvBounds3.h"
+ #include <NvBlastExtAuthoringConvexMeshBuilder.h>
+ #include <vector>
+ #include <set>
+--- a/source/sdk/extensions/authoring/VHACD/src/FloatMath.cpp
++++ b/source/sdk/extensions/authoring/VHACD/src/FloatMath.cpp
+@@ -6,7 +6,6 @@
+ #include <float.h>
+ #include "FloatMath.h"
+ #include <vector>
+-#include <malloc.h>
+ 
+ #define REAL float
+ 
