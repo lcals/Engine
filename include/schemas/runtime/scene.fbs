@@ -28,6 +28,10 @@ table LightData {
     cast_shadows:bool = false;
     shadow_resolution:ushort = 2048;
     shadow_bias:float = 0.001;
+    shadow_cascades:ubyte = 4;
+    shadow_distance:float = 150;
+    shadow_split_lambda:float = 0.6;
+    shadow_cascade_blend:float = 0.1;
 }
 
 table MeshRendererData {
@@ -144,6 +148,17 @@ table EnvironmentData {
 table PostProcessData {
     exposure:float = 1;
     filmic_tonemap:bool = false;
+    ao_enabled:bool = false;
+    ao_radius:float = 1;
+    ao_strength:float = 1;
+    ao_power:float = 1.5;
+    ao_fade_start:float = 80;
+    ao_fade_end:float = 150;
+    hdr_enabled:bool = false;
+    bloom_enabled:bool = false;
+    bloom_threshold:float = 1;
+    bloom_intensity:float = 0.15;
+    bloom_radius:float = 1;
 }
 
 union ComponentPayload {

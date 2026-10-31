@@ -91,11 +91,22 @@ bool reserved_uniform(std::string_view name)
                                      "u_surface",
                                      "u_shadow_alpha",
                                      "s_shadow_alpha",
-                                     "u_shadow_transform",
+                                     "u_shadow_matrices",
+                                     "u_shadow_rects",
+                                     "u_shadow_splits",
+                                     "u_shadow_params",
                                      "u_shadow_settings",
                                      "u_shadow_depth",
                                      "s_shadow_map",
                                      "u_ibl_params",
+                                     "u_ambient_occlusion",
+                                     "s_ambient_occlusion",
+                                     "u_assao_params",
+                                     "u_assao_rect",
+                                     "u_hdr_params",
+                                     "u_hdr_texel",
+                                     "s_hdr_scene",
+                                     "s_hdr_bloom",
                                      "s_ibl_irradiance",
                                      "s_ibl_prefilter",
                                      "s_ibl_lut",
@@ -257,7 +268,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                 !uniform_name(sampler->uniform_name) || slots.contains(sampler->uniform_name) ||
                 reserved_uniform(sampler->uniform_name) ||
                 !uniforms.insert(sampler->uniform_name).second ||
-                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 12 ||
+                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 11 ||
                 !stages.insert(*stage).second ||
                 (sampler_table->contains("exposed") && !(*sampler_table)["exposed"].is_boolean()) ||
                 !builtin_texture(sampler->default_texture, context, dependencies, error))

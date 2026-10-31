@@ -1,8 +1,15 @@
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 
-#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
+#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS) || defined(ENGINE_TEST_RENDER_TOOLS)
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
+#endif
+
+#if defined(ENGINE_TEST_RENDER_TOOLS)
+#include "plugins/editor/mcp/render_mcp_tools.hpp"
+#endif
+
+#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
 #include "plugins/editor/scene_bake/scene_bake_mcp_tools.hpp"
 #endif
 
@@ -53,6 +60,90 @@ bool exercise_bake_tools()
 #else
     return true;
 #endif
+}
+
+bool exercise_render_tools()
+{
+#if defined(ENGINE_TEST_RENDER_TOOLS)
+    engine::plugins::mcp::EditorMcpTools editor({}, {});
+    engine::plugins::mcp::RenderMcpTools tools(editor);
+    engine::plugins::mcp::McpSystem mcp;
+    if (!check(tools.register_tools(mcp) && mcp.initialize({}),
+               "render tools register schemas supported by the MCP protocol") ||
+        !check(mcp.list_tools()["tools"].size() == 5, "all render tools are discoverable"))
+    {
+        return false;
+    }
+    Json schema;
+    const auto listed = mcp.list_tools();
+    for (const auto& tool : listed["tools"])
+    {
+        if (tool["name"] == "set_render_settings")
+        {
+            schema = tool["inputSchema"];
+        }
+    }
+    engine::plugins::mcp::McpSystem probe;
+    if (!check(schema.is_object() &&
+                   probe.register_tool({"render.settings.schema", "Validate render inputs", schema,
+                                         [](const Json& input, Json& output)
+                                         {
+                                             output = input;
+                                             return true;
+                                         }}) &&
+                   probe.initialize({}),
+               "render settings schema is reusable without editor transport"))
+    {
+        return false;
+    }
+    Json result;
+    for (const auto count : {1, 2, 4})
+    {
+        const Json input = {{"shadowCascades", count},
+                            {"shadowDistance", 150},
+                            {"shadowSplitLambda", .6},
+                            {"shadowCascadeBlend", .1},
+                            {"aoEnabled", true},
+                            {"aoRadius", 1.4},
+                            {"aoStrength", .8},
+                            {"aoPower", 2},
+                            {"aoFadeStart", 40},
+                            {"aoFadeEnd", 140},
+                            {"hdrEnabled", true},
+                            {"bloomEnabled", true},
+                            {"bloomThreshold", 1.2},
+                            {"bloomIntensity", .3},
+                            {"bloomRadius", 2}};
+        if (!check(probe.call_tool("render.settings.schema", input, result) ==
+                           McpCallStatus::success &&
+                       result == input,
+                   "valid render effect values pass the published tool schema"))
+        {
+            return false;
+        }
+    }
+    for (const Json& invalid :
+         {Json{{"shadowCascades", 3}}, Json{{"shadowCascades", 2.0}},
+          Json{{"shadowDistance", -1}}, Json{{"shadowDistance", 100001}},
+          Json{{"shadowSplitLambda", 1.1}}, Json{{"shadowCascadeBlend", .31}},
+          Json{{"aoEnabled", 1}}, Json{{"aoRadius", -1}}, Json{{"aoRadius", 101}},
+          Json{{"aoStrength", 2.1}}, Json{{"aoPower", .09}}, Json{{"aoPower", 8.1}},
+          Json{{"aoFadeStart", -1}}, Json{{"aoFadeEnd", 100001}},
+          Json{{"hdrEnabled", 1}}, Json{{"bloomEnabled", 1}},
+          Json{{"bloomThreshold", -1}}, Json{{"bloomThreshold", 101}},
+          Json{{"bloomIntensity", 10.1}}, Json{{"bloomRadius", .24}},
+          Json{{"bloomRadius", 4.1}}})
+    {
+        if (!check(mcp.call_tool("set_render_settings", invalid, result) ==
+                           McpCallStatus::invalid_arguments &&
+                       result.empty(),
+                   "invalid render effect values are rejected before editor transport"))
+        {
+            return false;
+        }
+    }
+#endif
+    return true;
 }
 
 bool exercise()
@@ -213,5 +304,5 @@ bool exercise()
 
 int main()
 {
-    return exercise() && exercise_bake_tools() ? 0 : 1;
+    return exercise() && exercise_bake_tools() && exercise_render_tools() ? 0 : 1;
 }

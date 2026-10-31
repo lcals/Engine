@@ -900,6 +900,89 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     const auto unshadowed_resources = renderer.gpu_resource_count();
+    settings.ambient_intensity = 0.6F;
+    for (const auto projection :
+         {engine::schema::Projection::perspective, engine::schema::Projection::orthographic})
+    {
+        auto camera_projection = scene->active_camera()->settings();
+        camera_projection.projection = projection;
+        camera_projection.orthographic_size = 6.0F;
+        settings.ao_enabled = false;
+        Screenshot without_ao;
+        Screenshot with_ao;
+        Screenshot restored_ao;
+        if (!scene->active_camera()->set_settings(camera_projection) ||
+            !renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+            !screenshot(windows, renderer, fixture.root, "without-ao", without_ao))
+        {
+            return false;
+        }
+        settings.ao_enabled = true;
+        if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+            !screenshot(windows, renderer, fixture.root, "with-ao", with_ao) ||
+            !expect(renderer.gpu_resource_count() > unshadowed_resources,
+                    "AO owns its camera depth, compute programs and intermediate textures"))
+        {
+            return false;
+        }
+        std::size_t occluded = 0;
+        for (std::size_t index = 0; index < without_ao.pixels.size(); ++index)
+        {
+            int difference = 0;
+            for (std::size_t channel = 0; channel < 3; ++channel)
+            {
+                difference += without_ao.pixels[index][channel] - with_ao.pixels[index][channel];
+            }
+            occluded += difference > 12;
+        }
+        settings.ao_enabled = false;
+        if (!expect(occluded > 20 && occluded < without_ao.pixels.size() / 2,
+                    "AO darkens local contacts in both camera projections") ||
+            !renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+            !screenshot(windows, renderer, fixture.root, "restored-ao", restored_ao) ||
+            !expect(restored_ao.pixels == without_ao.pixels &&
+                        renderer.gpu_resource_count() == unshadowed_resources,
+                    "disabling AO restores exact pixels and releases its GPU resources"))
+        {
+            return false;
+        }
+    }
+    auto perspective = scene->active_camera()->settings();
+    perspective.projection = engine::schema::Projection::perspective;
+    settings.ambient_intensity = 0.0F;
+    Screenshot direct_only;
+    Screenshot direct_with_ao;
+    if (!scene->active_camera()->set_settings(perspective) || !renderer.set_settings(settings) ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "direct-only", direct_only))
+    {
+        return false;
+    }
+    settings.ao_enabled = true;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "direct-with-ao", direct_with_ao) ||
+        !expect(direct_only.pixels == direct_with_ao.pixels,
+                "AO does not dim direct lighting when indirect light is absent"))
+    {
+        return false;
+    }
+    int original_width = 0;
+    int original_height = 0;
+    const auto ao_resources = renderer.gpu_resource_count();
+    if (!SDL_GetWindowSize(windows.native_window(), &original_width, &original_height) ||
+        !SDL_SetWindowSize(windows.native_window(), 641, 359) ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(renderer.gpu_resource_count() == ao_resources,
+                "AO resizes safely to non-aligned window dimensions without retaining textures") ||
+        !SDL_SetWindowSize(windows.native_window(), original_width, original_height) ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(renderer.gpu_resource_count() == ao_resources,
+                "AO restores the original viewport without adding GPU resources"))
+    {
+        return false;
+    }
+    settings.ao_enabled = false;
+    settings.ambient_intensity = 0.12F;
     settings.directional_shadows = true;
     settings.shadow_resolution = 1024;
     settings.shadow_bias = 0.0005F;
@@ -928,6 +1011,17 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     if (!expect(shaded_pixels > 100, "directional shadow darkens receiver pixels"))
     {
         return false;
+    }
+    const auto shadow_resources = renderer.gpu_resource_count();
+    for (const std::uint8_t cascades : {1, 2, 4})
+    {
+        settings.shadow_cascades = cascades;
+        if (!expect(renderer.set_settings(settings) && render_frames(windows, renderer, 8) &&
+                        renderer.gpu_resource_count() == shadow_resources,
+                    "switching cascade counts reuses a single shadow atlas"))
+        {
+            return false;
+        }
     }
     const auto cube_node = std::find_if(scene->nodes().begin(), scene->nodes().end(),
                                         [](const auto& node) { return node->name() == "Cube"; });
@@ -1048,6 +1142,132 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     return render_frames(windows, renderer, 8) &&
            expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
                   "capture and enhanced lighting retain no stopped-scene GPU resources");
+}
+
+bool test_hdr_and_bloom(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    if (!create_cube_scene(world, false))
+    {
+        return false;
+    }
+    auto* scene = world.scene();
+    auto* environment = scene->create_node("Environment");
+    if (environment == nullptr ||
+        environment->add_component<engine::EnvironmentComponent>() == nullptr ||
+        scene->active_camera()->node().add_component<engine::PostProcessComponent>() == nullptr)
+    {
+        return false;
+    }
+    for (const auto& node : scene->nodes())
+    {
+        if (auto* mesh = node->get_component<engine::MeshRenderer>())
+        {
+            if (!mesh->material().set_v4("baseColor", {0, 0, 0, 1}) ||
+                !mesh->material().set_v3("emissionColor", {12, 4, 1}))
+            {
+                return false;
+            }
+        }
+        if (auto* light = node->get_component<engine::Light>())
+        {
+            light->set_enabled(false);
+        }
+    }
+    auto settings = renderer.settings();
+    settings.clear_color = 0x000000ff;
+    settings.filmic_tonemap = true;
+    Screenshot sdr;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-sdr-baseline", sdr))
+    {
+        return false;
+    }
+    const auto sdr_resources = renderer.gpu_resource_count();
+    settings.hdr_enabled = true;
+    Screenshot hdr;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-no-bloom", hdr) ||
+        !expect(renderer.gpu_resource_count() > sdr_resources,
+                "HDR allocates a floating-point scene target and resolve programs"))
+    {
+        return false;
+    }
+    const auto hdr_resources = renderer.gpu_resource_count();
+    settings.bloom_enabled = true;
+    settings.bloom_intensity = 0.7F;
+    Screenshot bloom;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-bloom", bloom) ||
+        !expect(renderer.gpu_resource_count() > hdr_resources,
+                "Bloom owns separate bright and blur targets"))
+    {
+        return false;
+    }
+    std::size_t halo_pixels = 0;
+    for (std::size_t index = 0; index < hdr.pixels.size(); ++index)
+    {
+        halo_pixels += hdr.pixels[index][0] < 3 && bloom.pixels[index][0] > 8;
+    }
+    if (!expect(halo_pixels > 100 && halo_pixels < hdr.pixels.size() / 2,
+                "HDR emission produces a local Bloom halo outside its geometry"))
+    {
+        return false;
+    }
+    Screenshot zero_bloom;
+    settings.bloom_intensity = 0.0F;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-bloom-zero", zero_bloom) ||
+        !expect(zero_bloom.pixels == hdr.pixels,
+                "zero Bloom strength preserves HDR output without applying tone mapping twice"))
+    {
+        return false;
+    }
+    settings.bloom_intensity = 0.7F;
+    settings.bloom_threshold = 100.0F;
+    Screenshot threshold;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-bloom-threshold", threshold) ||
+        !expect(threshold.pixels == hdr.pixels,
+                "linear threshold above scene radiance excludes the complete Bloom contribution") ||
+        !SDL_SetWindowSize(windows.native_window(), 641, 359) ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    settings.bloom_enabled = false;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !expect(renderer.gpu_resource_count() == hdr_resources,
+                "disabling Bloom after resize releases its intermediate targets"))
+    {
+        return false;
+    }
+    settings.hdr_enabled = false;
+    Screenshot restored;
+    if (!renderer.set_settings(settings) ||
+        !SDL_SetWindowSize(windows.native_window(), config.width, config.height) ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hdr-sdr-restored", restored) ||
+        !expect(renderer.gpu_resource_count() == sdr_resources && restored.pixels == sdr.pixels,
+                "disabling HDR restores exact SDR pixels and releases all post-process targets"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 8) &&
+           expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
+                  "HDR and Bloom retain no GPU resources after scene stop");
 }
 
 bool tick_engine_frames(engine::RuntimeHost& engine, int count)
@@ -1368,10 +1588,11 @@ int main(int, char**)
     textures_passed = textures_passed && test_textured_renderer(config, true);
 #endif
     const bool settings_passed = textures_passed && test_render_settings_and_capture(config);
-    const bool engine_passed = settings_passed && test_engine(config);
+    const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
+    const bool engine_passed = hdr_passed && test_engine(config);
     const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
     const bool script_factory_passed = borrowed_passed && test_script_runtime_factory(config);
-    if (!windows_passed || !scene_passed || !textures_passed || !settings_passed ||
+    if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !hdr_passed ||
         !engine_passed || !borrowed_passed || !script_factory_passed)
     {
         return 1;

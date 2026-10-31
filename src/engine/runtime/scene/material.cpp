@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <initializer_list>
 #include <limits>
 #include <memory>
@@ -143,6 +144,77 @@ std::string_view Material::shader_path() const noexcept
 const schema::ShaderDataT* Material::shader_data() const noexcept
 {
     return shader_resource_ ? shader_resource_->shader() : nullptr;
+}
+
+bool Material::has_overrides() const noexcept
+{
+    const auto* material = material_resource_ ? material_resource_->material() : nullptr;
+    const auto* shader = shader_data();
+    if (material == nullptr || shader == nullptr || data_.type_path != material->type_path ||
+        data_.shader_path != material->shader_path || shader->path != material->shader_path ||
+        data_.cull_mode != material->cull_mode)
+    {
+        return true;
+    }
+
+    std::size_t parameter_count = 0;
+    for (const auto& definition : shader->parameters)
+    {
+        if (!definition)
+        {
+            return true;
+        }
+        if (!definition->exposed)
+        {
+            continue;
+        }
+        ++parameter_count;
+        const auto source = std::find_if(
+            material->parameters.begin(), material->parameters.end(),
+            [&definition](const auto& item) { return item && item->name == definition->name; });
+        const auto& expected = source == material->parameters.end() ? definition->default_value
+                                                                   : (*source)->value;
+        const auto* current = find_parameter(definition->name, expected.type);
+        if (current == nullptr || expected.value == nullptr || current->value != expected)
+        {
+            return true;
+        }
+    }
+    if (parameter_count != data_.parameters.size() ||
+        data_.textures.size() != shader->samplers.size() ||
+        textures_.size() != shader->samplers.size())
+    {
+        return true;
+    }
+
+    for (const auto& sampler : shader->samplers)
+    {
+        if (!sampler)
+        {
+            return true;
+        }
+        std::string_view expected = sampler->default_texture;
+        if (sampler->exposed)
+        {
+            const auto source = std::find_if(
+                material->textures.begin(), material->textures.end(),
+                [&sampler](const auto& item) { return item && item->name == sampler->name; });
+            if (source != material->textures.end())
+            {
+                expected = (*source)->texture_path;
+            }
+        }
+        const auto current = std::find_if(
+            data_.textures.begin(), data_.textures.end(),
+            [&sampler](const auto& item) { return item && item->name == sampler->name; });
+        const auto& resource = texture(sampler->name);
+        if (current == data_.textures.end() || (*current)->texture_path != expected || !resource ||
+            resource->info().path != expected)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool Material::set_type(std::string_view path)

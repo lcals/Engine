@@ -69,14 +69,34 @@ Json settings_json(const RenderSettings& value)
             {"fogDensity", value.fog_density},
             {"exposure", value.exposure},
             {"filmicTonemap", value.filmic_tonemap},
+            {"aoEnabled", value.ao_enabled},
+            {"aoRadius", value.ao_radius},
+            {"aoStrength", value.ao_strength},
+            {"aoPower", value.ao_power},
+            {"aoFadeStart", value.ao_fade_start},
+            {"aoFadeEnd", value.ao_fade_end},
+            {"hdrEnabled", value.hdr_enabled},
+            {"bloomEnabled", value.bloom_enabled},
+            {"bloomThreshold", value.bloom_threshold},
+            {"bloomIntensity", value.bloom_intensity},
+            {"bloomRadius", value.bloom_radius},
             {"directionalShadows", value.directional_shadows},
             {"shadowResolution", value.shadow_resolution},
             {"shadowBias", value.shadow_bias},
+            {"shadowCascades", value.shadow_cascades},
+            {"shadowDistance", value.shadow_distance},
+            {"shadowSplitLambda", value.shadow_split_lambda},
+            {"shadowCascadeBlend", value.shadow_cascade_blend},
             {"clearColor", clear}};
 }
 
 bool read_settings(const Json& arguments, RenderSettings& settings, std::string& error)
 {
+    if (!arguments.is_object())
+    {
+        error = "Render settings must be an object";
+        return false;
+    }
     const auto allowed = settings_json(settings);
     for (auto item = arguments.begin(); item != arguments.end(); ++item)
     {
@@ -167,7 +187,9 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             }
         }
         else if (item.key() == "filmicTonemap" || item.key() == "directionalShadows" ||
-                 item.key() == "ambientTricolor" || item.key() == "iblEnabled")
+                 item.key() == "ambientTricolor" || item.key() == "iblEnabled" ||
+                 item.key() == "aoEnabled" || item.key() == "hdrEnabled" ||
+                 item.key() == "bloomEnabled")
         {
             if (!item->is_boolean())
             {
@@ -177,6 +199,9 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             bool& value = item.key() == "filmicTonemap"     ? settings.filmic_tonemap
                           : item.key() == "ambientTricolor" ? settings.ambient_tricolor
                           : item.key() == "iblEnabled"      ? settings.ibl_enabled
+                          : item.key() == "aoEnabled"       ? settings.ao_enabled
+                          : item.key() == "hdrEnabled"      ? settings.hdr_enabled
+                          : item.key() == "bloomEnabled"    ? settings.bloom_enabled
                                                             : settings.directional_shadows;
             value = item->get<bool>();
         }
@@ -190,6 +215,15 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
             }
             settings.shadow_resolution = item->get<std::uint16_t>();
         }
+        else if (item.key() == "shadowCascades")
+        {
+            if (!item->is_number_integer() || (*item != 1 && *item != 2 && *item != 4))
+            {
+                error = "shadowCascades must be an integer: 1, 2 or 4";
+                return false;
+            }
+            settings.shadow_cascades = item->get<std::uint8_t>();
+        }
         else
         {
             if (!item->is_number() || !std::isfinite(item->get<double>()) ||
@@ -198,13 +232,24 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                 error = "Render setting requires a finite float";
                 return false;
             }
-            float& value = item.key() == "ambientIntensity" ? settings.ambient_intensity
-                           : item.key() == "iblIntensity"   ? settings.ibl_intensity
-                           : item.key() == "exposure"       ? settings.exposure
-                           : item.key() == "fogStart"       ? settings.fog_start
-                           : item.key() == "fogEnd"         ? settings.fog_end
-                           : item.key() == "fogDensity"     ? settings.fog_density
-                                                            : settings.shadow_bias;
+            float& value = item.key() == "ambientIntensity"     ? settings.ambient_intensity
+                           : item.key() == "iblIntensity"       ? settings.ibl_intensity
+                           : item.key() == "exposure"           ? settings.exposure
+                           : item.key() == "aoRadius"           ? settings.ao_radius
+                           : item.key() == "aoStrength"         ? settings.ao_strength
+                           : item.key() == "aoPower"            ? settings.ao_power
+                           : item.key() == "aoFadeStart"        ? settings.ao_fade_start
+                           : item.key() == "aoFadeEnd"          ? settings.ao_fade_end
+                           : item.key() == "bloomThreshold"     ? settings.bloom_threshold
+                           : item.key() == "bloomIntensity"     ? settings.bloom_intensity
+                           : item.key() == "bloomRadius"        ? settings.bloom_radius
+                           : item.key() == "fogStart"           ? settings.fog_start
+                           : item.key() == "fogEnd"             ? settings.fog_end
+                           : item.key() == "fogDensity"         ? settings.fog_density
+                           : item.key() == "shadowDistance"     ? settings.shadow_distance
+                           : item.key() == "shadowSplitLambda"  ? settings.shadow_split_lambda
+                           : item.key() == "shadowCascadeBlend" ? settings.shadow_cascade_blend
+                                                                : settings.shadow_bias;
             value = item->get<float>();
         }
     }
@@ -227,12 +272,20 @@ public:
     {
         for (const auto& item : arguments.items())
         {
-            if (item.key() == "exposure" || item.key() == "filmicTonemap")
+            if (item.key() == "exposure" || item.key() == "filmicTonemap" ||
+                item.key() == "aoEnabled" || item.key() == "aoRadius" ||
+                item.key() == "aoStrength" || item.key() == "aoPower" ||
+                item.key() == "aoFadeStart" || item.key() == "aoFadeEnd" ||
+                item.key() == "hdrEnabled" || item.key() == "bloomEnabled" ||
+                item.key() == "bloomThreshold" || item.key() == "bloomIntensity" ||
+                item.key() == "bloomRadius")
             {
                 post_process_ = true;
             }
             else if (item.key() == "directionalShadows" || item.key() == "shadowResolution" ||
-                     item.key() == "shadowBias")
+                     item.key() == "shadowBias" || item.key() == "shadowCascades" ||
+                     item.key() == "shadowDistance" || item.key() == "shadowSplitLambda" ||
+                     item.key() == "shadowCascadeBlend")
             {
                 shadows_ = true;
             }
@@ -486,7 +539,11 @@ private:
             {
                 if (!after_.directional_shadows &&
                     after_.shadow_resolution == before_.shadow_resolution &&
-                    after_.shadow_bias == before_.shadow_bias)
+                    after_.shadow_bias == before_.shadow_bias &&
+                    after_.shadow_cascades == before_.shadow_cascades &&
+                    after_.shadow_distance == before_.shadow_distance &&
+                    after_.shadow_split_lambda == before_.shadow_split_lambda &&
+                    after_.shadow_cascade_blend == before_.shadow_cascade_blend)
                 {
                     return true;
                 }
@@ -609,6 +666,12 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                                resolved_after.shadow_resolution =
                                    light->settings().shadow_resolution;
                                resolved_after.shadow_bias = light->settings().shadow_bias;
+                               resolved_after.shadow_cascades = light->settings().shadow_cascades;
+                               resolved_after.shadow_distance = light->settings().shadow_distance;
+                               resolved_after.shadow_split_lambda =
+                                   light->settings().shadow_split_lambda;
+                               resolved_after.shadow_cascade_blend =
+                                   light->settings().shadow_cascade_blend;
                            }
                            break;
                        }

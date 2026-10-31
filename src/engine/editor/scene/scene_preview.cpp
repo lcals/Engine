@@ -4,6 +4,7 @@
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "editor/editor_environment.hpp"
+#include "editor/scene/scene_saved_resource.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/render/render_system.hpp"
@@ -18,6 +19,8 @@
 
 #include <SDL3/SDL.h>
 #if ENGINE_HAS_ASSET_PIPELINE
+#include "editor/asset_pipeline/asset_io.hpp"
+
 #include <efsw/efsw.hpp>
 #endif
 #include <nlohmann/json.hpp>
@@ -29,6 +32,7 @@
 #include <cmath>
 #include <cstdint>
 #include <initializer_list>
+#include <map>
 #include <numbers>
 #include <utility>
 
@@ -202,9 +206,12 @@ struct ScenePreview::State
     std::string resource_revision;
     std::string path;
     std::string error;
+    std::map<std::string, SceneSavedResource, std::less<>> saved_resources;
     double speed = 5.0;
     bool reload_pending = false;
     bool initialized = false;
+    bool saved_import_pending = false;
+    bool saved_import_complete = false;
 
     State(EditorEnvironment& editor_environment, GameplaySession& session, WorldSystem& scene_world,
           RenderSystem& render_system, WindowSystem& window_system, fs::path root,
@@ -256,6 +263,9 @@ struct ScenePreview::State
         camera_world.destroy_scene();
         path.clear();
         resource_revision.clear();
+        saved_resources.clear();
+        saved_import_pending = false;
+        saved_import_complete = false;
         reload_pending = false;
         error.clear();
     }
@@ -308,6 +318,9 @@ struct ScenePreview::State
         }
         std::error_code ignored;
         catalog_stamp = fs::last_write_time(project_root / "cache/catalog.bin", ignored);
+        saved_resources.clear();
+        saved_import_pending = false;
+        saved_import_complete = false;
         reload_pending = false;
         error.clear();
     }
@@ -473,6 +486,58 @@ struct ScenePreview::State
         return transform->set_settings(pose) || fail("Cannot move preview camera");
     }
 
+    bool matches_saved_catalog(const ResourceCatalog& catalog) const
+    {
+#if ENGINE_HAS_ASSET_PIPELINE
+        const auto* resources = ResourceSystem::instance();
+        if (!saved_import_pending || !saved_import_complete || resources == nullptr)
+        {
+            return false;
+        }
+        const auto& previous = resources->catalog();
+        if (previous.data().schema_version != catalog.data().schema_version ||
+            previous.data().target_platform != catalog.data().target_platform)
+        {
+            return false;
+        }
+        for (const auto& entry : previous.data().entries)
+        {
+            const auto* current = catalog.find(entry->guid);
+            if (current == nullptr ||
+                (*entry != *current && !saved_resources.contains(entry->guid)))
+            {
+                return false;
+            }
+        }
+        for (const auto& entry : catalog.data().entries)
+        {
+            if (previous.find(entry->guid) == nullptr && !saved_resources.contains(entry->guid))
+            {
+                return false;
+            }
+        }
+        for (const auto& [guid, saved] : saved_resources)
+        {
+            ByteBuffer source;
+            ByteBuffer meta;
+            auto meta_path = saved.source;
+            meta_path += ".meta";
+            if (catalog.find(guid) == nullptr ||
+                !ResourceSystem::read_binary(saved.source, source) ||
+                !ResourceSystem::read_binary(meta_path, meta) ||
+                asset_pipeline::hash_bytes(source) != saved.source_hash ||
+                asset_pipeline::hash_bytes(meta) != saved.meta_hash)
+            {
+                return false;
+            }
+        }
+        return true;
+#else
+        (void)catalog;
+        return false;
+#endif
+    }
+
     void poll_resources()
     {
         const auto now = milliseconds();
@@ -484,6 +549,13 @@ struct ScenePreview::State
                 return;
             }
             imported = true;
+            saved_import_complete = saved_import_pending;
+        }
+        // 等本次保存后的源文件完成导入，不能把较早发布的目录误认作最新保存结果。
+        if (saved_import_pending && !saved_import_complete &&
+            source_serial.load() != imported_serial)
+        {
+            return;
         }
         if (!imported && now - catalog_checked_at < 250)
         {
@@ -496,20 +568,50 @@ struct ScenePreview::State
         {
             return;
         }
-        ResourceCatalog catalog;
-        if (!ResourceSystem::read_catalog(project_root / "cache", catalog))
         {
-            reload_pending = true;
-            error = "Cannot read the updated preview resource directory";
-            return;
+            asset_pipeline::ProjectLock lock;
+            ResourceCatalog catalog;
+            if (!lock.acquire(project_root / "cache/.asset-build.lock", error) ||
+                !ResourceSystem::read_catalog(project_root / "cache", catalog))
+            {
+                reload_pending = true;
+                if (error.empty())
+                {
+                    error = "Cannot read the updated preview resource directory";
+                }
+                return;
+            }
+            if (catalog.revision() == resource_revision)
+            {
+                catalog_stamp = stamp;
+                saved_resources.clear();
+                saved_import_pending = false;
+                saved_import_complete = false;
+                reload_pending = false;
+                error.clear();
+                return;
+            }
+            if (matches_saved_catalog(catalog))
+            {
+                if (!environment.apply_resources(catalog.data(), gameplay))
+                {
+                    reload_pending = true;
+                    error = "Cannot submit the saved preview resource directory";
+                    return;
+                }
+                resource_revision = catalog.revision();
+                catalog_stamp = stamp;
+                saved_resources.clear();
+                saved_import_pending = false;
+                saved_import_complete = false;
+                reload_pending = false;
+                error.clear();
+                return;
+            }
         }
-        if (catalog.revision() == resource_revision)
-        {
-            catalog_stamp = stamp;
-            reload_pending = false;
-            error.clear();
-            return;
-        }
+        saved_resources.clear();
+        saved_import_pending = false;
+        saved_import_complete = false;
         reload_pending = true;
         if (modified())
         {
@@ -691,11 +793,17 @@ const Camera* ScenePreview::camera() const noexcept
     return state_->camera;
 }
 
-void ScenePreview::mark_saved(std::string_view path) noexcept
+void ScenePreview::mark_saved(std::string_view path, std::span<const SceneSavedResource> resources)
 {
     if (active() && state_->path == path && state_->commands)
     {
         state_->saved_revision = state_->commands->mutation_revision();
+        for (const auto& resource : resources)
+        {
+            state_->saved_resources.insert_or_assign(resource.guid, resource);
+        }
+        state_->saved_import_pending = true;
+        state_->saved_import_complete = false;
         state_->source_changed_at.store(milliseconds());
         state_->source_serial.fetch_add(1);
     }

@@ -41,11 +41,26 @@ struct RenderSettings
     float fog_density = 0.01F;
     float exposure = 1.0F;
     bool filmic_tonemap = false;
+    bool ao_enabled = false;
+    float ao_radius = 1.0F;
+    float ao_strength = 1.0F;
+    float ao_power = 1.5F;
+    float ao_fade_start = 80.0F;
+    float ao_fade_end = 150.0F;
+    bool hdr_enabled = false;
+    bool bloom_enabled = false;
+    float bloom_threshold = 1.0F;
+    float bloom_intensity = 0.15F;
+    float bloom_radius = 1.0F;
     bool ibl_enabled = false;
     float ibl_intensity = 1.0F;
     bool directional_shadows = false;
     std::uint16_t shadow_resolution = 2048;
     float shadow_bias = 0.001F;
+    std::uint8_t shadow_cascades = 4;
+    float shadow_distance = 150.0F;
+    float shadow_split_lambda = 0.6F;
+    float shadow_cascade_blend = 0.1F;
     std::uint32_t clear_color = 0x181818ff;
 };
 

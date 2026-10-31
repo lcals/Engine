@@ -107,6 +107,10 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     light_settings.cast_shadows = true;
     light_settings.shadow_resolution = 1024;
     light_settings.shadow_bias = 0.002F;
+    light_settings.shadow_cascades = 2;
+    light_settings.shadow_distance = 120.0F;
+    light_settings.shadow_split_lambda = 0.7F;
+    light_settings.shadow_cascade_blend = 0.2F;
     engine::EnvironmentSettings environment_settings;
     environment_settings.ambient_color = {0.25F, 0.5F, 0.75F, 1.0F};
     environment_settings.ambient_intensity = 0.75F;
@@ -123,6 +127,17 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     engine::PostProcessSettings post_process_settings;
     post_process_settings.exposure = 1.5F;
     post_process_settings.filmic_tonemap = true;
+    post_process_settings.ao_enabled = true;
+    post_process_settings.ao_radius = 1.4F;
+    post_process_settings.ao_strength = .8F;
+    post_process_settings.ao_power = 2.0F;
+    post_process_settings.ao_fade_start = 40.0F;
+    post_process_settings.ao_fade_end = 140.0F;
+    post_process_settings.hdr_enabled = true;
+    post_process_settings.bloom_enabled = true;
+    post_process_settings.bloom_threshold = 1.2F;
+    post_process_settings.bloom_intensity = .3F;
+    post_process_settings.bloom_radius = 2.0F;
     auto& material = mesh->material();
     if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
                     material.shader_path() == "builtin/shaders/pbr",
@@ -162,6 +177,66 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     !post_process->set_settings(invalid_post_process) &&
                     !light->set_settings(invalid_light),
                 "fog range, exposure limit and non-power-of-two shadow size are rejected"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.ao_radius = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings,
+                "nonfinite AO radius preserves the complete post-process component"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.ao_fade_end = invalid_post_process.ao_fade_start;
+    if (!expect(!post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings,
+                "invalid AO fade interval preserves the complete post-process component"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.hdr_enabled = false;
+    if (!expect(!post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings,
+                "Bloom without HDR preserves the complete post-process component"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.bloom_intensity = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings,
+                "nonfinite Bloom intensity preserves the complete post-process component"))
+    {
+        return false;
+    }
+    invalid_light = light_settings;
+    invalid_light.shadow_cascades = 3;
+    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+                "unsupported cascade count leaves the light unchanged"))
+    {
+        return false;
+    }
+    invalid_light = light_settings;
+    invalid_light.shadow_distance = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+                "nonfinite cascade distance leaves the light unchanged"))
+    {
+        return false;
+    }
+    invalid_light = light_settings;
+    invalid_light.shadow_split_lambda = 1.01F;
+    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+                "out-of-range cascade split leaves the light unchanged"))
+    {
+        return false;
+    }
+    invalid_light = light_settings;
+    invalid_light.shadow_cascade_blend = 0.31F;
+    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+                "out-of-range cascade blend leaves the light unchanged"))
     {
         return false;
     }

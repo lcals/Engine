@@ -56,9 +56,7 @@
 
 #if ENGINE_HAS_ASSET_PIPELINE
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#if ENGINE_HAS_MODELING_PLUGIN
 #include "editor/scene/scene_persistence.hpp"
-#endif
 #endif
 
 #if ENGINE_HAS_SCRIPT_PLUGIN
@@ -74,6 +72,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -118,7 +117,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_SCENE_BAKE
     std::unique_ptr<engine::plugins::scene_bake::SceneBakeSystem> scene_bake;
 #endif
-#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
+#if ENGINE_HAS_ASSET_PIPELINE
     std::unique_ptr<engine::editor::ScenePersistence> persistence;
 #endif
     std::unique_ptr<engine::editor::EditorSystem> editor;
@@ -279,15 +278,23 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 return 1;
             }
         }
-#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
-        if (modeling != nullptr)
+#if ENGINE_HAS_ASSET_PIPELINE
+        if (editor->commands() != nullptr && runtime.world() != nullptr)
         {
+            engine::editor::ScenePersistence::MeshSourceWriter mesh_writer;
+#if ENGINE_HAS_MODELING_PLUGIN
+            if (modeling != nullptr)
+            {
+                mesh_writer = [&modeling](const engine::Node& node, const fs::path& destination,
+                                          std::string& error)
+                { return modeling->export_mesh(node, destination, error); };
+            }
+#endif
             persistence = std::make_unique<engine::editor::ScenePersistence>(
-                *runtime.world(), project_root,
-                [&modeling](const engine::Node& node, const fs::path& destination,
-                            std::string& error)
-                { return modeling->export_mesh(node, destination, error); },
-                [&preview](std::string_view path) { preview->mark_saved(path); });
+                *runtime.world(), project_root, std::move(mesh_writer),
+                [&preview](std::string_view path,
+                           std::span<const engine::editor::SceneSavedResource> changed)
+                { preview->mark_saved(path, changed); });
             if (!persistence->register_commands(*editor->commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register scene persistence commands");
@@ -442,7 +449,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         editor->shutdown();
         editor.reset();
     }
-#if ENGINE_HAS_ASSET_PIPELINE && ENGINE_HAS_MODELING_PLUGIN
+#if ENGINE_HAS_ASSET_PIPELINE
     persistence.reset();
 #endif
     render_commands.reset();

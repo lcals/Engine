@@ -18,18 +18,21 @@ $input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
 #include "pbr_helpers.sh"
 #include "material_helpers.sh"
 #include "shadow_helpers.sh"
+#include "csm_helpers.sh"
 
 SAMPLER2D(s_base_color, 0);
 SAMPLER2D(s_normal, 1);
 SAMPLER2D(s_orm, 2);
 SAMPLER2D(s_specular, 3);
 SAMPLER2D(s_emission, 4);
+SAMPLER2D(s_ambient_occlusion, 11);
 SAMPLERCUBE(s_ibl_irradiance, 12);
 SAMPLERCUBE(s_ibl_prefilter, 13);
 SAMPLER2D(s_ibl_lut, 14);
-SAMPLER2D(s_shadow_map, 15);
 // enabled, intensity, last prefiltered mip, reserved.
 uniform vec4 u_ibl_params;
+// Reciprocal window dimensions (xy), screen-space AO enabled (z), reserved (w).
+uniform vec4 u_ambient_occlusion;
 uniform vec4 u_base_color;
 // x: metallic, y: roughness, z: lighting (0 PBR, 1 unlit, 2 Blinn-Phong), w: alpha cutoff.
 uniform vec4 u_material;
@@ -57,33 +60,8 @@ uniform vec4 u_ambient_ground;
 uniform vec4 u_fog_color;
 // x: linear start, y: linear end, z: exponential density, w: camera near plane.
 uniform vec4 u_fog_range;
-// exposure, ACES enabled, reserved, reserved.
+// Exposure, ACES enabled, linear HDR output enabled, reserved.
 uniform vec4 u_tonemap;
-uniform mat4 u_shadow_transform;
-// bias, texel size, shadow-casting directional light index, enabled.
-uniform vec4 u_shadow_settings;
-
-float shadow_visibility(vec3 world_position)
-{
-    vec4 coordinate = mul(u_shadow_transform, vec4(world_position, 1.0));
-    vec3 projected = coordinate.xyz / coordinate.w;
-    if (any(lessThan(projected, vec3_splat(0.0))) ||
-        any(greaterThan(projected, vec3_splat(1.0))))
-    {
-        return 1.0;
-    }
-    float visible = 0.0;
-    for (int x = 0; x < 4; ++x)
-    {
-        for (int y = 0; y < 4; ++y)
-        {
-            vec2 offset = (vec2(float(x), float(y)) - 1.5) * u_shadow_settings.y;
-            float depth = unpack_shadow_depth(texture2D(s_shadow_map, projected.xy + offset));
-            visible += step(projected.z - u_shadow_settings.x, depth);
-        }
-    }
-    return visible / 16.0;
-}
 
 vec3 indirect_light(vec3 normal, vec3 view_dir, vec3 base_color, vec3 specular_color,
                     float diffuse_weight, float roughness)
@@ -216,6 +194,11 @@ void main()
         color = base_color.rgb * ambient_weight * ambient_color * u_ambient.w;
         color += indirect_light(normal, view_dir, base_color.rgb, specular_color,
                                 diffuse_weight, roughness);
+        if (u_ambient_occlusion.z > 0.5)
+        {
+            vec2 screen_uv = gl_FragCoord.xy * u_ambient_occlusion.xy;
+            color *= texture2D(s_ambient_occlusion, screen_uv).r;
+        }
         for (int index = 0; index < 64; ++index)
         {
             if (float(index) < u_light_count.x)
@@ -240,6 +223,13 @@ void main()
             fog = 1.0 - exp2(-exponent * 1.4426950408889634);
         }
         color = mix(color, u_fog_color.rgb, fog * u_surface_parameters.z);
+    }
+    if (u_tonemap.z > 0.5)
+    {
+        // The HDR resolve owns exposure, tone mapping and gamma for the complete scene.
+        // Keep RGBA16F scene values finite, including bright emission and unlit materials.
+        gl_FragColor = vec4(clamp(color, vec3_splat(0.0), vec3_splat(65504.0)), 1.0);
+        return;
     }
     if (!unlit)
     {
