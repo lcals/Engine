@@ -59,7 +59,8 @@ bool push_application_event(SDL_EventType type)
     return expect(SDL_PushEvent(&event), "push application lifecycle event");
 }
 
-bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer, int count)
+bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer, int count,
+                   const engine::Camera* camera = nullptr)
 {
     int submitted = 0;
     for (int attempt = 0; attempt < max_frame_attempts && submitted < count; ++attempt)
@@ -71,7 +72,7 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
         }
         if (windows.can_render())
         {
-            if (!expect(renderer.render(), "submit a real GPU frame"))
+            if (!expect(renderer.render(camera), "submit a real GPU frame"))
             {
                 return false;
             }
@@ -501,12 +502,13 @@ bool read_screenshot(const std::filesystem::path& path, Screenshot& output)
 }
 
 bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
-                const std::filesystem::path& root, const char* name, Screenshot& output)
+                const std::filesystem::path& root, const char* name, Screenshot& output,
+                const engine::Camera* camera = nullptr)
 {
     const auto path = root / name;
     const auto native_path = engine::PathUtils::to_utf8(path);
     bgfx::requestScreenShot(BGFX_INVALID_HANDLE, native_path.c_str());
-    if (!render_frames(windows, renderer, 8))
+    if (!render_frames(windows, renderer, 8, camera))
     {
         return false;
     }
@@ -708,6 +710,77 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
                 "showing mesh restores the same pixels and resource allocation"))
     {
         return false;
+    }
+    if (!shared)
+    {
+        auto* observer_node = scene->create_node("Observer camera");
+        auto* observer = observer_node ? observer_node->add_component<engine::Camera>() : nullptr;
+        const std::array hidden = {mesh->mesh_instance_id(), mesh->mesh_instance_id()};
+        const std::array invalid_hidden = {mesh->mesh_instance_id(), std::uint64_t{0}};
+        engine::schema::ComponentDataT saved_camera;
+        if (!expect(observer != nullptr && observer->set_settings(camera_settings) &&
+                        observer_node->get_component<engine::Transform>()->set_settings(
+                            camera_transform) &&
+                        camera->set_hidden_meshes(hidden) &&
+                        !camera->set_hidden_meshes(invalid_hidden) &&
+                        !camera->mesh_visible(hidden.front()) && !camera->mesh_visible(0) &&
+                        observer->mesh_visible(hidden.front()) &&
+                        camera->build_data(saved_camera),
+                    "camera filter is independent, accepts duplicate IDs and rejects zero "
+                    "without replacing the prior list") ||
+            !render_frames(windows, renderer, 8, camera) ||
+            !screenshot(windows, renderer, fixture.root, "camera-hidden", image, camera) ||
+            !expect(image.pixel(cx, cy)[0] < 80 && mesh->visible() && mesh->enabled() &&
+                        gpu_counts() == single_mesh &&
+                        renderer.gpu_resource_count() == single_resource_count,
+                    "camera hides the only mesh while preserving global state and GPU resources") ||
+            !render_frames(windows, renderer, 8, observer) ||
+            !screenshot(windows, renderer, fixture.root, "camera-observer", image, observer) ||
+            !expect(near_color(image.pixel(cx, cy), 188, 188, 188) &&
+                        scene->active_camera() == camera &&
+                        !camera->mesh_visible(hidden.front()) && gpu_counts() == single_mesh,
+                    "explicit observer sees a mesh hidden from the active camera without "
+                    "changing either view"))
+        {
+            return false;
+        }
+        auto invalid_camera = saved_camera;
+        invalid_camera.payload.AsCameraData()->fov_degrees = 0.0F;
+        if (!expect(!camera->restore_data(invalid_camera) &&
+                        !camera->mesh_visible(hidden.front()),
+                    "failed camera restore preserves its hidden list"))
+        {
+            return false;
+        }
+        camera->clear_hidden_meshes();
+        if (!render_frames(windows, renderer, 8, camera) ||
+            !screenshot(windows, renderer, fixture.root, "camera-filter-cleared", image, camera) ||
+            !expect(near_color(image.pixel(cx, cy), 188, 188, 188),
+                    "clearing the camera filter restores its mesh pixels") ||
+            !expect(camera->set_hidden_meshes(hidden) &&
+                        quad_node->remove_component(engine::MeshRenderer::component_type),
+                    "remove the hidden mesh component while retaining the camera filter"))
+        {
+            return false;
+        }
+        mesh = quad_node->add_component<engine::MeshRenderer>();
+        if (!expect(mesh != nullptr && mesh->mesh_instance_id() != hidden.front() &&
+                        camera->mesh_visible(mesh->mesh_instance_id()) &&
+                        !camera->mesh_visible(hidden.front()) && mesh->set_mesh_data(data) &&
+                        mesh->material().set_type("builtin/materials/default-unlit") &&
+                        mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
+                        mesh->material().set_texture("baseColorTexture",
+                                                     "project/textures/gray-linear"),
+                    "rebuilt component has a new identity outside the old filter") ||
+            !render_frames(windows, renderer, 8, camera) ||
+            !screenshot(windows, renderer, fixture.root, "camera-rebuilt-mesh", image, camera) ||
+            !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
+                    "camera renders the replacement component and releases old GPU buffers") ||
+            !expect(camera->restore_data(saved_camera) && camera->mesh_visible(hidden.front()),
+                    "restoring persistent camera data clears transient hidden IDs"))
+        {
+            return false;
+        }
     }
     for (auto& vertex : data.vertices)
     {
@@ -1029,6 +1102,67 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                           ? (*cube_node)->get_component<engine::MeshRenderer>()
                           : nullptr;
     if (!expect(cube_mesh != nullptr, "find shadow caster for deformation"))
+    {
+        return false;
+    }
+    const std::array hidden_caster = {cube_mesh->mesh_instance_id()};
+    Screenshot hidden_with_shadow;
+    Screenshot hidden_without_shadow;
+    if (!expect(scene->active_camera()->set_hidden_meshes(hidden_caster),
+                "hide the caster from the observing camera") ||
+        !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hidden-caster-shadow", hidden_with_shadow))
+    {
+        return false;
+    }
+    cube_mesh->set_cast_shadows(false);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hidden-caster-no-shadow",
+                     hidden_without_shadow))
+    {
+        return false;
+    }
+    std::size_t hidden_shadow_pixels = 0;
+    for (std::size_t index = 0; index < hidden_with_shadow.pixels.size(); ++index)
+    {
+        int difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            difference += hidden_without_shadow.pixels[index][channel] -
+                          hidden_with_shadow.pixels[index][channel];
+        }
+        hidden_shadow_pixels += difference > 30;
+    }
+    if (!expect(hidden_shadow_pixels > 100 && cube_mesh->visible() && cube_mesh->enabled() &&
+                    renderer.gpu_resource_count() == shadow_resources,
+                "a mesh hidden from the camera still casts a visible shadow and retains resources"))
+    {
+        return false;
+    }
+    cube_mesh->set_cast_shadows(true);
+    const auto shadow_settings = settings;
+    settings.directional_shadows = false;
+    settings.ao_enabled = true;
+    settings.ambient_intensity = 0.6F;
+    Screenshot camera_hidden_ao;
+    Screenshot globally_hidden_ao;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "camera-hidden-ao", camera_hidden_ao))
+    {
+        return false;
+    }
+    cube_mesh->set_visible(false);
+    scene->active_camera()->clear_hidden_meshes();
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "globally-hidden-ao", globally_hidden_ao) ||
+        !expect(camera_hidden_ao.pixels == globally_hidden_ao.pixels,
+                "camera-hidden geometry does not contribute depth or occlusion to AO"))
+    {
+        return false;
+    }
+    cube_mesh->set_visible(true);
+    settings = shadow_settings;
+    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8))
     {
         return false;
     }

@@ -1,5 +1,8 @@
+#include "plugins/runtime/character_controller/character_camera.hpp"
+#include "plugins/runtime/character_controller/character_camera_system.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 #include "plugins/runtime/character_controller/character_controller_system.hpp"
+#include "plugins/runtime/character_controller/character_visual.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -19,9 +22,12 @@
 namespace
 {
 
+using engine::plugins::character_controller::CharacterCamera;
+using engine::plugins::character_controller::CharacterCameraSystem;
 using engine::plugins::character_controller::CharacterController;
 using engine::plugins::character_controller::CharacterControllerSystem;
 using engine::plugins::character_controller::CharacterInput;
+using engine::plugins::character_controller::CharacterVisual;
 
 bool expect(bool value, const char* description)
 {
@@ -36,7 +42,8 @@ struct Fixture
 {
     engine::WorldSystem world;
     engine::PhysicsSystem physics{&world};
-    CharacterControllerSystem controller{world, physics};
+    CharacterControllerSystem controller{world};
+    CharacterCameraSystem cameras{world, physics};
     engine::Node* player = nullptr;
     engine::Node* camera = nullptr;
 
@@ -64,7 +71,8 @@ struct Fixture
     {
         const engine::EngineConfig config;
         if (!world.initialize(config) || !physics.initialize(config) ||
-            !controller.initialize(config) || world.create_scene("Character") == nullptr ||
+            !controller.initialize(config) || !cameras.initialize(config) ||
+            world.create_scene("Character") == nullptr ||
             box("Floor", {0, -0.5, 0}, {30, 0.5, 30}) == nullptr)
         {
             return false;
@@ -74,14 +82,18 @@ struct Fixture
         if (player == nullptr || camera == nullptr ||
             player->add_component<engine::CharacterMotor>() == nullptr ||
             player->add_component<CharacterController>() == nullptr ||
-            camera->add_component<engine::Camera>() == nullptr)
+            camera->add_component<engine::Camera>() == nullptr ||
+            camera->add_component<CharacterCamera>() == nullptr)
         {
             return false;
         }
         auto* component = player->get_component<CharacterController>();
         auto settings = component->settings();
         settings.camera_node_id = camera->info().id;
-        return component->set_settings(settings) &&
+        auto* rig = camera->get_component<CharacterCamera>();
+        auto camera_settings = rig->settings();
+        camera_settings.target_node_id = player->info().id;
+        return rig->set_settings(camera_settings) && component->set_settings(settings) &&
                world.scene()->set_active_camera(camera->get_component<engine::Camera>()) &&
                physics.tick(0.0) && advance({}, 4);
     }
@@ -91,7 +103,7 @@ struct Fixture
         for (unsigned int index = 0; index < frames; ++index)
         {
             if (!controller.set_input(input) || !controller.tick(1.0 / 60.0) ||
-                !physics.tick(1.0 / 60.0) || !controller.update_cameras())
+                !physics.tick(1.0 / 60.0) || !cameras.tick(0.0))
             {
                 return false;
             }
@@ -130,13 +142,15 @@ bool movement_jump_and_settings()
     }
     auto invalid = motor->settings();
     invalid.radius = -1;
-    auto camera_settings = controller->settings();
+    auto camera_settings = fixture.camera->get_component<CharacterCamera>()->settings();
     camera_settings.pitch_min = 90;
     CharacterInput bad;
     bad.look = {std::numeric_limits<double>::quiet_NaN(), 0};
-    if (!expect(!motor->set_settings(invalid) && !controller->set_settings(camera_settings) &&
-                    !fixture.controller.set_input(bad),
-                "invalid component settings and input preserve valid state"))
+    if (!expect(
+            !motor->set_settings(invalid) &&
+                !fixture.camera->get_component<CharacterCamera>()->set_settings(camera_settings) &&
+                !fixture.controller.set_input(bad),
+            "invalid component settings and input preserve valid state"))
     {
         return false;
     }
@@ -257,7 +271,7 @@ bool camera_modes_and_occlusion()
     {
         return false;
     }
-    auto* component = fixture.player->get_component<CharacterController>();
+    auto* component = fixture.camera->get_component<CharacterCamera>();
     const auto foot = position(*fixture.player);
     auto camera = position(*fixture.camera);
     if (!expect(std::abs(camera.z() - foot.z() - 4) < 0.01 &&
@@ -267,7 +281,7 @@ bool camera_modes_and_occlusion()
         return false;
     }
     auto* wall = fixture.box("CameraWall", {0, 2, 2}, {4, 2, 0.2});
-    if (!wall || !fixture.physics.tick(0.0) || !fixture.controller.update_cameras())
+    if (!wall || !fixture.physics.tick(0.0) || !fixture.cameras.tick(0.0))
     {
         return false;
     }
@@ -281,7 +295,7 @@ bool camera_modes_and_occlusion()
     auto collision = collider->settings();
     collision.is_trigger = true;
     if (!collider->set_settings(collision) || !fixture.physics.tick(0.0) ||
-        !fixture.controller.update_cameras() ||
+        !fixture.cameras.tick(0.0) ||
         !expect(std::abs(position(*fixture.camera).z() - 4) < 0.01,
                 "trigger volumes do not block camera"))
     {
@@ -320,8 +334,8 @@ bool camera_modes_and_occlusion()
         return false;
     }
     auto settings = component->settings();
-    settings.camera_node_id = 999999;
-    return expect(component->set_settings(settings) && !fixture.controller.update_cameras(),
+    settings.target_node_id = 999999;
+    return expect(component->set_settings(settings) && !fixture.cameras.tick(0.0),
                   "missing explicit camera reference fails instead of selecting another camera");
 }
 
@@ -337,81 +351,200 @@ bool first_person_visibility_lifecycle()
     {
         return false;
     }
-    auto* avatar = fixture.world.scene()->create_node("Avatar");
-    auto* hidden = fixture.world.scene()->create_node("Already hidden");
-    auto* outside = fixture.world.scene()->create_node("World mesh");
-    if (avatar == nullptr || hidden == nullptr || outside == nullptr ||
-        !avatar->set_parent(fixture.player) || !hidden->set_parent(avatar))
+    auto* scene = fixture.world.scene();
+    auto* avatar = scene->create_node("Avatar");
+    auto* head = scene->create_node("Head");
+    auto* hands = scene->create_node("First person hands");
+    auto* spectator = scene->create_node("Spectator");
+    if (!avatar || !head || !hands || !spectator || !avatar->set_parent(fixture.player) ||
+        !head->set_parent(avatar) || !hands->set_parent(avatar))
     {
         return false;
     }
-    auto* renderer = avatar->add_component<engine::MeshRenderer>();
-    auto* hidden_renderer = hidden->add_component<engine::MeshRenderer>();
-    auto* outside_renderer = outside->add_component<engine::MeshRenderer>();
-    if (renderer == nullptr || hidden_renderer == nullptr || outside_renderer == nullptr)
+    auto* body_mesh = avatar->add_component<engine::MeshRenderer>();
+    auto* head_mesh = head->add_component<engine::MeshRenderer>();
+    auto* hand_mesh = hands->add_component<engine::MeshRenderer>();
+    auto* head_visual = head->add_component<CharacterVisual>();
+    auto* hand_visual = hands->add_component<CharacterVisual>();
+    auto* observer = spectator->add_component<engine::Camera>();
+    if (!body_mesh || !head_mesh || !hand_mesh || !head_visual || !hand_visual || !observer)
     {
         return false;
     }
-    hidden_renderer->set_visible(false);
+    auto visual = head_visual->settings();
+    visual.kind = engine::schema::CharacterVisualKind::head;
+    if (!head_visual->set_settings(visual))
+    {
+        return false;
+    }
+    visual.kind = engine::schema::CharacterVisualKind::first_person;
+    auto* rig = fixture.camera->get_component<CharacterCamera>();
+    auto* view = fixture.camera->get_component<engine::Camera>();
+    auto settings = rig->settings();
+    settings.mode = engine::schema::CharacterView::first_person;
     engine::schema::ComponentDataT before;
     engine::schema::ComponentDataT after;
-    auto* controller = fixture.player->get_component<CharacterController>();
-    auto settings = controller->settings();
-    settings.mode = engine::schema::CharacterView::first_person;
-    if (!renderer->build_data(before) || !controller->set_settings(settings) ||
-        !fixture.controller.update_cameras() ||
-        !expect(
-            !renderer->visible() && renderer->enabled() && !hidden_renderer->visible() &&
-                outside_renderer->visible() && renderer->build_data(after) && before == after,
-            "first person hides only own subtree without disabling animation or changing snapshot"))
+    if (!hand_visual->set_settings(visual) || !body_mesh->build_data(before) ||
+        !rig->set_settings(settings) || !fixture.cameras.tick(0.0) ||
+        !expect(!view->mesh_visible(body_mesh->mesh_instance_id()) &&
+                    !view->mesh_visible(head_mesh->mesh_instance_id()) &&
+                    view->mesh_visible(hand_mesh->mesh_instance_id()) &&
+                    observer->mesh_visible(body_mesh->mesh_instance_id()) &&
+                    observer->mesh_visible(head_mesh->mesh_instance_id()) &&
+                    !observer->mesh_visible(hand_mesh->mesh_instance_id()) &&
+                    body_mesh->visible() && head_mesh->visible() && hand_mesh->visible() &&
+                    body_mesh->build_data(after) && before == after,
+                "first-person body/head/weapon filtering is per view and never mutates meshes"))
     {
         return false;
     }
     if (!avatar->remove_component(engine::MeshRenderer::component_type) ||
-        (renderer = avatar->add_component<engine::MeshRenderer>()) == nullptr ||
-        !fixture.controller.update_cameras() ||
-        !expect(!renderer->visible(),
-                "replacement renderer is hidden with its new instance identity"))
+        (body_mesh = avatar->add_component<engine::MeshRenderer>()) == nullptr ||
+        !fixture.cameras.tick(0.0) ||
+        !expect(!view->mesh_visible(body_mesh->mesh_instance_id()),
+                "replacement mesh receives its own per-view filter"))
     {
         return false;
     }
     settings.mode = engine::schema::CharacterView::third_person;
-    if (!controller->set_settings(settings) || !fixture.controller.update_cameras() ||
-        !expect(renderer->visible() && !hidden_renderer->visible(),
-                "third person restores original per-renderer visibility"))
+    if (!rig->set_settings(settings) || !fixture.cameras.tick(0.0) ||
+        !expect(view->mesh_visible(body_mesh->mesh_instance_id()) &&
+                    !view->mesh_visible(hand_mesh->mesh_instance_id()),
+                "third-person camera shows body and hides first-person-only attachments"))
     {
         return false;
     }
     settings.mode = engine::schema::CharacterView::first_person;
-    if (!controller->set_settings(settings) || !fixture.controller.update_cameras())
+    if (!rig->set_settings(settings) || !fixture.cameras.tick(0.0))
     {
         return false;
     }
-    controller->set_enabled(false);
-    if (!fixture.controller.update_cameras() ||
-        !expect(renderer->visible(), "disabling controller restores visibility"))
+    rig->set_enabled(false);
+    if (!fixture.cameras.tick(0.0) || !expect(view->mesh_visible(body_mesh->mesh_instance_id()),
+                                              "disabled rig clears its body filter"))
     {
         return false;
     }
-    controller->set_enabled(true);
-    if (!fixture.controller.update_cameras() ||
+    rig->set_enabled(true);
+    if (!fixture.cameras.tick(0.0) ||
+        !fixture.camera->remove_component(CharacterCamera::component_type) ||
+        !fixture.cameras.tick(0.0) ||
+        !expect(view->mesh_visible(body_mesh->mesh_instance_id()),
+                "removed rig clears its body filter without a retained pointer"))
+    {
+        return false;
+    }
+    fixture.cameras.shutdown();
+    return expect(observer->mesh_visible(hand_mesh->mesh_instance_id()) && body_mesh->visible(),
+                  "camera system shutdown releases its transient filters");
+}
+
+bool player_selection_and_removal()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    CharacterInput move;
+    move.move = {0, 1};
+    auto* motor = fixture.player->get_component<engine::CharacterMotor>();
+    if (!fixture.advance(move, 2) ||
+        !fixture.player->remove_component(CharacterController::component_type))
+    {
+        return false;
+    }
+    const auto stopped = position(*fixture.player);
+    if (!expect(fixture.advance(move, 2) &&
+                    std::abs(position(*fixture.player).z() - stopped.z()) < 0.001,
+                "removing controller clears old motor input on the next production tick"))
+    {
+        return false;
+    }
+    auto* component = fixture.player->add_component<CharacterController>();
+    if (!component || !fixture.advance(move, 1))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    const auto disabled = position(*fixture.player);
+    if (!expect(fixture.advance(move, 1) &&
+                    std::abs(position(*fixture.player).z() - disabled.z()) < 0.001,
+                "disabled controller stops old active intent"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    auto* npc = fixture.world.scene()->create_node("NPC");
+    auto* npc_motor = npc != nullptr ? npc->add_component<engine::CharacterMotor>() : nullptr;
+    if (!npc_motor)
+    {
+        return false;
+    }
+    auto pose = npc->get_component<engine::Transform>()->settings();
+    pose.position = {5, 0, 0};
+    if (!npc->get_component<engine::Transform>()->set_settings(pose) ||
+        !npc_motor->set_velocity({1, 0, 0}) || !fixture.advance(move, 3) ||
+        !expect(position(*npc).x() > 5.03, "NPC motor operates without player input or camera"))
+    {
+        return false;
+    }
+    auto* second = npc->add_component<CharacterController>();
+    if (!second || !fixture.controller.set_input(move) ||
+        !expect(!fixture.controller.tick(1.0 / 60.0),
+                "multiple automatic players fail rather than broadcasting input") ||
+        !fixture.physics.tick(1.0 / 60.0) ||
+        !expect(std::abs(motor->velocity().z()) < 0.001,
+                "ambiguous selection also clears previously driven motor") ||
+        !fixture.controller.set_player(fixture.player))
+    {
+        return false;
+    }
+    const auto npc_before = position(*npc);
+    if (!fixture.advance(move, 3) ||
+        !expect(position(*npc).x() > npc_before.x() &&
+                    std::abs(position(*npc).z() - npc_before.z()) < 0.001,
+                "explicit player leaves another controller's motor requests untouched") ||
+        !fixture.controller.set_player(nullptr))
+    {
+        return false;
+    }
+    const auto deselected = position(*fixture.player);
+    if (!fixture.advance(move, 3) ||
+        !expect(std::abs(position(*fixture.player).z() - deselected.z()) < 0.001,
+                "explicit null selection stays deselected"))
+    {
+        return false;
+    }
+    auto tuning = motor->settings();
+    tuning.external_damping = 0;
+    return expect(motor->set_settings(tuning) && motor->add_velocity({2, 0, 0}) &&
+                      fixture.advance({}, 2) &&
+                      position(*fixture.player).x() > deselected.x() + 0.05,
+                  "clearing player input does not cancel independent knockback");
+}
+
+bool independent_follow_camera()
+{
+    Fixture fixture;
+    if (!fixture.initialize() ||
         !fixture.player->remove_component(CharacterController::component_type) ||
-        !fixture.controller.update_cameras() ||
-        !expect(renderer->visible(), "removing controller restores visibility"))
+        !fixture.player->remove_component(engine::CharacterMotor::component_type))
     {
         return false;
     }
-    controller = fixture.player->add_component<CharacterController>();
-    if (!controller || !controller->set_settings(settings) ||
-        !fixture.controller.update_cameras() ||
-        !expect(!renderer->visible(), "replacement controller can take visibility ownership"))
+    auto* parent = fixture.world.scene()->create_node("Moving parent");
+    if (!parent || !fixture.player->set_parent(parent))
     {
         return false;
     }
-    fixture.controller.shutdown();
-    return expect(
-        renderer->visible() && !hidden_renderer->visible(),
-        "system shutdown restores transient changes while preserving preexisting hidden mesh");
+    auto pose = parent->get_component<engine::Transform>()->settings();
+    pose.position = {10, 5, 0};
+    return expect(parent->get_component<engine::Transform>()->set_settings(pose) &&
+                      fixture.physics.tick(0.0) && fixture.cameras.tick(0.0) &&
+                      std::abs(position(*fixture.camera).x() - 10) < 0.01 &&
+                      std::abs(position(*fixture.camera).y() - 6.6) < 0.05,
+                  "independent camera follows target world pose without controller or motor");
 }
 
 bool hierarchy_conflicts_and_cast_validation()
@@ -454,6 +587,7 @@ int main()
 {
     return movement_jump_and_settings() && collisions_steps_and_lifecycle() &&
                    camera_modes_and_occlusion() && first_person_visibility_lifecycle() &&
+                   player_selection_and_removal() && independent_follow_camera() &&
                    hierarchy_conflicts_and_cast_validation()
                ? 0
                : 1;

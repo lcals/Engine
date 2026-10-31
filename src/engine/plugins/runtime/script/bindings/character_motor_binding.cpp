@@ -32,9 +32,21 @@ export class CharacterMotor extends Component {
         const h = handles.get(this);
         return native.CharacterMotorGravity(h.scene, h.node, value);
     }
+    SetExternalDamping(value) {
+        const h = handles.get(this);
+        return native.CharacterMotorExternalDamping(h.scene, h.node, value);
+    }
     SetVelocity(x, z) {
         const h = handles.get(this);
         return native.CharacterMotorVelocity(h.scene, h.node, x, z);
+    }
+    ClearInput() {
+        const h = handles.get(this);
+        return native.CharacterMotorClearInput(h.scene, h.node);
+    }
+    AddVelocity(x, y, z) {
+        const h = handles.get(this);
+        return native.CharacterMotorAddVelocity(h.scene, h.node, x, y, z);
     }
     GetVelocity() {
         const h = handles.get(this);
@@ -116,6 +128,11 @@ void gravity(const Arguments& arguments)
     set_number(arguments, &schema::CharacterMotorDataT::gravity_factor);
 }
 
+void external_damping(const Arguments& arguments)
+{
+    set_number(arguments, &schema::CharacterMotorDataT::external_damping);
+}
+
 void velocity(const Arguments& arguments)
 {
     auto* value = motor(arguments, 4);
@@ -139,6 +156,29 @@ void get_velocity(const Arguments& arguments)
     const auto& velocity = value->velocity();
     arguments.set_return(
         vm::NativeValue::Object{{"x", velocity.x()}, {"y", velocity.y()}, {"z", velocity.z()}});
+}
+
+void clear_input(const Arguments& arguments)
+{
+    auto* value = motor(arguments, 2);
+    if (value != nullptr)
+    {
+        value->clear_input();
+        arguments.set_return(true);
+    }
+}
+
+void add_velocity(const Arguments& arguments)
+{
+    auto* value = motor(arguments, 5);
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+        BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
+    {
+        arguments.set_return(value->add_velocity({x, y, z}));
+    }
 }
 
 void jump(const Arguments& arguments)
@@ -176,7 +216,10 @@ bool CharacterMotorBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("CharacterMotorSlope", slope) && vm.function("CharacterMotorStep", step) &&
            vm.function("CharacterMotorSnap", snap) &&
            vm.function("CharacterMotorGravity", gravity) &&
+           vm.function("CharacterMotorExternalDamping", external_damping) &&
            vm.function("CharacterMotorVelocity", velocity) &&
+           vm.function("CharacterMotorClearInput", clear_input) &&
+           vm.function("CharacterMotorAddVelocity", add_velocity) &&
            vm.function("CharacterMotorGetVelocity", get_velocity) &&
            vm.function("CharacterMotorJump", jump) &&
            vm.function("CharacterMotorGrounded", grounded);

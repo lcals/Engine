@@ -2,10 +2,10 @@
 
 #include "runtime/scene/component.hpp"
 
+#include <cstdint>
+
 namespace engine::plugins::character_controller
 {
-
-class CharacterControllerSystem;
 
 class CharacterController final : public Component
 {
@@ -15,16 +15,14 @@ public:
     valid_settings(const schema::CharacterControllerDataT& settings) noexcept;
     [[nodiscard]] const schema::CharacterControllerDataT& settings() const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterControllerDataT& settings) noexcept;
+    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
 
 private:
     friend class engine::Node;
-    friend class CharacterControllerSystem;
     explicit CharacterController(Node& node);
-    double yaw_ = 0.0;
-    double pitch_ = 0.0;
-    bool view_initialized_ = false;
-    bool driving_ = false;
+    [[nodiscard]] bool initialize() override;
+    const std::uint64_t instance_id_;
 };
 
 } // namespace engine::plugins::character_controller

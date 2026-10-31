@@ -812,10 +812,19 @@ export default class extends Gameplay {
             !(listenerNode.GetComponent(CharacterMotor) instanceof CharacterMotor) ||
             motor.SetCapsule(-1, .5) || motor.SetSlopeLimit(90) || motor.SetStepHeight(-1) ||
             motor.SetGroundSnapDistance(Infinity) || motor.SetGravityFactor(-1) ||
+            motor.SetExternalDamping(-1) || motor.SetExternalDamping(1001) ||
+            motor.SetExternalDamping(NaN) || motor.SetExternalDamping(Infinity) ||
+            motor.SetExternalDamping('6') || motor.AddVelocity(0, NaN, 0) ||
+            motor.AddVelocity(Infinity, 0, 0) || motor.AddVelocity(0, 0, 10001) ||
+            motor.AddVelocity(0, 1) || motor.AddVelocity('1', 0, 0) ||
             motor.SetVelocity(NaN, 0) || motor.Jump(5) || motor.grounded ||
             !motor.SetCapsule(.4, .7) || !motor.SetSlopeLimit(45) || !motor.SetStepHeight(.25) ||
             !motor.SetGroundSnapDistance(.15) || !motor.SetGravityFactor(1) ||
-            !motor.SetVelocity(2, -3) || motor.GetVelocity()?.y !== 0) return false;
+            !motor.SetExternalDamping(3.5) || !motor.SetVelocity(2, -3) ||
+            !motor.AddVelocity(2, 1, -3) || !motor.ClearInput() ||
+            motor.AddVelocity(9999, 0, 0) || motor.GetVelocity()?.y !== 0 ||
+            !motor.SetEnabled(false) || motor.AddVelocity(0, 1, 0) ||
+            !motor.ClearInput() || !motor.SetEnabled(true)) return false;
         if (!collider || !body || !audio || !listener || !(collider instanceof Component) ||
             !(node.GetComponent(RigidBody) instanceof RigidBody) ||
             !(node.GetComponent(AudioSource) instanceof AudioSource) ||
@@ -850,6 +859,8 @@ export default class extends Gameplay {
         const staleMotor = temporary?.AddComponent(CharacterMotor);
         if (!staleCollider || !staleBody || !staleAudio || !staleListener || !staleMotor || !temporary.Destroy() ||
             staleMotor.GetVelocity() !== null || staleMotor.grounded || staleMotor.SetVelocity(1, 0) ||
+            staleMotor.AddVelocity(1, 2, 3) || staleMotor.ClearInput() ||
+            staleMotor.SetExternalDamping(6) ||
             staleCollider.SetSphere(1) || staleBody.GetVelocity() !== null ||
             staleAudio.Play() || staleAudio.playback !== null || staleAudio.isPlaying ||
             staleListener.SetVolume(1)) return false;
@@ -889,6 +900,7 @@ export default class extends Gameplay {
     const auto* motor = scene->nodes().back()->get_component<engine::CharacterMotor>();
     if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
                     listener != nullptr && motor != nullptr && motor->settings().radius == .4F &&
+                    motor->settings().external_damping == 3.5F &&
                     collider->settings().shape == engine::schema::ColliderShape::box &&
                     body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
                     source_component->clip_data() != nullptr && source_component->settings().loop &&

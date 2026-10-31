@@ -374,6 +374,7 @@ struct CharacterSnapshot
     std::uint64_t instance_id = 0;
     schema::CharacterMotorDataT settings;
     JPH::Vec3 position = JPH::Vec3::sZero();
+    bool reset_velocity = false;
 };
 
 bool read_character(const Node& node, const CharacterMotor& motor, CharacterSnapshot& output)
@@ -515,6 +516,7 @@ struct PhysicsSystem::State
     {
         CharacterSnapshot snapshot;
         JPH::Ref<JPH::CharacterVirtual> character;
+        JPH::Vec3 external_velocity = JPH::Vec3::sZero();
     };
 
     BroadPhaseLayers layers;
@@ -638,8 +640,14 @@ struct PhysicsSystem::State
         for (const auto& snapshot : snapshots)
         {
             auto found = characters.find(snapshot.node_id);
-            if (found == characters.end() || found->second.snapshot.settings != snapshot.settings ||
-                found->second.snapshot.instance_id != snapshot.instance_id)
+            const bool recreate =
+                found == characters.end() ||
+                found->second.snapshot.instance_id != snapshot.instance_id ||
+                found->second.snapshot.settings.radius != snapshot.settings.radius ||
+                found->second.snapshot.settings.half_height != snapshot.settings.half_height ||
+                found->second.snapshot.settings.max_slope_degrees !=
+                    snapshot.settings.max_slope_degrees;
+            if (recreate)
             {
                 if (found != characters.end())
                 {
@@ -678,11 +686,12 @@ struct PhysicsSystem::State
                     physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
                     physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
             }
-            else if (!found->second.character->GetPosition().IsClose(JPH::RVec3(snapshot.position),
-                                                                     1.0e-10F))
+            else if (snapshot.reset_velocity || !found->second.character->GetPosition().IsClose(
+                                                    JPH::RVec3(snapshot.position), 1.0e-10F))
             {
                 found->second.character->SetPosition(JPH::RVec3(snapshot.position));
                 found->second.character->SetLinearVelocity(JPH::Vec3::sZero());
+                found->second.external_velocity = JPH::Vec3::sZero();
                 found->second.character->RefreshContacts(
                     physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
                     physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
@@ -733,8 +742,10 @@ void PhysicsSystem::clear() noexcept
             {
                 motor->desired_velocity_ = {};
                 motor->velocity_ = {};
+                motor->pending_velocity_ = {};
                 motor->pending_jump_ = 0.0F;
                 motor->grounded_ = false;
+                motor->reset_pending_ = false;
             }
         }
     }
@@ -800,7 +811,8 @@ bool PhysicsSystem::on_tick(double delta_time)
     }
     if (state_->scene_id != scene->id())
     {
-        clear();
+        // 旧场景已经由 WorldSystem 替换；不能清掉新组件在首个物理帧前提交的请求。
+        state_->clear();
         state_->scene_id = scene->id();
     }
     std::vector<BodySnapshot> snapshots;
@@ -819,15 +831,18 @@ bool PhysicsSystem::on_tick(double delta_time)
                     clear();
                     return false;
                 }
-                snapshot.instance_id = motor->instance_id_;
+                snapshot.instance_id = motor->instance_id();
+                snapshot.reset_velocity = motor->reset_pending_;
                 character_snapshots.push_back(std::move(snapshot));
             }
             else
             {
                 motor->desired_velocity_ = {};
                 motor->velocity_ = {};
+                motor->pending_velocity_ = {};
                 motor->pending_jump_ = 0.0F;
                 motor->grounded_ = false;
+                motor->reset_pending_ = false;
             }
         }
         const auto* collider = node->get_component<Collider>();
@@ -920,8 +935,18 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
             }
             motor->pending_jump_ = 0.0F;
+            const auto delta = vector(motor->pending_velocity_);
+            motor->pending_velocity_ = {};
+            entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
             const auto gravity = state_->physics.GetGravity() * motor->settings().gravity_factor;
-            velocity += gravity * static_cast<float>(fixed_step) + vector(motor->desired_velocity_);
+            velocity += gravity * static_cast<float>(fixed_step) +
+                        vector(motor->desired_velocity_) + entry.external_velocity +
+                        JPH::Vec3(0, delta.GetY(), 0);
+            if (!finite(velocity) || !finite(entry.external_velocity))
+            {
+                clear();
+                return false;
+            }
             character.SetLinearVelocity(velocity);
             JPH::CharacterVirtual::ExtendedUpdateSettings settings;
             settings.mStickToFloorStepDown =
@@ -931,6 +956,36 @@ bool PhysicsSystem::on_tick(double delta_time)
                                      state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
                                      state_->physics.GetDefaultLayerFilter(moving_layer),
                                      SolidBodyFilter{}, {}, state_->allocator);
+            // ExtendedUpdate 求解位移，持久速度按 Jolt 的实际接触法线去掉被阻挡部分。
+            // 不把受阻的主动输入反算成击退，防止下一帧出现相反方向的虚假速度。
+            auto resolved = character.GetLinearVelocity();
+            for (const auto& contact : character.GetActiveContacts())
+            {
+                if (!contact.mHadCollision || contact.mWasDiscarded || contact.mIsSensorB)
+                {
+                    continue;
+                }
+                const auto normal = contact.mContactNormal;
+                const float toward = (resolved - contact.mLinearVelocity).Dot(normal);
+                if (toward < 0.0F)
+                {
+                    resolved -= normal * toward;
+                }
+                if (character.IsSlopeTooSteep(contact.mSurfaceNormal))
+                {
+                    const JPH::Vec3 horizontal_normal(normal.GetX(), 0, normal.GetZ());
+                    const float length_squared = horizontal_normal.LengthSq();
+                    const float external_toward = entry.external_velocity.Dot(horizontal_normal);
+                    if (length_squared > 1.0e-12F && external_toward < 0.0F)
+                    {
+                        entry.external_velocity -=
+                            horizontal_normal * (external_toward / length_squared);
+                    }
+                }
+            }
+            character.SetLinearVelocity(resolved);
+            entry.external_velocity *=
+                std::exp(-motor->settings().external_damping * static_cast<float>(fixed_step));
         }
         if (state_->physics.Update(static_cast<float>(fixed_step), 1, &state_->allocator,
                                    &state_->jobs) != JPH::EPhysicsUpdateError::None)
@@ -959,6 +1014,7 @@ bool PhysicsSystem::on_tick(double delta_time)
             return false;
         }
         motor->velocity_ = vector(entry.character->GetLinearVelocity());
+        motor->reset_pending_ = false;
         motor->grounded_ =
             entry.character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround &&
             entry.character->GetLinearVelocity().GetY() -

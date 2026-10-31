@@ -29,4 +29,8 @@ mesh = "<独立 Mesh 资源的完整 GUID>"
 
 角色运动使用独立的 `CharacterMotor`，公开胶囊设置、世界空间水平速度、地面状态及一次跳跃请求，内部复用 Jolt `CharacterVirtual`。胶囊中心从脚底原点自动上移 `radius + half_height`；角色之间使用 Jolt `CharacterVsCharacterCollisionSimple`。角色必须是单位缩放、仅 Y 轴旋转的根节点，不能同时启用独立 Collider/RigidBody。设置的台阶高度、贴地距离和坡度限制参与实际碰撞求解；具体范围和契约见[角色物理类图](class-diagrams/character-motor.md)。
 
+角色主动输入与外部速度分离：`set_velocity` 设置水平移动意图，`clear_input` 清除它及未消费的跳跃，但保留击退；`add_velocity` 接受世界速度增量（m/s，单位质量冲量），各轴单次及累计待消费增量绝对值不超过 10000。非法请求原子失败，原有待消费请求不变。没有固定步的帧保留请求，多子步帧只在第一个子步消费一次。水平外部速度按 `exp(-external_damping * dt)` 在每个步进后衰减，阻尼默认 6/s、范围 0..1000/s；垂直增量进入既有重力和跳跃速度。Jolt 负责求解位移，保留速度根据其实际接触法线清除撞墙、落地和撞顶后被阻挡的部分；主动输入受阻不会产生反向击退。
+
+外部水平速度属于单个 Jolt 角色实例，禁用、删除、场景替换和物理角色重建时清除。胶囊尺寸或坡度限制变化重建物理角色；修改阻尼、重力倍率、台阶高度和贴地距离直接应用，不丢弃已有速度。`restore_data` 清除输入与待消费增量，并在下一次同步复位 Jolt 速度；没有新输入时不会继承恢复前的运动。`instance_id` 是组件只读且不复用的身份，插件可据此丢弃同一节点上旧组件的状态。脚本使用 `CharacterMotor.ClearInput()`、`AddVelocity(x, y, z)`、`SetExternalDamping(value)` 访问相同能力。
+
 `cast_sphere()` 查询已同步的物理世界，返回状态与可通行比例，忽略触发器。第一/第三人称输入和相机防穿墙策略由可选运行时[角色控制器插件](../plugins/runtime/class-diagrams/character-controller.md)负责，核心不读取键鼠、不引用该插件。

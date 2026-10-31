@@ -142,15 +142,15 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 
 | 顺序 | 独立类图                                                   | 当前依赖       |
 | ---- | ---------------------------------------------------------- | -------------- |
-| 1    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt           |
-| 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
-| 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
-| 4    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
-| 5    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
-| 6    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
-| 7    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | QuickJS/V8 编译期二选一；宿主通过核心工厂装配 |
+| 1    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
+| 2    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
+| 3    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
+| 4    | [脚本执行契约](../runtime/class-diagrams/script-runtime.md) | 可选宿主工厂；随后登记玩家输入插件 |
+| 5    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt；消费本帧意图 |
+| 6    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation；随后登记独立相机插件 |
+| 7    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio；使用最终空间位置 |
 
-[虚拟机中间层](../plugins/runtime/class-diagrams/script-vm.md)维护单后端构建和每 Run 环境；[逐类绑定](../plugins/runtime/class-diagrams/script-bindings.md)在两种后端间共用，不向核心增加虚拟机类型。
+[脚本系统](../plugins/runtime/class-diagrams/script-system.md)由宿主通过核心工厂装配，QuickJS/V8 编译期二选一。[虚拟机中间层](../plugins/runtime/class-diagrams/script-vm.md)维护单后端构建和每 Run 环境；[逐类绑定](../plugins/runtime/class-diagrams/script-bindings.md)在两种后端间共用，不向核心增加虚拟机类型。
 
 ## 宿主模块
 

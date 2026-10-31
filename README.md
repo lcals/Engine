@@ -465,7 +465,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 | `set_animator` / `get_animator` | `sceneId`、`nodeId`；配置独立动画资源、速度、循环及自动播放，或查询配置 |
 | `play_animation` / `pause_animation` / `stop_animation` / `seek_animation` / `get_animation_state` | `sceneId`、`nodeId`；播放、保留姿态暂停、恢复静态网格停止、按 `seconds` 定位或查询状态 |
 | `set_character_motor` / `get_character_motor` | `sceneId`、`nodeId`；配置或查询核心胶囊角色运动组件 |
-| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询第一／第三人称输入与相机策略，仅启用对应编辑器插件时注册 |
+| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询玩家输入与可空相机引用，仅启用对应编辑器插件时注册 |
+| `set_character_camera` / `get_character_camera` | `sceneId`、`nodeId`；在 Camera 节点配置独立跟随相机、`targetNodeId` 和避障参数 |
+| `set_character_visual` / `get_character_visual` | `sceneId`、`nodeId`；标记身体、头部或第一人称手／武器子树 |
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
@@ -755,15 +757,27 @@ cmake --build --preset ninja-engine-debug
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/animation-runtime start
 ```
 
-聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称临时隐藏自身模型，切回恢复；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
+聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称只在自身镜头隐藏身体和头部，保留身体阴影及旁观镜头中的角色；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
 
-`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动；输入和相机策略属于可选 `character_controller` 运行时插件。模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
+`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动。主动水平速度 `set_velocity`／脚本 `SetVelocity` 与世界空间速度增量 `add_velocity`／`AddVelocity` 独立，清输入不会吞掉击退。`external_damping` 控制外部水平速度按秒衰减，竖直增量交给重力和碰撞。请求在下一固定步消费一次，没有物理子步的帧保留请求。
+
+输入、相机和角色表现属于可选 `character_controller` 运行时插件，分为三个场景组件：`CharacterController` 只控制选中的玩家，`CharacterCamera` 挂在 Camera 节点并独立跟随目标，`CharacterVisual` 标记身体／头部／第一人称专用子树。未显式选择玩家时仅接受唯一启用控制器；多个候选返回失败，业务可用 `set_player` 选中，传空解除选择。NPC 直接使用 Motor，无需玩家控制器或相机。控制器移除、禁用、替换或解除选择时撤销其主动请求，保留外部击退。
+
+跟随镜头在物理和动画后读取目标世界位置，目标可以没有 Motor。插件独占场景 Camera 的瞬态网格过滤列表，不更改 MeshRenderer 的全局状态或保存数据。第一人称专用部件应放在目标子树并标记 `first_person`，只向对应第一人称镜头显示。此功能不包含动画状态机、Root Motion、群体避让或空间分桶。
+
+MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，`"0"` 解除引用；保存时转换为场景持久节点 ID。
+
+旧场景的 `character_controller` 中 `mode`、`eye_height`、`camera_distance`、`pitch_min/max` 需移至相机节点的 `character_camera`，并设置 `target_node_id` 指向角色的持久节点 ID；控制器保留 `camera_node_id`。旧字段导入会明确报错，不能静默丢弃配置。已迁移内置样例，场景导入器指纹更新后会重新生成缓存。
+
+模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
 
 示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
 
 庭院由 MCP 创建并保存为 231 个节点、225 个环境 Mesh、47,004 个环境三角形和 31 个静态碰撞体；三棵树共 840 片薄叶，每树合为一个 Mesh。人物由 Gameplay 在加载场景后实例化，避免保存后重复生成。项目启动直接读取建图脚本保存的场景组件参数；截图和动作采样来自真实渲染器。
 
-组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前登记组件和追加可选子系统；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+
+角色基础回归已在 macOS / Metal / QuickJS 的 Debug、Release 下通过：`engine.physics`、`engine.character_motor`、`engine.character_controller`、`engine.character_host`、`engine.window_render`、`engine.script_runtime`、`engine.script_tooling`、`editor.character_controller`，每种配置 8 项。覆盖击退与碰撞、移除／禁用停止、生产宿主同帧顺序、双镜头过滤与阴影、脚本绑定和可撤销编辑。编辑器与 MCP 可执行目标同时构建通过；本轮未执行 Windows 或 Android 测试。
 
 ### 资源运行包
 
