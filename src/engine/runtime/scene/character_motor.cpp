@@ -36,6 +36,13 @@ bool bounded(float value, float minimum, float maximum) noexcept
     return std::isfinite(value) && value >= minimum && value <= maximum;
 }
 
+bool valid_velocity(const Vec3& value) noexcept
+{
+    return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z()) &&
+           std::abs(value.x()) <= 10000.0 && std::abs(value.y()) <= 10000.0 &&
+           std::abs(value.z()) <= 10000.0;
+}
+
 } // namespace
 
 CharacterMotor::CharacterMotor(Node& node)
@@ -54,7 +61,8 @@ bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) no
            bounded(value.max_slope_degrees, 0.0F, 89.0F) &&
            bounded(value.step_height, 0.0F, 1000.0F) &&
            bounded(value.ground_snap_distance, 0.0F, 1000.0F) &&
-           bounded(value.gravity_factor, 0.0F, 1000.0F);
+           bounded(value.gravity_factor, 0.0F, 1000.0F) &&
+           bounded(value.external_damping, 0.0F, 1000.0F);
 }
 
 const schema::CharacterMotorDataT& CharacterMotor::settings() const noexcept
@@ -81,20 +89,48 @@ bool CharacterMotor::restore_data(const schema::ComponentDataT& value)
     }
     desired_velocity_ = {};
     velocity_ = {};
+    pending_velocity_ = {};
     pending_jump_ = 0.0F;
     grounded_ = false;
+    reset_pending_ = true;
     set_enabled(value.enabled);
     return true;
 }
 
+std::uint64_t CharacterMotor::instance_id() const noexcept
+{
+    return instance_id_;
+}
+
 bool CharacterMotor::set_velocity(const Vec3& value) noexcept
 {
-    if (!enabled() || value.y() != 0.0 || !std::isfinite(value.x()) || !std::isfinite(value.z()) ||
-        std::abs(value.x()) > 10000.0 || std::abs(value.z()) > 10000.0)
+    if (!enabled() || value.y() != 0.0 || !valid_velocity(value))
     {
         return false;
     }
     desired_velocity_ = value;
+    return true;
+}
+
+void CharacterMotor::clear_input() noexcept
+{
+    desired_velocity_ = {};
+    pending_jump_ = 0.0F;
+}
+
+bool CharacterMotor::add_velocity(const Vec3& delta) noexcept
+{
+    if (!enabled() || !valid_velocity(delta))
+    {
+        return false;
+    }
+    const Vec3 sum(pending_velocity_.x() + delta.x(), pending_velocity_.y() + delta.y(),
+                   pending_velocity_.z() + delta.z());
+    if (!valid_velocity(sum))
+    {
+        return false;
+    }
+    pending_velocity_ = sum;
     return true;
 }
 

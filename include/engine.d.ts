@@ -268,8 +268,14 @@ declare module "engine" {
         SetStepHeight(value: number): boolean;
         SetGroundSnapDistance(value: number): boolean;
         SetGravityFactor(value: number): boolean;
+        /** External horizontal velocity damping per second, 0..1000; default 6. */
+        SetExternalDamping(value: number): boolean;
         /** Desired world-space horizontal velocity; physics supplies the vertical component. */
         SetVelocity(x: number, z: number): boolean;
+        /** Clear active movement and pending jump without cancelling external velocity. */
+        ClearInput(): boolean;
+        /** World-space velocity delta in m/s, accumulated and consumed once at a fixed step. */
+        AddVelocity(x: number, y: number, z: number): boolean;
         /** Last physics velocity, not the pending movement request. */
         GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
         /** Accepted only while grounded, consumed at the next physics step. */

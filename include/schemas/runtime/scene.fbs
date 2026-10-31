@@ -95,19 +95,36 @@ table CharacterMotorData {
     step_height:float = 0.35;
     ground_snap_distance:float = 0.2;
     gravity_factor:float = 1;
+    external_damping:float = 6;
 }
 
 enum CharacterView:ubyte { first_person, third_person }
 table CharacterControllerData {
-    mode:CharacterView = third_person;
+    mode:CharacterView = third_person (deprecated);
     move_speed:float = 4;
     jump_speed:float = 5;
     look_sensitivity:float = 0.12;
+    eye_height:float = 1.6 (deprecated);
+    camera_distance:float = 4 (deprecated);
+    pitch_min:float = -80 (deprecated);
+    pitch_max:float = 80 (deprecated);
+    camera_node_id:ulong;
+}
+
+table CharacterCameraData {
+    target_node_id:ulong;
+    mode:CharacterView = third_person;
     eye_height:float = 1.6;
     camera_distance:float = 4;
     pitch_min:float = -80;
     pitch_max:float = 80;
-    camera_node_id:ulong;
+    collision_radius:float = 0.15;
+    collision_margin:float = 0.02;
+}
+
+enum CharacterVisualKind:ubyte { body, head, first_person }
+table CharacterVisualData {
+    kind:CharacterVisualKind = body;
 }
 
 table UiData {
@@ -164,7 +181,8 @@ table PostProcessData {
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
-    CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData
+    CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
+    CharacterCameraData, CharacterVisualData
 }
 
 table ComponentData {

@@ -29,6 +29,11 @@ classDiagram
     class ScriptRuntime
     class ScriptRuntimeFactory
     class RuntimeSetup
+    class RuntimeStage {
+        <<enumeration>>
+        before_physics
+        after_physics
+    }
     class AnimationSystem
     class EngineConfig
     class FrameStatus
@@ -45,6 +50,7 @@ classDiagram
     RuntimeHost --> ResourceSystem : 可选借用宿主已初始化底层
     RuntimeHost ..> ScriptRuntimeFactory : 可选宿主创建函数
     RuntimeHost ..> RuntimeSetup : 初始化前调用宿主装配函数
+    RuntimeSetup ..> RuntimeStage : 选择子系统登记位置
     RuntimeHost --> AnimationSystem : 装配后借用以清理会话
     RuntimeHost ..> ScriptRuntime : 创建后移交世界独占
     RuntimeHost ..> EngineConfig : 初始化参数
@@ -66,4 +72,26 @@ classDiagram
 
 可执行宿主负责按构建清单装配 ResourceGraphSystem 并向资源底层注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
 
-`RuntimeSetup = bool (*)(WorldSystem&, WindowSystem&, PhysicsSystem&)` 是宿主回调别名。基础子系统与可选脚本已附属世界、世界尚未初始化时调用；窗口已就绪。宿主可登记可选组件并追加子系统，返回 false 则由现有生命周期反序清理。核心不解析插件名，也不在此回调定义业务策略；回调中的函数地址与借用对象须覆盖世界生命期。
+`RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&)` 是宿主回调别名。
+对象先构造，世界尚未初始化时分别以 `before_physics` 和 `after_physics` 调用一次；窗口已就绪，
+物理实例已存在，但初始化前不得使用其运行能力。回调只追加对应位置的可选子系统，不在每帧调用。
+可选组件由附属系统的 `on_initialize()` 登记，避免被世界初始化时的基础组件表替换。
+返回 false 则按现有生命周期清理；核心不解析插件名，也不执行插件策略。
+
+世界子系统的登记、初始化和更新顺序统一如下，关闭时反序执行：
+
+```mermaid
+flowchart TD
+    F[FontSystem] --> U[UiSystem]
+    U --> N[NavigationSystem]
+    N --> S[可选 ScriptRuntime：脚本与 UI 业务意图]
+    S --> B[before_physics：宿主追加玩家输入系统]
+    B --> P[PhysicsSystem：同帧消费移动意图]
+    P --> A[AnimationSystem：消费物理后的状态]
+    A --> C[after_physics：宿主追加相机跟随系统]
+    C --> O[AudioSystem：使用最终空间位置]
+```
+
+字体与 UI 先初始化，脚本和插件均借用已构造的对象；整个世界初始化成功后才允许玩法与逐帧调用。
+具体玩家控制器和相机插件只由可执行宿主装配，RuntimeHost 不包含插件头文件。
+阶段枚举仅决定一次性的子系统登记位置，不增加 System 的逐帧阶段、事件总线或额外调度器。

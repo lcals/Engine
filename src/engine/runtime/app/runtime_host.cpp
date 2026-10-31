@@ -81,9 +81,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto ui_system = std::make_unique<UiSystem>(*window_, *world, *fonts_);
     ui_ = ui_system.get();
     std::unique_ptr<System> ui = std::move(ui_system);
-    if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
-        !world->add_subsystem(animation) || !world->add_subsystem(fonts) ||
-        !world->add_subsystem(ui) || !world->add_subsystem(audio))
+    // 依赖先构造；登记顺序同时决定统一初始化、每帧更新及反序关闭。
+    if (!world->add_subsystem(fonts) || !world->add_subsystem(ui) ||
+        !world->add_subsystem(navigation))
     {
         shutdown();
         return false;
@@ -101,7 +101,12 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             return false;
         }
     }
-    if (setup != nullptr && !setup(*world, *window_, *physics_))
+    if ((setup != nullptr &&
+         !setup(RuntimeStage::before_physics, *world, *window_, *physics_)) ||
+        !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
+        (setup != nullptr &&
+         !setup(RuntimeStage::after_physics, *world, *window_, *physics_)) ||
+        !world->add_subsystem(audio))
     {
         shutdown();
         return false;

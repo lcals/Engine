@@ -1,6 +1,8 @@
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 
 #include "editor/asset_pipeline/toml_helpers.hpp"
+#include "plugins/editor/character_controller/character_camera_codec.hpp"
+#include "plugins/editor/character_controller/character_visual_codec.hpp"
 #include "plugins/runtime/character_controller/character_controller.hpp"
 
 #include <memory>
@@ -35,20 +37,13 @@ bool CharacterControllerCodec::read(const toml::table& table, schema::ComponentD
                                     std::string& error) const
 {
     schema::CharacterControllerDataT value;
-    if (table.contains("mode"))
+    for (const auto name : {"mode", "eye_height", "camera_distance", "pitch_min", "pitch_max"})
     {
-        const auto mode = table["mode"].value<std::string_view>();
-        if (mode == "first_person")
+        if (table.contains(name))
         {
-            value.mode = schema::CharacterView::first_person;
-        }
-        else if (mode == "third_person")
-        {
-            value.mode = schema::CharacterView::third_person;
-        }
-        else
-        {
-            error = "invalid character_controller.mode";
+            error = "character_controller." + std::string(name) +
+                    " moved to character_camera on the referenced Camera node; "
+                    "migrate the source scene";
             return false;
         }
     }
@@ -63,10 +58,7 @@ bool CharacterControllerCodec::read(const toml::table& table, schema::ComponentD
     };
     if (!read_number("move_speed", value.move_speed) ||
         !read_number("jump_speed", value.jump_speed) ||
-        !read_number("look_sensitivity", value.look_sensitivity) ||
-        !read_number("eye_height", value.eye_height) ||
-        !read_number("camera_distance", value.camera_distance) ||
-        !read_number("pitch_min", value.pitch_min) || !read_number("pitch_max", value.pitch_max))
+        !read_number("look_sensitivity", value.look_sensitivity))
     {
         return false;
     }
@@ -90,27 +82,25 @@ void CharacterControllerCodec::write(const schema::ComponentDataT& component,
 {
     const auto* value = component.payload.AsCharacterControllerData();
     table.insert("type", "character_controller");
-    table.insert("mode", schema::EnumNameCharacterView(value->mode));
     table.insert("move_speed", value->move_speed);
     table.insert("jump_speed", value->jump_speed);
     table.insert("look_sensitivity", value->look_sensitivity);
-    table.insert("eye_height", value->eye_height);
-    table.insert("camera_distance", value->camera_distance);
-    table.insert("pitch_min", value->pitch_min);
-    table.insert("pitch_max", value->pitch_max);
     table.insert("camera_node_id", std::to_string(value->camera_node_id));
 }
 
 bool register_controller_codec()
 {
-    if (editor::asset_pipeline::find_scene_component_codec(
+    if (!editor::asset_pipeline::find_scene_component_codec(
             schema::ComponentPayload::CharacterControllerData))
     {
-        return true;
+        std::unique_ptr<editor::asset_pipeline::SceneComponentCodec> codec =
+            std::make_unique<CharacterControllerCodec>();
+        if (!editor::asset_pipeline::register_scene_component_codec(codec))
+        {
+            return false;
+        }
     }
-    std::unique_ptr<editor::asset_pipeline::SceneComponentCodec> codec =
-        std::make_unique<CharacterControllerCodec>();
-    return editor::asset_pipeline::register_scene_component_codec(codec);
+    return register_character_camera_codec() && register_character_visual_codec();
 }
 
 } // namespace engine::plugins::character_controller

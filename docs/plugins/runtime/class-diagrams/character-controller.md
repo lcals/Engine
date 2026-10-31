@@ -1,65 +1,84 @@
-# 角色控制器插件
+# 玩家控制、跟随相机与角色表现
 
-输入与相机模式属于可选运行时插件 `engine::plugins::character_controller`。核心 CharacterMotor 仅负责碰撞运动。
+运行时插件 `engine::plugins::character_controller` 组织玩家输入与镜头策略，核心 `CharacterMotor` 提供玩家和 NPC 共用的运动能力。场景对象仍由普通 Node 和组件表达；NPC 不挂玩家输入组件。
 
 ```mermaid
 classDiagram
     class CharacterController {
-        <<final>>
-        +valid_settings(const CharacterControllerDataT& settings) bool
         +settings() const CharacterControllerDataT&
         +set_settings(const CharacterControllerDataT& settings) bool
+        +instance_id() uint64_t
         +restore_data(const ComponentDataT& data) bool
     }
     class CharacterControllerSystem {
-        <<final>>
-        +CharacterControllerSystem(WorldSystem& world, PhysicsSystem& physics, WindowSystem* window)
+        +CharacterControllerSystem(WorldSystem& world, WindowSystem* window)
+        +set_player(Node* node) bool
         +set_input(const CharacterInput& input) bool
-        +update_cameras() bool
-        #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
-        #on_shutdown() void
     }
-    class CharacterInput {
-        +Vec2 move
-        +Vec2 look
-        +bool jump
-        +bool toggle_view
+    class CharacterCamera {
+        +settings() const CharacterCameraDataT&
+        +set_settings(const CharacterCameraDataT& settings) bool
+        +synchronize_angles() bool
+        +set_angles(double yaw, double pitch) bool
+        +yaw() double
+        +pitch() double
+        +restore_data(const ComponentDataT& data) bool
+    }
+    class CharacterCameraSystem {
+        +CharacterCameraSystem(WorldSystem& world, PhysicsSystem& physics)
+        #on_tick(double delta_time) bool
+    }
+    class CharacterVisual {
+        +settings() const CharacterVisualDataT&
+        +set_settings(const CharacterVisualDataT& settings) bool
+        +restore_data(const ComponentDataT& data) bool
     }
     class Component
     class System
     class Node
     class WorldSystem
-    class PhysicsSystem
     class WindowSystem
+    class PhysicsSystem
     class CharacterMotor
     class Camera
     class MeshRenderer
-    class Transform
     class CharacterControllerDataT
+    class CharacterCameraDataT
+    class CharacterVisualDataT
     class ComponentDataT
-    class EngineConfig
+    class CharacterInput
     Component <|-- CharacterController
-    Node *-- CharacterController : 独占组件
+    Component <|-- CharacterCamera
+    Component <|-- CharacterVisual
     System <|-- CharacterControllerSystem
-    CharacterController ..> CharacterControllerDataT : FlatBuffers 设置
-    CharacterController ..> ComponentDataT : 恢复
-    CharacterControllerSystem --> WorldSystem : 必需借用
-    CharacterControllerSystem --> PhysicsSystem : 必需借用
+    System <|-- CharacterCameraSystem
+    Node *-- CharacterController
+    Node *-- CharacterCamera
+    Node *-- CharacterVisual
+    CharacterController ..> CharacterControllerDataT : 参数及返回类型
+    CharacterCamera ..> CharacterCameraDataT : 参数及返回类型
+    CharacterVisual ..> CharacterVisualDataT : 参数及返回类型
+    CharacterController ..> ComponentDataT : 恢复参数
+    CharacterCamera ..> ComponentDataT : 恢复参数
+    CharacterVisual ..> ComponentDataT : 恢复参数
+    CharacterControllerSystem ..> Node : 选择参数
+    CharacterControllerSystem ..> CharacterInput : 输入参数
+    CharacterControllerSystem --> WorldSystem : 借用
     CharacterControllerSystem --> WindowSystem : 可空借用
-    CharacterControllerSystem ..> CharacterInput : 输入值
-    CharacterControllerSystem ..> CharacterController : 按节点调度
-    CharacterControllerSystem ..> CharacterMotor : 水平移动与跳跃
-    CharacterControllerSystem ..> MeshRenderer : 第一人称瞬态隐藏自身子树并恢复
-    CharacterControllerSystem ..> Camera : 显式相机节点
-    CharacterControllerSystem ..> Transform : 角色朝向与相机位姿
-    CharacterControllerSystem ..> EngineConfig : 初始化参数
+    CharacterControllerSystem ..> CharacterController : 仅选中的玩家
+    CharacterControllerSystem ..> CharacterMotor : 物理前提交意图
+    CharacterControllerSystem ..> CharacterCamera : 可选观察方向
+    CharacterCameraSystem --> WorldSystem : 借用
+    CharacterCameraSystem --> PhysicsSystem : 借用并做避障查询
+    CharacterCameraSystem ..> CharacterCamera : 物理后更新
+    CharacterCameraSystem ..> Camera : 当前视图隐藏列表
+    CharacterCameraSystem ..> CharacterVisual : 子树内表现分类
+    CharacterCameraSystem ..> MeshRenderer : 只读取稳定实例ID
 ```
 
-控制器是普通节点组件，可持久保存与恢复。相机引用是同场景 `NodeInfo.id`，相机节点须为根且带 Camera/Transform。一个相机同一时刻仅由一个启用控制器驱动。角色节点须另有 CharacterMotor；缺失依赖通过返回值报告。
-
-第一人称相机放在脚底上方 `eye_height`，第三人称沿观察方向后退 `camera_distance`，球体扫掠限制其距离，避免穿墙。移动方向相对观察 yaw，斜向输入归一化；鼠标位移乘灵敏度，pitch 限定范围；Tab 切换模式。输入为瞬态，按键和鼠标读取可由可空 WindowSystem 提供，也可由调用方显式 `set_input`。
-
-正常宿主将控制器系统装在物理系统之后：使用当前物理位置更新相机，输入提交给下一次物理步进；输入存在一帧延迟。没有窗口的调用方也可显式控制 `controller.tick → physics.tick → controller.update_cameras()` 的顺序。插件只负责输入与相机策略，不决定玩法、资源加载或渲染；MCP 与编辑器通过组件设置及宿主调用同一能力。
-
-第一人称隐藏角色自身子树 MeshRenderer 的瞬态可见性，避免头部和身体挡住相机；动画仍继续采样。切回第三人称、禁用/移除控制器、节点移出子树或关闭系统时恢复每个 MeshRenderer 原先的可见值。记录只保存场景/节点及网格组件实例身份，不持有跨帧指针；不更改持久 enabled 或场景文件。
+- `CharacterController` 只保存移动速度、跳跃速度、观察灵敏度和可空相机节点引用。`set_player(node)` 显式选中当前场景的一个玩家，传空解除选择；未显式选择时只允许唯一启用玩家组件，多个候选返回失败，绝不广播一份输入。无相机时按角色朝向移动。输入每帧消费一次；控制器移除、禁用、替换、换场景或系统关闭，按场景/节点/组件实例身份撤销原主动意图，不能清掉 NPC 的请求或外部击退。
+- `CharacterCamera` 挂在普通 Camera 节点，独立引用目标节点，可跟随没有玩家组件的 NPC 或其他物体。模式、眼高、距离、俯仰范围和避障参数由自己的 FlatBuffers 数据保存。观察角为瞬态；镜头在物理后取最终位置，第三人称使用现有 Jolt 球扫掠避障，第一人称位于目标眼高。
+- `CharacterVisual` 标记身体、头部或第一人称手/武器，子树使用最近的标记，默认身体。第一人称只从自己的镜头隐藏身体/头部，第一人称手/武器仅向对应第一人称镜头显示。其他镜头仍看得到身体。本插件独占场景 Camera 的瞬态隐藏实例列表；过滤使用该列表，不修改 MeshRenderer 的全局可见性；角色身体继续投射阴影，禁用动画与可见性无关。
+- 正式宿主按脚本/玩家意图、物理、动画、跟随相机、音频的顺序装配系统。核心不包含具体插件，插件的物理前/后安装入口由宿主提供；测试必须使用同一顺序。
+- 原控制器中的相机参数迁移为相机节点上的 `character_camera`，其目标为角色节点；美术部件可挂 `character_visual`。二进制 schema 保留已废弃字段的编号，源场景显式迁移并重新导入，不在运行时偷偷创建相机或修改场景结构。

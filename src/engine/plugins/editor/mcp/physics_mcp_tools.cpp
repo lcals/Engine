@@ -16,7 +16,8 @@ bool register_physics_tools(McpSystem& system, EditorMcpTools& editor)
                 {"maxSlopeDegrees", number},
                 {"stepHeight", number},
                 {"groundSnapDistance", number},
-                {"gravityFactor", number}}) &&
+                {"gravityFactor", number},
+                {"externalDamping", {{"type", "number"}, {"minimum", 0}, {"maximum", 1000}}}}) &&
            tools::component_tool(system, editor, "get_character_motor",
                                  "Read character motor collision settings.", Json::object()) &&
            tools::component_tool(

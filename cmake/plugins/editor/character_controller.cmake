@@ -1,6 +1,8 @@
 function(engine_configure_character_controller_editor_plugin)
     add_library(engine_character_controller_editor STATIC
-                src/engine/plugins/editor/character_controller/character_controller_codec.cpp)
+                src/engine/plugins/editor/character_controller/character_controller_codec.cpp
+                src/engine/plugins/editor/character_controller/character_camera_codec.cpp
+                src/engine/plugins/editor/character_controller/character_visual_codec.cpp)
     add_library(engine::character_controller_editor ALIAS engine_character_controller_editor)
     target_include_directories(engine_character_controller_editor
                                PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -16,6 +18,8 @@ function(engine_configure_character_controller_editor_plugin)
         target_sources(
             engine_character_controller_editor
             PRIVATE src/engine/plugins/editor/character_controller/character_controller_commands.cpp
+                    src/engine/plugins/editor/character_controller/character_camera_commands.cpp
+                    src/engine/plugins/editor/character_controller/character_visual_commands.cpp
         )
         target_link_libraries(engine_character_controller_editor PRIVATE engine::editor)
     endif()
@@ -27,7 +31,9 @@ function(engine_configure_character_controller_editor_plugin)
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
         add_library(
             engine_character_controller_mcp_tools STATIC
-            src/engine/plugins/editor/character_controller/character_controller_mcp_tools.cpp)
+            src/engine/plugins/editor/character_controller/character_controller_mcp_tools.cpp
+            src/engine/plugins/editor/character_controller/character_camera_mcp_tools.cpp
+            src/engine/plugins/editor/character_controller/character_visual_mcp_tools.cpp)
         add_library(engine::character_controller_mcp_tools ALIAS
                     engine_character_controller_mcp_tools)
         target_include_directories(engine_character_controller_mcp_tools

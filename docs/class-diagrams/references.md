@@ -127,16 +127,16 @@ classDiagram
     class UiSystem
     class AudioSystem
     class ScriptRuntime
-    WorldSystem "1" *-- "0..1" PhysicsSystem : 第一个子系统
-    WorldSystem "1" *-- "0..1" NavigationSystem : 第二个子系统
-    WorldSystem "1" *-- "0..1" AnimationSystem : 第三个子系统
-    WorldSystem "1" *-- "0..1" FontSystem : 第四个子系统
-    WorldSystem "1" *-- "0..1" UiSystem : 第五个子系统
-    WorldSystem "1" *-- "0..1" AudioSystem : 第六个子系统
-    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第七子系统
+    WorldSystem "1" *-- "0..1" FontSystem : 首先初始化字体
+    WorldSystem "1" *-- "0..1" UiSystem : 字体之后
+    WorldSystem "1" *-- "0..1" NavigationSystem : UI 之后
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 物理前提交业务意图
+    WorldSystem "1" *-- "0..1" PhysicsSystem : 脚本及玩家意图之后
+    WorldSystem "1" *-- "0..1" AnimationSystem : 物理之后
+    WorldSystem "1" *-- "0..1" AudioSystem : 动画及宿主相机系统之后
 ```
 
-RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
+RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统先推进世界，子系统按登记顺序执行：字体、UI、导航、脚本、宿主玩家意图、物理、动画、宿主相机、音频。`RuntimeSetup(RuntimeStage, ...)` 仅在初始化装配时调用两次，将可选系统分别登记到物理之前及动画之后；不增加逐帧阶段框架。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
 
 每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
 

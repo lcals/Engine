@@ -189,7 +189,10 @@ def contents(reply):
     return json.loads(reply["result"]["content"][0]["text"])
 
 
-def test(mcp, root, temporary, without_modeling=False, without_character_controller=False):
+def test(
+    mcp, root, temporary, without_modeling=False, without_character_controller=False,
+    without_scene_bake=False,
+):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
     runtime = temporary / "runtime"
@@ -267,6 +270,12 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
         "set_render_settings",
         "capture_frame",
         "get_frame_capture",
+        "set_render_stats",
+        "open_scene_preview",
+        "close_scene_preview",
+        "get_scene_preview",
+        "refresh_scene_preview",
+        "set_preview_camera",
         "modeling_help",
         "modeling_create",
         "modeling_get",
@@ -281,9 +290,19 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
     }
     if without_modeling:
         expected_tools = {name for name in expected_tools if not name.startswith("modeling_")}
-    controller_tools = {"set_character_controller", "get_character_controller"}
+    controller_tools = {
+        "set_character_controller",
+        "get_character_controller",
+        "set_character_camera",
+        "get_character_camera",
+        "set_character_visual",
+        "get_character_visual",
+    }
     if not without_character_controller:
         expected_tools.update(controller_tools)
+    scene_bake_tools = {"bake_scene", "get_scene_bake", "cancel_scene_bake"}
+    if not without_scene_bake:
+        expected_tools.update(scene_bake_tools)
     actual_tools = {tool["name"] for tool in replies[0]["result"]["tools"]}
     require(
         actual_tools == expected_tools,
@@ -296,6 +315,15 @@ def test(mcp, root, temporary, without_modeling=False, without_character_control
             require(
                 unavailable.get("error", {}).get("message") == "Unknown tool",
                 f"disabled character controller plugin still exposes {name}",
+            )
+    if without_scene_bake:
+        names = sorted(scene_bake_tools)
+        unavailable = invoke(mcp, project, runtime, [call(name) for name in names])
+        require(len(unavailable) == len(names), "missing disabled scene bake tool replies")
+        for name, reply in zip(names, unavailable):
+            require(
+                reply.get("error", {}).get("message") == "Unknown tool",
+                f"disabled scene bake plugin still exposes {name}",
             )
     if without_modeling:
         unavailable = invoke(mcp, project, runtime, [call("modeling_help")])[0]
@@ -550,6 +578,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Validate that the optional character controller MCP adapter is absent",
     )
+    parser.add_argument(
+        "--without-scene-bake",
+        action="store_true",
+        help="Validate that the optional scene bake MCP adapter is absent",
+    )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="engine-script-tooling-") as directory:
         test(
@@ -558,5 +591,6 @@ if __name__ == "__main__":
             Path(directory).resolve(),
             without_modeling=arguments.without_modeling,
             without_character_controller=arguments.without_character_controller,
+            without_scene_bake=arguments.without_scene_bake,
         )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

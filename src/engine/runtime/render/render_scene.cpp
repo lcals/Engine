@@ -190,7 +190,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         for (const auto& node : scene->nodes())
         {
             const MeshRenderer* renderer = node->get_component<MeshRenderer>();
-            if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+            if (renderer == nullptr || !renderer->enabled() || !renderer->visible() ||
+                !camera.mesh_visible(renderer->mesh_instance_id()))
             {
                 continue;
             }
