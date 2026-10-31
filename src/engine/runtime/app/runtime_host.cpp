@@ -71,7 +71,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto audio_system = std::make_unique<AudioSystem>(world.get());
     audio_ = audio_system.get();
     std::unique_ptr<System> audio = std::move(audio_system);
-    std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
+    auto navigation_system = std::make_unique<NavigationSystem>();
+    auto* navigation_ptr = navigation_system.get();
+    std::unique_ptr<System> navigation = std::move(navigation_system);
     auto animation_system = std::make_unique<AnimationSystem>(world.get());
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
@@ -92,7 +94,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world, *renderer, *ui_, *physics_);
+        auto script_system = script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))

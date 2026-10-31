@@ -21,6 +21,7 @@ class DestructionComponent {
 +restore_data(ComponentDataT data) bool
 +damage_sphere(Vec3 center, float radius, float damage, float impulse) bool
 +refresh_support(Collider support, float max_gap, float min_coverage) bool
++apply_stress(Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(uint64_t node_id) bool
 +reset() bool
 +snapshot(ByteBuffer output) bool
@@ -40,6 +41,7 @@ class DestructionSystem {
 +rebuild(DestructionComponent component, DestructionGraph candidate, bool preserve) bool
 +damage(DestructionComponent component, Vec3 center, float radius, float damage, float impulse) bool
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
++apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
 +reset(DestructionComponent component) bool
 +snapshot(DestructionComponent component, DestructionStateDataT output) bool
@@ -75,7 +77,7 @@ DestructionSystem ..> DestructionGraph : candidate clone
 不保存 Blast ABI 内存。状态恢复先校验再提交；正常场景保存只保存初始资源与组件配置。
 
 系统在物理前由父系统驱动；编辑器预览调用 synchronize，不直接 tick 子系统。
-承重应力、导航与异步任务保留既有后续顺序。
+承重应力使用下述显式步骤 4 接口；导航与异步任务保留后续顺序。
 
 编辑器单对象事务调用 `synchronize(Node&)`，只发布或回收该节点的输出；
 每帧全局同步仍负责扫描和调度，不在编辑某一个对象时顺带发布其他待处理对象。
@@ -99,3 +101,22 @@ DestructionSystem ..> DestructionGraph : candidate clone
 
 `owns_fragment` 只查询当前活动场景中该组件生成的组节点，不向核心增加归属知识，
 不保留节点引用。失败、组件移除或场景更换后不会报告旧节点归属。
+
+## 显式承重应力（步骤 4）
+
+`apply_stress` 由调用方在固定频率调用，每次使用官方 Blast ExtStress 的标量 CGNR
+求解及损伤公式执行一次重力应力更新；不自行增加连接/应力算法，不隐式 tick。
+`elastic_limit`、`fatal_limit` 单位 Pa，同时用于压缩、拉伸与剪切，要求
+`0 < elastic_limit <= fatal_limit`；迭代数 1..1000。返回 bool 表示查询与发布成功，
+`broken_bonds` 输出本次完全断裂的连接数，失败清零；部分损伤仍通过 bond health 保存。
+求解未在预算内收敛或输出非有限值时返回失败，不发布近似损伤。
+官方损伤按调用次数累计，调用方固定频率调度，而非以不同帧率直接调用。
+
+仅对当前仍有 world bond 的组施加重力。求解使用每组当前姿态转换后的重力，
+按正等比缩放校正质量/面积带来的压力尺度；脱离地基的组交由 Jolt 下落，
+不在自由落体中错误地施加静态承重。候选图完成所有计算后统一提交，
+保留碎块当前姿态与速度，失败丢弃候选；无血量变化不重建、不增加 revision。
+首次实现每次从当前图创建临时求解器，保证损伤、地基撤销及状态恢复后无陈旧求解缓存。
+临时 family 把项目 health 换算成连接剩余面积后求解，再把受损比例换回项目单位；
+Pa 阈值与项目损伤计数解耦。
+该方法只计算重力承载，不含接触应力、外力、疲劳时间模型或非等比形变。

@@ -200,6 +200,44 @@ bool run(Fixture& fixture)
     {
         return false;
     }
+    auto stress = identity;
+    stress["gravity"] = {0, -9.81, 0};
+    stress["elasticLimit"] = 1e8;
+    stress["fatalLimit"] = 2e8;
+    stress["iterations"] = 500;
+    const auto before_stress = component->revision();
+    ByteBuffer intact_stress;
+    ByteBuffer checked_stress;
+    if (!expect(component->snapshot(intact_stress) && call("destruction_apply_stress", stress) &&
+                    component->revision() == before_stress && call("undo", scene_identity) &&
+                    call("redo", scene_identity) && component->revision() == before_stress &&
+                    component->snapshot(checked_stress) && checked_stress == intact_stress,
+                "safe stress and its undo/redo preserve physical state and node revision", error))
+    {
+        return false;
+    }
+    auto invalid_stress = stress;
+    invalid_stress["iterations"] = 1.5;
+    if (!expect(!call("destruction_apply_stress", invalid_stress) &&
+                    component->snapshot(checked_stress) && checked_stress == intact_stress,
+                "stress command rejects fractional iteration counts before publication"))
+    {
+        return false;
+    }
+    stress["elasticLimit"] = 10;
+    stress["fatalLimit"] = 20;
+    ByteBuffer stressed;
+    if (!expect(call("destruction_apply_stress", stress) && component->group_count() > 1 &&
+                    component->snapshot(stressed) && stressed != intact_stress &&
+                    call("undo", scene_identity) && component->snapshot(checked_stress) &&
+                    checked_stress == intact_stress && call("redo", scene_identity) &&
+                    component->snapshot(checked_stress) && checked_stress == stressed &&
+                    call("destruction_reset", identity),
+                "stress command, undo and redo restore exact Blast and physical snapshots",
+                error))
+    {
+        return false;
+    }
     const auto scene_revision = commands.mutation_revision();
     auto damage = identity;
     damage["center"] = {0, 5, 0};

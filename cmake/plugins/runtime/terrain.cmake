@@ -5,6 +5,7 @@ function(engine_configure_terrain_plugin)
     engine_add_system(plugins/runtime terrain)
     target_sources(engine_terrain PRIVATE
         src/engine/plugins/runtime/terrain/terrain_component.cpp
+        src/engine/plugins/runtime/terrain/terrain_islands.cpp
         src/engine/plugins/runtime/terrain/terrain_volume.cpp)
     target_include_directories(engine_terrain SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party/transvoxel")
     target_link_libraries(engine_terrain PUBLIC engine::world engine::physics engine::resource

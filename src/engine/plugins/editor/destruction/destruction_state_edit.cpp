@@ -37,6 +37,22 @@ DestructionStateEdit::DestructionStateEdit(WorldSystem& world, std::uint64_t sce
     min_coverage_ = min_coverage;
 }
 
+DestructionStateEdit::DestructionStateEdit(WorldSystem& world, std::uint64_t scene,
+                                           std::shared_ptr<std::uint64_t> node,
+                                           std::shared_ptr<std::uint64_t> revision,
+                                           schema::ComponentDataT settings, ByteBuffer before,
+                                           Vec3 gravity, float elastic_limit, float fatal_limit,
+                                           std::uint32_t iterations)
+    : DestructionStateEdit(world, scene, std::move(node), std::move(revision), std::move(settings),
+                           std::move(before), false, {}, 0, 0, 0)
+{
+    stress_ = true;
+    gravity_ = gravity;
+    elastic_limit_ = elastic_limit;
+    fatal_limit_ = fatal_limit;
+    iterations_ = iterations;
+}
+
 bool DestructionStateEdit::affects_scene() const noexcept
 {
     return false;
@@ -71,7 +87,19 @@ bool DestructionStateEdit::apply(std::string& error)
     if (after_.empty())
     {
         bool applied = false;
-        if (support_)
+        if (stress_)
+        {
+            const auto before_revision = component->revision();
+            std::uint32_t broken = 0;
+            applied = component->apply_stress(gravity_, elastic_limit_, fatal_limit_, iterations_,
+                                               broken);
+            no_change_ = applied && component->revision() == before_revision;
+            if (no_change_)
+            {
+                return true;
+            }
+        }
+        else if (support_)
         {
             const auto* support_node = component->node().scene().find_node(*support_);
             const auto* collider = support_node ? support_node->get_component<Collider>() : nullptr;

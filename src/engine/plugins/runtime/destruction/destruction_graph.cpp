@@ -4,6 +4,7 @@
 
 #include <NvBlast.h>
 #include <NvBlastExtDamageShaders.h>
+#include <NvBlastExtStressSolver.h>
 
 #include <algorithm>
 #include <cmath>
@@ -428,6 +429,142 @@ bool DestructionGraph::release_anchors(std::span<const std::uint32_t> chunk_ids,
             return false;
         }
     }
+    return true;
+}
+
+bool DestructionGraph::apply_stress(std::uint32_t group_id, const schema::Vec3& gravity,
+                                    float density, float elastic_limit, float fatal_limit,
+                                    std::uint32_t iterations, std::uint32_t& broken_bonds,
+                                    std::string& error)
+{
+    broken_bonds = 0;
+    error.clear();
+    if (!impl_ || !finite(gravity) || !std::isfinite(density) || density <= 0 ||
+        density > 100000 || !std::isfinite(elastic_limit) || elastic_limit <= 0 ||
+        !std::isfinite(fatal_limit) || fatal_limit < elastic_limit || iterations == 0 ||
+        iterations > 1000)
+    {
+        error = "Invalid destruction gravity stress parameters";
+        return false;
+    }
+    const auto group = std::find_if(impl_->groups.begin(), impl_->groups.end(),
+                                    [group_id](const auto& value) { return value.id == group_id; });
+    if (group == impl_->groups.end())
+    {
+        error = "Destruction stress group no longer exists";
+        return false;
+    }
+    if (!group->anchored || (gravity.x() == 0 && gravity.y() == 0 && gravity.z() == 0))
+    {
+        return true;
+    }
+    // ExtStress interprets bond health as remaining load-bearing area, while this engine's
+    // damage API uses project-defined health. Solve in a private family with physical areas
+    // and translate only the affected fractions back, preserving all existing damage units.
+    const auto before = healths();
+    const auto* asset_bonds = NvBlastAssetGetBonds(impl_->asset->asset, nullptr);
+    std::vector<float> physical_health(before.size());
+    for (std::size_t i = 0; i < before.size(); ++i)
+    {
+        const auto stable = asset_bonds[i].userData;
+        physical_health[stable] = asset_bonds[i].area *
+                                  (before[stable] / impl_->asset->initial_health[stable]);
+        if (!std::isfinite(physical_health[stable]) ||
+            (before[stable] > 0 && physical_health[stable] <= 0))
+        {
+            error = "Destruction stress bond area cannot represent its remaining health";
+            return false;
+        }
+    }
+    DestructionGraph physical;
+    if (!clone(physical, error) || !physical.impl_->reset(physical_health, error))
+    {
+        return false;
+    }
+    auto& working = *physical.impl_;
+    Nv::Blast::ExtStressSolverSettings settings;
+    settings.maxSolverIterationsPerFrame = iterations;
+    settings.graphReductionLevel = 0;
+    settings.compressionElasticLimit = elastic_limit;
+    settings.compressionFatalLimit = fatal_limit;
+    // Negative tension/shear limits inherit compression, as specified by the SDK.
+    const auto release = [](Nv::Blast::ExtStressSolver* value) { value->release(); };
+    std::unique_ptr<Nv::Blast::ExtStressSolver, decltype(release)> solver(
+        Nv::Blast::ExtStressSolver::create(*working.family, settings), release);
+    if (!solver)
+    {
+        error = "Cannot create Blast stress solver";
+        return false;
+    }
+    solver->setAllNodesInfoFromLL(density);
+    for (const auto& current : working.groups)
+    {
+        auto* actor = NvBlastFamilyGetChunkActor(working.family, current.id, nullptr);
+        if (!actor)
+        {
+            error = "Cannot resolve Blast stress actor";
+            return false;
+        }
+        // false means a bondless actor is intentionally excluded, not initialization failure.
+        (void)solver->notifyActorCreated(*actor);
+    }
+    auto* actor = NvBlastFamilyGetChunkActor(working.family, group_id, nullptr);
+    if (!solver->addGravity(*actor, {static_cast<float>(gravity.x()),
+                                    static_cast<float>(gravity.y()),
+                                    static_cast<float>(gravity.z())}))
+    {
+        error = "Cannot apply gravity to the anchored Blast actor";
+        return false;
+    }
+    solver->update();
+    if (!solver->converged() || !std::isfinite(solver->getStressErrorLinear()) ||
+        !std::isfinite(solver->getStressErrorAngular()))
+    {
+        error = "Blast stress solve did not converge within the iteration budget";
+        return false;
+    }
+    if (solver->getOverstressedBondCount() == 0)
+    {
+        return true;
+    }
+    NvBlastFractureBuffers commands{};
+    solver->generateFractureCommands(*actor, commands);
+    if (commands.bondFractureCount == 0)
+    {
+        return true;
+    }
+    for (std::uint32_t i = 0; i < commands.bondFractureCount; ++i)
+    {
+        if (!std::isfinite(commands.bondFractures[i].health) ||
+            commands.bondFractures[i].health < 0)
+        {
+            error = "Blast stress produced invalid fracture damage";
+            return false;
+        }
+    }
+    NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+    // The solver borrows family/actor state. Release it before actors are replaced by Split.
+    solver.reset();
+    if (!working.split(actor, error))
+    {
+        return false;
+    }
+    const auto after = physical.healths();
+    auto converted = before;
+    std::uint32_t count = 0;
+    for (std::size_t i = 0; i < before.size(); ++i)
+    {
+        if (physical_health[i] > 0 && after[i] < physical_health[i])
+        {
+            converted[i] = before[i] * (after[i] / physical_health[i]);
+            count += converted[i] <= 0 ? 1U : 0U;
+        }
+    }
+    if (converted != before && !restore_health(converted, error))
+    {
+        return false;
+    }
+    broken_bonds = count;
     return true;
 }
 

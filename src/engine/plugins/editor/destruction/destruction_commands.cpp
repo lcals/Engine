@@ -294,6 +294,60 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
     {
         return false;
     }
+    if (!commands.register_command(
+            "destruction_apply_stress", true,
+            [&world, &scene_commands, revisions](const Json& arguments, Json& result,
+                                                 std::unique_ptr<editor::EditorEdit>& edit,
+                                                 std::string& error)
+            {
+                if (!editor::components::fields(
+                        arguments, {"gravity", "elasticLimit", "fatalLimit", "iterations"}, error))
+                {
+                    return false;
+                }
+                auto* component = target(world, arguments, error);
+                Vec3 gravity;
+                float elastic_limit = 0;
+                float fatal_limit = 0;
+                if (!component || !component->ready() || !arguments.contains("gravity") ||
+                    !editor::components::vector(arguments["gravity"], gravity) ||
+                    !arguments.contains("elasticLimit") ||
+                    !editor::components::number(arguments["elasticLimit"], elastic_limit) ||
+                    elastic_limit <= 0 || !arguments.contains("fatalLimit") ||
+                    !editor::components::number(arguments["fatalLimit"], fatal_limit) ||
+                    fatal_limit < elastic_limit || !arguments.contains("iterations") ||
+                    !arguments["iterations"].is_number_integer() ||
+                    arguments["iterations"] < 1 || arguments["iterations"] > 1000)
+                {
+                    if (error.empty())
+                    {
+                        error = "Stress requires a ready destruction object, finite gravity, "
+                                "0 < elasticLimit <= fatalLimit and integer iterations in [1,1000]";
+                    }
+                    return false;
+                }
+                auto identity = scene_commands.node_identity(component->node().id());
+                ByteBuffer before;
+                schema::ComponentDataT settings;
+                if (!identity || !component->snapshot(before) || !component->build_data(settings))
+                {
+                    error = "Cannot snapshot destruction stress state";
+                    return false;
+                }
+                result = {{"sceneId", std::to_string(component->node().scene().id())},
+                          {"nodeId", std::to_string(component->node().id())},
+                          {"operation", "apply_stress"},
+                          {"undoable", true}};
+                edit = std::make_unique<DestructionStateEdit>(
+                    world, component->node().scene().id(), std::move(identity),
+                    edit_revision(*revisions, component->node(), component), std::move(settings),
+                    std::move(before), gravity, elastic_limit, fatal_limit,
+                    arguments["iterations"].get<std::uint32_t>());
+                return true;
+            }))
+    {
+        return false;
+    }
     for (const bool reset : {false, true})
     {
         if (!commands.register_command(

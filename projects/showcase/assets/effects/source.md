@@ -13,7 +13,8 @@
 
 ## 综合破坏场景的原创特效
 
-- `destruction/dust.efkefc` 和 `destruction/burst.efkefc` 的节点、发射、颜色、速度、大小及渐隐参数为本项目原创，由 `scripts/showcase_destruction_effects/program.cs` 调用上述固定版本 Effekseer 官方 C# 数据模型和 `Core.SaveTo` 导出。文件保留官方编辑数据，可以继续用 Effekseer 打开调整；没有自行实现二进制编码器或粒子渲染器。
+- `destruction/dust.efkefc`、`destruction/burst.efkefc` 和步骤 4 的 `destruction/rocket-trail.efkefc` 的节点、发射、颜色、速度、大小及渐隐参数为本项目原创，由 `scripts/showcase_destruction_effects/program.cs` 调用上述固定版本 Effekseer 官方 C# 数据模型和 `Core.SaveTo` 导出。文件保留官方编辑数据，可以继续用 Effekseer 打开调整；没有自行实现二进制编码器或粒子渲染器。
 - `destruction/textures/smoke.png`、`particle-soft.png` 分别原样取自上述固定版本 efkbgfx 的 `Texture/Smoke.png`、`Texture/Particle_Soft.png`，继续保留本目录的 MIT 许可。Smoke 是 2×2 图集，灰尘节点通过 UV 参数选择第一格，没有修改贴图字节。
+- 步骤 4 的爆破增加原创扩散火球参数；火箭尾迹由连续发射的加色尾焰和透明烟雾节点组成，粒子在创建时继承位置/旋转，使用同两张公开贴图。运行时普通 EffectComponent 在命中、寿命结束、Reset/退出时显式停止，不增加专用引擎粒子路径。
 - 使用普通 CPU sprite、预定义默认材质、透明混合/加色混合，未使用自定义材质、GPU 粒子或特效内嵌音频。对应邻接 meta 映射真实纹理依赖，音频由场景的独立 AudioSource 播放。
 - `audio/destruction-blast.wav` 与 `audio/destruction-debris.wav` 为 `scripts/create_showcase_destruction_integration.py` 确定性合成的原创 48 kHz 单声道 PCM16，无外部录音采样；运行时仍通过标准音频导入管线。

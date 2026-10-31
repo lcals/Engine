@@ -73,8 +73,8 @@ internal static class Program
         Dust(smoke, burst);
         if (burst)
         {
-            var sparks = Sprite("Hot fragments", particle, 36, 34, 255, 158, 58, 255, true);
-            Vector(sparks.LocationValues.PVA.Velocity, 0, 0.13f, 0, 0.2f, 0.1f, 0.2f);
+            var sparks = Sprite("Hot fragments", particle, 100, 42, 255, 158, 58, 255, true);
+            Vector(sparks.LocationValues.PVA.Velocity, 0, 0.18f, 0, 0.32f, 0.18f, 0.32f);
             Vector(sparks.LocationValues.PVA.Acceleration, 0, -0.003f, 0);
             Range(sparks.ScalingValues.SinglePVA.Scale, 0.28f, 0.1f);
             var flash = Sprite("Blast flash", particle, 1, 12, 255, 210, 125, 255, true);
@@ -82,9 +82,46 @@ internal static class Program
             Range(flash.ScalingValues.SinglePVA.Scale, 4.0f);
             Range(flash.ScalingValues.SinglePVA.Velocity, 0.18f);
             flash.RendererCommonValues.EmissiveScaling.SetValue(3.5f);
+            var fire = Sprite("Expanding fireball", particle, 14, 24, 255, 95, 22, 210, true);
+            Vector(fire.LocationValues.PVA.Location, 0, 0.5f, 0, 0.65f, 0.4f, 0.65f);
+            Vector(fire.LocationValues.PVA.Velocity, 0, 0.04f, 0, 0.08f, 0.07f, 0.08f);
+            Range(fire.ScalingValues.SinglePVA.Scale, 1.8f, 0.6f);
+            Range(fire.ScalingValues.SinglePVA.Velocity, 0.07f);
+            fire.RendererCommonValues.EmissiveScaling.SetValue(2.5f);
         }
         Core.SaveTo(path);
         Console.WriteLine($"Exported {Path.GetFileName(path)} with official Effekseer {Core.Version}");
+    }
+
+    private static void MakeTrail(string path, string smoke, string particle)
+    {
+        Core.New();
+        Core.Root.ClearChildren();
+        Core.Root.SetFullPath(Path.GetFullPath(path));
+        Core.EndFrame = 300;
+        Core.IsLoop = false;
+        var exhaust = Sprite("Rocket exhaust", particle, 1, 16, 255, 165, 52, 245, true);
+        exhaust.CommonValues.MaxGeneration.Infinite.SetValue(true);
+        Range(exhaust.CommonValues.Generation.GenerationTime, 1.0f);
+        exhaust.CommonValues.LocationEffectType.SetValue(TranslationParentEffectType.WhenCreating);
+        exhaust.CommonValues.RotationEffectType.SetValue(ParentEffectType.WhenCreating);
+        Vector(exhaust.LocationValues.PVA.Location, 0, 0, 0.6f, 0.04f, 0.04f, 0);
+        Vector(exhaust.LocationValues.PVA.Velocity, 0, 0, 0.08f);
+        Range(exhaust.ScalingValues.SinglePVA.Scale, 0.5f, 0.12f);
+        exhaust.RendererCommonValues.EmissiveScaling.SetValue(4.0f);
+        var plume = Sprite("Rocket smoke trail", smoke, 1, 45, 165, 153, 130, 135, false);
+        plume.CommonValues.MaxGeneration.Infinite.SetValue(true);
+        Range(plume.CommonValues.Generation.GenerationTime, 2.0f);
+        plume.CommonValues.LocationEffectType.SetValue(TranslationParentEffectType.WhenCreating);
+        plume.CommonValues.RotationEffectType.SetValue(ParentEffectType.WhenCreating);
+        Vector(plume.LocationValues.PVA.Location, 0, 0, 0.7f);
+        Range(plume.ScalingValues.SinglePVA.Scale, 0.42f, 0.1f);
+        Range(plume.ScalingValues.SinglePVA.Velocity, 0.015f);
+        plume.RendererCommonValues.UV.SetValue(RendererCommonValues.UVType.Fixed);
+        plume.RendererCommonValues.UVFixed.Size.X.SetValue(256);
+        plume.RendererCommonValues.UVFixed.Size.Y.SetValue(256);
+        Core.SaveTo(path);
+        Console.WriteLine("Exported rocket-trail.efkefc with official Effekseer exporter");
     }
 
     private static int Main(string[] args)
@@ -106,6 +143,7 @@ internal static class Program
         Core.Initialize();
         MakeEffect(Path.Combine(target, "dust.efkefc"), smoke, particle, false);
         MakeEffect(Path.Combine(target, "burst.efkefc"), smoke, particle, true);
+        MakeTrail(Path.Combine(target, "rocket-trail.efkefc"), smoke, particle);
         return 0;
     }
 }

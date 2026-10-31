@@ -35,6 +35,9 @@ public:
                               float radius, float damage, float impulse);
     [[nodiscard]] bool refresh_support(DestructionComponent& component, const Collider& support,
                                        float max_gap, float min_coverage);
+    [[nodiscard]] bool apply_stress(DestructionComponent& component, const schema::Vec3& gravity,
+                                     float elastic_limit, float fatal_limit,
+                                     std::uint32_t iterations, std::uint32_t& broken_bonds);
     [[nodiscard]] bool owns_fragment(const DestructionComponent& component,
                                      std::uint64_t node_id) const noexcept;
     [[nodiscard]] bool reset(DestructionComponent& component);

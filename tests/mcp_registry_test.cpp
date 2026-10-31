@@ -154,7 +154,7 @@ bool exercise_terrain_tools()
     if (!check(engine::plugins::terrain::register_terrain_mcp_tools(mcp, editor) &&
                    mcp.initialize({}),
                "terrain tools register schemas supported by the MCP protocol") ||
-        !check(mcp.list_tools()["tools"].size() == 7,
+        !check(mcp.list_tools()["tools"].size() == 9,
                "all terrain creation, component, brush and state tools are discoverable"))
     {
         return false;
@@ -168,6 +168,9 @@ bool exercise_terrain_tools()
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", -1}}},
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", 10001}}},
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0})}, {"radius", 2}}},
+          std::pair{"terrain_collapse_detached",
+                    Json{{"minSamples", 8}, {"maxFragments", 129}, {"fragmentCells", 2},
+                         {"density", 250}}},
           std::pair{
               "terrain_brush",
               Json{{"center", Json::array({0, 0, 0})}, {"radius", 2}, {"operation", "unknown"}}}})
@@ -191,7 +194,7 @@ bool exercise_destruction_tools()
     engine::plugins::mcp::EditorMcpTools editor({}, {});
     engine::plugins::mcp::McpSystem mcp;
     if (!check(engine::plugins::destruction::register_destruction_mcp_tools(mcp, editor) &&
-                   mcp.initialize({}) && mcp.list_tools()["tools"].size() == 6,
+                   mcp.initialize({}) && mcp.list_tools()["tools"].size() == 7,
                "destruction tools register supported schemas"))
     {
         return false;

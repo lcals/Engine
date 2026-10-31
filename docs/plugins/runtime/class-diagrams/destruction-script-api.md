@@ -22,6 +22,7 @@ DestructionBinding ..> DestructionComponent : validates scene and node handles
 | `DamageSphere(x, y, z, radius, damage, impulse = 0)` | 世界坐标球形损伤，官方 Blast falloff；独立物理冲量 |
 | `RefreshSupport(support: Collider, maxGap, minCoverage)` | 显式检查同场景指定碰撞体；多点覆盖不足则解除 world 支撑，不自动重新连接 |
 | `OwnsFragment(nodeId: bigint)` | 当前生成碎块组归属查询；失效 ID 返回 false |
+| `ApplyStress(x,y,z,elasticLimit,fatalLimit,iterations)` | 显式调用官方 Blast 应力；成功返回本次完全断裂连接数，失败 null；单位 Pa，由项目控制频率 |
 | `Reset()` | 恢复源资源图和初始组 |
 | `ready`、`revision`、`lastError` | 就绪、成功修改版本及错误 |
 | `chunkCount`、`groupCount`、`dynamicGroups` | 资产碎块、当前连接组及脱离支撑的组数 |

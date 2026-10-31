@@ -31,6 +31,10 @@ public:
                                      float impulse = 0);
     // Explicit single-collider foundation check, after its physics geometry is committed.
     [[nodiscard]] bool refresh_support(const Collider& support, float max_gap, float min_coverage);
+    // One explicit gravity-stress solve; pressure limits are Pa. Failure clears broken_bonds.
+    // Call at a fixed cadence: official Blast partial damage accumulates per call, not per dt.
+    [[nodiscard]] bool apply_stress(const Vec3& gravity, float elastic_limit, float fatal_limit,
+                                     std::uint32_t iterations, std::uint32_t& broken_bonds);
     [[nodiscard]] bool owns_fragment(std::uint64_t node_id) const noexcept;
     [[nodiscard]] bool reset();
     [[nodiscard]] bool snapshot(ByteBuffer& output) const;

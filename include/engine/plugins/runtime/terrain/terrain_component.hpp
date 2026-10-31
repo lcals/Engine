@@ -23,6 +23,9 @@ public:
     [[nodiscard]] bool set_settings(const schema::TerrainDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
     [[nodiscard]] bool apply_sphere(const Vec3& center, float radius, bool fill);
+    [[nodiscard]] bool collapse_detached(std::uint32_t min_samples, std::uint32_t max_fragments,
+                                         std::uint32_t fragment_cells = 4, float density = 1600);
+    [[nodiscard]] std::size_t fragment_count() const noexcept;
     [[nodiscard]] bool reset();
     [[nodiscard]] bool snapshot(ByteBuffer& output) const;
     [[nodiscard]] bool restore(ByteView bytes);
@@ -45,6 +48,9 @@ private:
     std::size_t triangles_ = 0;
     bool ready_ = false;
     bool pending_ = false;
+    // Remains true if generated nodes were externally removed or the system was shut down.
+    // A static-only state must never silently omit previously extracted soil.
+    bool detached_ = false;
     std::string last_error_;
 };
 

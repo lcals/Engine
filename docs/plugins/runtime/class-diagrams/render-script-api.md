@@ -112,3 +112,5 @@ classDiagram
 - 动态 MeshData 使用生成的 FlatBuffers C++ 数据，通过 MeshRenderer 提交；此脚本门面只声明已经绑定的接口。
 
 EnvironmentComponentBinding 与 PostProcessComponentBinding 各自独立实现 ScriptBinding，只通过 BindingContext 校验当前场景与节点后访问对应原生组件。Node.AddComponent/GetComponent 使用既有组件登记，无需新增节点专用接口。EnvironmentComponent 只允许一个启用组件参与渲染；PostProcessComponent 由活动场景相机节点提供，预览镜头借用同一份参数。Light.SetShadows 只支持方向光，分辨率、bias 与原生组件保持同一校验。
+
+步骤 4：Transform 脚本门面增加 `GetWorldPosition()` 与 `GetWorldForward()`，返回普通 `{x,y,z}` 值快照或 null。两者直接读取核心 world_matrix，forward 为归一化局部 -Z 世界方向；不改变持久数据或增加相机/武器专用核心接口。

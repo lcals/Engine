@@ -1,8 +1,8 @@
 # 地形与建筑破坏：跨平台及性能研究
 
-日期：2026-10-31。范围：官方源码、构建配置、步骤 0 的独立 ARM64 编译/运行验证，以及步骤 1 地形与步骤 2 建筑破坏正式插件的分阶段验证。结果区分上游声明、最小程序实测与正式引擎验证，不将独立探针或上游平台列表等同于全平台完成。
+日期：2026-10-31。范围：官方源码、构建配置、步骤 0 的独立 ARM64 编译/运行验证，以及步骤 1–4 的地形、破坏、联动、应力/塌方/导航分阶段验证。结果区分上游声明、最小程序实测与正式引擎验证，不将独立探针或上游平台列表等同于全平台完成。
 
-用户要求分步实现，并把全部功能测试放在第一个示例项目 `projects/showcase/`，允许自建场景和生成模型。步骤 1 同步地形插件和实验场已完成既定 Mac 验收；步骤 2 的建筑破坏插件及第七个实验场代码已接入，macOS Debug/Release 定向测试、MCP 窗口预览及最终正常菜单/UI 玩法流程已通过，按[总体方案](terrain-destruction-plan.md)继续推进。
+用户要求分步实现，并把全部功能测试放在第一个示例项目 `projects/showcase/`，允许自建场景和生成模型。步骤 1 同步地形插件和实验场已完成既定 Mac 验收；步骤 2 的建筑破坏插件及第七个实验场代码已接入，macOS Debug/Release 定向测试、MCP 窗口预览及最终正常菜单/UI 玩法流程已通过，步骤 3 的 Mac 联动窗口流程已通过；步骤 4 同步应力、土石、导航及火箭场代码已实现，Mac 定向测试和 Android 独立应力探针通过，窗口验收待补。按[总体方案](terrain-destruction-plan.md)继续推进。
 
 实施顺序补充（2026-10-31）：用户要求先同步实现功能，后面再移到其他线程异步处理。本文的后台准备、队列和预算分析作为后续优化依据，不是首版门槛；同步阶段先分开计算与安全提交，记录基线耗时。
 
@@ -11,12 +11,12 @@
 - 地形采用 CPU 体积数据处理、Transvoxel 网格与现有 bgfx 渲染，作为各平台共用路径。优先适配 Voxel Tools 相关算法，不引入整个 Godot，也不把它的 GPU 管线作为首版条件。
 - 新版 FastNoise2 有 ARM/NEON 支持，可作生成器候选；不能套用旧版本不支持 ARM 的结论。
 - Jolt 继续负责物理。步骤 1 已补通用瞬时网格碰撞提交，候选形状准备完成后安全替换；步骤 2 已增加官方凸包/compound 动态组接入，批量预算和后台调度仍需后续补齐，不能把这些工作归给 Blast。
-- Blast 已按模块接入：low-level 与官方损伤 Shader 提供连接损伤和结构拆分；ExtStress 上游默认构建存在明确 x86 依赖，社区已有保留原求解器的标量适配，优先复用这些补丁，不能直接宣布本引擎 ARM 应力已可用。离线 Authoring 只进入桌面编辑器，Mac 编译、定向测试与 MCP 预览流程已通过，验证明细和剩余范围见下文步骤 2。
+- Blast 已按模块接入：low-level 与官方损伤 Shader 提供连接损伤和结构拆分；ExtStress 上游默认构建存在明确 x86 依赖，步骤 4 已按固定社区补丁隔离 x86 专用路径，复用原标量求解器；Mac 正式定向测试及 Android ARM64 独立探针通过，不扩大为完整移动宿主或手机性能结论。离线 Authoring 只进入桌面编辑器，Mac 编译、定向测试与 MCP 预览流程已通过，验证明细和剩余范围见下文步骤 2。
 - Windows、macOS、Linux、Android、iOS 是技术评估范围；iOS 的第三方可行性不代表 Engine 宿主及打包链已经完整实现。平台差异集中在依赖适配与构建配置，不进入项目玩法。
 
 ## 核对基线
 
-以下为固定研究基线。Transvoxel 和 Blast 已以表中版本登记为正式插件子模块；Blast 仅启用 low-level、ExtShaders 和编辑器 Authoring，不代表 Toolkit、ExtStress 或整套示例已接入。Voxel Tools 和 FastNoise2 仍是研究/后续候选。
+以下为固定研究基线。Transvoxel 和 Blast 已以表中版本登记为正式插件子模块；Blast 已启用 low-level、ExtShaders、步骤 4 ExtStress 标量路径和编辑器 Authoring；Toolkit 及整套示例未接入。Voxel Tools 的六邻域连通/浮岛提取思路已用于步骤 4，不引入整个 Godot；FastNoise2 仍是候选。
 
 | 上游 | 基线 |
 | --- | --- |
@@ -34,7 +34,7 @@
 | FastNoise2 | 官方声明 Windows/Linux/macOS/Android/iOS，含 NEON；主要 CI 有桌面平台 | Android/iOS 最小编译验证；API、序列化与 Voxel Tools 旧噪声包装不能直接混用 |
 | Jolt | 官方列出 Windows、macOS、Linux、Android、iOS 的对应架构，ARM64 使用 NEON | 新增瞬时碰撞与碎块能力必须单独验证，已有基础物理通过不等于新能力通过 |
 | Blast 基础库/Toolkit | 官方明确 Windows/Linux x64 构建路径；头文件有 Apple、Android、ARM 条件 | low-level 已完成步骤 0 的 Mac/Android ARM64 独立验证；步骤 2 正式 Mac 定向测试与 MCP 预览已通过；已完成的菜单玩法与其他平台限制见下文。Android 独立 Graph 检查不是完整 APK，Toolkit、iOS 未验收 |
-| Blast ExtStress | 现有实现使用 x86 SSE/AVX，Linux 配置还有 `-march=haswell` | ARM 原生编译存在障碍，Linux arm64 同样不能由配置名字推断可用 |
+| Blast ExtStress | 原实现使用 x86 SSE/AVX，Linux 配置还有 `-march=haswell` | 步骤 4 标量兼容补丁后通过 Mac 正式定向测试与 Android ARM64 独立探针；完整 Android 场景、iOS/Windows/Linux 集成及手机性能仍未验证 |
 | Blast Authoring | Windows/Linux 桌面构建路径 | Mac 已编译并通过预破碎/导入相关定向测试，三份示例资源已成功导入并用于窗口预览；设备只消费独立生成资源，不部署制作工具 |
 
 依据：[Voxel Tools 构建矩阵](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/.github/workflows/extension_builds.yml)、[FastNoise2 平台声明](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/README.md)、[FastNoise2 CI](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/.github/workflows/main.yml)、[Jolt 平台说明](https://github.com/jrouwe/JoltPhysics#supported-platforms)、[Blast 构建配置](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/premake5.lua)。
@@ -215,9 +215,64 @@ Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP
 `destruction-step3-final-blast.png`、`destruction-step3-final-walk-moved.png`、
 `destruction-step3-final-reset.png` 和 `destruction-step3-final-back.png`。
 
-本轮是平面底部实心预破碎试件的地基覆盖与撞击联动，不是完整楼体承重计算。
-土石塌方、ExtStress、导航、异步调度与综合世界存档仍未实现；现有模块快照、
-编辑器撤销及场景 Reset 不能替代跨模块游戏存档。步骤 4/5 继续按既定顺序推进。
+上述是步骤 3 当时的平面底部实心试件地基覆盖与撞击联动记录，不能当作完整楼体承重计算。
+该阶段不含土石塌方、ExtStress 或导航；它们的后续步骤 4 进展单列如下。
+异步调度与综合世界存档仍未实现，模块快照、编辑器撤销和 Reset 不能替代跨模块游戏存档。
+
+## 步骤 4 应力、土石、导航与火箭场
+
+日期：2026-10-31。正式实现仍为主线程同步准备/提交，不新增运行时线程框架。用户要求在现有首个项目里验证，并增加角色火箭、更多碎块和连续炮击，作为后续优化基线；不能把有界示例等同于已完成性能优化。
+
+### 实现、来源与边界
+
+- **ExtStress**：`runtime/destruction` 复用 Blast 5.1 的 `CGNR_SISD` / `Float_Scalar`。固定社区快照 `230003d9a640927f1bd61d9cf4b88c84d51c1cc1` 提供隔离 x86 特化/CPUID 的必要补丁；全平台目标统一选择标量路径。只在构建目录打补丁，不改官方子模块，不引入 PhysX 或第三方包装框架。连接血量先换算为剩余承载面积，再把求解损伤映射回血量；实例旋转/正等比缩放参与重力变换。接口只处理当前支撑图的重力应力，不是完整建筑材料、动态冲击应力或结构工程认证。
+- **原点修正**：本轮 Debug 测试复现上游把无限质量 world node 的 `(0,0,0)` 占位位置当压力计算端点，导致资产原点处锚块产生无穷损伤。兼容补丁改用同一官方文件已有的连接实际中心端点规则，不添加任意 epsilon 或改写求解公式；资产平移不变性、物理面积和实例旋转/缩放回归已补齐。来源与修正范围见 [Blast 补丁说明](../../../third_party/patches/blast/README.md)。
+- **土石**：`runtime/terrain` 参考固定 Voxel Tools `island_finder` / `floating_chunks` 六邻域连通和边界排除流程，识别不连接下/侧边界的土石，按项目参数分组。现有 Transvoxel 生成表面，逐单元凸形交给 Jolt compound，生成普通瞬态节点。候选准备或预算失败时不删未转换样本；总量限额由调用者指定、运行时上限 128。发生塌方后直到显式 Reset/更换源资源，旧静态体积快照保存/恢复明确失败，即便碎块被外部删除也不能假装完整保存。
+- **导航**：核心 `NavigationSystem` 复用 Recast 1.6 `Sample_TileMesh` 与 Detour。调用者显式提交当前全部几何及 dirty 世界 AABB，完整构建或只重建受影响瓦片和边界；失败使相关旧瓦片失效，查询只接受完整可达路径。核心不自动扫描场景。示例只提交静态 Terrain 的实际 MeshRenderer，移动土石/建筑碎块不进入导航；没有寻路代理、局部避让或动态残骸导航。
+- **火箭场**：第八场景资产塔/墙/柱/梁为 256/128/64/72 块，共 520 个预破碎片段；其实际刚体数取决于连通组，不能把资产片段数当性能承诺。土石预算 96，弹池 64，8 个灰尘与 6 个爆破表现槽。请求频率 2/6/12 发每秒，默认 6；60 发齐射可停止，停止后在途弹体继续飞行；每帧最多新发一枚、不补卡顿积压。逐段球形扫掠命中后才按实际位置施伤、挖土、提取土石、刷新支撑并更新导航脏区。参数均在项目脚本，旧的独立地形/建筑实验场保留。
+- **计时**：面板用 `Date.now()` 展示真实墙钟帧间隔指数平均与最大值，不用宿主截断到 0.1 秒的 `Time.deltaTime`。每轮连射清帧间隔统计，每约一秒及最终 `complete` 输出 `Rocket range sample` JSON，记录 actualRate、发射/命中/blocked、碎块/土石和导航。墙钟值包含引擎限帧等待和截图开销，不是纯 CPU/GPU 耗时、百分位或设备吞吐认证。应力按项目 0.5 秒节奏请求，导航以 0.25 秒节奏合并 dirty 范围，均同步执行。实际每秒发射量可能因同步工作和帧率低于请求值，不能据配置数字宣称达到 12 发/秒。
+
+### 已完成验证
+
+| 验证 | 结果与证据范围 |
+| --- | --- |
+| macOS ARM64 Debug | 受影响目标构建成功，累计 8 项定向 CTest 通过。首轮应力 runtime 失败暴露上述 world-bond 原点问题，修复后 Graph/runtime 两项复跑通过；不把首轮失败日志标成一次全绿 |
+| macOS ARM64 Release | 同 8 项 CTest 全部通过，总计 3.94 秒；这是测试进程总时长，不是游戏帧耗时 |
+| Android ARM64 独立探针 | `destruction_graph_test` 连同标量 ExtStress、物理面积归一化和原点平移不变性，在 ARM64 模拟器执行 exit 0；不是 Engine APK、Jolt/渲染场景集成或实体手机性能验证 |
+| 当前未验收 | 步骤 4 真窗口/UI 炮击、其他平台完整集成、手机热负载、吞吐上限及峰值内存。下面的实景项由实际回执单独补充 |
+
+8 项为 `engine.script_runtime`、`engine.mcp_registry`、`engine.navigation`、
+`engine.navigation_script`、`engine.terrain_runtime`、`engine.destruction_graph`、
+`engine.destruction_runtime`、`editor.destruction_commands`。
+土石用例覆盖细支撑保留/切断后八碎块、预算失败原样、实际 Jolt 下落、继续挖填、
+静态存档拒绝、禁用/恢复/Reset/移除清理；导航覆盖瓦片替换、边界、失败失效、
+完整路径与脚本场景隔离。正式 Debug 日志为 `build/terrain-step4/tests-debug-core.log`、
+`tests-debug-bindings.log`、`stress-origin-debug-tests.log`；Release 为 `tests-release.log`。
+Android 回执为 `build/terrain-step4/stress-origin-android-run.json`，构建位于同目录 `stress-probe/`。
+本记录只归纳已完成的定向验证，不要求重复测试、V8 编译或自动运行 CI。
+
+### 步骤 4 实景验收
+
+Mac ARM64 / Metal / Release 真实窗口使用最终资源版本 `521195c3c186be37`，64 槽弹体池。原始回执在 `build/terrain-step4/final-*-report.json`，逐秒日志在同目录 `editor.log`。以下两轮发射期间不截图，保留正常主循环、同步工作和限帧；这是功能负载记录，不能代替隔离的 CPU/GPU 性能测量。
+
+| 请求频率 | 发射 / 命中 / 寿命到期 | 实际发射率 | 最终建筑组 / 动态组 | 动态土石 | 最长墙钟帧间隔 |
+| --- | --- | --- | --- | --- | --- |
+| 6 发/秒 | 60 / 41 / 19 | 约 2.57 发/秒 | 414 / 413 | 67 | 947 ms |
+| 12 发/秒 | 60 / 43 / 17 | 约 3.89 发/秒 | 376 / 375 | 67 | 795 ms |
+
+两轮 `blocked=0`、结束时在途弹体为 0，脚本 `lastError` 为空。失手表示按固定目标继续发射后，建筑已炸散，弹体没有碰撞而到期；不假造爆点。碎块统计表示 Blast 连通组及其运动类型，不是 Jolt 醒着的刚体数。物理轨迹与命中几何不同，不将两次最长帧间隔比较成高档更快。
+
+初次进入四个建筑各 1 组、0 动态组，土石为 0；6 发档结束后场景 787 节点，Reset 恢复 310 节点、四个建筑各 1 组/0 动态组及 0 土石。单独土帽射击切断细底座后产生 67 动态土石；同一实现调参阶段的 `Weak beam` 在无火箭损伤时产生 111 断键、24 动态组，截图和回执分别为 `cap-collapse` / `weak-beam`。Effect/Audio 播放状态同时为 true，只证明播放请求生效，没有听音质量评估。
+
+当前密集负载暴露同步更新长帧，实际射速明显低于请求值；各阶段 CPU/GPU 占比尚未采样，不能直接断言某个库占比。旧 12 槽弹体池还曾阻塞发射，现已增至覆盖 12×5 秒寿命需求的 64 槽。另一次未分页 `get_scene` 超过 1 MiB 回执限制，后续检查改用已有 `offset/limit=64`，没有放宽协议上限。下一步以这些固定操作记录为依据拆分后台准备和主线程提交。
+
+补充停火试验在第 23 发后停止新发射，最终 21 命中、2 到期、0 在途，未继续发满 60。再次 Reset 恢复 310 节点和原始试件；第三人称 W 键短走约 1.93 米，高度维持地面，未扩大为踩残骸或洞穴专项验收。返回 Scene launcher 成功，停止后 scene 为空、totalNodes=0、脚本 running=false 且 lastError 为空；仅关闭本轮拥有的编辑器 PID，记录为 `editor-closed.json`。
+
+最终资源截图位于 `projects/showcase/cache/screenshots/destruction-step4-final-barrage-view.png`，显示在途火箭、拖尾、建筑碎块、土石与弹坑；该停火/截图轮含截图开销，未混入上表两轮结果。第三人称短走截图为 `destruction-step4-final-walk-moved.png`。步骤 3 的旧截图与测试数据仍只作为历史记录。
+
+### 未完成范围
+
+综合世界存档、动态土石/移动建筑残骸导航、后台任务/取消/版本队列、分块 GPU/碰撞增量提交、完整空心楼体承重与材料模型，以及实体手机的性能和发热验收均未完成。新增应力、土石、导航接口通过定向测试，不等于这些后续目标已完成。
 
 ## 性能判断及当前接入缺口
 
@@ -240,7 +295,7 @@ Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP
 - `MeshRenderer::set_mesh_data` 完整复制数据；revision 更新会重建 GPU 几何，包含切线计算与整块上传，并非已有局部顶点更新。见 [mesh_renderer.cpp](../../../src/engine/runtime/scene/mesh_renderer.cpp)、[render_scene_resources.cpp](../../../src/engine/runtime/render/render_scene_resources.cpp)、[gpu_geometry.cpp](../../../src/engine/runtime/render/resources/gpu_geometry.cpp)。
 - `PhysicsSystem` 仍使用单线程 JobSystem 与 `TempAllocatorMalloc`。新增 `set_mesh_data` 先同步准备候选，兼容静态体使用 `SetShape`，否则先创建新体再移除旧体；清空网格可移除碰撞，错误不替换有效状态。整份网格 cook 和提交仍在调用线程，后续再后台化并按实际负载评估上游线程池。见 [physics_system.cpp](../../../src/engine/runtime/physics/physics_system.cpp)。
 - 三角网格碰撞继续仅允许静态用途；步骤 2 的动态碎块使用新增凸形/compound。总刚体/角色上限 4096 是当前配置约束，不是已实测支持 4096 活跃碎块的承诺。
-- [NavigationSystem](../../../src/engine/runtime/navigation/navigation_system.cpp) 只初始化依赖对象，尚无实际寻路及局部重建；[TaskSystem](../../../src/engine/editor/task/task_system.cpp) 是编辑器任务系统，调用后同步等待；[PerformanceSystem](../../../src/engine/runtime/performance/performance_system.cpp) 的 Tracy 接入仍无这些阶段的采样。
+- [NavigationSystem](../../../src/engine/runtime/navigation/navigation_system.cpp) 已在步骤 4 增加同步瓦片构建/替换及完整路径查询，但不自动更新动态物体，也没有代理调度；[TaskSystem](../../../src/engine/editor/task/task_system.cpp) 是编辑器任务系统，调用后同步等待；[PerformanceSystem](../../../src/engine/runtime/performance/performance_system.cpp) 的 Tracy 接入仍无这些阶段的采样。
 
 ### 内存量级示例
 
@@ -258,7 +313,7 @@ Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP
 | 1. 地形实验场 | 已实现 64×64 米、32 米高体积，丘陵、洞穴、跨块隧道及球形挖掘/填充 | Debug/Release 定向测试通过；macOS Metal 窗口验收通过，正式 Android 插件尚未验证 |
 | 2. 建筑破坏场 | 已创建实心塔、Voronoi 墙、分段柱与固定损伤按钮；空心多层建筑输入尚未支持 | Mac 定向测试、MCP 窗口预览及最终菜单/UI 玩法均已通过；详见上文步骤 2，Android 独立 Graph 不等于 APK 通过 |
 | 3. 综合联动场 | 已联通挖地基、建筑下落、撞击再破坏、角色行走、烟尘与声音 | Mac 定向测试与窗口流程通过；洞穴/残骸通行尚未专项验收，综合世界存档未实现，详见步骤 3 记录 |
-| 4. 完整玩法 | 土石塌方、跨平台支撑应力、导航局部更新 | 不因某平台缺库而悄悄关闭已承诺的玩法能力 |
+| 4. 同步玩法补齐 | 已实现官方重力应力、动态土石、静态导航瓦片更新和有界密集火箭场 | Mac Debug/Release 各 8 项定向测试及 Android 独立应力探针通过；Mac 真实窗口两档连射、停火/重置/返回通过；手机性能未验收，不静默关闭某平台玩法 |
 | 5. 异步与扩量 | 功能完成后将重计算移到工作线程，同一场景加入连续爆炸和更多对象 | 对比同步基线，校验线程安全、版本和取消，再依据设备结果确定精度、数量及预算 |
 
 固定种子、已发布资源版本、镜头路径和操作序列，用短流程重复对比。性能使用 Release，Debug 用于正确性检查；记录设备、后端、编译配置和帧率上限，将限帧等待与实际工作耗时分开。Mac 首跑、Android 实机复核；模拟器只能证明其环境下的功能，不代表手机性能。Windows/Linux/iOS 按实际可用环境补充，没测到的明确标记。
@@ -267,4 +322,4 @@ Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP
 
 上述是逐步建立的测量清单，按当前阶段选择必要项；同步功能首版可先记录操作总耗时、网格/碰撞准备耗时与峰值内存，不把完整百分位采样或性能框架作为功能实现前置条件。
 
-步骤 0 至步骤 3 的验证范围分别见上文。地形、建筑与综合联动实验场已完成各自记录中的 Mac 定向测试和窗口流程；微型程序与无窗口测试都不能替代引擎窗口场景及实体设备验收。
+步骤 0 至步骤 4 的验证范围分别见上文。步骤 1–3 已完成各自记录中的 Mac 定向测试和窗口流程；步骤 4 当前完成定向测试及 Android 独立应力探针。微型程序与无窗口测试都不能替代引擎窗口场景及实体设备验收。

@@ -100,6 +100,21 @@ def scene():
     for identity, name in ((6, "Tower"), (7, "Wall"), (8, "Column"),
                            (9, "Environment"), (10, "Afternoon sun"), (11, "Cool fill")):
         cloned("destruction.scene", name, identity)
+    for name, resource in (("Tower", "rocket-tower"), ("Wall", "rocket-wall"),
+                            ("Column", "rocket-column")):
+        node = next(node for node in nodes if node["name"] == name)
+        component(node, "destruction")["destruction"] = guid(f"destruction/{resource}.destruction")
+    beam = new(13, "Stress beam", (12, 5.8, -13))
+    beam["components"].append({"type": "destruction",
+        "destruction": guid("destruction/stress-beam.destruction"),
+        "material": "a718a2db-32e9-4f08-9b02-541e34d5a0f7", "density": 80,
+        "friction": 0.7, "restitution": 0.08})
+    pedestal = new(14, "Stress foundation", (7.5, 2.9, -13), (1.5, 2.9, 2.0))
+    pedestal["components"].append({"type": "mesh_renderer",
+        "mesh": "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c",
+        "material": "a718a2db-32e9-4f08-9b02-541e34d5a0f7"})
+    pedestal["components"].append({"type": "collider", "shape": "box",
+        "half_extents": [1, 1, 1], "friction": 0.7})
     ui = new(12, "Integration UI")
     ui["components"].append(
         {"type": "ui", "document": guid("ui/destruction-integration.rml")})
@@ -111,18 +126,18 @@ def scene():
             {"type": "mesh_renderer", "mesh": "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c",
              "material": "adf89965-c8d0-4593-96e7-349384f8191d"})
     for identity, name, text, position, size in (
-        (30, "Study title", "EARTH / STRUCTURE / IMPACT", (-13, 13, -8), 0.65),
-        (31, "Safety caption", "OBSERVE > DIG > COLLAPSE > EXPLORE", (-13, 0.6, 11), 0.36),
+        (30, "Study title", "ROCKET RANGE / DESTRUCTION", (-13, 15, -10), 0.65),
+        (31, "Safety caption", "FIRE > CRATER > COLLAPSE > REROUTE", (-13, 0.6, 11), 0.36),
     ):
         node = new(identity, name, position)
         node["components"].append({"type": "text",
             "font": "d5dc034b-395d-4c74-b514-d2d4f116b09b", "text": text,
             "size": size, "color": [0.8, 0.9, 0.83, 1]})
-    for index in range(6):
-        burst = index >= 4
+    for index in range(14):
+        burst = index >= 8
         effect, clip = ("burst", "blast") if burst else ("dust", "debris")
         node = new(40 + index,
-                   f"{'Blast' if burst else 'Impact'} emitter {index - 3 if burst else index + 1}")
+                   f"{'Blast' if burst else 'Impact'} emitter {index - 7 if burst else index + 1}")
         node["components"].append({
             "type": "effect", "effect": guid(f"effects/destruction/{effect}.efkefc"),
             "speed": 1.0, "play_on_awake": False, "loop": False})
@@ -130,6 +145,21 @@ def scene():
             "type": "audio_source", "clip": guid(f"audio/destruction-{clip}.wav"),
             "volume": 0.65 if burst else 0.5, "pitch": 1.0, "loop": False,
             "spatial": True, "play_on_awake": False, "min_distance": 8.0, "max_distance": 140.0})
+    for index in range(64):
+        node = new(200 + index, f"Rocket {index + 1}", (0, -100, 0))
+        node["components"].extend([
+            {"type": "mesh_renderer", "mesh": guid("meshes/rocket.mesh"),
+             "material": guid("materials/rocket.material"), "enabled": False},
+            {"type": "effect", "effect": guid("effects/destruction/rocket-trail.efkefc"),
+             "speed": 1.0, "play_on_awake": False, "loop": False}])
+    launcher = new(95, "Rocket launcher", (15.45, 1.5, 13.8), (1.35, 1.35, 1.35))
+    launcher["components"].append({"type": "mesh_renderer", "mesh": guid("meshes/rocket.mesh"),
+        "material": guid("materials/launcher.material")})
+    for index in range(48):
+        node = new(100 + index, f"Route marker {index + 1}", (0, -100, 0), (0.16, 0.045, 0.16))
+        node["components"].append({"type": "mesh_renderer",
+            "mesh": "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c",
+            "material": guid("materials/route.material"), "enabled": False})
     lines = ['name = "Combined destruction laboratory"', "active_camera = 1"]
     for node in nodes:
         lines.extend(("", "[[nodes]]"))
@@ -143,6 +173,40 @@ def scene():
 
 def generated():
     result = {}
+    for name, size, slices in (("rocket-tower", [6, 20, 5], [4, 16, 4]),
+                               ("rocket-wall", [8, 9, 1.8], [8, 8, 2]),
+                               ("rocket-column", [3, 12, 3], [2, 16, 2]),
+                               ("stress-beam", [12, 2, 3], [12, 2, 3])):
+        path = f"destruction/{name}.destruction"
+        result[path] = (f'size = {size}\nfracture = "slices"\nslices_x = {slices[0]}\n'
+            f'slices_y = {slices[1]}\nslices_z = {slices[2]}\nsites = 32\nseed = 17\n'
+            'bond_health = 1\nanchor_height = 0.05\n')
+        result[path + ".meta"] = meta(path, "destruction")
+    for name, color, metallic, roughness in (
+        ("rocket", [0.58, 0.64, 0.49, 1], 0.65, 0.3),
+        ("launcher", [0.12, 0.17, 0.14, 1], 0.5, 0.55),
+        ("route", [0.15, 0.94, 0.66, 1], 0, 0.7),
+    ):
+        path = f"materials/{name}.material"
+        result[path] = ('shader = "00000000-0000-4000-8000-000000000001"\n'
+            '[[parameters]]\nname = "baseColor"\ntype = "v4"\n'
+            f'value = {color}\n[[parameters]]\nname = "metallic"\ntype = "float"\n'
+            f'value = {metallic}\n[[parameters]]\nname = "roughness"\ntype = "float"\nvalue = {roughness}\n')
+        result[path + ".meta"] = meta(path, "material")
+    vertices, indices = [], []
+    rings = [(0.62, 0.14), (-0.32, 0.14), (-0.82, 0.01)]
+    for z, radius in rings:
+        for index in range(16):
+            angle = math.tau * index / 16
+            vertices.append([radius * math.cos(angle), radius * math.sin(angle), z,
+                             math.cos(angle), math.sin(angle), 0])
+    for ring in range(2):
+        for index in range(16):
+            a, b = ring * 16 + index, ring * 16 + (index + 1) % 16
+            indices.extend([a, b, b + 16, a, b + 16, a + 16])
+    path = "meshes/rocket.mesh"
+    result[path] = f'vertices = {json.dumps(vertices)}\nindices = {indices}\n'
+    result[path + ".meta"] = meta(path, "mesh")
     path = "terrain/foundation.terrain"
     result[path] = """# Flat ground fully supports the original structural specimens.
 cells_x = 64
@@ -175,14 +239,17 @@ rdo_quality_scalar = 1.0
 srgb = true
 mipmaps = true
 """)
-    for name in ("dust", "burst"):
+    for name in ("dust", "burst", "rocket-trail"):
         path = f"effects/destruction/{name}.efkefc"
-        mappings = ["smoke"] + (["particle-soft"] if name == "burst" else [])
+        mappings = ["smoke"] + (["particle-soft"] if name != "dust" else [])
         extra = "".join(f'\n[[resources]]\npath = "textures/{texture}.png"\n'
                         f'resource = "project/effects/destruction/textures/{texture}.png"\n'
                         for texture in mappings)
         result[path + ".meta"] = meta(path, "effect", extra)
     for path in ("scripts/modules/destruction-integration.ts",
+                 "scripts/modules/destruction-rockets.ts",
+                 "scripts/modules/destruction-navigation.ts",
+                 "scripts/models/destruction_range_config.ts",
                  "scripts/models/destruction_integration_model.ts",
                  "scripts/controllers/destruction_integration_controller.ts"):
         result[path + ".meta"] = meta(path, "script")

@@ -146,6 +146,9 @@ declare module "engine" {
         /** Local Euler angles in degrees, applied X then Y then Z. */
         SetRotation(x: number, y: number, z: number): boolean;
         SetScale(x: number, y: number, z: number): boolean;
+        GetWorldPosition(): Vector3 | null;
+        /** Normalized world direction of local -Z. */
+        GetWorldForward(): Vector3 | null;
     }
     export class Camera extends Component {
         private constructor();
@@ -247,6 +250,10 @@ declare module "engine" {
         /** Sphere center and radius are in terrain-node local space. */
         DigSphere(x: number, y: number, z: number, radius: number): boolean;
         FillSphere(x: number, y: number, z: number, radius: number): boolean;
+        /** Extract unsupported soil; refuses over-budget work without removing that soil. */
+        CollapseDetached(minSamples: number, maxFragments: number,
+                         fragmentCells?: number, density?: number): boolean;
+        readonly fragmentCount: number | null;
         Reset(): boolean;
         /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
         Save(slot: string): boolean;
@@ -287,6 +294,35 @@ declare module "engine" {
         private constructor();
         /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
         static GetImpacts(): PhysicsImpact[];
+        /** Sweeps a sphere through the full displacement. 1 = no hit; null = invalid query. */
+        static CastSphere(x: number, y: number, z: number,
+                          dx: number, dy: number, dz: number, radius: number): number | null;
+    }
+    export interface Vector3 { readonly x: number; readonly y: number; readonly z: number; }
+    export interface NavigationOptions {
+        readonly minimum: Vector3;
+        readonly maximum: Vector3;
+        readonly cellSize?: number;
+        readonly cellHeight?: number;
+        readonly tileSize?: number;
+        readonly agentHeight?: number;
+        readonly agentRadius?: number;
+        readonly agentMaxClimb?: number;
+        readonly agentMaxSlope?: number;
+    }
+    export class Navigation {
+        private constructor();
+        /** Submit explicit same-scene static mesh nodes; does not scan the whole scene. */
+        static Build(nodes: readonly Node[], options: NavigationOptions): boolean;
+        /** Submit current geometry and replace tiles overlapping the dirty world bounds. */
+        static Replace(nodes: readonly Node[], minimum: Vector3, maximum: Vector3): boolean;
+        /** Complete reachable path only; null includes invalid or unreachable queries. */
+        static FindPath(start: Vector3, end: Vector3): Vector3[] | null;
+        static Clear(): boolean;
+        static readonly ready: boolean;
+        static readonly revision: bigint | null;
+        static readonly rebuiltTiles: number | null;
+        static readonly lastError: string | null;
     }
     export class DestructionComponent extends Component {
         private constructor();
@@ -296,6 +332,9 @@ declare module "engine" {
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
         OwnsFragment(nodeId: bigint): boolean;
+        /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
+        ApplyStress(x: number, y: number, z: number, elasticLimit: number,
+                    fatalLimit: number, iterations: number): number | null;
         Reset(): boolean;
         readonly ready: boolean;
         readonly revision: bigint | null;

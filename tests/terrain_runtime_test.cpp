@@ -6,6 +6,7 @@
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/terrain_state_generated.h"
@@ -395,9 +396,216 @@ bool subsystem_contract()
     resources.shutdown();
     return expect(stopped, "explicit synchronization cannot run after subsystem shutdown");
 }
+
+schema::TerrainAssetDataT collapse_asset(bool bridge)
+{
+    schema::TerrainAssetDataT asset;
+    asset.cells_x = asset.cells_y = asset.cells_z = 16;
+    asset.chunk_cells = 16;
+    asset.voxel_size = 1;
+    asset.density.assign(17 * 17 * 17, 1);
+    for (unsigned z = 2; z <= 13; ++z)
+    {
+        for (unsigned y = 1; y <= 9; ++y)
+        {
+            for (unsigned x = 2; x <= 13; ++x)
+            {
+                const bool ground = y <= 2;
+                const bool island = x >= 6 && x <= 9 && y >= 6 && z >= 6 && z <= 9;
+                const bool pillar = bridge && x == 7 && z == 7 && y >= 3 && y <= 5;
+                if (ground || island || pillar)
+                {
+                    asset.density[(z * 17 + y) * 17 + x] = -1;
+                }
+            }
+        }
+    }
+    return asset;
+}
+
+bool island_contract()
+{
+    TerrainVolume volume;
+    const auto asset = collapse_asset(false);
+    std::string error;
+    std::vector<plugins::terrain::TerrainFragment> fragments;
+    if (!expect(volume.initialize(asset, error) &&
+                    !volume.extract_detached(8, 7, 2, fragments, error) && !error.empty() &&
+                    fragments.empty() && volume.data() == asset,
+                "fragment-budget failure leaves every detached density sample intact") ||
+        !expect(!volume.extract_detached(0, 8, 2, fragments, error) && volume.data() == asset &&
+                    !volume.extract_detached(8, 8, 9, fragments, error) && volume.data() == asset,
+                "invalid collapse parameters do not mutate the sampled volume") ||
+        !expect(volume.extract_detached(65, 8, 2, fragments, error) && fragments.empty() &&
+                    volume.data() == asset,
+                "islands below the explicit sample threshold remain static") ||
+        !expect(volume.extract_detached(8, 8, 2, fragments, error) && fragments.size() == 8,
+                "one detached island splits into eight requested cell groups"))
+    {
+        return false;
+    }
+    double total_volume = 0;
+    for (const auto& fragment : fragments)
+    {
+        total_volume += fragment.volume;
+        if (!expect(MeshUtils::validate(fragment.mesh) &&
+                        Collider::valid_settings(fragment.collision) &&
+                        fragment.collision.hulls.size() > 1,
+                    "fragment surface and per-cell compound retain valid concave collision"))
+        {
+            return false;
+        }
+    }
+    std::size_t removed = 0;
+    for (std::size_t index = 0; index < asset.density.size(); ++index)
+    {
+        if (asset.density[index] < 0 && volume.data().density[index] >= 0)
+        {
+            ++removed;
+        }
+    }
+    if (!expect(removed == 64 && total_volume == 64 &&
+                    volume.extract_detached(8, 8, 2, fragments, error) && fragments.empty(),
+                "only converted samples leave the source, without duplicate extraction"))
+    {
+        return false;
+    }
+    const auto connected = collapse_asset(true);
+    return expect(volume.initialize(connected, error) &&
+                      volume.extract_detached(8, 8, 2, fragments, error) && fragments.empty() &&
+                      volume.data() == connected,
+                  "a thin six-connected support preserves the island until it is severed");
+}
+
+bool collapse_runtime_contract()
+{
+    const EngineConfig config;
+    ResourceSystem resources;
+    WorldSystem world;
+    PhysicsSystem physics(&world);
+    TerrainSystem terrain(world, physics);
+    test_support::ResourceFixture fixture;
+    const auto asset = collapse_asset(true);
+    if (!expect(resources.initialize(config) && world.initialize(config) &&
+                    physics.initialize(config) && terrain.initialize(config) &&
+                    add_terrain(fixture, asset) && fixture.publish(resources),
+                "initialize the collapse laboratory with a real terrain resource"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Terrain collapse");
+    auto* node = scene ? scene->create_node("Supported island") : nullptr;
+    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
+    if (!expect(component != nullptr, "create terrain collapse component"))
+    {
+        return false;
+    }
+    auto settings = component->settings();
+    settings.terrain_guid = fixture.catalog.entries.front()->guid;
+    if (!expect(component->set_settings(settings) && terrain.tick(0) &&
+                    component->collapse_detached(8, 16, 2, 100) &&
+                    component->fragment_count() == 0 &&
+                    component->apply_sphere({7, 4, 7}, 1.8F, false),
+                "an intact support does not collapse; digging removes the support"))
+    {
+        return false;
+    }
+    ByteBuffer before;
+    ByteBuffer after;
+    const auto revision = component->revision();
+    if (!expect(component->snapshot(before) && !component->collapse_detached(8, 7, 2, 100) &&
+                    component->snapshot(after) && before == after &&
+                    component->revision() == revision && component->fragment_count() == 0 &&
+                    physics.body_count() == 1 && scene->nodes().size() == 1,
+                "rejected collapse publishes neither holes nor candidate rigid bodies") ||
+        !expect(component->collapse_detached(8, 16, 2, 100) &&
+                    component->fragment_count() == 8 && physics.body_count() == 9 &&
+                    !component->snapshot(after) && after.empty() && !component->restore(before),
+                "eight dynamic fragments replace the island and unsupported saves fail explicitly"))
+    {
+        std::fprintf(stderr, "terrain collapse diagnostic: %s\n", component->last_error().c_str());
+        return false;
+    }
+    schema::SceneDataT saved;
+    if (!expect(scene->build_data(saved) && saved.nodes.size() == 1,
+                "normal scene saving excludes all transient soil bodies"))
+    {
+        return false;
+    }
+    std::uint64_t fragment_id = 0;
+    for (const auto& item : scene->nodes())
+    {
+        if (item->transient())
+        {
+            fragment_id = item->id();
+            auto* body = item->get_component<RigidBody>();
+            if (!expect(body && body->settings().motion == schema::BodyMotion::dynamic &&
+                            item->get_component<MeshRenderer>() && item->get_component<Collider>(),
+                        "detached soil uses ordinary renderer/collider/dynamic-body components"))
+            {
+                return false;
+            }
+        }
+    }
+    const double initial_y =
+        scene->find_node(fragment_id)->get_component<Transform>()->settings().position.y();
+    for (int step = 0; step < 20; ++step)
+    {
+        if (!physics.tick(1.0 / 60.0))
+        {
+            return false;
+        }
+    }
+    if (!expect(scene->find_node(fragment_id)->get_component<Transform>()->settings().position.y() <
+                    initial_y - 0.1,
+                "detached soil actually falls under Jolt gravity") ||
+        !expect(component->apply_sphere({3, 2, 3}, 1, false) &&
+                    component->apply_sphere({3, 2, 3}, 1, true) &&
+                    component->fragment_count() == 8 &&
+                    !component->collapse_detached(8, 8, 2, 100) &&
+                    component->fragment_count() == 8,
+                "further brushes preserve moving fragments and respect the total active budget"))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(terrain.tick(0) && physics.tick(0) && physics.body_count() == 0 &&
+                    component->fragment_count() == 8 &&
+                    !scene->find_node(fragment_id)->get_component<MeshRenderer>()->enabled(),
+                "disabling the terrain disables both source and moving soil"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    if (!expect(terrain.tick(0) && physics.tick(0) && physics.body_count() == 9 &&
+                    component->reset() && component->fragment_count() == 0 &&
+                    physics.body_count() == 1 && scene->nodes().size() == 1 &&
+                    component->snapshot(after),
+                "reenabling restores fragments and reset cleans them while restoring source"))
+    {
+        return false;
+    }
+    if (!expect(component->apply_sphere({7, 4, 7}, 1.8F, false) &&
+                    component->collapse_detached(8, 16, 2, 100) &&
+                    node->remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
+                    physics.tick(0) && physics.body_count() == 0 && scene->nodes().size() == 1,
+                "removing the source component cleans all fragment nodes and bodies"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    terrain.shutdown();
+    physics.shutdown();
+    world.shutdown();
+    resources.shutdown();
+    return true;
+}
 } // namespace
 
 int main()
 {
-    return volume_contract() && runtime_contract() && subsystem_contract() ? 0 : 1;
+    return volume_contract() && runtime_contract() && subsystem_contract() && island_contract() &&
+                   collapse_runtime_contract()
+               ? 0
+               : 1;
 }

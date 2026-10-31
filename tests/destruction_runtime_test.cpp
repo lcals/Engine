@@ -658,9 +658,108 @@ bool support_contract()
     return true;
 }
 
+bool stress_contract()
+{
+    Fixture fixture;
+    if (!expect(fixture.initialize(), "initialize stress runtime"))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Stress contracts");
+    auto* owner = scene ? scene->create_node("Cantilever") : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    auto* transform = owner ? owner->get_component<Transform>() : nullptr;
+    if (!expect(component && transform, "create stress source"))
+    {
+        return false;
+    }
+    auto pose = transform->settings();
+    pose.position = {12, 8, -4};
+    pose.rotation = {0, 37, 25};
+    pose.scale = {1.7, 1.7, 1.7};
+    auto settings = component->settings();
+    settings.destruction_guid = asset_guid;
+    settings.density = 100;
+    if (!expect(transform->set_settings(pose) && component->set_settings(settings) &&
+                    fixture.destruction->synchronize() && component->ready(),
+                "publish rotated, scaled cantilever", component->last_error()))
+    {
+        return false;
+    }
+    ByteBuffer initial;
+    if (!expect(component->snapshot(initial), "capture source stress state"))
+    {
+        return false;
+    }
+    const auto ids = generated_ids(*scene);
+    const auto revision = component->revision();
+    std::uint32_t broken = 99;
+    ByteBuffer after;
+    if (!expect(component->apply_stress({0, -9.81, 0}, 1e8F, 2e8F, 500, broken) &&
+                    broken == 0 && component->revision() == revision &&
+                    generated_ids(*scene) == ids && component->snapshot(after) && after == initial,
+                "safe stress preserves snapshots, revision and physical node identities",
+                component->last_error()))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(!component->apply_stress({0, -9.81, 0}, 10, 20, 500, broken) && broken == 0 &&
+                    component->revision() == revision,
+                "disabled component rejects stress without publication"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    if (!expect(!component->apply_stress({0, -9.81, 0}, 20, 10, 500, broken) && broken == 0 &&
+                    component->snapshot(after) && after == initial &&
+                    !component->apply_stress({0, -9.81, 0}, 10, 20, 0, broken) && broken == 0 &&
+                    component->snapshot(after) && after == initial,
+                "invalid stress inputs preserve live state"))
+    {
+        return false;
+    }
+    if (!expect(component->apply_stress({0, -9.81, 0}, 10, 20, 500, broken) && broken > 0 &&
+                    component->group_count() > 1 && component->dynamic_groups() > 0 &&
+                    component->snapshot(after),
+                "official stress splits weak cantilever into dynamic Jolt groups",
+                component->last_error()))
+    {
+        return false;
+    }
+    const auto original = unpack(initial);
+    const auto fractured = unpack(after);
+    for (const auto& group : fractured->groups)
+    {
+        const auto& before_pose = *original->groups.front()->transform;
+        const auto& after_pose = *group->transform;
+        if (!expect(after_pose.position.x() == before_pose.position.x() &&
+                        after_pose.position.y() == before_pose.position.y() &&
+                        after_pose.position.z() == before_pose.position.z() &&
+                        after_pose.rotation.y() == before_pose.rotation.y() &&
+                        after_pose.rotation.z() == before_pose.rotation.z() &&
+                        after_pose.scale.x() == before_pose.scale.x(),
+                    "stress fragments inherit their existing world pose and scale"))
+        {
+            return false;
+        }
+    }
+    const auto broken_revision = component->revision();
+    if (!expect(component->restore(initial) && component->group_count() == 1 &&
+                    component->dynamic_groups() == 0 && component->revision() > broken_revision &&
+                    component->snapshot(after) && after == initial &&
+                    component->apply_stress({0, -9.81, 0}, 10, 20, 500, broken) && broken > 0,
+                "restoring a snapshot clears stale solver state and permits repeat stress",
+                component->last_error()))
+    {
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
-    return runtime_contract() && support_contract() ? 0 : 1;
+    return runtime_contract() && support_contract() && stress_contract() ? 0 : 1;
 }

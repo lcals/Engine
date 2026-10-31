@@ -13,6 +13,9 @@ constexpr std::string_view javascript = R"js(
 export class Physics {
     constructor() { throw new TypeError('Physics is static'); }
     static GetImpacts() { return native.PhysicsGetImpacts(); }
+    static CastSphere(x, y, z, dx, dy, dz, radius) {
+        return native.PhysicsCastSphere(x, y, z, dx, dy, dz, radius);
+    }
 }
 Object.freeze(Physics.prototype);
 Object.freeze(Physics);
@@ -51,6 +54,35 @@ void impacts(const Arguments& arguments)
     }
     arguments.set_return(std::move(output));
 }
+
+void cast_sphere(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    auto* physics = binding ? binding->physics() : nullptr;
+    const auto* world = binding ? binding->world() : nullptr;
+    const auto* scene = world ? world->scene() : nullptr;
+    double value[6]{};
+    float radius = 0;
+    if (!physics || !scene || scene->id() != binding->scene_id() ||
+        arguments.count() != 7 || !BindingContext::scalar(arguments, 6, radius))
+    {
+        return;
+    }
+    for (int index = 0; index < 6; ++index)
+    {
+        if (!BindingContext::number(arguments, index, value[index]))
+        {
+            return;
+        }
+    }
+    float fraction = 0;
+    if (physics->cast_sphere({value[0], value[1], value[2]},
+                             {value[3], value[4], value[5]}, radius, fraction))
+    {
+        arguments.set_return(static_cast<double>(fraction));
+    }
+}
 } // namespace
 
 std::string_view PhysicsBinding::name() const noexcept
@@ -63,6 +95,7 @@ std::string_view PhysicsBinding::source() const noexcept
 }
 bool PhysicsBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.function("PhysicsGetImpacts", impacts);
+    return vm.function("PhysicsGetImpacts", impacts) &&
+           vm.function("PhysicsCastSphere", cast_sphere);
 }
 } // namespace engine::plugins::script::bindings

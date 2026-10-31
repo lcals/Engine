@@ -107,6 +107,11 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
                         resource_->info().content_hash == replacement->info().content_hash;
     if (retain)
     {
+        if (detached_ && value != settings())
+        {
+            last_error_ = "Reset terrain fragments before changing their material or settings";
+            return false;
+        }
         candidate = volume_;
     }
     const auto previous_settings = settings();
@@ -129,6 +134,14 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         triangles_ = 0;
         ready_ = false;
         pending_ = resource_ != nullptr;
+    }
+    if (!retain)
+    {
+        if (auto* system = TerrainSystem::instance())
+        {
+            system->clear_fragments(*this);
+        }
+        detached_ = false;
     }
     last_error_.clear();
     return true;
@@ -168,13 +181,37 @@ bool TerrainComponent::reset()
     {
         return false;
     }
-    return system->commit(*this, std::move(candidate));
+    if (!system->commit(*this, std::move(candidate)))
+    {
+        return false;
+    }
+    system->clear_fragments(*this);
+    detached_ = false;
+    return true;
+}
+
+bool TerrainComponent::collapse_detached(std::uint32_t min_samples, std::uint32_t max_fragments,
+                                         std::uint32_t fragment_cells, float density)
+{
+    auto* system = TerrainSystem::instance();
+    if (!system)
+    {
+        last_error_ = "Terrain system is not available";
+        return false;
+    }
+    return system->collapse_detached(*this, min_samples, max_fragments, fragment_cells, density);
+}
+
+std::size_t TerrainComponent::fragment_count() const noexcept
+{
+    const auto* system = TerrainSystem::instance();
+    return system ? system->fragment_count(*this) : 0;
 }
 
 bool TerrainComponent::snapshot(ByteBuffer& output) const
 {
     output.clear();
-    if (!ready_ || !resource_)
+    if (!ready_ || !resource_ || detached_)
     {
         return false;
     }
@@ -191,6 +228,11 @@ bool TerrainComponent::snapshot(ByteBuffer& output) const
 
 bool TerrainComponent::restore(ByteView bytes)
 {
+    if (detached_)
+    {
+        last_error_ = "Terrain state cannot restore dynamic fragments; reset them explicitly first";
+        return false;
+    }
     auto* system = TerrainSystem::instance();
     const auto* source = reinterpret_cast<const std::uint8_t*>(bytes.data());
     flatbuffers::Verifier verifier(source, bytes.size());

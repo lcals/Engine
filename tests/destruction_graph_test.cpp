@@ -165,9 +165,143 @@ bool anchor_contract()
     }
     return true;
 }
+bool stress_contract()
+{
+    std::string error;
+    DestructionGraph graph;
+    const auto asset = chain();
+    std::uint32_t broken = 99;
+    if (!expect(graph.initialize(asset, error), "initialize stress cantilever", error))
+    {
+        return false;
+    }
+    const auto intact = graph.healths();
+    if (!expect(graph.apply_stress(0, {0, -9.81, 0}, 100, 1e8F, 2e8F, 500, broken, error) &&
+                    broken == 0 && graph.healths() == intact && graph.groups().size() == 1,
+                "high-strength cantilever carries gravity without damage", error) ||
+        !expect(!graph.apply_stress(0, {0, -9.81, 0}, 100, 20, 10, 500, broken, error) &&
+                    broken == 0 && graph.healths() == intact,
+                "invalid stress limits do not mutate the family", error) ||
+        !expect(!graph.apply_stress(0, {0, -9.81, 0}, 100, 10, 20, 0, broken, error) &&
+                    broken == 0 && graph.healths() == intact,
+                "invalid iteration budget does not mutate the family", error))
+    {
+        return false;
+    }
+    if (!expect(graph.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e9F, 500, broken, error) &&
+                    broken == 0 && graph.healths() != intact && graph.groups().size() == 1,
+                "sub-fatal official stress preserves partial health for later calls", error) ||
+        !expect(graph.restore_health(intact, error), "restore partial stress state", error))
+    {
+        return false;
+    }
+    if (!expect(graph.apply_stress(0, {0, -9.81, 0}, 100, 10, 20, 500, broken, error) &&
+                    broken > 0 && graph.groups().size() > 1,
+                "official gravity stress fractures an under-strength cantilever", error))
+    {
+        return false;
+    }
+    const auto fractured = graph.healths();
+    for (const auto& group : graph.groups())
+    {
+        if (!group.anchored &&
+            !expect(graph.apply_stress(group.id, {0, -9.81, 0}, 100, 0.1F, 0.2F, 500,
+                                        broken, error) && broken == 0 &&
+                        graph.healths() == fractured,
+                    "free-falling group is not damaged by uniform gravity", error))
+        {
+            return false;
+        }
+    }
+    // Gameplay health is independent of physical area: changing health alone must not
+    // change the stress fracture decision or the remaining fraction of material.
+    auto stronger_health = asset;
+    for (auto& bond : stronger_health.bonds)
+    {
+        bond->health = 7;
+    }
+    for (auto& chunk : stronger_health.chunks)
+    {
+        chunk->anchor_health = 7;
+    }
+    DestructionGraph baseline;
+    DestructionGraph alternate;
+    if (!expect(baseline.initialize(asset, error) &&
+                    alternate.initialize(stronger_health, error) &&
+                    baseline.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error) &&
+                    alternate.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error),
+                "solve equivalent materials with different gameplay health", error))
+    {
+        return false;
+    }
+    const auto baseline_health = baseline.healths();
+    const auto alternate_health = alternate.healths();
+    for (std::size_t i = 0; i < baseline_health.size(); ++i)
+    {
+        if (!expect(std::abs(baseline_health[i] - alternate_health[i] / 7) < 1e-6F,
+                    "Pa stress damage is independent of project damage-unit normalization"))
+        {
+            return false;
+        }
+    }
+    // Moving only the asset coordinate origin must not change gravity stress. In this
+    // translated asset the anchored chunk centroid is exactly the virtual world origin.
+    auto recentered = asset;
+    for (auto& chunk : recentered.chunks)
+    {
+        chunk->centroid = {chunk->centroid.x(), chunk->centroid.y() - 0.5,
+                           chunk->centroid.z()};
+        for (auto& vertex : chunk->mesh->vertices)
+        {
+            vertex = {vertex.x(), vertex.y() - 0.5F, vertex.z(), vertex.nx(), vertex.ny(),
+                       vertex.nz()};
+        }
+    }
+    for (auto& bond : recentered.bonds)
+    {
+        bond->centroid = {bond->centroid.x(), bond->centroid.y() - 0.5, bond->centroid.z()};
+    }
+    if (!expect(alternate.initialize(recentered, error) &&
+                    alternate.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error),
+                "stress supports an anchor centroid at the asset origin", error))
+    {
+        return false;
+    }
+    const auto recentered_health = alternate.healths();
+    for (std::size_t i = 0; i < baseline_health.size(); ++i)
+    {
+        if (!expect(std::abs(baseline_health[i] - recentered_health[i]) < 1e-6F,
+                    "changing asset origin preserves every physical stress damage fraction"))
+        {
+            return false;
+        }
+    }
+    auto wider_bonds = asset;
+    for (auto& bond : wider_bonds.bonds)
+    {
+        bond->area *= 4;
+    }
+    if (!expect(alternate.initialize(wider_bonds, error) &&
+                    alternate.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error) &&
+                    alternate.healths()[0] > baseline_health[0],
+                "larger physical bond area lowers stress with unchanged gameplay health", error))
+    {
+        return false;
+    }
+    const std::uint32_t anchor[] = {0};
+    if (!expect(graph.restore_health(intact, error) && graph.release_anchors(anchor, error),
+                "reset and explicitly remove the foundation", error))
+    {
+        return false;
+    }
+    const auto detached = graph.healths();
+    return expect(graph.apply_stress(0, {0, -9.81, 0}, 100, 0.1F, 0.2F, 500, broken, error) &&
+                      broken == 0 && graph.healths() == detached,
+                  "stress honors anchors already released by foundation changes", error);
+}
 } // namespace
 
 int main()
 {
-    return contract() && anchor_contract() ? 0 : 1;
+    return contract() && anchor_contract() && stress_contract() ? 0 : 1;
 }

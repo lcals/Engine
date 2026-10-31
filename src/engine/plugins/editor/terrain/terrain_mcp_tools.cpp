@@ -49,7 +49,24 @@ bool register_terrain_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools& edi
                 {"uvScale", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}}}) &&
            mcp::tools::component_tool(
                system, editor, "get_terrain",
-               "Read terrain settings, readiness, revision, chunk and triangle counts.",
+               "Read terrain settings, readiness, revision, chunk, triangle and fragmentCount.",
+               Json::object()) &&
+           mcp::tools::component_tool(
+               system, editor, "terrain_collapse_detached",
+               "Convert unanchored terrain islands into dynamic soil fragments using a total "
+               "active-fragment budget. Parameters select minimum island samples, cell-group size "
+               "and density in kg/m3. Synchronous runtime operation, not undoable. Failed "
+               "conversion keeps the existing terrain. Active fragments prevent volume-only "
+               "save/undo; use terrain_reset_runtime to restore the original resource.",
+               {{"minSamples", {{"type", "integer"}, {"minimum", 1}, {"maximum", 4194304}}},
+                {"maxFragments", {{"type", "integer"}, {"minimum", 1}, {"maximum", 128}}},
+                {"fragmentCells", {{"type", "integer"}, {"minimum", 1}, {"maximum", 8}}},
+                {"density", {{"type", "number"}, {"minimum", 0}, {"maximum", 100000}}}},
+               Json::array({"minSamples", "maxFragments"})) &&
+           mcp::tools::component_tool(
+               system, editor, "terrain_reset_runtime",
+               "Restore original terrain and remove all dynamic soil fragments. Explicit runtime "
+               "operation, not undoable. Use terrain_reset for undoable static-volume reset.",
                Json::object()) &&
            mcp::tools::component_tool(
                system, editor, "terrain_brush",

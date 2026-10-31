@@ -144,6 +144,20 @@ bool DestructionComponent::refresh_support(const Collider& support, float max_ga
     return system->refresh_support(*this, support, max_gap, min_coverage);
 }
 
+bool DestructionComponent::apply_stress(const Vec3& gravity, float elastic_limit, float fatal_limit,
+                                         std::uint32_t iterations, std::uint32_t& broken_bonds)
+{
+    broken_bonds = 0;
+    auto* system = DestructionSystem::instance();
+    if (!system)
+    {
+        last_error_ = "Destruction system is not ready";
+        return false;
+    }
+    return system->apply_stress(*this, gravity, elastic_limit, fatal_limit, iterations,
+                                broken_bonds);
+}
+
 bool DestructionComponent::owns_fragment(std::uint64_t node_id) const noexcept
 {
     auto* system = DestructionSystem::instance();

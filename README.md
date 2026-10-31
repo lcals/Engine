@@ -9,7 +9,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
-- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
+- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、应力/塌方/导航与火箭场步骤 4、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
 - [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
@@ -20,7 +20,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场和建筑破坏实验场共用一套设置、资源目录和缓存。默认进入 UI 菜单；七个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场和综合破坏场共用一套设置、资源目录和缓存。默认进入 UI 菜单；八个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -936,7 +936,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，导航请求与完整编辑器界面未实现。
+- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，静态导航构建、局部瓦片更新及完整路径查询已接入；动态残骸导航、代理避让和完整编辑器界面未实现。
 - 物理已支持静态 Mesh 碰撞、凸包/复合碰撞和只读碰撞估算快照；约束关节、传感器及 CharacterVirtual 接触事件尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
@@ -1033,11 +1033,11 @@ Showcase 主菜单的 `Effects laboratory` 打开两个公开上游示例：Lase
 git submodule update --init third_party/transvoxel
 ```
 
-`.terrain` TOML 描述尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏和球形洞穴，邻接 `.meta` 保存唯一 GUID，资源管线增量生成 `cache/gen/<GUID>`。运行时密度为浮点数；每轴最多 256 格且总样本最多 4M。高度图、FastNoise2、LOD 过渡、土石塌方和自动地基联动留待后续步骤；建筑连接损伤由下述独立破坏插件实现。
+`.terrain` TOML 描述尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏和球形洞穴，邻接 `.meta` 保存唯一 GUID，资源管线增量生成 `cache/gen/<GUID>`。运行时密度为浮点数；每轴最多 256 格且总样本最多 4M。高度图、FastNoise2、LOD 过渡仍待实现；步骤 3/4 已增加调用方显式地基联动与动态土石塌方，建筑连接损伤和应力仍归下述独立破坏插件。
 
 Showcase 第六个菜单入口 `Terrain laboratory` 打开 `project/scenes/terrain.scene`：64×64 米、32 米高的自制地形，提供挖隧道、爆炸挖坑、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续使用已有示例角色。桌面与 Android 的运行资源清单均登记该场景；登记资源不代表 Android 本次运行验证已完成。
 
-MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terrain_brush`、`terrain_reset`、`terrain_save_state` 和 `terrain_load_state`。笔刷、设置、重置与加载支持现有撤销/重做事务；保存源文件或状态文件本身不使用场景撤销。球形修改采用节点局部坐标，失败保留有效版本。脚本 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`Reset`、`Save`、`Load` 和只读统计。
+MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terrain_brush`、`terrain_reset`、`terrain_save_state` 和 `terrain_load_state`。笔刷、设置、重置与加载支持现有撤销/重做事务；保存源文件或状态文件本身不使用场景撤销。球形修改采用节点局部坐标，失败保留有效版本。脚本 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`CollapseDetached`、`Reset`、`Save`、`Load` 和只读统计。步骤 4 增加非撤销运行命令 `terrain_collapse_detached`、`terrain_reset_runtime`，`get_terrain` 返回 `fragmentCount`；动态土石不能写入旧的静态体积存档，塌方后保存/加载与可撤销体积编辑须先显式 Reset。
 
 状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
 
@@ -1080,7 +1080,7 @@ MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
 实现仍同步：每次成功损伤提交会重建组的网格与碰撞，尚未针对大规模连续爆炸优化。
-地形地基、撞击再破坏及烟尘音效已在步骤 3 联通；承重应力和异步调度属于后续阶段。
+地形地基、撞击再破坏及烟尘音效已在步骤 3 联通；步骤 4 已接入官方 ExtStress 同步重力应力，异步调度仍属后续。下述 9 项及窗口数据为步骤 2 的历史验收。
 macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物理、Authoring、导入、
 编辑事务、MCP 注册和相关核心回归。真实窗口已验证预览损伤/撤销重做/关闭空白，
 以及正常菜单第七入口和 wall/column/base/top/reset 按钮；重置后三个试件均回到 1 组、0 动态组。
@@ -1089,24 +1089,28 @@ macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物
 最终脚本参数刷新后的 UI 损伤/重置、两台观察镜头和返回菜单均已实测通过；
 停止项目后场景为空、节点数归零。完整事实统一见
 [步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
-Android 目前仅有独立 Graph 检查，完整 APK 的场景与地基联动尚未验收；ExtStress 与异步处理尚未实现。
+Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；异步处理尚未实现。
 
 移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
 架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。
 
 
-### 综合破坏实验场（步骤 3）
+### 综合破坏实验场（步骤 3/4）
 
-Showcase 主菜单第八项 **Combined destruction** 将地形、Blast 破坏、Jolt 撞击、
-Effekseer 与音频连通。`Dig foundation` 只挖土并刷新地基；支撑失效后建筑真实下落，
-脚本读取碰撞快照决定有门槛、冷却和次数预算的二次损伤。`Blast tower/wall` 联动爆破，
-`Fill crater` 不会重新接上已断锚点，`Reset all` 恢复原态。第三人称仍复用原角色插件。
-[项目说明](projects/showcase/destruction-integration.md)记录按钮、资源来源和验收边界。
+Showcase 主菜单第八项 **Combined destruction** 共用地形、Blast 破坏、Jolt、Effekseer、
+音频与原第三人称角色。步骤 4 已增加官方同步应力、动态土石、静态导航瓦片更新和密集火箭场。
+[项目说明](projects/showcase/destruction-integration.md)记录按钮、参数与资源来源。
 
-- 核心：指定 Collider 的 `cast_ray` 与只读 `PhysicsImpact`。冲量是 Jolt 官方估算，非求解后真实冲量；刚体接触回调不运行项目脚本。
-- 破坏插件：多点面积加权地基检查、精准 world bond 解除、碎块归属；不依赖地形插件，不实现承重求解。
-- 脚本：`Physics.GetImpacts()`、`DestructionComponent.RefreshSupport/OwnsFragment` 与可选 `EffectComponent` 播放接口。
-- MCP：`destruction_refresh_support` 使用 `sceneId/nodeId/supportNodeId/maxGap/minCoverage`，可撤销/重做；无变化不重建对象。
-- 参数、音效和原创 Effekseer 特效留在项目；导出工具见 `scripts/showcase_destruction_effects/`，可选 .NET 8 仅用于重新制作示例特效，不进入引擎或运行包。
+- 核心物理提供指定 Collider 射线、通用球形扫掠和只读接触快照；`estimatedImpulse` 是 Jolt 官方碰前估算，非求解后实际冲量。核心导航复用 Recast `Sample_TileMesh` / Detour，通过明确输入的几何及范围同步构建或替换瓦片，不扫描场景识别玩法。
+- 破坏插件保留地基多点覆盖检查、world bond 解除和碎块归属；`ApplyStress` 使用 Blast 原有标量求解器。兼容补丁在构建目录应用，所有平台使用同一标量路径，不加入 PhysX。它处理当前支撑图的重力应力，不等于完整建筑力学。
+- 地形插件 `CollapseDetached` 识别脱离下/侧边界的连通土石，按项目指定大小生成瞬态网格和 Jolt 凸形 compound 动态节点；预算或准备失败不删除未转换土石。项目继续挖填不会吃掉已有碎块，Reset 清理生成物并恢复源体积。
+- 火箭场预破碎塔/墙/柱/梁分别为 **256 / 128 / 64 / 72** 块，共 520 个资产片段；这不是同时活跃刚体数。土石总活动预算为 **96**。火箭固定 64 个槽，发射请求为 **2 / 6 / 12 发每秒，进入场景默认 6**；60 发齐射可停止，停止后在途弹体继续飞行。每帧最多发一发，不在卡顿后补发积压。每段飞行通过 `Physics.CastSphere` 检查实际碰撞，以命中位置驱动爆破，不直接在按钮指定点引爆。
+- 项目调用顺序为实际命中→建筑损伤/挖土→土石提取→地基刷新→烟尘/音频，并提交导航脏区。导航只包含显式提交的静态地形，移动残骸不烘焙进去；修改后隐藏旧路线，再按需重建相关瓦片。应力、发射频率、伤害、密度及预算均留在项目脚本配置。
+- `Weak beam / normal` 切换梁的项目强度参数；填土或恢复强度不会自动接上已断连接。`Reset all` 停止炮击、清理弹体/表现/土石、恢复地形与四个结构，并重建导航和复位角色。火箭尾焰、烟尘与爆破由固定版本 Effekseer 官方导出器制作，音效为原创合成资源。
 
-本阶段验证及平台限制见[步骤 3 记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-3-综合联动验证)。当前仍为同步的小规模实心试件实验场；土石塌方、承重应力、局部导航与异步扩量保持后续顺序。
+Mac Debug / Release 已累计各通过 8 项定向测试；Android ARM64 仅通过独立 Graph/ExtStress 探针。
+步骤 4 当前真实窗口验收待补，不能沿用步骤 3 的截图当成本阶段结果。
+证据与限制见[步骤 4 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
+面板用 `Date.now()` 显示实际墙钟帧间隔的指数平均与最大值，**包含限帧等待与截图开销**，不是 CPU/GPU 工作耗时或 P95。每轮连射清帧间隔统计，每约一秒和最终完成时输出 `Rocket range sample` JSON（含实际发射率、命中、blocked、碎块/土石与导航状态）。
+目前没有综合世界存档、移动残骸导航、异步任务、完整建筑力学或手机性能结论；
+这些能力的单测通过也不代表连续炮击已经达到目标吞吐。

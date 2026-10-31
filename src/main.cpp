@@ -117,10 +117,11 @@ int main(int argc, char* argv[])
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui,
-                        engine::PhysicsSystem& physics) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::PhysicsSystem& physics,
+                        engine::NavigationSystem& navigation) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui,
-                                                                       &physics);
+                                                                       &physics, &navigation);
     };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

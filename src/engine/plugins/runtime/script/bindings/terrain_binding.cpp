@@ -29,6 +29,12 @@ export class TerrainComponent extends Component {
         const h = handles.get(this);
         return native.TerrainFill(h.scene, h.node, x, y, z, radius);
     }
+    CollapseDetached(minSamples, maxFragments, fragmentCells = 4, density = 1600) {
+        const h = handles.get(this);
+        return native.TerrainCollapse(h.scene, h.node, minSamples, maxFragments,
+            fragmentCells, density);
+    }
+    get fragmentCount() { const h = handles.get(this); return native.TerrainFragments(h.scene, h.node); }
     Reset() { const h = handles.get(this); return native.TerrainReset(h.scene, h.node); }
     Save(slot) { const h = handles.get(this); return native.TerrainSave(h.scene, h.node, slot); }
     Load(slot) { const h = handles.get(this); return native.TerrainLoad(h.scene, h.node, slot); }
@@ -186,6 +192,18 @@ void ready(const Arguments& arguments)
     arguments.set_return(value != nullptr && value->ready());
 }
 
+void collapse(const Arguments& arguments)
+{
+    auto* value = component(arguments, 6);
+    float density = 0;
+    if (value && arguments.is_uint32(2) && arguments.is_uint32(3) &&
+        arguments.is_uint32(4) && BindingContext::scalar(arguments, 5, density))
+    {
+        arguments.set_return(value->collapse_detached(arguments.unsigned_integer(2),
+            arguments.unsigned_integer(3), arguments.unsigned_integer(4), density));
+    }
+}
+
 void statistic(const Arguments& arguments)
 {
     const auto* value = component(arguments, 2);
@@ -211,6 +229,9 @@ void statistic(const Arguments& arguments)
     case 4:
         arguments.set_return(value->last_error());
         break;
+    case 5:
+        arguments.set_return(static_cast<double>(value->fragment_count()));
+        break;
     }
 }
 
@@ -231,6 +252,8 @@ bool TerrainBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("TerrainKind", static_cast<int>(terrain::TerrainComponent::component_type)) &&
            vm.function("TerrainAdd", add) && vm.function("TerrainDig", sphere, 0) &&
            vm.function("TerrainFill", sphere, 1) && vm.function("TerrainReset", reset) &&
+           vm.function("TerrainCollapse", collapse) &&
+           vm.function("TerrainFragments", statistic, 5) &&
            vm.function("TerrainSave", persistence, 1) &&
            vm.function("TerrainLoad", persistence, 0) && vm.function("TerrainReady", ready) &&
            vm.function("TerrainRevision", statistic, 0) &&

@@ -787,7 +787,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
 | PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
 | AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
-| NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
+| NavigationSystem | Recast、Detour、MeshDataT | 显式几何的分块构建、局部替换、失效清理与完整路径查询 |
 | AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样与混合、共享编译物及实例 palette 生命周期 |
 | FontSystem | bgfx、ResourceLoader、FontDataT、TextComponent | 共享曲线资源、字形测量和排布、UI 与 3D 字体 GPU 绘制 |
 | UiSystem | RmlUi、FontSystem、WorldSystem、WindowSystem、UiComponent | 文档生命周期、正常绘制顺序、输入与控件事件 |
@@ -815,6 +815,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
 脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
+
+[导航绑定](../plugins/runtime/class-diagrams/navigation-script-api.md)通过 BindingContext 借用宿主注入的 NavigationSystem，验证当前 Run 的节点身份后收集明确指定的 MeshRenderer/Transform。导航核心仅借用同步调用期间的 MeshDataT，不包含具体插件或自动扫描场景；世界独占导航系统，脚本在所属场景切换或停止时显式清理。方法与数据关系见[导航系统类图](../runtime/class-diagrams/navigation-system.md)。
 
 ## 资源身份与导入依赖
 

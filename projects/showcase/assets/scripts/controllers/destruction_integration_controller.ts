@@ -18,7 +18,9 @@ export class DestructionIntegrationController extends UiController<DestructionIn
         const status = this.view.FindElement("integration-status");
         const statistics = this.view.FindElement("integration-statistics");
         const impacts = this.view.FindElement("integration-impacts");
-        if (!status || !statistics || !impacts) return false;
+        const combat = this.view.FindElement("integration-combat");
+        const navigation = this.view.FindElement("integration-navigation");
+        if (!status || !statistics || !impacts || !combat || !navigation) return false;
         for (const action of this.model.actions) {
             const button = this.view.FindElement(`integration-${action}`);
             if (!button ||
@@ -26,6 +28,7 @@ export class DestructionIntegrationController extends UiController<DestructionIn
                 !button.SetClass("selected", action === this.model.camera)) return false;
         }
         return status.SetText(this.model.status) &&
-            statistics.SetText(this.model.statistics) && impacts.SetText(this.model.impacts);
+            statistics.SetText(this.model.statistics) && impacts.SetText(this.model.impacts) &&
+            combat.SetText(this.model.combat) && navigation.SetText(this.model.navigation);
     }
 }

@@ -27,6 +27,7 @@ classDiagram
     class EditorEdit
     class DestructionStateEdit {
         +DestructionStateEdit(WorldSystem world, uint64 scene, shared_ptr node, shared_ptr revision, ComponentDataT settings, ByteBuffer before, shared_ptr support, float max_gap, float min_coverage)
+        +DestructionStateEdit(WorldSystem world, uint64 scene, shared_ptr node, shared_ptr revision, ComponentDataT settings, ByteBuffer before, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations)
         +affects_scene() bool
         +apply(string& error) bool
         +revert(string& error) bool
@@ -88,3 +89,10 @@ classDiagram
 步骤 3：`destruction_refresh_support` 显式指定同场景 `supportNodeId`、`maxGap`、`minCoverage`。复用 DestructionStateEdit 的前后状态快照；首次 apply 执行支撑刷新，undo/redo 恢复完整拆分和物理状态，不重跑地基采样。支撑节点只按稳定身份借用；组件、场景和 revision 校验与其他破坏命令一致。命令不自动修改地形；调用方先提交地形笔刷，再刷新受影响建筑。
 
 支撑刷新未改变 revision 时，历史记录为空操作；撤销/重做不恢复快照、不回退正常物理运动，也不重建节点。
+
+
+步骤 4：`destruction_apply_stress` 接收 `gravity: [x,y,z]` 世界重力、正数
+`elasticLimit` / `fatalLimit`（Pa，后者不得小于前者）、`iterations`（整数 1..1000）
+及 `sceneId/nodeId`。首次 apply 调用官方 ExtStress，之后撤销与重做复用前后快照；
+不在 undo/redo 重算应力。无损伤时 revision 不变，按空操作处理，保持物理节点及当前运动。
+MCP 只显式执行一次；项目固定频率的应力更新仍由项目脚本协调。

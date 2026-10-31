@@ -24,6 +24,7 @@ classDiagram
     class PerformanceSystem
     class WorldSystem
     class PhysicsSystem
+    class NavigationSystem
     class AudioSystem
     class ResourceSystem
     class ScriptRuntime
@@ -44,6 +45,7 @@ classDiagram
     RuntimeHost ..> PerformanceSystem : 创建并移交引擎独占
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost --> PhysicsSystem : 装配后借用
+    RuntimeHost ..> NavigationSystem : 创建并移交世界独占，传给脚本工厂
     RuntimeHost --> AudioSystem : 借用以暂停及恢复音频
     RuntimeHost --> FontSystem : 装配后借用字体运行时
     RuntimeHost --> UiSystem : 装配后借用并传递窗口输入
@@ -59,7 +61,7 @@ classDiagram
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
 - 初始化先独立创建 WindowSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，当前仅接入可选 Tracy 客户端；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
-- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
+- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
 - RuntimeHost 和 GameplaySession 只依赖 [ScriptRuntime](script-runtime.md) 契约，不包含或链接具体脚本插件，不依据虚拟机或插件编译宏改变核心实现。无工厂时仍能初始化窗口、场景和渲染；启动脚本玩法明确返回不可用。
 - 每帧先处理窗口事件，退出返回 exit_requested；窗口不可绘制时暂停音频输出，返回 paused 并继续接收恢复事件；恢复后继续音频与物理步进。随后由 Engine 更新根系统，由 GameplaySession 处理显式部署控制和资源切换，最后提交渲染帧。
 - 项目场景渲染失败时停止 GameplaySession 并尝试空白渲染；恢复成功继续运行，错误保留在会话中。系统更新或空白渲染失败保持 failed，直到关闭后重新初始化。渲染过程中收到平台暂停时返回 paused。
@@ -99,3 +101,5 @@ flowchart TD
 阶段枚举仅决定一次性的子系统登记位置，不增加 System 的逐帧阶段、事件总线或额外调度器。
 
 步骤 3：脚本工厂追加借用已构造的物理系统，用于读取上一物理帧撞击快照；工厂不调用尚未初始化的物理能力，玩法结束后才释放该借用。
+
+步骤 4：脚本工厂继续追加已构造的 NavigationSystem 引用，世界独占该子系统，宿主和脚本仅借用；世界关闭前结束玩法与查询。

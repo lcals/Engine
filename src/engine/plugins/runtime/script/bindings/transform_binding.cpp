@@ -4,6 +4,8 @@
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
 
+#include <cmath>
+
 namespace engine::plugins::script::bindings
 {
 namespace
@@ -19,6 +21,12 @@ export class Transform extends Component {
     }
     SetScale(x, y, z) {
         const h = handles.get(this); return native.TransformScale(h.scene, h.node, x, y, z);
+    }
+    GetWorldPosition() {
+        const h = handles.get(this); return native.TransformWorldPosition(h.scene, h.node);
+    }
+    GetWorldForward() {
+        const h = handles.get(this); return native.TransformWorldForward(h.scene, h.node);
     }
 }
 componentTypes.set(Transform, { add: native.TransformAdd, kind: native.TransformKind });
@@ -65,6 +73,36 @@ void scale(const Arguments& arguments)
     set_vector(arguments, &TransformSettings::scale);
 }
 
+void world_vector(const Arguments& arguments)
+{
+    arguments.set_return({});
+    const auto* node = BindingContext::node(arguments);
+    const auto* transform = node ? node->get_component<Transform>() : nullptr;
+    float matrix[16]{};
+    if (!transform || arguments.count() != 2 || !transform->world_matrix(matrix))
+    {
+        return;
+    }
+    double x = matrix[12];
+    double y = matrix[13];
+    double z = matrix[14];
+    if (arguments.data() != 0)
+    {
+        x = -matrix[8];
+        y = -matrix[9];
+        z = -matrix[10];
+        const double length = std::sqrt(x * x + y * y + z * z);
+        if (!std::isfinite(length) || length < 1e-9)
+        {
+            return;
+        }
+        x /= length;
+        y /= length;
+        z /= length;
+    }
+    arguments.set_return(vm::NativeValue::Object{{"x", x}, {"y", y}, {"z", z}});
+}
+
 } // namespace
 
 std::string_view TransformBinding::name() const noexcept
@@ -81,7 +119,9 @@ bool TransformBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("TransformKind", static_cast<int>(Transform::component_type)) &&
            vm.function("TransformAdd", add) && vm.function("TransformPosition", position) &&
-           vm.function("TransformRotation", rotation) && vm.function("TransformScale", scale);
+           vm.function("TransformRotation", rotation) && vm.function("TransformScale", scale) &&
+           vm.function("TransformWorldPosition", world_vector, 0) &&
+           vm.function("TransformWorldForward", world_vector, 1);
 }
 
 } // namespace engine::plugins::script::bindings

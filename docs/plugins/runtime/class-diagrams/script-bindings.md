@@ -26,7 +26,7 @@ classDiagram
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics)
+        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation)
         +~BindingContext()
         +activate() void
         +begin_call(double delta_time) void
@@ -36,6 +36,7 @@ classDiagram
         +renderer() RenderSystem#42;
         +ui() UiSystem#42;
         +physics() PhysicsSystem#42;
+        +navigation() NavigationSystem#42;
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
@@ -46,6 +47,7 @@ classDiagram
     class WorldSystem
     class RenderSystem
     class UiSystem
+    class NavigationSystem
     ScriptBindingRegistry "1" *-- "0..*" ScriptBinding : 独占实现对象
     ScriptBinding ..> ScriptVm : 注册原生函数和只读常量
     ScriptBinding ..> Arguments : 读取参数及返回原生值
@@ -56,9 +58,10 @@ classDiagram
     BindingContext --> UiSystem : 有效回调期间的可空借用
     BindingContext --> WorldSystem : 可空借用
     BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
+    BindingContext --> NavigationSystem : 有效回调借用及所属场景结束清理
 ```
 
-`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`scene_id`、`delta_time` 为 `const noexcept`，其中 world 和 renderer 返回可修改服务的可空借用。构造的 renderer 和 ui 默认空；renderer / ui 查询在非生命周期及绑定回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
+`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`ui`、`physics`、`navigation`、`scene_id`、`delta_time` 为 `const noexcept`，服务返回可修改对象的可空借用。构造的 renderer、ui、physics 和 navigation 默认空；除 world 外，服务查询在非生命周期及绑定回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 是 `const vm::Arguments&`，由本次原生回调临时借用；通过 owner 访问当前 Run 的绑定上下文，参数与返回值不暴露 JS 句柄。
 
@@ -116,6 +119,7 @@ classDiagram
     class AudioListenerBinding
     class AnimatorBinding
     class TerrainBinding
+    class NavigationBinding
     class UiComponentBinding
     class UiElementBinding
     class UiControllerBinding
@@ -142,6 +146,7 @@ classDiagram
     ScriptBinding <|-- AudioListenerBinding
     ScriptBinding <|-- AnimatorBinding
     ScriptBinding <|-- TerrainBinding
+    ScriptBinding <|-- NavigationBinding
     ScriptBinding <|-- UiComponentBinding
     ScriptBinding <|-- UiElementBinding
     ScriptBinding <|-- UiControllerBinding
@@ -181,6 +186,7 @@ classDiagram
 - CameraBinding 提供透视与正交设置；LightBinding 提供方向、点和聚光设置；MeshRendererBinding 提供资源网格切换与材质槽访问。所有范围及资源匹配由对应原生组件负责。
 - ColliderBinding、RigidBodyBinding、AudioSourceBinding、AudioListenerBinding 各有独立文件，提供[物理与音频组件接口](physics-audio-script-api.md)。几何、质量、速度、冲量、音频设置与播放请求交原生组件处理，不在绑定中实现仿真或混音。
 - AnimatorBinding 独立提供[动画脚本接口](animation-script-api.md)，动作选择、播放设置与定位交 Animator 处理；不在原生脚本回调中采样、解析骨架或创建渲染资源。
+- NavigationBinding 独立提供[导航脚本接口](navigation-script-api.md)，只收集调用方明确提交的静态网格，将构建、局部替换和完整路径查询交核心 NavigationSystem。
 - 构造和清理不抛 C++ 异常；虚拟机调用通过返回值报告错误。全部借用仅在引擎主线程有效。
 
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
@@ -208,3 +214,5 @@ ScriptBinding <|-- PhysicsBinding
 PhysicsBinding ..> PhysicsSystem : reads impact snapshot
 PhysicsBinding ..> BindingContext : validates scene
 ```
+
+步骤 4：宿主额外注入可空 NavigationSystem 借用。BindingContext 在自己拥有的场景切换/停止时 clear 导航；候选 Run 预检不修改活动导航。导航仅接受调用方明确提交的网格与范围，失败路径不能继续使用受影响旧 tile。

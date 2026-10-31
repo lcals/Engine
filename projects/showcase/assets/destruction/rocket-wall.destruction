@@ -1,0 +1,9 @@
+size = [8, 9, 1.8]
+fracture = "slices"
+slices_x = 8
+slices_y = 8
+slices_z = 2
+sites = 32
+seed = 17
+bond_health = 1
+anchor_height = 0.05

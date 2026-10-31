@@ -125,7 +125,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 
     engine_add_system(runtime navigation)
-    target_link_libraries(engine_navigation PRIVATE RecastNavigation::Recast
+    target_link_libraries(engine_navigation PUBLIC engine::scene_data PRIVATE RecastNavigation::Recast
                                                     RecastNavigation::Detour)
 
     engine_add_system(runtime animation)

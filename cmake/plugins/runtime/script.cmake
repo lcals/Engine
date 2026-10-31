@@ -33,6 +33,7 @@ function(engine_configure_script_plugin)
                 engine::resource
                 engine::world
                 engine::physics
+                engine::navigation
                 engine::render
                 engine::ui
                 SDL3::SDL3

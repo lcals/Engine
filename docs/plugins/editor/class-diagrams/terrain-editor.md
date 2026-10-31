@@ -73,6 +73,7 @@ classDiagram
     TerrainStateEdit ..> TerrainComponent : 原子恢复
     McpSystem --> EditorMcpTools : 工具回调借用
     EditorMcpTools ..> EditorCommands : 现有命令通道转发
+    EditorCommands ..> TerrainComponent : 显式动态塌方与非撤销Reset
 ```
 
 ## 资源契约
@@ -92,5 +93,7 @@ classDiagram
 - `terrain_save_state/terrain_load_state` 只读写 `cache/terrain-states/` 内指定相对文件。状态绑定基础 GUID 与内容指纹，不能恢复到另一基础地形，也不覆盖 `assets/` 或 `cache/gen/`。
 - 笔刷和状态恢复改变即时地形，不改变场景持久组件设置，`affects_scene()` 返回 false；运行修改需显式保存状态，不由场景保存隐式烘焙回初始资源。
 - `register_terrain_mcp_tools(McpSystem&, EditorMcpTools&)` 只转发命令；未选 MCP 插件时不创建协议工具目标。
+- 步骤 4 增加 `terrain_collapse_detached(minSamples, maxFragments, fragmentCells=4, density=1600)`，直接调用运行时同步塌方并返回 `fragmentCount/revision/undoable=false`。它是运行操作，不能进入编辑批次，不伪造只含静态体积的撤销记录。`get_terrain` 同时返回活动碎块数。
+- `terrain_reset_runtime` 是独立的非撤销运行操作，恢复源体积并清理动态碎块。现有 `terrain_reset` 保持可撤销契约；存在动态碎块时，原有笔刷、状态保存/加载、可撤销重置明确拒绝，提示先执行运行时重置。项目脚本仍可使用 `ApplySphere` 继续修改静态地形，保留正在运动的碎块。
 
 首版同步计算与提交，不增加任务队列、后台线程或编辑器专用运行时模式。持久资源与状态继续以 FlatBuffers schema 为唯一模型来源。

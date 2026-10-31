@@ -554,6 +554,77 @@ bool DestructionSystem::reset(DestructionComponent& component)
            rebuild(component, std::move(candidate), false);
 }
 
+bool DestructionSystem::apply_stress(DestructionComponent& component, const Vec3& gravity,
+                                     float elastic_limit, float fatal_limit,
+                                     std::uint32_t iterations, std::uint32_t& broken_bonds)
+{
+    broken_bonds = 0;
+    if (!state_ || !component.ready_ || !active_component(component) || !finite(gravity) ||
+        std::abs(gravity.x()) > 100000 || std::abs(gravity.y()) > 100000 ||
+        std::abs(gravity.z()) > 100000 || !std::isfinite(elastic_limit) || elastic_limit <= 0 ||
+        !std::isfinite(fatal_limit) || fatal_limit < elastic_limit || iterations == 0 ||
+        iterations > 1000)
+    {
+        component.last_error_ = "Invalid destruction gravity stress parameters";
+        return false;
+    }
+    const auto found = state_->generated.find(component.node().id());
+    DestructionGraph candidate;
+    if (found == state_->generated.end() ||
+        !component.graph_.clone(candidate, component.last_error_))
+    {
+        component.last_error_ = "Cannot prepare destruction stress candidate";
+        return false;
+    }
+    std::uint32_t count = 0;
+    for (const auto& group : component.graph_.groups())
+    {
+        if (!group.anchored)
+        {
+            continue;
+        }
+        const auto generated =
+            std::find_if(found->second.begin(), found->second.end(),
+                         [&](const auto& item) { return item.chunks == group.chunks; });
+        auto* node = generated != found->second.end()
+                         ? component.node().scene().find_node(generated->node)
+                         : nullptr;
+        const auto* transform = node ? node->get_component<Transform>() : nullptr;
+        float matrix[16];
+        if (!transform || !valid_transform(transform->settings()) ||
+            !transform->world_matrix(matrix))
+        {
+            component.last_error_ = "Cannot locate destruction stress group transform";
+            return false;
+        }
+        // For uniform scale s: weight/area grows by s. Transpose(s*R) rotates gravity
+        // back into asset coordinates and applies this pressure scaling in one operation.
+        const Vec3 local_gravity{
+            matrix[0] * gravity.x() + matrix[1] * gravity.y() + matrix[2] * gravity.z(),
+            matrix[4] * gravity.x() + matrix[5] * gravity.y() + matrix[6] * gravity.z(),
+            matrix[8] * gravity.x() + matrix[9] * gravity.y() + matrix[10] * gravity.z()};
+        std::uint32_t group_broken = 0;
+        if (!candidate.apply_stress(group.id, local_gravity, component.settings().density,
+                                     elastic_limit, fatal_limit, iterations, group_broken,
+                                     component.last_error_))
+        {
+            return false;
+        }
+        count += group_broken;
+    }
+    if (candidate.healths() == component.graph_.healths())
+    {
+        component.last_error_.clear();
+        return true;
+    }
+    if (!rebuild(component, std::move(candidate), true))
+    {
+        return false;
+    }
+    broken_bonds = count;
+    return true;
+}
+
 bool DestructionSystem::owns_fragment(const DestructionComponent& component,
                                       std::uint64_t node_id) const noexcept
 {

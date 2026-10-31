@@ -138,6 +138,7 @@ Json component_json(const TerrainComponent& component)
     result["chunks"] = component.chunk_count();
     result["rebuiltChunks"] = component.rebuilt_chunks();
     result["triangles"] = component.triangle_count();
+    result["fragmentCount"] = component.fragment_count();
     result["sceneId"] = std::to_string(component.node().scene().id());
     result["nodeId"] = std::to_string(component.node().id());
     result["lastError"] = component.last_error();
@@ -153,6 +154,31 @@ TerrainComponent* target(WorldSystem& world, const Json& arguments, std::string&
         error = "Node has no terrain component";
     }
     return component;
+}
+
+bool bounded_integer(const Json& input, std::uint32_t maximum, std::uint32_t& value)
+{
+    if (!input.is_number_integer())
+    {
+        return false;
+    }
+    if (input.is_number_unsigned())
+    {
+        const auto number = input.get<std::uint64_t>();
+        if (number == 0 || number > maximum)
+        {
+            return false;
+        }
+        value = static_cast<std::uint32_t>(number);
+        return true;
+    }
+    const auto number = input.get<std::int64_t>();
+    if (number <= 0 || number > maximum)
+    {
+        return false;
+    }
+    value = static_cast<std::uint32_t>(number);
+    return true;
 }
 
 bool unpack_state(ByteView bytes, std::unique_ptr<schema::TerrainStateDataT>& output,
@@ -279,6 +305,12 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
         return false;
     }
     auto* component = target(world, arguments, error);
+    if (component && component->fragment_count() != 0)
+    {
+        error = "Dynamic terrain fragments cannot be captured in volume-only undo/save state; "
+                "use terrain_reset_runtime before this edit";
+        return false;
+    }
     ByteBuffer before;
     schema::ComponentDataT settings;
     std::unique_ptr<schema::TerrainStateDataT> state;
@@ -460,7 +492,70 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                                        }
                                        result = component_json(*component);
                                        return true;
-                                   }))
+                                   }) ||
+        !commands.register_command(
+            "terrain_collapse_detached", false,
+            [&world](const Json& arguments, Json& result, std::unique_ptr<editor::EditorEdit>&,
+                      std::string& error)
+            {
+                std::uint32_t minimum = 0;
+                std::uint32_t maximum = 0;
+                std::uint32_t cells = 4;
+                float density = 1600;
+                if (!editor::components::fields(arguments,
+                                                 {"minSamples", "maxFragments", "fragmentCells",
+                                                  "density"}, error) ||
+                    !arguments.contains("minSamples") ||
+                    !bounded_integer(arguments["minSamples"], 4U * 1024U * 1024U, minimum) ||
+                    !arguments.contains("maxFragments") ||
+                    !bounded_integer(arguments["maxFragments"], 128, maximum) ||
+                    (arguments.contains("fragmentCells") &&
+                     !bounded_integer(arguments["fragmentCells"], 8, cells)) ||
+                    (arguments.contains("density") &&
+                     !editor::components::number(arguments["density"], density)))
+                {
+                    if (error.empty())
+                    {
+                        error = "Terrain collapse requires positive minSamples, maxFragments "
+                                "within 1..128, fragmentCells within 1..8 and a finite density";
+                    }
+                    return false;
+                }
+                auto* component = target(world, arguments, error);
+                if (!component || !component->collapse_detached(minimum, maximum, cells, density))
+                {
+                    if (component)
+                    {
+                        error = component->last_error();
+                    }
+                    return false;
+                }
+                result = component_json(*component);
+                result["undoable"] = false;
+                return true;
+            }) ||
+        !commands.register_command(
+            "terrain_reset_runtime", false,
+            [&world](const Json& arguments, Json& result, std::unique_ptr<editor::EditorEdit>&,
+                      std::string& error)
+            {
+                if (!editor::components::fields(arguments, {}, error))
+                {
+                    return false;
+                }
+                auto* component = target(world, arguments, error);
+                if (!component || !component->reset())
+                {
+                    if (component)
+                    {
+                        error = component->last_error();
+                    }
+                    return false;
+                }
+                result = component_json(*component);
+                result["undoable"] = false;
+                return true;
+            }))
     {
         return false;
     }
@@ -494,6 +589,12 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                 return false;
             }
             auto* component = target(world, arguments, error);
+            if (component && component->fragment_count() != 0)
+            {
+                error = "Volume-only terrain state cannot save dynamic fragments; "
+                        "use terrain_reset_runtime first";
+                return false;
+            }
             std::filesystem::path path;
             if (component == nullptr || !component->ready() ||
                 !terrain_file_path(project_root, "cache/terrain-states",

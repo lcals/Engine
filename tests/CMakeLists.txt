@@ -811,6 +811,23 @@ if(TARGET engine_effects)
     endif()
 endif()
 
+if(TARGET engine_navigation)
+    add_executable(engine_navigation_test navigation_test.cpp)
+    target_link_libraries(engine_navigation_test PRIVATE engine::navigation)
+    engine_apply_options(engine_navigation_test)
+    add_test(NAME engine.navigation COMMAND engine_navigation_test)
+    set_tests_properties(engine.navigation PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation AND TARGET engine_script)
+    add_executable(engine_navigation_script_test navigation_script_test.cpp)
+    target_link_libraries(engine_navigation_script_test PRIVATE engine::script engine::navigation
+        engine::world engine::resource engine::app engine::log)
+    engine_apply_options(engine_navigation_script_test)
+    add_test(NAME engine.navigation_script COMMAND engine_navigation_script_test)
+    set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
+endif()
+
 if(TARGET engine_terrain)
     add_executable(engine_terrain_runtime_test terrain_runtime_test.cpp)
     target_link_libraries(engine_terrain_runtime_test PRIVATE engine::terrain)

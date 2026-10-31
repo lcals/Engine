@@ -62,6 +62,20 @@ bool register_destruction_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools&
                 {"maxGap", {{"type", "number"}, {"minimum", 0}, {"maximum", 1000}}},
                 {"minCoverage", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}},
                Json::array({"supportNodeId", "maxGap", "minCoverage"})) &&
+           mcp::tools::component_tool(
+               system, editor, "destruction_apply_stress",
+               "Run one official Blast gravity stress solve for anchored groups. Pressure limits "
+               "are Pa, shared by compression/tension/shear. Partial damage accumulates per call; "
+               "use a fixed cadence. Undoable; undo/redo restore snapshots without rerunning stress.",
+               {{"gravity",
+                 {{"type", "array"},
+                  {"items", {{"type", "number"}, {"minimum", -100000}, {"maximum", 100000}}},
+                  {"minItems", 3},
+                  {"maxItems", 3}}},
+                {"elasticLimit", {{"type", "number"}, {"minimum", 0}}},
+                {"fatalLimit", {{"type", "number"}, {"minimum", 0}}},
+                {"iterations", {{"type", "integer"}, {"minimum", 1}, {"maximum", 1000}}}},
+               Json::array({"gravity", "elasticLimit", "fatalLimit", "iterations"})) &&
            mcp::tools::component_tool(system, editor, "destruction_reset",
                                       "Restore the original destruction structure. Undoable.",
                                       Json::object());

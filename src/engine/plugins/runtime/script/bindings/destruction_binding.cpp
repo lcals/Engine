@@ -27,6 +27,11 @@ export class DestructionComponent extends Component {
     OwnsFragment(nodeId) {
         const h = handles.get(this); return native.DestructionOwns(h.scene, h.node, nodeId);
     }
+    ApplyStress(x, y, z, elasticLimit, fatalLimit, iterations) {
+        const h = handles.get(this);
+        return native.DestructionStress(h.scene, h.node, x, y, z,
+            elasticLimit, fatalLimit, iterations);
+    }
     Reset() { const h = handles.get(this); return native.DestructionReset(h.scene, h.node); }
     get ready() { const h = handles.get(this); return native.DestructionReady(h.scene, h.node); }
     get revision() { const h = handles.get(this); return native.DestructionRevision(h.scene, h.node); }
@@ -100,6 +105,29 @@ void reset(const Arguments& arguments)
     auto* value = component(arguments, 2);
     arguments.set_return(value && value->reset());
 }
+
+void stress(const Arguments& arguments)
+{
+    auto* value = component(arguments, 8);
+    arguments.set_return({});
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    float elastic = 0;
+    float fatal = 0;
+    if (!value || !BindingContext::number(arguments, 2, x) ||
+        !BindingContext::number(arguments, 3, y) || !BindingContext::number(arguments, 4, z) ||
+        !BindingContext::scalar(arguments, 5, elastic) ||
+        !BindingContext::scalar(arguments, 6, fatal) || !arguments.is_uint32(7))
+    {
+        return;
+    }
+    std::uint32_t broken = 0;
+    if (value->apply_stress({x, y, z}, elastic, fatal, arguments.unsigned_integer(7), broken))
+    {
+        arguments.set_return(broken);
+    }
+}
 void statistic(const Arguments& arguments)
 {
     const auto* value = component(arguments, 2);
@@ -147,6 +175,7 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("DestructionAdd", add) && vm.function("DestructionDamage", damage) &&
            vm.function("DestructionSupport", support) &&
            vm.function("DestructionOwns", owns_fragment) &&
+           vm.function("DestructionStress", stress) &&
            vm.function("DestructionReset", reset) &&
            vm.function("DestructionReady", statistic, 0) &&
            vm.function("DestructionRevision", statistic, 1) &&

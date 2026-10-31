@@ -1,5 +1,6 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
+#include "runtime/navigation/navigation_system.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -9,8 +10,8 @@
 namespace engine::plugins::script::bindings
 {
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
-                               PhysicsSystem* physics) noexcept
-    : world_(world), renderer_(renderer), ui_(ui), physics_(physics)
+                               PhysicsSystem* physics, NavigationSystem* navigation) noexcept
+    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation)
 {
 }
 
@@ -42,6 +43,10 @@ void BindingContext::shutdown() noexcept
     end_call();
     if (world_ != nullptr && world_->scene() != nullptr && world_->scene()->id() == scene_id_)
     {
+        if (navigation_)
+        {
+            navigation_->clear();
+        }
         world_->destroy_scene();
     }
     scene_id_ = 0;
@@ -67,6 +72,11 @@ PhysicsSystem* BindingContext::physics() const noexcept
     return callable_ ? physics_ : nullptr;
 }
 
+NavigationSystem* BindingContext::navigation() const noexcept
+{
+    return callable_ ? navigation_ : nullptr;
+}
+
 std::uint64_t BindingContext::scene_id() const noexcept
 {
     return scene_id_;
@@ -74,6 +84,10 @@ std::uint64_t BindingContext::scene_id() const noexcept
 
 void BindingContext::set_scene_id(std::uint64_t value) noexcept
 {
+    if (active_ && scene_id_ != value && navigation_)
+    {
+        navigation_->clear();
+    }
     scene_id_ = value;
 }
 
