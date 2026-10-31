@@ -50,6 +50,8 @@ struct FontDraw
     std::array<std::uint16_t, 4> scissor{};
     bool use_scissor = false;
     bool depth_test = false;
+    // HDR scene targets require linear premultiplied color; UI keeps display color.
+    bool linear_output = false;
     // The caller supplies the shader retained with this font/document generation.
     ResourcePtr shader;
 };
@@ -78,7 +80,8 @@ public:
     [[nodiscard]] bool draw(const ResourcePtr& font, const FontGeometry& geometry,
                             const FontDraw& settings);
     // The caller has already configured this view's camera and viewport.
-    [[nodiscard]] bool render_scene(const Scene& scene, std::uint16_t view_id);
+    [[nodiscard]] bool render_scene(const Scene& scene, std::uint16_t view_id,
+                                    bool linear_output = false);
     void release_scene() noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
     [[nodiscard]] const std::string& last_error() const noexcept;

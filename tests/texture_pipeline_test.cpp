@@ -233,11 +233,13 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
 {
     constexpr const char* shader_guid = "b0000000-0000-4000-8000-000000000010";
     constexpr std::array sources = {"vs_cube.sc",     "fs_cube.sc",        "varying.def.sc",
-                                    "pbr_helpers.sh", "shadow_helpers.sh", "material_helpers.sh"};
+                                    "pbr_helpers.sh", "shadow_helpers.sh", "material_helpers.sh",
+                                    "csm_helpers.sh"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
         "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
-        "b0000000-0000-4000-8000-000000000015", "b0000000-0000-4000-8000-000000000016"};
+        "b0000000-0000-4000-8000-000000000015", "b0000000-0000-4000-8000-000000000016",
+        "b0000000-0000-4000-8000-000000000017"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)
@@ -287,6 +289,28 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
         return false;
     }
     const auto stable = read(fixture.root / "cache/catalog.bin");
+    for (const auto* uniform :
+         {"u_ambient_occlusion", "s_ambient_occlusion", "u_assao_params", "u_assao_rect",
+          "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom"})
+    {
+        const auto extra = std::string("[[samplers]]\nname=\"reserved\"\nuniform=\"") + uniform +
+                           "\"\nstage=3\ndefault_texture=\"builtin/textures/white-linear\"\n";
+        if (!expect(write(path, descriptor + extra) && !pipeline.build_assets(fixture.root) &&
+                        read(fixture.root / "cache/catalog.bin") == stable,
+                    "reserved renderer uniforms fail import without replacing the catalog"))
+        {
+            return false;
+        }
+    }
+    if (!expect(write(path, descriptor +
+                               "[[samplers]]\nname=\"reserved_slot\"\nuniform=\"s_extra\"\n"
+                               "stage=11\ndefault_texture=\"builtin/textures/white-linear\"\n") &&
+                    !pipeline.build_assets(fixture.root) &&
+                    read(fixture.root / "cache/catalog.bin") == stable,
+                "AO sampler slot 11 is reserved during import"))
+    {
+        return false;
+    }
     return expect(write(path, descriptor +
                                   "[[samplers]]\nname=\"invalid\"\nuniform=\"s_extra\"\nstage=3\n"
                                   "default_texture=\"project/颜色.png\"\n") &&

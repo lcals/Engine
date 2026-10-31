@@ -81,6 +81,10 @@ std::string scene()
            "[[nodes.components]]\ntype = \"camera\"\n"
            "[[nodes.components]]\ntype = \"post_process\"\n"
            "exposure = 1.5\nfilmic_tonemap = true\n"
+           "ao_enabled = true\nao_radius = 1.4\nao_strength = 0.8\nao_power = 2\n"
+           "ao_fade_start = 40\nao_fade_end = 140\n"
+           "hdr_enabled = true\nbloom_enabled = true\n"
+           "bloom_threshold = 1.2\nbloom_intensity = 0.3\nbloom_radius = 2\n"
            "[[nodes.components]]\ntype = \"environment\"\n"
            "ambient_color = [0.25, 0.5, 0.75]\nambient_intensity = 0.75\n"
            "ambient_tricolor = true\nambient_sky_color = [0.4, 0.6, 0.8, 1.0]\n"
@@ -95,7 +99,9 @@ std::string scene()
            material_guid +
            "\"\n"
            "[[nodes.components]]\ntype = \"light\"\ncast_shadows = true\n"
-           "shadow_resolution = 1024\nshadow_bias = 0.002\n";
+           "shadow_resolution = 1024\nshadow_bias = 0.002\n"
+           "shadow_cascades = 2\nshadow_distance = 120\n"
+           "shadow_split_lambda = 0.7\nshadow_cascade_blend = 0.2\n";
 }
 
 struct Fixture
@@ -303,8 +309,16 @@ bool scene_effects(engine::ResourceSystem& resources,
                     environment->fog_start == 5.0F && environment->fog_end == 250.0F &&
                     environment->fog_density == 0.025F && environment->clear_color == 0x123456ff &&
                     post_process->exposure == 1.5F && post_process->filmic_tonemap &&
+                    post_process->ao_enabled && post_process->ao_radius == 1.4F &&
+                    post_process->ao_strength == .8F && post_process->ao_power == 2.0F &&
+                    post_process->ao_fade_start == 40.0F && post_process->ao_fade_end == 140.0F &&
+                    post_process->hdr_enabled && post_process->bloom_enabled &&
+                    post_process->bloom_threshold == 1.2F &&
+                    post_process->bloom_intensity == .3F && post_process->bloom_radius == 2.0F &&
                     light->cast_shadows && light->shadow_resolution == 1024 &&
-                    light->shadow_bias == 0.002F,
+                    light->shadow_bias == 0.002F && light->shadow_cascades == 2 &&
+                    light->shadow_distance == 120.0F && light->shadow_split_lambda == 0.7F &&
+                    light->shadow_cascade_blend == 0.2F,
                 "import preserves ambient, fog, exposure and light shadow fields"))
     {
         return false;
@@ -345,17 +359,46 @@ bool scene_effects(engine::ResourceSystem& resources,
         return false;
     }
     for (const auto& [field, bad_value] :
-         std::array<std::pair<std::string_view, std::string_view>, 11>{
+         std::array<std::pair<std::string_view, std::string_view>, 40>{
              {{"ambient_intensity = 0.75", "ambient_intensity = inf"},
               {"fog_end = 250", "fog_end = 5"},
               {"fog_density = 0.025", "fog_density = -1"},
               {"fog_mode = \"exponential_squared\"", "fog_mode = \"unknown\""},
               {"exposure = 1.5", "exposure = 0"},
               {"filmic_tonemap = true", "filmic_tonemap = 1"},
+              {"ao_enabled = true", "ao_enabled = 1"},
+              {"ao_radius = 1.4", "ao_radius = 0"},
+              {"ao_radius = 1.4", "ao_radius = 101"},
+              {"ao_strength = 0.8", "ao_strength = 2.1"},
+              {"ao_power = 2", "ao_power = 0.09"},
+              {"ao_power = 2", "ao_power = 8.1"},
+              {"ao_fade_start = 40", "ao_fade_start = -1"},
+              {"ao_fade_end = 140", "ao_fade_end = 40"},
+              {"ao_fade_end = 140", "ao_fade_end = 100001"},
+              {"ao_fade_end = 140", "ao_fade_end = nan"},
+              {"hdr_enabled = true", "hdr_enabled = 1"},
+              {"bloom_enabled = true", "bloom_enabled = 1"},
+              {"hdr_enabled = true", "hdr_enabled = false"},
+              {"bloom_threshold = 1.2", "bloom_threshold = -1"},
+              {"bloom_threshold = 1.2", "bloom_threshold = 101"},
+              {"bloom_threshold = 1.2", "bloom_threshold = nan"},
+              {"bloom_intensity = 0.3", "bloom_intensity = -1"},
+              {"bloom_intensity = 0.3", "bloom_intensity = 10.1"},
+              {"bloom_radius = 2", "bloom_radius = 0.24"},
+              {"bloom_radius = 2", "bloom_radius = 4.1"},
               {"ambient_tricolor = true", "ambient_tricolor = 1"},
               {"cast_shadows = true", "cast_shadows = 1"},
               {"shadow_resolution = 1024", "shadow_resolution = 1024.0"},
               {"shadow_resolution = 1024", "shadow_resolution = 1000"},
+              {"shadow_cascades = 2", "shadow_cascades = 3"},
+              {"shadow_cascades = 2", "shadow_cascades = 2.0"},
+              {"shadow_distance = 120", "shadow_distance = 0"},
+              {"shadow_distance = 120", "shadow_distance = 100001"},
+              {"shadow_distance = 120", "shadow_distance = nan"},
+              {"shadow_split_lambda = 0.7", "shadow_split_lambda = -0.1"},
+              {"shadow_split_lambda = 0.7", "shadow_split_lambda = 1.1"},
+              {"shadow_cascade_blend = 0.2", "shadow_cascade_blend = -0.1"},
+              {"shadow_cascade_blend = 0.2", "shadow_cascade_blend = 0.31"},
               {"clear_color = 0x123456ff", "clear_color = -1"}}})
     {
         auto text = scene();

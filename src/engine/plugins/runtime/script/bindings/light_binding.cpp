@@ -4,6 +4,7 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/node.hpp"
 
+#include <cstdint>
 #include <limits>
 
 namespace engine::plugins::script::bindings
@@ -16,6 +17,10 @@ export class Light extends Component {
     SetShadows(enabled, resolution = 2048, bias = 0.001) {
         const h = handles.get(this);
         return native.LightShadows(h.scene, h.node, enabled, resolution, bias);
+    }
+    SetShadowCascades(count, distance, splitLambda = 0.6, blend = 0.1) {
+        const h = handles.get(this);
+        return native.LightShadowCascades(h.scene, h.node, count, distance, splitLambda, blend);
     }
     SetDirectional() {
         const h = handles.get(this); return native.LightDirectional(h.scene, h.node);
@@ -109,6 +114,30 @@ void directional(const Arguments& arguments)
     }
 }
 
+void shadow_cascades(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* node = BindingContext::node(arguments);
+    auto* light = node == nullptr ? nullptr : node->get_component<Light>();
+    if (light == nullptr || arguments.count() != 6 || !arguments.is_uint32(2))
+    {
+        return;
+    }
+    const auto count = arguments.unsigned_integer(2);
+    if (count != 1 && count != 2 && count != 4)
+    {
+        return;
+    }
+    auto settings = light->settings();
+    settings.shadow_cascades = static_cast<std::uint8_t>(count);
+    if (BindingContext::scalar(arguments, 3, settings.shadow_distance) &&
+        BindingContext::scalar(arguments, 4, settings.shadow_split_lambda) &&
+        BindingContext::scalar(arguments, 5, settings.shadow_cascade_blend))
+    {
+        arguments.set_return(light->set_settings(settings));
+    }
+}
+
 void point(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -155,6 +184,7 @@ bool LightBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("LightKind", static_cast<int>(Light::component_type)) &&
            vm.function("LightAdd", add) && vm.function("LightColor", color) &&
            vm.function("LightIntensity", intensity) && vm.function("LightShadows", shadows) &&
+           vm.function("LightShadowCascades", shadow_cascades) &&
            vm.function("LightDirectional", directional) && vm.function("LightPoint", point) &&
            vm.function("LightSpot", spot);
 }

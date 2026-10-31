@@ -591,7 +591,8 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
         bgfx::setScissor(UINT16_MAX);
     }
     const float texture_info[] = {static_cast<float>(texture->width),
-                                  static_cast<float>(texture->height), 0.0F, 0.0F};
+                                  static_cast<float>(texture->height),
+                                  settings.linear_output ? 1.0F : 0.0F, 0.0F};
     bgfx::setUniform(gpu_->texture_info, texture_info);
     bgfx::setTexture(0, gpu_->sampler, texture->handle);
     std::uint64_t state =
@@ -607,7 +608,7 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
     return true;
 }
 
-bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id)
+bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id, bool linear_output)
 {
     for (const auto& node : scene.nodes())
     {
@@ -620,6 +621,7 @@ bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id)
         FontDraw draw_settings;
         draw_settings.view_id = view_id;
         draw_settings.depth_test = true;
+        draw_settings.linear_output = linear_output;
         draw_settings.shader = text->shader();
         if (transform == nullptr || !transform->world_matrix(draw_settings.transform.data()))
         {

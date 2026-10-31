@@ -18,6 +18,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
+    target_sources(
+        engine_render PRIVATE src/engine/runtime/render/ambient_occlusion_pass.cpp
+                              src/engine/runtime/render/hdr_post_process_pass.cpp)
+    target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_render
         PRIVATE engine::window
@@ -32,6 +36,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 basisu::basisu_encoder)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
     engine_embed_render_shaders(engine_render shadow)
+    engine_embed_assao_shaders(engine_render)
+    engine_embed_hdr_shaders(engine_render)
     engine_configure_platform_graphics()
 
     engine_add_system(runtime resource)

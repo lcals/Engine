@@ -1,5 +1,7 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/font/font_system.hpp"
+#include "runtime/render/ambient_occlusion_pass.hpp"
+#include "runtime/render/hdr_post_process_pass.hpp"
 #include "runtime/scene/text_component.hpp"
 #include "runtime/ui/ui_system.hpp"
 
@@ -58,8 +60,11 @@ namespace
 // SDL 窗口和 bgfx 生命周期都由主线程驱动；bgfx 只支持一个活动实例。
 RenderSystem* active_renderer = nullptr;
 constexpr std::uint16_t shadow_view = 0;
-constexpr std::uint16_t main_view = 1;
+constexpr std::uint16_t maximum_shadow_cascades = 4;
+constexpr std::uint16_t ambient_occlusion_depth_view = 4;
+constexpr std::uint16_t main_view = 6;
 constexpr std::uint8_t shadow_sampler_stage = 15;
+constexpr std::uint8_t ambient_occlusion_stage = 11;
 constexpr std::uint8_t ibl_irradiance_stage = 12;
 constexpr std::uint8_t ibl_prefilter_stage = 13;
 constexpr std::uint8_t ibl_lut_stage = 14;
@@ -160,6 +165,17 @@ RenderSettings render_settings(const SceneRenderComponents& components)
     {
         settings.exposure = components.post_process->settings().exposure;
         settings.filmic_tonemap = components.post_process->settings().filmic_tonemap;
+        settings.hdr_enabled = components.post_process->settings().hdr_enabled;
+        settings.bloom_enabled = components.post_process->settings().bloom_enabled;
+        settings.bloom_threshold = components.post_process->settings().bloom_threshold;
+        settings.bloom_intensity = components.post_process->settings().bloom_intensity;
+        settings.bloom_radius = components.post_process->settings().bloom_radius;
+        settings.ao_enabled = components.post_process->settings().ao_enabled;
+        settings.ao_radius = components.post_process->settings().ao_radius;
+        settings.ao_strength = components.post_process->settings().ao_strength;
+        settings.ao_power = components.post_process->settings().ao_power;
+        settings.ao_fade_start = components.post_process->settings().ao_fade_start;
+        settings.ao_fade_end = components.post_process->settings().ao_fade_end;
     }
     if (components.shadow_light != nullptr)
     {
@@ -167,6 +183,10 @@ RenderSettings render_settings(const SceneRenderComponents& components)
         settings.directional_shadows = light.cast_shadows;
         settings.shadow_resolution = light.shadow_resolution;
         settings.shadow_bias = light.shadow_bias;
+        settings.shadow_cascades = light.shadow_cascades;
+        settings.shadow_distance = light.shadow_distance;
+        settings.shadow_split_lambda = light.shadow_split_lambda;
+        settings.shadow_cascade_blend = light.shadow_cascade_blend;
     }
     return settings;
 }
@@ -260,6 +280,157 @@ bool camera_view(const float* world, float* view)
         static_cast<float>(-(back[0] * world[12] + back[1] * world[13] + back[2] * world[14]));
     view[15] = 1.0F;
     return finite_matrix(view);
+}
+
+struct ShadowBounds
+{
+    std::array<float, 3> minimum{};
+    std::array<float, 3> maximum{};
+
+    void reset() noexcept
+    {
+        minimum.fill(std::numeric_limits<float>::max());
+        maximum.fill(std::numeric_limits<float>::lowest());
+    }
+
+    void include(const std::array<float, 3>& point) noexcept
+    {
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            minimum[axis] = std::min(minimum[axis], point[axis]);
+            maximum[axis] = std::max(maximum[axis], point[axis]);
+        }
+    }
+
+    bool overlaps_xy(const ShadowBounds& other) const noexcept
+    {
+        return minimum[0] <= other.maximum[0] && maximum[0] >= other.minimum[0] &&
+               minimum[1] <= other.maximum[1] && maximum[1] >= other.minimum[1];
+    }
+};
+
+struct ShadowFrame
+{
+    std::array<float, 16> view{};
+    std::array<std::array<float, 16>, maximum_shadow_cascades> matrices{};
+    std::array<std::array<float, 4>, maximum_shadow_cascades> rectangles{};
+    std::array<ShadowBounds, maximum_shadow_cascades> bounds{};
+    std::array<float, 4> splits{};
+    std::array<float, 4> parameters{};
+    std::uint16_t tile_size = 0;
+};
+
+std::array<float, 3> transform_point(const float* matrix,
+                                     const std::array<float, 3>& point) noexcept
+{
+    std::array<float, 3> result{};
+    for (std::size_t axis = 0; axis < 3; ++axis)
+    {
+        result[axis] = matrix[axis] * point[0] + matrix[axis + 4] * point[1] +
+                       matrix[axis + 8] * point[2] + matrix[axis + 12];
+    }
+    return result;
+}
+
+bool prepare_shadow_frame(const CameraSettings& camera, const RenderSettings& settings,
+                          float aspect, const float* camera_world, const float* camera_view_matrix,
+                          const std::array<float, 4>& direction, ShadowFrame& frame)
+{
+    const auto* caps = bgfx::getCaps();
+    const float near_clip = camera.near_clip;
+    const float far_clip = std::min(camera.far_clip, settings.shadow_distance);
+    const auto cascade_count = settings.shadow_cascades;
+    frame.tile_size =
+        static_cast<std::uint16_t>(settings.shadow_resolution / (cascade_count == 1 ? 1 : 2));
+    frame.parameters = {static_cast<float>(cascade_count), settings.shadow_cascade_blend, near_clip,
+                        far_clip};
+    frame.splits.fill(far_clip);
+    const bx::Vec3 up =
+        std::abs(direction[1]) > 0.95F ? bx::Vec3{0.0F, 0.0F, 1.0F} : bx::Vec3{0.0F, 1.0F, 0.0F};
+    bx::mtxLookAt(frame.view.data(), {0.0F, 0.0F, 0.0F}, {direction[0], direction[1], direction[2]},
+                  up, bx::Handedness::Right);
+    for (std::uint16_t index = 0; index < maximum_shadow_cascades; ++index)
+    {
+        bx::mtxIdentity(frame.matrices[index].data());
+    }
+    // bgfx examples/16-shadowmaps, commit 7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099:
+    // splitFrustum blends logarithmic and uniform splits; orthographic crops are texel-stable.
+    // This atlas adaptation uses a frustum sphere and explicit blend overlap.
+    // Copyright 2013-2014 Dario Manesku; third_party/notices/bgfx.txt.
+    for (std::uint16_t index = 0; index + 1 < cascade_count; ++index)
+    {
+        const float fraction = static_cast<float>(index + 1) / cascade_count;
+        const float logarithmic = near_clip * std::pow(far_clip / near_clip, fraction);
+        const float uniform = near_clip + (far_clip - near_clip) * fraction;
+        frame.splits[index] = uniform + (logarithmic - uniform) * settings.shadow_split_lambda;
+    }
+    constexpr float degrees_to_radians = 0.01745329251994329577F;
+    const float slope = std::tan(camera.fov_degrees * degrees_to_radians * 0.5F);
+    const bool orthographic = camera.projection == schema::Projection::orthographic;
+    for (std::uint16_t index = 0; index < cascade_count; ++index)
+    {
+        float slice_near = index == 0 ? near_clip : frame.splits[index - 1];
+        const float slice_far = frame.splits[index];
+        if (index > 0)
+        {
+            const float previous_near = index == 1 ? near_clip : frame.splits[index - 2];
+            // The next cascade also covers the previous cascade's blend interval.
+            slice_near -= (slice_near - previous_near) * settings.shadow_cascade_blend;
+        }
+        const float center_depth = (slice_near + slice_far) * 0.5F;
+        std::array<float, 3> center{};
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            center[axis] =
+                camera_world[12 + axis] - camera_view_matrix[axis * 4 + 2] * center_depth;
+        }
+        center = transform_point(frame.view.data(), center);
+        auto& bounds = frame.bounds[index];
+        bounds.reset();
+        float radius_squared = 0.0F;
+        for (std::uint16_t corner = 0; corner < 8; ++corner)
+        {
+            const float depth = (corner & 4) != 0 ? slice_far : slice_near;
+            const float half_height = orthographic ? camera.orthographic_size : depth * slope;
+            const float x = ((corner & 1) != 0 ? half_height : -half_height) * aspect;
+            const float y = (corner & 2) != 0 ? half_height : -half_height;
+            std::array<float, 3> point{};
+            for (std::size_t axis = 0; axis < 3; ++axis)
+            {
+                point[axis] = camera_world[12 + axis] + camera_view_matrix[axis * 4] * x +
+                              camera_view_matrix[axis * 4 + 1] * y -
+                              camera_view_matrix[axis * 4 + 2] * depth;
+            }
+            bounds.include(transform_point(frame.view.data(), point));
+            const float z = depth - center_depth;
+            radius_squared = std::max(radius_squared, x * x + y * y + z * z);
+        }
+        // A sphere gives rotation-independent XY extent. Reserve three filter texels and
+        // half a texel for center snapping so the covered frustum never leaves the tile.
+        const float radius = std::ceil(std::sqrt(radius_squared) * 16.0F) / 16.0F;
+        const float half_extent = radius / (1.0F - 7.0F / frame.tile_size);
+        const float texel_size = (2.0F * half_extent) / frame.tile_size;
+        for (std::size_t axis = 0; axis < 2; ++axis)
+        {
+            const float snapped = std::round(center[axis] / texel_size) * texel_size;
+            bounds.minimum[axis] = snapped - half_extent;
+            bounds.maximum[axis] = snapped + half_extent;
+        }
+        const float scale = cascade_count == 1 ? 1.0F : 0.5F;
+        const float tile_x = static_cast<float>(index % 2) * scale;
+        const float tile_y = static_cast<float>(index / 2) * scale;
+        frame.rectangles[index] = {tile_x, caps->originBottomLeft ? 1.0F - tile_y - scale : tile_y,
+                                   scale, scale};
+        for (std::size_t axis = 0; axis < 3; ++axis)
+        {
+            if (!std::isfinite(bounds.minimum[axis]) || !std::isfinite(bounds.maximum[axis]) ||
+                bounds.maximum[axis] <= bounds.minimum[axis])
+            {
+                return false;
+            }
+        }
+    }
+    return finite_matrix(frame.view.data());
 }
 
 bool normal_matrix(const float* model, float* normal)
@@ -784,19 +955,27 @@ struct RenderSystem::SceneGpuResources
                         name == "u_surface" || name == "u_ambient_sky" ||
                         name == "u_ambient_equator" || name == "u_ambient_ground" ||
                         name == "u_fog_color" || name == "u_fog_range" ||
-                        name == "u_shadow_transform" || name == "u_shadow_settings" ||
-                        name == "u_shadow_depth" || name == "s_shadow_map" ||
-                        name == "u_ibl_params" || name == "s_ibl_irradiance" ||
-                        name == "s_ibl_prefilter" || name == "s_ibl_lut" || light_array)
+                        name == "u_shadow_matrices" || name == "u_shadow_rects" ||
+                        name == "u_shadow_splits" || name == "u_shadow_params" ||
+                        name == "u_shadow_settings" || name == "u_shadow_depth" ||
+                        name == "s_shadow_map" || name == "u_ibl_params" ||
+                        name == "s_ibl_irradiance" || name == "s_ibl_prefilter" ||
+                        name == "s_ibl_lut" || name == "s_ambient_occlusion" ||
+                        name == "u_ambient_occlusion" || light_array)
                     {
                         const auto type =
-                            name == "u_normal_transform" || name == "u_shadow_transform"
+                            name == "u_normal_transform" || name == "u_shadow_matrices"
                                 ? bgfx::UniformType::Mat4
                             : name == "s_shadow_map" || name == "s_ibl_irradiance" ||
-                                    name == "s_ibl_prefilter" || name == "s_ibl_lut"
+                                    name == "s_ibl_prefilter" || name == "s_ibl_lut" ||
+                                    name == "s_ambient_occlusion"
                                 ? bgfx::UniformType::Sampler
                                 : bgfx::UniformType::Vec4;
-                        const auto expected_count = light_array ? maximum_lights : 1;
+                        const auto expected_count =
+                            light_array ? maximum_lights
+                            : name == "u_shadow_matrices" || name == "u_shadow_rects"
+                                ? maximum_shadow_cascades
+                                : 1;
                         if (info.type != type || info.num != expected_count)
                         {
                             return false;
@@ -847,7 +1026,7 @@ struct RenderSystem::SceneGpuResources
             {
                 if (!declared(item->uniform_name) ||
                     item->stage >= bgfx::getCaps()->limits.maxTextureSamplers ||
-                    item->stage >= ibl_irradiance_stage)
+                    item->stage >= ambient_occlusion_stage)
                 {
                     return false;
                 }
@@ -1217,7 +1396,10 @@ struct RenderSystem::SceneGpuResources
         {
             if (bgfx::isValid(framebuffer))
             {
-                bgfx::setViewFrameBuffer(shadow_view, BGFX_INVALID_HANDLE);
+                for (std::uint16_t index = 0; index < maximum_shadow_cascades; ++index)
+                {
+                    bgfx::setViewFrameBuffer(shadow_view + index, BGFX_INVALID_HANDLE);
+                }
                 bgfx::destroy(framebuffer);
             }
             if (bgfx::isValid(color))
@@ -1335,7 +1517,10 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle fog_range = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle tonemap = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle surface = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle shadow_transform = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_matrices = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_rects = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_splits = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle shadow_params = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_settings = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_depth = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_sampler = BGFX_INVALID_HANDLE;
@@ -1349,6 +1534,10 @@ struct RenderSystem::SceneGpuResources
     std::array<Texture, 3> ibl_textures;
     std::uint64_t ibl_generation = 0;
     Shadow shadow;
+    AmbientOcclusionPass ambient_occlusion;
+    HdrPostProcessPass hdr_post_process;
+    bgfx::UniformHandle ao_settings = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle ao_sampler = BGFX_INVALID_HANDLE;
     std::vector<Program> programs;
 
     bool prepare_ibl(const Scene& scene)
@@ -1498,70 +1687,48 @@ struct RenderSystem::SceneGpuResources
         return true;
     }
 
-    bool draw_shadow(const Scene& scene, const std::array<float, 4>& direction, float* matrix)
+    bool draw_shadow(const Scene& scene, const RenderSettings& settings, ShadowFrame& frame)
     {
-        bgfx::setViewFrameBuffer(shadow_view, shadow.framebuffer);
-        bgfx::setViewRect(shadow_view, 0, 0, shadow.resolution, shadow.resolution);
-        bgfx::setViewClear(shadow_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xffffffff, 1.0F, 0);
-        bgfx::touch(shadow_view);
-        // bgfx 15-shadowmaps-simple 的投影与 crop；边界由当前组件几何计算。
-        float view[16]{};
-        const bx::Vec3 up = std::abs(direction[1]) > 0.95F ? bx::Vec3{0.0F, 0.0F, 1.0F}
-                                                           : bx::Vec3{0.0F, 1.0F, 0.0F};
-        bx::mtxLookAt(view, {0.0F, 0.0F, 0.0F}, {direction[0], direction[1], direction[2]}, up,
-                      bx::Handedness::Right);
-        std::array<float, 3> minimum{};
-        std::array<float, 3> maximum{};
-        minimum.fill(std::numeric_limits<float>::max());
-        maximum.fill(std::numeric_limits<float>::lowest());
-        bool has_caster = false;
+        struct Caster
+        {
+            const Mesh* mesh = nullptr;
+            const MeshRenderer* renderer = nullptr;
+            std::array<float, 16> model{};
+            ShadowBounds bounds;
+        };
+        std::vector<Caster> casters;
+        casters.reserve(meshes.size());
         for (const auto& mesh : meshes)
         {
             const Node* node = scene.find_node(mesh.node_id);
             const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+            const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
             if (renderer != nullptr && !renderer->cast_shadows())
             {
                 continue;
             }
-            const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
-            float model[16]{};
-            float combined[16]{};
-            if (transform == nullptr || !transform->world_matrix(model))
+            Caster caster;
+            if (renderer == nullptr || renderer->mesh_data() == nullptr || transform == nullptr ||
+                !transform->world_matrix(caster.model.data()))
             {
                 return false;
             }
-            bx::mtxMul(combined, model, view);
-            has_caster = true;
-            for (std::uint32_t corner = 0; corner < 8; ++corner)
+            caster.mesh = &mesh;
+            caster.renderer = renderer;
+            caster.bounds.reset();
+            float combined[16]{};
+            bx::mtxMul(combined, caster.model.data(), frame.view.data());
+            for (std::uint16_t corner = 0; corner < 8; ++corner)
             {
-                const float coordinates[] = {(corner & 1) ? mesh.maximum[0] : mesh.minimum[0],
-                                             (corner & 2) ? mesh.maximum[1] : mesh.minimum[1],
-                                             (corner & 4) ? mesh.maximum[2] : mesh.minimum[2]};
-                for (std::size_t axis = 0; axis < 3; ++axis)
-                {
-                    const float value = combined[axis] * coordinates[0] +
-                                        combined[axis + 4] * coordinates[1] +
-                                        combined[axis + 8] * coordinates[2] + combined[axis + 12];
-                    minimum[axis] = std::min(minimum[axis], value);
-                    maximum[axis] = std::max(maximum[axis], value);
-                }
+                const std::array<float, 3> point = {
+                    (corner & 1) != 0 ? mesh.maximum[0] : mesh.minimum[0],
+                    (corner & 2) != 0 ? mesh.maximum[1] : mesh.minimum[1],
+                    (corner & 4) != 0 ? mesh.maximum[2] : mesh.minimum[2]};
+                caster.bounds.include(transform_point(combined, point));
             }
-        }
-        if (!has_caster)
-        {
-            bx::mtxIdentity(matrix);
-            return true;
-        }
-        for (std::size_t axis = 0; axis < 3; ++axis)
-        {
-            const float margin = std::max(0.1F, (maximum[axis] - minimum[axis]) * 0.01F);
-            minimum[axis] -= margin;
-            maximum[axis] += margin;
+            casters.push_back(caster);
         }
         const auto* caps = bgfx::getCaps();
-        float projection[16]{};
-        bx::mtxOrtho(projection, minimum[0], maximum[0], minimum[1], maximum[1], -maximum[2],
-                     -minimum[2], 0.0F, caps->homogeneousDepth, bx::Handedness::Right);
         const float crop[] = {0.5F,
                               0.0F,
                               0.0F,
@@ -1578,58 +1745,80 @@ struct RenderSystem::SceneGpuResources
                               0.5F,
                               caps->homogeneousDepth ? 0.5F : 0.0F,
                               1.0F};
-        float projected[16]{};
-        bx::mtxMul(projected, projection, crop);
-        bx::mtxMul(matrix, view, projected);
-        if (!finite_matrix(matrix))
-        {
-            return false;
-        }
-        bgfx::setViewTransform(shadow_view, view, projection);
         const float depth_scale[] = {caps->homogeneousDepth ? 0.5F : 1.0F,
                                      caps->homogeneousDepth ? 0.5F : 0.0F, 0.0F, 0.0F};
-        for (const auto& mesh : meshes)
+        for (std::uint16_t index = 0; index < settings.shadow_cascades; ++index)
         {
-            const Node* node = scene.find_node(mesh.node_id);
-            const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
-            const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-            if (renderer != nullptr && !renderer->cast_shadows())
+            auto bounds = frame.bounds[index];
+            for (const auto& caster : casters)
             {
-                continue;
+                if (bounds.overlaps_xy(caster.bounds))
+                {
+                    // Include off-screen occluders whose light-space footprint reaches the
+                    // receiver slice. Camera-frustum culling alone would lose their shadows.
+                    bounds.minimum[2] = std::min(bounds.minimum[2], caster.bounds.minimum[2]);
+                    bounds.maximum[2] = std::max(bounds.maximum[2], caster.bounds.maximum[2]);
+                }
             }
-            const auto* data = renderer != nullptr ? renderer->mesh_data() : nullptr;
-            float model[16]{};
-            if (transform == nullptr || data == nullptr || !transform->world_matrix(model))
+            const float margin = std::max(0.1F, (bounds.maximum[2] - bounds.minimum[2]) * 0.01F);
+            bounds.minimum[2] -= margin;
+            bounds.maximum[2] += margin;
+            float projection[16]{};
+            bx::mtxOrtho(projection, bounds.minimum[0], bounds.maximum[0], bounds.minimum[1],
+                         bounds.maximum[1], -bounds.maximum[2], -bounds.minimum[2], 0.0F,
+                         caps->homogeneousDepth, bx::Handedness::Right);
+            float projected[16]{};
+            bx::mtxMul(projected, projection, crop);
+            bx::mtxMul(frame.matrices[index].data(), frame.view.data(), projected);
+            if (!finite_matrix(frame.matrices[index].data()))
             {
                 return false;
             }
-            const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
+            const auto view = static_cast<std::uint16_t>(shadow_view + index);
+            const auto tile_x = static_cast<std::uint16_t>((index % 2) * frame.tile_size);
+            const auto tile_y = static_cast<std::uint16_t>((index / 2) * frame.tile_size);
+            bgfx::setViewFrameBuffer(view, shadow.framebuffer);
+            bgfx::setViewRect(view, tile_x, tile_y, frame.tile_size, frame.tile_size);
+            bgfx::setViewClear(view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0xffffffff, 1.0F, 0);
+            bgfx::setViewTransform(view, frame.view.data(), projection);
+            bgfx::touch(view);
+            for (const auto& caster : casters)
             {
-                const auto* material = renderer->material(slot);
-                if (material == nullptr || !bind_shadow_material(*material))
+                if (!bounds.overlaps_xy(caster.bounds))
+                {
+                    continue;
+                }
+                const auto& mesh = *caster.mesh;
+                const auto* data = caster.renderer->mesh_data();
+                const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
+                {
+                    const auto* material = caster.renderer->material(slot);
+                    if (material == nullptr || !bind_shadow_material(*material))
+                    {
+                        return false;
+                    }
+                    bgfx::setTransform(caster.model.data());
+                    bgfx::setUniform(shadow_depth, depth_scale);
+                    mesh.bind_vertices();
+                    bgfx::setIndexBuffer(mesh.indices, first, count);
+                    bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
+                                   BGFX_STATE_DEPTH_TEST_LESS |
+                                   cull_state(material->cull_mode(), caster.model.data()));
+                    bgfx::submit(view, shadow.program);
+                    return true;
+                };
+                if (data->submeshes.empty() &&
+                    !submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
                 {
                     return false;
                 }
-                bgfx::setTransform(model);
-                bgfx::setUniform(shadow_depth, depth_scale);
-                mesh.bind_vertices();
-                bgfx::setIndexBuffer(mesh.indices, first, count);
-                bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                               BGFX_STATE_DEPTH_TEST_LESS |
-                               cull_state(material->cull_mode(), model));
-                bgfx::submit(shadow_view, shadow.program);
-                return true;
-            };
-            if (data->submeshes.empty() &&
-                !submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
-            {
-                return false;
-            }
-            for (const auto& submesh : data->submeshes)
-            {
-                if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
+                for (const auto& submesh : data->submeshes)
                 {
-                    return false;
+                    if (!submit(submesh.first_index(), submesh.index_count(),
+                                submesh.material_slot()))
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -1756,7 +1945,12 @@ bool RenderSystem::initialize_renderer()
     }
 
     bgfx::setViewName(main_view, "Main window");
-    bgfx::setViewName(shadow_view, "Directional shadow");
+    constexpr std::array shadow_names = {"Directional shadow 1", "Directional shadow 2",
+                                         "Directional shadow 3", "Directional shadow 4"};
+    for (std::uint16_t index = 0; index < maximum_shadow_cascades; ++index)
+    {
+        bgfx::setViewName(shadow_view + index, shadow_names[index]);
+    }
     bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, idle_settings_.clear_color,
                        1.0F, 0);
     bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
@@ -1854,8 +2048,12 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         resources.fog_range = bgfx::createUniform("u_fog_range", bgfx::UniformType::Vec4);
         resources.tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformType::Vec4);
         resources.surface = bgfx::createUniform("u_surface", bgfx::UniformType::Vec4);
-        resources.shadow_transform =
-            bgfx::createUniform("u_shadow_transform", bgfx::UniformType::Mat4);
+        resources.shadow_matrices = bgfx::createUniform(
+            "u_shadow_matrices", bgfx::UniformType::Mat4, maximum_shadow_cascades);
+        resources.shadow_rects =
+            bgfx::createUniform("u_shadow_rects", bgfx::UniformType::Vec4, maximum_shadow_cascades);
+        resources.shadow_splits = bgfx::createUniform("u_shadow_splits", bgfx::UniformType::Vec4);
+        resources.shadow_params = bgfx::createUniform("u_shadow_params", bgfx::UniformType::Vec4);
         resources.shadow_settings =
             bgfx::createUniform("u_shadow_settings", bgfx::UniformType::Vec4);
         resources.shadow_depth = bgfx::createUniform("u_shadow_depth", bgfx::UniformType::Vec4);
@@ -1866,6 +2064,9 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         resources.ibl_prefilter_sampler =
             bgfx::createUniform("s_ibl_prefilter", bgfx::UniformType::Sampler);
         resources.ibl_lut_sampler = bgfx::createUniform("s_ibl_lut", bgfx::UniformType::Sampler);
+        resources.ao_settings = bgfx::createUniform("u_ambient_occlusion", bgfx::UniformType::Vec4);
+        resources.ao_sampler =
+            bgfx::createUniform("s_ambient_occlusion", bgfx::UniformType::Sampler);
         for (auto uniform : {resources.normal_transform,
                              resources.camera_position,
                              resources.light_direction,
@@ -1883,14 +2084,19 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                              resources.ambient_ground,
                              resources.fog_color,
                              resources.fog_range,
-                             resources.shadow_transform,
+                             resources.shadow_matrices,
+                             resources.shadow_rects,
+                             resources.shadow_splits,
+                             resources.shadow_params,
                              resources.shadow_settings,
                              resources.shadow_depth,
                              resources.shadow_sampler,
                              resources.ibl_params,
                              resources.ibl_irradiance_sampler,
                              resources.ibl_prefilter_sampler,
-                             resources.ibl_lut_sampler})
+                             resources.ibl_lut_sampler,
+                             resources.ao_settings,
+                             resources.ao_sampler})
         {
             if (!bgfx::isValid(uniform))
             {
@@ -2116,6 +2322,8 @@ void RenderSystem::release_draw_resources() noexcept
             texture.release();
         }
         resources.shadow.release();
+        resources.ambient_occlusion.release();
+        resources.hdr_post_process.release();
         if (bgfx::isValid(resources.shadow_fallback))
         {
             bgfx::destroy(resources.shadow_fallback);
@@ -2144,14 +2352,19 @@ void RenderSystem::release_draw_resources() noexcept
                              resources.ambient_ground,
                              resources.fog_color,
                              resources.fog_range,
-                             resources.shadow_transform,
+                             resources.shadow_matrices,
+                             resources.shadow_rects,
+                             resources.shadow_splits,
+                             resources.shadow_params,
                              resources.shadow_settings,
                              resources.shadow_depth,
                              resources.shadow_sampler,
                              resources.ibl_params,
                              resources.ibl_irradiance_sampler,
                              resources.ibl_prefilter_sampler,
-                             resources.ibl_lut_sampler})
+                             resources.ibl_lut_sampler,
+                             resources.ao_settings,
+                             resources.ao_sampler})
         {
             if (bgfx::isValid(uniform))
             {
@@ -2197,11 +2410,31 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
         !std::isfinite(settings.ambient_intensity) || settings.ambient_intensity < 0.0F ||
         settings.ambient_intensity > 1000.0F || !std::isfinite(settings.exposure) ||
         settings.exposure <= 0.0F || settings.exposure > 100.0F ||
-        !std::isfinite(settings.ibl_intensity) || settings.ibl_intensity < 0.0F ||
-        settings.ibl_intensity > 1000.0F || !std::isfinite(settings.shadow_bias) ||
-        settings.shadow_bias < 0.0F || settings.shadow_bias > 0.1F ||
-        settings.shadow_resolution < 128 || settings.shadow_resolution > 8192 ||
+        (settings.bloom_enabled && !settings.hdr_enabled) ||
+        !std::isfinite(settings.bloom_threshold) || settings.bloom_threshold < 0.0F ||
+        settings.bloom_threshold > 100.0F || !std::isfinite(settings.bloom_intensity) ||
+        settings.bloom_intensity < 0.0F || settings.bloom_intensity > 10.0F ||
+        !std::isfinite(settings.bloom_radius) || settings.bloom_radius < 0.25F ||
+        settings.bloom_radius > 4.0F || !std::isfinite(settings.ao_radius) ||
+        settings.ao_radius <= 0.0F || settings.ao_radius > 100.0F ||
+        !std::isfinite(settings.ao_strength) || settings.ao_strength < 0.0F ||
+        settings.ao_strength > 2.0F || !std::isfinite(settings.ao_power) ||
+        settings.ao_power < 0.1F || settings.ao_power > 8.0F ||
+        !std::isfinite(settings.ao_fade_start) || !std::isfinite(settings.ao_fade_end) ||
+        settings.ao_fade_start < 0.0F || settings.ao_fade_end <= settings.ao_fade_start ||
+        settings.ao_fade_end > 100000.0F || !std::isfinite(settings.ibl_intensity) ||
+        settings.ibl_intensity < 0.0F || settings.ibl_intensity > 1000.0F ||
+        !std::isfinite(settings.shadow_bias) || settings.shadow_bias < 0.0F ||
+        settings.shadow_bias > 0.1F || settings.shadow_resolution < 128 ||
+        settings.shadow_resolution > 8192 ||
         (settings.shadow_resolution & (settings.shadow_resolution - 1)) != 0 ||
+        (settings.shadow_cascades != 1 && settings.shadow_cascades != 2 &&
+         settings.shadow_cascades != 4) ||
+        !std::isfinite(settings.shadow_distance) || settings.shadow_distance <= 0.0F ||
+        settings.shadow_distance > 100000.0F || !std::isfinite(settings.shadow_split_lambda) ||
+        settings.shadow_split_lambda < 0.0F || settings.shadow_split_lambda > 1.0F ||
+        !std::isfinite(settings.shadow_cascade_blend) || settings.shadow_cascade_blend < 0.0F ||
+        settings.shadow_cascade_blend > 0.3F ||
         (renderer_initialized_ && settings.directional_shadows &&
          settings.shadow_resolution > bgfx::getCaps()->limits.maxTextureSize))
     {
@@ -2230,12 +2463,27 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
     auto after_post_process = before_post_process;
     after_post_process.exposure = settings.exposure;
     after_post_process.filmic_tonemap = settings.filmic_tonemap;
+    after_post_process.hdr_enabled = settings.hdr_enabled;
+    after_post_process.bloom_enabled = settings.bloom_enabled;
+    after_post_process.bloom_threshold = settings.bloom_threshold;
+    after_post_process.bloom_intensity = settings.bloom_intensity;
+    after_post_process.bloom_radius = settings.bloom_radius;
+    after_post_process.ao_enabled = settings.ao_enabled;
+    after_post_process.ao_radius = settings.ao_radius;
+    after_post_process.ao_strength = settings.ao_strength;
+    after_post_process.ao_power = settings.ao_power;
+    after_post_process.ao_fade_start = settings.ao_fade_start;
+    after_post_process.ao_fade_end = settings.ao_fade_end;
     const LightSettings before_light =
         components.shadow_light != nullptr ? components.shadow_light->settings() : LightSettings{};
     auto after_light = before_light;
     after_light.cast_shadows = settings.directional_shadows;
     after_light.shadow_resolution = settings.shadow_resolution;
     after_light.shadow_bias = settings.shadow_bias;
+    after_light.shadow_cascades = settings.shadow_cascades;
+    after_light.shadow_distance = settings.shadow_distance;
+    after_light.shadow_split_lambda = settings.shadow_split_lambda;
+    after_light.shadow_cascade_blend = settings.shadow_cascade_blend;
 
     const bool environment_changed = before_environment != after_environment;
     const bool post_process_changed = before_post_process != after_post_process;
@@ -2377,7 +2625,10 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         static_cast<std::uint32_t>(bgfx::isValid(resources.fog_range)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.tonemap)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.surface)) +
-        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_transform)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_matrices)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_rects)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_splits)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_params)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_settings)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_depth)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.shadow_sampler)) +
@@ -2388,7 +2639,10 @@ std::uint32_t RenderSystem::gpu_resource_count() const noexcept
         static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_lut_sampler)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_cube_fallback)) +
         static_cast<std::uint32_t>(bgfx::isValid(resources.ibl_lut_fallback)) +
-        resources.shadow.resource_count();
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ao_settings)) +
+        static_cast<std::uint32_t>(bgfx::isValid(resources.ao_sampler)) +
+        resources.shadow.resource_count() + resources.ambient_occlusion.resource_count() +
+        resources.hdr_post_process.resource_count();
     for (const auto& texture : resources.ibl_textures)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
@@ -2524,15 +2778,22 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     }
     const float count_value[] = {static_cast<float>(light_count), 0.0F, 0.0F, 0.0F};
     SceneGpuResources& resources = *scene_resources_;
-    float shadow_transform[16]{};
-    bx::mtxIdentity(shadow_transform);
-    const bool shadow_enabled = shadow_light < light_count;
+    ShadowFrame shadow_frame;
+    for (auto& matrix : shadow_frame.matrices)
+    {
+        bx::mtxIdentity(matrix.data());
+    }
+    const bool shadow_enabled =
+        rendering.directional_shadows && shadow_light < light_count &&
+        std::min(settings.far_clip, rendering.shadow_distance) > settings.near_clip;
     if (shadow_enabled)
     {
         if (!resources.shadow.prepare(rendering.shadow_resolution) ||
-            !resources.draw_shadow(*scene, light_direction_outer[shadow_light], shadow_transform))
+            !prepare_shadow_frame(settings, rendering, aspect, camera_world, view,
+                                  light_direction_outer[shadow_light], shadow_frame) ||
+            !resources.draw_shadow(*scene, rendering, shadow_frame))
         {
-            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot render directional shadow map");
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot render directional shadow cascades");
             return false;
         }
     }
@@ -2558,8 +2819,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
                                rendering.fog_color[2], static_cast<float>(rendering.fog_mode)};
     const float fog_range[] = {rendering.fog_start, rendering.fog_end, rendering.fog_density,
                                settings.near_clip};
-    const float tonemap[] = {rendering.exposure, rendering.filmic_tonemap ? 1.0F : 0.0F, 0.0F,
-                             0.0F};
+    const float tonemap[] = {rendering.exposure, rendering.filmic_tonemap ? 1.0F : 0.0F,
+                             rendering.hdr_enabled ? 1.0F : 0.0F, 0.0F};
     const bool ibl_ready =
         rendering.ibl_enabled &&
         std::all_of(resources.ibl_textures.begin(), resources.ibl_textures.end(),
@@ -2569,112 +2830,174 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         ibl_ready ? static_cast<float>(resources.ibl_textures[1].resource->texture()->mip_count - 1)
                   : 0.0F,
         0.0F};
-    for (const auto& node : scene->nodes())
+    // 复用完整材质保留顶点变形、裁剪透明与自定义天空的深度语义。
+    const auto draw_meshes = [&](std::uint16_t view_id, bool depth_only)
     {
-        const MeshRenderer* renderer = node->get_component<MeshRenderer>();
-        if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+        for (const auto& node : scene->nodes())
         {
-            continue;
+            const MeshRenderer* renderer = node->get_component<MeshRenderer>();
+            if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+            {
+                continue;
+            }
+            float model[16]{};
+            const auto* transform = node->get_component<Transform>();
+            if (transform == nullptr || !transform->world_matrix(model))
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
+                return false;
+            }
+            float normal_transform[16]{};
+            if (!normal_matrix(model, normal_transform))
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh normal transform is invalid");
+                return false;
+            }
+            const auto mesh =
+                std::find_if(resources.meshes.begin(), resources.meshes.end(),
+                             [&node](const auto& item) { return item.node_id == node->id(); });
+            const auto* data = renderer->mesh_data();
+            if (mesh == resources.meshes.end() || data == nullptr)
+            {
+                return false;
+            }
+            const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
+            {
+                const Material* material = renderer->material(slot);
+                if (material == nullptr)
+                {
+                    return false;
+                }
+                auto program = std::find_if(resources.programs.begin(), resources.programs.end(),
+                                            [material](const auto& item)
+                                            { return item.path == material->shader_path(); });
+                if (program == resources.programs.end() ||
+                    !program->bind_material(*material, resources.textures))
+                {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                 "Material parameters do not match its shader");
+                    return false;
+                }
+                bgfx::setUniform(resources.normal_transform, normal_transform);
+                bgfx::setUniform(resources.camera_position, camera_position);
+                bgfx::setUniform(resources.light_direction, light_direction.data());
+                bgfx::setUniform(resources.light_color, light_color.data());
+                bgfx::setUniform(resources.light_count, count_value);
+                bgfx::setUniform(resources.light_position_range, light_position_range.data(),
+                                 maximum_lights);
+                bgfx::setUniform(resources.light_direction_outer, light_direction_outer.data(),
+                                 maximum_lights);
+                bgfx::setUniform(resources.light_color_intensity, light_color_intensity.data(),
+                                 maximum_lights);
+                bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(),
+                                 maximum_lights);
+                bgfx::setUniform(resources.ambient, ambient);
+                bgfx::setUniform(resources.ambient_sky, ambient_sky);
+                bgfx::setUniform(resources.ambient_equator, ambient_equator);
+                bgfx::setUniform(resources.ambient_ground, ambient_ground);
+                bgfx::setUniform(resources.fog_color, fog_color);
+                bgfx::setUniform(resources.fog_range, fog_range);
+                bgfx::setUniform(resources.tonemap, tonemap);
+                bgfx::setUniform(resources.ibl_params, ibl_params);
+                const bool ao_enabled = rendering.ao_enabled && !depth_only;
+                const float ao_settings[] = {1.0F / width_, 1.0F / height_,
+                                             ao_enabled ? 1.0F : 0.0F, 0.0F};
+                bgfx::setUniform(resources.ao_settings, ao_settings);
+                bgfx::setTexture(ambient_occlusion_stage, resources.ao_sampler,
+                                 ao_enabled ? resources.ambient_occlusion.texture()
+                                            : resources.shadow_fallback);
+                bgfx::setTexture(ibl_irradiance_stage, resources.ibl_irradiance_sampler,
+                                 ibl_ready ? resources.ibl_textures[0].handle
+                                           : resources.ibl_cube_fallback);
+                bgfx::setTexture(ibl_prefilter_stage, resources.ibl_prefilter_sampler,
+                                 ibl_ready ? resources.ibl_textures[1].handle
+                                           : resources.ibl_cube_fallback);
+                bgfx::setTexture(ibl_lut_stage, resources.ibl_lut_sampler,
+                                 ibl_ready ? resources.ibl_textures[2].handle
+                                           : resources.ibl_lut_fallback);
+                const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F
+                                                                                         : 0.0F,
+                                         0.0F, 0.0F, 0.0F};
+                bgfx::setUniform(resources.surface, surface);
+                bgfx::setUniform(resources.shadow_matrices, shadow_frame.matrices.data(),
+                                 maximum_shadow_cascades);
+                bgfx::setUniform(resources.shadow_rects, shadow_frame.rectangles.data(),
+                                 maximum_shadow_cascades);
+                bgfx::setUniform(resources.shadow_splits, shadow_frame.splits.data());
+                bgfx::setUniform(resources.shadow_params, shadow_frame.parameters.data());
+                bgfx::setUniform(resources.shadow_settings, shadow_settings);
+                bgfx::setTexture(shadow_sampler_stage, resources.shadow_sampler,
+                                 shadow_enabled ? resources.shadow.color
+                                                : resources.shadow_fallback);
+                bgfx::setTransform(model);
+                mesh->bind_vertices();
+                bgfx::setIndexBuffer(mesh->indices, first, count);
+                const auto state = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
+                                   cull_state(material->cull_mode(), model);
+                bgfx::setState(depth_only ? state
+                                          : state | BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                                                BGFX_STATE_MSAA);
+                bgfx::submit(view_id, program->program);
+                return true;
+            };
+            if (data->submeshes.empty())
+            {
+                if (!submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+                {
+                    return false;
+                }
+            }
+            for (const auto& submesh : data->submeshes)
+            {
+                if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
+                {
+                    return false;
+                }
+            }
         }
-        float model[16]{};
-        const auto* transform = node->get_component<Transform>();
-        if (transform == nullptr || !transform->world_matrix(model))
+        return true;
+    };
+    if (rendering.ao_enabled)
+    {
+        if (!resources.ambient_occlusion.prepare(static_cast<std::uint16_t>(width_),
+                                                 static_cast<std::uint16_t>(height_)))
         {
-            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare ambient occlusion resources");
             return false;
         }
-        float normal_transform[16]{};
-        if (!normal_matrix(model, normal_transform))
+        resources.ambient_occlusion.begin_depth(view, projection);
+        if (!draw_meshes(ambient_occlusion_depth_view, true) ||
+            !resources.ambient_occlusion.compute(settings, rendering, projection))
         {
-            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh normal transform is invalid");
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot render ambient occlusion");
             return false;
-        }
-        const auto mesh =
-            std::find_if(resources.meshes.begin(), resources.meshes.end(),
-                         [&node](const auto& item) { return item.node_id == node->id(); });
-        const auto* data = renderer->mesh_data();
-        if (mesh == resources.meshes.end() || data == nullptr)
-        {
-            return false;
-        }
-        const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
-        {
-            const Material* material = renderer->material(slot);
-            if (material == nullptr)
-            {
-                return false;
-            }
-            auto program = std::find_if(resources.programs.begin(), resources.programs.end(),
-                                        [material](const auto& item)
-                                        { return item.path == material->shader_path(); });
-            if (program == resources.programs.end() ||
-                !program->bind_material(*material, resources.textures))
-            {
-                SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-                             "Material parameters do not match its shader");
-                return false;
-            }
-            bgfx::setUniform(resources.normal_transform, normal_transform);
-            bgfx::setUniform(resources.camera_position, camera_position);
-            bgfx::setUniform(resources.light_direction, light_direction.data());
-            bgfx::setUniform(resources.light_color, light_color.data());
-            bgfx::setUniform(resources.light_count, count_value);
-            bgfx::setUniform(resources.light_position_range, light_position_range.data(),
-                             maximum_lights);
-            bgfx::setUniform(resources.light_direction_outer, light_direction_outer.data(),
-                             maximum_lights);
-            bgfx::setUniform(resources.light_color_intensity, light_color_intensity.data(),
-                             maximum_lights);
-            bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(), maximum_lights);
-            bgfx::setUniform(resources.ambient, ambient);
-            bgfx::setUniform(resources.ambient_sky, ambient_sky);
-            bgfx::setUniform(resources.ambient_equator, ambient_equator);
-            bgfx::setUniform(resources.ambient_ground, ambient_ground);
-            bgfx::setUniform(resources.fog_color, fog_color);
-            bgfx::setUniform(resources.fog_range, fog_range);
-            bgfx::setUniform(resources.tonemap, tonemap);
-            bgfx::setUniform(resources.ibl_params, ibl_params);
-            bgfx::setTexture(ibl_irradiance_stage, resources.ibl_irradiance_sampler,
-                             ibl_ready ? resources.ibl_textures[0].handle
-                                       : resources.ibl_cube_fallback);
-            bgfx::setTexture(ibl_prefilter_stage, resources.ibl_prefilter_sampler,
-                             ibl_ready ? resources.ibl_textures[1].handle
-                                       : resources.ibl_cube_fallback);
-            bgfx::setTexture(ibl_lut_stage, resources.ibl_lut_sampler,
-                             ibl_ready ? resources.ibl_textures[2].handle
-                                       : resources.ibl_lut_fallback);
-            const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F : 0.0F,
-                                     0.0F, 0.0F, 0.0F};
-            bgfx::setUniform(resources.surface, surface);
-            bgfx::setUniform(resources.shadow_transform, shadow_transform);
-            bgfx::setUniform(resources.shadow_settings, shadow_settings);
-            bgfx::setTexture(shadow_sampler_stage, resources.shadow_sampler,
-                             shadow_enabled ? resources.shadow.color : resources.shadow_fallback);
-            bgfx::setTransform(model);
-            mesh->bind_vertices();
-            bgfx::setIndexBuffer(mesh->indices, first, count);
-            bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
-                           BGFX_STATE_DEPTH_TEST_LESS | BGFX_STATE_MSAA |
-                           cull_state(material->cull_mode(), model));
-            bgfx::submit(main_view, program->program);
-            return true;
-        };
-        if (data->submeshes.empty())
-        {
-            if (!submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
-            {
-                return false;
-            }
-        }
-        for (const auto& submesh : data->submeshes)
-        {
-            if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
-            {
-                return false;
-            }
         }
     }
-    return fonts_ == nullptr || fonts_->render_scene(*scene, main_view);
+    else
+    {
+        resources.ambient_occlusion.release();
+    }
+    if (rendering.hdr_enabled)
+    {
+        if (!resources.hdr_post_process.prepare(static_cast<std::uint16_t>(width_),
+                                                static_cast<std::uint16_t>(height_),
+                                                rendering.bloom_enabled))
+        {
+            SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare HDR post-processing");
+            return false;
+        }
+        resources.hdr_post_process.begin_scene(rendering.clear_color);
+    }
+    else
+    {
+        resources.hdr_post_process.release();
+    }
+    if (!draw_meshes(main_view, false) ||
+        (fonts_ != nullptr && !fonts_->render_scene(*scene, main_view, rendering.hdr_enabled)))
+    {
+        return false;
+    }
+    return !rendering.hdr_enabled || resources.hdr_post_process.resolve(rendering);
 }
 
 bool RenderSystem::render(const Camera* camera)
@@ -2735,6 +3058,7 @@ bool RenderSystem::render(const Camera* camera)
     {
         return false;
     }
+    bgfx::setViewFrameBuffer(main_view, BGFX_INVALID_HANDLE);
     bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, current_settings.clear_color,
                        1.0F, 0);
     bgfx::setViewRect(main_view, 0, 0, static_cast<std::uint16_t>(width_),

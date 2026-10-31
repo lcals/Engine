@@ -239,3 +239,14 @@ classDiagram
 ## 模型、骨架与动画
 
 `model.fbs`、`skeleton.fbs`、`animation.fbs` 各自定义独立资源根，标识分别为 EMDL、ESKL、EANI。模型资源节点通过 GUID 引用 Mesh/Material，骨架保存关节及逆绑定，动画保存针对骨架索引的 TRS 轨道；详情见[模型资源](model-resources.md)。Mesh 的 SkinInfluence 保存四个 ushort 关节索引及四个 float 权重，mesh_to_skeleton 使用 16 项列主序 float。新数据同样由 flatc 生成 C++/TS，插件和运行时不维护重复持久字段。
+
+
+### 方向光级联阴影
+
+`LightData` 在既有阴影开关、分辨率及偏移后追加 `shadow_cascades:ubyte=4`、`shadow_distance:float=150`、`shadow_split_lambda:float=0.6`、`shadow_cascade_blend:float=0.1`。Schema 仍为唯一持久模型；TOML 编解码、组件校验、MCP 与脚本通过该模型使用相同值。数量仅接受整数 1/2/4，距离为 `(0,100000]` 有限值，混合划分比例在 `[0,1]`，交界混合比例在 `[0,0.3]`。
+
+### 相机环境遮蔽
+
+`PostProcessData` 追加 `ao_enabled:bool=false`、`ao_radius:float=1`、`ao_strength:float=1`、`ao_power:float=1.5`、`ao_fade_start:float=80`、`ao_fade_end:float=150`。旧场景未存储 AO 字段时使用这些默认值。所有浮点值有限，半径 `(0,100]`、强度 `[0,2]`、指数 `[0.1,8]`、淡出距离 `0 <= start < end <= 100000`；具体组件整体校验，失败不部分改变。AO 结果来自当帧 GPU 计算，只有参数进入场景模型。
+
+`PostProcessData` 在末尾继续追加 `hdr_enabled:bool=false`、`bloom_enabled:bool=false`、`bloom_threshold:float=1`、`bloom_intensity:float=0.15`、`bloom_radius:float=1`。阈值范围 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，所有数值有限，且 `bloom_enabled` 为 true 时 `hdr_enabled` 必须为 true。旧数据按关闭的默认值读取；TOML、FlatBuffers、运行时组件和脚本使用同一模型，不自动改写请求中的另一开关。

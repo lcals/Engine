@@ -1,11 +1,13 @@
 #include "resource_fixture.hpp"
 
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/codecs/shader_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <fstream>
 #include <memory>
@@ -172,6 +174,48 @@ bool codec_tests()
                 "binary formats share one codec and unknown kinds have no decoder"))
     {
         return false;
+    }
+
+    for (const auto* uniform :
+         {"u_shadow_matrices", "u_shadow_rects", "u_shadow_splits", "u_shadow_params",
+          "u_ambient_occlusion", "s_ambient_occlusion", "u_assao_params", "u_assao_rect",
+          "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom"})
+    {
+        schema::ShaderDataT reserved(*builtin_shader);
+        reserved.path = "builtin/shaders/reserved-renderer";
+        reserved.parameters.front()->uniform_name = uniform;
+        if (!expect(!ResourceSystem::register_shader(reserved) &&
+                        !ResourceSystem::find_shader(reserved.path),
+                    "material parameters cannot claim renderer uniforms"))
+        {
+            return false;
+        }
+        reserved.parameters.front()->uniform_name =
+            builtin_shader->parameters.front()->uniform_name;
+        reserved.samplers.front()->uniform_name = uniform;
+        if (!expect(!ResourceSystem::register_shader(reserved) &&
+                        !ResourceSystem::find_shader(reserved.path),
+                    "material samplers cannot claim renderer uniforms"))
+        {
+            return false;
+        }
+    }
+
+    schema::ShaderDataT sampler_boundary(*builtin_shader);
+    sampler_boundary.samplers.front()->stage = 10;
+    if (!expect(ShaderResourceCodec::validate(sampler_boundary),
+                "material sampler slot 10 remains available"))
+    {
+        return false;
+    }
+    for (std::uint8_t stage = 11; stage < 16; ++stage)
+    {
+        sampler_boundary.samplers.front()->stage = stage;
+        if (!expect(!ShaderResourceCodec::validate(sampler_boundary),
+                    "material samplers cannot occupy AO, IBL or shadow slots"))
+        {
+            return false;
+        }
     }
 
     // Catalog 和信封有效，但各类型实体错误；加载不能发布部分候选。
