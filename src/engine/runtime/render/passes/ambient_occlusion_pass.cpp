@@ -1,6 +1,7 @@
-#include "runtime/render/ambient_occlusion_pass.hpp"
+#include "runtime/render/passes/ambient_occlusion_pass.hpp"
 
-#include "runtime/render/render_system.hpp"
+#include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_settings.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -14,13 +15,11 @@
 #include <cmath>
 #include <limits>
 
-namespace engine
+namespace engine::render_detail
 {
 namespace
 {
 
-constexpr bgfx::ViewId depth_view = 4;
-constexpr bgfx::ViewId compute_view = 5;
 constexpr std::uint16_t uniform_count = 19;
 constexpr std::uint32_t point_clamp = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
 constexpr std::uint32_t point_mirror = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_MIRROR;
@@ -312,12 +311,12 @@ bool AmbientOcclusionPass::prepare(std::uint16_t width, std::uint16_t height)
 
 void AmbientOcclusionPass::begin_depth(const float* view, const float* projection)
 {
-    bgfx::setViewName(depth_view, "ASSAO camera depth");
-    bgfx::setViewFrameBuffer(depth_view, depth_framebuffer_);
-    bgfx::setViewRect(depth_view, 0, 0, width_, height_);
-    bgfx::setViewClear(depth_view, BGFX_CLEAR_DEPTH, 0, 1.0F, 0);
-    bgfx::setViewTransform(depth_view, view, projection);
-    bgfx::touch(depth_view);
+    bgfx::setViewName(ambient_occlusion_depth_view, "ASSAO camera depth");
+    bgfx::setViewFrameBuffer(ambient_occlusion_depth_view, depth_framebuffer_);
+    bgfx::setViewRect(ambient_occlusion_depth_view, 0, 0, width_, height_);
+    bgfx::setViewClear(ambient_occlusion_depth_view, BGFX_CLEAR_DEPTH, 0, 1.0F, 0);
+    bgfx::setViewTransform(ambient_occlusion_depth_view, view, projection);
+    bgfx::touch(ambient_occlusion_depth_view);
 }
 
 bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSettings& settings,
@@ -336,9 +335,9 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
     const std::uint32_t half_groups_y = (half_height + 7U) / 8U;
     const float half_rect[] = {0.0F, 0.0F, static_cast<float>(half_width),
                                static_cast<float>(half_height)};
-    bgfx::setViewName(compute_view, "ASSAO Q2");
-    bgfx::setViewFrameBuffer(compute_view, BGFX_INVALID_HANDLE);
-    bgfx::setViewMode(compute_view, bgfx::ViewMode::Sequential);
+    bgfx::setViewName(ambient_occlusion_compute_view, "ASSAO Q2");
+    bgfx::setViewFrameBuffer(ambient_occlusion_compute_view, BGFX_INVALID_HANDLE);
+    bgfx::setViewMode(ambient_occlusion_compute_view, bgfx::ViewMode::Sequential);
     bgfx::setUniform(parameters_, uniforms.data(), uniform_count);
     bgfx::setTexture(0, samplers_[depth_sampler], depth_, point_clamp);
     for (std::uint8_t index = 0; index < half_depths_.size(); ++index)
@@ -347,7 +346,8 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
                        bgfx::Access::Write, bgfx::TextureFormat::R16F);
     }
     bgfx::setImage(5, normals_, 0, bgfx::Access::Write, bgfx::TextureFormat::RGBA8);
-    bgfx::dispatch(compute_view, programs_[prepare_program], half_groups_x, half_groups_y);
+    bgfx::dispatch(ambient_occlusion_compute_view, programs_[prepare_program], half_groups_x,
+                   half_groups_y);
 
     for (std::uint8_t mip = 1; mip < depth_mip_levels; ++mip)
     {
@@ -364,8 +364,8 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
                               static_cast<float>(mip_height)};
         bgfx::setUniform(parameters_, uniforms.data(), uniform_count);
         bgfx::setUniform(rectangle_, rect);
-        bgfx::dispatch(compute_view, programs_[mip_program], (mip_width + 7U) / 8U,
-                       (mip_height + 7U) / 8U);
+        bgfx::dispatch(ambient_occlusion_compute_view, programs_[mip_program],
+                       (mip_width + 7U) / 8U, (mip_height + 7U) / 8U);
     }
 
     // bgfx compute sort keys preserve submission order within the view. Each phase consumes
@@ -380,7 +380,8 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
         bgfx::setTexture(1, samplers_[mirror_depth_sampler], half_depths_[pass], point_mirror);
         bgfx::setImage(2, normals_, 0, bgfx::Access::Read, bgfx::TextureFormat::RGBA8);
         bgfx::setImage(6, ping_pong_[0], 0, bgfx::Access::Write, bgfx::TextureFormat::RG8);
-        bgfx::dispatch(compute_view, programs_[generate_program], half_groups_x, half_groups_y);
+        bgfx::dispatch(ambient_occlusion_compute_view, programs_[generate_program], half_groups_x,
+                       half_groups_y);
 
         for (std::size_t blur = 0; blur < 2; ++blur)
         {
@@ -390,7 +391,8 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
             bgfx::setTexture(1, samplers_[blur_sampler], ping_pong_[blur], point_mirror);
             bgfx::setImage(0, blur == 0 ? ping_pong_[1] : final_results_, 0, bgfx::Access::Write,
                            bgfx::TextureFormat::RG8);
-            bgfx::dispatch(compute_view, programs_[blur_program], half_groups_x, half_groups_y);
+            bgfx::dispatch(ambient_occlusion_compute_view, programs_[blur_program], half_groups_x,
+                           half_groups_y);
         }
     }
     const float full_rect[] = {0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_)};
@@ -398,7 +400,8 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
     bgfx::setUniform(rectangle_, full_rect);
     bgfx::setTexture(1, samplers_[final_sampler], final_results_, linear_clamp);
     bgfx::setImage(0, ao_, 0, bgfx::Access::Write, bgfx::TextureFormat::R8);
-    bgfx::dispatch(compute_view, programs_[apply_program], (width_ + 7U) / 8U, (height_ + 7U) / 8U);
+    bgfx::dispatch(ambient_occlusion_compute_view, programs_[apply_program], (width_ + 7U) / 8U,
+                   (height_ + 7U) / 8U);
     return true;
 }
 
@@ -439,7 +442,7 @@ void AmbientOcclusionPass::release_textures() noexcept
 {
     if (bgfx::isValid(depth_framebuffer_))
     {
-        bgfx::setViewFrameBuffer(depth_view, BGFX_INVALID_HANDLE);
+        bgfx::setViewFrameBuffer(ambient_occlusion_depth_view, BGFX_INVALID_HANDLE);
         bgfx::destroy(depth_framebuffer_);
         depth_framebuffer_ = BGFX_INVALID_HANDLE;
     }
@@ -500,4 +503,4 @@ void AmbientOcclusionPass::release() noexcept
     }
 }
 
-} // namespace engine
+} // namespace engine::render_detail

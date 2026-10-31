@@ -9,8 +9,11 @@
 
 namespace engine
 {
-
 struct RenderSettings;
+}
+
+namespace engine::render_detail
+{
 
 // RenderSystem 私有通道；GPU 操作在其所属线程、bgfx 初始化期间执行。
 class AmbientOcclusionPass final
@@ -55,4 +58,4 @@ private:
     std::uint16_t height_ = 0;
 };
 
-} // namespace engine
+} // namespace engine::render_detail

@@ -2,7 +2,187 @@
 
 [类图索引](../../class-diagrams/index.md) · [引擎与系统](engine-system.md) · [完整引用关系](../../class-diagrams/references.md)
 
-本图只定义 `RenderSystem` 的方法，其他节点为跨图引用或第三方库。
+公开图定义 `RenderSystem` 的方法；私有实现另列职责与所有权，其他节点为跨图引用或第三方库。
+
+## 私有实现边界
+
+`RenderSystem` 保持系统生命周期、帧提交与调用方入口。场景准备、场景绘制和参数读写分文件实现；GPU 类型、渲染通道与平台表面独立维护，不增加新的渲染管理框架。公开头只暴露引擎类型，bgfx、SDL 和纹理转码器留在私有实现。
+
+```mermaid
+classDiagram
+    class RenderSystem
+    class SceneGpuResources {
+        <<private>>
+        +initialize() bool
+        +release() void
+        +resource_count() uint32_t
+        +prepare_ibl(const Scene& scene) bool
+    }
+    class GpuTexture {
+        +create(const ResourcePtr& source) bool
+        +release() void
+    }
+    class GpuProgram {
+        +create(const ShaderDataT& shader) bool
+        +bind_material(const Material& material, const vector~GpuTexture~& textures) bool
+        +release() void
+    }
+    class GpuMesh {
+        +create(const MeshRenderer& renderer) bool
+        +update_deformation(const MeshRenderer& renderer) bool
+        +bind_vertices() void
+        +release() void
+    }
+    class GpuUniform
+    class GpuSampler
+    class ShadowPass
+    class AmbientOcclusionPass
+    class HdrPostProcessPass
+    class RendererCallbacks
+    class RenderSurface
+    class Resource
+    class Scene
+    class Material
+    class MeshRenderer
+    class ShaderDataT
+    RenderSystem *-- SceneGpuResources : 独占场景GPU资源
+    RenderSystem *-- RendererCallbacks : 独占截图与bgfx回调
+    RenderSystem *-- RenderSurface : 独占平台表面状态
+    SceneGpuResources *-- GpuTexture
+    SceneGpuResources *-- GpuProgram
+    SceneGpuResources *-- GpuMesh
+    SceneGpuResources *-- ShadowPass
+    SceneGpuResources *-- AmbientOcclusionPass
+    SceneGpuResources *-- HdrPostProcessPass
+    SceneGpuResources ..> Scene : 准备IBL期间借用
+    GpuTexture o-- Resource : 共享CPU资源
+    GpuProgram *-- GpuUniform
+    GpuProgram *-- GpuSampler
+    GpuProgram ..> ShaderDataT : 创建参数及拥有定义副本
+    GpuProgram ..> Material : 绘制期间借用
+    GpuProgram ..> GpuTexture : 绑定期间借用
+    GpuMesh ..> MeshRenderer : 上传期间借用
+```
+
+- `resources/` 保存逐类型 GPU 上传、绑定和释放；`passes/` 保存阴影、AO、HDR/Bloom。渲染私有辅助类型置于 `engine::render_detail`，不导出到核心根命名空间。
+- 视图顺序、保留纹理槽和灯光数量集中在私有常量头；数学函数集中在私有数学文件。新增通道沿用同一编号约定，不能在不同文件重复定义数值。
+- 平台实现位于 `platforms/<platform>/`，由 CMake 为当前目标选择。`RenderSurface` 负责原生句柄取得、保留、变更策略与 Android 暂停握手；渲染调度不分支判断平台。先停止 bgfx，再释放原生表面。GPU 暂停后可恢复，场景 CPU 数据仍由世界拥有。
+- GPU 拥有者禁用复制，移动必须转移并清空源句柄，析构兜底；全部 GPU 对象在 bgfx 关闭前销毁。参数结构独立于系统头，不改变场景、脚本或 MCP 的公开契约。
+
+`SceneGpuResources` 与 `RendererCallbacks` 是 `RenderSystem` 的私有嵌套类型。前者独占场景通用 Uniform、回退纹理、三张 IBL 纹理、逐类型 GPU 集合及渲染通道；`initialize()` 创建通用资源，`release()` 支持部分初始化和重复清理，`resource_count()` 汇总有效句柄。`prepare_ibl()` 只在调用期间借用场景，不保留组件指针。`SceneGpuResources` 不可复制或移动，析构兜底；计数查询为 `const noexcept`，释放为 `noexcept`，状态返回值为 `[[nodiscard]]`。
+
+### 阴影通道
+
+```mermaid
+classDiagram
+    class ShadowPass {
+        <<final>>
+        +prepare(uint16_t size) bool
+        +draw(...) bool
+        +texture() bgfx::TextureHandle
+        +resource_count() uint32_t
+        +release() void
+    }
+    class Scene
+    class RenderSettings
+    class ShadowFrame
+    class GpuMesh
+    class GpuTexture
+    class Material
+    ShadowPass ..> Scene : 调用期间借用
+    ShadowPass ..> RenderSettings : 调用期间借用
+    ShadowPass ..> ShadowFrame : 填写调用方帧数据
+    ShadowPass ..> GpuMesh : 借用上传后的几何
+    ShadowPass ..> GpuTexture : 借用材质纹理
+    ShadowPass ..> Material : 绘制期间借用
+```
+
+为避免单行签名撑宽类图，`draw()` 的完整参数单列如下；其中所有引用和句柄均仅在调用期间借用：
+
+```cpp
+bool draw(const Scene& scene, const RenderSettings& settings,
+          ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
+          const std::vector<GpuTexture>& textures,
+          bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform);
+```
+
+`ShadowPass` 独占 atlas 的颜色纹理、深度纹理、Framebuffer、Shader/Program 及 alpha 裁切和 UV Uniform。`prepare()` 按分辨率准备资源，`draw()` 组织逐级阴影绘制，`texture()` 返回借用句柄；调用方不得销毁它。对象不可复制或移动，析构兜底释放；`release()` 支持重复调用。两个只读查询为 `const noexcept`，释放为 `noexcept`，状态与句柄返回值标注 `[[nodiscard]]`。AO 和 HDR/Bloom 的完整接口见本文后续独立图。
+
+### 平台表面
+
+```mermaid
+classDiagram
+    class RenderSurface {
+        <<final>>
+        +initialize(SDL_Window& window, void#42; context, SuspendCallback suspend) bool
+        +prepare(bgfx::Init& init, bool& available) bool
+        +poll(bgfx::PlatformData& data, uint32_t& width, uint32_t& height) SurfaceChange
+        +release() void
+        +shutdown() void
+    }
+    class SurfaceChange {
+        <<enumeration>>
+        unchanged
+        rebind
+        recreate
+        error
+    }
+    class SDL_Window {
+        <<external>>
+    }
+    class ANativeWindow {
+        <<external>>
+    }
+    class SDL_MetalView {
+        <<external>>
+    }
+    class RenderSystem
+    class Init {
+        <<external>>
+    }
+    class PlatformData {
+        <<external>>
+    }
+    RenderSurface --> SDL_Window : 持续借用至shutdown
+    RenderSurface --> RenderSystem : 借用回调上下文至shutdown
+    RenderSurface ..> SurfaceChange : 返回表面变化
+    RenderSurface ..> Init : 填写后端与表面参数
+    RenderSurface ..> PlatformData : 返回当前平台句柄
+    RenderSurface o-- ANativeWindow : Android持有共享原生引用
+    RenderSurface *-- SDL_MetalView : Apple创建并销毁视图
+```
+
+图中的 `Init` 和 `PlatformData` 均来自 `bgfx`。`SuspendCallback` 为 `void (*)(void*) noexcept`。窗口和回调上下文借用持续到 `shutdown()`，所有操作在 SDL 主线程；本系统用回调通知 `RenderSystem` 暂停 GPU，表面对象不执行场景绘制。`prepare()` 只写入 `bgfx::Init` 的后端、平台句柄与像素尺寸，保留其他配置；成功且 `available=false` 表示暂时无可用表面，调用方等待恢复后重试。
+
+`poll()` 借用并填写 `bgfx::PlatformData`，不调用 bgfx；句柄不变仍返回最新尺寸。`rebind` 要求调用方重新提交平台数据，`recreate` 要求先关闭 GPU 再准备表面；原生 display 或类型变化返回 `error`，失败时清空输出。`release()` 必须在 bgfx 关闭后调用，释放平台句柄但保留观察器和窗口借用；`shutdown()` 先撤销回调，再释放并清除借用，不触发暂停回调。对象不可复制或移动，析构调用可重复的 `shutdown()`；释放与关闭为 `noexcept`，状态返回值为 `[[nodiscard]]`。
+
+### 渲染回调
+
+```mermaid
+classDiagram
+    class CallbackI {
+        <<external>>
+    }
+    class RendererCallbacks {
+        <<private final>>
+        +screenShot(...) void
+    }
+    class ScreenshotStatus
+    CallbackI <|-- RendererCallbacks
+    RendererCallbacks --> ScreenshotStatus : 原子保存截图回执
+```
+
+`CallbackI` 来自 `bgfx`。关键重写接收完整帧数据：
+
+```cpp
+void screenShot(const char* path, uint32_t width, uint32_t height,
+                uint32_t pitch, const void* data, uint32_t size,
+                bool yflip) override;
+```
+
+回调实现 bgfx 的日志和截图契约，用互斥量同步待写路径、原子状态同步回执，通过 bimg 和 SDL3 IO 写出截图。其他 profiler、缓存与视频捕获回调保持契约空实现，缓存查询报告缺失；不在此引入性能采样或视频录制业务。
+
+## 公开接口
 
 ```mermaid
 classDiagram
@@ -107,12 +287,6 @@ classDiagram
     class SDL3 {
         <<library>>
     }
-    class ANativeWindow {
-        <<external>>
-    }
-    class SDL_MetalView {
-        <<external>>
-    }
     System <|-- RenderSystem
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空借用 活动场景来源
@@ -138,8 +312,6 @@ classDiagram
     RenderSystem ..> ScreenshotStatus : 截图回执
     RenderSystem ..> bgfx : 图形资源及帧提交
     RenderSystem ..> SDL3 : 原生窗口及像素尺寸
-    RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
-    RenderSystem "1" *-- "0..1" SDL_MetalView : Apple 平台拥有视图
     note for RenderSystem "拥有 bgfx 创建的资源；析构中调用 shutdown()"
 ```
 
@@ -150,10 +322,10 @@ classDiagram
 - 显式视角只替换观察位置与投影。环境始终读取世界场景的唯一启用 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的启用 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
-- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。阴影使用 View 0..3，AO 深度预通道与计算使用 4/5，主场景使用 6，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
+- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。阴影使用 View 0..3，AO 深度预通道与计算使用 4/5，主场景使用 6，HDR/Bloom 使用 7..9，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。
-- Android 通过 SDL 窗口属性取得原生窗口，调用 `ANativeWindow_acquire()` 持有原生引用，bgfx 完全关闭后配对 `ANativeWindow_release()`；底层窗口由平台共享，不由渲染系统独占。
+- Android 的 `RenderSurface` 通过 SDL 窗口属性取得原生窗口，调用 `ANativeWindow_acquire()` 持有原生引用，bgfx 完全关闭后配对 `ANativeWindow_release()`；底层窗口由平台共享，不由渲染系统独占。
 - Android 宿主在 Activity 暂停及 Surface 销毁前同步请求 SDL 主线程关闭 bgfx，并等待后台渲染线程退出；确认后才允许 SDL 释放 Surface。宿主不直接调用 bgfx，具体协议见 [Android 宿主](android-host.md)。
 - Android 暂停期间保留系统对象，GPU 初始化可推迟；Activity 与 Surface 均就绪后按需重建场景所需的渲染资源。系统生命周期就绪与 GPU 暂时关闭是两个不同状态，公共系统接口不变。
 - 初始化、继承的更新、`render()` 和关闭均由 `SDL_main` 所在线程（见[线程约定](engine-system.md)）调用；窗口指针及原生句柄借用不跨线程传递。
