@@ -520,6 +520,8 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 方向光阴影适配 bgfx `15-shadowmaps-simple` 的 packed-depth 和 16 点 PCF 路径，并参考实际依赖 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）的视锥划分与稳定投影。唯一启用 `cast_shadows` 的方向光支持 1/2/4 级 CSM，使用单 atlas、相机深度选级、交界重叠混合及末级淡出。每级范围按当前观察镜头计算；编辑器隐藏预览镜头同样生效。仍不包含点光或聚光阴影。
 
+渲染实现按场景准备、绘制、参数、截图、`resources/` 和 `passes/` 分工，`RenderSystem` 保留系统生命周期与帧调度。各平台共用 CSM、AO、HDR/Bloom 和 IBL 的通道与 Shader；原生窗口及设备暂停恢复放在 `platforms/<platform>/render/`，由 CMake 选入对应实现。新增效果与平台的文件位置、资源所有权及能力检查约定见[渲染模块](docs/runtime/rendering.md#实现职责)和[渲染类图](docs/runtime/class-diagrams/render-system.md)。
+
 `shadowResolution` 为完整 atlas 边长：单级占整图，2/4 级使用半边长 tile，4096 的四级 atlas 每级为 2048。PCF 每个采样点限制在本级 tile 内；View 0..3 为阴影，4/5 分别为 AO 深度预通道与计算，主场景使用 View 6。启用 HDR 时 View 6 写入线性 RGBA16F，View 7..9 完成 Bloom 与最终 SDR 合成，UI 随后在 View 200 绘制。采样器槽 11 保留给 AO，12..14 保留给 IBL，15 保留给阴影，项目材质只使用 0..10。ACES 曲线复用 bgfx `shaderlib.sh`；常量/三色环境光与 IBL 独立设置，可同时贡献光照。渲染设置由场景组件持有，随 `save_scene` 落盘；停止或切换场景不保留前一场景的环境和后处理。
 
 例如 `set_render_settings {"directionalShadows":true,"shadowResolution":4096,"shadowCascades":4,"shadowDistance":150,"shadowSplitLambda":0.6,"shadowCascadeBlend":0.1}`。级联数量仅接受 1、2、4；距离范围 `(0, 100000]`，划分比例范围 `[0, 1]`，混合比例范围 `[0, 0.3]`。最后四项默认分别为 4、150、0.6、0.1；实际阴影距离不超过观察镜头的远裁面。数量和距离等配置可独立修改，保持阴影启用状态。脚本可调用 `Render.SetShadowCascades(count, distance, splitLambda?, blend?)`，或对指定方向灯调用 `Light.SetShadowCascades(...)`；`SetDirectionalShadows` / `Light.SetShadows` 保留已有级联配置。
@@ -880,6 +882,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 | 环境 | 已验证范围 |
 | --- | --- |
+| macOS Metal / 渲染职责与平台拆分 | Debug / Release 受影响目标构建通过，Release 编辑器链接通过；两配置的渲染基础、窗口渲染、字体/UI 渲染与编辑命令各 4 项定向 CTest 全部通过。覆盖 GPU 资源切换、CSM、AO、HDR/Bloom、截图和释放；40 个相关 C++ 文件格式检查通过。Metal、DX12、Vulkan 的共用 Shader 与平台源码选择已核对，本轮未运行其他平台 |
 | macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过；统一项目与 Model v2 改动后，Debug 全量 70 项通过，Release 首轮 69 项通过，修正 FBX 构建测试清单的共享骨架存储冲突后，该项在两配置复测通过，分别覆盖全部 70 项 |
 | macOS Metal / CSM 级联阴影 | Debug / Release 的场景数据、资源管线、渲染基础、窗口渲染、编辑命令、脚本运行、资源编解码和 MCP 注册共 8 项定向测试通过；真实 GPU 覆盖阴影像素、1/2/4 级切换、变形投影及释放。神庙固定五机位复拍完成，原图 2560×1600；本轮未重测其他平台 |
 | macOS Metal 公寓 | 330 节点、77 碰撞体；小球落地、施加冲量后再次落地；默认 SDL 设备播放、暂停、续播、停止、调整音量和项目重启；真实渲染截图保存成功 |

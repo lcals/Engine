@@ -7,8 +7,11 @@
 
 namespace engine
 {
-
 struct RenderSettings;
+}
+
+namespace engine::render_detail
+{
 
 // RenderSystem 私有通道；GPU 操作在其所属线程、bgfx 初始化期间执行。
 class HdrPostProcessPass final
@@ -52,4 +55,4 @@ private:
     std::array<std::uint16_t, 2> bloom_heights_{};
 };
 
-} // namespace engine
+} // namespace engine::render_detail

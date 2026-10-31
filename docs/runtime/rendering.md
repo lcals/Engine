@@ -6,6 +6,21 @@
 
 渲染阶段、目标缓冲、GPU 资源生命周期和绘制提交的代码组织优先适配上游范例，再接入引擎的节点、组件与资源接口。项目可自定义 Shader、具名参数和材质；框架复用不要求保留范例的固定外观或参数。
 
+## 实现职责
+
+公开参数位于 `include/engine/runtime/render/render_settings.hpp`，只依赖标准库。除平台表面实现外，下表中的私有代码均位于 `src/engine/runtime/render/`：
+
+| 文件或目录 | 职责 |
+| --- | --- |
+| `render_system.cpp` | 系统生命周期、帧提交、统计开关及调用方入口 |
+| `render_scene.cpp`、`render_scene_resources.cpp`、`render_settings.cpp` | 场景绘制与资源准备调度、组件参数读写及失败回滚 |
+| `scene_gpu_resources.*`、`resources/` | 场景 GPU 集合和逐类型资源的拥有、上传、绑定与释放 |
+| `passes/`、`shaders/` | 共用的阴影、AO、HDR/Bloom 通道与 Shader；IBL 采样沿用共用材质 Shader |
+| `render_surface.*`、`platforms/<platform>/render/` | 表面状态契约、固定后端选择、原生句柄与暂停恢复 |
+| `renderer_callbacks.*` | bgfx 日志回调、截图写入及线程间回执 |
+
+CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源码，经 `shaderc` 编译到对应后端。平台实现负责后端与表面适配，效果中的必要能力检查依据实际访问契约处理，例如 AO 在 Metal 上的纹理访问判据。能力不足时明确返回失败，不静默丢弃已开启的效果。共用实现不代表已经完成全平台实测；具体执行范围见各效果记录及根 README。
+
 ## 窗口与场景
 
 编辑器复用同一个 SDL3 窗口。待机时清屏；启动项目后读取世界系统的活动场景，通过活动 Camera 绘制节点上的 MeshRenderer；停止后释放场景和项目 GPU 资源，恢复空白帧。窗口和共享图形设备保留到宿主关闭。

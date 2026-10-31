@@ -1,6 +1,7 @@
-#include "runtime/render/hdr_post_process_pass.hpp"
+#include "runtime/render/passes/hdr_post_process_pass.hpp"
 
-#include "runtime/render/render_system.hpp"
+#include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_settings.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -12,15 +13,11 @@
 #include <algorithm>
 #include <cmath>
 
-namespace engine
+namespace engine::render_detail
 {
 namespace
 {
 
-constexpr bgfx::ViewId scene_view = 6;
-constexpr bgfx::ViewId bright_view = 7;
-constexpr bgfx::ViewId blur_view = 8;
-constexpr bgfx::ViewId resolve_view = 9;
 constexpr std::uint8_t clear_palette = 0;
 constexpr std::uint32_t linear_clamp = BGFX_SAMPLER_UVW_CLAMP;
 constexpr std::uint64_t color_flags = BGFX_TEXTURE_RT | linear_clamp;
@@ -256,11 +253,11 @@ void HdrPostProcessPass::begin_scene(std::uint32_t clear_color)
         }
     }
     bgfx::setPaletteColor(clear_palette, clear.data());
-    bgfx::setViewName(scene_view, "HDR scene");
-    bgfx::setViewFrameBuffer(scene_view, framebuffer_);
-    bgfx::setViewRect(scene_view, 0, 0, width_, height_);
-    bgfx::setViewClear(scene_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 1.0F, 0, clear_palette);
-    bgfx::touch(scene_view);
+    bgfx::setViewName(main_view, "HDR scene");
+    bgfx::setViewFrameBuffer(main_view, framebuffer_);
+    bgfx::setViewRect(main_view, 0, 0, width_, height_);
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 1.0F, 0, clear_palette);
+    bgfx::touch(main_view);
 }
 
 bool HdrPostProcessPass::resolve(const RenderSettings& settings)
@@ -297,16 +294,16 @@ bool HdrPostProcessPass::resolve(const RenderSettings& settings)
     {
         bloom_texel = {settings.bloom_radius / bloom_widths_[1],
                        settings.bloom_radius / bloom_heights_[1], 0.0F, 0.0F};
-        set_post_view(bright_view, "Bloom bright extraction", bloom_framebuffers_[0],
+        set_post_view(hdr_bright_view, "Bloom bright extraction", bloom_framebuffers_[0],
                       bloom_widths_[0], bloom_heights_[0]);
-        submit(bright_view, 0, color_, {1.0F / width_, 1.0F / height_, 0.0F, 0.0F});
-        set_post_view(blur_view, "Bloom vertical blur", bloom_framebuffers_[1], bloom_widths_[1],
-                      bloom_heights_[1]);
-        submit(blur_view, 1, bloom_colors_[0], bloom_texel);
+        submit(hdr_bright_view, 0, color_, {1.0F / width_, 1.0F / height_, 0.0F, 0.0F});
+        set_post_view(hdr_blur_view, "Bloom vertical blur", bloom_framebuffers_[1],
+                      bloom_widths_[1], bloom_heights_[1]);
+        submit(hdr_blur_view, 1, bloom_colors_[0], bloom_texel);
     }
-    set_post_view(resolve_view, "HDR resolve and bloom horizontal blur", BGFX_INVALID_HANDLE,
+    set_post_view(hdr_resolve_view, "HDR resolve and bloom horizontal blur", BGFX_INVALID_HANDLE,
                   width_, height_);
-    submit(resolve_view, 2, color_, bloom_texel);
+    submit(hdr_resolve_view, 2, color_, bloom_texel);
     return true;
 }
 
@@ -344,7 +341,7 @@ void HdrPostProcessPass::release_bloom() noexcept
     {
         if (bgfx::isValid(bloom_framebuffers_[index]))
         {
-            bgfx::setViewFrameBuffer(static_cast<bgfx::ViewId>(bright_view + index),
+            bgfx::setViewFrameBuffer(static_cast<bgfx::ViewId>(hdr_bright_view + index),
                                      BGFX_INVALID_HANDLE);
             bgfx::destroy(bloom_framebuffers_[index]);
             bloom_framebuffers_[index] = BGFX_INVALID_HANDLE;
@@ -364,8 +361,8 @@ void HdrPostProcessPass::release_targets() noexcept
     release_bloom();
     if (bgfx::isValid(framebuffer_))
     {
-        bgfx::setViewFrameBuffer(scene_view, BGFX_INVALID_HANDLE);
-        bgfx::setViewName(scene_view, "Main window");
+        bgfx::setViewFrameBuffer(main_view, BGFX_INVALID_HANDLE);
+        bgfx::setViewName(main_view, "Main window");
         bgfx::destroy(framebuffer_);
         framebuffer_ = BGFX_INVALID_HANDLE;
     }
@@ -420,4 +417,4 @@ void HdrPostProcessPass::release() noexcept
     }
 }
 
-} // namespace engine
+} // namespace engine::render_detail
