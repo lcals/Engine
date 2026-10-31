@@ -26,7 +26,7 @@ classDiagram
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui)
+        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics)
         +~BindingContext()
         +activate() void
         +begin_call(double delta_time) void
@@ -35,6 +35,7 @@ classDiagram
         +world() WorldSystem#42;
         +renderer() RenderSystem#42;
         +ui() UiSystem#42;
+        +physics() PhysicsSystem#42;
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
@@ -191,3 +192,19 @@ CharacterMotorBinding 独立提供胶囊移动设置、水平速度请求、实�
 UI 绑定见 [UI 脚本与 MVC](ui-script-api.md)。绑定模块可登记事件与停止清理 hook；ScriptSystem 只调用注册表导出的统一派发/清理入口，不逐个判断业务模块。UiSystem 为宿主注入的可空借用；关闭时先停止脚本及清理订阅，再销毁文档。
 
 TerrainBinding 在 `ENGINE_HAS_TERRAIN_PLUGIN=1` 时登记，脚本插件的地形依赖由插件清单显式声明；关闭时不生成该门面或引用地形符号。公开契约见[地形脚本接口](terrain-script-api.md)。
+
+步骤 3：宿主追加注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问当前场景的只读撞击快照，不推进物理、不在 Jolt 回调里执行脚本。
+
+```mermaid
+classDiagram
+class ScriptSystem
+class BindingContext
+class PhysicsSystem
+class PhysicsBinding
+class ScriptBinding
+ScriptSystem --> PhysicsSystem : borrowed
+BindingContext --> PhysicsSystem : borrowed during callbacks
+ScriptBinding <|-- PhysicsBinding
+PhysicsBinding ..> PhysicsSystem : reads impact snapshot
+PhysicsBinding ..> BindingContext : validates scene
+```

@@ -1,0 +1,16 @@
+guid = "90eba375-df77-5d95-9113-8b9c4a0526bc"
+importer = "ui"
+meta_version = 1
+
+[ui]
+textures = []
+
+[[ui.fonts]]
+family = "body"
+asset = "project/fonts/lato-regular.ttf"
+shader = "builtin/shaders/font"
+
+[[ui.fonts]]
+family = "heading"
+asset = "project/fonts/lato-bold.ttf"
+shader = "builtin/shaders/font"

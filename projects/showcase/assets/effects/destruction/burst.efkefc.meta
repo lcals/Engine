@@ -1,0 +1,11 @@
+guid = "8a7b0c47-a94c-55b2-a6b9-91f826cbd2bd"
+importer = "effect"
+meta_version = 1
+
+[[resources]]
+path = "textures/smoke.png"
+resource = "project/effects/destruction/textures/smoke.png"
+
+[[resources]]
+path = "textures/particle-soft.png"
+resource = "project/effects/destruction/textures/particle-soft.png"

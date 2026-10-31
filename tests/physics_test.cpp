@@ -315,8 +315,210 @@ bool trigger_and_registration()
     {
         return false;
     }
-    return expect(advance(second.physics, 90) && height(*ball) < -1.0,
+    for (unsigned frame = 0; frame < 90; ++frame)
+    {
+        if (!expect(second.physics.tick(1.0 / 60.0) && second.physics.impacts().empty(),
+                    "sensor contacts never publish rigid body impacts"))
+        {
+            return false;
+        }
+    }
+    return expect(height(*ball) < -1.0,
                   "trigger has no physical response and another system shutdown preserves Jolt");
+}
+
+bool targeted_ray()
+{
+    Fixture fixture;
+    Fixture other;
+    if (!fixture.initialize() || !other.initialize())
+    {
+        return false;
+    }
+    auto& scene = *fixture.world.scene();
+    auto* target = create(scene, "Target", {}, engine::schema::ColliderShape::box, false);
+    auto* blocker = create(scene, "Blocker", {0, 2, 0}, engine::schema::ColliderShape::box, false);
+    auto* foreign =
+        create(*other.world.scene(), "Foreign", {}, engine::schema::ColliderShape::box, false);
+    if (!target || !blocker || !foreign)
+    {
+        return false;
+    }
+    auto& collider = *target->get_component<engine::Collider>();
+    float fraction = 0;
+    if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
+                    fraction == 1 && fixture.physics.tick(0),
+                "ray against a valid unpublished collider reports no hit without creating it") ||
+        !expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
+                    std::abs(fraction - 0.4375F) < 0.001F,
+                "target ray ignores the closer unrelated collider") ||
+        !expect(fixture.physics.cast_ray(collider, {3, 4, 0}, {0, -8, 0}, fraction) &&
+                    fraction == 1,
+                "target ray miss succeeds with fraction one"))
+    {
+        return false;
+    }
+    collider.set_enabled(false);
+    if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
+                    fraction == 1,
+                "disabled target is ignored before the next physics synchronization"))
+    {
+        return false;
+    }
+    collider.set_enabled(true);
+    target->get_component<engine::Transform>()->set_enabled(false);
+    if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
+                    fraction == 1,
+                "disabled target transform is ignored before synchronization"))
+    {
+        return false;
+    }
+    target->get_component<engine::Transform>()->set_enabled(true);
+    auto sensor = collider.settings();
+    sensor.is_trigger = true;
+    if (!expect(collider.set_settings(sensor) &&
+                    fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
+                    fraction == 1,
+                "target sensor never supplies solid support") ||
+        !expect(!fixture.physics.cast_ray(*foreign->get_component<engine::Collider>(), {0, 4, 0},
+                                          {0, -8, 0}, fraction) &&
+                    fraction == 0,
+                "foreign collider is an error and resets fraction") ||
+        !expect(!fixture.physics.cast_ray(collider, {0, 4, 0},
+                                          {0, std::numeric_limits<double>::quiet_NaN(), 0},
+                                          fraction) &&
+                    fraction == 0,
+                "invalid ray input is an error even for a disabled physical target"))
+    {
+        return false;
+    }
+    return true;
+}
+
+bool impact_snapshots()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto& scene = *fixture.world.scene();
+    auto* floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
+    auto* sphere =
+        create(scene, "Sphere", {0, 0.6, 0}, engine::schema::ColliderShape::sphere, true);
+    if (!floor || !sphere)
+    {
+        return false;
+    }
+    const auto strike = [&](engine::PhysicsImpact& output)
+    {
+        auto* transform = sphere->get_component<engine::Transform>();
+        auto pose = transform->settings();
+        pose.position = {0, 0.6, 0};
+        pose.rotation = {};
+        auto* rigid = sphere->get_component<engine::RigidBody>();
+        auto motion = rigid->settings();
+        motion.mass = 2;
+        motion.gravity_factor = 0;
+        motion.linear_damping = 0;
+        motion.angular_damping = 0;
+        motion.linear_velocity = {0, -6, 0};
+        motion.angular_velocity = {};
+        if (!transform->set_settings(pose) || !rigid->set_settings(motion))
+        {
+            return false;
+        }
+        for (unsigned frame = 0; frame < 6; ++frame)
+        {
+            if (!fixture.physics.tick(3.0 / 60.0))
+            {
+                return false;
+            }
+            const auto impacts = fixture.physics.impacts();
+            if (!impacts.empty())
+            {
+                if (impacts.size() != 1)
+                {
+                    return false;
+                }
+                output = impacts.front();
+                return true;
+            }
+        }
+        return false;
+    };
+    engine::PhysicsImpact first;
+    if (!expect(strike(first) && first.frame > 0 && first.scene_id == scene.id() &&
+                    first.node_a == floor->id() && first.node_b == sphere->id() &&
+                    first.normal.y() > 0.99 && std::abs(first.point.y()) < 0.1 &&
+                    first.closing_speed > 5.5F && first.closing_speed < 6.5F &&
+                    first.estimated_impulse > 10 && first.estimated_impulse < 14,
+                "official Jolt contact estimate retains pre-solve speed, mass and world normal") ||
+        !expect(fixture.physics.impacts().size() == 1 &&
+                    fixture.physics.impacts().front().frame == first.frame,
+                "multi-substep collision publishes one non-consuming snapshot per node pair") ||
+        !expect(fixture.physics.tick(0) && fixture.physics.impacts().empty(),
+                "zero-substep tick expires the previous impact snapshot") ||
+        !expect(advance(fixture.physics, 4) && fixture.physics.impacts().empty(),
+                "stationary contact without approach velocity produces no impact"))
+    {
+        return false;
+    }
+    engine::PhysicsImpact next;
+    if (!expect(strike(next) && next.frame > first.frame,
+                "subsequent impact frames increase monotonically"))
+    {
+        return false;
+    }
+    sphere->get_component<engine::Collider>()->set_enabled(false);
+    if (!expect(fixture.physics.impacts().empty(), "disabled collider invalidates stale impacts"))
+    {
+        return false;
+    }
+    sphere->get_component<engine::Collider>()->set_enabled(true);
+    if (!strike(next))
+    {
+        return false;
+    }
+    sphere->get_component<engine::RigidBody>()->set_enabled(false);
+    if (!expect(fixture.physics.impacts().empty(), "disabled rigid body invalidates stale impacts"))
+    {
+        return false;
+    }
+    sphere->get_component<engine::RigidBody>()->set_enabled(true);
+    if (!strike(next))
+    {
+        return false;
+    }
+    sphere->get_component<engine::Transform>()->set_enabled(false);
+    if (!expect(fixture.physics.impacts().empty(), "disabled transform invalidates stale impacts"))
+    {
+        return false;
+    }
+    sphere->get_component<engine::Transform>()->set_enabled(true);
+    if (!strike(next))
+    {
+        return false;
+    }
+    const auto prior_frame = next.frame;
+    fixture.physics.clear();
+    if (!expect(fixture.physics.impacts().empty() && strike(next) && next.frame > prior_frame,
+                "clear removes snapshots without recycling the physics frame identity") ||
+        !expect(scene.destroy_node(sphere->id()) && fixture.physics.impacts().empty(),
+                "deleting a node invalidates stale impacts without retaining its pointer"))
+    {
+        return false;
+    }
+    sphere = create(scene, "Replacement", {0, 0.6, 0}, engine::schema::ColliderShape::sphere, true);
+    if (!sphere || !strike(next))
+    {
+        return false;
+    }
+    fixture.world.destroy_scene();
+    return expect(fixture.world.create_scene("Replacement scene") != nullptr &&
+                      fixture.physics.impacts().empty() && fixture.physics.tick(0) &&
+                      fixture.physics.impacts().empty(),
+                  "scene replacement expires all old world collision events");
 }
 
 bool rotation_and_scale()
@@ -458,6 +660,16 @@ bool transient_mesh_collision()
     {
         return false;
     }
+    float ray_fraction = 0;
+    if (!expect(
+            fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                std::abs(ray_fraction - 0.5F) < 0.001F &&
+                fixture.physics.cast_ray(*collider, {0.25, -3, 0.25}, {0, 6, 0}, ray_fraction) &&
+                std::abs(ray_fraction - 0.5F) < 0.001F,
+            "target mesh ray uses actual triangles from either side"))
+    {
+        return false;
+    }
     const auto* previous = collider->mesh_data();
     mesh.vertices.clear();
     if (!expect(previous != nullptr && previous->vertices.size() == 25 &&
@@ -506,10 +718,12 @@ bool transient_mesh_collision()
     }
     moving.motion = engine::schema::BodyMotion::static_body;
     if (!rigid->set_settings(moving) ||
-        !expect(fixture.physics.set_mesh_data(*collider, collision_grid(true)) &&
-                    cast(0.25, false) && cast(1.5, true) && fixture.physics.tick(0.0) &&
-                    cast(0.25, false),
-                "hole replacement keeps surrounding collision and survives synchronization"))
+        !expect(
+            fixture.physics.set_mesh_data(*collider, collision_grid(true)) && cast(0.25, false) &&
+                cast(1.5, true) && fixture.physics.tick(0.0) && cast(0.25, false) &&
+                fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                ray_fraction == 1,
+            "hole replacement keeps surrounding collision and survives synchronization"))
     {
         return false;
     }
@@ -531,9 +745,12 @@ bool transient_mesh_collision()
                        engine::schema::ColliderShape::box, true);
     if (!box || !advance(fixture.physics, 240) ||
         !expect(std::abs(height(*box) - 0.5) < 0.08, "dynamic body rests on generated mesh") ||
-        !expect(fixture.physics.set_mesh_data(*collider, {}) && fixture.physics.body_count() == 1 &&
-                    advance(fixture.physics, 60) && height(*box) < -1.0 && cast(0.25, false),
-                "empty mesh removes support, wakes resting bodies and never creates a box"))
+        !expect(
+            fixture.physics.set_mesh_data(*collider, {}) && fixture.physics.body_count() == 1 &&
+                advance(fixture.physics, 60) && height(*box) < -1.0 && cast(0.25, false) &&
+                fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                ray_fraction == 1,
+            "empty mesh removes support, wakes resting bodies and never creates a box"))
     {
         return false;
     }
@@ -739,7 +956,8 @@ int main()
 {
     return collision_and_lifecycle() && fixed_step_and_validation() && hierarchy_and_kinematic() &&
                    trigger_and_registration() && rotation_and_scale() &&
-                   transient_mesh_collision() && numeric_boundaries() && compound_collision()
+                   transient_mesh_collision() && numeric_boundaries() && compound_collision() &&
+                   targeted_ray() && impact_snapshots()
                ? 0
                : 1;
 }

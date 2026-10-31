@@ -32,11 +32,18 @@ function(engine_configure_script_plugin)
                 engine::log
                 engine::resource
                 engine::world
+                engine::physics
                 engine::render
                 engine::ui
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
+    if("runtime/effects" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::effects)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_EFFECTS_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_EFFECTS_PLUGIN=0)
+    endif()
     if("runtime/terrain" IN_LIST ENGINE_SELECTED_PLUGINS)
         target_link_libraries(engine_script PRIVATE engine::terrain)
         target_compile_definitions(engine_script PRIVATE ENGINE_HAS_TERRAIN_PLUGIN=1)
@@ -63,6 +70,11 @@ if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
    OR "destruction" IN_LIST ENGINE_RUNTIME_PLUGINS
    OR "destruction" IN_LIST ENGINE_EDITOR_PLUGINS)
     list(APPEND _script_plugin_dependencies runtime/destruction)
+endif()
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "effects" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "effects" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/effects)
 endif()
 engine_register_plugin(NAME runtime/script CONFIGURE engine_configure_script_plugin
                        DEPENDS ${_script_plugin_dependencies} OPTIONS ENGINE_ENABLE_RUNTIME_DEPS)

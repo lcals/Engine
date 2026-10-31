@@ -18,7 +18,11 @@
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
+#include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/Collision/TransformedShape.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
@@ -409,6 +413,27 @@ public:
     }
 };
 
+class TargetBodyFilter final : public JPH::BodyFilter
+{
+public:
+    explicit TargetBodyFilter(JPH::BodyID body) noexcept : body_(body)
+    {
+    }
+
+    bool ShouldCollide(const JPH::BodyID& body) const override
+    {
+        return body == body_;
+    }
+
+    bool ShouldCollideLocked(const JPH::Body& body) const override
+    {
+        return body.GetID() == body_ && !body.IsSensor();
+    }
+
+private:
+    JPH::BodyID body_;
+};
+
 struct CharacterSnapshot
 {
     std::uint64_t node_id = 0;
@@ -507,6 +532,14 @@ bool active_transform(const Node& node)
     return true;
 }
 
+bool active_collision(const Node& node)
+{
+    const auto* collider = node.get_component<Collider>();
+    const auto* body = node.get_component<RigidBody>();
+    return collider != nullptr && collider->enabled() && !collider->settings().is_trigger &&
+           (body == nullptr || body->enabled()) && active_transform(node);
+}
+
 bool write_transform(Node& node, JPH::Vec3Arg position, JPH::QuatArg rotation,
                      JPH::Vec3Arg world_scale)
 {
@@ -546,7 +579,7 @@ bool write_transform(Node& node, JPH::Vec3Arg position, JPH::QuatArg rotation,
 
 } // namespace
 
-struct PhysicsSystem::State
+struct PhysicsSystem::State final : JPH::ContactListener
 {
     struct Entry
     {
@@ -571,7 +604,95 @@ struct PhysicsSystem::State
     JPH::CharacterVsCharacterCollisionSimple character_collisions;
     std::map<std::uint64_t, CharacterEntry> characters;
     std::uint64_t scene_id = 0;
+    std::uint64_t frame = 0;
     double accumulated = 0.0;
+    std::mutex impact_mutex;
+    std::map<std::pair<std::uint64_t, std::uint64_t>, PhysicsImpact> pending_impacts;
+    std::vector<PhysicsImpact> impacts;
+
+    void collect_impact(const JPH::Body& first, const JPH::Body& second,
+                        const JPH::ContactManifold& manifold, const JPH::ContactSettings& settings)
+    {
+        const auto first_node = first.GetUserData();
+        const auto second_node = second.GetUserData();
+        if (settings.mIsSensor || first.IsSensor() || second.IsSensor() || first_node == 0 ||
+            second_node == 0 || first_node == second_node ||
+            manifold.mRelativeContactPointsOn1.empty() ||
+            manifold.mRelativeContactPointsOn1.size() !=
+                manifold.mRelativeContactPointsOn2.size() ||
+            !finite(manifold.mWorldSpaceNormal))
+        {
+            return;
+        }
+        float closing_speed = 0;
+        JPH::RVec3 point = JPH::RVec3::sZero();
+        for (JPH::uint index = 0; index < manifold.mRelativeContactPointsOn1.size(); ++index)
+        {
+            const auto a = manifold.GetWorldSpaceContactPointOn1(index);
+            const auto b = manifold.GetWorldSpaceContactPointOn2(index);
+            const float speed = (first.GetPointVelocity(a) - second.GetPointVelocity(b))
+                                    .Dot(manifold.mWorldSpaceNormal);
+            if (std::isfinite(speed) && speed > closing_speed)
+            {
+                closing_speed = speed;
+                point = (a + b) * 0.5F;
+            }
+        }
+        if (closing_speed <= 0 || !finite(JPH::Vec3(point)))
+        {
+            return;
+        }
+        // Jolt 5.4.0 官方碰撞估算，MIT；回调在求解前，不能称为实际求解冲量。
+        // 这里只读传入 body，不调用带锁 BodyInterface，不访问场景或执行业务。
+        JPH::CollisionEstimationResult estimate;
+        const auto& configuration = physics.GetPhysicsSettings();
+        JPH::EstimateCollisionResponse(first, second, manifold, estimate,
+                                       settings.mCombinedFriction, settings.mCombinedRestitution,
+                                       configuration.mMinVelocityForRestitution,
+                                       configuration.mNumVelocitySteps);
+        float impulse = 0;
+        for (const auto& item : estimate.mImpulses)
+        {
+            impulse += std::max(0.0F, item.mContactImpulse);
+        }
+        if (!std::isfinite(impulse) || impulse <= 0)
+        {
+            return;
+        }
+        PhysicsImpact impact;
+        impact.frame = frame;
+        impact.scene_id = scene_id;
+        impact.node_a = std::min(first_node, second_node);
+        impact.node_b = std::max(first_node, second_node);
+        impact.point = {point.GetX(), point.GetY(), point.GetZ()};
+        impact.normal = vector(first_node < second_node ? manifold.mWorldSpaceNormal
+                                                        : -manifold.mWorldSpaceNormal);
+        impact.closing_speed = closing_speed;
+        impact.estimated_impulse = impulse;
+        const std::lock_guard lock(impact_mutex);
+        auto [entry, inserted] =
+            pending_impacts.try_emplace({impact.node_a, impact.node_b}, impact);
+        if (!inserted && (impact.estimated_impulse > entry->second.estimated_impulse ||
+                          (impact.estimated_impulse == entry->second.estimated_impulse &&
+                           impact.closing_speed > entry->second.closing_speed)))
+        {
+            entry->second = impact;
+        }
+    }
+
+    void OnContactAdded(const JPH::Body& first, const JPH::Body& second,
+                        const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings& settings) override
+    {
+        collect_impact(first, second, manifold, settings);
+    }
+
+    void OnContactPersisted(const JPH::Body& first, const JPH::Body& second,
+                            const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings& settings) override
+    {
+        collect_impact(first, second, manifold, settings);
+    }
 
     void clear() noexcept
     {
@@ -587,6 +708,8 @@ struct PhysicsSystem::State
         bodies.clear();
         scene_id = 0;
         accumulated = 0.0;
+        pending_impacts.clear();
+        impacts.clear();
     }
 
     void remove_body(std::uint64_t node_id)
@@ -650,6 +773,7 @@ struct PhysicsSystem::State
                 snapshot.shape.GetPtr(), JPH::RVec3(snapshot.position), snapshot.rotation,
                 motion_type(snapshot.rigid_body.motion), moving ? moving_layer : static_layer);
             settings.mIsSensor = snapshot.collider.is_trigger;
+            settings.mUserData = snapshot.node_id;
             settings.mFriction = snapshot.collider.friction;
             settings.mRestitution = snapshot.collider.restitution;
             settings.mLinearDamping = snapshot.rigid_body.linear_damping;
@@ -831,6 +955,7 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
     state_->physics.Init(static_cast<JPH::uint>(maximum_bodies), 0, 65536, 16384, state_->layers,
                          state_->broad_filter, state_->object_filter);
     state_->physics.SetGravity(JPH::Vec3(0.0F, -9.81F, 0.0F));
+    state_->physics.SetContactListener(state_.get());
     return true;
 }
 
@@ -897,6 +1022,62 @@ bool PhysicsSystem::cast_sphere(const Vec3& origin, const Vec3& displacement, fl
         state_->physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{});
     fraction = collector.HadHit() ? std::clamp(collector.mHit.mFraction, 0.0F, 1.0F) : 1.0F;
     return true;
+}
+
+bool PhysicsSystem::cast_ray(const Collider& collider, const Vec3& origin, const Vec3& displacement,
+                             float& fraction) const
+{
+    fraction = 0;
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    const auto& node = collider.node();
+    const auto position = vector(origin);
+    const auto direction = vector(displacement);
+    if (!state_ || !scene || &node.scene() != scene ||
+        node.get_component<Collider>() != &collider || !finite(position) || !finite(direction) ||
+        position.Abs().ReduceMax() > 10000000.0F || direction.Abs().ReduceMax() > 100000.0F)
+    {
+        return false;
+    }
+    fraction = 1;
+    const auto body = state_->bodies.find(node.id());
+    if (state_->scene_id != scene->id() || body == state_->bodies.end() || !active_collision(node))
+    {
+        return true;
+    }
+    JPH::RayCastResult hit;
+    const JPH::RRayCast ray{JPH::RVec3(position), direction};
+    if (state_->physics.GetNarrowPhaseQuery().CastRay(
+            ray, hit, state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+            state_->physics.GetDefaultLayerFilter(moving_layer),
+            TargetBodyFilter{body->second.body}))
+    {
+        fraction = std::clamp(hit.mFraction, 0.0F, 1.0F);
+    }
+    return true;
+}
+
+std::span<const PhysicsImpact> PhysicsSystem::impacts() const noexcept
+{
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    if (!state_)
+    {
+        return {};
+    }
+    if (!scene || scene->id() != state_->scene_id)
+    {
+        state_->impacts.clear();
+        return {};
+    }
+    std::erase_if(state_->impacts,
+                  [&](const auto& impact)
+                  {
+                      const auto* a = scene->find_node(impact.node_a);
+                      const auto* b = scene->find_node(impact.node_b);
+                      return impact.scene_id != scene->id() || !a || !b || !active_collision(*a) ||
+                             !active_collision(*b) || !state_->bodies.contains(impact.node_a) ||
+                             !state_->bodies.contains(impact.node_b);
+                  });
+    return state_->impacts;
 }
 
 bool PhysicsSystem::set_collider_data(Collider& collider, const schema::ColliderDataT& settings)
@@ -1014,6 +1195,14 @@ bool PhysicsSystem::on_tick(double delta_time)
     {
         return false;
     }
+    state_->impacts.clear();
+    state_->pending_impacts.clear();
+    if (state_->frame == std::numeric_limits<std::uint64_t>::max())
+    {
+        clear();
+        return false;
+    }
+    ++state_->frame;
     if (scene == nullptr)
     {
         clear();
@@ -1272,6 +1461,17 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         entry.snapshot.rigid_body = settings;
     }
+    state_->impacts.reserve(state_->pending_impacts.size());
+    for (const auto& [pair, impact] : state_->pending_impacts)
+    {
+        const auto* a = scene->find_node(pair.first);
+        const auto* b = scene->find_node(pair.second);
+        if (a && b && active_collision(*a) && active_collision(*b))
+        {
+            state_->impacts.push_back(impact);
+        }
+    }
+    state_->pending_impacts.clear();
     return true;
 }
 

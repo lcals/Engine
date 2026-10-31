@@ -191,7 +191,7 @@ bool exercise_destruction_tools()
     engine::plugins::mcp::EditorMcpTools editor({}, {});
     engine::plugins::mcp::McpSystem mcp;
     if (!check(engine::plugins::destruction::register_destruction_mcp_tools(mcp, editor) &&
-                   mcp.initialize({}) && mcp.list_tools()["tools"].size() == 5,
+                   mcp.initialize({}) && mcp.list_tools()["tools"].size() == 6,
                "destruction tools register supported schemas"))
     {
         return false;

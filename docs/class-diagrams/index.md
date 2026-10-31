@@ -53,6 +53,7 @@
 - [环境与后处理组件](../runtime/class-diagrams/environment-components.md)：环境光、雾与清屏色归环境节点，曝光与色调映射归相机节点，阴影归灯光；预览与运行共用场景数据。
 - [场景 GPU 烘焙插件](../plugins/editor/class-diagrams/scene-bake.md)：MCP 异步作业、GPU 环境预计算和场景同名目录资源发布；运行时只加载结果。
 - [模型资源](../runtime/class-diagrams/model-resources.md)：模型节点层级、骨架/动画与子资源 GUID，核心读取统一生成数据。
+- [特效脚本绑定](../plugins/runtime/class-diagrams/effects-script-api.md)：按可选插件登记的播放与资源控制。
 - [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
 - [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、播放、暂停、定位及运行状态。
@@ -96,7 +97,7 @@
 - [官方预破碎](../plugins/editor/class-diagrams/destruction-authoring.md)：参数盒体切片/Voronoi 与连接生成，离线依赖留在编辑器插件。
 - [导入、编辑事务与 MCP](../plugins/editor/class-diagrams/destruction-editor.md)：独立资源、场景 GUID、完整状态撤销及工具转发。
 
-步骤 2 代码已接入，Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；完整结果及剩余范围见[步骤 2 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。类图表达当前契约，不代表完整建筑力学或全部平台已经验收。
+步骤 2 代码已接入，Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；完整结果及剩余范围见[步骤 2 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。步骤 3 已联通地基查询、物理撞击快照、二次损伤及特效/音频播放，见[步骤 3 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-3-综合联动验证)。类图表达当前契约，不代表完整建筑力学或全部平台已经验收。
 
 ## MCP 与编辑器命令
 

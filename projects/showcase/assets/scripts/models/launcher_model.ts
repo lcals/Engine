@@ -13,6 +13,7 @@ export class LauncherModel {
         { button: "scene-effects", title: "Effects laboratory", scene: "project/scenes/effects.scene" },
         { button: "scene-terrain", title: "Terrain laboratory", scene: "project/scenes/terrain.scene" },
         { button: "scene-destruction", title: "Destruction laboratory", scene: "project/scenes/destruction.scene" },
+        { button: "scene-integration", title: "Combined destruction laboratory", scene: "project/scenes/destruction-integration.scene" },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

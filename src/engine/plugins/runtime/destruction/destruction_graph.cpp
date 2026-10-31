@@ -51,6 +51,7 @@ struct SharedAsset
     NvBlastAsset* asset = nullptr;
     std::vector<float> initial_health;
     std::vector<std::pair<std::uint32_t, std::uint32_t>> nodes;
+    std::vector<std::uint32_t> world_bonds;
 };
 } // namespace
 
@@ -221,6 +222,7 @@ bool DestructionGraph::initialize(const schema::DestructionAssetDataT& data, std
     candidate->asset = std::make_shared<SharedAsset>();
     auto& shared = *candidate->asset;
     shared.data = data;
+    shared.world_bonds.resize(data.chunks.size(), invalid_index);
     std::vector<NvBlastChunkDesc> chunks;
     std::vector<NvBlastBondDesc> bonds;
     for (std::uint32_t i = 0; i < data.chunks.size(); ++i)
@@ -253,6 +255,7 @@ bool DestructionGraph::initialize(const schema::DestructionAssetDataT& data, std
         if (chunk.anchored)
         {
             const auto id = static_cast<std::uint32_t>(bonds.size());
+            shared.world_bonds[i] = id;
             float bottom = chunk.mesh->vertices.front().y();
             for (const auto& vertex : chunk.mesh->vertices)
             {
@@ -369,6 +372,63 @@ bool DestructionGraph::damage_sphere(std::uint32_t group_id, const schema::Vec3&
     NvBlastActorGenerateFracture(&commands, actor, program, &params, nullptr, nullptr);
     NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
     return impl_->split(actor, error);
+}
+
+bool DestructionGraph::release_anchors(std::span<const std::uint32_t> chunk_ids, std::string& error)
+{
+    error.clear();
+    if (!impl_)
+    {
+        error = "Destruction graph is not initialized";
+        return false;
+    }
+    std::vector<std::uint32_t> selected(chunk_ids.begin(), chunk_ids.end());
+    for (auto chunk : selected)
+    {
+        if (chunk >= impl_->asset->data.chunks.size())
+        {
+            error = "Destruction anchor references an invalid source chunk";
+            return false;
+        }
+    }
+    std::sort(selected.begin(), selected.end());
+    selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+    const auto health = healths();
+    // Split may replace groups and reuse actor indices; retain stable source chunk identities.
+    const auto groups = impl_->groups;
+    for (const auto& group : groups)
+    {
+        std::vector<NvBlastBondFractureData> fractures;
+        for (auto chunk : group.chunks)
+        {
+            const auto bond = impl_->asset->world_bonds[chunk];
+            if (bond == invalid_index || health[bond] <= 0 ||
+                !std::binary_search(selected.begin(), selected.end(), chunk))
+            {
+                continue;
+            }
+            const auto [a, b] = impl_->asset->nodes[bond];
+            fractures.push_back({0, a, b, health[bond]});
+        }
+        if (fractures.empty())
+        {
+            continue;
+        }
+        auto* actor = NvBlastFamilyGetChunkActor(impl_->family, group.id, nullptr);
+        if (!actor)
+        {
+            error = "Cannot resolve the current Blast actor for anchor release";
+            return false;
+        }
+        NvBlastFractureBuffers commands{static_cast<std::uint32_t>(fractures.size()), 0,
+                                        fractures.data(), nullptr};
+        NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+        if (!impl_->split(actor, error))
+        {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool DestructionGraph::restore_health(std::span<const float> health, std::string& error)

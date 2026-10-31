@@ -8,8 +8,9 @@ import FontGallery from "./font-gallery.js";
 import Effects from "./effects.js";
 import Terrain from "./terrain.js";
 import Destruction from "./destruction.js";
+import DestructionIntegration from "./destruction-integration.js";
 
-type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery | Effects | Terrain | Destruction;
+type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery | Effects | Terrain | Destruction | DestructionIntegration;
 
 const scene_games = new Map<string, new () => ShowcaseGame>([
     ["project/scenes/main.scene", Minimal],
@@ -19,6 +20,7 @@ const scene_games = new Map<string, new () => ShowcaseGame>([
     ["project/scenes/effects.scene", Effects],
     ["project/scenes/terrain.scene", Terrain],
     ["project/scenes/destruction.scene", Destruction],
+    ["project/scenes/destruction-integration.scene", DestructionIntegration],
 ]);
 
 export default class Game extends Gameplay {

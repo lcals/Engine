@@ -35,6 +35,9 @@ public:
     // Center is in the original asset coordinate frame of the selected current group.
     [[nodiscard]] bool damage_sphere(std::uint32_t group_id, const schema::Vec3& center,
                                      float radius, float damage, std::string& error);
+    // Source chunk IDs; only their live world bonds are fractured. Duplicates are harmless.
+    [[nodiscard]] bool release_anchors(std::span<const std::uint32_t> chunk_ids,
+                                       std::string& error);
     [[nodiscard]] bool restore_health(std::span<const float> health, std::string& error);
     [[nodiscard]] std::vector<float> healths() const;
     [[nodiscard]] const schema::DestructionAssetDataT& data() const noexcept;

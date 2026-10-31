@@ -8,8 +8,9 @@
 
 namespace engine::plugins::script::bindings
 {
-BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui) noexcept
-    : world_(world), renderer_(renderer), ui_(ui)
+BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
+                               PhysicsSystem* physics) noexcept
+    : world_(world), renderer_(renderer), ui_(ui), physics_(physics)
 {
 }
 
@@ -59,6 +60,11 @@ RenderSystem* BindingContext::renderer() const noexcept
 UiSystem* BindingContext::ui() const noexcept
 {
     return callable_ ? ui_ : nullptr;
+}
+
+PhysicsSystem* BindingContext::physics() const noexcept
+{
+    return callable_ ? physics_ : nullptr;
 }
 
 std::uint64_t BindingContext::scene_id() const noexcept

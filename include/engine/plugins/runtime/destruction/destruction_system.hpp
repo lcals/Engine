@@ -11,6 +11,7 @@ namespace engine
 class WorldSystem;
 class Node;
 class PhysicsSystem;
+class Collider;
 } // namespace engine
 
 namespace engine::plugins::destruction
@@ -32,6 +33,10 @@ public:
                                bool preserve);
     [[nodiscard]] bool damage(DestructionComponent& component, const schema::Vec3& center,
                               float radius, float damage, float impulse);
+    [[nodiscard]] bool refresh_support(DestructionComponent& component, const Collider& support,
+                                       float max_gap, float min_coverage);
+    [[nodiscard]] bool owns_fragment(const DestructionComponent& component,
+                                     std::uint64_t node_id) const noexcept;
     [[nodiscard]] bool reset(DestructionComponent& component);
     [[nodiscard]] bool snapshot(const DestructionComponent& component,
                                 schema::DestructionStateDataT& output) const;

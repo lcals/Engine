@@ -10,7 +10,7 @@ C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对
 classDiagram
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui)
+        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics)
         +~ScriptSystem()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
@@ -75,3 +75,19 @@ classDiagram
 - `status()` 返回只读借用，下一次运行操作可更新内容。`entry` 默认空、`revision` 默认空；MountList 为标准容器别名。构造、析构、停止、查询及关闭为 noexcept，返回状态与重要查询标注 nodiscard，钩子标注 override。
 
 - 可执行宿主按插件清单向 RuntimeHost 提供创建工厂；工厂接收 WorldSystem 和 RenderSystem 借用，返回未初始化实例。世界独占插件并统一调度；核心只包含 ScriptRuntime/ScriptStatus 头文件，不链接具体虚拟机或本插件。RuntimeHost 在关闭渲染器前通过 GameplaySession 停止玩法。
+
+步骤 3：宿主追加注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问当前场景的只读撞击快照，不推进物理、不在 Jolt 回调里执行脚本。
+
+```mermaid
+classDiagram
+class ScriptSystem
+class BindingContext
+class PhysicsSystem
+class PhysicsBinding
+class ScriptBinding
+ScriptSystem --> PhysicsSystem : borrowed
+BindingContext --> PhysicsSystem : borrowed during callbacks
+ScriptBinding <|-- PhysicsBinding
+PhysicsBinding ..> PhysicsSystem : reads impact snapshot
+PhysicsBinding ..> BindingContext : validates scene
+```

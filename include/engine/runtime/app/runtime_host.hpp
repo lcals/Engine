@@ -22,9 +22,9 @@ class ResourceSystem;
 class ScriptRuntime;
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
-// renderer 和 ui 借用只用于玩法回调，宿主关闭它们前先结束玩法。
+// renderer、ui 和 physics 借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
-                                                                UiSystem&);
+                                                                UiSystem&, PhysicsSystem&);
 
 // 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
 enum class RuntimeStage

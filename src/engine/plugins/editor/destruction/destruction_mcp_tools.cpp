@@ -53,6 +53,15 @@ bool register_destruction_mcp_tools(mcp::McpSystem& system, mcp::EditorMcpTools&
                 {"damage", {{"type", "number"}, {"minimum", 0}}},
                 {"impulse", {{"type", "number"}, {"minimum", 0}}}},
                Json::array({"center", "radius", "damage"})) &&
+           mcp::tools::component_tool(
+               system, editor, "destruction_refresh_support",
+               "Check multi-sample foundation coverage against one static collider after terrain "
+               "collision has been committed. Release unsupported world bonds via Blast. Undoable; "
+               "does not reattach previously released anchors.",
+               {{"supportNodeId", {{"type", "string"}}},
+                {"maxGap", {{"type", "number"}, {"minimum", 0}, {"maximum", 1000}}},
+                {"minCoverage", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}}},
+               Json::array({"supportNodeId", "maxGap", "minCoverage"})) &&
            mcp::tools::component_tool(system, editor, "destruction_reset",
                                       "Restore the original destruction structure. Undoable.",
                                       Json::object());

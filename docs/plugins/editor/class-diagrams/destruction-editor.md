@@ -26,6 +26,7 @@ classDiagram
     }
     class EditorEdit
     class DestructionStateEdit {
+        +DestructionStateEdit(WorldSystem world, uint64 scene, shared_ptr node, shared_ptr revision, ComponentDataT settings, ByteBuffer before, shared_ptr support, float max_gap, float min_coverage)
         +affects_scene() bool
         +apply(string& error) bool
         +revert(string& error) bool
@@ -83,3 +84,7 @@ classDiagram
 - `destruction_damage` 使用世界坐标球体、半径、损伤和冲量；`destruction_reset` 恢复初始结构。二者均可撤销，改变运行状态而非场景初始设置，`affects_scene()` 返回 false。
 - 状态命令 handler 只创建记录；首次 apply 执行操作并保存结果，撤销/重做恢复包含键血量、块分组、世界变换和速度的完整快照。以场景、稳定节点、设置与 revision 检查外部修改；正常物理移动不增加 revision，因此不会使撤销失效。同一节点的连续编辑共用预期 revision 游标，每次 apply/revert 后更新；新操作发现外部修改时创建独立游标，使旧记录保持失效，支持多次连续撤销/重做。游标由历史共享拥有，索引只保存弱引用并清理过期项。
 - 首版同步计算和提交；当前不建立异步队列或插件专属编辑器模式。
+
+步骤 3：`destruction_refresh_support` 显式指定同场景 `supportNodeId`、`maxGap`、`minCoverage`。复用 DestructionStateEdit 的前后状态快照；首次 apply 执行支撑刷新，undo/redo 恢复完整拆分和物理状态，不重跑地基采样。支撑节点只按稳定身份借用；组件、场景和 revision 校验与其他破坏命令一致。命令不自动修改地形；调用方先提交地形笔刷，再刷新受影响建筑。
+
+支撑刷新未改变 revision 时，历史记录为空操作；撤销/重做不恢复快照、不回退正常物理运动，也不重建节点。

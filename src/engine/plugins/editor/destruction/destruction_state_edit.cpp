@@ -1,6 +1,7 @@
 #include "plugins/editor/destruction/destruction_state_edit.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
+#include "runtime/scene/collider.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
@@ -20,6 +21,20 @@ DestructionStateEdit::DestructionStateEdit(WorldSystem& world, std::uint64_t sce
       settings_(std::move(settings)), before_(std::move(before)), reset_(reset), center_(center),
       radius_(radius), damage_(damage), impulse_(impulse)
 {
+}
+
+DestructionStateEdit::DestructionStateEdit(WorldSystem& world, std::uint64_t scene,
+                                           std::shared_ptr<std::uint64_t> node,
+                                           std::shared_ptr<std::uint64_t> revision,
+                                           schema::ComponentDataT settings, ByteBuffer before,
+                                           std::shared_ptr<std::uint64_t> support, float max_gap,
+                                           float min_coverage)
+    : DestructionStateEdit(world, scene, std::move(node), std::move(revision), std::move(settings),
+                           std::move(before), false, {}, 0, 0, 0)
+{
+    support_ = std::move(support);
+    max_gap_ = max_gap;
+    min_coverage_ = min_coverage;
 }
 
 bool DestructionStateEdit::affects_scene() const noexcept
@@ -49,10 +64,36 @@ bool DestructionStateEdit::apply(std::string& error)
     {
         return false;
     }
+    if (no_change_)
+    {
+        return true;
+    }
     if (after_.empty())
     {
-        if (!(reset_ ? component->reset()
-                     : component->damage_sphere(center_, radius_, damage_, impulse_)))
+        bool applied = false;
+        if (support_)
+        {
+            const auto* support_node = component->node().scene().find_node(*support_);
+            const auto* collider = support_node ? support_node->get_component<Collider>() : nullptr;
+            if (!collider)
+            {
+                error = "Foundation support collider no longer exists";
+                return false;
+            }
+            const auto before_revision = component->revision();
+            applied = component->refresh_support(*collider, max_gap_, min_coverage_);
+            no_change_ = applied && component->revision() == before_revision;
+            if (no_change_)
+            {
+                return true;
+            }
+        }
+        else
+        {
+            applied = reset_ ? component->reset()
+                             : component->damage_sphere(center_, radius_, damage_, impulse_);
+        }
+        if (!applied)
         {
             error = component->last_error();
             return false;
@@ -80,6 +121,10 @@ bool DestructionStateEdit::apply(std::string& error)
 bool DestructionStateEdit::revert(std::string& error)
 {
     auto* component = target(error);
+    if (component && no_change_)
+    {
+        return true;
+    }
     if (!component || !component->restore(before_))
     {
         if (component)

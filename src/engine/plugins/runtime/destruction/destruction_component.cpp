@@ -132,6 +132,24 @@ bool DestructionComponent::reset()
     return system && resource_ && system->reset(*this);
 }
 
+bool DestructionComponent::refresh_support(const Collider& support, float max_gap,
+                                           float min_coverage)
+{
+    auto* system = DestructionSystem::instance();
+    if (!system)
+    {
+        last_error_ = "Destruction system is not ready";
+        return false;
+    }
+    return system->refresh_support(*this, support, max_gap, min_coverage);
+}
+
+bool DestructionComponent::owns_fragment(std::uint64_t node_id) const noexcept
+{
+    auto* system = DestructionSystem::instance();
+    return system && system->owns_fragment(*this, node_id);
+}
+
 bool DestructionComponent::snapshot(ByteBuffer& output) const
 {
     output.clear();

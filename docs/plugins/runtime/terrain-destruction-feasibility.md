@@ -183,6 +183,42 @@ macOS ARM64 / Metal / Release / QuickJS 下，64×64×32 米实验体积实际�
 
 步骤 0 的微型计时和社区设备报告不能替代这一阶段的正式结果。最终运行证据由根 README 及本阶段回执统一记录；既不触发 V8 重编，也不以自动 CI 扩大验证范围。
 
+## 步骤 3 综合联动验证
+
+同步首版已在 `projects/showcase/` 第八个菜单入口 **Combined destruction** 联通地形、
+Blast、Jolt、Effekseer 与音频。核心新增指定 Collider 的射线查询和非消费碰撞快照；
+破坏插件按底面采样覆盖解除 world bonds；项目脚本负责修改后的支撑刷新、碰撞伤害预算与表现。
+地形与破坏插件不互相依赖，碰撞回调不运行脚本。`estimatedImpulse` 来自 Jolt 官方
+`EstimateCollisionResponse` 的碰前估算，不等于求解器实际施加的冲量。
+
+| 验证范围 | 本轮结果 |
+| --- | --- |
+| macOS ARM64 正式目标 | 受影响 Debug/Release 目标构建成功，各六项定向 CTest 最终均通过；Release 六项共 3.01 秒，是测试进程总时长，非游戏帧耗时 |
+| 项目与资源 | TypeScript 与生成脚本 `--check` 通过；官方 Effekseer 导出器生成两种原创效果，自制音频进入正常资源管线；最后活动资源版本为 `cc5ba4ecc02fc5af` |
+| 挖地基 | `Dig foundation` 不调用直接建筑损伤；真实下落撞击触发二次破坏，最终记录塔体为 8 个动态组，灰尘可见 |
+| 爆破 | 继续点击 `Blast tower` 后记录塔体为 24 个动态组，碎块运动、烟尘及火花可见；灰尘和爆破节点的 Effect/Audio 查询同时返回 playing，音频 playback 为 2。只验证了播放状态，没有听音质量评估 |
+| 填充、重置 | 填土不重新接上已断锚点；最终 Reset 后三个试件各恢复 1 组、0 动态组，表现池停止效果与声音 |
+| 镜头与角色 | Overview/Front/Walk 切换正常，第三人称 W 键短走约 2.33 米，地面碰撞正常；未据此宣称已验收洞穴穿行或踩残骸 |
+| 返回与关闭 | 返回 Scene launcher 成功；停止项目后 scene 为空、totalNodes 为 0、脚本 running 为 false 且 lastError 为空；只关闭了本轮测试拥有的编辑器进程 |
+| 其他平台及规模 | 本轮未运行 Android/iOS/Windows/Linux 联动验收或性能压测；步骤 2 的 Android 独立 Graph 探针不代表步骤 3 正式 APK 通过 |
+
+六项测试为 `engine.physics`、`engine.script_runtime`、`engine.mcp_registry`、
+`engine.destruction_graph`、`engine.destruction_runtime` 和 `editor.destruction_commands`。
+Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP schema 不支持
+`exclusiveMinimum`；分别改为先销毁旧场景、使用 `minimum` 并由处理函数拒绝零后，
+受影响测试复跑通过。日志保留在 `build/terrain-step3/tests-debug*.log`、
+`tests-release.log`；物理 Debug 修复后的单项通过回执为 0.96 秒。没有重跑全仓测试或 CI。
+
+最终窗口回执为 `build/terrain-step3/final-*-report.json` 与对应 `*-receipts.jsonl`；
+关闭结果为 `editor-closed.json`。真实截图保留在 `projects/showcase/cache/screenshots/`：
+`destruction-step3-final-before.png`、`destruction-step3-final-dig.png`、
+`destruction-step3-final-blast.png`、`destruction-step3-final-walk-moved.png`、
+`destruction-step3-final-reset.png` 和 `destruction-step3-final-back.png`。
+
+本轮是平面底部实心预破碎试件的地基覆盖与撞击联动，不是完整楼体承重计算。
+土石塌方、ExtStress、导航、异步调度与综合世界存档仍未实现；现有模块快照、
+编辑器撤销及场景 Reset 不能替代跨模块游戏存档。步骤 4/5 继续按既定顺序推进。
+
 ## 性能判断及当前接入缺口
 
 以下是源码证据与工程推断，不是 FPS 或设备容量实测。整个链路都需观察，不能把噪声吞吐量等同于地形性能。表中线程、任务队列和发布预算属于同步功能完成后的优化，不提前建设。
@@ -221,7 +257,7 @@ macOS ARM64 / Metal / Release / QuickJS 下，64×64×32 米实验体积实际�
 | 0. 技术验证 | 先用最小算法/资源验证 Mac ARM64、Android ARM64 的地形和 Blast 基础子集；应力、Mac Authoring 分开验证 | 列清能编译、能运行、尚未覆盖的平台；不触发整套依赖重编 |
 | 1. 地形实验场 | 已实现 64×64 米、32 米高体积，丘陵、洞穴、跨块隧道及球形挖掘/填充 | Debug/Release 定向测试通过；macOS Metal 窗口验收通过，正式 Android 插件尚未验证 |
 | 2. 建筑破坏场 | 已创建实心塔、Voronoi 墙、分段柱与固定损伤按钮；空心多层建筑输入尚未支持 | Mac 定向测试、MCP 窗口预览及最终菜单/UI 玩法均已通过；详见上文步骤 2，Android 独立 Graph 不等于 APK 通过 |
-| 3. 综合联动场 | 挖地基、建筑坍塌、撞击再破坏、角色行走、烟尘与声音 | 可进入新洞穴、踩上残骸、重置与保存恢复 |
+| 3. 综合联动场 | 已联通挖地基、建筑下落、撞击再破坏、角色行走、烟尘与声音 | Mac 定向测试与窗口流程通过；洞穴/残骸通行尚未专项验收，综合世界存档未实现，详见步骤 3 记录 |
 | 4. 完整玩法 | 土石塌方、跨平台支撑应力、导航局部更新 | 不因某平台缺库而悄悄关闭已承诺的玩法能力 |
 | 5. 异步与扩量 | 功能完成后将重计算移到工作线程，同一场景加入连续爆炸和更多对象 | 对比同步基线，校验线程安全、版本和取消，再依据设备结果确定精度、数量及预算 |
 
@@ -231,4 +267,4 @@ macOS ARM64 / Metal / Release / QuickJS 下，64×64×32 米实验体积实际�
 
 上述是逐步建立的测量清单，按当前阶段选择必要项；同步功能首版可先记录操作总耗时、网格/碰撞准备耗时与峰值内存，不把完整百分位采样或性能框架作为功能实现前置条件。
 
-步骤 0、步骤 1 和步骤 2 的验证范围分别见上文。地形实验场已完成 Mac 验收，建筑实验场已完成本轮 Mac 定向测试与窗口流程验收，综合联动场留待步骤 3；微型程序与无窗口测试都不能替代引擎窗口场景及实体设备验收。
+步骤 0 至步骤 3 的验证范围分别见上文。地形、建筑与综合联动实验场已完成各自记录中的 Mac 定向测试和窗口流程；微型程序与无窗口测试都不能替代引擎窗口场景及实体设备验收。

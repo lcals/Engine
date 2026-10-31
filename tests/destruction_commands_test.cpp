@@ -7,6 +7,7 @@
 #include "resource_fixture.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/physics_system.hpp"
+#include "runtime/scene/collider.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
@@ -159,6 +160,43 @@ bool run(Fixture& fixture)
     auto* component = node->get_component<DestructionComponent>();
     if (!expect(component && component->ready() && component->group_count() == 1,
                 "command publishes initialized support graph"))
+    {
+        return false;
+    }
+    auto* support_node = scene->create_node("Foundation");
+    auto* support = support_node ? support_node->add_component<Collider>() : nullptr;
+    auto* support_transform = support_node ? support_node->get_component<Transform>() : nullptr;
+    TransformSettings ground_pose;
+    ground_pose.position = {0, 3.5, 0};
+    schema::ColliderDataT ground;
+    ground.half_extents = {3, .5, 3};
+    if (!expect(support && support_transform && support_transform->set_settings(ground_pose) &&
+                    fixture.physics.set_collider_data(*support, ground),
+                "create explicit support"))
+    {
+        return false;
+    }
+    auto refresh = identity;
+    refresh["supportNodeId"] = std::to_string(support_node->id());
+    refresh["maxGap"] = 0.2;
+    refresh["minCoverage"] = 0.7;
+    const auto before_support = component->revision();
+    if (!expect(call("destruction_refresh_support", refresh) &&
+                    component->revision() == before_support && component->dynamic_groups() == 0 &&
+                    call("undo", scene_identity) && component->revision() == before_support &&
+                    call("redo", scene_identity) && component->revision() == before_support,
+                "supported refresh and its history leave graph and revision unchanged", error))
+    {
+        return false;
+    }
+    support->set_enabled(false);
+    if (!expect(fixture.physics.set_collider_data(*support, ground) &&
+                    call("destruction_refresh_support", refresh) &&
+                    component->dynamic_groups() == 1 && call("undo", scene_identity) &&
+                    component->dynamic_groups() == 0 && call("redo", scene_identity) &&
+                    component->dynamic_groups() == 1 && call("destruction_reset", identity) &&
+                    component->dynamic_groups() == 0,
+                "support release, undo, redo and reset preserve complete graph state", error))
     {
         return false;
     }

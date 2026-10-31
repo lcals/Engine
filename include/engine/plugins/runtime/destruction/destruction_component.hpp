@@ -8,6 +8,11 @@
 #include <cstdint>
 #include <string>
 
+namespace engine
+{
+class Collider;
+}
+
 namespace engine::plugins::destruction
 {
 
@@ -24,6 +29,9 @@ public:
     // World-space sphere; impulse is applied to dynamic groups after successful damage.
     [[nodiscard]] bool damage_sphere(const Vec3& center, float radius, float damage,
                                      float impulse = 0);
+    // Explicit single-collider foundation check, after its physics geometry is committed.
+    [[nodiscard]] bool refresh_support(const Collider& support, float max_gap, float min_coverage);
+    [[nodiscard]] bool owns_fragment(std::uint64_t node_id) const noexcept;
     [[nodiscard]] bool reset();
     [[nodiscard]] bool snapshot(ByteBuffer& output) const;
     [[nodiscard]] bool restore(ByteView bytes);

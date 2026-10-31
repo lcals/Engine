@@ -258,11 +258,44 @@ declare module "engine" {
         readonly triangleCount: number | null;
         readonly lastError: string | null;
     }
+    /** Available when the optional effects runtime plugin is enabled. */
+    export class EffectComponent extends Component {
+        private constructor();
+        SetEffect(path: string): boolean;
+        SetLoop(value: boolean): boolean;
+        SetPlayOnAwake(value: boolean): boolean;
+        SetSpeed(value: number): boolean;
+        Play(): boolean;
+        Pause(): boolean;
+        Stop(): boolean;
+        readonly isPlaying: boolean;
+    }
+    export interface PhysicsImpact {
+        readonly frame: bigint;
+        readonly sceneId: bigint;
+        readonly nodeA: bigint;
+        readonly nodeB: bigint;
+        readonly point: { readonly x: number; readonly y: number; readonly z: number };
+        /** World normal from A to B. */
+        readonly normal: { readonly x: number; readonly y: number; readonly z: number };
+        /** Pre-solver normal approach speed in m/s. */
+        readonly closingSpeed: number;
+        /** Jolt's estimated normal impulse, not the actual solver result (N s). */
+        readonly estimatedImpulse: number;
+    }
+    export class Physics {
+        private constructor();
+        /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
+        static GetImpacts(): PhysicsImpact[];
+    }
     export class DestructionComponent extends Component {
         private constructor();
         /** World-space damage sphere; impulse is in newton-seconds. */
         DamageSphere(x: number, y: number, z: number, radius: number,
                      damage: number, impulse?: number): boolean;
+        /** Multi-sample foundation coverage against one current-scene static collider. */
+        RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
+        OwnsFragment(nodeId: bigint): boolean;
         Reset(): boolean;
         readonly ready: boolean;
         readonly revision: bigint | null;

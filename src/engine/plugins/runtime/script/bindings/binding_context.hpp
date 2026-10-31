@@ -11,6 +11,7 @@ namespace engine
 class WorldSystem;
 class RenderSystem;
 class UiSystem;
+class PhysicsSystem;
 class Scene;
 class Node;
 class Component;
@@ -25,7 +26,7 @@ class BindingContext final
 {
 public:
     explicit BindingContext(WorldSystem* world, RenderSystem* renderer = nullptr,
-                            UiSystem* ui = nullptr) noexcept;
+                            UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr) noexcept;
     ~BindingContext() noexcept;
     BindingContext(const BindingContext&) = delete;
     BindingContext& operator=(const BindingContext&) = delete;
@@ -39,6 +40,7 @@ public:
     [[nodiscard]] WorldSystem* world() const noexcept;
     [[nodiscard]] RenderSystem* renderer() const noexcept;
     [[nodiscard]] UiSystem* ui() const noexcept;
+    [[nodiscard]] PhysicsSystem* physics() const noexcept;
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
     [[nodiscard]] double delta_time() const noexcept;
@@ -59,6 +61,8 @@ private:
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;
     UiSystem* ui_ = nullptr;
+    // 可空借用，生命周期覆盖全部玩法回调。
+    PhysicsSystem* physics_ = nullptr;
     bool active_ = false;
     std::uint64_t scene_id_ = 0;
     bool callable_ = false;

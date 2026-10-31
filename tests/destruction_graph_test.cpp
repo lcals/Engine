@@ -105,9 +105,69 @@ bool contract()
     }
     return true;
 }
+
+bool anchor_contract()
+{
+    std::string error;
+    auto asset = chain();
+    asset.chunks[2]->anchored = true;
+    DestructionGraph graph;
+    if (!expect(graph.initialize(asset, error) &&
+                    graph.damage_sphere(0, {0.5F, 0.5F, 0}, 0.1F, 0.25F, error) &&
+                    graph.damage_sphere(0, {2, 0, 0}, 0.1F, 0.25F, error),
+                "prepare independent partial internal and world bond damage", error))
+    {
+        return false;
+    }
+    const auto before = graph.healths();
+    const std::uint32_t invalid[] = {0, 3};
+    const std::uint32_t first[] = {0, 0, 1};
+    if (!expect(before == std::vector<float>{0.75F, 1, 1, 0.75F} &&
+                    !graph.release_anchors(invalid, error) && graph.healths() == before,
+                "validate every chunk before releasing any anchor") ||
+        !expect(graph.release_anchors(first, error) &&
+                    graph.healths() == std::vector<float>{0.75F, 1, 0, 0.75F} &&
+                    graph.groups().size() == 1 && graph.groups().front().anchored,
+                "release only the selected world bond, deduplicating and ignoring nonanchors",
+                error))
+    {
+        return false;
+    }
+    const auto once = graph.healths();
+    DestructionGraph candidate;
+    const std::uint32_t last[] = {2};
+    if (!expect(graph.release_anchors(first, error) && graph.healths() == once &&
+                    graph.clone(candidate, error) && candidate.release_anchors(last, error) &&
+                    candidate.healths() == std::vector<float>{0.75F, 1, 0, 0} &&
+                    candidate.groups().size() == 1 && !candidate.groups().front().anchored &&
+                    graph.healths() == once && graph.groups().front().anchored,
+                "anchor release is repeatable and isolated from the live graph", error))
+    {
+        return false;
+    }
+    // Exercise several selected anchors after Blast has already split the structure.
+    auto detached = before;
+    detached[0] = 0;
+    detached[1] = 0;
+    const std::uint32_t both[] = {2, 0};
+    if (!expect(graph.restore_health(detached, error) && graph.release_anchors(both, error) &&
+                    graph.healths() == std::vector<float>{0, 0, 0, 0} && graph.groups().size() == 3,
+                "release anchors by chunk identity after prior actor splits", error))
+    {
+        return false;
+    }
+    for (const auto& group : graph.groups())
+    {
+        if (!expect(!group.anchored, "no selected world anchor survives"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
 } // namespace
 
 int main()
 {
-    return contract() ? 0 : 1;
+    return contract() && anchor_contract() ? 0 : 1;
 }

@@ -86,6 +86,80 @@ Vec3 local_point(const float* matrix, const Vec3& value, double scale)
             (matrix[8] * x + matrix[9] * y + matrix[10] * z) / squared};
 }
 
+bool support_coverage(const schema::DestructionChunkDataT& chunk, const float* matrix,
+                      const Collider& support, const PhysicsSystem& physics, float max_gap,
+                      double& coverage, std::string& error)
+{
+    coverage = 0;
+    const auto& mesh = *chunk.mesh;
+    double bottom = mesh.vertices.front().y();
+    double top = bottom;
+    for (const auto& vertex : mesh.vertices)
+    {
+        bottom = std::min(bottom, static_cast<double>(vertex.y()));
+        top = std::max(top, static_cast<double>(vertex.y()));
+    }
+    const double plane_tolerance = std::max(1.0, top - bottom) * 1.0e-5;
+    const double lift = std::clamp(static_cast<double>(max_gap) * 0.01, 0.0001, 0.01);
+    const double length = max_gap + 2 * lift;
+    double total_area = 0;
+    double covered_area = 0;
+    for (std::size_t index = 0; index < mesh.indices.size(); index += 3)
+    {
+        const auto& first = mesh.vertices[mesh.indices[index]];
+        const auto& second = mesh.vertices[mesh.indices[index + 1]];
+        const auto& third = mesh.vertices[mesh.indices[index + 2]];
+        if (first.y() > bottom + plane_tolerance || second.y() > bottom + plane_tolerance ||
+            third.y() > bottom + plane_tolerance)
+        {
+            continue;
+        }
+        const Vec3 points[] = {world_point(matrix, {first.x(), first.y(), first.z()}),
+                               world_point(matrix, {second.x(), second.y(), second.z()}),
+                               world_point(matrix, {third.x(), third.y(), third.z()})};
+        // Twice the world-XZ projected area; the factor cancels in the coverage ratio.
+        const double area =
+            std::abs((points[1].x() - points[0].x()) * (points[2].z() - points[0].z()) -
+                     (points[1].z() - points[0].z()) * (points[2].x() - points[0].x()));
+        if (!std::isfinite(area))
+        {
+            error = "Destruction foundation projection is not finite";
+            return false;
+        }
+        if (area <= 0)
+        {
+            continue;
+        }
+        total_area += area;
+        // Three interior barycentric samples avoid counting shared triangle edges twice.
+        for (std::size_t sample = 0; sample < 3; ++sample)
+        {
+            const Vec3 point{
+                (points[0].x() + points[1].x() + points[2].x()) / 6 + points[sample].x() / 2,
+                (points[0].y() + points[1].y() + points[2].y()) / 6 + points[sample].y() / 2,
+                (points[0].z() + points[1].z() + points[2].z()) / 6 + points[sample].z() / 2};
+            float fraction = 0;
+            if (!physics.cast_ray(support, {point.x(), point.y() + lift, point.z()},
+                                  {0, -length, 0}, fraction))
+            {
+                error = "Cannot query the committed foundation collider";
+                return false;
+            }
+            if (fraction < 1 && fraction * length <= max_gap + lift)
+            {
+                covered_area += area / 3;
+            }
+        }
+    }
+    if (!std::isfinite(total_area) || total_area <= 0)
+    {
+        error = "Destruction anchor has no planar bottom with a world-down projection";
+        return false;
+    }
+    coverage = std::clamp(covered_area / total_area, 0.0, 1.0);
+    return true;
+}
+
 bool release_groups(Scene& scene, PhysicsSystem& physics, const std::vector<GeneratedGroup>& groups)
 {
     bool result = true;
@@ -478,6 +552,101 @@ bool DestructionSystem::reset(DestructionComponent& component)
     return component.resource_ &&
            candidate.initialize(component.graph_.data(), component.last_error_) &&
            rebuild(component, std::move(candidate), false);
+}
+
+bool DestructionSystem::owns_fragment(const DestructionComponent& component,
+                                      std::uint64_t node_id) const noexcept
+{
+    const auto* scene = world_.scene();
+    if (!state_ || !component.ready_ || !scene || scene != &component.node().scene() ||
+        state_->scene_id != scene->id() ||
+        component.node().get_component<DestructionComponent>() != &component)
+    {
+        return false;
+    }
+    const auto found = state_->generated.find(component.node().id());
+    const auto* node = scene->find_node(node_id);
+    return found != state_->generated.end() && node && node->transient() &&
+           std::any_of(found->second.begin(), found->second.end(),
+                       [node_id](const auto& group) { return group.node == node_id; });
+}
+
+bool DestructionSystem::refresh_support(DestructionComponent& component, const Collider& support,
+                                        float max_gap, float min_coverage)
+{
+    auto* scene = world_.scene();
+    if (!state_ || !component.ready_ || !active_component(component) || !scene ||
+        scene != &component.node().scene() || scene != &support.node().scene() ||
+        state_->scene_id != scene->id() ||
+        component.node().get_component<DestructionComponent>() != &component ||
+        support.node().get_component<Collider>() != &support || !std::isfinite(max_gap) ||
+        max_gap <= 0 || max_gap > 1000 || !std::isfinite(min_coverage) || min_coverage <= 0 ||
+        min_coverage > 1)
+    {
+        component.last_error_ = "Invalid destruction foundation query, component or scene";
+        return false;
+    }
+    const auto* support_body = support.node().get_component<RigidBody>();
+    if (support.settings().is_trigger || &support.node() == &component.node() ||
+        owns_fragment(component, support.node().id()) ||
+        (support_body && support_body->settings().motion != schema::BodyMotion::static_body))
+    {
+        component.last_error_ = "Destruction support must be an external static solid collider";
+        return false;
+    }
+    const auto found = state_->generated.find(component.node().id());
+    if (found == state_->generated.end())
+    {
+        component.last_error_ = "Cannot locate generated destruction groups";
+        return false;
+    }
+    const auto& asset = component.graph_.data();
+    const auto health = component.graph_.healths();
+    std::size_t world_bond = asset.bonds.size();
+    std::vector<std::uint32_t> released;
+    for (std::uint32_t chunk_id = 0; chunk_id < asset.chunks.size(); ++chunk_id)
+    {
+        const auto& chunk = *asset.chunks[chunk_id];
+        if (!chunk.anchored)
+        {
+            continue;
+        }
+        if (health[world_bond++] <= 0)
+        {
+            continue;
+        }
+        const auto group = std::find_if(
+            found->second.begin(), found->second.end(), [chunk_id](const auto& value)
+            { return std::binary_search(value.chunks.begin(), value.chunks.end(), chunk_id); });
+        const auto* node = group != found->second.end() ? scene->find_node(group->node) : nullptr;
+        const auto* transform = node ? node->get_component<Transform>() : nullptr;
+        float matrix[16];
+        if (!transform || !valid_transform(transform->settings()) ||
+            !transform->world_matrix(matrix))
+        {
+            component.last_error_ = "Cannot locate the current foundation group transform";
+            return false;
+        }
+        double coverage = 0;
+        if (!support_coverage(chunk, matrix, support, physics_, max_gap, coverage,
+                              component.last_error_))
+        {
+            return false;
+        }
+        if (coverage + 1.0e-9 < min_coverage)
+        {
+            released.push_back(chunk_id);
+        }
+    }
+    if (released.empty())
+    {
+        component.last_error_.clear();
+        return true;
+    }
+    DestructionGraph candidate;
+    return component.graph_.clone(candidate, component.last_error_) &&
+           candidate.release_anchors(released, component.last_error_) &&
+           rebuild(component, std::move(candidate), true);
 }
 
 bool DestructionSystem::snapshot(const DestructionComponent& component,

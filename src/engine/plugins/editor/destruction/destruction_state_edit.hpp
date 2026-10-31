@@ -24,6 +24,11 @@ public:
                          std::shared_ptr<std::uint64_t> revision, schema::ComponentDataT settings,
                          ByteBuffer before, bool reset, Vec3 center, float radius, float damage,
                          float impulse);
+    DestructionStateEdit(WorldSystem& world, std::uint64_t scene,
+                         std::shared_ptr<std::uint64_t> node,
+                         std::shared_ptr<std::uint64_t> revision, schema::ComponentDataT settings,
+                         ByteBuffer before, std::shared_ptr<std::uint64_t> support, float max_gap,
+                         float min_coverage);
     [[nodiscard]] bool affects_scene() const noexcept override;
     [[nodiscard]] bool apply(std::string& error) override;
     [[nodiscard]] bool revert(std::string& error) override;
@@ -37,6 +42,10 @@ private:
     schema::ComponentDataT settings_;
     ByteBuffer before_;
     ByteBuffer after_;
+    std::shared_ptr<std::uint64_t> support_;
+    float max_gap_ = 0;
+    float min_coverage_ = 0;
+    bool no_change_ = false;
     bool reset_;
     Vec3 center_;
     float radius_;

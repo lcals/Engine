@@ -9,7 +9,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
-- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、后续联动、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
+- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
 - [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
@@ -937,7 +937,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
 - 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，导航请求与完整编辑器界面未实现。
-- 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
+- 物理已支持静态 Mesh 碰撞、凸包/复合碰撞和只读碰撞估算快照；约束关节、传感器及 CharacterVirtual 接触事件尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
@@ -1080,7 +1080,7 @@ MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
 实现仍同步：每次成功损伤提交会重建组的网格与碰撞，尚未针对大规模连续爆炸优化。
-地形地基联动、撞击再破坏、烟尘音效联动、承重应力和异步调度属于后续阶段。
+地形地基、撞击再破坏及烟尘音效已在步骤 3 联通；承重应力和异步调度属于后续阶段。
 macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物理、Authoring、导入、
 编辑事务、MCP 注册和相关核心回归。真实窗口已验证预览损伤/撤销重做/关闭空白，
 以及正常菜单第七入口和 wall/column/base/top/reset 按钮；重置后三个试件均回到 1 组、0 动态组。
@@ -1089,7 +1089,24 @@ macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物
 最终脚本参数刷新后的 UI 损伤/重置、两台观察镜头和返回菜单均已实测通过；
 停止项目后场景为空、节点数归零。完整事实统一见
 [步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
-Android 目前仅有独立 Graph 检查，完整 APK 场景、ExtStress、地基地形联动与异步处理均未完成。
+Android 目前仅有独立 Graph 检查，完整 APK 的场景与地基联动尚未验收；ExtStress 与异步处理尚未实现。
 
 移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
 架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。
+
+
+### 综合破坏实验场（步骤 3）
+
+Showcase 主菜单第八项 **Combined destruction** 将地形、Blast 破坏、Jolt 撞击、
+Effekseer 与音频连通。`Dig foundation` 只挖土并刷新地基；支撑失效后建筑真实下落，
+脚本读取碰撞快照决定有门槛、冷却和次数预算的二次损伤。`Blast tower/wall` 联动爆破，
+`Fill crater` 不会重新接上已断锚点，`Reset all` 恢复原态。第三人称仍复用原角色插件。
+[项目说明](projects/showcase/destruction-integration.md)记录按钮、资源来源和验收边界。
+
+- 核心：指定 Collider 的 `cast_ray` 与只读 `PhysicsImpact`。冲量是 Jolt 官方估算，非求解后真实冲量；刚体接触回调不运行项目脚本。
+- 破坏插件：多点面积加权地基检查、精准 world bond 解除、碎块归属；不依赖地形插件，不实现承重求解。
+- 脚本：`Physics.GetImpacts()`、`DestructionComponent.RefreshSupport/OwnsFragment` 与可选 `EffectComponent` 播放接口。
+- MCP：`destruction_refresh_support` 使用 `sceneId/nodeId/supportNodeId/maxGap/minCoverage`，可撤销/重做；无变化不重建对象。
+- 参数、音效和原创 Effekseer 特效留在项目；导出工具见 `scripts/showcase_destruction_effects/`，可选 .NET 8 仅用于重新制作示例特效，不进入引擎或运行包。
+
+本阶段验证及平台限制见[步骤 3 记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-3-综合联动验证)。当前仍为同步的小规模实心试件实验场；土石塌方、承重应力、局部导航与异步扩量保持后续顺序。

@@ -4,7 +4,9 @@
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
+#include "runtime/scene/collider.hpp"
 #include "runtime/scene/node.hpp"
+#include "runtime/scene/scene.hpp"
 
 namespace engine::plugins::script::bindings
 {
@@ -16,6 +18,14 @@ export class DestructionComponent extends Component {
     DamageSphere(x, y, z, radius, damage, impulse = 0) {
         const h = handles.get(this);
         return native.DestructionDamage(h.scene, h.node, x, y, z, radius, damage, impulse);
+    }
+    RefreshSupport(support, maxGap, minCoverage) {
+        const h = handles.get(this), other = handles.get(support);
+        if (!other || other.kind !== native.ColliderKind || other.scene !== h.scene) return false;
+        return native.DestructionSupport(h.scene, h.node, other.node, maxGap, minCoverage);
+    }
+    OwnsFragment(nodeId) {
+        const h = handles.get(this); return native.DestructionOwns(h.scene, h.node, nodeId);
     }
     Reset() { const h = handles.get(this); return native.DestructionReset(h.scene, h.node); }
     get ready() { const h = handles.get(this); return native.DestructionReady(h.scene, h.node); }
@@ -61,6 +71,29 @@ void damage(const Arguments& arguments)
     {
         arguments.set_return(value->damage_sphere({x, y, z}, radius, amount, impulse));
     }
+}
+void support(const Arguments& arguments)
+{
+    auto* value = component(arguments, 5);
+    std::uint64_t node_id = 0;
+    float max_gap = 0;
+    float min_coverage = 0;
+    if (!value || !BindingContext::identifier(arguments, 2, node_id) ||
+        !BindingContext::scalar(arguments, 3, max_gap) ||
+        !BindingContext::scalar(arguments, 4, min_coverage))
+    {
+        return;
+    }
+    auto* node = value->node().scene().find_node(node_id);
+    const auto* collider = node ? node->get_component<Collider>() : nullptr;
+    arguments.set_return(collider && value->refresh_support(*collider, max_gap, min_coverage));
+}
+void owns_fragment(const Arguments& arguments)
+{
+    const auto* value = component(arguments, 3);
+    std::uint64_t node_id = 0;
+    arguments.set_return(value && BindingContext::identifier(arguments, 2, node_id) &&
+                         value->owns_fragment(node_id));
 }
 void reset(const Arguments& arguments)
 {
@@ -112,6 +145,8 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("DestructionKind",
                       static_cast<int>(destruction::DestructionComponent::component_type)) &&
            vm.function("DestructionAdd", add) && vm.function("DestructionDamage", damage) &&
+           vm.function("DestructionSupport", support) &&
+           vm.function("DestructionOwns", owns_fragment) &&
            vm.function("DestructionReset", reset) &&
            vm.function("DestructionReady", statistic, 0) &&
            vm.function("DestructionRevision", statistic, 1) &&

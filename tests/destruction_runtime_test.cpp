@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -456,9 +457,210 @@ bool runtime_contract()
                   "world shutdown ends the subsystem and physics removes the departed scene");
 }
 
+bool support_contract()
+{
+    Fixture fixture;
+    WorldSystem foreign_world;
+    if (!expect(fixture.initialize() && foreign_world.initialize({}),
+                "initialize explicit support query worlds"))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Foundation support");
+    auto* foreign_scene = foreign_world.create_scene("Foreign support");
+    auto* foreign_node = foreign_scene ? foreign_scene->create_node("Foreign floor") : nullptr;
+    auto* foreign_support = foreign_node ? foreign_node->add_component<Collider>() : nullptr;
+    auto* floor = scene ? scene->create_node("Foundation") : nullptr;
+    auto* owner = scene ? scene->create_node("Building") : nullptr;
+    auto* support = floor ? floor->add_component<Collider>() : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    if (!expect(foreign_support && support && component, "create support query components"))
+    {
+        return false;
+    }
+    auto floor_pose = floor->get_component<Transform>()->settings();
+    floor_pose.position = {10, -0.5, 2};
+    auto floor_shape = support->settings();
+    floor_shape.half_extents = {4, 0.5, 4};
+    auto source_pose = owner->get_component<Transform>()->settings();
+    source_pose.position = {10, 1, 2};
+    source_pose.rotation = {0, 90, 0};
+    source_pose.scale = {2, 2, 2};
+    auto settings = component->settings();
+    settings.destruction_guid = asset_guid;
+    settings.density = 1;
+    if (!expect(floor->get_component<Transform>()->set_settings(floor_pose) &&
+                    fixture.physics.set_collider_data(*support, floor_shape) &&
+                    owner->get_component<Transform>()->set_settings(source_pose) &&
+                    component->set_settings(settings) && fixture.destruction->synchronize(),
+                "publish rotated scaled building and its explicit static foundation"))
+    {
+        return false;
+    }
+    const auto initial_nodes = generated_ids(*scene);
+    const auto initial_revision = component->revision();
+    auto* own_node = initial_nodes.empty() ? nullptr : scene->find_node(initial_nodes.front());
+    auto* own_collider = own_node ? own_node->get_component<Collider>() : nullptr;
+    ByteBuffer intact;
+    ByteBuffer after;
+    if (!expect(own_collider && component->owns_fragment(own_node->id()) &&
+                    !component->owns_fragment(owner->id()) &&
+                    !component->owns_fragment(floor->id()) && component->snapshot(intact) &&
+                    component->refresh_support(*support, 0.2F, 1) &&
+                    component->revision() == initial_revision &&
+                    generated_ids(*scene) == initial_nodes && component->snapshot(after) &&
+                    after == intact,
+                "full world-space coverage keeps live nodes, state and revision unchanged",
+                component->last_error()))
+    {
+        return false;
+    }
+    if (!expect(!component->refresh_support(*own_collider, 0.2F, 0.5F) &&
+                    !component->refresh_support(*foreign_support, 0.2F, 0.5F) &&
+                    !component->refresh_support(*support, 0, 0.5F) &&
+                    !component->refresh_support(*support, 1001, 0.5F) &&
+                    !component->refresh_support(*support, 0.2F, 0) &&
+                    !component->refresh_support(*support, 0.2F, 1.01F) &&
+                    !component->refresh_support(*support, std::numeric_limits<float>::quiet_NaN(),
+                                                0.5F) &&
+                    component->snapshot(after) && after == intact &&
+                    component->revision() == initial_revision,
+                "self fragments, foreign scene and invalid parameters cannot release anchors"))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(!component->refresh_support(*support, 0.2F, 0.5F),
+                "disabled destruction component rejects foundation refresh"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    owner->get_component<Transform>()->set_enabled(false);
+    if (!expect(!component->refresh_support(*support, 0.2F, 0.5F),
+                "disabled source transform rejects foundation refresh"))
+    {
+        return false;
+    }
+    owner->get_component<Transform>()->set_enabled(true);
+    auto invalid_support = floor_shape;
+    invalid_support.is_trigger = true;
+    if (!expect(fixture.physics.set_collider_data(*support, invalid_support) &&
+                    !component->refresh_support(*support, 0.2F, 0.5F) &&
+                    fixture.physics.set_collider_data(*support, floor_shape),
+                "trigger support is rejected without graph mutation"))
+    {
+        return false;
+    }
+    auto* floor_body = floor->add_component<RigidBody>();
+    if (!expect(floor_body && !component->refresh_support(*support, 0.2F, 0.5F) &&
+                    floor->remove_component(RigidBody::component_type) &&
+                    component->snapshot(after) && after == intact,
+                "dynamic support is rejected without graph mutation"))
+    {
+        return false;
+    }
+
+    float matrix[16];
+    if (!expect(owner->get_component<Transform>()->world_matrix(matrix),
+                "resolve transformed bond positions"))
+    {
+        return false;
+    }
+    const Vec3 first_bond{matrix[12] + matrix[0] * 0.5, matrix[13] + matrix[1] * 0.5,
+                          matrix[14] + matrix[2] * 0.5};
+    const Vec3 second_bond{matrix[12] + matrix[0] * 1.5, matrix[13] + matrix[1] * 1.5,
+                           matrix[14] + matrix[2] * 1.5};
+    ByteBuffer moving;
+    if (!expect(component->damage_sphere(second_bond, 0.1F, 0.25F) &&
+                    component->damage_sphere(first_bond, 0.1F, 1) && component->snapshot(moving),
+                "prepare partial damage and a separately moving group"))
+    {
+        return false;
+    }
+    auto state = unpack(moving);
+    if (!expect(state && state->groups.size() == 2, "read two source groups"))
+    {
+        return false;
+    }
+    auto& dynamic = *state->groups[1];
+    dynamic.transform->position = {11, 6, 2};
+    dynamic.transform->rotation = {15, 30, 5};
+    dynamic.linear_velocity = {1, 2, 3};
+    dynamic.angular_velocity = {0.1, 0.2, 0.3};
+    if (!expect(component->restore(pack(*state)) && component->snapshot(moving),
+                "publish nonzero current pose and velocities before support loss"))
+    {
+        return false;
+    }
+    // Half of the real bottom is covered, including the center on its boundary.
+    // A single center ray would miss the loss of area; the weighted samples must detect it.
+    floor_pose.position = {9.5, -0.5, 2};
+    floor_shape.half_extents = {0.5, 0.5, 4};
+    const auto supported_nodes = generated_ids(*scene);
+    const auto supported_revision = component->revision();
+    if (!expect(floor->get_component<Transform>()->set_settings(floor_pose) &&
+                    fixture.physics.set_collider_data(*support, floor_shape) &&
+                    component->refresh_support(*support, 0.2F, 0.4F) &&
+                    component->revision() == supported_revision &&
+                    generated_ids(*scene) == supported_nodes &&
+                    component->refresh_support(*support, 0.2F, 0.6F) &&
+                    component->revision() == supported_revision + 1 &&
+                    component->group_count() == 2 && component->dynamic_groups() == 2 &&
+                    component->snapshot(after),
+                "area coverage threshold releases only the unsupported anchor",
+                component->last_error()))
+    {
+        return false;
+    }
+    auto expected = unpack(moving);
+    expected->bond_health.back() = 0;
+    if (!expect(after == pack(*expected) && !component->owns_fragment(supported_nodes.front()),
+                "release preserves unrelated bond health and exact group poses and velocities"))
+    {
+        return false;
+    }
+    const auto released_nodes = generated_ids(*scene);
+    const auto released_revision = component->revision();
+    floor_pose.position = {10, -0.5, 2};
+    floor_shape.half_extents = {4, 0.5, 4};
+    if (!expect(floor->get_component<Transform>()->set_settings(floor_pose) &&
+                    fixture.physics.set_collider_data(*support, floor_shape) &&
+                    component->refresh_support(*support, 0.2F, 1) &&
+                    component->revision() == released_revision &&
+                    generated_ids(*scene) == released_nodes && component->snapshot(after) &&
+                    after == pack(*expected),
+                "refilling ground never resurrects broken anchors or rebuilds unchanged groups"))
+    {
+        return false;
+    }
+    if (!expect(component->restore(intact), "restore anchored building for missing support"))
+    {
+        return false;
+    }
+    support->set_enabled(false);
+    if (!expect(fixture.physics.set_collider_data(*support, floor_shape) &&
+                    component->refresh_support(*support, 0.2F, 0.5F) &&
+                    component->dynamic_groups() == 1,
+                "a disabled committed support collider has zero coverage"))
+    {
+        return false;
+    }
+    support->set_enabled(true);
+    schema::MeshDataT empty;
+    if (!expect(component->restore(intact) && fixture.physics.set_mesh_data(*support, empty) &&
+                    component->refresh_support(*support, 0.2F, 0.5F) &&
+                    component->dynamic_groups() == 1,
+                "a valid empty support mesh releases anchors without a query error"))
+    {
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
-    return runtime_contract() ? 0 : 1;
+    return runtime_contract() && support_contract() ? 0 : 1;
 }

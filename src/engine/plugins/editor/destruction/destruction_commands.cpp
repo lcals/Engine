@@ -7,6 +7,7 @@
 #include "plugins/editor/destruction/destruction_state_edit.hpp"
 #include "plugins/runtime/destruction/destruction_component.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/collider.hpp"
 
 #include <iterator>
 #include <map>
@@ -227,6 +228,69 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                                        result = component_json(*component);
                                        return true;
                                    }))
+    {
+        return false;
+    }
+    if (!commands.register_command(
+            "destruction_refresh_support", true,
+            [&world, &scene_commands, revisions](const Json& arguments, Json& result,
+                                                 std::unique_ptr<editor::EditorEdit>& edit,
+                                                 std::string& error)
+            {
+                if (!editor::components::fields(arguments,
+                                                {"supportNodeId", "maxGap", "minCoverage"}, error))
+                {
+                    return false;
+                }
+                auto* component = target(world, arguments, error);
+                float max_gap = 0;
+                float min_coverage = 0;
+                if (!component || !component->ready() || !arguments.contains("supportNodeId") ||
+                    !arguments.contains("maxGap") || !arguments.contains("minCoverage") ||
+                    !editor::components::number(arguments["maxGap"], max_gap) || max_gap <= 0 ||
+                    max_gap > 1000 ||
+                    !editor::components::number(arguments["minCoverage"], min_coverage) ||
+                    min_coverage <= 0 || min_coverage > 1)
+                {
+                    if (error.empty())
+                    {
+                        error = "Support refresh requires a ready destruction object, "
+                                "supportNodeId, maxGap in (0,1000], minCoverage in (0,1]";
+                    }
+                    return false;
+                }
+                Json support_target = {{"sceneId", arguments["sceneId"]},
+                                       {"nodeId", arguments["supportNodeId"]}};
+                auto* support = editor::components::target(world, support_target, error);
+                if (!support || !support->get_component<Collider>())
+                {
+                    if (error.empty())
+                    {
+                        error = "Support node has no collider";
+                    }
+                    return false;
+                }
+                auto identity = scene_commands.node_identity(component->node().id());
+                auto support_identity = scene_commands.node_identity(support->id());
+                ByteBuffer before;
+                schema::ComponentDataT settings;
+                if (!identity || !support_identity || !component->snapshot(before) ||
+                    !component->build_data(settings))
+                {
+                    error = "Cannot snapshot foundation support state";
+                    return false;
+                }
+                result = {{"sceneId", std::to_string(component->node().scene().id())},
+                          {"nodeId", std::to_string(component->node().id())},
+                          {"supportNodeId", std::to_string(support->id())},
+                          {"operation", "refresh_support"},
+                          {"undoable", true}};
+                edit = std::make_unique<DestructionStateEdit>(
+                    world, component->node().scene().id(), std::move(identity),
+                    edit_revision(*revisions, component->node(), component), std::move(settings),
+                    std::move(before), std::move(support_identity), max_gap, min_coverage);
+                return true;
+            }))
     {
         return false;
     }
