@@ -220,6 +220,8 @@ void RenderSystem::SceneGpuResources::release() noexcept
     ao_sampler = BGFX_INVALID_HANDLE;
     programs.clear();
     meshes.clear();
+    geometries.clear();
+    skinning.release();
     textures.clear();
     ibl_generation = 0;
 }
@@ -260,16 +262,29 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(ao_settings)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ao_sampler)) +
                           shadow.resource_count() + ambient_occlusion.resource_count() +
-                          hdr_post_process.resource_count();
+                          hdr_post_process.resource_count() + skinning.resource_count();
     for (const auto& texture : ibl_textures)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
     }
-    for (const auto& mesh : meshes)
+    for (auto iterator = meshes.begin(); iterator != meshes.end(); ++iterator)
     {
-        count += static_cast<std::uint32_t>(bgfx::isValid(mesh.vertices)) +
-                 static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
-                 static_cast<std::uint32_t>(bgfx::isValid(mesh.indices));
+        const auto& mesh = *iterator;
+        count += static_cast<std::uint32_t>(bgfx::isValid(mesh.deformed_vertices)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(mesh.palette));
+        bool first = true;
+        for (auto previous = meshes.begin(); previous != iterator; ++previous)
+        {
+            if (previous->geometry == mesh.geometry)
+            {
+                first = false;
+                break;
+            }
+        }
+        if (first && mesh.geometry)
+        {
+            count += mesh.geometry->resource_count();
+        }
     }
     for (const auto& texture : textures)
     {

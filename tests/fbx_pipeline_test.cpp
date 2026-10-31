@@ -13,6 +13,7 @@
 #include "runtime/schema/model_generated.h"
 #include "runtime/schema/skeleton_generated.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -90,6 +91,175 @@ double mean_normal_orientation(const schema::MeshData& mesh)
         }
     }
     return count == 0 ? 0.0 : sum / static_cast<double>(count);
+}
+
+bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& project,
+                     const std::string& base_meta, const Guid& model_guid, const Guid& mesh_guid)
+{
+    ResourceSystem resources;
+    if (!expect(resources.initialize({}), "material imports use initialized builtin definitions"))
+    {
+        return false;
+    }
+    const auto source = project.root / "assets/models/skeleton.fbx";
+    const auto meta = project.root / "assets/models/skeleton.fbx.meta";
+    ResourceCatalog catalog;
+    ByteBuffer bytes;
+    if (!ResourceSystem::read_catalog(project.root / "cache", catalog) ||
+        !read(catalog, project.root, "project/models/skeleton.fbx", bytes))
+    {
+        return false;
+    }
+    std::string mesh_path;
+    if (!catalog.identities().guid_to_path(mesh_guid, mesh_path))
+    {
+        return false;
+    }
+    const auto key = mesh_path.substr(std::string("project/models/skeleton.fbx/").size());
+    std::size_t slots = 0;
+    Guid default_material;
+    for (const auto* node : *schema::GetModelData(bytes.data())->nodes())
+    {
+        if (node->mesh_guid() != nullptr && node->mesh_guid()->str() == mesh_guid)
+        {
+            slots = node->material_guids()->size();
+            default_material = node->material_guids()->Get(0)->str();
+        }
+    }
+    if (!expect(slots > 0, "fixture has material slots"))
+    {
+        return false;
+    }
+    const auto mapping = [&](const std::string& path)
+    {
+        std::string result = "\n[[material_remaps]]\nmesh = \"" + key + "\"\nmaterials = [";
+        for (std::size_t index = 0; index < slots; ++index)
+        {
+            result += (index == 0 ? "" : ", ") + std::string("\"") + path + "\"";
+        }
+        return result + "]\n";
+    };
+    for (const auto* name : {"red", "blue", "unused"})
+    {
+        if (!write(project.root / "assets" / (std::string(name) + ".material"),
+                   "shader = \"00000000-0000-4000-8000-000000000001\"\n"))
+        {
+            return false;
+        }
+    }
+    std::map<Guid, std::string> unchanged;
+    for (const auto& entry : catalog.data().entries)
+    {
+        if (entry->guid != model_guid)
+        {
+            unchanged.emplace(entry->guid, entry->content_hash);
+        }
+    }
+    for (const auto* name : {"red", "blue"})
+    {
+        const auto path = std::string("project/") + name + ".material";
+        Guid material;
+        if (!expect(write(meta, base_meta + mapping(path)) && pipeline.build_assets(project.root),
+                    pipeline.last_error()) ||
+            !expect(ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                        catalog.identities().path_to_guid(path, material) &&
+                        read(catalog, project.root, "project/models/skeleton.fbx", bytes),
+                    "read remapped model and resolved material"))
+        {
+            return false;
+        }
+        const auto* entry = catalog.find(model_guid);
+        if (!expect(entry && entry->dependencies.size() == 2 &&
+                        std::find(entry->dependencies.begin(), entry->dependencies.end(),
+                                  material) != entry->dependencies.end() &&
+                        std::find(entry->dependencies.begin(), entry->dependencies.end(),
+                                  default_material) == entry->dependencies.end(),
+                    "model depends only on its mesh and the selected material"))
+        {
+            return false;
+        }
+        for (const auto* node : *schema::GetModelData(bytes.data())->nodes())
+        {
+            if (node->mesh_guid() == nullptr || node->mesh_guid()->str() != mesh_guid)
+            {
+                continue;
+            }
+            for (const auto* bound : *node->material_guids())
+            {
+                if (!expect(bound->str() == material, "Model stores resolved material GUIDs"))
+                {
+                    return false;
+                }
+            }
+        }
+        for (const auto& [guid, hash] : unchanged)
+        {
+            if (!expect(catalog.find(guid) && catalog.find(guid)->content_hash == hash,
+                        "material remaps preserve sibling identities and independent contents"))
+            {
+                return false;
+            }
+        }
+    }
+    const auto valid_meta = base_meta + mapping("project/blue.material");
+    const auto revision = pipeline.last_build().revision;
+    const auto payload = bytes;
+    if (!expect(pipeline.build_assets(project.root) && pipeline.last_build().imported == 0 &&
+                    pipeline.last_build().revision == revision,
+                "unchanged material remaps reuse all outputs"))
+    {
+        return false;
+    }
+    const auto remap_header = "\n[[material_remaps]]\nmesh = \"" + key + "\"\n";
+    const std::vector<std::string> invalid{
+        "material_remaps = false\n" + base_meta,
+        "material_remaps = [1]\n" + base_meta,
+        base_meta + "\n[[material_remaps]]\nmesh = \"meshes/missing\"\nmaterials = []\n",
+        valid_meta + mapping("project/red.material"),
+        base_meta + remap_header + "materials = []\n",
+        base_meta + remap_header + "materials = [42]\n",
+        base_meta + mapping(""),
+        base_meta + mapping("project/missing.material"),
+        base_meta + mapping("project/untouched.txt"),
+        base_meta + mapping(mesh_path),
+        valid_meta + "typo = 1\n"};
+    for (const auto& invalid_meta : invalid)
+    {
+        if (!expect(write(meta, invalid_meta) && !pipeline.build_assets(project.root),
+                    "invalid material remap fails explicitly") ||
+            !expect(pipeline.last_build().revision == revision &&
+                        ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                        catalog.revision() == revision &&
+                        read(catalog, project.root, "project/models/skeleton.fbx", bytes) &&
+                        bytes == payload,
+                    "invalid remap does not publish or alter the last usable model"))
+        {
+            return false;
+        }
+    }
+    plugins::fbx_import::FbxImporter snapshot;
+    editor::asset_pipeline::ImportAsset asset;
+    asset.source = source;
+    asset.importer_id = "fbx";
+    const std::vector<const editor::asset_pipeline::ImportAsset*> sources{&asset};
+    const std::map<Guid, schema::AssetKind> kinds;
+    const editor::asset_pipeline::ImportContext context{
+        catalog.identities(),       kinds, project.root, project.root / "assets",
+        project.root / "cache/gen", "",    nullptr,      sources};
+    std::vector<editor::asset_pipeline::ImportSubresource> children;
+    std::string error;
+    std::string fingerprint;
+    if (!expect(write(meta, valid_meta) && snapshot.discover(asset, children, error) &&
+                    write(meta, base_meta + mapping("project/red.material")) &&
+                    !snapshot.inspect_batch(context, fingerprint, error),
+                "material settings changed after discovery invalidate the batch") ||
+        !expect(write(meta, valid_meta) && pipeline.build_assets(project.root) &&
+                    pipeline.last_build().revision == revision,
+                "restoring valid remaps reuses the last complete version"))
+    {
+        return false;
+    }
+    return true;
 }
 
 #if defined(ENGINE_FBX_TEST_GRAPH)
@@ -445,6 +615,10 @@ int main()
         !expect(pipeline.last_build().imported == 0 && pipeline.last_build().reused == count &&
                     pipeline.last_build().revision == normal_revision,
                 "unchanged generated normals reuse the complete previous cache"))
+    {
+        return 1;
+    }
+    if (!material_remaps(pipeline, project, generated_meta, model_guid, mesh_guid))
     {
         return 1;
     }

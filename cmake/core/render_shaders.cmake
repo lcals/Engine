@@ -197,3 +197,26 @@ function(engine_embed_hdr_shaders target)
     endforeach()
     target_include_directories(${target} PRIVATE "${_output}")
 endfunction()
+
+# 蒙皮输出标准顶点流，全部项目材质及深度通道共用。
+function(engine_embed_skinning_shader target)
+    if(NOT ENGINE_SHADERC_EXECUTABLE OR NOT ENGINE_BGFX_SHADER_INCLUDE_DIR)
+        message(FATAL_ERROR "Initialize render shader tools before embedding skinning shader")
+    endif()
+    engine_render_shader_profile(_platform _profile)
+    set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/cs_skinning.sc")
+    set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
+    set(_header "${_output}/cs_skinning.bin.h")
+    add_custom_command(
+        OUTPUT "${_header}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
+        COMMAND "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}" -o "${_header}"
+                --type compute --platform "${_platform}" --profile "${_profile}"
+                -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c cs_skinning
+        DEPENDS "${_source}" "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_compute.sh"
+                "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+        COMMENT "Compiling embedded ${_platform}/${_profile} skinning shader"
+        VERBATIM)
+    target_sources(${target} PRIVATE "${_header}")
+    target_include_directories(${target} PRIVATE "${_output}")
+endfunction()

@@ -15,6 +15,10 @@ export class Animator extends Component {
         const h = handles.get(this);
         return native.AnimatorAnimation(h.scene, h.node, path);
     }
+    CrossFade(path, seconds) {
+        const h = handles.get(this);
+        return native.AnimatorCrossFade(h.scene, h.node, path, seconds);
+    }
     SetSpeed(value) {
         const h = handles.get(this);
         return native.AnimatorSpeed(h.scene, h.node, value);
@@ -81,6 +85,18 @@ void animation(const Arguments& arguments)
     if (value && BindingContext::text(arguments, 2, path))
     {
         arguments.set_return(value->set_animation(path));
+    }
+}
+
+void cross_fade(const Arguments& arguments)
+{
+    auto* value = animator(arguments, 4);
+    std::string path;
+    double seconds = 0.0;
+    if (value != nullptr && BindingContext::text(arguments, 2, path) &&
+        BindingContext::number(arguments, 3, seconds))
+    {
+        arguments.set_return(value->cross_fade(path, seconds));
     }
 }
 
@@ -203,10 +219,11 @@ bool AnimatorBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.integer("AnimatorKind", static_cast<int>(Animator::component_type)) &&
            vm.function("AnimatorAdd", add) && vm.function("AnimatorAnimation", animation) &&
-           vm.function("AnimatorSpeed", speed) && vm.function("AnimatorLoop", loop) &&
-           vm.function("AnimatorAwake", awake) && vm.function("AnimatorPlay", play) &&
-           vm.function("AnimatorPause", pause) && vm.function("AnimatorStop", stop) &&
-           vm.function("AnimatorSeek", seek) && vm.function("AnimatorPlaying", playing) &&
-           vm.function("AnimatorPlayback", playback) && vm.function("AnimatorTime", time);
+           vm.function("AnimatorCrossFade", cross_fade) && vm.function("AnimatorSpeed", speed) &&
+           vm.function("AnimatorLoop", loop) && vm.function("AnimatorAwake", awake) &&
+           vm.function("AnimatorPlay", play) && vm.function("AnimatorPause", pause) &&
+           vm.function("AnimatorStop", stop) && vm.function("AnimatorSeek", seek) &&
+           vm.function("AnimatorPlaying", playing) && vm.function("AnimatorPlayback", playback) &&
+           vm.function("AnimatorTime", time);
 }
 } // namespace engine::plugins::script::bindings

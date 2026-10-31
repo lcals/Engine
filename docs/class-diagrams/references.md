@@ -784,7 +784,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
 | AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
 | NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
-| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样、CPU 蒙皮及实例缓存生命周期 |
+| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样与混合、共享编译物及实例 palette 生命周期 |
 | FontSystem | bgfx、ResourceLoader、FontDataT、TextComponent | 共享曲线资源、字形测量和排布、UI 与 3D 字体 GPU 绘制 |
 | UiSystem | RmlUi、FontSystem、WorldSystem、WindowSystem、UiComponent | 文档生命周期、正常绘制顺序、输入与控件事件 |
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或虚拟机链接 |
@@ -1074,7 +1074,7 @@ classDiagram
     MeshRenderer o-- Resource : 持有 Mesh 与骨架引用
     Animator o-- Resource : 持有动画及目标骨架引用
     AnimationSystem ..> Animator : 读取请求与推进状态
-    AnimationSystem ..> MeshRenderer : 提交当前蒙皮顶点
+    AnimationSystem ..> MeshRenderer : 提交当前骨骼与法线 palette
     RenderSystem ..> MeshRenderer : 读取普通动态网格
 ```
 

@@ -16,6 +16,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <array>
 #include <cstdio>
 #include <limits>
 
@@ -525,6 +526,68 @@ bool check_deformation(engine::Scene& scene)
                   "replacement component has distinct identity even on the same node");
 }
 
+bool check_skinning_palette(engine::Scene& scene)
+{
+    auto* node = scene.create_node("GPU pose owner");
+    auto* renderer = node ? node->add_component<engine::MeshRenderer>() : nullptr;
+    const std::array<float, 16> identity{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    std::array<std::array<float, 16>, 1> positions{identity};
+    std::array<std::array<float, 16>, 1> normals{identity};
+    if (!expect(renderer && renderer->mesh_resource() &&
+                    !renderer->set_skinning_palette(positions, normals),
+                "immutable source ownership is exposed but unskinned meshes reject palettes"))
+    {
+        return false;
+    }
+    auto mesh = quad();
+    mesh.skin.assign(mesh.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
+    if (!expect(renderer->set_mesh_data(mesh) && !renderer->mesh_resource() &&
+                    renderer->set_skinning_palette(positions, normals),
+                "dynamic skinned mesh accepts a complete independent palette"))
+    {
+        return false;
+    }
+    const auto revision = renderer->deformation_revision();
+    positions[0][12] = 5;
+    normals[0][0] = 0.5F;
+    if (!expect(renderer->skinning_palette()[0][12] == 0 &&
+                    renderer->skinning_normal_palette()[0][0] == 1,
+                "palette upload copies both streams instead of borrowing caller memory"))
+    {
+        return false;
+    }
+    auto invalid = positions;
+    invalid[0][0] = std::numeric_limits<float>::infinity();
+    if (!expect(!renderer->set_skinning_palette(invalid, normals) &&
+                    !renderer->set_skinning_palette({}, {}) &&
+                    !renderer->set_skinning_palette(positions, {}) &&
+                    renderer->deformation_revision() == revision,
+                "invalid or incomplete palette submissions preserve the previous pose"))
+    {
+        return false;
+    }
+    invalid = positions;
+    invalid[0][3] = 1;
+    if (!expect(!renderer->set_skinning_palette(invalid, normals) &&
+                    renderer->set_deformation(mesh.vertices, mesh.tangents) &&
+                    renderer->skinning_palette().empty() &&
+                    renderer->set_skinning_palette(positions, normals) &&
+                    renderer->deformed_vertices().empty(),
+                "affine validation and atomic switching keep one deformation source"))
+    {
+        return false;
+    }
+    renderer->clear_deformation();
+    const auto cleared = renderer->deformation_revision();
+    renderer->clear_deformation();
+    return expect(
+        renderer->skinning_palette().empty() && renderer->skinning_normal_palette().empty() &&
+            renderer->deformation_revision() == cleared &&
+            renderer->set_skinning_palette(positions, normals) &&
+            renderer->set_mesh("builtin/meshes/cube") && renderer->skinning_palette().empty(),
+        "clear is repeatable and source replacement discards the old GPU pose");
+}
+
 bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, bool shared)
 {
     test_support::ResourceFixture fixture;
@@ -596,7 +659,7 @@ int main()
     }
     auto* scene = world.create_scene("Render foundation");
     if (!expect(scene != nullptr, "create scene") || !check_camera_and_light(*scene) ||
-        !check_mesh(*scene) || !check_deformation(*scene) ||
+        !check_mesh(*scene) || !check_deformation(*scene) || !check_skinning_palette(*scene) ||
         !check_textures(resources, *scene, false))
     {
         return 1;

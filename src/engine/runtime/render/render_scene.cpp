@@ -286,7 +286,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
                                                 : resources.shadow_fallback);
                 bgfx::setTransform(model);
                 mesh->bind_vertices();
-                bgfx::setIndexBuffer(mesh->indices, first, count);
+                bgfx::setIndexBuffer(mesh->geometry->indices, first, count);
                 const auto state = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
                                    render_detail::cull_state(material->cull_mode(), model);
                 bgfx::setState(depth_only ? state

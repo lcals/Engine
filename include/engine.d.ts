@@ -122,6 +122,8 @@ declare module "engine" {
         IsValid(): boolean;
         Destroy(): boolean;
         SetParent(parent: Node | null): boolean;
+        /** Relative child path, e.g. "Assembly/Body". Invalid, missing or ambiguous paths return null. */
+        FindChild(path: string): Node | null;
         AddComponent<T extends Component>(type: ComponentType<T>): T | null;
         GetComponent<T extends Component>(type: ComponentType<T>): T | null;
     }
@@ -222,6 +224,8 @@ declare module "engine" {
         private constructor();
         /** Empty path clears the action; failure preserves the previous action and settings. */
         SetAnimation(path: string): boolean;
+        /** Blend from the current pose. Nonnegative seconds; zero switches immediately. */
+        CrossFade(path: string, seconds: number): boolean;
         /** Playback multiplier in [0, 16]; zero freezes time. */
         SetSpeed(value: number): boolean;
         SetLoop(value: boolean): boolean;

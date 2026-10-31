@@ -4,6 +4,7 @@
 #include "runtime/scene/material.hpp"
 #include "runtime/schema/mesh_generated.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -28,6 +29,7 @@ public:
     // 完整校验后提交独立瞬时网格，失败不改变已有几何和材质槽。
     [[nodiscard]] bool set_mesh_data(const schema::MeshDataT& data);
     [[nodiscard]] const schema::MeshDataT* mesh_data() const noexcept;
+    [[nodiscard]] std::shared_ptr<const Resource> mesh_resource() const noexcept;
     [[nodiscard]] std::uint64_t mesh_revision() const noexcept;
     // 进程内稳定且不重复的组件实例身份，供瞬态缓存区分组件重建。
     [[nodiscard]] std::uint64_t mesh_instance_id() const noexcept;
@@ -39,6 +41,12 @@ public:
     // 瞬态顶点覆写，保留源资源身份、拓扑和材质；失败不改变已有变形。
     [[nodiscard]] bool set_deformation(std::span<const schema::MeshVertex> vertices,
                                        std::span<const Vec4> tangents);
+    // 源骨骼索引顺序、mesh 局部空间、列主序；与直接顶点覆写互斥。
+    [[nodiscard]] bool
+    set_skinning_palette(std::span<const std::array<float, 16>> transforms,
+                         std::span<const std::array<float, 16>> normal_transforms);
+    [[nodiscard]] std::span<const std::array<float, 16>> skinning_palette() const noexcept;
+    [[nodiscard]] std::span<const std::array<float, 16>> skinning_normal_palette() const noexcept;
     void clear_deformation() noexcept;
     [[nodiscard]] std::span<const schema::MeshVertex> deformed_vertices() const noexcept;
     [[nodiscard]] std::span<const Vec4> deformed_tangents() const noexcept;
@@ -62,6 +70,9 @@ private:
     std::unique_ptr<schema::MeshDataT> dynamic_mesh_;
     std::vector<schema::MeshVertex> deformed_vertices_;
     std::vector<Vec4> deformed_tangents_;
+    std::vector<std::array<float, 16>> skinning_palette_;
+    std::vector<std::array<float, 16>> skinning_normal_palette_;
+    std::uint32_t skin_joint_count_ = 0;
     const std::uint64_t mesh_instance_id_;
     bool visible_ = true;
     std::uint64_t mesh_revision_ = 0;

@@ -29,10 +29,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/render/scene_gpu_resources.cpp
                 src/engine/runtime/render/scene_render_query.cpp
                 src/engine/runtime/render/resources/gpu_mesh.cpp
+                src/engine/runtime/render/resources/gpu_geometry.cpp
                 src/engine/runtime/render/resources/gpu_program.cpp
                 src/engine/runtime/render/resources/gpu_texture.cpp
                 src/engine/runtime/render/passes/shadow_frame.cpp
                 src/engine/runtime/render/passes/shadow_pass.cpp
+                src/engine/runtime/render/passes/skinning_pass.cpp
                 src/engine/runtime/render/passes/ambient_occlusion_pass.cpp
                 src/engine/runtime/render/passes/hdr_post_process_pass.cpp)
     target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -51,6 +53,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
     engine_embed_render_shaders(engine_render shadow)
     engine_embed_assao_shaders(engine_render)
+    engine_embed_skinning_shader(engine_render)
     engine_embed_hdr_shaders(engine_render)
     engine_configure_platform_graphics()
 
@@ -125,7 +128,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                                                     RecastNavigation::Detour)
 
     engine_add_system(runtime animation)
-    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline ozz_geometry
+    target_include_directories(engine_animation PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline
                                                    engine::world engine::resource)
     # 上游子项目头文件按第三方处理，保留本项目的严格警告。
     get_target_property(_ozz_include ozz_animation INTERFACE_INCLUDE_DIRECTORIES)

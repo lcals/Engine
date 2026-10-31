@@ -16,11 +16,25 @@ export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Create('Model and animation bindings');
         const root = scene?.InstantiateModel('project/models/character.fbx', 'Character');
-        const body = scene?.FindNode('Body');
-        if (!scene || !root || !body || !root.IsValid() ||
+        const otherRoot = scene?.InstantiateModel('project/models/character.fbx', 'Character');
+        const body = root?.FindChild('Assembly/Body');
+        const otherBody = otherRoot?.FindChild('Assembly/Body');
+        if (!scene || !root || !otherRoot || !body || !otherBody || !root.IsValid() ||
             scene.InstantiateModel('builtin/meshes/cube', 'Wrong type') !== null ||
             scene.InstantiateModel('project/missing.fbx', 'Missing') !== null ||
             !(body.GetComponent(MeshRenderer) instanceof MeshRenderer)) return false;
+        for (const path of ['', '.', '..', '/Assembly', 'Assembly/', 'Assembly//Body',
+                            'Assembly/./Body', 'Assembly/../Body', 'Body', 'Missing/Body', 3, null]) {
+            if (root.FindChild(path) !== null) return false;
+        }
+        const assembly = root.FindChild('Assembly');
+        const duplicate = scene.CreateNode('Assembly');
+        const duplicateBody = scene.CreateNode('Body');
+        if (!assembly || !duplicate || !duplicateBody || !duplicate.SetParent(root) ||
+            root.FindChild('Assembly') !== null || root.FindChild('Assembly/Body') !== null ||
+            !otherRoot.FindChild('Assembly/Body') || !duplicate.Destroy() ||
+            !duplicateBody.SetParent(assembly) || root.FindChild('Assembly/Body') !== null ||
+            !duplicateBody.Destroy() || !root.FindChild('Assembly/Body')) return false;
         const animator = body.AddComponent(Animator);
         if (!animator || !(animator instanceof Component) ||
             !(body.GetComponent(Animator) instanceof Animator) ||
@@ -29,15 +43,27 @@ export default class extends Gameplay {
             animator.SetLoop(1) || animator.SetPlayOnAwake('yes') ||
             !animator.SetPlayOnAwake(false) || !animator.SetSpeed(2) || !animator.SetLoop(false) ||
             !animator.SetAnimation('project/animations/move.animation') ||
+            animator.CrossFade('project/animations/scale.animation', -1) ||
+            animator.CrossFade('project/missing.animation', .2) ||
+            animator.CrossFade('project/animations/scale.animation', 'bad') ||
+            !animator.CrossFade('project/animations/scale.animation', .2) ||
+            !animator.CrossFade('project/animations/move.animation', 0) ||
             animator.SetAnimation('builtin/meshes/cube') || animator.Seek(Infinity) ||
             animator.Seek(-1) || animator.Seek(2) || !animator.Play() || !animator.isPlaying ||
             animator.playback !== 'playing' || !animator.Pause() || animator.isPlaying ||
             animator.playback !== 'paused' || !animator.Seek(.5) || animator.time !== .5 ||
             !animator.Stop() || animator.time !== 0 || animator.playback !== 'stopped' ||
             !animator.Seek(.5) || animator.playback !== 'paused') return false;
+        if (otherBody.GetComponent(Animator) !== null) return false;
+        const otherAnimator = otherBody.AddComponent(Animator);
+        if (!otherAnimator || !otherAnimator.SetPlayOnAwake(false) ||
+            !otherAnimator.SetAnimation('project/animations/move.animation') ||
+            !otherAnimator.Seek(.25) || animator.time !== .5) return false;
         const temporary = scene.CreateNode('Temporary');
         const stale = temporary?.AddComponent(Animator);
         if (!stale || !temporary.Destroy() || stale.Play() || stale.Pause() || stale.Stop() ||
+            stale.CrossFade('project/animations/move.animation', .2) ||
+            temporary.FindChild('Body') !== null ||
             stale.Seek(0) || stale.SetSpeed(1) || stale.isPlaying || stale.playback !== null ||
             stale.time !== null) return false;
         this.scene = scene;
@@ -65,20 +91,20 @@ export default class extends Gameplay {
     fixture.world.destroy_scene();
     engine::plugins::script::ScriptSystem script(&fixture.world);
     if (!expect(script.initialize({}) && script.start_gameplay("scripts/game.js"),
-                "real V8 executes model instantiation and Animator bindings") ||
+                "selected script backend executes model instantiation and Animator bindings") ||
         !expect(fixture.animation.tick(0) && script.tick(0.25) && script.status().running,
                 "paused pose survives a script update"))
     {
         return false;
     }
     const auto* scene = fixture.world.scene();
-    if (!expect(scene && scene->nodes().size() == 3 &&
-                    close(scene->nodes()[2]
-                              ->get_component<engine::MeshRenderer>()
-                              ->deformed_vertices()[0]
-                              .x(),
-                          2),
-                "script-created model and action drive actual ozz deformation"))
+    if (!expect(
+            scene && scene->nodes().size() == 6 &&
+                close(sampled_vertex(*scene->nodes()[2]->get_component<engine::MeshRenderer>()).x(),
+                      2) &&
+                close(sampled_vertex(*scene->nodes()[5]->get_component<engine::MeshRenderer>()).x(),
+                      1),
+            "relative lookup configures two identical model instances independently"))
     {
         return false;
     }

@@ -607,6 +607,15 @@ if(TARGET engine_fbx_import)
         PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
     engine_apply_options(engine_fbx_pipeline_test)
     add_test(NAME editor.fbx_pipeline COMMAND engine_fbx_pipeline_test)
+
+    add_executable(engine_fbx_bind_pose_test fbx_bind_pose_test.cpp)
+    target_link_libraries(engine_fbx_bind_pose_test PRIVATE engine::fbx_import engine_ufbx)
+    target_include_directories(engine_fbx_bind_pose_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_compile_definitions(
+        engine_fbx_bind_pose_test
+        PRIVATE ENGINE_FBX_TEST_DATA_DIR="${PROJECT_SOURCE_DIR}/projects/showcase/assets/models")
+    engine_apply_options(engine_fbx_bind_pose_test)
+    add_test(NAME editor.fbx_bind_pose COMMAND engine_fbx_bind_pose_test)
 endif()
 
 if(TARGET engine_font_import)

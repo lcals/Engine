@@ -182,6 +182,8 @@ classDiagram
 
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
 
+NodeBinding 提供 `Node.FindChild(path)`：从当前实例逐段匹配直接子节点，例如 `Assembly/Body`，不会使用场景全局同名查找。空路径、`.`、`..`、首尾斜线、连续斜线、缺失节点、任一层同名歧义或失效句柄均返回 null。绑定以既有 `parent()` 和 `name()` 过滤当前场景节点，不向核心 Node 增加脚本专用接口。
+
 CharacterMotorBinding 独立提供胶囊移动设置、水平速度请求、实际速度查询、地面状态和跳跃；仅转发 CharacterMotor，不读取键鼠或设置相机。第一/第三人称控制器属于另一个可选插件，未在通用脚本插件中声明未实现的绑定。
 
 UI 绑定见 [UI 脚本与 MVC](ui-script-api.md)。绑定模块可登记事件与停止清理 hook；ScriptSystem 只调用注册表导出的统一派发/清理入口，不逐个判断业务模块。UiSystem 为宿主注入的可空借用；关闭时先停止脚本及清理订阅，再销毁文档。

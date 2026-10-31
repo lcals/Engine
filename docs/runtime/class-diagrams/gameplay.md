@@ -59,6 +59,7 @@ classDiagram
         +IsValid() bool
         +Destroy() bool
         +SetParent(parent Node?) bool
+        +FindChild(path string) Node?
         +AddComponent~T~(type ComponentType~T~) T?
         +GetComponent~T~(type ComponentType~T~) T?
     }

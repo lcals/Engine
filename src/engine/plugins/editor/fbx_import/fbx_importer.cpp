@@ -18,14 +18,103 @@ namespace engine::plugins::fbx_import
 {
 using namespace editor::asset_pipeline;
 
+namespace
+{
+using MaterialRemaps = std::map<std::string, std::vector<std::string>>;
+}
+
 struct FbxImporter::State
 {
     std::map<std::filesystem::path, FbxDocument> documents;
+    std::map<std::filesystem::path, MaterialRemaps> material_remaps;
 };
 
 namespace
 {
 using Documents = std::map<std::filesystem::path, FbxDocument>;
+
+bool read_material_remaps(const toml::table& settings, const FbxDocument& document,
+                          MaterialRemaps& output, std::string& error)
+{
+    output.clear();
+    if (!settings.contains("material_remaps"))
+    {
+        return true;
+    }
+    const auto* entries = settings["material_remaps"].as_array();
+    if (entries == nullptr)
+    {
+        error = "FBX material_remaps must be an array of tables";
+        return false;
+    }
+    MaterialRemaps remaps;
+    for (const auto& entry : *entries)
+    {
+        const auto* table = entry.as_table();
+        if (table == nullptr || table->size() != 2 || !(*table)["mesh"].is_string())
+        {
+            error = "FBX material remap must contain only mesh and materials";
+            return false;
+        }
+        const auto key = (*table)["mesh"].value_or(std::string{});
+        const auto mesh = document.meshes.find(key);
+        if (mesh == document.meshes.end() || remaps.contains(key))
+        {
+            error = "FBX material remap mesh is unknown or repeated: " + key;
+            return false;
+        }
+        const auto* paths = (*table)["materials"].as_array();
+        if (paths == nullptr ||
+            paths->size() != std::max<std::size_t>(1, mesh->second->materials.count))
+        {
+            error = "FBX material remap must fill every material slot: " + key;
+            return false;
+        }
+        std::vector<std::string> materials;
+        for (const auto& path : *paths)
+        {
+            const auto value = path.value<std::string>();
+            if (!value || value->empty())
+            {
+                error = "FBX material remap paths must be nonempty strings: " + key;
+                return false;
+            }
+            materials.push_back(*value);
+        }
+        remaps.emplace(key, std::move(materials));
+    }
+    output.swap(remaps);
+    return true;
+}
+
+bool resolve_materials(const std::string& key, const ufbx_node& node, const MaterialRemaps& remaps,
+                       const ImportContext& context, std::vector<Guid>& output, std::string& error)
+{
+    output.clear();
+    std::vector<Guid> materials;
+    const auto found = remaps.find(key);
+    const auto count = std::max<std::size_t>(1, node.materials.count);
+    for (std::size_t slot = 0; slot < count; ++slot)
+    {
+        const std::string path =
+            found == remaps.end() ? "builtin/materials/default-pbr" : found->second[slot];
+        Guid guid;
+        if (!context.identities.path_to_guid(path, guid))
+        {
+            error = "FBX material path does not exist: " + path;
+            return false;
+        }
+        const auto kind = context.kinds.find(guid);
+        if (kind == context.kinds.end() || kind->second != schema::AssetKind::material)
+        {
+            error = "FBX material path does not identify a Material: " + path;
+            return false;
+        }
+        materials.push_back(std::move(guid));
+    }
+    output.swap(materials);
+    return true;
+}
 
 bool resolve_skeleton(const ImportAsset& asset, const ImportContext& context,
                       const Documents& documents, const FbxDocument*& output, Guid& guid,
@@ -72,6 +161,12 @@ bool resolve_skeleton(const ImportAsset& asset, const ImportContext& context,
             error = "FBX skeleton mapping must reference a generated FBX skeleton";
             return false;
         }
+        if (target->second.scale_factor != document.scale_factor ||
+            target->second.rotation_offset != document.rotation_offset)
+        {
+            error = "FBX source and skeleton must use matching scale_factor and rotation_offset";
+            return false;
+        }
         output = &target->second;
         return true;
     }
@@ -88,8 +183,8 @@ bool write_buffer(const ImportAsset& asset, const ImportContext& context,
 }
 
 bool append_model_node(const FbxDocument& document, const ufbx_node& node, std::int32_t parent,
-                       const ImportAsset& asset, const ImportContext& context, const Guid& material,
-                       schema::ModelDataT& model, std::string& error)
+                       const ImportAsset& asset, const ImportContext& context,
+                       const MaterialRemaps& remaps, schema::ModelDataT& model, std::string& error)
 {
     auto result = std::make_unique<schema::ModelNodeDataT>();
     const auto& path = document.node_paths.at(&node);
@@ -107,13 +202,17 @@ bool append_model_node(const FbxDocument& document, const ufbx_node& node, std::
             error = "FBX mesh child identity is missing";
             return false;
         }
-        result->material_guids.assign(std::max<std::size_t>(1, node.materials.count), material);
+        if (!resolve_materials("meshes/" + path, node, remaps, context, result->material_guids,
+                               error))
+        {
+            return false;
+        }
     }
     const auto index = static_cast<std::int32_t>(model.nodes.size());
     model.nodes.push_back(std::move(result));
     for (const auto* child : node.children)
     {
-        if (!append_model_node(document, *child, index, asset, context, material, model, error))
+        if (!append_model_node(document, *child, index, asset, context, remaps, model, error))
         {
             return false;
         }
@@ -141,7 +240,8 @@ bool FbxImporter::matches(const std::filesystem::path& source) const
 }
 std::string_view FbxImporter::default_meta() const noexcept
 {
-    return "sample_rate = 30\nskeleton = \"\"\nnormals = \"import\"\n";
+    return "sample_rate = 30\nskeleton = \"\"\nnormals = \"import\"\n"
+           "scale_factor = 1.0\nrotation_offset = [0.0, 0.0, 0.0]\n";
 }
 bool FbxImporter::discover(const ImportAsset& source, std::vector<ImportSubresource>& output,
                            std::string& error) const
@@ -149,6 +249,15 @@ bool FbxImporter::discover(const ImportAsset& source, std::vector<ImportSubresou
     output.clear();
     FbxDocument document;
     if (!load_document(source.source, document, error))
+    {
+        return false;
+    }
+    auto meta = source.source;
+    meta += ".meta";
+    toml::table settings;
+    MaterialRemaps remaps;
+    if (!read_table(meta, settings, error) ||
+        !read_material_remaps(settings, document, remaps, error))
     {
         return false;
     }
@@ -167,6 +276,7 @@ bool FbxImporter::discover(const ImportAsset& source, std::vector<ImportSubresou
         output.push_back({key, schema::AssetKind::animation});
     }
     state_->documents.insert_or_assign(source.source, std::move(document));
+    state_->material_remaps.insert_or_assign(source.source, std::move(remaps));
     return true;
 }
 bool FbxImporter::inspect_batch(const ImportContext& context, std::string& fingerprint,
@@ -182,20 +292,20 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     }
     std::erase_if(state_->documents,
                   [&](const auto& entry) { return !current.contains(entry.first); });
+    std::erase_if(state_->material_remaps,
+                  [&](const auto& entry) { return !current.contains(entry.first); });
     for (const auto& [source, document] : state_->documents)
     {
         std::string hash;
         auto meta = source;
         meta += ".meta";
         toml::table settings;
+        MaterialRemaps remaps;
         if (!file_hash(source, hash, error) || hash != document.source_hash ||
+            !document_settings_match(source, document, error) ||
             !read_table(meta, settings, error) ||
-            (settings.contains("sample_rate") && !settings["sample_rate"].is_number()) ||
-            (settings.contains("skeleton") && !settings["skeleton"].is_string()) ||
-            settings["sample_rate"].value_or(30.0) != document.sample_rate ||
-            settings["skeleton"].value_or(std::string{}) != document.external_skeleton ||
-            (settings.contains("normals") && !settings["normals"].is_string()) ||
-            settings["normals"].value_or(std::string{"import"}) != document.normals_mode)
+            !read_material_remaps(settings, document, remaps, error) ||
+            remaps != state_->material_remaps.at(source))
         {
             error = "FBX source or settings changed during import; retry the build";
             return false;
@@ -207,7 +317,7 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:fbx-importer-3";
+    fingerprint += ":ufbx-0.23.1:fbx-importer-7";
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
@@ -233,7 +343,6 @@ bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& con
     {
         for (const auto& [key, node] : document->second.meshes)
         {
-            (void)node;
             Guid mesh_guid;
             if (!context.identities.path_to_guid(asset.path + "/" + key, mesh_guid) ||
                 !add(mesh_guid, schema::AssetKind::mesh))
@@ -241,15 +350,18 @@ bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& con
                 error = "FBX model mesh identity is unavailable";
                 return false;
             }
-        }
-        if (!document->second.meshes.empty())
-        {
-            Guid material;
-            if (!context.identities.path_to_guid("builtin/materials/default-pbr", material) ||
-                !add(material, schema::AssetKind::material))
+            std::vector<Guid> materials;
+            if (!resolve_materials(key, *node, state_->material_remaps.at(asset.source), context,
+                                   materials, error))
             {
-                error = "Built-in default PBR material is unavailable";
                 return false;
+            }
+            for (const auto& material : materials)
+            {
+                if (!add(material, schema::AssetKind::material))
+                {
+                    return false;
+                }
             }
         }
     }
@@ -292,15 +404,8 @@ bool FbxImporter::convert(const ImportAsset& asset, const ImportContext& context
         schema::ModelDataT model;
         model.schema_version = 2;
         model.path = asset.path;
-        Guid material;
-        if (!document.meshes.empty() &&
-            !context.identities.path_to_guid("builtin/materials/default-pbr", material))
-        {
-            error = "Built-in PBR material identity is missing";
-            return false;
-        }
-        if (!append_model_node(document, *document.scene->root_node, -1, asset, context, material,
-                               model, error))
+        if (!append_model_node(document, *document.scene->root_node, -1, asset, context,
+                               state_->material_remaps.at(asset.source), model, error))
         {
             return false;
         }

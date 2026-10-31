@@ -769,9 +769,13 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 旧场景的 `character_controller` 中 `mode`、`eye_height`、`camera_distance`、`pitch_min/max` 需移至相机节点的 `character_camera`，并设置 `target_node_id` 指向角色的持久节点 ID；控制器保留 `camera_node_id`。旧字段导入会明确报错，不能静默丢弃配置。已迁移内置样例，场景导入器指纹更新后会重新生成缓存。
 
-模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
+模型由 `Scene.InstantiateModel` 展开为普通节点，脚本可用实例根的 `Node.FindChild("相对/子路径")` 定位自己的网格部件，避免多个同名模型互相影响。网格节点添加 `Animator`；`AnimationSystem` 使用 ozz 采样和局部姿态混合，渲染系统通过 compute 完成 GPU 蒙皮，主画面、AO 与阴影共用输出顶点。相同资源共享不可变编译骨架、动画与源网格，每实例独立保存采样状态、骨骼矩阵和输出缓冲；更换场景或停止项目释放相应缓存。
+
+`Animator.CrossFade(path, seconds)` 切换标准动画资源，零秒直接切换，打断过渡从当前混合姿态继续；`Pause` 冻结过渡，`Stop` 恢复绑定姿态，`Seek` 和 `SetAnimation` 取消过渡。走跑、跳跃、落地和受击等选择规则属于项目脚本或玩法插件，核心不识别项目或模型。不同源骨架在编辑器导入阶段映射、重定向并烘焙到目标骨架，运行时消费同一资源契约；仅由脚本字符串引用的动作和材质须显式列入项目构建清单。动画播放、暂停、定位和项目启停均可经 MCP 控制。GPU 蒙皮要求 compute 能力；不支持时返回错误，不静默切换算法。
 
 示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
+
+模型适配由导入属性组合完成：FBX `.meta` 的 `scale_factor` 控制统一缩放，`rotation_offset` 指定 XYZ 欧拉角（度），`material_remaps` 按 Mesh 子资源路径绑定各材质槽。模型、骨架和动画使用一致的导入坐标；外部动画与引用骨架的坐标设置必须相同。材质引用自动进入模型的运行依赖，参数变化参与增量构建，已有子 GUID 保持不变。错误配置保留上一批有效缓存，不能通过项目名或模型名分支修补。字段格式与限制见 [FBX 导入契约](docs/plugins/editor/class-diagrams/fbx-importer.md)。
 
 庭院由 MCP 创建并保存为 231 个节点、225 个环境 Mesh、47,004 个环境三角形和 31 个静态碰撞体；三棵树共 840 片薄叶，每树合为一个 Mesh。人物由 Gameplay 在加载场景后实例化，避免保存后重复生成。项目启动直接读取建图脚本保存的场景组件参数；截图和动作采样来自真实渲染器。
 
@@ -932,7 +936,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
 - 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，导航请求与完整编辑器界面未实现。
 - 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
-- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画采用 CPU 蒙皮，尚未实现状态机混合、Root Motion、IK；控制器未附带触屏 UI。
+- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
 ## 目录

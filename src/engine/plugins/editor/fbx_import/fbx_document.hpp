@@ -7,6 +7,7 @@
 
 #include <ufbx.h>
 
+#include <array>
 #include <filesystem>
 #include <map>
 #include <memory>
@@ -33,10 +34,14 @@ struct FbxDocument
     std::string normals_mode = "import";
     std::string source_hash;
     double sample_rate = 30.0;
+    double scale_factor = 1.0;
+    std::array<double, 3> rotation_offset{};
 };
 
 [[nodiscard]] bool load_document(const std::filesystem::path& path, FbxDocument& document,
                                  std::string& error);
+[[nodiscard]] bool document_settings_match(const std::filesystem::path& path,
+                                           const FbxDocument& document, std::string& error);
 [[nodiscard]] bool convert_skeleton(const FbxDocument& document, schema::SkeletonDataT& output,
                                     std::string& error);
 [[nodiscard]] bool convert_mesh(const FbxDocument& document, const ufbx_node& node,

@@ -76,15 +76,14 @@ bool commands()
     auto seek = target;
     seek["seconds"] = 0.75;
     if (!expect(run("seek_animation", seek) && fixture.animation.tick(0) &&
-                    close(renderer->deformed_vertices()[0].x(), 3) &&
-                    editor.undo_count() == undo_count,
+                    close(sampled_vertex(*renderer).x(), 3) && editor.undo_count() == undo_count,
                 "seek affects transient playback without polluting undo history"))
     {
         return false;
     }
     seek["seconds"] = 2;
     if (!expect(!run("seek_animation", seek) && close(animator->time(), 0.75) &&
-                    run("stop_animation", target) && renderer->deformed_vertices().empty(),
+                    run("stop_animation", target) && renderer->skinning_palette().empty(),
                 "invalid seek preserves pose and stop immediately restores bind mesh"))
     {
         return false;

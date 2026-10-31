@@ -1,0 +1,432 @@
+#include "plugins/editor/fbx_import/fbx_document.hpp"
+
+#include <algorithm>
+#include <array>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <limits>
+#include <string>
+#include <vector>
+
+namespace
+{
+
+ufbx_matrix bind_pose(double unit, double angle, double displacement, double scale)
+{
+    auto transform = ufbx_identity_transform;
+    transform.translation.x = 0.087 + displacement;
+    transform.translation.y = 1.032;
+    transform.translation.z = 0.008;
+    transform.rotation.z = std::sin(angle * 0.5);
+    transform.rotation.w = std::cos(angle * 0.5);
+    transform.scale.x = unit * scale;
+    transform.scale.y = unit * scale;
+    transform.scale.z = unit * scale;
+    return ufbx_transform_to_matrix(&transform);
+}
+
+bool converts(const ufbx_matrix& first, const ufbx_matrix& second, double unit)
+{
+    using namespace engine::plugins::fbx_import;
+    FbxDocument document;
+    ufbx_node bone{};
+    bone.is_root = true;
+    bone.local_transform = ufbx_identity_transform;
+    bone.node_to_world = ufbx_identity_matrix;
+    document.joints.push_back(&bone);
+    document.joint_indices.emplace(&bone, 0);
+    std::array<ufbx_node, 2> nodes{};
+    std::array<ufbx_mesh, 2> meshes{};
+    std::array<ufbx_skin_deformer, 2> skins{};
+    std::array<ufbx_skin_cluster, 2> clusters{};
+    std::array<ufbx_skin_cluster*, 2> cluster_pointers{&clusters[0], &clusters[1]};
+    std::array<ufbx_skin_deformer*, 2> skin_pointers{&skins[0], &skins[1]};
+    const std::array bindings{first, second};
+    for (std::size_t index = 0; index < nodes.size(); ++index)
+    {
+        nodes[index].mesh = &meshes[index];
+        nodes[index].geometry_to_world = ufbx_identity_matrix;
+        nodes[index].geometry_to_world.m00 = unit;
+        nodes[index].geometry_to_world.m11 = unit;
+        nodes[index].geometry_to_world.m22 = unit;
+        clusters[index].bone_node = &bone;
+        clusters[index].geometry_to_bone =
+            ufbx_matrix_mul(&bindings[index], &nodes[index].geometry_to_world);
+        skins[index].clusters = {&cluster_pointers[index], 1};
+        meshes[index].skin_deformers = {&skin_pointers[index], 1};
+        document.meshes.emplace(std::to_string(index), &nodes[index]);
+    }
+    engine::schema::SkeletonDataT output;
+    std::string error;
+    const bool success = convert_skeleton(document, output, error);
+    return success && error.empty() && output.joints.size() == 1;
+}
+
+bool unit_independent_bind_comparison()
+{
+    for (const double unit : {1.0, 0.01, 0.0001, 100.0})
+    {
+        const auto reference_pose = bind_pose(unit, 1.0, 0.0, 1.0);
+        const auto reference = ufbx_matrix_invert(&reference_pose);
+        const auto approximate_pose = bind_pose(unit, 1.0 + 0.0000005, 0.0000002, 1.0000001);
+        const auto approximate = ufbx_matrix_invert(&approximate_pose);
+        if (!converts(reference, approximate, unit) || !converts(approximate, reference, unit))
+        {
+            std::fprintf(stderr, "FBX bind: equivalent noisy poses rejected at unit %.8g\n", unit);
+            return false;
+        }
+        for (const auto& different_pose :
+             {bind_pose(unit, 1.0, 0.001, 1.0), bind_pose(unit, 1.001, 0.0, 1.0),
+              bind_pose(unit, 1.0, 0.0, 1.001)})
+        {
+            const auto different = ufbx_matrix_invert(&different_pose);
+            if (converts(reference, different, unit) || converts(different, reference, unit))
+            {
+                std::fprintf(stderr, "FBX bind: incompatible pose accepted at unit %.8g\n", unit);
+                return false;
+            }
+        }
+        auto invalid = reference;
+        invalid.m00 = invalid.m10 = invalid.m20 = 0.0;
+        if (converts(reference, invalid, unit) || converts(invalid, reference, unit))
+        {
+            std::fputs("FBX bind: singular inverse binding accepted\n", stderr);
+            return false;
+        }
+        invalid = reference;
+        invalid.m00 = std::numeric_limits<double>::infinity();
+        if (converts(reference, invalid, unit))
+        {
+            std::fputs("FBX bind: nonfinite inverse binding accepted\n", stderr);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool expect(bool condition, const std::string& message)
+{
+    if (!condition)
+    {
+        std::fprintf(stderr, "FBX coordinates: %s\n", message.c_str());
+    }
+    return condition;
+}
+
+struct TemporarySources
+{
+    std::filesystem::path root;
+    ~TemporarySources()
+    {
+        std::error_code error;
+        std::filesystem::remove_all(root, error);
+    }
+};
+
+bool write_meta(const std::filesystem::path& source, const std::string& parameters)
+{
+    auto path = source;
+    path += ".meta";
+    std::ofstream stream(path, std::ios::binary | std::ios::trunc);
+    stream << "sample_rate = 4\n" << parameters;
+    stream.close();
+    return static_cast<bool>(stream);
+}
+
+ufbx_matrix matrix(const std::vector<float>& values)
+{
+    ufbx_matrix result{};
+    for (std::size_t column = 0; column < 4; ++column)
+    {
+        for (std::size_t row = 0; row < 3; ++row)
+        {
+            result.cols[column].v[row] = values[column * 4 + row];
+        }
+    }
+    return result;
+}
+
+ufbx_matrix matrix(const engine::schema::Vec3& position, const engine::schema::Vec4& rotation,
+                   const engine::schema::Vec3& scale)
+{
+    auto transform = ufbx_identity_transform;
+    transform.translation.x = position.x();
+    transform.translation.y = position.y();
+    transform.translation.z = position.z();
+    transform.rotation.x = rotation.x();
+    transform.rotation.y = rotation.y();
+    transform.rotation.z = rotation.z();
+    transform.rotation.w = rotation.w();
+    transform.scale.x = scale.x();
+    transform.scale.y = scale.y();
+    transform.scale.z = scale.z();
+    return ufbx_transform_to_matrix(&transform);
+}
+
+bool close(const ufbx_matrix& left, const ufbx_matrix& right)
+{
+    for (std::size_t index = 0; index < 12; ++index)
+    {
+        if (!std::isfinite(left.v[index]) || !std::isfinite(right.v[index]) ||
+            std::abs(left.v[index] - right.v[index]) >
+                0.0001 * std::max({1.0, std::abs(left.v[index]), std::abs(right.v[index])}))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::vector<ufbx_matrix> animated_globals(const engine::schema::SkeletonDataT& skeleton,
+                                          const engine::schema::AnimationDataT& animation)
+{
+    std::vector<ufbx_matrix> result;
+    for (const auto& joint : skeleton.joints)
+    {
+        result.push_back(matrix(joint->translation, joint->rotation, joint->scale));
+    }
+    for (const auto& track : animation.tracks)
+    {
+        const auto frame = track->translations.size() / 2;
+        result[track->joint] =
+            matrix(track->translations[frame].value(), track->rotations[frame].value(),
+                   track->scales[frame].value());
+    }
+    for (std::size_t index = 0; index < result.size(); ++index)
+    {
+        const auto parent = skeleton.joints[index]->parent;
+        if (parent >= 0)
+        {
+            result[index] =
+                ufbx_matrix_mul(&result[static_cast<std::size_t>(parent)], &result[index]);
+        }
+    }
+    return result;
+}
+
+struct ConvertedFbx
+{
+    engine::plugins::fbx_import::FbxDocument model_document;
+    engine::plugins::fbx_import::FbxDocument animation_document;
+    engine::schema::SkeletonDataT skeleton;
+    engine::schema::MeshDataT mesh;
+    engine::schema::AnimationDataT animation;
+};
+
+bool convert_sources(const TemporarySources& sources, const std::string& parameters,
+                     ConvertedFbx& output)
+{
+    using namespace engine::plugins::fbx_import;
+    std::string error;
+    const auto model = sources.root / "model.fbx";
+    const auto animation = sources.root / "animation.fbx";
+    if (!write_meta(model, parameters) || !write_meta(animation, parameters) ||
+        !load_document(model, output.model_document, error) ||
+        !load_document(animation, output.animation_document, error) ||
+        !document_settings_match(model, output.model_document, error) ||
+        output.model_document.meshes.empty() || output.animation_document.animations.empty() ||
+        !convert_skeleton(output.model_document, output.skeleton, error) ||
+        !convert_mesh(output.model_document, *output.model_document.meshes.begin()->second,
+                      output.mesh, error) ||
+        !convert_animation(output.animation_document, output.model_document,
+                           *output.animation_document.animations.begin()->second, output.animation,
+                           error))
+    {
+        return expect(false, "production conversion failed: " + error);
+    }
+    return true;
+}
+
+bool animation_sample_boundaries(const ConvertedFbx& source)
+{
+    using namespace engine::plugins::fbx_import;
+    const auto& document = source.animation_document;
+    const auto& skeleton = source.model_document;
+    auto stack = *document.animations.begin()->second;
+    stack.time_begin = 0.0;
+    const auto boundary = 2.0 / document.sample_rate;
+    for (const auto duration : {std::nextafter(boundary, 0.0), boundary,
+                                std::nextafter(boundary, std::numeric_limits<double>::infinity()),
+                                boundary - 0.000001, boundary + 0.000001})
+    {
+        stack.time_end = duration;
+        engine::schema::AnimationDataT animation;
+        std::string error;
+        if (!expect(convert_animation(document, skeleton, stack, animation, error), error))
+        {
+            return false;
+        }
+        const std::size_t expected_count = duration == boundary + 0.000001 ? 4 : 3;
+        for (const auto& track : animation.tracks)
+        {
+            const auto* joint = skeleton.joints[track->joint];
+            const auto* node = document.nodes.at(skeleton.node_paths.at(joint));
+            const auto end = ufbx_evaluate_transform(stack.anim, node, stack.time_end);
+            const auto& final_position = track->translations.back().value();
+            if (!expect(track->translations.size() == expected_count &&
+                            track->rotations.size() == expected_count &&
+                            track->scales.size() == expected_count &&
+                            track->translations.front().time() == 0.0F &&
+                            track->translations.back().time() == animation.duration &&
+                            final_position.x() == end.translation.x &&
+                            final_position.y() == end.translation.y &&
+                            final_position.z() == end.translation.z,
+                        "boundary sampling preserves the exact endpoint without duplicate times"))
+            {
+                return false;
+            }
+            for (std::size_t index = 1; index < expected_count; ++index)
+            {
+                if (!expect(track->translations[index].time() >
+                                track->translations[index - 1].time(),
+                            "boundary samples strictly increase"))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    stack.time_end = std::numeric_limits<double>::denorm_min();
+    engine::schema::AnimationDataT invalid;
+    std::string error;
+    return expect(!convert_animation(document, skeleton, stack, invalid, error) && !error.empty(),
+                  "duration that cannot advance a float timestamp is rejected");
+}
+
+bool coordinate_settings()
+{
+    using namespace engine::plugins::fbx_import;
+    std::error_code code;
+    const auto temporary = std::filesystem::temp_directory_path(code);
+    if (code)
+    {
+        return false;
+    }
+    TemporarySources sources{
+        temporary / ("engine-fbx-coordinate-" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
+    std::filesystem::create_directory(sources.root, code);
+    if (code)
+    {
+        return false;
+    }
+    const auto model = sources.root / "model.fbx";
+    std::filesystem::copy_file(std::filesystem::path(ENGINE_FBX_TEST_DATA_DIR) / "skeleton.fbx",
+                               model, code);
+    if (code)
+    {
+        return false;
+    }
+    std::filesystem::copy_file(std::filesystem::path(ENGINE_FBX_TEST_DATA_DIR) / "locomotions.fbx",
+                               sources.root / "animation.fbx", code);
+    if (code)
+    {
+        return false;
+    }
+    ConvertedFbx baseline;
+    if (!convert_sources(sources, {}, baseline) || !animation_sample_boundaries(baseline))
+    {
+        return false;
+    }
+    const auto base_globals = animated_globals(baseline.skeleton, baseline.animation);
+    const auto base_mesh = matrix(baseline.mesh.mesh_to_skeleton);
+    for (const auto& parameters : {"scale_factor = 0.01\nrotation_offset = [0, 0, 0]\n",
+                                   "scale_factor = 2.0\nrotation_offset = [25, -45, 70]\n",
+                                   "scale_factor = 100.0\nrotation_offset = [90, 180, -30]\n"})
+    {
+        ConvertedFbx adjusted;
+        if (!convert_sources(sources, parameters, adjusted))
+        {
+            return false;
+        }
+        auto transform = ufbx_identity_transform;
+        const auto& document = adjusted.model_document;
+        transform.scale.x = transform.scale.y = transform.scale.z = document.scale_factor;
+        ufbx_vec3 angles{};
+        std::copy(document.rotation_offset.begin(), document.rotation_offset.end(), angles.v);
+        transform.rotation = ufbx_euler_to_quat(angles, UFBX_ROTATION_ORDER_XYZ);
+        const auto correction = ufbx_transform_to_matrix(&transform);
+        const auto inverse = ufbx_matrix_invert(&correction);
+        if (!expect(document.nodes.size() == baseline.model_document.nodes.size() &&
+                        adjusted.skeleton.joints.size() == baseline.skeleton.joints.size() &&
+                        adjusted.mesh.vertices.size() == baseline.mesh.vertices.size(),
+                    "coordinate import preserves hierarchy, joints and mesh topology"))
+        {
+            return false;
+        }
+        for (const auto& [path, node] : document.nodes)
+        {
+            const auto* original = baseline.model_document.nodes.at(path);
+            if (!expect(close(node->node_to_world,
+                              ufbx_matrix_mul(&correction, &original->node_to_world)),
+                        "model hierarchy composes correction with native axes/units"))
+            {
+                return false;
+            }
+        }
+        const auto mesh = matrix(adjusted.mesh.mesh_to_skeleton);
+        if (!expect(close(mesh, ufbx_matrix_mul(&correction, &base_mesh)),
+                    "mesh_to_skeleton includes the same import correction"))
+        {
+            return false;
+        }
+        const auto globals = animated_globals(adjusted.skeleton, adjusted.animation);
+        for (std::size_t index = 0; index < adjusted.skeleton.joints.size(); ++index)
+        {
+            const auto base_bind = matrix(baseline.skeleton.joints[index]->inverse_bind);
+            const auto bind = matrix(adjusted.skeleton.joints[index]->inverse_bind);
+            const auto base_skin = ufbx_matrix_mul(&base_globals[index], &base_bind);
+            const auto skin = ufbx_matrix_mul(&globals[index], &bind);
+            const auto base_vertex = ufbx_matrix_mul(&base_skin, &base_mesh);
+            if (!expect(close(bind, ufbx_matrix_mul(&base_bind, &inverse)),
+                        "inverse bindings compensate import correction") ||
+                !expect(close(globals[index], ufbx_matrix_mul(&correction, &base_globals[index])),
+                        "animation samples and rest joints use the same coordinates") ||
+                !expect(close(ufbx_matrix_mul(&skin, &mesh),
+                              ufbx_matrix_mul(&correction, &base_vertex)),
+                        "animated skin positions scale and rotate once"))
+            {
+                return false;
+            }
+        }
+        engine::schema::AnimationDataT mismatched;
+        std::string error;
+        if (!expect(!convert_animation(adjusted.animation_document, baseline.model_document,
+                                       *adjusted.animation_document.animations.begin()->second,
+                                       mismatched, error) &&
+                        error.find("identical scale_factor") != std::string::npos,
+                    "external skeleton coordinate mismatch fails explicitly"))
+        {
+            return false;
+        }
+    }
+    for (const auto& invalid :
+         {"scale_factor = 0\n", "scale_factor = -1\n", "scale_factor = inf\n",
+          "scale_factor = 0.00001\n", "scale_factor = 100001\n", "scale_factor = true\n",
+          "rotation_offset = [0, 1]\n", "rotation_offset = [0, 0, 0, 0]\n",
+          "rotation_offset = [0, inf, 0]\n", "rotation_offset = [0, '90', 0]\n"})
+    {
+        FbxDocument rejected;
+        std::string error;
+        if (!write_meta(model, invalid) ||
+            !expect(!load_document(model, rejected, error) && !error.empty(),
+                    "invalid import coordinates are rejected"))
+        {
+            return false;
+        }
+    }
+    std::string error;
+    return write_meta(model, "scale_factor = 2.0\n") &&
+           expect(!document_settings_match(model, baseline.model_document, error),
+                  "in-flight coordinate settings changes invalidate the batch");
+}
+
+} // namespace
+
+int main()
+{
+    return unit_independent_bind_comparison() && coordinate_settings() ? 0 : 1;
+}

@@ -333,7 +333,7 @@ bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, Shadow
                 bgfx::setTransform(caster.model.data());
                 bgfx::setUniform(depth_uniform, depth_scale);
                 mesh.bind_vertices();
-                bgfx::setIndexBuffer(mesh.indices, first, count);
+                bgfx::setIndexBuffer(mesh.geometry->indices, first, count);
                 bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
                                BGFX_STATE_DEPTH_TEST_LESS |
                                cull_state(material->cull_mode(), caster.model.data()));

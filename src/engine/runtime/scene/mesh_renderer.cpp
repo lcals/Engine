@@ -48,6 +48,28 @@ schema::ComponentDataT make_mesh_renderer_data()
     return data;
 }
 
+bool skin_joint_count(const schema::MeshDataT& data, std::uint32_t& count) noexcept
+{
+    count = 0;
+    if (!data.skin.empty() && data.skin.size() != data.vertices.size())
+    {
+        return false;
+    }
+    for (const auto& skin : data.skin)
+    {
+        const std::array<float, 4> weights = {skin.w0(), skin.w1(), skin.w2(), skin.w3()};
+        const float sum = skin.w0() + skin.w1() + skin.w2() + skin.w3();
+        if (!std::all_of(weights.begin(), weights.end(), [](float weight)
+                         { return std::isfinite(weight) && weight >= 0.0F && weight <= 1.0F; }) ||
+            !std::isfinite(sum) || std::abs(sum - 1.0F) > 0.0001F)
+        {
+            return false;
+        }
+        count = std::max(count, 1U + std::max({skin.j0(), skin.j1(), skin.j2(), skin.j3()}));
+    }
+    return true;
+}
+
 } // namespace
 
 MeshRenderer::MeshRenderer(Node& node)
@@ -97,9 +119,11 @@ bool MeshRenderer::set_mesh(std::string_view path)
     auto* resources = ResourceSystem::instance();
     Guid guid;
     ResourcePtr replacement;
+    std::uint32_t joint_count = 0;
     if (mesh_revision_ == std::numeric_limits<std::uint64_t>::max() || resources == nullptr ||
         !ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, replacement) ||
         replacement->mesh() == nullptr || !MeshUtils::validate(*replacement->mesh()) ||
+        !skin_joint_count(*replacement->mesh(), joint_count) ||
         !set_material_count(std::max(material_count(), required_materials(*replacement->mesh()))))
     {
         return false;
@@ -107,6 +131,7 @@ bool MeshRenderer::set_mesh(std::string_view path)
     mutable_data().payload.AsMeshRendererData()->mesh_guid = std::move(guid);
     mesh_resource_ = std::move(replacement);
     dynamic_mesh_.reset();
+    skin_joint_count_ = joint_count;
     clear_deformation();
     ++mesh_revision_;
     return true;
@@ -114,7 +139,9 @@ bool MeshRenderer::set_mesh(std::string_view path)
 
 bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
 {
-    if (mesh_revision_ == std::numeric_limits<std::uint64_t>::max() || !MeshUtils::validate(data))
+    std::uint32_t joint_count = 0;
+    if (mesh_revision_ == std::numeric_limits<std::uint64_t>::max() || !MeshUtils::validate(data) ||
+        !skin_joint_count(data, joint_count))
     {
         return false;
     }
@@ -125,6 +152,7 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     }
     dynamic_mesh_ = std::move(replacement);
     mesh_resource_.reset();
+    skin_joint_count_ = joint_count;
     mutable_data().payload.AsMeshRendererData()->mesh_guid.clear();
     clear_deformation();
     ++mesh_revision_;
@@ -134,6 +162,11 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
 const schema::MeshDataT* MeshRenderer::mesh_data() const noexcept
 {
     return dynamic_mesh_ ? dynamic_mesh_.get() : mesh_resource_ ? mesh_resource_->mesh() : nullptr;
+}
+
+std::shared_ptr<const Resource> MeshRenderer::mesh_resource() const noexcept
+{
+    return mesh_resource_;
 }
 
 std::uint64_t MeshRenderer::mesh_revision() const noexcept
@@ -180,22 +213,68 @@ bool MeshRenderer::set_deformation(std::span<const schema::MeshVertex> vertices,
     std::vector<Vec4> replacement_tangents(tangents.begin(), tangents.end());
     deformed_vertices_.swap(replacement_vertices);
     deformed_tangents_.swap(replacement_tangents);
+    skinning_palette_.clear();
+    skinning_normal_palette_.clear();
     ++deformation_revision_;
     return true;
 }
 
 void MeshRenderer::clear_deformation() noexcept
 {
-    if (deformed_vertices_.empty())
+    if (deformed_vertices_.empty() && skinning_palette_.empty())
     {
         return;
     }
     deformed_vertices_.clear();
     deformed_tangents_.clear();
+    skinning_palette_.clear();
+    skinning_normal_palette_.clear();
     if (deformation_revision_ != std::numeric_limits<std::uint64_t>::max())
     {
         ++deformation_revision_;
     }
+}
+
+bool MeshRenderer::set_skinning_palette(std::span<const std::array<float, 16>> transforms,
+                                        std::span<const std::array<float, 16>> normal_transforms)
+{
+    if (skin_joint_count_ == 0 || transforms.size() < skin_joint_count_ ||
+        transforms.size() > 65536 || transforms.size() != normal_transforms.size() ||
+        deformation_revision_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    for (std::size_t index = 0; index < transforms.size(); ++index)
+    {
+        const auto& matrix = transforms[index];
+        const auto& normal = normal_transforms[index];
+        const auto finite = [](float value) { return std::isfinite(value); };
+        if (!std::all_of(matrix.begin(), matrix.end(), finite) ||
+            !std::all_of(normal.begin(), normal.end(), finite) || std::abs(matrix[3]) > 1.0e-5F ||
+            std::abs(matrix[7]) > 1.0e-5F || std::abs(matrix[11]) > 1.0e-5F ||
+            std::abs(matrix[15] - 1.0F) > 1.0e-5F)
+        {
+            return false;
+        }
+    }
+    std::vector<std::array<float, 16>> positions(transforms.begin(), transforms.end());
+    std::vector<std::array<float, 16>> normals(normal_transforms.begin(), normal_transforms.end());
+    skinning_palette_.swap(positions);
+    skinning_normal_palette_.swap(normals);
+    deformed_vertices_.clear();
+    deformed_tangents_.clear();
+    ++deformation_revision_;
+    return true;
+}
+
+std::span<const std::array<float, 16>> MeshRenderer::skinning_palette() const noexcept
+{
+    return skinning_palette_;
+}
+
+std::span<const std::array<float, 16>> MeshRenderer::skinning_normal_palette() const noexcept
+{
+    return skinning_normal_palette_;
 }
 
 std::span<const schema::MeshVertex> MeshRenderer::deformed_vertices() const noexcept
@@ -322,6 +401,7 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
     mutable_data() = data;
     mesh_resource_.swap(replacement.mesh_resource_);
     dynamic_mesh_.swap(replacement.dynamic_mesh_);
+    std::swap(skin_joint_count_, replacement.skin_joint_count_);
     material_.swap(replacement.material_);
     additional_materials_.swap(replacement.additional_materials_);
     clear_deformation();

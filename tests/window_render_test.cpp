@@ -1,3 +1,4 @@
+#include "animation_fixture.hpp"
 #include "resource_fixture.hpp"
 
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
@@ -569,6 +570,207 @@ bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
     return matched;
 }
 
+bool test_gpu_skinning(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
+#endif
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config))
+    {
+        return false;
+    }
+    const auto skeleton = test_support::animation::skeleton(false);
+    auto mesh = textured_quad();
+    mesh.path = "project/meshes/gpu-skinning";
+    mesh.skeleton_guid = test_support::animation::target_guid;
+    mesh.mesh_to_skeleton = test_support::animation::translation(0, 0, 0);
+    mesh.skin.assign(mesh.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
+    for (auto& vertex : mesh.vertices)
+    {
+        vertex.mutate_nx(0.577350269F);
+        vertex.mutate_ny(0.577350269F);
+        vertex.mutate_nz(0.577350269F);
+    }
+    if (!engine::MeshUtils::build_tangents(mesh, mesh.tangents))
+    {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder skeleton_builder;
+    engine::schema::FinishSkeletonDataBuffer(
+        skeleton_builder, engine::schema::SkeletonData::Pack(skeleton_builder, &skeleton));
+    flatbuffers::FlatBufferBuilder mesh_builder;
+    engine::schema::FinishMeshDataBuffer(mesh_builder,
+                                         engine::schema::MeshData::Pack(mesh_builder, &mesh));
+    if (!test_support::animation::add(fixture, test_support::animation::target_guid, skeleton.path,
+                                      engine::schema::AssetKind::skeleton, skeleton_builder) ||
+        !test_support::animation::add(fixture, test_support::animation::mesh_guid, mesh.path,
+                                      engine::schema::AssetKind::mesh, mesh_builder,
+                                      {test_support::animation::target_guid}) ||
+        !fixture.publish(resources))
+    {
+        return false;
+    }
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    if (!graph.initialize(config))
+    {
+        return false;
+    }
+    resources.set_loader(&graph);
+#endif
+    if (!render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    auto* scene = world.create_scene("Independent GPU poses");
+    auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
+    auto* camera = camera_node ? camera_node->add_component<engine::Camera>() : nullptr;
+    auto* light_node = scene ? scene->create_node("Light") : nullptr;
+    auto* light = light_node ? light_node->add_component<engine::Light>() : nullptr;
+    if (!camera || !light)
+    {
+        return false;
+    }
+    auto camera_settings = camera->settings();
+    camera_settings.projection = engine::schema::Projection::orthographic;
+    camera_settings.orthographic_size = 2;
+    auto pose = camera_node->get_component<engine::Transform>()->settings();
+    pose.position = {0, 0, 3};
+    if (!camera->set_settings(camera_settings) ||
+        !camera_node->get_component<engine::Transform>()->set_settings(pose) ||
+        !scene->set_active_camera(camera))
+    {
+        return false;
+    }
+    const std::array<float, 16> first_matrix{0.5F, 0, 0,    0, 0,  0.8F, 0, 0,
+                                             0,    0, 0.4F, 0, -1, 0,    0, 1};
+    const std::array<float, 16> first_normal{2, 0, 0, 0, 0, 1.25F, 0, 0, 0, 0, 2.5F, 0, 0, 0, 0, 1};
+    auto second_matrix = first_matrix;
+    auto second_normal = first_normal;
+    second_matrix[0] = -0.5F;
+    second_matrix[12] = 1;
+    second_normal[0] = -2;
+    const auto make_renderer = [&](const char* name, const auto& transform, const auto& normal)
+    {
+        auto* node = scene->create_node(name);
+        auto* result = node ? node->add_component<engine::MeshRenderer>() : nullptr;
+        if (!result || !result->set_mesh(mesh.path) ||
+            !result->material().set_cull_mode(engine::schema::CullMode::none) ||
+            !result->material().set_v4("baseColor", {0.7, 0.4, 0.2, 1}) ||
+            !result->set_skinning_palette({&transform, 1}, {&normal, 1}))
+        {
+            return static_cast<engine::MeshRenderer*>(nullptr);
+        }
+        return result;
+    };
+    auto* first = make_renderer("First", first_matrix, first_normal);
+    if (!expect(first != nullptr, "submit first GPU pose") || !render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    const auto single = gpu_counts();
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    const auto single_resource_count = renderer.gpu_resource_count();
+#endif
+    auto* second = make_renderer("Second", second_matrix, second_normal);
+    if (!expect(second != nullptr, "submit an independent mirrored GPU pose") ||
+        !render_frames(windows, renderer, 4) ||
+        !expect(gpu_counts().dynamic_vertices == single.dynamic_vertices + 2,
+                "each character owns one palette buffer and one output vertex buffer"))
+    {
+        return false;
+    }
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    // bgfx 的 numVertexBuffers 同时计入每个 compute dynamic buffer 的底层存储。
+    if (!expect(first->mesh_resource() == second->mesh_resource() &&
+                    gpu_counts().vertices == single.vertices + 2 &&
+                    gpu_counts().indices == single.indices &&
+                    renderer.gpu_resource_count() == single_resource_count + 2,
+                "shared immutable mesh uploads one source stream, skin stream and index buffer"))
+    {
+        return false;
+    }
+#endif
+    Screenshot gpu_pose;
+    Screenshot cpu_reference;
+    if (!screenshot(windows, renderer, fixture.root, "gpu-skinning", gpu_pose))
+    {
+        return false;
+    }
+    const auto reference =
+        [&](engine::MeshRenderer& target, const auto& transform, const auto& normal)
+    {
+        auto vertices = mesh.vertices;
+        auto tangents = mesh.tangents;
+        for (std::size_t index = 0; index < vertices.size(); ++index)
+        {
+            const auto& input = mesh.vertices[index];
+            const auto& tangent = mesh.tangents[index];
+            double nx = input.nx() * normal[0], ny = input.ny() * normal[5],
+                   nz = input.nz() * normal[10];
+            const double normal_length = std::hypot(nx, ny, nz);
+            nx /= normal_length;
+            ny /= normal_length;
+            nz /= normal_length;
+            double tx = tangent.x() * transform[0], ty = tangent.y() * transform[5],
+                   tz = tangent.z() * transform[10];
+            const double dot = nx * tx + ny * ty + nz * tz;
+            tx -= nx * dot;
+            ty -= ny * dot;
+            tz -= nz * dot;
+            const double tangent_length = std::hypot(tx, ty, tz);
+            tx /= tangent_length;
+            ty /= tangent_length;
+            tz /= tangent_length;
+            vertices[index] = {input.x() * transform[0] + transform[12],
+                               input.y() * transform[5],
+                               input.z() * transform[10],
+                               static_cast<float>(nx),
+                               static_cast<float>(ny),
+                               static_cast<float>(nz)};
+            tangents[index] = {tx, ty, tz, tangent.w() * (transform[0] < 0 ? -1 : 1)};
+        }
+        return target.set_deformation(vertices, tangents);
+    };
+    if (!reference(*first, first_matrix, first_normal) ||
+        !reference(*second, second_matrix, second_normal) || !render_frames(windows, renderer, 4) ||
+        !screenshot(windows, renderer, fixture.root, "cpu-skinning-reference", cpu_reference) ||
+        gpu_pose.pixels.size() != cpu_reference.pixels.size())
+    {
+        return false;
+    }
+    std::size_t mismatches = 0;
+    std::size_t lit_pixels = 0;
+    for (std::size_t pixel = 0; pixel < gpu_pose.pixels.size(); ++pixel)
+    {
+        int difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            difference += std::abs(static_cast<int>(gpu_pose.pixels[pixel][channel]) -
+                                   cpu_reference.pixels[pixel][channel]);
+        }
+        mismatches += difference > 6;
+        lit_pixels += gpu_pose.pixels[pixel][0] > 80;
+    }
+    if (!expect(
+            lit_pixels > 100 && mismatches < gpu_pose.pixels.size() / 1000 + 1,
+            "independent GPU poses match CPU positions, nonuniform normals and mirrored tangents"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 4) &&
+           expect(gpu_counts() == idle,
+                  "shared geometry and per-instance skinning buffers retire together");
+}
+
 bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
     engine::ResourceSystem resources;
@@ -724,8 +926,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
                         camera->set_hidden_meshes(hidden) &&
                         !camera->set_hidden_meshes(invalid_hidden) &&
                         !camera->mesh_visible(hidden.front()) && !camera->mesh_visible(0) &&
-                        observer->mesh_visible(hidden.front()) &&
-                        camera->build_data(saved_camera),
+                        observer->mesh_visible(hidden.front()) && camera->build_data(saved_camera),
                     "camera filter is independent, accepts duplicate IDs and rejects zero "
                     "without replacing the prior list") ||
             !render_frames(windows, renderer, 8, camera) ||
@@ -737,8 +938,8 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
             !render_frames(windows, renderer, 8, observer) ||
             !screenshot(windows, renderer, fixture.root, "camera-observer", image, observer) ||
             !expect(near_color(image.pixel(cx, cy), 188, 188, 188) &&
-                        scene->active_camera() == camera &&
-                        !camera->mesh_visible(hidden.front()) && gpu_counts() == single_mesh,
+                        scene->active_camera() == camera && !camera->mesh_visible(hidden.front()) &&
+                        gpu_counts() == single_mesh,
                     "explicit observer sees a mesh hidden from the active camera without "
                     "changing either view"))
         {
@@ -746,8 +947,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         }
         auto invalid_camera = saved_camera;
         invalid_camera.payload.AsCameraData()->fov_degrees = 0.0F;
-        if (!expect(!camera->restore_data(invalid_camera) &&
-                        !camera->mesh_visible(hidden.front()),
+        if (!expect(!camera->restore_data(invalid_camera) && !camera->mesh_visible(hidden.front()),
                     "failed camera restore preserves its hidden list"))
         {
             return false;
@@ -1118,7 +1318,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     cube_mesh->set_cast_shadows(false);
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hidden-caster-no-shadow",
-                     hidden_without_shadow))
+                    hidden_without_shadow))
     {
         return false;
     }
@@ -1172,6 +1372,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
+    auto skin_source = posed;
+    skin_source.skin.assign(skin_source.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
     const float cosine = std::cos(0.5F);
     const float sine = std::sin(0.5F);
     for (std::size_t index = 0; index < posed.vertices.size(); ++index)
@@ -1189,11 +1391,24 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                                  tangent.w()};
     }
     Screenshot deformed_shadow;
+    Screenshot gpu_shadow;
     Screenshot reference_shadow;
-    if (!expect(cube_mesh->set_deformation(posed.vertices, posed.tangents),
+    const std::array<float, 16> skin_transform{cosine, sine, 0, 0, -sine, cosine, 0, 0,
+                                               0,      0,    1, 0, 1.5F,  2.0F,   0, 1};
+    auto skin_normal = skin_transform;
+    skin_normal[12] = 0;
+    skin_normal[13] = 0;
+    settings.ao_enabled = true;
+    if (!renderer.set_settings(settings) ||
+        !expect(cube_mesh->set_deformation(posed.vertices, posed.tangents),
                 "deform shadow caster without changing source mesh") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "deformed-shadow", deformed_shadow) ||
+        !expect(cube_mesh->set_mesh_data(skin_source) &&
+                    cube_mesh->set_skinning_palette({&skin_transform, 1}, {&skin_normal, 1}),
+                "submit the same pose through compute skinning") ||
+        !render_frames(windows, renderer, 4) ||
+        !screenshot(windows, renderer, fixture.root, "gpu-skinned-shadow", gpu_shadow) ||
         !expect(cube_mesh->set_mesh_data(posed), "publish equivalent static reference geometry") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "reference-shadow", reference_shadow) ||
@@ -1205,10 +1420,12 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     }
     std::size_t pose_changes = 0;
     std::size_t reference_mismatches = 0;
+    std::size_t gpu_mismatches = 0;
     for (std::size_t index = 0; index < reference_shadow.pixels.size(); ++index)
     {
         int pose_difference = 0;
         int reference_difference = 0;
+        int gpu_difference = 0;
         for (std::size_t channel = 0; channel < 3; ++channel)
         {
             pose_difference += std::abs(static_cast<int>(shadowed.pixels[index][channel]) -
@@ -1216,19 +1433,24 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             reference_difference +=
                 std::abs(static_cast<int>(reference_shadow.pixels[index][channel]) -
                          deformed_shadow.pixels[index][channel]);
+            gpu_difference += std::abs(static_cast<int>(reference_shadow.pixels[index][channel]) -
+                                       gpu_shadow.pixels[index][channel]);
         }
         pose_changes += pose_difference > 30;
         reference_mismatches += reference_difference > 6;
+        gpu_mismatches += gpu_difference > 6;
     }
     if (!expect(pose_changes > 100 &&
-                    reference_mismatches < reference_shadow.pixels.size() / 1000 + 1,
+                    reference_mismatches < reference_shadow.pixels.size() / 1000 + 1 &&
+                    gpu_mismatches < reference_shadow.pixels.size() / 1000 + 1,
                 "deformed positions, normals, tangents, shadow bounds and shadow pass match "
                 "equivalent static geometry") ||
         !expect(cube_mesh->set_mesh("builtin/meshes/cube"), "restore original shadow caster") ||
-        !render_frames(windows, renderer, 8))
+        !renderer.set_settings(shadow_settings) || !render_frames(windows, renderer, 8))
     {
         return false;
     }
+    settings = shadow_settings;
     settings.filmic_tonemap = true;
     settings.exposure = 1.25F;
     const auto capture = fixture.root / "render-capture.png";
@@ -1721,7 +1943,8 @@ int main(int, char**)
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     textures_passed = textures_passed && test_textured_renderer(config, true);
 #endif
-    const bool settings_passed = textures_passed && test_render_settings_and_capture(config);
+    const bool skinning_passed = textures_passed && test_gpu_skinning(config);
+    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config);
     const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
     const bool engine_passed = hdr_passed && test_engine(config);
     const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
