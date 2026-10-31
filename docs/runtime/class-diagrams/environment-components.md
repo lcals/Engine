@@ -43,6 +43,17 @@ classDiagram
         <<FlatBuffers生成>>
         +float exposure
         +bool filmic_tonemap
+        +bool ao_enabled
+        +float ao_radius
+        +float ao_strength
+        +float ao_power
+        +float ao_fade_start
+        +float ao_fade_end
+        +bool hdr_enabled
+        +bool bloom_enabled
+        +float bloom_threshold
+        +float bloom_intensity
+        +float bloom_radius
     }
     class ComponentDataT
     class RenderSystem
@@ -68,3 +79,11 @@ classDiagram
 - IBL 尚未烘焙时三个 GUID 可以全空，启用开关不会使场景加载失败；只要存在任一引用就必须三项齐全且资源格式正确。编辑器烘焙插件负责生成资源、meta 和更新场景引用，组件不包含烘焙工具或目录策略。资源代际切换后渲染器加载新结果，场景停止释放 GPU 与资源借用。
 - 阴影设置由 `LightDataT` 的 cast_shadows、shadow_resolution、shadow_bias 保存；当前仅方向光支持投影，每个场景最多一个启用且投影的方向光，分辨率为 128..8192 的 2 次幂，偏移为 0..0.1。非方向光开启投影明确返回失败。
 - `set_settings` 先验证全部参数再整体提交，失败保持原值；`restore_data` 成功后才恢复 enabled。设置查询为 const 借用，方法均遵循无异常和返回状态约定。
+
+## 屏幕空间环境遮蔽
+
+AO 参数归相机节点的 PostProcessDataT：ao_enabled 默认 false；ao_radius 默认 1，范围 (0,100]；ao_strength 默认 1，范围 [0,2]；ao_power 默认 1.5，范围 [0.1,8]；ao_fade_start/ao_fade_end 默认 80/150，满足 0 <= start < end <= 100000。与曝光同样由活动场景相机提供配置，隐藏预览相机只提供本帧投影。场景保存、热重载、MCP 撤销重做和脚本绑定操作相同的生成数据。AO 依赖本帧视图深度，实时计算，不保存为美术资源。
+
+## HDR 与泛光参数
+
+HDR 与 Bloom 同属 PostProcessDataT：`hdr_enabled` 和 `bloom_enabled` 默认 false，保持旧场景的默认路径；`bloom_threshold` 默认 1、范围 `[0,100]`，`bloom_intensity` 默认 0.15、范围 `[0,10]`，`bloom_radius` 默认 1、范围 `[0.25,4]`，所有数值必须有限。Bloom 开启要求 HDR 已开启，关闭 HDR 要求 Bloom 已关闭。组件只验证显式请求，不自动修改另一开关；跨字段不一致时整份状态保持不变。调用者可一次提交两项关闭或开启，也可按先 HDR 后 Bloom 开启、先 Bloom 后 HDR 关闭的顺序提交。曝光与 AO 方法保留这组参数。

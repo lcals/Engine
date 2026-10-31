@@ -61,8 +61,26 @@ declare module "engine" {
         /** Exposure in (0, 100]. */
         static SetExposure(value: number): boolean;
         static SetFilmicTonemap(enabled: boolean): boolean;
-        /** Resolution defaults to 2048; bias defaults to 0.001. */
+        /** HDR defaults off. Disable Bloom before disabling HDR; failure preserves all settings. */
+        static SetHdr(enabled: boolean): boolean;
+        /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
+        /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
+        static SetBloom(
+            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+        ): boolean;
+        /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
+        /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
+        static SetAmbientOcclusion(
+            enabled: boolean, radius?: number, strength?: number, power?: number,
+            fadeStart?: number, fadeEnd?: number
+        ): boolean;
+        /** Full atlas resolution defaults to 2048; bias to 0.001. Preserves cascade settings. */
         static SetDirectionalShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
+        /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
+        /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
+        static SetShadowCascades(
+            count: number, distance: number, splitLambda?: number, blend?: number
+        ): boolean;
         /** Unsigned 32-bit 0xRRGGBBAA; MCP uses a normalized [r,g,b,a] array in the same order. */
         static SetClearColor(rgba: number): boolean;
     }
@@ -159,14 +177,32 @@ declare module "engine" {
         private constructor();
         SetExposure(value: number): boolean;
         SetFilmicTonemap(enabled: boolean): boolean;
+        /** HDR defaults off. Disable Bloom before disabling HDR; failure preserves all settings. */
+        SetHdr(enabled: boolean): boolean;
+        /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
+        /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
+        SetBloom(
+            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+        ): boolean;
+        /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
+        /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
+        SetAmbientOcclusion(
+            enabled: boolean, radius?: number, strength?: number, power?: number,
+            fadeStart?: number, fadeEnd?: number
+        ): boolean;
     }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
         SetDirectional(): boolean;
-        /** Directional lights only. Resolution defaults to 2048, bias to 0.001. */
+        /** Directional lights only. Full atlas defaults to 2048, bias to 0.001; preserves cascades. */
         SetShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
+        /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
+        /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
+        SetShadowCascades(
+            count: number, distance: number, splitLambda?: number, blend?: number
+        ): boolean;
         SetPoint(range: number): boolean;
         /** Cone half-angles in degrees. */
         SetSpot(range: number, innerAngle: number, outerAngle: number): boolean;

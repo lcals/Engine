@@ -9,6 +9,7 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
@@ -19,11 +20,18 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <map>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace
 {
@@ -52,6 +60,89 @@ Node* named(Scene& scene, std::string_view name)
     return nullptr;
 }
 
+struct SourceSnapshot
+{
+    std::string content;
+    fs::file_time_type modified;
+};
+
+using SourceSnapshots = std::map<fs::path, SourceSnapshot>;
+
+bool snapshot_sources(const fs::path& root, SourceSnapshots& output)
+{
+    output.clear();
+    std::error_code ec;
+    fs::recursive_directory_iterator current(root, ec);
+    const fs::recursive_directory_iterator end;
+    while (!ec && current != end)
+    {
+        if (current->is_regular_file(ec))
+        {
+            SourceSnapshot snapshot;
+            snapshot.modified = current->last_write_time(ec);
+            if (ec || !ResourceSystem::read_text(current->path(), snapshot.content))
+            {
+                return false;
+            }
+            output.emplace(current->path(), std::move(snapshot));
+        }
+        if (ec)
+        {
+            return false;
+        }
+        current.increment(ec);
+    }
+    return !ec;
+}
+
+bool unchanged_sources(const SourceSnapshots& before, const SourceSnapshots& after,
+                       const fs::path& changed = {})
+{
+    if (before.size() != after.size())
+    {
+        return false;
+    }
+    for (const auto& [path, snapshot] : before)
+    {
+        const auto found = after.find(path);
+        if (found == after.end() ||
+            (path != changed && (found->second.content != snapshot.content ||
+                                 found->second.modified != snapshot.modified)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+const schema::MeshRendererDataT* saved_mesh(const schema::SceneDataT& scene,
+                                          std::uint64_t node_id)
+{
+    for (const auto& node : scene.nodes)
+    {
+        if (!node || !node->info || node->info->id != node_id)
+        {
+            continue;
+        }
+        for (const auto& component : node->components)
+        {
+            if (component && component->payload.AsMeshRendererData())
+            {
+                return component->payload.AsMeshRendererData();
+            }
+        }
+    }
+    return nullptr;
+}
+
+bool write_text(const fs::path& path, std::string_view text)
+{
+    std::ofstream output(path, std::ios::binary | std::ios::trunc);
+    output.write(text.data(), static_cast<std::streamsize>(text.size()));
+    output.close();
+    return static_cast<bool>(output);
+}
+
 bool run(const fs::path& root)
 {
     // 与 editor_app 同样装配项目系统，捕获跨模块 TOML ABI/符号冲突。
@@ -78,16 +169,27 @@ bool run(const fs::path& root)
     engine::plugins::modeling::ModelingCommands modeling(world, root);
     engine::editor::SceneCommands scene_commands(world);
     bool reject_export = false;
+    std::size_t export_count = 0;
+    std::size_t save_count = 0;
+    std::size_t changed_resource_count = 0;
+    std::string saved_path;
     engine::editor::ScenePersistence persistence(
         world, root,
         [&](const Node& node, const fs::path& path, std::string& error)
         {
+            ++export_count;
             if (reject_export && node.name() == "Second")
             {
                 error = "Injected export failure";
                 return false;
             }
             return modeling.export_mesh(node, path, error);
+        },
+        [&](std::string_view path, std::span<const engine::editor::SceneSavedResource> changes)
+        {
+            ++save_count;
+            saved_path = path;
+            changed_resource_count = changes.size();
         });
     engine::editor::EditorCommands commands([&]()
                                             { return world.scene() ? world.scene()->id() : 0; });
@@ -152,7 +254,21 @@ bool run(const fs::path& root)
     auto* first = named(*scene, "First");
     auto* second = named(*scene, "Second");
     auto* renderer = first != nullptr ? first->get_component<MeshRenderer>() : nullptr;
-    if (!first || !second || !renderer || !second->set_parent(first) ||
+    float default_roughness = 0;
+    if (!first || !second || !renderer ||
+        !expect(!renderer->material().has_overrides() &&
+                    renderer->material().get_float("roughness", default_roughness) &&
+                    renderer->material().set_float("roughness", 0.37F) &&
+                    renderer->material().has_overrides() &&
+                    renderer->material().set_float("roughness", default_roughness) &&
+                    !renderer->material().has_overrides(),
+                "material restored to its resource has no persistent overrides") ||
+        !expect(renderer->material().set_cull_mode(schema::CullMode::none) &&
+                    renderer->material().has_overrides() &&
+                    renderer->material().set_cull_mode(schema::CullMode::back) &&
+                    !renderer->material().has_overrides(),
+                "restoring material coverage clears its persistent override") ||
+        !second->set_parent(first) ||
         !renderer->set_material_count(2) ||
         !renderer->material(1)->set_v4("baseColor", Vec4(0.2, 0.3, 0.4, 1)) ||
         !renderer->material(1)->set_float("roughness", 0.75F) ||
@@ -190,10 +306,14 @@ bool run(const fs::path& root)
     const Json save = {{"sceneId", id}, {"path", "scenes/room.scene"}};
     const auto history = commands.undo_count();
     if (!expect(execute("save_scene", save) && result["nodeCount"] == 4 &&
-                    result["importRequired"] == true && commands.undo_count() == history,
+                    result["importRequired"] == true && result["resourceCount"] == 4 &&
+                    export_count == 2 && commands.undo_count() == history && save_count == 1 &&
+                    saved_path == "project/scenes/room.scene" && changed_resource_count == 4,
                 "save full scene without changing live state or undo history", error) ||
         !expect(!execute("save_scene", {{"sceneId", id}, {"path", "../escape.scene"}}),
-                "reject traversal", error))
+                "reject traversal", error) ||
+        !expect(!execute("save_scene", {{"sceneId", id}, {"path", "/escape.scene"}}),
+                "reject absolute save path", error))
     {
         return false;
     }
@@ -219,21 +339,98 @@ bool run(const fs::path& root)
     {
         return false;
     }
+    SourceSnapshots initial_sources;
+    SourceSnapshots current_sources;
+    export_count = 0;
+    if (!snapshot_sources(root / "assets", initial_sources) ||
+        !expect(execute("save_scene", save) && result["importRequired"] == false &&
+                    result["resourceCount"] == 0 && export_count == 0 &&
+                    changed_resource_count == 0,
+                "unchanged dynamic scene skips mesh exports and imports", error) ||
+        !expect(snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources),
+                "unchanged save preserves all source and meta timestamps") ||
+        !expect(execute("modeling_get", identity), "query dynamic models", error))
+    {
+        return false;
+    }
+    const auto models = result["models"];
+    for (const auto& model : models)
+    {
+        const Json edit = {
+            {"sceneId", id},
+            {"modelId", model["modelId"]},
+            {"operation", "transform"},
+            {"selection", {{"all", true}}},
+            {"parameters", {{"matrix", {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0.25, 0, 0, 1}}}}};
+        if (!expect(execute("modeling_edit", edit), "change mesh before failure injection", error))
+        {
+            return false;
+        }
+    }
     reject_export = true;
-    if (!expect(!execute("save_scene", save), "injected failure rolls back complete save", error))
+    const auto saves_before_failure = save_count;
+    if (!expect(!execute("save_scene", save) && save_count == saves_before_failure,
+                "injected failure rolls back complete save without a saved notification", error))
     {
         return false;
     }
     reject_export = false;
+    export_count = 0;
     std::string restored;
     if (!expect(ResourceSystem::read_text(path, restored) && restored == source,
                 "scene restored after failed save") ||
         !expect(ResourceSystem::read_text(mesh_path, restored) && restored == original_mesh,
                 "earlier mesh publication restored after later failure") ||
-        !expect(execute("save_scene", save), "repeat save", error) ||
+        !expect(execute("save_scene", save) && result["resourceCount"] == 2 && export_count == 2,
+                "failed save does not advance mesh snapshots before successful retry", error) ||
         !expect(ResourceSystem::read_text(root / "assets/scenes/room.scene.meta", restored) &&
                     restored == meta,
                 "repeat save preserves scene GUID"))
+    {
+        return false;
+    }
+    auto mesh_meta_path = mesh_path;
+    mesh_meta_path += ".meta";
+    const auto material_path = root / "assets/scenes/room-resources/materials" /
+                               ("node-" + std::to_string(first->info().id) + "-slot-1.material");
+    for (const auto& conflict_path : {mesh_path, mesh_meta_path, material_path, path})
+    {
+        std::string original;
+        if (!ResourceSystem::read_text(conflict_path, original) ||
+            !write_text(conflict_path, original + "\n# external modification\n") ||
+            !snapshot_sources(root / "assets", initial_sources))
+        {
+            return false;
+        }
+        const auto saves_before_conflict = save_count;
+        export_count = 0;
+        if (!expect(!execute("save_scene", save) && export_count == 0 &&
+                        save_count == saves_before_conflict &&
+                        snapshot_sources(root / "assets", current_sources) &&
+                        unchanged_sources(initial_sources, current_sources),
+                    "external source or metadata changes reject save without rewriting files",
+                    error) ||
+            !write_text(conflict_path, original) ||
+            !expect(execute("save_scene", save) && result["resourceCount"] == 0 &&
+                        result["importRequired"] == false && export_count == 0 &&
+                        changed_resource_count == 0,
+                    "restoring external changes resumes unchanged save without advancing snapshots",
+                    error))
+        {
+            return false;
+        }
+    }
+    std::string mesh_meta;
+    std::error_code ec;
+    if (!ResourceSystem::read_text(mesh_meta_path, mesh_meta) ||
+        !fs::remove(mesh_meta_path, ec) || ec ||
+        !expect(!execute("save_scene", save), "missing saved mesh identity is not regenerated",
+                error) ||
+        !write_text(mesh_meta_path, mesh_meta) ||
+        !expect(execute("save_scene", save) && result["resourceCount"] == 0 &&
+                    result["importRequired"] == false,
+                "restoring source metadata allows the unchanged save to resume", error))
     {
         return false;
     }
@@ -290,6 +487,158 @@ bool run(const fs::path& root)
                  {"parameters", {{"distance", 0.05}}}});
     if (!expect(execute("modeling_edit", edit), "loaded model remains editable", error) ||
         !expect(execute("undo", current), "loaded model edit is undoable", error))
+    {
+        return false;
+    }
+    // 切回资源引用，避免建模撤销保留的瞬态网格影响普通加载场景的回归。
+    if (!expect(renderer->set_mesh("project/scenes/room-resources/meshes/node-" +
+                                   std::to_string(first->info().id) + ".mesh"),
+                "restore imported mesh resource after modeling round trip"))
+    {
+        return false;
+    }
+    const Json loaded_save = {{"sceneId", std::to_string(scene->id())},
+                              {"path", "scenes/room.scene"}};
+    export_count = 0;
+    if (!snapshot_sources(root / "assets", initial_sources) ||
+        !expect(execute("save_scene", loaded_save) && result["resourceCount"] == 0 &&
+                    result["importRequired"] == false && export_count == 0,
+                "loaded scene preserves imported mesh and material references", error) ||
+        !expect(snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources),
+                "loaded unchanged scene creates no per-node copies"))
+    {
+        return false;
+    }
+    const std::string original_material_path(renderer->material(1)->type_path());
+    const auto original_material_source =
+        root / "assets" / PathUtils::from_utf8(original_material_path.substr(8));
+    std::string original_material;
+    if (!ResourceSystem::read_text(original_material_source, original_material))
+    {
+        return false;
+    }
+    Guid shared_mesh_guid;
+    Guid shared_material_guid;
+    if (!ResourceSystem::path_to_guid(renderer->mesh_path(), shared_mesh_guid) ||
+        !ResourceSystem::path_to_guid(original_material_path, shared_material_guid))
+    {
+        return false;
+    }
+    Node* shared = nullptr;
+    for (std::size_t index = 0; index != 6; ++index)
+    {
+        auto* node = scene->create_node("Shared " + std::to_string(index));
+        auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
+        if (!mesh || !mesh->set_mesh(renderer->mesh_path()) ||
+            !mesh->material().set_type(original_material_path))
+        {
+            return false;
+        }
+        shared = node;
+    }
+    auto* environment = named(*scene, "Lamp")->add_component<EnvironmentComponent>();
+    if (!environment ||
+        !expect(execute("save_scene", loaded_save) && result["resourceCount"] == 1 &&
+                    export_count == 0 && engine::editor::SceneImporter::read(path, saved, error),
+                "many nodes sharing imported assets save only the scene", error))
+    {
+        return false;
+    }
+    const auto* shared_saved = saved_mesh(saved, shared->info().id);
+    if (!expect(shared_saved && shared_saved->mesh_guid == shared_mesh_guid &&
+                    shared_saved->material_guid == shared_material_guid,
+                "shared resources keep their original GUIDs") ||
+        !expect(snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources, path),
+                "shared nodes do not create mesh or material source duplicates"))
+    {
+        return false;
+    }
+    initial_sources = current_sources;
+    const std::string before_transform = current_sources.at(path).content;
+    const Json move = {{"sceneId", std::to_string(scene->id())},
+                       {"nodeId", std::to_string(first->id())},
+                       {"position", {9, 4, 5}}};
+    if (!expect(execute("set_transform", move), "edit loaded scene transform", error))
+    {
+        return false;
+    }
+    const auto edited_history = commands.undo_count();
+    if (!expect(execute("save_scene", loaded_save) && result["resourceCount"] == 1 &&
+                    commands.undo_count() == edited_history && export_count == 0,
+                "transform save preserves the editing undo stack", error) ||
+        !expect(snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources, path),
+                "transform changes touch only scene source"))
+    {
+        return false;
+    }
+    const std::string after_transform = current_sources.at(path).content;
+    if (!expect(execute("undo", current) && execute("save_scene", loaded_save) &&
+                    result["resourceCount"] == 1 && commands.redo_count() == 1 &&
+                    ResourceSystem::read_text(path, restored) && restored == before_transform,
+                "saved edit can be undone and the reverted scene can be saved", error) ||
+        !expect(execute("redo", current) && execute("save_scene", loaded_save) &&
+                    result["resourceCount"] == 1 && commands.undo_count() == edited_history &&
+                    ResourceSystem::read_text(path, restored) && restored == after_transform &&
+                    export_count == 0,
+                "saving after undo preserves redo and the original resource identities", error))
+    {
+        return false;
+    }
+    const Json material_edit = {{"sceneId", std::to_string(scene->id())},
+                                {"nodeId", std::to_string(first->id())},
+                                {"slot", 1},
+                                {"name", "roughness"},
+                                {"type", "float"},
+                                {"value", 0.45}};
+    if (!expect(execute("set_material_parameter", material_edit) &&
+                    execute("save_scene", loaded_save) && result["resourceCount"] == 2 &&
+                    export_count == 0 && engine::editor::SceneImporter::read(path, saved, error),
+                "one local material override writes only its source and the scene", error))
+    {
+        return false;
+    }
+    const auto* first_saved = saved_mesh(saved, first->info().id);
+    shared_saved = saved_mesh(saved, shared->info().id);
+    if (!expect(first_saved && first_saved->additional_material_guids.size() == 1 &&
+                    first_saved->additional_material_guids[0] != shared_material_guid &&
+                    shared_saved && shared_saved->material_guid == shared_material_guid &&
+                    ResourceSystem::read_text(original_material_source, restored) &&
+                    restored == original_material,
+                "local override does not overwrite the material used by other nodes") ||
+        !snapshot_sources(root / "assets", initial_sources) ||
+        !expect(execute("save_scene", loaded_save) && result["resourceCount"] == 0 &&
+                    result["importRequired"] == false && export_count == 0 &&
+                    snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources),
+                "repeated override save preserves all timestamps", error) ||
+        !expect(execute("undo", current) && !renderer->material(1)->has_overrides() &&
+                    execute("save_scene", loaded_save) && result["resourceCount"] == 1 &&
+                    commands.redo_count() == 1,
+                "undoing the override restores the original material reference", error) ||
+        !expect(execute("redo", current) && execute("save_scene", loaded_save) &&
+                    result["resourceCount"] == 1 && export_count == 0,
+                "redo reuses the previously saved override resource", error))
+    {
+        return false;
+    }
+    if (!snapshot_sources(root / "assets", initial_sources))
+    {
+        return false;
+    }
+    auto environment_settings = environment->settings();
+    environment_settings.ambient_intensity = 0.4F;
+    light = named(*scene, "Lamp")->get_component<Light>();
+    light_settings = light->settings();
+    light_settings.intensity = 3;
+    if (!expect(environment->set_settings(environment_settings) &&
+                    light->set_settings(light_settings) && execute("save_scene", loaded_save) &&
+                    result["resourceCount"] == 1 && export_count == 0 &&
+                    snapshot_sources(root / "assets", current_sources) &&
+                    unchanged_sources(initial_sources, current_sources, path),
+                "lighting and environment edits do not export referenced assets", error))
     {
         return false;
     }

@@ -156,6 +156,17 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto changed = renderer.settings();
     changed.ambient_intensity = 0.3F;
     changed.exposure = 2.0F;
+    changed.ao_enabled = true;
+    changed.ao_radius = 1.8F;
+    changed.ao_strength = 0.8F;
+    changed.ao_power = 1.4F;
+    changed.ao_fade_start = 50.0F;
+    changed.ao_fade_end = 120.0F;
+    changed.hdr_enabled = true;
+    changed.bloom_enabled = true;
+    changed.bloom_threshold = 1.5F;
+    changed.bloom_intensity = 0.4F;
+    changed.bloom_radius = 1.2F;
     if (!expect(environment != nullptr && !renderer.set_settings(changed) &&
                     environment->settings().ambient_intensity == 0.0F,
                 "missing post-process rejects the entire update without changing environment"))
@@ -167,15 +178,45 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto* post_process = camera_node != nullptr
                              ? camera_node->add_component<engine::PostProcessComponent>()
                              : nullptr;
-    if (!expect(camera != nullptr && post_process != nullptr && scene->set_active_camera(camera) &&
-                    renderer.set_settings(changed) &&
-                    environment->settings().ambient_intensity == 0.3F &&
-                    post_process->settings().exposure == 2.0F,
-                "aggregate updates write the current scene's generated component data"))
+    if (!expect(
+            camera != nullptr && post_process != nullptr && scene->set_active_camera(camera) &&
+                renderer.set_settings(changed) &&
+                environment->settings().ambient_intensity == 0.3F &&
+                post_process->settings().exposure == 2.0F && renderer.settings().ao_enabled &&
+                post_process->settings().ao_radius == 1.8F &&
+                renderer.settings().ao_strength == 0.8F && renderer.settings().ao_power == 1.4F &&
+                renderer.settings().ao_fade_start == 50.0F &&
+                renderer.settings().ao_fade_end == 120.0F && renderer.settings().hdr_enabled &&
+                renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.5F &&
+                renderer.settings().bloom_intensity == 0.4F &&
+                renderer.settings().bloom_radius == 1.2F,
+            "aggregate updates write the current scene's generated component data"))
     {
         return false;
     }
     auto pending_ibl = environment->settings();
+    auto invalid_ao = renderer.settings();
+    auto invalid_hdr = renderer.settings();
+    invalid_hdr.hdr_enabled = false;
+    if (!expect(!renderer.set_settings(invalid_hdr) && renderer.settings().hdr_enabled &&
+                    renderer.settings().bloom_enabled,
+                "Bloom requires HDR and rejection preserves the entire post-process state"))
+    {
+        return false;
+    }
+    invalid_ao.ao_radius = 0.0F;
+    if (!expect(!renderer.set_settings(invalid_ao) && renderer.settings().ao_radius == 1.8F,
+                "zero AO radius is rejected before component changes"))
+    {
+        return false;
+    }
+    invalid_ao = renderer.settings();
+    invalid_ao.ao_fade_end = invalid_ao.ao_fade_start;
+    if (!expect(!renderer.set_settings(invalid_ao) && renderer.settings().ao_fade_end == 120.0F,
+                "inverted AO fade is rejected atomically"))
+    {
+        return false;
+    }
     pending_ibl.ibl_enabled = true;
     pending_ibl.ibl_intensity = 0.75F;
     if (!expect(environment->set_settings(pending_ibl) && renderer.settings().ibl_enabled &&
@@ -237,15 +278,32 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     shadows.cast_shadows = true;
     shadows.shadow_resolution = 512;
     shadows.shadow_bias = 0.004F;
+    shadows.shadow_cascades = 2;
+    shadows.shadow_distance = 80.0F;
+    shadows.shadow_split_lambda = 0.7F;
+    shadows.shadow_cascade_blend = 0.15F;
     if (!expect(first_light != nullptr && second_light != nullptr &&
                     second_light->set_settings(shadows) &&
                     renderer.settings().directional_shadows &&
-                    renderer.settings().shadow_resolution == 512,
+                    renderer.settings().shadow_resolution == 512 &&
+                    renderer.settings().shadow_cascades == 2 &&
+                    renderer.settings().shadow_distance == 80.0F &&
+                    renderer.settings().shadow_split_lambda == 0.7F &&
+                    renderer.settings().shadow_cascade_blend == 0.15F,
                 "shadow settings follow the actual casting light, not the first fill light"))
     {
         return false;
     }
     changed = renderer.settings();
+    changed.shadow_cascades = 4;
+    changed.shadow_distance = 160.0F;
+    if (!expect(renderer.set_settings(changed) && second_light->settings().shadow_cascades == 4 &&
+                    second_light->settings().shadow_distance == 160.0F &&
+                    !first_light->settings().cast_shadows,
+                "cascade edits are written to the selected casting light"))
+    {
+        return false;
+    }
     changed.directional_shadows = false;
     if (!expect(renderer.set_settings(changed) && !second_light->settings().cast_shadows &&
                     !renderer.settings().directional_shadows,

@@ -16,7 +16,11 @@ classDiagram
         +SetExponentialFog(boolean enabled, number r, number g, number b, number density, boolean squared) boolean$
         +SetExposure(number value) boolean$
         +SetFilmicTonemap(boolean enabled) boolean$
+        +SetHdr(boolean enabled) boolean$
+        +SetBloom(boolean enabled, number threshold, number intensity, number radius) boolean$
+        +SetAmbientOcclusion(boolean enabled, number radius, number strength, number power, number fadeStart, number fadeEnd) boolean$
         +SetDirectionalShadows(boolean enabled, number resolution, number bias) boolean$
+        +SetShadowCascades(number count, number distance, number splitLambda, number blend) boolean$
         +SetClearColor(number rgba) boolean$
     }
     class RenderBinding
@@ -53,9 +57,13 @@ classDiagram
     class PostProcessComponent {
         +SetExposure(number value) boolean
         +SetFilmicTonemap(boolean enabled) boolean
+        +SetHdr(boolean enabled) boolean
+        +SetBloom(boolean enabled, number threshold, number intensity, number radius) boolean
+        +SetAmbientOcclusion(boolean enabled, number radius, number strength, number power, number fadeStart, number fadeEnd) boolean
     }
     class Light {
         +SetShadows(boolean enabled, number resolution, number bias) boolean
+        +SetShadowCascades(number count, number distance, number splitLambda, number blend) boolean
         +SetColor(number r, number g, number b) boolean
         +SetIntensity(number intensity) boolean
         +SetDirectional() boolean
@@ -94,6 +102,9 @@ classDiagram
 ```
 
 - `SetOrthographic` 的 size 为竖直半高；角度使用度。Spot 的 innerAngle、outerAngle 均为锥体半角。
+- `Render.SetHdr(enabled)` / `PostProcessComponent.SetHdr(enabled)` 只改变 HDR 开关；`SetBloom(enabled, threshold=1, intensity=0.15, radius=1)` 只改变 Bloom 开关与参数。阈值 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，数值有限。先开启 HDR 才能开启 Bloom，先关闭 Bloom 才能关闭 HDR，顺序错误返回 false 并保留全部状态；方法不会自动改写另一开关。旧曝光、AO 方法保留 HDR/Bloom 配置。
+- `Render.SetAmbientOcclusion` 与 `PostProcessComponent.SetAmbientOcclusion` 使用同一后处理数据：enabled 必须是布尔值；radius 默认 1、范围 `(0,100]`，strength 默认 1、范围 `[0,2]`，power 默认 1.5、范围 `[0.1,8]`，fadeStart/fadeEnd 默认 80/150，要求 `0 <= start < end <= 100000`。全部数值有限，失败不改变曝光或 AO；旧曝光、色调映射接口也保留 AO。Render 门面修改当前活动场景相机组件，不持有独立状态。
+- `Light.SetShadowCascades` 与 `Render.SetShadowCascades` 只更新级联参数，保留投影开关、完整 atlas 分辨率和偏移；count 必须为整数 1、2、4，distance 为 `(0,100000]`，splitLambda 默认 0.6、范围 `[0,1]`，blend 默认 0.1、范围 `[0,0.3]`。原有 `SetShadows` / `SetDirectionalShadows` 也保留现有级联参数。参数按原生组件契约原子校验，不在绑定内存储另一份状态。
 - `material` 等同第 0 槽，`materialCount` 只读；超范围槽返回 null，移除槽后原有门面的 IsValid 返回 false。
 - 纹理路径通过资源目录解析，失败保留原材质。GetTexture 对未知或非纹理参数返回 null。
 - `SetCullMode("back" | "front" | "none")` 设置通用面剔除状态，默认 `back`；`GetCullMode()` 在句柄失效时返回 null。`SetFloat("alphaCutoff", value)` 使用既有具名参数通道启用内置 Shader 的 alpha 裁切，范围为 0..1，0 关闭。

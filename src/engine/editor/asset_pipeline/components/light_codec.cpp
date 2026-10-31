@@ -48,7 +48,13 @@ bool LightCodec::read(const toml::table& table, schema::ComponentDataT& componen
         (table.contains("outer_angle") &&
          !float_number(table.get("outer_angle"), value.outer_angle)) ||
         (table.contains("shadow_bias") &&
-         !float_number(table.get("shadow_bias"), value.shadow_bias)))
+         !float_number(table.get("shadow_bias"), value.shadow_bias)) ||
+        (table.contains("shadow_distance") &&
+         !float_number(table.get("shadow_distance"), value.shadow_distance)) ||
+        (table.contains("shadow_split_lambda") &&
+         !float_number(table.get("shadow_split_lambda"), value.shadow_split_lambda)) ||
+        (table.contains("shadow_cascade_blend") &&
+         !float_number(table.get("shadow_cascade_blend"), value.shadow_cascade_blend)))
     {
         error = "light numeric fields must be finite numbers";
         return false;
@@ -86,6 +92,16 @@ bool LightCodec::read(const toml::table& table, schema::ComponentDataT& componen
                      : kind == "spot" ? schema::LightKind::spot
                                       : schema::LightKind::directional;
     }
+    if (table.contains("shadow_cascades"))
+    {
+        const auto cascades = table["shadow_cascades"].value_exact<std::int64_t>();
+        if (!cascades || (*cascades != 1 && *cascades != 2 && *cascades != 4))
+        {
+            error = "light shadow_cascades must be an integer: 1, 2 or 4";
+            return false;
+        }
+        value.shadow_cascades = static_cast<std::uint8_t>(*cascades);
+    }
     for (const auto channel : color)
     {
         if (channel < 0 || channel > std::numeric_limits<float>::max())
@@ -116,6 +132,10 @@ void LightCodec::write(const schema::ComponentDataT& component, toml::table& val
     value.insert("cast_shadows", light->cast_shadows);
     value.insert("shadow_resolution", light->shadow_resolution);
     value.insert("shadow_bias", light->shadow_bias);
+    value.insert("shadow_cascades", light->shadow_cascades);
+    value.insert("shadow_distance", light->shadow_distance);
+    value.insert("shadow_split_lambda", light->shadow_split_lambda);
+    value.insert("shadow_cascade_blend", light->shadow_cascade_blend);
 }
 
 } // namespace engine::editor::asset_pipeline

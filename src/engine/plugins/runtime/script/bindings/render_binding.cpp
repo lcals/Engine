@@ -5,6 +5,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 
 namespace engine::plugins::script::bindings
@@ -31,8 +32,19 @@ export class Render {
     }
     static SetExposure(value) { return native.RenderExposure(value); }
     static SetFilmicTonemap(enabled) { return native.RenderFilmicTonemap(enabled); }
+    static SetHdr(enabled) { return native.RenderHdr(enabled); }
+    static SetBloom(enabled, threshold = 1, intensity = 0.15, radius = 1) {
+        return native.RenderBloom(enabled, threshold, intensity, radius);
+    }
+    static SetAmbientOcclusion(enabled, radius = 1, strength = 1, power = 1.5,
+                               fadeStart = 80, fadeEnd = 150) {
+        return native.RenderAmbientOcclusion(enabled, radius, strength, power, fadeStart, fadeEnd);
+    }
     static SetDirectionalShadows(enabled, resolution = 2048, bias = 0.001) {
         return native.RenderDirectionalShadows(enabled, resolution, bias);
+    }
+    static SetShadowCascades(count, distance, splitLambda = 0.6, blend = 0.1) {
+        return native.RenderShadowCascades(count, distance, splitLambda, blend);
     }
     static SetClearColor(rgba) { return native.RenderClearColor(rgba); }
 }
@@ -158,6 +170,54 @@ void filmic_tonemap(const Arguments& arguments)
     arguments.set_return(target->set_settings(settings));
 }
 
+void hdr(const Arguments& arguments)
+{
+    auto* target = renderer(arguments, 1);
+    if (target == nullptr || !arguments.is_boolean(0))
+    {
+        return;
+    }
+    auto settings = target->settings();
+    settings.hdr_enabled = arguments.boolean(0);
+    arguments.set_return(target->set_settings(settings));
+}
+
+void bloom(const Arguments& arguments)
+{
+    auto* target = renderer(arguments, 4);
+    if (target == nullptr || !arguments.is_boolean(0))
+    {
+        return;
+    }
+    auto settings = target->settings();
+    settings.bloom_enabled = arguments.boolean(0);
+    if (BindingContext::scalar(arguments, 1, settings.bloom_threshold) &&
+        BindingContext::scalar(arguments, 2, settings.bloom_intensity) &&
+        BindingContext::scalar(arguments, 3, settings.bloom_radius))
+    {
+        arguments.set_return(target->set_settings(settings));
+    }
+}
+
+void ambient_occlusion(const Arguments& arguments)
+{
+    auto* target = renderer(arguments, 6);
+    if (target == nullptr || !arguments.is_boolean(0))
+    {
+        return;
+    }
+    auto settings = target->settings();
+    settings.ao_enabled = arguments.boolean(0);
+    if (BindingContext::scalar(arguments, 1, settings.ao_radius) &&
+        BindingContext::scalar(arguments, 2, settings.ao_strength) &&
+        BindingContext::scalar(arguments, 3, settings.ao_power) &&
+        BindingContext::scalar(arguments, 4, settings.ao_fade_start) &&
+        BindingContext::scalar(arguments, 5, settings.ao_fade_end))
+    {
+        arguments.set_return(target->set_settings(settings));
+    }
+}
+
 void directional_shadows(const Arguments& arguments)
 {
     auto* target = renderer(arguments, 3);
@@ -190,6 +250,28 @@ void clear_color(const Arguments& arguments)
     settings.clear_color = arguments.unsigned_integer(0);
     arguments.set_return(target->set_settings(settings));
 }
+
+void shadow_cascades(const Arguments& arguments)
+{
+    auto* target = renderer(arguments, 4);
+    if (target == nullptr || !arguments.is_uint32(0))
+    {
+        return;
+    }
+    const auto count = arguments.unsigned_integer(0);
+    if (count != 1 && count != 2 && count != 4)
+    {
+        return;
+    }
+    auto settings = target->settings();
+    settings.shadow_cascades = static_cast<std::uint8_t>(count);
+    if (BindingContext::scalar(arguments, 1, settings.shadow_distance) &&
+        BindingContext::scalar(arguments, 2, settings.shadow_split_lambda) &&
+        BindingContext::scalar(arguments, 3, settings.shadow_cascade_blend))
+    {
+        arguments.set_return(target->set_settings(settings));
+    }
+}
 } // namespace
 
 std::string_view RenderBinding::name() const noexcept
@@ -209,7 +291,10 @@ bool RenderBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("RenderLinearFog", linear_fog) &&
            vm.function("RenderExponentialFog", exponential_fog) &&
            vm.function("RenderFilmicTonemap", filmic_tonemap) &&
+           vm.function("RenderHdr", hdr) && vm.function("RenderBloom", bloom) &&
+           vm.function("RenderAmbientOcclusion", ambient_occlusion) &&
            vm.function("RenderDirectionalShadows", directional_shadows) &&
+           vm.function("RenderShadowCascades", shadow_cascades) &&
            vm.function("RenderClearColor", clear_color);
 }
 

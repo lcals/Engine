@@ -8,6 +8,7 @@ classDiagram
         +type_path() string_view
         +shader_path() string_view
         +shader_data() const ShaderDataT#42;
+        +has_overrides() bool
         +set_type(string_view path) bool
         +set_shader(string_view path) bool
         +cull_mode() CullMode
@@ -56,6 +57,7 @@ classDiagram
 - 材质类型与 Shader 均通过包含来源的字符串唯一路径标识：`builtin/...` 是引擎内置，`project/...` 是项目资源。同相对名字可在两个空间独立存在；没有额外来源枚举或冗余状态。资源定义可自定义组合，内置定义由引擎注册，项目资源按运行目录从散文件或合并包加载。
 - `set_type()` 查找材质定义，合并其 Shader 的可修改默认参数与材质定义覆盖值。换型重建实例参数；相同材质路径保持当前实例值和 Shader 选择。未知资源返回 false，不改变状态。
 - `set_shader()` 保留材质路径和面剔除状态；切换到不同 Shader 时重新建立其可修改默认参数，旧参数和材质覆盖值不带入新组合。设置同一 Shader 路径保留已有实例参数。
+- `has_overrides()` 为 const noexcept，比较当前实例与已持有材质资源及其 Shader 默认值合并后的有效状态，涵盖 Shader、面剔除、公开参数和贴图路径；恢复原值后返回 false，不使用修改次数或脏标记。隐藏参数继续由 Shader 提供，隐藏贴图槽使用 Shader 默认路径。查询不重新加载资源或访问当前资源目录；实例尚未完整初始化时保守返回 true。是否保存覆盖值由调用方决定。
 - `CullMode` 来自 `material.fbs`，默认 `back` 保持背面剔除；`front` 剔除正面，`none` 绘制双面。`set_cull_mode()` 拒绝未知枚举值，换材质类型恢复资源状态，切换 Shader 保留状态。主绘制与阴影按同一材质槽状态执行，并处理负缩放。
 - 内置 PBR/Unlit 的 `alphaCutoff` 是公开的命名 float 参数，范围 0..1，默认 0 关闭裁切；通过既有 `set_float()` 设置。裁切覆盖率为 `baseColorTexture.a * baseColor.a * vertexColor.a`。标准阴影 pass 使用同一命名契约；自定义 Shader 若声明 `alphaCutoff`，须配套同名 `baseColor` 和 `baseColorTexture`，并在主 pass 执行相同裁切。此约定不向 Material 增加具体 Shader 参数字段。
 - 参数名区分大小写；setter 同时验证声明的类型、`exposed`、有限数值、GPU float 可表示范围及声明的上下限。未知参数、隐藏参数、类型不匹配和非法值均返回 false，不新增未知字段、不改变旧值。
