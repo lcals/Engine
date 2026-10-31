@@ -36,6 +36,10 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene->id() != scene_id_)
     {
+        if (scene_id_ != 0)
+        {
+            release_extensions_scene();
+        }
         // UI 可能已在玩法初始化中准备，切换绘制资源不销毁新的 View。
         release_draw_resources();
         if (fonts_)
@@ -51,7 +55,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     {
         return true;
     }
-    if (!render_detail::drawable_scene(*scene, camera))
+    if (!render_detail::drawable_scene(*scene, camera, !extensions_.empty()))
     {
         if (scene_resources_)
         {
@@ -289,6 +293,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
 
 void RenderSystem::release_scene() noexcept
 {
+    release_extensions_scene();
     if (ui_)
     {
         ui_->release_scene();

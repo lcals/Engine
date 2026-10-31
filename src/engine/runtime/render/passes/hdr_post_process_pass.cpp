@@ -260,6 +260,11 @@ void HdrPostProcessPass::begin_scene(std::uint32_t clear_color)
     bgfx::touch(main_view);
 }
 
+bgfx::FrameBufferHandle HdrPostProcessPass::scene_framebuffer() const noexcept
+{
+    return framebuffer_;
+}
+
 bool HdrPostProcessPass::resolve(const RenderSettings& settings)
 {
     if (!valid_settings(settings) || width_ == 0 || height_ == 0 || !bgfx::isValid(framebuffer_) ||
@@ -362,6 +367,7 @@ void HdrPostProcessPass::release_targets() noexcept
     if (bgfx::isValid(framebuffer_))
     {
         bgfx::setViewFrameBuffer(main_view, BGFX_INVALID_HANDLE);
+        bgfx::setViewFrameBuffer(extension_view, BGFX_INVALID_HANDLE);
         bgfx::setViewName(main_view, "Main window");
         bgfx::destroy(framebuffer_);
         framebuffer_ = BGFX_INVALID_HANDLE;

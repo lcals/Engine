@@ -1,3 +1,11 @@
+#if ENGINE_HAS_EFFECTS_EDITOR
+#include "plugins/editor/effects/effect_codec.hpp"
+#include "plugins/editor/effects/effect_importer.hpp"
+#endif
+#if ENGINE_HAS_EFFECTS_EDITOR
+#include "plugins/editor/effects/effect_commands.hpp"
+#endif
+
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
@@ -137,6 +145,16 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
 #endif
+#if ENGINE_HAS_EFFECTS_EDITOR
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> effect_importer =
+            std::make_unique<engine::plugins::effects::EffectImporter>();
+        if (!engine::plugins::effects::register_effect_codec() ||
+            !pipeline.add_importer(effect_importer))
+        {
+            std::fputs("Cannot register effects importer and scene codec\n", stderr);
+            return 1;
+        }
+#endif
 #if ENGINE_HAS_FONT_IMPORTER
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font_importer =
             std::make_unique<engine::plugins::font_import::FontImporter>();
@@ -252,6 +270,16 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 *runtime.world(), *editor->scene_commands(), *editor->commands()))
         {
             LogSystem::write(LogLevel::error, "Cannot register controller commands");
+            return 1;
+        }
+#endif
+
+#if ENGINE_HAS_EFFECTS_EDITOR
+        if (!editor->scene_commands() || !editor->commands() ||
+            !engine::plugins::effects::register_effect_commands(
+                *runtime.world(), *editor->scene_commands(), *editor->commands()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register effects commands");
             return 1;
         }
 #endif

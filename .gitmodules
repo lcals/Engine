@@ -13,3 +13,11 @@
 [submodule "third_party/ufbx"]
 	path = third_party/ufbx
 	url = https://github.com/ufbx/ufbx.git
+[submodule "third_party/effekseer"]
+	path = third_party/effekseer
+	url = https://github.com/effekseer/Effekseer.git
+	shallow = true
+[submodule "third_party/efkbgfx"]
+	path = third_party/efkbgfx
+	url = https://github.com/cloudwu/efkbgfx.git
+	shallow = true

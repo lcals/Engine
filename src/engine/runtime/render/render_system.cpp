@@ -1,6 +1,7 @@
 #include "runtime/render/render_system.hpp"
 
 #include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_surface.hpp"
 #include "runtime/render/renderer_callbacks.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
@@ -10,6 +11,7 @@
 #include <SDL3/SDL.h>
 #include <bgfx/platform.h>
 
+#include <algorithm>
 #include <array>
 #include <new>
 
@@ -31,6 +33,52 @@ RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem
 RenderSystem::~RenderSystem() noexcept
 {
     shutdown();
+    for (auto* extension : extensions_)
+    {
+        extension->renderer_ = nullptr;
+    }
+    extensions_.clear();
+}
+
+bool RenderSystem::add_extension(RenderExtension& extension)
+{
+    if (invoking_extensions_ || extension.renderer_ != nullptr)
+    {
+        return false;
+    }
+    extensions_.push_back(&extension);
+    extension.renderer_ = this;
+    return true;
+}
+
+bool RenderSystem::remove_extension(RenderExtension& extension) noexcept
+{
+    if (invoking_extensions_ || extension.renderer_ != this)
+    {
+        return false;
+    }
+    detach_extension(extension);
+    invoking_extensions_ = true;
+    extension.release_scene();
+    extension.release_gpu();
+    invoking_extensions_ = false;
+    return true;
+}
+
+void RenderSystem::detach_extension(RenderExtension& extension) noexcept
+{
+    std::erase(extensions_, &extension);
+    extension.renderer_ = nullptr;
+}
+
+void RenderSystem::release_extensions_scene() noexcept
+{
+    invoking_extensions_ = true;
+    for (auto* extension : extensions_)
+    {
+        extension->release_scene();
+    }
+    invoking_extensions_ = false;
 }
 
 bool RenderSystem::on_initialize(const EngineConfig&)
@@ -218,6 +266,12 @@ void RenderSystem::on_shutdown() noexcept
 void RenderSystem::shutdown_renderer() noexcept
 {
     release_scene();
+    invoking_extensions_ = true;
+    for (auto* extension : extensions_)
+    {
+        extension->release_gpu();
+    }
+    invoking_extensions_ = false;
     if (renderer_initialized_)
     {
         bgfx::shutdown();

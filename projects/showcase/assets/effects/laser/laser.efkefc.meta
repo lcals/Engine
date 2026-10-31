@@ -1,0 +1,15 @@
+guid = "b3b901e4-d09d-4bb5-b240-10d598c762cd"
+importer = "effect"
+meta_version = 1
+
+[[resources]]
+path = "Texture/LaserMain01.png"
+resource = "project/effects/laser/textures/laser-main.png"
+
+[[resources]]
+path = "Texture/Particle01.png"
+resource = "project/effects/laser/textures/particle-01.png"
+
+[[resources]]
+path = "Texture/Particle02.png"
+resource = "project/effects/laser/textures/particle-02.png"

@@ -69,7 +69,7 @@ MeshRenderer 的 `cast_shadows` 默认 true；设为 false 后，该组件仍在
 
 方向光阴影读取唯一启用 `cast_shadows` 的 `Light`，支持 1、2、4 级 CSM；默认 4 级、阴影距离 150、对数/均匀划分混合比例 0.6、级联交界混合比例 0.1。对应场景字段为 `shadow_cascades`、`shadow_distance`、`shadow_split_lambda`、`shadow_cascade_blend`。距离范围为 `(0, 100000]`，两项比例范围分别为 `[0, 1]`、`[0, 0.3]`；实际远端取相机远裁面与阴影距离的较小值，远端不超过近裁面时不提交阴影。显式传入的观察镜头决定级联范围，预览和玩法共用同一实现。逐灯配置归组件，渲染器不创建场景节点或保存编辑器策略。
 
-每级覆盖镜头的一段视锥，使用包围球固定正交范围并将中心对齐纹素；深度范围纳入与本级范围相交的投射物，避免仅按接收面裁掉投影。阴影 pass 输出 RGBA8 编码深度并使用 D16 附件。所有级联共用一张 atlas，`shadow_resolution` 表示完整 atlas 边长：单级占整图，两级各占一个半边长 tile，四级占满 2×2；4096 的四级 atlas 每级为 2048。View 0 执行 GPU 蒙皮，1..4 留给阴影，5/6 分别为 AO 深度预通道与计算，主场景使用 View 7；启用 HDR 时，View 7 写入线性 RGBA16F，8..10 完成后处理，UI 随后使用 View 200。编辑器 GPU 作业保留 View 240..255。阴影仍只占用纹理槽 15。
+每级覆盖镜头的一段视锥，使用包围球固定正交范围并将中心对齐纹素；深度范围纳入与本级范围相交的投射物，避免仅按接收面裁掉投影。阴影 pass 输出 RGBA8 编码深度并使用 D16 附件。所有级联共用一张 atlas，`shadow_resolution` 表示完整 atlas 边长：单级占整图，两级各占一个半边长 tile，四级占满 2×2；4096 的四级 atlas 每级为 2048。View 0 执行 GPU 蒙皮，1..4 留给阴影，5/6 分别为 AO 深度预通道与计算，主场景使用 View 7；启用 HDR 时，View 7 写入线性 RGBA16F，View 8 提交插件透明绘制，9..11 完成后处理，UI 随后使用 View 200。编辑器 GPU 作业保留 View 240..255。阴影仍只占用纹理槽 15。
 
 主 pass 按观察镜头的正向深度选级，16 点 PCF 的每次采样限制在本级 tile 内。每级末尾的混合区与下一层平滑过渡，最后一级在同样区间淡出；混合比例为 0 时使用硬切换。下一级投影向前扩展以覆盖混合区。坐标变换处理各后端的屏幕原点和深度范围；超出有效投影或阴影距离返回全可见。没有投影方向光时释放专属 GPU 对象；聚合设置查询和修改此时选择首个启用方向光，逐灯编辑应直接使用 `Light`。目前不包含点光或聚光阴影。
 
@@ -81,7 +81,7 @@ CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkarad
 
 ## 屏幕空间环境遮蔽
 
-AO 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [39-assao](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/39-assao)，使用固定 Q2 与两次边缘保持模糊。实现和 GPU 资源封装于渲染私有 `AmbientOcclusionPass`，不增加场景节点或框架系统。View 5 用现有材质程序提交仅写深度的预通道，保留自定义顶点变形、材质剔除和 alpha 裁切；View 6 顺序计算深度、法线、遮蔽及模糊，View 7 的主场景采样最终结果，启用 HDR 时随后执行 View 8..10 后处理。UI 与编辑器 GPU 作业继续使用 200 与 240..255。
+AO 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [39-assao](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/39-assao)，使用固定 Q2 与两次边缘保持模糊。实现和 GPU 资源封装于渲染私有 `AmbientOcclusionPass`，不增加场景节点或框架系统。View 5 用现有材质程序提交仅写深度的预通道，保留自定义顶点变形、材质剔除和 alpha 裁切；View 6 顺序计算深度、法线、遮蔽及模糊，View 7 的主场景采样最终结果，启用 HDR 时随后提交 View 8 插件透明绘制，再执行 View 9..11 后处理。UI 与编辑器 GPU 作业继续使用 200 与 240..255。
 
 `PostProcessData` 保存 `ao_enabled`（默认 false）、`ao_radius`（默认 1，范围 `(0,100]`）、`ao_strength`（默认 1，范围 `[0,2]`）、`ao_power`（默认 1.5，范围 `[0.1,8]`）和 `ao_fade_start` / `ao_fade_end`（默认 80/150，要求 `0 <= start < end <= 100000`）。半径与淡出距离使用世界单位，参数必须有限；关闭开关保留其他设置。参数由活动场景相机提供，预览隐藏镜头只决定本帧投影与深度，支持透视和正交相机。MCP 的同名驼峰字段和脚本 `SetAmbientOcclusion` 复用组件校验与持久数据；MCP 编辑进入撤销链，再由 `save_scene` 保存，脚本修改不自动写盘。不维护单独的编辑器效果状态。
 
@@ -96,7 +96,7 @@ Metal 能力检查沿用上游实际访问契约：本通道的 R16F、RGBA8、R
 
 HDR 与 Bloom 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [09-hdr](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/09-hdr)，使用其全屏绘制和多通道组织、九次采样亮部提取、纵向 `blur9`、横向 `blur9` 与合成流程。保留 `blur9` 权重 `1 / 0.9 / 0.55 / 0.18 / 0.1` 和 `4.46` 归一化；适配为中心对称 3×3 提取核、线性 RGBA16F 中间值、一次最终输出转换及引擎资源生命周期。源码、调整说明和 BSD-2-Clause 许可见 [HDR 来源](../../third_party/notices/bgfx-hdr.md)。
 
-`HdrPostProcessPass` 是渲染私有实现，不增加场景节点或独立框架系统。HDR 开启时，View 7 将场景表面、天空与 3D 文字绘制到全尺寸 RGBA16F 颜色和 D32F 深度目标；Bloom 开启时，View 8 将九次采样的平均线性颜色减去阈值并保留非负结果，输出到半尺寸 RGBA16F 目标，View 9 纵向模糊至八分之一尺寸目标。View 10 水平模糊 Bloom 并按强度加回场景，最后统一执行显式 `exposure`、Reinhard/ACES 和 gamma 编码。尺寸按窗口像素向上取整，两轴模糊间距都以八分之一目标的纹素尺寸乘半径倍率计算。Bloom 关闭而 HDR 开启时跳过 View 8/9，仅执行最终输出转换。
+`HdrPostProcessPass` 是渲染私有实现，不增加场景节点或独立框架系统。HDR 开启时，View 7 将场景表面、天空与 3D 文字绘制到全尺寸 RGBA16F 颜色和 D32F 深度目标；View 8 与场景共用颜色和深度附件，按提交顺序绘制插件内容，不清屏。Bloom 开启时，View 9 将九次采样的平均线性颜色减去阈值并保留非负结果，输出到半尺寸 RGBA16F 目标，View 10 纵向模糊至八分之一尺寸目标。View 11 水平模糊 Bloom 并按强度加回场景，最后统一执行显式 `exposure`、Reinhard/ACES 和 gamma 编码。尺寸按窗口像素向上取整，两轴模糊间距都以八分之一目标的纹素尺寸乘半径倍率计算。Bloom 关闭而 HDR 开启时跳过 View 9/10，仅执行最终输出转换。
 
 HDR 指场景内部保留高于 1 的线性亮度，最终交换链和截图仍输出 SDR，没有 HDR 显示器色域或输出编码。曝光由已有参数显式控制，未引入上游的亮度测量、平均亮度贴图或自动曝光；Bloom 阈值在曝光前应用。清屏 RGBA8 的 RGB 先按原显示编码解码为线性值，再与场景共同进入最终输出。UI 在 View 200 绘制，不进入场景 HDR 目标，不受场景曝光、色调映射或 Bloom 影响。
 

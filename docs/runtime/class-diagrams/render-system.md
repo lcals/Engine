@@ -208,6 +208,8 @@ classDiagram
         <<final>>
         +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui)
         +~RenderSystem()
+        +add_extension(RenderExtension& extension) bool
+        +remove_extension(RenderExtension& extension) bool
         +prepare_scene(const Camera#42; camera) bool
         +release_scene() void
         +scene_prepared() bool
@@ -309,6 +311,7 @@ classDiagram
     RenderSystem --> WorldSystem : 可空借用 活动场景来源
     RenderSystem --> FontSystem : 可空借用 3D 文字绘制
     RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
+    RenderSystem --> RenderExtension : 登记期间借用，独立透明通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
     RenderSystem ..> Light : 从节点读取方向与光照
@@ -339,7 +342,7 @@ classDiagram
 - 显式视角提供观察位置、投影及本镜头的网格隐藏列表。主绘制与 AO 深度预通道按实际观察 Camera 的 `mesh_visible(mesh_instance_id)` 过滤，阴影仍使用全局启用且可见的投影网格；仅对镜头隐藏的网格保留 GPU 资源，其他镜头仍可绘制。全部网格被该镜头隐藏时仍可成功提交空画面。环境始终读取世界场景的唯一启用 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的启用 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
-- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，阴影使用 1..4，AO 深度预通道与计算使用 5/6，主场景使用 7，HDR/Bloom 使用 8..10，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
+- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，阴影使用 1..4，AO 深度预通道与计算使用 5/6，主场景使用 7，[渲染扩展](render-extension.md) 使用 8，HDR/Bloom 使用 9..11，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。
 - Android 的 `RenderSurface` 通过 SDL 窗口属性取得原生窗口，调用 `ANativeWindow_acquire()` 持有原生引用，bgfx 完全关闭后配对 `ANativeWindow_release()`；底层窗口由平台共享，不由渲染系统独占。
@@ -431,6 +434,7 @@ classDiagram
         <<private implementation>>
         +prepare(uint16_t width, uint16_t height, bool bloom_enabled) bool
         +begin_scene(uint32_t clear_color) void
+        +scene_framebuffer() bgfx::FrameBufferHandle
         +resolve(const RenderSettings& settings) bool
         +resource_count() uint32_t
         +release() void
@@ -444,6 +448,6 @@ classDiagram
 
 相机 `PostProcessDataT` 与渲染快照增加 `hdr_enabled`、`bloom_enabled`，默认均关闭；Bloom 依赖 HDR，提交 `bloom_enabled=true` 且 `hdr_enabled=false` 返回失败。亮部阈值默认 1、范围 `[0,100]`，强度默认 0.15、范围 `[0,10]`，模糊半径倍数默认 1、范围 `[0.25,4]`，均要求有限。HDR / Bloom 参数随组件持久化，不进入 Engine。HDR 关闭保留原 SDR 路径。
 
-采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 7 为场景，8 为半尺寸亮部提取，9 为八分之一尺寸纵向 blur9，10 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR、停止场景、设备重建均释放该通道，尺寸变化只重建尺寸相关目标。
+采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 7 为场景，8 为共用颜色及深度附件的插件透明绘制，9 为半尺寸亮部提取，10 为八分之一尺寸纵向 blur9，11 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR、停止场景、设备重建均释放该通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。

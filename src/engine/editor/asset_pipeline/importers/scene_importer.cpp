@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
+#include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 
@@ -37,6 +38,16 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
     {
         for (const auto& component : node->components)
         {
+            const auto* codec = find_scene_component_codec(component->payload.type);
+            if (codec == nullptr ||
+                !codec->scan_dependencies(*component, context, asset.build_dependencies, error))
+            {
+                if (error.empty())
+                {
+                    error = "scene component dependency codec is unavailable";
+                }
+                return false;
+            }
             if (const auto* environment = component->payload.AsEnvironmentData(); environment)
             {
                 for (const auto* guid :

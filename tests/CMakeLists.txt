@@ -778,3 +778,26 @@ if(TARGET engine_font)
     engine_apply_options(engine_font_system_test)
     add_test(NAME engine.font_system COMMAND engine_font_system_test)
 endif()
+
+if(TARGET engine_effects_editor)
+    add_executable(engine_effects_pipeline_test effects_pipeline_test.cpp)
+    target_link_libraries(engine_effects_pipeline_test PRIVATE engine::effects_editor
+                                                              engine::effects_backend
+                                                              engine::resource)
+    engine_apply_options(engine_effects_pipeline_test)
+    add_test(NAME editor.effects_pipeline
+             COMMAND engine_effects_pipeline_test "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.effects_pipeline PROPERTIES TIMEOUT 120)
+endif()
+
+if(TARGET engine_effects)
+    add_executable(engine_effects_runtime_test effects_runtime_test.cpp)
+    target_link_libraries(engine_effects_runtime_test PRIVATE engine::effects engine::effects_backend
+                                                             SDL3::SDL3 bgfx::bgfx)
+    engine_apply_options(engine_effects_runtime_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.effects_runtime
+                 COMMAND engine_effects_runtime_test "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(engine.effects_runtime PROPERTIES TIMEOUT 60 RUN_SERIAL TRUE)
+    endif()
+endif()

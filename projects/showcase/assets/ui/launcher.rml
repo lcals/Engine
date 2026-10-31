@@ -3,7 +3,7 @@
 <title>Engine Showcase</title>
 <style>
 div, h1, h2, body { display: block; }
-body { margin: 0; width: 100%; height: 100%; background-color: #0e1726; color: #eaf1fa; font-family: body; font-size: 17px; }
+body { margin: 0; width: 100%; height: 100%; overflow-y: auto; background-color: #0e1726; color: #eaf1fa; font-family: body; font-size: 17px; }
 scrollbarvertical { width: 12px; background-color: #101d2d; }
 scrollbarvertical slidertrack { width: 12px; }
 scrollbarvertical sliderbar { width: 8px; margin: 2px; min-height: 24px; background-color: #375973; }
@@ -38,12 +38,13 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
 <div id="launcher-page" class="page">
     <div class="eyebrow">ENGINE / SCENE COLLECTION</div>
     <h1>Choose your next scene.</h1>
-    <div class="lead">One project. Four worlds to explore.</div>
+    <div class="lead">One project. Five worlds to explore.</div>
     <div class="cards">
         <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2>PBR essentials</h2><div class="description">A rotating cube. Light, surface and reflection.</div><button id="scene-cube">Open PBR cube</button></div>
         <div class="card"><div class="number">02 / INTERIOR</div><h2>Modern apartment</h2><div class="description">A furnished home with warm, layered lighting.</div><button id="scene-apartment">Open apartment</button></div>
         <div class="card"><div class="number">03 / CHARACTER LAB</div><h2>Animation courtyard</h2><div class="description">Skinned animation, physical movement and space.</div><button id="scene-courtyard">Open courtyard</button></div>
         <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2>Letters in space</h2><div class="description">The same vector font, rendered as 3D scene text.</div><button id="scene-gallery">Open font gallery</button></div>
+        <div class="card"><div class="number">05 / EFFECTS</div><h2>Effects laboratory</h2><div class="description">Laser sprites and animated arrow models, with HDR and bloom.</div><button id="scene-effects">Open effects laboratory</button></div>
     </div>
     <div id="launcher-status" class="footer">Open a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>

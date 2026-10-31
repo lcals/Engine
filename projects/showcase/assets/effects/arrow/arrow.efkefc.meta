@@ -1,0 +1,11 @@
+guid = "396314da-fe6d-4b0b-b77c-96c1d7ed58fc"
+importer = "effect"
+meta_version = 1
+
+[[resources]]
+path = "Texture/Arrow.png"
+resource = "project/effects/arrow/textures/arrow.png"
+
+[[resources]]
+path = "Model/Arrow.efkmodel"
+resource = "project/effects/arrow/models/arrow.efkmodel"

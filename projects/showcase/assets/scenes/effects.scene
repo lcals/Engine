@@ -1,0 +1,222 @@
+name = "Effects laboratory"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 8, 19]
+rotation = [-20, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 50.0
+near_clip = 0.1
+far_clip = 120.0
+
+[[nodes.components]]
+type = "post_process"
+exposure = 1.1
+filmic_tonemap = true
+hdr_enabled = true
+bloom_enabled = true
+bloom_threshold = 0.9
+bloom_intensity = 0.22
+bloom_radius = 1.0
+
+[[nodes]]
+id = 2
+name = "Environment"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "environment"
+ambient_color = [0.38, 0.5, 0.7]
+ambient_intensity = 0.22
+clear_color = 168760319
+
+[[nodes]]
+id = 3
+name = "Key light"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 8, 2]
+rotation = [-45, -35, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [0.82, 0.9, 1.0, 1.0]
+intensity = 2.2
+cast_shadows = false
+shadow_resolution = 2048
+shadow_bias = 0.002
+
+[[nodes]]
+id = 4
+name = "Warm fill"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [4, 4, 3]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "point"
+color = [1.0, 0.56, 0.28, 1.0]
+intensity = 9.0
+range = 12.0
+
+[[nodes]]
+id = 5
+name = "Ground"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.3, 0]
+rotation = [0, 0, 0]
+scale = [12, 0.3, 10]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes]]
+id = 6
+name = "Laser stage"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-4, 0.15, 0]
+rotation = [0, 0, 0]
+scale = [2.8, 0.15, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes]]
+id = 7
+name = "Arrow stage"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [4, 0.15, 0]
+rotation = [0, 0, 0]
+scale = [2.8, 0.15, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes]]
+id = 10
+name = "Laser effect"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-4, 1.1, 0]
+rotation = [0, 0, 0]
+scale = [0.14, 0.14, 0.14]
+
+[[nodes.components]]
+type = "effect"
+effect = "b3b901e4-d09d-4bb5-b240-10d598c762cd"
+speed = 1.0
+play_on_awake = true
+loop = true
+
+[[nodes]]
+id = 11
+name = "Arrow effect"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [4, 0.5, 0]
+rotation = [0, 0, 0]
+scale = [0.55, 0.55, 0.55]
+
+[[nodes.components]]
+type = "effect"
+effect = "396314da-fe6d-4b0b-b77c-96c1d7ed58fc"
+speed = 1.0
+play_on_awake = true
+loop = true
+
+[[nodes]]
+id = 20
+name = "EFFECTS / LABORATORY"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6, 5, -2]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "EFFECTS / LABORATORY"
+size = 0.58
+color = [0.8, 0.9, 1, 1]
+
+[[nodes]]
+id = 21
+name = "01 / LASER"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6, 0.7, 4.8]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "01 / LASER"
+size = 0.42
+color = [0.55, 0.8, 1, 1]
+
+[[nodes]]
+id = 22
+name = "02 / MODEL + UV"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [1.6, 0.7, 4.8]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "text"
+font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
+text = "02 / MODEL + UV"
+size = 0.42
+color = [1, 0.7, 0.4, 1]

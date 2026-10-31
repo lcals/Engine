@@ -1,3 +1,8 @@
+#if ENGINE_HAS_EFFECTS_EDITOR
+#include "plugins/editor/effects/effect_codec.hpp"
+#include "plugins/editor/effects/effect_importer.hpp"
+#endif
+
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
@@ -98,6 +103,16 @@ int main(int argc, char** argv)
     if (!engine::plugins::character_controller::register_controller_codec())
     {
         std::fputs("Cannot register character controller scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_EFFECTS_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> effect_importer =
+        std::make_unique<engine::plugins::effects::EffectImporter>();
+    if (!engine::plugins::effects::register_effect_codec() ||
+        !pipeline.add_importer(effect_importer))
+    {
+        std::fputs("Cannot register effects importer and scene codec\n", stderr);
         return 1;
     }
 #endif

@@ -10,6 +10,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
+#include "runtime/render/render_context.hpp"
+#include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -1648,6 +1650,160 @@ bool tick_engine_frames(engine::RuntimeHost& engine, int count)
     return expect(submitted == count, "engine must submit frames within the attempt limit");
 }
 
+class ObservedRenderExtension final : public engine::RenderExtension
+{
+public:
+    ~ObservedRenderExtension() noexcept override
+    {
+        release_gpu();
+    }
+
+    [[nodiscard]] bool draw(const engine::RenderContext& context) override
+    {
+        ++draws;
+        scene_id = context.scene.id();
+        view = context.view;
+        projection = context.projection;
+        hdr = context.hdr;
+        valid_context = context.view_id == 8 && context.width != 0 && context.height != 0;
+        if (!bgfx::isValid(texture_))
+        {
+            texture_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8);
+        }
+        return accept_draw && valid_context && bgfx::isValid(texture_);
+    }
+
+    void release_scene() noexcept override
+    {
+        ++scene_releases;
+    }
+
+    void release_gpu() noexcept override
+    {
+        if (bgfx::isValid(texture_))
+        {
+            bgfx::destroy(texture_);
+            texture_ = BGFX_INVALID_HANDLE;
+            ++gpu_releases;
+        }
+    }
+
+    std::array<float, 16> view{};
+    std::array<float, 16> projection{};
+    std::uint64_t scene_id = 0;
+    unsigned int draws = 0;
+    unsigned int scene_releases = 0;
+    unsigned int gpu_releases = 0;
+    bool hdr = false;
+    bool valid_context = false;
+    bool accept_draw = true;
+
+private:
+    bgfx::TextureHandle texture_ = BGFX_INVALID_HANDLE;
+};
+
+bool test_render_extensions(const engine::EngineConfig& config)
+{
+    // 扩展比渲染器活得更久：渲染器析构必须解除反向登记。
+    ObservedRenderExtension extension;
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    if (!expect(resources.initialize(config) && world.initialize(config) &&
+                    windows.initialize(config),
+                "initialize extension test owners"))
+    {
+        return false;
+    }
+    {
+        engine::RenderSystem renderer(windows, &world);
+        engine::RenderSystem other(windows);
+        if (!expect(renderer.add_extension(extension) && !renderer.add_extension(extension) &&
+                        !other.add_extension(extension),
+                    "extension belongs to exactly one renderer") ||
+            !expect(renderer.initialize(config), "initialize renderer with a borrowed extension"))
+        {
+            return false;
+        }
+        auto* scene = world.create_scene("Extension-only scene");
+        auto* camera_node = scene != nullptr ? scene->create_node("Camera") : nullptr;
+        auto* camera =
+            camera_node != nullptr ? camera_node->add_component<engine::Camera>() : nullptr;
+        auto* post = camera_node != nullptr
+                         ? camera_node->add_component<engine::PostProcessComponent>()
+                         : nullptr;
+        if (!expect(scene && camera && post && scene->set_active_camera(camera),
+                    "create camera-only scene without a core mesh or text component") ||
+            !render_frames(windows, renderer, 1) ||
+            !expect(extension.draws == 1 && extension.scene_id == scene->id() &&
+                        extension.valid_context && !extension.hdr,
+                    "registered extension draws in a camera-only scene"))
+        {
+            return false;
+        }
+        const auto game_view = extension.view;
+        auto* preview_node = scene->create_node("Preview camera");
+        auto* preview =
+            preview_node != nullptr ? preview_node->add_component<engine::Camera>() : nullptr;
+        engine::TransformSettings preview_transform;
+        preview_transform.position = {3, 2, 5};
+        auto post_settings = post->settings();
+        post_settings.hdr_enabled = true;
+        post_settings.bloom_enabled = true;
+        if (!expect(preview &&
+                        preview_node->get_component<engine::Transform>()->set_settings(
+                            preview_transform) &&
+                        post->set_settings(post_settings),
+                    "configure preview camera and scene HDR") ||
+            !render_frames(windows, renderer, 1, preview) ||
+            !expect(extension.draws == 2 && extension.view != game_view && extension.hdr,
+                    "extension receives actual preview matrices and scene HDR state"))
+        {
+            return false;
+        }
+        extension.accept_draw = false;
+        if (!expect(!renderer.render(preview), "extension draw failure reaches caller"))
+        {
+            return false;
+        }
+        extension.accept_draw = true;
+        // 先销毁节点再释放扩展，验证清理只使用扩展自身状态。
+        world.destroy_scene();
+        const auto releases = extension.scene_releases;
+        renderer.release_scene();
+        if (!expect(extension.scene_releases == releases + 1,
+                    "scene retirement notifies extension after nodes are gone") ||
+            !expect(renderer.remove_extension(extension) && !renderer.remove_extension(extension) &&
+                        extension.gpu_releases == 1 && renderer.add_extension(extension),
+                    "explicit detach releases GPU state and permits another registration"))
+        {
+            return false;
+        }
+        // 扩展先析构：其基类只撤销登记，渲染器不再调用已经销毁的对象。
+        {
+            ObservedRenderExtension temporary;
+            if (!expect(renderer.add_extension(temporary), "register a shorter-lived extension"))
+            {
+                return false;
+            }
+        }
+        if (!expect(create_cube_scene(world, true), "create replacement extension scene") ||
+            !render_frames(windows, renderer, 1))
+        {
+            return false;
+        }
+        renderer.shutdown();
+        if (!expect(extension.gpu_releases == 2,
+                    "renderer releases extension GPU objects before shutting down bgfx"))
+        {
+            return false;
+        }
+    }
+    engine::RenderSystem replacement(windows);
+    return expect(replacement.add_extension(extension) && replacement.remove_extension(extension),
+                  "renderer destruction clears extension reverse registration");
+}
+
 bool test_engine(const engine::EngineConfig& config)
 {
     engine::RuntimeHost engine;
@@ -1946,11 +2102,12 @@ int main(int, char**)
     const bool skinning_passed = textures_passed && test_gpu_skinning(config);
     const bool settings_passed = skinning_passed && test_render_settings_and_capture(config);
     const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
-    const bool engine_passed = hdr_passed && test_engine(config);
+    const bool extensions_passed = hdr_passed && test_render_extensions(config);
+    const bool engine_passed = extensions_passed && test_engine(config);
     const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
     const bool script_factory_passed = borrowed_passed && test_script_runtime_factory(config);
     if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !hdr_passed ||
-        !engine_passed || !borrowed_passed || !script_factory_passed)
+        !extensions_passed || !engine_passed || !borrowed_passed || !script_factory_passed)
     {
         return 1;
     }

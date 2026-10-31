@@ -34,7 +34,8 @@ enum class RuntimeStage
 };
 
 // 世界初始化前按两个位置各调用一次；物理对象已构造，失败按已有生命周期回滚。
-using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&);
+using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&,
+                              RenderSystem&);
 
 class RuntimeHost final
 {

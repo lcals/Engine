@@ -51,7 +51,8 @@ struct InstalledPlugins
 InstalledPlugins* installing = nullptr;
 
 bool install_plugins(engine::RuntimeStage stage, engine::WorldSystem& world,
-                     engine::WindowSystem& window, engine::PhysicsSystem& physics)
+                     engine::WindowSystem& window, engine::PhysicsSystem& physics,
+                     engine::RenderSystem& renderer)
 {
     if (installing == nullptr || installing->calls >= installing->stages.size() ||
         world.is_initialized() || physics.is_initialized())
@@ -64,7 +65,7 @@ bool install_plugins(engine::RuntimeStage stage, engine::WorldSystem& world,
         return false;
     }
     const auto index = world.subsystem_count();
-    if (!configure_runtime_plugins(stage, world, window, physics) ||
+    if (!configure_runtime_plugins(stage, world, window, physics, renderer) ||
         world.subsystem_count() != index + 1)
     {
         return false;

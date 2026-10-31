@@ -10,6 +10,7 @@ export class LauncherModel {
         { button: "scene-apartment", title: "Modern apartment", scene: "project/scenes/apartment.scene" },
         { button: "scene-courtyard", title: "Animation courtyard", scene: "project/scenes/playground.scene" },
         { button: "scene-gallery", title: "Letters in space", scene: "project/scenes/font-gallery.scene" },
+        { button: "scene-effects", title: "Effects laboratory", scene: "project/scenes/effects.scene" },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

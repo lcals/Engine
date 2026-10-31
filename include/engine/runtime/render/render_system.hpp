@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace engine
 {
@@ -15,6 +16,7 @@ class WindowSystem;
 class WorldSystem;
 class FontSystem;
 class UiSystem;
+class RenderExtension;
 
 namespace render_detail
 {
@@ -36,6 +38,11 @@ public:
     explicit RenderSystem(WindowSystem& windows, WorldSystem* world = nullptr,
                           FontSystem* fonts = nullptr, UiSystem* ui = nullptr) noexcept;
     ~RenderSystem() noexcept override;
+
+    // 不转移所有权；同一扩展只能属于一个渲染器。回调期间拒绝更改登记。
+    [[nodiscard]] bool add_extension(RenderExtension& extension);
+    // 解除后清理扩展的场景和 GPU 资源；重复解除返回 false。
+    [[nodiscard]] bool remove_extension(RenderExtension& extension) noexcept;
 
     // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
     [[nodiscard]] bool prepare_scene(const Camera* camera = nullptr);
@@ -63,6 +70,9 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    friend class RenderExtension;
+    void detach_extension(RenderExtension& extension) noexcept;
+    void release_extensions_scene() noexcept;
     static void suspend_renderer(void* context) noexcept;
     [[nodiscard]] bool initialize_renderer();
     [[nodiscard]] bool resolve_settings(RenderSettings& settings) const noexcept;
@@ -87,6 +97,8 @@ private:
     std::uint32_t frame_number_ = 0;
     bool renderer_initialized_ = false;
     bool stats_visible_ = false;
+    std::vector<RenderExtension*> extensions_;
+    bool invoking_extensions_ = false;
 };
 
 } // namespace engine

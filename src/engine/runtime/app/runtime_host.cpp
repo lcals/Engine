@@ -102,10 +102,10 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         }
     }
     if ((setup != nullptr &&
-         !setup(RuntimeStage::before_physics, *world, *window_, *physics_)) ||
+         !setup(RuntimeStage::before_physics, *world, *window_, *physics_, *renderer)) ||
         !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
         (setup != nullptr &&
-         !setup(RuntimeStage::after_physics, *world, *window_, *physics_)) ||
+         !setup(RuntimeStage::after_physics, *world, *window_, *physics_, *renderer)) ||
         !world->add_subsystem(audio))
     {
         shutdown();

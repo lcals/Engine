@@ -178,11 +178,18 @@ table PostProcessData {
     bloom_radius:float = 1;
 }
 
+table EffectData {
+    effect_guid:string;
+    speed:float = 1;
+    loop:bool = false;
+    play_on_awake:bool = true;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
     CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
-    CharacterCameraData, CharacterVisualData
+    CharacterCameraData, CharacterVisualData, EffectData
 }
 
 table ComponentData {

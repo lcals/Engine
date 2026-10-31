@@ -112,6 +112,10 @@ classDiagram
     RuntimeHost --> AudioSystem : 借用并随窗口暂停恢复
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
+    RenderSystem --> RenderExtension : 借用独立场景绘制扩展
+    RenderExtension --> RenderSystem : 析构前自动撤销登记
+    RenderExtension ..> RenderContext : 本次绘制参数
+    RenderContext --> Scene : 调用期间只读借用
 ```
 
 默认初始化顺序为 Window → Resource → Performance → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、性能系统、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。PerformanceSystem 的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。

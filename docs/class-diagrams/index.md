@@ -53,6 +53,8 @@
 - [环境与后处理组件](../runtime/class-diagrams/environment-components.md)：环境光、雾与清屏色归环境节点，曝光与色调映射归相机节点，阴影归灯光；预览与运行共用场景数据。
 - [场景 GPU 烘焙插件](../plugins/editor/class-diagrams/scene-bake.md)：MCP 异步作业、GPU 环境预计算和场景同名目录资源发布；运行时只加载结果。
 - [模型资源](../runtime/class-diagrams/model-resources.md)：模型节点层级、骨架/动画与子资源 GUID，核心读取统一生成数据。
+- [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
+- [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、播放、暂停、定位及运行状态。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
@@ -64,6 +66,7 @@
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
+- [渲染扩展](../runtime/class-diagrams/render-extension.md)：插件场景透明绘制位置、借用登记与 GPU 生命周期。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [场景预览](../editor/class-diagrams/scene-preview.md)：独立隐藏镜头、自由飞行、增量导入及未保存编辑保护；不推进玩法系统。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。

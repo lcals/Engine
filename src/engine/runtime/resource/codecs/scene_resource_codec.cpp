@@ -82,6 +82,14 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 }
                 has_shadow_light = has_shadow_light || (component->enabled && light->cast_shadows);
             }
+            if (const auto* effect = component->payload.AsEffectData();
+                effect && !effect->effect_guid.empty())
+            {
+                if (!declares(catalog, output, effect->effect_guid, schema::AssetKind::effect))
+                {
+                    return false;
+                }
+            }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
                 if (!declares(catalog, output, ui->document_guid, schema::AssetKind::ui))
@@ -181,6 +189,15 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                     diffuse_data->format != schema::TextureFormat::rgba16f ||
                     specular_data->format != schema::TextureFormat::rgba16f ||
                     lut_data->format != schema::TextureFormat::rg16f)
+                {
+                    return false;
+                }
+            }
+            if (const auto* effect = component->payload.AsEffectData();
+                effect && !effect->effect_guid.empty())
+            {
+                const auto* effect_resource = dependency(dependencies, effect->effect_guid);
+                if (!effect_resource || effect_resource->info().kind != schema::AssetKind::effect)
                 {
                     return false;
                 }

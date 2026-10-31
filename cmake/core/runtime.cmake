@@ -21,6 +21,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_sources(
         engine_render
         PRIVATE src/engine/runtime/render/render_surface.cpp
+                src/engine/runtime/render/render_extension.cpp
                 src/engine/runtime/render/render_math.cpp
                 src/engine/runtime/render/render_settings.cpp
                 src/engine/runtime/render/renderer_callbacks.cpp

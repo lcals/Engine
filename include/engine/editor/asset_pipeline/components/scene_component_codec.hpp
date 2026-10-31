@@ -1,14 +1,18 @@
 #pragma once
 
+#include "runtime/core/guid_map.hpp"
 #include "runtime/schema/scene_generated.h"
 #include <toml++/toml.hpp>
 
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace engine::editor::asset_pipeline
 {
+
+struct ImportContext;
 
 class SceneComponentCodec
 {
@@ -20,6 +24,11 @@ public:
                                     std::string& error) const = 0;
     [[nodiscard]] virtual bool validate(const schema::ComponentDataT& component,
                                         std::string& error) const = 0;
+    // 向本批次列表追加已校验的资源 GUID；默认不声明附加依赖。
+    [[nodiscard]] virtual bool scan_dependencies(const schema::ComponentDataT& component,
+                                                 const ImportContext& context,
+                                                 std::vector<Guid>& dependencies,
+                                                 std::string& error) const;
     virtual void write(const schema::ComponentDataT& component, toml::table& value) const = 0;
 };
 

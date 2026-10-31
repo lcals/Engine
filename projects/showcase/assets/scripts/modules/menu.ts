@@ -5,14 +5,16 @@ import Minimal from "./minimal.js";
 import Apartment from "./apartment.js";
 import Courtyard from "./courtyard.js";
 import FontGallery from "./font-gallery.js";
+import Effects from "./effects.js";
 
-type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery;
+type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery | Effects;
 
 const scene_games = new Map<string, new () => ShowcaseGame>([
     ["project/scenes/main.scene", Minimal],
     ["project/scenes/apartment.scene", Apartment],
     ["project/scenes/playground.scene", Courtyard],
     ["project/scenes/font-gallery.scene", FontGallery],
+    ["project/scenes/effects.scene", Effects],
 ]);
 
 export default class Game extends Gameplay {
