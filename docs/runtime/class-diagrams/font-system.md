@@ -25,7 +25,7 @@ classDiagram
         +layout(font, text, settings, output) bool$
         +append_glyph(data, glyph, x, y, size, color, y_down, output) bool$
         +draw(font, geometry, settings) bool
-        +render_scene(scene, view_id) bool
+        +render_scene(scene, view_id, bool linear_output = false) bool
         +release_scene() void
         +gpu_resource_count() uint32
         +last_error() string
@@ -87,3 +87,6 @@ classDiagram
 - `FontDraw` 保存当前帧的视图、模型矩阵与裁剪信息，持有调用方已加载的 Shader 引用；绘制不重新查询目录，目录更新不会把旧字体和新 Shader 混用。UI 和 3D 共用同一绘制能力。RmlUi 在正常渲染顺序中调用，排版阶段不提交 GPU 命令。
 - 默认 `builtin/shaders/font` Shader 由引擎提供；项目 Shader 通过标准资源目录加载并遵守相同顶点、曲线纹理及预乘颜色契约。
 - `TextComponent` 是普通节点组件；宿主协调场景停止和 GPU 释放，不向 Engine 增加字体专用接口。
+
+
+HDR 绘制契约：`FontDraw.linear_output` 默认 false，表示既有显示色预乘输出。`render_scene` 接受同名参数，由场景渲染调用方按目标明确传入；UI 保持 false。为 true 时，字体 Shader 使用 `u_font_texture.z=1` 将预乘显示色先解预乘、转换线性再预乘，字形覆盖率与 alpha 不进行 gamma 转换。字体仍进入场景深度目标，参与最终曝光和色调映射；不按 view 编号猜测调用方。

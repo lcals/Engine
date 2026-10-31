@@ -30,6 +30,7 @@ $input v_font_coord, v_font_range, v_color0
 #include <bgfx_shader.sh>
 
 SAMPLER2D(s_font_curves, 0);
+// Curve texture size (xy), linear HDR output enabled (z), reserved (w).
 uniform vec4 u_font_texture;
 
 vec4 curve_texel(int index)
@@ -113,5 +114,13 @@ void main()
     float weighted = abs(x_coverage * x_weight + y_coverage * y_weight) /
                      max(x_weight + y_weight, 1.0 / 65536.0);
     float coverage = clamp(max(weighted, min(abs(x_coverage), abs(y_coverage))), 0.0, 1.0);
-    gl_FragColor = v_color0 * coverage;
+    vec4 color = v_color0;
+    if (u_font_texture.z > 0.5)
+    {
+        // Font vertices carry premultiplied display colors. Decode the straight color,
+        // then premultiply again; coverage and alpha always remain linear quantities.
+        vec3 straight_color = saturate(color.rgb / max(color.a, 0.00001));
+        color.rgb = pow(straight_color, vec3_splat(2.2)) * color.a;
+    }
+    gl_FragColor = color * coverage;
 }

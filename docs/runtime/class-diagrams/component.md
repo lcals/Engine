@@ -90,6 +90,10 @@ classDiagram
         +bool cast_shadows
         +uint16_t shadow_resolution
         +float shadow_bias
+        +uint8_t shadow_cascades
+        +float shadow_distance
+        +float shadow_split_lambda
+        +float shadow_cascade_blend
     }
     class MeshRendererDataT {
         <<FlatBuffers生成>>
@@ -137,6 +141,7 @@ classDiagram
 - 禁用不改变所有权；Transform 的启用标记不改变层级空间关系。GPU 缓冲、Shader 和管线仍由 RenderSystem 管理。
 
 - Light 的投影开关默认关闭，当前投影仅支持方向光；阴影分辨率默认 2048，范围 128..8192 且为 2 的幂，深度偏移默认 0.001、范围 0..0.1。[环境与后处理](environment-components.md)使用独立组件承载场景环境与相机画面参数。
+- 方向光级联参数由同一 `LightDataT` 保存：`shadow_cascades` 为整数 1、2、4，默认 4；`shadow_distance` 为 `(0, 100000]` 世界单位，默认 150；`shadow_split_lambda` 为 `[0,1]`，默认 0.6；`shadow_cascade_blend` 为 `[0,0.3]`，默认 0.1。分辨率表示完整阴影 atlas 的边长，四级共享 2×2 atlas。非法参数失败并保留原组件，未投影时参数仍保存。
 
 - `data()` 提供生成组件数据的只读借用，调用者不得修改或转移其嵌套载荷；常规变更通过具体组件的方法完成。MeshRenderer 的材质引用由 MeshRenderer::build_data 根据当前材质路径解析 GUID；场景不嵌入整个运行时材质实例。
 

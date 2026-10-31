@@ -34,3 +34,9 @@ classDiagram
 无活动场景时仅修改渲染默认设置，`SettingsEdit::affects_scene()` 返回 false；不创建场景。编辑器不把场景参数写到项目脚本或核心全局覆盖值。
 
 宿主独占 RenderCommands，命令注册和撤销历史释放之后销毁它；渲染系统与世界的有效期覆盖命令对象。
+
+AO 字段 `aoEnabled`、`aoRadius`、`aoStrength`、`aoPower`、`aoFadeStart`、`aoFadeEnd` 属于后处理域，与曝光共用活动场景相机的 PostProcessComponent、快照和撤销记录。编辑器沿用已有后处理组件准备流程，缺少活动相机时拒绝；运行时核心不创建组件。AO 参数由同一场景保存链落盘，不添加独立编辑器覆盖状态。
+
+`hdrEnabled`、`bloomEnabled`、`bloomThreshold`、`bloomIntensity`、`bloomRadius` 同属后处理域。一次 `set_render_settings` 可原子提交 HDR/Bloom 的两个开关；最终状态必须满足 Bloom 依赖 HDR，不因参数遍历顺序不同产生部分修改，也不自动改变未提交开关。失败回滚本次新建组件，成功进入同一撤销、重做和保存链。
+
+级联阴影使用同一 `set_render_settings` / `get_render_settings`，字段为 `shadowCascades`、`shadowDistance`、`shadowSplitLambda`、`shadowCascadeBlend`。修改归方向灯域，实际变更要求已有启用方向灯，缺少时拒绝而不创建灯；阴影关闭且全部值未变化的空操作沿用原有成功语义。撤销和重做保存整份对应 Light 组件快照。级联数只接受 JSON 整数 1、2、4，其他数值遵循 Light 契约。

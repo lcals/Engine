@@ -200,6 +200,8 @@ classDiagram
     class Transform
     class Camera
     class Light
+    class EnvironmentComponent
+    class PostProcessComponent
     class MeshRenderer
     class ScriptSystem
     class RenderSystem
@@ -212,6 +214,8 @@ classDiagram
     Component <|-- Transform
     Component <|-- Camera
     Component <|-- Light
+    Component <|-- EnvironmentComponent
+    Component <|-- PostProcessComponent
     Component <|-- MeshRenderer
     Scene --> Camera : 可空活动相机借用
     ScriptSystem --> WorldSystem : 可空构造借用
@@ -222,10 +226,14 @@ classDiagram
     RenderSystem ..> Scene : 本帧读取
     RenderSystem ..> Camera : 视角与投影
     RenderSystem ..> Light : 节点方向及光照参数
+    RenderSystem ..> EnvironmentComponent : 每帧读取环境雾及 IBL 引用
+    RenderSystem ..> PostProcessComponent : 读取活动相机的曝光及色调映射
     RenderSystem ..> MeshRenderer : 网格与材质参数
 ```
 
 场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
+
+EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件快照，渲染器不另存一份场景覆盖值。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
 领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放；共享缓存与必要依赖保活由 ResourceGraphSystem 插件负责，核心没有缓存。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
@@ -955,17 +963,21 @@ classDiagram
 | --- | --- | --- |
 | editor_app 宿主 | ScenePersistence / RenderCommands | 独占装配；先注册命令，先释放命令及历史再销毁业务对象 |
 | ScenePersistence | WorldSystem | 借用活动场景；读取 NodeInfo、组件生成数据及活动相机，构造独立 SceneDataT 快照 |
-| ScenePersistence | MeshSourceWriter | 按值持有宿主注入的函数；函数借用 ModelingCommands，后者的生命期覆盖持久化对象 |
-| ScenePersistence | SceneImporter / asset_pipeline 身份 helper | 场景 TOML 发布和相邻 meta 校验；失败回滚源文件，不更新运行目录 |
-| ScenePersistence | Material / ResourceSystem | 读取当前全部材质槽、可公开参数和贴图，解析 Shader/Texture GUID；不向核心加入保存策略 |
+| ScenePersistence | MeshSourceWriter | 按值持有可空的宿主函数；仅动态网格导出需要它，借用的 ModelingCommands 须存活到回调释放 |
+| ScenePersistence | SceneImporter / asset_pipeline 身份 helper | 差异发布场景 TOML 与导出资源，校验相邻 meta；外部冲突拒绝覆盖，失败恢复源文件及时间戳 |
+| ScenePersistence | Material / ResourceSystem | 通过 has_overrides 查询实例覆盖；已加载网格与无覆盖材质保留 GUID，仅导出动态网格及独立覆盖材质 |
+| ScenePersistence / ScenePreview | SceneSavedResource | 成功回调借用本次实际变更源的 GUID 与 source/meta 摘要；预览核对自保存导入后只提交目录，保留活动场景与撤销历史 |
 | ModelingCommands | Node / MeshRenderer | export_mesh 保存已管理的多边形源；普通渲染网格可转换为编辑源，场景重载按项目路径恢复源数据 |
-| RenderCommands | RenderSystem | 借用渲染设置与截图接口；编辑器负责撤销、截图根目录、越界检查及输出目录创建 |
+| RenderCommands | RenderSystem / WorldSystem | 借用快照、截图及活动场景；按需创建环境/后处理组件，编辑器负责撤销、截图路径检查及目录创建 |
 | RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
 | RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
 | ScenePreviewMcpTools | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
 | ScenePreviewMcpTools | McpSystem | 登记预览启停、查询、镜头设置与刷新；宿主保持适配器存活到 MCP 关闭 |
 | RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
-| RenderSystem | RenderSettings / RendererCallbacks | 拥有当前配置及 bgfx 回调；GPU 资源、阴影和实际帧 PNG 输出属于渲染系统 |
+| RenderSystem | RenderSettings / RendererCallbacks | 场景设置每帧从组件组成快照，仅值持有待机配置；独占 bgfx 回调及 GPU 资源，负责阴影、IBL 采样和实际帧 PNG 输出 |
+| editor_app 宿主 | SceneBakeSystem | 仅启用 editor/scene_bake 时装配；注入预览校验与资源发布回调，关闭次序覆盖在途 GPU 读回 |
+| SceneBakeSystem | RenderSystem / ResourceSystem | 借用 GPU 就绪状态、帧号和源纹理；烘焙、文件发布及任务状态归编辑器插件 |
+| SceneBakeMcpTools | EditorMcpTools / McpSystem | 注册并转发烘焙启动、查询与取消，不持有 GPU 任务或向运行时引入 MCP |
 
 ```mermaid
 classDiagram
@@ -982,7 +994,7 @@ classDiagram
     class RenderSystem
     ScenePersistence --> WorldSystem : 借用场景
     EditorHost ..> ModelingCommands : 创建建模业务并绑定方法
-    EditorHost ..> ScenePersistence : 创建并注入网格回调
+    EditorHost ..> ScenePersistence : 管线启用时创建并注入可空回调
     ScenePersistence *-- MeshSourceWriter : 持有函数契约
     ScenePersistence ..> SceneImporter : 发布场景快照
     ScenePersistence ..> EditorCommands : 注册保存命令
@@ -994,9 +1006,13 @@ classDiagram
 
 方法契约分别维护在[场景持久化](../editor/class-diagrams/scene-persistence.md)、[渲染编辑命令](../editor/class-diagrams/render-commands.md)和[渲染 MCP](../plugins/editor/class-diagrams/render-mcp-tools.md)。场景保存是编辑器文件业务，RendererCallbacks 属于运行时渲染，MCP 只提供可发现的调用入口；三者不进入 Engine 框架类。
 
-`EditorHost` 表示编辑器入口程序，`MeshSourceWriter` 是 `std::function` 类型别名。宿主提供的闭包借用 ModelingCommands，宿主先释放编辑器命令和持久化回调，再销毁建模对象；ScenePersistence 本身不依赖任何插件类型。
+`EditorHost` 表示编辑器入口程序，`MeshSourceWriter` 是可空的 `std::function` 类型别名。启用资源管线即可装配保存命令；仅动态网格导出需要宿主提供写入器。建模闭包借用 ModelingCommands，宿主先释放编辑器命令和持久化回调，再销毁建模对象；ScenePersistence 本身不依赖任何插件类型。
 
-截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影只支持首个启用方向光的单张 PCF 阴影图，不包含级联、点光/聚光阴影或 IBL。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
+增量保存只发布字节发生变化的源文件；原样保存不触碰源文件/meta 时间戳，回执 `resourceCount=0`、`importRequired=false`。`resourceCount` 含场景实际变化，`meshCount`、`materialCount` 分别计入变化的导出资源，`sceneChanged` 标记场景变化，复用计数另行返回。私有成功记录按场景代次管理；当前代次内源或 meta 被外部修改时拒绝覆盖，刷新接受新版本后重新建立基线。保存不加入或清除撤销历史；ScenePreview 区分自身保存与外部变化，前者增量提交目录后保留场景和历史，撤销/重做后可再次差异保存。
+
+截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影使用唯一启用投影的方向光，当前只有单张 PCF 阴影图，不包含级联或点光/聚光阴影。
+
+IBL 由运行时加载漫反射立方图、预滤波反射立方图及 BRDF LUT 三份独立资源；GPU 烘焙采用 Ant 的 GGX / split-sum 实现并由 bgfx 调度。bgfx `18-ibl` 使用两张预生成 DDS 立方图，不能将本项目三图及 GPU 烘焙归为该范例的原样实现。烘焙完成才发布贴图/meta、场景 GUID 引用并刷新预览，保持原效果开关；尚不采集场景几何，也不包含 Lightmap 或局部反射探针。细节及后续全局共享 LUT 计划见[场景烘焙](../plugins/editor/class-diagrams/scene-bake.md)。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
 
 ## 模型格式、统一运行数据与实例化
 

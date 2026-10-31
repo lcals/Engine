@@ -253,8 +253,9 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                             object_schema(node_properties, required_node)) &&
            register_command(
                "save_scene", "save_scene",
-               "Save the active scene, mesh sources and material values into project assets. "
-               "Import after stopping the project.",
+               "Incrementally save the active scene and changed mesh/material sources. "
+               "Preserve existing resource GUIDs and edit undo/redo history; unchanged files "
+               "are not rewritten. Reports actual changed resource counts.",
                object_schema(
                    {{"sceneId", id_schema()},
                     {"path", {{"type", "string"}, {"minLength", 1}, {"maxLength", 1024}}}},

@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -20,6 +21,7 @@ namespace engine::editor
 {
 class EditorCommands;
 class EditorEnvironment;
+struct SceneSavedResource;
 
 class ScenePreview final
 {
@@ -43,8 +45,8 @@ public:
     [[nodiscard]] bool active() const noexcept;
     // 镜头只属于编辑器独立世界，返回值借用至关闭预览或对象销毁。
     [[nodiscard]] const Camera* camera() const noexcept;
-    // 成功保存当前逻辑路径后建立修改检查点，恢复外部资源自动刷新。
-    void mark_saved(std::string_view path) noexcept;
+    // 保存当前路径后记录已发布资源；自身增量导入保留当前场景和撤销历史。
+    void mark_saved(std::string_view path, std::span<const SceneSavedResource> resources);
     [[nodiscard]] const std::string& last_error() const noexcept;
 
 private:

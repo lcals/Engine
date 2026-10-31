@@ -968,6 +968,9 @@ export default class extends Gameplay {
     OnInitialize() {
         return !Render.SetAmbient(1, 1, 1, 1) && !Render.SetExposure(1) &&
             !Render.SetFilmicTonemap(true) && !Render.SetDirectionalShadows(true) &&
+            !Render.SetAmbientOcclusion(true) &&
+            !Render.SetHdr(true) && !Render.SetBloom(true) &&
+            !Render.SetShadowCascades(2, 120) &&
             !Render.SetClearColor(0xffffffff);
     }
 }
@@ -994,6 +997,8 @@ export default class extends Gameplay {
     constructor() { super(); this.constructorBlocked = !Render.SetExposure(8); }
     OnInitialize() {
         return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
+            !Render.SetBloom(true) && Render.SetHdr(true) && Render.SetBloom(true, .8, .35, 2) &&
+            !Render.SetHdr(false) &&
             Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
             Render.SetAmbientTricolor([.5,.6,.7], [.3,.4,.5], [.1,.2,.3], .15) &&
             Render.SetLinearFog(true, .2, .3, .4, 60, 300) &&
@@ -1006,6 +1011,8 @@ export default class extends Gameplay {
             !Render.SetLinearFog(true, .8, .7, .6, 300, 60) &&
             !Render.SetLinearFog(true, .8, .7, .6, -1, 60) &&
             Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
+            Render.SetAmbientOcclusion(true, 1.4, .8, 2, 40, 140) &&
+            Render.SetShadowCascades(2, 120, .7, .2) &&
             Render.SetDirectionalShadows(true, 1024, .002) &&
             Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
             !Render.SetAmbient(.8, .7, -1, .9) && !Render.SetAmbient(.8, .7, .6, -1) &&
@@ -1017,6 +1024,23 @@ export default class extends Gameplay {
             !Render.SetDirectionalShadows(false, 1000, .03) &&
             !Render.SetDirectionalShadows(false, 1024.5, .03) &&
             !Render.SetDirectionalShadows(false, 128, .2) &&
+            !Render.SetShadowCascades(3, 120) && !Render.SetShadowCascades(2.5, 120) &&
+            !Render.SetShadowCascades('2', 120) && !Render.SetShadowCascades(2, 0) &&
+            !Render.SetShadowCascades(2, 100001) && !Render.SetShadowCascades(2, NaN) &&
+            !Render.SetShadowCascades(2, 120, 1.1) &&
+            !Render.SetShadowCascades(2, 120, .5, .31) &&
+            !Render.SetAmbientOcclusion(1) && !Render.SetAmbientOcclusion(true, 0) &&
+            !Render.SetAmbientOcclusion(true, 101) &&
+            !Render.SetAmbientOcclusion(true, 1, 2.1) &&
+            !Render.SetAmbientOcclusion(true, 1, 1, NaN) &&
+            !Render.SetAmbientOcclusion(true, 1, 1, .09) &&
+            !Render.SetAmbientOcclusion(true, 1, 1, 8.1) &&
+            !Render.SetAmbientOcclusion(true, 1, 1, 1.5, 150, 150) &&
+            !Render.SetAmbientOcclusion(true, 1, 1, 1.5, 80, 100001) &&
+            !Render.SetHdr(1) && !Render.SetBloom(1) && !Render.SetBloom(true, -1) &&
+            !Render.SetBloom(true, 101) && !Render.SetBloom(true, 1, 10.1) &&
+            !Render.SetBloom(true, 1, NaN) && !Render.SetBloom(true, 1, .2, .24) &&
+            !Render.SetBloom(true, 1, .2, 4.1) &&
             !Render.SetClearColor(-1) && !Render.SetClearColor(0x100000000) &&
             !Render.SetClearColor(.5) && !Render.SetClearColor('0x123456ff');
     }
@@ -1025,7 +1049,9 @@ export default class extends Gameplay {
             throw new Error('Cannot set render options during Update');
     }
     OnShutdown() {
-        if (!Render.SetExposure(.5)) throw new Error('Renderer must outlive gameplay callbacks');
+        if (!Render.SetExposure(.5) || Render.SetHdr(false) ||
+            !Render.SetBloom(false, .8, .35, 2) || !Render.SetHdr(false))
+            throw new Error('Renderer must outlive gameplay callbacks and preserve flag order');
     }
 }
 )js";
@@ -1046,20 +1072,42 @@ export default class extends Gameplay {
                     settings.fog_end == 300 &&
                     settings.fog_color == std::array<float, 3>{.2F, .3F, .4F} &&
                     settings.filmic_tonemap && settings.directional_shadows &&
+                    settings.ao_enabled && settings.ao_radius == 1.4F &&
+                    settings.ao_strength == .8F && settings.ao_power == 2.0F &&
+                    settings.ao_fade_start == 40 && settings.ao_fade_end == 140 &&
+                    settings.hdr_enabled && settings.bloom_enabled &&
+                    settings.bloom_threshold == .8F && settings.bloom_intensity == .35F &&
+                    settings.bloom_radius == 2 &&
                     settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
+                    settings.shadow_cascades == 2 && settings.shadow_distance == 120.0F &&
+                    settings.shadow_split_lambda == .7F && settings.shadow_cascade_blend == .2F &&
                     settings.clear_color == 0x56789aff,
                 "invalid calls preserve all fields, including partial ambient and shadow input") ||
         !expect(script.tick(.016) && script.status().running &&
                     renderer.settings().exposure == .75F &&
+                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
+                    renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
+                    renderer.settings().ao_fade_start == 40 &&
+                    renderer.settings().ao_fade_end == 140 &&
+                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                    renderer.settings().bloom_threshold == .8F &&
+                    renderer.settings().bloom_intensity == .35F &&
+                    renderer.settings().bloom_radius == 2 &&
                     !renderer.settings().directional_shadows &&
                     renderer.settings().shadow_resolution == 2048 &&
-                    renderer.settings().shadow_bias == .001F,
+                    renderer.settings().shadow_bias == .001F &&
+                    renderer.settings().shadow_cascades == 2 &&
+                    renderer.settings().shadow_distance == 120.0F &&
+                    renderer.settings().shadow_split_lambda == .7F &&
+                    renderer.settings().shadow_cascade_blend == .2F,
                 "Update can change renderer settings and shadow defaults match the native API"))
     {
         return false;
     }
     script.stop_gameplay();
-    if (!expect(renderer.settings().exposure == .5F && !script.status().running,
+    if (!expect(renderer.settings().exposure == .5F && !script.status().running &&
+                    !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
+                    renderer.settings().bloom_intensity == .35F,
                 "shutdown callback runs while the injected renderer remains valid") ||
         !renderer.set_settings({}) ||
         !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
@@ -1092,13 +1140,16 @@ export default class extends Gameplay {
     frame = 0;
     OnInitialize() {
         this.scene = Scene.Create('Scene environment');
-        if (!this.scene || Render.SetExposure(2) || Render.SetAmbient(1, 1, 1, 2)) return false;
+        if (!this.scene || Render.SetExposure(2) || Render.SetAmbient(1, 1, 1, 2) ||
+            Render.SetShadowCascades(2, 120) || Render.SetAmbientOcclusion(true) ||
+            Render.SetHdr(true) || Render.SetBloom(true)) return false;
         const environmentNode = this.scene.CreateNode('Environment');
         this.environment = environmentNode.AddComponent(EnvironmentComponent);
         const cameraNode = this.scene.CreateNode('Camera');
         const camera = cameraNode.AddComponent(Camera);
         this.post = cameraNode.AddComponent(PostProcessComponent);
         const light = this.scene.CreateNode('Sun').AddComponent(Light);
+        this.light = light;
         if (!this.environment || !camera || !this.post || !light ||
             !this.scene.SetActiveCamera(camera)) return false;
         return environmentNode.GetComponent(EnvironmentComponent).IsValid() &&
@@ -1115,9 +1166,27 @@ export default class extends Gameplay {
             !this.environment.SetLinearFog(true, .4, .5, .6, 90, 2) &&
             !this.environment.SetExponentialFog(true, .4, .5, .6, -.1) &&
             !this.environment.SetClearColor(-1) &&
+            !this.post.SetBloom(true) && this.post.SetHdr(true) &&
+            this.post.SetBloom(true, 1.2, .3, 2) && !this.post.SetHdr(false) &&
+            !this.post.SetHdr(1) && !this.post.SetBloom(1) &&
+            !this.post.SetBloom(true, -1) && !this.post.SetBloom(true, NaN) &&
+            !this.post.SetBloom(true, 1, 10.1) && !this.post.SetBloom(true, 1, .2, 4.1) &&
+            this.post.SetAmbientOcclusion(true, 2, 1.2, 3, 20, 100) &&
             this.post.SetExposure(1.7) && this.post.SetFilmicTonemap(true) &&
+            !this.post.SetAmbientOcclusion(1) && !this.post.SetAmbientOcclusion(true, 0) &&
+            !this.post.SetAmbientOcclusion(true, 101) &&
+            !this.post.SetAmbientOcclusion(true, 1, -.1) &&
+            !this.post.SetAmbientOcclusion(true, 1, 1, Infinity) &&
+            !this.post.SetAmbientOcclusion(true, 1, 1, .09) &&
+            !this.post.SetAmbientOcclusion(true, 1, 1, 1.5, -1, 100) &&
+            !this.post.SetAmbientOcclusion(true, 1, 1, 1.5, 100, 80) &&
             !this.post.SetExposure(0) && !this.post.SetFilmicTonemap(1) &&
-            light.SetDirectional() && light.SetShadows(true, 1024, .002) &&
+            light.SetDirectional() && Render.SetShadowCascades(1, 100) &&
+            light.SetShadowCascades(2, 90, .8, .15) && light.SetShadows(true, 1024, .002) &&
+            !light.SetShadowCascades(3, 90) && !light.SetShadowCascades(2.5, 90) &&
+            !light.SetShadowCascades(2, 0) && !light.SetShadowCascades(2, Infinity) &&
+            !light.SetShadowCascades(2, 100001) && !light.SetShadowCascades(2, 90, NaN) &&
+            !light.SetShadowCascades(2, 90, -1) && !light.SetShadowCascades(2, 90, .5, .31) &&
             !light.SetShadows(true, 1000, .01) && !light.SetShadows(true, 1024, .3);
     }
     Update() {
@@ -1126,7 +1195,10 @@ export default class extends Gameplay {
                 throw new Error('Cannot update scene component parameters');
         } else {
             if (!this.scene.Destroy() || this.environment.SetClearColor(0xffffffff) ||
-                this.post.SetExposure(1)) throw new Error('Stale component handle was accepted');
+                this.post.SetExposure(1) || this.post.SetAmbientOcclusion(true) ||
+                this.post.SetHdr(true) || this.post.SetBloom(true) ||
+                this.light.SetShadowCascades(4, 150))
+                throw new Error('Stale component handle was accepted');
             this.scene = Scene.Create('Fresh scene');
             if (!this.scene) throw new Error('Cannot create replacement scene');
         }
@@ -1149,16 +1221,40 @@ export default class extends Gameplay {
                     settings.fog_density == .03F && settings.fog_start == 2 &&
                     settings.fog_end == 90 && settings.clear_color == 0x123456ff &&
                     settings.exposure == 1.7F && settings.filmic_tonemap &&
+                    settings.ao_enabled && settings.ao_radius == 2 &&
+                    settings.ao_strength == 1.2F && settings.ao_power == 3 &&
+                    settings.ao_fade_start == 20 && settings.ao_fade_end == 100 &&
+                    settings.hdr_enabled && settings.bloom_enabled &&
+                    settings.bloom_threshold == 1.2F && settings.bloom_intensity == .3F &&
+                    settings.bloom_radius == 2 &&
                     settings.directional_shadows && settings.shadow_resolution == 1024 &&
-                    settings.shadow_bias == .002F,
+                    settings.shadow_bias == .002F && settings.shadow_cascades == 2 &&
+                    settings.shadow_distance == 90.0F && settings.shadow_split_lambda == .8F &&
+                    settings.shadow_cascade_blend == .15F,
                 "renderer reads component state; invalid setters preserve prior fields") ||
         !expect(script.tick(.016) && script.status().running &&
                     renderer.settings().ambient_intensity == .4F &&
-                    !renderer.settings().ambient_tricolor && renderer.settings().exposure == .8F,
+                    !renderer.settings().ambient_tricolor && renderer.settings().exposure == .8F &&
+                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 2 &&
+                    renderer.settings().ao_strength == 1.2F && renderer.settings().ao_power == 3 &&
+                    renderer.settings().ao_fade_start == 20 &&
+                    renderer.settings().ao_fade_end == 100 &&
+                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                    renderer.settings().bloom_threshold == 1.2F &&
+                    renderer.settings().bloom_intensity == .3F &&
+                    renderer.settings().bloom_radius == 2,
                 "live component changes affect the current scene") ||
         !expect(script.tick(.016) && script.status().running &&
                     renderer.settings().ambient_intensity == 0.0F &&
                     renderer.settings().exposure == 1.0F &&
+                    !renderer.settings().ao_enabled && renderer.settings().ao_radius == 1 &&
+                    renderer.settings().ao_strength == 1 && renderer.settings().ao_power == 1.5F &&
+                    renderer.settings().ao_fade_start == 80 &&
+                    renderer.settings().ao_fade_end == 150 &&
+                    !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
+                    renderer.settings().bloom_threshold == 1 &&
+                    renderer.settings().bloom_intensity == .15F &&
+                    renderer.settings().bloom_radius == 1 &&
                     !renderer.settings().directional_shadows,
                 "new scene does not inherit old environment or camera parameters"))
     {

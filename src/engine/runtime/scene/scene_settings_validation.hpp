@@ -39,7 +39,20 @@ namespace engine::scene_detail
 [[nodiscard]] inline bool valid_post_process(const PostProcessSettings& settings) noexcept
 {
     return std::isfinite(settings.exposure) && settings.exposure > 0.0F &&
-           settings.exposure <= 100.0F;
+           settings.exposure <= 100.0F && std::isfinite(settings.ao_radius) &&
+           settings.ao_radius > 0.0F && settings.ao_radius <= 100.0F &&
+           std::isfinite(settings.ao_strength) && settings.ao_strength >= 0.0F &&
+           settings.ao_strength <= 2.0F && std::isfinite(settings.ao_power) &&
+           settings.ao_power >= 0.1F && settings.ao_power <= 8.0F &&
+           std::isfinite(settings.ao_fade_start) && settings.ao_fade_start >= 0.0F &&
+           std::isfinite(settings.ao_fade_end) &&
+           settings.ao_fade_end > settings.ao_fade_start && settings.ao_fade_end <= 100000.0F &&
+           (!settings.bloom_enabled || settings.hdr_enabled) &&
+           std::isfinite(settings.bloom_threshold) && settings.bloom_threshold >= 0.0F &&
+           settings.bloom_threshold <= 100.0F && std::isfinite(settings.bloom_intensity) &&
+           settings.bloom_intensity >= 0.0F && settings.bloom_intensity <= 10.0F &&
+           std::isfinite(settings.bloom_radius) && settings.bloom_radius >= 0.25F &&
+           settings.bloom_radius <= 4.0F;
 }
 
 [[nodiscard]] inline bool valid_light(const LightSettings& settings) noexcept
@@ -54,7 +67,14 @@ namespace engine::scene_detail
            settings.shadow_resolution >= 128 && settings.shadow_resolution <= 8192 &&
            (settings.shadow_resolution & (settings.shadow_resolution - 1)) == 0 &&
            std::isfinite(settings.shadow_bias) && settings.shadow_bias >= 0.0F &&
-           settings.shadow_bias <= 0.1F;
+           settings.shadow_bias <= 0.1F &&
+           (settings.shadow_cascades == 1 || settings.shadow_cascades == 2 ||
+            settings.shadow_cascades == 4) &&
+           std::isfinite(settings.shadow_distance) && settings.shadow_distance > 0.0F &&
+           settings.shadow_distance <= 100000.0F && std::isfinite(settings.shadow_split_lambda) &&
+           settings.shadow_split_lambda >= 0.0F && settings.shadow_split_lambda <= 1.0F &&
+           std::isfinite(settings.shadow_cascade_blend) && settings.shadow_cascade_blend >= 0.0F &&
+           settings.shadow_cascade_blend <= 0.3F;
 }
 
 } // namespace engine::scene_detail
