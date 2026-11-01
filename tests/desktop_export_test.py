@@ -215,6 +215,24 @@ class DesktopExportTest(unittest.TestCase):
             self.assertEqual(desktop.copy_resources(self.source, stage, "macos"), (1, 1))
         self.assertEqual((self.destination / self.entry["path"]).read_bytes(), contents)
 
+    def test_desktop_exports_json_type_from_shared_package(self):
+        config = resource_entry(
+            b'{"map":"sample","weapons":["carbine"]}\n', 2, 16, "config/maps.json", ""
+        )
+        self.entry["path"] = config["path"] = "packs/game"
+        config["offset"] = len(self.entry["entity"])
+        package = self.source / "packs/game"
+        package.parent.mkdir()
+        contents = self.entry["entity"] + config["entity"]
+        package.write_bytes(contents)
+        (self.source / "catalog.bin").write_bytes(catalog_fixture([self.entry, config], "macos"))
+        with output.staged_output(self.destination) as stage:
+            self.assertEqual(desktop.copy_resources(self.source, stage, "macos"), (2, 1))
+        parsed = catalog.catalog_entries(self.destination, "macos")
+        self.assertEqual([entry["kind"] for entry in parsed], [1, 16])
+        self.assertEqual(parsed[1]["offset"], config["offset"])
+        self.assertEqual((self.destination / "packs/game").read_bytes(), contents)
+
     def test_catalog_and_carriers_cannot_overwrite_deployed_files(self):
         for relative in ("catalog.bin", self.entry["path"]):
             with self.subTest(relative=relative), output.staged_output(self.destination) as stage:

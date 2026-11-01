@@ -341,9 +341,50 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_unknown_resource_kind_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        self.entries.append(resource_entry(b"unsupported resource", 2, 16, "future.bin", ""))
+        for kind in (17, 255):
+            with self.subTest(kind=kind):
+                self.entries = [
+                    self.entries[0],
+                    resource_entry(b"unsupported resource", 2, kind, "future.bin", ""),
+                ]
+                self.write_resources()
+                with self.assertRaises(ValueError):
+                    self.prepare()
+                self.assertEqual(self.snapshot(), previous)
+                self.assert_clean()
+
+    def test_json_shared_package_preserves_type_bytes_and_range_validation(self):
+        config = resource_entry(
+            b'{"weapon":"carbine","damage":24}\n', 2, 16, "config/weapons.json", ""
+        )
+        script = self.entries[0]
+        script["path"] = config["path"] = "packs/game"
+        config["offset"] = len(script["entity"])
+        self.entries.append(config)
         self.write_resources()
-        with self.assertRaises(ValueError):
+        receipt = self.prepare()
+        self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 2})
+        parsed = catalog_entries(self.output)
+        self.assertEqual([entry["kind"] for entry in parsed], [1, 16])
+        self.assertEqual(parsed[1]["offset"], len(script["entity"]))
+        self.assertEqual(
+            (self.output / "packs/game").read_bytes(), script["entity"] + config["entity"]
+        )
+        previous = self.snapshot()
+        package = self.source / "packs/game"
+        package.write_bytes(package.read_bytes()[:-1])
+        with self.assertRaisesRegex(ValueError, "校验不符"):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
+
+        # Even a matching content hash cannot hide a different type in the JSON entity header.
+        entity = bytearray(config["entity"])
+        header = catalog.FlatBuffer(entity[8 : config["header_size"]], b"ERSH")
+        struct.pack_into("<B", entity, 8 + header.field(header.root, 1), 15)
+        config["entity"] = bytes(entity)
+        self.write_resources()
+        with self.assertRaisesRegex(ValueError, "实体头与 catalog 不一致"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
