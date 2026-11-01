@@ -528,7 +528,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 渲染实现按场景准备、绘制、参数、截图、`resources/` 和 `passes/` 分工，`RenderSystem` 保留系统生命周期与帧调度。各平台共用 CSM、AO、HDR/Bloom 和 IBL 的通道与 Shader；原生窗口及设备暂停恢复放在 `platforms/<platform>/render/`，由 CMake 选入对应实现。新增效果与平台的文件位置、资源所有权及能力检查约定见[渲染模块](docs/runtime/rendering.md#实现职责)和[渲染类图](docs/runtime/class-diagrams/render-system.md)。
 
-`shadowResolution` 为完整 atlas 边长：单级占整图，2/4 级使用半边长 tile，4096 的四级 atlas 每级为 2048。PCF 每个采样点限制在本级 tile 内；View 0..3 为阴影，4/5 分别为 AO 深度预通道与计算，主场景使用 View 6。启用 HDR 时 View 6 写入线性 RGBA16F，View 7..9 完成 Bloom 与最终 SDR 合成，UI 随后在 View 200 绘制。采样器槽 11 保留给 AO，12..14 保留给 IBL，15 保留给阴影，项目材质只使用 0..10。ACES 曲线复用 bgfx `shaderlib.sh`；常量/三色环境光与 IBL 独立设置，可同时贡献光照。渲染设置由场景组件持有，随 `save_scene` 落盘；停止或切换场景不保留前一场景的环境和后处理。
+`shadowResolution` 为完整 atlas 边长：单级占整图，2/4 级使用半边长 tile，4096 的四级 atlas 每级为 2048。PCF 每个采样点限制在本级 tile 内；View 0 为 GPU 蒙皮，1..4 为阴影，5/6 分别为 AO 深度预通道与计算，主场景使用 View 7，渲染扩展使用 View 8。启用 HDR 时主场景与扩展共用线性 RGBA16F 目标，View 9..11 完成 Bloom 与最终 SDR 合成；UI 使用 View 200，编辑器 GPU 作业保留 View 240..255。采样器槽 11 保留给 AO，12..14 保留给 IBL，15 保留给阴影，项目材质只使用 0..10。ACES 曲线复用 bgfx `shaderlib.sh`；常量/三色环境光与 IBL 独立设置，可同时贡献光照。渲染设置由场景组件持有，随 `save_scene` 落盘；停止或切换场景不保留前一场景的环境和后处理。
 
 例如 `set_render_settings {"directionalShadows":true,"shadowResolution":4096,"shadowCascades":4,"shadowDistance":150,"shadowSplitLambda":0.6,"shadowCascadeBlend":0.1}`。级联数量仅接受 1、2、4；距离范围 `(0, 100000]`，划分比例范围 `[0, 1]`，混合比例范围 `[0, 0.3]`。最后四项默认分别为 4、150、0.6、0.1；实际阴影距离不超过观察镜头的远裁面。数量和距离等配置可独立修改，保持阴影启用状态。脚本可调用 `Render.SetShadowCascades(count, distance, splitLambda?, blend?)`，或对指定方向灯调用 `Light.SetShadowCascades(...)`；`SetDirectionalShadows` / `Light.SetShadows` 保留已有级联配置。
 
@@ -738,15 +738,15 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 一个 FBX/USD 源的 `.meta` 保存主 GUID 和 `[[subresources]]` 的 `key/kind/guid`。Model 保存节点层级及 Mesh/Material 引用；Skeleton、Animation 独立存在，分别通过实际使用它们的资源引用。每个资源有独立 `cache/gen/<完整GUID>`，无后缀。逻辑路径为 `project/models/person.fbx/meshes/<节点层级>`、`.../skeleton`、`.../animations/<动作名>`；USD 网格使用 `.../meshes/<Prim 路径>`。暂时消失的子资源保留 meta 身份以供再次出现时复用，活跃与保留 GUID 均参与冲突检查。
 
-- FBX 插件使用 MIT 许可的 ufbx v0.23.1，固定提交 `26a482ae66871d7de36eb722aa060bce95bce274`。将坐标统一为米和右手 Y-up，保留根变换；网格包含角点拆分后的 UV、顶点色与最高四项归一化蒙皮权重，骨架包含逆绑定矩阵，动画按 meta 的 `sample_rate`（默认 30）采样。仅支持线性/刚性蒙皮，双四元数、混合形状和几何缓存明确失败；源材质和贴图尚未转换，使用内置 PBR 材质，场景可覆盖项目材质。
-- FBX 动画源可在 meta 用 `skeleton = "project/models/person.fbx/skeleton"` 指定另一个 FBX 骨架；空值为本源独立骨架。外部动画按完整节点层级对应关节，必要加权骨骼或祖先缺失返回失败，未动画的可选末端保持绑定姿态。示例 `projects/showcase` 在编辑器导入可再分发的 PAB 模型和 jog/run/walk 动作；默认运行清单只选 walk，jog/run 和源静止 Take 不进入运行包。来源和许可保存在项目内。
+- FBX 插件使用 MIT 许可的 ufbx v0.23.1，固定提交 `26a482ae66871d7de36eb722aa060bce95bce274`。将坐标统一为米和右手 Y-up，保留根变换；网格包含角点拆分后的 UV、顶点色与最高四项归一化蒙皮权重，骨架包含逆绑定矩阵，动画按 meta 的 `sample_rate`（默认 30）采样。仅支持线性/刚性蒙皮，双四元数、混合形状和几何缓存明确失败。源材质和贴图尚未转换；未配置映射时使用内置 PBR，可通过 `material_remaps` 引用已有项目材质，或在实例化后覆盖材质。现有庭院示例采用脚本覆盖。
+- 不带网格的 FBX 动画源可在 meta 用 `skeleton = "project/models/person.fbx/skeleton"` 引用同批导入中由另一个 FBX 自身生成的骨架；不允许转引骨架，也不能用此设置替换带网格 FBX 的骨架。空值使用本源骨架。外部动画按完整节点路径采样源局部 TRS；缺少加权骨骼或祖先时失败，缺少非必需节点时不生成其轨道，已有节点未打键也仍采样源姿态，不进行语义或参考姿态补偿。示例 `projects/showcase` 在编辑器导入可再分发的 PAB 模型和 jog/run/walk 动作；默认运行清单只选 walk，jog/run 和源静止 Take 不进入运行包。来源和许可保存在项目内。
 - USD 插件独立引入 `usd-import` vcpkg feature。当前只接受自包含的静态 Xform/Scope/Mesh，网格要求 `subdivisionScheme = "none"`、三角形或凸且共面的多边形；世界变换烘焙入顶点，生成平面法线和内置 PBR。外部 layer/reference/payload（包括缺失引用）、动画、实例、细分、洞、未知几何及 Material/Shader 节点明确拒绝。此范围不代表完整 USD 场景导入。
 
 后续格式增加自己的编辑器插件、独立 CMake 清单及 `AssetImporter::id/matches/discover/convert` 实现即可。`discover` 只描述稳定子资源 key 和类型，GUID 分配与发布仍由管线处理。尽量输出已有运行 Schema；新增运行语义时先评审 Schema/ResourceCodec 契约，再增加核心单项能力，不把源格式 SDK 或编辑器设置传入运行时。类图见 [FBX](docs/plugins/editor/class-diagrams/fbx-importer.md)、[USD](docs/plugins/editor/class-diagrams/usd-import.md)和[模型资源](docs/runtime/class-diagrams/model-resources.md)。
 
 ### 动画与第一／第三人称测试场景
 
-统一项目 `projects/showcase` 的默认庭院场景包括铺装、建筑立面、台阶、木廊架、长椅和绿植，保留带物理的 Player 与 PAB 蒙皮角色。基础色、法线与 ORM 贴图来源和处理见 [庭院资源说明](projects/showcase/courtyard-source.md)。庭院场景内的环境组件、相机后处理组件及灯光保存环境光、曝光、背景色和方向光阴影，Gameplay 只负责加载场景及角色业务。完整引擎桌面预设默认装配 FBX 导入与角色控制器；显式选择插件时需要 `runtime/resource_graph`、`runtime/script`、`runtime/character_controller` 及相应编辑器导入、控制器与 MCP 插件。
+统一项目 `projects/showcase` 默认先打开场景菜单，选择 **Animation courtyard** 进入动画庭院。庭院包括铺装、建筑立面、台阶、木廊架、长椅和绿植，保留带物理的 Player 与 PAB 蒙皮角色。基础色、法线与 ORM 贴图来源和处理见 [庭院资源说明](projects/showcase/courtyard-source.md)。庭院场景内的环境组件、相机后处理组件及灯光保存环境光、曝光、背景色和方向光阴影，Gameplay 只负责加载场景及角色业务。完整引擎桌面预设默认装配 FBX 导入与角色控制器；显式选择插件时需要 `runtime/resource_graph`、`runtime/script`、`runtime/character_controller` 及相应编辑器导入、控制器与 MCP 插件。
 
 ```sh
 npm ci --prefix projects/showcase/settings
@@ -761,7 +761,7 @@ cmake --build --preset ninja-engine-debug
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/animation-runtime start
 ```
 
-聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称只在自身镜头隐藏身体和头部，保留身体阴影及旁观镜头中的角色；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
+启动后先在菜单选择 **Animation courtyard** 并聚焦引擎窗口；WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称只在自身镜头隐藏身体和头部，保留身体阴影及旁观镜头中的角色；第三人称相机通过球体检测避开墙体。**Back to scenes** 返回菜单，使用同一命令的 `stop` 停止项目并释放场景。Windows 使用对应 `.exe`。
 
 `CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动。主动水平速度 `set_velocity`／脚本 `SetVelocity` 与世界空间速度增量 `add_velocity`／`AddVelocity` 独立，清输入不会吞掉击退。`external_damping` 控制外部水平速度按秒衰减，竖直增量交给重力和碰撞。请求在下一固定步消费一次，没有物理子步的帧保留请求。
 
@@ -779,7 +779,7 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 后续采用“购买/生成角色 → AI 调用工具整理与绑定 → 建立骨架适配配置 → 共享动作进入引擎 → 实景检查”的制作流程。保留合格原绑定，无绑定或不可用绑定在派生副本中重建；AI 编排不强制使用机器学习，也不要求自研制作界面。引擎运行时复用与重定向是明确目标，逐角色离线烘焙仅可作为制作结果或对照，不能代替该能力。完整职责、工具候选和分阶段验收见[角色与动画制作流程（规划）](docs/editor/character-production.md)及[动画模块](docs/runtime/animation.md#动画复用与重定向方向规划)。
 
-示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
+庭院示例固定循环播放 walk 以检查蒙皮，静止时也会播放；地形实验场另按角色水平速度调整同一 walk 的播放速度，这仍不是多个动作之间的混合或状态图。尚未实现 Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
 
 模型适配由导入属性组合完成：FBX `.meta` 的 `scale_factor` 控制统一缩放，`rotation_offset` 指定 XYZ 欧拉角（度），`material_remaps` 按 Mesh 子资源路径绑定各材质槽。模型、骨架和动画使用一致的导入坐标；外部动画与引用骨架的坐标设置必须相同。材质引用自动进入模型的运行依赖，参数变化参与增量构建，已有子 GUID 保持不变。错误配置保留上一批有效缓存，不能通过项目名或模型名分支修补。字段格式与限制见 [FBX 导入契约](docs/plugins/editor/class-diagrams/fbx-importer.md)。
 
@@ -787,7 +787,7 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
 
-角色基础回归已在 macOS / Metal / QuickJS 的 Debug、Release 下通过：`engine.physics`、`engine.character_motor`、`engine.character_controller`、`engine.character_host`、`engine.window_render`、`engine.script_runtime`、`engine.script_tooling`、`editor.character_controller`，每种配置 8 项。覆盖击退与碰撞、移除／禁用停止、生产宿主同帧顺序、双镜头过滤与阴影、脚本绑定和可撤销编辑。编辑器与 MCP 可执行目标同时构建通过；本轮未执行 Windows 或 Android 测试。
+角色基础实现阶段的既有 macOS / Metal / QuickJS 回归记录为：Debug、Release 均通过 `engine.physics`、`engine.character_motor`、`engine.character_controller`、`engine.character_host`、`engine.window_render`、`engine.script_runtime`、`engine.script_tooling`、`editor.character_controller`，每种配置 8 项。覆盖击退与碰撞、移除／禁用停止、生产宿主同帧顺序、双镜头过滤与阴影、脚本绑定和可撤销编辑。当时编辑器与 MCP 可执行目标同时构建通过，未执行 Windows 或 Android 测试。本次文档核对未复跑构建、CTest 或 GPU 场景。
 
 ### 资源运行包
 

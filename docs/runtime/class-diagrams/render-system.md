@@ -67,7 +67,9 @@ classDiagram
     SceneGpuResources *-- SkinningPass
     GpuMesh o-- GpuGeometry : 实例共享不可变几何
     GpuGeometry o-- Resource : 保留当前CPU资源版本
+    GpuGeometry ..> MeshRenderer : 创建期间借用
     GpuMesh ..> SkinningPass : 提交本实例蒙皮
+    SkinningPass ..> GpuGeometry : dispatch期间借用源几何
     SceneGpuResources *-- ShadowPass
     SceneGpuResources *-- AmbientOcclusionPass
     SceneGpuResources *-- HdrPostProcessPass
@@ -81,7 +83,20 @@ classDiagram
     GpuMesh ..> MeshRenderer : 上传期间借用
 ```
 
-- `resources/` 保存逐类型 GPU 上传、绑定和释放；`passes/` 保存阴影、AO、HDR/Bloom。渲染私有辅助类型置于 `engine::render_detail`，不导出到核心根命名空间。
+图中两个蒙皮方法的完整签名如下；矩阵 span 仅在调用期间借用，边界通过输出参数返回。`dispatch` 不接管缓冲所有权，源几何、palette 及输出缓冲由现有 GPU 拥有者管理，并遵守 bgfx 异步提交生命周期：
+
+```cpp
+// GpuGeometry
+[[nodiscard]] bool skinning_bounds(std::span<const std::array<float, 16>> palette,
+                                   std::array<float, 3>& minimum,
+                                   std::array<float, 3>& maximum) const noexcept;
+// SkinningPass
+[[nodiscard]] bool dispatch(const GpuGeometry& geometry,
+                            bgfx::DynamicVertexBufferHandle palette,
+                            bgfx::DynamicVertexBufferHandle output, std::uint32_t joint_count);
+```
+
+- `resources/` 保存逐类型 GPU 上传、绑定和释放；`passes/` 保存蒙皮、阴影、AO、HDR/Bloom。渲染私有辅助类型置于 `engine::render_detail`，不导出到核心根命名空间。
 - 视图顺序、保留纹理槽和灯光数量集中在私有常量头；数学函数集中在私有数学文件。新增通道沿用同一编号约定，不能在不同文件重复定义数值。
 - 平台实现位于 `platforms/<platform>/`，由 CMake 为当前目标选择。`RenderSurface` 负责原生句柄取得、保留、变更策略与 Android 暂停握手；渲染调度不分支判断平台。先停止 bgfx，再释放原生表面。GPU 暂停后可恢复，场景 CPU 数据仍由世界拥有。
 - GPU 拥有者禁用复制，移动必须转移并清空源句柄，析构兜底；全部 GPU 对象在 bgfx 关闭前销毁。参数结构独立于系统头，不改变场景、脚本或 MCP 的公开契约。

@@ -24,7 +24,7 @@ classDiagram
     ModelNodeDataT ..> MeshDataT : GUID 引用
     ModelNodeDataT ..> MaterialDataT : 材质槽 GUID
     MeshDataT ..> SkeletonDataT : 蒙皮骨架 GUID
-    SkeletonDataT *-- JointDataT : 父索引与绑定姿态
+    SkeletonDataT *-- JointDataT : 父索引、默认局部姿态及逆绑定
     AnimationDataT ..> SkeletonDataT : 源骨架 GUID
     AnimationDataT *-- AnimationTrackDataT : 关节 TRS 关键帧
 ```
@@ -42,7 +42,9 @@ classDiagram
 
 `instantiate_model` 返回本场景拥有的根节点借用；失败删除本次候选节点，保留场景原对象。实例化后使用 Node、Transform 与 MeshRenderer 表达模型；动画由调用方添加 Animator 并选择片段。
 
-骨架使用父索引与局部 TRS、模型空间 inverse_bind；网格保存四个最大权重并归一，以及 mesh_to_skeleton 绑定矩阵。动画轨道使用源骨架索引。播放不同文件的动画时按骨骼名称与父层级匹配，不能以 GUID 相同为前提。
+骨架保存父索引、默认局部 TRS 和模型空间 inverse_bind；默认局部姿态与蒙皮绑定矩阵分别记录，不能假定两者总是同一姿态。网格保存四项已归一化骨骼影响及 mesh_to_skeleton 绑定矩阵；FBX 导入器负责选择最高四项并归一，运行时解码器只校验，不替调用方排序或归一。
+
+动画轨道使用源骨架索引。当前目标骨架每个关节都必须在源骨架有完整名称和父层级对应，GUID 与数组次序可以不同；仅缺整条轨道时使用目标默认局部姿态，缺骨或坏轨道失败。已有轨道直接使用源局部 TRS，不做参考姿态、骨轴或比例补偿，详见[当前动画能力](../animation.md)。
 
 模型、骨架、动画分别由独立的 ModelResourceCodec、SkeletonResourceCodec、AnimationResourceCodec 解码，继承 ResourceCodec。它们只检查单项结构及显式依赖，依赖闭包仍由可选资源图插件负责。
 

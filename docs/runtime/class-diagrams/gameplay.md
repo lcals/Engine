@@ -121,6 +121,6 @@ classDiagram
 - SetParent 保留局部变换，null 解除父子关系，拒绝循环和跨场景关系；Destroy Node 同时销毁其子树。旋转使用度，前向为 -Z。
 - 持久数据模型由 `include/schemas/runtime/scene.fbs` 定义，原生组件持有生成的对象数据；脚本 API 是行为绑定，材质命名参数经验证写入生成数据，不作为另一套磁盘格式。
 - `MeshRenderer.material` 返回该组件所属材质的借用包装；材质和 Shader 各自通过唯一资源路径字符串指定，分别由 SetType 与 SetShader 选择。内置 builtin/materials/default-pbr 引用 builtin/shaders/pbr，声明 baseColor（V4）、metallic（Float）、roughness（Float），builtin/materials/default-unlit 引用 builtin/shaders/unlit，声明 baseColor（V4）。SetV2/SetV3 是统一类型接口，只有材质声明相应参数时可写入；未知名字、错误类型和无效数值返回 false 并保留原值。变更材质类型或 Shader 重建所选定义的默认参数，同路径设置保持原值；未知路径返回 false。MeshRenderer 通过资源路径选择内置或项目网格。
-- 示例在 OnInitialize 加载包含方块 MeshRenderer、相机 Camera、定向灯 Light 的场景；通过 FindNode 找到方块，Update 使用 Time.deltaTime 旋转，OnShutdown 结束后由玩法会话与脚本运行生命周期协调释放场景及 GPU 资源。
+- 示例项目的 **PBR essentials** 模块在 OnInitialize 加载包含方块 MeshRenderer、相机 Camera、定向灯 Light 的场景；通过 FindNode 找到方块，Update 使用 Time.deltaTime 旋转。默认入口先打开场景菜单，各模块的 OnShutdown 由菜单协调调用；项目停止后的场景及 GPU 释放由玩法会话与脚本运行生命周期协调。
 
 `Scene.Load(path)` 从当前 Run 已激活的 GUID catalog 读取已编译场景；输入使用 project/ 逻辑资源路径，例如 project/scenes/main.scene，成功替换活动场景，失败返回 null 且保留原场景。运行时不解析源 TOML、不访问 SQLite。

@@ -161,7 +161,7 @@ classDiagram
 - `mesh_instance_id()` 是进程内稳定且不重复的组件实例身份；瞬态蒙皮/GPU 缓存以它和 `mesh_revision()` 区分同节点组件重建，不依赖可能重复的内存地址。
 - `set_deformation()` 接收与源顶点等长的位置/法线及切线，完整校验后独立保存，仅递增 deformation_revision；失败保留旧输出。源 Mesh、GUID、索引、UV、颜色、子网格与材质均不变。两个 span 查询返回借用，下一次成功提交、清除、源网格变化或组件销毁后失效。
 - `clear_deformation()` 恢复源几何，重复调用无副作用；成功更换源网格或恢复组件数据也清除旧变形。变形数据不进入场景快照。清除及只读查询为 noexcept，渲染器同时检查修订号与变形是否存在；修订号到达上限时拒绝新提交，清除仍可执行。
-- `set_skinning_palette()` 接收按源骨骼索引排列的列主序 float[16] 位置矩阵与法线逆转置矩阵，完整校验后保存组件独占副本。与直接顶点覆写互斥，共用 `deformation_revision` 和 `clear_deformation`；失败保持旧姿态。两个只读 span 的生命周期与变形查询相同，不暴露 ozz 或 bgfx 类型。`mesh_resource()` 返回共享不可变源资源；动态网格返回空，不能用路径或 GUID 冒充当前资源版本。
+- `set_skinning_palette()` 接收按 Mesh 引用的目标 SkeletonData 原始关节索引排列的列主序 float[16] 位置矩阵与法线逆转置矩阵，不采用源动作索引或 ozz DFS 顺序；完整校验后保存组件独占副本。与直接顶点覆写互斥，共用 `deformation_revision` 和 `clear_deformation`；失败保持旧姿态。两个只读 span 的生命周期与变形查询相同，不暴露 ozz 或 bgfx 类型。`mesh_resource()` 返回共享不可变源资源；动态网格返回空，不能用路径或 GUID 冒充当前资源版本。
 
 - `build_data` 和 `restore_data` 是统一组件持久数据契约；简单组件直接校验生成载荷，MeshRenderer 在自身文件解析 GUID、持有资源和组装材质槽。Scene 只组织节点与层级，不分派具体组件字段。失败快照为空，恢复失败保留组件原状态。
 

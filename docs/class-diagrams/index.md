@@ -58,7 +58,7 @@
 - [特效脚本绑定](../plugins/runtime/class-diagrams/effects-script-api.md)：按可选插件登记的播放与资源控制。
 - [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
 - [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
-- [动画组件](../runtime/class-diagrams/animator.md)：片段选择、播放、暂停、定位及运行状态。
+- [动画组件](../runtime/class-diagrams/animator.md)：片段选择、双动作过渡、播放、暂停、定位及运行状态。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。
@@ -88,7 +88,7 @@
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
 - [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。
-- [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定及播放状态。
+- [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定、CrossFade 及播放状态；SetAnimation 与切换预检的区别。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 - [导航脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)：显式提交静态网格、局部重建、完整路径查询及场景生命周期清理。
 

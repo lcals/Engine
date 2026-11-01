@@ -239,7 +239,7 @@ classDiagram
 
 EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件快照，渲染器不另存一份场景覆盖值。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
-领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放；共享缓存与必要依赖保活由 ResourceGraphSystem 插件负责，核心没有缓存。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## 物理与音频引用
 
@@ -1077,11 +1077,11 @@ classDiagram
     Scene *-- Node : 拥有实例化层级
     Node *-- MeshRenderer : 普通渲染组件
     Node *-- Animator : 可选动画组件
-    MeshRenderer o-- Resource : 持有 Mesh 与骨架引用
-    Animator o-- Resource : 持有动画及目标骨架引用
+    MeshRenderer o-- Resource : 直接共享持有 Mesh 资源
+    Animator o-- Resource : 持有当前及过渡动画、目标骨架引用
     AnimationSystem ..> Animator : 读取请求与推进状态
     AnimationSystem ..> MeshRenderer : 提交当前骨骼与法线 palette
-    RenderSystem ..> MeshRenderer : 读取普通动态网格
+    RenderSystem ..> MeshRenderer : 读取源网格、材质与实例 palette 或顶点覆写
 ```
 
 Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型资源不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
