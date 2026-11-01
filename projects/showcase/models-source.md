@@ -15,8 +15,8 @@
 
 源 `walk` 动作按 30 Hz 采样一个周期的 41 个姿态时，人体网格最低 Y 在 0 秒为 `-0.017362623 m`，在约 1.133333 秒为 `-0.037193744 m`。生成缓存重建的结果分别为 `-0.017362621 m` 和 `-0.037193741 m`，表明这部分足底穿地来自源动作，而非导入后的绑定变换。样例 `assets/scripts/modules/courtyard.ts` 将 Avatar 相对 Player 上移 `0.05 m`，为近景演示补偿模型放置高度；Player 的物理胶囊、控制器、骨骼绑定和动画数据保持不变。
 
-该固定偏移不等于足部 IK 或地面吸附，不会让每帧双脚贴地，也不保证其他动作和台阶上的脚底接触。编辑器完整导入目录中，可通过现有 MCP `set_animator` 选择 `project/models/locomotions.fbx/animations/walk` 或 `project/models/locomotions.fbx/animations/run`，再用 `play_animation`、`pause_animation`、`seek_animation` 控制；无需新增接口。精简运行包只能使用其清单实际包含的动作。
+该固定偏移不等于足部 IK 或地面吸附，不会让每帧双脚贴地，也不保证其他动作和台阶上的脚底接触。编辑器完整导入目录中，可通过现有 MCP `set_animator` 选择 `models/locomotions.fbx/animations/walk` 或 `models/locomotions.fbx/animations/run`，再用 `play_animation`、`pause_animation`、`seek_animation` 控制；无需新增接口。精简运行包只能使用其清单实际包含的动作。
 
-FBX 导入当前生成 Model、Mesh、Skeleton 和 Animation。源材质与源贴图尚未转换；插件可用 meta 的 `material_remaps` 引用已有材质，本样例未设置该项，Model 仍使用内置 PBR，庭院脚本实例化后覆盖为 `project/materials/character.material`。仅支持线性/刚性蒙皮；双四元数、混合形状和几何缓存明确返回不支持。
+FBX 导入当前生成 Model、Mesh、Skeleton 和 Animation。源材质与源贴图尚未转换；插件可用 meta 的 `material_remaps` 引用已有材质，本样例未设置该项，Model 仍使用内置 PBR，庭院脚本实例化后覆盖为 `materials/character.material`。仅支持线性/刚性蒙皮；双四元数、混合形状和几何缓存明确返回不支持。
 
 编辑器仍可浏览全部动作子资源。示例构建清单仅引用 `locomotions.fbx/animations/walk`，不会因使用 skeleton.fbx 模型而带入其静止 Take，也不会输出 jog/run 或 locomotions.fbx 不带网格的 Model 层级。各项通过独立 GUID 和真实依赖打包，源 FBX 不会被裁剪或改写。

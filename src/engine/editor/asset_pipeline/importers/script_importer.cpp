@@ -106,13 +106,13 @@ bool ScriptImporter::inspect_batch(const ImportContext& context, std::string& fi
             error = "script compiler returned an invalid module";
             return false;
         }
-        const auto path = "project/" + module["source"].get<std::string>();
+        const auto path = module["source"].get<std::string>();
         std::vector<Guid> dependencies;
         for (const auto& dependency : module["dependencies"])
         {
             Guid guid;
             if (!dependency.is_string() ||
-                !context.identities.path_to_guid("project/" + dependency.get<std::string>(), guid))
+                !context.identities.path_to_guid(dependency.get<std::string>(), guid))
             {
                 error = "script runtime import has no project resource identity: " + path;
                 return false;

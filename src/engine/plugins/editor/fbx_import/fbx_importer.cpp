@@ -97,7 +97,7 @@ bool resolve_materials(const std::string& key, const ufbx_node& node, const Mate
     for (std::size_t slot = 0; slot < count; ++slot)
     {
         const std::string path =
-            found == remaps.end() ? "builtin/materials/default-pbr" : found->second[slot];
+            found == remaps.end() ? "builtin://materials/default-pbr" : found->second[slot];
         Guid guid;
         if (!context.identities.path_to_guid(path, guid))
         {

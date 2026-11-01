@@ -35,7 +35,7 @@ bool expect(bool value, const char* message)
 engine::schema::MeshDataT quad()
 {
     engine::schema::MeshDataT result;
-    result.path = "project/meshes/quad";
+    result.path = "meshes/quad";
     result.vertices = {
         {-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
     result.indices = {0, 1, 2, 0, 2, 3};
@@ -401,7 +401,7 @@ bool check_mesh(engine::Scene& scene)
                   "valid geometry update recovers after rejected data") &&
            expect(!renderer->set_material_count(1),
                   "cannot remove material slots referenced by the active mesh") &&
-           expect(renderer->set_mesh("builtin/meshes/cube") && renderer->mesh_data() != nullptr,
+           expect(renderer->set_mesh("builtin://meshes/cube") && renderer->mesh_data() != nullptr,
                   "resource mesh can replace dynamic geometry") &&
            expect(renderer->set_material_count(1) && renderer->material(1) == nullptr,
                   "removing an unused material slot invalidates its lookup");
@@ -446,7 +446,7 @@ bool check_deformation(engine::Scene& scene)
                 "deformation owns caller-independent vertex and tangent copies") ||
         !expect(renderer->mesh_data() == source && *renderer->mesh_data() == original &&
                     renderer->mesh_revision() == source_revision &&
-                    renderer->mesh_path() == "builtin/meshes/cube" &&
+                    renderer->mesh_path() == "builtin://meshes/cube" &&
                     renderer->material_count() == 2,
                 "deformation preserves bind data, GUID ownership and material slots") ||
         !expect(renderer->build_data(after) && after == snapshot,
@@ -487,7 +487,7 @@ bool check_deformation(engine::Scene& scene)
                     renderer->deformation_revision() == revision &&
                     renderer->deformed_vertices().front().x() == first_x,
                 "invalid tangent frame leaves the last complete pose intact") ||
-        !expect(!renderer->set_mesh("project/missing.mesh") &&
+        !expect(!renderer->set_mesh("missing.mesh") &&
                     renderer->deformation_revision() == revision &&
                     !renderer->deformed_vertices().empty(),
                 "failed source change retains deformation"))
@@ -506,7 +506,7 @@ bool check_deformation(engine::Scene& scene)
                     renderer->deformed_vertices().empty(),
                 "restoring persistent data discards transient pose") ||
         !expect(renderer->set_deformation(vertices, tangents) &&
-                    renderer->set_mesh("builtin/meshes/cube") &&
+                    renderer->set_mesh("builtin://meshes/cube") &&
                     renderer->deformed_vertices().empty(),
                 "successful source replacement discards transient pose"))
     {
@@ -584,7 +584,7 @@ bool check_skinning_palette(engine::Scene& scene)
         renderer->skinning_palette().empty() && renderer->skinning_normal_palette().empty() &&
             renderer->deformation_revision() == cleared &&
             renderer->set_skinning_palette(positions, normals) &&
-            renderer->set_mesh("builtin/meshes/cube") && renderer->skinning_palette().empty(),
+            renderer->set_mesh("builtin://meshes/cube") && renderer->skinning_palette().empty(),
         "clear is repeatable and source replacement discards the old GPU pose");
 }
 
@@ -592,7 +592,7 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
 {
     test_support::ResourceFixture fixture;
     engine::schema::TextureDataT texture;
-    texture.path = "project/textures/gray";
+    texture.path = "textures/gray";
     texture.width = 1;
     texture.height = 1;
     texture.encoding = engine::schema::TextureEncoding::rgba8;
@@ -626,8 +626,8 @@ bool check_textures(engine::ResourceSystem& resources, engine::Scene& scene, boo
         !expect(first->material().get_texture("baseColorTexture", path) && path == texture.path,
                 "query returns the resolved texture path") ||
         !expect(!first->material().set_texture("missingSampler", texture.path) &&
-                    !first->material().set_texture("baseColorTexture", "builtin/meshes/cube") &&
-                    !first->material().set_texture("baseColorTexture", "project/missing.png") &&
+                    !first->material().set_texture("baseColorTexture", "builtin://meshes/cube") &&
+                    !first->material().set_texture("baseColorTexture", "missing.png") &&
                     first->material().get_texture("baseColorTexture", path) && path == texture.path,
                 "invalid texture assignments preserve current resource"))
     {

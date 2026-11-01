@@ -35,8 +35,18 @@ def copy_resources(source, destination, platform):
 
 
 def build_resources(args):
+    command = [
+        str(args.builder),
+        "--project",
+        str(args.project),
+        "--package",
+        "--target",
+        args.platform,
+    ]
+    if args.manifest:
+        command += ["--manifest", args.manifest.as_posix()]
     result = subprocess.run(
-        [str(args.builder), "--project", str(args.project), "--manifest", args.manifest.as_posix()],
+        command,
         cwd=ROOT,
         capture_output=True,
         encoding="utf-8",
@@ -102,11 +112,12 @@ def export(args):
     with staged_output(output) as stage:
         bundle = macos_bundle(args, stage) if args.platform == "macos" and args.app_bundle else None
         executable = args.product + (".exe" if args.platform == "windows" else "")
-        resources = bundle / "Contents/Resources" if bundle else stage
+        base = bundle / "Contents/Resources" if bundle else stage
+        resources = base / "assets"
         if bundle is None:
             shutil.copy2(args.executable, stage / executable)
         if args.icu:
-            shutil.copy2(args.icu, resources / "icudtl.dat")
+            shutil.copy2(args.icu, base / "icudtl.dat")
         for origin, relative in args.support_file:
             target = stage / relative
             if target.exists():
@@ -115,7 +126,11 @@ def export(args):
             shutil.copy2(origin, target)
         for origin, relative in args.support_directory:
             shutil.copytree(origin, stage / relative)
-        count, carriers = copy_resources(source, resources, args.platform) if source else (0, 0)
+        if source:
+            resources.mkdir(exist_ok=True)
+            count, carriers = copy_resources(source, resources, args.platform)
+        else:
+            count, carriers = 0, 0
         if bundle:
             subprocess.run(
                 [

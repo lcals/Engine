@@ -15,7 +15,7 @@ namespace
 
 struct AppState
 {
-    std::filesystem::path builtin_assets_path;
+    std::filesystem::path assets_path;
     std::filesystem::path persistent_data_path;
     std::filesystem::path cache_path;
     bool initialized = false;
@@ -113,31 +113,31 @@ bool App::initialize(const AppConfig& config)
     }
 
     AppState candidate;
-    const auto builtin = config.builtin_assets_path.empty()
-                             ? PathUtils::from_utf8("apk:/assets/project")
-                             : config.builtin_assets_path;
+    const auto assets = config.assets_path.empty()
+                             ? PathUtils::from_utf8("apk:/assets")
+                             : config.assets_path;
     // Android 的原生路径分隔符为 '/'，保留原始内容，不能先规范化不合法的 APK 输入。
-    const auto encoded_builtin = builtin.u8string();
-    const std::string builtin_text(encoded_builtin.begin(), encoded_builtin.end());
-    if (builtin_text.starts_with("apk:"))
+    const auto encoded_assets = assets.u8string();
+    const std::string assets_text(encoded_assets.begin(), encoded_assets.end());
+    if (assets_text.starts_with("apk:"))
     {
-        if (!valid_apk_root(builtin_text))
+        if (!valid_apk_root(assets_text))
         {
             return false;
         }
-        candidate.builtin_assets_path = builtin;
+        candidate.assets_path = assets;
     }
     else
     {
-        if (!normalize_disk_path(builtin, candidate.builtin_assets_path))
+        if (!normalize_disk_path(assets, candidate.assets_path))
         {
             return false;
         }
         std::error_code error;
-        const bool exists = std::filesystem::exists(candidate.builtin_assets_path, error);
+        const bool exists = std::filesystem::exists(candidate.assets_path, error);
         if (error ||
             (exists &&
-             (!std::filesystem::is_directory(candidate.builtin_assets_path, error) || error)))
+             (!std::filesystem::is_directory(candidate.assets_path, error) || error)))
         {
             return false;
         }
@@ -181,7 +181,7 @@ void App::shutdown() noexcept
 {
     auto& value = state();
     value.initialized = false;
-    value.builtin_assets_path.clear();
+    value.assets_path.clear();
     value.persistent_data_path.clear();
     value.cache_path.clear();
 }
@@ -191,9 +191,9 @@ bool App::is_initialized() noexcept
     return state().initialized;
 }
 
-const std::filesystem::path& App::builtin_assets_path() noexcept
+const std::filesystem::path& App::assets_path() noexcept
 {
-    return state().builtin_assets_path;
+    return state().assets_path;
 }
 
 const std::filesystem::path& App::persistent_data_path() noexcept

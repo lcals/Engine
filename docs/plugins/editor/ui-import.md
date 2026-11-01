@@ -14,13 +14,13 @@ textures = []
 
 [[ui.fonts]]
 family = "body"
-asset = "project/fonts/lato-regular.ttf"
-shader = "builtin/shaders/font"
+asset = "fonts/lato-regular.ttf"
+shader = "builtin://shaders/font"
 
 [[ui.fonts]]
 family = "heading"
-asset = "project/fonts/lato-bold.ttf"
-shader = "project/shaders/title.shader"
+asset = "fonts/lato-bold.ttf"
+shader = "shaders/title.shader"
 ```
 
 必须包含 1–64 个 `[[ui.fonts]]` 绑定，`textures` 最多 256 项且可以为空。`family` 为 RmlUi 的 `font-family` 名称，ASCII 归一化为小写，在文档内唯一。`asset` 必需；`shader` 可省略，默认使用引擎字体 Shader，也可指定遵循字体顶点和曲线纹理契约的项目 Shader。两项资源引用接受完整逻辑路径或 GUID，导入时检查存在性和类型。
@@ -32,7 +32,7 @@ UI 生成物是 `cache/gen/<源GUID>`，包含文档标记、`UiFontBinding` 列
 当前范围：
 
 - 文档最多 1 MiB；属性值需要引号。
-- 支持内嵌 RCSS 和 `<img src="project/...">`；图片只能使用 meta 已声明的纹理路径或 GUID。
+- 支持内嵌 RCSS 和 `<img src="textures/example.png">`；图片只能使用 meta 已声明的纹理路径或 GUID。
 - 外部 `<link>`、`<script>`、`<template>`、CSS `@import`、`@font-face`、`@spritesheet`、`url()`、`fill-image` 与图片装饰器暂不接入，导入时明确失败，避免未登记的运行时文件依赖。
 - 当前不接入脚本数据模型、脚本事件绑定和场景跳转业务。UI 文档中的按钮与控件可以先完成布局、输入和状态展示，业务在后续脚本组件阶段接入。
 

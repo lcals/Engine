@@ -33,7 +33,7 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 ## 网格、材质与 Shader
 
-网格由独立资源提供位置、法线、UV0、切线、顶点色和索引；子网格索引范围关联材质槽。动态网格通过 `set_mesh_data` 提交生成模型的深拷贝，修订号变化时更新 GPU。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过目录中的唯一逻辑路径定位并按需加载，路径以 `builtin/` 或 `project/` 区分来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
+网格由独立资源提供位置、法线、UV0、切线、顶点色和索引；子网格索引范围关联材质槽。动态网格通过 `set_mesh_data` 提交生成模型的深拷贝，修订号变化时更新 GPU。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过目录中的唯一逻辑路径定位并按需加载，项目路径直接相对资源根，内置路径以 `builtin://` 标识来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
 
 骨骼动画通过 `MeshRenderer::set_skinning_palette` 提交矩阵，由渲染 compute 生成实例顶点流；主画面、AO 与阴影共用输出，包围盒按骨骼影响更新，详见[GPU 蒙皮与共享几何](#gpu-蒙皮与共享几何)。渲染器不执行骨架采样或读取 FBX。
 
@@ -47,7 +47,7 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 内置 PBR 的 `specularWorkflow = 1` 启用反射色工作流：`specularColor`（v3）乘 `specularTexture.rgb` 得到线性反射色，粗糙度来自 `1 - smoothness * specularTexture.a`；默认 0 仍走原有 metallic/roughness 与 ORM。SpecGloss 纹理的颜色通道按资源 sRGB 配置解码，alpha 保持线性。`normalScale`（0..8，默认 1）缩放切线空间法线的 XY。`uvTransform`（v4，默认 1,1,0,0）给所有表面纹理提供 scale.xy/offset.zw，阴影裁切使用同一变换；自定义 Shader 缺少该参数时阴影使用原始 UV。
 
-`builtin/shaders/blinn-phong` 提供 Lambert 漫反射与 Blinn–Phong 高光，默认材质为 `builtin/materials/default-blinn-phong`；仍使用基础色、法线、SpecGloss 与发光的命名参数。直接光高光颜色为 `specularColor * specularTexture.rgb`，指数为 `2^(10*smoothness+1)`，不执行 PBR 的能量扣减与漫反射除 π。直接光响应适配 bgfx `18-ibl/fs_ibl_mesh.sc` 的 Lambert、半程向量幂函数与光滑度指数映射；为经验型材质移除其高光归一化、额外 N·L 与 Fresnel，并将指数偏置设为 1。环境照明复用本引擎的 GGX split-sum IBL 路径，不等同于该范例的完整材质模型。
+`builtin://shaders/blinn-phong` 提供 Lambert 漫反射与 Blinn–Phong 高光，默认材质为 `builtin://materials/default-blinn-phong`；仍使用基础色、法线、SpecGloss 与发光的命名参数。直接光高光颜色为 `specularColor * specularTexture.rgb`，指数为 `2^(10*smoothness+1)`，不执行 PBR 的能量扣减与漫反射除 π。直接光响应适配 bgfx `18-ibl/fs_ibl_mesh.sc` 的 Lambert、半程向量幂函数与光滑度指数映射；为经验型材质移除其高光归一化、额外 N·L 与 Fresnel，并将指数偏置设为 1。环境照明复用本引擎的 GGX split-sum IBL 路径，不等同于该范例的完整材质模型。
 
 PBR 反射色流程与 Blinn–Phong 的 `smoothnessSource` 默认 0，光滑度为 `smoothness * specularTexture.a`；设为 1 时直接使用 `baseColorTexture.a * baseColor.a`，不再次乘 smoothness 或顶点 alpha。两个有光照 Shader 的 `specularHighlights` 默认 1，设为 0 关闭直接高光。参数仍由 Shader 资源声明与验证，核心 Material 没有专用字段或算法枚举。
 

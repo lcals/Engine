@@ -139,8 +139,8 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     post_process_settings.bloom_intensity = .3F;
     post_process_settings.bloom_radius = 2.0F;
     auto& material = mesh->material();
-    if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
-                    material.shader_path() == "builtin/shaders/pbr",
+    if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
+                    material.shader_path() == "builtin://shaders/pbr",
                 "default material uses resource paths") ||
         !expect(cube_node->get_component<engine::Transform>()->set_settings(transform) &&
                     camera->set_settings(camera_settings) && light->set_settings(light_settings) &&

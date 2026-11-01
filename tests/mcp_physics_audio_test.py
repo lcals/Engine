@@ -26,7 +26,7 @@ def test(editor, mcp, root, temporary):
         "import { Gameplay, Scene } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "  override OnInitialize(): boolean {\n"
-        "    return Scene.Load('project/scenes/main.scene') !== null;\n"
+        "    return Scene.Load('scenes/main.scene') !== null;\n"
         "  }\n}\n",
         encoding="utf-8",
     )
@@ -75,7 +75,7 @@ def test(editor, mcp, root, temporary):
             "set_audio_source",
             cube
             | {
-                "clip": "project/audio/test.wav",
+                "clip": "audio/test.wav",
                 "loop": True,
                 "playOnAwake": False,
                 "spatial": False,
@@ -117,7 +117,7 @@ def test(editor, mcp, root, temporary):
             "static body settings or cleared velocities were lost on reload",
         )
         source = command("get_audio_source", cube)
-        require(source["clip"] == "project/audio/test.wav" and source["loop"], "audio GUID lost")
+        require(source["clip"] == "audio/test.wav" and source["loop"], "audio GUID lost")
         command("play_audio", cube)
         wait_for(process, lambda: command("get_audio_state", cube)["playing"], "reloaded audio")
         command("stop_audio", cube)

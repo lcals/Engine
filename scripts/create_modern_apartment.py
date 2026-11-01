@@ -884,9 +884,9 @@ def apply_style(session, scene_id, pairs):
                 | {
                     "slot": 0,
                     "path": (
-                        "builtin/materials/default-unlit"
+                        "builtin://materials/default-unlit"
                         if material.unlit
-                        else "builtin/materials/default-pbr"
+                        else "builtin://materials/default-pbr"
                     ),
                 },
             }

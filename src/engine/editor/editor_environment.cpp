@@ -68,13 +68,13 @@ bool EditorEnvironment::initialize()
     config.application_name = application_name(project_identity_);
     config.persistent_data_path = persistent_directory_;
     // 编辑器直接使用导入缓存；不建立第二份包体或会话字节快照。
-    config.builtin_assets_path = root / "cache";
+    config.assets_path = root / "cache";
     if (!App::initialize(config))
     {
         shutdown();
         return false;
     }
-    builtin_path_ = App::builtin_assets_path();
+    builtin_path_ = App::assets_path();
     initialized_ = true;
     return true;
 }
@@ -109,7 +109,7 @@ void EditorEnvironment::shutdown() noexcept
 bool EditorEnvironment::is_initialized() const noexcept
 {
     return initialized_ && project_.is_initialized() && App::is_initialized() &&
-           App::builtin_assets_path() == builtin_path_;
+           App::assets_path() == builtin_path_;
 }
 
 bool EditorEnvironment::refresh_resources(GameplaySession& gameplay)

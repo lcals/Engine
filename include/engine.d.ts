@@ -18,7 +18,7 @@ declare module "engine" {
 
     export class App {
         private constructor();
-        static readonly builtinAssetsPath: string;
+        static readonly assetsPath: string;
         static readonly persistentDataPath: string;
         static readonly cachePath: string;
     }
@@ -85,7 +85,7 @@ declare module "engine" {
         static SetClearColor(rgba: number): boolean;
     }
 
-    /** Resource paths start with builtin/ or project/. Parameters match the selected shader. */
+    /** Resource paths are relative to assets, or use builtin://. Parameters match the shader. */
     export class Material {
         private constructor();
         IsValid(): boolean;

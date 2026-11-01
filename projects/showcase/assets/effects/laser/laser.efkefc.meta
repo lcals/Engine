@@ -4,12 +4,12 @@ meta_version = 1
 
 [[resources]]
 path = "Texture/LaserMain01.png"
-resource = "project/effects/laser/textures/laser-main.png"
+resource = "effects/laser/textures/laser-main.png"
 
 [[resources]]
 path = "Texture/Particle01.png"
-resource = "project/effects/laser/textures/particle-01.png"
+resource = "effects/laser/textures/particle-01.png"
 
 [[resources]]
 path = "Texture/Particle02.png"
-resource = "project/effects/laser/textures/particle-02.png"
+resource = "effects/laser/textures/particle-02.png"

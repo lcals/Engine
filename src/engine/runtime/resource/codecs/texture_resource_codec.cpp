@@ -88,7 +88,7 @@ bool TextureResourceCodec::decode(const ResourceCatalog&, ByteView payload, Reso
 {
     const auto& entry = output.info();
     std::unique_ptr<schema::TextureDataT> data;
-    if (entry.path.starts_with("builtin/"))
+    if (entry.path.starts_with("builtin://") && !entry.location)
     {
         const auto* builtin = ResourceSystem::find_texture(entry.path);
         if (!builtin)

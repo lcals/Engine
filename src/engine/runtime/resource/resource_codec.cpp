@@ -76,26 +76,7 @@ void ResourceCodec::store(Resource& output, ByteView data)
 
 bool ResourceCodec::valid_path(std::string_view path) noexcept
 {
-    if ((!path.starts_with("builtin/") && !path.starts_with("project/")) ||
-        path.find_first_of("\\:") != std::string_view::npos ||
-        path.find('\0') != std::string_view::npos)
-    {
-        return false;
-    }
-    for (;;)
-    {
-        const auto separator = path.find('/');
-        const auto part = path.substr(0, separator);
-        if (part.empty() || part == "." || part == "..")
-        {
-            return false;
-        }
-        if (separator == std::string_view::npos)
-        {
-            return true;
-        }
-        path.remove_prefix(separator + 1);
-    }
+    return GuidMap::valid_path(path) && !path.starts_with("editor://");
 }
 
 bool ResourceCodec::declares(const ResourceCatalog& catalog, const Resource& resource,

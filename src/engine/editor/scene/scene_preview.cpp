@@ -327,10 +327,10 @@ struct ScenePreview::State
 
     bool open(std::string_view requested, const Json& arguments)
     {
-        if (!initialized || !requested.starts_with("project/") ||
+        if (!initialized || !GuidMap::valid_path(requested) || requested.find(':') != requested.npos ||
             !requested.ends_with(".scene"))
         {
-            return fail("Preview requires an initialized editor and a project/*.scene path");
+            return fail("Preview requires an initialized editor and an assets-relative .scene path");
         }
         TransformSettings pose;
         pose.position = {0, 2, 5};

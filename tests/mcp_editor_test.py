@@ -60,7 +60,7 @@ def test(editor, mcp, root, temporary):
         "import { Gameplay, Scene } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "    override OnInitialize(): boolean {\n"
-        "        return Scene.Load('project/scenes/main.scene') !== null;\n"
+        "        return Scene.Load('scenes/main.scene') !== null;\n"
         "    }\n"
         "}\n",
         encoding="utf-8",
@@ -316,7 +316,7 @@ def test(editor, mcp, root, temporary):
                 "sceneId": fresh_scene["sceneId"],
                 "nodeId": fresh_cube["nodeId"],
                 "name": "baseColorTexture",
-                "path": "builtin/textures/white-linear",
+                "path": "builtin://textures/white-linear",
             },
         )
         textures = component(node_named(snapshot()["scene"], "Cube"), "mesh_renderer")["material"][
@@ -324,7 +324,7 @@ def test(editor, mcp, root, temporary):
         ]
         require(
             any(
-                item == {"name": "baseColorTexture", "path": "builtin/textures/white-linear"}
+                item == {"name": "baseColorTexture", "path": "builtin://textures/white-linear"}
                 for item in textures
             ),
             "texture assignment missing from snapshot",

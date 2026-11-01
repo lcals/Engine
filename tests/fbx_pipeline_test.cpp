@@ -7,6 +7,7 @@
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #endif
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/animation_generated.h"
 #include "runtime/schema/mesh_generated.h"
@@ -106,7 +107,7 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     ResourceCatalog catalog;
     ByteBuffer bytes;
     if (!ResourceSystem::read_catalog(project.root / "cache", catalog) ||
-        !read(catalog, project.root, "project/models/skeleton.fbx", bytes))
+        !read(catalog, project.root, "models/skeleton.fbx", bytes))
     {
         return false;
     }
@@ -115,7 +116,7 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     {
         return false;
     }
-    const auto key = mesh_path.substr(std::string("project/models/skeleton.fbx/").size());
+    const auto key = mesh_path.substr(std::string("models/skeleton.fbx/").size());
     std::size_t slots = 0;
     Guid default_material;
     for (const auto* node : *schema::GetModelData(bytes.data())->nodes())
@@ -157,13 +158,13 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     }
     for (const auto* name : {"red", "blue"})
     {
-        const auto path = std::string("project/") + name + ".material";
+        const auto path = std::string(name) + ".material";
         Guid material;
         if (!expect(write(meta, base_meta + mapping(path)) && pipeline.build_assets(project.root),
                     pipeline.last_error()) ||
             !expect(ResourceSystem::read_catalog(project.root / "cache", catalog) &&
                         catalog.identities().path_to_guid(path, material) &&
-                        read(catalog, project.root, "project/models/skeleton.fbx", bytes),
+                        read(catalog, project.root, "models/skeleton.fbx", bytes),
                     "read remapped model and resolved material"))
         {
             return false;
@@ -201,7 +202,7 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
             }
         }
     }
-    const auto valid_meta = base_meta + mapping("project/blue.material");
+    const auto valid_meta = base_meta + mapping("blue.material");
     const auto revision = pipeline.last_build().revision;
     const auto payload = bytes;
     if (!expect(pipeline.build_assets(project.root) && pipeline.last_build().imported == 0 &&
@@ -215,12 +216,12 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
         "material_remaps = false\n" + base_meta,
         "material_remaps = [1]\n" + base_meta,
         base_meta + "\n[[material_remaps]]\nmesh = \"meshes/missing\"\nmaterials = []\n",
-        valid_meta + mapping("project/red.material"),
+        valid_meta + mapping("red.material"),
         base_meta + remap_header + "materials = []\n",
         base_meta + remap_header + "materials = [42]\n",
         base_meta + mapping(""),
-        base_meta + mapping("project/missing.material"),
-        base_meta + mapping("project/untouched.txt"),
+        base_meta + mapping("missing.material"),
+        base_meta + mapping("untouched.txt"),
         base_meta + mapping(mesh_path),
         valid_meta + "typo = 1\n"};
     for (const auto& invalid_meta : invalid)
@@ -230,7 +231,7 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
             !expect(pipeline.last_build().revision == revision &&
                         ResourceSystem::read_catalog(project.root / "cache", catalog) &&
                         catalog.revision() == revision &&
-                        read(catalog, project.root, "project/models/skeleton.fbx", bytes) &&
+                        read(catalog, project.root, "models/skeleton.fbx", bytes) &&
                         bytes == payload,
                     "invalid remap does not publish or alter the last usable model"))
         {
@@ -250,7 +251,7 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     std::string error;
     std::string fingerprint;
     if (!expect(write(meta, valid_meta) && snapshot.discover(asset, children, error) &&
-                    write(meta, base_meta + mapping("project/red.material")) &&
+                    write(meta, base_meta + mapping("red.material")) &&
                     !snapshot.inspect_batch(context, fingerprint, error),
                 "material settings changed after discovery invalidate the batch") ||
         !expect(write(meta, valid_meta) && pipeline.build_assets(project.root) &&
@@ -295,14 +296,13 @@ bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& proje
                      const Guid& model_guid, const Guid& mesh_guid, const Guid& skeleton_guid)
 {
     constexpr auto manifest = "settings/fbx-selection.toml";
-    if (!write(project.root / manifest,
-               "target_platform = \"\"\noutput = \"cache/build/selection\"\n"
-               "[[items]]\nname = \"model\"\nstorage = \"package\"\n"
-               "roots = [\"project/models/skeleton.fbx\"]\n"
-               "[[items]]\nname = \"walk\"\nstorage = \"package\"\n"
-               "roots = [\"project/models/locomotions.fbx/animations/walk\"]\n"
-               "[[items]]\nname = \"walk-files\"\nstorage = \"files\"\n"
-               "roots = [\"project/models/locomotions.fbx/animations/walk\"]\n"))
+    if (!write(project.root / manifest, "output = \"cache/build/selection\"\n"
+                                        "[[items]]\nname = \"model\"\nstorage = \"package\"\n"
+                                        "roots = [\"models/skeleton.fbx\"]\n"
+                                        "[[items]]\nname = \"walk\"\nstorage = \"package\"\n"
+                                        "roots = [\"models/locomotions.fbx/animations/walk\"]\n"
+                                        "[[items]]\nname = \"walk-files\"\nstorage = \"files\"\n"
+                                        "roots = [\"models/locomotions.fbx/animations/walk\"]\n"))
     {
         return false;
     }
@@ -314,25 +314,28 @@ bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& proje
     }
     Guid walk_guid;
     ResourceCatalog catalog;
+    const auto builtin_count = builtin_resource_catalog().entries.size();
     ByteBuffer payload;
     const std::vector<std::string> model_only{"model"};
     const std::vector<std::string> model_walk{"model", "walk"};
     const std::vector<std::string> walk_only{"walk-files"};
     if (!expect(builder.build(project.root, manifest, model_only), builder.last_error()) ||
         !expect(ResourceSystem::read_catalog(output, catalog) &&
-                    catalog.data().entries.size() == 3 && catalog.find(model_guid) &&
-                    catalog.find(mesh_guid) && catalog.find(skeleton_guid) &&
+                    catalog.data().entries.size() == 3 + builtin_count &&
+                    catalog.find(model_guid) && catalog.find(mesh_guid) &&
+                    catalog.find(skeleton_guid) &&
                     ResourceSystem::read_resource(catalog, {{"content", output}}, model_guid,
                                                   payload) &&
                     schema::GetModelData(payload.data())->schema_version() == 2,
-                "model-only package contains and reads only Model, Mesh and Skeleton"))
+                "model-only project closure contains Model, Mesh and Skeleton plus builtins"))
     {
         return false;
     }
     if (!expect(builder.build(project.root, manifest, model_walk), builder.last_error()) ||
         !expect(
-            ResourceSystem::read_catalog(output, catalog) && catalog.data().entries.size() == 4 &&
-                catalog.identities().path_to_guid("project/models/locomotions.fbx/animations/walk",
+            ResourceSystem::read_catalog(output, catalog) &&
+                catalog.data().entries.size() == 4 + builtin_count &&
+                catalog.identities().path_to_guid("models/locomotions.fbx/animations/walk",
                                                   walk_guid) &&
                 catalog.find(model_guid) && catalog.find(mesh_guid) &&
                 catalog.find(skeleton_guid) && catalog.find(walk_guid) &&
@@ -343,10 +346,9 @@ bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& proje
     {
         return false;
     }
-    for (const auto* excluded : {"project/models/locomotions.fbx/animations/run",
-                                 "project/models/locomotions.fbx/animations/jog",
-                                 "project/models/skeleton.fbx/animations/Take 001",
-                                 "project/models/locomotions.fbx", "project/untouched.txt"})
+    for (const auto* excluded :
+         {"models/locomotions.fbx/animations/run", "models/locomotions.fbx/animations/jog",
+          "models/skeleton.fbx/animations/Take 001", "models/locomotions.fbx", "untouched.txt"})
     {
         Guid guid;
         if (!expect(!catalog.identities().path_to_guid(excluded, guid),
@@ -359,13 +361,14 @@ bool build_selection(editor::AssetPipelineSystem& pipeline, const Project& proje
     const auto revision = builder.last_build().revision;
     if (!expect(builder.build(project.root, manifest, model_walk) &&
                     builder.last_build().revision == revision &&
-                    builder.last_build().reused_package_count == 2,
+                    builder.last_build().reused_package_count == 3,
                 "unchanged selected entities reuse their package incrementally") ||
         !expect(builder.build(project.root, manifest, walk_only), builder.last_error()) ||
         !expect(
-            ResourceSystem::read_catalog(output, catalog) && catalog.data().entries.size() == 2 &&
-                catalog.find(walk_guid) && catalog.find(skeleton_guid) &&
-                !catalog.find(model_guid) && !catalog.find(mesh_guid) &&
+            ResourceSystem::read_catalog(output, catalog) &&
+                catalog.data().entries.size() == 2 + builtin_count && catalog.find(walk_guid) &&
+                catalog.find(skeleton_guid) && !catalog.find(model_guid) &&
+                !catalog.find(mesh_guid) &&
                 catalog.find(walk_guid)->location->path == "gen/" + walk_guid &&
                 catalog.find(skeleton_guid)->location->path == "gen/" + skeleton_guid &&
                 ResourceSystem::read_resource(catalog, {{"content", output}}, walk_guid, payload),
@@ -412,7 +415,7 @@ int main()
                               "\"fbx\"\nmeta_version = 1\nsample_rate = 30\n") ||
         !write(locomotion_meta,
                "guid = \"b0ba0001-0000-4000-8000-000000000002\"\nimporter = \"fbx\"\nmeta_version "
-               "= 1\nsample_rate = 30\nskeleton = \"project/models/skeleton.fbx/skeleton\"\n") ||
+               "= 1\nsample_rate = 30\nskeleton = \"models/skeleton.fbx/skeleton\"\n") ||
         !write(project.root / "assets/untouched.txt", "independent asset"))
     {
         return 1;
@@ -432,7 +435,7 @@ int main()
     ByteBuffer bytes;
     if (!expect(ResourceSystem::read_catalog(project.root / "cache", catalog),
                 "read runtime catalog") ||
-        !expect(read(catalog, project.root, "project/models/skeleton.fbx", bytes),
+        !expect(read(catalog, project.root, "models/skeleton.fbx", bytes),
                 "read independent FBX Model resource"))
     {
         return 1;
@@ -455,7 +458,7 @@ int main()
         }
     }
     if (!expect(model->schema_version() == 2 && !mesh_guid.empty() && model->nodes()->size() > 60 &&
-                    catalog.identities().path_to_guid("project/models/skeleton.fbx", model_guid) &&
+                    catalog.identities().path_to_guid("models/skeleton.fbx", model_guid) &&
                     catalog.find(model_guid)->dependencies.size() == 2,
                 "Model v2 references only its nodes' mesh and default material") ||
         !expect(ResourceSystem::read_resource(catalog, {{"content", project.root / "cache"}},
@@ -486,9 +489,8 @@ int main()
             return 1;
         }
     }
-    if (!expect(
-            read(catalog, project.root, "project/models/locomotions.fbx/animations/walk", bytes),
-            "external animation child is independently loadable"))
+    if (!expect(read(catalog, project.root, "models/locomotions.fbx/animations/walk", bytes),
+                "external animation child is independently loadable"))
     {
         return 1;
     }
@@ -635,9 +637,8 @@ int main()
                 "failed batch preserves successful stats") ||
         !expect(ResourceSystem::read_catalog(project.root / "cache", catalog),
                 "failed batch preserves catalog") ||
-        !expect(
-            read(catalog, project.root, "project/models/locomotions.fbx/animations/walk", bytes),
-            "previous resource remains loadable after failed batch"))
+        !expect(read(catalog, project.root, "models/locomotions.fbx/animations/walk", bytes),
+                "previous resource remains loadable after failed batch"))
     {
         return 1;
     }

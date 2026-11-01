@@ -64,7 +64,7 @@ classDiagram
 
 ## 资源构建和部署接入
 
-ProjectMcpTools 持续借用已初始化的 AssetPipelineSystem、AssetBuildSystem 与 AssetSyncSystem。`build_resources(manifest, items?)` 读取项目 settings 内的清单，调用构建系统并返回 revision、resources、packages、reusedPackages 和 output。
+ProjectMcpTools 持续借用已初始化的 AssetPipelineSystem、AssetBuildSystem 与 AssetSyncSystem。`build_resources(manifest?, items?, targetPlatform?)` 读取项目 settings 内的可选清单（默认 resource-build.toml，缺失全量），由调用参数选择平台，调用构建系统并返回 revision、resources、packages、reusedPackages 和 output。
 
 `sync_assets()` 增量导入后同步整个运行目录；可选 `source` 为项目内已构建输出目录，提供后只同步，不导入、不改写 cache/gen。两种输入均按 catalog 的存储定位收集散文件或包，不猜测每个 GUID 都有独立物理文件。
 

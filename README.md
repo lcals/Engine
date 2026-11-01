@@ -32,7 +32,7 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 
 普通 `Node` 挂载 `UiComponent` 并引用 `.rml` 资源，一个文档内部可包含多个控件。`.rml.meta` 中的 `textures` 支持多贴图；每个 `[[ui.fonts]]` 绑定字体族别名、字体资源与独立 Shader，支持同时使用多字体、多 Shader。同一字体也可以通过不同别名采用不同 Shader；引用会进入资源依赖图及运行包。配置示例见 [UI 导入](docs/plugins/editor/ui-import.md)。
 
-`font_import` 编辑器插件使用 FreeType 将原始 TTF 和 meta 参数转换为曲线与度量资源，`ui_import` 转换文档及引用。运行时核心 `FontSystem` 消费这些资源，UI 与普通节点上的 `TextComponent` 共用 GPU 字形缓存。默认 `builtin/shaders/font` 适配公开 bgfx / Slug 曲线覆盖率算法，项目 Shader 须符合[字体绘制契约](docs/runtime/font.md)。引擎不在运行时解析原始字体，也不按字号生成多份资源。示例使用 OFL 1.1 授权 Lato Regular / Bold，固定来源和许可随资源保存。
+`font_import` 编辑器插件使用 FreeType 将原始 TTF 和 meta 参数转换为曲线与度量资源，`ui_import` 转换文档及引用。运行时核心 `FontSystem` 消费这些资源，UI 与普通节点上的 `TextComponent` 共用 GPU 字形缓存。默认 `builtin://shaders/font` 适配公开 bgfx / Slug 曲线覆盖率算法，项目 Shader 须符合[字体绘制契约](docs/runtime/font.md)。引擎不在运行时解析原始字体，也不按字号生成多份资源。示例使用 OFL 1.1 授权 Lato Regular / Bold，固定来源和许可随资源保存。
 
 UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElement` 提供 View，派生 `UiController<T>` 处理事件和显式刷新。`Bind()` 执行 `OnBind → OnRefresh`，`Listen()` 自动登记订阅，`Unbind()` 释放订阅；文档、控件或脚本上下文销毁后旧引用失效。支持 click/change/input 及输入值快照，事件按目标到祖先冒泡，`target` 保留目标，`currentTarget` 表示当前订阅控件，业务无需逐帧轮询。控件支持纯文本、表单值、显隐、禁用、样式、类名及已登记纹理切换。API 与职责见 [MVC 类图](docs/plugins/runtime/class-diagrams/ui-script-api.md)，示例拆分在 `assets/scripts/models/` 与 `controllers/`。
 
@@ -135,7 +135,7 @@ cmake --build --preset windows-static-release --target engine_export
 .\output\windows\x64\release\runtime\engine-showcase.exe
 ```
 
-Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `output/windows/x64/release/runtime/`，其中包含 `engine-showcase.exe`、`catalog.bin`，以及目录引用的 `packs/` 或 `gen/` 资源文件。默认构建不部署 ICU 数据。EXE 所在目录是 App 的 builtin 资源根，资源保持独立文件，随整个目录一起分发。
+Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`，编辑器仍通过 `--project` 指定源项目。上例的 `engine_project_export` 将运行程序导出到 `output/windows/x64/release/runtime/`，其中包含 `engine-showcase.exe` 和 `assets/`；`assets/` 保存 `catalog.bin` 及其引用的 `packs/` 或 `gen/`。默认构建不部署 ICU 数据。EXE 所在目录下的 `assets/` 是 App 的资源读取根，资源保持独立文件，随整个目录一起分发。
 
 V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation（包括 Windows ETW），保留 Sparkplug、Maglev、TurboFan 等 JIT、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`，全部默认 OFF。项目脚本不能使用已关闭的全局 API；默认没有 ICU 资源部署。裁剪参数参与缓存身份，精简归档与头文件存放在带 `-f0000` 的独立目录；此前完整配置的缓存保留。
 
@@ -167,7 +167,7 @@ cmake --build --preset macos-native-release --target engine_export
 - macOS ARM64 默认原生模式：`output/macos/arm64/release/runtime/engine-showcase`；编辑器为相邻 `editor/editor_app`，直接从终端运行。必要私有库放 `lib/`，离线导入工具放 `tools/`，不经过 `.app` 安装或交互签名流程。`macos-native-debug` / `macos-native-release` 预设显式固定此模式；其他 Mac 桌面预设也默认 `ENGINE_MACOS_APP_BUNDLE=OFF`。
 - Android ARM64：`output/android/arm64/<debug|release>/runtime/engine-showcase.apk`；原生部分仅一个 `libmain.so`。APK 继续使用测试签名。
 
-原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 位于程序旁；默认不包含 ICU 数据。可选 `.app` 模式将它们放在 `Contents/Resources/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux / iOS 暂未提供或验证上述导出入口。
+原生桌面模式的 `catalog.bin`、`packs/` 或 `gen/` 位于程序旁的 `assets/`；默认不包含 ICU 数据。可选 `.app` 模式将它们放在 `Contents/Resources/assets/`，由 SDL 直接读取；宿主优先使用已发布的外部持久资源版本，否则使用包内版本，缺失条目不混用旧包。运行时直接读取资源，不使用自解压程序。编辑器继续要求 `--project`；运行包直接进入 Gameplay。若需要 macOS 原生应用包，配置时显式加 `-DENGINE_MACOS_APP_BUNDLE=ON`，再运行相同导出目标；程序、私有工具和初始资源均进入 `.app`，外部持久目录用于更新资源版本。本地构建仅使用系统要求的 ad-hoc 代码签名，不要求证书或用户确认；正式分发的开发者签名和公证另由发布流程提供。Linux / iOS 暂未提供或验证上述导出入口。
 
 编辑器导出包含 Shader 编译器、Node.js、引擎声明、Schema 和固定版本的 TypeScript。导入优先使用项目安装的 TypeScript；项目未安装时，只有声明版本与随包版本一致才使用随包编译器。部署目录存在但工具缺失会报告失败，避免意外借用构建电脑的工具。资源运行包不包含这些编辑器工具。
 
@@ -323,7 +323,7 @@ cmake --workflow --preset ninja-engine-release
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
-编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("project/scenes/launcher.scene")`，显示可进入四个场景的菜单，停止时释放场景及本次运行 GPU 资源。
+编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("scenes/launcher.scene")`，显示可进入四个场景的菜单，停止时释放场景及本次运行 GPU 资源。
 
 编辑器运行时，若在另一终端修改了项目源脚本或其他资源，可执行：
 
@@ -366,7 +366,7 @@ export default class Game extends Gameplay {
 
 | 脚本接口                 | 用途                                                                      |
 | ------------------------ | ------------------------------------------------------------------------- |
-| `App.builtinAssetsPath`  | 内置资源根目录；编辑器中映射项目转换缓存，真机为包内资源                  |
+| `App.assetsPath`  | 应用资源读取根；桌面为程序旁 `assets/`，Android 为 APK `assets/`，编辑器映射项目转换缓存                  |
 | `App.persistentDataPath` | 持久数据根目录，保存同步版本、日志、控制与状态；可由 `--runtime-dir` 指定 |
 | `App.cachePath`          | 平台临时缓存目录，可重建；不承载需要跨启动保留的同步版本                  |
 
@@ -382,7 +382,7 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 
 - 同一编辑器窗口在空白与项目画面间整体切换。场景、节点和组件归当前运行；共享窗口与图形设备保留到编辑器关闭。停止会清除最后一帧，重复启动不会创建第二套实例。
 - 示例使用 `.mesh` 文件中的 24 顶点、36 索引方块，运行时按导入网格创建 GPU 缓冲；支持无光照材质与基础色/金属度/粗糙度的 PBR。光照采用 GGX、Smith、Schlick；最多 64 盏方向/点/聚光灯，视角来自活动透视或正交 Camera 节点；基础色、法线及 ORM 贴图由 BasisU 缓存提供。支持场景中唯一启用投影的方向光 1/2/4 级 CSM、环境光、IBL、屏幕空间 AO、可选线性 HDR 场景合成与 Bloom、曝光与 ACES 色调映射；最终输出为 SDR。尚未实现点光/聚光阴影或透明混合。
-- 内置 Shader 使用宿主 shaderc 在构建时编译为数组，项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
+- 内置 Shader 使用宿主 shaderc 在构建时编译 bootstrap 数组，供无项目启动与编辑器基础定义使用；运行包另由宿主 shaderc 按目标平台生成内置 Shader 实体，随 `assets/packs/builtin-*` 部署，有外置目录条目时必须读取并校验该实体。项目 `.shader` 描述引用独立源码 GUID，由导入器编译为目标平台二进制；runtime feature 也声明宿主 bgfx[tools] 依赖。目标后端固定为 Metal、DirectX 12 或 Vulkan，不依赖运行目录中的示例 Shader 文件。可用 `ENGINE_SHADERC_EXECUTABLE` 指定宿主工具，缺失或无法执行时配置失败。
 - 桌面 MCP 提供无参数 `start_project`、`stop_project`（客户端简写 `start`、`stop`）。目标固定为当前 `--project` 和 `--runtime-dir`，须先启动编辑器。Android 工具提供同步、热重载和状态查询；Android 由平台宿主启动 Gameplay，不提供编辑器项目启停。
 - `project-control.json` / `project-status.json` 位于持久运行目录。请求带会话与编号，由编辑器主线程执行；状态提供 `projectState`、`session`、`lastRequestId`、`lastRequestSucceeded`。场景和 GPU 数量查询分别属于场景与渲染系统，不从 Engine 转发。
 - 启停等待最多 10 秒；超时的 `activation: pending` 表示尚未确认，**不是取消**。查询同一请求的最终状态后再操作。旧编辑器会话请求不会在新会话重放。
@@ -434,7 +434,7 @@ export default class Game extends Gameplay {
 同一场景代次内，已成功保存的场景及导出资源若被外部修改或丢失 meta，再次保存会报告冲突并保留外部文件；需刷新接受新版本，或恢复原文件后再保存。显式打开其他场景或关闭预览会丢弃未保存内存编辑，不会自动保存；回执的 `discardedChanges` 说明是否丢弃了修改。刷新、关闭和切换场景后，继续编辑前重新查询 sceneId/nodeId。
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call open_scene_preview --arguments '{"path":"project/scenes/apartment.scene"}'
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call open_scene_preview --arguments '{"path":"scenes/apartment.scene"}'
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_preview_camera --arguments '{"position":[0,2,5],"rotation":[0,0,0],"speed":5}'
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene_preview
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call close_scene_preview
@@ -477,7 +477,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
 | `get_editor_receipt` | `session`、`requestId`；查询原请求的持久回执 |
 
-场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin/materials/default-pbr`、`builtin/materials/default-unlit`、`builtin/materials/default-blinn-phong` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
+场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin://materials/default-pbr`、`builtin://materials/default-unlit`、`builtin://materials/default-blinn-phong` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由下方建模模块提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
@@ -590,7 +590,7 @@ MCP `set_render_settings` 在活动场景按需建立环境节点、活动相机
 例如调用 `bake_scene` 的参数：
 
 ```json
-{"scene":"project/scenes/example.scene","environment":"project/textures/sky.ktx","effects":["ibl"],"resolution":128,"samples":256,"lutSize":256}
+{"scene":"scenes/example.scene","environment":"textures/sky.ktx","effects":["ibl"],"resolution":128,"samples":256,"lutSize":256}
 ```
 
 三个可选参数的默认值如上；`resolution` 为 16..512、`lutSize` 为 32..512，均须为 2 的幂；`samples` 为 16..1024。该例使用项目自己的场景与天空，不代表仓库内置这些资源。
@@ -638,7 +638,7 @@ Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封�
 
 ### 现代公寓示例
 
-统一项目 `projects/showcase/` 的 `assets/scenes/apartment.scene` 保存四个区域的开放切面公寓：客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机和 5 个灯光节点。家具、摆件、倒角、变换、材质与灯光均由 `scripts/create_modern_apartment.py` 通过正式 MCP 工具创建；Gameplay 加载已保存的 `project/scenes/apartment.scene`。
+统一项目 `projects/showcase/` 的 `assets/scenes/apartment.scene` 保存四个区域的开放切面公寓：客厅、卧室、厨房与餐区，包含 322 个可编辑模型、相机和 5 个灯光节点。家具、摆件、倒角、变换、材质与灯光均由 `scripts/create_modern_apartment.py` 通过正式 MCP 工具创建；Gameplay 加载已保存的 `scenes/apartment.scene`。
 
 先将统一入口 `projects/showcase/assets/scripts/game.ts` 的导出改为 `./modules/apartment.js`。准备完整 Release 构建后，安装共用的 TS 依赖并启动编辑器（Windows 使用对应 `.exe`）：
 
@@ -663,7 +663,7 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 
 - Node 只管理身份、父子关系和 `unique_ptr<Component>` 列表。C++ 使用 `add_component<T>()` / `get_component<T>()`；TS 使用 `AddComponent(Type)` / `GetComponent(Type)`。每个新节点自动具有 Transform，相机、灯光、网格、碰撞体、刚体、音源与监听器也都是组件。
 - `include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
-- 材质和 Shader 的完整资源路径以 `builtin/` 或 `project/` 开头。内置 `builtin/materials/default-pbr` / `default-unlit` / `default-blinn-phong` 分别引用 `builtin/shaders/pbr` / `unlit` / `blinn-phong`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
+- 材质和 Shader 的项目资源路径直接相对 `assets/`，引擎资源使用 `builtin://` 命名空间。内置 `builtin://materials/default-pbr` / `default-unlit` / `default-blinn-phong` 分别引用 `builtin://shaders/pbr` / `unlit` / `blinn-phong`；项目可导入自己的 Shader，也可让项目材质复用内置 Shader。两个空间互不覆盖，内置定义不依赖项目。停止项目释放场景、脚本资源引用和 GPU 句柄，最后一个使用者释放后项目数据自动回收；内置定义保留至引擎关闭。
 - `mesh.material.SetType(path)` 选择材质定义，`SetShader(path)` 可为实例选择 Shader；`SetFloat/SetV2/SetV3/SetV4(name, ...)` 按声明匹配参数。未声明名字、类型错误、越界数值及未知路径均返回 false，失败保留原值。项目定义来自 `.material` / `.shader` 的导入二进制；这些资源与场景独立维护。运行时修改的材质参数属于当前实例，场景文件保存材质 GUID，不自动回写实例覆盖值。
 - ScriptBinding 是绑定接口，各类的 JS 外观与原生回调在 `src/engine/plugins/runtime/script/bindings/` 分文件维护。新增 `xxx_binding.hpp/.cpp` 实现，再在 `script_binding_registry.cpp` 使用 `add<T>()` 登记即可；该目录的绑定源文件由 CMake 自动纳入。公共 BindingContext 处理运行身份、失效引用和参数检查，ScriptSystem 保留脚本加载和执行职责，GameplaySession 驱动部署及重载；核心只依赖 ScriptRuntime 接口。
 - Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。
@@ -719,11 +719,11 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 `cache/gen/` 的直接子文件名只允许完整 GUID，不带扩展名。`cache/catalog.bin` 使用 v2 格式，包含 GUID、逻辑路径、类型、运行依赖、实体头大小、内容哈希、目标平台与存储定位；`cache/assets.sqlite` 是可重建的编辑器索引。删除 SQLite 后根据源文件/meta 重新导入，GUID 不变。导入使用项目锁和暂存/回滚记录，失败不会发布半成品；无变化时保持正式文件与版本不变。
 
-`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。逻辑路径以 `project/` 或 `builtin/` 开头；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
+`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。普通逻辑路径直接相对 `assets/`，引擎资源使用 `builtin://`；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
 `SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮；FBX/USD 模型格式由可选编辑器插件导入，未配置专用导入器的普通源文件按字节缓存。已有格式 meta 与当前导入器不匹配时明确失败，不能把已导入模型静默改成普通字节资源。
 
-各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-7` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
+各资源类型在 `editor/asset_pipeline/importers/` 独立实现 `AssetImporter`，通过 `AssetImporterRegistry::add<T>()` 登记。具体导入器拥有识别、meta 默认值、工具指纹、依赖和转换；管线统一执行增量判断、任务调度、SQLite 与原子发布。TypeScript 每批只编译一次，各脚本复用该批输出。导入器指纹升级为 `engine-asset-importers-8` 后已有项目缓存首次重建一次，上游依赖缓存继续复用。
 
 ### FBX / USD 模型资源导入
 
@@ -738,10 +738,10 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 | 编辑器格式插件 | ufbx/OpenUSD 解析、源格式设置、子对象枚举、坐标转换与运行数据生成，各插件单独声明依赖 |
 | MCP | 使用现有资源导入、打包、同步命令及模型实例化/动画控制命令；协议层不复制模型解析、骨骼采样或场景业务 |
 
-一个 FBX/USD 源的 `.meta` 保存主 GUID 和 `[[subresources]]` 的 `key/kind/guid`。Model 保存节点层级及 Mesh/Material 引用；Skeleton、Animation 独立存在，分别通过实际使用它们的资源引用。每个资源有独立 `cache/gen/<完整GUID>`，无后缀。逻辑路径为 `project/models/person.fbx/meshes/<节点层级>`、`.../skeleton`、`.../animations/<动作名>`；USD 网格使用 `.../meshes/<Prim 路径>`。暂时消失的子资源保留 meta 身份以供再次出现时复用，活跃与保留 GUID 均参与冲突检查。
+一个 FBX/USD 源的 `.meta` 保存主 GUID 和 `[[subresources]]` 的 `key/kind/guid`。Model 保存节点层级及 Mesh/Material 引用；Skeleton、Animation 独立存在，分别通过实际使用它们的资源引用。每个资源有独立 `cache/gen/<完整GUID>`，无后缀。逻辑路径为 `models/person.fbx/meshes/<节点层级>`、`.../skeleton`、`.../animations/<动作名>`；USD 网格使用 `.../meshes/<Prim 路径>`。暂时消失的子资源保留 meta 身份以供再次出现时复用，活跃与保留 GUID 均参与冲突检查。
 
 - FBX 插件使用 MIT 许可的 ufbx v0.23.1，固定提交 `26a482ae66871d7de36eb722aa060bce95bce274`。将坐标统一为米和右手 Y-up，保留根变换；网格包含角点拆分后的 UV、顶点色与最高四项归一化蒙皮权重，骨架包含逆绑定矩阵，动画按 meta 的 `sample_rate`（默认 30）采样。仅支持线性/刚性蒙皮，双四元数、混合形状和几何缓存明确失败。源材质和贴图尚未转换；未配置映射时使用内置 PBR，可通过 `material_remaps` 引用已有项目材质，或在实例化后覆盖材质。现有庭院示例采用脚本覆盖。
-- 不带网格的 FBX 动画源可在 meta 用 `skeleton = "project/models/person.fbx/skeleton"` 引用同批导入中由另一个 FBX 自身生成的骨架；不允许转引骨架，也不能用此设置替换带网格 FBX 的骨架。空值使用本源骨架。外部动画按完整节点路径采样源局部 TRS；缺少加权骨骼或祖先时失败，缺少非必需节点时不生成其轨道，已有节点未打键也仍采样源姿态，不进行语义或参考姿态补偿。示例 `projects/showcase` 在编辑器导入可再分发的 PAB 模型和 jog/run/walk 动作；默认运行清单只选 walk，jog/run 和源静止 Take 不进入运行包。来源和许可保存在项目内。
+- 不带网格的 FBX 动画源可在 meta 用 `skeleton = "models/person.fbx/skeleton"` 引用同批导入中由另一个 FBX 自身生成的骨架；不允许转引骨架，也不能用此设置替换带网格 FBX 的骨架。空值使用本源骨架。外部动画按完整节点路径采样源局部 TRS；缺少加权骨骼或祖先时失败，缺少非必需节点时不生成其轨道，已有节点未打键也仍采样源姿态，不进行语义或参考姿态补偿。示例 `projects/showcase` 在编辑器导入可再分发的 PAB 模型和 jog/run/walk 动作；默认运行清单只选 walk，jog/run 和源静止 Take 不进入运行包。来源和许可保存在项目内。
 - USD 插件独立引入 `usd-import` vcpkg feature。当前只接受自包含的静态 Xform/Scope/Mesh，网格要求 `subdivisionScheme = "none"`、三角形或凸且共面的多边形；世界变换烘焙入顶点，生成平面法线和内置 PBR。外部 layer/reference/payload（包括缺失引用）、动画、实例、细分、洞、未知几何及 Material/Shader 节点明确拒绝。此范围不代表完整 USD 场景导入。
 
 后续格式增加自己的编辑器插件、独立 CMake 清单及 `AssetImporter::id/matches/discover/convert` 实现即可。`discover` 只描述稳定子资源 key 和类型，GUID 分配与发布仍由管线处理。尽量输出已有运行 Schema；新增运行语义时先评审 Schema/ResourceCodec 契约，再增加核心单项能力，不把源格式 SDK 或编辑器设置传入运行时。类图见 [FBX](docs/plugins/editor/class-diagrams/fbx-importer.md)、[USD](docs/plugins/editor/class-diagrams/usd-import.md)和[模型资源](docs/runtime/class-diagrams/model-resources.md)。
@@ -793,21 +793,25 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 ### 资源运行包
 
+业务使用 `Scene.Load("scenes/launcher.scene")`、`builtin://materials/default-pbr` 等逻辑名；不拼接项目名、平台目录或 `packs/`。`assets/` 是项目与引擎运行实体的共同读取根，`builtin://` 表示引擎定义的逻辑名字。引擎通过 catalog 解析 GUID 与实际位置，Windows 和 Android 共用同一逻辑名。`editor://` 为编辑器专属命名空间保留，当前不提供该命名空间的实体加载器，运行包拒绝它。
+
 ```sh
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --package
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --package --target android
 ./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
 # 可重复 --item；省略时选择清单的全部构建项。
 ./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
 ```
 
-项目清单在 `settings/`，指定目标平台、`cache/build/` 下的输出位置、入口与显式保留项。构建按运行依赖计算闭包，支持 `storage = "files"` 的独立 GUID 文件和 `storage = "package"` 的未压缩合并包；统一 `catalog.bin` 为每个 GUID 保存一个实际位置。构建输入依赖仍归 SQLite 增量导入，Shader 源码与 TypeScript 声明不会因为参与编译而自动打进运行包。未变化的文件和包直接复用，失败保留上一份成功发布。
+项目统一使用 `settings/resource-build.toml` 声明入口与显式保留项，不按平台重复维护。平台由构建调用传入，默认输出为 `cache/build/<platform>/`，可选 `output` 必须位于 `cache/build/`。未配置文件或未配置 `items` 时包含全部已导入项目资源；配置 `items` 后按入口收集必要依赖，`roots = []` 表示有意留空该项。每个运行包自动包含 11 项引擎基线资源，写入独立 `packs/builtin-*`，不要求业务声明。构建按运行依赖计算闭包，支持 `storage = "files"` 的独立 GUID 文件和 `storage = "package"` 的未压缩合并包；统一 `catalog.bin` 为每个 GUID 保存一个实际位置。构建输入依赖仍归 SQLite 增量导入；按入口筛选时，Shader 源码与 TypeScript 声明不会仅因参与编译而进入运行包，全量模式则包含目录中的全部可用实体。未变化的文件和包直接复用，失败保留上一份成功发布。
 
-MCP 提供 `build_resources`，参数为 `manifest` 和可选的 `items` 数组。`sync_assets` 可传 `source`（例如 `cache/build/showcase`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
+MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlatform`；省略 manifest 使用上述统一项目配置。`sync_assets` 可传 `source`（例如 `cache/build/windows`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
 
 命令行客户端使用同一工具协议：
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/showcase
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/windows
 ```
 
 编辑器直接使用 `cache/gen`，不要求打包。会覆盖该目录的导入或构建要求先 `stop_project`；运行中会返回明确错误。同步已有的独立运行包不覆盖该缓存，可以在关闭热重载时准备候选版本。`cache/gen` 同时只保存一个目标平台的产物，构建 Android 后要先重新导入宿主平台产物，再启动桌面项目。
@@ -830,13 +834,13 @@ Android 默认使用 QuickJS；脚本依次调用 `android-arm64-debug` / `andro
 
 两种 APK 内均只有 `lib/arm64-v8a/libmain.so`，SDL3、所选 QuickJS 或 V8、引擎及 NDK C++ 运行库静态链接在其中；Java 只加载 `main`，链接器显式保留 SDL 的 `JNI_OnLoad`。Gradle 去除原生库调试符号以控制安装体积；Debug 保留断言与可调试属性。完整的 Debug 原生符号保存在对应构建目录的 `libmain.so`（默认 `build/android-arm64-debug/libmain.so`），可用 APK 原生库的 ELF Build ID 与之对应，无需把符号放进设备。
 
-脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：项目有 `settings/resource-build-android.toml` 时按该清单构建固定子集，读取构建回执的输出目录；没有该清单时沿用 `--target android` 导入模式。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
+脚本检查 NDK 版本，并在打包前仅移除该配置的旧 APK，避免增量 ZIP 更新留下旧原生库空洞导致安装包膨胀；原生库、Java、Gradle 和依赖编译缓存继续复用。`--project` 指定打包项目，默认 `projects/showcase`，必须具有 `settings`、`assets`、`cache` 三个目录并安装 settings 中锁定的 TypeScript。根 CMake 的 bundle 目标通过指定的宿主 asset_build_app 增量构建资源：使用与桌面相同的 `settings/resource-build.toml`，通过 `--package --target android` 构建运行包并读取构建回执输出目录；未配置清单默认全量。随后只校验并打包运行 catalog 引用的散文件或合并包；不复制 SQLite、TS/meta 或陈旧产物。`--asset-builder` 必须是已构建的桌面工具（Windows 文件名加 `.exe`），路径经 `ENGINE_ANDROID_ASSET_BUILDER` 传给 CMake；省略时只接受已有的 Android 目标运行包 catalog，拒绝桌面 Metal 缓存和旧 `cache/assets`。原生库与上游缓存继续复用。`--skip-native` 仅重打包已生成的原生库及资源，不能同时指定 `--project` 或 `--asset-builder`。
 
 Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jolt、Recast / Detour、ozz、RmlUi 和所选脚本后端的实际编译与链接。编辑器、toml++ 项目模块和离线资源管线不进入 APK。依赖共享安装在 `build/dependencies/android/`，与桌面安装目录隔离，并保留 vcpkg 二进制缓存。BasisU 的 Android overlay 只关闭宿主命令行工具，保留完整编码 / 转码库。
 
 选择 V8 时使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 libc++ ABI，由 `c++_static` 将 C++ 运行库合入最终产物；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
 
-APK 包含 `assets/project/` 下的编译资源和 `assets/project-manifest.json` 完整清单；默认 QuickJS 及裁剪 V8 均不包含 `icudtl.dat`；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；JS 直接通过 SDL 读取 APK，不在启动时解压运行资源。
+APK 包含 `assets/` 下的编译资源和 `assets/resource-manifest.json` 完整清单；默认 QuickJS 及裁剪 V8 均不包含 `icudtl.dat`；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；JS 直接通过 SDL 读取 APK，不在启动时解压运行资源。
 
 V8 构建才链接可选嵌入测试，在新的 SDL 进程验证 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换，并确认默认关闭的 Intl、Temporal、WebAssembly 不存在。QuickJS 包不包含 V8 测试主体；请求该测试时明确报告后端不匹配。这不增加脚本系统的公开接口。
 
@@ -858,7 +862,7 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 
 | App 接口             | Android 指向                                                 |
 | -------------------- | ------------------------------------------------------------ |
-| `builtinAssetsPath`  | `apk:/assets/project`，由 ResourceSystem 读取 APK 的逻辑路径 |
+| `assetsPath`  | `apk:/assets`，由 ResourceSystem 读取 APK 的逻辑路径 |
 | `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留      |
 | `cachePath`          | 应用私有 `cache/`，存放可重建的临时数据                   |
 
@@ -904,17 +908,19 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-11-01，以下表格保留各功能阶段的历史验证范围；交付结构见[交付目录](#交付目录)。本次 Windows / Android 复核使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。
+本次资源路径升级记录（2026-11-01）使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。以下表格继续保留此前各功能阶段的历史验证范围；交付结构见[交付目录](#交付目录)。
 
-Windows x64 静态 Debug / Release 完整构建通过，两配置各覆盖 91 项 CTest。Debug 首轮 86 项通过，修复测试和生成流程后 4 项定向回归通过，窗口回归独立复测通过；Release 首轮 90 项通过，修复后的物理音频 MCP 回归在两配置均通过。真实 DX12 覆盖窗口渲染、GPU 蒙皮、字体/UI、特效与编辑器项目生命周期。Debug 窗口测试曾因等待可绘制状态失败，现已增加失败时的窗口标志和像素尺寸诊断；独立复测及 Release 全程通过，未修改等待上限或测试超时。
+Windows x64 静态 Debug / Release 完整构建通过。Release 本轮完整 CTest 为 91/91 通过；Debug 已通过前 14 项，按用户要求停止剩余测试，未完成本轮完整 Debug CTest。已完成的检查覆盖路径、资源读取、打包、脚本与同步；Release 还覆盖资源解码、依赖图、窗口渲染、GPU 蒙皮、字体/UI、特效和编辑器生命周期。
 
-Windows 两个配置均已导出独立运行包，各含 EXE、`catalog.bin` 和一个合并包，共 1191 项资源。在 PATH 仅含 Windows 与 System32 的环境下，两者均使用 DX12 加载默认菜单，完成 120 帧并正常退出；这次启动检查未逐一验收新增示例场景的交互。项目导入缓存已恢复为 Windows 目标。
+Windows 两配置均已导出新运行包：EXE 旁的 `assets/` 包含 `catalog.bin` 和两个合并包，共 1202 个实体，其中 11 项引擎内置资源位于独立 `packs/builtin-*`。两配置的 catalog 摘要相同，实体头、范围和内容哈希全部通过校验；四个内置 Shader 的双阶段字节码均确认是 DirectX DXBC。两包均在 PATH 仅含 Windows 与 System32 时使用 DX12 启动菜单，完成 120 帧并正常退出。项目缓存已恢复为 Windows 目标，未逐一验收所有示例场景交互。
 
-本次修复包含特效后端显式传播 bx 的编译要求、避免 FlatBuffers 后续 TS 生成覆盖根表文件标识方法，以及资源打包器接受 Schema 已有的 effect / terrain / destruction 类型。测试同步当前可选 MCP 工具、场景分页、示例玩法导出及 GPU 蒙皮契约；物理音频测试切换静态刚体时原子清零线速度和角速度，并验证冻结与重载结果。
+Android ARM64 Debug / Release APK 均完成构建和静态检查，分别为 58,628,783 / 35,206,676 字节。两包均只有未压缩的 `lib/arm64-v8a/libmain.so`，签名、ZIP / ELF LOAD 16 KiB 对齐和系统动态依赖检查通过；1202 个实体及全部载体通过身份、实体头、范围与哈希校验。11 项内置资源实际外置，四个内置 Shader 的双阶段均解析出合法 SPIR-V `main` 入口。资源直接位于 APK `assets/`，无项目子目录；两包资源版本一致，使用本机调试签名。adb 未发现设备，未安装或运行 APK。
 
-Android ARM64 Debug / Release APK 均完成构建和静态交付检查，分别为 58,442,255 / 35,140,812 字节。两包均只有未压缩的 `lib/arm64-v8a/libmain.so`，签名、ZIP / ELF LOAD 16 KiB 对齐和系统动态依赖检查通过；各包的 1191 个资源实体全部通过目录身份、实体头、范围及 FNV 哈希校验。两包使用本机调试签名；本机 adb 未发现设备，因此本次未安装或运行 APK，不能替代下表既有设备记录及新增场景的设备验收。
+本轮新增回归包含缺省清单全量、单份配置跨平台构建、显式空入口、保留内置身份、拒绝编辑器命名空间，以及外置内置实体缺失或损坏时禁止回退编入定义。已修改的 10 份源 meta 中 GUID 均保持原样。平台打包 Python 单测共 35 项，34 项通过、1 项因符号链接权限跳过；受影响文档链接、关键 C++ 格式和差异空白检查通过。
 
-证据保留在忽略的 `build/windows-validation/character-animation/` 和 `build/android-validation/character-animation/`；平台测试不包含重新运行完整角色生产外部工具链。
+`resource-manifest.json` 仍是 Android 现有启动与首次设备同步链路的部署辅助清单：启动时读取并导出为持久目录 `assets/builtin.json`，供 adb 同步获取包内基线；Windows 直接读取 catalog，没有这份附加文件。这部分部署辅助逻辑尚未统一，不属于核心单项资源读取契约。
+
+证据位于忽略的 `build/resource-path-validation/`，Android 报告位于其 `android/` 子目录。本次未重新执行 macOS / Linux / iOS 运行验证或完整角色生产外部工具链。
 
 | 环境 | 已验证范围 |
 | --- | --- |
@@ -1025,7 +1031,7 @@ git submodule update --init third_party/effekseer third_party/efkbgfx
 ```toml
 [[resources]]
 path = "Texture/Particle01.png"
-resource = "project/effects/laser/textures/particle01.png"
+resource = "effects/laser/textures/particle01.png"
 ```
 
 颜色贴图要求 `srgb = true`，法线和扭曲贴图要求线性空间；依赖缺失、路径越界、冲突映射或色彩空间冲突明确报错，失败不替换已发布资源。每个效果独立映射，不能因不同效果使用相同原始文件名而串用依赖。
@@ -1050,7 +1056,7 @@ git submodule update --init third_party/transvoxel
 
 `.terrain` TOML 描述尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏和球形洞穴，邻接 `.meta` 保存唯一 GUID，资源管线增量生成 `cache/gen/<GUID>`。运行时密度为浮点数；每轴最多 256 格且总样本最多 4M。高度图、FastNoise2、LOD 过渡仍待实现；步骤 3/4 已增加调用方显式地基联动与动态土石塌方，建筑连接损伤和应力仍归下述独立破坏插件。
 
-Showcase 第六个菜单入口 `Terrain laboratory` 打开 `project/scenes/terrain.scene`：64×64 米、32 米高的自制地形，提供挖隧道、爆炸挖坑、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续使用已有示例角色。桌面与 Android 的运行资源清单均登记该场景；登记资源不代表 Android 本次运行验证已完成。
+Showcase 第六个菜单入口 `Terrain laboratory` 打开 `scenes/terrain.scene`：64×64 米、32 米高的自制地形，提供挖隧道、爆炸挖坑、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续使用已有示例角色。桌面与 Android 的运行资源清单均登记该场景；登记资源不代表 Android 本次运行验证已完成。
 
 MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terrain_brush`、`terrain_reset`、`terrain_save_state` 和 `terrain_load_state`。笔刷、设置、重置与加载支持现有撤销/重做事务；保存源文件或状态文件本身不使用场景撤销。球形修改采用节点局部坐标，失败保留有效版本。脚本 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`CollapseDetached`、`Reset`、`Save`、`Load` 和只读统计。步骤 4 增加非撤销运行命令 `terrain_collapse_detached`、`terrain_reset_runtime`，`get_terrain` 返回 `fragmentCount`；动态土石不能写入旧的静态体积存档，塌方后保存/加载与可撤销体积编辑须先显式 Reset。
 

@@ -18,8 +18,8 @@
 #include <limits>
 #include <memory>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -225,7 +225,7 @@ bool hierarchy_and_transforms()
 
 // Use the public resource boundary so restoration still runs through WorldSystem's candidate scene.
 bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
-                         const engine::schema::SceneDataT& data)
+                        const engine::schema::SceneDataT& data)
 {
     using namespace engine;
     flatbuffers::FlatBufferBuilder builder;
@@ -307,12 +307,11 @@ bool indexed_scene_restore()
     source.nodes[0]->info->parent_id = 2;
     source.nodes[2]->info->parent_id = 1;
     source.info->active_camera_node = 42;
-    if (!add_scene_resource(fixture, "project/indexed.scene", source) ||
-        !fixture.publish(*resources))
+    if (!add_scene_resource(fixture, "indexed.scene", source) || !fixture.publish(*resources))
     {
         return false;
     }
-    auto* loaded = world.load_scene("project/indexed.scene");
+    auto* loaded = world.load_scene("indexed.scene");
     if (!expect(loaded && loaded->nodes().size() == ids.size(), "restore sparse unordered IDs"))
     {
         return false;
@@ -362,7 +361,7 @@ bool indexed_scene_restore()
         {
             invalid.nodes[3]->components.clear();
         }
-        const auto path = "project/invalid-index-" + std::to_string(failure) + ".scene";
+        const auto path = "invalid-index-" + std::to_string(failure) + ".scene";
         if (!add_scene_resource(fixture, path, invalid) || !fixture.publish(*resources) ||
             !expect(!world.load_scene(path) && world.scene() == loaded &&
                         loaded->find_node(leaf->id()) == leaf && leaf->parent() == branch &&
@@ -428,12 +427,11 @@ bool indexed_scene_restore()
     }
     source.nodes[0]->info->id = std::numeric_limits<std::uint64_t>::max();
     source.info->active_camera_node = source.nodes[0]->info->id;
-    if (!add_scene_resource(fixture, "project/index-limit.scene", source) ||
-        !fixture.publish(*resources))
+    if (!add_scene_resource(fixture, "index-limit.scene", source) || !fixture.publish(*resources))
     {
         return false;
     }
-    loaded = world.load_scene("project/index-limit.scene");
+    loaded = world.load_scene("index-limit.scene");
     return expect(loaded && loaded->nodes().size() == ids.size() && loaded->active_camera() &&
                       loaded->nodes()[0]->parent() == loaded->nodes()[2].get() &&
                       !loaded->create_node("Cannot wrap ID"),
@@ -531,10 +529,10 @@ bool component_contracts()
         return false;
     }
     engine::Material& material = mesh->material();
-    if (!expect(material.type_path() == "builtin/materials/default-pbr" &&
+    if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.set_float("metallic", 0.6F) && material.set_float("roughness", 0.2F) &&
                     material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)) &&
-                    mesh->mesh_path() == "builtin/meshes/cube",
+                    mesh->mesh_path() == "builtin://meshes/cube",
                 "configure built-in cube material by named typed parameters"))
     {
         return false;
@@ -548,7 +546,7 @@ bool component_contracts()
     }
     float cutoff = -1.0F;
     float highlight = -1.0F;
-    if (!expect(material.set_shader("builtin/shaders/blinn-phong") &&
+    if (!expect(material.set_shader("builtin://shaders/blinn-phong") &&
                     material.get_float("specularHighlights", highlight) && highlight == 1.0F &&
                     material.set_float("smoothnessSource", 1.0F) &&
                     material.set_float("specularHighlights", 0.0F) &&
@@ -566,10 +564,10 @@ bool component_contracts()
                     material.set_float("alphaCutoff", 0.5F) &&
                     !material.set_float("alphaCutoff", 1.1F) &&
                     material.get_float("alphaCutoff", cutoff) && cutoff == 0.5F &&
-                    material.set_shader("builtin/shaders/unlit") &&
+                    material.set_shader("builtin://shaders/unlit") &&
                     material.cull_mode() == engine::schema::CullMode::none &&
                     material.get_float("alphaCutoff", cutoff) && cutoff == 0.0F &&
-                    material.set_type("builtin/materials/default-unlit") &&
+                    material.set_type("builtin://materials/default-unlit") &&
                     material.cull_mode() == engine::schema::CullMode::back,
                 "coverage defaults, invalid states and shader/type changes preserve "
                 "their contracts"))
@@ -662,13 +660,13 @@ bool material_contracts()
     {
         return false;
     }
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
     if (!expect(builtin != nullptr, "resource host installs default shader"))
     {
         return false;
     }
     engine::schema::ShaderDataT shader = *builtin;
-    shader.path = "project/shaders/tests/material-contracts";
+    shader.path = "shaders/tests/material-contracts";
     auto position = std::make_unique<engine::schema::ShaderParameterT>();
     position->name = "pos";
     position->uniform_name = "u_custom_pair";
@@ -685,7 +683,7 @@ bool material_contracts()
     shader.parameters.push_back(std::move(direction));
     test_support::ResourceFixture fixture;
     engine::schema::MaterialDataT definition;
-    definition.type_path = "project/materials/tests/material-contracts";
+    definition.type_path = "materials/tests/material-contracts";
     definition.shader_path = shader.path;
     auto override_value = std::make_unique<engine::schema::MaterialParameterT>();
     override_value->name = "pos";
@@ -722,14 +720,14 @@ bool material_contracts()
     engine::Vec3 vector3;
     engine::Vec4 vector4;
     float scalar = 0.0F;
-    if (!expect(material.set_type("project/materials/tests/material-contracts") &&
+    if (!expect(material.set_type("materials/tests/material-contracts") &&
                     material.get_v2("pos", vector2) && vector2.x() == 1.0 && vector2.y() == 2.0 &&
                     material.get_v3("direction", vector3) && vector3.z() == 1.0,
                 "material merges custom shader defaults and definition overrides") ||
         !expect(material.set_v2("pos", engine::Vec2(3.0, 4.0)) &&
                     material.set_v3("direction", engine::Vec3(1.0, 2.0, 3.0)) &&
-                    material.set_type("project/materials/tests/material-contracts") &&
-                    material.set_shader("project/shaders/tests/material-contracts") &&
+                    material.set_type("materials/tests/material-contracts") &&
+                    material.set_shader("shaders/tests/material-contracts") &&
                     material.get_v2("pos", vector2) && vector2.x() == 3.0 &&
                     material.get_v3("direction", vector3) && vector3.z() == 3.0,
                 "custom Vec2 and Vec3 setters work and same material or shader retains instance "
@@ -746,10 +744,10 @@ bool material_contracts()
                 !material.set_v4("baseColor", engine::Vec4(1.1, 0.0, 0.0, 1.0)) &&
                 material.get_v2("pos", vector2) && vector2.x() == 3.0,
             "reject nonfinite, GPU-overflow and bounded values without changing parameters") ||
-        !expect(!material.set_type("project/materials/missing") &&
-                    !material.set_shader("project/shaders/missing") &&
-                    material.type_path() == "project/materials/tests/material-contracts" &&
-                    material.shader_path() == "project/shaders/tests/material-contracts",
+        !expect(!material.set_type("materials/missing") &&
+                    !material.set_shader("shaders/missing") &&
+                    material.type_path() == "materials/tests/material-contracts" &&
+                    material.shader_path() == "shaders/tests/material-contracts",
                 "missing definitions preserve material and shader paths"))
     {
         return false;
@@ -764,20 +762,20 @@ bool material_contracts()
                     vector3.z() == 0.0 && !material.get_v4("missing", vector4) &&
                     vector4.w() == 0.0,
                 "failed typed getters produce complete zero values") ||
-        !expect(material.set_shader("builtin/shaders/unlit") &&
-                    material.type_path() == "project/materials/tests/material-contracts" &&
-                    material.shader_path() == "builtin/shaders/unlit" &&
+        !expect(material.set_shader("builtin://shaders/unlit") &&
+                    material.type_path() == "materials/tests/material-contracts" &&
+                    material.shader_path() == "builtin://shaders/unlit" &&
                     !material.get_v2("pos", vector2) && !material.get_float("metallic", scalar) &&
                     material.get_v4("baseColor", vector4) && vector4.x() == 0.7,
                 "shader replacement keeps material identity and rebuilds its exposed parameters") ||
-        !expect(material.set_type("builtin/materials/default-pbr") &&
-                    material.shader_path() == "builtin/shaders/pbr" &&
+        !expect(material.set_type("builtin://materials/default-pbr") &&
+                    material.shader_path() == "builtin://shaders/pbr" &&
                     material.get_float("roughness", scalar) && scalar == 0.4F,
                 "changing material restores new definition and shader defaults"))
     {
         return false;
     }
-    definition.type_path = "project/materials/tests/invalid-parameter";
+    definition.type_path = "materials/tests/invalid-parameter";
     engine::schema::FloatValueT wrong_type;
     wrong_type.value = 1.0;
     definition.parameters.front()->value.Set(wrong_type);
@@ -786,8 +784,8 @@ bool material_contracts()
                       fixture.load(definition.type_path, invalid) && invalid->material(),
                   "core can read structurally valid material without loading its dependencies") &&
            expect(!material.set_type(definition.type_path) &&
-                      material.type_path() == "builtin/materials/default-pbr" &&
-                      material.shader_path() == "builtin/shaders/pbr" &&
+                      material.type_path() == "builtin://materials/default-pbr" &&
+                      material.shader_path() == "builtin://shaders/pbr" &&
                       material.get_float("roughness", scalar) && scalar == 0.4F,
                   "material validates shader parameter types and preserves the previous instance "
                   "without the dependency graph plugin");
@@ -795,7 +793,7 @@ bool material_contracts()
 
 bool resource_namespaces()
 {
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
     auto* resources = engine::ResourceSystem::instance();
     if (!expect(builtin && resources, "built-in definitions survive material tests"))
     {
@@ -803,9 +801,9 @@ bool resource_namespaces()
     }
     test_support::ResourceFixture fixture;
     engine::schema::ShaderDataT shader(*builtin);
-    shader.path = "project/shaders/pbr";
+    shader.path = "shaders/pbr";
     engine::schema::MaterialDataT material;
-    material.type_path = "project/materials/default-pbr";
+    material.type_path = "materials/default-pbr";
     material.shader_path = shader.path;
     engine::ResourcePtr held;
     engine::ResourcePtr held_shader;
@@ -843,7 +841,7 @@ bool resource_namespaces()
                       engine::ResourceSystem::find_material(material.type_path) == nullptr &&
                       engine::ResourceSystem::find_shader(shader.path) == nullptr,
                   "each core entity is released with its final explicit owner") &&
-           expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
+           expect(engine::ResourceSystem::find_shader("builtin://shaders/pbr") == builtin,
                   "project removal preserves builtin identity");
 }
 
@@ -855,14 +853,13 @@ int main()
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
         !hierarchy_and_transforms() || !indexed_scene_restore() || !component_contracts() ||
-        !transient_nodes() ||
-        !material_contracts() || !resource_namespaces())
+        !transient_nodes() || !material_contracts() || !resource_namespaces())
     {
         return 1;
     }
     resources.shutdown();
-    if (!expect(engine::ResourceSystem::find_shader("builtin/shaders/pbr") == nullptr &&
-                    engine::ResourceSystem::find_material("builtin/materials/default-pbr") ==
+    if (!expect(engine::ResourceSystem::find_shader("builtin://shaders/pbr") == nullptr &&
+                    engine::ResourceSystem::find_material("builtin://materials/default-pbr") ==
                         nullptr,
                 "resource host shutdown clears all namespaces"))
     {

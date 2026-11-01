@@ -74,7 +74,7 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
             {
                 Guid shader;
                 const auto path =
-                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                    text->shader_path.empty() ? "builtin://shaders/font" : text->shader_path;
                 if (!context.identities.path_to_guid(path, shader) ||
                     !reference(shader, schema::AssetKind::shader, context, asset.build_dependencies,
                                error) ||

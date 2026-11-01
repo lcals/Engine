@@ -1,7 +1,10 @@
 #include "resource_fixture.hpp"
 
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/codecs/material_resource_codec.hpp"
+#include "runtime/resource/codecs/mesh_resource_codec.hpp"
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -89,23 +92,39 @@ bool codec_tests()
         return false;
     }
     test_support::ResourceFixture fixture;
-    const auto* builtin_mesh = ResourceSystem::find_mesh("builtin/meshes/cube");
-    const auto* builtin_texture = ResourceSystem::find_texture("builtin/textures/white-srgb");
-    const auto* builtin_shader = ResourceSystem::find_shader("builtin/shaders/pbr");
-    const auto* builtin_material = ResourceSystem::find_material("builtin/materials/default-pbr");
+    const auto* builtin_mesh = ResourceSystem::find_mesh("builtin://meshes/cube");
+    const auto* builtin_texture = ResourceSystem::find_texture("builtin://textures/white-srgb");
+    const auto* builtin_shader = ResourceSystem::find_shader("builtin://shaders/pbr");
+    const auto* builtin_material = ResourceSystem::find_material("builtin://materials/default-pbr");
     if (!builtin_mesh || !builtin_texture || !builtin_shader || !builtin_material)
     {
         return false;
     }
     schema::MeshDataT mesh(*builtin_mesh);
-    mesh.path = "project/cube.mesh";
+    mesh.path = "cube.mesh";
     schema::TextureDataT texture(*builtin_texture);
-    texture.path = "project/white.png";
+    texture.path = "white.png";
     schema::ShaderDataT shader(*builtin_shader);
-    shader.path = "project/lit.shader";
+    shader.path = "lit.shader";
     schema::MaterialDataT material(*builtin_material);
-    material.type_path = "project/lit.material";
+    material.type_path = "lit.material";
     material.shader_path = shader.path;
+    auto editor_mesh = mesh;
+    auto editor_texture = texture;
+    auto editor_shader = shader;
+    auto editor_material = material;
+    editor_mesh.path = "editor://preview.mesh";
+    editor_texture.path = "editor://preview.png";
+    editor_shader.path = "editor://preview.shader";
+    editor_material.type_path = "editor://preview.material";
+    if (!expect(!MeshResourceCodec::validate(editor_mesh) &&
+                    !TextureResourceCodec::validate(editor_texture) &&
+                    !ShaderResourceCodec::validate(editor_shader) &&
+                    !MaterialResourceCodec::validate(editor_material, &shader),
+                "runtime codecs reject the reserved editor namespace"))
+    {
+        return false;
+    }
     auto roughness = std::make_unique<schema::MaterialParameterT>();
     roughness->name = "roughness";
     schema::FloatValueT roughness_value;
@@ -130,10 +149,10 @@ bool codec_tests()
     node->components.push_back(std::move(component));
     scene.nodes.push_back(std::move(node));
     const std::array raw{std::byte{0}, std::byte{42}, std::byte{255}};
-    if (!add_payload(fixture, "project/main.scene", schema::AssetKind::scene, pack(scene, "ESCN"),
+    if (!add_payload(fixture, "main.scene", schema::AssetKind::scene, pack(scene, "ESCN"),
                      {renderer.mesh_guid, renderer.material_guid}) ||
-        !add_payload(fixture, "project/data", schema::AssetKind::source, raw) ||
-        !add_payload(fixture, "project/main.ts", schema::AssetKind::script, {}) ||
+        !add_payload(fixture, "data", schema::AssetKind::source, raw) ||
+        !add_payload(fixture, "main.ts", schema::AssetKind::script, {}) ||
         !fixture.publish(resources))
     {
         return false;
@@ -154,14 +173,13 @@ bool codec_tests()
                     fixture.load(material.type_path, material_resource) &&
                     material_resource->material() &&
                     material_resource->material()->shader_path == shader.path &&
-                    fixture.load("project/main.scene", scene_resource) && scene_resource->scene() &&
+                    fixture.load("main.scene", scene_resource) && scene_resource->scene() &&
                     *scene_resource->scene() == scene,
                 "all structured kinds decode to their FlatBuffers models") ||
-        !expect(fixture.load("project/data", binary_resource) &&
-                    binary_resource->bytes().size() == 3 && binary_resource->bytes()[0] == raw[0] &&
+        !expect(fixture.load("data", binary_resource) && binary_resource->bytes().size() == 3 &&
+                    binary_resource->bytes()[0] == raw[0] &&
                     binary_resource->bytes()[2] == raw[2] &&
-                    fixture.load("project/main.ts", script_resource) &&
-                    script_resource->bytes().empty(),
+                    fixture.load("main.ts", script_resource) && script_resource->bytes().empty(),
                 "raw source retains embedded zeros and empty script is a valid byte payload") ||
         !expect(resources.validate_dependencies(*scene_resource,
                                                 std::array{mesh_resource, material_resource}) &&
@@ -182,7 +200,7 @@ bool codec_tests()
           "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom"})
     {
         schema::ShaderDataT reserved(*builtin_shader);
-        reserved.path = "builtin/shaders/reserved-renderer";
+        reserved.path = "builtin://shaders/reserved-renderer";
         reserved.parameters.front()->uniform_name = uniform;
         if (!expect(!ResourceSystem::register_shader(reserved) &&
                         !ResourceSystem::find_shader(reserved.path),
@@ -219,29 +237,27 @@ bool codec_tests()
     }
 
     // Catalog 和信封有效，但各类型实体错误；加载不能发布部分候选。
-    mesh.path = "project/invalid.mesh";
+    mesh.path = "invalid.mesh";
     mesh.indices[0] = static_cast<std::uint32_t>(mesh.vertices.size());
-    texture.path = "project/invalid.png";
+    texture.path = "invalid.png";
     texture.width = 0;
-    shader.path = "project/invalid.shader";
+    shader.path = "invalid.shader";
     shader.parameters.front()->uniform_name = "u_view";
-    material.type_path = "project/invalid.material";
+    material.type_path = "invalid.material";
     material.parameters.push_back(
         std::make_unique<schema::MaterialParameterT>(*material.parameters.front()));
     scene.schema_version = 999;
     if (!fixture.add(mesh) || !fixture.add(texture) || !fixture.add(shader) ||
         !fixture.add(material) ||
-        !add_payload(fixture, "project/invalid.scene", schema::AssetKind::scene,
-                     pack(scene, "ESCN"), {renderer.mesh_guid, renderer.material_guid}) ||
-        !add_payload(fixture, "project/wrong-kind.mesh", schema::AssetKind::mesh,
-                     pack(texture, "ETEX")) ||
+        !add_payload(fixture, "invalid.scene", schema::AssetKind::scene, pack(scene, "ESCN"),
+                     {renderer.mesh_guid, renderer.material_guid}) ||
+        !add_payload(fixture, "wrong-kind.mesh", schema::AssetKind::mesh, pack(texture, "ETEX")) ||
         !fixture.publish(resources))
     {
         return false;
     }
-    for (const auto* path :
-         {"project/invalid.mesh", "project/invalid.png", "project/invalid.shader",
-          "project/invalid.material", "project/invalid.scene", "project/wrong-kind.mesh"})
+    for (const auto* path : {"invalid.mesh", "invalid.png", "invalid.shader", "invalid.material",
+                             "invalid.scene", "wrong-kind.mesh"})
     {
         auto output = mesh_resource;
         if (!expect(!fixture.load(path, output) && !output && !resources.last_error().empty(),
@@ -250,7 +266,7 @@ bool codec_tests()
             return false;
         }
     }
-    if (!expect(mesh_resource->mesh() && mesh_resource->mesh()->path == "project/cube.mesh" &&
+    if (!expect(mesh_resource->mesh() && mesh_resource->mesh()->path == "cube.mesh" &&
                     mesh_resource->generation() < resources.generation() &&
                     scene_resource->scene()->schema_version == 1,
                 "failed new-generation decoding never mutates old live models"))
@@ -258,11 +274,11 @@ bool codec_tests()
         return false;
     }
 
-    mesh.path = "builtin/meshes/rejected";
-    texture.path = "builtin/textures/rejected";
-    shader.path = "builtin/shaders/rejected";
-    material.type_path = "builtin/materials/rejected";
-    material.shader_path = "builtin/shaders/pbr";
+    mesh.path = "builtin://meshes/rejected";
+    texture.path = "builtin://textures/rejected";
+    shader.path = "builtin://shaders/rejected";
+    material.type_path = "builtin://materials/rejected";
+    material.shader_path = "builtin://shaders/pbr";
     return expect(!ResourceSystem::register_mesh(mesh) && !ResourceSystem::find_mesh(mesh.path) &&
                       !ResourceSystem::register_texture(texture) &&
                       !ResourceSystem::find_texture(texture.path) &&

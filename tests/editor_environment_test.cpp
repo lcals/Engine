@@ -73,7 +73,7 @@ bool run_cases(const fs::path& workspace)
                 "uninitialized project cannot acquire App") ||
         !expect(project.initialize(config) && environment.initialize(),
                 "initialize editor paths") ||
-        !expect(engine::App::builtin_assets_path() == root / "cache",
+        !expect(engine::App::assets_path() == root / "cache",
                 "editor maps compiled cache directly without a package snapshot") ||
         !expect(engine::App::persistent_data_path() == persistent, "map persistent storage") ||
         !expect(!environment.initialize() && environment.is_initialized(),
@@ -101,7 +101,7 @@ bool run_cases(const fs::path& workspace)
     }
     engine::AppConfig external;
     external.application_name = "engine-environment-test";
-    external.builtin_assets_path = root / "assets";
+    external.assets_path = root / "assets";
     external.persistent_data_path = workspace / "external-persistent";
     external.cache_path = workspace / "external-cache";
     if (!expect(engine::App::initialize(external), "initialize another App owner") ||

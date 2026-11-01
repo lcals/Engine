@@ -9,6 +9,7 @@ classDiagram
     class GuidMap {
         <<final>>
         +valid_guid(guid string_view) bool$
+        +valid_path(path string_view) bool$
         +add(path string_view, guid string_view) bool
         +path_to_guid(path string_view, output Guid&) bool
         +guid_to_path(guid string_view, output string&) bool
@@ -26,8 +27,8 @@ classDiagram
 ```
 
 - Guid 为 `std::string` 别名；合法值是小写、带连字符的 36 字符 UUID，拒绝全零身份。GUID 生成由导入端负责，映射类仅校验和保存。
-- 逻辑路径以 `builtin/` 或 `project/` 开头；使用 `/`，拒绝空段、`.`、`..`、反斜杠、冒号和控制字符。路径不包含项目的本机根目录。
+- 普通逻辑路径直接相对资源根，例如 `characters/hero.mesh`；引擎资源使用 `builtin://`，编辑器专属资源保留 `editor://` 命名空间。仅映射类接受编辑器命名空间，运行目录与解码器拒绝它。除上述两个前缀外拒绝冒号；路径使用 `/`，拒绝空段、`.`、`..`、反斜杠和控制字符，不包含项目的本机根目录。
 - `add` 深拷贝路径与 GUID。路径、GUID 任一已存在都返回 false，失败不改变已有映射。
 - 两种查询成功时返回对应完整值，失败清空输出。输入可以与输出指向同一个字符串。
-- `valid_guid`、`clear`、`size` 为 noexcept；查询和 size 为 const。返回状态标注 nodiscard。值类型可以复制，快照之间不共享可变索引。
+- `valid_guid`、`valid_path`、`clear`、`size` 为 noexcept；查询和 size 为 const。返回状态标注 nodiscard。值类型可以复制，快照之间不共享可变索引。
 - 实际资源文件由资源模块根据目录和 GUID 解析；正式项目缓存是 `cache/gen/<完整GUID>`。

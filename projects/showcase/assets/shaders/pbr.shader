@@ -46,16 +46,16 @@ maximum = 1.0
 name = "baseColorTexture"
 uniform = "s_base_color"
 stage = 0
-default_texture = "builtin/textures/white-srgb"
+default_texture = "builtin://textures/white-srgb"
 
 [[samplers]]
 name = "normalTexture"
 uniform = "s_normal"
 stage = 1
-default_texture = "builtin/textures/flat-normal"
+default_texture = "builtin://textures/flat-normal"
 
 [[samplers]]
 name = "ormTexture"
 uniform = "s_orm"
 stage = 2
-default_texture = "builtin/textures/white-linear"
+default_texture = "builtin://textures/white-linear"

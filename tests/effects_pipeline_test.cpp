@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/effects/effect_codec.hpp"
 #include "plugins/editor/effects/effect_importer.hpp"
+#include "runtime/core/guid_map.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/effect_generated.h"
@@ -131,9 +132,9 @@ struct Project
             }
             const auto path = (*table)["path"].value<std::string>();
             const auto resource = (*table)["resource"].value<std::string>();
-            if (!path || !resource || !resource->starts_with("project/") ||
-                !fixture_paths
-                     .emplace(*path, fixture_assets / PathUtils::from_utf8(resource->substr(8)))
+            if (!path || !resource || !GuidMap::valid_path(*resource) ||
+                resource->starts_with("builtin://") || resource->starts_with("editor://") ||
+                !fixture_paths.emplace(*path, fixture_assets / PathUtils::from_utf8(*resource))
                      .second)
             {
                 return false;
@@ -184,9 +185,8 @@ struct Project
                 }
                 dependencies.push_back(guid);
                 identities.emplace(path, guid);
-                effect_meta += "\n[[resources]]\npath = \"" + source_name +
-                               "\"\nresource = \"project/" + std::string(folder) + "/" + lower +
-                               "\"\n";
+                effect_meta += "\n[[resources]]\npath = \"" + source_name + "\"\nresource = \"" +
+                               std::string(folder) + "/" + lower + "\"\n";
                 if (color_source.empty() && importer == "texture" && srgb)
                 {
                     color_source = output;

@@ -108,7 +108,7 @@ void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::Me
 {
     ENGINE_PROFILE_ZONE("Terrain.mesh_chunk");
     mesh = {};
-    mesh.path = "builtin/terrain/transient.mesh";
+    mesh.path = "builtin://terrain/transient.mesh";
     ranges.clear();
     const unsigned part_axis = d.chunk_cells / collision_cells;
     for (unsigned z = cz; z < cz + d.chunk_cells; ++z)
@@ -210,8 +210,7 @@ void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::Me
     }
 }
 
-void prepare_collision(const schema::MeshDataT& mesh,
-                       const std::vector<CollisionCellRange>& ranges,
+void prepare_collision(const schema::MeshDataT& mesh, const std::vector<CollisionCellRange>& ranges,
                        std::span<std::shared_ptr<const schema::MeshDataT>> collision)
 {
     ENGINE_PROFILE_ZONE("Terrain.prepare_collision");
@@ -237,7 +236,7 @@ void prepare_collision(const schema::MeshDataT& mesh,
         }
         else if (!previous || !same_geometry(*previous, part))
         {
-            part.path = "builtin/terrain/transient.mesh";
+            part.path = "builtin://terrain/transient.mesh";
             previous = std::make_shared<const schema::MeshDataT>(std::move(part));
         }
     }
@@ -444,7 +443,7 @@ bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
         return false;
     }
     schema::MeshDataT mesh;
-    mesh.path = "builtin/terrain/transient.mesh";
+    mesh.path = "builtin://terrain/transient.mesh";
     std::size_t index = 0;
     const auto parts_per_chunk = collision_parts_per_chunk(data_);
     std::vector<CollisionCellRange> cell_ranges;

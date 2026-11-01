@@ -1343,7 +1343,7 @@ bool prepare_record(ModelRecord& record, std::string& error)
     return EditableMesh::serialize(record.source, record.bytes, error) &&
            (!record.mirror_enabled || MeshGeometry::mirror(render_source, record.mirror, error)) &&
            EditableMesh::compile(render_source,
-                                 "builtin/modeling/" + std::to_string(record.model_id),
+                                 "builtin://modeling/" + std::to_string(record.model_id),
                                  record.compiled, error);
 }
 } // namespace
@@ -1387,14 +1387,14 @@ struct ModelingCommands::State
             {
                 const auto* renderer = node->get_component<MeshRenderer>();
                 if (!renderer || !renderer->mesh_data() ||
-                    !renderer->mesh_path().starts_with("project/"))
+                    renderer->mesh_path().find(':') != std::string::npos)
                 {
                     continue;
                 }
                 fs::path path;
                 std::string error;
                 ModelRecord record;
-                if (!safe_asset_path(project_root, renderer->mesh_path().substr(8), path, error) ||
+                if (!safe_asset_path(project_root, renderer->mesh_path(), path, error) ||
                     !load_source(path, record.source, error) ||
                     !EditableMesh::serialize(record.source, record.bytes, error))
                 {
@@ -2313,7 +2313,7 @@ struct ModelingCommands::State
         }
         result = {{"sceneId", std::to_string(scene_id)},
                   {"modelId", std::to_string(record->model_id)},
-                  {"path", "project/" + arguments["path"].get<std::string>()},
+                  {"path", arguments["path"].get<std::string>()},
                   {"importRequired", true},
                   {"mirrorBaked", record->mirror_enabled}};
         return true;

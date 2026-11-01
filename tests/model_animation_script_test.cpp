@@ -15,13 +15,13 @@ import { Gameplay, Scene, Component, Animator, MeshRenderer } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Create('Model and animation bindings');
-        const root = scene?.InstantiateModel('project/models/character.fbx', 'Character');
-        const otherRoot = scene?.InstantiateModel('project/models/character.fbx', 'Character');
+        const root = scene?.InstantiateModel('models/character.fbx', 'Character');
+        const otherRoot = scene?.InstantiateModel('models/character.fbx', 'Character');
         const body = root?.FindChild('Assembly/Body');
         const otherBody = otherRoot?.FindChild('Assembly/Body');
         if (!scene || !root || !otherRoot || !body || !otherBody || !root.IsValid() ||
-            scene.InstantiateModel('builtin/meshes/cube', 'Wrong type') !== null ||
-            scene.InstantiateModel('project/missing.fbx', 'Missing') !== null ||
+            scene.InstantiateModel('builtin://meshes/cube', 'Wrong type') !== null ||
+            scene.InstantiateModel('missing.fbx', 'Missing') !== null ||
             !(body.GetComponent(MeshRenderer) instanceof MeshRenderer)) return false;
         for (const path of ['', '.', '..', '/Assembly', 'Assembly/', 'Assembly//Body',
                             'Assembly/./Body', 'Assembly/../Body', 'Body', 'Missing/Body', 3, null]) {
@@ -42,13 +42,13 @@ export default class extends Gameplay {
             animator.SetSpeed(-1) || animator.SetSpeed(17) || animator.SetSpeed(NaN) ||
             animator.SetLoop(1) || animator.SetPlayOnAwake('yes') ||
             !animator.SetPlayOnAwake(false) || !animator.SetSpeed(2) || !animator.SetLoop(false) ||
-            !animator.SetAnimation('project/animations/move.animation') ||
-            animator.CrossFade('project/animations/scale.animation', -1) ||
-            animator.CrossFade('project/missing.animation', .2) ||
-            animator.CrossFade('project/animations/scale.animation', 'bad') ||
-            !animator.CrossFade('project/animations/scale.animation', .2) ||
-            !animator.CrossFade('project/animations/move.animation', 0) ||
-            animator.SetAnimation('builtin/meshes/cube') || animator.Seek(Infinity) ||
+            !animator.SetAnimation('animations/move.animation') ||
+            animator.CrossFade('animations/scale.animation', -1) ||
+            animator.CrossFade('missing.animation', .2) ||
+            animator.CrossFade('animations/scale.animation', 'bad') ||
+            !animator.CrossFade('animations/scale.animation', .2) ||
+            !animator.CrossFade('animations/move.animation', 0) ||
+            animator.SetAnimation('builtin://meshes/cube') || animator.Seek(Infinity) ||
             animator.Seek(-1) || animator.Seek(2) || !animator.Play() || !animator.isPlaying ||
             animator.playback !== 'playing' || !animator.Pause() || animator.isPlaying ||
             animator.playback !== 'paused' || !animator.Seek(.5) || animator.time !== .5 ||
@@ -57,12 +57,12 @@ export default class extends Gameplay {
         if (otherBody.GetComponent(Animator) !== null) return false;
         const otherAnimator = otherBody.AddComponent(Animator);
         if (!otherAnimator || !otherAnimator.SetPlayOnAwake(false) ||
-            !otherAnimator.SetAnimation('project/animations/move.animation') ||
+            !otherAnimator.SetAnimation('animations/move.animation') ||
             !otherAnimator.Seek(.25) || animator.time !== .5) return false;
         const temporary = scene.CreateNode('Temporary');
         const stale = temporary?.AddComponent(Animator);
         if (!stale || !temporary.Destroy() || stale.Play() || stale.Pause() || stale.Stop() ||
-            stale.CrossFade('project/animations/move.animation', .2) ||
+            stale.CrossFade('animations/move.animation', .2) ||
             temporary.FindChild('Body') !== null ||
             stale.Seek(0) || stale.SetSpeed(1) || stale.isPlaying || stale.playback !== null ||
             stale.time !== null) return false;
@@ -77,7 +77,7 @@ export default class extends Gameplay {
 }
 )js";
     if (!fixture.initialize() || !add_model(fixture.files) ||
-        !add_bytes(fixture.files, "40000000-0000-4000-8000-000000000008", "project/scripts/game.js",
+        !add_bytes(fixture.files, "40000000-0000-4000-8000-000000000008", "scripts/game.js",
                    engine::schema::AssetKind::script,
                    {reinterpret_cast<const std::byte*>(source.data()), source.size()}))
     {
@@ -119,7 +119,7 @@ int main()
     Fixture fixture;
     engine::AppConfig app;
     app.application_name = "engine-model-animation-script-test";
-    app.builtin_assets_path = fixture.files.root / "builtin";
+    app.assets_path = fixture.files.root / "builtin";
     app.persistent_data_path = fixture.files.root / "persistent";
     app.cache_path = fixture.files.root / "cache";
     if (!engine::App::initialize(app) || !engine::LogSystem::instance().initialize({}))

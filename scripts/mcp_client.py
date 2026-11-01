@@ -57,9 +57,14 @@ def main():
         help="Import and synchronize the full directory, or synchronize an existing runtime build",
     )
     sync.add_argument("--source", help="Existing resource directory relative to the project")
-    build = commands.add_parser("build", help="Build a runtime resource subset from a manifest")
-    build.add_argument("--manifest", required=True, help="Manifest relative to project settings/")
+    build = commands.add_parser("build", help="Build runtime resources using project settings")
+    build.add_argument("--manifest", help="Manifest relative to project settings/; optional")
     build.add_argument("--item", action="append", default=[], help="Build item; may be repeated")
+    build.add_argument(
+        "--target",
+        choices=["macos", "ios", "windows", "android", "linux"],
+        help="Resource target platform; defaults to the host platform",
+    )
     hot_reload = commands.add_parser("hot-reload", help="Set the engine hot reload switch")
     hot_reload.add_argument("enabled", choices=["on", "off"])
     call = commands.add_parser("call", help="Call any registered MCP tool")
@@ -99,7 +104,11 @@ def main():
     if args.command == "sync" and args.source:
         arguments["source"] = args.source
     if args.command == "build":
-        arguments = {"manifest": args.manifest, "items": args.item}
+        arguments = {"items": args.item}
+        if args.manifest:
+            arguments["manifest"] = args.manifest
+        if args.target:
+            arguments["targetPlatform"] = args.target
     process = None
     timer = None
     try:

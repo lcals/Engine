@@ -14,6 +14,7 @@ class GuidMap final
 {
 public:
     [[nodiscard]] static bool valid_guid(std::string_view guid) noexcept;
+    [[nodiscard]] static bool valid_path(std::string_view path) noexcept;
     // 逻辑路径和GUID均唯一；失败不修改已登记映射。
     [[nodiscard]] bool add(std::string_view path, std::string_view guid);
     // 失败清空输出；不访问文件系统。

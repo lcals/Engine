@@ -2,7 +2,7 @@ guid = 'b0ba0001-0000-4000-8000-000000000002'
 importer = 'fbx'
 meta_version = 1
 sample_rate = 30
-skeleton = 'project/models/skeleton.fbx/skeleton'
+skeleton = 'models/skeleton.fbx/skeleton'
 
 [[subresources]]
 guid = 'c89b6ae5-e5be-4f8b-86b7-8a2c70063e7b'

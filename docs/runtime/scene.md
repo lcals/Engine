@@ -22,7 +22,7 @@
 
 ## 保存与加载
 
-源场景使用 `.scene` 后缀和 TOML 内容。`SceneImporter::read` / `write` 负责编辑器端读取与保存；资源管线将其转换为 `cache/gen/<完整GUID>` 中的 FlatBuffers 二进制。运行时通过活动资源目录解析 GUID，`Scene.Load("project/scenes/main.scene")` 加载场景。节点 ID、父子关系及活动相机经过保存与加载保持一致。
+源场景使用 `.scene` 后缀和 TOML 内容。`SceneImporter::read` / `write` 负责编辑器端读取与保存；资源管线将其转换为 `cache/gen/<完整GUID>` 中的 FlatBuffers 二进制。运行时通过活动资源目录解析 GUID，`Scene.Load("scenes/main.scene")` 加载场景。节点 ID、父子关系及活动相机经过保存与加载保持一致。
 
 `projects/showcase` 按菜单模块加载各自的磁盘场景，网格、材质及 Shader 通过独立资源组装；庭院角色再由脚本实例化。场景不限定节点数量，`Scene.Create` 仍支持动态场景。停止或热重载销毁旧场景，再按新资源版本创建，业务脚本状态不会自动迁移。运行时修改的材质实例参数不会自动回写源材质。
 

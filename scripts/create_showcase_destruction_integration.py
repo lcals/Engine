@@ -243,7 +243,7 @@ mipmaps = true
         path = f"effects/destruction/{name}.efkefc"
         mappings = ["smoke"] + (["particle-soft"] if name != "dust" else [])
         extra = "".join(f'\n[[resources]]\npath = "textures/{texture}.png"\n'
-                        f'resource = "project/effects/destruction/textures/{texture}.png"\n'
+                        f'resource = "effects/destruction/textures/{texture}.png"\n'
                         for texture in mappings)
         result[path + ".meta"] = meta(path, "effect", extra)
     for path in ("scripts/modules/destruction-integration.ts",
@@ -260,13 +260,13 @@ textures = []
 
 [[ui.fonts]]
 family = "body"
-asset = "project/fonts/lato-regular.ttf"
-shader = "builtin/shaders/font"
+asset = "fonts/lato-regular.ttf"
+shader = "builtin://shaders/font"
 
 [[ui.fonts]]
 family = "heading"
-asset = "project/fonts/lato-bold.ttf"
-shader = "builtin/shaders/font"
+asset = "fonts/lato-bold.ttf"
+shader = "builtin://shaders/font"
 """)
     return result
 

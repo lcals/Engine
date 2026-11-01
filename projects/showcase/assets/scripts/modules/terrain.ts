@@ -21,7 +21,7 @@ export default class Game extends Gameplay {
     private animation_speed = 0;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/terrain.scene");
+        this.scene = Scene.Load("scenes/terrain.scene");
         const scene = this.scene;
         if (!scene) return false;
         this.terrain = scene.FindNode("Terrain")?.GetComponent(TerrainComponent) ?? null;
@@ -32,15 +32,15 @@ export default class Game extends Gameplay {
             return false;
 
         // Reuse the open showcase character; terrain contains no purchased project assets.
-        const avatar = scene.InstantiateModel("project/models/skeleton.fbx", "Terrain avatar");
+        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Terrain avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);
         this.animator = body?.AddComponent(Animator) ?? null;
         if (!avatar || !transform || !renderer || !this.animator || !avatar.SetParent(player) ||
             !transform.SetPosition(0, 0.05, 0) || !transform.SetRotation(0, 180, 0) ||
-            !renderer.material.SetType("project/materials/character.material") ||
-            !this.animator.SetAnimation("project/models/locomotions.fbx/animations/walk") ||
+            !renderer.material.SetType("materials/character.material") ||
+            !this.animator.SetAnimation("models/locomotions.fbx/animations/walk") ||
             !this.animator.SetSpeed(0) || !this.animator.Play()) return false;
 
         this.controller = new TerrainController(view, this.model);

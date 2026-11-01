@@ -5,7 +5,7 @@ namespace engine
 
 bool BinaryResourceCodec::decode(const ResourceCatalog&, ByteView payload, Resource& output) const
 {
-    if (output.info().path.starts_with("builtin/"))
+    if (output.info().path.starts_with("builtin://"))
     {
         return false;
     }

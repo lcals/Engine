@@ -7,10 +7,10 @@ export default class Game extends Gameplay {
     scene: Scene | null = null;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/playground.scene");
+        this.scene = Scene.Load("scenes/playground.scene");
         const scene = this.scene;
         if (!scene) return false;
-        const avatar = scene.InstantiateModel("project/models/skeleton.fbx", "Avatar");
+        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Avatar");
         const player = scene.FindNode("Player");
         const body = scene.FindNode("GENERIC MAN new");
         if (!avatar || !player || !body || !avatar.SetParent(player)) return false;
@@ -26,8 +26,8 @@ export default class Game extends Gameplay {
         if (
             !renderer ||
             !animator ||
-            !renderer.material.SetType("project/materials/character.material") ||
-            !animator.SetAnimation("project/models/locomotions.fbx/animations/walk") ||
+            !renderer.material.SetType("materials/character.material") ||
+            !animator.SetAnimation("models/locomotions.fbx/animations/walk") ||
             !animator.Play()
         )
             return false;

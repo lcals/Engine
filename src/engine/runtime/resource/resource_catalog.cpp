@@ -48,8 +48,8 @@ bool valid_entry(const schema::AssetEntryT& entry)
     constexpr auto maximum_offset =
         static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
     return entry.kind >= schema::AssetKind::source && entry.kind <= schema::AssetKind::MAX &&
-           entry.path.starts_with("project/") && entry.format_version == 1 &&
-           entry.content_hash.size() == 16 &&
+           GuidMap::valid_path(entry.path) && !entry.path.starts_with("editor://") &&
+           entry.format_version == 1 && entry.content_hash.size() == 16 &&
            std::all_of(
                entry.content_hash.begin(), entry.content_hash.end(), [](char value)
                { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'); }) &&
@@ -86,7 +86,21 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
     for (std::size_t index = 0; index < data.entries.size(); ++index)
     {
         const auto& entry = data.entries[index];
-        if (!entry || !valid_entry(*entry) || !candidate.identities_.add(entry->path, entry->guid))
+        if (!entry || !valid_entry(*entry))
+        {
+            return false;
+        }
+        const auto* builtin = builtin_resource_info(entry->guid);
+        if (builtin != nullptr)
+        {
+            if (entry->path != builtin->path || entry->kind != builtin->kind ||
+                entry->dependencies != builtin->dependencies)
+            {
+                return false;
+            }
+        }
+        else if (entry->path.starts_with("builtin://") ||
+                 !candidate.identities_.add(entry->path, entry->guid))
         {
             return false;
         }
@@ -96,7 +110,10 @@ bool ResourceCatalog::assign(const schema::AssetCatalogDataT& data)
         {
             return false;
         }
-        candidate.entries_.emplace(entry->guid, index);
+        if (!candidate.entries_.emplace(entry->guid, index).second)
+        {
+            return false;
+        }
     }
 
     // 拓扑消除验证必要依赖：共享允许，缺失、自依赖和任何长度的环均拒绝。

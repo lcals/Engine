@@ -2,6 +2,7 @@
 
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <array>
@@ -47,7 +48,7 @@ bool put_source(test_support::ResourceFixture& fixture, std::size_t index, std::
 {
     auto entry = std::make_unique<schema::AssetEntryT>();
     entry->guid = guid(index);
-    entry->path = "project/data/" + std::to_string(index);
+    entry->path = "data/" + std::to_string(index);
     entry->kind = schema::AssetKind::source;
     entry->dependencies = dependencies;
     ByteBuffer bytes;
@@ -201,10 +202,10 @@ bool test_cross_entity_validation()
     }
     resources.set_loader(&graph);
     test_support::ResourceFixture fixture;
-    auto shader = *ResourceSystem::find_shader("builtin/shaders/pbr");
-    shader.path = "project/invalid-pair.shader";
+    auto shader = *ResourceSystem::find_shader("builtin://shaders/pbr");
+    shader.path = "invalid-pair.shader";
     schema::MaterialDataT material;
-    material.type_path = "project/invalid-pair.material";
+    material.type_path = "invalid-pair.material";
     material.shader_path = shader.path;
     auto parameter = std::make_unique<schema::MaterialParameterT>();
     parameter->name = "notDeclaredByShader";
@@ -269,12 +270,77 @@ bool test_deep_graph_cleanup()
                   "deep terminal failure releases the whole newly loaded closure");
 }
 
+bool test_external_builtin_lookup()
+{
+    ResourceSystem resources;
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
+    if (!resources.initialize({}) || !graph.initialize({}))
+    {
+        return false;
+    }
+    resources.set_loader(&graph);
+    constexpr auto identity = "00000000-0000-4000-8000-000000000005";
+    constexpr auto path = "builtin://meshes/cube";
+    const auto* original = ResourceSystem::find_mesh(path);
+    const auto* info = builtin_resource_info(identity);
+    if (!original || !info || original->vertices.empty())
+    {
+        return false;
+    }
+    auto mesh = *original;
+    const auto vertex = mesh.vertices.front();
+    mesh.vertices.front() = {vertex.x() + 3.0F, vertex.y(),  vertex.z(),
+                             vertex.nx(),       vertex.ny(), vertex.nz()};
+    flatbuffers::FlatBufferBuilder builder;
+    schema::FinishMeshDataBuffer(builder, schema::MeshData::Pack(builder, &mesh));
+    auto entry = std::make_unique<schema::AssetEntryT>(*info);
+    ByteBuffer entity;
+    const ByteView payload{reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
+                           builder.GetSize()};
+    if (!ResourceSystem::encode_resource(identity, entry->kind, payload, entity,
+                                         entry->header_size))
+    {
+        return false;
+    }
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const auto byte : entity)
+    {
+        hash = (hash ^ std::to_integer<std::uint8_t>(byte)) * 1099511628211ULL;
+    }
+    std::array<char, 17> digest{};
+    std::snprintf(digest.data(), digest.size(), "%016llx", static_cast<unsigned long long>(hash));
+    entry->content_hash = digest.data();
+    entry->content_size = entity.size();
+    entry->location = std::make_unique<schema::FileLocationT>();
+    entry->location->mount = "content";
+    entry->location->path = "gen/" + entry->guid;
+    entry->location->length = entity.size();
+    test_support::ResourceFixture fixture;
+    fixture.catalog.entries.push_back(std::move(entry));
+    ResourcePtr loaded;
+    if (!write(fixture.root / "gen" / identity, entity) || !fixture.publish(resources) ||
+        !expect(!ResourceSystem::find_mesh(path) && graph.load(identity, loaded) && loaded &&
+                    loaded->mesh() && loaded->mesh()->vertices.front().x() == vertex.x() + 3.0F &&
+                    ResourceSystem::find_mesh(path) == loaded->mesh(),
+                "builtin lookups use the current loader's external resource instead of bootstrap"))
+    {
+        return false;
+    }
+    entity.back() ^= std::byte{1};
+    ResourcePtr replacement;
+    return expect(write(fixture.root / "gen" / identity, entity) && fixture.publish(resources) &&
+                      !ResourceSystem::find_mesh(path) && !graph.load(identity, replacement) &&
+                      !replacement && !ResourceSystem::find_mesh(path) &&
+                      loaded->mesh()->vertices.front().x() == vertex.x() + 3.0F,
+                  "corrupt new builtin generations cannot expose stale or compiled definitions");
+}
+
 } // namespace
 
 int main()
 {
     return test_shared_graph_and_generations() && test_cross_entity_validation() &&
-                   test_deep_graph_cleanup()
+                   test_deep_graph_cleanup() && test_external_builtin_lookup()
                ? 0
                : 1;
 }

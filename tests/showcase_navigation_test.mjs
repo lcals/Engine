@@ -9,8 +9,8 @@ const root = path.resolve(
     process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
 );
 const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-navigation-"));
-const launcherPath = "project/scenes/launcher.scene";
-const cubePath = "project/scenes/main.scene";
+const launcherPath = "scenes/launcher.scene";
+const cubePath = "scenes/main.scene";
 
 // 仅替代 engine 模块的宿主边界；导航、Controller、Model 均来自实际项目编译结果。
 const engineStub = String.raw`

@@ -114,8 +114,7 @@ bool prepare_effect(test_support::ResourceFixture& fixture, ByteView source,
             continue;
         }
         schema::TextureDataT texture;
-        texture.path =
-            "project/" + std::string(folder) + "/texture-" + std::to_string(paths.size());
+        texture.path = std::string(folder) + "/texture-" + std::to_string(paths.size());
         texture.width = 1;
         texture.height = 1;
         texture.encoding = schema::TextureEncoding::rgba8;
@@ -139,8 +138,7 @@ bool prepare_effect(test_support::ResourceFixture& fixture, ByteView source,
     for (const auto& path : properties.GetModels())
     {
         const auto found = models.find(path);
-        const auto logical =
-            "project/" + std::string(folder) + "/model-" + std::to_string(paths.size());
+        const auto logical = std::string(folder) + "/model-" + std::to_string(paths.size());
         if (found == models.end() || found->second.empty() || paths.contains(path) ||
             !add_resource(fixture, logical, schema::AssetKind::source, found->second, {}))
         {
@@ -156,7 +154,7 @@ bool prepare_effect(test_support::ResourceFixture& fixture, ByteView source,
         binding->kind = schema::AssetKind::source;
         effect.bindings.push_back(std::move(binding));
     }
-    return add_effect(fixture, "project/" + std::string(folder) + "/effect", effect, dependencies);
+    return add_effect(fixture, std::string(folder) + "/effect", effect, dependencies);
 }
 
 bool advance(WindowSystem& windows, RenderSystem& renderer, EffectSystem& effects, int count = 4)
@@ -241,8 +239,7 @@ int main(int argc, char** argv)
                     prepare_effect(fixture, source, properties, "green", {40, 255, 40, 255}) &&
                     prepare_effect(fixture, model_source, model_properties, "model",
                                    {90, 130, 255, 255}, models) &&
-                    add_effect(fixture, "project/invalid/effect", {}, {}) &&
-                    fixture.publish(resources),
+                    add_effect(fixture, "invalid/effect", {}, {}) && fixture.publish(resources),
                 "publish two effects with identical SDK paths"))
     {
         return 1;
@@ -265,7 +262,7 @@ int main(int argc, char** argv)
     const auto idle_textures = bgfx::getStats()->numTextures;
     auto* first_node = scene->create_node("First independent emitter");
     auto* first = first_node ? first_node->add_component<EffectComponent>() : nullptr;
-    if (!expect(first && !first->play() && first->set_effect("project/red/effect"),
+    if (!expect(first && !first->play() && first->set_effect("red/effect"),
                 "empty emitter rejects play and configured effect loads") ||
         !expect(!first->playing(), "play-on-awake is not reported before the SDK runs"))
     {
@@ -343,15 +340,15 @@ int main(int argc, char** argv)
     }
     auto invalid = settings;
     invalid.speed = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!first->set_settings(invalid) && !first->set_effect("project/invalid/effect") &&
-                    first->effect_path() == "project/red/effect" && first->playing(),
+    if (!expect(!first->set_settings(invalid) && !first->set_effect("invalid/effect") &&
+                    first->effect_path() == "red/effect" && first->playing(),
                 "invalid settings or payload preserve the old resource and playback"))
     {
         return 1;
     }
     auto* third_node = scene->create_node("Same SDK paths different bindings");
     auto* third = third_node ? third_node->add_component<EffectComponent>() : nullptr;
-    if (!expect(third && third->set_effect("project/green/effect"), "load second effect variant"))
+    if (!expect(third && third->set_effect("green/effect"), "load second effect variant"))
     {
         return 1;
     }
@@ -368,7 +365,7 @@ int main(int argc, char** argv)
     const auto sprite_textures = bgfx::getStats()->numTextures;
     auto* model_node = scene->create_node("Official model effect alongside sprite effects");
     auto* model = model_node ? model_node->add_component<EffectComponent>() : nullptr;
-    if (!expect(model && model->set_effect("project/model/effect"), "load actual model effect"))
+    if (!expect(model && model->set_effect("model/effect"), "load actual model effect"))
     {
         return 1;
     }

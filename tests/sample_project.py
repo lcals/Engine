@@ -45,14 +45,9 @@ def prepare_minimal_project(root, project):
     value["files"] = [str(root / "include/engine.d.ts")]
     configuration.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
     shutil.copytree(compiler, project / "settings/node_modules/typescript")
-    for filename, platform, output in (
-        ("resource-build.toml", "", "cache/build/minimal"),
-        ("resource-build-android.toml", "android", "cache/build/minimal-android"),
-    ):
-        (project / "settings" / filename).write_text(
-            f'target_platform = "{platform}"\noutput = "{output}"\n\n'
-            '[[items]]\nname = "game"\nstorage = "package"\n'
-            'roots = ["project/scripts/game.ts", "project/scenes/main.scene"]\nkeep = []\n',
-            encoding="utf-8",
-        )
+    (project / "settings/resource-build.toml").write_text(
+        '[[items]]\nname = "game"\nstorage = "package"\n'
+        'roots = ["scripts/game.ts", "scenes/main.scene"]\nkeep = []\n',
+        encoding="utf-8",
+    )
     return project

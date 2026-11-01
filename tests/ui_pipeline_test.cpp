@@ -96,14 +96,13 @@ bool texture_dimensions(const Project& project, engine::editor::AssetPipelineSys
     {
         return false;
     }
-    for (const auto* texture :
-         {"builtin/textures/white-srgb", "project/hdr.ktx", "project/cube.ktx"})
+    for (const auto* texture : {"builtin://textures/white-srgb", "hdr.ktx", "cube.ktx"})
     {
         const std::string markup =
             std::string("<rml><body><img src=\"") + texture + "\"/></body></rml>";
-        const auto settings = metadata(
-            ui_guid, std::string("textures = [\"") + texture +
-                         "\"]\n[[ui.fonts]]\nfamily = \"body\"\nasset = \"project/lato.ttf\"\n");
+        const auto settings =
+            metadata(ui_guid, std::string("textures = [\"") + texture +
+                                  "\"]\n[[ui.fonts]]\nfamily = \"body\"\nasset = \"lato.ttf\"\n");
         engine::ResourcePtr document;
         if (!expect(write(project.root / "assets/menu.rml", markup) &&
                         write(project.root / "assets/menu.rml.meta", settings) &&
@@ -126,7 +125,7 @@ bool texture_dimensions(const Project& project, engine::editor::AssetPipelineSys
             }
             dependencies.push_back(std::move(resource));
         }
-        const bool ldr = std::string_view(texture).starts_with("builtin/");
+        const bool ldr = std::string_view(texture).starts_with("builtin://");
         if (!expect(resources.validate_dependencies(*document, dependencies) == ldr,
                     "UI accepts 2D LDR and rejects HDR KTX/cubemap dependencies"))
         {
@@ -155,9 +154,9 @@ int main(int argc, char** argv)
     const auto source = read(argv[1]);
     const auto path = project.root / "assets/menu.rml";
     const auto meta = project.root / "assets/menu.rml.meta";
-    const auto valid_meta = metadata(
-        ui_guid, "textures = []\n[[ui.fonts]]\nfamily = \"Lato\"\nasset = \"project/lato.ttf\"\n"
-                 "[[ui.fonts]]\nfamily = \"caption\"\nasset = \"project/lato.ttf\"\n");
+    const auto valid_meta =
+        metadata(ui_guid, "textures = []\n[[ui.fonts]]\nfamily = \"Lato\"\nasset = \"lato.ttf\"\n"
+                          "[[ui.fonts]]\nfamily = \"caption\"\nasset = \"lato.ttf\"\n");
     editor::AssetPipelineSystem pipeline;
     ResourceSystem resources;
     std::unique_ptr<editor::asset_pipeline::AssetImporter> font_importer =
@@ -191,10 +190,11 @@ int main(int argc, char** argv)
                     original->ui()->fonts.front()->font_guid == font_guid &&
                     original->ui()->fonts.front()->family == "lato" &&
                     original->ui()->fonts.back()->family == "caption" &&
-                    original->ui()->fonts.front()->shader_path == "builtin/shaders/font",
+                    original->ui()->fonts.front()->shader_path == "builtin://shaders/font",
                 "UI preserves aliases, normalizes families and resolves shared font GUID") ||
-        !expect(resources.catalog().identities().path_to_guid("builtin/shaders/font", shader_guid),
-                "builtin font shader is catalogued") ||
+        !expect(
+            resources.catalog().identities().path_to_guid("builtin://shaders/font", shader_guid),
+            "builtin font shader is catalogued") ||
         !expect(original->info().dependencies.size() == 2 &&
                     std::find(original->info().dependencies.begin(),
                               original->info().dependencies.end(),
@@ -225,19 +225,18 @@ int main(int argc, char** argv)
                       "invalid UI preserves the published resource version");
     };
     for (const char* invalid :
-         {"fonts = []\n", "fonts = \"project/lato.ttf\"\n", "fonts = [\"project/missing.ttf\"]\n",
-          "fonts = [\"builtin/shaders/font\"]\n",
-          "fonts = [\"project/lato.ttf\", \"project/lato.ttf\"]\n",
-          "fonts = [{family = \"body\", asset = \"project/lato.ttf\", shader = false}]\n",
-          "fonts = [{family = \"body\", asset = \"project/lato.ttf\", shader = "
-          "\"project/lato.ttf\"}]\n",
-          "fonts = [{family = \"body\", asset = \"project/missing.ttf\"}]\n",
-          "fonts = [{family = \"body\", asset = \"project/lato.ttf\", unknown = 1}]\n",
-          "fonts = [{family = \"Body\", asset = \"project/lato.ttf\"}, {family = \"body\", asset = "
-          "\"project/lato.ttf\"}]\n",
-          "fonts = [{family = \"\", asset = \"project/lato.ttf\"}]\n",
-          "fonts = [{asset = \"project/lato.ttf\"}]\n", "fonts = [{family = \"body\"}]\n",
-          "fonts = [{family = \"body\", asset = \"project/lato.ttf\"}]\nunknown = 1\n"})
+         {"fonts = []\n", "fonts = \"lato.ttf\"\n", "fonts = [\"missing.ttf\"]\n",
+          "fonts = [\"builtin://shaders/font\"]\n", "fonts = [\"lato.ttf\", \"lato.ttf\"]\n",
+          "fonts = [{family = \"body\", asset = \"lato.ttf\", shader = false}]\n",
+          "fonts = [{family = \"body\", asset = \"lato.ttf\", shader = "
+          "\"lato.ttf\"}]\n",
+          "fonts = [{family = \"body\", asset = \"missing.ttf\"}]\n",
+          "fonts = [{family = \"body\", asset = \"lato.ttf\", unknown = 1}]\n",
+          "fonts = [{family = \"Body\", asset = \"lato.ttf\"}, {family = \"body\", asset = "
+          "\"lato.ttf\"}]\n",
+          "fonts = [{family = \"\", asset = \"lato.ttf\"}]\n", "fonts = [{asset = \"lato.ttf\"}]\n",
+          "fonts = [{family = \"body\"}]\n",
+          "fonts = [{family = \"body\", asset = \"lato.ttf\"}]\nunknown = 1\n"})
     {
         if (!rejects(markup, metadata(ui_guid, invalid), "reject invalid UI metadata"))
         {
@@ -247,11 +246,11 @@ int main(int argc, char** argv)
     for (const char* invalid :
          {"<rml><head><link href=\"other.rcss\"/></head><body/></rml>",
           "<rml><body><script>alert(1)</script></body></rml>",
-          "<rml><body><img src=\"project/missing.png\"/></body></rml>",
+          "<rml><body><img src=\"missing.png\"/></body></rml>",
           "<rml><head><style>@import 'other.rcss';</style></head><body/></rml>",
           "<rml><body style=\"decorator: image(texture.png);\"/></rml>",
-          "<rml><body><progress style=\"fill-image: project/unknown.png;\"/></body></rml>",
-          "<rml><head><style>@spritesheet icons {src: project/icons.png;}</style></head>"
+          "<rml><body><progress style=\"fill-image: unknown.png;\"/></body></rml>",
+          "<rml><head><style>@spritesheet icons {src: icons.png;}</style></head>"
           "<body/></rml>",
           "<rml><body template=\"other\"/></rml>", "<rml><body id=unquoted/></rml>",
           "<rml><body/><!-- unterminated", "plain text without a document"})

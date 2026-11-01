@@ -22,7 +22,7 @@ table ShaderSampler {
 
 table ShaderData {
     schema_version:uint = 1;
-    // Canonical unique resource identity, prefixed by builtin/ or project/.
+    // Canonical resource path: assets-relative or in the builtin:// namespace.
     path:string (required);
     vertex_code:[ubyte] (required);
     fragment_code:[ubyte] (required);

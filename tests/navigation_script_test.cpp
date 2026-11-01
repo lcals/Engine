@@ -61,7 +61,7 @@ export default class extends Gameplay {
         check(forward && close(forward.x,-1) && close(forward.y,0) && close(forward.z,0),
               'GetWorldForward must be rotated and normalized after scaling');
         this.renderer = this.floor.AddComponent(MeshRenderer);
-        check(this.renderer && this.renderer.SetMesh('project/meshes/floor.mesh'), 'load floor mesh');
+        check(this.renderer && this.renderer.SetMesh('meshes/floor.mesh'), 'load floor mesh');
     }
     build() {
         check(Navigation.Build([this.floor],options) && Navigation.ready && reachable(),
@@ -140,7 +140,7 @@ bool add_script(test_support::ResourceFixture& files)
 {
     auto entry = std::make_unique<engine::schema::AssetEntryT>();
     entry->guid = "50000000-0000-4000-8000-000000000001";
-    entry->path = "project/scripts/game.js";
+    entry->path = "scripts/game.js";
     entry->module_path = "scripts/game.js";
     entry->kind = engine::schema::AssetKind::script;
     engine::ByteBuffer entity;
@@ -183,7 +183,7 @@ bool run(test_support::ResourceFixture& files)
     engine::NavigationSystem navigation;
     engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, &navigation);
     engine::schema::MeshDataT floor;
-    floor.path = "project/meshes/floor.mesh";
+    floor.path = "meshes/floor.mesh";
     floor.vertices = {
         {0, 0, 0, 0, 1, 0}, {24, 0, 0, 0, 1, 0}, {0, 0, 16, 0, 1, 0}, {24, 0, 16, 0, 1, 0}};
     floor.indices = {0, 2, 1, 1, 2, 3};
@@ -235,7 +235,7 @@ int main()
     }
     engine::AppConfig app;
     app.application_name = "engine-navigation-script-test";
-    app.builtin_assets_path = files.root / "builtin";
+    app.assets_path = files.root / "builtin";
     app.persistent_data_path = files.root / "persistent";
     app.cache_path = files.root / "cache";
     if (!engine::App::initialize(app) || !engine::LogSystem::instance().initialize({}))

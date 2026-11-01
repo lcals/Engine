@@ -11,7 +11,7 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class App {
     constructor() { throw new TypeError('App is static'); }
-    static get builtinAssetsPath() { return native.builtinAssetsPath; }
+    static get assetsPath() { return native.assetsPath; }
     static get persistentDataPath() { return native.persistentDataPath; }
     static get cachePath() { return native.cachePath; }
 }
@@ -33,7 +33,7 @@ std::string_view AppBinding::source() const noexcept
 
 bool AppBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.string("builtinAssetsPath", PathUtils::to_utf8(App::builtin_assets_path())) &&
+    return vm.string("assetsPath", PathUtils::to_utf8(App::assets_path())) &&
            vm.string("persistentDataPath", PathUtils::to_utf8(App::persistent_data_path())) &&
            vm.string("cachePath", PathUtils::to_utf8(App::cache_path()));
 }

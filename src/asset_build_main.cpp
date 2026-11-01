@@ -53,7 +53,8 @@ void usage()
     std::puts("Usage: asset_build_app --project <project-directory> "
               "[--target macos|ios|windows|android|linux]\n"
               "       asset_build_app --project <project-directory> "
-              "--manifest settings/<file>.toml [--item <name> ...]");
+              "--package [--manifest settings/<file>.toml] [--item <name> ...] "
+              "[--target macos|ios|windows|android|linux]");
 }
 } // namespace
 
@@ -62,6 +63,7 @@ int main(int argc, char** argv)
     std::filesystem::path project;
     std::string_view target;
     std::filesystem::path manifest;
+    bool package = false;
     std::vector<std::string> items;
     for (int index = 1; index < argc; ++index)
     {
@@ -79,6 +81,10 @@ int main(int argc, char** argv)
         {
             target = argv[++index];
         }
+        else if (argument == "--package" && !package)
+        {
+            package = true;
+        }
         else if (argument == "--manifest" && index + 1 < argc && manifest.empty())
         {
             manifest = engine::PathUtils::from_utf8(argv[++index]);
@@ -93,8 +99,7 @@ int main(int argc, char** argv)
             return 2;
         }
     }
-    if (project.empty() || (!manifest.empty() && !target.empty()) ||
-        (manifest.empty() && !items.empty()))
+    if (project.empty() || (!package && manifest.empty() && !items.empty()))
     {
         usage();
         return 2;
@@ -189,10 +194,10 @@ int main(int argc, char** argv)
         return 1;
     }
 #endif
-    if (!manifest.empty())
+    if (package || !manifest.empty())
     {
         engine::plugins::asset_build::AssetBuildSystem build(pipeline);
-        if (!build.initialize(config) || !build.build(project, manifest, items))
+        if (!build.initialize(config) || !build.build(project, manifest, items, target))
         {
             std::fprintf(stderr, "Resource build failed: %s\n", build.last_error().c_str());
             return 1;

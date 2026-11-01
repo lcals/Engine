@@ -58,13 +58,12 @@ bool safe_path(const fs::path& root, const fs::path& relative, fs::path& output,
 bool asset_path(const fs::path& root, std::string_view logical, fs::path& output,
                 std::string& error)
 {
-    if (!logical.starts_with("project/"))
+    if (!GuidMap::valid_path(logical) || logical.find(':') != logical.npos)
     {
-        error = "Scene baking requires project/ source resource paths";
+        error = "Scene baking requires assets-relative source resource paths";
         return false;
     }
-    return safe_path(root, fs::path("assets") / PathUtils::from_utf8(logical.substr(8)), output,
-                     error);
+    return safe_path(root, fs::path("assets") / PathUtils::from_utf8(logical), output, error);
 }
 
 bool fingerprint(const fs::path& path, bool& exists, std::string& hash, std::string& error)
@@ -177,7 +176,7 @@ bool SceneBakeFiles::initialize(const fs::path& root, std::string_view scene,
             files_.push_back(std::move(file));
         }
         auto& result = outputs_[index];
-        result.path = "project/" + PathUtils::to_utf8(path.lexically_relative(root_ / "assets"));
+        result.path = PathUtils::to_utf8(path.lexically_relative(root_ / "assets"));
         if (files_.back().existed)
         {
             std::string text;

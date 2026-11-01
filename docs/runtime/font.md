@@ -6,7 +6,7 @@
 
 GPU 后端采用公开 bgfx `51-gpufont` / Slug 的二次 Bézier 曲线覆盖率计算，不使用固定分辨率字形图片或 SDF。所有曲线紧凑存放在共享 `RGBA32F` 纹理，每条曲线占两个 texel；没有每个字形独占一整纹理行的固定开销。纹理按实际曲线数量创建，并验证平台格式与尺寸支持。当前遍历单个字形的曲线，不为尚无压力证据的场景增加分带索引模型。
 
-Shader 默认路径为 `builtin/shaders/font`。项目可提供自己的 Shader 资源，但须保留字体顶点和 Uniform 契约：
+Shader 默认路径为 `builtin://shaders/font`。项目可提供自己的 Shader 资源，但须保留字体顶点和 Uniform 契约：
 
 - Position：三个 float，节点或 UI 的局部位置。
 - Color0：归一化 RGBA8，预乘透明度。

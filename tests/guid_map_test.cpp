@@ -21,26 +21,61 @@ int main()
     constexpr auto other = "550e8400-e29b-41d4-a716-446655440001";
     engine::GuidMap map;
     std::string output;
-    if (!expect(map.add("project/scenes/main.scene", guid), "register canonical identity") ||
-        !expect(!map.add("project/scenes/copy.scene", guid) &&
-                    !map.add("project/scenes/main.scene", other) && map.size() == 1,
+    if (!expect(map.add("scenes/main.scene", guid), "register canonical identity") ||
+        !expect(!map.add("scenes/copy.scene", guid) && !map.add("scenes/main.scene", other) &&
+                    map.size() == 1,
                 "reject duplicate GUID and path without changing index") ||
-        !expect(map.path_to_guid("project/scenes/main.scene", output) && output == guid,
+        !expect(map.path_to_guid("scenes/main.scene", output) && output == guid,
                 "forward lookup") ||
-        !expect(map.guid_to_path(output, output) && output == "project/scenes/main.scene",
+        !expect(map.guid_to_path(output, output) && output == "scenes/main.scene",
                 "reverse lookup supports aliased output") ||
         !expect(map.path_to_guid(output, output) && output == guid,
                 "forward lookup supports aliased output"))
     {
         return 1;
     }
-    for (const auto* path : {"", "project/", "project/../x", "project/./x", "project//x",
-                             "project/x/", "project/x\\y", "project/x:y", "/project/x", "x"})
+    for (const auto* path :
+         {"x", "scenes/main.scene", "project/scenes/main.scene", "builtin/textures/custom.png",
+          "builtin://textures/white-srgb", "editor://icons/play", "中文/资源.mesh"})
     {
-        if (!expect(!map.add(path, other), "reject unsafe or unscoped path"))
+        if (!expect(engine::GuidMap::valid_path(path),
+                    "ordinary folders and explicit builtin/editor namespaces are valid"))
         {
             return 1;
         }
+    }
+    for (const auto* path : {"",
+                             "../x",
+                             "./x",
+                             "a//x",
+                             "/x",
+                             "x/",
+                             "x\\y",
+                             "x:y",
+                             "project/",
+                             "builtin://",
+                             "editor://",
+                             "project://x",
+                             "file://x",
+                             "builtin:///x",
+                             "builtin://../x",
+                             "editor://./x",
+                             "editor://icons//play",
+                             "builtin://x:y",
+                             "x\nname",
+                             "x\x7f"})
+    {
+        if (!expect(!engine::GuidMap::valid_path(path) && !map.add(path, other),
+                    "reject unsafe paths and unknown or incomplete namespaces"))
+        {
+            return 1;
+        }
+    }
+    const std::string nul_path("folder/\0name", 12);
+    if (!expect(!engine::GuidMap::valid_path(nul_path) && !map.add(nul_path, other),
+                "reject an embedded NUL in a logical path"))
+    {
+        return 1;
     }
     for (const auto* value :
          {"", "550e8400e29b41d4a716446655440000", "550E8400-e29b-41d4-a716-446655440000",
@@ -57,7 +92,7 @@ int main()
     }
     auto snapshot = map;
     map.clear();
-    if (!expect(map.size() == 0 && snapshot.path_to_guid("project/scenes/main.scene", output) &&
+    if (!expect(map.size() == 0 && snapshot.path_to_guid("scenes/main.scene", output) &&
                     output == guid,
                 "snapshots own independent indexes"))
     {

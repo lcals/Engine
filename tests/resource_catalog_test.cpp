@@ -228,6 +228,125 @@ bool range_reads(const std::filesystem::path& root, const Fixture& fixture)
     return true;
 }
 
+bool external_builtins(ResourceSystem& resources, const std::filesystem::path& root)
+{
+    constexpr auto cube_guid = "00000000-0000-4000-8000-000000000005";
+    constexpr auto cube_path = "builtin://meshes/cube";
+    const auto* compiled = ResourceSystem::find_mesh(cube_path);
+    if (!compiled || compiled->vertices.empty())
+    {
+        return false;
+    }
+    auto external_mesh = *compiled;
+    const auto original_x = external_mesh.vertices.front().x();
+    const auto vertex = external_mesh.vertices.front();
+    external_mesh.vertices.front() = {vertex.x() + 2.0F, vertex.y(),  vertex.z(),
+                                      vertex.nx(),       vertex.ny(), vertex.nz()};
+    Fixture fixture;
+    fixture.data.schema_version = 2;
+    fixture.data.revision = "external-builtins";
+    fixture.data.target_platform = platform();
+    const ByteBuffer invalid_payload{std::byte{1}, std::byte{2}};
+    for (const auto& builtin : builtin_resource_catalog().entries)
+    {
+        if (!fixture.add(builtin->guid.c_str(), builtin->path, builtin->kind, invalid_payload,
+                         builtin->dependencies))
+        {
+            return false;
+        }
+    }
+    ResourceCatalog catalog;
+    const MountList mounts{{"content", root}};
+    if (!expect(catalog.assign(fixture.data) && resources.update_catalog(fixture.data, mounts),
+                "matching fixed builtin identities may declare external locations") ||
+        !expect(!ResourceSystem::find_mesh(cube_path) &&
+                    !ResourceSystem::find_shader("builtin://shaders/pbr") &&
+                    !ResourceSystem::find_texture("builtin://textures/white-srgb") &&
+                    !ResourceSystem::find_material("builtin://materials/default-pbr"),
+                "unloaded external builtins never query compiled fallback definitions"))
+    {
+        return false;
+    }
+    for (const auto& entry : fixture.data.entries)
+    {
+        ResourcePtr output;
+        if (!expect(!resources.load(entry->guid, output) && !output,
+                    "missing external builtin data cannot fall back to compiled data") ||
+            !write(root / "gen" / entry->guid, fixture.files.at(entry->guid)) ||
+            !expect(!resources.load(entry->guid, output) && !output &&
+                        !resources.last_error().empty(),
+                    "valid envelopes with invalid external builtin payloads fail explicitly"))
+        {
+            return false;
+        }
+    }
+    for (int mutation = 0; mutation < 6; ++mutation)
+    {
+        auto invalid = fixture.data;
+        auto& entry = *invalid.entries.front();
+        switch (mutation)
+        {
+        case 0:
+            entry.path = "builtin://shaders/unknown";
+            break;
+        case 1:
+            entry.kind = schema::AssetKind::source;
+            break;
+        case 2:
+            entry.dependencies.clear();
+            break;
+        case 3:
+            entry.guid = source_guid;
+            break;
+        case 4:
+            entry.path = "shaders/masquerading.shader";
+            break;
+        default:
+            entry.path = "editor://shaders/preview";
+            break;
+        }
+        if (!expect(!catalog.assign(invalid) && catalog.revision() == "external-builtins",
+                    "builtin metadata mismatches and editor namespace reject transactionally"))
+        {
+            return false;
+        }
+    }
+    auto editor_only = fixture.data;
+    editor_only.entries.clear();
+    auto editor_entry = std::make_unique<schema::AssetEntryT>(*fixture.data.entries.front());
+    editor_entry->guid = source_guid;
+    editor_entry->path = "editor://shaders/preview";
+    editor_only.entries.push_back(std::move(editor_entry));
+    if (!expect(!catalog.assign(editor_only),
+                "ordinary GUIDs cannot place editor resources in a runtime catalog"))
+    {
+        return false;
+    }
+    Fixture valid;
+    valid.data.schema_version = 2;
+    valid.data.revision = "external-cube";
+    valid.data.target_platform = platform();
+    if (!valid.add(cube_guid, cube_path, schema::AssetKind::mesh, pack(external_mesh, "EMSH")) ||
+        !write(root / "gen" / cube_guid, valid.files.at(cube_guid)) ||
+        !resources.update_catalog(valid.data, mounts))
+    {
+        return false;
+    }
+    ResourcePtr loaded;
+    if (!expect(resources.load(cube_guid, loaded) && loaded && loaded->mesh() &&
+                    loaded->mesh()->vertices.front().x() == original_x + 2.0F &&
+                    !ResourceSystem::find_mesh(cube_path),
+                "core loads the external builtin bytes and retains no implicit residency"))
+    {
+        return false;
+    }
+    auto corrupt = valid.files.at(cube_guid);
+    corrupt.back() ^= std::byte{1};
+    return expect(write(root / "gen" / cube_guid, corrupt) && !resources.load(cube_guid, loaded) &&
+                      !loaded && !ResourceSystem::find_mesh(cube_path),
+                  "external builtin checksum corruption never revives a compiled fallback");
+}
+
 bool run(const std::filesystem::path& root)
 {
     ResourceSystem resources;
@@ -253,8 +372,8 @@ bool run(const std::filesystem::path& root)
         return false;
     }
     world.destroy_scene();
-    auto shader = *ResourceSystem::find_shader("builtin/shaders/pbr");
-    shader.path = "project/shaders/test.shader";
+    auto shader = *ResourceSystem::find_shader("builtin://shaders/pbr");
+    shader.path = "shaders/test.shader";
     std::vector<std::string> shader_dependencies;
     for (const auto& sampler : shader.samplers)
     {
@@ -268,12 +387,12 @@ bool run(const std::filesystem::path& root)
     std::sort(shader_dependencies.begin(), shader_dependencies.end());
     shader_dependencies.erase(std::unique(shader_dependencies.begin(), shader_dependencies.end()),
                               shader_dependencies.end());
-    auto material = *ResourceSystem::find_material("builtin/materials/default-pbr");
-    material.type_path = "project/materials/test.material";
+    auto material = *ResourceSystem::find_material("builtin://materials/default-pbr");
+    material.type_path = "materials/test.material";
     material.shader_guid = shader_guid;
     material.shader_path = shader.path;
-    auto mesh = *ResourceSystem::find_mesh("builtin/meshes/cube");
-    mesh.path = "project/meshes/test.mesh";
+    auto mesh = *ResourceSystem::find_mesh("builtin://meshes/cube");
+    mesh.path = "meshes/test.mesh";
     for (auto& component : scene_data.nodes[1]->components)
     {
         if (auto* data = component->payload.AsMeshRendererData())
@@ -291,9 +410,9 @@ bool run(const std::filesystem::path& root)
         !fixture.add(material_guid, material.type_path, schema::AssetKind::material,
                      pack(material, "EMAT"), {shader_guid}) ||
         !fixture.add(mesh_guid, mesh.path, schema::AssetKind::mesh, pack(mesh, "EMSH")) ||
-        !fixture.add(scene_guid, "project/scenes/main.scene", schema::AssetKind::scene,
+        !fixture.add(scene_guid, "scenes/main.scene", schema::AssetKind::scene,
                      pack(scene_data, "ESCN"), {mesh_guid, material_guid}) ||
-        !fixture.add(source_guid, "project/data/raw.bin", schema::AssetKind::source,
+        !fixture.add(source_guid, "data/raw.bin", schema::AssetKind::source,
                      {std::byte{1}, std::byte{2}, std::byte{0}}))
     {
         return false;
@@ -390,7 +509,7 @@ bool run(const std::filesystem::path& root)
     {
         return false;
     }
-    auto* restored = world.load_scene("project/scenes/main.scene");
+    auto* restored = world.load_scene("scenes/main.scene");
     if (!expect(restored && restored->nodes().size() == 2 && restored->active_camera() &&
                     restored->nodes()[1]->parent() == restored->nodes()[0].get(),
                 "world reconstructs scene while holding resource root"))
@@ -445,8 +564,9 @@ bool run(const std::filesystem::path& root)
     ResourcePtr builtin;
     return expect(resources.update_catalog(empty, {}) &&
                       resources.load("00000000-0000-4000-8000-000000000003", builtin) &&
-                      builtin->material() && ResourceSystem::find_shader("builtin/shaders/pbr"),
-                  "empty project catalog still loads a compiled builtin entity");
+                      builtin->material() && ResourceSystem::find_shader("builtin://shaders/pbr"),
+                  "empty project catalog still loads a compiled builtin entity") &&
+           external_builtins(resources, root);
 }
 
 } // namespace

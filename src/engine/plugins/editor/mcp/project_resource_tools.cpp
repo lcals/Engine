@@ -22,12 +22,13 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
     using Json = nlohmann::json;
     const bool build = mcp.register_tool(
         {"build_resources",
-         "Incrementally build selected items from a project settings manifest.",
+         "Build runtime resources using the project usage configuration or all resources by "
+         "default.",
          {{"type", "object"},
           {"properties",
            {{"manifest", {{"type", "string"}}},
+            {"targetPlatform", {{"type", "string"}}},
             {"items", {{"type", "array"}, {"items", {{"type", "string"}}}}}}},
-          {"required", Json::array({"manifest"})},
           {"additionalProperties", false}},
          [this](const Json& arguments, Json& output)
          {
@@ -40,8 +41,8 @@ bool ProjectMcpTools::register_resource_tools(McpSystem& mcp)
                  }
              }
              if (!builder_.build(project_root_,
-                                 PathUtils::from_utf8(arguments["manifest"].get<std::string>()),
-                                 items))
+                                 PathUtils::from_utf8(arguments.value("manifest", std::string{})),
+                                 items, arguments.value("targetPlatform", std::string{})))
              {
                  output = {{"error", builder_.last_error()}};
                  return false;

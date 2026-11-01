@@ -13,14 +13,14 @@ import DestructionIntegration from "./destruction-integration.js";
 type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery | Effects | Terrain | Destruction | DestructionIntegration;
 
 const scene_games = new Map<string, new () => ShowcaseGame>([
-    ["project/scenes/main.scene", Minimal],
-    ["project/scenes/apartment.scene", Apartment],
-    ["project/scenes/playground.scene", Courtyard],
-    ["project/scenes/font-gallery.scene", FontGallery],
-    ["project/scenes/effects.scene", Effects],
-    ["project/scenes/terrain.scene", Terrain],
-    ["project/scenes/destruction.scene", Destruction],
-    ["project/scenes/destruction-integration.scene", DestructionIntegration],
+    ["scenes/main.scene", Minimal],
+    ["scenes/apartment.scene", Apartment],
+    ["scenes/playground.scene", Courtyard],
+    ["scenes/font-gallery.scene", FontGallery],
+    ["scenes/effects.scene", Effects],
+    ["scenes/terrain.scene", Terrain],
+    ["scenes/destruction.scene", Destruction],
+    ["scenes/destruction-integration.scene", DestructionIntegration],
 ]);
 
 export default class Game extends Gameplay {
@@ -49,7 +49,7 @@ export default class Game extends Gameplay {
     private open_menu(): boolean {
         this.model.selected = null;
         this.model.pending = null;
-        const scene = Scene.Load("project/scenes/launcher.scene");
+        const scene = Scene.Load("scenes/launcher.scene");
         const view = scene?.FindNode("Launcher UI")?.GetComponent(UiComponent);
         if (!view) return false;
         return this.bind_view(view);
@@ -70,7 +70,7 @@ export default class Game extends Gameplay {
         this.model.selected = choice;
         this.model.error = null;
         const view = game.scene.CreateNode("Showcase navigation")?.AddComponent(UiComponent);
-        if (!view || !view.SetDocument("project/ui/launcher.rml") || !this.bind_view(view)) {
+        if (!view || !view.SetDocument("ui/launcher.rml") || !this.bind_view(view)) {
             this.close_active();
             return this.recover_menu(`Cannot create navigation for ${choice.title}.`);
         }

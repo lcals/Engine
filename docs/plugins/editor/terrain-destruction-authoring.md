@@ -56,7 +56,7 @@ MCP 与通用编辑器命令同名，节点工具沿用已有场景/节点身份
 
 脚本接口由 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`Reset`、`Save`、`Load` 和只读状态，参见[脚本类图](../runtime/class-diagrams/terrain-script-api.md)。脚本存档位于 App 持久目录下 `terrain/<slot>.bin`，槽名仅允许 1–48 个字母、数字、下划线或连字符；与编辑器 `cache/terrain-states` 路径分开。
 
-showcase 菜单第六项 `Terrain laboratory` 进入 `project/scenes/terrain.scene`，支持挖隧道、爆炸、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续复用原有角色。第七项 `Destruction laboratory` 进入 `project/scenes/destruction.scene`，使用自制 48 块塔、24 块 Voronoi 墙和 8 段柱，提供固定损伤区域按钮、重置、统计及两台固定观察镜头。
+showcase 菜单第六项 `Terrain laboratory` 进入 `scenes/terrain.scene`，支持挖隧道、爆炸、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续复用原有角色。第七项 `Destruction laboratory` 进入 `scenes/destruction.scene`，使用自制 48 块塔、24 块 Voronoi 墙和 8 段柱，提供固定损伤区域按钮、重置、统计及两台固定观察镜头。
 
 首版同步计算与异步 MCP 传输是不同概念，不因使用 MCP 就引入后台生成框架。后续异步生成返回任务身份，通过查询取得结果；各阶段调用超时都不直接重复提交有副作用的操作。未启用插件时不登记工具，也不把编辑器工具放入设备运行包。
 

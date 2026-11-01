@@ -15,7 +15,7 @@ shape = "mesh"
 mesh = "<独立 Mesh 资源的完整 GUID>"
 ```
 
-无需添加 RigidBody；如果显式添加，其 motion 必须为 `static_body`。MCP `set_collider` 的 `mesh` 参数与脚本 `Collider.SetMesh(path)` 接受 `project/...` 或 `builtin/...` 逻辑路径，落盘仍保存 GUID。
+无需添加 RigidBody；如果显式添加，其 motion 必须为 `static_body`。MCP `set_collider` 的 `mesh` 参数与脚本 `Collider.SetMesh(path)` 接受 assets 相对路径或 `builtin://...` 逻辑路径，落盘仍保存 GUID。
 
 瞬态静态几何通过 `set_mesh_data` 或 `set_mesh_parts` 同步提交，先准备候选，失败保留原碰撞。分段输入使用稳定槽位与共享不可变网格，复用未变 Jolt 叶形状和复合树分组；一个 Collider 仍对应一个 Body，空槽、清空、禁用恢复与局部支撑唤醒见[分段碰撞契约](class-diagrams/mesh-collision-data.md)。这些接口不识别地形或项目，也不负责线程调度。当前单线程物理的实测范围及剩余优化集中维护在[性能采样](performance.md#最终可信基线)。
 

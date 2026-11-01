@@ -35,7 +35,7 @@ bool TextCodec::read(const toml::table& table, schema::ComponentDataT& component
                      std::string& error) const
 {
     schema::TextDataT value;
-    value.shader_path = "builtin/shaders/font";
+    value.shader_path = "builtin://shaders/font";
     const auto read_string = [&table, &error](std::string_view key, std::string& output)
     {
         if (!table.contains(key))

@@ -1,8 +1,11 @@
 """导出回归：来源保护、复制校验、发布回滚与备份保留。"""
 
 from pathlib import Path
+import json
+import plistlib
 import tempfile
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -32,6 +35,76 @@ class DesktopExportTest(unittest.TestCase):
     def previous(self):
         self.destination.mkdir(parents=True)
         (self.destination / "old").write_text("previous")
+
+    def export_arguments(self, platform="macos", app_bundle=False):
+        executable = self.root / "engine_app"
+        executable.write_bytes(b"fixture executable")
+        builder = self.root / "asset builder"
+        builder.write_bytes(b"fixture builder")
+        project = self.root / "project"
+        project.mkdir(exist_ok=True)
+        icu = self.root / "icudtl.dat"
+        icu.write_bytes(b"fixture ICU")
+        return SimpleNamespace(
+            executable=executable, builder=builder, project=project, icu=icu,
+            kind="runtime", platform=platform, app_bundle=app_bundle, product="game_runtime",
+            output=self.destination, manifest=Path("settings/resource-build.toml"),
+            support_file=[], support_directory=[], cmake="cmake", library_dir=[],
+        )
+
+    def test_export_uses_assets_directory_for_native_and_app_bundle(self):
+        for platform, app_bundle in (("windows", False), ("macos", False), ("macos", True)):
+            with self.subTest(platform=platform, app_bundle=app_bundle):
+                args = self.export_arguments(platform, app_bundle)
+                (self.source / "catalog.bin").write_bytes(catalog_fixture([self.entry], platform))
+                with (
+                    mock.patch.object(desktop, "ROOT", self.root),
+                    mock.patch.object(desktop, "build_resources", return_value=self.source),
+                    mock.patch.object(desktop.subprocess, "run"),
+                    mock.patch("builtins.print"),
+                ):
+                    desktop.export(args)
+                base = self.destination
+                if app_bundle:
+                    bundle = base / "game_runtime.app"
+                    base = bundle / "Contents/Resources"
+                    self.assertEqual(
+                        (bundle / "Contents/MacOS/game_runtime").read_bytes(),
+                        b"fixture executable",
+                    )
+                    with (bundle / "Contents/Info.plist").open("rb") as stream:
+                        self.assertEqual(
+                            plistlib.load(stream)["SDL_FILESYSTEM_BASE_DIR_TYPE"], "resource"
+                        )
+                else:
+                    binary = "game_runtime.exe" if platform == "windows" else "game_runtime"
+                    self.assertEqual((base / binary).read_bytes(), b"fixture executable")
+                self.assertTrue((base / "assets/catalog.bin").is_file())
+                self.assertEqual(
+                    (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
+                )
+                self.assertFalse((base / "catalog.bin").exists())
+                self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
+
+    def test_build_resources_passes_package_target_and_optional_manifest(self):
+        args = self.export_arguments()
+        receipt = {"status": "ok", "targetPlatform": "macos", "output": str(self.source)}
+        for manifest in (Path("settings/resource-build.toml"), None):
+            with self.subTest(manifest=manifest):
+                args.manifest = manifest
+                with mock.patch.object(
+                    desktop.subprocess, "run",
+                    return_value=mock.Mock(returncode=0, stdout=json.dumps(receipt)),
+                ) as run:
+                    self.assertEqual(desktop.build_resources(args), self.source)
+                expected = [
+                    str(args.builder), "--project", str(args.project), "--package",
+                    "--target", "macos",
+                ]
+                if manifest:
+                    expected += ["--manifest", manifest.as_posix()]
+                self.assertEqual(run.call_args.args[0], expected)
+                self.assertNotIn("shell", run.call_args.kwargs)
 
     def test_output_cannot_replace_source_ancestor_or_child(self):
         for candidate, source in (

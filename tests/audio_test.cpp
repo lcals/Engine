@@ -93,8 +93,8 @@ bool add_clip(test_support::ResourceFixture& fixture, std::string_view path, std
 bool prepare(test_support::ResourceFixture& fixture, engine::ResourceSystem& resources)
 {
     return !fixture.root.empty() && resources.initialize({}) &&
-           add_clip(fixture, "project/audio/mono.wav", 1) &&
-           add_clip(fixture, "project/audio/stereo.wav", 2) && fixture.publish(resources);
+           add_clip(fixture, "audio/mono.wav", 1) && add_clip(fixture, "audio/stereo.wav", 2) &&
+           fixture.publish(resources);
 }
 
 bool pump(engine::AudioSystem& audio, std::chrono::milliseconds duration)
@@ -142,7 +142,7 @@ bool settings_and_resources()
     auto* listener = node ? node->add_component<engine::AudioListener>() : nullptr;
     if (!expect(source && listener, "attach audio components") ||
         !expect(!source->play() && source->clip_data() == nullptr, "empty clip cannot play") ||
-        !expect(source->set_clip("project/audio/mono.wav"), "load audio by virtual path"))
+        !expect(source->set_clip("audio/mono.wav"), "load audio by virtual path"))
     {
         return false;
     }
@@ -152,7 +152,7 @@ bool settings_and_resources()
     if (!expect(engine::AudioSource::valid_settings(settings) && !source->set_settings(settings) &&
                     source->clip_data() == retained,
                 "pure settings validation does not require resource availability") ||
-        !expect(!source->set_clip("project/audio/missing.wav") && source->clip_data() == retained,
+        !expect(!source->set_clip("audio/missing.wav") && source->clip_data() == retained,
                 "failed clip replacement retains ownership"))
     {
         return false;
@@ -185,7 +185,7 @@ bool settings_and_resources()
         !expect(source->set_clip("") && source->clip_data() == nullptr &&
                     source->clip_path().empty(),
                 "empty path clears clip") ||
-        !expect(source->restore_data(snapshot) && source->clip_path() == "project/audio/mono.wav",
+        !expect(source->restore_data(snapshot) && source->clip_path() == "audio/mono.wav",
                 "restore clip using its GUID") ||
         !expect(source->play() && source->playback() == engine::AudioPlayback::pending &&
                     !source->playing(),
@@ -222,7 +222,7 @@ bool playback_and_lifecycle()
     auto* scene = world.create_scene("Audio playback");
     auto* node = scene ? scene->create_node("One shot") : nullptr;
     auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("project/audio/mono.wav"), "prepare one-shot source") ||
+    if (!expect(source && source->set_clip("audio/mono.wav"), "prepare one-shot source") ||
         !expect(audio.tick(0.0) && source->playing() && audio.voice_count() == 1,
                 "play-on-awake creates a real SDL stream even when spatially muted") ||
         !expect(SDL_GetCurrentAudioDriver() &&
@@ -281,7 +281,7 @@ bool playback_and_lifecycle()
     }
     auto* second_node = scene->create_node("Stereo");
     auto* second = second_node ? second_node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(second && second->set_clip("project/audio/stereo.wav"), "load stereo clip"))
+    if (!expect(second && second->set_clip("audio/stereo.wav"), "load stereo clip"))
     {
         return false;
     }
@@ -338,7 +338,7 @@ bool playback_and_lifecycle()
     scene = world.create_scene("New audio scene");
     node = scene ? scene->create_node("New source") : nullptr;
     source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("project/audio/mono.wav") && source->play(),
+    if (!expect(source && source->set_clip("audio/mono.wav") && source->play(),
                 "new scene has independent source identity"))
     {
         return false;
@@ -380,7 +380,7 @@ bool unavailable_device()
     auto* scene = world.create_scene("Unavailable output");
     auto* node = scene ? scene->create_node("Source") : nullptr;
     auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("project/audio/mono.wav") && source->play(),
+    if (!expect(source && source->set_clip("audio/mono.wav") && source->play(),
                 "playback request is accepted before opening the device") ||
         !expect(!audio.tick(0.0) && source->playback() == engine::AudioPlayback::failed &&
                     !source->playing() && audio.voice_count() == 0 && !audio.last_error().empty(),

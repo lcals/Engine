@@ -26,6 +26,15 @@ def safe_relative(path):
     return path
 
 
+def logical_path(path):
+    """运行逻辑名与存储路径分别校验；仅引擎资源使用命名空间。"""
+    if path.startswith("builtin://"):
+        safe_relative(path[len("builtin://") :])
+    else:
+        safe_relative(path)
+    return path
+
+
 class FlatBuffer:
     """读取所需的标量/表/字符串，不将包载荷读入目录模型。"""
 
@@ -116,7 +125,7 @@ def parse_catalog(snapshot, target_platform="android"):
     for pointer in data.vector(data.root, 3):
         asset = data.pointer(pointer)
         guid = data.string(asset, 0)
-        logical = safe_relative(data.string(asset, 1))
+        logical = logical_path(data.string(asset, 1))
         kind = data.value(asset, 2, "<B")
         checksum = data.string(asset, 3)
         size = data.value(asset, 4, "<Q")
@@ -134,7 +143,6 @@ def parse_catalog(snapshot, target_platform="android"):
             or guid == "00000000-0000-0000-0000-000000000000"
             or guid in identities
             or logical in paths
-            or not logical.startswith("project/")
             or kind > 15  # AssetKind in asset_catalog.fbs ends with effect, terrain, destruction.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
@@ -177,8 +185,7 @@ def parse_catalog(snapshot, target_platform="android"):
                 "dependencies": dependencies,
             }
         )
-    # 内置依赖由运行引擎提供；打包阶段只检查其专用命名空间和正常依赖无环。
-    # 完整内置身份校验已经由 asset_build_app 的共享 C++ 元数据接口完成。
+    # 运行包包含引擎内置实体，所有必要依赖都必须在本目录中，不借用旧包或宿主定义。
     edges = {item["guid"]: item["dependencies"] for item in entries}
     done, visiting = set(), set()
     for guid in edges:
@@ -198,7 +205,7 @@ def parse_catalog(snapshot, target_platform="android"):
             for dependency in edges[current]:
                 if dependency in edges:
                     pending.append((dependency, False))
-                elif not dependency.startswith("00000000-0000-4000-8000-"):
+                else:
                     raise ValueError("GUID catalog 必要依赖缺失")
     if ENTRY not in modules:
         raise ValueError("GUID catalog 缺少 scripts/game.js 入口模块")

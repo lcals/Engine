@@ -103,7 +103,7 @@ int main()
     std::vector<std::uint8_t> bytes;
     std::string error;
     if (!expect(MeshPrimitives::create({}, model, error), error) ||
-        !expect(EditableMesh::compile(model, "project/cube.mesh", expected, error), error) ||
+        !expect(EditableMesh::compile(model, "cube.mesh", expected, error), error) ||
         !expect(EditableMesh::serialize(model, bytes, error), error))
     {
         return 1;
@@ -137,7 +137,7 @@ int main()
     ByteBuffer payload;
     std::string guid;
     if (!expect(ResourceSystem::read_catalog(project.root / "cache", catalog), "read catalog") ||
-        !expect(catalog.identities().path_to_guid("project/cube.mesh", guid), "find source GUID") ||
+        !expect(catalog.identities().path_to_guid("cube.mesh", guid), "find source GUID") ||
         !expect(ResourceSystem::read_resource(catalog, {{"content", project.root / "cache"}}, guid,
                                               payload),
                 "read compiled mesh"))

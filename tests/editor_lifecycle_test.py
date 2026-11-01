@@ -219,10 +219,10 @@ def test(editor, mcp, root, temporary):
             with (large_assets / name).open("wb") as resource:
                 resource.truncate(33 * 1024 * 1024)
         (project / "settings/lifecycle-package.toml").write_text(
-            'target_platform=""\noutput="cache/build/lifecycle-package"\n'
+            'output="cache/build/lifecycle-package"\n'
             '[[items]]\nname="game"\nstorage="package"\n'
-            'roots=["project/scripts/game.ts","project/scenes/main.scene"]\n'
-            'keep=["project/large/first.bin","project/large/second.bin"]\n',
+            'roots=["scripts/game.ts","scenes/main.scene"]\n'
+            'keep=["large/first.bin","large/second.bin"]\n',
             encoding="utf-8",
         )
         tool(
@@ -233,9 +233,12 @@ def test(editor, mcp, root, temporary):
             {"manifest": "settings/lifecycle-package.toml"},
         )
         packages = list((project / "cache/build/lifecycle-package/packs").iterdir())
+        project_packages = [item for item in packages if not item.name.startswith("builtin-")]
         require(
-            len(packages) == 1 and packages[0].stat().st_size > 64 * 1024 * 1024,
-            "expected one valid built carrier larger than the per-resource limit",
+            len(packages) == 2
+            and len(project_packages) == 1
+            and project_packages[0].stat().st_size > 64 * 1024 * 1024,
+            "expected one oversized project carrier and one separate builtin carrier",
         )
         tool(mcp, project, runtime, "start_project")
         tool(mcp, project, runtime, "set_hot_reload", {"enabled": False})

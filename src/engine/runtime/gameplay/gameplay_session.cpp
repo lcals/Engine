@@ -225,7 +225,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
         return false;
     }
     std::string text;
-    if (!read_text(PathUtils::from_utf8("apk:/assets/project-manifest.json"), text))
+    if (!read_text(App::assets_path() / "resource-manifest.json", text))
     {
         message = "Cannot read APK project manifest";
         return false;
@@ -262,7 +262,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
         const auto path = item["path"].get<std::string>();
         fs::path file;
         if (!relative_path(path, normalized) || normalized != path || !seen.insert(path).second ||
-            !builtin_file(App::builtin_assets_path(), path, file))
+            !builtin_file(App::assets_path(), path, file))
         {
             message = "APK project file failed path, size or hash check: " + path;
             return false;
@@ -286,7 +286,7 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     if (seen.contains("catalog.bin"))
     {
         ResourceCatalog catalog;
-        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), catalog))
+        if (!ResourceSystem::read_catalog(App::assets_path(), catalog))
         {
             message = "APK GUID resource catalog is invalid";
             return false;
@@ -692,7 +692,7 @@ bool GameplaySession::start(std::string_view entry)
     if (!state_)
     {
         auto candidate = std::make_unique<State>(*this);
-        candidate->builtin.mounts = {{"content", App::builtin_assets_path()}};
+        candidate->builtin.mounts = {{"content", App::assets_path()}};
         candidate->builtin.revision = "builtin";
 #if defined(SDL_PLATFORM_ANDROID)
         std::set<std::string> deleted;
@@ -701,7 +701,7 @@ bool GameplaySession::start(std::string_view entry)
             return false;
         }
 #endif
-        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), candidate->builtin.catalog))
+        if (!ResourceSystem::read_catalog(App::assets_path(), candidate->builtin.catalog))
         {
             last_error_ = "Cannot read the built-in runtime catalog";
             return false;

@@ -51,8 +51,8 @@ bool commands()
     const auto undo_count = editor.undo_count();
     for (const Json& invalid :
          {Json{{"speed", -1}}, Json{{"speed", 17}}, Json{{"speed", "fast"}}, Json{{"loop", 1}},
-          Json{{"playOnAwake", "true"}}, Json{{"animation", "builtin/meshes/cube"}},
-          Json{{"animation", "project/missing.animation"}}, Json{{"unknown", 1}}})
+          Json{{"playOnAwake", "true"}}, Json{{"animation", "builtin://meshes/cube"}},
+          Json{{"animation", "missing.animation"}}, Json{{"unknown", 1}}})
     {
         auto request = target;
         request.update(invalid);

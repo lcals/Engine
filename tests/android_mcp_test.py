@@ -388,10 +388,10 @@ def test(server, root, work):
         with (large / name).open("wb") as resource:
             resource.truncate(33 * 1024 * 1024)
     (project / "settings/android-package.toml").write_text(
-        'target_platform="android"\noutput="cache/build/android-package"\n'
+        'output="cache/build/android-package"\n'
         '[[items]]\nname="game"\nstorage="package"\n'
-        'roots=["project/scripts/game.ts","project/scenes/main.scene"]\n'
-        'keep=["project/large/first.bin","project/large/second.bin"]\n',
+        'roots=["scripts/game.ts","scenes/main.scene"]\n'
+        'keep=["large/first.bin","large/second.bin"]\n',
         encoding="utf-8",
     )
     built = invoke(
@@ -399,13 +399,16 @@ def test(server, root, work):
         project,
         work,
         device,
-        [call("build_resources", {"manifest": "settings/android-package.toml"})],
+        [call("build_resources", {"manifest": "settings/android-package.toml", "targetPlatform": "android"})],
     )[0]
     require(not built["result"]["isError"], f"Android package build failed: {contents(built)}")
     packages = list((project / "cache/build/android-package/packs").iterdir())
+    project_packages = [item for item in packages if not item.name.startswith("builtin-")]
     require(
-        len(packages) == 1 and packages[0].stat().st_size > 65 * 1024 * 1024,
-        "expected a valid carrier above the previous adb response limit",
+        len(packages) == 2
+        and len(project_packages) == 1
+        and project_packages[0].stat().st_size > 65 * 1024 * 1024,
+        "expected a large project carrier and one separate builtin carrier",
     )
     previous = available_path.read_bytes()
     request = call("sync_assets", {"source": "cache/build/android-package"})
@@ -424,10 +427,12 @@ def test(server, root, work):
         f"large Android package transfer failed: {contents(transferred)}",
     )
     manifest = json.loads(available_path.read_text(encoding="utf-8"))
-    package_entries = [item for item in manifest["files"] if item["path"].startswith("packs/")]
+    package_entries = {
+        item["path"]: item["size"] for item in manifest["files"] if item["path"].startswith("packs/")
+    }
     require(
-        len(package_entries) == 1 and package_entries[0]["size"] == packages[0].stat().st_size,
-        "large carrier length changed during device transfer",
+        package_entries == {"packs/" + item.name: item.stat().st_size for item in packages},
+        "project or builtin carrier identity/length changed during device transfer",
     )
     calls = [
         json.loads(line)

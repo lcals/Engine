@@ -4,8 +4,8 @@ meta_version = 1
 
 [[resources]]
 path = "Texture/Arrow.png"
-resource = "project/effects/arrow/textures/arrow.png"
+resource = "effects/arrow/textures/arrow.png"
 
 [[resources]]
 path = "Model/Arrow.efkmodel"
-resource = "project/effects/arrow/models/arrow.efkmodel"
+resource = "effects/arrow/models/arrow.efkmodel"

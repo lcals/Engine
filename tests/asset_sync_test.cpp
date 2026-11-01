@@ -70,7 +70,7 @@ bool publish_scripts(const fs::path& source, const std::map<std::string, std::st
     {
         auto entry = std::make_unique<engine::schema::AssetEntryT>();
         entry->guid = source_guid(name);
-        entry->path = "project/" + name;
+        entry->path = name;
         entry->module_path = name;
         entry->kind = engine::schema::AssetKind::script;
         engine::ByteBuffer entity;
@@ -267,7 +267,7 @@ bool guid_exercise(const fs::path& root)
     catalog.target_platform = "android";
     auto asset = std::make_unique<engine::schema::AssetEntryT>();
     asset->guid = guid;
-    asset->path = "project/scripts/game.ts";
+    asset->path = "scripts/game.ts";
     asset->module_path = "scripts/game.js";
     asset->kind = engine::schema::AssetKind::script;
     asset->content_hash = encoded.data();

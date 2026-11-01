@@ -104,8 +104,8 @@ void MeshRenderer::set_cast_shadows(bool enabled) noexcept
 
 bool MeshRenderer::initialize()
 {
-    return mesh_instance_id_ != 0 && set_mesh("builtin/meshes/cube") &&
-           material_.set_type("builtin/materials/default-pbr");
+    return mesh_instance_id_ != 0 && set_mesh("builtin://meshes/cube") &&
+           material_.set_type("builtin://materials/default-pbr");
 }
 
 std::string_view MeshRenderer::mesh_path() const noexcept
@@ -319,7 +319,7 @@ bool MeshRenderer::set_material_count(std::size_t count)
     while (material_count() + replacements.size() < count)
     {
         std::unique_ptr<Material> material(new (std::nothrow) Material());
-        if (!material || !material->set_type("builtin/materials/default-pbr"))
+        if (!material || !material->set_type("builtin://materials/default-pbr"))
         {
             return false;
         }

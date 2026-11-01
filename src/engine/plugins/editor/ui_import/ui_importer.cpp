@@ -185,7 +185,7 @@ bool read_settings(const std::filesystem::path& source,
             error = "UI font family aliases must be valid and unique without case sensitivity";
             return false;
         }
-        std::string shader_name = "builtin/shaders/font";
+        std::string shader_name = "builtin://shaders/font";
         if (font->contains("shader"))
         {
             const auto name = (*font)["shader"].value<std::string>();
@@ -444,7 +444,7 @@ bool UiImporter::matches(const std::filesystem::path& source) const
 std::string_view UiImporter::default_meta() const noexcept
 {
     return "\n[ui]\ntextures = []\n\n[[ui.fonts]]\nfamily = \"body\"\nasset = \"\"\n"
-           "shader = \"builtin/shaders/font\"\n";
+           "shader = \"builtin://shaders/font\"\n";
 }
 
 bool UiImporter::inspect_batch(const editor::asset_pipeline::ImportContext&,

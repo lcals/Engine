@@ -36,8 +36,8 @@ namespace
 {
 namespace fs = std::filesystem;
 constexpr double delta_time = 1.0 / 60.0;
-constexpr std::string_view main_scene = "project/scenes/main.scene";
-constexpr std::string_view main_document = "project/ui/main.rml";
+constexpr std::string_view main_scene = "scenes/main.scene";
+constexpr std::string_view main_document = "ui/main.rml";
 constexpr std::string_view ui_guid = "29000000-0000-4000-8000-000000000001";
 constexpr std::string_view alternate_guid = "29000000-0000-4000-8000-000000000002";
 
@@ -159,8 +159,8 @@ struct Project
                             "guid = \"" + std::string(document_guids[index]) +
                                 "\"\nimporter = \"ui\"\nmeta_version = 1\n[ui]\ntextures = []\n"
                                 "[[ui.fonts]]\nfamily = \"body\"\n"
-                                "asset = \"project/fonts/lato-regular.ttf\"\n"
-                                "shader = \"builtin/shaders/font\"\n") ||
+                                "asset = \"fonts/lato-regular.ttf\"\n"
+                                "shader = \"builtin://shaders/font\"\n") ||
                 !write_text(scene, "name = \"MVC\"\nactive_camera = 0\n"
                                    "[[nodes]]\nid = 1\nname = \"View\"\nparent = 0\n"
                                    "[[nodes.components]]\ntype = \"transform\"\n"
@@ -212,7 +212,7 @@ class CounterController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        this.scene = Scene.Load('project/scenes/main.scene');
+        this.scene = Scene.Load('scenes/main.scene');
         this.view = this.scene?.FindNode('View')?.GetComponent(UiComponent);
         check(this.view instanceof Component && this.view.IsValid(), 'ordinary UI component');
         this.model = { count: 0, changes: 0, inputs: 0, name: '', binds: 0, unbinds: 0 };
@@ -274,19 +274,19 @@ class LifetimeController extends UiController {
             ++this.model.calls;
             check(this.model.calls === 1, 'queued old events are discarded');
             if (operation === 'document') {
-                check(this.view.SetDocument('project/ui/alternate.rml'), 'replace document');
+                check(this.view.SetDocument('ui/alternate.rml'), 'replace document');
                 check(!this.model.button.isValid, 'old document handle is invalid');
                 check(this.view.FindElement('label').SetText(operation), 'new document view');
             } else if (operation === 'roundtrip') {
-                check(this.view.SetDocument('project/ui/alternate.rml') &&
-                      this.view.SetDocument('project/ui/main.rml'),
+                check(this.view.SetDocument('ui/alternate.rml') &&
+                      this.view.SetDocument('ui/main.rml'),
                       'replace A with B and restore A before querying either View');
                 check(!this.model.button.isValid && !this.model.button.SetText('stale') &&
                       this.view.FindElement('action').isValid,
                       'returning to the same resource does not revive old handles');
                 check(this.view.FindElement('label').SetText(operation), 'replacement A view');
             } else if (operation === 'scene') {
-                const next = Scene.Load('project/scenes/alternate.scene');
+                const next = Scene.Load('scenes/alternate.scene');
                 check(next && !this.model.scene.IsValid() && !this.model.button.isValid,
                       'scene replacement invalidates old handles during callback');
                 check(next.FindNode('View').GetComponent(UiComponent).FindElement('label')
@@ -309,7 +309,7 @@ class LifetimeController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        this.scene = Scene.Load('project/scenes/main.scene');
+        this.scene = Scene.Load('scenes/main.scene');
         this.view = this.scene?.FindNode('View')?.GetComponent(UiComponent);
         this.button = this.view?.FindElement('action');
         check(this.button?.isValid, 'find original button');
@@ -320,7 +320,7 @@ export default class extends Gameplay {
         check(plain.SetVisible(false) && plain.SetVisible(true) &&
               this.button.SetEnabled(false) && this.button.SetEnabled(true) &&
               plain.SetClass('selected', true) && plain.SetClass('selected', false) &&
-              plain.SetStyle('font-size', '22px') && !plain.SetImage('project/missing.png') &&
+              plain.SetStyle('font-size', '22px') && !plain.SetImage('missing.png') &&
               this.view.SetVisible(false) && !this.view.visible &&
               this.view.SetVisible(true) && this.view.visible, 'View modifiers');
         const input = this.view.FindElement('name');
@@ -394,7 +394,7 @@ class BubbleController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
         this.model = { button: view?.FindElement('bubble-button'),
                        caption: view?.FindElement('caption'), label: view?.FindElement('label'),
@@ -425,7 +425,7 @@ constexpr std::string_view no_ui_source = R"js(
 import { Gameplay, Scene, UiComponent, UiController } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
         if (!view || view.FindElement('action') !== null || view.SetVisible(true)) return false;
         const controller = new UiController(view, {});
@@ -438,7 +438,7 @@ constexpr std::string_view async_source = R"js(
 import { Gameplay, Scene, UiComponent } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const button = scene?.FindNode('View')?.GetComponent(UiComponent)?.FindElement('action');
         return button !== undefined && button !== null && button.On('click', async () => {}) > 0;
     }
@@ -472,7 +472,7 @@ struct Systems
                     std::string_view name, std::string_view source)
     {
         auto entry = std::make_unique<engine::schema::AssetEntryT>();
-        entry->path = "project/scripts/" + std::string(name) + ".js";
+        entry->path = "scripts/" + std::string(name) + ".js";
         entry->module_path = "scripts/" + std::string(name) + ".js";
         entry->guid = "29000000-0000-4000-8000-" + hash_text(entry->path).substr(4);
         entry->kind = engine::schema::AssetKind::script;
@@ -758,7 +758,7 @@ bool independent_documents(Systems& systems)
     }
     auto* original_component = scene->nodes().front()->get_component<engine::UiComponent>();
     const auto revision = original_component->document_revision();
-    if (!expect(original_component->set_document("project/ui/alternate.rml") &&
+    if (!expect(original_component->set_document("ui/alternate.rml") &&
                     original_component->document_revision() == revision + 1 &&
                     original_component->set_document(main_document) &&
                     original_component->document_revision() == revision + 2 &&
@@ -828,7 +828,7 @@ int main(int argc, char** argv)
     }
     engine::AppConfig app;
     app.application_name = "engine-ui-script-test";
-    app.builtin_assets_path = project.root / "builtin";
+    app.assets_path = project.root / "builtin";
     app.persistent_data_path = project.root / "persistent";
     app.cache_path = project.root / "app-cache";
     if (!engine::App::initialize(app) || !engine::LogSystem::instance().initialize({}))

@@ -166,10 +166,10 @@ def test(builder, source_project, temporary):
         if path.is_file() and not path.name.endswith(".meta")
     }
     shader_sources = sorted(
-        "project/" + path for path in shader_assets if not path.endswith(".shader")
+        path for path in shader_assets if not path.endswith(".shader")
     )
     require(
-        "project/shaders/pbr_helpers.sh" in shader_sources,
+        "shaders/pbr_helpers.sh" in shader_sources,
         "shader fixture must include the shared PBR helper source",
     )
     shader_first = build(builder, project)
@@ -214,10 +214,10 @@ def test(builder, source_project, temporary):
             "SELECT dependency.path FROM runtime_dependencies edge "
             "JOIN assets owner ON owner.guid=edge.asset_guid "
             "JOIN assets dependency ON dependency.guid=edge.dependency_guid "
-            "WHERE owner.path='project/game.ts' ORDER BY dependency.path"
+            "WHERE owner.path='game.ts' ORDER BY dependency.path"
         ).fetchall()
         require(
-            runtime == [("project/helper.ts",)],
+            runtime == [("helper.ts",)],
             "only emitted JS imports become runtime dependencies",
         )
         shader_runtime = database.execute(

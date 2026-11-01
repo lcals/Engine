@@ -8,4 +8,6 @@
 
 出包时资源管线生成目标平台 catalog 与 GUID 产物，平台工具将其部署到包内。平台专用工程、入口与资源集中于 `platforms/<platform>/`；Android 位于 `platforms/android/`。SQLite、源 meta、TypeScript 工程设置不进入运行包，构建与测试命令见根 [README](../../README.md)。
 
+桌面运行包将 `catalog.bin` 与实际使用的 `gen/`、`packs/` 部署到程序资源基目录的 `assets/` 下；原生目录模式为程序旁的 `assets/`，可选 macOS `.app` 模式为 `Contents/Resources/assets/`。Android 直接使用 APK 的 `assets/` 根，对应 App 的 `apk:/assets`，并在同根生成 `resource-manifest.json` 记录运行资源版本与载体校验。Android 打包将整个 `assets/` 作为一版原子替换，保留独立 `v8/` 数据；失败恢复上一版，旧构建残留不带入新快照。
+
 桌面与 Android 调试包共用完整资源版本协议。既有 Android 打包入口、V8、PBR 场景、资源同步及生命周期已有模拟器验证记录；资源目录 v2 与合并包的最新验证范围见 README。发布签名、正式内容更新渠道与其他平台的单文件交付尚未实现。

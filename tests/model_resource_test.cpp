@@ -165,7 +165,7 @@ bool loading_and_instantiation()
     }
     auto* renderer = scene.nodes()[3]->get_component<engine::MeshRenderer>();
     auto* animator = scene.nodes()[3]->add_component<engine::Animator>();
-    if (!expect(renderer && renderer->mesh_path() == "project/meshes/skinned.mesh" && animator &&
+    if (!expect(renderer && renderer->mesh_path() == "meshes/skinned.mesh" && animator &&
                     animator->set_animation(clip_path) && fixture.animation.tick(0.5) &&
                     renderer->deformed_vertices().empty() &&
                     renderer->skinning_palette().size() == 4 &&
@@ -175,8 +175,8 @@ bool loading_and_instantiation()
         return false;
     }
     const auto count = scene.nodes().size();
-    if (!expect(!scene.instantiate_model("builtin/meshes/cube", "Wrong type") &&
-                    !scene.instantiate_model("project/missing.fbx", "Missing") &&
+    if (!expect(!scene.instantiate_model("builtin://meshes/cube", "Wrong type") &&
+                    !scene.instantiate_model("missing.fbx", "Missing") &&
                     scene.nodes().size() == count,
                 "wrong resource types never mutate the existing scene"))
     {

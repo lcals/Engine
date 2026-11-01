@@ -3,6 +3,7 @@
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "plugins/runtime/effects/effect_validation.hpp"
+#include "runtime/core/guid_map.hpp"
 #include "runtime/schema/effect_generated.h"
 #include "runtime/utils/path_utils.hpp"
 
@@ -117,14 +118,15 @@ bool resource_remaps(const editor::asset_pipeline::ImportAsset& asset,
         const auto path = (*table)["path"].value<std::string>();
         const auto resource = (*table)["resource"].value<std::string>();
         std::string normalized;
-        if (!path || !resource || !resource->starts_with("project/") ||
+        if (!path || !resource || !GuidMap::valid_path(*resource) ||
+            resource->find(':') != std::string::npos ||
             !normalize_reference(*path, normalized, error) ||
             !output.emplace(normalized, *resource).second)
         {
             if (error.empty())
             {
-                error =
-                    "effect resource mapping requires unique relative paths and project/ resources";
+                error = "effect resource mapping requires unique relative paths and "
+                        "assets-relative resources";
             }
             return false;
         }
@@ -143,12 +145,12 @@ bool dependency_path(const editor::asset_pipeline::ImportAsset& asset,
     if (remap != remaps.end())
     {
         logical = remap->second;
-        source = (root / PathUtils::from_utf8(logical.substr(8))).lexically_normal();
+        source = (root / PathUtils::from_utf8(logical)).lexically_normal();
     }
     else
     {
         source = (asset.source.parent_path() / PathUtils::from_utf8(dependency)).lexically_normal();
-        logical = "project/" + PathUtils::to_utf8(source.lexically_relative(root));
+        logical = PathUtils::to_utf8(source.lexically_relative(root));
     }
     if (!inside(source, root))
     {

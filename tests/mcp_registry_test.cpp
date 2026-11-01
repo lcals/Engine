@@ -60,8 +60,8 @@ bool exercise_bake_tools()
     }
     Json result;
     return check(mcp.call_tool("bake_scene",
-                               {{"scene", "project/scenes/test.scene"},
-                                {"environment", "project/sky.png"},
+                               {{"scene", "scenes/test.scene"},
+                                {"environment", "sky.png"},
                                 {"effects", Json::array({"unknown"})}},
                                result) == McpCallStatus::invalid_arguments &&
                      result.empty(),
@@ -168,9 +168,10 @@ bool exercise_terrain_tools()
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", -1}}},
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", 10001}}},
           std::pair{"terrain_brush", Json{{"center", Json::array({0, 0})}, {"radius", 2}}},
-          std::pair{"terrain_collapse_detached",
-                    Json{{"minSamples", 8}, {"maxFragments", 129}, {"fragmentCells", 2},
-                         {"density", 250}}},
+          std::pair{"terrain_collapse_detached", Json{{"minSamples", 8},
+                                                      {"maxFragments", 129},
+                                                      {"fragmentCells", 2},
+                                                      {"density", 250}}},
           std::pair{
               "terrain_brush",
               Json{{"center", Json::array({0, 0, 0})}, {"radius", 2}, {"operation", "unknown"}}}})

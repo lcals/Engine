@@ -143,18 +143,18 @@ bool fixture(const fs::path& workspace, std::string_view revision,
     };
     for (const auto& [module, source] : scripts)
     {
-        if (!add("project/" + module, module, engine::schema::AssetKind::script, source))
+        if (!add(module, module, engine::schema::AssetKind::script, source))
         {
             return false;
         }
     }
     if (!scene_bytes.empty() &&
-        !add("project/scenes/main.scene", "", engine::schema::AssetKind::scene, scene_bytes))
+        !add("scenes/main.scene", "", engine::schema::AssetKind::scene, scene_bytes))
     {
         return false;
     }
     if (!audio_bytes.empty() &&
-        !add("project/sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
+        !add("sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
     {
         return false;
     }
@@ -540,7 +540,7 @@ export default class extends Gameplay {
 }
 
 const std::string scene_source = R"js(
-import { Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
+import { App, Gameplay, Scene, Time, Debug, Component, Camera, Light, MeshRenderer, Transform } from 'engine';
 const topLevelBlocked = Scene.Create('top-level') === null && Time.deltaTime === 0;
 export default class Game extends Gameplay {
     cube = null;
@@ -551,6 +551,9 @@ export default class Game extends Gameplay {
         this.constructorBlocked = Scene.Create('constructor') === null;
     }
     OnInitialize() {
+        if (typeof App.assetsPath !== 'string' || App.assetsPath.length === 0 ||
+            'builtinAssetsPath' in App || typeof App.persistentDataPath !== 'string' ||
+            typeof App.cachePath !== 'string') return false;
         if (!topLevelBlocked || !this.constructorBlocked || Time.deltaTime !== 0) return false;
         const discarded = Scene.Create('discarded');
         const oldNode = discarded?.CreateNode('old');
@@ -588,23 +591,23 @@ export default class Game extends Gameplay {
             mesh.SetMaterialCount(0) || mesh.SetMaterialCount(17) ||
             !mesh.SetMaterialCount(2) || mesh.materialCount !== 2) return false;
         const slot = mesh.GetMaterial(1);
-        if (!slot || !slot.IsValid() || !slot.SetType('builtin/materials/default-unlit') ||
+        if (!slot || !slot.IsValid() || !slot.SetType('builtin://materials/default-unlit') ||
             !slot.SetV4('baseColor', .1, .2, .3, 1) ||
-            !slot.SetTexture('baseColorTexture', 'builtin/textures/white-srgb') ||
-            slot.GetTexture('baseColorTexture') !== 'builtin/textures/white-srgb' ||
+            !slot.SetTexture('baseColorTexture', 'builtin://textures/white-srgb') ||
+            slot.GetTexture('baseColorTexture') !== 'builtin://textures/white-srgb' ||
             slot.GetTexture('missing') !== null ||
-            slot.SetTexture('missing', 'builtin/textures/white-srgb') ||
-            slot.SetTexture('baseColorTexture', 'builtin/meshes/cube') ||
+            slot.SetTexture('missing', 'builtin://textures/white-srgb') ||
+            slot.SetTexture('baseColorTexture', 'builtin://meshes/cube') ||
             !mesh.SetMaterialCount(1) || slot.IsValid() || slot.SetFloat('roughness', .4) ||
             slot.GetTexture('baseColorTexture') !== null || mesh.materialCount !== 1 ||
-            !mesh.SetMesh('builtin/meshes/cube') || mesh.SetMesh('project/missing') ||
-            !mesh.material.SetTexture('baseColorTexture', 'builtin/textures/white-srgb')) return false;
+            !mesh.SetMesh('builtin://meshes/cube') || mesh.SetMesh('missing') ||
+            !mesh.material.SetTexture('baseColorTexture', 'builtin://textures/white-srgb')) return false;
         if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
-            !mesh.material.SetShader('builtin/shaders/unlit') || mesh.material.SetShader('project/shaders/missing') ||
-            !mesh.material.SetType('builtin/materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
-            !mesh.material.SetType('builtin/materials/default-pbr') || !mesh.material.SetV4('baseColor', .2, .3, .4, 1) ||
+            !mesh.material.SetShader('builtin://shaders/unlit') || mesh.material.SetShader('shaders/missing') ||
+            !mesh.material.SetType('builtin://materials/default-unlit') || mesh.material.SetFloat('metallic', .5) ||
+            !mesh.material.SetType('builtin://materials/default-pbr') || !mesh.material.SetV4('baseColor', .2, .3, .4, 1) ||
             !mesh.material.SetFloat('metallic', .7) || !mesh.material.SetFloat('roughness', .2) ||
-            !mesh.material.SetType('builtin/materials/default-pbr') || mesh.material.SetType('unknown') ||
+            !mesh.material.SetType('builtin://materials/default-pbr') || mesh.material.SetType('unknown') ||
             mesh.material.SetFloat('missing', 1) || mesh.material.SetFloat('baseColor', .2) ||
             mesh.material.SetV2('roughness', .1, .2) || mesh.material.SetV3('baseColor', .2, .3, .4) ||
             mesh.material.SetV4('baseColor', 2, .3, .4, 1) ||
@@ -699,7 +702,7 @@ export default class extends Gameplay {
     Update(){if(this.scene.IsValid() || this.node.IsValid() || this.mesh.IsValid() ||
         this.transform.SetPosition(9,9,9) || this.node.GetComponent(MeshRenderer)!==null || this.material.IsValid() ||
         this.material.SetV4('baseColor',1,1,1,1) ||
-        this.material.SetTexture('baseColorTexture','builtin/textures/white-srgb') ||
+        this.material.SetTexture('baseColorTexture','builtin://textures/white-srgb') ||
         this.material.GetTexture('baseColorTexture')!==null || this.mesh.GetMaterial(0)!==null ||
         this.mesh.SetMaterialCount(2) || this.mesh.SetEnabled(false) || this.scene.Destroy() ||
         Scene.Create('steal')!==null) throw new Error('stale references were accepted');
@@ -758,8 +761,8 @@ import {Gameplay,Scene,Debug} from 'engine';
 import {value} from './lib/value.js';
 export default class extends Gameplay {
     scene=null;
-    OnInitialize(){this.scene=Scene.Load('project/scenes/main.scene');
-        if(!this.scene || !this.scene.FindNode('GUID Node') || Scene.Load('project/scenes/missing.scene')!==null)return false;
+    OnInitialize(){this.scene=Scene.Load('scenes/main.scene');
+        if(!this.scene || !this.scene.FindNode('GUID Node') || Scene.Load('scenes/missing.scene')!==null)return false;
         Debug.Log('guid:start:'+value);return true;}
     Update(){if(!this.scene.IsValid())throw new Error('scene expired');Debug.Log('guid:update:'+value);}
 }
@@ -770,7 +773,7 @@ export default class extends Gameplay {
                  version, bytes) ||
         !expect(apply(script, version) && log_contains("guid:start:7"),
                 "GUID scripts and Scene.Load execute") ||
-        !write_file(version.root / "gen" / guid_for("project/scenes/main.scene"), "corrupt") ||
+        !write_file(version.root / "gen" / guid_for("scenes/main.scene"), "corrupt") ||
         !expect(script.tick(.01) && log_contains("guid:update:7"),
                 "loaded scene owns its data independently"))
     {
@@ -848,8 +851,8 @@ export default class extends Gameplay {
             listener.SetVolume(NaN) || !listener.SetVolume(.75) ||
             !audio.SetVolume(.5) || !audio.SetPitch(1.25) || !audio.SetLoop(true) ||
             !audio.SetSpatial(false) || !audio.SetPlayOnAwake(false) ||
-            !audio.SetDistances(1, 25) || !audio.SetClip('project/sounds/test.wav') ||
-            audio.SetClip('builtin/meshes/cube') || !audio.Play() ||
+            !audio.SetDistances(1, 25) || !audio.SetClip('sounds/test.wav') ||
+            audio.SetClip('builtin://meshes/cube') || !audio.Play() ||
             audio.isPlaying || audio.playback !== 'pending' || !audio.Pause() ||
             audio.playback !== 'paused' || !audio.Play() || !audio.Stop() ||
             audio.playback !== 'stopped' || audio.isPlaying) return false;
@@ -1367,7 +1370,7 @@ int main(int argc, char** argv)
     }
     engine::AppConfig app;
     app.application_name = "engine-script-runtime-test";
-    app.builtin_assets_path = workspace / fs::path(u8"builtin-资源");
+    app.assets_path = workspace / fs::path(u8"builtin-资源");
     app.persistent_data_path = workspace / fs::path(u8"data-持久");
     app.cache_path = workspace / fs::path(u8"cache-缓存");
     if (!engine::App::initialize(app))

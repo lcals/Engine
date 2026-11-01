@@ -210,7 +210,7 @@ bool run(Project& project)
     {
         return false;
     }
-    encoded.insert_or_assign("destruction", "project/test.destruction");
+    encoded.insert_or_assign("destruction", "test.destruction");
     if (!expect(!codec.read(encoded, roundtrip, error),
                 "scene persistence requires GUID identity rather than unresolved paths"))
     {

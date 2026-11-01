@@ -482,9 +482,8 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
             const auto filename = name + (suffix ? "-override-" + std::to_string(suffix) : "") +
                                   std::string(extension);
             const auto candidate = folder / filename;
-            const auto logical =
-                "project/" + PathUtils::to_utf8(
-                                 candidate.lexically_relative(root / "assets").generic_u8string());
+            const auto logical = PathUtils::to_utf8(
+                candidate.lexically_relative(root / "assets").generic_u8string());
             if (referenced_sources.contains(logical))
             {
                 continue;
@@ -535,7 +534,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                 return false;
             }
             const auto logical =
-                "project/" +
+
                 PathUtils::to_utf8(path.lexically_relative(root / "assets").generic_u8string());
             std::string assigned_path;
             if ((known != sources.end() && guid != known->second.guid) ||
@@ -758,7 +757,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         sources.insert_or_assign(path, std::move(saved_source));
     }
     result = {{"sceneId", identity},
-              {"path", "project/" + relative},
+              {"path", relative},
               {"guid", guid},
               {"nodeCount", data.nodes.size()},
               {"resourceCount", resource_count},

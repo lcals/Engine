@@ -461,9 +461,9 @@ def test(
     require("gen/" + helper_guid in manifest["deleted"], "deleted module was not recorded")
 
     (project / "settings/test-package.toml").write_text(
-        'target_platform=""\noutput="cache/build/test-package"\n'
+        'output="cache/build/test-package"\n'
         '[[items]]\nname="game"\nstorage="package"\n'
-        'roots=["project/scripts/game.ts", "project/scenes/main.scene"]\n',
+        'roots=["scripts/game.ts", "scenes/main.scene"]\n',
         encoding="utf-8",
     )
     built = invoke(
@@ -471,22 +471,26 @@ def test(
     )[0]
     require(not built["result"]["isError"], f"MCP resource build failed: {contents(built)}")
     first_build = contents(built)
+    host_target = {"win32": "windows", "darwin": "macos", "linux": "linux"}[sys.platform]
+    client_arguments = [
+        sys.executable,
+        str(root / "scripts/mcp_client.py"),
+        "--server",
+        str(mcp),
+        "--project",
+        str(project),
+        "--runtime-dir",
+        str(runtime),
+        "build",
+        "--manifest",
+        "settings/test-package.toml",
+        "--item",
+        "game",
+        "--target",
+        host_target,
+    ]
     client = subprocess.run(
-        [
-            sys.executable,
-            str(root / "scripts/mcp_client.py"),
-            "--server",
-            str(mcp),
-            "--project",
-            str(project),
-            "--runtime-dir",
-            str(runtime),
-            "build",
-            "--manifest",
-            "settings/test-package.toml",
-            "--item",
-            "game",
-        ],
+        client_arguments,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -498,6 +502,28 @@ def test(
     require(
         rebuilt["revision"] == first_build["revision"] and rebuilt["reusedPackages"] > 0,
         "unchanged MCP package build did not reuse its output",
+    )
+    default_arguments = client_arguments.copy()
+    manifest_index = default_arguments.index("--manifest")
+    del default_arguments[manifest_index : manifest_index + 2]
+    default_build = subprocess.run(
+        default_arguments,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+    require(
+        default_build.returncode == 0,
+        f"MCP client default manifest failed: {default_build.stderr} {default_build.stdout}",
+    )
+    default_result = json.loads(default_build.stdout)
+    require(
+        Path(default_result["output"]).resolve() == (project / "cache/build" / host_target).resolve()
+        and default_result["resources"] == first_build["resources"]
+        and default_result["packages"] == first_build["packages"],
+        "omitting the manifest must apply the standard project selection and target output",
     )
     client_prefix = [
         sys.executable,

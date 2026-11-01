@@ -4,8 +4,8 @@ meta_version = 1
 
 [[resources]]
 path = "textures/smoke.png"
-resource = "project/effects/destruction/textures/smoke.png"
+resource = "effects/destruction/textures/smoke.png"
 
 [[resources]]
 path = "textures/particle-soft.png"
-resource = "project/effects/destruction/textures/particle-soft.png"
+resource = "effects/destruction/textures/particle-soft.png"

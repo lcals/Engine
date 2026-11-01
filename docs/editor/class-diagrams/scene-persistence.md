@@ -32,7 +32,7 @@ classDiagram
 
 `MeshSourceWriter = std::function<bool(const Node&, const std::filesystem::path&, std::string&)>`，图中的名称是函数类型别名，不是新增业务类。`ScenePersistence` 属于 `engine::editor`，只使用该函数契约，不包含或链接 `ModelingCommands`；启用建模时，宿主可提供捕获建模对象的回调，并保证该对象在回调释放前存活。
 
-`SavedCallback = std::function<void(std::string_view, std::span<const SceneSavedResource>)>` 可空，成功发布场景后通知其 `project/` 逻辑路径和本批变化资源；span 仅在回调期间借用。宿主用它更新 ScenePreview 的保存检查点并区分自保存与外部修改；失败不触发，无变化保存传空列表，保存到其他路径不解除当前预览的未保存保护。
+`SavedCallback = std::function<void(std::string_view, std::span<const SceneSavedResource>)>` 可空，成功发布场景后通知其 assets 相对逻辑路径和本批变化资源；span 仅在回调期间借用。宿主用它更新 ScenePreview 的保存检查点并区分自保存与外部修改；失败不触发，无变化保存传空列表，保存到其他路径不解除当前预览的未保存保护。
 保存由编辑器驱动：以 FlatBuffers 原生数据快照记录层级、组件、启用状态及活动相机。
 已加载网格保留原 GUID，不重新调用网格导出器；材质使用 `Material::has_overrides()` 查询有效值，未覆盖时直接保留原资源 GUID。仅动态网格和有覆盖值的材质写入场景相邻资源目录，覆盖材质独立保存，不修改其他节点共享的美术源材质。邻接 meta 复用资源管线身份规则。
 
