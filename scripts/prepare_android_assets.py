@@ -1,7 +1,6 @@
 """按 v2 资源清单复制散文件或包成员，事务更新 Android 内置资源并保留 v8。"""
 
 import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,15 +10,9 @@ import sys
 
 from artifact_output import plain_path, staged_output
 from resource_catalog import (
-    ENTRY,
-    FNV_OFFSET,
-    FNV_PRIME,
-    FNV_MASK,
     MAX_ASSET_SIZE,
     MAX_MANIFEST_SIZE,
-    MAX_SCRIPT_SIZE,
     FlatBuffer,
-    catalog_entries,
     parse_catalog,
     read_catalog,
     safe_file,
@@ -28,7 +21,6 @@ from resource_catalog import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-RESOURCE_MANIFEST = "resource-manifest.json"
 
 
 def require_directory(path):
@@ -112,7 +104,7 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
     return source
 
 
-def copy_asset(source, destination, relative, limit=MAX_ASSET_SIZE):
+def copy_asset(source, destination, limit=MAX_ASSET_SIZE):
     before = source.lstat()
     if not stat.S_ISREG(before.st_mode):
         raise ValueError(f"资源必须是普通文件，不能是符号链接：{source}")
@@ -120,7 +112,6 @@ def copy_asset(source, destination, relative, limit=MAX_ASSET_SIZE):
         raise ValueError(f"资源超过 {limit} 字节上限：{source}")
     destination.parent.mkdir(parents=True, exist_ok=True)
     size = 0
-    checksum = FNV_OFFSET
     with source.open("rb") as input_file, destination.open("xb") as output_file:
         opened = os.fstat(input_file.fileno())
         if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
@@ -133,17 +124,8 @@ def copy_asset(source, destination, relative, limit=MAX_ASSET_SIZE):
             if size > limit:
                 raise ValueError(f"读取期间资源超过 {limit} 字节上限：{source}")
             output_file.write(block)
-            for value in block:
-                checksum = ((checksum ^ value) * FNV_PRIME) & FNV_MASK
     if size != before.st_size:
         raise ValueError(f"准备资源期间文件长度发生变化：{source}")
-    return {"path": relative, "size": size, "hash": f"{checksum:016x}"}
-
-
-def json_bytes(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
-        "utf-8"
-    )
 
 
 def stage_assets(source, staging):
@@ -158,27 +140,15 @@ def stage_assets(source, staging):
         carriers[entry["path"]] = max(
             carriers.get(entry["path"], 0), entry["offset"] + entry["size"]
         )
-    target = staging
-    files = []
-    description_size = 0
     for relative, limit in sorted(carriers.items()):
         path = safe_file(source, relative)
-        item = copy_asset(path, target / relative, relative, limit)
-        description_size += len(json_bytes(item)) + 1
-        if description_size > MAX_MANIFEST_SIZE:
-            raise ValueError("Android 项目资源清单超过 4 MiB，请减少单包资源数量。")
-        files.append(item)
-    if read_catalog(target) != snapshot:
+        copy_asset(path, staging / relative, limit)
+    if read_catalog(staging) != snapshot:
         raise ValueError("复制期间 GUID catalog 发生变化，请重新打包。")
     for entry in expected:
-        validate_entity(target / entry["path"], entry)
-    manifest = {"entry": ENTRY, "files": files, "deleted": []}
-    manifest["revision"] = "apk-" + hashlib.sha256(json_bytes(manifest)).hexdigest()
-    encoded = json_bytes(manifest) + b"\n"
-    if len(encoded) > MAX_MANIFEST_SIZE:
-        raise ValueError("Android 项目资源清单超过 4 MiB，请减少单包资源数量。")
-    (staging / RESOURCE_MANIFEST).write_bytes(encoded)
-    return manifest
+        validate_entity(staging / entry["path"], entry)
+    catalog = FlatBuffer(snapshot, b"EASC")
+    return {"revision": catalog.string(catalog.root, 1), "file_count": len(carriers)}
 
 
 def prepare(project, output, asset_builder=None, manifest=None, resource_root=None):
@@ -206,10 +176,10 @@ def prepare(project, output, asset_builder=None, manifest=None, resource_root=No
             preserved.mkdir()
             for path in asset_files(v8):
                 relative = path.relative_to(v8).as_posix()
-                copy_asset(path, preserved / relative, relative)
+                copy_asset(path, preserved / relative)
         source = compile_catalog(project, asset_builder, manifest, resource_root)
-        manifest = stage_assets(source, staging)
-    return manifest
+        receipt = stage_assets(source, staging)
+    return receipt
 
 
 def main():
@@ -228,7 +198,7 @@ def main():
     )
     parser.add_argument("--resource-root", type=Path, help="已有 v2 运行包目录；指定后不调用构建器")
     arguments = parser.parse_args()
-    manifest = prepare(
+    receipt = prepare(
         arguments.project,
         arguments.output,
         arguments.asset_builder,
@@ -236,8 +206,8 @@ def main():
         arguments.resource_root,
     )
     print(
-        f"Android 项目资源已准备：{arguments.output}（{len(manifest['files'])} 个文件，"
-        f"版本 {manifest['revision']}）"
+        f"Android 项目资源已准备：{arguments.output}（{receipt['file_count']} 个文件，"
+        f"版本 {receipt['revision']}）"
     )
     return 0
 

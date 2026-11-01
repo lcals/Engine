@@ -33,7 +33,7 @@
 
 ## 统一资源根与引擎资源
 
-`App::assets_path()` 返回应用包内读取根：Windows/macOS 原生程序使用程序旁 `assets/`，可选 macOS `.app` 使用 `Contents/Resources/assets/`，Android 为 `apk:/assets`。根下直接放 `catalog.bin` 及引用的 `packs/`、`gen/`；Android 另有 `resource-manifest.json` 供部署版本校验。项目名不进入这个布局。编辑器显式把读取根覆盖为项目 `cache/`，不复制第二份导入缓存。
+`App::assets_path()` 返回应用包内读取根：Windows/macOS 原生程序使用程序旁 `assets/`，可选 macOS `.app` 使用 `Contents/Resources/assets/`，Android 为 `apk:/assets`。根下直接放 `catalog.bin` 及引用的 `packs/`、`gen/`，所有平台直接读取同一 catalog 契约。项目名不进入这个布局。编辑器显式把读取根覆盖为项目 `cache/`，不复制第二份导入缓存。
 
 运行构建自动把 11 项固定引擎资源写入 `packs/builtin-*`。Shader 按目标平台重新编译，不能把 Windows 字节码复制给 Android。业务只使用 `builtin://...` 逻辑名，不维护内部包目录。
 

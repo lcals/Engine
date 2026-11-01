@@ -19,6 +19,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 PACK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACK)
+from resource_catalog import FNV_MASK, FNV_OFFSET, FNV_PRIME, catalog_entries
 
 
 class BufferBuilder:
@@ -57,9 +58,9 @@ class BufferBuilder:
 
 
 def checksum(contents):
-    value = PACK.FNV_OFFSET
+    value = FNV_OFFSET
     for byte in contents:
-        value = ((value ^ byte) * PACK.FNV_PRIME) & PACK.FNV_MASK
+        value = ((value ^ byte) * FNV_PRIME) & FNV_MASK
     return f"{value:016x}"
 
 
@@ -155,7 +156,6 @@ class AndroidBuildArgumentTest(unittest.TestCase):
                     with zipfile.ZipFile(apk, "w") as archive:
                         archive.writestr("lib/arm64-v8a/libmain.so", b"fixture ELF")
                         archive.writestr("assets/catalog.bin", b"fixture catalog")
-                        archive.writestr("assets/resource-manifest.json", b"fixture descriptor")
 
             with (
                 mock.patch.object(build, "ROOT", root),
@@ -219,12 +219,12 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_revision_change_during_copy_is_rejected(self):
         copy = PACK.copy_asset
 
-        def changed(source, destination, relative, limit=PACK.MAX_ASSET_SIZE):
-            if relative == "catalog.bin":
+        def changed(source, destination, limit=PACK.MAX_ASSET_SIZE):
+            if source.name == "catalog.bin":
                 source.write_bytes(
                     source.read_bytes().replace(b"fixture-guid-catalog", b"changed-guid-catalog")
                 )
-            return copy(source, destination, relative, limit)
+            return copy(source, destination, limit)
 
         with mock.patch.object(PACK, "copy_asset", side_effect=changed):
             with self.assertRaisesRegex(ValueError, "catalog 发生变化"):
@@ -266,21 +266,19 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.write_resources()
         (self.source / "assets.sqlite").write_bytes(b"editor only")
         (self.source / "gen/stale").write_bytes(b"not referenced")
-        manifest = self.prepare()
+        receipt = self.prepare()
         self.assertEqual(
-            json.loads((self.output / "resource-manifest.json").read_text(encoding="utf-8")),
-            manifest,
+            receipt, {"revision": "fixture-guid-catalog", "file_count": 4}
         )
         self.assertEqual(
-            {item["path"] for item in manifest["files"]},
-            {"catalog.bin"} | {entry["path"] for entry in self.entries},
+            set(self.snapshot()),
+            {"catalog.bin", "v8/icudtl.dat"} | {entry["path"] for entry in self.entries},
         )
-        for item in manifest["files"]:
-            data = (self.output / item["path"]).read_bytes()
-            self.assertEqual(item["size"], len(data))
-            self.assertEqual(item["hash"], checksum(data))
+        self.assertFalse((self.output / "resource-manifest.json").exists())
+        for entry in self.entries:
+            self.assertEqual((self.output / entry["path"]).read_bytes(), entry["entity"])
         previous = self.snapshot()
-        self.assertEqual(self.prepare(), manifest)
+        self.assertEqual(self.prepare(), receipt)
         self.assertEqual(self.snapshot(), previous)
         self.assertEqual((self.output / "v8/icudtl.dat").read_bytes(), b"ICU data must survive")
         self.assert_clean()
@@ -293,10 +291,11 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         second["offset"] = len(first["entity"])
         self.entries.append(second)
         self.write_resources()
-        manifest = self.prepare()
+        receipt = self.prepare()
         self.assertEqual(
-            {item["path"] for item in manifest["files"]}, {"catalog.bin", "packs/game"}
+            receipt, {"revision": "fixture-guid-catalog", "file_count": 2}
         )
+        self.assertEqual(set(self.snapshot()), {"catalog.bin", "packs/game", "v8/icudtl.dat"})
         previous = self.snapshot()
         path = self.source / "packs/game"
         content = bytearray(path.read_bytes())
@@ -347,7 +346,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.write_resources()
         self.prepare()
         packaged = self.output
-        parsed = PACK.catalog_entries(packaged)
+        parsed = catalog_entries(packaged)
         self.assertEqual([entry["kind"] for entry in parsed[1:]], list(range(len(kinds))))
         for entry in self.entries:
             self.assertEqual((packaged / entry["path"]).read_bytes(), entry["entity"])
@@ -369,12 +368,12 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         ui["dependencies"] = [font["guid"]]
         self.entries.extend([font, ui])
         self.write_resources()
-        manifest = self.prepare()
+        receipt = self.prepare()
         for entry in (font, ui):
             self.assertEqual(
                 (self.output / "gen" / entry["guid"]).read_bytes(), entry["entity"]
             )
-        self.assertEqual(len(manifest["files"]), 4)
+        self.assertEqual(receipt["file_count"], 4)
         self.assert_clean()
 
     def test_catalog_missing_does_not_fall_back_to_scanning(self):
@@ -460,7 +459,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.prepare()
         self.assertEqual(
             set(self.snapshot()),
-            {"catalog.bin", "resource-manifest.json", "v8/icudtl.dat", self.entries[0]["path"]},
+            {"catalog.bin", "v8/icudtl.dat", self.entries[0]["path"]},
         )
         self.assertEqual((self.output / "v8/icudtl.dat").read_bytes(), b"ICU data must survive")
         self.assert_clean()
@@ -574,9 +573,9 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
 
     def test_existing_resource_root_avoids_compilation(self):
         with mock.patch.object(PACK.subprocess, "run") as run:
-            manifest = PACK.prepare(self.project, self.output, resource_root=self.source)
+            receipt = PACK.prepare(self.project, self.output, resource_root=self.source)
         run.assert_not_called()
-        self.assertEqual(len(manifest["files"]), 2)
+        self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 2})
 
     def test_failed_builder_preserves_actionable_error(self):
         with mock.patch.object(PACK.subprocess, "run", return_value=mock.Mock(returncode=1)):

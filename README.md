@@ -840,7 +840,7 @@ Android 运行时包含 SDL3、bgfx、FlatBuffers、Basis Universal、flecs、Jo
 
 选择 V8 时使用独立的 `build/v8/android-arm64/` 工作副本和 Debug / Release 缓存，目标平台、NDK、API 与工具链均参与缓存身份，不复用桌面归档。宿主 Clang / Rust / GN 版本由 V8 固定，Android 使用同一 NDK 的 sysroot、compiler-rt 和 libc++ ABI，由 `c++_static` 将 C++ 运行库合入最终产物；关闭 ThinLTO，最终将完整嵌入依赖合并链接进 `libmain.so`。兼容补丁保存在 `third_party/overrides/v8/`，上游子模块保持只读：除 macOS 宿主和外部 NDK 配置外，NDK 27 缺失的 `std::atomic_ref` 由 V8 / simdutf 内部的 Clang 原子指令兼容分支处理，保持原有内存序与 NDK ABI，不混用其他版本的 C++ 标准库。
 
-APK 包含 `assets/` 下的编译资源和 `assets/resource-manifest.json` 完整清单；默认 QuickJS 及裁剪 V8 均不包含 `icudtl.dat`；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 校验 APK 部署清单并向资源核心提交目录，将清单导出到持久目录供首次同步计算删除项；JS 直接通过 SDL 读取 APK，不在启动时解压运行资源。
+APK 与 Windows 共用 `assets/catalog.bin` 及其定位的 `packs/`、`gen/` 资源布局；默认 QuickJS 及裁剪 V8 均不包含 `icudtl.dat`；不包含项目设置、TS 源码或 Node.js。正常启动初始化 App 与 LogSystem，再由 RuntimeHost 初始化系统并启动项目 Gameplay；无需在手机上传入编辑器项目目录。GameplaySession 直接读取 catalog 并向资源核心提交目录，包内版本使用 catalog 修订；JS 直接通过 SDL 读取 APK，不在启动时解压运行资源。
 
 V8 构建才链接可选嵌入测试，在新的 SDL 进程验证 JavaScript、SharedArrayBuffer 原子操作及十六进制 / Base64 转换，并确认默认关闭的 Intl、Temporal、WebAssembly 不存在。QuickJS 包不包含 V8 测试主体；请求该测试时明确报告后端不匹配。这不增加脚本系统的公开接口。
 
@@ -866,7 +866,7 @@ adb -s emulator-5580 shell am start -n org.engine.minimal/.EngineActivity --ez v
 | `persistentDataPath` | 应用私有 `files/`，保存日志、版本和控制状态，重启仍保留      |
 | `cachePath`          | 应用私有 `cache/`，存放可重建的临时数据                   |
 
-先启动 Debug APK，让引擎创建状态和内置清单。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
+安装 Debug APK 后即可首次同步完整资源，无需先启动应用导出清单；查询运行状态或使用热重载时再启动应用。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
@@ -908,7 +908,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-本次资源路径升级记录（2026-11-01）使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。以下表格继续保留此前各功能阶段的历史验证范围；交付结构见[交付目录](#交付目录)。
+资源路径升级基线（提交 `4c6c4dd`，2026-11-01）使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。以下先保留该提交的验证记录，再说明后续 Android 清单收敛修复；表格继续保留此前各功能阶段的历史验证范围。交付结构见[交付目录](#交付目录)。
 
 Windows x64 静态 Debug / Release 完整构建通过。Release 本轮完整 CTest 为 91/91 通过；Debug 已通过前 14 项，按用户要求停止剩余测试，未完成本轮完整 Debug CTest。已完成的检查覆盖路径、资源读取、打包、脚本与同步；Release 还覆盖资源解码、依赖图、窗口渲染、GPU 蒙皮、字体/UI、特效和编辑器生命周期。
 
@@ -918,9 +918,11 @@ Android ARM64 Debug / Release APK 均完成构建和静态检查，分别为 58,
 
 本轮新增回归包含缺省清单全量、单份配置跨平台构建、显式空入口、保留内置身份、拒绝编辑器命名空间，以及外置内置实体缺失或损坏时禁止回退编入定义。已修改的 10 份源 meta 中 GUID 均保持原样。平台打包 Python 单测共 35 项，34 项通过、1 项因符号链接权限跳过；受影响文档链接、关键 C++ 格式和差异空白检查通过。
 
-`resource-manifest.json` 仍是 Android 现有启动与首次设备同步链路的部署辅助清单：启动时读取并导出为持久目录 `assets/builtin.json`，供 adb 同步获取包内基线；Windows 直接读取 catalog，没有这份附加文件。这部分部署辅助逻辑尚未统一，不属于核心单项资源读取契约。
+后续收敛修复删除 Android 包内 `resource-manifest.json` 及启动导出的 `builtin.json`。所有平台统一直接读取 catalog；首次同步从空基线发布完整资源，后续只沿用已有 `available.json`，缺项不从 APK 恢复。共享的持久版本发布协议仍使用 `available.json`，属于完整版本发布与校验，不是包内资源的第二份索引。
 
-证据位于忽略的 `build/resource-path-validation/`，Android 报告位于其 `android/` 子目录。本次未重新执行 macOS / Linux / iOS 运行验证或完整角色生产外部工具链。
+该修复仅增量构建 Windows Debug / Release 的 `mcp_app`、`engine_project_app` 及 Android 两配置的受影响原生目标，并更新四份运行包。Windows Release 输出包使用 DX12 启动并完成 3 帧；定向 MCP 检查通过首次同步（无包内清单、无既有持久版本、无启动状态文件）及重复同步。Android 资源准备单测为 23 项通过、1 项因符号链接权限跳过；两个新 APK 均含 `assets/catalog.bin`、不含额外清单且仅有 `libmain.so`，大小分别为 58,622,604 / 35,199,841 字节。复用已有资源缓存，未重跑完整 CTest，也未进行 Android 设备运行验证。
+
+基线证据位于忽略的 `build/resource-path-validation/`，Android 报告位于其 `android/` 子目录；本次清单修复的定向记录位于 `build/catalog-only-fix/`。本次未重新执行 macOS / Linux / iOS 运行验证或完整角色生产外部工具链。
 
 | 环境 | 已验证范围 |
 | --- | --- |
