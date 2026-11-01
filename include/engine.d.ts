@@ -122,6 +122,8 @@ declare module "engine" {
         IsValid(): boolean;
         Destroy(): boolean;
         SetParent(parent: Node | null): boolean;
+        /** Relative child path, e.g. "Assembly/Body". Invalid, missing or ambiguous paths return null. */
+        FindChild(path: string): Node | null;
         AddComponent<T extends Component>(type: ComponentType<T>): T | null;
         GetComponent<T extends Component>(type: ComponentType<T>): T | null;
     }
@@ -144,6 +146,9 @@ declare module "engine" {
         /** Local Euler angles in degrees, applied X then Y then Z. */
         SetRotation(x: number, y: number, z: number): boolean;
         SetScale(x: number, y: number, z: number): boolean;
+        GetWorldPosition(): Vector3 | null;
+        /** Normalized world direction of local -Z. */
+        GetWorldForward(): Vector3 | null;
     }
     export class Camera extends Component {
         private constructor();
@@ -222,6 +227,8 @@ declare module "engine" {
         private constructor();
         /** Empty path clears the action; failure preserves the previous action and settings. */
         SetAnimation(path: string): boolean;
+        /** Blend from the current pose. Nonnegative seconds; zero switches immediately. */
+        CrossFade(path: string, seconds: number): boolean;
         /** Playback multiplier in [0, 16]; zero freezes time. */
         SetSpeed(value: number): boolean;
         SetLoop(value: boolean): boolean;
@@ -236,6 +243,105 @@ declare module "engine" {
         readonly isPlaying: boolean;
         readonly playback: "stopped" | "playing" | "paused" | null;
         readonly time: number | null;
+    }
+    /** Available when the optional terrain runtime plugin is enabled. */
+    export class TerrainComponent extends Component {
+        private constructor();
+        /** Sphere center and radius are in terrain-node local space. */
+        DigSphere(x: number, y: number, z: number, radius: number): boolean;
+        FillSphere(x: number, y: number, z: number, radius: number): boolean;
+        /** Extract unsupported soil; refuses over-budget work without removing that soil. */
+        CollapseDetached(minSamples: number, maxFragments: number,
+                         fragmentCells?: number, density?: number): boolean;
+        readonly fragmentCount: number | null;
+        Reset(): boolean;
+        /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
+        Save(slot: string): boolean;
+        Load(slot: string): boolean;
+        readonly ready: boolean;
+        readonly revision: bigint | null;
+        readonly chunkCount: number | null;
+        readonly rebuiltChunks: number | null;
+        readonly triangleCount: number | null;
+        readonly lastError: string | null;
+    }
+    /** Available when the optional effects runtime plugin is enabled. */
+    export class EffectComponent extends Component {
+        private constructor();
+        SetEffect(path: string): boolean;
+        SetLoop(value: boolean): boolean;
+        SetPlayOnAwake(value: boolean): boolean;
+        SetSpeed(value: number): boolean;
+        Play(): boolean;
+        Pause(): boolean;
+        Stop(): boolean;
+        readonly isPlaying: boolean;
+    }
+    export interface PhysicsImpact {
+        readonly frame: bigint;
+        readonly sceneId: bigint;
+        readonly nodeA: bigint;
+        readonly nodeB: bigint;
+        readonly point: { readonly x: number; readonly y: number; readonly z: number };
+        /** World normal from A to B. */
+        readonly normal: { readonly x: number; readonly y: number; readonly z: number };
+        /** Pre-solver normal approach speed in m/s. */
+        readonly closingSpeed: number;
+        /** Jolt's estimated normal impulse, not the actual solver result (N s). */
+        readonly estimatedImpulse: number;
+    }
+    export class Physics {
+        private constructor();
+        /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
+        static GetImpacts(): PhysicsImpact[];
+        /** Sweeps a sphere through the full displacement. 1 = no hit; null = invalid query. */
+        static CastSphere(x: number, y: number, z: number,
+                          dx: number, dy: number, dz: number, radius: number): number | null;
+    }
+    export interface Vector3 { readonly x: number; readonly y: number; readonly z: number; }
+    export interface NavigationOptions {
+        readonly minimum: Vector3;
+        readonly maximum: Vector3;
+        readonly cellSize?: number;
+        readonly cellHeight?: number;
+        readonly tileSize?: number;
+        readonly agentHeight?: number;
+        readonly agentRadius?: number;
+        readonly agentMaxClimb?: number;
+        readonly agentMaxSlope?: number;
+    }
+    export class Navigation {
+        private constructor();
+        /** Submit explicit same-scene static mesh nodes; does not scan the whole scene. */
+        static Build(nodes: readonly Node[], options: NavigationOptions): boolean;
+        /** Submit current geometry and replace tiles overlapping the dirty world bounds. */
+        static Replace(nodes: readonly Node[], minimum: Vector3, maximum: Vector3): boolean;
+        /** Complete reachable path only; null includes invalid or unreachable queries. */
+        static FindPath(start: Vector3, end: Vector3): Vector3[] | null;
+        static Clear(): boolean;
+        static readonly ready: boolean;
+        static readonly revision: bigint | null;
+        static readonly rebuiltTiles: number | null;
+        static readonly lastError: string | null;
+    }
+    export class DestructionComponent extends Component {
+        private constructor();
+        /** World-space damage sphere; impulse is in newton-seconds. */
+        DamageSphere(x: number, y: number, z: number, radius: number,
+                     damage: number, impulse?: number): boolean;
+        /** Multi-sample foundation coverage against one current-scene static collider. */
+        RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
+        OwnsFragment(nodeId: bigint): boolean;
+        /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
+        ApplyStress(x: number, y: number, z: number, elasticLimit: number,
+                    fatalLimit: number, iterations: number): number | null;
+        Reset(): boolean;
+        readonly ready: boolean;
+        readonly revision: bigint | null;
+        readonly chunkCount: number | null;
+        readonly groupCount: number | null;
+        readonly dynamicGroups: number | null;
+        readonly lastError: string | null;
     }
     export class Collider extends Component {
         private constructor();
@@ -268,8 +374,14 @@ declare module "engine" {
         SetStepHeight(value: number): boolean;
         SetGroundSnapDistance(value: number): boolean;
         SetGravityFactor(value: number): boolean;
+        /** External horizontal velocity damping per second, 0..1000; default 6. */
+        SetExternalDamping(value: number): boolean;
         /** Desired world-space horizontal velocity; physics supplies the vertical component. */
         SetVelocity(x: number, z: number): boolean;
+        /** Clear active movement and pending jump without cancelling external velocity. */
+        ClearInput(): boolean;
+        /** World-space velocity delta in m/s, accumulated and consumed once at a fixed step. */
+        AddVelocity(x: number, y: number, z: number): boolean;
         /** Last physics velocity, not the pending movement request. */
         GetVelocity(): { readonly x: number; readonly y: number; readonly z: number } | null;
         /** Accepted only while grounded, consumed at the next physics step. */

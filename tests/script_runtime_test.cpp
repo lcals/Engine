@@ -3,6 +3,7 @@
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/audio_listener.hpp"
@@ -796,9 +797,10 @@ export default class extends Gameplay {
 bool run_physics_audio_binding_cases(const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
-import { Gameplay, Scene, Component, Collider, RigidBody, CharacterMotor, AudioSource, AudioListener } from 'engine';
+import { Gameplay, Scene, Component, Collider, RigidBody, CharacterMotor, AudioSource, AudioListener, Physics } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
+        if (Physics.GetImpacts().length !== 0) return false;
         const scene = Scene.Create('physics-audio-bindings');
         const node = scene?.CreateNode('emitter');
         const listenerNode = scene?.CreateNode('listener');
@@ -812,10 +814,19 @@ export default class extends Gameplay {
             !(listenerNode.GetComponent(CharacterMotor) instanceof CharacterMotor) ||
             motor.SetCapsule(-1, .5) || motor.SetSlopeLimit(90) || motor.SetStepHeight(-1) ||
             motor.SetGroundSnapDistance(Infinity) || motor.SetGravityFactor(-1) ||
+            motor.SetExternalDamping(-1) || motor.SetExternalDamping(1001) ||
+            motor.SetExternalDamping(NaN) || motor.SetExternalDamping(Infinity) ||
+            motor.SetExternalDamping('6') || motor.AddVelocity(0, NaN, 0) ||
+            motor.AddVelocity(Infinity, 0, 0) || motor.AddVelocity(0, 0, 10001) ||
+            motor.AddVelocity(0, 1) || motor.AddVelocity('1', 0, 0) ||
             motor.SetVelocity(NaN, 0) || motor.Jump(5) || motor.grounded ||
             !motor.SetCapsule(.4, .7) || !motor.SetSlopeLimit(45) || !motor.SetStepHeight(.25) ||
             !motor.SetGroundSnapDistance(.15) || !motor.SetGravityFactor(1) ||
-            !motor.SetVelocity(2, -3) || motor.GetVelocity()?.y !== 0) return false;
+            !motor.SetExternalDamping(3.5) || !motor.SetVelocity(2, -3) ||
+            !motor.AddVelocity(2, 1, -3) || !motor.ClearInput() ||
+            motor.AddVelocity(9999, 0, 0) || motor.GetVelocity()?.y !== 0 ||
+            !motor.SetEnabled(false) || motor.AddVelocity(0, 1, 0) ||
+            !motor.ClearInput() || !motor.SetEnabled(true)) return false;
         if (!collider || !body || !audio || !listener || !(collider instanceof Component) ||
             !(node.GetComponent(RigidBody) instanceof RigidBody) ||
             !(node.GetComponent(AudioSource) instanceof AudioSource) ||
@@ -850,6 +861,8 @@ export default class extends Gameplay {
         const staleMotor = temporary?.AddComponent(CharacterMotor);
         if (!staleCollider || !staleBody || !staleAudio || !staleListener || !staleMotor || !temporary.Destroy() ||
             staleMotor.GetVelocity() !== null || staleMotor.grounded || staleMotor.SetVelocity(1, 0) ||
+            staleMotor.AddVelocity(1, 2, 3) || staleMotor.ClearInput() ||
+            staleMotor.SetExternalDamping(6) ||
             staleCollider.SetSphere(1) || staleBody.GetVelocity() !== null ||
             staleAudio.Play() || staleAudio.playback !== null || staleAudio.isPlaying ||
             staleListener.SetVolume(1)) return false;
@@ -889,6 +902,7 @@ export default class extends Gameplay {
     const auto* motor = scene->nodes().back()->get_component<engine::CharacterMotor>();
     if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
                     listener != nullptr && motor != nullptr && motor->settings().radius == .4F &&
+                    motor->settings().external_damping == 3.5F &&
                     collider->settings().shape == engine::schema::ColliderShape::box &&
                     body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
                     source_component->clip_data() != nullptr && source_component->settings().loop &&
@@ -903,6 +917,81 @@ export default class extends Gameplay {
     script.shutdown();
     world.shutdown();
     return expect(cleared, "script shutdown releases component resource references with its scene");
+}
+
+bool run_impact_binding_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import * as api from 'engine';
+const { Gameplay, Scene, Transform, Collider, RigidBody, Physics } = api;
+const topLevelEmpty = Physics.GetImpacts().length === 0;
+export default class extends Gameplay {
+    OnInitialize() {
+        const scene = Scene.Create('impact-bindings');
+        this.scene = scene;
+        const floor = scene?.CreateNode('floor');
+        this.ball = scene?.CreateNode('ball');
+        if (!topLevelEmpty || !floor || !this.ball || Physics.GetImpacts().length !== 0 ||
+            !floor.GetComponent(Transform).SetPosition(0, -.5, 0) ||
+            !floor.AddComponent(Collider)?.SetBox(5, .5, 5) ||
+            !this.ball.GetComponent(Transform).SetPosition(0, 2, 0) ||
+            !this.ball.AddComponent(Collider)?.SetSphere(.3) ||
+            !this.ball.AddComponent(RigidBody)?.SetMass(2)) return false;
+        if (api.EffectComponent) {
+            const node = scene.CreateNode('effect-handle');
+            const effect = node?.AddComponent(api.EffectComponent);
+            if (!effect || !(effect instanceof api.Component) || effect.Play() ||
+                effect.SetSpeed(NaN) || effect.SetSpeed(-1) || effect.SetSpeed(17) ||
+                effect.SetLoop('true') || effect.SetPlayOnAwake(1) ||
+                !effect.SetSpeed(.5) || !effect.SetLoop(false) ||
+                !effect.SetPlayOnAwake(false) || !effect.Stop() || effect.isPlaying ||
+                !node.Destroy() || effect.SetSpeed(1) || effect.Play() || effect.isPlaying) return false;
+        }
+        return true;
+    }
+    Update() {
+        const hits = Physics.GetImpacts();
+        if (!hits.length) return;
+        const hit = hits[0], repeat = Physics.GetImpacts()[0];
+        if (typeof hit.frame !== 'bigint' || typeof hit.sceneId !== 'bigint' ||
+            typeof hit.nodeA !== 'bigint' || typeof hit.nodeB !== 'bigint' ||
+            hit.nodeA === hit.nodeB || hit.frame !== repeat?.frame ||
+            hit.closingSpeed <= 0 || hit.estimatedImpulse <= 0 ||
+            !Number.isFinite(hit.point.y) || Math.abs(hit.normal.y) < .9)
+            throw new Error('Invalid physics snapshot');
+        if (!this.ball.Destroy() || Physics.GetImpacts().length !== 0)
+            throw new Error('Deleted body leaked through binding');
+        if (!this.scene.Destroy()) throw new Error('Cannot close old scene');
+        const scene = Scene.Create('impact-done');
+        if (!scene || Physics.GetImpacts().length !== 0)
+            throw new Error('Previous scene impacts leaked');
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "impact-bindings", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input), "initialize impact and optional effect bindings"))
+    {
+        return false;
+    }
+    for (int frame = 0; frame != 120 && world.scene()->name() != "impact-done"; ++frame)
+    {
+        // Same order as RuntimeHost: script reads last frame, physics publishes this frame.
+        if (!expect(script.tick(1.0 / 60.0) && physics.tick(1.0 / 60.0),
+                    "read physical impact from script without stale bodies or scene leakage"))
+        {
+            return false;
+        }
+    }
+    const bool complete = world.scene() && world.scene()->name() == "impact-done";
+    script.stop_gameplay();
+    physics.clear();
+    return expect(complete && script.status().last_error.empty() && physics.impacts().empty(),
+                  "real drop delivers one validated snapshot and clears on stop");
 }
 
 bool run_frame_rate_binding_cases(const fs::path& workspace)
@@ -1077,30 +1166,27 @@ export default class extends Gameplay {
                     settings.ao_fade_start == 40 && settings.ao_fade_end == 140 &&
                     settings.hdr_enabled && settings.bloom_enabled &&
                     settings.bloom_threshold == .8F && settings.bloom_intensity == .35F &&
-                    settings.bloom_radius == 2 &&
-                    settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
-                    settings.shadow_cascades == 2 && settings.shadow_distance == 120.0F &&
-                    settings.shadow_split_lambda == .7F && settings.shadow_cascade_blend == .2F &&
-                    settings.clear_color == 0x56789aff,
+                    settings.bloom_radius == 2 && settings.shadow_resolution == 1024 &&
+                    settings.shadow_bias == .002F && settings.shadow_cascades == 2 &&
+                    settings.shadow_distance == 120.0F && settings.shadow_split_lambda == .7F &&
+                    settings.shadow_cascade_blend == .2F && settings.clear_color == 0x56789aff,
                 "invalid calls preserve all fields, including partial ambient and shadow input") ||
-        !expect(script.tick(.016) && script.status().running &&
-                    renderer.settings().exposure == .75F &&
-                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
-                    renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
-                    renderer.settings().ao_fade_start == 40 &&
-                    renderer.settings().ao_fade_end == 140 &&
-                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_threshold == .8F &&
-                    renderer.settings().bloom_intensity == .35F &&
-                    renderer.settings().bloom_radius == 2 &&
-                    !renderer.settings().directional_shadows &&
-                    renderer.settings().shadow_resolution == 2048 &&
-                    renderer.settings().shadow_bias == .001F &&
-                    renderer.settings().shadow_cascades == 2 &&
-                    renderer.settings().shadow_distance == 120.0F &&
-                    renderer.settings().shadow_split_lambda == .7F &&
-                    renderer.settings().shadow_cascade_blend == .2F,
-                "Update can change renderer settings and shadow defaults match the native API"))
+        !expect(
+            script.tick(.016) && script.status().running && renderer.settings().exposure == .75F &&
+                renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
+                renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
+                renderer.settings().ao_fade_start == 40 && renderer.settings().ao_fade_end == 140 &&
+                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                renderer.settings().bloom_threshold == .8F &&
+                renderer.settings().bloom_intensity == .35F &&
+                renderer.settings().bloom_radius == 2 && !renderer.settings().directional_shadows &&
+                renderer.settings().shadow_resolution == 2048 &&
+                renderer.settings().shadow_bias == .001F &&
+                renderer.settings().shadow_cascades == 2 &&
+                renderer.settings().shadow_distance == 120.0F &&
+                renderer.settings().shadow_split_lambda == .7F &&
+                renderer.settings().shadow_cascade_blend == .2F,
+            "Update can change renderer settings and shadow defaults match the native API"))
     {
         return false;
     }
@@ -1220,43 +1306,38 @@ export default class extends Gameplay {
                     settings.fog_mode == engine::FogMode::exponential_squared &&
                     settings.fog_density == .03F && settings.fog_start == 2 &&
                     settings.fog_end == 90 && settings.clear_color == 0x123456ff &&
-                    settings.exposure == 1.7F && settings.filmic_tonemap &&
-                    settings.ao_enabled && settings.ao_radius == 2 &&
-                    settings.ao_strength == 1.2F && settings.ao_power == 3 &&
-                    settings.ao_fade_start == 20 && settings.ao_fade_end == 100 &&
-                    settings.hdr_enabled && settings.bloom_enabled &&
+                    settings.exposure == 1.7F && settings.filmic_tonemap && settings.ao_enabled &&
+                    settings.ao_radius == 2 && settings.ao_strength == 1.2F &&
+                    settings.ao_power == 3 && settings.ao_fade_start == 20 &&
+                    settings.ao_fade_end == 100 && settings.hdr_enabled && settings.bloom_enabled &&
                     settings.bloom_threshold == 1.2F && settings.bloom_intensity == .3F &&
-                    settings.bloom_radius == 2 &&
-                    settings.directional_shadows && settings.shadow_resolution == 1024 &&
-                    settings.shadow_bias == .002F && settings.shadow_cascades == 2 &&
-                    settings.shadow_distance == 90.0F && settings.shadow_split_lambda == .8F &&
-                    settings.shadow_cascade_blend == .15F,
+                    settings.bloom_radius == 2 && settings.directional_shadows &&
+                    settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
+                    settings.shadow_cascades == 2 && settings.shadow_distance == 90.0F &&
+                    settings.shadow_split_lambda == .8F && settings.shadow_cascade_blend == .15F,
                 "renderer reads component state; invalid setters preserve prior fields") ||
-        !expect(script.tick(.016) && script.status().running &&
-                    renderer.settings().ambient_intensity == .4F &&
-                    !renderer.settings().ambient_tricolor && renderer.settings().exposure == .8F &&
-                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 2 &&
-                    renderer.settings().ao_strength == 1.2F && renderer.settings().ao_power == 3 &&
-                    renderer.settings().ao_fade_start == 20 &&
-                    renderer.settings().ao_fade_end == 100 &&
-                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_threshold == 1.2F &&
-                    renderer.settings().bloom_intensity == .3F &&
-                    renderer.settings().bloom_radius == 2,
-                "live component changes affect the current scene") ||
-        !expect(script.tick(.016) && script.status().running &&
-                    renderer.settings().ambient_intensity == 0.0F &&
-                    renderer.settings().exposure == 1.0F &&
-                    !renderer.settings().ao_enabled && renderer.settings().ao_radius == 1 &&
-                    renderer.settings().ao_strength == 1 && renderer.settings().ao_power == 1.5F &&
-                    renderer.settings().ao_fade_start == 80 &&
-                    renderer.settings().ao_fade_end == 150 &&
-                    !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_threshold == 1 &&
-                    renderer.settings().bloom_intensity == .15F &&
-                    renderer.settings().bloom_radius == 1 &&
-                    !renderer.settings().directional_shadows,
-                "new scene does not inherit old environment or camera parameters"))
+        !expect(
+            script.tick(.016) && script.status().running &&
+                renderer.settings().ambient_intensity == .4F &&
+                !renderer.settings().ambient_tricolor && renderer.settings().exposure == .8F &&
+                renderer.settings().ao_enabled && renderer.settings().ao_radius == 2 &&
+                renderer.settings().ao_strength == 1.2F && renderer.settings().ao_power == 3 &&
+                renderer.settings().ao_fade_start == 20 && renderer.settings().ao_fade_end == 100 &&
+                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                renderer.settings().bloom_threshold == 1.2F &&
+                renderer.settings().bloom_intensity == .3F && renderer.settings().bloom_radius == 2,
+            "live component changes affect the current scene") ||
+        !expect(
+            script.tick(.016) && script.status().running &&
+                renderer.settings().ambient_intensity == 0.0F &&
+                renderer.settings().exposure == 1.0F && !renderer.settings().ao_enabled &&
+                renderer.settings().ao_radius == 1 && renderer.settings().ao_strength == 1 &&
+                renderer.settings().ao_power == 1.5F && renderer.settings().ao_fade_start == 80 &&
+                renderer.settings().ao_fade_end == 150 && !renderer.settings().hdr_enabled &&
+                !renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1 &&
+                renderer.settings().bloom_intensity == .15F &&
+                renderer.settings().bloom_radius == 1 && !renderer.settings().directional_shadows,
+            "new scene does not inherit old environment or camera parameters"))
     {
         return false;
     }
@@ -1300,13 +1381,13 @@ int main(int argc, char** argv)
         return 1;
     }
     engine::ResourceSystem resources;
-    const bool passed = resources.initialize(config) && run_cases(workspace) &&
-                        run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
-                        run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
-                        run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
-                        run_render_binding_cases(workspace) &&
-                        run_scene_render_binding_cases(workspace) &&
-                        run_frame_rate_binding_cases(workspace);
+    const bool passed =
+        resources.initialize(config) && run_cases(workspace) &&
+        run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
+        run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
+        run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
+        run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
+        run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

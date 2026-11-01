@@ -27,6 +27,7 @@ public:
     [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled);
     // clear_color 沿用显示空间 RGBA8 语义，解码为线性值后参与统一曝光和色调映射。
     void begin_scene(std::uint32_t clear_color);
+    [[nodiscard]] bgfx::FrameBufferHandle scene_framebuffer() const noexcept;
     [[nodiscard]] bool resolve(const RenderSettings& settings);
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
     void release() noexcept;

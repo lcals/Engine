@@ -11,7 +11,7 @@ bool read(const Json& arguments, schema::CharacterMotorDataT& value, std::string
 {
     if (!fields(arguments,
                 {"enabled", "radius", "halfHeight", "maxSlopeDegrees", "stepHeight",
-                 "groundSnapDistance", "gravityFactor"},
+                 "groundSnapDistance", "gravityFactor", "externalDamping"},
                 error))
     {
         return false;
@@ -29,7 +29,8 @@ bool read(const Json& arguments, schema::CharacterMotorDataT& value, std::string
            read_number("maxSlopeDegrees", value.max_slope_degrees) &&
            read_number("stepHeight", value.step_height) &&
            read_number("groundSnapDistance", value.ground_snap_distance) &&
-           read_number("gravityFactor", value.gravity_factor);
+           read_number("gravityFactor", value.gravity_factor) &&
+           read_number("externalDamping", value.external_damping);
 }
 
 Json write(const schema::CharacterMotorDataT& value)
@@ -39,7 +40,8 @@ Json write(const schema::CharacterMotorDataT& value)
             {"maxSlopeDegrees", value.max_slope_degrees},
             {"stepHeight", value.step_height},
             {"groundSnapDistance", value.ground_snap_distance},
-            {"gravityFactor", value.gravity_factor}};
+            {"gravityFactor", value.gravity_factor},
+            {"externalDamping", value.external_damping}};
 }
 
 } // namespace

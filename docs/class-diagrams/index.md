@@ -53,10 +53,14 @@
 - [环境与后处理组件](../runtime/class-diagrams/environment-components.md)：环境光、雾与清屏色归环境节点，曝光与色调映射归相机节点，阴影归灯光；预览与运行共用场景数据。
 - [场景 GPU 烘焙插件](../plugins/editor/class-diagrams/scene-bake.md)：MCP 异步作业、GPU 环境预计算和场景同名目录资源发布；运行时只加载结果。
 - [模型资源](../runtime/class-diagrams/model-resources.md)：模型节点层级、骨架/动画与子资源 GUID，核心读取统一生成数据。
+- [特效脚本绑定](../plugins/runtime/class-diagrams/effects-script-api.md)：按可选插件登记的播放与资源控制。
+- [特效系统与组件](../plugins/runtime/class-diagrams/effects.md)：独立 EffectSystem、EffectComponent、共享资源与实例播放生命周期。
+- [特效导入与 MCP](../plugins/editor/class-diagrams/effect-importer.md)：官方效果字节、meta 依赖映射、可撤销编辑和播放命令。
 - [动画组件](../runtime/class-diagrams/animator.md)：片段选择、播放、暂停、定位及运行状态。
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。
+- [分段静态网格碰撞](../runtime/class-diagrams/mesh-collision-data.md)：共享不可变块几何，复用 Jolt 子形状并原子替换。
 - [音频组件](../runtime/class-diagrams/audio-components.md)：AudioSource、AudioListener、共享音频资源与播放状态。
 - [字体系统与 3D 文字](../runtime/class-diagrams/font-system.md)：核心 FontSystem 共享曲线资源、文字排布和 GPU 绘制，普通节点挂载 TextComponent。
 - [场景界面](../runtime/class-diagrams/ui-system.md)：普通节点挂载 UiComponent，RmlUi 文档内部控件不展开为场景节点。
@@ -64,6 +68,7 @@
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
+- [渲染扩展](../runtime/class-diagrams/render-extension.md)：插件场景透明绘制位置、借用登记与 GPU 生命周期。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [场景预览](../editor/class-diagrams/scene-preview.md)：独立隐藏镜头、自由飞行、增量导入及未保存编辑保护；不推进玩法系统。
 - [脚本公开接口](../runtime/class-diagrams/gameplay.md)：Gameplay 加载场景或动态创建节点与组件，运行停止或重载后旧引用安全失效。
@@ -83,6 +88,18 @@
 - [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定及播放状态。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
+- [导航脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)：显式提交静态网格、局部重建、完整路径查询及场景生命周期清理。
+
+- [地形脚本接口](../plugins/runtime/class-diagrams/terrain-script-api.md)：条件装配地形组件绑定、球形挖填、固定槽位保存与恢复。
+
+## 建筑破坏插件
+
+- [组件与系统](../plugins/runtime/class-diagrams/destruction.md)：普通节点绑定破坏资源，世界子系统拥有瞬态连通组，调用核心物理能力。
+- [Blast 损伤图](../plugins/runtime/class-diagrams/destruction-graph.md)：官方图、部分损伤、支撑拆分与候选状态克隆，不依赖渲染或编辑器。
+- [官方预破碎](../plugins/editor/class-diagrams/destruction-authoring.md)：参数盒体切片/Voronoi 与连接生成，离线依赖留在编辑器插件。
+- [导入、编辑事务与 MCP](../plugins/editor/class-diagrams/destruction-editor.md)：独立资源、场景 GUID、完整状态撤销及工具转发。
+
+步骤 2 代码已接入，Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；完整结果及剩余范围见[步骤 2 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。步骤 3 已联通地基查询、物理撞击快照、二次损伤及特效/音频播放，见[步骤 3 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-3-综合联动验证)。类图表达当前契约，不代表完整建筑力学或全部平台已经验收。
 
 ## MCP 与编辑器命令
 
@@ -134,7 +151,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
 | 1          | [窗口系统](../runtime/class-diagrams/window-system.md)   | RuntimeHost 独占；SDL3 窗口和事件                        |
 | 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | 外部宿主或 Engine 独占；SDL3、单项解析、目录代际 |
-| 3 | [性能系统](../runtime/class-diagrams/performance-system.md) | Engine 独占；可选 Tracy 客户端接入，当前无采样逻辑 |
+| 3 | [性能系统](../runtime/class-diagrams/performance-system.md) | Engine 独占；可选 Tracy CPU 区域、帧标记和 bgfx 统计，第三方不进入公开接口 |
 | 4          | [世界系统](../runtime/class-diagrams/world-system.md)    | Engine 独占；flecs 世界、场景和子系统生命周期            |
 | 5          | [渲染系统](../runtime/class-diagrams/render-system.md)   | Engine 独占；bgfx 设备、空白帧和资源网格 PBR             |
 
@@ -142,15 +159,15 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 
 | 顺序 | 独立类图                                                   | 当前依赖       |
 | ---- | ---------------------------------------------------------- | -------------- |
-| 1    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt           |
-| 2    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
-| 3    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation  |
-| 4    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
-| 5    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
-| 6    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio |
-| 7    | [脚本系统](../plugins/runtime/class-diagrams/script-system.md)     | QuickJS/V8 编译期二选一；宿主通过核心工厂装配 |
+| 1    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
+| 2    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
+| 3    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
+| 4    | [脚本执行契约](../runtime/class-diagrams/script-runtime.md) | 可选宿主工厂；随后登记玩家输入插件 |
+| 5    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt；消费本帧意图 |
+| 6    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation；随后登记独立相机插件 |
+| 7    | [音频系统](../runtime/class-diagrams/audio-system.md) | SDL3 Audio；使用最终空间位置 |
 
-[虚拟机中间层](../plugins/runtime/class-diagrams/script-vm.md)维护单后端构建和每 Run 环境；[逐类绑定](../plugins/runtime/class-diagrams/script-bindings.md)在两种后端间共用，不向核心增加虚拟机类型。
+[脚本系统](../plugins/runtime/class-diagrams/script-system.md)由宿主通过核心工厂装配，QuickJS/V8 编译期二选一。[虚拟机中间层](../plugins/runtime/class-diagrams/script-vm.md)维护单后端构建和每 Run 环境；[逐类绑定](../plugins/runtime/class-diagrams/script-bindings.md)在两种后端间共用，不向核心增加虚拟机类型。
 
 ## 宿主模块
 

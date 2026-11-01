@@ -13,6 +13,7 @@ class WindowSystem;
 class WorldSystem;
 class RenderSystem;
 class PhysicsSystem;
+class NavigationSystem;
 class AudioSystem;
 class AnimationSystem;
 class FontSystem;
@@ -22,12 +23,21 @@ class ResourceSystem;
 class ScriptRuntime;
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
-// renderer 和 ui 借用只用于玩法回调，宿主关闭它们前先结束玩法。
+// renderer、ui、physics 和 navigation 借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
-                                                                UiSystem&);
+                                                                UiSystem&, PhysicsSystem&,
+                                                                NavigationSystem&);
 
-// 宿主在世界初始化前追加可选子系统；失败按已有生命周期回滚。
-using RuntimeSetup = bool (*)(WorldSystem&, WindowSystem&, PhysicsSystem&);
+// 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
+enum class RuntimeStage
+{
+    before_physics,
+    after_physics
+};
+
+// 世界初始化前按两个位置各调用一次；物理对象已构造，失败按已有生命周期回滚。
+using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&,
+                              RenderSystem&);
 
 class RuntimeHost final
 {

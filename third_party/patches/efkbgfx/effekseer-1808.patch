@@ -1,0 +1,320 @@
+--- a/renderer/bgfxrenderer.cpp
++++ b/renderer/bgfxrenderer.cpp
+@@ -1,6 +1,8 @@
+ #include <cstdint>
++#include <cstddef>
+ #include <cassert>
+ #include <cstring>
++#include <filesystem>
+ #include <EffekseerRendererCommon/EffekseerRenderer.ShaderBase.h>
+ #include <EffekseerRendererCommon/EffekseerRenderer.RenderStateBase.h>
+ #include <EffekseerRendererCommon/EffekseerRenderer.Renderer_Impl.h>
+@@ -15,7 +17,8 @@
+ #define BGFX(api) m_bgfx->api
+ 
+ #define MAX_PATH 2048
+-#define MaxInstanced 20
++// Match the upstream model shader arrays and EffekseerRendererLLGI.
++#define MaxInstanced 40
+ 
+ #define LAYOUT_LIGHTING 0
+ #define LAYOUT_SIMPLE 1
+@@ -27,6 +30,20 @@
+ namespace EffekseerRendererBGFX {
+ 
+ static const int SHADERCOUNT = (int)EffekseerRenderer::RendererShaderType::Material;
++
++// Effekseer 1808 adds UV2 to Model::Vertex. Keep the bgfx attributes below
++// identical to the official GetModelRendererVertexLayout contract.
++static_assert(offsetof(Effekseer::Model::Vertex, Position) == 0 &&
++              offsetof(Effekseer::Model::Vertex, Normal) == 12 &&
++              offsetof(Effekseer::Model::Vertex, Binormal) == 24 &&
++              offsetof(Effekseer::Model::Vertex, Tangent) == 36 &&
++              offsetof(Effekseer::Model::Vertex, UV1) == 48 &&
++              offsetof(Effekseer::Model::Vertex, UV2) == 56 &&
++              offsetof(Effekseer::Model::Vertex, VColor) == 64 &&
++              sizeof(Effekseer::Model::Vertex) == 68,
++              "Effekseer model vertex layout changed; update the bgfx adapter");
++static_assert(MaxInstanced == 40,
++              "Model constant buffers must match the upstream 40-instance shaders");
+ 
+ // Renderer
+ 
+@@ -57,10 +74,12 @@
+ 	const RendererImplemented *m_render;
+ 	bgfx_texture_handle_t m_handle;
+ 	int m_id;
++	bool m_ownsHandle = true;
+ public:
+-	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle) : m_render(render), m_handle(handle), m_id(-1) {}
++	Texture(const RendererImplemented *render, bgfx_texture_handle_t handle, bool ownsHandle = true) : m_render(render), m_handle(handle), m_id(-1), m_ownsHandle(ownsHandle) {}
+ 	Texture(const RendererImplemented *render, int id) : m_render(render), m_id(id) { m_handle.idx = UINT16_MAX; }
+ 	~Texture() override;
++	bool OwnsHandle() const { return m_ownsHandle; }
+ 	int GetId() const {
+ 		return m_id;
+ 	}
+@@ -130,11 +149,12 @@
+ 	}
+ 	virtual ~TextureLoader() = default;
+ 	Effekseer::TextureRef Load(const char16_t* path, Effekseer::TextureType textureType) override {
+-		char buffer[MAX_PATH];
+-		Effekseer::ConvertUtf16ToUtf8(buffer, MAX_PATH, path);
++		if (path == nullptr || *path == 0)
++			return nullptr;
++		const auto buffer = std::filesystem::path(path).u8string();
+ 		// always create gamma space texture, Effekseer will convert color in shader with MiscFlag set to convert
+ 		const int srgb = 0; //textureType == Effekseer::TextureType::Color;
+-		int id = m_loader(buffer, srgb, m_ud);
++		int id = m_loader(reinterpret_cast<const char*>(buffer.c_str()), srgb, m_ud);
+ 		if (id < 0)
+ 			return nullptr;
+ 
+@@ -173,7 +193,7 @@
+ 		struct {
+ 			bgfx_uniform_handle_t handle;
+ 			int count;
+-			void * ptr;
++			const void * ptr;
+ 		} m_uniform[maxUniform];
+ 		bgfx_uniform_handle_t m_samplers[maxSamplers];
+ 		bgfx_program_handle_t m_program;
+@@ -640,6 +660,7 @@
+ 	int32_t m_squareMaxCount = 0;
+ 	int32_t m_indexBufferStride = 2;
+ 	bgfx_view_id_t m_viewid = 0;
++	float m_outputGamma[4] = {};
+ 	bgfx_vertex_layout_t m_modellayout;
+ 
+ 	struct VertexLayoutInfo {
+@@ -659,6 +680,10 @@
+ 			return t;
+ 		bgfx_texture_handle_t h = m_initArgs.texture_get(type, param, m_initArgs.ud);
+ 		t.DownCast<Texture>()->ReplaceInterface(h);
++		if (!BGFX_HANDLE_IS_VALID(h)) {
++			static const Effekseer::Backend::TextureRef empty;
++			return empty;
++		}
+ 		return t;
+ 	}
+ 	//! because gleDrawElements has only index offset
+@@ -783,6 +808,7 @@
+ 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_BITANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
++			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
+ 		BGFX(vertex_layout_end)(layout);
+ 		
+@@ -945,8 +971,8 @@
+ 		if (init->texture_get == nullptr)
+ 			return;
+ 		bgfx_texture_handle_t invalid = BGFX_INVALID_HANDLE;
+-		m_background = Effekseer::MakeRefPtr<Texture>(this, invalid);
+-		m_depth = Effekseer::MakeRefPtr<Texture>(this, invalid);
++		m_background = Effekseer::MakeRefPtr<Texture>(this, invalid, false);
++		m_depth = Effekseer::MakeRefPtr<Texture>(this, invalid, false);
+ 	}
+ public:
+ 	RendererImplemented() {
+@@ -981,16 +1007,24 @@
+ 		
+ 		m_standardRenderer = new BGFXStandardRenderer(this);
+ 
++		GetImpl()->isDepthReversed = init->invz;
+ 		GetImpl()->isSoftParticleEnabled = true;
+ 		GetImpl()->CreateProxyTextures(this);
+ 		return true;
+ 	}
++	void SetOutputGamma(bool enabled) {
++		m_outputGamma[0] = enabled ? 1.0f : 0.0f;
++	}
+ 	void SetRestorationOfStatesFlag(bool flag) override {
+ 		m_restorationOfStates = flag;
+ 	}
+ 	bool BeginRendering() override {
+ 		m_encoder = BGFX(encoder_begin)(false);
+ 		GetImpl()->CalculateCameraProjectionMatrix();
++		Effekseer::Backend::TextureRef depth;
++		EffekseerRenderer::DepthReconstructionParameter reconstruction{};
++		GetDepth(depth, reconstruction);
++		GetImpl()->SetDepth(depth, reconstruction);
+ 
+ 		m_renderState->GetActiveState().Reset();
+ 		m_renderState->GetActiveState().TextureIDs.fill(0);
+@@ -1249,6 +1283,12 @@
+ 			s->m_uniform[i+s->m_vsSize].handle = u[i];
+ 			s->m_uniform[i+s->m_vsSize].count = 0;
+ 			s->m_uniform[i+s->m_vsSize].ptr = nullptr;
++			bgfx_uniform_info_t info{};
++			BGFX(get_uniform_info)(u[i], &info);
++			if (strcmp(info.name, "u_effects_output") == 0) {
++				s->m_uniform[i+s->m_vsSize].ptr = m_outputGamma;
++				s->m_uniform[i+s->m_vsSize].count = 1;
++			}
+ 		}
+ 		for (i=0;i<Shader::maxSamplers;i++) {
+ 			s->m_samplers[i].idx = UINT16_MAX;
+@@ -1337,7 +1377,7 @@
+ 	}
+ 	void ReleaseTexture(Texture *t) const {
+ 		bgfx_texture_handle_t h = t->RemoveInterface();
+-		if (BGFX_HANDLE_IS_VALID(h))
++		if (t->OwnsHandle() && BGFX_HANDLE_IS_VALID(h))
+ 			BGFX(destroy_texture)(h);
+ 	}
+ 	Effekseer::Backend::IndexBufferRef CreateIndexBuffer(int32_t elementCount, const void* initialData, Effekseer::Backend::IndexBufferStrideType stride) const {
+@@ -1399,6 +1439,7 @@
+ 			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_BITANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TANGENT, 3, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD0, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
++			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_TEXCOORD1, 2, BGFX_ATTRIB_TYPE_FLOAT, false, false);
+ 			BGFX(vertex_layout_add)(&layout, BGFX_ATTRIB_COLOR0, 4, BGFX_ATTRIB_TYPE_UINT8, true, false);
+ 		BGFX(vertex_layout_end)(&layout);
+ 		return BGFX(create_vertex_layout)(&layout);
+@@ -1413,43 +1454,43 @@
+ 		| BGFX_STATE_FRONT_CCW
+ 		| BGFX_STATE_MSAA;
+ 
+-	if (m_next.DepthTest) {
++	if (next_.DepthTest) {
+ 		state |= m_invz ? BGFX_STATE_DEPTH_TEST_GEQUAL : BGFX_STATE_DEPTH_TEST_LEQUAL;
+ 	} else {
+ 		state |= BGFX_STATE_DEPTH_TEST_ALWAYS;
+ 	}
+ 
+-	if (m_next.DepthWrite) {
++	if (next_.DepthWrite) {
+ 		state |= BGFX_STATE_WRITE_Z;
+ 	}
+ 
+ 	// isCCW
+-	if (m_next.CullingType == Effekseer::CullingType::Front) {
++	if (next_.CullingType == Effekseer::CullingType::Front) {
+ 		state |= BGFX_STATE_CULL_CW;
+ 	}
+-	else if (m_next.CullingType == Effekseer::CullingType::Back) {
++	else if (next_.CullingType == Effekseer::CullingType::Back) {
+ 		state |= BGFX_STATE_CULL_CCW;
+ 	}
+-	if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
++	if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Opacity ||
+ 		m_renderer->GetRenderMode() == ::Effekseer::RenderMode::Wireframe) {
+ 			state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_MAX);
+ 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
+ 		}
+-	else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Sub)	{
++	else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Sub)	{
+ 		state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_REVSUB, BGFX_STATE_BLEND_EQUATION_ADD);
+ 		state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
+ 	} else {
+ 		state |= BGFX_STATE_BLEND_EQUATION_SEPARATE(BGFX_STATE_BLEND_EQUATION_ADD, BGFX_STATE_BLEND_EQUATION_ADD);
+-		if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
++		if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Blend) {
+ 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_INV_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
+-		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
++		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Add) {
+ 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_ONE);
+-		} else if (m_next.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
++		} else if (next_.AlphaBlend == ::Effekseer::AlphaBlendType::Mul) {
+ 			state |= BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_SRC_COLOR, BGFX_STATE_BLEND_ZERO, BGFX_STATE_BLEND_ONE);
+ 		}
+ 	}
+ 	m_renderer->SetCurrentState(state);
+-	m_active = m_next;
++	active_ = next_;
+ }
+ 
+ Effekseer::Backend::TextureRef GraphicsDevice::CreateTexture(const Effekseer::Backend::TextureParameter& param, const Effekseer::CustomVector<uint8_t>& initialData) {
+@@ -1471,6 +1512,11 @@
+ 
+ // Create Renderer
+ 
++void SetOutputGamma(EffekseerRenderer::RendererRef renderer, bool enabled) {
++	if (renderer != nullptr)
++		renderer.DownCast<RendererImplemented>()->SetOutputGamma(enabled);
++}
++
+ EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init) {
+ 	auto renderer = Effekseer::MakeRefPtr<RendererImplemented>();
+ 	if (renderer->Initialize(init))	{
+--- a/renderer/bgfxrenderer.h
++++ b/renderer/bgfxrenderer.h
+@@ -41,6 +41,7 @@
+ 		bool invz;
+ 	};
+ 
++	EFXBGFX_API void SetOutputGamma(EffekseerRenderer::RendererRef renderer, bool enabled);
+ 	EFXBGFX_API EffekseerRenderer::RendererRef CreateRenderer(struct InitArgs *init);
+ 	EFXBGFX_API Effekseer::ModelRendererRef CreateModelRenderer(EffekseerRenderer::RendererRef renderer, struct InitArgs *init);
+ }
+--- a/shaders/model_unlit_ps.fx.sc
++++ b/shaders/model_unlit_ps.fx.sc
+@@ -2,6 +2,7 @@
+ 
+ #include <bgfx_shader.sh>
+ #include "defines.sh"
++uniform vec4 u_effects_output;
+ uniform vec4 u_fsfLightDirection;
+ uniform vec4 u_fsfLightColor;
+ uniform vec4 u_fsfLightAmbient;
+@@ -143,5 +144,5 @@
+     Input.UV = v_UV;
+     Input.PosP = v_PosP;
+     vec4 _363 = _main(Input);
+-    gl_FragColor = _363;
++    gl_FragColor = u_effects_output.x > 0.5 ? LinearToSRGB(_363) : _363;
+ }
+--- a/shaders/model_lit_ps.fx.sc
++++ b/shaders/model_lit_ps.fx.sc
+@@ -2,6 +2,7 @@
+ 
+ #include <bgfx_shader.sh>
+ #include "defines.sh"
++uniform vec4 u_effects_output;
+ uniform vec4 u_fsfLightDirection;
+ uniform vec4 u_fsfLightColor;
+ uniform vec4 u_fsfLightAmbient;
+@@ -158,5 +159,5 @@
+     Input.WorldT = v_WorldT;
+     Input.PosP = v_PosP;
+     vec4 _435 = _main(Input);
+-    gl_FragColor = _435;
++    gl_FragColor = u_effects_output.x > 0.5 ? LinearToSRGB(_435) : _435;
+ }
+--- a/shaders/ad_model_unlit_ps.fx.sc
++++ b/shaders/ad_model_unlit_ps.fx.sc
+@@ -2,6 +2,7 @@
+ 
+ #include <bgfx_shader.sh>
+ #include "defines.sh"
++uniform vec4 u_effects_output;
+ uniform vec4 u_fsfLightDirection;
+ uniform vec4 u_fsfLightColor;
+ uniform vec4 u_fsfLightAmbient;
+@@ -335,5 +336,5 @@
+     Input.Blend_FBNextIndex_UV = v_Blend_FBNextIndex_UV;
+     Input.PosP = v_PosP;
+     vec4 _821 = _main(Input);
+-    gl_FragColor = _821;
+-}
++    gl_FragColor = u_effects_output.x > 0.5 ? LinearToSRGB(_821) : _821;
++}
+--- a/shaders/ad_model_lit_ps.fx.sc
++++ b/shaders/ad_model_lit_ps.fx.sc
+@@ -2,6 +2,7 @@
+ 
+ #include <bgfx_shader.sh>
+ #include "defines.sh"
++uniform vec4 u_effects_output;
+ uniform vec4 u_fsfLightDirection;
+ uniform vec4 u_fsfLightColor;
+ uniform vec4 u_fsfLightAmbient;
+@@ -348,5 +349,5 @@
+     Input.Blend_FBNextIndex_UV = v_Blend_FBNextIndex_UV;
+     Input.PosP = v_PosP;
+     vec4 _894 = _main(Input);
+-    gl_FragColor = _894;
+-}
++    gl_FragColor = u_effects_output.x > 0.5 ? LinearToSRGB(_894) : _894;
++}

@@ -8,16 +8,17 @@
 namespace engine
 {
 
-Node::Node(Scene& scene, std::uint64_t id, std::string_view name) : scene_(scene), entity_id_(id)
+Node::Node(Scene& scene, std::uint64_t id, std::uint64_t local_id, std::string_view name)
+    : scene_(scene), entity_id_(id)
 {
-    info_.id = ++scene_.node_sequence_;
+    info_.id = local_id;
     info_.name = name;
 }
 
 Node::~Node() noexcept
 {
     components_.clear();
-    scene_.destroy_entity(entity_id_);
+    scene_.destroy_entity(entity_id_, info_.id);
 }
 
 std::uint64_t Node::id() const noexcept
@@ -47,12 +48,12 @@ const Scene& Node::scene() const noexcept
 
 Node* Node::parent() noexcept
 {
-    return scene_.find_local_node(info_.parent_id);
+    return info_.parent_id == 0 ? nullptr : scene_.find_local_node(info_.parent_id);
 }
 
 const Node* Node::parent() const noexcept
 {
-    return std::as_const(scene_).find_local_node(info_.parent_id);
+    return info_.parent_id == 0 ? nullptr : std::as_const(scene_).find_local_node(info_.parent_id);
 }
 
 bool Node::set_parent(Node* parent) noexcept
@@ -76,6 +77,23 @@ bool Node::remove_component(ComponentType type) noexcept
 {
     return std::erase_if(components_,
                          [type](const auto& value) { return value->type() == type; }) != 0;
+}
+
+bool Node::transient() const noexcept
+{
+    for (const Node* current = this; current != nullptr; current = current->parent())
+    {
+        if (current->transient_)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void Node::set_transient(bool transient) noexcept
+{
+    transient_ = transient;
 }
 
 Component* Node::get_component(ComponentType type) noexcept

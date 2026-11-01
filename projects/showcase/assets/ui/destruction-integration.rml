@@ -1,0 +1,64 @@
+<rml>
+<head>
+<title>Combined destruction laboratory</title>
+<style>
+body, div, h1 { display: block; }
+body { margin: 0; width: 100%; height: 100%; pointer-events: none; font-family: body; color: #f2f4e9; font-size: 15px; }
+.panel { position: absolute; top: 24px; right: 24px; width: 328px; max-height: 88%; padding: 20px; box-sizing: border-box; background-color: #18292ce8; border-width: 1px; border-color: #65766a; overflow-y: auto; pointer-events: auto; }
+.eyebrow { color: #d4b585; font-size: 11px; letter-spacing: 2px; margin-bottom: 8px; }
+h1 { font-family: heading; font-weight: normal; font-size: 27px; margin: 0 0 8px 0; }
+.intro { color: #bfcac1; font-size: 13px; line-height: 1.4; margin-bottom: 14px; }
+.section { color: #d4b585; font-size: 11px; letter-spacing: 1px; margin: 15px 0 7px 0; }
+.buttons { display: flex; flex-wrap: wrap; }
+button { display: block; tab-index: auto; width: 47%; box-sizing: border-box; margin: 0 3% 7px 0; padding: 10px 7px; font-family: body; font-size: 13px; text-align: center; color: #f2f4e9; background-color: #3c504d; border-width: 1px; border-color: #65766a; }
+button.primary { width: 97%; background-color: #836b47; border-color: #c7a66e; }
+button:hover, button:focus { background-color: #64725b; border-color: #e3c696; }
+button.selected { background-color: #708563; color: #ffffff; }
+button:disabled { color: #8b978c; background-color: #2c3a35; border-color: #44534b; }
+#integration-statistics, #integration-impacts, #integration-combat, #integration-navigation { color: #b0d3c6; font-size: 12px; line-height: 1.4; margin: 10px 0 0 0; }
+#integration-status { color: #eee7d4; font-size: 13px; line-height: 1.4; margin-top: 12px; }
+.footnote { color: #9fafa5; font-size: 11px; line-height: 1.4; margin-top: 14px; }
+scrollbarvertical { width: 8px; background-color: #18292c; }
+scrollbarvertical slidertrack { width: 8px; }
+scrollbarvertical sliderbar { width: 6px; margin: 1px; min-height: 20px; background-color: #8f9c72; }
+scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: none; }
+@media (max-width: 700px) { .panel { top: 74px; right: 12px; width: 230px; padding: 12px; max-height: 74%; } h1 { font-size: 22px; } button { font-size: 12px; padding: 8px 5px; } .intro { font-size: 12px; } }
+</style>
+</head>
+<body>
+<div class="panel">
+    <div class="eyebrow">SHOWCASE / CONNECTED SYSTEMS</div>
+    <h1>Rocket range</h1>
+    <div class="intro">Bombard ground and buildings. Dense physical fragments, craters, collapse and live ground routes.</div>
+    <div class="section">01 / CHARACTER LAUNCHER</div>
+    <div class="buttons">
+        <button id="integration-barrage" class="primary">60-round barrage</button>
+        <button id="integration-stop">Cease fire</button>
+        <button id="integration-rate">Rate: 2 / 6 / 12</button>
+        <button id="integration-tower">Rocket: tower</button>
+        <button id="integration-wall">Rocket: wall</button>
+        <button id="integration-ground">Rocket: ground</button>
+        <button id="integration-rock">Rocket: earth cap</button>
+        <button id="integration-fire">Fire along view</button>
+        <button id="integration-stress">Weak beam / normal</button>
+        <button id="integration-dig">Excavate tower</button>
+        <button id="integration-route">Query ground route</button>
+        <button id="integration-fill">Fill crater</button>
+        <button id="integration-reset">Reset all</button>
+    </div>
+    <div class="section">02 / INSPECT &amp; EXPLORE</div>
+    <div class="buttons">
+        <button id="integration-overview" class="selected">Overview</button>
+        <button id="integration-front">Front view</button>
+        <button id="integration-walk">Walk</button>
+        <button id="integration-respawn">Respawn</button>
+    </div>
+    <div id="integration-combat">Projectile pool ready.</div>
+    <div id="integration-navigation">Preparing ground route.</div>
+    <div id="integration-statistics">Preparing collision and support...</div>
+    <div id="integration-impacts">0 qualifying contacts / 0 secondary damage events</div>
+    <div id="integration-status">Waiting for all scene systems.</div>
+    <div class="footnote">Every rocket sweeps real collision geometry.<br/>Green markers show ground navigation; moving debris is not baked into it.<br/>Stop ends new fire; Reset clears fragments, rockets and changes.<br/>Synchronous prototype. Frame interval includes the frame cap; not a hardware performance benchmark.</div>
+</div>
+</body>
+</rml>

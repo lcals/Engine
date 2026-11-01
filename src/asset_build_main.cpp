@@ -1,3 +1,16 @@
+#if ENGINE_HAS_TERRAIN_EDITOR
+#include "plugins/editor/terrain/terrain_codec.hpp"
+#include "plugins/editor/terrain/terrain_importer.hpp"
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+#include "plugins/editor/destruction/destruction_codec.hpp"
+#include "plugins/editor/destruction/destruction_importer.hpp"
+#endif
+#if ENGINE_HAS_EFFECTS_EDITOR
+#include "plugins/editor/effects/effect_codec.hpp"
+#include "plugins/editor/effects/effect_importer.hpp"
+#endif
+
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
@@ -98,6 +111,36 @@ int main(int argc, char** argv)
     if (!engine::plugins::character_controller::register_controller_codec())
     {
         std::fputs("Cannot register character controller scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_EFFECTS_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> effect_importer =
+        std::make_unique<engine::plugins::effects::EffectImporter>();
+    if (!engine::plugins::effects::register_effect_codec() ||
+        !pipeline.add_importer(effect_importer))
+    {
+        std::fputs("Cannot register effects importer and scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_TERRAIN_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> terrain_importer =
+        std::make_unique<engine::plugins::terrain::TerrainImporter>();
+    if (!engine::plugins::terrain::register_terrain_codec() ||
+        !pipeline.add_importer(terrain_importer))
+    {
+        std::fputs("Cannot register terrain importer and scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_DESTRUCTION_EDITOR
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> destruction_importer =
+        std::make_unique<engine::plugins::destruction::DestructionImporter>();
+    if (!engine::plugins::destruction::register_destruction_codec() ||
+        !pipeline.add_importer(destruction_importer))
+    {
+        std::fputs("Cannot register destruction importer and scene codec\n", stderr);
         return 1;
     }
 #endif

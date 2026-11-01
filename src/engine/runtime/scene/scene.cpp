@@ -46,12 +46,21 @@ Node* Scene::create_node(std::string_view name)
     {
         return nullptr;
     }
+    return create_node(name, node_sequence_ + 1);
+}
+
+Node* Scene::create_node(std::string_view name, std::uint64_t local_id)
+{
+    if (local_id == 0 || local_node_index_.contains(local_id))
+    {
+        return nullptr;
+    }
     const ecs_entity_t entity = ecs_new(&world_);
     if (entity == 0)
     {
         return nullptr;
     }
-    std::unique_ptr<Node> node(new (std::nothrow) Node(*this, entity, name));
+    std::unique_ptr<Node> node(new (std::nothrow) Node(*this, entity, local_id, name));
     if (node == nullptr)
     {
         ecs_delete(&world_, entity);
@@ -63,6 +72,9 @@ Node* Scene::create_node(std::string_view name)
     }
     Node* result = node.get();
     nodes_.push_back(std::move(node));
+    node_index_.emplace(entity, result);
+    local_node_index_.emplace(local_id, result);
+    node_sequence_ = std::max(node_sequence_, local_id);
     return result;
 }
 
@@ -73,9 +85,12 @@ Node* Scene::find_node(std::uint64_t id) noexcept
 
 const Node* Scene::find_node(std::uint64_t id) const noexcept
 {
-    const auto iterator = std::find_if(nodes_.begin(), nodes_.end(),
-                                       [id](const auto& node) { return node->id() == id; });
-    return iterator == nodes_.end() ? nullptr : iterator->get();
+    if (id == 0)
+    {
+        return nullptr;
+    }
+    const auto iterator = node_index_.find(id);
+    return iterator == node_index_.end() ? nullptr : iterator->second;
 }
 
 bool Scene::destroy_node(std::uint64_t id)
@@ -85,21 +100,43 @@ bool Scene::destroy_node(std::uint64_t id)
     {
         return false;
     }
-    // 先收集整个子树，再销毁对象，避免遍历已经失效的父指针。
-    std::vector<const Node*> removed;
+    // Classify each ancestor once before destruction, including children created before parents.
+    // Node addresses are stable; erase keeps the relative order of surviving owners.
+    std::unordered_map<const Node*, bool> removed;
+    removed.emplace(root, true);
+    std::vector<const Node*> branch;
     for (const auto& node : nodes_)
     {
+        if (node->info().parent_id == 0)
+        {
+            continue;
+        }
+        branch.clear();
+        bool remove = false;
         for (const Node* ancestor = node.get(); ancestor != nullptr; ancestor = ancestor->parent())
         {
-            if (ancestor == root)
+            const auto known = removed.find(ancestor);
+            if (known != removed.end())
             {
-                removed.push_back(node.get());
+                remove = known->second;
                 break;
             }
+            if (ancestor->info().parent_id == 0)
+            {
+                break;
+            }
+            branch.push_back(ancestor);
+        }
+        for (const Node* ancestor : branch)
+        {
+            removed.emplace(ancestor, remove);
         }
     }
     const auto should_remove = [&removed](const Node* node)
-    { return std::find(removed.begin(), removed.end(), node) != removed.end(); };
+    {
+        const auto found = removed.find(node);
+        return found != removed.end() && found->second;
+    };
     if (should_remove(find_local_node(info_.active_camera_node)))
     {
         info_.active_camera_node = 0;
@@ -138,16 +175,28 @@ bool Scene::set_active_camera(Camera* camera) noexcept
 bool Scene::build_data(schema::SceneDataT& output) const
 {
     output = {};
+    if (const auto* camera = active_camera(); camera != nullptr && camera->node().transient())
+    {
+        return false;
+    }
     schema::SceneDataT snapshot;
     snapshot.info = std::make_unique<schema::SceneInfoT>(info_);
     snapshot.nodes.reserve(nodes_.size());
     for (const auto& node : nodes_)
     {
+        if (node->transient())
+        {
+            continue;
+        }
         auto node_data = std::make_unique<schema::NodeDataT>();
         node_data->info = std::make_unique<schema::NodeInfoT>(node->info());
         node_data->components.reserve(node->components().size());
         for (const auto& component : node->components())
         {
+            if (component->transient())
+            {
+                continue;
+            }
             auto component_data = std::make_unique<schema::ComponentDataT>();
             if (!component->build_data(*component_data))
             {
@@ -163,9 +212,12 @@ bool Scene::build_data(schema::SceneDataT& output) const
 
 Node* Scene::find_local_node(std::uint64_t local_id) const noexcept
 {
-    const auto item = std::find_if(nodes_.begin(), nodes_.end(), [local_id](const auto& node)
-                                   { return node->info().id == local_id; });
-    return item == nodes_.end() ? nullptr : item->get();
+    if (local_id == 0)
+    {
+        return nullptr;
+    }
+    const auto item = local_node_index_.find(local_id);
+    return item == local_node_index_.end() ? nullptr : item->second;
 }
 
 bool Scene::restore_data(const schema::SceneDataT& data)
@@ -174,6 +226,9 @@ bool Scene::restore_data(const schema::SceneDataT& data)
     {
         return false;
     }
+    nodes_.reserve(data.nodes.size());
+    node_index_.reserve(data.nodes.size());
+    local_node_index_.reserve(data.nodes.size());
     std::set<std::uint64_t> identities;
     for (const auto& source : data.nodes)
     {
@@ -182,12 +237,11 @@ bool Scene::restore_data(const schema::SceneDataT& data)
         {
             return false;
         }
-        Node* node = create_node(source->info->name);
+        Node* node = create_node(source->info->name, source->info->id);
         if (!node)
         {
             return false;
         }
-        node->info_.id = source->info->id;
         std::set<ComponentType> types;
         for (const auto& component : source->components)
         {
@@ -203,11 +257,10 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             }
             if (!restored || !restored->restore_data(*component))
             {
-                LogSystem::write(LogLevel::error,
-                                 "Cannot restore component " +
-                                     std::string(schema::EnumNameComponentPayload(
-                                         component->payload.type)) +
-                                     " on scene node: " + source->info->name);
+                LogSystem::write(LogLevel::error, "Cannot restore component " +
+                                                      std::string(schema::EnumNameComponentPayload(
+                                                          component->payload.type)) +
+                                                      " on scene node: " + source->info->name);
                 return false;
             }
         }
@@ -216,7 +269,6 @@ bool Scene::restore_data(const schema::SceneDataT& data)
             return false;
         }
     }
-    node_sequence_ = identities.empty() ? 0 : *identities.rbegin();
     for (const auto& source : data.nodes)
     {
         auto* node = find_local_node(source->info->id);
@@ -240,8 +292,10 @@ bool Scene::restore_data(const schema::SceneDataT& data)
     return set_active_camera(camera);
 }
 
-void Scene::destroy_entity(std::uint64_t id) noexcept
+void Scene::destroy_entity(std::uint64_t id, std::uint64_t local_id) noexcept
 {
+    node_index_.erase(id);
+    local_node_index_.erase(local_id);
     if (ecs_is_alive(&world_, id))
     {
         ecs_delete(&world_, id);

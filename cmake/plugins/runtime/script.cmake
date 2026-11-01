@@ -9,6 +9,7 @@ endif()
 
 function(engine_configure_script_plugin)
     engine_add_system(plugins/runtime script)
+    engine_enable_profiling(engine_script)
     file(GLOB _bindings CONFIGURE_DEPENDS
          "${PROJECT_SOURCE_DIR}/src/engine/plugins/runtime/script/bindings/*_binding.cpp")
     target_sources(
@@ -32,12 +33,50 @@ function(engine_configure_script_plugin)
                 engine::log
                 engine::resource
                 engine::world
+                engine::physics
+                engine::navigation
                 engine::render
                 engine::ui
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
+    if("runtime/effects" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::effects)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_EFFECTS_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_EFFECTS_PLUGIN=0)
+    endif()
+    if("runtime/terrain" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::terrain)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_TERRAIN_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_TERRAIN_PLUGIN=0)
+    endif()
+    if("runtime/destruction" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::destruction)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_DESTRUCTION_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_DESTRUCTION_PLUGIN=0)
+    endif()
 endfunction()
 
-engine_register_plugin(NAME runtime/script CONFIGURE engine_configure_script_plugin OPTIONS
-                       ENGINE_ENABLE_RUNTIME_DEPS)
+# Bindings depend only on explicitly selected/default terrain, without forcing it into a
+# script-only plugin selection. The dependency is owned by this plugin manifest.
+set(_script_plugin_dependencies)
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "terrain" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "terrain" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/terrain)
+endif()
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "destruction" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "destruction" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/destruction)
+endif()
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "effects" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "effects" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/effects)
+endif()
+engine_register_plugin(NAME runtime/script CONFIGURE engine_configure_script_plugin
+                       DEPENDS ${_script_plugin_dependencies} OPTIONS ENGINE_ENABLE_RUNTIME_DEPS)

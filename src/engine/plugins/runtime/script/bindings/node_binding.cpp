@@ -19,6 +19,11 @@ export class Node {
         return parent instanceof Node && other?.scene === h.scene &&
             native.NodeParent(h.scene, h.node, other.node);
     }
+    FindChild(path) {
+        const h = handles.get(this);
+        const node = native.NodeFindChild(h.scene, h.node, path);
+        return node === null ? null : new Node(key, h.scene, node);
+    }
     AddComponent(type) {
         const factory = componentTypes.get(type);
         if (factory === undefined) return null;
@@ -75,6 +80,52 @@ void set_parent(const Arguments& arguments)
     auto* parent = id == 0 ? nullptr : node->scene().find_node(id);
     arguments.set_return((id == 0 || parent != nullptr) && node->set_parent(parent));
 }
+
+void find_child(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* current = BindingContext::node(arguments);
+    std::string path;
+    if (current == nullptr || arguments.count() != 3 || !BindingContext::text(arguments, 2, path) ||
+        path.empty() || path.front() == '/' || path.back() == '/')
+    {
+        return;
+    }
+    std::string_view remaining(path);
+    while (!remaining.empty())
+    {
+        const auto separator = remaining.find('/');
+        const auto segment = remaining.substr(0, separator);
+        if (segment.empty() || segment == "." || segment == "..")
+        {
+            return;
+        }
+        Node* found = nullptr;
+        for (const auto& candidate : current->scene().nodes())
+        {
+            if (candidate->parent() != current || candidate->name() != segment)
+            {
+                continue;
+            }
+            if (found != nullptr)
+            {
+                return;
+            }
+            found = candidate.get();
+        }
+        if (found == nullptr)
+        {
+            return;
+        }
+        current = found;
+        if (separator == std::string_view::npos)
+        {
+            arguments.set_return(current->id());
+            return;
+        }
+        remaining.remove_prefix(separator + 1);
+    }
+}
 } // namespace
 
 std::string_view NodeBinding::name() const noexcept
@@ -90,7 +141,8 @@ std::string_view NodeBinding::source() const noexcept
 bool NodeBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.function("NodeCreate", create) && vm.function("NodeValid", valid) &&
-           vm.function("NodeDestroy", destroy) && vm.function("NodeParent", set_parent);
+           vm.function("NodeDestroy", destroy) && vm.function("NodeParent", set_parent) &&
+           vm.function("NodeFindChild", find_child);
 }
 
 } // namespace engine::plugins::script::bindings

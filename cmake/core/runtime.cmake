@@ -6,10 +6,7 @@ endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime performance)
-    if(ENGINE_ENABLE_TRACY)
-        target_compile_definitions(engine_performance PRIVATE ENGINE_ENABLE_TRACY=1)
-        target_link_libraries(engine_performance PRIVATE Tracy::TracyClient)
-    endif()
+    engine_enable_profiling(engine_performance)
 
     engine_add_system(runtime window)
     target_link_libraries(
@@ -18,9 +15,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
+    engine_enable_profiling(engine_render)
     target_sources(
         engine_render
         PRIVATE src/engine/runtime/render/render_surface.cpp
+                src/engine/runtime/render/render_extension.cpp
                 src/engine/runtime/render/render_math.cpp
                 src/engine/runtime/render/render_settings.cpp
                 src/engine/runtime/render/renderer_callbacks.cpp
@@ -29,10 +28,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/render/scene_gpu_resources.cpp
                 src/engine/runtime/render/scene_render_query.cpp
                 src/engine/runtime/render/resources/gpu_mesh.cpp
+                src/engine/runtime/render/resources/gpu_geometry.cpp
                 src/engine/runtime/render/resources/gpu_program.cpp
                 src/engine/runtime/render/resources/gpu_texture.cpp
                 src/engine/runtime/render/passes/shadow_frame.cpp
                 src/engine/runtime/render/passes/shadow_pass.cpp
+                src/engine/runtime/render/passes/skinning_pass.cpp
                 src/engine/runtime/render/passes/ambient_occlusion_pass.cpp
                 src/engine/runtime/render/passes/hdr_post_process_pass.cpp)
     target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
@@ -51,6 +52,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     include(${PROJECT_SOURCE_DIR}/cmake/core/render_shaders.cmake)
     engine_embed_render_shaders(engine_render shadow)
     engine_embed_assao_shaders(engine_render)
+    engine_embed_skinning_shader(engine_render)
     engine_embed_hdr_shaders(engine_render)
     engine_configure_platform_graphics()
 
@@ -116,16 +118,21 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
+    engine_enable_profiling(engine_physics)
     target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource)
     engine_add_system(runtime audio)
+    engine_enable_profiling(engine_audio)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 
     engine_add_system(runtime navigation)
-    target_link_libraries(engine_navigation PRIVATE RecastNavigation::Recast
+    engine_enable_profiling(engine_navigation)
+    target_link_libraries(engine_navigation PUBLIC engine::scene_data PRIVATE RecastNavigation::Recast
                                                     RecastNavigation::Detour)
 
     engine_add_system(runtime animation)
-    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline ozz_geometry
+    engine_enable_profiling(engine_animation)
+    target_include_directories(engine_animation PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline
                                                    engine::world engine::resource)
     # 上游子项目头文件按第三方处理，保留本项目的严格警告。
     get_target_property(_ozz_include ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
@@ -139,6 +146,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PUBLIC engine::scene_data
         PRIVATE engine::resource engine::world bgfx::bgfx bgfx::bx)
     engine_add_system(runtime ui)
+    engine_enable_profiling(engine_ui)
     target_sources(
         engine_ui
         PRIVATE src/engine/runtime/ui/rml_font.cpp
@@ -183,4 +191,5 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PUBLIC engine::core engine::gameplay
         PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
     engine_apply_options(engine_runtime)
+    engine_enable_profiling(engine_runtime)
 endif()

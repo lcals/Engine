@@ -22,6 +22,10 @@ public:
     [[nodiscard]] ComponentType type() const noexcept;
     [[nodiscard]] bool enabled() const noexcept;
     void set_enabled(bool enabled) noexcept;
+    // Derived runtime components may be regenerated from their owner's persistent data.
+    // Scene snapshots omit explicitly transient components; default is false.
+    [[nodiscard]] bool transient() const noexcept;
+    void set_transient(bool transient) noexcept;
     [[nodiscard]] const schema::ComponentDataT& data() const noexcept;
     // 快照失败输出为空；恢复失败保持原组件状态。
     [[nodiscard]] virtual bool build_data(schema::ComponentDataT& output) const;
@@ -37,6 +41,7 @@ private:
     friend class Node;
     Node& node_;
     schema::ComponentDataT data_{};
+    bool transient_ = false;
 };
 
 } // namespace engine

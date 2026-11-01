@@ -9,6 +9,8 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
+- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、应力/塌方/导航与火箭场步骤 4、开源技术来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
+- [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
 
@@ -18,7 +20,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院和 3D 文字场景共用一套设置、资源目录和缓存。默认进入 UI 菜单；四个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场和综合破坏场共用一套设置、资源目录和缓存。默认进入 UI 菜单；八个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -465,7 +467,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 | `set_animator` / `get_animator` | `sceneId`、`nodeId`；配置独立动画资源、速度、循环及自动播放，或查询配置 |
 | `play_animation` / `pause_animation` / `stop_animation` / `seek_animation` / `get_animation_state` | `sceneId`、`nodeId`；播放、保留姿态暂停、恢复静态网格停止、按 `seconds` 定位或查询状态 |
 | `set_character_motor` / `get_character_motor` | `sceneId`、`nodeId`；配置或查询核心胶囊角色运动组件 |
-| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询第一／第三人称输入与相机策略，仅启用对应编辑器插件时注册 |
+| `set_character_controller` / `get_character_controller` | `sceneId`、`nodeId`；配置或查询玩家输入与可空相机引用，仅启用对应编辑器插件时注册 |
+| `set_character_camera` / `get_character_camera` | `sceneId`、`nodeId`；在 Camera 节点配置独立跟随相机、`targetNodeId` 和避障参数 |
+| `set_character_visual` / `get_character_visual` | `sceneId`、`nodeId`；标记身体、头部或第一人称手／武器子树 |
 | `save_scene` | `sceneId`、`path`（相对于项目 `assets/` 的 `.scene` 路径）；保存完整场景及当前网格、材质源 |
 | `execute_batch` | `commands` 数组，每项含 `command` 与 `arguments`；接受各模块已注册的可撤销修改，最多 64 项 |
 | `undo` / `redo` | `sceneId`；撤销或重做一条编辑记录 |
@@ -514,7 +518,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 `set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
 
-独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主，当前没有业务采样逻辑。`ENGINE_ENABLE_TRACY=ON` 在配置期选择并私有链接 Tracy 0.14.1 客户端，使用按需连接模式、不启用崩溃处理器；默认 `OFF` 时不引入 Tracy 依赖。客户端保留上游进程生命周期与后台连接线程，尚未接入 CPU 区域、GPU 或内存跟踪。此选项与 bgfx 面板开关独立。
+独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、脚本、地形、破坏、物理、导航、渲染、UI、动画及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
+
+后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[最终可信基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
@@ -755,15 +761,31 @@ cmake --build --preset ninja-engine-debug
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/animation-runtime start
 ```
 
-聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称临时隐藏自身模型，切回恢复；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
+聚焦引擎窗口后，WASD 移动，空格跳跃，按住鼠标右键转向，Tab 切换第一／第三人称。第一人称只在自身镜头隐藏身体和头部，保留身体阴影及旁观镜头中的角色；第三人称相机通过球体检测避开墙体。使用同一命令的 `stop` 停止并释放场景。Windows 使用对应 `.exe`。
 
-`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动；输入和相机策略属于可选 `character_controller` 运行时插件。模型由 `Scene.InstantiateModel` 展开为普通节点，网格节点添加 `Animator`，`AnimationSystem` 使用 ozz 采样与 CPU 蒙皮，渲染与阴影共用变形后的顶点。动画播放、暂停、定位和项目启停均可经 MCP 控制。
+`CharacterMotor` 是核心物理组件，封装 Jolt 胶囊角色运动。主动水平速度 `set_velocity`／脚本 `SetVelocity` 与世界空间速度增量 `add_velocity`／`AddVelocity` 独立，清输入不会吞掉击退。`external_damping` 控制外部水平速度按秒衰减，竖直增量交给重力和碰撞。请求在下一固定步消费一次，没有物理子步的帧保留请求。
+
+输入、相机和角色表现属于可选 `character_controller` 运行时插件，分为三个场景组件：`CharacterController` 只控制选中的玩家，`CharacterCamera` 挂在 Camera 节点并独立跟随目标，`CharacterVisual` 标记身体／头部／第一人称专用子树。未显式选择玩家时仅接受唯一启用控制器；多个候选返回失败，业务可用 `set_player` 选中，传空解除选择。NPC 直接使用 Motor，无需玩家控制器或相机。控制器移除、禁用、替换或解除选择时撤销其主动请求，保留外部击退。
+
+跟随镜头在物理和动画后读取目标世界位置，目标可以没有 Motor。插件独占场景 Camera 的瞬态网格过滤列表，不更改 MeshRenderer 的全局状态或保存数据。第一人称专用部件应放在目标子树并标记 `first_person`，只向对应第一人称镜头显示。此功能不包含动画状态机、Root Motion、群体避让或空间分桶。
+
+MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，`"0"` 解除引用；保存时转换为场景持久节点 ID。
+
+旧场景的 `character_controller` 中 `mode`、`eye_height`、`camera_distance`、`pitch_min/max` 需移至相机节点的 `character_camera`，并设置 `target_node_id` 指向角色的持久节点 ID；控制器保留 `camera_node_id`。旧字段导入会明确报错，不能静默丢弃配置。已迁移内置样例，场景导入器指纹更新后会重新生成缓存。
+
+模型由 `Scene.InstantiateModel` 展开为普通节点，脚本可用实例根的 `Node.FindChild("相对/子路径")` 定位自己的网格部件，避免多个同名模型互相影响。网格节点添加 `Animator`；`AnimationSystem` 使用 ozz 采样和局部姿态混合，渲染系统通过 compute 完成 GPU 蒙皮，主画面、AO 与阴影共用输出顶点。相同资源共享不可变编译骨架、动画与源网格，每实例独立保存采样状态、骨骼矩阵和输出缓冲；更换场景或停止项目释放相应缓存。
+
+`Animator.CrossFade(path, seconds)` 切换标准动画资源，零秒直接切换，打断过渡从当前混合姿态继续；`Pause` 冻结过渡，`Stop` 恢复绑定姿态，`Seek` 和 `SetAnimation` 取消过渡。走跑、跳跃、落地和受击等选择规则属于项目脚本或玩法插件，核心不识别项目或模型。不同源骨架在编辑器导入阶段映射、重定向并烘焙到目标骨架，运行时消费同一资源契约；仅由脚本字符串引用的动作和材质须显式列入项目构建清单。动画播放、暂停、定位和项目启停均可经 MCP 控制。GPU 蒙皮要求 compute 能力；不支持时返回错误，不静默切换算法。
 
 示例固定循环播放 walk 以检查蒙皮，静止时也会播放；尚未提供按移动速度混合的动画状态机、Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
 
+模型适配由导入属性组合完成：FBX `.meta` 的 `scale_factor` 控制统一缩放，`rotation_offset` 指定 XYZ 欧拉角（度），`material_remaps` 按 Mesh 子资源路径绑定各材质槽。模型、骨架和动画使用一致的导入坐标；外部动画与引用骨架的坐标设置必须相同。材质引用自动进入模型的运行依赖，参数变化参与增量构建，已有子 GUID 保持不变。错误配置保留上一批有效缓存，不能通过项目名或模型名分支修补。字段格式与限制见 [FBX 导入契约](docs/plugins/editor/class-diagrams/fbx-importer.md)。
+
 庭院由 MCP 创建并保存为 231 个节点、225 个环境 Mesh、47,004 个环境三角形和 31 个静态碰撞体；三棵树共 840 片薄叶，每树合为一个 Mesh。人物由 Gameplay 在加载场景后实例化，避免保存后重复生成。项目启动直接读取建图脚本保存的场景组件参数；截图和动作采样来自真实渲染器。
 
-组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前登记组件和追加可选子系统；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+
+角色基础回归已在 macOS / Metal / QuickJS 的 Debug、Release 下通过：`engine.physics`、`engine.character_motor`、`engine.character_controller`、`engine.character_host`、`engine.window_render`、`engine.script_runtime`、`engine.script_tooling`、`editor.character_controller`，每种配置 8 项。覆盖击退与碰撞、移除／禁用停止、生产宿主同帧顺序、双镜头过滤与阴影、脚本绑定和可撤销编辑。编辑器与 MCP 可执行目标同时构建通过；本轮未执行 Windows 或 Android 测试。
 
 ### 资源运行包
 
@@ -916,9 +938,9 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，导航请求与完整编辑器界面未实现。
-- 物理暂不支持 Mesh 碰撞体、复合刚体、约束关节或碰撞事件回调；动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
-- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画采用 CPU 蒙皮，尚未实现状态机混合、Root Motion、IK；控制器未附带触屏 UI。
+- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，静态导航构建、局部瓦片更新及完整路径查询已接入；动态残骸导航、代理避让和完整编辑器界面未实现。
+- 物理已支持静态 Mesh 碰撞、凸包/复合碰撞和只读碰撞估算快照；约束关节、传感器及 CharacterVirtual 接触事件尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
+- FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 
 ## 目录
@@ -954,10 +976,10 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 | `ENGINE_ENABLE_RUNTIME_DEPS`        | `OFF`      | 编译运行时系统与依赖；debug/release Preset 开启                                               |
 | `ENGINE_ENABLE_EDITOR_DEPS`         | `OFF`      | 编译编辑器系统与专用依赖                                                                      |
 | `ENGINE_ENABLE_ASSET_PIPELINE_DEPS` | `OFF`      | 编译资源管线系统，查找并验证离线工具                                                          |
-| `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 开启运行时依赖时为 `resource_graph`，否则为空；分号分隔，支持显式空列表 |
-| `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | `modeling;asset_build;asset_sync;mcp` 中满足依赖能力者；支持显式空列表 |
+| `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 运行时依赖开启时包含 `resource_graph;character_controller;effects;terrain;destruction`，脚本开启时加入 `script`；分号分隔，支持显式空列表 |
+| `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | 选择满足依赖的编辑器插件，含资源管线启用时的 `terrain` 和 `destruction`；完整默认清单见[插件说明](docs/plugins/plugins.md)，支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
-| `ENGINE_ENABLE_TRACY` | `OFF` | 编译性能系统的 Tracy 按需客户端；仅占位接入，未添加业务采样 |
+| `ENGINE_ENABLE_TRACY` | `OFF` | 编译 Tracy 按需客户端与分段 CPU/帧/bgfx 统计采样，默认关闭 |
 | `ENGINE_ENABLE_V8` | `OFF` | 未装配脚本插件时启用独立 V8 验证；脚本插件由 `ENGINE_SCRIPT_BACKEND` 决定依赖 |
 | `ENGINE_SCRIPT_BACKEND` | `quickjs` | 脚本插件编译期后端，只接受 `quickjs` 或 `v8` |
 | `ENGINE_V8_ENABLE_WEBASSEMBLY` | `OFF` | V8 WebAssembly，全部平台默认裁剪 |
@@ -971,3 +993,117 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 `references/` 用于本地放置参考文件，内容不纳入 Git。部分实现代码可参考该目录，但文档中不得记录其中的具体内容。
 
 详细说明见 [开发与第三方依赖](docs/development.md)，协作约定见 [AGENTS.md](AGENTS.md)。项目采用 [MIT License](LICENSE)。
+
+## 特效插件
+
+`runtime/effects` 提供独立 `EffectSystem` 和场景节点上的 `EffectComponent`。系统管理模拟时间、共享特效资源与每个实例的播放句柄，组件保存资源、速度、循环和自动播放设置。核心 `RenderSystem` 只提供通用 `RenderExtension` 绘制和释放接口；特效在场景几何之后、HDR/Bloom 之前绘制，使用当前场景镜头及深度附件。Effekseer、efkbgfx 类型不进入核心或插件公开头。
+
+`editor/effects` 提供 `.efkefc` 导入、组件 TOML 编解码、可撤销属性编辑和六个 MCP 工具：`set_effect`、`get_effect`、`play_effect`、`pause_effect`、`stop_effect`、`get_effect_state`。工具使用已有场景与节点身份参数；`set_effect` 的 `effect` 参数为逻辑资源路径，空字符串清除引用。依赖的 `.efkmodel` 保留官方模型字节，贴图继续走标准图片导入与 meta 参数。
+
+默认清单选入这两个插件；显式选择时将 `effects` 分别加入 `ENGINE_RUNTIME_PLUGINS`、`ENGINE_EDITOR_PLUGINS`。编辑器插件声明依赖运行时插件；两边都未选时不创建特效或 SDK 目标。依赖固定为 Effekseer 1808 和 efkbgfx 子模块，初始化方式为：
+
+```sh
+git submodule update --init third_party/effekseer third_party/efkbgfx
+```
+
+资源缓存由 `effect.fbs` 定义：原始官方效果数据加路径到 GUID 的依赖绑定，不改写效果内部算法数据。默认按源文件相对路径收集依赖，也可在 `.efkefc.meta` 配置通用映射，适用于外部资源路径调整：
+
+```toml
+[[resources]]
+path = "Texture/Particle01.png"
+resource = "project/effects/laser/textures/particle01.png"
+```
+
+颜色贴图要求 `srgb = true`，法线和扭曲贴图要求线性空间；依赖缺失、路径越界、冲突映射或色彩空间冲突明确报错，失败不替换已发布资源。每个效果独立映射，不能因不同效果使用相同原始文件名而串用依赖。
+
+当前范围为官方预定义材质和普通 sprite、ribbon、ring、track、model 效果。自定义材质、背景扭曲、软粒子深度采样、GPU 粒子、音频和外部曲线尚未接入，导入时明确拒绝。复用上游不代表全部 Effekseer 功能已经完成。架构见[特效系统与组件](docs/plugins/runtime/class-diagrams/effects.md)和[特效导入](docs/plugins/editor/class-diagrams/effect-importer.md)。
+
+特效接入已在 macOS / Metal / QuickJS 的 Debug、Release 下构建 `editor_app`、`mcp_app`，并通过 `editor.effects_pipeline`、`engine.effects_runtime`、`engine.window_render`、`engine.character_host` 四项定向 CTest。覆盖真实公开效果资源导入、独立 GUID 映射、失败保留旧发布、增量跳过、共享资源、独立暂停停止、代际更新与属性编辑保留播放意图，以及场景／GPU 释放。两套配置的核心和特效测试分别运行，未触发全仓库测试或 CI。插件关闭配置确认没有特效 SDK 目标；18 个 Metal 和 18 个 SPIR-V Shader 已离线编译。尚未声称 Windows／Android 真机运行通过。
+
+Showcase 主菜单的 `Effects laboratory` 打开两个公开上游示例：Laser 粒子和带 UV 动画的 Arrow 模型，均使用普通节点上的特效组件。实际 Metal 窗口已验证两者同时显示、独立暂停／恢复／停止，分别批量创建 32 个粒子特效和 32 个模型特效，撤销删除、重做重建后继续播放；返回菜单再进入正常，停止项目后场景与节点归零。特效展台关闭方向光阴影，以便观察特效本身。过程回执与真实截图保留在忽略的 `build/effects-review-r2-report.json`、`build/effects-review-r3-report.json` 和 `projects/showcase/cache/screenshots/`。
+
+模型实景验证修正了 efkbgfx 与 Effekseer 1808 的三处适配：采用官方独立模型渲染器工厂完成 Shader 初始化，顶点布局包含新增 UV2，模型实例常量容量与现有 Shader 的 40 项一致。布局偏移及大小具有编译期检查，补丁只应用到构建副本；最后的 Debug／Release 模型回归同时验证真实网格上传、与粒子同屏及删除后的 GPU 资源释放。
+
+## 地形插件与实验场
+
+同步步骤 1 由 `runtime/terrain` 和 `editor/terrain` 两个插件实现。前者提供 `TerrainVolume`、`TerrainSystem` 及普通节点上的 `TerrainComponent`；后者负责源数据导入、组件编解码、可撤销编辑与 MCP。核心只补通用瞬时网格碰撞提交，不依赖地形插件。运行时复用现有 MeshRenderer 和 Jolt，生成的显示/碰撞组件标记为瞬态，不重复写入场景文件。
+
+默认插件清单包含两者；显式选择时将 `terrain` 加入对应 `ENGINE_RUNTIME_PLUGINS` / `ENGINE_EDITOR_PLUGINS`。Transvoxel 固定版本 `51a494f03c5b024cd153b596bcc7152eb3cc93a6` 作为子模块，只使用普通单元查找表；初始化方式为：
+
+```sh
+git submodule update --init third_party/transvoxel
+```
+
+`.terrain` TOML 描述尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏和球形洞穴，邻接 `.meta` 保存唯一 GUID，资源管线增量生成 `cache/gen/<GUID>`。运行时密度为浮点数；每轴最多 256 格且总样本最多 4M。高度图、FastNoise2、LOD 过渡仍待实现；步骤 3/4 已增加调用方显式地基联动与动态土石塌方，建筑连接损伤和应力仍归下述独立破坏插件。
+
+Showcase 第六个菜单入口 `Terrain laboratory` 打开 `project/scenes/terrain.scene`：64×64 米、32 米高的自制地形，提供挖隧道、爆炸挖坑、填充、保存/加载、重置、俯瞰/洞口观察和第三人称行走，继续使用已有示例角色。桌面与 Android 的运行资源清单均登记该场景；登记资源不代表 Android 本次运行验证已完成。
+
+MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terrain_brush`、`terrain_reset`、`terrain_save_state` 和 `terrain_load_state`。笔刷、设置、重置与加载支持现有撤销/重做事务；保存源文件或状态文件本身不使用场景撤销。球形修改采用节点局部坐标，失败保留有效版本。脚本 `TerrainComponent` 提供 `DigSphere`、`FillSphere`、`CollapseDetached`、`Reset`、`Save`、`Load` 和只读统计。步骤 4 增加非撤销运行命令 `terrain_collapse_detached`、`terrain_reset_runtime`，`get_terrain` 返回 `fragmentCount`；动态土石不能写入旧的静态体积存档，塌方后保存/加载与可撤销体积编辑须先显式 Reset。
+
+状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
+
+当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。全部路径继续同步执行，分块 GPU 上传、后台线程和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
+
+已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[最终可信基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
+
+架构见[运行时类图](docs/plugins/runtime/class-diagrams/terrain.md)、[编辑器类图](docs/plugins/editor/class-diagrams/terrain-editor.md)和[脚本接口](docs/plugins/runtime/class-diagrams/terrain-script-api.md)；阶段范围及实测限制见[总体方案](docs/plugins/runtime/terrain-destruction-plan.md)与[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)。
+
+### 建筑破坏实验场
+
+`runtime/destruction` 使用固定版本 NVIDIA Blast 5.1 的 low-level 支撑图和
+`NvBlastExtFalloffGraphShader`，保留部分连接损伤，由官方拆分结果决定连通碎块组。
+`editor/destruction` 使用 Blast Authoring 切片/Voronoi、官方三角体积积分与 EXACT 接触连接生成器；
+没有新增自研 Voronoi、连通性或应力算法。预破碎的 Boost Multiprecision 仅为编辑器依赖，
+运行包不包含 Authoring、Boost 或 PhysX。
+
+Showcase 第七个入口 **Destruction laboratory** 提供切片塔、Voronoi 墙、分段柱等实心结构试件，
+可通过 UI 按钮施加固定球形损伤、重置和切换观察镜头。
+自制试件由 `.destruction` TOML 资源描述：`size`、`fracture`、`slices_x/y/z`（最终块数）、
+`sites`、`seed`、`bond_health` 与 `anchor_height`，源文件和邻接唯一 GUID `.meta` 进入现有增量管线。
+当前输入为参数盒体，最多 256 个碎块；不是任意复杂 FBX 建筑预破碎工具。
+生成资源内的片段几何、体积、质心与连接全部是该可破坏体所需数据，不保留 Blast 平台内存镜像。
+
+普通根节点挂 `DestructionComponent`，绑定资源和材料；每个连通组生成一个瞬态节点，
+使用 `MeshRenderer + Collider(compound) + RigidBody`。核心使用 Jolt 官方凸包与复合形状，
+支持多碎块保持一个刚体，断开锚点后参与动态模拟；剩余接触仍可能支撑碎块，
+实际位移由重力、碰撞和项目配置的冲量决定。初版要求根节点和正等比缩放。
+场景保存排除生成节点，组件移除或项目关闭时回收。
+
+脚本 `DamageSphere(x,y,z,radius,damage,impulse=0)` 接收世界坐标，移动中的组仍按当前姿态受损；
+`Reset()` 恢复初始图。`ready/revision/chunkCount/groupCount/dynamicGroups/lastError` 报告状态。
+MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
+`destruction_damage`、`destruction_reset`。损伤与重置使用完整快照支持撤销重做，
+包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
+外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
+
+实现仍同步，按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
+
+已有 macOS ARM64 Debug/Release 回归覆盖运行时图与物理、Authoring、导入、编辑事务、MCP 注册及组件禁用。真实窗口验证过预览损伤/撤销重做、菜单入口、各试件损伤与重置、观察镜头和返回清理；停止后场景为空、节点数归零。功能事实见
+[步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
+Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；异步处理尚未实现。
+
+移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
+架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。
+
+
+### 综合破坏实验场（步骤 3/4）
+
+Showcase 主菜单第八项 **Combined destruction** 共用地形、Blast 破坏、Jolt、Effekseer、
+音频与原第三人称角色。步骤 4 已增加官方同步应力、动态土石、静态导航瓦片更新和密集火箭场。
+[项目说明](projects/showcase/destruction-integration.md)记录按钮、参数与资源来源。
+
+- 核心物理提供指定 Collider 射线、通用球形扫掠和只读接触快照；`estimatedImpulse` 是 Jolt 官方碰前估算，非求解后实际冲量。核心导航复用 Recast `Sample_TileMesh` / Detour，通过明确输入的几何及范围同步构建或替换瓦片，不扫描场景识别玩法。
+- 破坏插件保留地基多点覆盖检查、world bond 解除和碎块归属；`ApplyStress` 使用 Blast 原有标量求解器。兼容补丁在构建目录应用，所有平台使用同一标量路径，不加入 PhysX。它处理当前支撑图的重力应力，不等于完整建筑力学。
+- 地形插件 `CollapseDetached` 识别脱离下/侧边界的连通土石，按项目指定大小生成瞬态网格和 Jolt 凸形 compound 动态节点；预算或准备失败不删除未转换土石。项目继续挖填不会吃掉已有碎块，Reset 清理生成物并恢复源体积。
+- 火箭场预破碎塔/墙/柱/梁分别为 **256 / 128 / 64 / 72** 块，共 520 个资产片段；这不是同时活跃刚体数。土石总活动预算为 **96**。火箭固定 64 个槽，发射请求为 **2 / 6 / 12 发每秒，进入场景默认 6**；60 发齐射可停止，停止后在途弹体继续飞行。每帧最多发一发，不在卡顿后补发积压。每段飞行通过 `Physics.CastSphere` 检查实际碰撞，以命中位置驱动爆破，不直接在按钮指定点引爆。
+- 项目调用顺序为实际命中→建筑损伤/挖土→土石提取→地基刷新→烟尘/音频，并提交导航脏区。导航只包含显式提交的静态地形，移动残骸不烘焙进去；修改后隐藏旧路线，再按需重建相关瓦片。应力、发射频率、伤害、密度及预算均留在项目脚本配置。
+- `Weak beam / normal` 切换梁的项目强度参数；填土或恢复强度不会自动接上已断连接。`Reset all` 停止炮击、清理弹体/表现/土石、恢复地形与四个结构，并重建导航和复位角色。火箭尾焰、烟尘与爆破由固定版本 Effekseer 官方导出器制作，音效为原创合成资源。
+
+Mac Debug / Release 已累计各通过 8 项定向测试；Android ARM64 仅通过独立 Graph/ExtStress 探针。
+步骤 4 已用最终资源版本完成真实窗口两档连射、停火、重置、短走及返回清理；这些是同步功能验收，不等于达到请求射速。
+证据与限制见[步骤 4 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
+面板用 `Date.now()` 显示实际墙钟帧间隔的指数平均与最大值，**包含限帧等待与截图开销**，不是 CPU/GPU 工作耗时或 P95。每轮连射清帧间隔统计，每约一秒和最终完成时输出 `Rocket range sample` JSON（含实际发射率、命中、blocked、碎块/土石与导航状态）。
+目前没有综合世界存档、移动残骸导航、异步任务、完整建筑力学或手机性能结论；
+这些能力的单测通过也不代表连续炮击已经达到目标吞吐。
+
+物理与直接相关的地形碰撞继续采用单线程，已有 Mac Debug/Release 受影响构建与定向回归通过。最终可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[最终可信基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。

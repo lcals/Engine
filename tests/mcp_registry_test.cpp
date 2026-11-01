@@ -1,7 +1,8 @@
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "runtime/engine_config.hpp"
 
-#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS) || defined(ENGINE_TEST_RENDER_TOOLS)
+#if defined(ENGINE_TEST_SCENE_BAKE_TOOLS) || defined(ENGINE_TEST_RENDER_TOOLS) ||                  \
+    defined(ENGINE_TEST_TERRAIN_TOOLS) || defined(ENGINE_TEST_DESTRUCTION_TOOLS)
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
 #endif
 
@@ -11,6 +12,14 @@
 
 #if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
 #include "plugins/editor/scene_bake/scene_bake_mcp_tools.hpp"
+#endif
+
+#if defined(ENGINE_TEST_TERRAIN_TOOLS)
+#include "plugins/editor/terrain/terrain_mcp_tools.hpp"
+#endif
+
+#if defined(ENGINE_TEST_DESTRUCTION_TOOLS)
+#include "plugins/editor/destruction/destruction_mcp_tools.hpp"
 #endif
 
 #include <nlohmann/json.hpp>
@@ -86,11 +95,11 @@ bool exercise_render_tools()
     engine::plugins::mcp::McpSystem probe;
     if (!check(schema.is_object() &&
                    probe.register_tool({"render.settings.schema", "Validate render inputs", schema,
-                                         [](const Json& input, Json& output)
-                                         {
-                                             output = input;
-                                             return true;
-                                         }}) &&
+                                        [](const Json& input, Json& output)
+                                        {
+                                            output = input;
+                                            return true;
+                                        }}) &&
                    probe.initialize({}),
                "render settings schema is reusable without editor transport"))
     {
@@ -99,21 +108,12 @@ bool exercise_render_tools()
     Json result;
     for (const auto count : {1, 2, 4})
     {
-        const Json input = {{"shadowCascades", count},
-                            {"shadowDistance", 150},
-                            {"shadowSplitLambda", .6},
-                            {"shadowCascadeBlend", .1},
-                            {"aoEnabled", true},
-                            {"aoRadius", 1.4},
-                            {"aoStrength", .8},
-                            {"aoPower", 2},
-                            {"aoFadeStart", 40},
-                            {"aoFadeEnd", 140},
-                            {"hdrEnabled", true},
-                            {"bloomEnabled", true},
-                            {"bloomThreshold", 1.2},
-                            {"bloomIntensity", .3},
-                            {"bloomRadius", 2}};
+        const Json input = {
+            {"shadowCascades", count},  {"shadowDistance", 150}, {"shadowSplitLambda", .6},
+            {"shadowCascadeBlend", .1}, {"aoEnabled", true},     {"aoRadius", 1.4},
+            {"aoStrength", .8},         {"aoPower", 2},          {"aoFadeStart", 40},
+            {"aoFadeEnd", 140},         {"hdrEnabled", true},    {"bloomEnabled", true},
+            {"bloomThreshold", 1.2},    {"bloomIntensity", .3},  {"bloomRadius", 2}};
         if (!check(probe.call_tool("render.settings.schema", input, result) ==
                            McpCallStatus::success &&
                        result == input,
@@ -122,17 +122,17 @@ bool exercise_render_tools()
             return false;
         }
     }
-    for (const Json& invalid :
-         {Json{{"shadowCascades", 3}}, Json{{"shadowCascades", 2.0}},
-          Json{{"shadowDistance", -1}}, Json{{"shadowDistance", 100001}},
-          Json{{"shadowSplitLambda", 1.1}}, Json{{"shadowCascadeBlend", .31}},
-          Json{{"aoEnabled", 1}}, Json{{"aoRadius", -1}}, Json{{"aoRadius", 101}},
-          Json{{"aoStrength", 2.1}}, Json{{"aoPower", .09}}, Json{{"aoPower", 8.1}},
-          Json{{"aoFadeStart", -1}}, Json{{"aoFadeEnd", 100001}},
-          Json{{"hdrEnabled", 1}}, Json{{"bloomEnabled", 1}},
-          Json{{"bloomThreshold", -1}}, Json{{"bloomThreshold", 101}},
-          Json{{"bloomIntensity", 10.1}}, Json{{"bloomRadius", .24}},
-          Json{{"bloomRadius", 4.1}}})
+    for (const Json& invalid : {Json{{"shadowCascades", 3}},      Json{{"shadowCascades", 2.0}},
+                                Json{{"shadowDistance", -1}},     Json{{"shadowDistance", 100001}},
+                                Json{{"shadowSplitLambda", 1.1}}, Json{{"shadowCascadeBlend", .31}},
+                                Json{{"aoEnabled", 1}},           Json{{"aoRadius", -1}},
+                                Json{{"aoRadius", 101}},          Json{{"aoStrength", 2.1}},
+                                Json{{"aoPower", .09}},           Json{{"aoPower", 8.1}},
+                                Json{{"aoFadeStart", -1}},        Json{{"aoFadeEnd", 100001}},
+                                Json{{"hdrEnabled", 1}},          Json{{"bloomEnabled", 1}},
+                                Json{{"bloomThreshold", -1}},     Json{{"bloomThreshold", 101}},
+                                Json{{"bloomIntensity", 10.1}},   Json{{"bloomRadius", .24}},
+                                Json{{"bloomRadius", 4.1}}})
     {
         if (!check(mcp.call_tool("set_render_settings", invalid, result) ==
                            McpCallStatus::invalid_arguments &&
@@ -144,6 +144,73 @@ bool exercise_render_tools()
     }
 #endif
     return true;
+}
+
+bool exercise_terrain_tools()
+{
+#if defined(ENGINE_TEST_TERRAIN_TOOLS)
+    engine::plugins::mcp::EditorMcpTools editor({}, {});
+    engine::plugins::mcp::McpSystem mcp;
+    if (!check(engine::plugins::terrain::register_terrain_mcp_tools(mcp, editor) &&
+                   mcp.initialize({}),
+               "terrain tools register schemas supported by the MCP protocol") ||
+        !check(mcp.list_tools()["tools"].size() == 9,
+               "all terrain creation, component, brush and state tools are discoverable"))
+    {
+        return false;
+    }
+    Json result;
+    const Json identity = {{"sceneId", "1"}, {"nodeId", "2"}};
+    for (const auto& [command, fields] :
+         {std::pair{"set_terrain", Json{{"uvScale", -1}}},
+          std::pair{"set_terrain", Json{{"uvScale", 101}}},
+          std::pair{"set_terrain", Json{{"surfaceColor", Json::array({1, 1, 1})}}},
+          std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", -1}}},
+          std::pair{"terrain_brush", Json{{"center", Json::array({0, 0, 0})}, {"radius", 10001}}},
+          std::pair{"terrain_brush", Json{{"center", Json::array({0, 0})}, {"radius", 2}}},
+          std::pair{"terrain_collapse_detached",
+                    Json{{"minSamples", 8}, {"maxFragments", 129}, {"fragmentCells", 2},
+                         {"density", 250}}},
+          std::pair{
+              "terrain_brush",
+              Json{{"center", Json::array({0, 0, 0})}, {"radius", 2}, {"operation", "unknown"}}}})
+    {
+        auto input = identity;
+        input.update(fields);
+        if (!check(mcp.call_tool(command, input, result) == McpCallStatus::invalid_arguments &&
+                       result.empty(),
+                   "invalid terrain inputs are rejected before editor transport"))
+        {
+            return false;
+        }
+    }
+#endif
+    return true;
+}
+
+bool exercise_destruction_tools()
+{
+#if defined(ENGINE_TEST_DESTRUCTION_TOOLS)
+    engine::plugins::mcp::EditorMcpTools editor({}, {});
+    engine::plugins::mcp::McpSystem mcp;
+    if (!check(engine::plugins::destruction::register_destruction_mcp_tools(mcp, editor) &&
+                   mcp.initialize({}) && mcp.list_tools()["tools"].size() == 7,
+               "destruction tools register supported schemas"))
+    {
+        return false;
+    }
+    Json result;
+    return check(mcp.call_tool("destruction_damage",
+                               {{"sceneId", "1"},
+                                {"nodeId", "2"},
+                                {"center", Json::array({0, 0, 0})},
+                                {"radius", -1},
+                                {"damage", 1}},
+                               result) == McpCallStatus::invalid_arguments,
+                 "invalid destruction input is rejected before transport");
+#else
+    return true;
+#endif
 }
 
 bool exercise()
@@ -304,5 +371,8 @@ bool exercise()
 
 int main()
 {
-    return exercise() && exercise_bake_tools() && exercise_render_tools() ? 0 : 1;
+    return exercise() && exercise_bake_tools() && exercise_render_tools() &&
+                   exercise_terrain_tools() && exercise_destruction_tools()
+               ? 0
+               : 1;
 }

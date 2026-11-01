@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/components/collider_codec.hpp"
 #include "runtime/scene/collider.hpp"
 #include <array>
+#include <memory>
 #include <utility>
 namespace engine::editor::asset_pipeline
 {
@@ -45,6 +46,10 @@ bool ColliderCodec::read(const toml::table& table, schema::ComponentDataT& compo
         {
             value.shape = schema::ColliderShape::mesh;
         }
+        else if (parsed == "compound")
+        {
+            value.shape = schema::ColliderShape::compound;
+        }
         else
         {
             error = "invalid collider.shape";
@@ -60,6 +65,41 @@ bool ColliderCodec::read(const toml::table& table, schema::ComponentDataT& compo
             return false;
         }
         value.mesh_guid = *mesh;
+    }
+    if (table.contains("hulls"))
+    {
+        const auto* hulls = table["hulls"].as_array();
+        if (hulls == nullptr || hulls->empty() || hulls->size() > 4096)
+        {
+            error = "collider.hulls must contain 1..4096 convex hulls";
+            return false;
+        }
+        std::size_t total_vertices = 0;
+        for (const auto& entry : *hulls)
+        {
+            const auto* hull_table = entry.as_table();
+            const auto* vertices = hull_table ? (*hull_table)["vertices"].as_array() : nullptr;
+            if (hull_table == nullptr || hull_table->size() != 1 || vertices == nullptr ||
+                vertices->size() < 4 || vertices->size() > 1024U * 1024U - total_vertices)
+            {
+                error = "collider hull requires vertices; each hull needs 4 points, total <= 1M";
+                return false;
+            }
+            total_vertices += vertices->size();
+            auto hull = std::make_unique<schema::ColliderHullDataT>();
+            hull->vertices.reserve(vertices->size());
+            for (const auto& vertex : *vertices)
+            {
+                std::array<double, 3> vector{};
+                if (!numbers(&vertex, vector))
+                {
+                    error = "collider hull vertices must be finite three-component vectors";
+                    return false;
+                }
+                hull->vertices.emplace_back(vector[0], vector[1], vector[2]);
+            }
+            value.hulls.push_back(std::move(hull));
+        }
     }
     if (table.contains("half_extents"))
     {
@@ -143,5 +183,21 @@ void ColliderCodec::write(const schema::ComponentDataT& component, toml::table& 
     table.insert("friction", value->friction);
     table.insert("restitution", value->restitution);
     table.insert("is_trigger", value->is_trigger);
+    if (!value->hulls.empty())
+    {
+        toml::array hulls;
+        for (const auto& hull : value->hulls)
+        {
+            toml::array vertices;
+            for (const auto& vertex : hull->vertices)
+            {
+                vertices.push_back(toml::array{vertex.x(), vertex.y(), vertex.z()});
+            }
+            toml::table entry;
+            entry.insert("vertices", std::move(vertices));
+            hulls.push_back(std::move(entry));
+        }
+        table.insert("hulls", std::move(hulls));
+    }
 }
 } // namespace engine::editor::asset_pipeline

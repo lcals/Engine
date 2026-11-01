@@ -34,6 +34,9 @@ public:
     [[nodiscard]] const Node* parent() const noexcept;
     // 保留局部变换；空指针解除父子关系。跨场景或形成循环时返回 false。
     [[nodiscard]] bool set_parent(Node* parent) noexcept;
+    // 只影响场景保存；有效瞬态状态包含祖先标记，渲染和物理行为不变。
+    [[nodiscard]] bool transient() const noexcept;
+    void set_transient(bool transient) noexcept;
 
     // 返回借用，由本节点独占；每类组件至多一个，重复添加返回空指针。
     template <std::derived_from<Component> T> [[nodiscard]] T* add_component()
@@ -70,11 +73,12 @@ public:
 
 private:
     friend class Scene;
-    Node(Scene& scene, std::uint64_t id, std::string_view name);
+    Node(Scene& scene, std::uint64_t id, std::uint64_t local_id, std::string_view name);
 
     Scene& scene_;
     std::uint64_t entity_id_;
     schema::NodeInfoT info_{};
+    bool transient_ = false;
     std::vector<std::unique_ptr<Component>> components_;
 };
 

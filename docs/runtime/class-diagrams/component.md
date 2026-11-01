@@ -14,6 +14,8 @@ classDiagram
         +type() ComponentType
         +enabled() bool
         +set_enabled(bool enabled) void
+        +transient() bool
+        +set_transient(bool transient) void
         +data() const ComponentDataT&
         +build_data(ComponentDataT& output) bool
         +restore_data(const ComponentDataT& data) bool
@@ -27,6 +29,9 @@ classDiagram
     class Camera {
         +settings() const CameraSettings&
         +set_settings(const CameraSettings& settings) bool
+        +set_hidden_meshes(span~const uint64_t~ mesh_instance_ids) bool
+        +clear_hidden_meshes() void
+        +mesh_visible(uint64_t mesh_instance_id) bool
     }
     class Light {
         +settings() const LightSettings&
@@ -43,6 +48,7 @@ classDiagram
         +set_material_count(size_t count) bool
         +set_mesh_data(const MeshDataT& data) bool
         +mesh_data() const MeshDataT#42;
+        +mesh_resource() shared_ptr~const Resource~
         +mesh_revision() uint64_t
         +mesh_instance_id() uint64_t
         +visible() bool
@@ -50,6 +56,9 @@ classDiagram
         +cast_shadows() bool
         +set_cast_shadows(bool value) void
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
+        +set_skinning_palette(span~const array_float_16~ transforms, span~const array_float_16~ normal_transforms) bool
+        +skinning_palette() span~const array_float_16~
+        +skinning_normal_palette() span~const array_float_16~
         +clear_deformation() void
         +deformed_vertices() span~const MeshVertex~
         +deformed_tangents() span~const Vec4~
@@ -137,6 +146,7 @@ classDiagram
 - Transform 是普通组件。Scene 创建 Node 后添加 Transform，变换逻辑全部位于 Transform。位置和欧拉角用 double，角度单位为度，矩阵为 `T * Rz * Ry * Rx * S`，Y 向上、局部前向 -Z。
 - 变换必须全部有限，缩放非零，可为负数；失败保持原值。`world_matrix()` 写 16 个列主序 float，父链缺失变换或溢出时返回 false，非空输出保持单位矩阵。
 - Camera 从同节点 Transform 获得位置和朝向；视场角在 (0,180)，近裁面大于 0，远裁面大于近裁面。Camera 支持透视与正交投影；orthographic_size 为竖直半高且大于零。Light 支持方向光、点光与聚光；方向使用世界 -Z，强度非负且有限，range 大于零，聚光半角满足 0 <= inner_angle < outer_angle < 90。
+- Camera 按 `mesh_instance_id()` 保存本镜头隐藏的网格身份，仅影响该视图的主绘制和 AO 深度，不改变网格的 `visible`、`enabled` 或投影。`set_hidden_meshes()` 整批替换列表，任一 ID 为 0 则失败并保留原列表；重复 ID 合并，空列表清空。`mesh_visible()` 为 `const noexcept`，0 返回 false；`clear_hidden_meshes()` 为 `noexcept`。列表只保存 ID，不持有组件借用，不进入生成持久数据；成功恢复 Camera 数据时清空，失败保持原状态。重建网格产生新身份，不继承旧隐藏项。
 - MeshRenderer 默认使用内置 cube，通过 set_mesh 按 GUID 加载并持有 Mesh 资源；成功取得新引用后才替换旧网格，提供 Material 借用。材质先选择类型，再按名称设置带类型参数，具体参数及失败规则见独立材质类图。
 - 禁用不改变所有权；Transform 的启用标记不改变层级空间关系。GPU 缓冲、Shader 和管线仍由 RenderSystem 管理。
 
@@ -151,6 +161,7 @@ classDiagram
 - `mesh_instance_id()` 是进程内稳定且不重复的组件实例身份；瞬态蒙皮/GPU 缓存以它和 `mesh_revision()` 区分同节点组件重建，不依赖可能重复的内存地址。
 - `set_deformation()` 接收与源顶点等长的位置/法线及切线，完整校验后独立保存，仅递增 deformation_revision；失败保留旧输出。源 Mesh、GUID、索引、UV、颜色、子网格与材质均不变。两个 span 查询返回借用，下一次成功提交、清除、源网格变化或组件销毁后失效。
 - `clear_deformation()` 恢复源几何，重复调用无副作用；成功更换源网格或恢复组件数据也清除旧变形。变形数据不进入场景快照。清除及只读查询为 noexcept，渲染器同时检查修订号与变形是否存在；修订号到达上限时拒绝新提交，清除仍可执行。
+- `set_skinning_palette()` 接收按源骨骼索引排列的列主序 float[16] 位置矩阵与法线逆转置矩阵，完整校验后保存组件独占副本。与直接顶点覆写互斥，共用 `deformation_revision` 和 `clear_deformation`；失败保持旧姿态。两个只读 span 的生命周期与变形查询相同，不暴露 ozz 或 bgfx 类型。`mesh_resource()` 返回共享不可变源资源；动态网格返回空，不能用路径或 GUID 冒充当前资源版本。
 
 - `build_data` 和 `restore_data` 是统一组件持久数据契约；简单组件直接校验生成载荷，MeshRenderer 在自身文件解析 GUID、持有资源和组装材质槽。Scene 只组织节点与层级，不分派具体组件字段。失败快照为空，恢复失败保留组件原状态。
 

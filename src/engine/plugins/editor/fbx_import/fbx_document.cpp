@@ -19,6 +19,73 @@ namespace
 {
 using namespace editor::asset_pipeline;
 
+bool read_document_settings(const std::filesystem::path& path, FbxDocument& document,
+                            std::string& error)
+{
+    auto meta = path;
+    meta += ".meta";
+    toml::table settings;
+    if (!read_table(meta, settings, error))
+    {
+        return false;
+    }
+    if ((settings.contains("sample_rate") && !settings["sample_rate"].is_number()) ||
+        (settings.contains("skeleton") && !settings["skeleton"].is_string()))
+    {
+        error = "FBX sample_rate must be a number and skeleton must be a string";
+        return false;
+    }
+    document.sample_rate = settings["sample_rate"].value_or(30.0);
+    document.external_skeleton = settings["skeleton"].value_or(std::string{});
+    const auto normals_mode = settings["normals"].value<std::string>();
+    if ((settings.contains("normals") && !normals_mode) ||
+        (normals_mode && *normals_mode != "import" && *normals_mode != "generate"))
+    {
+        error = "FBX normals must be import or generate";
+        return false;
+    }
+    document.normals_mode = normals_mode.value_or("import");
+    if (!std::isfinite(document.sample_rate) || document.sample_rate < 1.0 ||
+        document.sample_rate > 240.0)
+    {
+        error = "FBX sample_rate must be between 1 and 240";
+        return false;
+    }
+    if (settings.contains("scale_factor") && !settings["scale_factor"].is_number())
+    {
+        error = "FBX scale_factor must be a number";
+        return false;
+    }
+    document.scale_factor = settings["scale_factor"].value_or(1.0);
+    if (!std::isfinite(document.scale_factor) || document.scale_factor < 0.0001 ||
+        document.scale_factor > 10000.0)
+    {
+        error = "FBX scale_factor must be finite and between 0.0001 and 10000";
+        return false;
+    }
+    document.rotation_offset = {};
+    if (settings.contains("rotation_offset"))
+    {
+        const auto* angles = settings["rotation_offset"].as_array();
+        if (angles == nullptr || angles->size() != document.rotation_offset.size())
+        {
+            error = "FBX rotation_offset must contain three finite XYZ angles in degrees";
+            return false;
+        }
+        for (std::size_t index = 0; index < document.rotation_offset.size(); ++index)
+        {
+            const auto angle = (*angles)[index].value<double>();
+            if (!angle || !std::isfinite(*angle))
+            {
+                error = "FBX rotation_offset must contain three finite XYZ angles in degrees";
+                return false;
+            }
+            document.rotation_offset[index] = *angle;
+        }
+    }
+    return true;
+}
+
 std::string safe_name(ufbx_string name)
 {
     constexpr char hex[] = "0123456789abcdef";
@@ -104,10 +171,29 @@ bool matrix_close(const ufbx_matrix& left, const ufbx_matrix& right)
 {
     for (std::size_t index = 0; index < 12; ++index)
     {
-        if (std::abs(left.v[index] - right.v[index]) >
-            0.00001 * std::max({1.0, std::abs(left.v[index]), std::abs(right.v[index])}))
+        if (!std::isfinite(left.v[index]) || !std::isfinite(right.v[index]))
         {
             return false;
+        }
+    }
+    // 逆绑定矩阵随骨骼局部单位改变，不能逐元素比较其绝对误差。
+    // 两个方向的相对变换消去局部单位；load_document 已统一世界空间为米。
+    const auto inverse_left = ufbx_matrix_invert(&left);
+    const auto inverse_right = ufbx_matrix_invert(&right);
+    const std::array relative{ufbx_matrix_mul(&inverse_left, &right),
+                              ufbx_matrix_mul(&inverse_right, &left)};
+    constexpr double linear_tolerance = 0.00001;
+    constexpr double position_tolerance_meters = 0.00001;
+    for (const auto& matrix : relative)
+    {
+        for (std::size_t index = 0; index < 12; ++index)
+        {
+            const auto expected = ufbx_identity_matrix.v[index];
+            const auto tolerance = index < 9 ? linear_tolerance : position_tolerance_meters;
+            if (!std::isfinite(matrix.v[index]) || std::abs(matrix.v[index] - expected) > tolerance)
+            {
+                return false;
+            }
         }
     }
     return true;
@@ -191,36 +277,31 @@ std::vector<float> matrix_values(const ufbx_matrix& matrix)
     return result;
 }
 
+bool document_settings_match(const std::filesystem::path& path, const FbxDocument& document,
+                             std::string& error)
+{
+    FbxDocument current;
+    if (!read_document_settings(path, current, error))
+    {
+        return false;
+    }
+    if (current.sample_rate != document.sample_rate ||
+        current.external_skeleton != document.external_skeleton ||
+        current.normals_mode != document.normals_mode ||
+        current.scale_factor != document.scale_factor ||
+        current.rotation_offset != document.rotation_offset)
+    {
+        error = "FBX settings changed during import; retry the build";
+        return false;
+    }
+    return true;
+}
+
 bool load_document(const std::filesystem::path& path, FbxDocument& document, std::string& error)
 {
     document = {};
-    auto meta = path;
-    meta += ".meta";
-    toml::table settings;
-    if (!read_table(meta, settings, error))
+    if (!read_document_settings(path, document, error))
     {
-        return false;
-    }
-    if ((settings.contains("sample_rate") && !settings["sample_rate"].is_number()) ||
-        (settings.contains("skeleton") && !settings["skeleton"].is_string()))
-    {
-        error = "FBX sample_rate must be a number and skeleton must be a string";
-        return false;
-    }
-    document.sample_rate = settings["sample_rate"].value_or(30.0);
-    document.external_skeleton = settings["skeleton"].value_or(std::string{});
-    const auto normals_mode = settings["normals"].value<std::string>();
-    if ((settings.contains("normals") && !normals_mode) ||
-        (normals_mode && *normals_mode != "import" && *normals_mode != "generate"))
-    {
-        error = "FBX normals must be import or generate";
-        return false;
-    }
-    document.normals_mode = normals_mode.value_or("import");
-    if (!std::isfinite(document.sample_rate) || document.sample_rate < 1.0 ||
-        document.sample_rate > 240.0)
-    {
-        error = "FBX sample_rate must be between 1 and 240";
         return false;
     }
     std::vector<std::byte> bytes;
@@ -234,6 +315,18 @@ bool load_document(const std::filesystem::path& path, FbxDocument& document, std
     options.load_external_files = false;
     options.target_axes = ufbx_axes_right_handed_y_up;
     options.target_unit_meters = 1.0;
+    options.space_conversion = UFBX_SPACE_CONVERSION_TRANSFORM_ROOT;
+    options.use_root_transform = true;
+    options.root_transform = ufbx_identity_transform;
+    options.root_transform.scale.x = document.scale_factor;
+    options.root_transform.scale.y = document.scale_factor;
+    options.root_transform.scale.z = document.scale_factor;
+    ufbx_vec3 angles{};
+    for (std::size_t index = 0; index < document.rotation_offset.size(); ++index)
+    {
+        angles.v[index] = std::remainder(document.rotation_offset[index], 360.0);
+    }
+    options.root_transform.rotation = ufbx_euler_to_quat(angles, UFBX_ROTATION_ORDER_XYZ);
     options.geometry_transform_handling = UFBX_GEOMETRY_TRANSFORM_HANDLING_MODIFY_GEOMETRY;
     options.inherit_mode_handling = UFBX_INHERIT_MODE_HANDLING_HELPER_NODES;
     options.generate_missing_normals = true;
@@ -476,6 +569,13 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
                        const ufbx_anim_stack& stack, schema::AnimationDataT& output,
                        std::string& error)
 {
+    if (source.scale_factor != skeleton.scale_factor ||
+        source.rotation_offset != skeleton.rotation_offset)
+    {
+        error = "FBX animation and external skeleton must use identical scale_factor and "
+                "rotation_offset settings";
+        return false;
+    }
     const auto duration = stack.time_end - stack.time_begin;
     if (!std::isfinite(duration) || duration <= 0 || duration * source.sample_rate > 1000000.0)
     {
@@ -483,6 +583,11 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
         return false;
     }
     output.duration = static_cast<float>(duration);
+    if (!std::isfinite(output.duration) || output.duration <= 0.0F)
+    {
+        error = "FBX animation duration exceeds float precision";
+        return false;
+    }
     output.name.assign(stack.name.data, stack.name.length);
     if (output.name.empty())
     {
@@ -517,16 +622,21 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
         for (std::size_t frame = 0; frame <= frames; ++frame)
         {
             const auto seconds =
-                std::min(duration, static_cast<double>(frame) / source.sample_rate);
+                frame == frames ? duration : static_cast<double>(frame) / source.sample_rate;
             const auto time = static_cast<float>(seconds);
+            // 末帧保留源片段的精确结束姿态，仅去除编码时间与它重合的倒数采样点。
+            if (frame + 1 == frames && time == output.duration)
+            {
+                continue;
+            }
             if (time <= previous)
             {
                 error = "FBX animation sample times exceed float precision";
                 return false;
             }
             previous = time;
-            const auto pose =
-                ufbx_evaluate_transform(stack.anim, found->second, stack.time_begin + seconds);
+            const auto sample_time = frame == frames ? stack.time_end : stack.time_begin + seconds;
+            const auto pose = ufbx_evaluate_transform(stack.anim, found->second, sample_time);
             track->translations.emplace_back(time, vector(pose.translation));
             track->rotations.emplace_back(time, rotation(pose.rotation));
             track->scales.emplace_back(time, vector(pose.scale));

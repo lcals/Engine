@@ -2,6 +2,7 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/performance/profiling.hpp"
 
 namespace engine::plugins::script::bindings
 {
@@ -31,6 +32,13 @@ void log(const Arguments& arguments)
         return;
     }
     LogSystem::write(static_cast<LogLevel>(arguments.data()), message);
+#if defined(ENGINE_ENABLE_TRACY)
+    // Tracy stores message sizes in uint16_t; normal logging keeps the full text.
+    if (message.size() < 65535)
+    {
+        ENGINE_PROFILE_MESSAGE(message.data(), message.size());
+    }
+#endif
 }
 } // namespace
 

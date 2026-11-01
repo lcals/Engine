@@ -8,10 +8,12 @@
 - 平台专用编辑器实现放在 `platforms/<platform>/editor/`，仍属于编辑器作用域，不能链接进运行时核心。
 - 最终产物统一导出到仓库根 `output/<platform>/<arch>/<debug|release>/<editor|runtime>/`，不提交版本管理。编译缓存、静态归档与调试符号保留在 `build/`。桌面依赖优先静态合入程序；macOS 默认导出直接运行的原生可执行文件，必要私有动态库和编辑器工具随目录部署；`.app` 仅为显式启用的可选模式。Android APK 的原生库只能有 `libmain.so`，SDL3 和 NDK C++ 运行库静态合入。项目运行资源保持独立的 `catalog.bin`、`packs/` 或 `gen/`；原生桌面模式放程序旁，可选 `.app` 模式放 `Contents/Resources/` 并配合外部持久资源版本。宿主优先选择完整的已发布外部版本，否则使用内置版本，不把资源嵌入可执行文件后在启动时解压；Android 继续通过 SDL 读取 APK assets。
 - 先查看源码、当前分支和工作区，再修改；保护已有改动。
+- 优化范围跟随当前开发模块：开发哪个模块，就优化哪个模块及完成该功能直接需要的链路。性能分析发现其他模块的热点时只记录，不因其耗时更高就擅自扩大改动范围；跨模块优化须由用户明确指定。本轮目标、验证指标和报告均围绕当前模块。
 - 使用 C++20 和目标级 CMake 配置；公开头文件放 `include/`，实现放 `src/`，测试放 `tests/`。
 - 引擎源码与公开头文件分别位于 `src/engine/`、`include/engine/`，按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 组织。运行时引擎入口、系统及单项资源底层归 `runtime/`，公共工具放 `runtime/utils/`；`EditorSystem`、项目环境、通用命令、Task 和资源管线归 `editor/`。插件只能归运行时或编辑器：资源依赖图和脚本执行归 `plugins/runtime/`；完整建模（含纯几何）、完整 MCP（含协议）、资源构建与资源同步归 `plugins/editor/`，不另设第三种插件源码分类。
 - 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/editor/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
+- 付费资源、商业或私有参考的源码、片段、派生实现及购买清单不得进入 Git；开源参考可按其许可引入，保留来源、固定版本和必要版权声明。本地参考与采样产物继续留在忽略目录。
 - 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
 - 宿主环境安装统一检查和准备 Ninja 与编译缓存：Windows 默认 sccache，Linux / macOS 默认 ccache；跨平台 Ninja 缓存预设要求工具存在且可执行，不能默默退化为无缓存构建。保留 vcpkg 二进制缓存与上游增量产物，不在普通构建中反复清理、同步或触摸未改变的依赖。
 - C++ 改动运行受影响的 Debug / Release 构建与 CTest。

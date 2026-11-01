@@ -1,5 +1,6 @@
 #include "runtime/render/passes/shadow_pass.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/scene/material.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -222,6 +223,7 @@ bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, Shadow
                       const std::vector<GpuMesh>& meshes, const std::vector<GpuTexture>& textures,
                       bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform)
 {
+    ENGINE_PROFILE_ZONE("Render.shadowSubmit");
     struct Caster
     {
         const GpuMesh* mesh = nullptr;
@@ -333,7 +335,7 @@ bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, Shadow
                 bgfx::setTransform(caster.model.data());
                 bgfx::setUniform(depth_uniform, depth_scale);
                 mesh.bind_vertices();
-                bgfx::setIndexBuffer(mesh.indices, first, count);
+                bgfx::setIndexBuffer(mesh.geometry->indices, first, count);
                 bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
                                BGFX_STATE_DEPTH_TEST_LESS |
                                cull_state(material->cull_mode(), caster.model.data()));

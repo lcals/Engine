@@ -28,10 +28,22 @@ classDiagram
         +release() void
     }
     class GpuMesh {
-        +create(const MeshRenderer& renderer) bool
-        +update_deformation(const MeshRenderer& renderer) bool
+        +create(const MeshRenderer& renderer, shared_ptr~GpuGeometry~ geometry) bool
+        +update_deformation(const MeshRenderer& renderer, SkinningPass& skinning) bool
         +bind_vertices() void
         +release() void
+    }
+    class GpuGeometry {
+        +create(const MeshRenderer& renderer) bool
+        +skinning_bounds(...) bool
+        +release() void
+        +resource_count() uint32_t
+    }
+    class SkinningPass {
+        +prepare() bool
+        +dispatch(...) bool
+        +release() void
+        +resource_count() uint32_t
     }
     class GpuUniform
     class GpuSampler
@@ -51,6 +63,11 @@ classDiagram
     SceneGpuResources *-- GpuTexture
     SceneGpuResources *-- GpuProgram
     SceneGpuResources *-- GpuMesh
+    SceneGpuResources ..> GpuGeometry : 按Resource身份弱缓存
+    SceneGpuResources *-- SkinningPass
+    GpuMesh o-- GpuGeometry : 实例共享不可变几何
+    GpuGeometry o-- Resource : 保留当前CPU资源版本
+    GpuMesh ..> SkinningPass : 提交本实例蒙皮
     SceneGpuResources *-- ShadowPass
     SceneGpuResources *-- AmbientOcclusionPass
     SceneGpuResources *-- HdrPostProcessPass
@@ -191,6 +208,8 @@ classDiagram
         <<final>>
         +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui)
         +~RenderSystem()
+        +add_extension(RenderExtension& extension) bool
+        +remove_extension(RenderExtension& extension) bool
         +prepare_scene(const Camera#42; camera) bool
         +release_scene() void
         +scene_prepared() bool
@@ -292,6 +311,7 @@ classDiagram
     RenderSystem --> WorldSystem : 可空借用 活动场景来源
     RenderSystem --> FontSystem : 可空借用 3D 文字绘制
     RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
+    RenderSystem --> RenderExtension : 登记期间借用，独立透明通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
     RenderSystem ..> Light : 从节点读取方向与光照
@@ -319,10 +339,10 @@ classDiagram
 - 3D 文字与网格使用同一场景相机，由 FontSystem 按普通文字组件绘制；UI 由 UiSystem 在场景之后的有序视图提交。Renderer 只协调通道，不复制字体排布或 RmlUi 文档业务。关闭 GPU 前先释放 UI 和字体 GPU 数据。
 - `prepare_scene(camera)` 在主线程按当前场景引用的独立 Mesh 资源准备顶点和索引缓冲，并按材质引用的 Shader 路径创建程序，失败返回 `false` 并清理部分初始化。无场景或无可绘制组件时释放已有项目 GPU 资源并成功返回。
 - `prepare_scene` 与 `render` 的 `camera` 默认空，使用世界场景的活动镜头；显式传入时仅在本次调用借用。镜头可来自调用方独立场景，其 Node、Transform 和 Camera 必须在调用期间有效。渲染器不保存镜头指针、不改变项目场景的活动镜头，也不判断调用方用途。
-- 显式视角只替换观察位置与投影。环境始终读取世界场景的唯一启用 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的启用 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
+- 显式视角提供观察位置、投影及本镜头的网格隐藏列表。主绘制与 AO 深度预通道按实际观察 Camera 的 `mesh_visible(mesh_instance_id)` 过滤，阴影仍使用全局启用且可见的投影网格；仅对镜头隐藏的网格保留 GPU 资源，其他镜头仍可绘制。全部网格被该镜头隐藏时仍可成功提交空画面。环境始终读取世界场景的唯一启用 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的启用 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
-- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。阴影使用 View 0..3，AO 深度预通道与计算使用 4/5，主场景使用 6，HDR/Bloom 使用 7..9，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
+- `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，阴影使用 1..4，AO 深度预通道与计算使用 5/6，主场景使用 7，[渲染扩展](render-extension.md) 使用 8，HDR/Bloom 使用 9..11，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。
 - Android 的 `RenderSurface` 通过 SDL 窗口属性取得原生窗口，调用 `ANativeWindow_acquire()` 持有原生引用，bgfx 完全关闭后配对 `ANativeWindow_release()`；底层窗口由平台共享，不由渲染系统独占。
@@ -368,7 +388,7 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 
 方向光在 `LightData` 中保存级联数量 `shadow_cascades`（1、2、4，默认 4）、阴影距离 `shadow_distance`（默认 150，范围 `(0, 100000]`）、对数/均匀混合比例 `shadow_split_lambda`（默认 0.6，范围 `[0, 1]`）及交界混合比例 `shadow_cascade_blend`（默认 0.1，范围 `[0, 0.3]`）。`RenderSettings` 只是对应组件的快照，不保存另一份场景策略。MCP 编辑这些值仍使用已有可撤销渲染命令；普通编辑器预览以显式相机决定级联，光照参数仍来自世界场景。
 
-渲染内部参考实际依赖 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）的混合距离划分、视锥分段及纹素对齐思路，复用现有 packed-depth/PCF 阴影 pass。四级放入同一 2×2 atlas，`shadow_resolution` 表示完整 atlas 的边长（4096 即每级 2048），只占原有纹理槽 15；View 0..3 为阴影，AO 使用 4/5，主场景使用 6，UI 与编辑器 GPU 作业范围保持独立。单级使用完整 atlas；两级使用两个半边长 tile。
+渲染内部参考实际依赖 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）的混合距离划分、视锥分段及纹素对齐思路，复用现有 packed-depth/PCF 阴影 pass。四级放入同一 2×2 atlas，`shadow_resolution` 表示完整 atlas 的边长（4096 即每级 2048），只占原有纹理槽 15；View 0 为 GPU 蒙皮，1..4 为阴影，AO 使用 5/6，主场景使用 7，UI 与编辑器 GPU 作业范围保持独立。单级使用完整 atlas；两级使用两个半边长 tile。
 
 每级使用镜头视锥段的包围球保持旋转时范围稳定，中心对齐纹素，深度范围包含相应投射物。Shader 按正向相机深度选级，在每级最后一段混合区采样下一层；下一级投影向前扩展以覆盖该混合区，PCF 每个采样点限制在本级 tile 的半纹素内边界。最后一级按相同比例淡出至全可见；混合比例为 0 时硬切换。实际阴影远端取相机远裁面与 `shadow_distance` 的较小值，远端不超过近裁面时不提交阴影。
 
@@ -401,7 +421,7 @@ AmbientOcclusionPass 位于渲染私有实现目录，拥有深度附件、法�
 
 AO 默认关闭，由活动场景相机的 PostProcessDataT.ao_enabled 控制，可随时关闭并保留半径、强度与淡出参数。只有参数随场景保存；遮蔽结果每帧在 GPU 计算，不产生贴图源文件、meta 或 GUID 资源，不加入烘焙任务。预览隐藏镜头不持有另一份 AO 配置。
 
-算法适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `39-assao`，固定 Q2 与两次边缘保持模糊。View 0..3 为 CSM，4 为相机深度预通道，5 为依次提交的 AO compute，6 为主场景，UI 仍为 200。预通道复用材质原有程序，仅开启深度写入，关闭颜色输出，给 AO 绑定白色回退并关闭采样；因此保留项目天空、自定义顶点、alpha 裁切和动态变形行为。普通 unlit 物体仍提供遮挡，天空的自定义远平面语义保持。
+算法适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `39-assao`，固定 Q2 与两次边缘保持模糊。View 0 为 GPU 蒙皮，1..4 为 CSM，5 为相机深度预通道，6 为依次提交的 AO compute，7 为主场景，UI 仍为 200。预通道复用材质原有程序，仅开启深度写入，关闭颜色输出，给 AO 绑定白色回退并关闭采样；因此保留项目天空、自定义顶点、alpha 裁切和动态变形行为。普通 unlit 物体仍提供遮挡，天空的自定义远平面语义保持。
 
 内部 AO 视口向上对齐 16 并采用真实窗口宽高比的投影，计算结果按归一化屏幕坐标采样；透视与正交分别重建位置和采样半径。主场景只将线性 AO 乘入环境光和 IBL，不影响直接光、自发光、天空或 UI。系统保留 sampler 11，IBL 为 12..14，阴影为 15，项目材质可使用 0..10；资源校验、导入与 Shader 反射使用同一约定。功能启用后缺少所需计算或纹理能力时返回失败，不将未执行的 AO 报告为成功。
 
@@ -414,6 +434,7 @@ classDiagram
         <<private implementation>>
         +prepare(uint16_t width, uint16_t height, bool bloom_enabled) bool
         +begin_scene(uint32_t clear_color) void
+        +scene_framebuffer() bgfx::FrameBufferHandle
         +resolve(const RenderSettings& settings) bool
         +resource_count() uint32_t
         +release() void
@@ -427,6 +448,6 @@ classDiagram
 
 相机 `PostProcessDataT` 与渲染快照增加 `hdr_enabled`、`bloom_enabled`，默认均关闭；Bloom 依赖 HDR，提交 `bloom_enabled=true` 且 `hdr_enabled=false` 返回失败。亮部阈值默认 1、范围 `[0,100]`，强度默认 0.15、范围 `[0,10]`，模糊半径倍数默认 1、范围 `[0.25,4]`，均要求有限。HDR / Bloom 参数随组件持久化，不进入 Engine。HDR 关闭保留原 SDR 路径。
 
-采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 6 为场景，7 为半尺寸亮部提取，8 为八分之一尺寸纵向 blur9，9 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR、停止场景、设备重建均释放该通道，尺寸变化只重建尺寸相关目标。
+采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 7 为场景，8 为共用颜色及深度附件的插件透明绘制，9 为半尺寸亮部提取，10 为八分之一尺寸纵向 blur9，11 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR、停止场景、设备重建均释放该通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。

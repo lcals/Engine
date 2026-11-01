@@ -16,6 +16,8 @@
 #include "plugins/runtime/script/bindings/material_binding.hpp"
 #include "plugins/runtime/script/bindings/mesh_renderer_binding.hpp"
 #include "plugins/runtime/script/bindings/node_binding.hpp"
+#include "plugins/runtime/script/bindings/physics_binding.hpp"
+#include "plugins/runtime/script/bindings/navigation_binding.hpp"
 #include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
 #include "plugins/runtime/script/bindings/render_binding.hpp"
 #include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
@@ -25,6 +27,17 @@
 #include "plugins/runtime/script/bindings/ui_component_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_controller_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_element_binding.hpp"
+
+#if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
+#include "plugins/runtime/script/bindings/terrain_binding.hpp"
+#endif
+#if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
+#include "plugins/runtime/script/bindings/destruction_binding.hpp"
+#endif
+
+#if defined(ENGINE_HAS_EFFECTS_PLUGIN) && ENGINE_HAS_EFFECTS_PLUGIN
+#include "plugins/runtime/script/bindings/effect_binding.hpp"
+#endif
 
 #include <algorithm>
 #include <utility>
@@ -40,18 +53,39 @@ bool ScriptBindingRegistry::initialize()
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
     if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
-        !add<EngineBinding>() || !add<TimeBinding>() || !add<RenderBinding>() ||
-        !add<SceneBinding>() || !add<NodeBinding>() || !add<ComponentBinding>() ||
-        !add<TransformBinding>() || !add<CameraBinding>() || !add<EnvironmentComponentBinding>() ||
-        !add<PostProcessComponentBinding>() || !add<LightBinding>() ||
-        !add<MeshRendererBinding>() || !add<MaterialBinding>() || !add<ColliderBinding>() ||
-        !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() || !add<AudioSourceBinding>() ||
-        !add<AudioListenerBinding>() || !add<AnimatorBinding>() || !add<UiComponentBinding>() ||
-        !add<UiElementBinding>() || !add<UiControllerBinding>())
+        !add<PhysicsBinding>() || !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
+        !add<RenderBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||
+        !add<ComponentBinding>() || !add<TransformBinding>() || !add<CameraBinding>() ||
+        !add<EnvironmentComponentBinding>() || !add<PostProcessComponentBinding>() ||
+        !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>() ||
+        !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() ||
+        !add<AudioSourceBinding>() || !add<AudioListenerBinding>() || !add<AnimatorBinding>() ||
+        !add<UiComponentBinding>() || !add<UiElementBinding>() || !add<UiControllerBinding>())
     {
         bindings_.clear();
         return false;
     }
+#if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
+    if (!add<TerrainBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
+    if (!add<DestructionBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_EFFECTS_PLUGIN) && ENGINE_HAS_EFFECTS_PLUGIN
+    if (!add<EffectBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
     return true;
 }
 

@@ -1,6 +1,7 @@
 #include "runtime/render/render_system.hpp"
 
 #include "runtime/font/font_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_query.hpp"
@@ -24,6 +25,7 @@ namespace engine
 
 bool RenderSystem::prepare_scene(const Camera* camera)
 {
+    ENGINE_PROFILE_ZONE("Render.prepareSceneResources");
     if (!is_initialized())
     {
         return false;
@@ -36,6 +38,10 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene->id() != scene_id_)
     {
+        if (scene_id_ != 0)
+        {
+            release_extensions_scene();
+        }
         // UI 可能已在玩法初始化中准备，切换绘制资源不销毁新的 View。
         release_draw_resources();
         if (fonts_)
@@ -51,7 +57,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     {
         return true;
     }
-    if (!render_detail::drawable_scene(*scene, camera))
+    if (!render_detail::drawable_scene(*scene, camera, !extensions_.empty()))
     {
         if (scene_resources_)
         {
@@ -104,6 +110,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     std::set<std::string> needed_programs;
     std::set<std::uint64_t> needed_meshes;
     std::set<const Resource*> needed_textures;
+    bool needs_skinning = false;
     for (const auto& node : scene->nodes())
     {
         const auto* renderer = node->get_component<MeshRenderer>();
@@ -118,6 +125,15 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             return false;
         }
         needed_meshes.insert(node->id());
+        if (!renderer->skinning_palette().empty())
+        {
+            needs_skinning = true;
+            if (!resources.skinning.prepare())
+            {
+                release_scene();
+                return false;
+            }
+        }
         auto mesh = std::find_if(meshes.begin(), meshes.end(),
                                  [&node](const auto& item) { return item.node_id == node->id(); });
         if (mesh == meshes.end())
@@ -128,14 +144,37 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         if (mesh->instance_id != renderer->mesh_instance_id() ||
             mesh->revision != renderer->mesh_revision())
         {
-            mesh->release();
-            if (!mesh->create(*renderer))
+            ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
+            const auto source = renderer->mesh_resource();
+            std::shared_ptr<render_detail::GpuGeometry> geometry;
+            if (source)
+            {
+                const auto cached = resources.geometries.find(source.get());
+                if (cached != resources.geometries.end())
+                {
+                    geometry = cached->second.lock();
+                }
+            }
+            if (!geometry)
+            {
+                geometry = std::make_shared<render_detail::GpuGeometry>();
+                if (!geometry->create(*renderer))
+                {
+                    release_scene();
+                    return false;
+                }
+                if (source)
+                {
+                    resources.geometries[source.get()] = geometry;
+                }
+            }
+            if (!mesh->create(*renderer, std::move(geometry)))
             {
                 release_scene();
                 return false;
             }
         }
-        if (!mesh->update_deformation(*renderer))
+        if (!mesh->update_deformation(*renderer, resources.skinning))
         {
             release_scene();
             return false;
@@ -235,6 +274,11 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             ++item;
         }
     }
+    std::erase_if(resources.geometries, [](const auto& item) { return item.second.expired(); });
+    if (!needs_skinning)
+    {
+        resources.skinning.release();
+    }
     for (auto item = textures.begin(); item != textures.end();)
     {
         if (!needed_textures.contains(item->resource.get()))
@@ -252,6 +296,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
 
 void RenderSystem::release_scene() noexcept
 {
+    release_extensions_scene();
     if (ui_)
     {
         ui_->release_scene();

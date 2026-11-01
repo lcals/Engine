@@ -58,6 +58,12 @@ const std::array<const SceneComponentCodec*, 14>& codecs()
 
 } // namespace
 
+bool SceneComponentCodec::scan_dependencies(const schema::ComponentDataT&, const ImportContext&,
+                                            std::vector<Guid>&, std::string&) const
+{
+    return true;
+}
+
 const SceneComponentCodec* find_scene_component_codec(schema::ComponentPayload type) noexcept
 {
     for (const auto* codec : codecs())

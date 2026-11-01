@@ -1,13 +1,11 @@
 #include "runtime/render/resources/gpu_mesh.hpp"
 
+#include "runtime/render/passes/skinning_pass.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/node.hpp"
-#include "runtime/utils/mesh_utils.hpp"
 
-#include <algorithm>
-#include <cmath>
-#include <limits>
 #include <utility>
+#include <vector>
 
 namespace engine::render_detail
 {
@@ -18,16 +16,8 @@ GpuMesh::~GpuMesh() noexcept
 }
 
 GpuMesh::GpuMesh(GpuMesh&& other) noexcept
-    : node_id(std::exchange(other.node_id, 0)), instance_id(std::exchange(other.instance_id, 0)),
-      revision(std::exchange(other.revision, 0)),
-      deformation_revision(std::exchange(other.deformation_revision, 0)),
-      vertices(std::exchange(other.vertices, bgfx::VertexBufferHandle{bgfx::kInvalidHandle})),
-      deformed_vertices(std::exchange(other.deformed_vertices,
-                                      bgfx::DynamicVertexBufferHandle{bgfx::kInvalidHandle})),
-      indices(std::exchange(other.indices, bgfx::IndexBufferHandle{bgfx::kInvalidHandle})),
-      minimum(other.minimum), maximum(other.maximum), source_minimum(other.source_minimum),
-      source_maximum(other.source_maximum)
 {
+    *this = std::move(other);
 }
 
 GpuMesh& GpuMesh::operator=(GpuMesh&& other) noexcept
@@ -39,138 +29,109 @@ GpuMesh& GpuMesh::operator=(GpuMesh&& other) noexcept
         instance_id = std::exchange(other.instance_id, 0);
         revision = std::exchange(other.revision, 0);
         deformation_revision = std::exchange(other.deformation_revision, 0);
-        vertices = std::exchange(other.vertices, bgfx::VertexBufferHandle{bgfx::kInvalidHandle});
+        geometry = std::move(other.geometry);
         deformed_vertices = std::exchange(other.deformed_vertices,
                                           bgfx::DynamicVertexBufferHandle{bgfx::kInvalidHandle});
-        indices = std::exchange(other.indices, bgfx::IndexBufferHandle{bgfx::kInvalidHandle});
+        palette =
+            std::exchange(other.palette, bgfx::DynamicVertexBufferHandle{bgfx::kInvalidHandle});
         minimum = other.minimum;
         maximum = other.maximum;
-        source_minimum = other.source_minimum;
-        source_maximum = other.source_maximum;
+        skinned_ = std::exchange(other.skinned_, false);
+        joint_count_ = std::exchange(other.joint_count_, 0);
     }
     return *this;
 }
 
-bgfx::VertexLayout GpuMesh::vertex_layout()
+bool GpuMesh::create(const MeshRenderer& renderer, std::shared_ptr<GpuGeometry> source)
 {
-    bgfx::VertexLayout layout;
-    layout.begin()
-        .add(bgfx::Attrib::Position, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Normal, 3, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Tangent, 4, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
-        .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
-        .end();
-    return layout;
-}
-
-bool GpuMesh::pack_vertices(const schema::MeshDataT& data,
-                            std::span<const schema::MeshVertex> positions,
-                            std::span<const schema::Vec4> tangents, std::vector<GpuVertex>& packed)
-{
-    if (positions.size() != data.vertices.size() || tangents.size() != positions.size())
+    release();
+    if (source == nullptr || !bgfx::isValid(source->vertices) || !bgfx::isValid(source->indices))
     {
         return false;
     }
-    packed.resize(positions.size());
-    minimum.fill(std::numeric_limits<float>::max());
-    maximum.fill(std::numeric_limits<float>::lowest());
-    for (std::size_t index = 0; index < packed.size(); ++index)
-    {
-        const auto& source = positions[index];
-        const auto& tangent = tangents[index];
-        const auto uv = data.texcoords.empty() ? schema::Vec2{} : data.texcoords[index];
-        const auto color = data.colors.empty() ? schema::Color{1, 1, 1, 1} : data.colors[index];
-        const double normal_length =
-            std::hypot(static_cast<double>(source.nx()), static_cast<double>(source.ny()),
-                       static_cast<double>(source.nz()));
-        if (!(normal_length > 0.0))
-        {
-            return false;
-        }
-        const std::array<double, 3> normal = {
-            source.nx() / normal_length, source.ny() / normal_length, source.nz() / normal_length};
-        const std::array<double, 3> bitangent = {normal[1] * tangent.z() - normal[2] * tangent.y(),
-                                                 normal[2] * tangent.x() - normal[0] * tangent.z(),
-                                                 normal[0] * tangent.y() - normal[1] * tangent.x()};
-        const std::array<double, 3> orthogonal = {
-            bitangent[1] * normal[2] - bitangent[2] * normal[1],
-            bitangent[2] * normal[0] - bitangent[0] * normal[2],
-            bitangent[0] * normal[1] - bitangent[1] * normal[0]};
-        const double tangent_length = std::hypot(orthogonal[0], orthogonal[1], orthogonal[2]);
-        if (!(tangent_length > 0.0))
-        {
-            return false;
-        }
-        packed[index] = {{source.x(), source.y(), source.z()},
-                         {static_cast<float>(normal[0]), static_cast<float>(normal[1]),
-                          static_cast<float>(normal[2])},
-                         {static_cast<float>(orthogonal[0] / tangent_length),
-                          static_cast<float>(orthogonal[1] / tangent_length),
-                          static_cast<float>(orthogonal[2] / tangent_length),
-                          static_cast<float>(tangent.w())},
-                         {static_cast<float>(uv.x()), static_cast<float>(uv.y())},
-                         {color.r(), color.g(), color.b(), color.a()}};
-        for (std::size_t axis = 0; axis < 3; ++axis)
-        {
-            minimum[axis] = std::min(minimum[axis], packed[index].position[axis]);
-            maximum[axis] = std::max(maximum[axis], packed[index].position[axis]);
-        }
-    }
-    return true;
-}
-
-bool GpuMesh::create(const MeshRenderer& renderer)
-{
-    const auto* data = renderer.mesh_data();
-    std::vector<schema::Vec4> tangents;
-    std::vector<GpuVertex> packed;
-    if (data == nullptr || !MeshUtils::build_tangents(*data, tangents) ||
-        !pack_vertices(*data, data->vertices, tangents, packed))
-    {
-        return false;
-    }
+    geometry = std::move(source);
     node_id = renderer.node().id();
     instance_id = renderer.mesh_instance_id();
     revision = renderer.mesh_revision();
-    source_minimum = minimum;
-    source_maximum = maximum;
-    const auto vertex_bytes = packed.size() * sizeof(GpuVertex);
-    const auto index_bytes = data->indices.size() * sizeof(std::uint32_t);
-    vertices = bgfx::createVertexBuffer(
-        bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)), vertex_layout());
-    indices = bgfx::createIndexBuffer(
-        bgfx::copy(data->indices.data(), static_cast<std::uint32_t>(index_bytes)),
-        BGFX_BUFFER_INDEX32);
-    return bgfx::isValid(vertices) && bgfx::isValid(indices);
+    minimum = geometry->minimum;
+    maximum = geometry->maximum;
+    return true;
 }
 
-bool GpuMesh::update_deformation(const MeshRenderer& renderer)
+bool GpuMesh::update_deformation(const MeshRenderer& renderer, SkinningPass& skinning)
 {
+    if (geometry == nullptr)
+    {
+        return false;
+    }
     const auto positions = renderer.deformed_vertices();
-    if (deformation_revision == renderer.deformation_revision() &&
-        bgfx::isValid(deformed_vertices) == !positions.empty())
+    const auto transforms = renderer.skinning_palette();
+    const bool has_skin = !transforms.empty();
+    if (deformation_revision == renderer.deformation_revision() && skinned_ == has_skin &&
+        bgfx::isValid(deformed_vertices) == (has_skin || !positions.empty()))
     {
         return true;
     }
-    if (positions.empty())
+    if (has_skin)
     {
-        if (bgfx::isValid(deformed_vertices))
+        const auto normal_transforms = renderer.skinning_normal_palette();
+        std::array<float, 3> low;
+        std::array<float, 3> high;
+        if (transforms.size() != normal_transforms.size() || !skinning.prepare() ||
+            !geometry->skinning_bounds(transforms, low, high))
         {
-            bgfx::destroy(deformed_vertices);
-            deformed_vertices = BGFX_INVALID_HANDLE;
+            return false;
         }
-        minimum = source_minimum;
-        maximum = source_maximum;
+        if (!skinned_ || joint_count_ != transforms.size())
+        {
+            release_deformation();
+            skinned_ = true;
+            joint_count_ = static_cast<std::uint32_t>(transforms.size());
+        }
+        std::vector<std::array<float, 16>> matrices(transforms.begin(), transforms.end());
+        matrices.insert(matrices.end(), normal_transforms.begin(), normal_transforms.end());
+        const auto* memory = bgfx::copy(
+            matrices.data(), static_cast<std::uint32_t>(matrices.size() * sizeof(matrices[0])));
+        if (bgfx::isValid(palette))
+        {
+            bgfx::update(palette, 0, memory);
+        }
+        else
+        {
+            palette = bgfx::createDynamicVertexBuffer(memory, GpuGeometry::vector_layout(),
+                                                      BGFX_BUFFER_COMPUTE_READ);
+        }
+        if (!bgfx::isValid(deformed_vertices))
+        {
+            deformed_vertices = bgfx::createDynamicVertexBuffer(
+                geometry->vertex_count, GpuGeometry::vertex_layout(), BGFX_BUFFER_COMPUTE_WRITE);
+        }
+        if (!skinning.dispatch(*geometry, palette, deformed_vertices, joint_count_))
+        {
+            return false;
+        }
+        minimum = low;
+        maximum = high;
+    }
+    else if (positions.empty())
+    {
+        release_deformation();
+        minimum = geometry->minimum;
+        maximum = geometry->maximum;
     }
     else
     {
         const auto* data = renderer.mesh_data();
         std::vector<GpuVertex> packed;
         if (data == nullptr ||
-            !pack_vertices(*data, positions, renderer.deformed_tangents(), packed))
+            !GpuGeometry::pack_vertices(*data, positions, renderer.deformed_tangents(), packed,
+                                        minimum, maximum))
         {
             return false;
+        }
+        if (skinned_)
+        {
+            release_deformation();
         }
         // bgfx examples/35-dynamic: keep topology and update only the vertex stream.
         // Copyright 2011-2025 Branimir Karadzic; third_party/notices/bgfx.txt.
@@ -182,7 +143,8 @@ bool GpuMesh::update_deformation(const MeshRenderer& renderer)
         }
         else
         {
-            deformed_vertices = bgfx::createDynamicVertexBuffer(memory, vertex_layout());
+            deformed_vertices =
+                bgfx::createDynamicVertexBuffer(memory, GpuGeometry::vertex_layout());
             if (!bgfx::isValid(deformed_vertices))
             {
                 return false;
@@ -201,28 +163,32 @@ void GpuMesh::bind_vertices() const
     }
     else
     {
-        bgfx::setVertexBuffer(0, vertices);
+        bgfx::setVertexBuffer(0, geometry->vertices);
     }
+}
+
+void GpuMesh::release_deformation() noexcept
+{
+    for (auto* handle : {&deformed_vertices, &palette})
+    {
+        if (bgfx::isValid(*handle))
+        {
+            bgfx::destroy(*handle);
+            *handle = BGFX_INVALID_HANDLE;
+        }
+    }
+    skinned_ = false;
+    joint_count_ = 0;
+    deformation_revision = 0;
 }
 
 void GpuMesh::release() noexcept
 {
-    if (bgfx::isValid(vertices))
-    {
-        bgfx::destroy(vertices);
-    }
-    if (bgfx::isValid(deformed_vertices))
-    {
-        bgfx::destroy(deformed_vertices);
-    }
-    if (bgfx::isValid(indices))
-    {
-        bgfx::destroy(indices);
-    }
-    vertices = BGFX_INVALID_HANDLE;
-    deformed_vertices = BGFX_INVALID_HANDLE;
-    indices = BGFX_INVALID_HANDLE;
-    deformation_revision = 0;
+    release_deformation();
+    geometry.reset();
+    node_id = 0;
+    instance_id = 0;
+    revision = 0;
 }
 
 } // namespace engine::render_detail

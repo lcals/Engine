@@ -17,7 +17,8 @@ PerformanceSystem::~PerformanceSystem() noexcept
 bool PerformanceSystem::on_initialize(const EngineConfig&)
 {
 #if defined(ENGINE_ENABLE_TRACY)
-    // 触达客户端链接实现；当前不提交采样，客户端生命周期由 Tracy 管理。
+    // 客户端按进程存活，具体领域在各自实现中提交按需采样。
+    tracy::SetThreadName("Engine main");
     static_cast<void>(TracyIsConnected);
 #endif
     return true;

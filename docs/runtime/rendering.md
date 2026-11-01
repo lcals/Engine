@@ -69,7 +69,7 @@ MeshRenderer 的 `cast_shadows` 默认 true；设为 false 后，该组件仍在
 
 方向光阴影读取唯一启用 `cast_shadows` 的 `Light`，支持 1、2、4 级 CSM；默认 4 级、阴影距离 150、对数/均匀划分混合比例 0.6、级联交界混合比例 0.1。对应场景字段为 `shadow_cascades`、`shadow_distance`、`shadow_split_lambda`、`shadow_cascade_blend`。距离范围为 `(0, 100000]`，两项比例范围分别为 `[0, 1]`、`[0, 0.3]`；实际远端取相机远裁面与阴影距离的较小值，远端不超过近裁面时不提交阴影。显式传入的观察镜头决定级联范围，预览和玩法共用同一实现。逐灯配置归组件，渲染器不创建场景节点或保存编辑器策略。
 
-每级覆盖镜头的一段视锥，使用包围球固定正交范围并将中心对齐纹素；深度范围纳入与本级范围相交的投射物，避免仅按接收面裁掉投影。阴影 pass 输出 RGBA8 编码深度并使用 D16 附件。所有级联共用一张 atlas，`shadow_resolution` 表示完整 atlas 边长：单级占整图，两级各占一个半边长 tile，四级占满 2×2；4096 的四级 atlas 每级为 2048。View 0..3 留给阴影，4/5 分别为 AO 深度预通道与计算，主场景使用 View 6；启用 HDR 时，View 6 写入线性 RGBA16F，7..9 完成后处理，UI 随后使用 View 200。编辑器 GPU 作业保留 View 240..255。阴影仍只占用纹理槽 15。
+每级覆盖镜头的一段视锥，使用包围球固定正交范围并将中心对齐纹素；深度范围纳入与本级范围相交的投射物，避免仅按接收面裁掉投影。阴影 pass 输出 RGBA8 编码深度并使用 D16 附件。所有级联共用一张 atlas，`shadow_resolution` 表示完整 atlas 边长：单级占整图，两级各占一个半边长 tile，四级占满 2×2；4096 的四级 atlas 每级为 2048。View 0 执行 GPU 蒙皮，1..4 留给阴影，5/6 分别为 AO 深度预通道与计算，主场景使用 View 7；启用 HDR 时，View 7 写入线性 RGBA16F，View 8 提交插件透明绘制，9..11 完成后处理，UI 随后使用 View 200。编辑器 GPU 作业保留 View 240..255。阴影仍只占用纹理槽 15。
 
 主 pass 按观察镜头的正向深度选级，16 点 PCF 的每次采样限制在本级 tile 内。每级末尾的混合区与下一层平滑过渡，最后一级在同样区间淡出；混合比例为 0 时使用硬切换。下一级投影向前扩展以覆盖混合区。坐标变换处理各后端的屏幕原点和深度范围；超出有效投影或阴影距离返回全可见。没有投影方向光时释放专属 GPU 对象；聚合设置查询和修改此时选择首个启用方向光，逐灯编辑应直接使用 `Light`。目前不包含点光或聚光阴影。
 
@@ -81,7 +81,7 @@ CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkarad
 
 ## 屏幕空间环境遮蔽
 
-AO 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [39-assao](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/39-assao)，使用固定 Q2 与两次边缘保持模糊。实现和 GPU 资源封装于渲染私有 `AmbientOcclusionPass`，不增加场景节点或框架系统。View 4 用现有材质程序提交仅写深度的预通道，保留自定义顶点变形、材质剔除和 alpha 裁切；View 5 顺序计算深度、法线、遮蔽及模糊，View 6 的主场景采样最终结果，启用 HDR 时随后执行 View 7..9 后处理。UI 与编辑器 GPU 作业继续使用 200 与 240..255。
+AO 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [39-assao](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/39-assao)，使用固定 Q2 与两次边缘保持模糊。实现和 GPU 资源封装于渲染私有 `AmbientOcclusionPass`，不增加场景节点或框架系统。View 5 用现有材质程序提交仅写深度的预通道，保留自定义顶点变形、材质剔除和 alpha 裁切；View 6 顺序计算深度、法线、遮蔽及模糊，View 7 的主场景采样最终结果，启用 HDR 时随后提交 View 8 插件透明绘制，再执行 View 9..11 后处理。UI 与编辑器 GPU 作业继续使用 200 与 240..255。
 
 `PostProcessData` 保存 `ao_enabled`（默认 false）、`ao_radius`（默认 1，范围 `(0,100]`）、`ao_strength`（默认 1，范围 `[0,2]`）、`ao_power`（默认 1.5，范围 `[0.1,8]`）和 `ao_fade_start` / `ao_fade_end`（默认 80/150，要求 `0 <= start < end <= 100000`）。半径与淡出距离使用世界单位，参数必须有限；关闭开关保留其他设置。参数由活动场景相机提供，预览隐藏镜头只决定本帧投影与深度，支持透视和正交相机。MCP 的同名驼峰字段和脚本 `SetAmbientOcclusion` 复用组件校验与持久数据；MCP 编辑进入撤销链，再由 `save_scene` 保存，脚本修改不自动写盘。不维护单独的编辑器效果状态。
 
@@ -96,7 +96,7 @@ Metal 能力检查沿用上游实际访问契约：本通道的 R16F、RGBA8、R
 
 HDR 与 Bloom 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 [09-hdr](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/09-hdr)，使用其全屏绘制和多通道组织、九次采样亮部提取、纵向 `blur9`、横向 `blur9` 与合成流程。保留 `blur9` 权重 `1 / 0.9 / 0.55 / 0.18 / 0.1` 和 `4.46` 归一化；适配为中心对称 3×3 提取核、线性 RGBA16F 中间值、一次最终输出转换及引擎资源生命周期。源码、调整说明和 BSD-2-Clause 许可见 [HDR 来源](../../third_party/notices/bgfx-hdr.md)。
 
-`HdrPostProcessPass` 是渲染私有实现，不增加场景节点或独立框架系统。HDR 开启时，View 6 将场景表面、天空与 3D 文字绘制到全尺寸 RGBA16F 颜色和 D32F 深度目标；Bloom 开启时，View 7 将九次采样的平均线性颜色减去阈值并保留非负结果，输出到半尺寸 RGBA16F 目标，View 8 纵向模糊至八分之一尺寸目标。View 9 水平模糊 Bloom 并按强度加回场景，最后统一执行显式 `exposure`、Reinhard/ACES 和 gamma 编码。尺寸按窗口像素向上取整，两轴模糊间距都以八分之一目标的纹素尺寸乘半径倍率计算。Bloom 关闭而 HDR 开启时跳过 View 7/8，仅执行最终输出转换。
+`HdrPostProcessPass` 是渲染私有实现，不增加场景节点或独立框架系统。HDR 开启时，View 7 将场景表面、天空与 3D 文字绘制到全尺寸 RGBA16F 颜色和 D32F 深度目标；View 8 与场景共用颜色和深度附件，按提交顺序绘制插件内容，不清屏。Bloom 开启时，View 9 将九次采样的平均线性颜色减去阈值并保留非负结果，输出到半尺寸 RGBA16F 目标，View 10 纵向模糊至八分之一尺寸目标。View 11 水平模糊 Bloom 并按强度加回场景，最后统一执行显式 `exposure`、Reinhard/ACES 和 gamma 编码。尺寸按窗口像素向上取整，两轴模糊间距都以八分之一目标的纹素尺寸乘半径倍率计算。Bloom 关闭而 HDR 开启时跳过 View 9/10，仅执行最终输出转换。
 
 HDR 指场景内部保留高于 1 的线性亮度，最终交换链和截图仍输出 SDR，没有 HDR 显示器色域或输出编码。曝光由已有参数显式控制，未引入上游的亮度测量、平均亮度贴图或自动曝光；Bloom 阈值在曝光前应用。清屏 RGBA8 的 RGB 先按原显示编码解码为线性值，再与场景共同进入最终输出。UI 在 View 200 绘制，不进入场景 HDR 目标，不受场景曝光、色调映射或 Bloom 影响。
 
@@ -148,3 +148,13 @@ Android 在 Surface 暂停或销毁前由宿主请求关闭渲染器并等待确
 渲染扩展沿用 bgfx 官方示例和已有资源契约；多阶段效果需要明确输入、输出和依赖后再引入渲染图。DCC 视觉制作以 Blender 为基准，USD 转换和材质效果以引擎实际支持范围为准。
 
 普通图片由编辑器依据 `.meta` 调用 BasisU 生成 GUID 缓存，半浮点 KTX1 由 `texture_ktx` 导入器保留线性 HDR 数据。运行时验证 mip 和格式，BasisU 按缓存的格式请求选择设备支持的转码目标，半浮点纹理验证设备能力后直接上传；纹理共享引用跟随材质、环境及 GPU 对象释放。配置与使用说明见根 README。
+
+## GPU 蒙皮与共享几何
+
+`AnimationSystem` 采样后通过 MeshRenderer 提交实例独占的列主序位置矩阵与法线逆转置矩阵。`SkinningPass` 每个姿态只计算一次完整顶点流，主场景、AO 深度和全部阴影级联绑定同一输出；材质及项目 Shader 无需专用蒙皮变体。旧模型与新模型使用相同资源和组件契约，核心不包含项目资产名称或按项目选择的兼容分支。
+
+`GpuGeometry` 持有共享不可变源顶点、索引、蒙皮权重和每关节绑定姿态包围盒。场景按 Resource 对象身份使用弱缓存，GpuMesh 实例强持；同 GUID 的新导入版本不会复用旧几何。临时网格由组件实例与网格修订身份区分，不合并可变数据。姿态矩阵缓冲、输出顶点及当前边界属于每个 GpuMesh，角色之间不会共享姿态。最后一个实例释放时销毁几何及持有的资源引用。
+
+GPU 流程参考 bgfx `24-nbody` 的 compute buffer → 绘制输入，以及 MIT Ant 引擎 `pkg/ant.render/skinning/cs_skinning_system.lua` 与 `pkg/ant.resources/shaders/skinning/cs_skinning.sc` 的每实例蒙皮输出。此实现使用固定引擎顶点布局，无通用属性反射；法线使用逆转置矩阵，切线与副切线使用普通矩阵，正交化后重新计算镜像手性。共享几何上传时按非零骨骼影响收集绑定顶点 AABB，每帧变换这些角点并取并集，保守覆盖非负归一权重的线性混合，避免阴影仍使用绑定姿态边界。
+
+compute 使用引擎统一 shaderc 平台配置生成 Metal、DirectX 与 SPIR-V。硬件缺少 compute 或足够绑定槽时明确失败；不增加项目专属 CPU 回退。通用 `set_deformation` 仍支持调用方直接提供动态顶点，但不作为旧模型专用路径。

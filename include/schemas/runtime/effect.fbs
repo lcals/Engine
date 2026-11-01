@@ -1,0 +1,16 @@
+include "asset_catalog.fbs";
+namespace engine.schema;
+
+table EffectResourceBinding {
+    path:string (required);
+    guid:string (required);
+    kind:AssetKind;
+}
+
+table EffectAssetData {
+    data:[ubyte] (required);
+    bindings:[EffectResourceBinding];
+}
+
+root_type EffectAssetData;
+file_identifier "EFCT";

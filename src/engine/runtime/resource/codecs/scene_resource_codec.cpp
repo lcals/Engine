@@ -73,6 +73,30 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 has_post_process = true;
             }
             has_camera = has_camera || component->payload.AsCameraData() != nullptr;
+            if (const auto* terrain = component->payload.AsTerrainData())
+            {
+                if ((!terrain->terrain_guid.empty() &&
+                     !declares(catalog, output, terrain->terrain_guid,
+                               schema::AssetKind::terrain)) ||
+                    (!terrain->material_guid.empty() &&
+                     !declares(catalog, output, terrain->material_guid,
+                               schema::AssetKind::material)))
+                {
+                    return false;
+                }
+            }
+            if (const auto* destruction = component->payload.AsDestructionData())
+            {
+                if ((!destruction->destruction_guid.empty() &&
+                     !declares(catalog, output, destruction->destruction_guid,
+                               schema::AssetKind::destruction)) ||
+                    (!destruction->material_guid.empty() &&
+                     !declares(catalog, output, destruction->material_guid,
+                               schema::AssetKind::material)))
+                {
+                    return false;
+                }
+            }
             if (const auto* light = component->payload.AsLightData())
             {
                 if (!scene_detail::valid_light(*light) ||
@@ -81,6 +105,14 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                     return false;
                 }
                 has_shadow_light = has_shadow_light || (component->enabled && light->cast_shadows);
+            }
+            if (const auto* effect = component->payload.AsEffectData();
+                effect && !effect->effect_guid.empty())
+            {
+                if (!declares(catalog, output, effect->effect_guid, schema::AssetKind::effect))
+                {
+                    return false;
+                }
             }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
@@ -181,6 +213,15 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                     diffuse_data->format != schema::TextureFormat::rgba16f ||
                     specular_data->format != schema::TextureFormat::rgba16f ||
                     lut_data->format != schema::TextureFormat::rg16f)
+                {
+                    return false;
+                }
+            }
+            if (const auto* effect = component->payload.AsEffectData();
+                effect && !effect->effect_guid.empty())
+            {
+                const auto* effect_resource = dependency(dependencies, effect->effect_guid);
+                if (!effect_resource || effect_resource->info().kind != schema::AssetKind::effect)
                 {
                     return false;
                 }

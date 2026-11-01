@@ -1,0 +1,196 @@
+--- a/source/shared/stress_solver/solver_types.h
++++ b/source/shared/stress_solver/solver_types.h
+@@ -28,7 +28,9 @@
+ 
+ #include "NvCTypes.h"
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ #include "simd/simd.h"
++#endif
+ 
+ 
+ /**
+@@ -36,7 +38,11 @@
+  * Currently also used as a template argument to distinguish code paths.  May need a different
+  * scheme if two codepaths use the same scalar type.
+  */
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ typedef __m128  SIMD_Scalar;
++#else
++typedef float   SIMD_Scalar;
++#endif
+ typedef float   Float_Scalar;
+ 
+ 
+--- a/source/shared/stress_solver/anglin6.h
++++ b/source/shared/stress_solver/anglin6.h
+@@ -27,7 +27,17 @@
+ #pragma once
+ 
+ #include "NvCMath.h"
++
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ #include "simd/simd.h"
++#else
++#ifndef SIMD_ALIGN_16
++#define SIMD_ALIGN_16(code) NV_ALIGN_PREFIX(16) code NV_ALIGN_SUFFIX(16)
++#endif
++#ifndef SIMD_ALIGN_32
++#define SIMD_ALIGN_32(code) NV_ALIGN_PREFIX(32) code NV_ALIGN_SUFFIX(32)
++#endif
++#endif
+ 
+ 
+ /**
+@@ -149,6 +159,7 @@
+ };
+ 
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ /**
+  * SIMD AngLin6 operations.
+  */
+@@ -280,3 +291,4 @@
+         return _mm_add_ps(_ang_sq, _lin_sq);
+     }
+ };
++#endif // !STRESS_SOLVER_NO_SIMD
+--- a/source/shared/stress_solver/inertia.h
++++ b/source/shared/stress_solver/inertia.h
+@@ -81,6 +81,7 @@
+     }
+ };
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ template<>
+ struct InertiaMatrixOps<SIMD_Scalar>
+ {
+@@ -114,3 +115,4 @@
+         }
+     }
+ };
++#endif // !STRESS_SOLVER_NO_SIMD
+--- a/source/shared/stress_solver/coupling.h
++++ b/source/shared/stress_solver/coupling.h
+@@ -116,6 +116,7 @@
+     }
+ };
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ template <typename Elem>
+ struct CouplingMatrixOps<Elem, SIMD_Scalar>
+ {
+@@ -202,3 +203,4 @@
+         return _mm256_shuffle_ps(res_shuffled, res_shuffled, 0xc9);
+     }
+ };
++#endif // !STRESS_SOLVER_NO_SIMD
+--- a/source/shared/stress_solver/stress.cpp
++++ b/source/shared/stress_solver/stress.cpp
+@@ -26,7 +26,9 @@
+ 
+ #include "stress.h"
+ #include "math/cgnr.h"
++#if !defined(STRESS_SOLVER_NO_DEVICE_QUERY)
+ #include "simd/simd_device_query.h"
++#endif
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -42,6 +44,13 @@
+  * StressProcessor static members
+  */
+ 
++#if defined(STRESS_SOLVER_FORCE_SCALAR)
++const bool
++StressProcessor::s_use_simd = false;
++#elif defined(STRESS_SOLVER_NO_DEVICE_QUERY)
++const bool
++StressProcessor::s_use_simd = false;
++#else
+ // Check for SSE, FMA3, and AVX support
+ const bool
+ StressProcessor::s_use_simd =
+@@ -50,6 +59,7 @@
+     device_supports_instruction_set(InstructionSet::OSXSAVE) && // OS uses XSAVE and XRSTORE instructions allowing saving YMM registers on context switch
+     device_supports_instruction_set(InstructionSet::AVX) &&     // Advanced Vector Extensions (256 bit operations)
+     os_supports_avx_restore();                                  // OS has enabled the required extended state for AVX
++#endif
+ 
+ 
+ /**
+--- a/source/shared/stress_solver/math/cgnr.h
++++ b/source/shared/stress_solver/math/cgnr.h
+@@ -29,7 +29,15 @@
+ #include <stdint.h>
+ #include <cstring>  // for memcpy, memset
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ #include "simd/simd.h"
++#else
++inline void load_float(float& f, const float* mem) { f = *mem; }
++inline void store_float(float* mem, float value) { *mem = value; }
++inline float mul(float a, float b) { return a * b; }
++inline float div(float a, float b) { return a / b; }
++inline bool le(float a, float b) { return a <= b; }
++#endif
+ 
+ 
+ template<typename Elem, typename ElemOps, typename Mat, typename MatOps, typename Scalar = float, typename Error = float>
+--- a/source/sdk/extensions/stress/NvBlastExtStressSolver.cpp
++++ b/source/sdk/extensions/stress/NvBlastExtStressSolver.cpp
+@@ -34,13 +34,17 @@
+ #include "NvBlastAssert.h"
+ #include "NvBlastIndexFns.h"
+ 
++#if !defined(STRESS_SOLVER_NO_SIMD)
+ #include "NsFPU.h"
++#endif
+ #include "NvBlastNvSharedHelpers.h"
+ #include "NvCMath.h"
+ 
+ #include "stress.h"
+ #include "buffer.h"
++#if !defined(STRESS_SOLVER_NO_DEVICE_QUERY)
+ #include "simd/simd_device_query.h"
++#endif
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -626,17 +630,22 @@
+                 {
+                     const uint32_t bondIndex = m_blastBondIndexMap[blastBondIndex];
+                     const BondData& bond = m_bondsData[bondIndex];
+-                    const nvidia::NvVec3 nodeDisp = m_nodesData[bond.node1].localPos - m_nodesData[bond.node0].localPos;
++                    const NvBlastBond& blastBond = bonds[blastBondIndex];
++                    const nvidia::NvVec3 blastBondCentroid(blastBond.centroid[0], blastBond.centroid[1], blastBond.centroid[2]);
++                    const NodeData& node0 = m_nodesData[bond.node0];
++                    const NodeData& node1 = m_nodesData[bond.node1];
++                    // Match fillDebugRender: a static/external node is located at this bond's
++                    // actual contact, not the virtual world's arbitrary origin.
++                    const nvidia::NvVec3 p0 = node0.mass > 0.0f ? node0.localPos : blastBondCentroid;
++                    const nvidia::NvVec3 p1 = node1.mass > 0.0f ? node1.localPos : blastBondCentroid;
++                    const nvidia::NvVec3 nodeDisp = p1 - p0;
+ 
+                     // the current health of a bond is the effective area remaining
+                     const float remainingArea = bondHealth[blastBondIndex];
+-                    const NvBlastBond& blastBond = bonds[blastBondIndex];
+ 
+                     // Align normal(s) with node displacement, so that compressive/tensile distinction is correct
+                     const nvidia::NvVec3 assetBondNormal(blastBond.normal[0], blastBond.normal[1], blastBond.normal[2]);
+                     const nvidia::NvVec3 blastBondNormal = std::copysignf(1.0f, assetBondNormal.dot(nodeDisp))*assetBondNormal;
+-
+-                    const nvidia::NvVec3 blastBondCentroid(blastBond.centroid[0], blastBond.centroid[1], blastBond.centroid[2]);
+ 
+                     if (!canTakeDamage(remainingArea))  // Check unbreakable limit
+                     {
+@@ -1570,7 +1579,9 @@
+ 
+ void ExtStressSolverImpl::solve()
+ {
++#if !defined(STRESS_SOLVER_NO_SIMD)
+     NV_SIMD_GUARD;
++#endif
+ 
+     m_graphProcessor->solve(m_settings, m_bondHealths, m_bonds, WARM_START && !m_reset);
+     m_reset = false;

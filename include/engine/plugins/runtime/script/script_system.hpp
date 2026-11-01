@@ -11,6 +11,8 @@ namespace engine
 class WorldSystem;
 class RenderSystem;
 class UiSystem;
+class PhysicsSystem;
+class NavigationSystem;
 } // namespace engine
 
 namespace engine::plugins::script
@@ -20,7 +22,8 @@ class ScriptSystem final : public ScriptRuntime
 {
 public:
     explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr,
-                          UiSystem* ui = nullptr) noexcept;
+                          UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
+                          NavigationSystem* navigation = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
@@ -47,6 +50,9 @@ private:
     RenderSystem* renderer_ = nullptr;
     // 可空借用，生命周期覆盖全部玩法回调及停止清理。
     UiSystem* ui_ = nullptr;
+    // 可空借用，生命周期覆盖全部玩法回调。
+    PhysicsSystem* physics_ = nullptr;
+    NavigationSystem* navigation_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

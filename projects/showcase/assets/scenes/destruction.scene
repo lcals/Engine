@@ -1,0 +1,262 @@
+name = "Destruction laboratory"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Overview camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [30, 26, 40]
+rotation = [-25, 37, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 52.0
+near_clip = 0.1
+far_clip = 180.0
+
+[[nodes.components]]
+type = "post_process"
+exposure = 1.15
+filmic_tonemap = true
+hdr_enabled = true
+ao_enabled = true
+ao_radius = 0.9
+ao_strength = 0.7
+ao_power = 1.2
+
+[[nodes]]
+id = 2
+name = "Front camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 10, 36]
+rotation = [-5, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 52.0
+near_clip = 0.1
+far_clip = 180.0
+
+[[nodes.components]]
+type = "post_process"
+exposure = 1.15
+filmic_tonemap = true
+hdr_enabled = true
+ao_enabled = true
+ao_radius = 0.9
+ao_strength = 0.7
+ao_power = 1.2
+
+[[nodes]]
+id = 3
+name = "Tower"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, -2]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "2595718b-45a6-413c-8a85-ee0bf697698e"
+material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
+density = 80
+friction = 0.7
+restitution = 0.08
+
+[[nodes]]
+id = 4
+name = "Wall"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-11, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "22a094f5-acc3-493d-a06a-6aa15d8b5c98"
+material = "c9a8250e-1bda-407f-b93a-952691dba977"
+density = 80
+friction = 0.7
+restitution = 0.08
+
+[[nodes]]
+id = 5
+name = "Column"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [11, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "1e31c754-780a-4025-9309-4ccadff62a43"
+material = "7160a450-f188-485d-9b2b-7fac47d5a93a"
+density = 80
+friction = 0.7
+restitution = 0.08
+
+[[nodes]]
+id = 6
+name = "Test ground"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.5, 0]
+rotation = [0, 0, 0]
+scale = [24, 0.5, 20]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "e2229ee7-56a2-4f17-b402-19eb8ef5e72e"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.7
+
+[[nodes]]
+id = 7
+name = "Environment"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "environment"
+ambient_tricolor = true
+ambient_sky_color = [0.55,0.7,0.9]
+ambient_equator_color = [0.5,0.57,0.65]
+ambient_ground_color = [0.24,0.2,0.18]
+ambient_intensity = 0.4
+fog_mode = "linear"
+fog_color = [0.35,0.45,0.56]
+fog_start = 90
+fog_end = 180
+clear_color = 1517452543
+
+[[nodes]]
+id = 8
+name = "Afternoon sun"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 25, 0]
+rotation = [-42, -35, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [1,0.89,0.7,1]
+intensity = 3.2
+cast_shadows = true
+shadow_resolution = 2048
+shadow_bias = 0.004
+shadow_cascades = 4
+shadow_distance = 100
+
+[[nodes]]
+id = 9
+name = "Cool fill"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-12, 12, 15]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "point"
+color = [0.48,0.7,1,1]
+intensity = 12
+range = 35
+
+[[nodes]]
+id = 10
+name = "Destruction UI"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "ui"
+document = "816c54f1-8eac-4ba6-af96-7ea5e62035de"
+
+[[nodes]]
+id = 11
+name = "Left lane"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6, 0.02, 0]
+rotation = [0, 0, 0]
+scale = [0.035, 0.02, 10]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"
+
+[[nodes]]
+id = 12
+name = "Right lane"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6, 0.02, 0]
+rotation = [0, 0, 0]
+scale = [0.035, 0.02, 10]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"
+
+[[nodes]]
+id = 13
+name = "Safety line"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.02, 8]
+rotation = [0, 0, 0]
+scale = [17, 0.02, 0.035]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"

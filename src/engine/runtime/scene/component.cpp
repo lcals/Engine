@@ -47,6 +47,16 @@ const schema::ComponentDataT& Component::data() const noexcept
     return data_;
 }
 
+bool Component::transient() const noexcept
+{
+    return transient_;
+}
+
+void Component::set_transient(bool transient) noexcept
+{
+    transient_ = transient;
+}
+
 bool Component::build_data(schema::ComponentDataT& output) const
 {
     output = {};

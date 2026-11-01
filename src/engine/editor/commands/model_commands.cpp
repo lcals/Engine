@@ -14,9 +14,17 @@ namespace
 bool snapshot(const Node& node, schema::NodeDataT& output)
 {
     output = {};
+    if (node.transient())
+    {
+        return false;
+    }
     output.info = std::make_unique<schema::NodeInfoT>(node.info());
     for (const auto& component : node.components())
     {
+        if (component->transient())
+        {
+            continue;
+        }
         auto data = std::make_unique<schema::ComponentDataT>();
         if (!component->build_data(*data))
         {

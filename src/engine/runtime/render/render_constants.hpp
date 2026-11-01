@@ -10,10 +10,12 @@
 namespace engine::render_detail
 {
 
-inline constexpr std::uint16_t shadow_view = 0;
+inline constexpr std::uint16_t skinning_view = 0;
+inline constexpr std::uint16_t shadow_view = 1;
 inline constexpr std::uint16_t maximum_shadow_cascades = 4;
-inline constexpr std::uint16_t ambient_occlusion_depth_view = 4;
-inline constexpr std::uint16_t main_view = 6;
+inline constexpr std::uint16_t ambient_occlusion_depth_view = 5;
+inline constexpr std::uint16_t main_view = 7;
+inline constexpr std::uint16_t extension_view = 8;
 inline constexpr std::uint8_t shadow_sampler_stage = 15;
 inline constexpr std::uint8_t ambient_occlusion_stage = 11;
 inline constexpr std::uint8_t ibl_irradiance_stage = 12;
@@ -22,9 +24,9 @@ inline constexpr std::uint8_t ibl_lut_stage = 14;
 inline constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
 inline constexpr std::size_t maximum_lights = 64;
 
-inline constexpr std::uint16_t ambient_occlusion_compute_view = 5;
-inline constexpr std::uint16_t hdr_bright_view = 7;
-inline constexpr std::uint16_t hdr_blur_view = 8;
-inline constexpr std::uint16_t hdr_resolve_view = 9;
+inline constexpr std::uint16_t ambient_occlusion_compute_view = 6;
+inline constexpr std::uint16_t hdr_bright_view = 9;
+inline constexpr std::uint16_t hdr_blur_view = 10;
+inline constexpr std::uint16_t hdr_resolve_view = 11;
 
 } // namespace engine::render_detail

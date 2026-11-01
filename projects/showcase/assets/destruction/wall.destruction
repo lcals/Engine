@@ -1,0 +1,9 @@
+size = [7, 7, 1.2]
+fracture = "voronoi"
+slices_x = 1
+slices_y = 1
+slices_z = 1
+sites = 24
+seed = 17
+bond_health = 1
+anchor_height = 0.05

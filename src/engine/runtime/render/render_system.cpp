@@ -1,6 +1,8 @@
 #include "runtime/render/render_system.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_surface.hpp"
 #include "runtime/render/renderer_callbacks.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
@@ -10,6 +12,7 @@
 #include <SDL3/SDL.h>
 #include <bgfx/platform.h>
 
+#include <algorithm>
 #include <array>
 #include <new>
 
@@ -20,6 +23,85 @@ namespace engine
 namespace
 {
 RenderSystem* active_renderer = nullptr;
+
+#if defined(ENGINE_ENABLE_TRACY)
+void profile_renderer_stats()
+{
+    const auto* stats = bgfx::getStats();
+    if (stats == nullptr)
+    {
+        return;
+    }
+    // Stats 对应已经完成的后端帧，可能滞后于提交线程。
+    // cpuTimeFrame 包含玩法与限帧等待，不能作为渲染 CPU 耗时。
+    if (stats->cpuTimerFreq > 0)
+    {
+        const double milliseconds = 1000.0 / static_cast<double>(stats->cpuTimerFreq);
+        if (stats->cpuTimeFrame > 0)
+        {
+            ENGINE_PROFILE_PLOT("Bgfx.frameIntervalMs", stats->cpuTimeFrame * milliseconds);
+        }
+        if (stats->cpuTimeBegin > 0 && stats->cpuTimeEnd >= stats->cpuTimeBegin)
+        {
+            ENGINE_PROFILE_PLOT("Bgfx.renderThreadSubmitMs",
+                                (stats->cpuTimeEnd - stats->cpuTimeBegin) * milliseconds);
+        }
+        if (stats->waitRender >= 0)
+        {
+            ENGINE_PROFILE_PLOT("Bgfx.waitRenderMs", stats->waitRender * milliseconds);
+        }
+        if (stats->waitSubmit >= 0)
+        {
+            ENGINE_PROFILE_PLOT("Bgfx.waitSubmitMs", stats->waitSubmit * milliseconds);
+        }
+    }
+    // GPU 时间戳使用独立时钟；不支持或不可用的数据不生成采样值。
+    if (stats->gpuTimerFreq > 0 && stats->gpuTimeBegin > 0 &&
+        stats->gpuTimeEnd >= stats->gpuTimeBegin)
+    {
+        const double milliseconds = 1000.0 / static_cast<double>(stats->gpuTimerFreq);
+        ENGINE_PROFILE_PLOT("Bgfx.gpuFrameMs",
+                            (stats->gpuTimeEnd - stats->gpuTimeBegin) * milliseconds);
+        ENGINE_PROFILE_PLOT("Bgfx.gpuFrameNumber", static_cast<std::int64_t>(stats->gpuFrameNum));
+    }
+    ENGINE_PROFILE_PLOT("Bgfx.drawCalls", static_cast<std::int64_t>(stats->numDraw));
+    ENGINE_PROFILE_PLOT("Bgfx.computeCalls", static_cast<std::int64_t>(stats->numCompute));
+    ENGINE_PROFILE_PLOT("Bgfx.blitCalls", static_cast<std::int64_t>(stats->numBlit));
+    ENGINE_PROFILE_PLOT("Bgfx.triangles",
+                        static_cast<std::int64_t>(stats->numPrims[bgfx::Topology::TriList]));
+    ENGINE_PROFILE_PLOT("Bgfx.textures", static_cast<std::int64_t>(stats->numTextures));
+    ENGINE_PROFILE_PLOT("Bgfx.vertexBuffers", static_cast<std::int64_t>(stats->numVertexBuffers));
+    ENGINE_PROFILE_PLOT("Bgfx.indexBuffers", static_cast<std::int64_t>(stats->numIndexBuffers));
+    ENGINE_PROFILE_PLOT("Bgfx.frameBuffers", static_cast<std::int64_t>(stats->numFrameBuffers));
+    // 资源估算与驱动上报占用口径不同且有重叠，分别记录，不能相加。
+    if (stats->textureMemoryUsed >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.textureEstimatedBytes", stats->textureMemoryUsed);
+    }
+    if (stats->rtMemoryUsed >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.renderTargetEstimatedBytes", stats->rtMemoryUsed);
+    }
+    if (stats->transientVbUsed >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.transientVertexBytes",
+                            static_cast<std::int64_t>(stats->transientVbUsed));
+    }
+    if (stats->transientIbUsed >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.transientIndexBytes",
+                            static_cast<std::int64_t>(stats->transientIbUsed));
+    }
+    if (stats->gpuMemoryUsed >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.gpuResidentBytes", stats->gpuMemoryUsed);
+    }
+    if (stats->gpuMemoryMax >= 0)
+    {
+        ENGINE_PROFILE_PLOT("Bgfx.gpuBudgetBytes", stats->gpuMemoryMax);
+    }
+}
+#endif
 }
 
 RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem* fonts,
@@ -31,6 +113,52 @@ RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem
 RenderSystem::~RenderSystem() noexcept
 {
     shutdown();
+    for (auto* extension : extensions_)
+    {
+        extension->renderer_ = nullptr;
+    }
+    extensions_.clear();
+}
+
+bool RenderSystem::add_extension(RenderExtension& extension)
+{
+    if (invoking_extensions_ || extension.renderer_ != nullptr)
+    {
+        return false;
+    }
+    extensions_.push_back(&extension);
+    extension.renderer_ = this;
+    return true;
+}
+
+bool RenderSystem::remove_extension(RenderExtension& extension) noexcept
+{
+    if (invoking_extensions_ || extension.renderer_ != this)
+    {
+        return false;
+    }
+    detach_extension(extension);
+    invoking_extensions_ = true;
+    extension.release_scene();
+    extension.release_gpu();
+    invoking_extensions_ = false;
+    return true;
+}
+
+void RenderSystem::detach_extension(RenderExtension& extension) noexcept
+{
+    std::erase(extensions_, &extension);
+    extension.renderer_ = nullptr;
+}
+
+void RenderSystem::release_extensions_scene() noexcept
+{
+    invoking_extensions_ = true;
+    for (auto* extension : extensions_)
+    {
+        extension->release_scene();
+    }
+    invoking_extensions_ = false;
 }
 
 bool RenderSystem::on_initialize(const EngineConfig&)
@@ -143,6 +271,7 @@ bool RenderSystem::stats_visible() const noexcept
 
 bool RenderSystem::render(const Camera* camera)
 {
+    ENGINE_PROFILE_ZONE("Render.frame");
     if (!is_initialized() || !windows_.can_render())
     {
         return false;
@@ -201,7 +330,14 @@ bool RenderSystem::render(const Camera* camera)
     bgfx::touch(render_detail::main_view);
     const bool drawn =
         draw_scene(camera, current_settings) && (ui_ == nullptr || ui_->render(width_, height_));
-    frame_number_ = bgfx::frame();
+    {
+        ENGINE_PROFILE_ZONE("Render.frameSubmit");
+        frame_number_ = bgfx::frame();
+    }
+    ENGINE_PROFILE_FRAME();
+#if defined(ENGINE_ENABLE_TRACY)
+    profile_renderer_stats();
+#endif
     return drawn;
 }
 
@@ -218,6 +354,12 @@ void RenderSystem::on_shutdown() noexcept
 void RenderSystem::shutdown_renderer() noexcept
 {
     release_scene();
+    invoking_extensions_ = true;
+    for (auto* extension : extensions_)
+    {
+        extension->release_gpu();
+    }
+    invoking_extensions_ = false;
     if (renderer_initialized_)
     {
         bgfx::shutdown();

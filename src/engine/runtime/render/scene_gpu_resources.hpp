@@ -3,23 +3,29 @@
 #include "runtime/render/passes/ambient_occlusion_pass.hpp"
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
 #include "runtime/render/passes/shadow_pass.hpp"
+#include "runtime/render/passes/skinning_pass.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/resources/gpu_mesh.hpp"
 #include "runtime/render/resources/gpu_program.hpp"
 #include "runtime/render/resources/gpu_texture.hpp"
 
 #include <array>
+#include <map>
+#include <memory>
 #include <vector>
 
 namespace engine
 {
 
 class Scene;
+class Resource;
 
 // 独占当前场景GPU资源；由RenderSystem在bgfx关闭前释放，组件借用不跨帧保存。
 struct RenderSystem::SceneGpuResources
 {
     std::vector<render_detail::GpuMesh> meshes;
+    std::map<const Resource*, std::weak_ptr<render_detail::GpuGeometry>> geometries;
+    render_detail::SkinningPass skinning;
     std::vector<render_detail::GpuTexture> textures;
     bgfx::UniformHandle normal_transform = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle camera_position = BGFX_INVALID_HANDLE;

@@ -1,0 +1,634 @@
+#include "plugins/runtime/destruction/destruction_graph.hpp"
+
+#include "runtime/performance/profiling.hpp"
+#include "runtime/utils/mesh_utils.hpp"
+
+#include <NvBlast.h>
+#include <NvBlastExtDamageShaders.h>
+#include <NvBlastExtStressSolver.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <new>
+#include <set>
+#include <utility>
+
+namespace engine::plugins::destruction
+{
+namespace
+{
+constexpr std::uint32_t invalid_index = std::numeric_limits<std::uint32_t>::max();
+constexpr std::size_t max_chunks = 256;
+constexpr std::size_t max_bonds = 8192;
+
+struct AlignedDelete
+{
+    void operator()(std::byte* memory) const noexcept
+    {
+        ::operator delete(memory, std::align_val_t{16});
+    }
+};
+using Memory = std::unique_ptr<std::byte, AlignedDelete>;
+
+Memory allocate(std::size_t size)
+{
+    return Memory(
+        static_cast<std::byte*>(::operator new(size, std::align_val_t{16}, std::nothrow)));
+}
+
+bool finite(const schema::Vec3& value)
+{
+    return std::isfinite(value.x()) && std::isfinite(value.y()) && std::isfinite(value.z()) &&
+           std::abs(value.x()) <= std::numeric_limits<float>::max() &&
+           std::abs(value.y()) <= std::numeric_limits<float>::max() &&
+           std::abs(value.z()) <= std::numeric_limits<float>::max();
+}
+
+struct SharedAsset
+{
+    schema::DestructionAssetDataT data;
+    Memory memory;
+    NvBlastAsset* asset = nullptr;
+    std::vector<float> initial_health;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> nodes;
+    std::vector<std::uint32_t> world_bonds;
+};
+} // namespace
+
+struct DestructionGraph::Impl
+{
+    std::shared_ptr<SharedAsset> asset;
+    Memory memory;
+    NvBlastFamily* family = nullptr;
+    std::vector<DestructionGroup> groups;
+
+    bool refresh(std::string& error)
+    {
+        std::vector<NvBlastActor*> actors(NvBlastFamilyGetActorCount(family, nullptr));
+        if (NvBlastFamilyGetActors(actors.data(), static_cast<std::uint32_t>(actors.size()), family,
+                                   nullptr) != actors.size())
+        {
+            error = "Blast could not enumerate the current actors";
+            return false;
+        }
+        groups.clear();
+        for (const auto* actor : actors)
+        {
+            DestructionGroup group;
+            group.chunks.resize(NvBlastActorGetVisibleChunkCount(actor, nullptr));
+            const auto count = NvBlastActorGetVisibleChunkIndices(
+                group.chunks.data(), static_cast<std::uint32_t>(group.chunks.size()), actor,
+                nullptr);
+            if (count != group.chunks.size() || count == 0)
+            {
+                error = "Blast returned an empty or incomplete fragment group";
+                return false;
+            }
+            std::sort(group.chunks.begin(), group.chunks.end());
+            group.id = group.chunks.front();
+            group.anchored = NvBlastActorHasExternalBonds(actor, nullptr);
+            groups.push_back(std::move(group));
+        }
+        std::sort(groups.begin(), groups.end(),
+                  [](const auto& a, const auto& b) { return a.id < b.id; });
+        return true;
+    }
+
+    bool split(NvBlastActor* actor, std::string& error)
+    {
+        const auto size = NvBlastActorGetRequiredScratchForSplit(actor, nullptr);
+        auto scratch = allocate(size);
+        if (!scratch)
+        {
+            error = "Cannot allocate Blast split scratch";
+            return false;
+        }
+        std::vector<NvBlastActor*> actors(NvBlastActorGetMaxActorCountForSplit(actor, nullptr));
+        NvBlastActorSplitEvent event{nullptr, actors.data()};
+        NvBlastActorSplit(&event, actor, static_cast<std::uint32_t>(actors.size()), scratch.get(),
+                          nullptr, nullptr);
+        return refresh(error);
+    }
+
+    bool reset(std::span<const float> health, std::string& error)
+    {
+        memory = allocate(NvBlastAssetGetFamilyMemorySize(asset->asset, nullptr));
+        if (!memory)
+        {
+            error = "Cannot allocate Blast family";
+            return false;
+        }
+        family = NvBlastAssetCreateFamily(memory.get(), asset->asset, nullptr);
+        if (!family)
+        {
+            error = "Cannot create Blast family";
+            return false;
+        }
+        auto scratch =
+            allocate(NvBlastFamilyGetRequiredScratchForCreateFirstActor(family, nullptr));
+        if (!scratch)
+        {
+            error = "Cannot allocate Blast actor scratch";
+            return false;
+        }
+        const auto* bonds = NvBlastAssetGetBonds(asset->asset, nullptr);
+        std::vector<float> ordered_health(health.size());
+        std::vector<NvBlastBondFractureData> broken;
+        for (std::size_t i = 0; i < health.size(); ++i)
+        {
+            const auto stable = bonds[i].userData;
+            ordered_health[i] = health[stable] > 0 ? health[stable] : asset->initial_health[stable];
+            if (health[stable] <= 0)
+            {
+                const auto [a, b] = asset->nodes[stable];
+                broken.push_back({0, a, b, ordered_health[i]});
+            }
+        }
+        NvBlastActorDesc description{};
+        description.initialBondHealths = ordered_health.data();
+        description.uniformInitialLowerSupportChunkHealth = std::numeric_limits<float>::max();
+        auto* actor = NvBlastFamilyCreateFirstActor(family, &description, scratch.get(), nullptr);
+        if (!actor)
+        {
+            error = "Cannot create Blast actor";
+            return false;
+        }
+        // Zero initial health alone does not set edgeRemoved in Blast. Reapply explicit fractures.
+        if (!broken.empty())
+        {
+            NvBlastFractureBuffers commands{static_cast<std::uint32_t>(broken.size()), 0,
+                                            broken.data(), nullptr};
+            NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+        }
+        return split(actor, error);
+    }
+};
+
+DestructionGraph::DestructionGraph() = default;
+DestructionGraph::~DestructionGraph() = default;
+DestructionGraph::DestructionGraph(DestructionGraph&&) noexcept = default;
+DestructionGraph& DestructionGraph::operator=(DestructionGraph&&) noexcept = default;
+
+bool DestructionGraph::validate(const schema::DestructionAssetDataT& data, std::string& error)
+{
+    error.clear();
+    if (data.schema_version != 1 || data.chunks.empty() || data.chunks.size() > max_chunks ||
+        data.bonds.size() > max_bonds)
+    {
+        error = "Destruction asset requires 1..256 fragments and at most 8192 bonds";
+        return false;
+    }
+    for (const auto& chunk : data.chunks)
+    {
+        if (!chunk || !chunk->mesh || !MeshUtils::validate(*chunk->mesh) ||
+            !finite(chunk->centroid) || !std::isfinite(chunk->volume) || chunk->volume <= 0 ||
+            !std::isfinite(chunk->anchor_health) || chunk->anchor_health <= 0 ||
+            chunk->anchor_health > 1e6F)
+        {
+            error = "Destruction fragment mesh, volume, centroid or anchor health is invalid";
+            return false;
+        }
+    }
+    std::set<std::pair<std::uint32_t, std::uint32_t>> pairs;
+    for (const auto& bond : data.bonds)
+    {
+        if (!bond || bond->chunk_a >= data.chunks.size() || bond->chunk_b >= data.chunks.size() ||
+            bond->chunk_a == bond->chunk_b || !finite(bond->centroid) || !finite(bond->normal) ||
+            !std::isfinite(bond->health) || bond->health <= 0 || bond->health > 1e6F ||
+            !std::isfinite(bond->area) || bond->area <= 0)
+        {
+            error = "Destruction bond references, geometry or health are invalid";
+            return false;
+        }
+        if (!pairs
+                 .emplace(std::min(bond->chunk_a, bond->chunk_b),
+                          std::max(bond->chunk_a, bond->chunk_b))
+                 .second)
+        {
+            error = "Destruction asset contains duplicate bonds";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool DestructionGraph::initialize(const schema::DestructionAssetDataT& data, std::string& error)
+{
+    if (!validate(data, error))
+    {
+        return false;
+    }
+    auto candidate = std::make_unique<Impl>();
+    candidate->asset = std::make_shared<SharedAsset>();
+    auto& shared = *candidate->asset;
+    shared.data = data;
+    shared.world_bonds.resize(data.chunks.size(), invalid_index);
+    std::vector<NvBlastChunkDesc> chunks;
+    std::vector<NvBlastBondDesc> bonds;
+    for (std::uint32_t i = 0; i < data.chunks.size(); ++i)
+    {
+        const auto& chunk = *data.chunks[i];
+        chunks.push_back(
+            {{static_cast<float>(chunk.centroid.x()), static_cast<float>(chunk.centroid.y()),
+              static_cast<float>(chunk.centroid.z())},
+             chunk.volume,
+             invalid_index,
+             NvBlastChunkDesc::SupportFlag,
+             i});
+    }
+    for (const auto& bond : data.bonds)
+    {
+        const auto id = static_cast<std::uint32_t>(bonds.size());
+        bonds.push_back(
+            {{{static_cast<float>(bond->normal.x()), static_cast<float>(bond->normal.y()),
+               static_cast<float>(bond->normal.z())},
+              bond->area,
+              {static_cast<float>(bond->centroid.x()), static_cast<float>(bond->centroid.y()),
+               static_cast<float>(bond->centroid.z())},
+              id},
+             {bond->chunk_a, bond->chunk_b}});
+        shared.initial_health.push_back(bond->health);
+    }
+    for (std::uint32_t i = 0; i < data.chunks.size(); ++i)
+    {
+        const auto& chunk = *data.chunks[i];
+        if (chunk.anchored)
+        {
+            const auto id = static_cast<std::uint32_t>(bonds.size());
+            shared.world_bonds[i] = id;
+            float bottom = chunk.mesh->vertices.front().y();
+            for (const auto& vertex : chunk.mesh->vertices)
+            {
+                bottom = std::min(bottom, vertex.y());
+            }
+            bonds.push_back({{{0, -1, 0},
+                              1,
+                              {static_cast<float>(chunk.centroid.x()), bottom,
+                               static_cast<float>(chunk.centroid.z())},
+                              id},
+                             {i, invalid_index}});
+            shared.initial_health.push_back(chunk.anchor_health);
+        }
+    }
+    const NvBlastAssetDesc description{static_cast<std::uint32_t>(chunks.size()), chunks.data(),
+                                       static_cast<std::uint32_t>(bonds.size()), bonds.data()};
+    shared.memory = allocate(NvBlastGetAssetMemorySize(&description, nullptr));
+    auto scratch = allocate(NvBlastGetRequiredScratchForCreateAsset(&description, nullptr));
+    if (!shared.memory || !scratch)
+    {
+        error = "Cannot allocate Blast asset";
+        return false;
+    }
+    shared.asset = NvBlastCreateAsset(shared.memory.get(), &description, scratch.get(), nullptr);
+    if (!shared.asset || NvBlastAssetGetBondCount(shared.asset, nullptr) != bonds.size())
+    {
+        error = "Blast rejected the fragment graph";
+        return false;
+    }
+    const auto graph = NvBlastAssetGetSupportGraph(shared.asset, nullptr);
+    const auto* asset_bonds = NvBlastAssetGetBonds(shared.asset, nullptr);
+    shared.nodes.resize(bonds.size());
+    for (std::uint32_t node = 0; node < graph.nodeCount; ++node)
+    {
+        for (auto edge = graph.adjacencyPartition[node]; edge < graph.adjacencyPartition[node + 1];
+             ++edge)
+        {
+            const auto other = graph.adjacentNodeIndices[edge];
+            if (node < other)
+            {
+                shared.nodes[asset_bonds[graph.adjacentBondIndices[edge]].userData] = {node, other};
+            }
+        }
+    }
+    if (!candidate->reset(shared.initial_health, error))
+    {
+        return false;
+    }
+    impl_ = std::move(candidate);
+    return true;
+}
+
+bool DestructionGraph::clone(DestructionGraph& output, std::string& error) const
+{
+    ENGINE_PROFILE_ZONE("Destruction.clone_graph");
+    error.clear();
+    if (!impl_)
+    {
+        error = "Destruction graph is not initialized";
+        return false;
+    }
+    auto candidate = std::make_unique<Impl>();
+    candidate->asset = impl_->asset;
+    const auto size = NvBlastFamilyGetSize(impl_->family, nullptr);
+    candidate->memory = allocate(size);
+    if (!candidate->memory)
+    {
+        error = "Cannot clone Blast family";
+        return false;
+    }
+    std::memcpy(candidate->memory.get(), impl_->memory.get(), size);
+    candidate->family = reinterpret_cast<NvBlastFamily*>(candidate->memory.get());
+    NvBlastFamilySetAsset(candidate->family, candidate->asset->asset, nullptr);
+    if (!candidate->refresh(error))
+    {
+        return false;
+    }
+    output.impl_ = std::move(candidate);
+    return true;
+}
+
+bool DestructionGraph::damage_sphere(std::uint32_t group_id, const schema::Vec3& center,
+                                     float radius, float damage, std::string& error)
+{
+    ENGINE_PROFILE_ZONE("Destruction.blast_damage");
+    error.clear();
+    if (!impl_ || !finite(center) || !std::isfinite(radius) || radius <= 0 ||
+        !std::isfinite(damage) || damage < 0)
+    {
+        error = "Destruction sphere damage parameters are invalid";
+        return false;
+    }
+    const auto group = std::find_if(impl_->groups.begin(), impl_->groups.end(),
+                                    [group_id](const auto& value) { return value.id == group_id; });
+    if (group == impl_->groups.end())
+    {
+        error = "Destruction group no longer exists";
+        return false;
+    }
+    if (damage == 0)
+    {
+        return true;
+    }
+    auto* actor = NvBlastFamilyGetChunkActor(impl_->family, group_id, nullptr);
+    std::vector<NvBlastBondFractureData> fractures(impl_->asset->initial_health.size());
+    NvBlastFractureBuffers commands{static_cast<std::uint32_t>(fractures.size()), 0,
+                                    fractures.data(), nullptr};
+    const NvBlastDamageProgram program{NvBlastExtFalloffGraphShader, nullptr};
+    const NvBlastExtRadialDamageDesc description{damage,
+                                                 {static_cast<float>(center.x()),
+                                                  static_cast<float>(center.y()),
+                                                  static_cast<float>(center.z())},
+                                                 0,
+                                                 radius};
+    const NvBlastExtProgramParams params(&description);
+    NvBlastActorGenerateFracture(&commands, actor, program, &params, nullptr, nullptr);
+    NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+    return impl_->split(actor, error);
+}
+
+bool DestructionGraph::release_anchors(std::span<const std::uint32_t> chunk_ids, std::string& error)
+{
+    error.clear();
+    if (!impl_)
+    {
+        error = "Destruction graph is not initialized";
+        return false;
+    }
+    std::vector<std::uint32_t> selected(chunk_ids.begin(), chunk_ids.end());
+    for (auto chunk : selected)
+    {
+        if (chunk >= impl_->asset->data.chunks.size())
+        {
+            error = "Destruction anchor references an invalid source chunk";
+            return false;
+        }
+    }
+    std::sort(selected.begin(), selected.end());
+    selected.erase(std::unique(selected.begin(), selected.end()), selected.end());
+    const auto health = healths();
+    // Split may replace groups and reuse actor indices; retain stable source chunk identities.
+    const auto groups = impl_->groups;
+    for (const auto& group : groups)
+    {
+        std::vector<NvBlastBondFractureData> fractures;
+        for (auto chunk : group.chunks)
+        {
+            const auto bond = impl_->asset->world_bonds[chunk];
+            if (bond == invalid_index || health[bond] <= 0 ||
+                !std::binary_search(selected.begin(), selected.end(), chunk))
+            {
+                continue;
+            }
+            const auto [a, b] = impl_->asset->nodes[bond];
+            fractures.push_back({0, a, b, health[bond]});
+        }
+        if (fractures.empty())
+        {
+            continue;
+        }
+        auto* actor = NvBlastFamilyGetChunkActor(impl_->family, group.id, nullptr);
+        if (!actor)
+        {
+            error = "Cannot resolve the current Blast actor for anchor release";
+            return false;
+        }
+        NvBlastFractureBuffers commands{static_cast<std::uint32_t>(fractures.size()), 0,
+                                        fractures.data(), nullptr};
+        NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+        if (!impl_->split(actor, error))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool DestructionGraph::apply_stress(std::uint32_t group_id, const schema::Vec3& gravity,
+                                    float density, float elastic_limit, float fatal_limit,
+                                    std::uint32_t iterations, std::uint32_t& broken_bonds,
+                                    std::string& error)
+{
+    ENGINE_PROFILE_ZONE("Destruction.blast_stress");
+    broken_bonds = 0;
+    error.clear();
+    if (!impl_ || !finite(gravity) || !std::isfinite(density) || density <= 0 ||
+        density > 100000 || !std::isfinite(elastic_limit) || elastic_limit <= 0 ||
+        !std::isfinite(fatal_limit) || fatal_limit < elastic_limit || iterations == 0 ||
+        iterations > 1000)
+    {
+        error = "Invalid destruction gravity stress parameters";
+        return false;
+    }
+    const auto group = std::find_if(impl_->groups.begin(), impl_->groups.end(),
+                                    [group_id](const auto& value) { return value.id == group_id; });
+    if (group == impl_->groups.end())
+    {
+        error = "Destruction stress group no longer exists";
+        return false;
+    }
+    if (!group->anchored || (gravity.x() == 0 && gravity.y() == 0 && gravity.z() == 0))
+    {
+        return true;
+    }
+    // ExtStress interprets bond health as remaining load-bearing area, while this engine's
+    // damage API uses project-defined health. Solve in a private family with physical areas
+    // and translate only the affected fractions back, preserving all existing damage units.
+    const auto before = healths();
+    const auto* asset_bonds = NvBlastAssetGetBonds(impl_->asset->asset, nullptr);
+    std::vector<float> physical_health(before.size());
+    for (std::size_t i = 0; i < before.size(); ++i)
+    {
+        const auto stable = asset_bonds[i].userData;
+        physical_health[stable] = asset_bonds[i].area *
+                                  (before[stable] / impl_->asset->initial_health[stable]);
+        if (!std::isfinite(physical_health[stable]) ||
+            (before[stable] > 0 && physical_health[stable] <= 0))
+        {
+            error = "Destruction stress bond area cannot represent its remaining health";
+            return false;
+        }
+    }
+    DestructionGraph physical;
+    if (!clone(physical, error) || !physical.impl_->reset(physical_health, error))
+    {
+        return false;
+    }
+    auto& working = *physical.impl_;
+    Nv::Blast::ExtStressSolverSettings settings;
+    settings.maxSolverIterationsPerFrame = iterations;
+    settings.graphReductionLevel = 0;
+    settings.compressionElasticLimit = elastic_limit;
+    settings.compressionFatalLimit = fatal_limit;
+    // Negative tension/shear limits inherit compression, as specified by the SDK.
+    const auto release = [](Nv::Blast::ExtStressSolver* value) { value->release(); };
+    std::unique_ptr<Nv::Blast::ExtStressSolver, decltype(release)> solver(
+        Nv::Blast::ExtStressSolver::create(*working.family, settings), release);
+    if (!solver)
+    {
+        error = "Cannot create Blast stress solver";
+        return false;
+    }
+    solver->setAllNodesInfoFromLL(density);
+    for (const auto& current : working.groups)
+    {
+        auto* actor = NvBlastFamilyGetChunkActor(working.family, current.id, nullptr);
+        if (!actor)
+        {
+            error = "Cannot resolve Blast stress actor";
+            return false;
+        }
+        // false means a bondless actor is intentionally excluded, not initialization failure.
+        (void)solver->notifyActorCreated(*actor);
+    }
+    auto* actor = NvBlastFamilyGetChunkActor(working.family, group_id, nullptr);
+    if (!solver->addGravity(*actor, {static_cast<float>(gravity.x()),
+                                    static_cast<float>(gravity.y()),
+                                    static_cast<float>(gravity.z())}))
+    {
+        error = "Cannot apply gravity to the anchored Blast actor";
+        return false;
+    }
+    {
+        ENGINE_PROFILE_ZONE("Destruction.stress_solve");
+        solver->update();
+    }
+    if (!solver->converged() || !std::isfinite(solver->getStressErrorLinear()) ||
+        !std::isfinite(solver->getStressErrorAngular()))
+    {
+        error = "Blast stress solve did not converge within the iteration budget";
+        return false;
+    }
+    if (solver->getOverstressedBondCount() == 0)
+    {
+        return true;
+    }
+    NvBlastFractureBuffers commands{};
+    solver->generateFractureCommands(*actor, commands);
+    if (commands.bondFractureCount == 0)
+    {
+        return true;
+    }
+    for (std::uint32_t i = 0; i < commands.bondFractureCount; ++i)
+    {
+        if (!std::isfinite(commands.bondFractures[i].health) ||
+            commands.bondFractures[i].health < 0)
+        {
+            error = "Blast stress produced invalid fracture damage";
+            return false;
+        }
+    }
+    NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
+    // The solver borrows family/actor state. Release it before actors are replaced by Split.
+    solver.reset();
+    if (!working.split(actor, error))
+    {
+        return false;
+    }
+    const auto after = physical.healths();
+    auto converted = before;
+    std::uint32_t count = 0;
+    for (std::size_t i = 0; i < before.size(); ++i)
+    {
+        if (physical_health[i] > 0 && after[i] < physical_health[i])
+        {
+            converted[i] = before[i] * (after[i] / physical_health[i]);
+            count += converted[i] <= 0 ? 1U : 0U;
+        }
+    }
+    if (converted != before && !restore_health(converted, error))
+    {
+        return false;
+    }
+    broken_bonds = count;
+    return true;
+}
+
+bool DestructionGraph::restore_health(std::span<const float> health, std::string& error)
+{
+    error.clear();
+    if (!impl_ || health.size() != impl_->asset->initial_health.size())
+    {
+        error = "Destruction health snapshot does not match the asset";
+        return false;
+    }
+    for (std::size_t i = 0; i < health.size(); ++i)
+    {
+        if (!std::isfinite(health[i]) || health[i] < 0 ||
+            health[i] > impl_->asset->initial_health[i])
+        {
+            error = "Destruction snapshot contains invalid bond health";
+            return false;
+        }
+    }
+    auto candidate = std::make_unique<Impl>();
+    candidate->asset = impl_->asset;
+    if (!candidate->reset(health, error))
+    {
+        return false;
+    }
+    impl_ = std::move(candidate);
+    return true;
+}
+
+std::vector<float> DestructionGraph::healths() const
+{
+    if (!impl_ || impl_->groups.empty())
+    {
+        return {};
+    }
+    const auto* actor =
+        NvBlastFamilyGetChunkActor(impl_->family, impl_->groups.front().id, nullptr);
+    const auto* health = NvBlastActorGetBondHealths(actor, nullptr);
+    const auto* bonds = NvBlastAssetGetBonds(impl_->asset->asset, nullptr);
+    std::vector<float> output(impl_->asset->initial_health.size());
+    for (std::size_t i = 0; i < output.size(); ++i)
+    {
+        output[bonds[i].userData] = std::max(0.0F, health[i]);
+    }
+    return output;
+}
+
+const schema::DestructionAssetDataT& DestructionGraph::data() const noexcept
+{
+    static const schema::DestructionAssetDataT empty;
+    return impl_ ? impl_->asset->data : empty;
+}
+
+const std::vector<DestructionGroup>& DestructionGraph::groups() const noexcept
+{
+    static const std::vector<DestructionGroup> empty;
+    return impl_ ? impl_->groups : empty;
+}
+} // namespace engine::plugins::destruction

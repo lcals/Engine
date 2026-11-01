@@ -6,6 +6,7 @@
 
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -93,7 +94,8 @@ struct ScriptSystem::State
 
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)),
-              bindings(state.world, state.renderer, state.ui), machine(vm::create_script_vm())
+              bindings(state.world, state.renderer, state.ui, state.physics, state.navigation),
+              machine(vm::create_script_vm())
         {
         }
 
@@ -154,13 +156,16 @@ struct ScriptSystem::State
     WorldSystem* world = nullptr;
     RenderSystem* renderer = nullptr;
     UiSystem* ui = nullptr;
+    PhysicsSystem* physics = nullptr;
+    NavigationSystem* navigation = nullptr;
     double delta_time = 0.0;
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
     State(ScriptStatus& state, WorldSystem* scene_world, RenderSystem* scene_renderer,
-          UiSystem* scene_ui)
-        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui)
+          UiSystem* scene_ui, PhysicsSystem* scene_physics, NavigationSystem* scene_navigation)
+        : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
+          physics(scene_physics), navigation(scene_navigation)
     {
     }
 
@@ -198,6 +203,7 @@ struct ScriptSystem::State
 
     [[nodiscard]] bool call(Run& run, const char* name, bool initialize)
     {
+        ENGINE_PROFILE_ZONE("Script.callGameplay");
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_gameplay(name, initialize);
         run.bindings.end_call();
@@ -206,6 +212,7 @@ struct ScriptSystem::State
 
     [[nodiscard]] bool call_binding(Run& run, const char* name)
     {
+        ENGINE_PROFILE_ZONE("Script.callBinding");
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_binding(name);
         run.bindings.end_call();
@@ -283,8 +290,9 @@ struct ScriptSystem::State
     }
 };
 
-ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui) noexcept
-    : world_(world), renderer_(renderer), ui_(ui)
+ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
+                           PhysicsSystem* physics, NavigationSystem* navigation) noexcept
+    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation)
 {
 }
 
@@ -297,7 +305,7 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
 {
     status_.last_error.clear();
     status_.available_revision.clear();
-    state_ = std::make_unique<State>(status_, world_, renderer_, ui_);
+    state_ = std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");
@@ -389,6 +397,7 @@ const ScriptStatus& ScriptSystem::status() const noexcept
 
 bool ScriptSystem::on_tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Script.tick");
     if (!state_ || !App::is_initialized())
     {
         return true;

@@ -10,6 +10,8 @@
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -32,6 +34,71 @@ constexpr const char* reflected_path = "project/animations/reflected.animation";
 constexpr const char* mesh_guid = "40000000-0000-4000-8000-000000000006";
 constexpr const char* model_guid = "40000000-0000-4000-8000-000000000007";
 constexpr const char* model_path = "project/models/character.fbx";
+
+// 测试端 CPU 参考计算，用同一 palette 校验位置、非均匀缩放与镜像；生产只上传骨骼。
+inline engine::Vec3 skin_vector(const engine::MeshRenderer& renderer, std::size_t index,
+                                engine::Vec3 value, bool position, bool normal = false)
+{
+    const auto& weights = renderer.mesh_data()->skin[index];
+    const std::array<std::uint16_t, 4> joints{weights.j0(), weights.j1(), weights.j2(),
+                                              weights.j3()};
+    const std::array<float, 4> factors{weights.w0(), weights.w1(), weights.w2(), weights.w3()};
+    const auto matrices = normal ? renderer.skinning_normal_palette() : renderer.skinning_palette();
+    if (matrices.empty())
+    {
+        return value;
+    }
+    double x = 0, y = 0, z = 0;
+    for (std::size_t influence = 0; influence < joints.size(); ++influence)
+    {
+        const auto& matrix = matrices[joints[influence]];
+        x += factors[influence] * (matrix[0] * value.x() + matrix[4] * value.y() +
+                                   matrix[8] * value.z() + (position ? matrix[12] : 0));
+        y += factors[influence] * (matrix[1] * value.x() + matrix[5] * value.y() +
+                                   matrix[9] * value.z() + (position ? matrix[13] : 0));
+        z += factors[influence] * (matrix[2] * value.x() + matrix[6] * value.y() +
+                                   matrix[10] * value.z() + (position ? matrix[14] : 0));
+    }
+    return {x, y, z};
+}
+
+inline engine::schema::MeshVertex sampled_vertex(const engine::MeshRenderer& renderer,
+                                                 std::size_t index = 0)
+{
+    const auto& bind = renderer.mesh_data()->vertices[index];
+    const auto position = skin_vector(renderer, index, {bind.x(), bind.y(), bind.z()}, true);
+    const auto normal =
+        skin_vector(renderer, index, {bind.nx(), bind.ny(), bind.nz()}, false, true);
+    const auto length = std::hypot(normal.x(), normal.y(), normal.z());
+    return {static_cast<float>(position.x()),        static_cast<float>(position.y()),
+            static_cast<float>(position.z()),        static_cast<float>(normal.x() / length),
+            static_cast<float>(normal.y() / length), static_cast<float>(normal.z() / length)};
+}
+
+inline engine::Vec4 sampled_tangent(const engine::MeshRenderer& renderer, std::size_t index = 0)
+{
+    const auto& bind = renderer.mesh_data()->vertices[index];
+    const auto& tangent = renderer.mesh_data()->tangents[index];
+    const auto normal = sampled_vertex(renderer, index);
+    auto linear = skin_vector(renderer, index, {tangent.x(), tangent.y(), tangent.z()}, false);
+    const double dot =
+        normal.nx() * linear.x() + normal.ny() * linear.y() + normal.nz() * linear.z();
+    linear = {linear.x() - normal.nx() * dot, linear.y() - normal.ny() * dot,
+              linear.z() - normal.nz() * dot};
+    const double length = std::hypot(linear.x(), linear.y(), linear.z());
+    linear = {linear.x() / length, linear.y() / length, linear.z() / length};
+    const auto bitangent =
+        skin_vector(renderer, index,
+                    {(bind.ny() * tangent.z() - bind.nz() * tangent.y()) * tangent.w(),
+                     (bind.nz() * tangent.x() - bind.nx() * tangent.z()) * tangent.w(),
+                     (bind.nx() * tangent.y() - bind.ny() * tangent.x()) * tangent.w()},
+                    false);
+    const double handedness =
+        (normal.ny() * linear.z() - normal.nz() * linear.y()) * bitangent.x() +
+        (normal.nz() * linear.x() - normal.nx() * linear.z()) * bitangent.y() +
+        (normal.nx() * linear.y() - normal.ny() * linear.x()) * bitangent.z();
+    return {linear.x(), linear.y(), linear.z(), handedness < 0.0 ? -1.0 : 1.0};
+}
 
 inline bool expect(bool condition, const char* description)
 {

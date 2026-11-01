@@ -10,14 +10,15 @@
 namespace engine::render_detail
 {
 
-bool drawable_scene(const Scene& scene, const Camera* camera)
+bool drawable_scene(const Scene& scene, const Camera* camera, bool has_extensions)
 {
     camera = camera != nullptr ? camera : scene.active_camera();
     if (camera == nullptr || !camera->enabled())
     {
         return false;
     }
-    return std::any_of(scene.nodes().begin(), scene.nodes().end(),
+    return has_extensions ||
+           std::any_of(scene.nodes().begin(), scene.nodes().end(),
                        [](const std::unique_ptr<Node>& node)
                        {
                            const MeshRenderer* mesh = node->get_component<MeshRenderer>();

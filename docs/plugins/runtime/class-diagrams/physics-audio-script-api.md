@@ -75,3 +75,29 @@ classDiagram
 ```
 
 CharacterMotor 的脚底原点、设置校验与碰撞由[核心组件](../../../runtime/class-diagrams/character-motor.md)定义。SetVelocity 只提交水平请求；GetVelocity 返回最后物理结果，失效对象为 null。Jump 仅在地面时接受一次请求；grounded 对失效或禁用对象为 false。
+
+
+## 只读物理撞击快照
+
+```mermaid
+classDiagram
+class Physics {
+    +GetImpacts() PhysicsImpact[]
+    +CastSphere(number x, number y, number z, number dx, number dy, number dz, number radius) numberOrNull
+}
+class PhysicsImpact {
+    +bigint frame
+    +bigint sceneId
+    +bigint nodeA
+    +bigint nodeB
+    +Vec3 point
+    +Vec3 normal
+    +number closingSpeed
+    +number estimatedImpulse
+}
+Physics ..> PhysicsImpact : copied values
+```
+
+`Physics.GetImpacts()` 只返回当前 Run 所属活动场景的上一物理帧快照；无物理系统、无场景或无事件时返回空数组。读取不消费，多次读取同帧返回相同数据，调用者按 `frame` 去重。节点在读取前已删除或禁用的记录不暴露。`normal` 从 A 指向 B；速度为碰前法向接近速度 m/s，冲量为 Jolt 官方 `EstimateCollisionResponse` 的法向估计 N·s，不能当作求解后的真实冲量。传感器和 CharacterVirtual 不在本接口范围。项目脚本在下一次 Tick 决定损伤、阈值、冷却及预算，不从碰撞回调执行场景修改。
+
+`Physics.CastSphere` 复用核心 Jolt 形状扫掠；完整世界位移、有限半径，返回最早命中比例 [0,1]，无命中 1，错误 null。忽略传感器，不隐式推进物理。项目 `Fire` 将弹体放在发射口，首次及后续 Tick 均从上次位置扫掠本帧完整位移，不跳过发射口前的首段距离；发射、目标、引爆和频率均归项目。

@@ -14,6 +14,8 @@ classDiagram
         +parent() Node#42;
         +parent() const Node#42;
         +set_parent(Node#42; parent) bool
+        +transient() bool
+        +set_transient(bool transient) void
         +add_component~T~() T#42;
         +get_component~T~() T#42;
         +get_component~T~() const T#42;
@@ -49,3 +51,5 @@ classDiagram
 - 节点析构删除底层 flecs 实体；删除层级统一走 Scene，调用方不得销毁借用。
 
 `remove_component(type)` 按类型销毁节点独占的组件，缺失返回 false；原借用立即失效。编辑器用它回滚新加组件，调用方负责保留场景必需的 Transform。
+
+节点默认非瞬态。`set_transient` 只设置本节点的运行时标记，`transient()` 沿父链查询有效状态；瞬态父节点的子树同样不进入 Scene/编辑器保存。标记不改变渲染、物理或节点查询，不写入 NodeInfo/schema，也不依赖具体生成插件。调用方拥有并负责释放自己生成的节点；取消本节点标记不会覆盖父节点的瞬态状态。

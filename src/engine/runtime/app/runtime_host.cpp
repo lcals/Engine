@@ -8,6 +8,7 @@
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/performance/performance_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -71,7 +72,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto audio_system = std::make_unique<AudioSystem>(world.get());
     audio_ = audio_system.get();
     std::unique_ptr<System> audio = std::move(audio_system);
-    std::unique_ptr<System> navigation = std::make_unique<NavigationSystem>();
+    auto navigation_system = std::make_unique<NavigationSystem>();
+    auto* navigation_ptr = navigation_system.get();
+    std::unique_ptr<System> navigation = std::move(navigation_system);
     auto animation_system = std::make_unique<AnimationSystem>(world.get());
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
@@ -81,9 +84,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     auto ui_system = std::make_unique<UiSystem>(*window_, *world, *fonts_);
     ui_ = ui_system.get();
     std::unique_ptr<System> ui = std::move(ui_system);
-    if (!world->add_subsystem(physics) || !world->add_subsystem(navigation) ||
-        !world->add_subsystem(animation) || !world->add_subsystem(fonts) ||
-        !world->add_subsystem(ui) || !world->add_subsystem(audio))
+    // 依赖先构造；登记顺序同时决定统一初始化、每帧更新及反序关闭。
+    if (!world->add_subsystem(fonts) || !world->add_subsystem(ui) ||
+        !world->add_subsystem(navigation))
     {
         shutdown();
         return false;
@@ -92,7 +95,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world, *renderer, *ui_);
+        auto script_system = script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -101,7 +104,12 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             return false;
         }
     }
-    if (setup != nullptr && !setup(*world, *window_, *physics_))
+    if ((setup != nullptr &&
+         !setup(RuntimeStage::before_physics, *world, *window_, *physics_, *renderer)) ||
+        !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
+        (setup != nullptr &&
+         !setup(RuntimeStage::after_physics, *world, *window_, *physics_, *renderer)) ||
+        !world->add_subsystem(audio))
     {
         shutdown();
         return false;
@@ -131,6 +139,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
 
 FrameStatus RuntimeHost::tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Host.runtime_tick");
     if (!initialized_ || failed_ || !std::isfinite(delta_time) || delta_time < 0.0)
     {
         return FrameStatus::failed;

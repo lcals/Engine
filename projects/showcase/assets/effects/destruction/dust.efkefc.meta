@@ -1,0 +1,7 @@
+guid = "ff45584d-a6c6-58f5-8d96-a75acddd5eef"
+importer = "effect"
+meta_version = 1
+
+[[resources]]
+path = "textures/smoke.png"
+resource = "project/effects/destruction/textures/smoke.png"

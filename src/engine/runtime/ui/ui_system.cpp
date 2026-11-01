@@ -1,6 +1,7 @@
 #include "runtime/ui/ui_system.hpp"
 
 #include "runtime/font/font_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/scene.hpp"
@@ -370,6 +371,7 @@ bool UiSystem::on_initialize(const EngineConfig&)
 }
 bool UiSystem::synchronize()
 {
+    ENGINE_PROFILE_ZONE("Ui.synchronize");
     if (!state_->initialized)
     {
         return false;
@@ -485,6 +487,7 @@ bool UiSystem::synchronize()
 }
 bool UiSystem::render(std::uint32_t width, std::uint32_t height)
 {
+    ENGINE_PROFILE_ZONE("Ui.render");
     if (!synchronize())
     {
         return false;

@@ -1,3 +1,4 @@
+#include "runtime/performance/profiling.hpp"
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
@@ -116,8 +117,13 @@ int main(int argc, char* argv[])
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                        engine::UiSystem& ui) -> std::unique_ptr<engine::ScriptRuntime>
-    { return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui); };
+                        engine::UiSystem& ui,
+                        engine::PhysicsSystem& physics,
+                        engine::NavigationSystem& navigation) -> std::unique_ptr<engine::ScriptRuntime>
+    {
+        return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui,
+                                                                       &physics, &navigation);
+    };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     const bool engine_ready =
@@ -160,6 +166,10 @@ int main(int argc, char* argv[])
     int result = 0;
     for (;;)
     {
+        ENGINE_PROFILE_ZONE("Host.frame");
+#if defined(ENGINE_ENABLE_TRACY)
+        const auto profile_frame_begin = std::chrono::steady_clock::now();
+#endif
         engine::Engine::instance().begin_frame();
         const auto current_time = std::chrono::steady_clock::now();
         const double delta_time =
@@ -191,7 +201,15 @@ int main(int argc, char* argv[])
         {
             engine.request_exit();
         }
-        engine::Engine::instance().end_frame();
+#if defined(ENGINE_ENABLE_TRACY)
+        ENGINE_PROFILE_PLOT("Host work ms",
+            (std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() - profile_frame_begin).count()));
+#endif
+        {
+            ENGINE_PROFILE_ZONE("Host.frame_limit_wait");
+            engine::Engine::instance().end_frame();
+        }
     }
     engine.shutdown();
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

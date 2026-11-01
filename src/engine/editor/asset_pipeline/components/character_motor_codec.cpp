@@ -59,8 +59,19 @@ bool CharacterMotorCodec::read(const toml::table& table, schema::ComponentDataT&
         error = "invalid character_motor.gravity_factor";
         return false;
     }
+    if (table.contains("external_damping") &&
+        !float_number(table.get("external_damping"), value.external_damping))
+    {
+        error = "invalid character_motor.external_damping";
+        return false;
+    }
+    if (!CharacterMotor::valid_settings(value))
+    {
+        error = "invalid character_motor settings";
+        return false;
+    }
     component.payload.Set(std::move(value));
-    return validate(component, error);
+    return true;
 }
 void CharacterMotorCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
@@ -72,5 +83,6 @@ void CharacterMotorCodec::write(const schema::ComponentDataT& component, toml::t
     table.insert("step_height", value->step_height);
     table.insert("ground_snap_distance", value->ground_snap_distance);
     table.insert("gravity_factor", value->gravity_factor);
+    table.insert("external_damping", value->external_damping);
 }
 } // namespace engine::editor::asset_pipeline

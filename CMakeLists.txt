@@ -14,6 +14,7 @@ include(cmake/core/options.cmake)
 include(cmake/install/compiler_cache.cmake)
 include(cmake/core/target_options.cmake)
 include(cmake/core/systems.cmake)
+include(cmake/core/profiling.cmake)
 add_subdirectory(third_party)
 
 include(cmake/core/engine.cmake)

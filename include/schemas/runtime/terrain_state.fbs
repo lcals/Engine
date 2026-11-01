@@ -1,0 +1,12 @@
+include "terrain.fbs";
+namespace engine.schema;
+
+table TerrainStateData {
+    schema_version:uint = 1;
+    base_guid:string (required);
+    base_hash:string (required);
+    volume:TerrainAssetData (required);
+}
+
+root_type TerrainStateData;
+file_identifier "ETRS";

@@ -112,6 +112,10 @@ classDiagram
     RuntimeHost --> AudioSystem : 借用并随窗口暂停恢复
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空构造借用与场景读取
+    RenderSystem --> RenderExtension : 借用独立场景绘制扩展
+    RenderExtension --> RenderSystem : 析构前自动撤销登记
+    RenderExtension ..> RenderContext : 本次绘制参数
+    RenderContext --> Scene : 调用期间只读借用
 ```
 
 默认初始化顺序为 Window → Resource → Performance → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、性能系统、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。PerformanceSystem 的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
@@ -127,16 +131,16 @@ classDiagram
     class UiSystem
     class AudioSystem
     class ScriptRuntime
-    WorldSystem "1" *-- "0..1" PhysicsSystem : 第一个子系统
-    WorldSystem "1" *-- "0..1" NavigationSystem : 第二个子系统
-    WorldSystem "1" *-- "0..1" AnimationSystem : 第三个子系统
-    WorldSystem "1" *-- "0..1" FontSystem : 第四个子系统
-    WorldSystem "1" *-- "0..1" UiSystem : 第五个子系统
-    WorldSystem "1" *-- "0..1" AudioSystem : 第六个子系统
-    WorldSystem "1" *-- "0..1" ScriptRuntime : 宿主选择的可选第七子系统
+    WorldSystem "1" *-- "0..1" FontSystem : 首先初始化字体
+    WorldSystem "1" *-- "0..1" UiSystem : 字体之后
+    WorldSystem "1" *-- "0..1" NavigationSystem : UI 之后
+    WorldSystem "1" *-- "0..1" ScriptRuntime : 物理前提交业务意图
+    WorldSystem "1" *-- "0..1" PhysicsSystem : 脚本及玩家意图之后
+    WorldSystem "1" *-- "0..1" AnimationSystem : 物理之后
+    WorldSystem "1" *-- "0..1" AudioSystem : 动画及宿主相机系统之后
 ```
 
-RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统的更新先于子系统；当前世界推进之后才执行脚本更新。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
+RuntimeHost 创建并装配各子系统，所有权经 System 转入 WorldSystem。父系统先推进世界，子系统按登记顺序执行：字体、UI、导航、脚本、宿主玩家意图、物理、动画、宿主相机、音频。`RuntimeSetup(RuntimeStage, ...)` 仅在初始化装配时调用两次，将可选系统分别登记到物理之前及动画之后；不增加逐帧阶段框架。脚本实例由宿主提供的 ScriptRuntimeFactory 创建，工厂返回未初始化的抽象子系统；核心不判断虚拟机或插件是否编译。
 
 每帧先处理窗口事件，再更新其余根系统，最后提交渲染。窗口暂停时，宿主先暂停音频输出，然后停止资源、世界和脚本更新；恢复时先恢复输出再推进帧。编辑器在 RuntimeHost::tick 前处理项目启停，因此暂停不阻断停止请求。外部工具仍可发布文件，脚本版本切换等待恢复后的运行线程安全点。
 
@@ -783,8 +787,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | RenderSystem          | bgfx、bx、SDL3、WorldSystem                                                                                                                   | 图形设备、场景组件读取、PBR 方块与帧提交               |
 | PhysicsSystem | Jolt、WorldSystem、Collider、RigidBody、Transform | 基础形状碰撞、固定步模拟、冲量及组件同步 |
 | AudioSystem | SDL3 Audio、WorldSystem、AudioSource、AudioListener、Transform | PCM 流、播放状态、空间衰减、后台暂停和资源清理 |
-| NavigationSystem      | Recast、Detour                                                                                                                                | 高度场与导航网格资源                                   |
-| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样、CPU 蒙皮及实例缓存生命周期 |
+| NavigationSystem | Recast、Detour、MeshDataT | 显式几何的分块构建、局部替换、失效清理与完整路径查询 |
+| AnimationSystem | ozz-animation、WorldSystem、Animator、MeshRenderer、ResourceSystem | 骨架映射、动作采样与混合、共享编译物及实例 palette 生命周期 |
 | FontSystem | bgfx、ResourceLoader、FontDataT、TextComponent | 共享曲线资源、字形测量和排布、UI 与 3D 字体 GPU 绘制 |
 | UiSystem | RmlUi、FontSystem、WorldSystem、WindowSystem、UiComponent | 文档生命周期、正常绘制顺序、输入与控件事件 |
 | ScriptRuntime | System、ResourceCatalog、ResourceMount、ScriptStatus | 核心声明的五方法执行契约，无语言实现或虚拟机链接 |
@@ -811,6 +815,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
 脚本模块内部的绑定接口、独占注册表、逐类实现及每个 Run 的上下文关系见[绑定类图](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptSystem 通过注册表装配，不直接维护所有类的绑定实现。
+
+[导航绑定](../plugins/runtime/class-diagrams/navigation-script-api.md)通过 BindingContext 借用宿主注入的 NavigationSystem，验证当前 Run 的节点身份后收集明确指定的 MeshRenderer/Transform。导航核心仅借用同步调用期间的 MeshDataT，不包含具体插件或自动扫描场景；世界独占导航系统，脚本在所属场景切换或停止时显式清理。方法与数据关系见[导航系统类图](../runtime/class-diagrams/navigation-system.md)。
 
 ## 资源身份与导入依赖
 
@@ -1074,7 +1080,7 @@ classDiagram
     MeshRenderer o-- Resource : 持有 Mesh 与骨架引用
     Animator o-- Resource : 持有动画及目标骨架引用
     AnimationSystem ..> Animator : 读取请求与推进状态
-    AnimationSystem ..> MeshRenderer : 提交当前蒙皮顶点
+    AnimationSystem ..> MeshRenderer : 提交当前骨骼与法线 palette
     RenderSystem ..> MeshRenderer : 读取普通动态网格
 ```
 

@@ -1,7 +1,10 @@
 #include "runtime/render/render_system.hpp"
 
 #include "runtime/font/font_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_context.hpp"
+#include "runtime/render/render_extension.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_query.hpp"
@@ -25,13 +28,14 @@ namespace engine
 
 bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& rendering)
 {
+    ENGINE_PROFILE_ZONE("Render.drawScene");
     if (!prepare_scene(view_camera))
     {
         return false;
     }
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene_resources_ == nullptr ||
-        !render_detail::drawable_scene(*scene, view_camera))
+        !render_detail::drawable_scene(*scene, view_camera, !extensions_.empty()))
     {
         return true;
     }
@@ -139,6 +143,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         std::min(settings.far_clip, rendering.shadow_distance) > settings.near_clip;
     if (shadow_enabled)
     {
+        ENGINE_PROFILE_ZONE("Render.shadows");
         if (!resources.shadow.prepare(rendering.shadow_resolution) ||
             !render_detail::prepare_shadow_frame(settings, rendering, aspect, camera_world, view,
                                                  light_direction_outer[shadow_light],
@@ -190,7 +195,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         for (const auto& node : scene->nodes())
         {
             const MeshRenderer* renderer = node->get_component<MeshRenderer>();
-            if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+            if (renderer == nullptr || !renderer->enabled() || !renderer->visible() ||
+                !camera.mesh_visible(renderer->mesh_instance_id()))
             {
                 continue;
             }
@@ -285,7 +291,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
                                                 : resources.shadow_fallback);
                 bgfx::setTransform(model);
                 mesh->bind_vertices();
-                bgfx::setIndexBuffer(mesh->indices, first, count);
+                bgfx::setIndexBuffer(mesh->geometry->indices, first, count);
                 const auto state = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
                                    render_detail::cull_state(material->cull_mode(), model);
                 bgfx::setState(depth_only ? state
@@ -313,6 +319,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     };
     if (rendering.ao_enabled)
     {
+        ENGINE_PROFILE_ZONE("Render.ambientOcclusion");
         if (!resources.ambient_occlusion.prepare(static_cast<std::uint16_t>(width_),
                                                  static_cast<std::uint16_t>(height_)))
         {
@@ -346,11 +353,42 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     {
         resources.hdr_post_process.release();
     }
-    if (!draw_meshes(render_detail::main_view, false) ||
-        (fonts_ != nullptr &&
-         !fonts_->render_scene(*scene, render_detail::main_view, rendering.hdr_enabled)))
     {
-        return false;
+        ENGINE_PROFILE_ZONE("Render.mainSubmit");
+        if (!draw_meshes(render_detail::main_view, false) ||
+            (fonts_ != nullptr &&
+             !fonts_->render_scene(*scene, render_detail::main_view, rendering.hdr_enabled)))
+        {
+            return false;
+        }
+    }
+    if (!extensions_.empty())
+    {
+        RenderContext context{*scene};
+        std::copy_n(view, context.view.size(), context.view.begin());
+        std::copy_n(projection, context.projection.size(), context.projection.begin());
+        context.view_id = render_detail::extension_view;
+        context.width = static_cast<std::uint16_t>(width_);
+        context.height = static_cast<std::uint16_t>(height_);
+        context.hdr = rendering.hdr_enabled;
+        bgfx::setViewName(context.view_id, "Scene extensions");
+        bgfx::setViewFrameBuffer(context.view_id,
+                                 context.hdr ? resources.hdr_post_process.scene_framebuffer()
+                                             : bgfx::FrameBufferHandle{bgfx::kInvalidHandle});
+        bgfx::setViewRect(context.view_id, 0, 0, context.width, context.height);
+        bgfx::setViewClear(context.view_id, BGFX_CLEAR_NONE);
+        bgfx::setViewMode(context.view_id, bgfx::ViewMode::Sequential);
+        bgfx::setViewTransform(context.view_id, context.view.data(), context.projection.data());
+        invoking_extensions_ = true;
+        for (auto* extension : extensions_)
+        {
+            if (!extension->draw(context))
+            {
+                invoking_extensions_ = false;
+                return false;
+            }
+        }
+        invoking_extensions_ = false;
     }
     return !rendering.hdr_enabled || resources.hdr_post_process.resolve(rendering);
 }

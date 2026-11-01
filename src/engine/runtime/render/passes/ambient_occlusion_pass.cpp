@@ -1,5 +1,6 @@
 #include "runtime/render/passes/ambient_occlusion_pass.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_settings.hpp"
 
@@ -242,6 +243,7 @@ bool AmbientOcclusionPass::initialize_programs()
 
 bool AmbientOcclusionPass::prepare(std::uint16_t width, std::uint16_t height)
 {
+    ENGINE_PROFILE_ZONE("Render.aoPrepare");
     const auto* caps = bgfx::getCaps();
     const auto aligned_width = std::max(16U, (static_cast<std::uint32_t>(width) + 15U) & ~15U);
     const auto aligned_height = std::max(16U, (static_cast<std::uint32_t>(height) + 15U) & ~15U);
@@ -322,6 +324,7 @@ void AmbientOcclusionPass::begin_depth(const float* view, const float* projectio
 bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSettings& settings,
                                    const float* projection)
 {
+    ENGINE_PROFILE_ZONE("Render.aoComputeSubmit");
     AoUniforms uniforms;
     if (width_ == 0 || height_ == 0 || !bgfx::isValid(ao_) ||
         !make_uniforms(camera, settings, projection, width_, height_, uniforms))
