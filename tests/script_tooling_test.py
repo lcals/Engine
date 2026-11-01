@@ -190,8 +190,15 @@ def contents(reply):
 
 
 def test(
-    mcp, root, temporary, without_modeling=False, without_character_controller=False,
+    mcp,
+    root,
+    temporary,
+    without_modeling=False,
+    without_character_controller=False,
     without_scene_bake=False,
+    without_effects=False,
+    without_terrain=False,
+    without_destruction=False,
 ):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
@@ -303,12 +310,59 @@ def test(
     scene_bake_tools = {"bake_scene", "get_scene_bake", "cancel_scene_bake"}
     if not without_scene_bake:
         expected_tools.update(scene_bake_tools)
+    effects_tools = {
+        "set_effect",
+        "get_effect",
+        "play_effect",
+        "pause_effect",
+        "stop_effect",
+        "get_effect_state",
+    }
+    terrain_tools = {
+        "create_terrain_asset",
+        "set_terrain",
+        "get_terrain",
+        "terrain_brush",
+        "terrain_reset",
+        "terrain_save_state",
+        "terrain_load_state",
+        "terrain_collapse_detached",
+        "terrain_reset_runtime",
+    }
+    destruction_tools = {
+        "create_destruction_asset",
+        "set_destruction",
+        "get_destruction",
+        "destruction_damage",
+        "destruction_refresh_support",
+        "destruction_apply_stress",
+        "destruction_reset",
+    }
+    optional_tools = (
+        (without_effects, "effects", effects_tools),
+        (without_terrain, "terrain", terrain_tools),
+        (without_destruction, "destruction", destruction_tools),
+    )
+    for disabled, _, names in optional_tools:
+        if not disabled:
+            expected_tools.update(names)
     actual_tools = {tool["name"] for tool in replies[0]["result"]["tools"]}
     require(
         actual_tools == expected_tools,
         f"wrong tool list: missing={sorted(expected_tools - actual_tools)}, "
         f"unexpected={sorted(actual_tools - expected_tools)}",
     )
+    for disabled, plugin, tools in optional_tools:
+        if not disabled:
+            continue
+        names = sorted(tools)
+        unavailable = invoke(mcp, project, runtime, [call(name) for name in names])
+        require(len(unavailable) == len(names), f"missing disabled {plugin} tool replies")
+        for name, reply in zip(names, unavailable):
+            require(
+                reply.get("error", {}).get("message") == "Unknown tool",
+                f"disabled {plugin} plugin still exposes {name}",
+            )
     if without_character_controller:
         for name in sorted(controller_tools):
             unavailable = invoke(mcp, project, runtime, [call(name)])[0]
@@ -583,6 +637,21 @@ if __name__ == "__main__":
         action="store_true",
         help="Validate that the optional scene bake MCP adapter is absent",
     )
+    parser.add_argument(
+        "--without-effects",
+        action="store_true",
+        help="Validate that the optional effects MCP adapter is absent",
+    )
+    parser.add_argument(
+        "--without-terrain",
+        action="store_true",
+        help="Validate that the optional terrain MCP adapter is absent",
+    )
+    parser.add_argument(
+        "--without-destruction",
+        action="store_true",
+        help="Validate that the optional destruction MCP adapter is absent",
+    )
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="engine-script-tooling-") as directory:
         test(
@@ -592,5 +661,8 @@ if __name__ == "__main__":
             without_modeling=arguments.without_modeling,
             without_character_controller=arguments.without_character_controller,
             without_scene_bake=arguments.without_scene_bake,
+            without_effects=arguments.without_effects,
+            without_terrain=arguments.without_terrain,
+            without_destruction=arguments.without_destruction,
         )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

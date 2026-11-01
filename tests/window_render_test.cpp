@@ -86,6 +86,17 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
             SDL_Delay(10);
         }
     }
+    if (submitted != count)
+    {
+        int width = 0;
+        int height = 0;
+        const bool sized = SDL_GetWindowSizeInPixels(windows.native_window(), &width, &height);
+        std::fprintf(stderr,
+                     "window/render test: submitted=%d/%d, flags=0x%llx, sized=%d, pixels=%dx%d\n",
+                     submitted, count,
+                     static_cast<unsigned long long>(SDL_GetWindowFlags(windows.native_window())),
+                     sized, width, height);
+    }
     return expect(submitted == count, "window must become drawable within the attempt limit");
 }
 

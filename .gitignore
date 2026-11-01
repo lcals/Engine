@@ -1,6 +1,7 @@
 /build/
 /out/
-/output/
+/output/*
+!/output/.gitkeep
 /vcpkg_installed/
 /references/*
 !/references/.gitkeep

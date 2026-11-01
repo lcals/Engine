@@ -102,6 +102,15 @@ if(TARGET mcp_app)
     if(NOT TARGET engine_scene_bake_mcp_tools)
         list(APPEND _script_tooling_options --without-scene-bake)
     endif()
+    if(NOT TARGET engine_effects_mcp_tools)
+        list(APPEND _script_tooling_options --without-effects)
+    endif()
+    if(NOT TARGET engine_terrain_mcp_tools)
+        list(APPEND _script_tooling_options --without-terrain)
+    endif()
+    if(NOT TARGET engine_destruction_mcp_tools)
+        list(APPEND _script_tooling_options --without-destruction)
+    endif()
     find_package(
         Python3
         COMPONENTS Interpreter
@@ -821,8 +830,9 @@ endif()
 
 if(TARGET engine_navigation AND TARGET engine_script)
     add_executable(engine_navigation_script_test navigation_script_test.cpp)
-    target_link_libraries(engine_navigation_script_test PRIVATE engine::script engine::navigation
-        engine::world engine::resource engine::app engine::log)
+    target_link_libraries(
+        engine_navigation_script_test PRIVATE engine::script engine::navigation engine::world
+                                              engine::resource engine::app engine::log)
     engine_apply_options(engine_navigation_script_test)
     add_test(NAME engine.navigation_script COMMAND engine_navigation_script_test)
     set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
@@ -868,7 +878,8 @@ if(TARGET engine_destruction_editor)
 endif()
 if(TARGET engine_destruction_editor AND TARGET engine_editor)
     add_executable(engine_destruction_commands_test destruction_commands_test.cpp)
-    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor engine::editor)
+    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor
+                                                                   engine::editor)
     target_compile_definitions(engine_destruction_commands_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_destruction_commands_test)
     add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)

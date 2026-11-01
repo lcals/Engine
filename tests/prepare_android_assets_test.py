@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import struct
@@ -313,12 +314,31 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.prepare()
         previous = self.snapshot()
         self.entries.append(
-            resource_entry(b"unsupported resource", 2, 13, "project/future.bin", "")
+            resource_entry(b"unsupported resource", 2, 16, "project/future.bin", "")
         )
         self.write_resources()
         with self.assertRaises(ValueError):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
+
+    def test_all_schema_resource_kinds_are_packaged(self):
+        schema = (ROOT / "include/schemas/runtime/asset_catalog.fbs").read_text(encoding="utf-8")
+        definition = re.search(r"enum\s+AssetKind\s*:\s*ubyte\s*\{([^}]+)\}", schema)
+        self.assertIsNotNone(definition)
+        kinds = [name.strip() for name in definition.group(1).split(",")]
+        for kind, name in enumerate(kinds):
+            module = "scripts/schema-kind.js" if name == "script" else ""
+            self.entries.append(
+                resource_entry(name.encode(), kind + 2, kind, f"project/kinds/{name}", module)
+            )
+        self.write_resources()
+        self.prepare()
+        packaged = self.output / "project"
+        parsed = PACK.catalog_entries(packaged)
+        self.assertEqual([entry["kind"] for entry in parsed[1:]], list(range(len(kinds))))
+        for entry in self.entries:
+            self.assertEqual((packaged / entry["path"]).read_bytes(), entry["entity"])
         self.assert_clean()
 
     def test_audio_resource_kind_is_preserved(self):

@@ -139,7 +139,7 @@ Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`�
 
 V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation（包括 Windows ETW），保留 Sparkplug、Maglev、TurboFan 等 JIT、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`，全部默认 OFF。项目脚本不能使用已关闭的全局 API；默认没有 ICU 资源部署。裁剪参数参与缓存身份，精简归档与头文件存放在带 `-f0000` 的独立目录；此前完整配置的缓存保留。
 
-Windows 修复分支此前的验证记录（2026-10-30，本轮未重新执行 Windows）：x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
+Windows 修复阶段的历史验证记录（2026-10-30）：x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
 
 依赖维护需保留以下兼容约束：
 
@@ -151,7 +151,7 @@ Windows 修复分支此前的验证记录（2026-10-30，本轮未重新执行 W
 
 ### 交付目录
 
-编译目录 `build/` 保留增量缓存、静态库和调试符号；最终交付物放在仓库根 `output/<platform>/<arch>/<debug|release>/`，其中 `editor/` 为桌面编辑器，`runtime/` 为项目运行包。`output/` 不提交 Git。依赖尽量静态合入程序，这与“把所有依赖改成动态库”不同。
+编译目录 `build/` 保留增量缓存、静态库和调试符号；最终交付物放在仓库根 `output/<platform>/<arch>/<debug|release>/`，其中 `editor/` 为桌面编辑器，`runtime/` 为项目运行包。仅提交 `output/.gitkeep` 保留空目录，生成的程序和资源不提交 Git。依赖尽量静态合入程序。
 
 macOS 与 Windows 静态预设提供 `engine_editor_export`、`engine_project_export` 和合并目标 `engine_export`。例如 macOS 在完成根 Preset 的依赖准备和构建后执行：
 
@@ -190,6 +190,8 @@ ctest --preset ninja-debug
 ```
 
 如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，默认选择 QuickJS，显式传入 `-DENGINE_SCRIPT_BACKEND=v8` 才选择 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](docs/plugins/plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+
+已有构建目录会保留此前的插件选择。更新代码后若要采用当前默认清单，可在同一 Preset 的配置命令追加 `-U ENGINE_RUNTIME_PLUGINS -U ENGINE_EDITOR_PLUGINS`；自定义清单继续显式指定。
 
 脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、编译期选定的虚拟机执行与共享逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接脚本虚拟机，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。当前宿主的 `save_scene` 命令需同时启用资源管线与建模插件；关闭建模插件后仍支持普通 Mesh 导入。
 
@@ -902,7 +904,17 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-截至 2026-10-31，以下表格保留各功能阶段的验证范围；最新跨平台交付验证见[交付目录](#交付目录)。构建使用根 Presets 或继承它们的本机 Presets；未触发 CI。
+截至 2026-11-01，以下表格保留各功能阶段的历史验证范围；交付结构见[交付目录](#交付目录)。本次 Windows / Android 复核使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。
+
+Windows x64 静态 Debug / Release 完整构建通过，两配置各覆盖 91 项 CTest。Debug 首轮 86 项通过，修复测试和生成流程后 4 项定向回归通过，窗口回归独立复测通过；Release 首轮 90 项通过，修复后的物理音频 MCP 回归在两配置均通过。真实 DX12 覆盖窗口渲染、GPU 蒙皮、字体/UI、特效与编辑器项目生命周期。Debug 窗口测试曾因等待可绘制状态失败，现已增加失败时的窗口标志和像素尺寸诊断；独立复测及 Release 全程通过，未修改等待上限或测试超时。
+
+Windows 两个配置均已导出独立运行包，各含 EXE、`catalog.bin` 和一个合并包，共 1191 项资源。在 PATH 仅含 Windows 与 System32 的环境下，两者均使用 DX12 加载默认菜单，完成 120 帧并正常退出；这次启动检查未逐一验收新增示例场景的交互。项目导入缓存已恢复为 Windows 目标。
+
+本次修复包含特效后端显式传播 bx 的编译要求、避免 FlatBuffers 后续 TS 生成覆盖根表文件标识方法，以及资源打包器接受 Schema 已有的 effect / terrain / destruction 类型。测试同步当前可选 MCP 工具、场景分页、示例玩法导出及 GPU 蒙皮契约；物理音频测试切换静态刚体时原子清零线速度和角速度，并验证冻结与重载结果。
+
+Android ARM64 Debug / Release APK 均完成构建和静态交付检查，分别为 58,442,255 / 35,140,812 字节。两包均只有未压缩的 `lib/arm64-v8a/libmain.so`，签名、ZIP / ELF LOAD 16 KiB 对齐和系统动态依赖检查通过；各包的 1191 个资源实体全部通过目录身份、实体头、范围及 FNV 哈希校验。两包使用本机调试签名；本机 adb 未发现设备，因此本次未安装或运行 APK，不能替代下表既有设备记录及新增场景的设备验收。
+
+证据保留在忽略的 `build/windows-validation/character-animation/` 和 `build/android-validation/character-animation/`；平台测试不包含重新运行完整角色生产外部工具链。
 
 | 环境 | 已验证范围 |
 | --- | --- |

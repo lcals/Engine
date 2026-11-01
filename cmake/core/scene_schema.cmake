@@ -123,7 +123,9 @@ function(engine_add_scene_schema)
                 --scoped-enums -I "${_schema_dir}" -o "${_cpp_dir}" ${_schemas}
         COMMAND "${ENGINE_FLATC_EXECUTABLE}" --ts --gen-all --gen-object-api --ts-entry-points -I
                 "${_schema_dir}" -o "${_ts_aggregate}" "${_ts_schema}"
-        COMMAND "${ENGINE_FLATC_EXECUTABLE}" --ts --gen-object-api --ts-entry-points -I
+        # --ts-entry-points 隐含 --gen-all；各独立 schema 只生成自身类型，避免根表
+        # 被后续 schema 的 include 重写，丢失 file_identifier 与 finish 方法。
+        COMMAND "${ENGINE_FLATC_EXECUTABLE}" --ts --gen-object-api --ts-omit-entrypoint -I
                 "${_schema_dir}" -o "${_ts_dir}" ${_schemas}
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${_ts_aggregate}/engine/schema.ts"
                 "${_ts_barrel}"

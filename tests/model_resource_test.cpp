@@ -167,7 +167,9 @@ bool loading_and_instantiation()
     auto* animator = scene.nodes()[3]->add_component<engine::Animator>();
     if (!expect(renderer && renderer->mesh_path() == "project/meshes/skinned.mesh" && animator &&
                     animator->set_animation(clip_path) && fixture.animation.tick(0.5) &&
-                    close(renderer->deformed_vertices()[0].x(), 2),
+                    renderer->deformed_vertices().empty() &&
+                    renderer->skinning_palette().size() == 4 &&
+                    close(sampled_vertex(*renderer).x(), 2),
                 "instantiated target mesh plays an action from a different source skeleton"))
     {
         return false;

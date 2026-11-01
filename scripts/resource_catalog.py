@@ -135,7 +135,7 @@ def parse_catalog(snapshot, target_platform="android"):
             or guid in identities
             or logical in paths
             or not logical.startswith("project/")
-            or kind > 12  # Font and UI append to the stable AssetKind values in asset_catalog.fbs.
+            or kind > 15  # AssetKind in asset_catalog.fbs ends with effect, terrain, destruction.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"
