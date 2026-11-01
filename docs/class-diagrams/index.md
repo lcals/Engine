@@ -83,6 +83,8 @@
 ## 脚本接口
 
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
+- [字符串 KV](../runtime/class-diagrams/key-value-store.md)：原生通用存取、每 Run 缓存、显式保存和脚本外观；游戏数据内容与版本由项目维护。
+- [KV 脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)：Storage 静态门面、逐类绑定与回调边界。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。

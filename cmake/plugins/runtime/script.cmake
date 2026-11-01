@@ -30,6 +30,7 @@ function(engine_configure_script_plugin)
     target_link_libraries(
         engine_script
         PRIVATE engine::app
+                engine::storage
                 engine::log
                 engine::resource
                 engine::world

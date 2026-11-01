@@ -1,6 +1,7 @@
 #pragma once
 
 #include "plugins/runtime/script/vm/script_vm.hpp"
+#include "runtime/storage/key_value_store.hpp"
 
 #include <cstdint>
 #include <string>
@@ -47,6 +48,7 @@ public:
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
     [[nodiscard]] double delta_time() const noexcept;
+    [[nodiscard]] KeyValueStore& storage();
 
     // owner 由当前 Run 的虚拟机提供；Run 必须覆盖所有原生回调的生命期。
     [[nodiscard]] static BindingContext* current(const Arguments& arguments,
@@ -71,6 +73,8 @@ private:
     std::uint64_t scene_id_ = 0;
     bool callable_ = false;
     double delta_time_ = 0.0;
+    KeyValueStore storage_;
+    bool storage_attempted_ = false;
 };
 
 } // namespace engine::plugins::script::bindings

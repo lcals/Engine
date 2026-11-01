@@ -1,4 +1,13 @@
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_library(engine_storage STATIC src/engine/runtime/storage/key_value_store.cpp)
+    add_library(engine::storage ALIAS engine_storage)
+    target_link_libraries(
+        engine_storage
+        PUBLIC engine::core
+        PRIVATE SDL3::SDL3 nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_storage PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_storage)
+
     find_package(Threads REQUIRED)
     engine_add_system(runtime log)
     target_link_libraries(engine_log PRIVATE engine::app Threads::Threads SDL3::SDL3)

@@ -372,6 +372,24 @@ export default class Game extends Gameplay {
 
 `LogSystem` 默认将日志写入 `persistentDataPath/logs/engine.log` 并通过 SDL 输出到平台日志（桌面 stderr、Android logcat）；单文件达到 4 MiB 时轮转，保留 3 个旧文件。项目编译输出 `cache/gen/` 与平台临时 `App.cachePath` 是不同目录。
 
+`Storage` 提供通用字符串 KV，数据位于 `persistentDataPath/userdata/kv.json`。在 Gameplay 或 UI 回调内使用 `GetString`、`SetString`、`HasKey`、`DeleteKey`，由 `Save(): boolean` 显式落盘；`isReady` 和 `lastError` 分别报告加载状态与错误。不存在的 key 返回 null 且错误为空，文件损坏或读取失败会阻止后续写入。KV 首次访问时加载，每次 Run 独占缓存，停止与热重载不自动保存。编辑器默认持久目录按项目隔离，显式 `--runtime-dir` 应使用项目专属目录。
+
+```ts
+import { Debug, Storage } from "engine";
+
+// 在有效玩法回调内低频保存；项目维护 JSON 结构和业务数据版本。
+if (!Storage.SetString("progress", JSON.stringify({ version: 1, gold: 100 })) || !Storage.Save()) {
+    Debug.LogError(Storage.lastError ?? "Storage is unavailable");
+}
+const text = Storage.GetString("progress");
+if (Storage.lastError) Debug.LogError(Storage.lastError);
+// text 为 null 且 lastError 为空表示尚无该 key；JSON 解析和迁移由项目决定。
+```
+
+原生 KV 使用固定数据文件、UTF-8 字符串与同目录临时写入后替换；key 为 1–256 字节，整个序列化文件最多 4 MiB。保存失败保留旧文件，不暴露任意路径、不实现游戏字段或隐式迁移。大块世界快照继续由原生模块整理。完整契约见 [KeyValueStore](docs/runtime/class-diagrams/key-value-store.md) 与 [脚本接口](docs/plugins/runtime/class-diagrams/storage-script-api.md)。
+
+2026-11-01 的 KV 实现使用 Windows x64 静态 Debug / Release Presets 增量构建 `engine_key_value_store_test` 和 `engine_script_runtime_test`，两配置各 2 项定向 CTest 通过；覆盖 Unicode、空值、删除、容量与格式校验、坏文件禁写、未保存变更丢弃和旧 Run 关闭保存后新 Run 读取。符号链接用例因本机权限不足跳过。实际 CMake 依赖与源码包含方向检查通过；记录位于忽略的 `build/kv-storage/`，未重跑完整测试套件或其他平台运行。
+
 持久版本保存在 `persistentDataPath/assets/versions/<revision>/`，只含 `catalog.bin` 和其引用的散文件或合并包，SQLite 不进包。全部内容核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。运行开始先选择完整持久版本，未发布时使用内置版本；运行模块和场景持有实际加载资源的共享引用；核心目录只保存元数据，不预读所有实体。TS 相对 import 通过清单中的模块路径映射到 GUID，已删除模块不会回退到旧包体。绝对路径、越界路径和越界符号链接会被拒绝。
 
 文件读取统一通过 SDL3 同步接口，单实体上限 64 MiB；资源目录最多 65536 项，合并包按成员范围读取，不要求整包进入内存；脚本源码及部署控制 JSON 文本另有 4 MiB 上限，单次模块图最多 256 个模块。运行时支持相对路径静态 ES import 和 `engine` 模块，不提供动态 import、顶层 await 或 Node.js API，也不自动打包任意 npm 运行时依赖。TS 的相对 import 应使用生成后的 `.js` 路径。

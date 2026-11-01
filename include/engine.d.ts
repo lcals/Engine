@@ -23,6 +23,21 @@ declare module "engine" {
         static readonly cachePath: string;
     }
 
+    /** Per-run string storage. Methods require an active gameplay or component callback. */
+    export class Storage {
+        private constructor();
+        /** Missing keys return null with an empty lastError; read failures also return null. */
+        static GetString(key: string): string | null;
+        static SetString(key: string, value: string): boolean;
+        static HasKey(key: string): boolean;
+        static DeleteKey(key: string): boolean;
+        /** Explicitly persists changes. Stopping or reloading does not save automatically. */
+        static Save(): boolean;
+        static readonly isReady: boolean;
+        /** Empty when there is no error; null outside an active callback. */
+        static readonly lastError: string | null;
+    }
+
     /** Frame scheduling. Methods require an active gameplay or component callback. */
     export class Engine {
         private constructor();

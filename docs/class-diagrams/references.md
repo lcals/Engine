@@ -403,6 +403,10 @@ classDiagram
         <<script binding>>
     }
     class ScriptApp["App 脚本绑定"]
+    class Storage
+    class StorageBinding
+    class BindingContext
+    class KeyValueStore
     class App
     class LogSystem
     Gameplay <|-- Game
@@ -412,11 +416,18 @@ classDiagram
     Game ..> ScriptApp : 应用目录查询
     Debug ..> LogSystem : 静态日志转发
     ScriptApp ..> App : 只读平台路径绑定
+    Game ..> Storage : 低频字符串 KV 与显式保存
+    StorageBinding ..> Storage : 定义脚本外观
+    StorageBinding ..> BindingContext : 有效回调期间借用
+    BindingContext *-- KeyValueStore : 每个 Run 独占缓存
+    BindingContext ..> App : 首次访问读取持久路径
 ```
 
 Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并选择、加载和切换场景。
 
 Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
+
+`KeyValueStore` 属于运行时核心，显式接收目录，负责字符串缓存和落盘；脚本插件的 `StorageBinding` 借用当前 Run 的 BindingContext 调用它。App 保持路径查询职责，游戏字段、JSON 与数据版本留在项目。具体方法分别见[原生 KV](../runtime/class-diagrams/key-value-store.md)和[脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)。
 
 ScriptSystem 的每个候选或活动 Run 独占一个 [ScriptVm](../plugins/runtime/class-diagrams/script-vm.md)、模块缓存、任务队列和 Game。QuickJS 的 runtime/context 随 Run 创建和销毁；V8 的 isolate/context 同样由 Run 独占，V8 platform 按进程共享，完整退出前销毁全部 isolate。热重载重建 Run，不切换后端，也不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../plugins/runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
 

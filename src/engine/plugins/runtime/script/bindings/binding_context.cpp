@@ -1,5 +1,6 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
+#include "runtime/app/app.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
@@ -94,6 +95,21 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
 double BindingContext::delta_time() const noexcept
 {
     return callable_ ? delta_time_ : 0.0;
+}
+
+KeyValueStore& BindingContext::storage()
+{
+    if (!storage_attempted_)
+    {
+        storage_attempted_ = true;
+        const auto directory = App::is_initialized() ? App::persistent_data_path() / "userdata"
+                                                     : std::filesystem::path{};
+        if (!storage_.load(directory))
+        {
+            return storage_;
+        }
+    }
+    return storage_;
 }
 
 BindingContext* BindingContext::current(const Arguments& arguments, bool require_callable)

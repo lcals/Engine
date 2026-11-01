@@ -37,6 +37,7 @@ classDiagram
         +ui() UiSystem#42;
         +physics() PhysicsSystem#42;
         +navigation() NavigationSystem#42;
+        +storage() KeyValueStore&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
@@ -48,6 +49,7 @@ classDiagram
     class RenderSystem
     class UiSystem
     class NavigationSystem
+    class KeyValueStore
     ScriptBindingRegistry "1" *-- "0..*" ScriptBinding : 独占实现对象
     ScriptBinding ..> ScriptVm : 注册原生函数和只读常量
     ScriptBinding ..> Arguments : 读取参数及返回原生值
@@ -59,6 +61,7 @@ classDiagram
     BindingContext --> WorldSystem : 可空借用
     BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
     BindingContext --> NavigationSystem : 有效回调借用及所属场景结束清理
+    BindingContext *-- KeyValueStore : 每个 Run 独占惰性加载缓存
 ```
 
 `ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`ui`、`physics`、`navigation`、`scene_id`、`delta_time` 为 `const noexcept`，服务返回可修改对象的可空借用。构造的 renderer、ui、physics 和 navigation 默认空；除 world 外，服务查询在非生命周期及绑定回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
@@ -97,6 +100,7 @@ classDiagram
         <<abstract>>
     }
     class AppBinding
+    class StorageBinding
     class EngineBinding
     class DebugBinding
     class GameplayBinding
@@ -124,6 +128,7 @@ classDiagram
     class UiElementBinding
     class UiControllerBinding
     ScriptBinding <|-- AppBinding
+    ScriptBinding <|-- StorageBinding
     ScriptBinding <|-- EngineBinding
     ScriptBinding <|-- DebugBinding
     ScriptBinding <|-- GameplayBinding
@@ -159,6 +164,7 @@ classDiagram
 - BindingContext 的共享静态帮助方法负责数值/字符串/64位标识校验与场景/节点查找；所有失败返回状态或空借用。
 - 绑定上下文借用 World，保存 Run 所属场景 ID 和本帧时间，不持有原生 Node/Component 指针。虚拟机回调借用对应 Run 的 owner，上下文活性与回调许可全部匹配后才允许访问；上下文存活期覆盖 VM，VM 释放后撤销活性并仅清理自己的场景。
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
+- `StorageBinding` 提供字符串 KV 与显式保存；BindingContext 独占缓存，只在有效回调首次访问时读取 App 持久根。接口和失败语义见 [KV 脚本接口](storage-script-api.md)。
 - `EngineBinding` 独立提供 `Engine.SetTargetFrameRate(fps): boolean` 与 `Engine.GetTargetFrameRate(): number | null`，调用核心 Engine 的帧调度接口。设置只接受 `-1` 或正 int32 整数；无效参数不改变当前值。两者只允许活动 Run 的生命周期或组件回调使用，模块顶层、构造和候选预检阶段不能读取或修改运行中的上限。编辑器限帧的保存、解除与恢复由编辑器会话负责，绑定不读项目配置。
 
 ```mermaid

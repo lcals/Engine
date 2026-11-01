@@ -997,6 +997,144 @@ export default class extends Gameplay {
                   "real drop delivers one validated snapshot and clears on stop");
 }
 
+bool run_storage_binding_cases(const fs::path& workspace)
+{
+    engine::plugins::script::ScriptSystem script;
+    const auto directory = engine::App::persistent_data_path() / "userdata";
+    const auto path = directory / "kv.json";
+    constexpr std::string_view first_source = R"js(
+import { Gameplay, Storage } from 'engine';
+const topLevelBlocked = !Storage.isReady && Storage.lastError === null &&
+    Storage.GetString('blocked') === null && !Storage.SetString('blocked', 'value') &&
+    !Storage.HasKey('blocked') && !Storage.DeleteKey('blocked') && !Storage.Save();
+export default class extends Gameplay {
+    constructor() {
+        super();
+        this.constructorBlocked = !Storage.isReady && Storage.lastError === null &&
+            Storage.GetString('存档🔑') === null && !Storage.SetString('blocked', 'value') &&
+            !Storage.Save();
+    }
+    OnInitialize() {
+        const value = JSON.stringify({ name: '玩家😀', coins: 7, items: ['剑', '盾'] });
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Storage) && Storage.isReady &&
+            Storage.lastError === '' && Storage.GetString('missing') === null &&
+            Storage.lastError === '' && Storage.SetString('存档🔑', value) &&
+            Storage.HasKey('存档🔑') && Storage.GetString('存档🔑') === value &&
+            Storage.SetString('empty', '') && Storage.GetString('empty') === '' &&
+            Storage.SetString('delete-me', 'value') && Storage.DeleteKey('delete-me') &&
+            !Storage.HasKey('delete-me') && Storage.DeleteKey('missing') &&
+            Storage.GetString(true) === null && !Storage.SetString('invalid', 7) &&
+            !Storage.HasKey(true) && !Storage.DeleteKey(true) && Storage.Save() &&
+            Storage.SetString('unsaved', 'discard this');
+    }
+    OnShutdown() {
+        if (!Storage.SetString('shutdown-unsaved', 'discard this too'))
+            throw new Error('Storage unavailable during shutdown');
+    }
+}
+)js";
+    constexpr std::string_view restored_source = R"js(
+import { Gameplay, Storage, Debug } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const shutdownValue = Storage.GetString('shutdown-saved');
+        if (shutdownValue === 'saved by the old run') Debug.Log('storage:read-old-shutdown-save');
+        const value = JSON.parse(Storage.GetString('存档🔑'));
+        return Storage.isReady && Storage.lastError === '' && value.name === '玩家😀' &&
+            value.coins === 7 && value.items.join(',') === '剑,盾' &&
+            Storage.HasKey('empty') && Storage.GetString('empty') === '' &&
+            !Storage.HasKey('delete-me') && Storage.GetString('unsaved') === null &&
+            Storage.GetString('shutdown-unsaved') === null && Storage.lastError === '' &&
+            (shutdownValue === null || shutdownValue === 'saved by the old run');
+    }
+    OnShutdown() {
+        if (!Storage.SetString('shutdown-saved', 'saved by the old run') || !Storage.Save())
+            throw new Error('Explicit shutdown save failed');
+    }
+}
+)js";
+    constexpr std::string_view failed_source = R"js(
+import { Gameplay, Storage, Debug } from 'engine';
+function unavailable() {
+    return !Storage.isReady && typeof Storage.lastError === 'string' &&
+        Storage.lastError.length > 0 && Storage.GetString('存档🔑') === null &&
+        !Storage.SetString('overwrite', 'forbidden') && !Storage.HasKey('存档🔑') &&
+        !Storage.DeleteKey('存档🔑') && !Storage.Save() && Storage.lastError.length > 0;
+}
+export default class extends Gameplay {
+    OnInitialize() { return unavailable(); }
+    Update() {
+        if (!unavailable()) throw new Error('Failed storage retried within the same run');
+        Debug.Log('storage:failed-run-stays-unavailable');
+    }
+}
+)js";
+    Fixture first;
+    Fixture restored;
+    Fixture failed;
+    std::error_code error;
+    if (!expect(!fs::exists(directory, error) && !error, "storage starts without user data") ||
+        !script.initialize({}) ||
+        !fixture(workspace, "storage-first", {{"scripts/game.js", std::string(first_source)}},
+                 first) ||
+        !fixture(workspace, "storage-restored", {{"scripts/game.js", std::string(restored_source)}},
+                 restored) ||
+        !fixture(workspace, "storage-failed", {{"scripts/game.js", std::string(failed_source)}},
+                 failed) ||
+        !expect(script.prepare_gameplay(first.catalog, first.mounts) &&
+                    !fs::exists(directory, error) && !error,
+                "storage precheck does not create or load user data") ||
+        !engine::ResourceSystem::instance()->update_catalog(first.catalog.data(), first.mounts) ||
+        !expect(script.start_prepared_gameplay(),
+                "storage is callback-only and saves Unicode JSON, empty values and deletions"))
+    {
+        return false;
+    }
+    std::string saved;
+    if (!expect(engine::ResourceSystem::read_text(path, saved) && !saved.empty(),
+                "explicit Save writes native storage"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    std::string actual;
+    if (!expect(script.status().last_error.empty() &&
+                    engine::ResourceSystem::read_text(path, actual) && actual == saved,
+                "stop and shutdown discard unsaved changes") ||
+        !expect(apply(script, restored), "new run restores saved strings without unsaved keys") ||
+        !expect(!log_contains("storage:read-old-shutdown-save") && apply(script, restored) &&
+                    log_contains("storage:read-old-shutdown-save") &&
+                    engine::ResourceSystem::read_text(path, saved),
+                "prepared replacement first reads after the old run explicitly saves on shutdown"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    constexpr std::string_view corrupt = "{broken user data";
+    if (!expect(engine::ResourceSystem::read_text(path, actual) && actual == saved &&
+                    write_file(path, corrupt) && apply(script, failed) &&
+                    engine::ResourceSystem::read_text(path, actual) && actual == corrupt,
+                "corrupt storage reports failure and cannot be overwritten") ||
+        !write_file(path, saved) ||
+        !expect(script.tick(.01) && script.status().running &&
+                    log_contains("storage:failed-run-stays-unavailable"),
+                "failed storage load is not retried within an active run"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(engine::ResourceSystem::read_text(path, actual) && actual == saved &&
+                    apply(script, restored),
+                "a later run can load repaired storage"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(script.status().last_error.empty() &&
+                      engine::ResourceSystem::read_text(path, actual) && actual == saved,
+                  "repaired storage remains intact after an explicit shutdown save");
+}
+
 bool run_frame_rate_binding_cases(const fs::path& workspace)
 {
     auto& engine = engine::Engine::instance();
@@ -1390,7 +1528,8 @@ int main(int argc, char** argv)
         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
-        run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace);
+        run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
+        run_storage_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
