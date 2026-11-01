@@ -41,7 +41,7 @@ bool load_shader(const Guid& guid, const ImportContext& context,
         error = "shader identity is unavailable: " + guid;
         return false;
     }
-    if (path.starts_with("builtin/"))
+    if (path.starts_with("builtin://"))
     {
         const auto* definition = ResourceSystem::find_shader(path);
         if (definition == nullptr)

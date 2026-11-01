@@ -18,9 +18,241 @@ declare module "engine" {
 
     export class App {
         private constructor();
-        static readonly builtinAssetsPath: string;
+        static readonly assetsPath: string;
         static readonly persistentDataPath: string;
         static readonly cachePath: string;
+    }
+
+    /** Per-run string storage. Methods require an active gameplay or component callback. */
+    export class Storage {
+        private constructor();
+        /** Missing keys return null with an empty lastError; read failures also return null. */
+        static GetString(key: string): string | null;
+        static SetString(key: string, value: string): boolean;
+        static HasKey(key: string): boolean;
+        static DeleteKey(key: string): boolean;
+        /** Explicitly persists changes. Stopping or reloading does not save automatically. */
+        static Save(): boolean;
+        static readonly isReady: boolean;
+        /** Empty when there is no error; null outside an active callback. */
+        static readonly lastError: string | null;
+    }
+
+    export enum InputDeviceKind {
+        keyboard,
+        mouse,
+        gamepad,
+        joystick,
+        touch,
+    }
+    export enum InputControlKind {
+        key,
+        mouse_button,
+        mouse_position,
+        mouse_delta,
+        mouse_relative,
+        mouse_wheel,
+        gamepad_button,
+        gamepad_axis,
+        joystick_button,
+        joystick_axis,
+        joystick_hat,
+        touch,
+        gamepad_touch,
+    }
+    export enum InputActionKind {
+        button,
+        axis1d,
+        axis2d,
+    }
+    export enum InputValueMode {
+        state,
+        delta,
+    }
+    export enum InputCombine {
+        maximum,
+        sum_clamped,
+    }
+    export enum InputActivation {
+        wait_for_neutral,
+        use_current_state,
+    }
+    export enum InputVirtualKind {
+        button,
+        stick,
+        drag,
+    }
+    export enum InputCaptureStatus {
+        waiting,
+        completed,
+        canceled,
+    }
+    export enum InputUnit {
+        none,
+        normalized,
+        logical,
+        relative,
+        wheel,
+    }
+    export enum InputRegionShape {
+        rectangle,
+        circle,
+    }
+
+    export interface InputFrameState {
+        readonly frame_id: bigint;
+        readonly device_revision: bigint;
+        readonly cancel_revision: bigint;
+    }
+    /** Session handle; not a persistent player or device identifier. */
+    export interface InputChannelHandle {
+        readonly slot: number;
+        readonly generation: number;
+    }
+    export interface InputCaptureHandle {
+        readonly slot: number;
+        readonly generation: number;
+    }
+    export interface InputControlRef {
+        readonly connection_id: bigint;
+        readonly kind: InputControlKind;
+        readonly code: number;
+    }
+    export interface InputDeviceData {
+        readonly connection_id: bigint;
+        readonly kind: InputDeviceKind;
+        readonly name: string;
+        readonly layout_key: string;
+        readonly capabilities: bigint;
+    }
+    export interface InputControlInfo {
+        readonly source: InputControlRef;
+        readonly name: string;
+        readonly value_mode: InputValueMode;
+        readonly unit: InputUnit;
+        readonly minimum: number;
+        readonly maximum: number;
+    }
+    export interface InputControlState {
+        readonly source: InputControlRef;
+        readonly frame_id: bigint;
+        readonly value: number;
+        readonly held: boolean;
+        readonly pressed: boolean;
+        readonly released: boolean;
+        readonly canceled: boolean;
+        readonly repeat: boolean;
+    }
+    export interface InputActionState {
+        readonly frame_id: bigint;
+        readonly value_x: number;
+        readonly value_y: number;
+        readonly held: boolean;
+        readonly pressed: boolean;
+        readonly released: boolean;
+        readonly canceled: boolean;
+    }
+    export interface InputContactState {
+        readonly source: InputControlRef;
+        readonly contact_id: bigint;
+        readonly normalized_x: number;
+        readonly normalized_y: number;
+        readonly logical_x: number;
+        readonly logical_y: number;
+        readonly pressure: number;
+        readonly held: boolean;
+    }
+    /** Each part selects one physical or virtual scalar and contributes to the binding vector. */
+    export interface InputBindingPartData {
+        readonly source?: InputControlRef;
+        readonly virtual_control?: string;
+        readonly virtual_axis?: number;
+        readonly weight_x?: number;
+        readonly weight_y?: number;
+    }
+    export interface InputBindingData {
+        readonly parts: readonly InputBindingPartData[];
+        readonly modifiers?: readonly InputControlRef[];
+        readonly scale?: number;
+        readonly deadzone?: number;
+        readonly press_threshold?: number;
+        readonly release_threshold?: number;
+        readonly normalize?: boolean;
+    }
+    export interface InputActionData {
+        readonly name: string;
+        readonly kind?: InputActionKind;
+        readonly value_mode?: InputValueMode;
+        readonly combine?: InputCombine;
+        readonly bindings: readonly InputBindingData[];
+    }
+    export interface InputRegionData {
+        readonly connection_id: bigint;
+        readonly x?: number;
+        readonly y?: number;
+        readonly width: number;
+        readonly height: number;
+        readonly anchor_x?: number;
+        readonly anchor_y?: number;
+        readonly shape?: InputRegionShape;
+        readonly floating?: boolean;
+        readonly deadzone?: number;
+        readonly cancel_on_exit?: boolean;
+    }
+    export interface InputVirtualControlData {
+        readonly id: string;
+        readonly kind?: InputVirtualKind;
+        readonly priority?: number;
+        readonly enabled?: boolean;
+        readonly visible?: boolean;
+        readonly region: InputRegionData;
+    }
+    export interface InputChannelData {
+        readonly enabled?: boolean;
+        readonly priority?: number;
+        readonly consume_inputs?: boolean;
+        readonly activation?: InputActivation;
+        readonly actions: readonly InputActionData[];
+        readonly virtual_controls?: readonly InputVirtualControlData[];
+    }
+    export interface InputCaptureOptions {
+        readonly devices?: readonly bigint[];
+        readonly kinds?: readonly InputControlKind[];
+        readonly threshold?: number;
+        readonly neutral_threshold?: number;
+        readonly include_modifiers?: boolean;
+    }
+    export interface InputCaptureState {
+        readonly status: InputCaptureStatus;
+        readonly frame_id: bigint;
+        readonly candidates: readonly InputControlRef[];
+    }
+    /** Device facts and explicitly submitted mappings; requires an active Run callback. */
+    export class Input {
+        private constructor();
+        static GetFrameState(): InputFrameState | null;
+        static GetDevices(): InputDeviceData[] | null;
+        static GetControls(device: bigint): InputControlInfo[] | null;
+        static ReadControl(control: InputControlRef): InputControlState | null;
+        static GetContacts(): InputContactState[] | null;
+        static CreateChannel(): InputChannelHandle | null;
+        /** Accepts a complete mapping; activation occurs at the next input frame. */
+        static ConfigureChannel(channel: InputChannelHandle, data: InputChannelData): boolean;
+        static SetChannelEnabled(
+            channel: InputChannelHandle,
+            enabled: boolean,
+            activation: InputActivation,
+        ): boolean;
+        static DestroyChannel(channel: InputChannelHandle): boolean;
+        /** Returns a non-consuming copy of the last published action snapshot. */
+        static ReadAction(channel: InputChannelHandle, name: string): InputActionState | null;
+        static BeginCapture(
+            channel: InputChannelHandle,
+            options: InputCaptureOptions,
+        ): InputCaptureHandle | null;
+        static ReadCapture(capture: InputCaptureHandle): InputCaptureState | null;
+        static CancelCapture(capture: InputCaptureHandle): boolean;
+        static readonly lastError: string | null;
     }
 
     /** Frame scheduling. Methods require an active gameplay or component callback. */
@@ -41,6 +273,8 @@ declare module "engine" {
     /** Scene parameter facade. Requires an active callback and existing scene components. */
     export class Render {
         private constructor();
+        /** Current render target size in pixels; null without an initialized renderer. */
+        static GetViewportSize(): Vector2 | null;
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
         static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
         /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
@@ -48,15 +282,25 @@ declare module "engine" {
             sky: readonly [number, number, number],
             equator: readonly [number, number, number],
             ground: readonly [number, number, number],
-            intensity: number
+            intensity: number,
         ): boolean;
         /** Linear RGB and world distances. Requires 0 <= start < end, even when disabled. */
         static SetLinearFog(
-            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            start: number,
+            end: number,
         ): boolean;
         /** Nonnegative density, forward camera depth. squared defaults to false. */
         static SetExponentialFog(
-            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            density: number,
+            squared?: boolean,
         ): boolean;
         /** Exposure in (0, 100]. */
         static SetExposure(value: number): boolean;
@@ -66,26 +310,36 @@ declare module "engine" {
         /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
         /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
         static SetBloom(
-            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+            enabled: boolean,
+            threshold?: number,
+            intensity?: number,
+            radius?: number,
         ): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         static SetAmbientOcclusion(
-            enabled: boolean, radius?: number, strength?: number, power?: number,
-            fadeStart?: number, fadeEnd?: number
+            enabled: boolean,
+            radius?: number,
+            strength?: number,
+            power?: number,
+            fadeStart?: number,
+            fadeEnd?: number,
         ): boolean;
         /** Full atlas resolution defaults to 2048; bias to 0.001. Preserves cascade settings. */
         static SetDirectionalShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
         static SetShadowCascades(
-            count: number, distance: number, splitLambda?: number, blend?: number
+            count: number,
+            distance: number,
+            splitLambda?: number,
+            blend?: number,
         ): boolean;
         /** Unsigned 32-bit 0xRRGGBBAA; MCP uses a normalized [r,g,b,a] array in the same order. */
         static SetClearColor(rgba: number): boolean;
     }
 
-    /** Resource paths start with builtin/ or project/. Parameters match the selected shader. */
+    /** Resource paths are relative to assets, or use builtin://. Parameters match the shader. */
     export class Material {
         private constructor();
         IsValid(): boolean;
@@ -119,6 +373,9 @@ declare module "engine" {
 
     export class Node {
         private constructor();
+        /** Stable lifetime identities; use IsValid() before accessing a deleted node. */
+        readonly id: bigint;
+        readonly sceneId: bigint;
         IsValid(): boolean;
         Destroy(): boolean;
         SetParent(parent: Node | null): boolean;
@@ -155,6 +412,10 @@ declare module "engine" {
         SetPerspective(fovDegrees: number, nearClip: number, farClip: number): boolean;
         /** Size is the vertical half-height in world units. */
         SetOrthographic(size: number, nearClip: number, farClip: number): boolean;
+        /** Viewport-local point and dimensions in matching units; origin is top-left. */
+        ScreenPointToRay(x: number, y: number, width: number, height: number): Ray | null;
+        /** Top-left normalized coordinates; rays start on the near plane with unit direction. */
+        ViewportPointToRay(u: number, v: number, aspect: number): Ray | null;
     }
     /** Scene-wide environment parameters, stored with the scene. */
     export class EnvironmentComponent extends Component {
@@ -166,13 +427,23 @@ declare module "engine" {
             sky: readonly [number, number, number],
             equator: readonly [number, number, number],
             ground: readonly [number, number, number],
-            intensity: number
+            intensity: number,
         ): boolean;
         SetLinearFog(
-            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            start: number,
+            end: number,
         ): boolean;
         SetExponentialFog(
-            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            density: number,
+            squared?: boolean,
         ): boolean;
         /** Unsigned 32-bit 0xRRGGBBAA. */
         SetClearColor(rgba: number): boolean;
@@ -187,13 +458,20 @@ declare module "engine" {
         /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
         /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
         SetBloom(
-            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+            enabled: boolean,
+            threshold?: number,
+            intensity?: number,
+            radius?: number,
         ): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         SetAmbientOcclusion(
-            enabled: boolean, radius?: number, strength?: number, power?: number,
-            fadeStart?: number, fadeEnd?: number
+            enabled: boolean,
+            radius?: number,
+            strength?: number,
+            power?: number,
+            fadeStart?: number,
+            fadeEnd?: number,
         ): boolean;
     }
     export class Light extends Component {
@@ -206,7 +484,10 @@ declare module "engine" {
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
         SetShadowCascades(
-            count: number, distance: number, splitLambda?: number, blend?: number
+            count: number,
+            distance: number,
+            splitLambda?: number,
+            blend?: number,
         ): boolean;
         SetPoint(range: number): boolean;
         /** Cone half-angles in degrees. */
@@ -251,8 +532,12 @@ declare module "engine" {
         DigSphere(x: number, y: number, z: number, radius: number): boolean;
         FillSphere(x: number, y: number, z: number, radius: number): boolean;
         /** Extract unsupported soil; refuses over-budget work without removing that soil. */
-        CollapseDetached(minSamples: number, maxFragments: number,
-                         fragmentCells?: number, density?: number): boolean;
+        CollapseDetached(
+            minSamples: number,
+            maxFragments: number,
+            fragmentCells?: number,
+            density?: number,
+        ): boolean;
         readonly fragmentCount: number | null;
         Reset(): boolean;
         /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
@@ -290,15 +575,130 @@ declare module "engine" {
         /** Jolt's estimated normal impulse, not the actual solver result (N s). */
         readonly estimatedImpulse: number;
     }
+    export interface PhysicsContactEvent {
+        readonly frame: bigint;
+        readonly step: bigint;
+        readonly phase: "begin" | "stay" | "end";
+        readonly a: PhysicsObject;
+        readonly b: PhysicsObject;
+        /** End events retain the last contact point and normal. */
+        readonly point: Vector3;
+        /** World normal from a to b. */
+        readonly normal: Vector3;
+        readonly isTrigger: boolean;
+    }
+    /** Contact delivered to a subscribed node before Gameplay.Update; all values are snapshots. */
+    export interface PhysicsContact {
+        readonly frame: bigint;
+        readonly step: bigint;
+        readonly phase: "begin" | "stay" | "end";
+        readonly self: PhysicsObject;
+        /** May be invalid on Exit after the other component was disabled or removed. */
+        readonly other: PhysicsObject;
+        readonly point: Vector3;
+        /** World normal from self to other; Exit retains the last contact geometry. */
+        readonly normal: Vector3;
+        readonly isTrigger: boolean;
+    }
     export class Physics {
         private constructor();
         /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
         static GetImpacts(): PhysicsImpact[];
+        /** Last physics tick, ordered by fixed step; read once per frame, not per event. */
+        static GetContacts(): readonly PhysicsContactEvent[];
+        /**
+         * Subscribe to future contacts of this node's active Collider or CharacterMotor instance.
+         * Returns an ID, or 0 on failure. Callbacks must be synchronous; Off cancels immediately.
+         * Disable/removal/replacement of the receiver, scene changes and run shutdown cancel it.
+         * Subscriptions added inside callbacks start with the next physics batch.
+         */
+        static OnCollisionEnter(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnCollisionStay(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnCollisionExit(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerEnter(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerStay(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerExit(node: Node, callback: (contact: PhysicsContact) => void): number;
+        /** Repeated cancellation or an unknown ID returns false. */
+        static Off(subscription: number): boolean;
+        /** All overlapping objects, deduplicated. Null = invalid query; [] = no overlap. */
+        static OverlapSphere(
+            center: Vector3,
+            radius: number,
+            options?: PhysicsQueryOptions,
+        ): readonly PhysicsObject[] | null;
+        /** World-axis-aligned box with positive half extents; same filter as Raycast. */
+        static OverlapBox(
+            center: Vector3,
+            halfExtents: Vector3,
+            options?: PhysicsQueryOptions,
+        ): readonly PhysicsObject[] | null;
+        /** Check component identity and enablement. Historical end-event objects may be invalid. */
+        static IsObjectValid(object: PhysicsObject): boolean;
         /** Sweeps a sphere through the full displacement. 1 = no hit; null = invalid query. */
-        static CastSphere(x: number, y: number, z: number,
-                          dx: number, dy: number, dz: number, radius: number): number | null;
+        static CastSphere(
+            x: number,
+            y: number,
+            z: number,
+            dx: number,
+            dy: number,
+            dz: number,
+            radius: number,
+        ): number | null;
+        /** Closest Collider or CharacterMotor hit through a nonzero world displacement. Null = invalid query. */
+        static Raycast(
+            origin: Vector3,
+            displacement: Vector3,
+            options?: PhysicsQueryOptions,
+        ): PhysicsQueryHit | null;
+        /** Radius must be positive. Hit distance is sphere-center travel; point is on the target. */
+        static SphereCast(
+            origin: Vector3,
+            displacement: Vector3,
+            radius: number,
+            options?: PhysicsQueryOptions,
+        ): PhysicsQueryHit | null;
+        /** Checks physics object lifetime/enablement, not whether the snapshot moved. */
+        static IsHitValid(hit: PhysicsQueryHit): boolean;
     }
-    export interface Vector3 { readonly x: number; readonly y: number; readonly z: number; }
+    export interface Vector2 {
+        readonly x: number;
+        readonly y: number;
+    }
+    export interface Vector3 {
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+    }
+    export interface Ray {
+        readonly origin: Vector3;
+        readonly direction: Vector3;
+    }
+    export interface PhysicsQueryOptions {
+        readonly ignoreNode?: Node | null;
+        /** Defaults to true when ignoring a node. */
+        readonly ignoreDescendants?: boolean;
+        readonly includeStatic?: boolean;
+        readonly includeKinematic?: boolean;
+        readonly includeDynamic?: boolean;
+        /** Defaults to false; other body categories default to true. */
+        readonly includeSensors?: boolean;
+        /** Defaults to true, independently of includeKinematic. */
+        readonly includeCharacters?: boolean;
+    }
+    export interface PhysicsObject {
+        readonly sceneId: bigint;
+        readonly nodeId: bigint;
+        readonly kind: "collider" | "character";
+        readonly instanceId: bigint;
+        readonly node: Node | null;
+    }
+    export interface PhysicsQueryHit extends PhysicsObject {
+        readonly hit: boolean;
+        readonly point: Vector3;
+        readonly normal: Vector3;
+        readonly fraction: number;
+        readonly distance: number;
+    }
     export interface NavigationOptions {
         readonly minimum: Vector3;
         readonly maximum: Vector3;
@@ -309,6 +709,35 @@ declare module "engine" {
         readonly agentRadius?: number;
         readonly agentMaxClimb?: number;
         readonly agentMaxSlope?: number;
+    }
+    export interface NavigationAgentOptions {
+        readonly radius?: number;
+        readonly height?: number;
+        readonly maxSpeed?: number;
+        readonly maxAcceleration?: number;
+        readonly separationWeight?: number;
+        readonly arrivalDistance?: number;
+        readonly faceVelocity?: boolean;
+    }
+    export type NavigationAgentStatus =
+        | "idle"
+        | "pending"
+        | "moving"
+        | "arrived"
+        | "unreachable"
+        | "invalid";
+    /** Available when the optional navigation_crowd runtime plugin is enabled. */
+    export class NavigationAgent extends Component {
+        private constructor();
+        /** Atomically replace configuration; omitted fields use schema defaults. */
+        Configure(options: NavigationAgentOptions): boolean;
+        /** Submit a world-space destination; true does not mean the agent has arrived. */
+        MoveTo(target: Vector3): boolean;
+        /** Cancel this agent's active movement request. */
+        Stop(): boolean;
+        /** All methods validate this component instance, including IsValid and SetEnabled. */
+        readonly state: NavigationAgentStatus | null;
+        readonly velocity: Vector3 | null;
     }
     export class Navigation {
         private constructor();
@@ -327,14 +756,26 @@ declare module "engine" {
     export class DestructionComponent extends Component {
         private constructor();
         /** World-space damage sphere; impulse is in newton-seconds. */
-        DamageSphere(x: number, y: number, z: number, radius: number,
-                     damage: number, impulse?: number): boolean;
+        DamageSphere(
+            x: number,
+            y: number,
+            z: number,
+            radius: number,
+            damage: number,
+            impulse?: number,
+        ): boolean;
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
         OwnsFragment(nodeId: bigint): boolean;
         /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
-        ApplyStress(x: number, y: number, z: number, elasticLimit: number,
-                    fatalLimit: number, iterations: number): number | null;
+        ApplyStress(
+            x: number,
+            y: number,
+            z: number,
+            elasticLimit: number,
+            fatalLimit: number,
+            iterations: number,
+        ): number | null;
         Reset(): boolean;
         readonly ready: boolean;
         readonly revision: bigint | null;
@@ -387,6 +828,21 @@ declare module "engine" {
         /** Accepted only while grounded, consumed at the next physics step. */
         Jump(speed: number): boolean;
         readonly grounded: boolean;
+    }
+    /** Available when the optional character_controller runtime plugin is enabled. */
+    export class CharacterController extends Component {
+        private constructor();
+        /** Caller supplies movement, look delta and one-shot jump/view intents explicitly. */
+        SetInput(
+            moveX: number,
+            moveY: number,
+            lookX: number,
+            lookY: number,
+            jump: boolean,
+            toggleView: boolean,
+        ): boolean;
+        /** Cancel this controller's input and its driven motor's movement/jump; preserve external velocity. */
+        ClearInput(): boolean;
     }
     export class AudioSource extends Component {
         private constructor();

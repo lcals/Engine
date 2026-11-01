@@ -17,7 +17,7 @@ bool MaterialResourceCodec::valid_shape(const schema::MaterialDataT& data)
     if (!valid_path(data.type_path) || !valid_path(data.shader_path) || data.schema_version != 1 ||
         (data.cull_mode != schema::CullMode::back && data.cull_mode != schema::CullMode::front &&
          data.cull_mode != schema::CullMode::none) ||
-        (data.type_path.starts_with("builtin/") && data.shader_path.starts_with("project/")))
+        (data.type_path.starts_with("builtin://") && !data.shader_path.starts_with("builtin://")))
     {
         return false;
     }
@@ -44,8 +44,8 @@ bool MaterialResourceCodec::valid_shape(const schema::MaterialDataT& data)
     {
         if (!texture || texture->name.empty() || texture->name.find('\0') != std::string::npos ||
             !names.insert(texture->name).second || !valid_path(texture->texture_path) ||
-            (data.type_path.starts_with("builtin/") &&
-             !texture->texture_path.starts_with("builtin/")))
+            (data.type_path.starts_with("builtin://") &&
+             !texture->texture_path.starts_with("builtin://")))
         {
             return false;
         }
@@ -89,7 +89,7 @@ bool MaterialResourceCodec::decode(const ResourceCatalog& catalog, ByteView payl
 {
     const auto& entry = output.info();
     std::unique_ptr<schema::MaterialDataT> data;
-    if (entry.path.starts_with("builtin/"))
+    if (entry.path.starts_with("builtin://") && !entry.location)
     {
         const auto* builtin = ResourceSystem::find_material(entry.path);
         if (!builtin)
@@ -108,7 +108,7 @@ bool MaterialResourceCodec::decode(const ResourceCatalog& catalog, ByteView payl
         }
         data = schema::UnPackMaterialData(bytes);
     }
-    if (entry.path.starts_with("builtin/"))
+    if (entry.path.starts_with("builtin://") && !entry.location)
     {
         if (entry.dependencies.empty())
         {

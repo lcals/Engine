@@ -312,13 +312,13 @@ bool run(const fs::path& root)
     const Json material_type = {{"sceneId", id},
                                 {"nodeId", std::to_string(first->id())},
                                 {"slot", 1},
-                                {"path", "builtin/materials/default-unlit"}};
+                                {"path", "builtin://materials/default-unlit"}};
     float restored_roughness = 0;
     if (!expect(execute("set_material_type", material_type) &&
-                    renderer->material(1)->type_path() == "builtin/materials/default-unlit",
+                    renderer->material(1)->type_path() == "builtin://materials/default-unlit",
                 "switch material resource", error) ||
         !expect(execute("undo", identity) &&
-                    renderer->material(1)->type_path() == "builtin/materials/default-pbr" &&
+                    renderer->material(1)->type_path() == "builtin://materials/default-pbr" &&
                     renderer->material(1)->cull_mode() == schema::CullMode::none &&
                     renderer->material(1)->get_float("roughness", restored_roughness) &&
                     restored_roughness == 0.75F,
@@ -347,7 +347,7 @@ bool run(const fs::path& root)
     if (!expect(execute("save_scene", save) && result["nodeCount"] == 4 &&
                     result["importRequired"] == true && result["resourceCount"] == 4 &&
                     export_count == 2 && commands.undo_count() == history && save_count == 1 &&
-                    saved_path == "project/scenes/room.scene" && changed_resource_count == 4,
+                    saved_path == "scenes/room.scene" && changed_resource_count == 4,
                 "save full scene without changing live state or undo history", error) ||
         !expect(!execute("save_scene", {{"sceneId", id}, {"path", "../escape.scene"}}),
                 "reject traversal", error) ||
@@ -491,7 +491,7 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    scene = world.load_scene("project/scenes/room.scene");
+    scene = world.load_scene("scenes/room.scene");
     if (!expect(scene && scene->nodes().size() == 4 && scene->active_camera() &&
                     scene->active_camera()->node().name() == "Eye",
                 "reload complete scene"))
@@ -537,7 +537,7 @@ bool run(const fs::path& root)
         return false;
     }
     // 切回资源引用，避免建模撤销保留的瞬态网格影响普通加载场景的回归。
-    if (!expect(renderer->set_mesh("project/scenes/room-resources/meshes/node-" +
+    if (!expect(renderer->set_mesh("scenes/room-resources/meshes/node-" +
                                    std::to_string(first->info().id) + ".mesh"),
                 "restore imported mesh resource after modeling round trip"))
     {
@@ -558,7 +558,7 @@ bool run(const fs::path& root)
     }
     const std::string original_material_path(renderer->material(1)->type_path());
     const auto original_material_source =
-        root / "assets" / PathUtils::from_utf8(original_material_path.substr(8));
+        root / "assets" / PathUtils::from_utf8(original_material_path);
     std::string original_material;
     if (!ResourceSystem::read_text(original_material_source, original_material))
     {

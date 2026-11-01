@@ -28,29 +28,27 @@
 
 ## 项目打包清单
 
-打包清单位于项目 `settings/`，使用 TOML。清单描述目标平台、输出位置和一个或多个有名字的构建项。示例项目提供宿主清单 `settings/resource-build.toml` 和 Android 清单 `settings/resource-build-android.toml`。
+项目只维护一份可选的 `settings/resource-build.toml`，各平台共用。它描述项目实际使用的资源入口，不需要填写安装目录、APK 路径或引擎内置资源清单；平台由构建调用选择，导出工具负责部署到统一内置资源根。
 
 ```toml
-target_platform = "android"
-output = "cache/build/minimal-android"
-
 [[items]]
 name = "game"
 storage = "package"
-roots = ["project/scripts/game.ts", "project/scenes/main.scene"]
+roots = ["scripts/game.ts", "scenes/main.scene"]
 keep = []
 ```
 
-`target_platform` 支持 `macos/ios/windows/android/linux`，空字符串使用宿主平台。`output` 必须是项目 `cache/build/` 下的专用输出目录，不能覆盖导入缓存。构建项名称只使用小写字母、数字、连字符或下划线。未知字段、重复名称、越界路径和项目子路径中的符号链接均拒绝。
+- 清单文件不存在、没有 `items` 或 `items = []` 时，构建全部项目目录资源；默认以一个 `game` 合并包输出。这里的全量指经过导入的资源实体，不是复制项目的 `assets/`、`settings/` 和 `cache/` 源目录。
+- 显式 `[[items]]` 必须写 `roots` 数组。`roots = []` 表示有意不选择该项的项目入口；仍可用 `keep` 选择动态资源。空项目集合不会移除引擎必需的内置资源基线。
+- 普通资源逻辑路径相对项目资源根，例如 `scenes/main.scene`；不带 `project/`。`builtin://` 是引擎保留域，`editor://` 仅属于编辑器，不能作为运行构建入口。
+- `roots` 是入口；`keep` 补充无法静态发现的动态加载资源。两者均递归包含真实运行依赖，不需手写每张间接贴图、每个材质或 Shader。
+- `storage = "files"` 保持 `gen/<完整GUID>` 散文件；`storage = "package"` 按 GUID 排序串联完整 `ERS1` 实体，输出为 `packs/<构建项名>-<指纹>`，无后缀。catalog 记录实体的包内偏移和长度，不增加包内目录。
 
-- **入口资源**：按项目逻辑路径声明，例如启动场景或 Gameplay 脚本；构建时转换为 GUID。
-- **保留资源**：代码通过动态路径选择、无法静态推导的资源必须显式列入，不能假设字符串拼接能被依赖分析发现。
-- **独立文件**：保持 `gen/<完整GUID>` 的资源文件形式，无扩展名。
-- **合并包**：按 GUID 排序串联完整 `ERS1` 资源实体，输出为 `packs/<构建项名>-<指纹>`，无后缀。运行清单记录每个实体的包内偏移和长度；不再维护一份包内目录。
+构建项名称只使用小写字母、数字、连字符或下划线；`builtin` 保留给引擎。未知字段、重复名称、错误类型、越界路径和项目子路径中的符号链接均拒绝。清单不接受 `target_platform`；平台只由调用参数指定，支持 `macos/ios/windows/android/linux`，省略时采用宿主平台。默认输出 `cache/build/<platform>`；高级配置可选 `output = "cache/build/<专用目录>"`，不能覆盖导入缓存或内置 Shader 工具缓存。
 
-一次 `build()` 可以选择一个或多个构建项；未指定名称时构建清单中的全部项。未知项、重复选择、缺失入口和不兼容的输出配置返回失败。所选项共同生成一份精简 `catalog.bin`，同一 GUID 只出现一次。同种存储方式的共享依赖归名称排序最前的选中项，不重复写入；同一资源同时要求独立文件和合并包时明确报错。
+一次 `build()` 可以选择一个或多个构建项；未指定名称时选择清单中的全部项。无已配置构建项时不能按名称选择。未知项、重复选择、缺失入口和不兼容的存储配置返回失败。所选项共同生成一份 `catalog.bin`，同一 GUID 只出现一次。同种存储方式的共享项目依赖归名称排序最前的选中项；同一项目资源同时要求散文件与合并包时明确报错。
 
-目标平台和输出配置来自打包清单，MCP 不维护第二套配置。打包不把 SQLite、源 meta 或项目设置放入运行包。
+业务只使用逻辑资源名；Windows 的程序旁 `assets/` 和 Android 的 APK `assets/` 都是宿主映射的内置内容根。`gen/`、`packs/` 和平台部署位置由构建与导出工具维护，不进入业务引用。打包不携带 SQLite、源 meta、项目设置或仅编辑器资源。
 
 ## 两种依赖
 
@@ -58,13 +56,17 @@ keep = []
 
 **运行依赖**用于决定运行时必须携带什么，例如场景引用 Mesh 和材质、材质引用 Shader、脚本模块引用其他运行模块。构建项从入口和保留项出发，沿运行依赖递归计算闭包；每个 GUID 只处理一次。缺失依赖或目标平台不匹配时构建失败。
 
-`builtin/` 固定 GUID 资源同样参与依赖解析与校验。当前引擎将五个内置资源编入目标平台程序，由共享 `builtin_resource_catalog()` / `builtin_resource_info()` 提供身份、类型和必要依赖。项目清单保留对它们的依赖，不复制宿主 GPU 字节到其他平台，不为内置资源创建项目 meta；未知内置 GUID 直接失败。独立内置目录或内置包尚未实现。
+`builtin://` 固定 GUID 资源同样参与依赖解析与校验。每次运行构建自动携带当前 11 项引擎基线（默认 Shader、材质、立方体和占位纹理），写为独立 `packs/builtin-<指纹>`，用户不维护其名单。身份和依赖来自 `builtin_resource_catalog()`；载荷由与启动备用定义共用的 `builtin_resource_payload()` 构造。它们不生成项目源文件或 meta，也不允许项目占用固定 GUID 或保留域。
+
+内置 Shader 使用随编辑器部署的 shaderc、bgfx include 和引擎 Shader 源码，按目标平台重新编译：Windows 为 `s_5_0`、macOS/iOS 为 Metal、Android/Linux 为 SPIR-V。不能把宿主编入的 DirectX 字节码复制到 Android。工具和源数据指纹、输出摘要校验后的编译缓存位于 `cache/build/.builtin-shaders/`，未变化时复用；正式运行实体仍只进入统一 catalog 与内置包。
+
+无项目或未提交外置内置条目时，引擎保留编入程序的启动备用定义；运行包中已有定位的内置条目必须从所选资源根读取、校验并解码，缺失或损坏不能回退到编入定义。项目资源可以引用引擎内置资源，内置定义不能反向依赖项目资源。
 
 两种依赖分别记录在 SQLite 的 `dependencies` 与 `runtime_dependencies` 表中。Shader 源码和 include 只属于构建依赖；TS 根据实际生成的 JS import / export 和字面量动态 import 记录运行模块依赖，类型导入不进入运行图。非字面量动态路径仍需显式入口或保留项。普通图片、文本等资源仍在完整编辑器目录中，可通过 `roots` / `keep` 选入运行包。
 
 ## 增量构建与发布
 
-运行中的编辑器项目必须先由调用方执行停止操作；导入和构建不会自动停止或重启项目。资源管线在项目锁内探测 `cache/editor-hosts/` 中的会话 OS 租约；活宿主只有匹配会话的 idle/closed 状态允许覆盖，启动中、运行中、停止中、状态缺失或损坏均拒绝。心跳过期不影响保护，进程退出自动释放租约，残留登记不阻塞导入。编辑器停止并释放使用者后才能导入、发布，再直接调用 `update_catalog(data, mounts)`；清单更新失败时保持项目停止。
+运行中的编辑器项目必须先由调用方执行停止操作；导入和构建不会自动停止或重启项目。资源管线在项目锁内探测 `cache/editor-hosts/` 中的会话 OS 租约；活宿主通常要求匹配会话的 idle/closed 状态。本进程编辑器协调线程还可在 preview 下同步增量导入，但必须同时验证 running=false、App 已初始化、持久目录一致且 App 内置资源目录对应本项目 cache；外部工具不能借其他宿主的 preview 状态覆盖缓存。启动中、运行中、停止中、状态缺失或损坏均拒绝。心跳过期不影响保护，进程退出自动释放租约，残留登记不阻塞导入。调用方暂停使用相关资源、导入并发布后，直接调用 `update_catalog(data, mounts)`；运行项目的重新部署仍须先停止，清单更新失败保持停止。完整保护契约见[资源管线类图](../../editor/class-diagrams/asset-pipeline-system.md)。
 
 1. 资源管线扫描项目，并为目标平台完成必要的增量导入。继续复用 SQLite 记录和未变化的 `cache/gen/<完整GUID>`。
 2. 构建系统解析所选构建项，计算运行依赖闭包并确定存储布局。全量编辑器目录与精简运行清单分别生成，不能用精简清单缩减编辑器可见的资源。
@@ -74,12 +76,12 @@ keep = []
 
 发布后 `last_build()` 记录本次成功结果与输出根目录；失败通过 `false` 和 `last_error()` 返回，并保留上一份成功统计。输出先在同级暂存目录完整校验，再交换正式目录；失败保留上一份运行输出，进程中断后可恢复备份。已成功提交的导入缓存可保留供下一次复用，打包失败不回滚这笔独立导入事务。
 
-`cache/gen/` 只有一份当前目标的产物，不增加平台子目录。异平台构建后不能把该目录提交给宿主运行时；恢复编辑器项目时先重新导入宿主目标，再更新核心目录并启动。不同清单可指定不同的发布目录保留运行包，它们不构成第二套导入缓存。
+`cache/gen/` 只有一份当前目标的产物，不增加平台子目录。异平台构建后不能把该目录提交给宿主运行时；恢复编辑器项目时先重新导入宿主目标，再更新核心目录并启动。同一份配置由平台调用生成各自 `cache/build/<platform>` 发布目录，仍不构成第二套导入缓存；高级自定义输出由调用方避免跨平台覆盖。
 
 ## 工具入口
 
-`build_resources(manifest, items?)` 的 `manifest` 指向当前项目 `settings/` 内的打包清单，`items` 为可选构建项名称列表。当前项目身份沿用编辑器会话；目标平台、资源选择和输出位置读取清单。MCP 调用 `AssetBuildSystem.build()`，返回成功状态、构建统计或错误说明，不实现第二套算法。
+`build_resources(manifest?, items?, targetPlatform?)` 使用当前项目；省略 `manifest` 时读取固定 `settings/resource-build.toml`，缺失则全量。可选 `targetPlatform` 决定平台，省略时采用宿主；`items` 为可选构建项名称。MCP 调用 `AssetBuildSystem.build(project_root, manifest, items, target_platform)`，返回成功状态、构建统计或错误说明，不另建配置或算法。
 
-命令行使用 `asset_build_app --project <项目根目录> --manifest settings/resource-build.toml [--item game]`。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`；错误写入标准错误。未指定 `--manifest` 时保留 `--target` 的纯导入方式，两种模式不能混用目标参数。完整构建与调用命令统一见 [README](../../../README.md)。
+命令行使用 `asset_build_app --project <项目根目录> --package [--manifest settings/resource-build.toml] [--item game] [--target android]`；`--manifest` 本身也选择打包模式。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`，资源和包统计包含自动内置基线；错误写入标准错误。未指定 `--package` 和 `--manifest` 时执行独立的纯导入操作，`--target` 同样适用。完整构建与调用命令见 [README](../../../README.md)。
 
 真机同步消费这份运行清单及其引用的独立文件和包，不在同步工具中重新计算资源集合。

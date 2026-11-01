@@ -25,7 +25,7 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 编辑器复用同一个 SDL3 窗口。待机时清屏；启动项目后读取世界系统的活动场景，通过活动 Camera 绘制节点上的 MeshRenderer；停止后释放场景和项目 GPU 资源，恢复空白帧。窗口和共享图形设备保留到宿主关闭。
 
-可见物体、相机和光源全部以 `Node + Component` 表达。渲染器不创建隐含的相机、灯光或物体，也不持有跨帧组件指针。一个场景选择一个活动相机，累加最多 64 个启用的方向光、点光或聚光；超出数量返回失败。没有活动相机或启用的 MeshRenderer 时显示空白；没有 Light 时 PBR 不获得直接照明，无光照材质仍可显示。
+可见物体、相机和光源全部以 `Node + Component` 表达。渲染器不创建隐含的相机、灯光或物体，也不持有跨帧组件指针。一个场景选择一个活动相机，累加最多 64 个启用的方向光、点光或聚光；超出数量返回失败。场景绘制要求有效的观察相机，可绘制来源包括启用的 MeshRenderer、3D 文字及渲染扩展；UI 独立绘制，不能以没有网格判断整个窗口为空白。没有 Light 时 PBR 不获得直接照明，无光照材质仍可显示。
 
 调用方可向 `prepare_scene(camera)` 和 `render(camera)` 显式提交借用镜头，替代本次绘制使用的活动相机。该镜头可以属于调用方独立场景，渲染器不持有它、不改写项目场景数据；未传入时继续使用项目活动镜头。编辑器预览使用独立的隐藏镜头，后处理仍读取项目场景活动相机的 `PostProcessComponent`，不将预览视角保存到场景。
 
@@ -33,9 +33,11 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 ## 网格、材质与 Shader
 
-网格由独立资源提供位置、法线、UV0、切线、顶点色和索引；子网格索引范围关联材质槽。动态网格通过 `set_mesh_data` 提交生成模型的深拷贝，修订号变化时更新 GPU。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过目录中的唯一逻辑路径定位并按需加载，路径以 `builtin/` 或 `project/` 区分来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
+网格由独立资源提供位置、法线、UV0、切线、顶点色和索引；子网格索引范围关联材质槽。动态网格通过 `set_mesh_data` 提交生成模型的深拷贝，修订号变化时更新 GPU。示例 `.mesh` 中的方块有 24 个顶点、36 个索引，每面使用独立顶点；运行时从导入二进制建立 GPU 缓冲。材质和 Shader 通过目录中的唯一逻辑路径定位并按需加载，项目路径直接相对资源根，内置路径以 `builtin://` 标识来源。项目材质可复用内置 Shader，内置定义不引用项目资源。
 
-动画等逐帧变形通过 `MeshRenderer::set_deformation` 提交瞬态位置、法线及切线，保留源网格和全部材质槽。渲染器参考 bgfx `35-dynamic` 建立独立动态 VB，变形修订变化时只更新顶点，不重建静态索引缓冲；清除变形恢复源 VB 并释放动态 VB。光照与阴影读取同一份顶点输出，阴影包围盒随变形更新。UV、颜色、索引及子网格范围继续读取源资源；渲染器不执行骨架采样或读取 FBX。
+骨骼动画通过 `MeshRenderer::set_skinning_palette` 提交矩阵，由渲染 compute 生成实例顶点流；主画面、AO 与阴影共用输出，包围盒按骨骼影响更新，详见[GPU 蒙皮与共享几何](#gpu-蒙皮与共享几何)。渲染器不执行骨架采样或读取 FBX。
+
+调用方仍可通过 `MeshRenderer::set_deformation` 直接覆写位置、法线及切线，与 palette 路径互斥。此路径参考 bgfx `35-dynamic` 建立独立动态 VB，变形修订变化时只更新顶点，不重建静态索引缓冲；清除变形恢复源 VB 并释放实例输出。两条路径均保留源网格、材质槽、UV、颜色、索引及子网格范围，全部场景通道读取相同的实例顶点和更新后边界。
 
 材质实例以名字和数值类型匹配参数，支持 `SetFloat`、`SetV2`、`SetV3`、`SetV4` 与具名 `SetTexture`；未知路径、参数或类型及非法数值返回失败并保留原值。内置材质提供无光照、PBR 和 Blinn–Phong。PBR 采用 Cook–Torrance 模型中的 GGX 分布、相关 Smith 可见性和 Schlick Fresnel，支持基础色、切线空间法线及 ORM（AO、粗糙度、金属度）贴图，颜色纹理由 sRGB 解码至线性空间。受光照材质叠加直接光、环境光与启用的 IBL；无光照材质不计算这些照明。HDR 关闭时，受光照材质在表面 Shader 内执行曝光、Reinhard 或可选 ACES 色调映射，无光照材质跳过这两步，再各自近似 gamma 编码输出到 SDR。HDR 开启时，全部场景材质先输出线性 RGBA16F，最后统一执行曝光、色调映射和 gamma 编码；最终屏幕仍为 SDR。
 
@@ -45,7 +47,7 @@ CSM、AO、HDR、Bloom 和 IBL 在各平台使用同一套通道与 Shader 源�
 
 内置 PBR 的 `specularWorkflow = 1` 启用反射色工作流：`specularColor`（v3）乘 `specularTexture.rgb` 得到线性反射色，粗糙度来自 `1 - smoothness * specularTexture.a`；默认 0 仍走原有 metallic/roughness 与 ORM。SpecGloss 纹理的颜色通道按资源 sRGB 配置解码，alpha 保持线性。`normalScale`（0..8，默认 1）缩放切线空间法线的 XY。`uvTransform`（v4，默认 1,1,0,0）给所有表面纹理提供 scale.xy/offset.zw，阴影裁切使用同一变换；自定义 Shader 缺少该参数时阴影使用原始 UV。
 
-`builtin/shaders/blinn-phong` 提供 Lambert 漫反射与 Blinn–Phong 高光，默认材质为 `builtin/materials/default-blinn-phong`；仍使用基础色、法线、SpecGloss 与发光的命名参数。直接光高光颜色为 `specularColor * specularTexture.rgb`，指数为 `2^(10*smoothness+1)`，不执行 PBR 的能量扣减与漫反射除 π。直接光响应适配 bgfx `18-ibl/fs_ibl_mesh.sc` 的 Lambert、半程向量幂函数与光滑度指数映射；为经验型材质移除其高光归一化、额外 N·L 与 Fresnel，并将指数偏置设为 1。环境照明复用本引擎的 GGX split-sum IBL 路径，不等同于该范例的完整材质模型。
+`builtin://shaders/blinn-phong` 提供 Lambert 漫反射与 Blinn–Phong 高光，默认材质为 `builtin://materials/default-blinn-phong`；仍使用基础色、法线、SpecGloss 与发光的命名参数。直接光高光颜色为 `specularColor * specularTexture.rgb`，指数为 `2^(10*smoothness+1)`，不执行 PBR 的能量扣减与漫反射除 π。直接光响应适配 bgfx `18-ibl/fs_ibl_mesh.sc` 的 Lambert、半程向量幂函数与光滑度指数映射；为经验型材质移除其高光归一化、额外 N·L 与 Fresnel，并将指数偏置设为 1。环境照明复用本引擎的 GGX split-sum IBL 路径，不等同于该范例的完整材质模型。
 
 PBR 反射色流程与 Blinn–Phong 的 `smoothnessSource` 默认 0，光滑度为 `smoothness * specularTexture.a`；设为 1 时直接使用 `baseColorTexture.a * baseColor.a`，不再次乘 smoothness 或顶点 alpha。两个有光照 Shader 的 `specularHighlights` 默认 1，设为 0 关闭直接高光。参数仍由 Shader 资源声明与验证，核心 Material 没有专用字段或算法枚举。
 
@@ -141,7 +143,7 @@ Android 在 Surface 暂停或销毁前由宿主请求关闭渲染器并等待确
 
 ## 能力范围
 
-支持不透明与 alpha 裁切网格、双面材质、一个活动相机、多材质、基础多光源、一个方向光的 1/2/4 级阴影、常量/三色环境光、IBL、屏幕空间 AO、雾、曝光和色调映射，以及可选线性 HDR 场景合成与 Bloom，最终输出 SDR。尚未实现 HDR 显示器输出、自动曝光、局部光源阴影、场景几何反射探针、Lightmap、透明混合与排序、GPU 蒙皮、渲染图或大规模可见性管理。材质 alpha 仅用于明确启用的裁切，不参与混合。
+支持不透明与 alpha 裁切网格、双面材质、一个活动相机、多材质、基础多光源、一个方向光的 1/2/4 级阴影、常量/三色环境光、IBL、屏幕空间 AO、GPU compute 蒙皮、雾、曝光和色调映射，以及可选线性 HDR 场景合成与 Bloom，最终输出 SDR。尚未实现 HDR 显示器输出、自动曝光、局部光源阴影、场景几何反射探针、Lightmap、透明混合与排序、渲染图或大规模可见性管理。材质 alpha 仅用于明确启用的裁切，不参与混合。
 
 窗口测试覆盖真实后端、空白帧、无光照/PBR 提交、缩放、重复启停、场景替换及延迟回收后 GPU 对象回到待机基线。GPU 测试读取实际截图像素检查 UV、sRGB/线性、动态几何、多灯累加与阴影差异，并验证 PNG 签名、异步截图回执和写入失败。实际执行范围见根 README；软件 Vulkan 验证不代表真机 GPU 性能。
 

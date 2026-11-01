@@ -353,7 +353,7 @@ def courtyard_plan():
 
 
 def material_paths(path):
-    paths = {role: f"project/materials/courtyard-{role}.material" for role in MATERIAL_ROLES}
+    paths = {role: f"materials/courtyard-{role}.material" for role in MATERIAL_ROLES}
     if path is not None:
         supplied = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(supplied, dict) or set(supplied) - set(MATERIAL_ROLES):
@@ -362,7 +362,7 @@ def material_paths(path):
     for role, value in paths.items():
         if (
             not isinstance(value, str)
-            or not value.startswith("project/")
+            or not value.startswith("")
             or ".." in value.split("/")
         ):
             raise RuntimeError(f"材质 {role} 必须指向项目资源路径")

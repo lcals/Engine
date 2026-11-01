@@ -24,6 +24,9 @@
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+#include "plugins/editor/navigation_crowd/navigation_agent_codec.hpp"
+#endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_commands.hpp"
 #endif
@@ -138,12 +141,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                        engine::UiSystem& ui,
-                        engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::UiSystem& ui, engine::PhysicsSystem& physics,
+                        engine::NavigationSystem& navigation,
+                        engine::InputSystem& input) -> std::unique_ptr<engine::ScriptRuntime>
     {
-        return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui,
-                                                                       &physics, &navigation);
+        return std::make_unique<engine::plugins::script::ScriptSystem>(
+            &world, &renderer, &ui, &physics, &navigation, &input);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
@@ -171,6 +174,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         if (!engine::plugins::character_controller::register_controller_codec())
         {
             std::fputs("Cannot register character controller scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+        if (!engine::plugins::navigation_crowd::register_navigation_agent_codec())
+        {
+            std::fputs("Cannot register navigation agent scene codec\n", stderr);
             return 1;
         }
 #endif
@@ -295,7 +305,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
         preview = std::make_unique<engine::editor::ScenePreview>(
             environment, *runtime.gameplay(), *runtime.world(), *runtime.renderer(),
-            *runtime.window(), project_root, std::move(import));
+            *runtime.input(), project_root, std::move(import));
         if (!preview->initialize(config))
         {
             LogSystem::write(LogLevel::error, preview->last_error());
@@ -469,12 +479,12 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             auto status = engine::FrameStatus::running;
             if (preview->active())
             {
-                auto& window = *runtime.window();
-                if (!window.tick(delta_time))
+                status = runtime.poll_events(delta_time);
+                if (status == engine::FrameStatus::failed)
                 {
                     status = engine::FrameStatus::failed;
                 }
-                else if (window.exit_requested())
+                else if (status == engine::FrameStatus::exit_requested)
                 {
                     status = engine::FrameStatus::exit_requested;
                 }
@@ -483,7 +493,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                     LogSystem::write(LogLevel::error, preview->last_error());
                     status = engine::FrameStatus::failed;
                 }
-                else if (!window.can_render())
+                else if (status == engine::FrameStatus::paused)
                 {
                     status = engine::FrameStatus::paused;
                 }
@@ -578,8 +588,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             }
 #if defined(ENGINE_ENABLE_TRACY)
             ENGINE_PROFILE_PLOT("Host work ms",
-                (std::chrono::duration<double, std::milli>(
-                    std::chrono::steady_clock::now() - profile_frame_begin).count()));
+                                (std::chrono::duration<double, std::milli>(
+                                     std::chrono::steady_clock::now() - profile_frame_begin)
+                                     .count()));
 #endif
             {
                 ENGINE_PROFILE_ZONE("Host.frame_limit_wait");

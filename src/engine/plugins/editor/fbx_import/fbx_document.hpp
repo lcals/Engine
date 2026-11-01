@@ -21,6 +21,15 @@ struct SceneDeleter
     void operator()(ufbx_scene* scene) const noexcept;
 };
 
+struct AnimationMotionSettings
+{
+    std::string joint;
+    std::array<bool, 3> position{true, false, true};
+    std::array<bool, 3> rotation{};
+
+    bool operator==(const AnimationMotionSettings&) const = default;
+};
+
 struct FbxDocument
 {
     std::unique_ptr<ufbx_scene, SceneDeleter> scene;
@@ -36,6 +45,7 @@ struct FbxDocument
     double sample_rate = 30.0;
     double scale_factor = 1.0;
     std::array<double, 3> rotation_offset{};
+    std::map<std::string, AnimationMotionSettings> animation_motion;
 };
 
 [[nodiscard]] bool load_document(const std::filesystem::path& path, FbxDocument& document,
@@ -49,5 +59,8 @@ struct FbxDocument
 [[nodiscard]] bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
                                      const ufbx_anim_stack& stack, schema::AnimationDataT& output,
                                      std::string& error);
+[[nodiscard]] bool apply_animation_motion(const FbxDocument& source, const FbxDocument& skeleton,
+                                          const ufbx_anim_stack& stack,
+                                          schema::AnimationDataT& animation, std::string& error);
 [[nodiscard]] std::vector<float> matrix_values(const ufbx_matrix& matrix);
 } // namespace engine::plugins::fbx_import

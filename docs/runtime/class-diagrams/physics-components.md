@@ -13,6 +13,7 @@ classDiagram
         +set_settings(const ColliderDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +build_data(ComponentDataT& output) const bool
+        +instance_id() const uint64_t
         +mesh_data() const MeshDataT*
         +set_mesh(string_view path) bool
         +mesh_path() const string_view
@@ -59,6 +60,8 @@ classDiagram
 ```
 
 设置失败保持已有数据。冲量只接受启用的动态刚体；静态刚体拒绝非零速度。`valid_settings` 可由编辑器导入器复用。所有尺寸、质量和速度必须有限并处于校验范围；瞬态冲量不进入持久数据。
+
+`Collider::instance_id()` 是组件只读且不复用的进程内身份，不进入 FlatBuffers 持久数据。物理快照保留此身份；同节点移除并重新添加 Collider 后，未清理的旧物理体不能被查询当成新组件。最近命中结果结合场景、节点与此身份检查有效性，位置或设置变化不创建新实例身份。
 
 `ColliderShape::mesh` 以 `ColliderDataT::mesh_guid` 引用独立 Mesh 资源，不依赖同节点的 MeshRenderer。`set_mesh(path)` 选择静态三角网格并同步加载资源，路径不存在或类型错误时保持旧设置；`mesh_path()` 返回当前持有网格的逻辑路径。切回基本形状须清空 mesh_guid 并释放引用。网格仅允许无 RigidBody 或 static_body；Collider 和 RigidBody 两端的设置操作都拒绝动态、运动学组合，物理同步再次校验。网格是资源中的静态顶点，不随蒙皮动画变形。
 

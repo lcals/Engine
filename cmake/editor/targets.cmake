@@ -42,6 +42,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 engine::resource
                 engine::world
                 engine::window
+                engine::input
                 imgui::imgui
                 SDL3::SDL3)
     target_compile_definitions(engine_editor PUBLIC JSON_NOEXCEPTION=1)

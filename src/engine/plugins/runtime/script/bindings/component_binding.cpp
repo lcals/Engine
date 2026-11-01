@@ -12,10 +12,13 @@ export class Component {
     constructor(token, scene, node, kind) { attach(this, token, scene, node, kind); }
     get node() { const h = handles.get(this); return new Node(key, h.scene, h.node); }
     IsValid() {
-        const h = handles.get(this); return native.ComponentValid(h.scene, h.node, h.kind);
+        const h = handles.get(this);
+        return h.validate === undefined ? native.ComponentValid(h.scene, h.node, h.kind) : h.validate();
     }
     SetEnabled(enabled) {
-        const h = handles.get(this); return native.ComponentEnabled(h.scene, h.node, h.kind, enabled);
+        const h = handles.get(this);
+        if (h.validate !== undefined && !h.validate()) return false;
+        return native.ComponentEnabled(h.scene, h.node, h.kind, enabled);
     }
 }
 Object.freeze(Component.prototype);

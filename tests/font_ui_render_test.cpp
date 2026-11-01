@@ -37,7 +37,7 @@ namespace
 namespace fs = std::filesystem;
 constexpr double delta_time = 1.0 / 60.0;
 constexpr int maximum_attempts = 200;
-constexpr std::string_view custom_shader = "project/shaders/font-custom.shader";
+constexpr std::string_view custom_shader = "shaders/font-custom.shader";
 constexpr std::string_view red_texture_guid = "d7b89356-7bf5-48dd-b22a-8eb869387657";
 constexpr std::string_view blue_texture_guid = "9b3bdf74-8e8c-4c7a-a537-6bd26686f71b";
 
@@ -174,10 +174,10 @@ bool prepare_images(const fs::path& project)
         return false;
     }
     settings.replace(at, std::string_view("textures = []").size(),
-                     "textures = [\"project/textures/red.png\", \"project/textures/blue.png\"]");
+                     "textures = [\"textures/red.png\", \"textures/blue.png\"]");
     document.insert(body,
                     "<div style=\"display: block; position: absolute; right: 8px; top: 8px;\">"
-                    "<img src=\"project/textures/red.png\" width=\"24\" height=\"24\"/>"
+                    "<img src=\"textures/red.png\" width=\"24\" height=\"24\"/>"
                     "<img src=\"" +
                         std::string(blue_texture_guid) + "\" width=\"24\" height=\"24\"/></div>\n");
     return write_text(meta, settings) && write_text(markup, document);
@@ -207,9 +207,9 @@ bool prepare_multiple_documents(const fs::path& project)
         const auto metadata =
             "guid = \"" + std::string(guids[index]) +
             "\"\nimporter = \"ui\"\nmeta_version = 1\n[ui]\ntextures = []\n"
-            "[[ui.fonts]]\nfamily = \"shared\"\nasset = \"project/fonts/" +
+            "[[ui.fonts]]\nfamily = \"shared\"\nasset = \"fonts/" +
             (index == 0 ? "lato-regular.ttf" : "lato-bold.ttf") + "\"\nshader = \"" +
-            (index == 0 ? "builtin/shaders/font" : std::string(custom_shader)) + "\"\n";
+            (index == 0 ? "builtin://shaders/font" : std::string(custom_shader)) + "\"\n";
         auto meta = path;
         meta += ".meta";
         if (!write_text(path, markup) || !write_text(meta, metadata))
@@ -467,7 +467,7 @@ private:
 bool document_generations(Systems& systems, const fs::path& project, const GpuCounts& idle)
 {
     TrackedLoader tracked(systems.resources);
-    auto* scene = systems.world.load_scene("project/scenes/launcher.scene");
+    auto* scene = systems.world.load_scene("scenes/launcher.scene");
     if (!expect(scene != nullptr, "load the first view for document generation isolation"))
     {
         return false;
@@ -476,7 +476,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     auto* stable_node = scene->create_node("Stable view");
     auto* stable = stable_node ? stable_node->add_component<engine::UiComponent>() : nullptr;
     engine::UiElementHandle stable_button;
-    if (!expect(original && stable && stable->set_document("project/ui/launcher.rml"),
+    if (!expect(original && stable && stable->set_document("ui/launcher.rml"),
                 "two independent views share a document generation") ||
         !systems.frames() ||
         !expect(systems.ui.find_element(stable_node->id(), "scene-cube", stable_button) &&
@@ -519,7 +519,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
         !expect(systems.resources.update_catalog(systems.pipeline.catalog(),
                                                  {{"content", project / "cache"}}),
                 systems.resources.last_error()) ||
-        !expect(original->set_document("") && original->set_document("project/ui/launcher.rml"),
+        !expect(original->set_document("") && original->set_document("ui/launcher.rml"),
                 "replace one view with the newly published document generation") ||
         !systems.frames())
     {
@@ -669,7 +669,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    text += "\n[[ui.fonts]]\nfamily = \"accent\"\nasset = \"project/fonts/lato-regular.ttf\"\n"
+    text += "\n[[ui.fonts]]\nfamily = \"accent\"\nasset = \"fonts/lato-regular.ttf\"\n"
             "shader = \"" +
             std::string(custom_shader) + "\"\n";
     markup.insert(end, "<div style=\"display: block; position: absolute; left: 56px; bottom: 18px; "
@@ -690,12 +690,12 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
                     systems.resources.load(guid, shader) && shader->shader() != nullptr,
                 "project shader is compiled and loaded through the normal resource pipeline") ||
         !expect(shader->shader()->fragment_code !=
-                    engine::ResourceSystem::find_shader("builtin/shaders/font")->fragment_code,
+                    engine::ResourceSystem::find_shader("builtin://shaders/font")->fragment_code,
                 "project font fragment shader contains visibly different code"))
     {
         return false;
     }
-    auto* scene = systems.world.load_scene("project/scenes/launcher.scene");
+    auto* scene = systems.world.load_scene("scenes/launcher.scene");
     if (!expect(scene != nullptr, "load UI with project font shader"))
     {
         return false;
@@ -711,7 +711,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
                     bindings[1]->family == "heading" && bindings[2]->family == "accent" &&
                     bindings[0]->font_guid == bindings[2]->font_guid &&
                     bindings[0]->font_guid != bindings[1]->font_guid &&
-                    bindings[0]->shader_path == "builtin/shaders/font" &&
+                    bindings[0]->shader_path == "builtin://shaders/font" &&
                     bindings[2]->shader_path == custom_shader,
                 "one UI combines two font resources and two independently bound shaders") ||
         !systems.frames() || !systems.screenshot(screenshots, "launcher-custom-shader.png"))
@@ -723,7 +723,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    scene = systems.world.load_scene("project/scenes/font-gallery.scene");
+    scene = systems.world.load_scene("scenes/font-gallery.scene");
     if (!expect(scene != nullptr, "load 3D font gallery for project shader"))
     {
         return false;
@@ -760,7 +760,7 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     hdr.bloom_intensity = 0.25F;
     engine::UiElementHandle input;
     if (!expect(post_process && post_process->set_settings(hdr) && overlay &&
-                    overlay->set_document("project/ui/lower.rml"),
+                    overlay->set_document("ui/lower.rml"),
                 "enable HDR and Bloom on the active camera with a small overlay document") ||
         !systems.frames() ||
         !expect(systems.ui.document_count() == 1 && systems.fonts.gpu_resource_count() > 0 &&
@@ -876,7 +876,7 @@ bool retain_pointer_capture(Systems& systems, std::uint64_t node_id)
 
 bool multiple_documents(Systems& systems, const fs::path& screenshots, const GpuCounts& idle)
 {
-    auto* scene = systems.world.load_scene("project/scenes/multiple-documents.scene");
+    auto* scene = systems.world.load_scene("scenes/multiple-documents.scene");
     if (!expect(scene != nullptr && scene->nodes().size() == 2,
                 "two independent documents belong to two ordinary nodes") ||
         !systems.frames() ||
@@ -929,7 +929,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
     SDL_Window* const original_window = systems.window.native_window();
     for (int cycle = 0; cycle < 3; ++cycle)
     {
-        auto* scene = systems.world.load_scene("project/scenes/launcher.scene");
+        auto* scene = systems.world.load_scene("scenes/launcher.scene");
         auto* component = scene ? single_ui_component(*scene) : nullptr;
         if (!expect(component != nullptr,
                     "launcher has exactly one ordinary Node with a UI component") ||
@@ -990,7 +990,7 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
         {
             return false;
         }
-        scene = systems.world.load_scene("project/scenes/font-gallery.scene");
+        scene = systems.world.load_scene("scenes/font-gallery.scene");
         if (!expect(scene != nullptr && scene->active_camera() != nullptr &&
                         std::count_if(
                             scene->nodes().begin(), scene->nodes().end(),

@@ -84,11 +84,14 @@ classDiagram
     class RuntimeHost
     class GameplaySession
     class ScriptRuntimeFactory
+    class InputSystem
     class RuntimeSetup
     class PhysicsSystem
     class AudioSystem
     RuntimeHost --> Engine : 借用框架并注册根系统
     RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
+    RuntimeHost "1" *-- "0..1" InputSystem : 独占输入，暂停前更新
+    InputSystem --> WindowSystem : 借用，窗口最后关闭
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
     Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
@@ -102,6 +105,7 @@ classDiagram
     ScriptRuntimeFactory ..> WorldSystem : 参数借用
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
     ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
+    ScriptRuntimeFactory ..> InputSystem : 设备及通道绑定的参数借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -239,7 +243,7 @@ classDiagram
 
 EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件快照，渲染器不另存一份场景覆盖值。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
-领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，完整路径以 builtin/ 或 project/ 区分内置与项目。Scene、MeshRenderer 和 Material 持有实际使用资源的共享引用；MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 只借用仍存活的定义，拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放；共享缓存与必要依赖保活由 ResourceGraphSystem 插件负责，核心没有缓存。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## 物理与音频引用
 
@@ -403,6 +407,10 @@ classDiagram
         <<script binding>>
     }
     class ScriptApp["App 脚本绑定"]
+    class Storage
+    class StorageBinding
+    class BindingContext
+    class KeyValueStore
     class App
     class LogSystem
     Gameplay <|-- Game
@@ -412,11 +420,18 @@ classDiagram
     Game ..> ScriptApp : 应用目录查询
     Debug ..> LogSystem : 静态日志转发
     ScriptApp ..> App : 只读平台路径绑定
+    Game ..> Storage : 低频字符串 KV 与显式保存
+    StorageBinding ..> Storage : 定义脚本外观
+    StorageBinding ..> BindingContext : 有效回调期间借用
+    BindingContext *-- KeyValueStore : 每个 Run 独占缓存
+    BindingContext ..> App : 首次访问读取持久路径
 ```
 
 Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并选择、加载和切换场景。
 
 Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
+
+`KeyValueStore` 属于运行时核心，显式接收目录，负责字符串缓存和落盘；脚本插件的 `StorageBinding` 借用当前 Run 的 BindingContext 调用它。App 保持路径查询职责，游戏字段、JSON 与数据版本留在项目。具体方法分别见[原生 KV](../runtime/class-diagrams/key-value-store.md)和[脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)。
 
 ScriptSystem 的每个候选或活动 Run 独占一个 [ScriptVm](../plugins/runtime/class-diagrams/script-vm.md)、模块缓存、任务队列和 Game。QuickJS 的 runtime/context 随 Run 创建和销毁；V8 的 isolate/context 同样由 Run 独占，V8 platform 按进程共享，完整退出前销毁全部 isolate。热重载重建 Run，不切换后端，也不重新初始化整个 V8 平台。具体方法及 SDK 声明见[脚本系统](../plugins/runtime/class-diagrams/script-system.md)和[玩法入口](../runtime/class-diagrams/gameplay.md)。
 
@@ -621,7 +636,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 
 | 类别               | 直接继承 System 的类型                                                   | 配置与其他参数依赖                                                                             |
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
+| 运行宿主独占根系统 | WindowSystem、InputSystem | EngineConfig 生命周期参数；RuntimeHost 独立管理窗口与输入，暂停前发布设备及动作快照 |
 | 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
 | 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、FontSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；UI 借用窗口、世界与字体，脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
@@ -778,6 +793,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | App                   | SDL3、PathUtils、标准库文件系统                                                                                                               | 桌面与 Android 平台目录及逻辑 APK 根                   |
 | LogSystem             | System、App、标准库线程与文件接口                                                                                                             | 进程日志、写盘、刷新和轮换                             |
 | WindowSystem          | SDL3                                                                                                                                          | 窗口、事件及平台生命周期                               |
+| InputSystem | SDL3、WindowSystem、FlatBuffers 输入数据 | 设备、热插拔、快照、通道映射、捕获与原生虚拟触摸；不依赖 UI / 项目 / 脚本 |
 | VirtualFileSystem     | SDL3、PathUtils                                                                                                                               | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径    |
 | ResourceCatalog       | FlatBuffers、GuidMap                                                                                                                          | 纯元数据目录、身份索引与依赖校验                       |
 | Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 单项实体、目录代际与生成数据                             |
@@ -810,7 +826,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
 | FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 编辑器格式插件；不进入运行时 |
 | UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 编辑器格式插件；OpenUSD 从基础管线分离 |
-| CharacterControllerSystem | WorldSystem、PhysicsSystem、WindowSystem、CharacterMotor | 运行时插件；输入与相机策略 |
+| CharacterControllerSystem | WorldSystem、CharacterController、CharacterMotor | 运行时插件；消费明确意图并计算移动与观察 |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
@@ -1077,11 +1093,11 @@ classDiagram
     Scene *-- Node : 拥有实例化层级
     Node *-- MeshRenderer : 普通渲染组件
     Node *-- Animator : 可选动画组件
-    MeshRenderer o-- Resource : 持有 Mesh 与骨架引用
-    Animator o-- Resource : 持有动画及目标骨架引用
+    MeshRenderer o-- Resource : 直接共享持有 Mesh 资源
+    Animator o-- Resource : 持有当前及过渡动画、目标骨架引用
     AnimationSystem ..> Animator : 读取请求与推进状态
     AnimationSystem ..> MeshRenderer : 提交当前骨骼与法线 palette
-    RenderSystem ..> MeshRenderer : 读取普通动态网格
+    RenderSystem ..> MeshRenderer : 读取源网格、材质与实例 palette 或顶点覆写
 ```
 
 Schema 与单项解码器属于运行时核心，源文件导入属于编辑器插件；这使其他格式能生成同一模型，而不把更多格式 SDK 带进游戏。模型实例化仍是 Node + Component，模型资源不是新增场景对象层。解码器只验证调用方提供的直接依赖；依赖闭包、共享缓存和释放由运行时资源图插件组织。数据及方法见[模型资源](../runtime/class-diagrams/model-resources.md)、[解码器](../runtime/class-diagrams/resource-codecs.md)、[Animator](../runtime/class-diagrams/animator.md)和[动画系统](../runtime/class-diagrams/animation-system.md)。
@@ -1110,7 +1126,7 @@ classDiagram
     CharacterControllerSystem ..> CharacterController : 逐节点读取策略设置
     CharacterControllerSystem ..> CharacterMotor : 提交运动请求
     CharacterControllerSystem --> PhysicsSystem : 借用碰撞查询
-    CharacterControllerSystem --> WindowSystem : 可空输入借用
+    CharacterControllerSystem ..> CharacterInput : 调用方明确提交的瞬态意图
     SceneComponentCodec <|-- CharacterControllerCodec
     CharacterControllerCodec ..> CharacterController : 复用公开参数校验
     EditorSystem *-- SceneCommands : 拥有场景身份映射
@@ -1122,3 +1138,7 @@ classDiagram
 - `SceneComponentCodec` 的公开注册函数由编辑器宿主调用。基础表静态存活，扩展表独占插件 Codec，注册与并行导入不能并发，代码不能在运行中卸载。
 - `EditorSystem::scene_commands()` 返回可空服务借用；插件编辑记录通过 `SceneCommands::node_identity` 共用可撤销节点的当前身份值。该值不是 Node 所有权，历史仍须核验原场景代次。
 - 角色输入/相机策略在[运行时角色插件](../plugins/runtime/class-diagrams/character-controller.md)，胶囊运动在[核心 CharacterMotor](../runtime/class-diagrams/character-motor.md)，TOML、撤销和 MCP 注册在[编辑器角色插件](../plugins/editor/class-diagrams/character-controller.md)。MCP 只把调用送入编辑器主线程。
+
+## 输入关系
+
+[输入系统](../runtime/class-diagrams/input-system.md)由 RuntimeHost 独占，借用 WindowSystem，并在宿主暂停模拟前更新；不加入 World，也不反向依赖 UI、脚本或角色插件。脚本 BindingContext 仅借用系统并记录本 Run 创建句柄的清理责任。CharacterControllerSystem 无 WindowSystem 借用及固定输入 fallback，调用方明确提交 CharacterInput；脚本通过可选角色组件绑定提交。完整边界见[输入设计](../runtime/input.md)。

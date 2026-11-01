@@ -413,51 +413,15 @@ bool ProjectMcpTools::sync_android(const fs::path& source, std::string& reply)
     {
         return fail(error);
     }
-    const bool has_available = exists;
-    Json published;
-    if (has_available)
+    const auto published = exists ? Json::parse(baseline_text, nullptr, false) : Json{};
+    if (exists && !valid_manifest(published))
     {
-        published = Json::parse(baseline_text, nullptr, false);
-        if (!valid_manifest(published))
-        {
-            return fail("Android available manifest is invalid");
-        }
+        return fail("Android available manifest is invalid");
     }
-    std::string builtin_text;
-    if (!read_remote(target_, "files/assets/builtin.json", builtin_text, exists, error))
-    {
-        return fail(error);
-    }
-    if (!has_available && !exists)
-    {
-        return fail("Android has no initial asset manifest; launch the installed app once first");
-    }
-    Json baseline = has_available ? published : Json::parse(builtin_text, nullptr, false);
-    if (!valid_manifest(baseline))
-    {
-        return fail("Android asset baseline manifest is invalid");
-    }
-    if (has_available && exists)
-    {
-        const auto builtin = Json::parse(builtin_text, nullptr, false);
-        if (!valid_manifest(builtin))
-        {
-            return fail("Android built-in manifest is invalid");
-        }
-        // 包体升级也可能新增内置路径；合并基线后由 AssetSync 去重并计算删除项。
-        for (const auto& item : builtin["files"])
-        {
-            baseline["files"].push_back(item);
-        }
-        for (const auto& item : builtin["deleted"])
-        {
-            baseline["deleted"].push_back(item);
-        }
-    }
-    baseline_text = baseline.dump();
     std::error_code filesystem_error;
     fs::create_directories(mirror / "assets", filesystem_error);
-    if (filesystem_error || !write_text(mirror / "assets" / "available.json", baseline_text))
+    if (filesystem_error ||
+        (exists && !write_text(mirror / "assets" / "available.json", baseline_text)))
     {
         return fail("cannot prepare local Android asset baseline");
     }

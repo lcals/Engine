@@ -58,7 +58,7 @@ bool add_asset(test_support::ResourceFixture& fixture)
                                              schema::DestructionAssetData::Pack(builder, &asset));
     auto entry = std::make_unique<schema::AssetEntryT>();
     entry->guid = asset_guid;
-    entry->path = "project/test.destruction";
+    entry->path = "test.destruction";
     entry->kind = schema::AssetKind::destruction;
     ByteBuffer bytes;
     const ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
@@ -152,7 +152,7 @@ bool run(Fixture& fixture)
         return false;
     }
     auto settings = identity;
-    settings["destruction"] = "project/test.destruction";
+    settings["destruction"] = "test.destruction";
     if (!expect(call("set_destruction", settings), "create component through command", error))
     {
         return false;
@@ -233,8 +233,7 @@ bool run(Fixture& fixture)
                     checked_stress == intact_stress && call("redo", scene_identity) &&
                     component->snapshot(checked_stress) && checked_stress == stressed &&
                     call("destruction_reset", identity),
-                "stress command, undo and redo restore exact Blast and physical snapshots",
-                error))
+                "stress command, undo and redo restore exact Blast and physical snapshots", error))
     {
         return false;
     }
@@ -305,7 +304,7 @@ bool run(Fixture& fixture)
     const auto before_nodes = scene->nodes().size();
     Json added_identity = {{"sceneId", std::to_string(scene->id())},
                            {"nodeId", std::to_string(added->id())},
-                           {"destruction", "project/test.destruction"}};
+                           {"destruction", "test.destruction"}};
     if (!expect(call("set_destruction", added_identity) && !pending_component->ready() &&
                     scene->nodes().size() == before_nodes + 1 && call("undo", scene_identity) &&
                     !added->get_component<DestructionComponent>() &&

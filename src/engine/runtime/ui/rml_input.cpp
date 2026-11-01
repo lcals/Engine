@@ -56,9 +56,8 @@ Rml::Input::KeyIdentifier key(SDL_Keycode code)
         return KI_UNKNOWN;
     }
 }
-int modifiers()
+int modifiers(SDL_Keymod mask)
 {
-    const auto mask = SDL_GetModState();
     int result = 0;
     if ((mask & SDL_KMOD_SHIFT) != 0)
     {
@@ -105,7 +104,9 @@ bool process_input(Rml::Context& context, SDL_Window* window, const SDL_Event& e
     {
         return false;
     }
-    const auto mods = modifiers();
+    const auto mods = modifiers(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP
+                                    ? event.key.mod
+                                    : SDL_GetModState());
     bool consumed = false;
     switch (event.type)
     {
@@ -166,5 +167,17 @@ bool process_input(Rml::Context& context, SDL_Window* window, const SDL_Event& e
         }
     }
     return consumed;
+}
+void cancel_pointer(Rml::Context& context, std::uint32_t buttons)
+{
+    static_cast<void>(context.ProcessMouseLeave());
+    for (const auto value : {SDL_BUTTON_LEFT, SDL_BUTTON_RIGHT, SDL_BUTTON_MIDDLE})
+    {
+        if ((buttons & SDL_BUTTON_MASK(value)) != 0)
+        {
+            static_cast<void>(context.ProcessMouseButtonUp(button(value), 0));
+        }
+    }
+    static_cast<void>(context.ProcessMouseLeave());
 }
 } // namespace engine::ui_detail

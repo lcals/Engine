@@ -4,7 +4,7 @@ export default class Apartment extends Gameplay {
     scene: Scene | null = null;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/apartment.scene");
+        this.scene = Scene.Load("scenes/apartment.scene");
         if (!this.scene) return false;
         Debug.Log("Modern apartment ready");
         return true;

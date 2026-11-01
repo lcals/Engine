@@ -11,7 +11,7 @@ export default class Game extends Gameplay {
     private readonly model = new DestructionModel();
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/destruction.scene");
+        this.scene = Scene.Load("scenes/destruction.scene");
         this.tower = this.scene?.FindNode("Tower")?.GetComponent(DestructionComponent) ?? null;
         this.wall = this.scene?.FindNode("Wall")?.GetComponent(DestructionComponent) ?? null;
         this.column = this.scene?.FindNode("Column")?.GetComponent(DestructionComponent) ?? null;

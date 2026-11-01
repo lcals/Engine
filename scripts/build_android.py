@@ -145,7 +145,7 @@ def main():
             native = sorted(name for name in archive.namelist() if name.endswith(".so"))
             if native != ["lib/arm64-v8a/libmain.so"]:
                 raise ValueError(f"Android 交付必须只含 libmain.so，实际为：{native}")
-            if "assets/project/catalog.bin" not in archive.namelist():
+            if "assets/catalog.bin" not in archive.namelist():
                 raise ValueError("APK 缺少独立的运行资源清单")
     destination = output / "engine-showcase.apk"
     print(f"APK 已生成：{destination}")

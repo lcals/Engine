@@ -313,12 +313,11 @@ bool scene_effects(engine::ResourceSystem& resources,
                     post_process->ao_strength == .8F && post_process->ao_power == 2.0F &&
                     post_process->ao_fade_start == 40.0F && post_process->ao_fade_end == 140.0F &&
                     post_process->hdr_enabled && post_process->bloom_enabled &&
-                    post_process->bloom_threshold == 1.2F &&
-                    post_process->bloom_intensity == .3F && post_process->bloom_radius == 2.0F &&
-                    light->cast_shadows && light->shadow_resolution == 1024 &&
-                    light->shadow_bias == 0.002F && light->shadow_cascades == 2 &&
-                    light->shadow_distance == 120.0F && light->shadow_split_lambda == 0.7F &&
-                    light->shadow_cascade_blend == 0.2F,
+                    post_process->bloom_threshold == 1.2F && post_process->bloom_intensity == .3F &&
+                    post_process->bloom_radius == 2.0F && light->cast_shadows &&
+                    light->shadow_resolution == 1024 && light->shadow_bias == 0.002F &&
+                    light->shadow_cascades == 2 && light->shadow_distance == 120.0F &&
+                    light->shadow_split_lambda == 0.7F && light->shadow_cascade_blend == 0.2F,
                 "import preserves ambient, fog, exposure and light shadow fields"))
     {
         return false;
@@ -477,7 +476,7 @@ bool tests()
         {
             return false;
         }
-        if (entry->path == "project/message.txt")
+        if (entry->path == "message.txt")
         {
             source_guid = entry->guid;
         }
@@ -572,7 +571,7 @@ bool tests()
     {
         if (entry->guid == source_guid)
         {
-            mapped = entry->path == "project/renamed.txt";
+            mapped = entry->path == "renamed.txt";
         }
     }
     if (!expect(mapped, "catalog maps preserved GUID to renamed logical path") ||

@@ -10,6 +10,7 @@
 #include "runtime/render/scene_render_query.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/camera_math.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
@@ -51,20 +52,9 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     float projection[16]{};
     const CameraSettings& settings = camera.settings();
     const float aspect = static_cast<float>(width_) / height_;
-    if (settings.projection == schema::Projection::orthographic)
-    {
-        const float horizontal = settings.orthographic_size * aspect;
-        bx::mtxOrtho(projection, -horizontal, horizontal, -settings.orthographic_size,
-                     settings.orthographic_size, settings.near_clip, settings.far_clip, 0.0F,
-                     bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
-    }
-    else
-    {
-        bx::mtxProj(projection, settings.fov_degrees, aspect, settings.near_clip, settings.far_clip,
-                    bgfx::getCaps()->homogeneousDepth, bx::Handedness::Right);
-    }
-    if (!render_detail::camera_view(camera_world, view) ||
-        !render_detail::finite_matrix(projection))
+    if (!camera_detail::view_matrix(camera_world, view) ||
+        !camera_detail::projection_matrix(settings, aspect, bgfx::getCaps()->homogeneousDepth,
+                                          projection))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Camera view or projection matrix is invalid");
         return false;

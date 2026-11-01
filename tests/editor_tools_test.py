@@ -43,7 +43,10 @@ def test(root, node, temporary):
         "declare const ownDeclaration: number;\n", encoding="utf-8"
     )
     (project / "assets/main.ts").write_text(
-        'import { Debug } from "engine";\nDebug.Log(String(ownDeclaration));\n',
+        'import { App, Debug } from "engine";\n'
+        'Debug.Log(App.assetsPath + String(ownDeclaration));\n'
+        '// @ts-expect-error The removed path alias must not be declared.\n'
+        'App.builtinAssetsPath;\n',
         encoding="utf-8",
     )
 

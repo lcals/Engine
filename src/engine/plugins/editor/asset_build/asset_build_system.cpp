@@ -1,5 +1,7 @@
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 
+#include "plugins/editor/asset_build/builtin_resources.hpp"
+
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
@@ -40,7 +42,7 @@ struct BuildItem
 
 struct BuildManifest
 {
-    std::string platform;
+    bool all_resources = false;
     std::filesystem::path output;
     std::vector<BuildItem> items;
 };
@@ -106,18 +108,19 @@ bool read_paths(const toml::table& table, std::string_view key, bool required,
         return true;
     }
     const auto* list = node != nullptr ? node->as_array() : nullptr;
-    if (list == nullptr || (required && list->empty()))
+    if (list == nullptr)
     {
-        error = "build item " + std::string(key) + " must be a nonempty path array";
+        error = "build item " + std::string(key) + " must be a path array";
         return false;
     }
     for (const auto& value : *list)
     {
         const auto path = value.value<std::string>();
         GuidMap identity;
-        if (!path || !identity.add(*path, "00000000-0000-4000-8000-000000000001"))
+        if (!path || path->starts_with("editor://") ||
+            !identity.add(*path, "00000000-0000-4000-8000-000000000001"))
         {
-            error = "build entry must be a valid builtin/ or project/ logical path";
+            error = "build entry must be an ordinary relative or builtin:// runtime resource path";
             return false;
         }
         output.push_back(*path);
@@ -132,6 +135,23 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
     {
         error = "build manifest must be a relative file inside project settings/";
         return false;
+    }
+    std::error_code code;
+    const bool exists = std::filesystem::exists(root / path, code);
+    if (code)
+    {
+        error = "cannot inspect resource build manifest: " + code.message();
+        return false;
+    }
+    if (!exists)
+    {
+        if (!selected.empty())
+        {
+            error = "build item selection requires a configured item list";
+            return false;
+        }
+        output.all_resources = true;
+        return true;
     }
     std::string text;
     if (!ResourceSystem::read_text(root / path, text))
@@ -148,26 +168,28 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
     for (const auto& [key, value] : parsed.table())
     {
         (void)value;
-        if (key != "target_platform" && key != "output" && key != "items")
+        if (key != "output" && key != "items")
         {
             error = "unknown resource build setting: " + std::string(key.str());
             return false;
         }
     }
-    const auto target = parsed["target_platform"].value<std::string>();
-    const auto destination = parsed["output"].value<std::string>();
-    if (!target || !destination || destination->empty())
+    if (parsed.table().contains("output"))
     {
-        error = "build manifest requires target_platform and output strings";
-        return false;
-    }
-    output.platform = *target;
-    output.output = PathUtils::from_utf8(*destination);
-    if (!relative_path(output.output) || !destination->starts_with("cache/build/") ||
-        !inspect_path(root / output.output, error))
-    {
-        error = "build output must be a dedicated directory below cache/build/";
-        return false;
+        const auto destination = parsed["output"].value<std::string>();
+        if (!destination)
+        {
+            error = "build output must be a string";
+            return false;
+        }
+        output.output = PathUtils::from_utf8(*destination);
+        if (!relative_path(output.output) || !destination->starts_with("cache/build/") ||
+            *output.output.lexically_relative("cache/build").begin() == ".builtin-shaders" ||
+            !inspect_path(root / output.output, error))
+        {
+            error = "build output must be a dedicated directory below cache/build/";
+            return false;
+        }
     }
     std::set<std::string> selection;
     for (const auto& name : selected)
@@ -179,9 +201,19 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
         }
     }
     const auto* items = parsed["items"].as_array();
-    if (items == nullptr || items->empty())
+    if (!parsed.table().contains("items") || (items != nullptr && items->empty()))
     {
-        error = "build manifest must define at least one [[items]] table";
+        if (!selected.empty())
+        {
+            error = "build item selection requires a configured item list";
+            return false;
+        }
+        output.all_resources = true;
+        return true;
+    }
+    if (items == nullptr)
+    {
+        error = "build items must be an array of tables";
         return false;
     }
     std::set<std::string> names;
@@ -205,7 +237,7 @@ bool read_manifest(const std::filesystem::path& root, const std::filesystem::pat
         BuildItem item;
         item.name = (*table)["name"].value_or(std::string{});
         const auto storage = (*table)["storage"].value_or(std::string{});
-        if (!item_name(item.name) || !names.insert(item.name).second ||
+        if (!item_name(item.name) || item.name == "builtin" || !names.insert(item.name).second ||
             (storage != "files" && storage != "package") ||
             !read_paths(*table, "roots", true, item.roots, error) ||
             !read_paths(*table, "keep", false, item.roots, error))
@@ -250,14 +282,10 @@ bool collect(const ResourceCatalog& catalog, std::string_view guid, std::set<Gui
         const auto* entry = catalog.find(current);
         if (entry == nullptr)
         {
-            entry = builtin_resource_info(current);
-        }
-        if (entry == nullptr)
-        {
             error = "runtime dependency has no resource: " + current;
             return false;
         }
-        if (entry->path.starts_with("project/"))
+        if (!entry->path.starts_with("builtin://"))
         {
             resources.insert(entry->guid);
         }
@@ -268,6 +296,20 @@ bool collect(const ResourceCatalog& catalog, std::string_view guid, std::set<Gui
 
 bool select_resources(const ResourceCatalog& catalog, BuildManifest& manifest, std::string& error)
 {
+    if (manifest.all_resources)
+    {
+        BuildItem all;
+        all.name = "game";
+        all.package = true;
+        for (const auto& entry : catalog.data().entries)
+        {
+            if (!entry->path.starts_with("builtin://"))
+            {
+                all.roots.push_back(entry->path);
+            }
+        }
+        manifest.items.push_back(std::move(all));
+    }
     std::map<Guid, bool> storage;
     for (auto& item : manifest.items)
     {
@@ -276,18 +318,8 @@ bool select_resources(const ResourceCatalog& catalog, BuildManifest& manifest, s
         for (const auto& path : item.roots)
         {
             Guid guid;
-            if (!catalog.identities().path_to_guid(path, guid))
-            {
-                for (const auto& builtin : builtin_resource_catalog().entries)
-                {
-                    if (builtin->path == path)
-                    {
-                        guid = builtin->guid;
-                        break;
-                    }
-                }
-            }
-            if (guid.empty() || !collect(catalog, guid, visited, closure, error))
+            if (!catalog.identities().path_to_guid(path, guid) ||
+                !collect(catalog, guid, visited, closure, error))
             {
                 if (error.empty())
                 {
@@ -310,6 +342,14 @@ bool select_resources(const ResourceCatalog& catalog, BuildManifest& manifest, s
             }
         }
     }
+    BuildItem builtin;
+    builtin.name = "builtin";
+    builtin.package = true;
+    for (const auto& entry : builtin_resource_catalog().entries)
+    {
+        builtin.resources.insert(entry->guid);
+    }
+    manifest.items.push_back(std::move(builtin));
     return true;
 }
 
@@ -459,7 +499,8 @@ void AssetBuildSystem::on_shutdown() noexcept
 
 bool AssetBuildSystem::build(const std::filesystem::path& project_root,
                              const std::filesystem::path& manifest_path,
-                             std::span<const std::string> selected)
+                             std::span<const std::string> selected,
+                             std::string_view target_platform)
 {
     last_error_.clear();
     if (!is_initialized() || !pipeline_.is_initialized() || building_)
@@ -481,7 +522,10 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     const auto root = std::filesystem::canonical(project_root, code);
     BuildManifest manifest;
     if (code || !inspect_path(root, last_error_) ||
-        !read_manifest(root, manifest_path, selected, manifest, last_error_))
+        !read_manifest(root,
+                       manifest_path.empty() ? std::filesystem::path("settings/resource-build.toml")
+                                             : manifest_path,
+                       selected, manifest, last_error_))
     {
         if (last_error_.empty())
         {
@@ -489,12 +533,23 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
         }
         return false;
     }
+    if (!pipeline_.build_assets(root, target_platform))
+    {
+        last_error_ = pipeline_.last_error();
+        return false;
+    }
+    if (manifest.output.empty())
+    {
+        manifest.output =
+            std::filesystem::path("cache/build") / pipeline_.catalog().target_platform;
+    }
     const auto output = root / manifest.output;
     const auto name = PathUtils::to_utf8(output.filename());
     const auto staged = output.parent_path() / PathUtils::from_utf8("." + name + ".staged");
     const auto backup = output.parent_path() / PathUtils::from_utf8("." + name + ".previous");
     pipeline::ProjectLock package_lock;
-    if (!inspect_path(staged, last_error_) || !inspect_path(backup, last_error_) ||
+    if (!inspect_path(output, last_error_) || !inspect_path(staged, last_error_) ||
+        !inspect_path(backup, last_error_) ||
         !package_lock.acquire(root / "cache" /
                                   (".asset-package-" +
                                    pipeline::hash_text(PathUtils::to_utf8(manifest.output)) +
@@ -502,11 +557,6 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
                               last_error_) ||
         !recover_output(output, backup, last_error_))
     {
-        return false;
-    }
-    if (!pipeline_.build_assets(root, manifest.platform))
-    {
-        last_error_ = pipeline_.last_error();
         return false;
     }
     pipeline::ProjectLock import_lock;
@@ -521,6 +571,19 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
         }
         return false;
     }
+    auto source_data = source.data();
+    std::map<Guid, ByteBuffer> builtin_entities;
+    if (!inspect_path(root / "cache/build/.builtin-shaders", last_error_) ||
+        !prepare_builtin_resources(source_data.target_platform, root / "cache", source_data,
+                                   builtin_entities, last_error_) ||
+        !source.assign(source_data))
+    {
+        if (last_error_.empty())
+        {
+            last_error_ = "invalid target platform builtin resources";
+        }
+        return false;
+    }
     if (!select_resources(source, manifest, last_error_))
     {
         return false;
@@ -531,7 +594,7 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
     ResourceBuildStats stats;
     stats.output_path = output;
     std::map<std::string, std::set<Guid>> files;
-    std::string fingerprint = "engine-resource-build-1:" + data.target_platform;
+    std::string fingerprint = "engine-resource-build-2:" + data.target_platform;
     for (const auto& item : manifest.items)
     {
         std::string key =
@@ -625,7 +688,12 @@ bool AssetBuildSystem::build(const std::filesystem::path& project_root,
         for (const auto& guid : resources)
         {
             ByteBuffer entity;
-            if (!read_entity(root / "cache", *source.find(guid), entity, last_error_))
+            const auto builtin = builtin_entities.find(guid);
+            if (builtin != builtin_entities.end())
+            {
+                entity = builtin->second;
+            }
+            else if (!read_entity(root / "cache", *source.find(guid), entity, last_error_))
             {
                 stream.close();
                 return fail();

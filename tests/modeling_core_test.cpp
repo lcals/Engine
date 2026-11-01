@@ -104,9 +104,9 @@ bool primitives()
         schema::MeshDataT mesh;
         if (!expect(engine::plugins::modeling::MeshPrimitives::create(options, model, error),
                     "primitive creation", error) ||
-            !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/model.mesh",
-                                                                     mesh, error),
-                    "primitive compiles", error) ||
+            !expect(
+                engine::plugins::modeling::EditableMesh::compile(model, "model.mesh", mesh, error),
+                "primitive compiles", error) ||
             !expect(MeshUtils::validate(mesh), "primitive render mesh validates") ||
             !expect(type == engine::plugins::modeling::MeshPrimitive::plane ||
                         type == engine::plugins::modeling::MeshPrimitive::sprite ||
@@ -130,8 +130,7 @@ bool polygon_hole()
     schema::MeshDataT mesh;
     if (!expect(engine::plugins::modeling::MeshPrimitives::polygon(outer, holes, model, error),
                 "polygon hole", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/hole.mesh", mesh,
-                                                                 error),
+        !expect(engine::plugins::modeling::EditableMesh::compile(model, "hole.mesh", mesh, error),
                 "hole compile", error))
     {
         return false;
@@ -208,9 +207,9 @@ bool topology()
         return false;
     }
     schema::MeshDataT compiled;
-    return expect(engine::plugins::modeling::EditableMesh::compile(model, "project/edited.mesh",
-                                                                   compiled, error),
-                  "edited model compiles", error);
+    return expect(
+        engine::plugins::modeling::EditableMesh::compile(model, "edited.mesh", compiled, error),
+        "edited model compiles", error);
 }
 
 bool attributes_and_edges()
@@ -247,8 +246,7 @@ bool attributes_and_edges()
     }
     schema::MeshDataT compiled;
     schema::EditableMeshDataT imported;
-    if (!engine::plugins::modeling::EditableMesh::compile(model, "project/model.mesh", compiled,
-                                                          error) ||
+    if (!engine::plugins::modeling::EditableMesh::compile(model, "model.mesh", compiled, error) ||
         !engine::plugins::modeling::EditableMesh::from_mesh(compiled, imported, error))
     {
         return expect(false, "compile and import", error);
@@ -276,9 +274,9 @@ bool loop_cut_and_normals()
         !expect(engine::plugins::modeling::MeshTopology::loop_cut(model, edge, 2, 0.2, 0.1, error),
                 "loop cut", error) ||
         !expect(model.faces.size() == 14, "loop cut splits four faces into twelve") ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/cut.mesh",
-                                                                 compiled, error),
-                "loop cut compile", error) ||
+        !expect(
+            engine::plugins::modeling::EditableMesh::compile(model, "cut.mesh", compiled, error),
+            "loop cut compile", error) ||
         !expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                 "loop cut retains closed volume"))
     {
@@ -287,8 +285,8 @@ bool loop_cut_and_normals()
     schema::EditableMeshDataT imported;
     schema::MeshDataT restored;
     if (!engine::plugins::modeling::EditableMesh::from_mesh(compiled, imported, error) ||
-        !engine::plugins::modeling::EditableMesh::compile(imported, "project/imported.mesh",
-                                                          restored, error))
+        !engine::plugins::modeling::EditableMesh::compile(imported, "imported.mesh", restored,
+                                                          error))
     {
         return expect(false, "import smooth groups", error);
     }
@@ -332,8 +330,8 @@ bool extruded_hole()
         return expect(false, "extrude hole", error);
     }
     schema::MeshDataT compiled;
-    return expect(engine::plugins::modeling::EditableMesh::compile(
-                      model, "project/holed-solid.mesh", compiled, error),
+    return expect(engine::plugins::modeling::EditableMesh::compile(model, "holed-solid.mesh",
+                                                                   compiled, error),
                   "extruded hole compiles", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - 12.0) < 1.0e-6,
                   "extruded hole closes with inward hole walls and outward outer walls");
@@ -354,9 +352,9 @@ bool boundary_and_attributes()
                 "delete cube cap", error) ||
         !expect(engine::plugins::modeling::MeshTopology::fill_hole(model, ring, error),
                 "fill cube cap", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/filled.mesh",
-                                                                 compiled, error),
-                "filled compile", error) ||
+        !expect(
+            engine::plugins::modeling::EditableMesh::compile(model, "filled.mesh", compiled, error),
+            "filled compile", error) ||
         !expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                 "filled cap follows boundary winding"))
     {
@@ -368,8 +366,8 @@ bool boundary_and_attributes()
         !expect(engine::plugins::modeling::MeshTopology::set_color(model, cap,
                                                                    {0.2F, 0.4F, 0.6F, 1.0F}, error),
                 "set face color", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/colored.mesh",
-                                                                 compiled, error),
+        !expect(engine::plugins::modeling::EditableMesh::compile(model, "colored.mesh", compiled,
+                                                                 error),
                 "colored compile", error) ||
         !expect(compiled.submeshes.size() == 2 && compiled.submeshes.back().material_slot() == 2,
                 "face material becomes a render submesh"))
@@ -412,8 +410,8 @@ bool bridge_caps()
     schema::MeshDataT compiled;
     return expect(engine::plugins::modeling::MeshTopology::bridge(model, first, second, error),
                   "bridge caps", error) &&
-           expect(engine::plugins::modeling::EditableMesh::compile(model, "project/bridge.mesh",
-                                                                   compiled, error),
+           expect(engine::plugins::modeling::EditableMesh::compile(model, "bridge.mesh", compiled,
+                                                                   error),
                   "bridge compile", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - 1.0) < 1.0e-6,
                   "bridge has consistent outward winding");
@@ -441,9 +439,9 @@ bool extruded_edges()
         return false;
     }
     schema::MeshDataT mesh;
-    return expect(engine::plugins::modeling::EditableMesh::compile(model, "project/walls.mesh",
-                                                                   mesh, error),
-                  "edge extruded walls compile", error) &&
+    return expect(
+               engine::plugins::modeling::EditableMesh::compile(model, "walls.mesh", mesh, error),
+               "edge extruded walls compile", error) &&
            expect(!engine::plugins::modeling::MeshTopology::extrude_edges(model, edges, {0, 1, 0},
                                                                           error),
                   "edge extrusion rejects now-interior edges");
@@ -485,9 +483,9 @@ bool point_edge_transform()
         return false;
     }
     schema::MeshDataT compiled;
-    if (!expect(engine::plugins::modeling::EditableMesh::compile(model, "project/point.mesh",
-                                                                 compiled, error),
-                "point edited cube compiles", error) ||
+    if (!expect(
+            engine::plugins::modeling::EditableMesh::compile(model, "point.mesh", compiled, error),
+            "point edited cube compiles", error) ||
         !expect(closed(compiled) && volume(compiled) > 0.0, "point edit keeps closed outward mesh"))
     {
         return false;
@@ -503,8 +501,7 @@ bool point_edge_transform()
     selection = {};
     selection.all = true;
     const std::array<double, 16> reflect_scale{-2, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0.5, 0, 0, 0, 0, 1};
-    if (!engine::plugins::modeling::EditableMesh::compile(model, "project/before.mesh", compiled,
-                                                          error))
+    if (!engine::plugins::modeling::EditableMesh::compile(model, "before.mesh", compiled, error))
     {
         return false;
     }
@@ -512,8 +509,8 @@ bool point_edge_transform()
     return expect(engine::plugins::modeling::MeshTopology::transform(model, selection,
                                                                      reflect_scale, error),
                   "negative nonuniform scale", error) &&
-           expect(engine::plugins::modeling::EditableMesh::compile(model, "project/scaled.mesh",
-                                                                   compiled, error),
+           expect(engine::plugins::modeling::EditableMesh::compile(model, "scaled.mesh", compiled,
+                                                                   error),
                   "scaled compile", error) &&
            expect(closed(compiled) && std::abs(volume(compiled) - before_volume * 3.0) < 1.0e-5,
                   "negative scale preserves outward winding and determinant volume");
@@ -587,9 +584,9 @@ bool group_inset()
     schema::MeshDataT compiled;
     if (!expect(shared == 2 && second->material_slot == 1,
                 "group keeps internal shared edge and material") ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/group.mesh",
-                                                                 compiled, error),
-                "group compile", error) ||
+        !expect(
+            engine::plugins::modeling::EditableMesh::compile(model, "group.mesh", compiled, error),
+            "group compile", error) ||
         !expect(std::abs(planar_area(compiled) - 2.0) < 1.0e-6,
                 "group inset partitions original area"))
     {
@@ -613,8 +610,7 @@ bool group_inset()
     }
     if (!expect(engine::plugins::modeling::MeshTopology::inset(model, concave, 0.1, error, true),
                 "group inset concave L region", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/l.mesh", compiled,
-                                                                 error),
+        !expect(engine::plugins::modeling::EditableMesh::compile(model, "l.mesh", compiled, error),
                 "concave group compile", error) ||
         !expect(std::abs(planar_area(compiled) - 3.0) < 1.0e-6,
                 "concave inset preserves total region area"))
@@ -631,7 +627,7 @@ bool group_inset()
     const std::array<std::uint64_t, 1> holed{model.faces.front()->id};
     if (!expect(engine::plugins::modeling::MeshTopology::inset(model, holed, 0.1, error, true),
                 "group inset outer and hole boundaries", error) ||
-        !expect(engine::plugins::modeling::EditableMesh::compile(model, "project/holed-inset.mesh",
+        !expect(engine::plugins::modeling::EditableMesh::compile(model, "holed-inset.mesh",
                                                                  compiled, error),
                 "holed inset compile", error) ||
         !expect(std::abs(planar_area(compiled) - 12.0) < 1.0e-5,

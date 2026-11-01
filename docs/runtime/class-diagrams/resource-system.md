@@ -150,8 +150,14 @@ classDiagram
     }
 ```
 
-`instance` 返回已初始化的单宿主根系统借用，未就绪时为空。身份转换只查询目录和固定内置映射。`register_*` 仅供内置资源初始化；项目资源通过所选 `loader()` 加载。`find_*` 查询固定内置定义，项目数据通过所选加载器的 `find()` 查询当前代际对象，不执行 I/O、不增加常驻引用；项目数据借用必须由调用方持有的 ResourcePtr 保活。
+`instance` 返回已初始化的单宿主根系统借用，未就绪时为空。身份转换只查询目录和固定内置映射。`register_*` 仅供引擎 bootstrap 初始化，允许引擎无项目启动。`load()` 对有物理位置的条目一律读取当前挂载并校验实体，包括 `builtin://`；损坏或缺失时返回失败，不回退编入定义。只有无物理位置的固定内置条目才使用 bootstrap 定义。
+
+`register_*` 对完全相同的定义重复登记返回成功，已有路径的不同数据或跨类型冲突返回失败；注册校验仅使用 bootstrap 表，不查询活动目录或加载器。
+
+`find_*` 对已外置条目只查询所选加载器的当前代际对象；未外置的内置定义查询 bootstrap 注册表。查询不执行 I/O、不增加常驻引用；从加载器借用的数据必须由调用方持有的 ResourcePtr 保活。普通逻辑路径不附加 `project/`，编辑器专属 `editor://` 不进入运行目录。
 
 内置资源的固定身份、类型和依赖通过 `builtin_resource_catalog()` / `builtin_resource_info(guid)` 提供给核心与构建模块；它们不依赖渲染设备初始化，也不复制宿主平台的 Shader 字节码到其他平台。
 
 贴图由 TextureDataT 保存 CPU 缓存；register_texture/find_texture 服从相同的 builtin 注册与项目借用规则。Shader 默认贴图、材质覆盖贴图必须存在于直接依赖集合，类型、路径和 GUID 一致。缓存先校验 FlatBuffers、Basis 文件校验和、尺寸与 mip 元数据；渲染模块负责设备格式及实际转码，资源系统不创建 GPU 对象。
+
+`builtin_resource_payload(guid, output)` 是与 `builtin_resource_catalog()` 同级的自由函数：无需系统、窗口或 GPU 初始化，按固定 GUID 序列化引擎自带定义为对应 FlatBuffers 载荷；失败清空 `ByteBuffer`。它与启动备用定义共用构造，不读取活动项目的注册表。编辑器资源构建负责将 Shader 替换成目标平台字节码，再通过 `encode_resource()` 写出实体；该函数不承担平台选择、文件布局或打包策略。

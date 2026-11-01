@@ -212,19 +212,19 @@ bool apk_path_failures(const std::filesystem::path& root)
 {
     const std::array<std::string_view, 15> invalid_paths{"apk:",
                                                          "apk:/",
-                                                         "apk:/asset/project/game.js",
+                                                         "apk:/asset/game.js",
                                                          "apk:/assets",
+                                                         "apk:/assets/folder/",
+                                                         "apk://assets/game.js",
+                                                         "apk:/assets//game.js",
                                                          "apk:/assets/",
-                                                         "apk://assets/project/game.js",
-                                                         "apk:/assets//project/game.js",
-                                                         "apk:/assets/project/",
-                                                         "apk:/assets/./project/game.js",
-                                                         "apk:/assets/project/../game.js",
+                                                         "apk:/assets/./game.js",
+                                                         "apk:/assets/../game.js",
                                                          "apk:/assets/../../game.js",
-                                                         "apk:/assets/project/game.js/.",
-                                                         "apk:/assets/project/game.js/..",
-                                                         "apk:/assets/project\\game.js",
-                                                         "apk:/assets/project/C:game.js"};
+                                                         "apk:/assets/game.js/.",
+                                                         "apk:/assets/game.js/..",
+                                                         "apk:/assets/folder\\game.js",
+                                                         "apk:/assets/C:game.js"};
     bool success = true;
     std::vector<std::byte> binary;
     std::string text;
@@ -237,7 +237,7 @@ bool apk_path_failures(const std::filesystem::path& root)
         success &= expect(!engine::ResourceSystem::read_text(invalid, text) && text.empty(),
                           "malformed or escaping APK text path fails and clears output");
     }
-    auto embedded_nul = std::filesystem::path("apk:/assets/project/game.js");
+    auto embedded_nul = std::filesystem::path("apk:/assets/game.js");
     embedded_nul += std::string("\0ignored", 8);
     binary.assign(8, std::byte{0x42});
     text = "must be cleared";
@@ -255,7 +255,7 @@ bool apk_path_failures(const std::filesystem::path& root)
         return expect(false, "capture the current working directory");
     }
 #if !defined(_WIN32)
-    const auto poison = root / "apk:" / "assets" / "project" / "game.js";
+    const auto poison = root / "apk:" / "assets" / "game.js";
     std::filesystem::create_directories(poison.parent_path(), error);
     if (error || !write_file(poison, "must not be read as an APK asset"))
     {
@@ -269,12 +269,12 @@ bool apk_path_failures(const std::filesystem::path& root)
     }
     binary.assign(8, std::byte{0x42});
     text = "must be cleared";
-    success &= expect(!engine::ResourceSystem::read_binary("apk:/assets/project/game.js", binary) &&
+    success &= expect(!engine::ResourceSystem::read_binary("apk:/assets/game.js", binary) &&
                           binary.empty(),
                       "a valid APK binary path cannot read a same-name desktop file");
-    success &= expect(!engine::ResourceSystem::read_text("apk:/assets/project/game.js", text) &&
-                          text.empty(),
-                      "a valid APK text path cannot read a same-name desktop file");
+    success &=
+        expect(!engine::ResourceSystem::read_text("apk:/assets/game.js", text) && text.empty(),
+               "a valid APK text path cannot read a same-name desktop file");
     std::filesystem::current_path(previous_directory, error);
     success &= expect(!error, "restore the original working directory");
 #else

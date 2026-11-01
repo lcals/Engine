@@ -9,6 +9,7 @@ import { DestructionIntegrationModel, IntegrationAction } from "../models/destru
 import { DestructionRockets } from "./destruction-rockets.js";
 import { DestructionNavigation } from "./destruction-navigation.js";
 import { range_config as tuning } from "../models/destruction_range_config.js";
+import { CharacterControls } from "../character_controls.js";
 
 interface Specimen {
     readonly name: string;
@@ -30,6 +31,7 @@ const camera_names = { overview: "Overview camera", front: "Front camera", walk:
 const max_secondary_damage = 24;
 
 export default class Game extends Gameplay {
+    private readonly input = new CharacterControls();
     scene: Scene | null = null;
     private terrain: TerrainComponent | null = null;
     private motor: CharacterMotor | null = null;
@@ -65,7 +67,7 @@ export default class Game extends Gameplay {
     private barrage_last_shot_ms = 0;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/destruction-integration.scene");
+        this.scene = Scene.Load("scenes/destruction-integration.scene");
         const scene = this.scene;
         if (!scene) return false;
         this.terrain = scene.FindNode("Terrain")?.GetComponent(TerrainComponent) ?? null;
@@ -93,24 +95,25 @@ export default class Game extends Gameplay {
                 pool.push({ effect, audio, transform, available_at: 0 });
             }
         }
-        const avatar = scene.InstantiateModel("project/models/skeleton.fbx", "Integration avatar");
+        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Integration avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);
         this.animator = body?.AddComponent(Animator) ?? null;
         if (!avatar || !transform || !renderer || !this.animator || !avatar.SetParent(player) ||
             !transform.SetPosition(0, 0.05, 0) || !transform.SetRotation(0, 180, 0) ||
-            !renderer.material.SetType("project/materials/character.material") ||
-            !this.animator.SetAnimation("project/models/locomotions.fbx/animations/walk") ||
+            !renderer.material.SetType("materials/character.material") ||
+            !this.animator.SetAnimation("models/locomotions.fbx/animations/walk") ||
             !this.animator.SetSpeed(0) || !this.animator.Play()) return false;
         if (!this.rockets.Bind(scene) || !this.navigation.Bind(scene)) return false;
         this.controller = new DestructionIntegrationController(view, this.model);
         if (!this.controller.Bind()) return false;
         Debug.Log("Combined destruction preparing. Use the buttons to excavate, blast and reset.");
-        return true;
+        return this.input.Bind(scene);
     }
 
     override Update(): void {
+        this.input.Update();
         const dt = Math.max(0, Time.deltaTime);
         const wall_ms = Date.now();
         const interval_ms = this.previous_wall_ms > 0 ? Math.max(0, wall_ms - this.previous_wall_ms) : 0;
@@ -446,6 +449,7 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        this.input.Shutdown();
         this.barrage_left = 0;
         this.rockets.Shutdown();
         this.navigation.Shutdown();

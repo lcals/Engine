@@ -15,6 +15,7 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Render {
     constructor() { throw new TypeError('Render is static'); }
+    static GetViewportSize() { return native.RenderGetViewportSize(); }
     static SetAmbient(r, g, b, intensity) {
         return native.RenderAmbient(r, g, b, intensity);
     }
@@ -57,6 +58,18 @@ RenderSystem* renderer(const Arguments& arguments, int count)
     arguments.set_return(false);
     auto* binding = BindingContext::current(arguments);
     return binding && arguments.count() == count ? binding->renderer() : nullptr;
+}
+
+void viewport_size(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    const auto* target = binding != nullptr ? binding->renderer() : nullptr;
+    Vec2 size;
+    if (target != nullptr && arguments.count() == 0 && target->viewport_size(size))
+    {
+        arguments.set_return(vm::NativeValue::Object{{"x", size.x()}, {"y", size.y()}});
+    }
 }
 
 void ambient(const Arguments& arguments)
@@ -146,7 +159,7 @@ void exponential_fog(const Arguments& arguments)
         return;
     }
     auto settings = target->settings();
-    settings.fog_mode = !arguments.boolean(0) ? FogMode::none
+    settings.fog_mode = !arguments.boolean(0)  ? FogMode::none
                         : arguments.boolean(5) ? FogMode::exponential_squared
                                                : FogMode::exponential;
     if (BindingContext::scalar(arguments, 1, settings.fog_color[0]) &&
@@ -290,12 +303,13 @@ bool RenderBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("RenderAmbientTricolor", ambient_tricolor) &&
            vm.function("RenderLinearFog", linear_fog) &&
            vm.function("RenderExponentialFog", exponential_fog) &&
-           vm.function("RenderFilmicTonemap", filmic_tonemap) &&
-           vm.function("RenderHdr", hdr) && vm.function("RenderBloom", bloom) &&
+           vm.function("RenderFilmicTonemap", filmic_tonemap) && vm.function("RenderHdr", hdr) &&
+           vm.function("RenderBloom", bloom) &&
            vm.function("RenderAmbientOcclusion", ambient_occlusion) &&
            vm.function("RenderDirectionalShadows", directional_shadows) &&
            vm.function("RenderShadowCascades", shadow_cascades) &&
-           vm.function("RenderClearColor", clear_color);
+           vm.function("RenderClearColor", clear_color) &&
+           vm.function("RenderGetViewportSize", viewport_size);
 }
 
 } // namespace engine::plugins::script::bindings

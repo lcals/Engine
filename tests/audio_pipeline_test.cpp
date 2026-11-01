@@ -155,7 +155,7 @@ int main()
     }
     Guid guid;
     ResourcePtr original;
-    if (!expect(resources.catalog().identities().path_to_guid("project/tone.WAV", guid),
+    if (!expect(resources.catalog().identities().path_to_guid("tone.WAV", guid),
                 "audio has a stable GUID") ||
         !expect(read(meta).find("[audio]") != std::string::npos &&
                     read(meta).find("sample_rate = 48000") != std::string::npos,

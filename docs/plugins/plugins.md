@@ -7,6 +7,8 @@
 | 运行时资源依赖图 | `plugins/runtime/resource_graph/` | 必要依赖加载、共享缓存及按引用反向释放，实现核心加载接口 |
 | 运行时脚本 | `plugins/runtime/script/` | QuickJS/V8 二选一、JS 模块与玩法执行、共享逐类绑定，实现核心 ScriptRuntime |
 | 运行时角色控制器 | `plugins/runtime/character_controller/` | 输入与第一/第三人称相机策略，调用核心 CharacterMotor |
+| 运行时多角色导航 | `plugins/runtime/navigation_crowd/` | NavigationAgent、原生目标消费与 Transform 同步，调用核心 DetourCrowd |
+| 编辑器多角色导航 | `plugins/editor/navigation_crowd/` | 导航代理配置的 TOML 编解码 |
 | 运行时特效 | `plugins/runtime/effects/` | 独立 EffectSystem、节点 EffectComponent、官方 Effekseer 模拟与 efkbgfx 绘制 |
 | 编辑器特效 | `plugins/editor/effects/` | 特效资源导入、meta 依赖映射、组件编解码、可撤销编辑与 MCP |
 | 运行时地形 | `plugins/runtime/terrain/` | Transvoxel 普通单元、同步体积修改与分块网格缓存、瞬态显示/碰撞提交和状态保存 |
@@ -32,8 +34,8 @@
 
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
-- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`character_controller`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
+- `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -44,6 +46,8 @@
 | --- | --- | --- |
 | `runtime/resource_graph` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无 |
 | `runtime/character_controller` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界、物理和窗口 |
+| `runtime/navigation_crowd` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；调用核心世界与导航，不依赖玩家控制器或 Jolt |
+| `editor/navigation_crowd` | 非设备构建，资源管线依赖开启 | `runtime/navigation_crowd` |
 | `runtime/effects` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Effekseer 和 efkbgfx，复用核心渲染扩展 |
 | `editor/effects` | 非设备构建，资源管线依赖开启 | `runtime/effects` |
 | `runtime/terrain` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定版本 Transvoxel，调用核心世界、物理和资源接口 |

@@ -53,7 +53,7 @@ bool add_clip(test_support::ResourceFixture& fixture)
                                               engine::schema::AudioClipData::Pack(builder, &clip));
     auto entry = std::make_unique<engine::schema::AssetEntryT>();
     entry->guid = "30000000-0000-4000-8000-000000000001";
-    entry->path = "project/audio/commands.wav";
+    entry->path = "audio/commands.wav";
     entry->kind = engine::schema::AssetKind::audio;
     engine::ByteBuffer entity;
     const engine::ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
@@ -251,7 +251,7 @@ bool settings_and_history()
                                                  {{"enabled", nullptr}}}) ||
         !component_roundtrip<engine::AudioSource>(
             fixture, *node, "audio_source",
-            {{"clip", "project/audio/commands.wav"},
+            {{"clip", "audio/commands.wav"},
              {"volume", 0.5},
              {"pitch", 1.5},
              {"loop", true},
@@ -267,8 +267,8 @@ bool settings_and_history()
              {{"playOnAwake", 1}},
              {{"spatial", nullptr}},
              {{"clip", 7}},
-             {{"clip", "project/missing.wav"}, {"volume", 0.25}},
-             {{"clip", "builtin/textures/white-srgb"}, {"volume", 0.25}},
+             {{"clip", "missing.wav"}, {"volume", 0.25}},
+             {{"clip", "builtin://textures/white-srgb"}, {"volume", 0.25}},
              {{"pitch", infinity}}}) ||
         !component_roundtrip<engine::AudioListener>(
             fixture, *node, "audio_listener", {{"volume", 0.75}},
@@ -411,7 +411,7 @@ bool transactions_and_impulses()
     }
     rigid["mass"] = 2;
     auto source = identity;
-    source["clip"] = "project/audio/commands.wav";
+    source["clip"] = "audio/commands.wav";
     auto listener = identity;
     listener["volume"] = 0.5;
     batch = {
@@ -527,7 +527,7 @@ bool audio_controls()
     }
     const auto identity = target(*node);
     auto arguments = identity;
-    arguments.update({{"clip", "project/audio/commands.wav"}, {"playOnAwake", false}});
+    arguments.update({{"clip", "audio/commands.wav"}, {"playOnAwake", false}});
     if (!expect(fixture.execute("set_audio_source", arguments), "assign an actual audio resource"))
     {
         return false;
@@ -586,7 +586,7 @@ bool audio_controls()
                     !fixture.execute("play_audio", identity),
                 "clearing clip releases audio and rejects play") ||
         !expect(fixture.execute("undo", fixture.scene_identity()) && source->clip_data() &&
-                    source->clip_path() == "project/audio/commands.wav",
+                    source->clip_path() == "audio/commands.wav",
                 "undo restores audio resource ownership"))
     {
         return false;
@@ -597,7 +597,7 @@ bool audio_controls()
         return false;
     }
     arguments = target(*empty);
-    arguments["clip"] = "builtin/textures/white-srgb";
+    arguments["clip"] = "builtin://textures/white-srgb";
     return expect(!fixture.execute("set_audio_source", arguments) &&
                       !empty->get_component<engine::AudioSource>() &&
                       fixture.commands.undo_count() == history,

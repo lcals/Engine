@@ -115,7 +115,7 @@ int main(int argc, char** argv)
     }
     Guid guid;
     ResourcePtr original;
-    if (!expect(resources.catalog().identities().path_to_guid("project/test.ttf", guid),
+    if (!expect(resources.catalog().identities().path_to_guid("test.ttf", guid),
                 "source font has a GUID") ||
         !expect(read(meta).find("[font]") != std::string::npos, "font meta defaults generated") ||
         !expect(resources.load(guid, original), resources.last_error()) ||

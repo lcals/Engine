@@ -12,7 +12,7 @@ namespace engine
 class Camera;
 class GameplaySession;
 class RenderSystem;
-class WindowSystem;
+class InputSystem;
 class WorldSystem;
 struct EngineConfig;
 } // namespace engine
@@ -30,7 +30,7 @@ public:
 
     // 所有对象及回调依赖持续借用；已注册的命令服务须先于本对象销毁。
     ScenePreview(EditorEnvironment& environment, GameplaySession& gameplay, WorldSystem& world,
-                 RenderSystem& renderer, WindowSystem& window, std::filesystem::path project_root,
+                 RenderSystem& renderer, InputSystem& input, std::filesystem::path project_root,
                  ImportCallback import);
     ~ScenePreview() noexcept;
     ScenePreview(const ScenePreview&) = delete;

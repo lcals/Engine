@@ -38,6 +38,10 @@ classDiagram
         +set_image(UiElementHandle handle, string_view path) bool
         +release_scene() void
         +process_event(const SDL_Event& event) bool
+        +keyboard_claimed() bool
+        +pointer_claimed() bool
+        +owns_pointer(const SDL_Event& event) bool
+        +cancel_input() void
         +document_count() size_t
         +poll_event(UiEvent& output) bool
         #on_initialize(const EngineConfig& config) bool
@@ -85,3 +89,11 @@ classDiagram
 - 控件事件保存从最近有 ID 的目标到有 ID 祖先的身份路径；脚本可按冒泡顺序分发，不能在分发时按名字重新查找新控件。
 - UI 内部图片与字体纹理定位包含文档资源代际；独立文档更新不会复用同路径旧版本纹理，释放按仍存活的文档集合进行。
 - MVC 的 Model 和 Controller 位于项目/脚本层，见 [UI 脚本类图](../../plugins/runtime/class-diagrams/ui-script-api.md)。
+
+## 输入路由
+
+配合[输入设计](../input.md)，UI 向宿主提供命中、持续占用和精确指针归属；InputSystem 不依赖 RmlUi 或 DOM。`keyboard_claimed`、`pointer_claimed` 和 `owns_pointer` 是 `const noexcept` 查询，`cancel_input` 为 `noexcept`。键盘持续占用来自有效文本 / 表单焦点或可见模态文档；指针持续占用只表示可见模态文档，普通鼠标或触摸 capture 不会占用其他游戏手指。宿主每帧同步文档后提交占用状态，事件泵中按已有 capture、UI 命中、游戏区域的顺序路由。
+
+原生触摸桥使用窗口逻辑坐标，以一个已认领触点驱动普通 UI，不重新注入 SDL。其他命中 UI 的手指只保留阻挡身份，不驱动第二个 RmlUi 鼠标；未命中 UI 的手指仍可并行操作游戏控件。可见背景 body / div 不默认占用全屏；标准交互控件、可滚动区域及显式 `data-input-capture` 区域参与命中，自定义可点容器应声明该属性。合成鼠标 / 触摸来源忽略，防止重复触发。
+
+触点取消、失焦、后台、窗口尺寸变化、文档隐藏 / 移除与 `cancel_input` 清理 capture；先移除 RmlUi hover 再释放鼠标按键，不产生普通 click。停止与关闭清理同一状态。控件运动与虚拟触摸识别不通过高频 TS 事件执行。

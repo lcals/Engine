@@ -16,7 +16,7 @@ def test(editor, mcp, root, temporary):
         "import { Gameplay, Scene } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "  override OnInitialize(): boolean {\n"
-        "    return Scene.Load('project/scenes/main.scene') !== null;\n"
+        "    return Scene.Load('scenes/main.scene') !== null;\n"
         "  }\n}\n",
         encoding="utf-8",
     )
@@ -128,7 +128,7 @@ def test(editor, mcp, root, temporary):
         lamp_node = nodes["Saved lamp"]["nodeId"]
         command("set_light", identity | {"nodeId": lamp_node, "kind": "point", "intensity": 4})
         cube_node = nodes["MCP cube"]["nodeId"]
-        command("set_material_type", identity | {"nodeId": cube_node, "path": "builtin/materials/default-unlit"})
+        command("set_material_type", identity | {"nodeId": cube_node, "path": "builtin://materials/default-unlit"})
         command("set_material_parameter", identity | {"nodeId": cube_node, "name": "baseColor", "type": "v4", "value": [0.15, 0.45, 0.75, 1]})
 
         screenshot = project / "cache/screenshots/mcp-modeling.png"

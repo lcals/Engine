@@ -1,4 +1,15 @@
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_library(engine_storage STATIC src/engine/runtime/storage/key_value_store.cpp)
+    add_library(engine::storage ALIAS engine_storage)
+    target_include_directories(engine_storage PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_configure_platform_storage()
+    target_link_libraries(
+        engine_storage
+        PUBLIC engine::core
+        PRIVATE SDL3::SDL3 nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_storage PRIVATE JSON_NOEXCEPTION=1)
+    engine_apply_options(engine_storage)
+
     find_package(Threads REQUIRED)
     engine_add_system(runtime log)
     target_link_libraries(engine_log PRIVATE engine::app Threads::Threads SDL3::SDL3)
@@ -13,6 +24,15 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine_window
         PUBLIC engine::scene_data
         PRIVATE SDL3::SDL3)
+
+    engine_add_system(runtime input)
+    target_sources(engine_input PRIVATE src/engine/runtime/input/input_devices.cpp
+                                        src/engine/runtime/input/input_mapping.cpp)
+    target_include_directories(engine_input PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(
+        engine_input
+        PUBLIC engine::scene_data
+        PRIVATE engine::window SDL3::SDL3)
 
     engine_add_system(runtime render)
     engine_enable_profiling(engine_render)
@@ -39,6 +59,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_render
+        PUBLIC engine::scene_data
         PRIVATE engine::window
                 engine::world
                 engine::resource
@@ -103,6 +124,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/model_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
+                src/engine/runtime/scene/camera_math.cpp
                 src/engine/runtime/scene/light.cpp
                 src/engine/runtime/scene/environment_component.cpp
                 src/engine/runtime/scene/post_process_component.cpp
@@ -114,7 +136,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE flecs::flecs_static engine::resource engine::log)
+        PRIVATE flecs::flecs_static engine::resource engine::log bgfx::bx)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
@@ -126,8 +148,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     engine_add_system(runtime navigation)
     engine_enable_profiling(engine_navigation)
-    target_link_libraries(engine_navigation PUBLIC engine::scene_data PRIVATE RecastNavigation::Recast
-                                                    RecastNavigation::Detour)
+    target_link_libraries(
+        engine_navigation
+        PUBLIC engine::scene_data
+        PRIVATE RecastNavigation::Recast RecastNavigation::Detour RecastNavigation::DetourCrowd)
 
     engine_add_system(runtime animation)
     engine_enable_profiling(engine_animation)
@@ -148,20 +172,26 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime ui)
     engine_enable_profiling(engine_ui)
     target_sources(
-        engine_ui
-        PRIVATE src/engine/runtime/ui/rml_font.cpp
-                src/engine/runtime/ui/rml_render.cpp
-                src/engine/runtime/ui/rml_input.cpp)
+        engine_ui PRIVATE src/engine/runtime/ui/rml_font.cpp src/engine/runtime/ui/rml_render.cpp
+                          src/engine/runtime/ui/rml_input.cpp)
     target_include_directories(engine_ui PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_ui
-        PRIVATE RmlUi::Core engine::font engine::resource engine::world engine::window
-                SDL3::SDL3 bgfx::bgfx bgfx::bx basisu::basisu_encoder)
+        PRIVATE RmlUi::Core
+                engine::font
+                engine::resource
+                engine::world
+                engine::window
+                SDL3::SDL3
+                bgfx::bgfx
+                bgfx::bx
+                basisu::basisu_encoder)
     engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::performance
         engine::window
+        engine::input
         engine::resource
         engine::world
         engine::physics
@@ -177,8 +207,14 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_gameplay
         PUBLIC engine::core engine::scene_data
-        PRIVATE engine::world engine::render engine::resource engine::physics engine::audio
-                engine::animation engine::font engine::ui)
+        PRIVATE engine::world
+                engine::render
+                engine::resource
+                engine::physics
+                engine::audio
+                engine::animation
+                engine::font
+                engine::ui)
     target_link_libraries(engine_gameplay PRIVATE engine::app engine::log
                                                   nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)

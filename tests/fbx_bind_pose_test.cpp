@@ -116,6 +116,157 @@ bool expect(bool condition, const std::string& message)
     return condition;
 }
 
+bool motion_track_validation()
+{
+    using namespace engine::plugins::fbx_import;
+    FbxDocument source;
+    FbxDocument skeleton;
+    ufbx_anim_stack stack{};
+    ufbx_node joint{};
+    source.animations.emplace("animations/motion", &stack);
+    source.animation_motion["animations/motion"].joint = "root/Joint";
+    skeleton.nodes.emplace("root/Joint", &joint);
+    skeleton.joint_indices.emplace(&joint, 0);
+    engine::schema::AnimationDataT animation;
+    animation.duration = 1.0F;
+    auto track = std::make_unique<engine::schema::AnimationTrackDataT>();
+    track->translations = {{0.0F, {2.0, 3.0, 4.0}}, {1.0F, {5.0, 6.0, 7.0}}};
+    track->rotations = {{0.0F, {0.0, 0.0, 0.0, 1.0}},
+                        {1.0F, {0.0, std::sqrt(0.5), 0.0, std::sqrt(0.5)}}};
+    track->scales = {{0.0F, {1.0, 2.0, 3.0}}, {1.0F, {2.0, 3.0, 4.0}}};
+    animation.tracks.push_back(std::move(track));
+    const auto original = animation;
+    std::string error;
+    if (!expect(apply_animation_motion(source, skeleton, stack, animation, error) &&
+                    animation.tracks[0]->translations.back().value() ==
+                        engine::schema::Vec3(2.0, 6.0, 4.0) &&
+                    animation.tracks[0]->rotations == original.tracks[0]->rotations &&
+                    animation.tracks[0]->scales == original.tracks[0]->scales,
+                "default motion extraction removes XZ but preserves Y, rotation and scale"))
+    {
+        return false;
+    }
+    const auto rejects = [&](engine::schema::AnimationDataT candidate)
+    {
+        const auto before = candidate;
+        error.clear();
+        return expect(!apply_animation_motion(source, skeleton, stack, candidate, error) &&
+                          !error.empty() && candidate == before,
+                      "missing target joints or samples fail without mutating the animation");
+    };
+    source.animation_motion["animations/motion"].joint = "root/Missing";
+    if (!rejects(original))
+    {
+        return false;
+    }
+    source.animation_motion["animations/motion"].joint = "root/Joint";
+    skeleton.joint_indices.clear();
+    if (!rejects(original))
+    {
+        return false;
+    }
+    skeleton.joint_indices.emplace(&joint, 0);
+    auto missing = original;
+    missing.tracks.clear();
+    if (!rejects(missing))
+    {
+        return false;
+    }
+    missing = original;
+    missing.tracks[0]->joint = 1;
+    if (!rejects(missing))
+    {
+        return false;
+    }
+    missing = original;
+    missing.tracks[0]->translations.clear();
+    if (!rejects(missing))
+    {
+        return false;
+    }
+    missing = original;
+    missing.tracks[0]->rotations.clear();
+    if (!rejects(missing))
+    {
+        return false;
+    }
+    source.animation_motion.clear();
+    animation = original;
+    return expect(apply_animation_motion(source, skeleton, stack, animation, error) &&
+                      animation == original,
+                  "no motion configuration retains the original samples");
+}
+
+bool motion_rotation_axes()
+{
+    using namespace engine::plugins::fbx_import;
+    FbxDocument source;
+    FbxDocument skeleton;
+    ufbx_anim_stack stack{};
+    ufbx_node joint{};
+    source.animations.emplace("animations/motion", &stack);
+    auto& motion = source.animation_motion["animations/motion"];
+    motion.joint = "root/Joint";
+    motion.position = {false, false, false};
+    skeleton.nodes.emplace("root/Joint", &joint);
+    skeleton.joint_indices.emplace(&joint, 0);
+    constexpr double angle = 0.7;
+    for (std::size_t animated_axis = 0; animated_axis < 3; ++animated_axis)
+    {
+        std::array<double, 3> quaternion{};
+        quaternion[animated_axis] = std::sin(angle * 0.5);
+        const double w = std::cos(angle * 0.5);
+        engine::schema::AnimationDataT original;
+        original.duration = 1.0F;
+        auto track = std::make_unique<engine::schema::AnimationTrackDataT>();
+        track->translations = {{0.0F, {2.0, 3.0, 4.0}}, {1.0F, {2.0, 3.0, 4.0}}};
+        track->rotations = {{0.0F, {0.0, 0.0, 0.0, 1.0}},
+                            {1.0F, {quaternion[0], quaternion[1], quaternion[2], w}}};
+        track->scales = {{0.0F, {1.0, 2.0, 3.0}}, {1.0F, {2.0, 3.0, 4.0}}};
+        original.tracks.push_back(std::move(track));
+        for (std::size_t selected_axis = 0; selected_axis < 3; ++selected_axis)
+        {
+            motion.rotation = {};
+            motion.rotation[selected_axis] = true;
+            auto animation = original;
+            std::string error;
+            const auto label = "animated axis " + std::to_string(animated_axis) +
+                               ", selected axis " + std::to_string(selected_axis);
+            if (!expect(apply_animation_motion(source, skeleton, stack, animation, error), label))
+            {
+                return false;
+            }
+            const auto& baked = *animation.tracks.front();
+            const auto& q = baked.rotations.back().value();
+            const bool selected = animated_axis == selected_axis;
+            const double dot = selected ? q.w()
+                                        : q.x() * quaternion[0] + q.y() * quaternion[1] +
+                                              q.z() * quaternion[2] + q.w() * w;
+            const auto& p = baked.translations.back().value();
+            ufbx_vec3 input{};
+            input.x = 2.0;
+            input.y = 3.0;
+            input.z = 4.0;
+            ufbx_quat inverse{};
+            inverse.x = -quaternion[0];
+            inverse.y = -quaternion[1];
+            inverse.z = -quaternion[2];
+            inverse.w = w;
+            const auto expected = selected ? ufbx_quat_rotate_vec3(inverse, input) : input;
+            if (!expect(std::abs(std::abs(dot) - 1.0) < 0.000001 &&
+                            std::hypot(p.x() - expected.x, p.y() - expected.y,
+                                       p.z() - expected.z) < 0.000001 &&
+                            baked.scales == original.tracks[0]->scales,
+                        "XYZ extraction removes only the selected axis and keeps upstream "
+                        "translation recomposition: " + label))
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 struct TemporarySources
 {
     std::filesystem::path root;
@@ -428,5 +579,8 @@ bool coordinate_settings()
 
 int main()
 {
-    return unit_independent_bind_comparison() && coordinate_settings() ? 0 : 1;
+    return unit_independent_bind_comparison() && coordinate_settings() && motion_track_validation() &&
+                   motion_rotation_axes()
+               ? 0
+               : 1;
 }

@@ -359,7 +359,7 @@ bool ensure_asset_guid(const fs::path& project_root, const fs::path& source,
             std::string text;
             std::string identity;
             const auto logical =
-                "project/" +
+
                 PathUtils::to_utf8(asset_path.lexically_relative(assets).generic_u8string());
             if (!read_meta(iterator->path(), text, identity, error) ||
                 !identities.add(logical, identity))
@@ -395,7 +395,7 @@ bool ensure_asset_guid(const fs::path& project_root, const fs::path& source,
         error = "Cannot scan source metadata: " + code.message();
         return false;
     }
-    const auto logical = "project/" + PathUtils::to_utf8(relative.generic_u8string());
+    const auto logical = PathUtils::to_utf8(relative.generic_u8string());
     bool allow_create = true;
     if (fs::exists(cache / "catalog.bin", code))
     {

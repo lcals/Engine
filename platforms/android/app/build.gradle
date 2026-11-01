@@ -84,8 +84,7 @@ tasks.named('preBuild') {
         def inputs = [
             'jniLibs/arm64-v8a/libmain.so',
             'java/org/libsdl/app/SDLActivity.java',
-            'assets/project/catalog.bin',
-            'assets/project-manifest.json'
+            'assets/catalog.bin'
         ]
         if (hasIcu) {
             inputs.add('assets/v8/icudtl.dat')

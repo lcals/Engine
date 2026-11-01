@@ -171,11 +171,7 @@ def invoke(server, project, work, device, requests, package="org.engine.minimal"
     return replies[1:]
 
 
-def entry(path):
-    return {"path": path, "size": 1, "hash": "af63f54c86021707"}
-
-
-def test(server, root, work):
+def test(server, root, work, initial_sync_only=False):
     (work / "fake-adb.py").write_text(FAKE_ADB, encoding="utf-8")
     project = work / "project 中文 $literal"
     prepare_minimal_project(root, project)
@@ -189,28 +185,16 @@ def test(server, root, work):
     (runtime / "assets").mkdir(parents=True)
     settings = device / "config.json"
     settings.write_text("{}", encoding="utf-8")
-    builtin = {
-        "revision": "0123456789abcdef",
-        "entry": "scripts/game.js",
-        "files": [entry("scripts/game.js"), entry("scripts/builtin-only.js")],
-        "deleted": ["scripts/previously-deleted.js"],
-    }
-    builtin_path = runtime / "assets/builtin.json"
-    builtin_path.write_text(json.dumps(builtin), encoding="utf-8")
     available_path = runtime / "assets/available.json"
     status = {
         "running": True,
         "hotReload": False,
-        "activeRevision": builtin["revision"],
+        "activeRevision": "packaged-catalog-revision",
         "availableRevision": "",
         "lastError": "",
     }
     status_path = runtime / "script-status.json"
-    status_path.write_text(json.dumps(status), encoding="utf-8")
-
-    replies = invoke(
-        server, project, work, device, [call("sync_assets"), call("get_status", request_id=2)]
-    )
+    replies = invoke(server, project, work, device, [call("sync_assets")])
     require(
         not replies[0]["result"]["isError"], f"initial Android sync failed: {contents(replies[0])}"
     )
@@ -237,8 +221,8 @@ def test(server, root, work):
         "Android synchronization changed the complete generated texture entity",
     )
     require(
-        {"scripts/builtin-only.js", "scripts/previously-deleted.js"}.issubset(published["deleted"]),
-        "first sync did not retain built-in deletion baseline",
+        published["deleted"] == [],
+        "first sync must publish a complete catalog without an APK deletion baseline",
     )
     unusual_guid = metadata_guid(unusual)
     uploaded = runtime / "assets/versions" / published["revision"] / "gen" / unusual_guid
@@ -251,7 +235,8 @@ def test(server, root, work):
         "binary/Unicode/quoted filename changed",
     )
     require(not (device / "app/injected").exists(), "remote resource path caused shell expansion")
-    reported = contents(replies[1])
+    status_path.write_text(json.dumps(status), encoding="utf-8")
+    reported = contents(invoke(server, project, work, device, [call("get_status")])[0])
     require(
         reported["activeRevision"] == status["activeRevision"]
         and reported["availableRevision"] == published["revision"],
@@ -264,15 +249,13 @@ def test(server, root, work):
         "identical Android sync republished the manifest",
     )
 
-    # A newer installed APK can add built-in paths absent from the older available manifest.
-    builtin["files"].append(entry("scripts/new-apk-only.js"))
-    builtin_path.write_text(json.dumps(builtin), encoding="utf-8")
-    reply = invoke(server, project, work, device, [call("sync_assets")])[0]
-    require(not reply["result"]["isError"], "sync after APK baseline upgrade failed")
-    published = json.loads(available_path.read_text(encoding="utf-8"))
+    calls = (device / "calls.jsonl").read_text(encoding="utf-8")
     require(
-        "scripts/new-apk-only.js" in published["deleted"], "APK upgrade deletion escaped baseline"
+        "builtin.json" not in calls and "resource-manifest.json" not in calls,
+        "sync must not read an Android-only packaged manifest",
     )
+    if initial_sync_only:
+        return
     original = available_path.read_bytes()
     source = project / "assets/scripts/game.ts"
     source.write_text(
@@ -388,10 +371,10 @@ def test(server, root, work):
         with (large / name).open("wb") as resource:
             resource.truncate(33 * 1024 * 1024)
     (project / "settings/android-package.toml").write_text(
-        'target_platform="android"\noutput="cache/build/android-package"\n'
+        'output="cache/build/android-package"\n'
         '[[items]]\nname="game"\nstorage="package"\n'
-        'roots=["project/scripts/game.ts","project/scenes/main.scene"]\n'
-        'keep=["project/large/first.bin","project/large/second.bin"]\n',
+        'roots=["scripts/game.ts","scenes/main.scene"]\n'
+        'keep=["large/first.bin","large/second.bin"]\n',
         encoding="utf-8",
     )
     built = invoke(
@@ -399,13 +382,21 @@ def test(server, root, work):
         project,
         work,
         device,
-        [call("build_resources", {"manifest": "settings/android-package.toml"})],
+        [
+            call(
+                "build_resources",
+                {"manifest": "settings/android-package.toml", "targetPlatform": "android"},
+            )
+        ],
     )[0]
     require(not built["result"]["isError"], f"Android package build failed: {contents(built)}")
     packages = list((project / "cache/build/android-package/packs").iterdir())
+    project_packages = [item for item in packages if not item.name.startswith("builtin-")]
     require(
-        len(packages) == 1 and packages[0].stat().st_size > 65 * 1024 * 1024,
-        "expected a valid carrier above the previous adb response limit",
+        len(packages) == 2
+        and len(project_packages) == 1
+        and project_packages[0].stat().st_size > 65 * 1024 * 1024,
+        "expected a large project carrier and one separate builtin carrier",
     )
     previous = available_path.read_bytes()
     request = call("sync_assets", {"source": "cache/build/android-package"})
@@ -424,10 +415,14 @@ def test(server, root, work):
         f"large Android package transfer failed: {contents(transferred)}",
     )
     manifest = json.loads(available_path.read_text(encoding="utf-8"))
-    package_entries = [item for item in manifest["files"] if item["path"].startswith("packs/")]
+    package_entries = {
+        item["path"]: item["size"]
+        for item in manifest["files"]
+        if item["path"].startswith("packs/")
+    }
     require(
-        len(package_entries) == 1 and package_entries[0]["size"] == packages[0].stat().st_size,
-        "large carrier length changed during device transfer",
+        package_entries == {"packs/" + item.name: item.stat().st_size for item in packages},
+        "project or builtin carrier identity/length changed during device transfer",
     )
     calls = [
         json.loads(line)
@@ -449,11 +444,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--mcp", type=Path, required=True)
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--initial-sync-only", action="store_true")
     args = parser.parse_args()
     try:
         posix_shell()
     except RuntimeError as error:
         raise SystemExit(str(error)) from None
     with tempfile.TemporaryDirectory(prefix="engine-android-mcp-") as directory:
-        test(args.mcp.resolve(), args.root.resolve(), Path(directory).resolve())
-    print("Android MCP target, binary sync, deletion baseline, failure and control tests passed")
+        test(
+            args.mcp.resolve(),
+            args.root.resolve(),
+            Path(directory).resolve(),
+            args.initial_sync_only,
+        )
+    if args.initial_sync_only:
+        print("Android MCP initial sync and repeat publication passed without a packaged manifest")
+    else:
+        print("Android MCP target, complete catalog sync, failure and control tests passed")

@@ -38,7 +38,7 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
 <div id="launcher-page" class="page">
     <div class="eyebrow">ENGINE / SCENE COLLECTION</div>
     <h1>Choose your next scene.</h1>
-    <div class="lead">One project. Eight worlds to explore.</div>
+    <div class="lead">One project. Eleven worlds to explore.</div>
     <div class="cards">
         <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2>PBR essentials</h2><div class="description">A rotating cube. Light, surface and reflection.</div><button id="scene-cube">Open PBR cube</button></div>
         <div class="card"><div class="number">02 / INTERIOR</div><h2>Modern apartment</h2><div class="description">A furnished home with warm, layered lighting.</div><button id="scene-apartment">Open apartment</button></div>
@@ -48,6 +48,9 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
         <div class="card"><div class="number">06 / EDITABLE WORLD</div><h2>Terrain laboratory</h2><div class="description">Hills, caves and cross-chunk excavation. Walk, dig, fill and restore.</div><button id="scene-terrain">Open terrain laboratory</button></div>
         <div class="card"><div class="number">07 / BREAKABLE STRUCTURES</div><h2>Destruction laboratory</h2><div class="description">Fracture a wall, break a column and release the tower supports.</div><button id="scene-destruction">Open destruction laboratory</button></div>
         <div class="card"><div class="number">08 / EARTH &amp; STRUCTURE</div><h2>Combined destruction</h2><div class="description">Excavate foundations. Follow collapse, physical impacts, dust and sound.</div><button id="scene-integration">Open combined laboratory</button></div>
+        <div class="card"><div class="number">09 / AIM &amp; HIT</div><h2>Shooting range</h2><div class="description">Move, aim and clear three targets. Walls block shots; ray and sphere queries share the same range.</div><button id="scene-shooting">Open shooting range</button></div>
+        <div class="card"><div class="number">10 / MULTI-CHARACTER NAVIGATION</div><h2>Navigation laboratory</h2><div class="description">Animated groups cross paths and share a narrow doorway. Change goals, stop, resume and inspect their states.</div><button id="scene-navigation">Open navigation laboratory</button></div>
+        <div class="card"><div class="number">11 / PHYSICAL INTERACTIONS</div><h2>Physics interactions</h2><div class="description">Two physical characters and three navigation agents. Hit queries, region highlights and trigger lifecycle events.</div><button id="scene-interactions">Open physics interactions</button></div>
     </div>
     <div id="launcher-status" class="footer">Open a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>

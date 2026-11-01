@@ -199,6 +199,145 @@ bool movement_jump_and_settings()
     return true;
 }
 
+bool component_input_consumption()
+{
+    Fixture fixture;
+    if (!expect(fixture.initialize(), "initialize component input fixture"))
+    {
+        return false;
+    }
+    auto* component = fixture.player->get_component<CharacterController>();
+    auto* motor = fixture.player->get_component<engine::CharacterMotor>();
+    CharacterInput forward;
+    forward.move = {0, 1};
+    CharacterInput invalid;
+    invalid.look = {std::numeric_limits<double>::quiet_NaN(), 0};
+    const auto step = [&]()
+    { return fixture.controller.tick(1.0 / 60.0) && fixture.physics.tick(1.0 / 60.0); };
+    const auto stopped = [&]() { return std::abs(motor->velocity().z()) < 0.01; };
+    engine::schema::ComponentDataT before;
+    engine::schema::ComponentDataT after;
+    if (!expect(component->build_data(before) && component->set_input(forward) &&
+                    !component->set_input(invalid) && component->build_data(after) &&
+                    before == after && step() && motor->velocity().z() < -3.9,
+                "component input is transient and rejected input preserves accepted intent") ||
+        !expect(step() && stopped(), "component intent is consumed once") ||
+        !expect(component->set_input(forward) && fixture.controller.set_input({}) && step() &&
+                    stopped() && step() && stopped(),
+                "explicit system input overrides and consumes pending component input"))
+    {
+        return false;
+    }
+    if (!component->set_input(forward))
+    {
+        return false;
+    }
+    component->clear_input();
+    if (!expect(step() && stopped(), "explicit component clearing drops pending intent") ||
+        !component->set_input(forward))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(!component->set_input(forward) && step() && stopped(),
+                "disabled components reject submissions and discard pending input"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    if (!expect(step() && stopped() && fixture.controller.set_player(nullptr) &&
+                    component->set_input(forward) && step() &&
+                    fixture.controller.set_player(fixture.player) && step() && stopped(),
+                "disabled and unselected input cannot revive after selecting a player") ||
+        !component->set_input(forward))
+    {
+        return false;
+    }
+    fixture.controller.shutdown();
+    return expect(fixture.controller.initialize({}) && step() && stopped(),
+                  "controller shutdown clears component pending input before reuse");
+}
+
+bool complete_input_cancellation()
+{
+    CharacterInput jump;
+    jump.move = {0, 1};
+    jump.jump = true;
+    {
+        Fixture fixture;
+        if (!fixture.initialize())
+        {
+            return false;
+        }
+        auto* component = fixture.player->get_component<CharacterController>();
+        auto* motor = fixture.player->get_component<engine::CharacterMotor>();
+        if (!expect(component->set_input(jump) && fixture.controller.tick(0) &&
+                        fixture.physics.tick(0) && fixture.controller.tick(0) &&
+                        fixture.physics.tick(0) && fixture.physics.tick(1.0 / 60.0) &&
+                        motor->velocity().y() > 4,
+                    "ordinary input consumption preserves queued jump until a physics substep"))
+        {
+            return false;
+        }
+    }
+    {
+        Fixture fixture;
+        if (!fixture.initialize())
+        {
+            return false;
+        }
+        auto* component = fixture.player->get_component<CharacterController>();
+        auto* motor = fixture.player->get_component<engine::CharacterMotor>();
+        auto settings = motor->settings();
+        settings.external_damping = 0;
+        if (!motor->set_settings(settings) || !component->set_input(jump) ||
+            !fixture.controller.tick(0) || !fixture.physics.tick(0) ||
+            !motor->add_velocity({2, 0, 0}) || !component->set_input(jump))
+        {
+            return false;
+        }
+        component->clear_input();
+        component->clear_input();
+        if (!expect(
+                fixture.physics.tick(1.0 / 60.0) && motor->velocity().x() > 1.9 &&
+                    std::abs(motor->velocity().z()) < 0.01 && motor->velocity().y() < 0.1 &&
+                    fixture.controller.tick(0) && fixture.physics.tick(1.0 / 60.0) &&
+                    motor->velocity().x() > 1.9 && std::abs(motor->velocity().z()) < 0.01 &&
+                    motor->velocity().y() < 0.1,
+                "complete cancellation drops component and motor intents but preserves knockback"))
+        {
+            return false;
+        }
+    }
+    Fixture fixture;
+    if (!fixture.initialize() ||
+        !fixture.player->remove_component(engine::CharacterMotor::component_type))
+    {
+        return false;
+    }
+    auto* replacement = fixture.player->add_component<engine::CharacterMotor>();
+    auto* npc = fixture.world.scene()->create_node("Independent controller");
+    auto* npc_motor = npc != nullptr ? npc->add_component<engine::CharacterMotor>() : nullptr;
+    auto* npc_controller = npc != nullptr ? npc->add_component<CharacterController>() : nullptr;
+    if (!replacement || !npc_motor || !npc_controller)
+    {
+        return false;
+    }
+    auto* transform = npc->get_component<engine::Transform>();
+    auto pose = transform->settings();
+    pose.position = {5, 0, 0};
+    if (!transform->set_settings(pose) || !replacement->set_velocity({0, 0, 2}) ||
+        !npc_motor->set_velocity({2, 0, 0}))
+    {
+        return false;
+    }
+    fixture.player->get_component<CharacterController>()->clear_input();
+    npc_controller->clear_input();
+    return expect(fixture.physics.tick(1.0 / 60.0) && replacement->velocity().z() > 1.9 &&
+                      npc_motor->velocity().x() > 1.9,
+                  "cancellation leaves replacement and never-driven motors' own requests intact");
+}
+
 bool collisions_steps_and_lifecycle()
 {
     Fixture fixture;
@@ -585,7 +724,8 @@ bool hierarchy_conflicts_and_cast_validation()
 
 int main()
 {
-    return movement_jump_and_settings() && collisions_steps_and_lifecycle() &&
+    return movement_jump_and_settings() && component_input_consumption() &&
+                   complete_input_cancellation() && collisions_steps_and_lifecycle() &&
                    camera_modes_and_occlusion() && first_person_visibility_lifecycle() &&
                    player_selection_and_removal() && independent_follow_camera() &&
                    hierarchy_conflicts_and_cast_validation()

@@ -14,7 +14,7 @@
 
 ```json
 {
-  "scene": "project/scenes/example.scene",
+  "scene": "scenes/example.scene",
   "steps_per_second": 12,
   "waypoints": [
     {

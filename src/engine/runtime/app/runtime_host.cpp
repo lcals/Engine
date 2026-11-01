@@ -6,6 +6,7 @@
 #include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
+#include "runtime/input/input_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/performance/performance_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -44,6 +45,12 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     owns_engine_ = true;
     window_ = std::make_unique<WindowSystem>();
     if (!window_->initialize(config))
+    {
+        shutdown();
+        return false;
+    }
+    input_ = std::make_unique<InputSystem>(*window_);
+    if (!input_->initialize(config))
     {
         shutdown();
         return false;
@@ -95,7 +102,8 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
-        auto script_system = script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr);
+        auto script_system =
+            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -104,11 +112,11 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
             return false;
         }
     }
-    if ((setup != nullptr &&
-         !setup(RuntimeStage::before_physics, *world, *window_, *physics_, *renderer)) ||
+    if ((setup != nullptr && !setup(RuntimeStage::before_physics, *world, *window_, *physics_,
+                                    *navigation_ptr, *renderer)) ||
         !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
-        (setup != nullptr &&
-         !setup(RuntimeStage::after_physics, *world, *window_, *physics_, *renderer)) ||
+        (setup != nullptr && !setup(RuntimeStage::after_physics, *world, *window_, *physics_,
+                                    *navigation_ptr, *renderer)) ||
         !world->add_subsystem(audio))
     {
         shutdown();
@@ -130,9 +138,22 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     }
     gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
                                                   animation_, fonts_, ui_);
-    window_->set_event_handler([](void* context, const SDL_Event& event)
-                               { return static_cast<UiSystem*>(context)->process_event(event); },
-                               ui_);
+    window_->set_event_handler(
+        [](void* context, const SDL_Event& event)
+        {
+            auto& host = *static_cast<RuntimeHost*>(context);
+            const bool owned = host.input_->owns_pointer(event);
+            const bool claimed = !owned && host.ui_->process_event(event);
+            schema::InputRoutingDataT routing;
+            routing.keyboard_claimed = host.ui_->keyboard_claimed();
+            routing.pointer_claimed = host.ui_->pointer_claimed();
+            if (!host.input_->set_routing_state(routing) ||
+                !host.input_->process_event(event, claimed))
+            {
+                host.failed_ = true;
+            }
+        },
+        this);
     initialized_ = true;
     return true;
 }
@@ -140,32 +161,10 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
 FrameStatus RuntimeHost::tick(double delta_time)
 {
     ENGINE_PROFILE_ZONE("Host.runtime_tick");
-    if (!initialized_ || failed_ || !std::isfinite(delta_time) || delta_time < 0.0)
+    const FrameStatus events = poll_events(delta_time);
+    if (events != FrameStatus::running)
     {
-        return FrameStatus::failed;
-    }
-    if (exit_requested_)
-    {
-        return FrameStatus::exit_requested;
-    }
-    if (!window_->tick(delta_time))
-    {
-        failed_ = true;
-        return FrameStatus::failed;
-    }
-    if (window_->exit_requested())
-    {
-        request_exit();
-        return FrameStatus::exit_requested;
-    }
-    if (!audio_->set_paused(!window_->can_render()))
-    {
-        failed_ = true;
-        return FrameStatus::failed;
-    }
-    if (!window_->can_render())
-    {
-        return FrameStatus::paused;
+        return events;
     }
     if (!engine_.tick(delta_time))
     {
@@ -198,6 +197,44 @@ FrameStatus RuntimeHost::tick(double delta_time)
     return FrameStatus::running;
 }
 
+FrameStatus RuntimeHost::poll_events(double delta_time)
+{
+    if (!initialized_ || failed_ || !std::isfinite(delta_time) || delta_time < 0.0)
+    {
+        return FrameStatus::failed;
+    }
+    if (exit_requested_)
+    {
+        return FrameStatus::exit_requested;
+    }
+    // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
+    if (window_->can_render() && !ui_->synchronize())
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
+    schema::InputRoutingDataT routing;
+    routing.keyboard_claimed = ui_->keyboard_claimed();
+    routing.pointer_claimed = ui_->pointer_claimed();
+    if (!input_->begin_frame() || !input_->set_routing_state(routing) ||
+        !window_->tick(delta_time) || failed_ || !input_->tick(delta_time))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
+    if (window_->exit_requested())
+    {
+        request_exit();
+        return FrameStatus::exit_requested;
+    }
+    if (!audio_->set_paused(!window_->can_render()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
+    return window_->can_render() ? FrameStatus::running : FrameStatus::paused;
+}
+
 GameplaySession* RuntimeHost::gameplay() noexcept
 {
     return gameplay_.get();
@@ -211,6 +248,11 @@ WorldSystem* RuntimeHost::world() noexcept
 WindowSystem* RuntimeHost::window() noexcept
 {
     return initialized_ ? window_.get() : nullptr;
+}
+
+InputSystem* RuntimeHost::input() noexcept
+{
+    return initialized_ ? input_.get() : nullptr;
 }
 
 RenderSystem* RuntimeHost::renderer() noexcept
@@ -243,6 +285,7 @@ void RuntimeHost::shutdown() noexcept
         engine_.shutdown();
         owns_engine_ = false;
     }
+    input_.reset();
     window_.reset();
     initialized_ = false;
     exit_requested_ = false;

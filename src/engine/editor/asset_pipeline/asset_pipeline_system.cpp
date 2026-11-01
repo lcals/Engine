@@ -44,7 +44,7 @@ namespace
 
 using namespace asset_pipeline;
 
-constexpr std::string_view importer_version = "engine-asset-importers-7";
+constexpr std::string_view importer_version = "engine-asset-importers-8";
 
 bool directory(const std::filesystem::path& path, std::string& error)
 {
@@ -187,7 +187,7 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
                 status["running"].is_boolean() && !status["running"].get<bool>() &&
                 App::is_initialized() &&
                 std::filesystem::equivalent(runtime, App::persistent_data_path(), code) &&
-                std::filesystem::equivalent(root / "cache", App::builtin_assets_path(), code);
+                std::filesystem::equivalent(root / "cache", App::assets_path(), code);
             if (state != "idle" && state != "closed" && !own_preview)
             {
                 error = "editor project status does not confirm that the cache is idle";
@@ -375,7 +375,7 @@ bool scan_assets(const std::filesystem::path& assets, const std::filesystem::pat
     {
         AssetRecord record;
         record.asset.source = source;
-        record.asset.path = "project/" + generic_path(source.lexically_relative(assets));
+        record.asset.path = generic_path(source.lexically_relative(assets));
         const auto* importer = importers.select(source);
         if (importer == nullptr)
         {

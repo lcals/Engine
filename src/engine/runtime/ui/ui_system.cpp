@@ -16,10 +16,12 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <deque>
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 
 namespace engine
 {
@@ -58,6 +60,29 @@ bool element_enabled(Rml::Element& element)
         }
     }
     return true;
+}
+
+bool valid_pointer(float x, float y)
+{
+    constexpr float limit = 1000000.0F;
+    return std::isfinite(x) && std::isfinite(y) && std::abs(x) <= limit && std::abs(y) <= limit;
+}
+
+bool interactive_element(Rml::Element& element)
+{
+    const auto& tag = element.GetTagName();
+    if (tag == "button" || tag == "input" || tag == "textarea" || tag == "select" || tag == "a" ||
+        tag == "label" || element.HasAttribute("data-input-capture"))
+    {
+        return true;
+    }
+    const auto& style = element.GetComputedValues();
+    const auto scrollable = [](Rml::Style::Overflow value)
+    { return value == Rml::Style::Overflow::Auto || value == Rml::Style::Overflow::Scroll; };
+    return (scrollable(style.overflow_x()) &&
+            element.GetScrollWidth() > element.GetClientWidth()) ||
+           (scrollable(style.overflow_y()) &&
+            element.GetScrollHeight() > element.GetClientHeight());
 }
 
 void append_text(Rml::Element& element, std::string& output)
@@ -182,7 +207,13 @@ struct UiSystem::State final : Rml::EventListener
     bool initialized = false;
     Rml::Context* keyboard_context = nullptr;
     Rml::Context* pointer_context = nullptr;
+    Rml::ObserverPtr<Rml::Element> pointer_target;
     std::uint32_t pointer_buttons = 0;
+    std::optional<std::pair<SDL_TouchID, SDL_FingerID>> touch_pointer;
+    std::set<std::pair<SDL_TouchID, SDL_FingerID>> blocked_touches;
+    int logical_width = 0;
+    int logical_height = 0;
+    bool canceling_input = false;
     bool input_event = false;
     Document* find_document(std::uint64_t node)
     {
@@ -195,6 +226,47 @@ struct UiSystem::State final : Rml::EventListener
     {
         return font_engine.activate(document.key, document.resource) &&
                renderer.activate(document.key, document.resource);
+    }
+    void cancel_pointer()
+    {
+        canceling_input = true;
+        for (auto& document : documents)
+        {
+            if (document.context != nullptr)
+            {
+                ui_detail::cancel_pointer(
+                    *document.context, document.context == pointer_context ? pointer_buttons : 0);
+            }
+        }
+        canceling_input = false;
+        pointer_context = nullptr;
+        pointer_target.reset();
+        pointer_buttons = 0;
+        touch_pointer.reset();
+        blocked_touches.clear();
+    }
+    Rml::Element* hit_target(Document& document, float x, float y)
+    {
+        if (!document.visible || !valid_pointer(x, y))
+        {
+            return nullptr;
+        }
+        if (document.markup->IsModal())
+        {
+            return document.markup;
+        }
+        auto* target = document.context->GetElementAtPoint({x, y});
+        for (auto* current = target;
+             current != nullptr && current != document.context->GetRootElement();
+             current = current->GetParentNode())
+        {
+            if (current->GetOwnerDocument() == document.markup && current->IsVisible(true) &&
+                interactive_element(*current))
+            {
+                return current;
+            }
+        }
+        return nullptr;
     }
     void prune()
     {
@@ -278,8 +350,7 @@ struct UiSystem::State final : Rml::EventListener
         }
         if (pointer_context == document.context)
         {
-            pointer_context = nullptr;
-            pointer_buttons = 0;
+            cancel_pointer();
         }
         clear_events(document.id);
         document.elements.clear();
@@ -289,6 +360,10 @@ struct UiSystem::State final : Rml::EventListener
     }
     void ProcessEvent(Rml::Event& event) override
     {
+        if (canceling_input)
+        {
+            return;
+        }
         auto* target = event.GetTargetElement();
         if (!target)
         {
@@ -392,6 +467,13 @@ bool UiSystem::synchronize()
     {
         return false;
     }
+    if (state_->logical_width != 0 &&
+        (state_->logical_width != logical_width || state_->logical_height != logical_height))
+    {
+        cancel_input();
+    }
+    state_->logical_width = logical_width;
+    state_->logical_height = logical_height;
     if (state_->scene_id != scene->id())
     {
         release_scene();
@@ -477,6 +559,23 @@ bool UiSystem::synchronize()
         if (!state_->activate(document) || !document.context->Update())
         {
             return false;
+        }
+    }
+    if (state_->pointer_context != nullptr &&
+        (!state_->pointer_target || !state_->pointer_target->IsVisible(true) ||
+         !element_enabled(*state_->pointer_target.get())))
+    {
+        state_->cancel_pointer();
+    }
+    for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+    {
+        if (it->visible && it->markup->IsModal())
+        {
+            if (state_->pointer_context != nullptr && state_->pointer_context != it->context)
+            {
+                state_->cancel_pointer();
+            }
+            break;
         }
     }
     if (!state_->keyboard_context && SDL_TextInputActive(window_.native_window()))
@@ -568,6 +667,10 @@ bool UiSystem::set_document_visible(std::uint64_t node, bool visible)
     }
     else
     {
+        if (state_->pointer_context == document->context)
+        {
+            state_->cancel_pointer();
+        }
         document->markup->Hide();
         state_->clear_events(document->id);
         if (state_->keyboard_context == document->context)
@@ -577,11 +680,6 @@ bool UiSystem::set_document_visible(std::uint64_t node, bool visible)
             {
                 static_cast<void>(SDL_StopTextInput(window_.native_window()));
             }
-        }
-        if (state_->pointer_context == document->context)
-        {
-            state_->pointer_context = nullptr;
-            state_->pointer_buttons = 0;
         }
     }
     return true;
@@ -797,13 +895,17 @@ void UiSystem::release_scene() noexcept
     {
         return;
     }
+    cancel_input();
     for (auto& document : state_->documents)
     {
         state_->close(document);
     }
     state_->keyboard_context = nullptr;
     state_->pointer_context = nullptr;
+    state_->pointer_target.reset();
     state_->pointer_buttons = 0;
+    state_->touch_pointer.reset();
+    state_->blocked_touches.clear();
     state_->documents.clear();
     state_->events.clear();
     state_->scene_id = 0;
@@ -817,7 +919,33 @@ void UiSystem::release_scene() noexcept
 }
 bool UiSystem::process_event(const SDL_Event& event)
 {
-    if (!state_->initialized || SDL_GetWindowFromEvent(&event) != window_.native_window())
+    if (!state_->initialized)
+    {
+        return false;
+    }
+    if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+        event.type == SDL_EVENT_DID_ENTER_BACKGROUND)
+    {
+        cancel_input();
+        return false;
+    }
+    if (SDL_GetWindowFromEvent(&event) != window_.native_window())
+    {
+        return false;
+    }
+    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST || event.type == SDL_EVENT_WINDOW_RESIZED ||
+        event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED ||
+        event.type == SDL_EVENT_WINDOW_DISPLAY_SCALE_CHANGED)
+    {
+        cancel_input();
+        return false;
+    }
+    if (((event.type == SDL_EVENT_MOUSE_MOTION && event.motion.which == SDL_TOUCH_MOUSEID) ||
+         ((event.type == SDL_EVENT_MOUSE_BUTTON_DOWN || event.type == SDL_EVENT_MOUSE_BUTTON_UP) &&
+          event.button.which == SDL_TOUCH_MOUSEID)) ||
+        ((event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+          event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) &&
+         event.tfinger.touchID == SDL_MOUSE_TOUCHID))
     {
         return false;
     }
@@ -825,19 +953,19 @@ bool UiSystem::process_event(const SDL_Event& event)
     {
         return false;
     }
-    const auto process = [&](State::Document& document)
+    const auto process = [&](State::Document& document, const SDL_Event& input)
     {
         if (!document.visible || !state_->activate(document))
         {
             return false;
         }
         state_->input_event =
-            event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN ||
-            event.type == SDL_EVENT_KEY_UP || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-            event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_MOTION ||
-            event.type == SDL_EVENT_MOUSE_WHEEL;
+            input.type == SDL_EVENT_TEXT_INPUT || input.type == SDL_EVENT_KEY_DOWN ||
+            input.type == SDL_EVENT_KEY_UP || input.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+            input.type == SDL_EVENT_MOUSE_BUTTON_UP || input.type == SDL_EVENT_MOUSE_MOTION ||
+            input.type == SDL_EVENT_MOUSE_WHEEL;
         const bool consumed =
-            ui_detail::process_input(*document.context, window_.native_window(), event);
+            ui_detail::process_input(*document.context, window_.native_window(), input);
         state_->input_event = false;
         return consumed;
     };
@@ -855,16 +983,106 @@ bool UiSystem::process_event(const SDL_Event& event)
         }
         state_->keyboard_context = selected;
     };
-    if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
+    const bool touch = event.type == SDL_EVENT_FINGER_DOWN ||
+                       event.type == SDL_EVENT_FINGER_MOTION || event.type == SDL_EVENT_FINGER_UP ||
+                       event.type == SDL_EVENT_FINGER_CANCELED;
+    if (touch)
     {
-        for (auto& document : state_->documents)
+        const auto identity = std::pair{event.tfinger.touchID, event.tfinger.fingerID};
+        const bool terminal =
+            event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED;
+        if (const auto blocked = state_->blocked_touches.find(identity);
+            blocked != state_->blocked_touches.end())
         {
-            static_cast<void>(process(document));
+            if (terminal)
+            {
+                state_->blocked_touches.erase(blocked);
+            }
+            return true;
         }
-        select_focus(nullptr);
-        state_->pointer_context = nullptr;
-        state_->pointer_buttons = 0;
-        return false;
+        const bool captured = state_->touch_pointer == identity;
+        if (!captured && event.type != SDL_EVENT_FINGER_DOWN)
+        {
+            return false;
+        }
+        if (captured && event.type == SDL_EVENT_FINGER_CANCELED)
+        {
+            state_->cancel_pointer();
+            return true;
+        }
+        const float x = event.tfinger.x * static_cast<float>(state_->logical_width);
+        const float y = event.tfinger.y * static_cast<float>(state_->logical_height);
+        if (!valid_pointer(x, y))
+        {
+            if (captured)
+            {
+                state_->cancel_pointer();
+            }
+            return captured;
+        }
+        State::Document* selected = nullptr;
+        Rml::Element* target = nullptr;
+        for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+        {
+            if (captured ? it->context == state_->pointer_context
+                         : (target = state_->hit_target(*it, x, y)) != nullptr)
+            {
+                selected = &*it;
+                break;
+            }
+        }
+        if (selected == nullptr)
+        {
+            if (!captured)
+            {
+                select_focus(nullptr);
+            }
+            return false;
+        }
+        if (!captured && state_->pointer_context != nullptr)
+        {
+            // One RmlUi pointer; other UI touches remain claimed without driving it.
+            state_->blocked_touches.insert(identity);
+            return true;
+        }
+        SDL_Event pointer{};
+        pointer.type = SDL_EVENT_MOUSE_MOTION;
+        pointer.motion.timestamp = event.tfinger.timestamp;
+        pointer.motion.windowID = event.tfinger.windowID;
+        pointer.motion.x = x;
+        pointer.motion.y = y;
+        pointer.motion.state = captured ? SDL_BUTTON_LMASK : 0;
+        static_cast<void>(process(*selected, pointer));
+        if ((!captured && event.type == SDL_EVENT_FINGER_DOWN) || event.type == SDL_EVENT_FINGER_UP)
+        {
+            pointer = {};
+            pointer.type = terminal ? SDL_EVENT_MOUSE_BUTTON_UP : SDL_EVENT_MOUSE_BUTTON_DOWN;
+            pointer.button.timestamp = event.tfinger.timestamp;
+            pointer.button.windowID = event.tfinger.windowID;
+            pointer.button.button = SDL_BUTTON_LEFT;
+            pointer.button.down = !terminal;
+            pointer.button.clicks = 1;
+            pointer.button.x = x;
+            pointer.button.y = y;
+            static_cast<void>(process(*selected, pointer));
+        }
+        if (!captured)
+        {
+            select_focus(selected->context);
+            state_->pointer_context = selected->context;
+            state_->pointer_target = target->GetObserverPtr();
+            state_->pointer_buttons = SDL_BUTTON_LMASK;
+            state_->touch_pointer = identity;
+        }
+        else if (terminal)
+        {
+            state_->pointer_context = nullptr;
+            state_->pointer_target.reset();
+            state_->pointer_buttons = 0;
+            state_->touch_pointer.reset();
+            static_cast<void>(selected->context->ProcessMouseLeave());
+        }
+        return true;
     }
     if (event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP ||
         event.type == SDL_EVENT_TEXT_INPUT)
@@ -889,9 +1107,16 @@ bool UiSystem::process_event(const SDL_Event& event)
         {
             if (document.context == state_->keyboard_context)
             {
-                return process(document);
+                return process(document, event);
             }
         }
+        return false;
+    }
+    const bool mouse =
+        event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_WHEEL;
+    if (!mouse || state_->touch_pointer)
+    {
         return false;
     }
     const auto button_mask = [&]() -> std::uint32_t
@@ -902,13 +1127,13 @@ bool UiSystem::process_event(const SDL_Event& event)
     };
     if (state_->pointer_context &&
         (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-         event.type == SDL_EVENT_MOUSE_BUTTON_UP))
+         event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_WHEEL))
     {
         for (auto& document : state_->documents)
         {
             if (document.context == state_->pointer_context)
             {
-                const bool consumed = process(document);
+                static_cast<void>(process(document, event));
                 if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
                 {
                     state_->pointer_buttons |= button_mask();
@@ -919,20 +1144,48 @@ bool UiSystem::process_event(const SDL_Event& event)
                     if (state_->pointer_buttons == 0)
                     {
                         state_->pointer_context = nullptr;
+                        state_->pointer_target.reset();
                     }
                 }
-                return consumed;
+                return true;
             }
         }
     }
+    float x = 0;
+    float y = 0;
+    if (event.type == SDL_EVENT_MOUSE_MOTION)
+    {
+        x = event.motion.x;
+        y = event.motion.y;
+    }
+    else if (event.type == SDL_EVENT_MOUSE_WHEEL)
+    {
+        x = event.wheel.mouse_x;
+        y = event.wheel.mouse_y;
+    }
+    else
+    {
+        x = event.button.x;
+        y = event.button.y;
+    }
+    if (!valid_pointer(x, y))
+    {
+        return false;
+    }
     for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
     {
-        if (process(*it))
+        auto* target = state_->hit_target(*it, x, y);
+        if (event.type == SDL_EVENT_MOUSE_MOTION || target != nullptr)
+        {
+            static_cast<void>(process(*it, event));
+        }
+        if (target != nullptr)
         {
             if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             {
                 select_focus(it->context);
                 state_->pointer_context = it->context;
+                state_->pointer_target = target->GetObserverPtr();
                 state_->pointer_buttons = button_mask();
             }
             return true;
@@ -943,6 +1196,73 @@ bool UiSystem::process_event(const SDL_Event& event)
         select_focus(nullptr);
     }
     return false;
+}
+bool UiSystem::keyboard_claimed() const noexcept
+{
+    if (!state_->initialized)
+    {
+        return false;
+    }
+    for (const auto& document : state_->documents)
+    {
+        if (!document.visible)
+        {
+            continue;
+        }
+        if (document.markup->IsModal())
+        {
+            return true;
+        }
+        auto* focused = document.context->GetFocusElement();
+        if (document.context == state_->keyboard_context && focused != nullptr &&
+            focused->IsVisible(true) && element_enabled(*focused) && form_control(*focused))
+        {
+            return true;
+        }
+    }
+    return false;
+}
+bool UiSystem::pointer_claimed() const noexcept
+{
+    return state_->initialized &&
+           std::any_of(state_->documents.begin(), state_->documents.end(), [](const auto& document)
+                       { return document.visible && document.markup->IsModal(); });
+}
+bool UiSystem::owns_pointer(const SDL_Event& event) const noexcept
+{
+    if (!state_->initialized || SDL_GetWindowFromEvent(&event) != window_.native_window())
+    {
+        return false;
+    }
+    if (event.type == SDL_EVENT_FINGER_DOWN || event.type == SDL_EVENT_FINGER_MOTION ||
+        event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED)
+    {
+        const auto identity = std::pair{event.tfinger.touchID, event.tfinger.fingerID};
+        return state_->touch_pointer == identity || state_->blocked_touches.contains(identity);
+    }
+    return state_->pointer_context != nullptr && !state_->touch_pointer &&
+           (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+            event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_WHEEL);
+}
+void UiSystem::cancel_input() noexcept
+{
+    if (!state_ || !state_->initialized)
+    {
+        return;
+    }
+    state_->cancel_pointer();
+    for (auto& document : state_->documents)
+    {
+        if (auto* focused = document.context->GetFocusElement())
+        {
+            focused->Blur();
+        }
+    }
+    state_->keyboard_context = nullptr;
+    if (SDL_TextInputActive(window_.native_window()))
+    {
+        static_cast<void>(SDL_StopTextInput(window_.native_window()));
+    }
 }
 std::size_t UiSystem::document_count() const noexcept
 {

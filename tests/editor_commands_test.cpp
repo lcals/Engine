@@ -117,49 +117,38 @@ bool scene_render_settings_tests()
     }
     const auto count = scene->nodes().size();
     const Json identity = {{"sceneId", std::to_string(scene->id())}};
-    if (!expect(execute("set_render_settings", {{"ambientIntensity", .7},
-                                                {"exposure", 1.3},
-                                                {"aoEnabled", true},
-                                                {"aoRadius", 1.4},
-                                                {"aoStrength", .8},
-                                                {"aoPower", 2},
-                                                {"aoFadeStart", 40},
-                                                {"aoFadeEnd", 140},
-                                                {"hdrEnabled", true},
-                                                {"bloomEnabled", true},
-                                                {"bloomThreshold", 1.2},
-                                                {"bloomIntensity", .3},
-                                                {"bloomRadius", 2},
-                                                {"directionalShadows", false},
-                                                {"shadowCascades", 4},
-                                                {"shadowDistance", 240},
-                                                {"shadowSplitLambda", .5},
-                                                {"shadowCascadeBlend", .15},
-                                                {"iblEnabled", true},
-                                                {"iblIntensity", .5}}) &&
-                    scene->nodes().size() == count + 1 &&
-                    camera_node->get_component<engine::PostProcessComponent>() != nullptr &&
-                    renderer.settings().ambient_intensity == .7F &&
-                    renderer.settings().ibl_enabled && renderer.settings().ibl_intensity == .5F &&
-                    renderer.settings().exposure == 1.3F && !second->settings().cast_shadows &&
-                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
-                    renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
-                    renderer.settings().ao_fade_start == 40 &&
-                    renderer.settings().ao_fade_end == 140 &&
-                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_threshold == 1.2F &&
-                    renderer.settings().bloom_intensity == .3F &&
-                    renderer.settings().bloom_radius == 2 &&
-                    !first->settings().cast_shadows &&
-                    result["shadowResolution"] == first->settings().shadow_resolution &&
-                    result["shadowCascades"] == first->settings().shadow_cascades &&
-                    result["shadowDistance"] == first->settings().shadow_distance &&
-                    second->settings().shadow_cascades == 4 &&
-                    second->settings().shadow_distance == 240.0F &&
-                    second->settings().shadow_split_lambda == .5F &&
-                    second->settings().shadow_cascade_blend == .15F &&
-                    commands.mutation_revision() > initial_revision,
-                "scene edits create components, mark dirty and target the active shadow caster"))
+    if (!expect(
+            execute("set_render_settings",
+                    {{"ambientIntensity", .7},  {"exposure", 1.3},
+                     {"aoEnabled", true},       {"aoRadius", 1.4},
+                     {"aoStrength", .8},        {"aoPower", 2},
+                     {"aoFadeStart", 40},       {"aoFadeEnd", 140},
+                     {"hdrEnabled", true},      {"bloomEnabled", true},
+                     {"bloomThreshold", 1.2},   {"bloomIntensity", .3},
+                     {"bloomRadius", 2},        {"directionalShadows", false},
+                     {"shadowCascades", 4},     {"shadowDistance", 240},
+                     {"shadowSplitLambda", .5}, {"shadowCascadeBlend", .15},
+                     {"iblEnabled", true},      {"iblIntensity", .5}}) &&
+                scene->nodes().size() == count + 1 &&
+                camera_node->get_component<engine::PostProcessComponent>() != nullptr &&
+                renderer.settings().ambient_intensity == .7F && renderer.settings().ibl_enabled &&
+                renderer.settings().ibl_intensity == .5F && renderer.settings().exposure == 1.3F &&
+                !second->settings().cast_shadows && renderer.settings().ao_enabled &&
+                renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
+                renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
+                renderer.settings().ao_fade_end == 140 && renderer.settings().hdr_enabled &&
+                renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.2F &&
+                renderer.settings().bloom_intensity == .3F &&
+                renderer.settings().bloom_radius == 2 && !first->settings().cast_shadows &&
+                result["shadowResolution"] == first->settings().shadow_resolution &&
+                result["shadowCascades"] == first->settings().shadow_cascades &&
+                result["shadowDistance"] == first->settings().shadow_distance &&
+                second->settings().shadow_cascades == 4 &&
+                second->settings().shadow_distance == 240.0F &&
+                second->settings().shadow_split_lambda == .5F &&
+                second->settings().shadow_cascade_blend == .15F &&
+                commands.mutation_revision() > initial_revision,
+            "scene edits create components, mark dirty and target the active shadow caster"))
     {
         std::fprintf(stderr, "scene render settings: %s\n", error.c_str());
         return false;
@@ -173,21 +162,20 @@ bool scene_render_settings_tests()
                     second->settings().shadow_resolution == 1024 && second->settings() == shadow &&
                     !first->settings().cast_shadows,
                 "undo removes created components and restores the exact second light") ||
-        !expect(execute("redo", identity) && scene->nodes().size() == count + 1 &&
-                    renderer.settings().exposure == 1.3F && !second->settings().cast_shadows &&
-                    renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_threshold == 1.2F &&
-                    renderer.settings().bloom_intensity == .3F &&
-                    renderer.settings().bloom_radius == 2 &&
-                    renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
-                    renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
-                    renderer.settings().ao_fade_start == 40 &&
-                    renderer.settings().ao_fade_end == 140 &&
-                    second->settings().shadow_cascades == 4 &&
-                    second->settings().shadow_distance == 240.0F &&
-                    second->settings().shadow_split_lambda == .5F &&
-                    second->settings().shadow_cascade_blend == .15F,
-                "redo recreates the environment with a new node identity") ||
+        !expect(
+            execute("redo", identity) && scene->nodes().size() == count + 1 &&
+                renderer.settings().exposure == 1.3F && !second->settings().cast_shadows &&
+                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
+                renderer.settings().bloom_threshold == 1.2F &&
+                renderer.settings().bloom_intensity == .3F &&
+                renderer.settings().bloom_radius == 2 && renderer.settings().ao_enabled &&
+                renderer.settings().ao_radius == 1.4F && renderer.settings().ao_strength == .8F &&
+                renderer.settings().ao_power == 2 && renderer.settings().ao_fade_start == 40 &&
+                renderer.settings().ao_fade_end == 140 && second->settings().shadow_cascades == 4 &&
+                second->settings().shadow_distance == 240.0F &&
+                second->settings().shadow_split_lambda == .5F &&
+                second->settings().shadow_cascade_blend == .15F,
+            "redo recreates the environment with a new node identity") ||
         !expect(execute("undo", identity), "undo before checking rejected settings") ||
         !expect(!execute("set_render_settings", {{"ambientIntensity", .8}, {"exposure", 0}}) &&
                     scene->nodes().size() == count &&
@@ -242,12 +230,12 @@ bool scene_render_settings_tests()
                       renderer.settings().bloom_intensity == .3F &&
                       renderer.settings().bloom_radius == 2,
                   "disabling HDR cannot silently disable active Bloom") &&
-           expect(execute("set_render_settings",
-                          {{"hdrEnabled", false}, {"bloomEnabled", false}}) &&
-                      !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
-                      renderer.settings().ao_enabled && renderer.settings().exposure == 1.3F &&
-                      renderer.settings().bloom_intensity == .3F,
-                  "one command can atomically disable HDR and Bloom while preserving parameters") &&
+           expect(
+               execute("set_render_settings", {{"hdrEnabled", false}, {"bloomEnabled", false}}) &&
+                   !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
+                   renderer.settings().ao_enabled && renderer.settings().exposure == 1.3F &&
+                   renderer.settings().bloom_intensity == .3F,
+               "one command can atomically disable HDR and Bloom while preserving parameters") &&
            expect(execute("undo", identity) && renderer.settings().hdr_enabled &&
                       renderer.settings().bloom_enabled,
                   "undo restores both post-process flags");
@@ -306,13 +294,13 @@ bool render_command_tests()
     }
     args = target(*node);
     args.update(
-        {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin/textures/white-linear"}});
+        {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin://textures/white-linear"}});
     const auto original = mesh->material(1)->texture("baseColorTexture");
     const auto untouched = mesh->material().texture("baseColorTexture");
     if (!expect(execute("set_material_texture", args) &&
                     mesh->material(1)->texture("baseColorTexture") &&
                     mesh->material(1)->texture("baseColorTexture")->info().path ==
-                        "builtin/textures/white-linear" &&
+                        "builtin://textures/white-linear" &&
                     !same_texture(mesh->material(1)->texture("baseColorTexture"), original) &&
                     mesh->material().texture("baseColorTexture") == untouched,
                 "texture slot selection") ||
@@ -324,7 +312,7 @@ bool render_command_tests()
     {
         return false;
     }
-    args["path"] = "project/missing.png";
+    args["path"] = "missing.png";
     const auto previous = mesh->material(1)->texture("baseColorTexture");
     if (!expect(!execute("set_material_texture", args) &&
                     mesh->material(1)->texture("baseColorTexture") == previous,
@@ -351,7 +339,7 @@ bool render_command_tests()
                                         auto t = target(*node);
                                         t.update({{"slot", 1},
                                                   {"name", "baseColorTexture"},
-                                                  {"path", "builtin/textures/white-srgb"}});
+                                                  {"path", "builtin://textures/white-srgb"}});
                                         return t;
                                     }()}},
                                   {{"command", "set_camera"}, {"arguments", bad_camera}}})}};

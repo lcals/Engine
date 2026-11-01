@@ -12,14 +12,14 @@ classDiagram
         +initialize(const AppConfig& config) bool$
         +shutdown() void$
         +is_initialized() bool$
-        +builtin_assets_path() const Path&$
+        +assets_path() const Path&$
         +persistent_data_path() const Path&$
         +cache_path() const Path&$
     }
     class AppConfig {
         <<struct>>
         +application_name : string
-        +builtin_assets_path : Path
+        +assets_path : Path
         +persistent_data_path : Path
         +cache_path : Path
     }
@@ -33,7 +33,8 @@ classDiagram
 
 - `App` 是不可构造的静态平台门面，不继承 `System`，不拥有项目或引擎。宿主先初始化 App，再初始化日志和引擎；所有使用者退出后关闭 App。
 - `AppConfig::application_name` 默认为 `engine`。三个非空路径配置分别覆盖平台默认值，可供编辑器和测试使用；不推导或依赖项目的 `settings/cache/assets` 结构。
-- 桌面内置资源根默认来自 SDL 应用资源目录；允许目录尚不存在，不在安装位置创建目录。Android 默认返回逻辑根 `apk:/assets/project`，对应 APK 的 `assets/project/`，不把包内脚本复制为可写文件；调用者将该根交给资源系统解释，不执行普通磁盘 canonical 或目录查询。
+- `assets_path()` 是应用包内资源读取根。桌面默认取 SDL 应用资源目录下的 `assets/`，原生可执行程序为 `<exe>/assets/`，可选 macOS `.app` 为 `Contents/Resources/assets/`；允许目录尚不存在，不在安装位置创建目录。Android 默认返回 `apk:/assets`，直接对应 APK 的 `assets/`，不附加项目名。调用者将该根交给资源系统解释，不执行普通磁盘 canonical 或目录查询。
+- 普通逻辑资源路径为 `scenes/main.scene`，相对资源根；引擎定义使用 `builtin://`。逻辑名通过 catalog 定位为 `gen/GUID` 或 `packs/...`，业务不拼接平台物理路径。编辑器可显式覆盖读取根为项目 `cache/`。
 - 持久数据默认来自 SDL 用户应用目录；缓存默认使用 macOS 用户 `Library/Caches`、Windows 用户 `LOCALAPPDATA` 下的应用缓存、Linux 的 `XDG_CACHE_HOME` 或用户 `.cache`。
 - Android 持久数据来自 `SDL_GetAndroidInternalStoragePath()`，对应应用私有 `files/`；缓存来自 `SDL_GetAndroidCachePath()`，对应应用 `cache/`。日志位于 `files/logs/`，同步版本位于 `files/assets/versions/`；缓存可被系统清理，不能放唯一的可修改脚本版本。
 - Android 的内置根覆盖值可以是 `apk:/assets` 或该前缀下的合法子根，也可以是显式磁盘目录。逻辑根拒绝空分量、点号分量、反斜杠、额外冒号与 NUL；持久目录和缓存只接受普通磁盘路径。APK 根不创建目录，也不在 App 初始化时逐项检查包内内容。

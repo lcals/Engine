@@ -12,16 +12,18 @@
 #include "plugins/runtime/script/bindings/engine_binding.hpp"
 #include "plugins/runtime/script/bindings/environment_component_binding.hpp"
 #include "plugins/runtime/script/bindings/gameplay_binding.hpp"
+#include "plugins/runtime/script/bindings/input_binding.hpp"
 #include "plugins/runtime/script/bindings/light_binding.hpp"
 #include "plugins/runtime/script/bindings/material_binding.hpp"
 #include "plugins/runtime/script/bindings/mesh_renderer_binding.hpp"
+#include "plugins/runtime/script/bindings/navigation_binding.hpp"
 #include "plugins/runtime/script/bindings/node_binding.hpp"
 #include "plugins/runtime/script/bindings/physics_binding.hpp"
-#include "plugins/runtime/script/bindings/navigation_binding.hpp"
 #include "plugins/runtime/script/bindings/post_process_component_binding.hpp"
 #include "plugins/runtime/script/bindings/render_binding.hpp"
 #include "plugins/runtime/script/bindings/rigid_body_binding.hpp"
 #include "plugins/runtime/script/bindings/scene_binding.hpp"
+#include "plugins/runtime/script/bindings/storage_binding.hpp"
 #include "plugins/runtime/script/bindings/time_binding.hpp"
 #include "plugins/runtime/script/bindings/transform_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_component_binding.hpp"
@@ -30,6 +32,12 @@
 
 #if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
 #include "plugins/runtime/script/bindings/terrain_binding.hpp"
+#endif
+#if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
+#include "plugins/runtime/script/bindings/character_controller_binding.hpp"
+#endif
+#if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+#include "plugins/runtime/script/bindings/navigation_agent_binding.hpp"
 #endif
 #if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
 #include "plugins/runtime/script/bindings/destruction_binding.hpp"
@@ -53,7 +61,8 @@ bool ScriptBindingRegistry::initialize()
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
     if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
-        !add<PhysicsBinding>() || !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
+        !add<StorageBinding>() || !add<InputBinding>() || !add<PhysicsBinding>() ||
+        !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
         !add<RenderBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||
         !add<ComponentBinding>() || !add<TransformBinding>() || !add<CameraBinding>() ||
         !add<EnvironmentComponentBinding>() || !add<PostProcessComponentBinding>() ||
@@ -67,6 +76,20 @@ bool ScriptBindingRegistry::initialize()
     }
 #if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
     if (!add<TerrainBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
+    if (!add<CharacterControllerBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+    if (!add<NavigationAgentBinding>())
     {
         bindings_.clear();
         return false;

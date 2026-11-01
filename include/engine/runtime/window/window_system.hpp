@@ -1,9 +1,7 @@
 #pragma once
 
-#include "runtime/schema/common_generated.h"
 #include "runtime/system/system.hpp"
 
-#include <array>
 #include <atomic>
 
 struct SDL_Window;
@@ -12,24 +10,7 @@ union SDL_Event;
 namespace engine
 {
 
-enum class WindowKey
-{
-    w,
-    a,
-    s,
-    d,
-    space,
-    tab,
-    count
-};
-enum class WindowPointerButton
-{
-    left,
-    middle,
-    right
-};
-
-using WindowEventHandler = bool (*)(void*, const SDL_Event&);
+using WindowEventHandler = void (*)(void*, const SDL_Event&);
 
 class WindowSystem final : public System
 {
@@ -42,12 +23,8 @@ public:
 
     // 借用窗口，未创建时为空；渲染系统必须先于窗口系统关闭。
     [[nodiscard]] SDL_Window* native_window() const noexcept;
-    // 单宿主输入接收者；返回 true 阻止本次按下进入玩法状态，释放和窗口事件照常处理。
+    // 单宿主事件接收者；所有输入与认领规则由宿主串联，不在窗口缓存输入状态。
     void set_event_handler(WindowEventHandler handler, void* context) noexcept;
-    [[nodiscard]] bool key_down(WindowKey key) const noexcept;
-    [[nodiscard]] bool key_pressed(WindowKey key) const noexcept;
-    [[nodiscard]] schema::Vec2 pointer_delta() const noexcept;
-    [[nodiscard]] bool pointer_down(WindowPointerButton button) const noexcept;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -62,10 +39,6 @@ private:
     bool sdl_initialized_ = false;
     bool watching_events_ = false;
     bool exit_requested_ = false;
-    std::array<bool, static_cast<std::size_t>(WindowKey::count)> keys_{};
-    std::array<bool, static_cast<std::size_t>(WindowKey::count)> pressed_{};
-    std::array<bool, 3> buttons_{};
-    schema::Vec2 pointer_delta_{};
 };
 
 } // namespace engine

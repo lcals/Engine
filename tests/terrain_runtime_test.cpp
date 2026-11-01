@@ -140,7 +140,7 @@ bool add_terrain(test_support::ResourceFixture& fixture, const schema::TerrainAs
     schema::FinishTerrainAssetDataBuffer(builder, schema::TerrainAssetData::Pack(builder, &asset));
     auto entry = std::make_unique<schema::AssetEntryT>();
     entry->guid = "81000000-0000-4000-8000-000000000001";
-    entry->path = "project/test.terrain";
+    entry->path = "test.terrain";
     entry->kind = schema::AssetKind::terrain;
     ByteBuffer bytes;
     const ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
@@ -338,8 +338,8 @@ bool runtime_contract()
         return false;
     }
     component->set_enabled(true);
-    if (!expect(terrain.tick(0) && physics.tick(0) && cast(12, true) &&
-                    physics.body_count() == 1 && node->get_component<Collider>() == collider,
+    if (!expect(terrain.tick(0) && physics.tick(0) && cast(12, true) && physics.body_count() == 1 &&
+                    node->get_component<Collider>() == collider,
                 "reenabling terrain restores its modified surface"))
     {
         return false;
@@ -500,8 +500,7 @@ bool island_contract()
         }
         for (std::size_t axis = 0; axis < low.size(); ++axis)
         {
-            if (!expect(high[axis] - low[axis] == 2.0 &&
-                            (low[axis] == 5.5 || low[axis] == 7.5),
+            if (!expect(high[axis] - low[axis] == 2.0 && (low[axis] == 5.5 || low[axis] == 7.5),
                         "collision keeps both half-cell surfaces and the original world bounds"))
             {
                 return false;
@@ -578,8 +577,8 @@ bool incremental_collapse_contract()
         {
             if (vertex.x() >= 16)
             {
-                result.push_back({vertex.x(), vertex.y(), vertex.z(), vertex.nx(), vertex.ny(),
-                                  vertex.nz()});
+                result.push_back(
+                    {vertex.x(), vertex.y(), vertex.z(), vertex.nx(), vertex.ny(), vertex.nz()});
             }
         }
         std::sort(result.begin(), result.end());
@@ -639,9 +638,9 @@ bool collapse_runtime_contract()
                     component->revision() == revision && component->fragment_count() == 0 &&
                     physics.body_count() == 1 && scene->nodes().size() == 1,
                 "rejected collapse publishes neither holes nor candidate rigid bodies") ||
-        !expect(component->collapse_detached(8, 16, 2, 100) &&
-                    component->fragment_count() == 8 && physics.body_count() == 9 &&
-                    !component->snapshot(after) && after.empty() && !component->restore(before),
+        !expect(component->collapse_detached(8, 16, 2, 100) && component->fragment_count() == 8 &&
+                    physics.body_count() == 9 && !component->snapshot(after) && after.empty() &&
+                    !component->restore(before),
                 "eight dynamic fragments replace the island and unsupported saves fail explicitly"))
     {
         std::fprintf(stderr, "terrain collapse diagnostic: %s\n", component->last_error().c_str());
@@ -683,8 +682,7 @@ bool collapse_runtime_contract()
         !expect(component->apply_sphere({3, 2, 3}, 1, false) &&
                     component->apply_sphere({3, 2, 3}, 1, true) &&
                     component->fragment_count() == 8 &&
-                    !component->collapse_detached(8, 8, 2, 100) &&
-                    component->fragment_count() == 8,
+                    !component->collapse_detached(8, 8, 2, 100) && component->fragment_count() == 8,
                 "further brushes preserve moving fragments and respect the total active budget"))
     {
         return false;

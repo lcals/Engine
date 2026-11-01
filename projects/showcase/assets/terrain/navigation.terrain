@@ -1,0 +1,11 @@
+# 48 x 32 m plaza. Four metres of soil can be excavated all the way through.
+cells_x = 96
+cells_y = 16
+cells_z = 64
+voxel_size = 0.5
+chunk_cells = 16
+origin = [-24, -4, -16]
+height = 0.0
+amplitude = 0.0
+frequency = 0.08
+seed = 1

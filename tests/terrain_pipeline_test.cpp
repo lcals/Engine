@@ -211,7 +211,7 @@ bool run(Project& project)
     {
         return false;
     }
-    encoded.insert_or_assign("terrain", "project/test.terrain");
+    encoded.insert_or_assign("terrain", "test.terrain");
     if (!expect(!codec.read(encoded, roundtrip, error),
                 "scene persistence requires GUID identity rather than unresolved paths"))
     {

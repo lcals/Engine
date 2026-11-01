@@ -19,6 +19,85 @@ namespace
 {
 using namespace editor::asset_pipeline;
 
+bool read_motion_settings(const toml::table& settings, FbxDocument& document, std::string& error)
+{
+    document.animation_motion.clear();
+    if (!settings.contains("animation_motion"))
+    {
+        return true;
+    }
+    const auto* entries = settings["animation_motion"].as_array();
+    if (entries == nullptr)
+    {
+        error = "FBX animation_motion must be an array of tables";
+        return false;
+    }
+    for (const auto& entry : *entries)
+    {
+        const auto* table = entry.as_table();
+        if (table == nullptr)
+        {
+            error = "FBX animation_motion entries must be tables";
+            return false;
+        }
+        for (const auto& [key, value] : *table)
+        {
+            (void)value;
+            if (key != "animation" && key != "joint" && key != "position" && key != "rotation")
+            {
+                error = "Unknown FBX animation_motion field: " + std::string(key.str());
+                return false;
+            }
+        }
+        const auto animation = (*table)["animation"].value<std::string>();
+        const auto joint = (*table)["joint"].value<std::string>();
+        if (!animation || animation->empty() || !joint || joint->empty())
+        {
+            error = "FBX animation_motion requires nonempty animation and joint paths";
+            return false;
+        }
+        AnimationMotionSettings motion;
+        motion.joint = *joint;
+        const auto read_axes = [&](const char* field, std::array<bool, 3>& axes)
+        {
+            if (!table->contains(field))
+            {
+                return true;
+            }
+            const auto* values = (*table)[field].as_array();
+            if (values == nullptr || values->size() != axes.size())
+            {
+                return false;
+            }
+            for (std::size_t index = 0; index < axes.size(); ++index)
+            {
+                if (!(*values)[index].is_boolean())
+                {
+                    return false;
+                }
+                const auto value = (*values)[index].value<bool>();
+                if (!value)
+                {
+                    return false;
+                }
+                axes[index] = *value;
+            }
+            return true;
+        };
+        if (!read_axes("position", motion.position) || !read_axes("rotation", motion.rotation))
+        {
+            error = "FBX animation_motion position and rotation require three XYZ booleans";
+            return false;
+        }
+        if (!document.animation_motion.emplace(*animation, std::move(motion)).second)
+        {
+            error = "Duplicate FBX animation_motion animation: " + *animation;
+            return false;
+        }
+    }
+    return true;
+}
+
 bool read_document_settings(const std::filesystem::path& path, FbxDocument& document,
                             std::string& error)
 {
@@ -83,7 +162,7 @@ bool read_document_settings(const std::filesystem::path& path, FbxDocument& docu
             document.rotation_offset[index] = *angle;
         }
     }
-    return true;
+    return read_motion_settings(settings, document, error);
 }
 
 std::string safe_name(ufbx_string name)
@@ -289,7 +368,8 @@ bool document_settings_match(const std::filesystem::path& path, const FbxDocumen
         current.external_skeleton != document.external_skeleton ||
         current.normals_mode != document.normals_mode ||
         current.scale_factor != document.scale_factor ||
-        current.rotation_offset != document.rotation_offset)
+        current.rotation_offset != document.rotation_offset ||
+        current.animation_motion != document.animation_motion)
     {
         error = "FBX settings changed during import; retry the build";
         return false;
@@ -384,6 +464,20 @@ bool load_document(const std::filesystem::path& path, FbxDocument& document, std
         if (!document.animations.emplace(key, stack).second)
         {
             error = "FBX has ambiguous animation names: " + key;
+            return false;
+        }
+    }
+    for (const auto& [animation, motion] : document.animation_motion)
+    {
+        if (!document.animations.contains(animation))
+        {
+            error = "FBX animation_motion references an unknown animation key: " + animation;
+            return false;
+        }
+        const auto node = document.nodes.find(motion.joint);
+        if (node == document.nodes.end() || !document.joint_indices.contains(node->second))
+        {
+            error = "FBX animation_motion references a missing source joint: " + motion.joint;
             return false;
         }
     }
@@ -643,6 +737,6 @@ bool convert_animation(const FbxDocument& source, const FbxDocument& skeleton,
         }
         output.tracks.push_back(std::move(track));
     }
-    return !output.tracks.empty();
+    return !output.tracks.empty() && apply_animation_motion(source, skeleton, stack, output, error);
 }
 } // namespace engine::plugins::fbx_import

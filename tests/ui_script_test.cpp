@@ -36,8 +36,8 @@ namespace
 {
 namespace fs = std::filesystem;
 constexpr double delta_time = 1.0 / 60.0;
-constexpr std::string_view main_scene = "project/scenes/main.scene";
-constexpr std::string_view main_document = "project/ui/main.rml";
+constexpr std::string_view main_scene = "scenes/main.scene";
+constexpr std::string_view main_document = "ui/main.rml";
 constexpr std::string_view ui_guid = "29000000-0000-4000-8000-000000000001";
 constexpr std::string_view alternate_guid = "29000000-0000-4000-8000-000000000002";
 
@@ -95,11 +95,14 @@ input { display: block; position: absolute; left: 20px; top: 100px; width: 240px
         height: 40px; background-color: #34475d; }
 #label { display: block; position: absolute; left: 20px; top: 170px; }
 #plain { display: block; position: absolute; left: 20px; top: 220px; }
+#custom-capture { display: block; position: absolute; left: 320px; top: 220px;
+                  width: 160px; height: 40px; }
 </style></head><body>
 <div id="panel"><button id="action">Add</button></div>
 <button id="bubble-button"><span id="caption">Child caption</span></button>
 <input type="text" id="name"/>
 <p id="label">Initial</p><p id="plain">Plain</p>
+<div id="custom-capture" data-input-capture>Custom control</div>
 </body></rml>
 )rml";
 
@@ -159,8 +162,8 @@ struct Project
                             "guid = \"" + std::string(document_guids[index]) +
                                 "\"\nimporter = \"ui\"\nmeta_version = 1\n[ui]\ntextures = []\n"
                                 "[[ui.fonts]]\nfamily = \"body\"\n"
-                                "asset = \"project/fonts/lato-regular.ttf\"\n"
-                                "shader = \"builtin/shaders/font\"\n") ||
+                                "asset = \"fonts/lato-regular.ttf\"\n"
+                                "shader = \"builtin://shaders/font\"\n") ||
                 !write_text(scene, "name = \"MVC\"\nactive_camera = 0\n"
                                    "[[nodes]]\nid = 1\nname = \"View\"\nparent = 0\n"
                                    "[[nodes.components]]\ntype = \"transform\"\n"
@@ -212,7 +215,7 @@ class CounterController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        this.scene = Scene.Load('project/scenes/main.scene');
+        this.scene = Scene.Load('scenes/main.scene');
         this.view = this.scene?.FindNode('View')?.GetComponent(UiComponent);
         check(this.view instanceof Component && this.view.IsValid(), 'ordinary UI component');
         this.model = { count: 0, changes: 0, inputs: 0, name: '', binds: 0, unbinds: 0 };
@@ -274,19 +277,19 @@ class LifetimeController extends UiController {
             ++this.model.calls;
             check(this.model.calls === 1, 'queued old events are discarded');
             if (operation === 'document') {
-                check(this.view.SetDocument('project/ui/alternate.rml'), 'replace document');
+                check(this.view.SetDocument('ui/alternate.rml'), 'replace document');
                 check(!this.model.button.isValid, 'old document handle is invalid');
                 check(this.view.FindElement('label').SetText(operation), 'new document view');
             } else if (operation === 'roundtrip') {
-                check(this.view.SetDocument('project/ui/alternate.rml') &&
-                      this.view.SetDocument('project/ui/main.rml'),
+                check(this.view.SetDocument('ui/alternate.rml') &&
+                      this.view.SetDocument('ui/main.rml'),
                       'replace A with B and restore A before querying either View');
                 check(!this.model.button.isValid && !this.model.button.SetText('stale') &&
                       this.view.FindElement('action').isValid,
                       'returning to the same resource does not revive old handles');
                 check(this.view.FindElement('label').SetText(operation), 'replacement A view');
             } else if (operation === 'scene') {
-                const next = Scene.Load('project/scenes/alternate.scene');
+                const next = Scene.Load('scenes/alternate.scene');
                 check(next && !this.model.scene.IsValid() && !this.model.button.isValid,
                       'scene replacement invalidates old handles during callback');
                 check(next.FindNode('View').GetComponent(UiComponent).FindElement('label')
@@ -309,7 +312,7 @@ class LifetimeController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        this.scene = Scene.Load('project/scenes/main.scene');
+        this.scene = Scene.Load('scenes/main.scene');
         this.view = this.scene?.FindNode('View')?.GetComponent(UiComponent);
         this.button = this.view?.FindElement('action');
         check(this.button?.isValid, 'find original button');
@@ -320,7 +323,7 @@ export default class extends Gameplay {
         check(plain.SetVisible(false) && plain.SetVisible(true) &&
               this.button.SetEnabled(false) && this.button.SetEnabled(true) &&
               plain.SetClass('selected', true) && plain.SetClass('selected', false) &&
-              plain.SetStyle('font-size', '22px') && !plain.SetImage('project/missing.png') &&
+              plain.SetStyle('font-size', '22px') && !plain.SetImage('missing.png') &&
               this.view.SetVisible(false) && !this.view.visible &&
               this.view.SetVisible(true) && this.view.visible, 'View modifiers');
         const input = this.view.FindElement('name');
@@ -394,7 +397,7 @@ class BubbleController extends UiController {
 }
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
         this.model = { button: view?.FindElement('bubble-button'),
                        caption: view?.FindElement('caption'), label: view?.FindElement('label'),
@@ -425,7 +428,7 @@ constexpr std::string_view no_ui_source = R"js(
 import { Gameplay, Scene, UiComponent, UiController } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
         if (!view || view.FindElement('action') !== null || view.SetVisible(true)) return false;
         const controller = new UiController(view, {});
@@ -438,7 +441,7 @@ constexpr std::string_view async_source = R"js(
 import { Gameplay, Scene, UiComponent } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
-        const scene = Scene.Load('project/scenes/main.scene');
+        const scene = Scene.Load('scenes/main.scene');
         const button = scene?.FindNode('View')?.GetComponent(UiComponent)?.FindElement('action');
         return button !== undefined && button !== null && button.On('click', async () => {}) > 0;
     }
@@ -472,7 +475,7 @@ struct Systems
                     std::string_view name, std::string_view source)
     {
         auto entry = std::make_unique<engine::schema::AssetEntryT>();
-        entry->path = "project/scripts/" + std::string(name) + ".js";
+        entry->path = "scripts/" + std::string(name) + ".js";
         entry->module_path = "scripts/" + std::string(name) + ".js";
         entry->guid = "29000000-0000-4000-8000-" + hash_text(entry->path).substr(4);
         entry->kind = engine::schema::AssetKind::script;
@@ -643,6 +646,170 @@ bool type_name(Systems& systems)
     return expect(systems.ui.process_event(event), "UI consumes SDL text input");
 }
 
+bool native_mouse_capture_case(Systems& systems)
+{
+    if (!systems.world.load_scene(main_scene) || !systems.ui.synchronize())
+    {
+        return false;
+    }
+    const auto window = SDL_GetWindowID(systems.window.native_window());
+    SDL_Event button{};
+    button.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    button.button.windowID = window;
+    button.button.button = SDL_BUTTON_LEFT;
+    button.button.down = true;
+    button.button.x = 60;
+    button.button.y = 40;
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.windowID = window;
+    motion.motion.x = 600;
+    motion.motion.y = 400;
+    SDL_Event wheel{};
+    wheel.type = SDL_EVENT_MOUSE_WHEEL;
+    wheel.wheel.windowID = window;
+    wheel.wheel.mouse_x = motion.motion.x;
+    wheel.wheel.mouse_y = motion.motion.y;
+    wheel.wheel.y = 1;
+    if (!expect(systems.ui.process_event(button) && systems.ui.process_event(motion) &&
+                    systems.ui.owns_pointer(wheel) && systems.ui.process_event(wheel),
+                "UI drag retains wheel input after the pointer leaves interactive controls"))
+    {
+        return false;
+    }
+    button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    button.button.down = false;
+    button.button.x = motion.motion.x;
+    button.button.y = motion.motion.y;
+    if (!expect(systems.ui.process_event(button) && !systems.ui.owns_pointer(wheel) &&
+                    !systems.ui.process_event(wheel),
+                "released UI capture returns background wheel input to gameplay"))
+    {
+        return false;
+    }
+    systems.ui.release_scene();
+    return true;
+}
+
+bool native_touch_case(Systems& systems)
+{
+    auto* scene = systems.world.load_scene(main_scene);
+    int width = 0;
+    int height = 0;
+    if (!expect(scene != nullptr && systems.ui.synchronize() &&
+                    SDL_GetWindowSize(systems.window.native_window(), &width, &height) &&
+                    width > 0 && height > 0 && !systems.ui.keyboard_claimed() &&
+                    !systems.ui.pointer_claimed(),
+                "ordinary full-screen HUD does not reserve all gameplay input"))
+    {
+        return false;
+    }
+    const auto window = SDL_GetWindowID(systems.window.native_window());
+    const auto touch = [&](SDL_EventType type, SDL_FingerID finger, float x, float y)
+    {
+        SDL_Event event{};
+        event.type = type;
+        event.tfinger.windowID = window;
+        event.tfinger.touchID = 19;
+        event.tfinger.fingerID = finger;
+        event.tfinger.x = x / static_cast<float>(width);
+        event.tfinger.y = y / static_cast<float>(height);
+        return event;
+    };
+    const auto no_clicks = [&]()
+    {
+        engine::UiEvent event;
+        bool clean = true;
+        while (systems.ui.poll_event(event))
+        {
+            clean = clean && event.type != "click";
+        }
+        return clean;
+    };
+    auto primary = touch(SDL_EVENT_FINGER_DOWN, 1, 60, 40);
+    auto secondary = touch(SDL_EVENT_FINGER_DOWN, 2, 60, 40);
+    auto background = touch(SDL_EVENT_FINGER_DOWN, 3, 600, 400);
+    if (!expect(systems.ui.process_event(primary) && systems.ui.owns_pointer(primary) &&
+                    !systems.ui.pointer_claimed() && !systems.ui.process_event(background) &&
+                    !systems.ui.owns_pointer(background) && systems.ui.process_event(secondary) &&
+                    systems.ui.owns_pointer(secondary),
+                "one UI touch captures its pointer while a separate gameplay finger stays free"))
+    {
+        return false;
+    }
+    secondary.type = SDL_EVENT_FINGER_UP;
+    primary.type = SDL_EVENT_FINGER_CANCELED;
+    if (!expect(systems.ui.process_event(secondary) && !systems.ui.owns_pointer(secondary) &&
+                    systems.ui.process_event(primary) && !systems.ui.owns_pointer(primary) &&
+                    no_clicks(),
+                "a second UI finger and canceled primary produce no ordinary click"))
+    {
+        return false;
+    }
+    primary.type = SDL_EVENT_FINGER_DOWN;
+    if (!systems.ui.process_event(primary))
+    {
+        return false;
+    }
+    primary.type = SDL_EVENT_FINGER_UP;
+    engine::UiEvent clicked;
+    if (!expect(systems.ui.process_event(primary) && !systems.ui.owns_pointer(primary) &&
+                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && no_clicks(),
+                "a completed native UI touch produces one button click"))
+    {
+        return false;
+    }
+    SDL_Event synthetic{};
+    synthetic.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    synthetic.button.windowID = window;
+    synthetic.button.which = SDL_TOUCH_MOUSEID;
+    synthetic.button.button = SDL_BUTTON_LEFT;
+    synthetic.button.down = true;
+    synthetic.button.x = 60;
+    synthetic.button.y = 40;
+    if (!expect(!systems.ui.process_event(synthetic) && no_clicks(),
+                "SDL synthetic touch mouse input cannot duplicate the native touch"))
+    {
+        return false;
+    }
+    for (const auto type :
+         {SDL_EVENT_WINDOW_FOCUS_LOST, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_DID_ENTER_BACKGROUND})
+    {
+        primary.type = SDL_EVENT_FINGER_DOWN;
+        SDL_Event boundary{};
+        boundary.type = type;
+        boundary.window.windowID = window;
+        if (!expect(systems.ui.process_event(primary) && !systems.ui.process_event(boundary) &&
+                        !systems.ui.owns_pointer(primary) && no_clicks(),
+                    "focus, layout and background boundaries cancel UI capture without clicks"))
+        {
+            return false;
+        }
+    }
+    auto custom = touch(SDL_EVENT_FINGER_DOWN, 4, 350, 240);
+    if (!systems.ui.process_event(custom))
+    {
+        return expect(false, "an explicit custom region captures the native touch");
+    }
+    custom.type = SDL_EVENT_FINGER_UP;
+    if (!expect(systems.ui.process_event(custom) && systems.ui.poll_event(clicked) &&
+                    clicked.type == "click" && clicked.element_id == "custom-capture" &&
+                    no_clicks() && click(systems, 60, 120) && systems.ui.keyboard_claimed() &&
+                    !systems.ui.pointer_claimed(),
+                "custom regions and persistent text focus keep independent routing facts"))
+    {
+        return false;
+    }
+    systems.ui.cancel_input();
+    const bool clean = !systems.ui.keyboard_claimed() && !systems.ui.pointer_claimed();
+    systems.stop();
+    // This fixture created the scene natively, so no script Run owns its destruction.
+    systems.world.destroy_scene();
+    return expect(clean && systems.world.scene() == nullptr && systems.ui.document_count() == 0,
+                  "native touch fixture releases its own scene and persistent focus");
+}
+
 bool mvc_case(Systems& systems, const fs::path& project)
 {
     if (!systems.start("mvc") || !systems.tick() || !systems.label_is("0:0:") || !click(systems) ||
@@ -758,7 +925,7 @@ bool independent_documents(Systems& systems)
     }
     auto* original_component = scene->nodes().front()->get_component<engine::UiComponent>();
     const auto revision = original_component->document_revision();
-    if (!expect(original_component->set_document("project/ui/alternate.rml") &&
+    if (!expect(original_component->set_document("ui/alternate.rml") &&
                     original_component->document_revision() == revision + 1 &&
                     original_component->set_document(main_document) &&
                     original_component->document_revision() == revision + 2 &&
@@ -828,7 +995,7 @@ int main(int argc, char** argv)
     }
     engine::AppConfig app;
     app.application_name = "engine-ui-script-test";
-    app.builtin_assets_path = project.root / "builtin";
+    app.assets_path = project.root / "builtin";
     app.persistent_data_path = project.root / "persistent";
     app.cache_path = project.root / "app-cache";
     if (!engine::App::initialize(app) || !engine::LogSystem::instance().initialize({}))
@@ -842,6 +1009,7 @@ int main(int argc, char** argv)
         passed = systems.initialize(project.root) && systems.frames() &&
                  expect(bgfx::getRendererType() != bgfx::RendererType::Noop,
                         "integration requires a real GPU backend") &&
+                 native_mouse_capture_case(systems) && native_touch_case(systems) &&
                  mvc_case(systems, project.root) && lifetime_cases(systems) &&
                  bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);

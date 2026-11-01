@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/render/render_settings.hpp"
+#include "runtime/scene/scene_types.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstdint>
@@ -52,6 +53,8 @@ public:
     // 通用 GPU 生命周期与提交进度；帧号为当前图形设备的 bgfx 提交帧号。
     [[nodiscard]] bool gpu_ready() const noexcept;
     [[nodiscard]] std::uint32_t frame_number() const noexcept;
+    // 最近配置的绘制目标像素尺寸；系统或 GPU 未就绪时失败并清零。
+    [[nodiscard]] bool viewport_size(Vec2& output) const noexcept;
     // 有场景时只修改现有组件；缺少变更域的组件时失败，不创建节点。
     // 无场景时保存空白窗口配置，该配置不成为后续场景的默认值。
     [[nodiscard]] bool set_settings(const RenderSettings& settings);

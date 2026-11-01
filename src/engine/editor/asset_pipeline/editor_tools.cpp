@@ -26,6 +26,31 @@ bool resolve_path(const std::filesystem::path& root, std::string_view relative,
 }
 } // namespace
 
+bool shader_target(std::string_view target, std::string& platform, std::string& profile)
+{
+    platform.clear();
+    profile.clear();
+    if (target == "macos" || target == "ios")
+    {
+        platform = target == "macos" ? "osx" : "ios";
+        profile = "metal";
+        return true;
+    }
+    if (target == "windows")
+    {
+        platform = "windows";
+        profile = "s_5_0";
+        return true;
+    }
+    if (target == "android" || target == "linux")
+    {
+        platform = target;
+        profile = "spirv";
+        return true;
+    }
+    return false;
+}
+
 bool editor_tool_path(std::string_view name, const std::filesystem::path& fallback,
                       std::filesystem::path& path, std::string& error)
 {

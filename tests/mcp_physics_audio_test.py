@@ -26,7 +26,7 @@ def test(editor, mcp, root, temporary):
         "import { Gameplay, Scene } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "  override OnInitialize(): boolean {\n"
-        "    return Scene.Load('project/scenes/main.scene') !== null;\n"
+        "    return Scene.Load('scenes/main.scene') !== null;\n"
         "  }\n}\n",
         encoding="utf-8",
     )
@@ -75,7 +75,7 @@ def test(editor, mcp, root, temporary):
             "set_audio_source",
             cube
             | {
-                "clip": "project/audio/test.wav",
+                "clip": "audio/test.wav",
                 "loop": True,
                 "playOnAwake": False,
                 "spatial": False,
@@ -89,7 +89,19 @@ def test(editor, mcp, root, temporary):
         command("pause_audio", cube)
         require(not command("get_audio_state", cube)["playing"], "pause did not take effect")
         command("play_audio", cube)
-        command("set_rigid_body", cube | {"motion": "static_body"})
+        # 落地高度不代表刚体已休眠；切换静态时须在同一请求内清除实时速度。
+        command(
+            "set_rigid_body",
+            cube
+            | {"motion": "static_body", "linearVelocity": [0, 0, 0], "angularVelocity": [0, 0, 0]},
+        )
+        frozen = command("get_rigid_body", cube)
+        require(
+            frozen["motion"] == "static_body"
+            and frozen["linearVelocity"] == [0, 0, 0]
+            and frozen["angularVelocity"] == [0, 0, 0],
+            "static body retained simulated velocity",
+        )
         command("save_scene", identity | {"path": "scenes/main.scene"})
         check_empty(tool(mcp, project, runtime, "stop_project"))
         tool(mcp, project, runtime, "sync_assets")
@@ -97,9 +109,15 @@ def test(editor, mcp, root, temporary):
         reloaded = command("get_scene")["scene"]
         cube = {"sceneId": reloaded["sceneId"], "nodeId": node_named(reloaded, "Cube")["nodeId"]}
         require(command("get_collider", cube)["halfExtents"] == [0.5, 0.5, 0.5], "collider lost")
-        require(command("get_rigid_body", cube)["motion"] == "static_body", "body lost")
+        body = command("get_rigid_body", cube)
+        require(
+            body["motion"] == "static_body"
+            and body["linearVelocity"] == [0, 0, 0]
+            and body["angularVelocity"] == [0, 0, 0],
+            "static body settings or cleared velocities were lost on reload",
+        )
         source = command("get_audio_source", cube)
-        require(source["clip"] == "project/audio/test.wav" and source["loop"], "audio GUID lost")
+        require(source["clip"] == "audio/test.wav" and source["loop"], "audio GUID lost")
         command("play_audio", cube)
         wait_for(process, lambda: command("get_audio_state", cube)["playing"], "reloaded audio")
         command("stop_audio", cube)

@@ -283,7 +283,7 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         state_->generated.clear();
         state_->scene_id = scene->id();
     }
-    std::string material = "builtin/materials/default-pbr";
+    std::string material = "builtin://materials/default-pbr";
     if (!component.settings().material_guid.empty() &&
         !ResourceSystem::guid_to_path(component.settings().material_guid, material))
     {
@@ -346,7 +346,7 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
             settings.angular_velocity = saved.angular_velocity;
             if (!RigidBody::valid_settings(settings) ||
                 settings.motion != (description.anchored ? schema::BodyMotion::static_body
-                                                        : schema::BodyMotion::dynamic) ||
+                                                         : schema::BodyMotion::dynamic) ||
                 collider->settings().shape != schema::ColliderShape::compound ||
                 renderer->enabled() != enabled || collider->enabled() != enabled ||
                 !body->enabled())
@@ -708,8 +708,8 @@ bool DestructionSystem::apply_stress(DestructionComponent& component, const Vec3
             matrix[8] * gravity.x() + matrix[9] * gravity.y() + matrix[10] * gravity.z()};
         std::uint32_t group_broken = 0;
         if (!candidate.apply_stress(group.id, local_gravity, component.settings().density,
-                                     elastic_limit, fatal_limit, iterations, group_broken,
-                                     component.last_error_))
+                                    elastic_limit, fatal_limit, iterations, group_broken,
+                                    component.last_error_))
         {
             return false;
         }

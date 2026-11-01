@@ -131,7 +131,7 @@ bool ShaderResourceCodec::validate(const schema::ShaderDataT& data)
             uniform_slots.contains(sampler->uniform_name) ||
             !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 11 ||
             !stages.insert(sampler->stage).second ||
-            !sampler->default_texture.starts_with("builtin/") ||
+            !sampler->default_texture.starts_with("builtin://") ||
             !valid_path(sampler->default_texture))
         {
             return false;
@@ -145,7 +145,7 @@ bool ShaderResourceCodec::decode(const ResourceCatalog& catalog, ByteView payloa
 {
     const auto& entry = output.info();
     std::unique_ptr<schema::ShaderDataT> data;
-    if (entry.path.starts_with("builtin/"))
+    if (entry.path.starts_with("builtin://") && !entry.location)
     {
         const auto* builtin = ResourceSystem::find_shader(entry.path);
         if (!builtin)

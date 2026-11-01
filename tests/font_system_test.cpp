@@ -74,7 +74,7 @@ bool publish_font(test_support::ResourceFixture& fixture, engine::ResourceSystem
     engine::schema::FinishFontDataBuffer(builder, engine::schema::FontData::Pack(builder, &data));
     auto entry = std::make_unique<engine::schema::AssetEntryT>();
     entry->guid = "f0000000-0000-4000-8000-000000000001";
-    entry->path = "project/fonts/test.ttf";
+    entry->path = "fonts/test.ttf";
     entry->kind = engine::schema::AssetKind::font;
     engine::ByteBuffer entity;
     const engine::ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
@@ -161,7 +161,7 @@ int main()
     engine::ResourcePtr font;
     if (!expect(resources.initialize({}) && fonts.initialize({}), "CPU systems initialize") ||
         !expect(publish_font(fixture, resources, data), "publish independent font resource") ||
-        !expect(fonts.load_font("project/fonts/test.ttf", font), "load font through catalog"))
+        !expect(fonts.load_font("fonts/test.ttf", font), "load font through catalog"))
     {
         return 1;
     }
@@ -200,13 +200,13 @@ int main()
         return 1;
     }
     engine::ResourcePtr missing = font;
-    if (!expect(!fonts.load_font("project/fonts/missing.ttf", missing) && !missing,
+    if (!expect(!fonts.load_font("fonts/missing.ttf", missing) && !missing,
                 "failed font load resets output"))
     {
         return 1;
     }
     engine::schema::ShaderDataT shader_data;
-    shader_data.path = "project/shaders/font.shader";
+    shader_data.path = "shaders/font.shader";
     shader_data.vertex_code = {1};
     shader_data.fragment_code = {2};
     engine::WorldSystem world;

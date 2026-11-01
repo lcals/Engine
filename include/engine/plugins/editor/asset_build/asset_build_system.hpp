@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <span>
 #include <string>
+#include <string_view>
 
 namespace engine::editor
 {
@@ -35,10 +36,12 @@ public:
     AssetBuildSystem(AssetBuildSystem&&) = delete;
     AssetBuildSystem& operator=(AssetBuildSystem&&) = delete;
 
-    // manifest 是项目 settings/ 下的相对路径；空 items 选择全部构建项。
+    // manifest 为空使用 settings/resource-build.toml；缺失清单或 items 时全量构建。
+    // target_platform 为空采用宿主；空 items 选择清单全部构建项。
     [[nodiscard]] bool build(const std::filesystem::path& project_root,
-                             const std::filesystem::path& manifest,
-                             std::span<const std::string> items = {});
+                             const std::filesystem::path& manifest = {},
+                             std::span<const std::string> items = {},
+                             std::string_view target_platform = {});
     [[nodiscard]] const ResourceBuildStats& last_build() const noexcept;
     [[nodiscard]] const std::string& last_error() const noexcept;
 

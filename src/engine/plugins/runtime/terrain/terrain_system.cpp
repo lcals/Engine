@@ -183,7 +183,7 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
     collider->set_transient(true);
     const auto previous_mesh = *renderer->mesh_data();
     const auto previous_material = std::string(renderer->material().type_path());
-    std::string material = "builtin/materials/default-pbr";
+    std::string material = "builtin://materials/default-pbr";
     if ((!component.settings().material_guid.empty() &&
          !ResourceSystem::guid_to_path(component.settings().material_guid, material)) ||
         !renderer->material().set_type(material))
@@ -203,9 +203,8 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
     const MeshCollisionData no_collision;
     const bool previous_collision_enabled = collider->enabled();
     collider->set_enabled(component.enabled() && component.settings().collision && !empty);
-    if (!physics_.set_mesh_parts(*collider, component.settings().collision
-                                              ? candidate.collision_data()
-                                              : no_collision))
+    if (!physics_.set_mesh_parts(
+            *collider, component.settings().collision ? candidate.collision_data() : no_collision))
     {
         collider->set_enabled(previous_collision_enabled);
         const bool restored = renderer->set_mesh_data(previous_mesh) &&
@@ -249,9 +248,9 @@ std::size_t TerrainSystem::fragment_count(const TerrainComponent& component) con
     {
         return 0;
     }
-    return static_cast<std::size_t>(std::count_if(
-        found->second.begin(), found->second.end(),
-        [&](std::uint64_t id) { return scene->find_node(id) != nullptr; }));
+    return static_cast<std::size_t>(std::count_if(found->second.begin(), found->second.end(),
+                                                  [&](std::uint64_t id)
+                                                  { return scene->find_node(id) != nullptr; }));
 }
 
 void TerrainSystem::clear_fragments(TerrainComponent& component) noexcept
@@ -276,8 +275,8 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
     ENGINE_PROFILE_ZONE("Terrain.collapse");
     auto* scene = world_.scene();
     TransformSettings pose;
-    if (!is_initialized() || !scene || scene != &component.node().scene() ||
-        !component.ready_ || !component.enabled() || !component.settings().collision ||
+    if (!is_initialized() || !scene || scene != &component.node().scene() || !component.ready_ ||
+        !component.enabled() || !component.settings().collision ||
         !collapse_pose(component.node(), pose) || !std::isfinite(density) || density <= 0 ||
         density > 100000 || max_fragments == 0 || max_fragments > 128)
     {
@@ -304,7 +303,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
         component.last_error_.clear();
         return true;
     }
-    std::string material = "builtin/materials/default-pbr";
+    std::string material = "builtin://materials/default-pbr";
     if (!component.settings().material_guid.empty() &&
         !ResourceSystem::guid_to_path(component.settings().material_guid, material))
     {
@@ -344,8 +343,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
             if (!renderer || !collider || !body ||
                 !node->get_component<Transform>()->set_settings(pose) ||
                 !renderer->material().set_type(material) ||
-                !renderer->set_mesh_data(fragment.mesh) ||
-                !body->set_settings(body_settings) ||
+                !renderer->set_mesh_data(fragment.mesh) || !body->set_settings(body_settings) ||
                 !physics_.set_collider_data(*collider, fragment.collision))
             {
                 return fail(

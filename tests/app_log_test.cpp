@@ -85,7 +85,7 @@ std::string read_text(const std::filesystem::path& path)
 engine::AppConfig app_config(const std::filesystem::path& root)
 {
     engine::AppConfig config;
-    config.builtin_assets_path = root / "missing-package-assets";
+    config.assets_path = root / "missing-package-assets";
     config.persistent_data_path = root / std::filesystem::path(u8"data-中文");
     config.cache_path = root / "cache";
     return config;
@@ -97,7 +97,7 @@ bool app_paths_and_failures(const std::filesystem::path& root)
     bool success = expect(!engine::App::is_initialized(), "App starts stopped");
     success &=
         expect(engine::App::cache_path().empty() && engine::App::persistent_data_path().empty() &&
-                   engine::App::builtin_assets_path().empty(),
+                   engine::App::assets_path().empty(),
                "uninitialized paths are empty");
     auto invalid = config;
     invalid.application_name = "../bad";
@@ -114,7 +114,7 @@ bool app_paths_and_failures(const std::filesystem::path& root)
     success &= expect(!engine::App::initialize(invalid), "directory creation failure propagates");
     success &= expect(!engine::App::is_initialized() && engine::App::cache_path().empty() &&
                           engine::App::persistent_data_path().empty() &&
-                          engine::App::builtin_assets_path().empty(),
+                          engine::App::assets_path().empty(),
                       "failed initialization does not publish partial paths");
 
     if (!expect(engine::App::initialize(config), "initialize explicit platform paths"))
@@ -127,7 +127,7 @@ bool app_paths_and_failures(const std::filesystem::path& root)
                "persistent directory exists");
     success &= expect(std::filesystem::is_directory(engine::App::cache_path(), error) && !error,
                       "cache directory exists");
-    success &= expect(!std::filesystem::exists(engine::App::builtin_assets_path(), error) && !error,
+    success &= expect(!std::filesystem::exists(engine::App::assets_path(), error) && !error,
                       "App does not create an absent package resource root");
     const auto original_path = engine::App::persistent_data_path();
     success &= expect(!engine::App::initialize(invalid) &&
@@ -137,15 +137,15 @@ bool app_paths_and_failures(const std::filesystem::path& root)
     engine::App::shutdown();
     success &= expect(!engine::App::is_initialized() && engine::App::cache_path().empty() &&
                           engine::App::persistent_data_path().empty() &&
-                          engine::App::builtin_assets_path().empty(),
+                          engine::App::assets_path().empty(),
                       "repeated shutdown clears all borrowed path values");
     success &= expect(std::filesystem::is_directory(original_path, error) && !error,
                       "App shutdown preserves persistent data");
 
-    config.builtin_assets_path.clear();
+    config.assets_path.clear();
     success &= expect(engine::App::initialize(config), "resolve the default SDL application root");
-    success &= expect(engine::App::builtin_assets_path().is_absolute(),
-                      "default application root is absolute");
+    success &=
+        expect(engine::App::assets_path().is_absolute(), "default application root is absolute");
     engine::App::shutdown();
     return success;
 }

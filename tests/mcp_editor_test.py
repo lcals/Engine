@@ -60,7 +60,7 @@ def test(editor, mcp, root, temporary):
         "import { Gameplay, Scene } from 'engine';\n"
         "export default class Game extends Gameplay {\n"
         "    override OnInitialize(): boolean {\n"
-        "        return Scene.Load('project/scenes/main.scene') !== null;\n"
+        "        return Scene.Load('scenes/main.scene') !== null;\n"
         "    }\n"
         "}\n",
         encoding="utf-8",
@@ -95,14 +95,17 @@ def test(editor, mcp, root, temporary):
 
         idle = snapshot()
         require(
-            idle == {"scene": None, "undoCount": 0, "redoCount": 0},
+            idle == {"scene": None, "totalNodes": 0, "offset": 0, "undoCount": 0, "redoCount": 0},
             f"idle editor unexpectedly owns a scene or history: {idle}",
         )
         tool(mcp, project, runtime, "start_project")
         initial = snapshot()
         scene = initial["scene"]
         require(scene is not None and scene["name"] == "PBR cube", "scene was not loaded")
-        require(len(scene["nodes"]) == 3, "MCP scene snapshot did not enumerate all nodes")
+        require(
+            len(scene["nodes"]) == 3 and initial["totalNodes"] == 3 and initial["offset"] == 0,
+            "MCP default scene page did not enumerate all nodes with matching pagination",
+        )
         cube = node_named(scene, "Cube")
         sun = node_named(scene, "Sun")
         camera = node_named(scene, "Camera")
@@ -313,7 +316,7 @@ def test(editor, mcp, root, temporary):
                 "sceneId": fresh_scene["sceneId"],
                 "nodeId": fresh_cube["nodeId"],
                 "name": "baseColorTexture",
-                "path": "builtin/textures/white-linear",
+                "path": "builtin://textures/white-linear",
             },
         )
         textures = component(node_named(snapshot()["scene"], "Cube"), "mesh_renderer")["material"][
@@ -321,7 +324,7 @@ def test(editor, mcp, root, temporary):
         ]
         require(
             any(
-                item == {"name": "baseColorTexture", "path": "builtin/textures/white-linear"}
+                item == {"name": "baseColorTexture", "path": "builtin://textures/white-linear"}
                 for item in textures
             ),
             "texture assignment missing from snapshot",

@@ -7,6 +7,7 @@
 #include "editor/scene/scene_saved_resource.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/input/input_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
@@ -14,7 +15,6 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
-#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <SDL3/SDL.h>
@@ -158,8 +158,7 @@ bool copy_camera(const Camera& source, TransformSettings& pose)
     for (std::size_t column = 0; column < 3; ++column)
     {
         const auto offset = column * 4;
-        const double length =
-            std::hypot(matrix[offset], matrix[offset + 1], matrix[offset + 2]);
+        const double length = std::hypot(matrix[offset], matrix[offset + 1], matrix[offset + 2]);
         if (!std::isfinite(length) || length < 1.0e-8)
         {
             return false;
@@ -172,8 +171,8 @@ bool copy_camera(const Camera& source, TransformSettings& pose)
     constexpr double degrees = 180.0 / std::numbers::pi;
     const double yaw = std::asin(std::clamp(-static_cast<double>(matrix[2]), -1.0, 1.0));
     const bool singular = std::abs(std::cos(yaw)) < 1.0e-6;
-    const double pitch = singular ? std::atan2(-matrix[9], matrix[5])
-                                  : std::atan2(matrix[6], matrix[10]);
+    const double pitch =
+        singular ? std::atan2(-matrix[9], matrix[5]) : std::atan2(matrix[6], matrix[10]);
     const double roll = singular ? 0.0 : std::atan2(matrix[1], matrix[0]);
     pose.position = {matrix[12], matrix[13], matrix[14]};
     pose.rotation = {pitch * degrees, yaw * degrees, roll * degrees};
@@ -188,7 +187,9 @@ struct ScenePreview::State
     GameplaySession& gameplay;
     WorldSystem& world;
     RenderSystem& renderer;
-    WindowSystem& window;
+    InputSystem& input;
+    schema::InputChannelHandle input_channel;
+    std::uint64_t device_revision = 0;
     fs::path project_root;
     ImportCallback import;
     WorldSystem camera_world;
@@ -214,10 +215,10 @@ struct ScenePreview::State
     bool saved_import_complete = false;
 
     State(EditorEnvironment& editor_environment, GameplaySession& session, WorldSystem& scene_world,
-          RenderSystem& render_system, WindowSystem& window_system, fs::path root,
+          RenderSystem& render_system, InputSystem& input_system, fs::path root,
           ImportCallback callback)
         : environment(editor_environment), gameplay(session), world(scene_world),
-          renderer(render_system), window(window_system), project_root(std::move(root)),
+          renderer(render_system), input(input_system), project_root(std::move(root)),
           import(std::move(callback))
     {
     }
@@ -230,6 +231,10 @@ struct ScenePreview::State
         // 命令服务按契约已释放；显式关闭负责清历史，析构不访问其借用。
         commands = nullptr;
         close();
+        if (input_channel.generation() != 0)
+        {
+            (void)input.destroy_channel(input_channel);
+        }
         camera_world.shutdown();
     }
 
@@ -251,6 +256,11 @@ struct ScenePreview::State
 
     void close() noexcept
     {
+        if (input_channel.generation() != 0)
+        {
+            (void)input.set_channel_enabled(input_channel, false,
+                                            schema::InputActivation::wait_for_neutral);
+        }
         if (active())
         {
             gameplay.stop();
@@ -327,17 +337,19 @@ struct ScenePreview::State
 
     bool open(std::string_view requested, const Json& arguments)
     {
-        if (!initialized || !requested.starts_with("project/") ||
-            !requested.ends_with(".scene"))
+        if (!initialized || !GuidMap::valid_path(requested) ||
+            requested.find(':') != requested.npos || !requested.ends_with(".scene"))
         {
-            return fail("Preview requires an initialized editor and a project/*.scene path");
+            return fail(
+                "Preview requires an initialized editor and an assets-relative .scene path");
         }
         TransformSettings pose;
         pose.position = {0, 2, 5};
         double requested_speed = 5.0;
         if (!camera_arguments(arguments, pose, requested_speed))
         {
-            return fail("Camera requires finite position/rotation vectors and speed in [0.01,1000]");
+            return fail(
+                "Camera requires finite position/rotation vectors and speed in [0.01,1000]");
         }
         if (!import_sources())
         {
@@ -391,7 +403,7 @@ struct ScenePreview::State
         camera = view;
         path = requested;
         speed = requested_speed;
-        if (!renderer.prepare_scene(camera))
+        if (!configure_input() || !renderer.prepare_scene(camera))
         {
             close();
             return fail("Cannot prepare preview rendering resources");
@@ -409,7 +421,8 @@ struct ScenePreview::State
         if (modified() && !discard_changes)
         {
             reload_pending = true;
-            return fail("Preview has unsaved edits; save the scene or refresh with discardChanges=true");
+            return fail(
+                "Preview has unsaved edits; save the scene or refresh with discardChanges=true");
         }
         if (rebuild && !import_sources())
         {
@@ -441,37 +454,112 @@ struct ScenePreview::State
         return true;
     }
 
+    bool configure_input()
+    {
+        schema::InputChannelDataT data;
+        data.enabled = active();
+        data.activation = schema::InputActivation::wait_for_neutral;
+        const auto action = [&](std::string name, schema::InputActionKind kind,
+                                schema::InputValueMode mode = schema::InputValueMode::state)
+        {
+            auto value = std::make_unique<schema::InputActionDataT>();
+            value->name = std::move(name);
+            value->kind = kind;
+            value->value_mode = mode;
+            auto* pointer = value.get();
+            data.actions.push_back(std::move(value));
+            return pointer;
+        };
+        auto* move = action("move", schema::InputActionKind::axis2d);
+        auto* vertical = action("vertical", schema::InputActionKind::axis1d);
+        auto* fast = action("fast", schema::InputActionKind::button);
+        auto* navigate = action("navigate", schema::InputActionKind::button);
+        auto* look = action("look", schema::InputActionKind::axis2d, schema::InputValueMode::delta);
+        const auto binding = [](schema::InputActionDataT& target)
+        {
+            auto value = std::make_unique<schema::InputBindingDataT>();
+            auto* pointer = value.get();
+            target.bindings.push_back(std::move(value));
+            return pointer;
+        };
+        const auto part = [](schema::InputBindingDataT& target, std::uint64_t device,
+                             schema::InputControlKind kind, std::uint32_t code, double x,
+                             double y = 0.0)
+        {
+            auto value = std::make_unique<schema::InputBindingPartDataT>();
+            value->source = {device, kind, code};
+            value->weight_x = x;
+            value->weight_y = y;
+            target.parts.push_back(std::move(value));
+        };
+        for (const auto& device : input.devices())
+        {
+            const auto id = device.connection_id;
+            if (device.kind == schema::InputDeviceKind::keyboard)
+            {
+                auto* movement = binding(*move);
+                part(*movement, id, schema::InputControlKind::key, SDL_SCANCODE_D, 1);
+                part(*movement, id, schema::InputControlKind::key, SDL_SCANCODE_A, -1);
+                part(*movement, id, schema::InputControlKind::key, SDL_SCANCODE_W, 0, 1);
+                part(*movement, id, schema::InputControlKind::key, SDL_SCANCODE_S, 0, -1);
+                auto* elevation = binding(*vertical);
+                part(*elevation, id, schema::InputControlKind::key, SDL_SCANCODE_E, 1);
+                part(*elevation, id, schema::InputControlKind::key, SDL_SCANCODE_Q, -1);
+                part(*binding(*fast), id, schema::InputControlKind::key, SDL_SCANCODE_LSHIFT, 1);
+                part(*binding(*fast), id, schema::InputControlKind::key, SDL_SCANCODE_RSHIFT, 1);
+            }
+            else if (device.kind == schema::InputDeviceKind::mouse)
+            {
+                part(*binding(*navigate), id, schema::InputControlKind::mouse_button,
+                     SDL_BUTTON_RIGHT, 1);
+                auto* delta = binding(*look);
+                delta->normalize = false;
+                part(*delta, id, schema::InputControlKind::mouse_delta, 0, 1);
+                part(*delta, id, schema::InputControlKind::mouse_delta, 1, 0, 1);
+            }
+        }
+        if (!input.configure_channel(input_channel, data))
+        {
+            return fail("Cannot configure preview input: " + input.last_error());
+        }
+        device_revision = input.frame_state().device_revision();
+        return true;
+    }
+
     bool move_camera(double delta_time)
     {
-        if (!window.can_render() || !window.pointer_down(WindowPointerButton::right))
+        if (device_revision != input.frame_state().device_revision() && !configure_input())
+        {
+            return false;
+        }
+        schema::InputActionState navigate;
+        if (!input.read_action(input_channel, "navigate", navigate) || !navigate.held())
         {
             return true;
         }
         auto* transform = camera->node().get_component<Transform>();
         auto pose = transform->settings();
-        const auto delta = window.pointer_delta();
-        pose.rotation = {std::clamp(pose.rotation.x() - delta.y() * 0.12, -89.5, 89.5),
-                         std::remainder(pose.rotation.y() - delta.x() * 0.12, 360.0),
+        schema::InputActionState delta;
+        (void)input.read_action(input_channel, "look", delta);
+        pose.rotation = {std::clamp(pose.rotation.x() - delta.value_y() * 0.12, -89.5, 89.5),
+                         std::remainder(pose.rotation.y() - delta.value_x() * 0.12, 360.0),
                          pose.rotation.z()};
         if (!transform->set_settings(pose))
         {
             return fail("Cannot update preview camera orientation");
         }
-        const bool* keys = SDL_GetKeyboardState(nullptr);
-        if (!keys || SDL_GetKeyboardFocus() != window.native_window())
-        {
-            return true;
-        }
-        double right = static_cast<double>(window.key_down(WindowKey::d)) -
-                       static_cast<double>(window.key_down(WindowKey::a));
-        double forward = static_cast<double>(window.key_down(WindowKey::w)) -
-                         static_cast<double>(window.key_down(WindowKey::s));
-        double up = static_cast<double>(keys[SDL_SCANCODE_E]) -
-                    static_cast<double>(keys[SDL_SCANCODE_Q]);
+        schema::InputActionState movement;
+        schema::InputActionState elevation;
+        schema::InputActionState fast;
+        (void)input.read_action(input_channel, "move", movement);
+        (void)input.read_action(input_channel, "vertical", elevation);
+        (void)input.read_action(input_channel, "fast", fast);
+        double right = movement.value_x();
+        double forward = movement.value_y();
+        double up = elevation.value_x();
         const double length = std::max(1.0, std::hypot(right, forward, up));
-        const double distance = std::min(delta_time, 0.1) * speed *
-                                (keys[SDL_SCANCODE_LSHIFT] || keys[SDL_SCANCODE_RSHIFT] ? 4.0 : 1.0) /
-                                length;
+        const double distance =
+            std::min(delta_time, 0.1) * speed * (fast.held() ? 4.0 : 1.0) / length;
         right *= distance;
         forward *= distance;
         up *= distance;
@@ -625,9 +713,9 @@ struct ScenePreview::State
 };
 
 ScenePreview::ScenePreview(EditorEnvironment& environment, GameplaySession& gameplay,
-                           WorldSystem& world, RenderSystem& renderer, WindowSystem& window,
+                           WorldSystem& world, RenderSystem& renderer, InputSystem& input,
                            fs::path project_root, ImportCallback import)
-    : state_(std::make_unique<State>(environment, gameplay, world, renderer, window,
+    : state_(std::make_unique<State>(environment, gameplay, world, renderer, input,
                                      std::move(project_root), std::move(import)))
 {
 }
@@ -638,14 +726,19 @@ bool ScenePreview::initialize(const EngineConfig& config)
 {
     auto& state = *state_;
     if (state.initialized || !state.environment.is_initialized() || !state.world.is_initialized() ||
-        !state.camera_world.initialize(config))
+        !state.input.is_initialized() || !state.camera_world.initialize(config))
     {
         return state.fail("Cannot initialize the editor preview world");
+    }
+    if (!state.input.create_channel(state.input_channel) || !state.configure_input())
+    {
+        return state.fail("Cannot initialize preview input: " + state.input.last_error());
     }
 #if ENGINE_HAS_ASSET_PIPELINE
     if (state.import)
     {
-        state.watcher = std::make_unique<SourceWatcher>(state.source_serial, state.source_changed_at);
+        state.watcher =
+            std::make_unique<SourceWatcher>(state.source_serial, state.source_changed_at);
         if (!state.watcher->initialize(state.project_root))
         {
             state.watcher.reset();
@@ -688,35 +781,33 @@ bool ScenePreview::register_commands(EditorCommands& commands)
                    result["discardedChanges"] = discarded;
                    return true;
                }) &&
-           commands.register_command(
-               "close_scene_preview", false,
-               [&state](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
-                        std::string& error)
-               {
-                   if (!fields(arguments, {}) || !arguments.empty())
-                   {
-                       error = "close_scene_preview takes no arguments";
-                       return false;
-                   }
-                   const bool discarded = state.modified();
-                   state.close();
-                   result = state.status();
-                   result["discardedChanges"] = discarded;
-                   return true;
-               }) &&
-           commands.register_command(
-               "get_scene_preview", false,
-               [&state](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
-                        std::string& error)
-               {
-                   if (!fields(arguments, {}) || !arguments.empty())
-                   {
-                       error = "get_scene_preview takes no arguments";
-                       return false;
-                   }
-                   result = state.status();
-                   return true;
-               }) &&
+           commands.register_command("close_scene_preview", false,
+                                     [&state](const Json& arguments, Json& result,
+                                              std::unique_ptr<EditorEdit>&, std::string& error)
+                                     {
+                                         if (!fields(arguments, {}) || !arguments.empty())
+                                         {
+                                             error = "close_scene_preview takes no arguments";
+                                             return false;
+                                         }
+                                         const bool discarded = state.modified();
+                                         state.close();
+                                         result = state.status();
+                                         result["discardedChanges"] = discarded;
+                                         return true;
+                                     }) &&
+           commands.register_command("get_scene_preview", false,
+                                     [&state](const Json& arguments, Json& result,
+                                              std::unique_ptr<EditorEdit>&, std::string& error)
+                                     {
+                                         if (!fields(arguments, {}) || !arguments.empty())
+                                         {
+                                             error = "get_scene_preview takes no arguments";
+                                             return false;
+                                         }
+                                         result = state.status();
+                                         return true;
+                                     }) &&
            commands.register_command(
                "set_preview_camera", false,
                [&state](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,

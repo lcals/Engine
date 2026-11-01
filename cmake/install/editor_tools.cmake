@@ -53,6 +53,9 @@ function(engine_editor_export_arguments output)
         "${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
         "${_data}/bgfx"
         --support-directory
+        "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders"
+        "${_data}/builtin-shaders"
+        --support-directory
         "${ENGINE_TYPESCRIPT_PACKAGE_DIR}"
         "${_data}/node_modules/typescript")
     if(APPLE)

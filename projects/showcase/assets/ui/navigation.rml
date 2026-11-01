@@ -1,0 +1,71 @@
+<rml>
+<head>
+<title>Navigation laboratory</title>
+<style>
+body, div, h1 { display: block; }
+body { margin: 0; width: 100%; height: 100%; pointer-events: none; font-family: body; color: #edf5f0; font-size: 14px; }
+.panel { position: absolute; top: 24px; right: 24px; width: 308px; max-height: 88%; overflow-y: auto; padding: 18px; box-sizing: border-box; background-color: #13242de8; border-width: 1px; border-color: #49636d; pointer-events: auto; }
+.eyebrow { color: #8fd7bf; font-size: 11px; letter-spacing: 2px; margin-bottom: 8px; }
+h1 { font-family: heading; font-size: 27px; font-weight: normal; margin: 0 0 10px 0; }
+.intro { color: #b9cdd2; font-size: 12px; line-height: 1.4; margin-bottom: 12px; }
+.section { color: #8fd7bf; font-size: 11px; letter-spacing: 1px; margin: 12px 0 6px 0; }
+.buttons { display: flex; flex-wrap: wrap; }
+button { display: block; tab-index: auto; box-sizing: border-box; width: 48%; margin: 0 4% 6px 0; padding: 9px 6px; font-family: body; font-size: 13px; text-align: center; color: #edf5f0; background-color: #304d5b; border-width: 1px; border-color: #597781; }
+button:nth-child(2n) { margin-right: 0; }
+.counts button { width: 30%; margin-right: 3%; }
+button:hover, button:focus { background-color: #496d76; border-color: #b4e1cd; }
+button.selected { background-color: #527864; border-color: #8fd7bf; }
+button:disabled { color: #809299; background-color: #233c46; }
+#navigation-statistics { color: #a9dfda; font-size: 13px; line-height: 1.5; margin: 12px 0 8px 0; }
+#navigation-terrain-statistics { color: #8fd7bf; font-size: 12px; line-height: 1.4; margin-bottom: 8px; }
+#navigation-status { color: #d7e6de; font-size: 12px; line-height: 1.4; }
+.legend { position: absolute; bottom: 20px; left: 24px; padding: 10px 14px; background-color: #13242de8; color: #c7d9d8; font-size: 12px; }
+scrollbarvertical { width: 8px; background-color: #13242d; }
+scrollbarvertical slidertrack { width: 8px; }
+scrollbarvertical sliderbar { width: 6px; margin: 1px; min-height: 20px; background-color: #527864; }
+scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: none; }
+@media (max-width: 700px) { .panel { top: 76px; right: 12px; width: 226px; max-height: 58%; padding: 12px; } h1 { font-size: 22px; } button { font-size: 12px; padding: 8px 4px; } .legend { left: 12px; right: 12px; bottom: 12px; font-size: 11px; } }
+</style>
+</head>
+<body>
+<div class="panel">
+    <div class="eyebrow">SHOWCASE / NATIVE CROWD</div>
+    <h1>Navigation laboratory</h1>
+    <div class="intro">Animated characters follow paths on editable terrain. Excavate, cut the floor and restore it to observe native rerouting.</div>
+    <div class="section">TEST LAYOUT</div>
+    <div class="buttons">
+        <button id="navigation-crossing" class="selected">Crossing groups</button>
+        <button id="navigation-doorway">Narrow doorway</button>
+    </div>
+    <div class="section">ACTIVE CHARACTERS</div>
+    <div class="buttons counts">
+        <button id="navigation-count16" class="selected">16</button>
+        <button id="navigation-count32">32</button>
+        <button id="navigation-count64">64</button>
+    </div>
+    <div class="section">DESTINATIONS</div>
+    <div class="buttons">
+        <button id="navigation-reverse">Reverse goals</button>
+        <button id="navigation-stop">Stop all</button>
+        <button id="navigation-resume">Resume / Retry</button>
+        <button id="navigation-reset">Reset group</button>
+    </div>
+    <div class="section">OBSERVE</div>
+    <div class="buttons">
+        <button id="navigation-overview">Whole arena</button>
+        <button id="navigation-detail" class="selected">Close view</button>
+    </div>
+    <div class="section">REAL TERRAIN / LOCAL REBUILD</div>
+    <div class="buttons">
+        <button id="navigation-pit">Dig crossing pit</button>
+        <button id="navigation-cut">Cut doorway floor</button>
+        <button id="navigation-restore">Restore terrain</button>
+        <button id="navigation-retryTerrain">Retry navigation</button>
+    </div>
+    <div id="navigation-statistics">Preparing agents...</div>
+    <div id="navigation-terrain-statistics">Terrain and navigation not ready</div>
+    <div id="navigation-status">Preparing the shared navigation mesh...</div>
+</div>
+<div class="legend">Left: dig a bypassable pit. Right: cut the floor to disconnect the doorway.<br/>Restore keeps agent goals. Pending is a queued route request; no route is a native unreachable result.</div>
+</body>
+</rml>

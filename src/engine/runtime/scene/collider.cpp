@@ -6,13 +6,29 @@
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/rigid_body.hpp"
 
+#include <atomic>
 #include <cmath>
+#include <limits>
 #include <utility>
 
 namespace engine
 {
 namespace
 {
+
+std::uint64_t next_instance_id() noexcept
+{
+    static std::atomic<std::uint64_t> sequence{0};
+    auto current = sequence.load(std::memory_order_relaxed);
+    while (current != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
+        {
+            return current + 1;
+        }
+    }
+    return 0;
+}
 
 bool bounded(double value, double minimum, double maximum) noexcept
 {
@@ -21,9 +37,19 @@ bool bounded(double value, double minimum, double maximum) noexcept
 
 } // namespace
 
-Collider::Collider(Node& node) : Component(node)
+Collider::Collider(Node& node) : Component(node), instance_id_(next_instance_id())
 {
     mutable_data().payload.Set(schema::ColliderDataT{});
+}
+
+bool Collider::initialize()
+{
+    return instance_id_ != 0;
+}
+
+std::uint64_t Collider::instance_id() const noexcept
+{
+    return instance_id_;
 }
 
 bool Collider::valid_settings(const schema::ColliderDataT& value,

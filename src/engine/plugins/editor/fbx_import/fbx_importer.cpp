@@ -97,7 +97,7 @@ bool resolve_materials(const std::string& key, const ufbx_node& node, const Mate
     for (std::size_t slot = 0; slot < count; ++slot)
     {
         const std::string path =
-            found == remaps.end() ? "builtin/materials/default-pbr" : found->second[slot];
+            found == remaps.end() ? "builtin://materials/default-pbr" : found->second[slot];
         Guid guid;
         if (!context.identities.path_to_guid(path, guid))
         {
@@ -317,7 +317,7 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:fbx-importer-7";
+    fingerprint += ":ufbx-0.23.1:ozz-0.16.0:fbx-importer-8";
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,

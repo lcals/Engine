@@ -130,7 +130,8 @@ target_include_directories(Effekseer PRIVATE "${_effekseer_source}/Dev/Cpp/Effek
 add_library(engine_effects_backend STATIC "${_efkbgfx_staged}/renderer/bgfxrenderer.cpp")
 add_library(engine::effects_backend ALIAS engine_effects_backend)
 target_include_directories(engine_effects_backend SYSTEM PUBLIC "${_efkbgfx_staged}/renderer")
-target_link_libraries(engine_effects_backend PUBLIC Effekseer EffekseerRendererCommon bgfx::bgfx)
+target_link_libraries(engine_effects_backend PUBLIC Effekseer EffekseerRendererCommon bgfx::bgfx
+                                                    bgfx::bx)
 target_compile_features(engine_effects_backend PUBLIC cxx_std_20)
 set_target_properties(engine_effects_backend PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")

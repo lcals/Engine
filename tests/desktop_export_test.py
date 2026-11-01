@@ -1,8 +1,11 @@
 """导出回归：来源保护、复制校验、发布回滚与备份保留。"""
 
 from pathlib import Path
+import json
+import plistlib
 import tempfile
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -10,7 +13,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 import artifact_output as output
 import export_desktop as desktop
-from prepare_android_assets_test import catalog_fixture, resource_entry
+import resource_catalog as catalog
+from prepare_android_assets_test import PACK as android, catalog_fixture, resource_entry
 
 
 class DesktopExportTest(unittest.TestCase):
@@ -32,6 +36,117 @@ class DesktopExportTest(unittest.TestCase):
     def previous(self):
         self.destination.mkdir(parents=True)
         (self.destination / "old").write_text("previous")
+
+    def export_arguments(self, platform="macos", app_bundle=False):
+        executable = self.root / "engine_app"
+        executable.write_bytes(b"fixture executable")
+        builder = self.root / "asset builder"
+        builder.write_bytes(b"fixture builder")
+        project = self.root / "project"
+        project.mkdir(exist_ok=True)
+        icu = self.root / "icudtl.dat"
+        icu.write_bytes(b"fixture ICU")
+        return SimpleNamespace(
+            executable=executable,
+            builder=builder,
+            project=project,
+            icu=icu,
+            kind="runtime",
+            platform=platform,
+            app_bundle=app_bundle,
+            product="game_runtime",
+            output=self.destination,
+            manifest=Path("settings/resource-build.toml"),
+            support_file=[],
+            support_directory=[],
+            cmake="cmake",
+            library_dir=[],
+        )
+
+    def test_export_uses_assets_directory_for_native_and_app_bundle(self):
+        for platform, app_bundle in (("windows", False), ("macos", False), ("macos", True)):
+            with self.subTest(platform=platform, app_bundle=app_bundle):
+                args = self.export_arguments(platform, app_bundle)
+                (self.source / "catalog.bin").write_bytes(catalog_fixture([self.entry], platform))
+                with (
+                    mock.patch.object(desktop, "ROOT", self.root),
+                    mock.patch.object(desktop, "build_resources", return_value=self.source),
+                    mock.patch.object(desktop.subprocess, "run"),
+                    mock.patch("builtins.print"),
+                ):
+                    desktop.export(args)
+                base = self.destination
+                if app_bundle:
+                    bundle = base / "game_runtime.app"
+                    base = bundle / "Contents/Resources"
+                    self.assertEqual(
+                        (bundle / "Contents/MacOS/game_runtime").read_bytes(),
+                        b"fixture executable",
+                    )
+                    with (bundle / "Contents/Info.plist").open("rb") as stream:
+                        self.assertEqual(
+                            plistlib.load(stream)["SDL_FILESYSTEM_BASE_DIR_TYPE"], "resource"
+                        )
+                else:
+                    binary = "game_runtime.exe" if platform == "windows" else "game_runtime"
+                    self.assertEqual((base / binary).read_bytes(), b"fixture executable")
+                self.assertTrue((base / "assets/catalog.bin").is_file())
+                self.assertEqual(
+                    (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
+                )
+                self.assertFalse((base / "catalog.bin").exists())
+                self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
+
+    def test_build_resources_passes_package_target_and_optional_manifest(self):
+        args = self.export_arguments()
+        receipt = {"status": "ok", "targetPlatform": "macos", "output": str(self.source)}
+        for manifest in (Path("settings/resource-build.toml"), None):
+            with self.subTest(manifest=manifest):
+                args.manifest = manifest
+                with mock.patch.object(
+                    desktop.subprocess,
+                    "run",
+                    return_value=mock.Mock(returncode=0, stdout=json.dumps(receipt)),
+                ) as run:
+                    self.assertEqual(desktop.build_resources(args), self.source)
+                expected = [
+                    str(args.builder),
+                    "--project",
+                    str(args.project),
+                    "--package",
+                    "--target",
+                    "macos",
+                ]
+                if manifest:
+                    expected += ["--manifest", manifest.as_posix()]
+                self.assertEqual(run.call_args.args[0], expected)
+                self.assertNotIn("shell", run.call_args.kwargs)
+
+    def test_both_builders_reject_malformed_receipts(self):
+        args = self.export_arguments()
+        for platform, build in (
+            ("macos", lambda: desktop.build_resources(args)),
+            ("android", lambda: android.compile_catalog(args.project, args.builder)),
+        ):
+            valid = {"status": "ok", "targetPlatform": platform, "output": str(self.source)}
+            invalid = ["invalid JSON", "null", "[]", "{}"]
+            invalid += [
+                json.dumps(valid | {"output": value})
+                for value in (None, [], {}, 1, "", "relative/resources")
+            ]
+            invalid += [
+                json.dumps(valid | {"status": "failed"}),
+                json.dumps(valid | {"targetPlatform": "other"}),
+            ]
+            for receipt in invalid:
+                with self.subTest(platform=platform, receipt=receipt):
+                    with mock.patch.object(
+                        desktop.subprocess,
+                        "run",
+                        return_value=mock.Mock(returncode=0, stdout=receipt),
+                    ):
+                        with self.assertRaises(ValueError):
+                            build()
 
     def test_output_cannot_replace_source_ancestor_or_child(self):
         for candidate, source in (
@@ -59,34 +174,56 @@ class DesktopExportTest(unittest.TestCase):
 
     def test_copy_time_change_keeps_previous_output(self):
         self.previous()
-        copy = desktop.shutil.copy2
+        copy = catalog.copy_asset
 
-        def changed(source, target):
-            result = copy(source, target)
-            if Path(source).name != "catalog.bin":
-                data = bytearray(Path(target).read_bytes())
-                data[-1] ^= 1
-                Path(target).write_bytes(data)
+        def changed(source, target, limit):
+            result = copy(source, target, limit)
+            data = bytearray(Path(target).read_bytes())
+            data[-1] ^= 1
+            Path(target).write_bytes(data)
             return result
 
-        with mock.patch.object(desktop.shutil, "copy2", side_effect=changed):
+        with mock.patch.object(catalog, "copy_asset", side_effect=changed):
             with self.assertRaises(ValueError), output.staged_output(self.destination) as stage:
                 desktop.copy_resources(self.source, stage, "macos")
         self.assertTrue((self.destination / "old").exists())
 
     def test_source_catalog_change_keeps_the_captured_revision(self):
         snapshot = (self.source / "catalog.bin").read_bytes()
-        copy = desktop.shutil.copy2
+        copy = catalog.copy_asset
 
-        def changed(source, target):
-            catalog = self.source / "catalog.bin"
-            catalog.write_bytes(snapshot.replace(b"fixture-guid-catalog", b"changed-guid-catalog"))
-            return copy(source, target)
+        def changed(source, target, limit):
+            path = self.source / "catalog.bin"
+            path.write_bytes(snapshot.replace(b"fixture-guid-catalog", b"changed-guid-catalog"))
+            return copy(source, target, limit)
 
-        with mock.patch.object(desktop.shutil, "copy2", side_effect=changed):
+        with mock.patch.object(catalog, "copy_asset", side_effect=changed):
             with output.staged_output(self.destination) as stage:
                 desktop.copy_resources(self.source, stage, "macos")
         self.assertEqual((self.destination / "catalog.bin").read_bytes(), snapshot)
+
+    def test_desktop_preserves_custom_carrier_paths_and_ranges(self):
+        self.entry["path"] = "data/shared.bin"
+        prefix = b"unselected prefix"
+        self.entry["offset"] = len(prefix)
+        contents = prefix + self.entry["entity"] + b"unselected suffix"
+        path = self.source / self.entry["path"]
+        path.parent.mkdir()
+        path.write_bytes(contents)
+        (self.source / "catalog.bin").write_bytes(catalog_fixture([self.entry], "macos"))
+        with output.staged_output(self.destination) as stage:
+            self.assertEqual(desktop.copy_resources(self.source, stage, "macos"), (1, 1))
+        self.assertEqual((self.destination / self.entry["path"]).read_bytes(), contents)
+
+    def test_catalog_and_carriers_cannot_overwrite_deployed_files(self):
+        for relative in ("catalog.bin", self.entry["path"]):
+            with self.subTest(relative=relative), output.staged_output(self.destination) as stage:
+                deployed = stage / relative
+                deployed.parent.mkdir(parents=True, exist_ok=True)
+                deployed.write_bytes(b"existing deployed data")
+                with self.assertRaisesRegex(ValueError, "冲突"):
+                    desktop.copy_resources(self.source, stage, "macos")
+                self.assertEqual(deployed.read_bytes(), b"existing deployed data")
 
     def test_failed_publish_restores_previous(self):
         self.previous()

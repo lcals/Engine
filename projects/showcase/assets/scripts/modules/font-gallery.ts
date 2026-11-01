@@ -4,7 +4,7 @@ export default class Game extends Gameplay {
     scene: Scene | null = null;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/font-gallery.scene");
+        this.scene = Scene.Load("scenes/font-gallery.scene");
         if (!this.scene) return false;
         Debug.Log("3D font gallery ready.");
         return true;

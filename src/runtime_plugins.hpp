@@ -3,6 +3,10 @@
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/world/world_system.hpp"
 
+#if ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+#include "plugins/runtime/navigation_crowd/navigation_crowd_system.hpp"
+#endif
+
 #if ENGINE_HAS_CHARACTER_CONTROLLER
 #include "plugins/runtime/character_controller/character_camera_system.hpp"
 #include "plugins/runtime/character_controller/character_controller_system.hpp"
@@ -30,12 +34,13 @@ namespace
 {
 bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& world,
                                engine::WindowSystem& window, engine::PhysicsSystem& physics,
-                               engine::RenderSystem& renderer)
+                               engine::NavigationSystem& navigation, engine::RenderSystem& renderer)
 {
     (void)stage;
     (void)world;
     (void)window;
     (void)physics;
+    (void)navigation;
     (void)renderer;
 #if ENGINE_HAS_TERRAIN_PLUGIN
     if (stage == engine::RuntimeStage::before_physics)
@@ -64,7 +69,7 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
     {
         std::unique_ptr<engine::System> controller =
             std::make_unique<engine::plugins::character_controller::CharacterControllerSystem>(
-                world, &window);
+                world);
         if (!world.add_subsystem(controller))
         {
             return false;
@@ -76,6 +81,18 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
             std::make_unique<engine::plugins::character_controller::CharacterCameraSystem>(world,
                                                                                            physics);
         if (!world.add_subsystem(camera))
+        {
+            return false;
+        }
+    }
+#endif
+#if ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+    if (stage == engine::RuntimeStage::before_physics)
+    {
+        std::unique_ptr<engine::System> crowd =
+            std::make_unique<engine::plugins::navigation_crowd::NavigationCrowdSystem>(world,
+                                                                                       navigation);
+        if (!world.add_subsystem(crowd))
         {
             return false;
         }

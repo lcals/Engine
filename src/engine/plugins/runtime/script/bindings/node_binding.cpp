@@ -10,6 +10,8 @@ namespace
 constexpr std::string_view javascript = R"js(
 export class Node {
     constructor(token, scene, node) { attach(this, token, scene, node); }
+    get id() { return handles.get(this).node; }
+    get sceneId() { return handles.get(this).scene; }
     IsValid() { const h = handles.get(this); return native.NodeValid(h.scene, h.node); }
     Destroy() { const h = handles.get(this); return native.NodeDestroy(h.scene, h.node); }
     SetParent(parent) {

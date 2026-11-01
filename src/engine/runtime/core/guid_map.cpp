@@ -2,11 +2,17 @@
 
 namespace engine
 {
-namespace
+bool GuidMap::valid_path(std::string_view path) noexcept
 {
-bool valid_path(std::string_view path) noexcept
-{
-    if ((!path.starts_with("builtin/") && !path.starts_with("project/")) || path.back() == '/')
+    if (path.starts_with("builtin://"))
+    {
+        path.remove_prefix(10);
+    }
+    else if (path.starts_with("editor://"))
+    {
+        path.remove_prefix(9);
+    }
+    if (path.empty() || path.back() == '/')
     {
         return false;
     }
@@ -36,7 +42,6 @@ bool valid_path(std::string_view path) noexcept
     }
     return true;
 }
-} // namespace
 
 bool GuidMap::valid_guid(std::string_view guid) noexcept
 {

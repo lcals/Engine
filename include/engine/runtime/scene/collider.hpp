@@ -2,6 +2,7 @@
 
 #include "runtime/scene/component.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string_view>
 
@@ -29,6 +30,7 @@ public:
     [[nodiscard]] bool set_settings(const schema::ColliderDataT& settings);
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
     [[nodiscard]] bool build_data(schema::ComponentDataT& output) const override;
+    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     // 借用当前资源或瞬时网格；分段模式返回 nullptr。设置替换或组件销毁后失效。
     [[nodiscard]] const schema::MeshDataT* mesh_data() const noexcept;
     // 选择静态三角网格；失败保留原有设置和资源引用。
@@ -39,6 +41,8 @@ private:
     friend class Node;
     friend class PhysicsSystem;
     explicit Collider(Node& node);
+    [[nodiscard]] bool initialize() override;
+    const std::uint64_t instance_id_;
     std::shared_ptr<const Resource> mesh_;
     std::shared_ptr<const schema::MeshDataT> transient_mesh_;
     std::shared_ptr<const MeshCollisionData> mesh_parts_;

@@ -16,6 +16,7 @@ import tomllib
 import zlib
 
 from editor_mcp_session import EditorMcpSession, utc_now
+from resource_catalog import safe_relative
 
 
 def file_hash(path):
@@ -38,10 +39,9 @@ def read_route(path):
     if not isinstance(route, dict):
         raise ValueError("路线必须是 JSON 对象")
     scene = route.get("scene", "")
-    if not isinstance(scene, str) or not scene.startswith("project/"):
-        raise ValueError("路线 scene 必须为 project/ 开头的场景资源路径")
-    if ".." in PurePosixPath(scene).parts or "\\" in scene:
-        raise ValueError("路线 scene 不允许相对上级目录")
+    if not isinstance(scene, str) or not scene.endswith(".scene"):
+        raise ValueError("路线 scene 必须为 assets 相对场景资源路径")
+    safe_relative(scene)
     rate = route.get("steps_per_second", 12)
     if not finite_number(rate) or not 1 <= rate <= 60:
         raise ValueError("steps_per_second 必须在 [1, 60] 范围内")
@@ -327,7 +327,7 @@ def main():
         if (Path(args.output).is_absolute() or output == cache or not output.is_relative_to(cache)
                 or ".." in Path(args.output).parts or "\\" in args.output):
             raise ValueError("output 必须是项目 cache 内部的相对目录")
-        source = (args.project / "assets" / route["scene"][len("project/"):]).resolve()
+        source = (args.project / "assets" / route["scene"][len(""):]).resolve()
         if not source.is_relative_to((args.project / "assets").resolve()):
             raise ValueError("场景源文件不在项目 assets 内")
         source_hash = file_hash(source)

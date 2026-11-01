@@ -10,6 +10,7 @@ namespace engine
 class Engine;
 struct EngineConfig;
 class WindowSystem;
+class InputSystem;
 class WorldSystem;
 class RenderSystem;
 class PhysicsSystem;
@@ -23,10 +24,10 @@ class ResourceSystem;
 class ScriptRuntime;
 
 // 工厂由宿主提供，创建尚未初始化的实例；返回空表示创建失败。
-// renderer、ui、physics 和 navigation 借用只用于玩法回调，宿主关闭它们前先结束玩法。
+// 所有系统借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
                                                                 UiSystem&, PhysicsSystem&,
-                                                                NavigationSystem&);
+                                                                NavigationSystem&, InputSystem&);
 
 // 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
 enum class RuntimeStage
@@ -35,9 +36,9 @@ enum class RuntimeStage
     after_physics
 };
 
-// 世界初始化前按两个位置各调用一次；物理对象已构造，失败按已有生命周期回滚。
+// 世界初始化前按两个位置各调用一次；物理和导航已构造，失败按已有生命周期回滚。
 using RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&,
-                              RenderSystem&);
+                              NavigationSystem&, RenderSystem&);
 
 class RuntimeHost final
 {
@@ -56,10 +57,13 @@ public:
                                   ScriptRuntimeFactory script_factory = nullptr,
                                   RuntimeSetup setup = nullptr);
     [[nodiscard]] FrameStatus tick(double delta_time);
+    // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
+    [[nodiscard]] FrameStatus poll_events(double delta_time);
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
     [[nodiscard]] GameplaySession* gameplay() noexcept;
     [[nodiscard]] WorldSystem* world() noexcept;
     [[nodiscard]] WindowSystem* window() noexcept;
+    [[nodiscard]] InputSystem* input() noexcept;
     [[nodiscard]] RenderSystem* renderer() noexcept;
     void request_exit() noexcept;
     void shutdown() noexcept;
@@ -67,6 +71,7 @@ public:
 private:
     Engine& engine_;
     std::unique_ptr<WindowSystem> window_;
+    std::unique_ptr<InputSystem> input_;
     std::unique_ptr<GameplaySession> gameplay_;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;

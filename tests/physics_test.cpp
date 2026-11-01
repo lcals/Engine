@@ -467,6 +467,278 @@ bool targeted_ray()
     return true;
 }
 
+bool empty_hit(const engine::PhysicsQueryHit& hit)
+{
+    return !hit.hit && hit.object.scene_id == 0 && hit.object.node_id == 0 && hit.object.instance_id == 0 &&
+           hit.point == engine::Vec3{} && hit.normal == engine::Vec3{} && hit.distance == 0 &&
+           hit.fraction == 0;
+}
+
+bool closest_queries()
+{
+    Fixture fixture;
+    engine::PhysicsQueryHit hit;
+    hit.hit = true;
+    if (!expect(!fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit),
+                "uninitialized nearest query fails with a cleared result") ||
+        !fixture.initialize() ||
+        !expect(!fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit),
+                "nearest query never synchronizes a newly created scene"))
+    {
+        return false;
+    }
+    auto& scene = *fixture.world.scene();
+    auto* far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
+    auto* near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, false);
+    if (!far || !near || !fixture.physics.tick(0))
+    {
+        return false;
+    }
+    if (!expect(fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
+                    hit.object.scene_id == scene.id() && hit.object.node_id == near->id() &&
+                    hit.object.instance_id == near->get_component<engine::Collider>()->instance_id() &&
+                    std::abs(hit.fraction - 0.1875F) < 0.001F &&
+                    std::abs(hit.distance - 1.5F) < 0.001F &&
+                    std::abs(hit.point.y() - 2.5) < 0.001 && hit.normal.y() > 0.99 &&
+                    fixture.physics.is_hit_valid(hit),
+                "nearest ray returns collider identity, surface point, normal and distance") ||
+        !expect(fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
+                    hit.object.node_id == near->id() && std::abs(hit.fraction - 0.15625F) < 0.001F &&
+                    std::abs(hit.distance - 1.25F) < 0.01F &&
+                    std::abs(hit.point.y() - 2.5) < 0.01 && hit.normal.y() > 0.99,
+                "sphere result distinguishes target surface point from sphere center travel") ||
+        !expect(fixture.physics.query_ray({0, 4, 0}, {0, -1.5, 0}, {}, hit) && hit.hit &&
+                    std::abs(hit.fraction - 1.0F) < 0.001F,
+                "nearest ray includes its end point") ||
+        !expect(fixture.physics.query_ray({0, 2, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
+                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.point == engine::Vec3(0, 2, 0) && hit.normal == engine::Vec3(0, 1, 0),
+                "ray starting inside a convex collider returns a stable retreat direction") ||
+        !expect(fixture.physics.query_sphere({0, 2.4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
+                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.normal.y() > 0.99 && std::abs(hit.point.y() - 2.5) < 0.01,
+                "initial sphere overlap returns the target surface and outward contact normal") ||
+        !expect(fixture.physics.query_ray({3, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit) &&
+                    !fixture.physics.is_hit_valid(hit) &&
+                    fixture.physics.query_sphere({3, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) &&
+                    empty_hit(hit),
+                "valid ray and sphere misses succeed with empty values"))
+    {
+        return false;
+    }
+    hit.hit = true;
+    hit.object.node_id = near->id();
+    if (!expect(!fixture.physics.query_ray({}, {}, {}, hit) && empty_hit(hit) &&
+                    !fixture.physics.query_sphere({}, {}, 0.25F, {}, hit) && empty_hit(hit) &&
+                    !fixture.physics.query_sphere({}, {0, -8, 0}, 0, {}, hit) && empty_hit(hit) &&
+                    !fixture.physics.query_ray({}, {0, std::numeric_limits<double>::quiet_NaN(), 0},
+                                               {}, hit) &&
+                    empty_hit(hit),
+                "invalid nearest query inputs clear previous hit data"))
+    {
+        return false;
+    }
+    float fraction = 0;
+    return expect(fixture.physics.cast_sphere({3, 4, 0}, {}, 0.25F, fraction) && fraction == 1,
+                  "legacy sphere query retains its zero-displacement contract");
+}
+
+bool query_filters()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto& scene = *fixture.world.scene();
+    auto* parent = scene.create_node("Ignored hierarchy");
+    auto* sensor = create(scene, "Sensor", {0, 5, 0}, engine::schema::ColliderShape::box, false);
+    auto* solid = create(scene, "Static", {0, 3, 0}, engine::schema::ColliderShape::box, false);
+    auto* kinematic =
+        create(scene, "Kinematic", {0, 1, 0}, engine::schema::ColliderShape::box, true);
+    auto* dynamic = create(scene, "Dynamic", {0, -1, 0}, engine::schema::ColliderShape::box, true);
+    if (!parent || !sensor || !solid || !kinematic || !dynamic || !solid->set_parent(parent))
+    {
+        return false;
+    }
+    auto settings = sensor->get_component<engine::Collider>()->settings();
+    settings.is_trigger = true;
+    auto motion = kinematic->get_component<engine::RigidBody>()->settings();
+    motion.motion = engine::schema::BodyMotion::kinematic;
+    if (!sensor->get_component<engine::Collider>()->set_settings(settings) ||
+        !kinematic->get_component<engine::RigidBody>()->set_settings(motion) ||
+        !fixture.physics.tick(0))
+    {
+        return false;
+    }
+    engine::PhysicsQueryFilter filter;
+    engine::PhysicsQueryHit hit;
+    const auto query = [&](std::uint64_t expected)
+    {
+        return fixture.physics.query_ray({0, 7, 0}, {0, -10, 0}, filter, hit) &&
+               hit.object.node_id == expected && hit.hit == (expected != 0) &&
+               fixture.physics.query_sphere({0, 7, 0}, {0, -10, 0}, 0.2F, filter, hit) &&
+               hit.object.node_id == expected && hit.hit == (expected != 0);
+    };
+    if (!expect(query(solid->id()), "default filters include all solid motion categories"))
+    {
+        return false;
+    }
+    filter.include_sensors = true;
+    if (!expect(query(sensor->id()), "sensor inclusion applies to ray and sphere queries"))
+    {
+        return false;
+    }
+    filter.include_static = false;
+    if (!expect(query(kinematic->id()), "sensor still obeys its motion category filter"))
+    {
+        return false;
+    }
+    filter.include_kinematic = false;
+    if (!expect(query(dynamic->id()),
+                "dynamic-only query ignores closer static and kinematic bodies"))
+    {
+        return false;
+    }
+    filter.include_dynamic = false;
+    if (!expect(query(0) && empty_hit(hit),
+                "excluding every motion category produces a valid miss"))
+    {
+        return false;
+    }
+    filter = {};
+    filter.ignore_node_id = parent->id();
+    if (!expect(query(kinematic->id()), "self filter can ignore a complete collider subtree"))
+    {
+        return false;
+    }
+    filter.ignore_descendants = false;
+    if (!expect(query(solid->id()), "node-only self filter preserves descendant colliders"))
+    {
+        return false;
+    }
+    filter.ignore_node_id = solid->id();
+    if (!expect(query(kinematic->id()), "self filter ignores the selected collider node"))
+    {
+        return false;
+    }
+    filter.ignore_node_id = std::numeric_limits<std::uint64_t>::max();
+    return expect(!fixture.physics.query_ray({0, 7, 0}, {0, -10, 0}, filter, hit) &&
+                      empty_hit(hit) &&
+                      !fixture.physics.query_sphere({0, 7, 0}, {0, -10, 0}, 0.2F, filter, hit) &&
+                      empty_hit(hit),
+                  "an ignored node outside the current scene is an error with empty output");
+}
+
+bool query_lifecycle()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto& scene = *fixture.world.scene();
+    auto* far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
+    auto* near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, true);
+    auto* parent = scene.create_node("Parent");
+    if (!far || !near || !parent || !fixture.physics.tick(0))
+    {
+        return false;
+    }
+    engine::PhysicsQueryHit hit;
+    const auto query = [&](std::uint64_t expected)
+    {
+        return fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
+               hit.object.node_id == expected &&
+               fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
+               hit.object.node_id == expected;
+    };
+    if (!query(near->id()))
+    {
+        return false;
+    }
+    const auto saved = hit;
+    auto* collider = near->get_component<engine::Collider>();
+    collider->set_enabled(false);
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+                "disabled collider cannot obscure a live object before synchronization"))
+    {
+        return false;
+    }
+    collider->set_enabled(true);
+    auto* rigid = near->get_component<engine::RigidBody>();
+    rigid->set_enabled(false);
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+                "disabled rigid body invalidates hits before synchronization"))
+    {
+        return false;
+    }
+    rigid->set_enabled(true);
+    if (!near->set_parent(parent))
+    {
+        return false;
+    }
+    parent->get_component<engine::Transform>()->set_enabled(false);
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+                "disabled ancestor transform filters its descendant's old body"))
+    {
+        return false;
+    }
+    parent->get_component<engine::Transform>()->set_enabled(true);
+    if (!near->set_parent(nullptr))
+    {
+        return false;
+    }
+    auto* transform = near->get_component<engine::Transform>();
+    auto pose = transform->settings();
+    pose.position = {3, pose.position.y(), pose.position.z()};
+    if (!expect(transform->set_settings(pose) && fixture.physics.is_hit_valid(saved) &&
+                    fixture.physics.tick(0) && query(far->id()) &&
+                    fixture.physics.is_hit_valid(saved),
+                "moving a collider changes new queries but preserves historical object identity"))
+    {
+        return false;
+    }
+    pose.position = {0, pose.position.y(), pose.position.z()};
+    if (!transform->set_settings(pose) || !fixture.physics.tick(0) ||
+        !near->remove_component(engine::Collider::component_type))
+    {
+        return false;
+    }
+    collider = near->add_component<engine::Collider>();
+    if (!expect(collider != nullptr && collider->instance_id() != saved.object.instance_id &&
+                    !fixture.physics.is_hit_valid(saved) && query(far->id()) &&
+                    fixture.physics.tick(0) && query(near->id()) &&
+                    hit.object.instance_id == collider->instance_id() &&
+                    !fixture.physics.is_hit_valid(saved),
+                "same-node collider replacement cannot resurrect an old body or hit identity"))
+    {
+        return false;
+    }
+    const auto replacement = hit;
+    if (!expect(scene.destroy_node(near->id()) && !fixture.physics.is_hit_valid(replacement) &&
+                    query(far->id()),
+                "a deleted foreground node never blocks a still-live background collider"))
+    {
+        return false;
+    }
+    const auto previous_scene = hit;
+    fixture.world.destroy_scene();
+    if (!expect(!fixture.physics.is_hit_valid(previous_scene) &&
+                    !fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit) &&
+                    fixture.world.create_scene("Next") != nullptr &&
+                    !fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) &&
+                    empty_hit(hit) && fixture.physics.tick(0) &&
+                    fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit),
+                "scene replacement rejects stale physics until the new scene is synchronized"))
+    {
+        return false;
+    }
+    fixture.physics.clear();
+    return expect(!fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit),
+                  "clear requires explicit physics synchronization before querying again");
+}
+
 bool impact_snapshots()
 {
     Fixture fixture;
@@ -733,12 +1005,25 @@ bool transient_mesh_collision()
         return false;
     }
     float ray_fraction = 0;
+    engine::PhysicsQueryHit hit;
     if (!expect(
             fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
                 std::abs(ray_fraction - 0.5F) < 0.001F &&
                 fixture.physics.cast_ray(*collider, {0.25, -3, 0.25}, {0, 6, 0}, ray_fraction) &&
                 std::abs(ray_fraction - 0.5F) < 0.001F,
             "target mesh ray uses actual triangles from either side"))
+    {
+        return false;
+    }
+    if (!expect(fixture.physics.query_ray({0.25, 3, 0.25}, {0, -6, 0}, {}, hit) && hit.hit &&
+                    hit.object.node_id == floor->id() && std::abs(hit.distance - 3.0F) < 0.001F &&
+                    std::abs(hit.point.y()) < 0.001 && hit.normal.y() > 0.99 &&
+                    fixture.physics.query_ray({0.25, -3, 0.25}, {0, 6, 0}, {}, hit) && hit.hit &&
+                    std::abs(hit.distance - 3.0F) < 0.001F && hit.normal.y() > 0.99 &&
+                    fixture.physics.query_sphere({0.25, 3, 0.25}, {0, -6, 0}, 0.1F, {}, hit) &&
+                    hit.hit && std::abs(hit.distance - 2.9F) < 0.01F &&
+                    std::abs(hit.point.y()) < 0.01 && hit.normal.y() > 0.99,
+                "nearest mesh queries retain triangle surface normals and double-sided rays"))
     {
         return false;
     }
@@ -794,7 +1079,10 @@ bool transient_mesh_collision()
             fixture.physics.set_mesh_data(*collider, collision_grid(true)) && cast(0.25, false) &&
                 cast(1.5, true) && fixture.physics.tick(0.0) && cast(0.25, false) &&
                 fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
-                ray_fraction == 1,
+                ray_fraction == 1 &&
+                fixture.physics.query_ray({0.25, 3, 0.25}, {0, -6, 0}, {}, hit) && empty_hit(hit) &&
+                fixture.physics.query_sphere({0.25, 3, 0.25}, {0, -6, 0}, 0.1F, {}, hit) &&
+                empty_hit(hit),
             "hole replacement keeps surrounding collision and survives synchronization"))
     {
         return false;
@@ -1608,6 +1896,17 @@ bool compound_collision()
     {
         return false;
     }
+    engine::PhysicsQueryHit hit;
+    if (!expect(fixture.physics.query_ray({1, 8, 0}, {0, -6, 0}, {}, hit) && hit.hit &&
+                    hit.object.node_id == island->id() && hit.object.instance_id == collider->instance_id() &&
+                    std::abs(hit.point.y() - 4.5) < 0.01 && hit.normal.y() > 0.99 &&
+                    fixture.physics.query_ray({0, 8, 0}, {0, -6, 0}, {}, hit) && empty_hit(hit) &&
+                    fixture.physics.query_sphere({0, 8, 0}, {0, -6, 0}, 0.1F, {}, hit) &&
+                    empty_hit(hit),
+                "compound queries map exact hull hits to one collider and preserve real gaps"))
+    {
+        return false;
+    }
     const auto original = collider->settings();
     auto invalid = compound;
     invalid.hulls.front()->vertices.assign(4, engine::Vec3{});
@@ -1809,9 +2108,8 @@ int main()
                    segmented_mesh_seams() && segmented_mesh_transforms() &&
                    segmented_mesh_character_seams() && accumulated_shape_scale() &&
                    numeric_boundaries() && compound_box_geometry() && dynamic_pose_feedback() &&
-                   compound_collision() &&
-                   snapshot_reuse_lifecycle() &&
-                   targeted_ray() && impact_snapshots()
+                   compound_collision() && snapshot_reuse_lifecycle() && targeted_ray() &&
+                   closest_queries() && query_filters() && query_lifecycle() && impact_snapshots()
                ? 0
                : 1;
 }

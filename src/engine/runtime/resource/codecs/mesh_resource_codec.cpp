@@ -54,7 +54,7 @@ bool MeshResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
 {
     const auto& entry = output.info();
     std::unique_ptr<schema::MeshDataT> data;
-    if (entry.path.starts_with("builtin/"))
+    if (entry.path.starts_with("builtin://") && !entry.location)
     {
         const auto* builtin = ResourceSystem::find_mesh(entry.path);
         if (!builtin)

@@ -49,7 +49,7 @@ classDiagram
 
 - `.efkefc.meta` 使用普通 `guid/importer/meta_version`，`importer = "effect"`。`EffectAssetData`（EFCT）只封装原样保留的官方 `.efkefc` 字节与依赖路径/GUID/类型绑定，以 `AssetKind::effect` 发布到标准 `cache/gen/GUID`；特效节点和算法仍由官方格式表达，不重新实现特效格式。运行插件解析这一标准 FlatBuffers 资源，基础资源核心只保存字节。
 - 用 Effekseer 1.80.8 官方 `EfkEfcFile` 检查容器及运行数据存在，`EfkEfcProperty::Load` 读取 Color/Normal/Distortion/Model/Curve 依赖。官方解析器的兼容补丁集中在 `third_party/patches/`，构建期应用到缓存副本，不在导入器复制二进制解析器。
-- 依赖默认相对 `.efkefc` 所在目录解析。meta 可通过 `[[resources]] path = "Texture/Particle01.png"` 与 `resource = "project/effects/textures/particle01.png"` 显式映射作者引用到项目资源；这是通用资源重定位参数，不更改官方二进制，也不自动猜测大小写。拒绝重复及未声明的映射键、绝对路径、URI、控制字符、越过 `assets/` 根或符号链接逃逸。分隔符统一为 `/` 并规范化相对路径，再通过当前批次 GUID 目录及类型表验证。最终绑定保留作者路径与资源 GUID，运行包不依赖源目录布局。
+- 依赖默认相对 `.efkefc` 所在目录解析。meta 可通过 `[[resources]] path = "Texture/Particle01.png"` 与 `resource = "effects/textures/particle01.png"` 显式映射作者引用到项目资源；这是通用资源重定位参数，不更改官方二进制，也不自动猜测大小写。拒绝重复及未声明的映射键、绝对路径、URI、控制字符、越过 `assets/` 根或符号链接逃逸。分隔符统一为 `/` 并规范化相对路径，再通过当前批次 GUID 目录及类型表验证。最终绑定保留作者路径与资源 GUID，运行包不依赖源目录布局。
 - 图片必须已由标准管线识别为 Texture；Color 引用要求图片 meta 中 `srgb=true`（默认），Normal/Distortion 引用要求 `srgb=false`，不能同一 GUID 同时承担两种颜色空间。`.efkmodel` 以独立 Source 字节资源保留。当前运行时尚无 Curve loader，`.efkcurve` 引用明确拒绝。所有实际引用同时进入增量构建和运行依赖，按 GUID 去重；管线负责缓存、原子发布、共享加载及反向卸载。
 - 自定义材质、音效和曲线依赖明确拒绝；未知容器、官方解析失败或未识别依赖类型不静默丢弃。`.efkproj`、旧 `.efk` 与 `.efkpkg` 不冒充可播放资源。
 - `EfkEfcProperty` 只提供依赖信息，不能判断 GPU 粒子节点。导入和运行共用运行时插件 `validate_effect(ByteView, string&)`：通过官方 Setting 的 GPU factory 回调识别不支持的 GPU 粒子，用官方 Effect 节点接口校验扭曲、软粒子、自定义材质等能力；不依赖空依赖列表推测支持状态。

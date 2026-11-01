@@ -260,11 +260,11 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
         std::string("vertex=\"") + identities[0] + "\"\nfragment=\"" + identities[1] +
         "\"\nvarying=\"" + identities[2] +
         "\"\n[[samplers]]\nname=\"baseColorTexture\"\nuniform=\"s_base_color\"\nstage=0\n"
-        "default_texture=\"builtin/textures/white-srgb\"\n"
+        "default_texture=\"builtin://textures/white-srgb\"\n"
         "[[samplers]]\nname=\"normalTexture\"\nuniform=\"s_normal\"\nstage=1\n"
-        "default_texture=\"builtin/textures/flat-normal\"\n"
+        "default_texture=\"builtin://textures/flat-normal\"\n"
         "[[samplers]]\nname=\"ormTexture\"\nuniform=\"s_orm\"\nstage=2\n"
-        "default_texture=\"builtin/textures/white-linear\"\n";
+        "default_texture=\"builtin://textures/white-linear\"\n";
     const auto path = fixture.root / "assets/custom.shader";
     auto metadata = path;
     metadata += ".meta";
@@ -273,7 +273,7 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
     {
         return false;
     }
-    const auto* shader = entry(pipeline, "project/custom.shader");
+    const auto* shader = entry(pipeline, "custom.shader");
     if (!expect(shader && shader->dependencies.size() == 3 &&
                     std::find(shader->dependencies.begin(), shader->dependencies.end(),
                               "00000000-0000-4000-8000-000000000006") !=
@@ -294,7 +294,7 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
           "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom"})
     {
         const auto extra = std::string("[[samplers]]\nname=\"reserved\"\nuniform=\"") + uniform +
-                           "\"\nstage=3\ndefault_texture=\"builtin/textures/white-linear\"\n";
+                           "\"\nstage=3\ndefault_texture=\"builtin://textures/white-linear\"\n";
         if (!expect(write(path, descriptor + extra) && !pipeline.build_assets(fixture.root) &&
                         read(fixture.root / "cache/catalog.bin") == stable,
                     "reserved renderer uniforms fail import without replacing the catalog"))
@@ -302,18 +302,19 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
             return false;
         }
     }
-    if (!expect(write(path, descriptor +
-                               "[[samplers]]\nname=\"reserved_slot\"\nuniform=\"s_extra\"\n"
-                               "stage=11\ndefault_texture=\"builtin/textures/white-linear\"\n") &&
-                    !pipeline.build_assets(fixture.root) &&
-                    read(fixture.root / "cache/catalog.bin") == stable,
-                "AO sampler slot 11 is reserved during import"))
+    if (!expect(
+            write(path, descriptor +
+                            "[[samplers]]\nname=\"reserved_slot\"\nuniform=\"s_extra\"\n"
+                            "stage=11\ndefault_texture=\"builtin://textures/white-linear\"\n") &&
+                !pipeline.build_assets(fixture.root) &&
+                read(fixture.root / "cache/catalog.bin") == stable,
+            "AO sampler slot 11 is reserved during import"))
     {
         return false;
     }
     return expect(write(path, descriptor +
                                   "[[samplers]]\nname=\"invalid\"\nuniform=\"s_extra\"\nstage=3\n"
-                                  "default_texture=\"project/颜色.png\"\n") &&
+                                  "default_texture=\"颜色.png\"\n") &&
                       !pipeline.build_assets(fixture.root) &&
                       read(fixture.root / "cache/catalog.bin") == stable,
                   "shader defaults cannot depend on project textures");
@@ -337,7 +338,7 @@ bool tests()
     {
         return false;
     }
-    const auto* image_entry = entry(pipeline, "project/颜色.png");
+    const auto* image_entry = entry(pipeline, "颜色.png");
     if (!expect(image_entry && image_entry->kind == schema::AssetKind::texture,
                 "catalog identifies a texture resource"))
     {
@@ -395,7 +396,7 @@ bool tests()
     {
         return false;
     }
-    const auto* material_entry = entry(pipeline, "project/surface.material");
+    const auto* material_entry = entry(pipeline, "surface.material");
     if (!expect(material_entry && std::find(material_entry->dependencies.begin(),
                                             material_entry->dependencies.end(),
                                             guid) != material_entry->dependencies.end(),
@@ -415,7 +416,7 @@ bool tests()
         ResourcePtr mesh_resource;
         ResourcePtr material_resource;
         ResourcePtr texture_resource;
-        if (!expect(ResourceSystem::find_mesh("project/quad.mesh") == nullptr &&
+        if (!expect(ResourceSystem::find_mesh("quad.mesh") == nullptr &&
                         resources.load(mesh_guid, mesh_resource) &&
                         resources.load(material_guid, material_resource) &&
                         resources.load(guid, texture_resource) && material_resource->material() &&
@@ -523,7 +524,7 @@ bool tests()
     {
         return false;
     }
-    const auto* jpeg_entry = entry(pipeline, "project/picture.jpeg");
+    const auto* jpeg_entry = entry(pipeline, "picture.jpeg");
     return expect(jpeg_entry && texture(fixture, jpeg_entry->guid, data) && data.width == 4 &&
                       data.height == 4 && transcode(data, true),
                   "JPEG cache contains transcodable texture pixels") &&
@@ -546,8 +547,8 @@ bool ktx_tests()
     {
         return false;
     }
-    const auto* cube_entry = entry(pipeline, "project/reflection.ktx");
-    const auto* lut_entry = entry(pipeline, "project/brdf.ktx");
+    const auto* cube_entry = entry(pipeline, "reflection.ktx");
+    const auto* lut_entry = entry(pipeline, "brdf.ktx");
     if (!expect(cube_entry != nullptr && lut_entry != nullptr,
                 "KTX sources receive ordinary independent texture GUIDs"))
     {
@@ -605,10 +606,10 @@ bool ktx_tests()
         return false;
     }
     const std::string original_binding(bound);
-    if (!expect(!material.set_texture("baseColorTexture", "project/reflection.ktx") &&
+    if (!expect(!material.set_texture("baseColorTexture", "reflection.ktx") &&
                     material.get_texture("baseColorTexture", bound) && bound == original_binding,
                 "ordinary 2D material sampler rejects a cubemap without changing its binding") ||
-        !expect(material.set_texture("baseColorTexture", "project/brdf.ktx"),
+        !expect(material.set_texture("baseColorTexture", "brdf.ktx"),
                 "ordinary material accepts valid 2D HDR KTX"))
     {
         return false;
@@ -635,8 +636,8 @@ bool ktx_tests()
     }
     const std::array dependencies{shader, cube_dependency};
     if (!expect(!resources.validate_dependencies(*invalid_material, dependencies) &&
-                    !material.set_type("project/cube.material") &&
-                    material.get_texture("baseColorTexture", bound) && bound == "project/brdf.ktx",
+                    !material.set_type("cube.material") &&
+                    material.get_texture("baseColorTexture", bound) && bound == "brdf.ktx",
                 "material dependency validation and type replacement reject cubemap samplers"))
     {
         return false;

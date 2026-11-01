@@ -12,7 +12,7 @@ namespace engine
 TextComponent::TextComponent(Node& node) : Component(node)
 {
     schema::TextDataT settings;
-    settings.shader_path = "builtin/shaders/font";
+    settings.shader_path = "builtin://shaders/font";
     mutable_data().payload.Set(std::move(settings));
 }
 
@@ -43,7 +43,7 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
     auto normalized = settings;
     if (normalized.shader_path.empty())
     {
-        normalized.shader_path = "builtin/shaders/font";
+        normalized.shader_path = "builtin://shaders/font";
     }
     auto* resources = ResourceSystem::instance();
     if (settings.font_guid.empty())

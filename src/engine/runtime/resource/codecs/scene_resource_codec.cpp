@@ -14,7 +14,7 @@ namespace engine
 bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload,
                                 Resource& output) const
 {
-    if (output.info().path.starts_with("builtin/"))
+    if (output.info().path.starts_with("builtin://"))
     {
         return false;
     }
@@ -126,7 +126,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             {
                 Guid shader;
                 const auto path =
-                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                    text->shader_path.empty() ? "builtin://shaders/font" : text->shader_path;
                 if (!catalog.identities().path_to_guid(path, shader) ||
                     !declares(catalog, output, shader, schema::AssetKind::shader) ||
                     !declares(catalog, output, text->font_guid, schema::AssetKind::font))
@@ -240,7 +240,7 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                 const auto* font = dependency(dependencies, text->font_guid);
                 Guid shader;
                 const auto path =
-                    text->shader_path.empty() ? "builtin/shaders/font" : text->shader_path;
+                    text->shader_path.empty() ? "builtin://shaders/font" : text->shader_path;
                 if (!font || !font->font() || !catalog.identities().path_to_guid(path, shader))
                 {
                     return false;

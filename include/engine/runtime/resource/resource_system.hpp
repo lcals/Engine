@@ -61,7 +61,7 @@ public:
     [[nodiscard]] static bool register_mesh(const schema::MeshDataT& data);
     [[nodiscard]] static const schema::MeshDataT* find_mesh(std::string_view path) noexcept;
 
-    // 仅注册引擎编入的 builtin/ 定义；项目资源通过目录加载，不能常驻注册。
+    // 仅注册引擎编入的 builtin:// 定义；项目资源通过目录加载，不能常驻注册。
     // 同一完整路径在 Shader 和材质之间唯一；内置材质不能引用项目 Shader。
     [[nodiscard]] static bool register_shader(const schema::ShaderDataT& data);
     [[nodiscard]] static bool register_material(const schema::MaterialDataT& data);

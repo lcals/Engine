@@ -113,9 +113,9 @@ int main()
     ByteBuffer bytes;
     Guid original_mesh_guid;
     if (!expect(ResourceSystem::read_catalog(project.root / "cache", catalog), "read catalog") ||
-        !expect(read(catalog, project.root, "project/models/person.fbx", bytes),
+        !expect(read(catalog, project.root, "models/person.fbx", bytes),
                 "FBX format remains independently routed") ||
-        !expect(read(catalog, project.root, "project/models/quad.usda", bytes), "read USD model"))
+        !expect(read(catalog, project.root, "models/quad.usda", bytes), "read USD model"))
     {
         return 1;
     }
@@ -123,10 +123,10 @@ int main()
     if (!expect(model->schema_version() == 2 && model->nodes()->size() == 2 &&
                     model->nodes()->Get(1)->parent() == 0,
                 "USD hierarchy retained in independent Model v2") ||
-        !expect(catalog.identities().path_to_guid("project/models/quad.usda/meshes/Root/Quad",
+        !expect(catalog.identities().path_to_guid("models/quad.usda/meshes/Root/Quad",
                                                   original_mesh_guid),
                 "USD child uses its stable prim path") ||
-        !expect(read(catalog, project.root, "project/models/quad.usda/meshes/Root/Quad", bytes),
+        !expect(read(catalog, project.root, "models/quad.usda/meshes/Root/Quad", bytes),
                 "load USD mesh independently"))
     {
         return 1;
@@ -149,7 +149,7 @@ int main()
         !expect(pipeline.last_build().imported == 2 && pipeline.last_build().reused == count - 2,
                 "USD change rebuilds its model/mesh without rebuilding FBX") ||
         !expect(ResourceSystem::read_catalog(project.root / "cache", catalog) &&
-                    read(catalog, project.root, "project/models/quad.usda/meshes/Root/Quad", bytes),
+                    read(catalog, project.root, "models/quad.usda/meshes/Root/Quad", bytes),
                 "read incremental mesh"))
     {
         return 1;
@@ -157,7 +157,7 @@ int main()
     mesh = schema::GetMeshData(bytes.data());
     Guid next_mesh_guid;
     if (!expect(std::abs(mesh->vertices()->Get(0)->x() - 3.0F) < 0.00001F &&
-                    catalog.identities().path_to_guid("project/models/quad.usda/meshes/Root/Quad",
+                    catalog.identities().path_to_guid("models/quad.usda/meshes/Root/Quad",
                                                       next_mesh_guid) &&
                     next_mesh_guid == original_mesh_guid,
                 "new USD contents replace cache while preserving child identity"))
@@ -194,7 +194,7 @@ int main()
         !expect(pipeline.last_build().revision == stable_revision,
                 "failed batches preserve the last successful revision") ||
         !expect(ResourceSystem::read_catalog(project.root / "cache", catalog) &&
-                    read(catalog, project.root, "project/models/quad.usda/meshes/Root/Quad", bytes),
+                    read(catalog, project.root, "models/quad.usda/meshes/Root/Quad", bytes),
                 "previous runtime resources remain available after each rejected input") ||
         !expect(write(source, model_source(3)) && pipeline.build_assets(project.root),
                 "restoring the source recovers the pipeline") ||

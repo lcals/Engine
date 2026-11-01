@@ -357,7 +357,7 @@ bool ResourceSystem::load(std::string_view guid, ResourcePtr& output)
     resource->generation_ = generation_;
     resource->info_ = *entry;
     ByteBuffer payload;
-    if (!entry->path.starts_with("builtin/"))
+    if (entry->location || !entry->path.starts_with("builtin://"))
     {
         ByteBuffer entity;
         if (!entry->location || !files_.read(*entry->location, 0, entry->content_size, entity) ||
@@ -428,11 +428,15 @@ bool ResourceSystem::guid_to_path(std::string_view guid, std::string& output)
 
 bool ResourceSystem::register_texture(const schema::TextureDataT& data)
 {
-    if (!data.path.starts_with("builtin/") || !TextureResourceCodec::validate(data) ||
-        textures.contains(data.path) || meshes.contains(data.path) ||
-        materials.contains(data.path) || shaders.contains(data.path))
+    if (!data.path.starts_with("builtin://") || !TextureResourceCodec::validate(data) ||
+        meshes.contains(data.path) || materials.contains(data.path) || shaders.contains(data.path))
     {
         return false;
+    }
+    const auto existing = textures.find(data.path);
+    if (existing != textures.end())
+    {
+        return *existing->second == data;
     }
     textures.emplace(data.path, std::make_unique<schema::TextureDataT>(data));
     return true;
@@ -440,27 +444,36 @@ bool ResourceSystem::register_texture(const schema::TextureDataT& data)
 
 const schema::TextureDataT* ResourceSystem::find_texture(std::string_view path) noexcept
 {
+    Guid guid;
+    if (definition_owner && path_to_guid(path, guid))
+    {
+        const auto* entry = definition_owner->catalog_.find(guid);
+        if (entry && entry->location)
+        {
+            const auto resource = definition_owner->loader().find(guid);
+            return resource ? resource->texture() : nullptr;
+        }
+    }
     const auto builtin = textures.find(path);
     if (builtin != textures.end())
     {
         return builtin->second.get();
-    }
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto resource = definition_owner->loader().find(guid);
-        return resource ? resource->texture() : nullptr;
     }
     return nullptr;
 }
 
 bool ResourceSystem::register_mesh(const schema::MeshDataT& data)
 {
-    if (!data.path.starts_with("builtin/") || !MeshResourceCodec::validate(data) ||
-        meshes.contains(data.path) || shaders.contains(data.path) ||
-        materials.contains(data.path) || textures.contains(data.path))
+    if (!data.path.starts_with("builtin://") || !MeshResourceCodec::validate(data) ||
+        shaders.contains(data.path) || materials.contains(data.path) ||
+        textures.contains(data.path))
     {
         return false;
+    }
+    const auto existing = meshes.find(data.path);
+    if (existing != meshes.end())
+    {
+        return *existing->second == data;
     }
     meshes.emplace(data.path, std::make_unique<schema::MeshDataT>(data));
     return true;
@@ -468,11 +481,15 @@ bool ResourceSystem::register_mesh(const schema::MeshDataT& data)
 
 bool ResourceSystem::register_shader(const schema::ShaderDataT& data)
 {
-    if (!data.path.starts_with("builtin/") || !ShaderResourceCodec::validate(data) ||
-        shaders.contains(data.path) || meshes.contains(data.path) ||
-        materials.contains(data.path) || textures.contains(data.path))
+    if (!data.path.starts_with("builtin://") || !ShaderResourceCodec::validate(data) ||
+        meshes.contains(data.path) || materials.contains(data.path) || textures.contains(data.path))
     {
         return false;
+    }
+    const auto existing = shaders.find(data.path);
+    if (existing != shaders.end())
+    {
+        return *existing->second == data;
     }
     shaders.emplace(data.path, std::make_unique<schema::ShaderDataT>(data));
     return true;
@@ -480,12 +497,18 @@ bool ResourceSystem::register_shader(const schema::ShaderDataT& data)
 
 bool ResourceSystem::register_material(const schema::MaterialDataT& data)
 {
-    if (!data.type_path.starts_with("builtin/") ||
-        !MaterialResourceCodec::validate(data, find_shader(data.shader_path)) ||
-        materials.contains(data.type_path) || meshes.contains(data.type_path) ||
-        shaders.contains(data.type_path) || textures.contains(data.type_path))
+    const auto shader = shaders.find(data.shader_path);
+    if (!data.type_path.starts_with("builtin://") || shader == shaders.end() ||
+        !MaterialResourceCodec::validate(data, shader->second.get()) ||
+        meshes.contains(data.type_path) || shaders.contains(data.type_path) ||
+        textures.contains(data.type_path))
     {
         return false;
+    }
+    const auto existing = materials.find(data.type_path);
+    if (existing != materials.end())
+    {
+        return *existing->second == data;
     }
     materials.emplace(data.type_path, std::make_unique<schema::MaterialDataT>(data));
     return true;
@@ -493,48 +516,60 @@ bool ResourceSystem::register_material(const schema::MaterialDataT& data)
 
 const schema::MeshDataT* ResourceSystem::find_mesh(std::string_view path) noexcept
 {
+    Guid guid;
+    if (definition_owner && path_to_guid(path, guid))
+    {
+        const auto* entry = definition_owner->catalog_.find(guid);
+        if (entry && entry->location)
+        {
+            const auto resource = definition_owner->loader().find(guid);
+            return resource ? resource->mesh() : nullptr;
+        }
+    }
     const auto builtin = meshes.find(path);
     if (builtin != meshes.end())
     {
         return builtin->second.get();
-    }
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto resource = definition_owner->loader().find(guid);
-        return resource ? resource->mesh() : nullptr;
     }
     return nullptr;
 }
 
 const schema::ShaderDataT* ResourceSystem::find_shader(std::string_view path) noexcept
 {
+    Guid guid;
+    if (definition_owner && path_to_guid(path, guid))
+    {
+        const auto* entry = definition_owner->catalog_.find(guid);
+        if (entry && entry->location)
+        {
+            const auto resource = definition_owner->loader().find(guid);
+            return resource ? resource->shader() : nullptr;
+        }
+    }
     const auto builtin = shaders.find(path);
     if (builtin != shaders.end())
     {
         return builtin->second.get();
-    }
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto resource = definition_owner->loader().find(guid);
-        return resource ? resource->shader() : nullptr;
     }
     return nullptr;
 }
 
 const schema::MaterialDataT* ResourceSystem::find_material(std::string_view path) noexcept
 {
+    Guid guid;
+    if (definition_owner && path_to_guid(path, guid))
+    {
+        const auto* entry = definition_owner->catalog_.find(guid);
+        if (entry && entry->location)
+        {
+            const auto resource = definition_owner->loader().find(guid);
+            return resource ? resource->material() : nullptr;
+        }
+    }
     const auto builtin = materials.find(path);
     if (builtin != materials.end())
     {
         return builtin->second.get();
-    }
-    Guid guid;
-    if (definition_owner && path_to_guid(path, guid))
-    {
-        const auto resource = definition_owner->loader().find(guid);
-        return resource ? resource->material() : nullptr;
     }
     return nullptr;
 }

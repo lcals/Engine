@@ -1,6 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 
 #include <chrono>
@@ -57,12 +58,11 @@ std::string material(double roughness)
            std::to_string(roughness) + "\n";
 }
 
-std::string manifest(std::string_view target = "")
+std::string manifest()
 {
-    return "target_platform = \"" + std::string(target) +
-           "\"\noutput = \"cache/build/game\"\n"
-           "[[items]]\nname = \"main\"\nstorage = \"package\"\nroots = [\"project/main.scene\"]\n"
-           "[[items]]\nname = \"extra\"\nstorage = \"files\"\nroots = [\"project/message.txt\"]\n";
+    return "output = \"cache/build/game\"\n"
+           "[[items]]\nname = \"main\"\nstorage = \"package\"\nroots = [\"main.scene\"]\n"
+           "[[items]]\nname = \"extra\"\nstorage = \"files\"\nroots = [\"message.txt\"]\n";
 }
 
 struct Fixture
@@ -73,6 +73,11 @@ struct Fixture
     {
         std::error_code code;
         root = std::filesystem::temp_directory_path(code);
+        if (code)
+        {
+            return false;
+        }
+        root = std::filesystem::canonical(root, code);
         if (code)
         {
             return false;
@@ -117,9 +122,9 @@ struct Fixture
 };
 
 bool build(engine::plugins::asset_build::AssetBuildSystem& builder, const Fixture& fixture,
-           const std::vector<std::string>& items)
+           const std::vector<std::string>& items, std::string_view target = {})
 {
-    if (!builder.build(fixture.root, "settings/resource-build.toml", items))
+    if (!builder.build(fixture.root, "settings/resource-build.toml", items, target))
     {
         std::fprintf(stderr, "resource build: %s\n", builder.last_error().c_str());
         return false;
@@ -145,16 +150,33 @@ bool tests()
         return false;
     }
     const auto output = fixture.root / "cache/build/game";
+    const auto builtin_count = engine::builtin_resource_catalog().entries.size();
     engine::ResourceCatalog catalog;
-    if (!expect(builder.last_build().resource_count == 2 &&
-                    builder.last_build().package_count == 1 &&
+    if (!expect(builder.last_build().resource_count == 2 + builtin_count &&
+                    builder.last_build().package_count == 2 &&
                     builder.last_build().reused_package_count == 0,
-                "package contains runtime closure only") ||
+                "project package contains its runtime closure and a separate builtin package") ||
         !expect(pipeline.catalog().entries.size() == 4,
                 "editor catalog retains all source assets") ||
         !expect(engine::ResourceSystem::read_catalog(output, catalog), "read packed metadata"))
     {
         return false;
+    }
+    for (const auto& builtin : engine::builtin_resource_catalog().entries)
+    {
+        const auto* entry = catalog.find(builtin->guid);
+        engine::ByteBuffer bytes;
+        if (!expect(entry && entry->location && entry->path == builtin->path &&
+                        entry->kind == builtin->kind &&
+                        entry->dependencies == builtin->dependencies &&
+                        entry->location->path.starts_with("packs/builtin-") &&
+                        engine::ResourceSystem::read_resource(catalog, {{"content", output}},
+                                                              builtin->guid, bytes) &&
+                        !bytes.empty(),
+                    "all builtin identities have independently validated external package data"))
+        {
+            return false;
+        }
     }
     const auto* scene = catalog.find(scene_guid);
     const auto* material_entry = catalog.find(material_guid);
@@ -179,7 +201,7 @@ bool tests()
     std::error_code code;
     const auto original_time = std::filesystem::last_write_time(output / "catalog.bin", code);
     if (!expect(!code && build(builder, fixture, {"main"}) &&
-                    builder.last_build().reused_package_count == 1 &&
+                    builder.last_build().reused_package_count == 2 &&
                     builder.last_build().revision == first_revision &&
                     std::filesystem::last_write_time(output / "catalog.bin", code) ==
                         original_time &&
@@ -187,15 +209,15 @@ bool tests()
                 "unchanged build reuses whole package and preserves catalog timestamp") ||
         !expect(write(fixture.root / "assets/cube.material", material(0.7)) &&
                     build(builder, fixture, {"main"}) &&
-                    builder.last_build().reused_package_count == 0 &&
+                    builder.last_build().reused_package_count == 1 &&
                     builder.last_build().revision != first_revision,
-                "changed member rebuilds the entire package"))
+                "changed project member rebuilds its package and reuses the builtin package"))
     {
         return false;
     }
     if (!expect(build(builder, fixture, {"main", "extra"}) &&
-                    builder.last_build().resource_count == 3 &&
-                    builder.last_build().package_count == 1 &&
+                    builder.last_build().resource_count == 3 + builtin_count &&
+                    builder.last_build().package_count == 2 &&
                     engine::ResourceSystem::read_catalog(output, catalog),
                 "multiple items share one catalog with mixed independent and packed entities"))
     {
@@ -203,7 +225,7 @@ bool tests()
     }
     engine::Guid message;
     if (!expect(
-            catalog.identities().path_to_guid("project/message.txt", message) &&
+            catalog.identities().path_to_guid("message.txt", message) &&
                 catalog.find(message)->location->path == "gen/" + message &&
                 std::filesystem::path(catalog.find(message)->location->path).extension().empty(),
             "independent output retains complete GUID filename without suffix"))
@@ -213,8 +235,8 @@ bool tests()
     const auto packed_path = catalog.find(scene_guid)->location->path;
     if (!expect(write(output / packed_path, read(output / packed_path) + "unindexed") &&
                     build(builder, fixture, {"main", "extra"}) &&
-                    builder.last_build().reused_package_count == 0,
-                "unindexed trailing package bytes force a complete rebuild"))
+                    builder.last_build().reused_package_count == 1,
+                "unindexed project bytes force that package rebuild while builtins are reused"))
     {
         return false;
     }
@@ -229,17 +251,83 @@ bool tests()
                 "unknown item preserves prior publication") ||
         !expect(!builder.build(fixture.root, "settings/../resource-build.toml"),
                 "manifest traversal rejected") ||
-        !expect(write(fixture.root / "settings/resource-build.toml", manifest("android")) &&
-                    build(builder, fixture, {"main", "extra"}) &&
+        !expect(build(builder, fixture, {"main", "extra"}, "android") &&
                     engine::ResourceSystem::read_catalog(output, catalog) &&
                     catalog.data().target_platform == "android" &&
                     builder.last_build().reused_package_count == 0,
                 "target platform participates in package reuse identity") ||
         !expect(write(fixture.root / "settings/resource-build.toml",
                       manifest() + "[[items]]\nname = \"conflict\"\nstorage = \"files\"\nroots = "
-                                   "[\"project/main.scene\"]\n") &&
+                                   "[\"main.scene\"]\n") &&
                     !builder.build(fixture.root, "settings/resource-build.toml"),
                 "conflicting physical layouts rejected"))
+    {
+        return false;
+    }
+    if (!expect(write(fixture.root / "settings/resource-build.toml",
+                      "target_platform = \"android\"\n" + manifest()) &&
+                    !builder.build(fixture.root, "settings/resource-build.toml"),
+                "removed manifest target field is rejected instead of read compatibly") ||
+        !expect(write(fixture.root / "settings/resource-build.toml", "") &&
+                    builder.build(fixture.root),
+                "an empty manifest selects every imported project resource"))
+    {
+        return false;
+    }
+    const auto default_output = builder.last_build().output_path;
+    if (!expect(default_output ==
+                        fixture.root / "cache/build" / pipeline.catalog().target_platform &&
+                    builder.last_build().resource_count == 4 + builtin_count &&
+                    engine::ResourceSystem::read_catalog(default_output, catalog),
+                "default publication is isolated by target and contains all project resources") ||
+        !expect(write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"empty\"\nstorage = \"package\"\nroots = []\n") &&
+                    builder.build(fixture.root) &&
+                    builder.last_build().resource_count == builtin_count &&
+                    builder.last_build().package_count == 1,
+                "an explicit empty root list selects no project assets but retains builtins") ||
+        !expect(write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"baseline\"\nstorage = \"package\"\n"
+                      "roots = [\"builtin://materials/default-pbr\"]\n") &&
+                    builder.build(fixture.root) &&
+                    builder.last_build().resource_count == builtin_count &&
+                    builder.last_build().package_count == 1,
+                "explicit builtin roots resolve through the catalog and share its baseline"))
+    {
+        return false;
+    }
+    if (!expect(write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"incomplete\"\nstorage = \"files\"\n") &&
+                    !builder.build(fixture.root),
+                "missing roots does not silently become an empty project selection") ||
+        !expect(write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"builtin\"\nstorage = \"package\"\nroots = []\n") &&
+                    !builder.build(fixture.root),
+                "project build items cannot claim the reserved builtin package name"))
+    {
+        return false;
+    }
+    std::filesystem::create_directories(fixture.root / "assets/project", code);
+    engine::Guid folder_resource;
+    engine::Guid unselected;
+    if (!expect(
+            !code && write(fixture.root / "assets/project/message.txt", "folder resource") &&
+                write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"folder\"\nstorage = \"files\"\n"
+                      "roots = [\"project/message.txt\"]\n") &&
+                builder.build(fixture.root) &&
+                engine::ResourceSystem::read_catalog(default_output, catalog) &&
+                catalog.identities().path_to_guid("project/message.txt", folder_resource) &&
+                !catalog.identities().path_to_guid("message.txt", unselected) &&
+                builder.last_build().resource_count == builtin_count + 1,
+            "project is an ordinary asset folder and is never stripped as an identity prefix") ||
+        !expect(builder.build(fixture.root, "settings/missing.toml") &&
+                    builder.last_build().resource_count == builtin_count + 5,
+                "a missing explicit manifest selects all imported project resources") ||
+        !expect(std::filesystem::remove(fixture.root / "settings/resource-build.toml", code) &&
+                    !code && builder.build(fixture.root) &&
+                    builder.last_build().resource_count == builtin_count + 5,
+                "an absent default manifest selects all resources without compatibility lookup"))
     {
         return false;
     }

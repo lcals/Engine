@@ -33,34 +33,11 @@ namespace engine::editor::asset_pipeline
 {
 namespace
 {
-bool shader_target(std::string_view target, std::string& platform, std::string& profile)
-{
-    if (target == "macos" || target == "ios")
-    {
-        platform = target == "macos" ? "osx" : "ios";
-        profile = "metal";
-        return true;
-    }
-    if (target == "windows")
-    {
-        platform = "windows";
-        profile = "s_5_0";
-        return true;
-    }
-    if (target == "android" || target == "linux")
-    {
-        platform = target;
-        profile = "spirv";
-        return true;
-    }
-    return false;
-}
-
 bool builtin_texture(std::string_view path, const ImportContext& context,
                      std::vector<Guid>& dependencies, std::string& error)
 {
     Guid guid;
-    if (!path.starts_with("builtin/") || !context.identities.path_to_guid(path, guid))
+    if (!path.starts_with("builtin://") || !context.identities.path_to_guid(path, guid))
     {
         error = "shader sampler default must name a builtin texture: " + std::string(path);
         return false;
@@ -296,7 +273,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         error = "shader varying definition is missing";
         return false;
     }
-    const auto varying = context.assets / PathUtils::from_utf8(varying_path.substr(8));
+    const auto varying = context.assets / PathUtils::from_utf8(varying_path);
     std::filesystem::path compiler;
     std::filesystem::path includes;
     if (!editor_tool_path("shaderc", ENGINE_SHADERC_EXECUTABLE, compiler, error) ||
@@ -312,7 +289,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
             error = "shader source is missing";
             return false;
         }
-        const auto source = context.assets / PathUtils::from_utf8(source_path.substr(8));
+        const auto source = context.assets / PathUtils::from_utf8(source_path);
         auto compiled = context.output.parent_path() / (asset.guid + "." + std::string(stage));
         const std::vector<std::string> arguments{PathUtils::to_utf8(compiler),
                                                  "-f",

@@ -86,6 +86,17 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
             SDL_Delay(10);
         }
     }
+    if (submitted != count)
+    {
+        int width = 0;
+        int height = 0;
+        const bool sized = SDL_GetWindowSizeInPixels(windows.native_window(), &width, &height);
+        std::fprintf(stderr,
+                     "window/render test: submitted=%d/%d, flags=0x%llx, sized=%d, pixels=%dx%d\n",
+                     submitted, count,
+                     static_cast<unsigned long long>(SDL_GetWindowFlags(windows.native_window())),
+                     sized, width, height);
+    }
     return expect(submitted == count, "window must become drawable within the attempt limit");
 }
 
@@ -277,8 +288,8 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
         return false;
     }
     auto& material = mesh->material();
-    return expect(material.set_type(unlit ? "builtin/materials/default-unlit"
-                                          : "builtin/materials/default-pbr"),
+    return expect(material.set_type(unlit ? "builtin://materials/default-unlit"
+                                          : "builtin://materials/default-pbr"),
                   "select material type") &&
            expect(material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)),
                   "set named material color") &&
@@ -308,17 +319,18 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         return false;
     }
     // 自定义资源路径和逻辑参数名复用同一着色器二进制，渲染器不识别材质种类。
-    engine::schema::ShaderDataT custom(*engine::ResourceSystem::find_shader("builtin/shaders/pbr"));
-    custom.path = "project/shaders/tests/custom";
+    engine::schema::ShaderDataT custom(
+        *engine::ResourceSystem::find_shader("builtin://shaders/pbr"));
+    custom.path = "shaders/tests/custom";
     custom.parameters.front()->name = "tint";
     engine::schema::ShaderDataT incomplete(custom);
-    incomplete.path = "project/shaders/tests/incomplete";
+    incomplete.path = "shaders/tests/incomplete";
     incomplete.parameters.erase(incomplete.parameters.begin());
     engine::schema::ShaderDataT unknown(custom);
-    unknown.path = "project/shaders/tests/unknown-uniform";
+    unknown.path = "shaders/tests/unknown-uniform";
     unknown.parameters.front()->uniform_name = "u_missing_parameter";
     engine::schema::MaterialDataT custom_material;
-    custom_material.type_path = "project/materials/tests/custom";
+    custom_material.type_path = "materials/tests/custom";
     custom_material.shader_path = custom.path;
     test_support::ResourceFixture fixture;
     if (!expect(fixture.add(custom) && fixture.add(incomplete) && fixture.add(unknown) &&
@@ -363,7 +375,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return false;
         }
         for (const auto* invalid_path :
-             {"project/shaders/tests/incomplete", "project/shaders/tests/unknown-uniform"})
+             {"shaders/tests/incomplete", "shaders/tests/unknown-uniform"})
         {
             if (!expect(mesh->material().set_shader(invalid_path), "select schema-valid shader") ||
                 !expect(
@@ -524,7 +536,7 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
 engine::schema::MeshDataT textured_quad()
 {
     engine::schema::MeshDataT data;
-    data.path = "project/meshes/textured-quad";
+    data.path = "meshes/textured-quad";
     data.vertices = {
         {-1, -1, 0, 0, 0, 1}, {1, -1, 0, 0, 0, 1}, {1, 1, 0, 0, 0, 1}, {-1, 1, 0, 0, 0, 1}};
     data.indices = {0, 1, 2, 0, 2, 3};
@@ -589,7 +601,7 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     }
     const auto skeleton = test_support::animation::skeleton(false);
     auto mesh = textured_quad();
-    mesh.path = "project/meshes/gpu-skinning";
+    mesh.path = "meshes/gpu-skinning";
     mesh.skeleton_guid = test_support::animation::target_guid;
     mesh.mesh_to_skeleton = test_support::animation::translation(0, 0, 0);
     mesh.skin.assign(mesh.vertices.size(), {0, 0, 0, 0, 1, 0, 0, 0});
@@ -786,9 +798,9 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     if (!expect(resources.initialize(config) && world.initialize(config) &&
                     windows.initialize(config) && renderer.initialize(config),
                 "initialize texture rendering systems") ||
-        !expect(fixture.add(test_texture("project/textures/blocks", true, true)) &&
-                    fixture.add(test_texture("project/textures/gray-srgb", true, false)) &&
-                    fixture.add(test_texture("project/textures/gray-linear", false, false)) &&
+        !expect(fixture.add(test_texture("textures/blocks", true, true)) &&
+                    fixture.add(test_texture("textures/gray-srgb", true, false)) &&
+                    fixture.add(test_texture("textures/gray-linear", false, false)) &&
                     fixture.publish(resources),
                 "publish texture fixtures through the resource catalog") ||
         !render_frames(windows, renderer, 8))
@@ -822,9 +834,9 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
             mesh && camera && camera->set_settings(camera_settings) &&
                 camera_node->get_component<engine::Transform>()->set_settings(camera_transform) &&
                 scene->set_active_camera(camera) && mesh->set_mesh_data(data) &&
-                mesh->material().set_type("builtin/materials/default-unlit") &&
+                mesh->material().set_type("builtin://materials/default-unlit") &&
                 mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
-                mesh->material().set_texture("baseColorTexture", "project/textures/blocks"),
+                mesh->material().set_texture("baseColorTexture", "textures/blocks"),
             "assemble orthographic textured quad") ||
         !render_frames(windows, renderer, 8))
     {
@@ -846,13 +858,13 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    if (!expect(mesh->material().set_texture("baseColorTexture", "project/textures/gray-srgb"),
+    if (!expect(mesh->material().set_texture("baseColorTexture", "textures/gray-srgb"),
                 "select sRGB gray texture") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "gray-srgb", image) ||
         !expect(near_color(image.pixel(cx, cy), 128, 128, 128),
                 "sRGB sampling and display encoding preserve middle gray") ||
-        !expect(mesh->material().set_texture("baseColorTexture", "project/textures/gray-linear"),
+        !expect(mesh->material().set_texture("baseColorTexture", "textures/gray-linear"),
                 "select linear gray texture") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "gray-linear", image) ||
@@ -969,10 +981,9 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         if (!expect(mesh != nullptr && mesh->mesh_instance_id() != hidden.front() &&
                         camera->mesh_visible(mesh->mesh_instance_id()) &&
                         !camera->mesh_visible(hidden.front()) && mesh->set_mesh_data(data) &&
-                        mesh->material().set_type("builtin/materials/default-unlit") &&
+                        mesh->material().set_type("builtin://materials/default-unlit") &&
                         mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
-                        mesh->material().set_texture("baseColorTexture",
-                                                     "project/textures/gray-linear"),
+                        mesh->material().set_texture("baseColorTexture", "textures/gray-linear"),
                     "rebuilt component has a new identity outside the old filter") ||
             !render_frames(windows, renderer, 8, camera) ||
             !screenshot(windows, renderer, fixture.root, "camera-rebuilt-mesh", image, camera) ||
@@ -1006,8 +1017,8 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     if (!expect(
             second && second->set_mesh_data(textured_quad()) &&
                 second_node->get_component<engine::Transform>()->set_settings(second_transform) &&
-                second->material().set_type("builtin/materials/default-unlit") &&
-                second->material().set_texture("baseColorTexture", "project/textures/gray-linear"),
+                second->material().set_type("builtin://materials/default-unlit") &&
+                second->material().set_texture("baseColorTexture", "textures/gray-linear"),
             "add another mesh referencing the same texture path") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == idle_draws + 2 &&
@@ -1020,9 +1031,8 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     data = textured_quad();
     data.submeshes = {{0, 3, 0}, {3, 3, 1}};
     if (!expect(mesh->set_material_count(2) && mesh->material(1) &&
-                    mesh->material(1)->set_type("builtin/materials/default-unlit") &&
-                    mesh->material(1)->set_texture("baseColorTexture",
-                                                   "project/textures/gray-linear") &&
+                    mesh->material(1)->set_type("builtin://materials/default-unlit") &&
+                    mesh->material(1)->set_texture("baseColorTexture", "textures/gray-linear") &&
                     mesh->set_mesh_data(data),
                 "assign independent material slots to two submeshes") ||
         !render_frames(windows, renderer, 8) ||
@@ -1032,8 +1042,8 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    if (!expect(mesh->material().set_type("builtin/materials/default-pbr") &&
-                    mesh->material(1)->set_type("builtin/materials/default-pbr"),
+    if (!expect(mesh->material().set_type("builtin://materials/default-pbr") &&
+                    mesh->material(1)->set_type("builtin://materials/default-pbr"),
                 "enable PBR on both submesh materials"))
     {
         return false;
@@ -1157,7 +1167,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     camera_settings.rotation = {-32.0, 32.0, 0.0};
     if (!expect(floor_transform != nullptr && floor_mesh != nullptr &&
                     floor_transform->set_settings(floor_settings) &&
-                    floor_mesh->material().set_type("builtin/materials/default-pbr") &&
+                    floor_mesh->material().set_type("builtin://materials/default-pbr") &&
                     floor_mesh->material().set_v4("baseColor", {0.8, 0.8, 0.8, 1.0}) &&
                     scene->active_camera()->node().get_component<engine::Transform>()->set_settings(
                         camera_settings),
@@ -1447,7 +1457,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                     gpu_mismatches < reference_shadow.pixels.size() / 1000 + 1,
                 "deformed positions, normals, tangents, shadow bounds and shadow pass match "
                 "equivalent static geometry") ||
-        !expect(cube_mesh->set_mesh("builtin/meshes/cube"), "restore original shadow caster") ||
+        !expect(cube_mesh->set_mesh("builtin://meshes/cube"), "restore original shadow caster") ||
         !renderer.set_settings(shadow_settings) || !render_frames(windows, renderer, 8))
     {
         return false;
@@ -1833,15 +1843,15 @@ bool test_engine(const engine::EngineConfig& config)
         return false;
     }
 
-    const auto* builtin = engine::ResourceSystem::find_shader("builtin/shaders/pbr");
+    const auto* builtin = engine::ResourceSystem::find_shader("builtin://shaders/pbr");
     if (!expect(builtin != nullptr, "engine owns builtin definitions"))
     {
         return false;
     }
     engine::schema::ShaderDataT project_shader(*builtin);
-    project_shader.path = "project/shaders/lifecycle";
+    project_shader.path = "shaders/lifecycle";
     engine::schema::MaterialDataT project_material;
-    project_material.type_path = "project/materials/lifecycle";
+    project_material.type_path = "materials/lifecycle";
     project_material.shader_path = project_shader.path;
     test_support::ResourceFixture fixture;
     auto* resources = engine::ResourceSystem::instance();
@@ -1866,7 +1876,7 @@ bool test_engine(const engine::EngineConfig& config)
     engine.gameplay()->stop();
     if (!expect(engine::ResourceSystem::find_shader(project_shader.path) == nullptr &&
                     engine::ResourceSystem::find_material(project_material.type_path) == nullptr &&
-                    engine::ResourceSystem::find_shader("builtin/shaders/pbr") == builtin,
+                    engine::ResourceSystem::find_shader("builtin://shaders/pbr") == builtin,
                 "stopped project retains no unowned project definitions and preserves builtin "
                 "identity"))
     {
@@ -2048,8 +2058,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
 {
     engine::RuntimeHost host;
     const auto failed_factory = [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&,
-                                   engine::PhysicsSystem&,
-                                   engine::NavigationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                                   engine::PhysicsSystem&, engine::NavigationSystem&,
+                                   engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -2059,9 +2069,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     }
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                            engine::UiSystem&,
-                            engine::PhysicsSystem&,
-                                   engine::NavigationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
+                            engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);

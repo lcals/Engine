@@ -14,6 +14,9 @@
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+#include "plugins/editor/navigation_crowd/navigation_agent_codec.hpp"
+#endif
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
@@ -53,7 +56,8 @@ void usage()
     std::puts("Usage: asset_build_app --project <project-directory> "
               "[--target macos|ios|windows|android|linux]\n"
               "       asset_build_app --project <project-directory> "
-              "--manifest settings/<file>.toml [--item <name> ...]");
+              "--package [--manifest settings/<file>.toml] [--item <name> ...] "
+              "[--target macos|ios|windows|android|linux]");
 }
 } // namespace
 
@@ -62,6 +66,7 @@ int main(int argc, char** argv)
     std::filesystem::path project;
     std::string_view target;
     std::filesystem::path manifest;
+    bool package = false;
     std::vector<std::string> items;
     for (int index = 1; index < argc; ++index)
     {
@@ -79,6 +84,10 @@ int main(int argc, char** argv)
         {
             target = argv[++index];
         }
+        else if (argument == "--package" && !package)
+        {
+            package = true;
+        }
         else if (argument == "--manifest" && index + 1 < argc && manifest.empty())
         {
             manifest = engine::PathUtils::from_utf8(argv[++index]);
@@ -93,8 +102,7 @@ int main(int argc, char** argv)
             return 2;
         }
     }
-    if (project.empty() || (!manifest.empty() && !target.empty()) ||
-        (manifest.empty() && !items.empty()))
+    if (project.empty() || (!package && manifest.empty() && !items.empty()))
     {
         usage();
         return 2;
@@ -111,6 +119,13 @@ int main(int argc, char** argv)
     if (!engine::plugins::character_controller::register_controller_codec())
     {
         std::fputs("Cannot register character controller scene codec\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+    if (!engine::plugins::navigation_crowd::register_navigation_agent_codec())
+    {
+        std::fputs("Cannot register navigation agent scene codec\n", stderr);
         return 1;
     }
 #endif
@@ -189,10 +204,10 @@ int main(int argc, char** argv)
         return 1;
     }
 #endif
-    if (!manifest.empty())
+    if (package || !manifest.empty())
     {
         engine::plugins::asset_build::AssetBuildSystem build(pipeline);
-        if (!build.initialize(config) || !build.build(project, manifest, items))
+        if (!build.initialize(config) || !build.build(project, manifest, items, target))
         {
             std::fprintf(stderr, "Resource build failed: %s\n", build.last_error().c_str());
             return 1;

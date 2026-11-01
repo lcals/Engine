@@ -4,6 +4,7 @@ import {
 } from "engine";
 import { TerrainController } from "../controllers/terrain_controller.js";
 import { TerrainAction, TerrainModel } from "../models/terrain_model.js";
+import { CharacterControls } from "../character_controls.js";
 
 const save_slot = "showcase-terrain";
 const camera_nodes = { overview: "Overview camera", cave: "Cave camera", walk: "Player camera" };
@@ -15,13 +16,14 @@ export default class Game extends Gameplay {
     private animator: Animator | null = null;
     private controller: TerrainController | null = null;
     private readonly model = new TerrainModel();
+    private readonly input = new CharacterControls();
     private player_started = false;
     private tunnel_step = 0;
     private blast_radius = 4.0;
     private animation_speed = 0;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/terrain.scene");
+        this.scene = Scene.Load("scenes/terrain.scene");
         const scene = this.scene;
         if (!scene) return false;
         this.terrain = scene.FindNode("Terrain")?.GetComponent(TerrainComponent) ?? null;
@@ -32,24 +34,25 @@ export default class Game extends Gameplay {
             return false;
 
         // Reuse the open showcase character; terrain contains no purchased project assets.
-        const avatar = scene.InstantiateModel("project/models/skeleton.fbx", "Terrain avatar");
+        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Terrain avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);
         this.animator = body?.AddComponent(Animator) ?? null;
         if (!avatar || !transform || !renderer || !this.animator || !avatar.SetParent(player) ||
             !transform.SetPosition(0, 0.05, 0) || !transform.SetRotation(0, 180, 0) ||
-            !renderer.material.SetType("project/materials/character.material") ||
-            !this.animator.SetAnimation("project/models/locomotions.fbx/animations/walk") ||
+            !renderer.material.SetType("materials/character.material") ||
+            !this.animator.SetAnimation("models/locomotions.fbx/animations/walk") ||
             !this.animator.SetSpeed(0) || !this.animator.Play()) return false;
 
         this.controller = new TerrainController(view, this.model);
         if (!this.controller.Bind()) return false;
         Debug.Log("Terrain laboratory: fixed brush actions cross chunk seams; WASD, Space and right mouse explore the result.");
-        return true;
+        return this.input.Bind(scene);
     }
 
     override Update(): void {
+        this.input.Update();
         const terrain = this.terrain;
         if (!terrain || !terrain.IsValid()) return;
         let changed = false;
@@ -156,6 +159,7 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        this.input.Shutdown();
         this.controller?.Unbind();
         this.controller = null;
         this.animator = null;

@@ -208,11 +208,22 @@ table DestructionData {
     restitution:float = 0.05;
 }
 
+table NavigationAgentData {
+    radius:float = 0.3;
+    height:float = 1.8;
+    max_speed:float = 3;
+    max_acceleration:float = 8;
+    separation_weight:float = 2;
+    arrival_distance:float = 0.15;
+    face_velocity:bool = true;
+}
+
 union ComponentPayload {
     TransformData, CameraData, LightData, MeshRendererData,
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
     CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
-    CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData
+    CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData,
+    NavigationAgentData
 }
 
 table ComponentData {

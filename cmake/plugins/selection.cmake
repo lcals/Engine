@@ -4,6 +4,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/registry.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/resource_graph.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/script.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/character_controller.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/runtime/navigation_crowd.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/effects.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/terrain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/runtime/destruction.cmake")
@@ -13,6 +14,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/editor/font_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/ui_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/usd_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/character_controller.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/editor/navigation_crowd.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/effects.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/terrain.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/destruction.cmake")
@@ -32,7 +34,15 @@ endif()
 set(_runtime_plugins "")
 set(_editor_plugins "")
 if(ENGINE_ENABLE_RUNTIME_DEPS)
-    list(APPEND _runtime_plugins resource_graph character_controller effects terrain destruction)
+    list(
+        APPEND
+        _runtime_plugins
+        resource_graph
+        character_controller
+        navigation_crowd
+        effects
+        terrain
+        destruction)
 endif()
 if(ENGINE_ENABLE_SCRIPT_RUNTIME)
     list(APPEND _runtime_plugins script)
@@ -49,6 +59,7 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD)
             fbx_import
             usd_import
             character_controller
+            navigation_crowd
             effects
             terrain
             destruction

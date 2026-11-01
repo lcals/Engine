@@ -122,35 +122,6 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
     return true;
 }
 
-#if defined(SDL_PLATFORM_ANDROID)
-[[nodiscard]] bool builtin_file(const fs::path& root, std::string_view relative, fs::path& path)
-{
-    const auto root_text = PathUtils::to_utf8(root);
-    constexpr std::string_view prefix = "apk:/assets";
-    if (root_text.starts_with("apk:"))
-    {
-        std::string normalized;
-        if (root_text != prefix)
-        {
-            if (!root_text.starts_with("apk:/assets/") ||
-                !relative_path(std::string_view(root_text).substr(prefix.size() + 1), normalized) ||
-                normalized != std::string_view(root_text).substr(prefix.size() + 1))
-            {
-                return false;
-            }
-        }
-        if (!relative_path(relative, normalized) || normalized != relative)
-        {
-            return false;
-        }
-        path = PathUtils::from_utf8(root_text + "/" + normalized);
-        return true;
-    }
-    return contained_file(root, relative, path);
-}
-
-#endif
-
 [[nodiscard]] bool matches_file(const fs::path& path, std::uint64_t size, std::string_view hash)
 {
     std::uint64_t value = 0;
@@ -174,153 +145,6 @@ constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
 {
     return path.ends_with(".js") || path.ends_with(".mjs");
 }
-
-#if defined(SDL_PLATFORM_ANDROID)
-[[nodiscard]] bool prepare_directory(const fs::path& root, std::string_view relative,
-                                     fs::path& directory)
-{
-    std::error_code error;
-    fs::create_directories(root / PathUtils::from_utf8(relative), error);
-    return !error && contained_file(root, relative, directory, true);
-}
-
-[[nodiscard]] bool cache_file(const fs::path& directory, std::string_view name,
-                              std::string_view bytes)
-{
-    const fs::path target = directory / PathUtils::from_utf8(name);
-    std::error_code error;
-    const auto status = fs::symlink_status(target, error);
-    std::string previous;
-    if (!error && fs::is_regular_file(status) && ResourceSystem::read_text(target, previous) &&
-        previous == bytes)
-    {
-        return true;
-    }
-
-    // 临时文件位于已校验目录；先移除残留链接，发布时替换目标本身而不跟随目标链接。
-    const fs::path temporary = directory / PathUtils::from_utf8(std::string(name) + ".tmp");
-    fs::remove(temporary, error);
-    if (error)
-    {
-        return false;
-    }
-    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-    file.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
-    file.close();
-    if (!file ||
-        !SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(target).c_str()))
-    {
-        fs::remove(temporary, error);
-        return false;
-    }
-    return true;
-}
-
-[[nodiscard]] bool prepare_builtin_manifest(std::string& entry, std::set<std::string>& deleted,
-                                            std::string& message)
-{
-    if (!App::is_initialized())
-    {
-        message = "Android scripts require initialized App paths";
-        return false;
-    }
-    std::string text;
-    if (!read_text(PathUtils::from_utf8("apk:/assets/project-manifest.json"), text))
-    {
-        message = "Cannot read APK project manifest";
-        return false;
-    }
-    const auto document = Json::parse(text, nullptr, false);
-    if (!document.is_object() || !document.contains("revision") ||
-        !document["revision"].is_string() || !document.contains("entry") ||
-        !document["entry"].is_string() || !document.contains("files") ||
-        !document["files"].is_array() || !document.contains("deleted") ||
-        !document["deleted"].is_array())
-    {
-        message = "Invalid APK project manifest";
-        return false;
-    }
-    const auto manifest_entry = document["entry"].get<std::string>();
-    std::string normalized;
-    if (!safe_revision(document["revision"].get<std::string>()) ||
-        !relative_path(manifest_entry, normalized) || normalized != manifest_entry ||
-        !script_path(manifest_entry))
-    {
-        message = "Unsafe APK project revision or entry path";
-        return false;
-    }
-    std::set<std::string> seen;
-    for (const auto& item : document["files"])
-    {
-        if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
-            !item.contains("size") || !item["size"].is_number_unsigned() ||
-            !item.contains("hash") || !item["hash"].is_string())
-        {
-            message = "Invalid APK project file description";
-            return false;
-        }
-        const auto path = item["path"].get<std::string>();
-        fs::path file;
-        if (!relative_path(path, normalized) || normalized != path || !seen.insert(path).second ||
-            !builtin_file(App::builtin_assets_path(), path, file))
-        {
-            message = "APK project file failed path, size or hash check: " + path;
-            return false;
-        }
-    }
-    for (const auto& item : document["deleted"])
-    {
-        if (!item.is_string())
-        {
-            message = "Invalid deleted APK project path";
-            return false;
-        }
-        const auto path = item.get<std::string>();
-        if (!relative_path(path, normalized) || normalized != path || seen.contains(path) ||
-            !deleted.insert(path).second)
-        {
-            message = "Unsafe or conflicting deleted APK project path: " + path;
-            return false;
-        }
-    }
-    if (seen.contains("catalog.bin"))
-    {
-        ResourceCatalog catalog;
-        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), catalog))
-        {
-            message = "APK GUID resource catalog is invalid";
-            return false;
-        }
-        bool has_entry = false;
-        std::set<std::string> expected{"catalog.bin"};
-        for (const auto& asset : catalog.data().entries)
-        {
-            expected.insert(asset->location->path);
-            has_entry = has_entry || (asset->kind == schema::AssetKind::script &&
-                                      asset->module_path == manifest_entry);
-        }
-        if (!has_entry || expected != seen)
-        {
-            message = "APK manifest does not match its complete GUID resource catalog";
-            return false;
-        }
-    }
-    else if (!seen.contains(manifest_entry))
-    {
-        message = "APK project entry is missing from the complete manifest";
-        return false;
-    }
-    fs::path directory;
-    if (!prepare_directory(App::persistent_data_path(), "assets", directory) ||
-        !cache_file(directory, "builtin.json", text))
-    {
-        message = "Cannot export APK project manifest to persistent assets/builtin.json";
-        return false;
-    }
-    entry = manifest_entry;
-    return true;
-}
-#endif
 
 struct Snapshot
 {
@@ -692,20 +516,13 @@ bool GameplaySession::start(std::string_view entry)
     if (!state_)
     {
         auto candidate = std::make_unique<State>(*this);
-        candidate->builtin.mounts = {{"content", App::builtin_assets_path()}};
-        candidate->builtin.revision = "builtin";
-#if defined(SDL_PLATFORM_ANDROID)
-        std::set<std::string> deleted;
-        if (!prepare_builtin_manifest(candidate->builtin.entry, deleted, last_error_))
-        {
-            return false;
-        }
-#endif
-        if (!ResourceSystem::read_catalog(App::builtin_assets_path(), candidate->builtin.catalog))
+        candidate->builtin.mounts = {{"content", App::assets_path()}};
+        if (!ResourceSystem::read_catalog(App::assets_path(), candidate->builtin.catalog))
         {
             last_error_ = "Cannot read the built-in runtime catalog";
             return false;
         }
+        candidate->builtin.revision = candidate->builtin.catalog.revision();
         state_ = std::move(candidate);
     }
     state_->requested_entry = entry;

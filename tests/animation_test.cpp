@@ -68,8 +68,8 @@ bool sampling_and_controls()
     const auto valid = animator.settings();
     settings.speed = std::numeric_limits<float>::quiet_NaN();
     return expect(!animator.set_settings(settings) && animator.settings() == valid &&
-                      !animator.set_animation("project/missing.animation") &&
-                      !animator.set_animation("builtin/meshes/cube") &&
+                      !animator.set_animation("missing.animation") &&
+                      !animator.set_animation("builtin://meshes/cube") &&
                       animator.animation_path() == clip_path && !animator.seek(-1) &&
                       !animator.seek(2) && !animator.seek(std::numeric_limits<double>::infinity()),
                   "invalid settings, types and seek values preserve live state");
@@ -231,8 +231,8 @@ bool blending_and_instances()
     const auto palette = renderer.skinning_palette()[2];
     if (!expect(!animator.cross_fade("", 1) && !animator.cross_fade(scale_path, -1) &&
                     !animator.cross_fade(scale_path, std::numeric_limits<double>::infinity()) &&
-                    !animator.cross_fade("project/missing.animation", 1) &&
-                    !animator.cross_fade("builtin/meshes/cube", 1) &&
+                    !animator.cross_fade("missing.animation", 1) &&
+                    !animator.cross_fade("builtin://meshes/cube", 1) &&
                     animator.settings() == settings && animator.time() == time &&
                     renderer.skinning_palette()[2] == palette,
                 "rejected transitions preserve settings, time and the displayed pose") ||

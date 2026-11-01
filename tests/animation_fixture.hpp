@@ -28,12 +28,12 @@ constexpr const char* target_guid = "40000000-0000-4000-8000-000000000002";
 constexpr const char* clip_guid = "40000000-0000-4000-8000-000000000003";
 constexpr const char* scale_guid = "40000000-0000-4000-8000-000000000004";
 constexpr const char* reflected_guid = "40000000-0000-4000-8000-000000000005";
-constexpr const char* clip_path = "project/animations/move.animation";
-constexpr const char* scale_path = "project/animations/scale.animation";
-constexpr const char* reflected_path = "project/animations/reflected.animation";
+constexpr const char* clip_path = "animations/move.animation";
+constexpr const char* scale_path = "animations/scale.animation";
+constexpr const char* reflected_path = "animations/reflected.animation";
 constexpr const char* mesh_guid = "40000000-0000-4000-8000-000000000006";
 constexpr const char* model_guid = "40000000-0000-4000-8000-000000000007";
-constexpr const char* model_path = "project/models/character.fbx";
+constexpr const char* model_path = "models/character.fbx";
 
 // 测试端 CPU 参考计算，用同一 palette 校验位置、非均匀缩放与镜像；生产只上传骨骼。
 inline engine::Vec3 skin_vector(const engine::MeshRenderer& renderer, std::size_t index,
@@ -133,7 +133,7 @@ joint(const char* name, int parent, engine::Vec3 position, std::vector<float> in
 inline engine::schema::SkeletonDataT skeleton(bool source)
 {
     engine::schema::SkeletonDataT data;
-    data.path = source ? "project/skeletons/source.skeleton" : "project/skeletons/target.skeleton";
+    data.path = source ? "skeletons/source.skeleton" : "skeletons/target.skeleton";
     data.joints.push_back(joint("root", -1, {}, translation(0, 0, 0)));
     // 两份骨架的 GUID 和索引不同；目标次序还特意不同于 ozz DFS。
     if (source)
@@ -183,7 +183,7 @@ inline engine::schema::MeshDataT mesh(std::uint16_t joint_index = 2)
 {
     const float diagonal = static_cast<float>(std::sqrt(0.5));
     engine::schema::MeshDataT result;
-    result.path = "project/meshes/skinned.mesh";
+    result.path = "meshes/skinned.mesh";
     result.vertices = {{0, 0, 0, diagonal, diagonal, 0},
                        {1, -1, 0, diagonal, diagonal, 0},
                        {0, 0, -1, diagonal, diagonal, 0}};

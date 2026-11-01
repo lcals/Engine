@@ -9,7 +9,7 @@ namespace engine
 struct AppConfig
 {
     std::string application_name = "engine";
-    std::filesystem::path builtin_assets_path;
+    std::filesystem::path assets_path;
     std::filesystem::path persistent_data_path;
     std::filesystem::path cache_path;
 };
@@ -23,7 +23,7 @@ public:
     [[nodiscard]] static bool is_initialized() noexcept;
 
     // 返回只读借用；初始化后稳定，shutdown 后内容清空。
-    [[nodiscard]] static const std::filesystem::path& builtin_assets_path() noexcept;
+    [[nodiscard]] static const std::filesystem::path& assets_path() noexcept;
     [[nodiscard]] static const std::filesystem::path& persistent_data_path() noexcept;
     [[nodiscard]] static const std::filesystem::path& cache_path() noexcept;
 

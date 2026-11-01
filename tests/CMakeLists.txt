@@ -27,6 +27,26 @@ if(TARGET engine_platform)
     set_tests_properties(engine.app_log PROPERTIES TIMEOUT 30)
 endif()
 
+if(TARGET engine_storage)
+    add_executable(engine_key_value_store_test key_value_store_test.cpp)
+    target_link_libraries(engine_key_value_store_test PRIVATE engine::storage)
+    target_include_directories(engine_key_value_store_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_key_value_store_test)
+    add_test(NAME engine.key_value_store COMMAND engine_key_value_store_test)
+    set_tests_properties(engine.key_value_store PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET engine_input)
+    add_executable(engine_input_test input_test.cpp)
+    target_link_libraries(engine_input_test PRIVATE engine::input engine::window SDL3::SDL3)
+    engine_apply_options(engine_input_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME engine.input COMMAND engine_input_test)
+        set_tests_properties(engine.input PROPERTIES TIMEOUT 30 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET engine_resource)
     add_executable(engine_resource_read_test resource_read_test.cpp)
     target_link_libraries(engine_resource_read_test PRIVATE engine::resource SDL3::SDL3)
@@ -43,6 +63,11 @@ if(TARGET engine_physics)
     engine_apply_options(engine_physics_test)
     add_test(NAME engine.physics COMMAND engine_physics_test)
     set_tests_properties(engine.physics PROPERTIES TIMEOUT 60)
+    add_executable(engine_physics_interaction_test physics_interaction_test.cpp)
+    target_link_libraries(engine_physics_interaction_test PRIVATE engine::physics engine::world)
+    engine_apply_options(engine_physics_interaction_test)
+    add_test(NAME engine.physics_interaction COMMAND engine_physics_interaction_test)
+    set_tests_properties(engine.physics_interaction PROPERTIES TIMEOUT 60)
     add_executable(engine_character_motor_test character_motor_test.cpp)
     target_link_libraries(engine_character_motor_test PRIVATE engine::physics engine::world)
     engine_apply_options(engine_character_motor_test)
@@ -64,6 +89,9 @@ if(TARGET engine_script)
     target_link_libraries(
         engine_script_runtime_test
         PRIVATE engine::script
+                engine::input
+                engine::window
+                SDL3::SDL3
                 engine::app
                 engine::log
                 engine::resource
@@ -101,6 +129,15 @@ if(TARGET mcp_app)
     endif()
     if(NOT TARGET engine_scene_bake_mcp_tools)
         list(APPEND _script_tooling_options --without-scene-bake)
+    endif()
+    if(NOT TARGET engine_effects_mcp_tools)
+        list(APPEND _script_tooling_options --without-effects)
+    endif()
+    if(NOT TARGET engine_terrain_mcp_tools)
+        list(APPEND _script_tooling_options --without-terrain)
+    endif()
+    if(NOT TARGET engine_destruction_mcp_tools)
+        list(APPEND _script_tooling_options --without-destruction)
     endif()
     find_package(
         Python3
@@ -385,6 +422,18 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 "${ENGINE_NODE_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_test.mjs" "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_navigation PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_navigation_crowd
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_crowd_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_navigation_crowd PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_physics_interactions
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_physics_interactions_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_physics_interactions PROPERTIES TIMEOUT 60)
         find_package(
             Python3
             COMPONENTS Interpreter
@@ -821,11 +870,20 @@ endif()
 
 if(TARGET engine_navigation AND TARGET engine_script)
     add_executable(engine_navigation_script_test navigation_script_test.cpp)
-    target_link_libraries(engine_navigation_script_test PRIVATE engine::script engine::navigation
-        engine::world engine::resource engine::app engine::log)
+    target_link_libraries(
+        engine_navigation_script_test PRIVATE engine::script engine::navigation engine::world
+                                              engine::resource engine::app engine::log)
     engine_apply_options(engine_navigation_script_test)
     add_test(NAME engine.navigation_script COMMAND engine_navigation_script_test)
     set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation AND TARGET engine_terrain)
+    add_executable(engine_navigation_terrain_test navigation_terrain_test.cpp)
+    target_link_libraries(engine_navigation_terrain_test PRIVATE engine::navigation engine::terrain)
+    engine_apply_options(engine_navigation_terrain_test)
+    add_test(NAME engine.navigation_terrain COMMAND engine_navigation_terrain_test)
+    set_tests_properties(engine.navigation_terrain PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_terrain)
@@ -868,9 +926,49 @@ if(TARGET engine_destruction_editor)
 endif()
 if(TARGET engine_destruction_editor AND TARGET engine_editor)
     add_executable(engine_destruction_commands_test destruction_commands_test.cpp)
-    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor engine::editor)
+    target_link_libraries(engine_destruction_commands_test PRIVATE engine::destruction_editor
+                                                                   engine::editor)
     target_compile_definitions(engine_destruction_commands_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_destruction_commands_test)
     add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)
     set_tests_properties(editor.destruction_commands PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd)
+    add_executable(engine_navigation_crowd_test navigation_crowd_test.cpp)
+    target_link_libraries(engine_navigation_crowd_test PRIVATE engine::navigation_crowd)
+    engine_apply_options(engine_navigation_crowd_test)
+    add_test(NAME engine_navigation_crowd COMMAND engine_navigation_crowd_test)
+    set_tests_properties(engine_navigation_crowd PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd AND TARGET engine_script)
+    add_executable(engine_navigation_agent_script_test navigation_agent_script_test.cpp)
+    target_link_libraries(
+        engine_navigation_agent_script_test
+        PRIVATE engine::script
+                engine::navigation_crowd
+                engine::world
+                engine::physics
+                engine::window
+                engine::render
+                engine::resource
+                engine::app
+                engine::log)
+    target_include_directories(engine_navigation_agent_script_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    target_compile_definitions(engine_navigation_agent_script_test
+                               PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=1)
+    engine_apply_options(engine_navigation_agent_script_test)
+    add_test(NAME engine.navigation_agent_script COMMAND engine_navigation_agent_script_test)
+    set_tests_properties(engine.navigation_agent_script PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd_editor)
+    add_executable(engine_navigation_agent_codec_test navigation_agent_codec_test.cpp)
+    target_link_libraries(engine_navigation_agent_codec_test
+                          PRIVATE engine::navigation_crowd_editor)
+    engine_apply_options(engine_navigation_agent_codec_test)
+    add_test(NAME editor.navigation_agent_codec COMMAND engine_navigation_agent_codec_test)
+    set_tests_properties(editor.navigation_agent_codec PROPERTIES TIMEOUT 60)
 endif()

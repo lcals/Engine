@@ -6,7 +6,7 @@ export default class Game extends Gameplay {
     private angle = 0;
 
     override OnInitialize(): boolean {
-        this.scene = Scene.Load("project/scenes/main.scene");
+        this.scene = Scene.Load("scenes/main.scene");
         const cube = this.scene?.FindNode("Cube");
         this.cube = cube?.GetComponent(Transform) ?? null;
         if (!this.cube) return false;

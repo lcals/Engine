@@ -118,7 +118,7 @@ bool create_asset(const fs::path& project, const Json& arguments, Json& result, 
         }
         return false;
     }
-    result = {{"path", "project/" + relative},
+    result = {{"path", relative},
               {"guid", guid},
               {"chunks", volume.chunks.size()},
               {"bonds", volume.bonds.size()},
