@@ -1,5 +1,6 @@
 #include "plugins/runtime/destruction/destruction_graph.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <NvBlast.h>
@@ -311,6 +312,7 @@ bool DestructionGraph::initialize(const schema::DestructionAssetDataT& data, std
 
 bool DestructionGraph::clone(DestructionGraph& output, std::string& error) const
 {
+    ENGINE_PROFILE_ZONE("Destruction.clone_graph");
     error.clear();
     if (!impl_)
     {
@@ -340,6 +342,7 @@ bool DestructionGraph::clone(DestructionGraph& output, std::string& error) const
 bool DestructionGraph::damage_sphere(std::uint32_t group_id, const schema::Vec3& center,
                                      float radius, float damage, std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Destruction.blast_damage");
     error.clear();
     if (!impl_ || !finite(center) || !std::isfinite(radius) || radius <= 0 ||
         !std::isfinite(damage) || damage < 0)
@@ -437,6 +440,7 @@ bool DestructionGraph::apply_stress(std::uint32_t group_id, const schema::Vec3& 
                                     std::uint32_t iterations, std::uint32_t& broken_bonds,
                                     std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Destruction.blast_stress");
     broken_bonds = 0;
     error.clear();
     if (!impl_ || !finite(gravity) || !std::isfinite(density) || density <= 0 ||
@@ -516,7 +520,10 @@ bool DestructionGraph::apply_stress(std::uint32_t group_id, const schema::Vec3& 
         error = "Cannot apply gravity to the anchored Blast actor";
         return false;
     }
-    solver->update();
+    {
+        ENGINE_PROFILE_ZONE("Destruction.stress_solve");
+        solver->update();
+    }
     if (!solver->converged() || !std::isfinite(solver->getStressErrorLinear()) ||
         !std::isfinite(solver->getStressErrorAngular()))
     {

@@ -1,5 +1,6 @@
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_settings.hpp"
 
@@ -172,6 +173,7 @@ bool HdrPostProcessPass::initialize_resources()
 
 bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled)
 {
+    ENGINE_PROFILE_ZONE("Render.hdrPrepare");
     const auto* caps = bgfx::getCaps();
     if (caps == nullptr || !supports_hdr(*caps, width, height))
     {
@@ -267,6 +269,7 @@ bgfx::FrameBufferHandle HdrPostProcessPass::scene_framebuffer() const noexcept
 
 bool HdrPostProcessPass::resolve(const RenderSettings& settings)
 {
+    ENGINE_PROFILE_ZONE("Render.hdrResolveSubmit");
     if (!valid_settings(settings) || width_ == 0 || height_ == 0 || !bgfx::isValid(framebuffer_) ||
         (settings.bloom_enabled &&
          !std::all_of(bloom_framebuffers_.begin(), bloom_framebuffers_.end(),

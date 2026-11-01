@@ -1,6 +1,7 @@
 #include "plugins/runtime/destruction/destruction_system.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/collider.hpp"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <limits>
 #include <map>
 #include <string>
@@ -162,7 +164,8 @@ bool support_coverage(const schema::DestructionChunkDataT& chunk, const float* m
 
 bool release_groups(Scene& scene, PhysicsSystem& physics, const std::vector<GeneratedGroup>& groups)
 {
-    bool result = true;
+    std::vector<std::pair<Collider*, bool>> disabled;
+    // Keep every node alive until the whole batch has released its collision successfully.
     for (const auto& group : groups)
     {
         auto* node = scene.find_node(group.node);
@@ -172,13 +175,37 @@ bool release_groups(Scene& scene, PhysicsSystem& physics, const std::vector<Gene
         }
         if (auto* collider = node->get_component<Collider>())
         {
+            const bool enabled = collider->enabled();
             collider->set_enabled(false);
             if (!physics.set_collider_data(*collider, collider->settings()))
             {
-                result = false;
+                collider->set_enabled(enabled);
+                bool restored = true;
+                for (const auto& [previous, previous_enabled] : disabled)
+                {
+                    previous->set_enabled(previous_enabled);
+                    if (!physics.set_collider_data(*previous, previous->settings()))
+                    {
+                        restored = false;
+                    }
+                }
+                if (!restored)
+                {
+                    std::fputs("Cannot restore destruction collision after failed release\n",
+                               stderr);
+                }
+                return false;
             }
+            disabled.emplace_back(collider, enabled);
         }
-        result = scene.destroy_node(group.node) && result;
+    }
+    bool result = true;
+    for (const auto& group : groups)
+    {
+        if (scene.find_node(group.node))
+        {
+            result = scene.destroy_node(group.node) && result;
+        }
     }
     return result;
 }
@@ -239,8 +266,10 @@ bool DestructionSystem::on_initialize(const EngineConfig&)
 }
 
 bool DestructionSystem::publish(DestructionComponent& component, DestructionGraph candidate,
-                                const std::vector<schema::DestructionGroupStateT>& groups)
+                                const std::vector<schema::DestructionGroupStateT>& groups,
+                                bool reuse_groups)
 {
+    ENGINE_PROFILE_ZONE("Destruction.publish_fragments");
     auto* scene = world_.scene();
     if (!state_ || !scene || scene != &component.node().scene() || component.node().parent() ||
         groups.size() != candidate.groups().size() ||
@@ -263,7 +292,16 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
     }
     const auto& asset = candidate.data();
     const bool enabled = active_component(component);
+    auto& previous = state_->generated[component.node().id()];
+    std::map<std::uint32_t, const GeneratedGroup*> previous_by_chunk;
+    for (const auto& group : previous)
+    {
+        previous_by_chunk.emplace(group.chunks.front(), &group);
+    }
     std::vector<GeneratedGroup> created;
+    std::vector<GeneratedGroup> published;
+    std::vector<std::pair<RigidBody*, schema::RigidBodyDataT>> velocity_updates;
+    bool changed = !reuse_groups || candidate.healths() != component.graph_.healths();
     const auto fail = [&](std::string error)
     {
         if (!release_groups(*scene, physics_, created))
@@ -283,6 +321,48 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         {
             return fail("Invalid destruction group pose or identity");
         }
+        // Blast actor IDs may change during a clone/split; the sorted source chunks are stable.
+        const auto found = previous_by_chunk.find(description.chunks.front());
+        const auto* old =
+            reuse_groups && found != previous_by_chunk.end() ? found->second : nullptr;
+        if (old && old->chunks == description.chunks && old->anchored == description.anchored)
+        {
+            auto* node = scene->find_node(old->node);
+            auto* transform = node ? node->get_component<Transform>() : nullptr;
+            auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
+            auto* collider = node ? node->get_component<Collider>() : nullptr;
+            auto* body = node ? node->get_component<RigidBody>() : nullptr;
+            if (!node || !node->transient() || !transform || !renderer || !collider || !body)
+            {
+                return fail("A generated destruction fragment cannot be reused");
+            }
+            if (transform->settings() != *saved.transform)
+            {
+                return fail("Preserved destruction group pose changed during preparation");
+            }
+            // Preserve damping, gravity and pending impulses on an unchanged physical group.
+            auto settings = body->settings();
+            settings.linear_velocity = saved.linear_velocity;
+            settings.angular_velocity = saved.angular_velocity;
+            if (!RigidBody::valid_settings(settings) ||
+                settings.motion != (description.anchored ? schema::BodyMotion::static_body
+                                                        : schema::BodyMotion::dynamic) ||
+                collider->settings().shape != schema::ColliderShape::compound ||
+                renderer->enabled() != enabled || collider->enabled() != enabled ||
+                !body->enabled())
+            {
+                return fail("Preserved destruction group has invalid body settings");
+            }
+            if (settings != body->settings())
+            {
+                velocity_updates.emplace_back(body, std::move(settings));
+                changed = true;
+            }
+            published.push_back(*old);
+            previous_by_chunk.erase(found);
+            continue;
+        }
+        changed = true;
         schema::MeshDataT mesh;
         schema::ColliderDataT collision;
         collision.shape = schema::ColliderShape::compound;
@@ -357,14 +437,34 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         {
             return fail("Cannot prepare destruction convex compound collision");
         }
+        published.push_back(created.back());
     }
-    auto& previous = state_->generated[component.node().id()];
+    if (!changed)
+    {
+        component.last_error_.clear();
+        return true;
+    }
+    std::vector<GeneratedGroup> retired;
+    for (const auto& [chunk, group] : previous_by_chunk)
+    {
+        (void)chunk;
+        retired.push_back(*group);
+    }
     // No physics step or query occurs between preparation and this publication point.
-    if (!release_groups(*scene, physics_, previous))
+    if (!release_groups(*scene, physics_, retired))
     {
         return fail("Cannot release previous destruction groups");
     }
-    previous = std::move(created);
+    // All setters have been validated above; the next physics synchronization consumes these
+    // velocities. No collider reset is needed for groups whose shape/motion did not change.
+    for (const auto& [body, settings] : velocity_updates)
+    {
+        if (!body->set_settings(settings))
+        {
+            return fail("Cannot publish validated destruction velocity");
+        }
+    }
+    previous = std::move(published);
     component.graph_ = std::move(candidate);
     component.ready_ = true;
     component.pending_ = false;
@@ -377,6 +477,7 @@ bool DestructionSystem::prepare_groups(DestructionComponent& component,
                                        const DestructionGraph& candidate, bool preserve,
                                        std::vector<schema::DestructionGroupStateT>& states)
 {
+    ENGINE_PROFILE_ZONE("Destruction.prepare_groups");
     const auto* transform = component.node().get_component<Transform>();
     if (!transform || !valid_transform(transform->settings()))
     {
@@ -448,12 +549,13 @@ bool DestructionSystem::rebuild(DestructionComponent& component, DestructionGrap
 {
     std::vector<schema::DestructionGroupStateT> states;
     return prepare_groups(component, candidate, preserve, states) &&
-           publish(component, std::move(candidate), states);
+           publish(component, std::move(candidate), states, false);
 }
 
 bool DestructionSystem::damage(DestructionComponent& component, const Vec3& center, float radius,
                                float damage_value, float impulse)
 {
+    ENGINE_PROFILE_ZONE("Destruction.damage");
     if (!state_ || !component.ready_ || !active_component(component) || !finite(center) ||
         !std::isfinite(radius) || radius <= 0 || radius > 100000 || !std::isfinite(damage_value) ||
         damage_value < 0 || damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 ||
@@ -543,7 +645,7 @@ bool DestructionSystem::damage(DestructionComponent& component, const Vec3& cent
                                  state.linear_velocity.y() + direction.y() * amount,
                                  state.linear_velocity.z() + direction.z() * amount};
     }
-    return publish(component, std::move(candidate), states);
+    return publish(component, std::move(candidate), states, true);
 }
 
 bool DestructionSystem::reset(DestructionComponent& component)
@@ -558,6 +660,7 @@ bool DestructionSystem::apply_stress(DestructionComponent& component, const Vec3
                                      float elastic_limit, float fatal_limit,
                                      std::uint32_t iterations, std::uint32_t& broken_bonds)
 {
+    ENGINE_PROFILE_ZONE("Destruction.apply_stress");
     broken_bonds = 0;
     if (!state_ || !component.ready_ || !active_component(component) || !finite(gravity) ||
         std::abs(gravity.x()) > 100000 || std::abs(gravity.y()) > 100000 ||
@@ -617,7 +720,9 @@ bool DestructionSystem::apply_stress(DestructionComponent& component, const Vec3
         component.last_error_.clear();
         return true;
     }
-    if (!rebuild(component, std::move(candidate), true))
+    std::vector<schema::DestructionGroupStateT> states;
+    if (!prepare_groups(component, candidate, true, states) ||
+        !publish(component, std::move(candidate), states, true))
     {
         return false;
     }
@@ -645,6 +750,7 @@ bool DestructionSystem::owns_fragment(const DestructionComponent& component,
 bool DestructionSystem::refresh_support(DestructionComponent& component, const Collider& support,
                                         float max_gap, float min_coverage)
 {
+    ENGINE_PROFILE_ZONE("Destruction.refresh_support");
     auto* scene = world_.scene();
     if (!state_ || !component.ready_ || !active_component(component) || !scene ||
         scene != &component.node().scene() || scene != &support.node().scene() ||
@@ -715,9 +821,11 @@ bool DestructionSystem::refresh_support(DestructionComponent& component, const C
         return true;
     }
     DestructionGraph candidate;
+    std::vector<schema::DestructionGroupStateT> states;
     return component.graph_.clone(candidate, component.last_error_) &&
            candidate.release_anchors(released, component.last_error_) &&
-           rebuild(component, std::move(candidate), true);
+           prepare_groups(component, candidate, true, states) &&
+           publish(component, std::move(candidate), states, true);
 }
 
 bool DestructionSystem::snapshot(const DestructionComponent& component,
@@ -785,7 +893,7 @@ bool DestructionSystem::restore(DestructionComponent& component,
         }
         groups.push_back(**found);
     }
-    return publish(component, std::move(candidate), groups);
+    return publish(component, std::move(candidate), groups, false);
 }
 
 bool DestructionSystem::on_tick(double)
@@ -795,6 +903,7 @@ bool DestructionSystem::on_tick(double)
 
 bool DestructionSystem::synchronize()
 {
+    ENGINE_PROFILE_ZONE("Destruction.synchronize");
     if (!state_ || !is_initialized())
     {
         return false;

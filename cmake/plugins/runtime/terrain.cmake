@@ -3,6 +3,7 @@ function(engine_configure_terrain_plugin)
         message(FATAL_ERROR "Transvoxel is missing; run git submodule update --init third_party/transvoxel")
     endif()
     engine_add_system(plugins/runtime terrain)
+    engine_enable_profiling(engine_terrain)
     target_sources(engine_terrain PRIVATE
         src/engine/plugins/runtime/terrain/terrain_component.cpp
         src/engine/plugins/runtime/terrain/terrain_islands.cpp

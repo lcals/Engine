@@ -1,6 +1,7 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 
 #include "plugins/runtime/terrain/terrain_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/terrain_state_generated.h"
@@ -160,6 +161,7 @@ bool TerrainComponent::restore_data(const schema::ComponentDataT& data)
 
 bool TerrainComponent::apply_sphere(const Vec3& center, float radius, bool fill)
 {
+    ENGINE_PROFILE_ZONE("Terrain.brush");
     auto* system = TerrainSystem::instance();
     if (!ready_ || !system || !enabled())
     {

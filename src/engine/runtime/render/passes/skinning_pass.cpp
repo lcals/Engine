@@ -1,5 +1,6 @@
 #include "runtime/render/passes/skinning_pass.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/resources/gpu_geometry.hpp"
 
@@ -52,6 +53,7 @@ bool SkinningPass::prepare()
 bool SkinningPass::dispatch(const GpuGeometry& geometry, bgfx::DynamicVertexBufferHandle palette,
                             bgfx::DynamicVertexBufferHandle output, std::uint32_t joint_count)
 {
+    ENGINE_PROFILE_ZONE("Render.skinningSubmit");
     if (!bgfx::isValid(program_) || !bgfx::isValid(geometry.vertices) ||
         !bgfx::isValid(geometry.influences) || !bgfx::isValid(palette) || !bgfx::isValid(output) ||
         geometry.vertex_count == 0 || joint_count == 0 || joint_count > 65536)

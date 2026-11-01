@@ -6,10 +6,7 @@ endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime performance)
-    if(ENGINE_ENABLE_TRACY)
-        target_compile_definitions(engine_performance PRIVATE ENGINE_ENABLE_TRACY=1)
-        target_link_libraries(engine_performance PRIVATE Tracy::TracyClient)
-    endif()
+    engine_enable_profiling(engine_performance)
 
     engine_add_system(runtime window)
     target_link_libraries(
@@ -18,6 +15,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PRIVATE SDL3::SDL3)
 
     engine_add_system(runtime render)
+    engine_enable_profiling(engine_render)
     target_sources(
         engine_render
         PRIVATE src/engine/runtime/render/render_surface.cpp
@@ -120,15 +118,19 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
+    engine_enable_profiling(engine_physics)
     target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource)
     engine_add_system(runtime audio)
+    engine_enable_profiling(engine_audio)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 
     engine_add_system(runtime navigation)
+    engine_enable_profiling(engine_navigation)
     target_link_libraries(engine_navigation PUBLIC engine::scene_data PRIVATE RecastNavigation::Recast
                                                     RecastNavigation::Detour)
 
     engine_add_system(runtime animation)
+    engine_enable_profiling(engine_animation)
     target_include_directories(engine_animation PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline
                                                    engine::world engine::resource)
@@ -144,6 +146,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PUBLIC engine::scene_data
         PRIVATE engine::resource engine::world bgfx::bgfx bgfx::bx)
     engine_add_system(runtime ui)
+    engine_enable_profiling(engine_ui)
     target_sources(
         engine_ui
         PRIVATE src/engine/runtime/ui/rml_font.cpp
@@ -188,4 +191,5 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PUBLIC engine::core engine::gameplay
         PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
     engine_apply_options(engine_runtime)
+    engine_enable_profiling(engine_runtime)
 endif()

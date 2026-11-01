@@ -12,6 +12,7 @@ function(engine_configure_effects_plugin)
     target_link_libraries(engine_effects PUBLIC engine::world engine::render engine::resource
                          PRIVATE engine::effects_backend)
     engine_embed_effects_shaders(engine_effects)
+    engine_enable_profiling(engine_effects)
 endfunction()
 
 engine_register_plugin(NAME runtime/effects CONFIGURE engine_configure_effects_plugin

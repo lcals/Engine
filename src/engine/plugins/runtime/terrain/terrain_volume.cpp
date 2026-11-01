@@ -1,5 +1,7 @@
 #include "plugins/runtime/terrain/terrain_volume.hpp"
 
+#include "runtime/performance/profiling.hpp"
+
 // Eric Lengyel's official regular-cell tables, pinned by the transvoxel submodule.
 // The upstream file contains its table types as well as the data; keep it unmodified.
 #include <Transvoxel.cpp>
@@ -8,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <limits>
+#include <span>
 #include <utility>
 
 namespace engine::plugins::terrain
@@ -16,6 +19,22 @@ namespace
 {
 using Data = schema::TerrainAssetDataT;
 constexpr std::size_t max_samples = 4U * 1024U * 1024U;
+constexpr unsigned collision_cells = 4;
+
+struct CollisionCellRange
+{
+    std::uint32_t part = 0;
+    std::uint32_t vertex_begin = 0;
+    std::uint32_t vertex_count = 0;
+    std::uint32_t index_begin = 0;
+    std::uint32_t index_count = 0;
+};
+
+std::size_t collision_parts_per_chunk(const Data& data)
+{
+    const std::size_t axis = data.chunk_cells / collision_cells;
+    return axis * axis * axis;
+}
 
 bool finite(const schema::Vec3& v)
 {
@@ -65,10 +84,33 @@ float nonzero(float v)
     return std::abs(v) < 0.00001F ? 0.00001F : v;
 }
 
-void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::MeshDataT& mesh)
+bool same_geometry(const schema::MeshDataT& a, const schema::MeshDataT& b)
 {
+    ENGINE_PROFILE_ZONE("Terrain.collision_compare");
+    if (a.vertices.size() != b.vertices.size() || a.indices != b.indices)
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.vertices.size(); ++i)
+    {
+        const auto& x = a.vertices[i];
+        const auto& y = b.vertices[i];
+        if (x.x() != y.x() || x.y() != y.y() || x.z() != y.z())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::MeshDataT& mesh,
+                std::vector<CollisionCellRange>& ranges)
+{
+    ENGINE_PROFILE_ZONE("Terrain.mesh_chunk");
     mesh = {};
     mesh.path = "builtin/terrain/transient.mesh";
+    ranges.clear();
+    const unsigned part_axis = d.chunk_cells / collision_cells;
     for (unsigned z = cz; z < cz + d.chunk_cells; ++z)
     {
         for (unsigned y = cy; y < cy + d.chunk_cells; ++y)
@@ -92,6 +134,7 @@ void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::Me
                 }
                 const auto& cell = regularCellData[regularCellClass[mask]];
                 const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
+                const auto index_begin = static_cast<std::uint32_t>(mesh.indices.size());
                 for (long v = 0; v < cell.GetVertexCount(); ++v)
                 {
                     const unsigned edge = regularVertexData[mask][v];
@@ -152,7 +195,50 @@ void mesh_chunk(const Data& d, unsigned cx, unsigned cy, unsigned cz, schema::Me
                     }
                     mesh.indices.insert(mesh.indices.end(), {ia, ib, ic});
                 }
+                if (cell.GetVertexCount() != 0)
+                {
+                    const unsigned px = (x - cx) / collision_cells;
+                    const unsigned py = (y - cy) / collision_cells;
+                    const unsigned pz = (z - cz) / collision_cells;
+                    const auto vertex_count = static_cast<std::uint32_t>(cell.GetVertexCount());
+                    const auto index_end = static_cast<std::uint32_t>(mesh.indices.size());
+                    ranges.push_back({(pz * part_axis + py) * part_axis + px, base, vertex_count,
+                                      index_begin, index_end - index_begin});
+                }
             }
+        }
+    }
+}
+
+void prepare_collision(const schema::MeshDataT& mesh,
+                       const std::vector<CollisionCellRange>& ranges,
+                       std::span<std::shared_ptr<const schema::MeshDataT>> collision)
+{
+    ENGINE_PROFILE_ZONE("Terrain.prepare_collision");
+    std::vector<schema::MeshDataT> parts(collision.size());
+    for (const auto& range : ranges)
+    {
+        auto& part = parts[range.part];
+        const auto base = static_cast<std::uint32_t>(part.vertices.size());
+        const auto begin = mesh.vertices.begin() + range.vertex_begin;
+        part.vertices.insert(part.vertices.end(), begin, begin + range.vertex_count);
+        for (std::uint32_t i = 0; i < range.index_count; ++i)
+        {
+            part.indices.push_back(base + mesh.indices[range.index_begin + i] - range.vertex_begin);
+        }
+    }
+    for (std::size_t i = 0; i < parts.size(); ++i)
+    {
+        auto& previous = collision[i];
+        auto& part = parts[i];
+        if (part.indices.empty())
+        {
+            previous.reset();
+        }
+        else if (!previous || !same_geometry(*previous, part))
+        {
+            part.path = "builtin/terrain/transient.mesh";
+            previous = std::make_shared<const schema::MeshDataT>(std::move(part));
         }
     }
 }
@@ -182,6 +268,7 @@ bool TerrainVolume::validate(const Data& data, std::string& error)
 bool TerrainVolume::generate(const schema::TerrainGeneratorDataT& settings, Data& output,
                              std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.generate");
     output = {};
     error.clear();
     Data data;
@@ -259,6 +346,8 @@ bool TerrainVolume::initialize(const Data& data, std::string& error)
     chunks_.clear();
     chunks_.resize(static_cast<std::size_t>(data.cells_x / data.chunk_cells) *
                    (data.cells_y / data.chunk_cells) * (data.cells_z / data.chunk_cells));
+    collision_.parts.clear();
+    collision_.parts.resize(chunks_.size() * collision_parts_per_chunk(data));
     rebuilt_chunks_ = 0;
     return true;
 }
@@ -266,6 +355,7 @@ bool TerrainVolume::initialize(const Data& data, std::string& error)
 bool TerrainVolume::apply_sphere(const schema::Vec3& center, float radius, bool fill,
                                  std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.brush_samples");
     error.clear();
     if (chunks_.empty() || !finite(center) || !std::isfinite(radius) || radius <= 0 ||
         radius > 10000)
@@ -274,7 +364,6 @@ bool TerrainVolume::apply_sphere(const schema::Vec3& center, float radius, bool 
         return false;
     }
     const auto& d = data_;
-    const unsigned nx = d.cells_x / d.chunk_cells, ny = d.cells_y / d.chunk_cells;
     const double reach = radius + 2.0 * d.voxel_size;
     const auto low = [&](double position, double origin, unsigned cells)
     {
@@ -314,31 +403,39 @@ bool TerrainVolume::apply_sphere(const schema::Vec3& center, float radius, bool 
                     continue;
                 }
                 data_.density[index] = changed;
-                // One sample affects adjacent cells and their central-difference normals.
-                const unsigned min_x = (x > 1 ? x - 2 : 0) / d.chunk_cells;
-                const unsigned min_y = (y > 1 ? y - 2 : 0) / d.chunk_cells;
-                const unsigned min_z = (z > 1 ? z - 2 : 0) / d.chunk_cells;
-                const unsigned max_x = std::min(x + 1, d.cells_x - 1) / d.chunk_cells;
-                const unsigned max_y = std::min(y + 1, d.cells_y - 1) / d.chunk_cells;
-                const unsigned max_z = std::min(z + 1, d.cells_z - 1) / d.chunk_cells;
-                for (unsigned cz = min_z; cz <= max_z; ++cz)
-                {
-                    for (unsigned cy = min_y; cy <= max_y; ++cy)
-                    {
-                        for (unsigned cx = min_x; cx <= max_x; ++cx)
-                        {
-                            chunks_[(cz * ny + cy) * nx + cx].dirty = true;
-                        }
-                    }
-                }
+                mark_sample_dirty(x, y, z);
             }
         }
     }
     return true;
 }
 
+void TerrainVolume::mark_sample_dirty(unsigned x, unsigned y, unsigned z)
+{
+    // One sample affects adjacent cells and their central-difference normals.
+    const auto& d = data_;
+    const unsigned nx = d.cells_x / d.chunk_cells, ny = d.cells_y / d.chunk_cells;
+    const unsigned min_x = (x > 1 ? x - 2 : 0) / d.chunk_cells;
+    const unsigned min_y = (y > 1 ? y - 2 : 0) / d.chunk_cells;
+    const unsigned min_z = (z > 1 ? z - 2 : 0) / d.chunk_cells;
+    const unsigned max_x = std::min(x + 1, d.cells_x - 1) / d.chunk_cells;
+    const unsigned max_y = std::min(y + 1, d.cells_y - 1) / d.chunk_cells;
+    const unsigned max_z = std::min(z + 1, d.cells_z - 1) / d.chunk_cells;
+    for (unsigned cz = min_z; cz <= max_z; ++cz)
+    {
+        for (unsigned cy = min_y; cy <= max_y; ++cy)
+        {
+            for (unsigned cx = min_x; cx <= max_x; ++cx)
+            {
+                chunks_[(cz * ny + cy) * nx + cx].dirty = true;
+            }
+        }
+    }
+}
+
 bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.build_mesh");
     output = {};
     error.clear();
     if (chunks_.empty())
@@ -349,6 +446,8 @@ bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
     schema::MeshDataT mesh;
     mesh.path = "builtin/terrain/transient.mesh";
     std::size_t index = 0;
+    const auto parts_per_chunk = collision_parts_per_chunk(data_);
+    std::vector<CollisionCellRange> cell_ranges;
     rebuilt_chunks_ = 0;
     for (unsigned z = 0; z < data_.cells_z; z += data_.chunk_cells)
     {
@@ -356,22 +455,28 @@ bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
         {
             for (unsigned x = 0; x < data_.cells_x; x += data_.chunk_cells)
             {
+                const auto first_part = index * parts_per_chunk;
                 auto& chunk = chunks_[index++];
                 if (chunk.dirty)
                 {
-                    mesh_chunk(data_, x, y, z, chunk.mesh);
+                    schema::MeshDataT rebuilt;
+                    mesh_chunk(data_, x, y, z, rebuilt, cell_ranges);
+                    chunk.mesh = std::make_shared<const schema::MeshDataT>(std::move(rebuilt));
+                    prepare_collision(
+                        *chunk.mesh, cell_ranges,
+                        std::span(collision_.parts).subspan(first_part, parts_per_chunk));
                     chunk.dirty = false;
                     ++rebuilt_chunks_;
                 }
-                if (mesh.vertices.size() + chunk.mesh.vertices.size() > 4000000U)
+                if (mesh.vertices.size() + chunk.mesh->vertices.size() > 4000000U)
                 {
                     error = "Terrain mesh exceeds the synchronous mesh budget";
                     return false;
                 }
                 const auto base = static_cast<std::uint32_t>(mesh.vertices.size());
-                mesh.vertices.insert(mesh.vertices.end(), chunk.mesh.vertices.begin(),
-                                     chunk.mesh.vertices.end());
-                for (auto i : chunk.mesh.indices)
+                mesh.vertices.insert(mesh.vertices.end(), chunk.mesh->vertices.begin(),
+                                     chunk.mesh->vertices.end());
+                for (auto i : chunk.mesh->indices)
                 {
                     mesh.indices.push_back(base + i);
                 }
@@ -382,6 +487,8 @@ bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
     {
         mesh.vertices.clear();
     }
+    ENGINE_PROFILE_PLOT("Terrain.rebuilt_chunks", static_cast<double>(rebuilt_chunks_));
+    ENGINE_PROFILE_PLOT("Terrain.mesh_triangles", static_cast<double>(mesh.indices.size() / 3));
     output = std::move(mesh);
     return true;
 }
@@ -389,6 +496,11 @@ bool TerrainVolume::build_mesh(schema::MeshDataT& output, std::string& error)
 const Data& TerrainVolume::data() const noexcept
 {
     return data_;
+}
+
+const MeshCollisionData& TerrainVolume::collision_data() const noexcept
+{
+    return collision_;
 }
 std::size_t TerrainVolume::chunk_count() const noexcept
 {

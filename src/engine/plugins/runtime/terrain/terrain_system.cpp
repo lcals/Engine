@@ -1,6 +1,7 @@
 #include "plugins/runtime/terrain/terrain_system.hpp"
 
 #include "plugins/runtime/terrain/terrain_component.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/collider.hpp"
@@ -118,6 +119,7 @@ bool TerrainSystem::on_initialize(const EngineConfig&)
 
 bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
 {
+    ENGINE_PROFILE_ZONE("Terrain.commit");
     auto& node = component.node();
     if (&node.scene() != world_.scene() ||
         component.revision_ == std::numeric_limits<std::uint64_t>::max())
@@ -198,10 +200,12 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
         component.last_error_ = "Cannot prepare terrain rendering mesh";
         return false;
     }
-    schema::MeshDataT no_collision;
+    const MeshCollisionData no_collision;
     const bool previous_collision_enabled = collider->enabled();
     collider->set_enabled(component.enabled() && component.settings().collision && !empty);
-    if (!physics_.set_mesh_data(*collider, component.settings().collision ? mesh : no_collision))
+    if (!physics_.set_mesh_parts(*collider, component.settings().collision
+                                              ? candidate.collision_data()
+                                              : no_collision))
     {
         collider->set_enabled(previous_collision_enabled);
         const bool restored = renderer->set_mesh_data(previous_mesh) &&
@@ -214,7 +218,11 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
     renderer->set_visible(!empty);
     renderer->set_enabled(component.enabled());
     component.triangles_ = mesh.indices.size() / 3;
-    component.volume_ = std::move(candidate);
+    {
+        // 包含旧碰撞几何最后引用的释放，不将其析构成本藏到提交计时之外。
+        ENGINE_PROFILE_ZONE("Terrain.release_previous_volume");
+        component.volume_ = std::move(candidate);
+    }
     component.pending_ = false;
     component.ready_ = true;
     component.last_error_.clear();
@@ -265,6 +273,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
                                       std::uint32_t max_fragments, std::uint32_t fragment_cells,
                                       float density)
 {
+    ENGINE_PROFILE_ZONE("Terrain.collapse");
     auto* scene = world_.scene();
     TransformSettings pose;
     if (!is_initialized() || !scene || scene != &component.node().scene() ||
@@ -309,34 +318,39 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
         component.last_error_ = message;
         return false;
     };
-    for (auto& fragment : fragments)
     {
-        const double scale = pose.scale.x();
-        const double mass = fragment.volume * density * scale * scale * scale;
-        if (!std::isfinite(mass) || mass < 0.0001 || mass > 1000000)
+        ENGINE_PROFILE_ZONE("Terrain.publish_fragments");
+        for (auto& fragment : fragments)
         {
-            return fail("Terrain fragment mass is outside the supported physics range");
-        }
-        auto* node = scene->create_node("terrain-fragment");
-        if (!node)
-        {
-            return fail("Cannot create terrain fragment node");
-        }
-        node->set_transient(true);
-        created.push_back(node->id());
-        auto* renderer = node->add_component<MeshRenderer>();
-        auto* collider = node->add_component<Collider>();
-        auto* body = node->add_component<RigidBody>();
-        schema::RigidBodyDataT body_settings;
-        body_settings.mass = static_cast<float>(mass);
-        decorate(fragment.mesh, component.settings());
-        if (!renderer || !collider || !body ||
-            !node->get_component<Transform>()->set_settings(pose) ||
-            !renderer->material().set_type(material) || !renderer->set_mesh_data(fragment.mesh) ||
-            !body->set_settings(body_settings) ||
-            !physics_.set_collider_data(*collider, fragment.collision))
-        {
-            return fail("Cannot prepare terrain fragment rendering or convex compound collision");
+            const double scale = pose.scale.x();
+            const double mass = fragment.volume * density * scale * scale * scale;
+            if (!std::isfinite(mass) || mass < 0.0001 || mass > 1000000)
+            {
+                return fail("Terrain fragment mass is outside the supported physics range");
+            }
+            auto* node = scene->create_node("terrain-fragment");
+            if (!node)
+            {
+                return fail("Cannot create terrain fragment node");
+            }
+            node->set_transient(true);
+            created.push_back(node->id());
+            auto* renderer = node->add_component<MeshRenderer>();
+            auto* collider = node->add_component<Collider>();
+            auto* body = node->add_component<RigidBody>();
+            schema::RigidBodyDataT body_settings;
+            body_settings.mass = static_cast<float>(mass);
+            decorate(fragment.mesh, component.settings());
+            if (!renderer || !collider || !body ||
+                !node->get_component<Transform>()->set_settings(pose) ||
+                !renderer->material().set_type(material) ||
+                !renderer->set_mesh_data(fragment.mesh) ||
+                !body->set_settings(body_settings) ||
+                !physics_.set_collider_data(*collider, fragment.collision))
+            {
+                return fail(
+                    "Cannot prepare terrain fragment rendering or convex compound collision");
+            }
         }
     }
     // No simulation/query runs between preparing candidate bodies and committing the source.
@@ -354,6 +368,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
 
 bool TerrainSystem::synchronize()
 {
+    ENGINE_PROFILE_ZONE("Terrain.synchronize");
     if (!is_initialized())
     {
         return false;

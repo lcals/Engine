@@ -1,6 +1,7 @@
 #include "runtime/animation/animation_system.hpp"
 
 #include "runtime/animation/animation_clip.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/animator.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -322,6 +323,7 @@ void AnimationSystem::clear() noexcept
 
 bool AnimationSystem::on_tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Animation.tick");
     if (state_ == nullptr)
     {
         return false;

@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 struct ecs_world_t;
@@ -50,9 +51,10 @@ private:
     friend class Node;
     Scene(ecs_world_t& world, std::uint64_t id, std::string_view name,
           const ComponentRegistry& components);
+    [[nodiscard]] Node* create_node(std::string_view name, std::uint64_t local_id);
     [[nodiscard]] Node* find_local_node(std::uint64_t local_id) const noexcept;
     [[nodiscard]] bool restore_data(const schema::SceneDataT& data);
-    void destroy_entity(std::uint64_t id) noexcept;
+    void destroy_entity(std::uint64_t id, std::uint64_t local_id) noexcept;
 
     ecs_world_t& world_;
     const ComponentRegistry& components_;
@@ -60,6 +62,9 @@ private:
     std::uint64_t node_sequence_ = 0;
     std::shared_ptr<const Resource> resource_;
     schema::SceneInfoT info_{};
+    // Borrow nodes_; a node unregisters both identities during destruction.
+    std::unordered_map<std::uint64_t, Node*> node_index_;
+    std::unordered_map<std::uint64_t, Node*> local_node_index_;
     std::vector<std::unique_ptr<Node>> nodes_;
 };
 

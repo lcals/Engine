@@ -6,6 +6,7 @@
 
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -202,6 +203,7 @@ struct ScriptSystem::State
 
     [[nodiscard]] bool call(Run& run, const char* name, bool initialize)
     {
+        ENGINE_PROFILE_ZONE("Script.callGameplay");
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_gameplay(name, initialize);
         run.bindings.end_call();
@@ -210,6 +212,7 @@ struct ScriptSystem::State
 
     [[nodiscard]] bool call_binding(Run& run, const char* name)
     {
+        ENGINE_PROFILE_ZONE("Script.callBinding");
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_binding(name);
         run.bindings.end_call();
@@ -394,6 +397,7 @@ const ScriptStatus& ScriptSystem::status() const noexcept
 
 bool ScriptSystem::on_tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Script.tick");
     if (!state_ || !App::is_initialized())
     {
         return true;

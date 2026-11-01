@@ -128,6 +128,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
         target_compile_definitions(editor_app PRIVATE ENGINE_HAS_MODELING_PLUGIN=0)
     endif()
     engine_apply_options(editor_app)
+    engine_enable_profiling(editor_app)
 endif()
 
 if(ENGINE_BUILD_APP AND TARGET engine_asset_build)

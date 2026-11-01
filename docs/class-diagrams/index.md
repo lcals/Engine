@@ -60,6 +60,7 @@
 - [角色物理组件](../runtime/class-diagrams/character-motor.md)：胶囊运动、地面/台阶与 Jolt 查询，不解释输入。
 - [角色控制器](../plugins/runtime/class-diagrams/character-controller.md)：可选运行时输入与第一/第三人称相机策略。
 - [物理组件](../runtime/class-diagrams/physics-components.md)：Collider、RigidBody、碰撞形状、运动设置与瞬态冲量。
+- [分段静态网格碰撞](../runtime/class-diagrams/mesh-collision-data.md)：共享不可变块几何，复用 Jolt 子形状并原子替换。
 - [音频组件](../runtime/class-diagrams/audio-components.md)：AudioSource、AudioListener、共享音频资源与播放状态。
 - [字体系统与 3D 文字](../runtime/class-diagrams/font-system.md)：核心 FontSystem 共享曲线资源、文字排布和 GPU 绘制，普通节点挂载 TextComponent。
 - [场景界面](../runtime/class-diagrams/ui-system.md)：普通节点挂载 UiComponent，RmlUi 文档内部控件不展开为场景节点。
@@ -150,7 +151,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
 | 1          | [窗口系统](../runtime/class-diagrams/window-system.md)   | RuntimeHost 独占；SDL3 窗口和事件                        |
 | 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | 外部宿主或 Engine 独占；SDL3、单项解析、目录代际 |
-| 3 | [性能系统](../runtime/class-diagrams/performance-system.md) | Engine 独占；可选 Tracy 客户端接入，当前无采样逻辑 |
+| 3 | [性能系统](../runtime/class-diagrams/performance-system.md) | Engine 独占；可选 Tracy CPU 区域、帧标记和 bgfx 统计，第三方不进入公开接口 |
 | 4          | [世界系统](../runtime/class-diagrams/world-system.md)    | Engine 独占；flecs 世界、场景和子系统生命周期            |
 | 5          | [渲染系统](../runtime/class-diagrams/render-system.md)   | Engine 独占；bgfx 设备、空白帧和资源网格 PBR             |
 

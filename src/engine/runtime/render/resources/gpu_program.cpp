@@ -1,5 +1,6 @@
 #include "runtime/render/resources/gpu_program.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/resources/gpu_texture.hpp"
 #include "runtime/resource/resource.hpp"
@@ -50,6 +51,7 @@ GpuProgram& GpuProgram::operator=(GpuProgram&& other) noexcept
 
 bool GpuProgram::create(const schema::ShaderDataT& shader)
 {
+    ENGINE_PROFILE_ZONE("Render.programCreate");
     path = shader.path;
     definition = shader;
     vertex_shader = bgfx::createShader(bgfx::copy(

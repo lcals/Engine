@@ -1,3 +1,4 @@
+#include "runtime/performance/profiling.hpp"
 #if ENGINE_HAS_TERRAIN_EDITOR
 #include "plugins/editor/terrain/terrain_codec.hpp"
 #include "plugins/editor/terrain/terrain_importer.hpp"
@@ -437,6 +438,10 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         auto previous_time = std::chrono::steady_clock::now();
         for (;;)
         {
+            ENGINE_PROFILE_ZONE("Host.frame");
+#if defined(ENGINE_ENABLE_TRACY)
+            const auto profile_frame_begin = std::chrono::steady_clock::now();
+#endif
             frame_engine.begin_frame();
             const auto current_time = std::chrono::steady_clock::now();
             const double delta_time =
@@ -457,6 +462,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
+                ENGINE_PROFILE_ZONE("Editor.modeling_sync");
                 modeling->synchronize_scene();
             }
 #endif
@@ -551,6 +557,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_MODELING_PLUGIN
             if (modeling != nullptr)
             {
+                ENGINE_PROFILE_ZONE("Editor.modeling_sync");
                 modeling->synchronize_scene();
             }
 #endif
@@ -569,7 +576,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                 previous_time = std::chrono::steady_clock::now();
                 continue;
             }
-            frame_engine.end_frame();
+#if defined(ENGINE_ENABLE_TRACY)
+            ENGINE_PROFILE_PLOT("Host work ms",
+                (std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - profile_frame_begin).count()));
+#endif
+            {
+                ENGINE_PROFILE_ZONE("Host.frame_limit_wait");
+                frame_engine.end_frame();
+            }
             ++frames;
             if (frame_limit != 0 && frames >= frame_limit)
             {

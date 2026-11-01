@@ -12,6 +12,7 @@ namespace engine
 
 class WorldSystem;
 class Collider;
+struct MeshCollisionData;
 namespace schema
 {
 struct MeshDataT;
@@ -36,6 +37,9 @@ public:
     // 顶点和索引均空时移除旧碰撞；保留组件启用状态，后续非空网格可恢复。
     // collider 必须属于当前世界；不与物理步进、查询或场景修改并发。
     [[nodiscard]] bool set_mesh_data(Collider& collider, const schema::MeshDataT& mesh);
+    // 复制完整槽位列表并共享不可变网格；复用未变分段，全部成功后一次发布。
+    // 空列表/全部空槽移除碰撞；调用安全点、静态限制与 set_mesh_data 相同。
+    [[nodiscard]] bool set_mesh_parts(Collider& collider, const MeshCollisionData& mesh);
     // 查询当前碰撞世界；失败输出为零，成功未命中输出为一；忽略触发器。
     [[nodiscard]] bool cast_sphere(const Vec3& origin, const Vec3& displacement, float radius,
                                    float& fraction) const;

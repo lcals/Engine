@@ -26,6 +26,6 @@ kerning = true
 
 GPU 字形数据和文字排布由核心字体系统按需创建。字体资源不固定字号、不保存 UI 控件、不依赖某个 Shader。字体默认 Shader 属于引擎内置定义，UI 与三维文字使用者可以指定遵循相同契约的项目 Shader。
 
-示例字体为 Lato Regular 2.015，原始来源、固定提交、SHA-256 与 OFL 许可保存在 `projects/showcase/assets/fonts/`。公开 FreeType API 用于解析；本实现不包含 C4 授权源码或移植实现。
+示例字体为 Lato Regular 2.015，原始来源、固定提交、SHA-256 与 OFL 许可保存在 `projects/showcase/assets/fonts/`。使用公开 FreeType API 解析。
 
 架构入口：[字体导入类图](class-diagrams/font-importer.md)。

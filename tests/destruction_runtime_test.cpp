@@ -457,6 +457,204 @@ bool runtime_contract()
                   "world shutdown ends the subsystem and physics removes the departed scene");
 }
 
+bool incremental_contract()
+{
+    Fixture fixture;
+    if (!expect(fixture.initialize(), "initialize incremental destruction runtime"))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Incremental destruction");
+    auto* owner = scene ? scene->create_node("Source") : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    if (!expect(component != nullptr, "create incremental destruction source"))
+    {
+        return false;
+    }
+    auto pose = owner->get_component<Transform>()->settings();
+    pose.position = {0, 10, 0};
+    auto settings = component->settings();
+    settings.destruction_guid = asset_guid;
+    settings.density = 1;
+    if (!expect(owner->get_component<Transform>()->set_settings(pose) &&
+                    component->set_settings(settings) && fixture.destruction->synchronize(),
+                "prepare incremental groups", component->last_error()))
+    {
+        return false;
+    }
+    const auto original_ids = generated_ids(*scene);
+    if (!expect(original_ids.size() == 1, "publish exactly one initial physical group"))
+    {
+        return false;
+    }
+    const auto original_revision = component->revision();
+    auto* original_node = scene->find_node(original_ids.front());
+    auto* original_mesh = original_node->get_component<MeshRenderer>();
+    const auto* original_data = original_mesh->mesh_data();
+    const auto mesh_revision = original_mesh->mesh_revision();
+    ByteBuffer before;
+    ByteBuffer after;
+    if (!expect(component->snapshot(before) &&
+                    component->damage_sphere({1000, 1000, 0}, 1, 1, 10) &&
+                    component->damage_sphere({0.5, 10, 0}, 1, 0, 0) &&
+                    component->snapshot(after) && after == before &&
+                    component->revision() == original_revision &&
+                    generated_ids(*scene) == original_ids && fixture.physics.body_count() == 1,
+                "missed and zero-damage explosions retain state, revision and physical groups"))
+    {
+        return false;
+    }
+    if (!expect(component->damage_sphere({0.5, 10, 0}, 0.1F, 0.25F) &&
+                    component->revision() == original_revision + 1 &&
+                    generated_ids(*scene) == original_ids &&
+                    scene->find_node(original_ids.front())->get_component<MeshRenderer>() ==
+                        original_mesh &&
+                    original_mesh->mesh_data() == original_data &&
+                    original_mesh->mesh_revision() == mesh_revision &&
+                    fixture.physics.body_count() == 1 && component->snapshot(after),
+                "partial health damage preserves generated mesh, collider and body identity"))
+    {
+        return false;
+    }
+    auto partial = unpack(after);
+    if (!expect(partial && std::abs(partial->bond_health[0] - 0.75F) < 0.0001F &&
+                    component->damage_sphere({0.5, 10, 0}, 0.1F, 1) &&
+                    component->group_count() == 2,
+                "partial health is published before the later bond fracture"))
+    {
+        return false;
+    }
+    auto* moving = dynamic_group(*scene);
+    if (!expect(moving != nullptr, "find the separated B-C group"))
+    {
+        return false;
+    }
+    const auto moving_id = moving->id();
+    const auto split_ids = generated_ids(*scene);
+    const auto anchored_id = split_ids.front() == moving_id ? split_ids.back() : split_ids.front();
+    auto* anchored_mesh = scene->find_node(anchored_id)->get_component<MeshRenderer>();
+    const auto* anchored_data = anchored_mesh->mesh_data();
+    auto* body = moving->get_component<RigidBody>();
+    auto body_settings = body->settings();
+    body_settings.gravity_factor = 0;
+    body_settings.linear_damping = 0.1F;
+    body_settings.angular_damping = 0.2F;
+    body_settings.linear_velocity = {1, 0, 0};
+    body_settings.angular_velocity = {0, 0.25, 0};
+    if (!expect(body->set_settings(body_settings) && fixture.physics.tick(0) &&
+                    component->damage_sphere({1.5, 10, 0}, 0.1F, 0.25F) &&
+                    generated_ids(*scene) == split_ids && body->settings() == body_settings &&
+                    component->snapshot(before),
+                "zero-impulse partial damage retains motion and nondefault body properties"))
+    {
+        return false;
+    }
+    const auto impulse_revision = component->revision();
+    if (!expect(!component->damage_sphere({1.5, 9.8, 0}, 1, 0, 1000000) &&
+                    component->snapshot(after) && after == before &&
+                    generated_ids(*scene) == split_ids &&
+                    component->revision() == impulse_revision &&
+                    fixture.physics.body_count() == 2,
+                "invalid candidate velocity leaves existing graph, nodes and physics unchanged"))
+    {
+        return false;
+    }
+    if (!expect(body->add_impulse({0, 2, 0}) &&
+                    component->damage_sphere({1.5, 9.8, 0}, 1, 0, 5) &&
+                    component->revision() == impulse_revision + 1 &&
+                    generated_ids(*scene) == split_ids &&
+                    moving->get_component<RigidBody>() == body &&
+                    std::abs(body->linear_velocity().y() - 2.0) < 0.0001 &&
+                    body->settings().gravity_factor == 0 &&
+                    body->settings().linear_damping == 0.1F &&
+                    body->settings().angular_damping == 0.2F &&
+                    body->settings().angular_velocity == body_settings.angular_velocity &&
+                    fixture.physics.tick(0) &&
+                    std::abs(body->linear_velocity().y() - 3.0) < 0.0001 &&
+                    fixture.advance(1) &&
+                    moving->get_component<Transform>()->settings().position.y() > 10.02 &&
+                    body->linear_velocity().y() > 2.9,
+                "reused body consumes explosion velocity and pending impulse in actual Jolt motion",
+                component->last_error()))
+    {
+        return false;
+    }
+    float matrix[16]{};
+    if (!expect(moving->get_component<Transform>()->world_matrix(matrix) &&
+                    component->snapshot(before),
+                "capture moving source before incremental split"))
+    {
+        return false;
+    }
+    const Vec3 second_bond{matrix[12] + matrix[0] * 1.5, matrix[13] + matrix[1] * 1.5,
+                           matrix[14] + matrix[2] * 1.5};
+    if (!expect(component->damage_sphere(second_bond, 0.1F, 1) &&
+                    component->group_count() == 3 && fixture.physics.body_count() == 3 &&
+                    scene->find_node(moving_id) == nullptr &&
+                    component->owns_fragment(anchored_id) &&
+                    scene->find_node(anchored_id)->get_component<MeshRenderer>() == anchored_mesh &&
+                    anchored_mesh->mesh_data() == anchored_data && component->snapshot(after),
+                "splitting B-C replaces only its group and retains unrelated anchored A"))
+    {
+        return false;
+    }
+    const auto source = unpack(before);
+    const auto fractured = unpack(after);
+    const auto parent = std::find_if(source->groups.begin(), source->groups.end(),
+                                     [](const auto& group)
+                                     { return group->chunks == std::vector<std::uint32_t>{1, 2}; });
+    if (!expect(parent != source->groups.end(), "find source rigid group velocities"))
+    {
+        return false;
+    }
+    for (const auto& group : fractured->groups)
+    {
+        if (group->chunks == std::vector<std::uint32_t>{0})
+        {
+            continue;
+        }
+        const double offset = static_cast<double>(group->chunks.front()) - 1.5;
+        const Vec3 delta{matrix[0] * offset, matrix[1] * offset, matrix[2] * offset};
+        const auto& velocity = (*parent)->linear_velocity;
+        const auto& omega = (*parent)->angular_velocity;
+        if (!expect(group->angular_velocity == omega &&
+                        std::abs(group->linear_velocity.x() - velocity.x() -
+                                 omega.y() * delta.z() + omega.z() * delta.y()) < 0.000001 &&
+                        std::abs(group->linear_velocity.y() - velocity.y() -
+                                 omega.z() * delta.x() + omega.x() * delta.z()) < 0.000001 &&
+                        std::abs(group->linear_velocity.z() - velocity.z() -
+                                 omega.x() * delta.y() + omega.y() * delta.x()) < 0.000001,
+                    "split fragments inherit center-of-mass and angular velocity"))
+        {
+            return false;
+        }
+    }
+    const auto before_settings = generated_ids(*scene);
+    settings.friction = 0.35F;
+    if (!expect(component->set_settings(settings) &&
+                    generated_ids(*scene) != before_settings && component->group_count() == 3,
+                "explicit settings change still rebuilds every group"))
+    {
+        return false;
+    }
+    for (const auto id : before_settings)
+    {
+        if (!expect(!component->owns_fragment(id), "settings rebuild retires every old group"))
+        {
+            return false;
+        }
+    }
+    for (const auto id : generated_ids(*scene))
+    {
+        if (!expect(scene->find_node(id)->get_component<Collider>()->settings().friction == 0.35F,
+                    "settings rebuild applies the new collision configuration"))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool support_contract()
 {
     Fixture fixture;
@@ -598,6 +796,21 @@ bool support_contract()
     floor_pose.position = {9.5, -0.5, 2};
     floor_shape.half_extents = {0.5, 0.5, 4};
     const auto supported_nodes = generated_ids(*scene);
+    const auto* unaffected = dynamic_group(*scene);
+    const auto anchored =
+        std::find_if(supported_nodes.begin(), supported_nodes.end(),
+                     [&](std::uint64_t id)
+                     {
+                         const auto* body = scene->find_node(id)->get_component<RigidBody>();
+                         return body && body->settings().motion == schema::BodyMotion::static_body;
+                     });
+    if (!expect(unaffected && anchored != supported_nodes.end(),
+                "identify anchored and moving groups independently of entity generations"))
+    {
+        return false;
+    }
+    const auto unaffected_id = unaffected->id();
+    const auto anchored_id = *anchored;
     const auto supported_revision = component->revision();
     if (!expect(floor->get_component<Transform>()->set_settings(floor_pose) &&
                     fixture.physics.set_collider_data(*support, floor_shape) &&
@@ -615,7 +828,8 @@ bool support_contract()
     }
     auto expected = unpack(moving);
     expected->bond_health.back() = 0;
-    if (!expect(after == pack(*expected) && !component->owns_fragment(supported_nodes.front()),
+    if (!expect(after == pack(*expected) && !component->owns_fragment(anchored_id) &&
+                    component->owns_fragment(unaffected_id),
                 "release preserves unrelated bond health and exact group poses and velocities"))
     {
         return false;
@@ -761,5 +975,7 @@ bool stress_contract()
 
 int main()
 {
-    return runtime_contract() && support_contract() && stress_contract() ? 0 : 1;
+    return runtime_contract() && incremental_contract() && support_contract() && stress_contract()
+               ? 0
+               : 1;
 }

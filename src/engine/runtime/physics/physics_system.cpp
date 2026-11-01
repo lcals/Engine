@@ -1,5 +1,8 @@
 #include "runtime/physics/physics_system.hpp"
 
+#include "runtime/performance/profiling.hpp"
+#include "runtime/physics/mesh_collision_data.hpp"
+#include "runtime/physics/physics_jobs.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/character_motor.hpp"
@@ -13,9 +16,9 @@
 // clang-format off
 #include <Jolt/Jolt.h>
 #include <Jolt/Core/Factory.h>
-#include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
+#include <Jolt/Physics/Body/BodyLock.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/CastResult.h>
@@ -44,10 +47,12 @@
 #include <cstdio>
 #include <limits>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <numbers>
-#include <set>
+#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -249,10 +254,82 @@ bool world_matrix(const Transform& transform, JPH::Mat44& output)
     return true;
 }
 
-bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* mesh,
-                JPH::Vec3Arg scale, JPH::RefConst<JPH::Shape>& output)
+void canonicalize_box_hull(std::span<const JPH::Vec3> points, JPH::Shape::ShapeResult& result)
 {
+    if (points.size() != 8)
+    {
+        return;
+    }
+    JPH::AABox bounds;
+    for (const auto& point : points)
+    {
+        bounds.Encapsulate(point);
+    }
+    const auto half_extent = bounds.GetExtent();
+    const auto center = bounds.GetCenter();
+    if (half_extent.ReduceMin() <= 0.0F || center - half_extent != bounds.mMin ||
+        center + half_extent != bounds.mMax)
+    {
+        return;
+    }
+    unsigned corners = 0;
+    for (const auto& point : points)
+    {
+        unsigned corner = 0;
+        for (unsigned axis = 0; axis < 3; ++axis)
+        {
+            if (point[axis] == bounds.mMax[axis])
+            {
+                corner |= 1U << axis;
+            }
+            else if (point[axis] != bounds.mMin[axis])
+            {
+                return;
+            }
+        }
+        if ((corners & (1U << corner)) != 0)
+        {
+            return;
+        }
+        corners |= 1U << corner;
+    }
+    if (corners != 0xffU)
+    {
+        return;
+    }
+    // 调用方已成功构建官方凸包；沿用其实际圆角，不能套用普通 Box 的圆角策略。
+    const auto* hull = static_cast<const JPH::ConvexHullShape*>(result.Get().GetPtr());
+    JPH::BoxShapeSettings settings(half_extent, hull->GetConvexRadius(), hull->GetMaterial());
+    settings.mDensity = hull->GetDensity();
+    auto candidate = settings.Create();
+    if (candidate.HasError() || !candidate.IsValid())
+    {
+        return;
+    }
+    if (center != JPH::Vec3::sZero())
+    {
+        candidate = JPH::RotatedTranslatedShapeSettings(center, JPH::Quat::sIdentity(),
+                                                       candidate.Get().GetPtr())
+                        .Create();
+        if (candidate.HasError() || !candidate.IsValid())
+        {
+            return;
+        }
+    }
+    ENGINE_PROFILE_ZONE("Physics.box_hull");
+    result = std::move(candidate);
+}
+
+bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* mesh,
+                JPH::Vec3Arg scale, JPH::RefConst<JPH::Shape>& output, bool mesh_part = false)
+{
+    ENGINE_PROFILE_ZONE("Physics.create_shape");
     output = nullptr;
+    const auto center = vector(collider.center) * scale;
+    if (!finite(center) || center.Abs().ReduceMax() > 100000.0F)
+    {
+        return false;
+    }
     JPH::Shape::ShapeResult result;
     switch (collider.shape)
     {
@@ -313,6 +390,7 @@ bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* 
             {
                 return false;
             }
+            canonicalize_box_hull(std::span(points.data(), points.size()), result);
             compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), result.Get().GetPtr());
         }
         // 单个 hull 已完整表达其局部坐标，无需再套一个复合形状。
@@ -356,10 +434,16 @@ bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* 
             triangles.emplace_back(a, b, c, 0U);
         }
         // Jolt 清理退化三角形并建立三角形树；保留源 Mesh 的逆时针绕序。
-        const JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+        JPH::MeshShapeSettings settings(std::move(vertices), std::move(triangles));
+        if (mesh_part)
+        {
+            settings.mBuildQuality = JPH::MeshShapeSettings::EBuildQuality::FavorBuildSpeed;
+        }
         if (settings.mIndexedTriangles.empty())
         {
-            return false;
+            // 细分后某叶可能只含被 Jolt 清理掉的退化三角；整网格原来也会丢弃它们。
+            // 分段输入保留空形状槽，不能因此拒绝其余有效几何。
+            return mesh_part;
         }
         result = settings.Create();
         break;
@@ -368,11 +452,6 @@ bool make_shape(const schema::ColliderDataT& collider, const schema::MeshDataT* 
         return false;
     }
     if (result.HasError() || !result.IsValid())
-    {
-        return false;
-    }
-    const auto center = vector(collider.center) * scale;
-    if (!finite(center) || center.Abs().ReduceMax() > 100000.0F)
     {
         return false;
     }
@@ -466,21 +545,33 @@ bool read_character(const Node& node, const CharacterMotor& motor, CharacterSnap
     return true;
 }
 
+using MeshPartShapes = std::vector<JPH::RefConst<JPH::Shape>>;
+
 struct BodySnapshot
 {
     std::uint64_t node_id = 0;
-    schema::ColliderDataT collider;
+    std::shared_ptr<const schema::ColliderDataT> collider;
     schema::RigidBodyDataT rigid_body;
     JPH::Vec3 position = JPH::Vec3::sZero();
     JPH::Quat rotation = JPH::Quat::sIdentity();
     JPH::Vec3 scale = JPH::Vec3::sReplicate(1.0F);
+    // scale 是本帧请求；shape_scale 是实际烘入形状的值，复用不能推进此基准。
+    // 分段叶子共享同一烘焙缩放，容差内的局部重建也沿用该值，避免混合缩放。
+    JPH::Vec3 shape_scale = JPH::Vec3::sReplicate(1.0F);
+    // 只用于根动态刚体：调用方未改写展示 TRS 时，保留 Jolt 原始姿态。
+    // 不能把自身 Euler 回写的舍入或 q/-q 翻号当成下一帧的 teleport。
+    std::optional<TransformSettings> written_transform;
     ResourcePtr mesh;
     std::shared_ptr<const schema::MeshDataT> transient_mesh;
+    std::shared_ptr<const MeshCollisionData> mesh_parts;
+    std::shared_ptr<const MeshPartShapes> part_shapes;
+    std::shared_ptr<const MeshPartShapes> part_groups;
     JPH::RefConst<JPH::Shape> shape;
 };
 
 bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
-                   const schema::MeshDataT* mesh, const RigidBody* body, BodySnapshot& output)
+                   const schema::MeshDataT* mesh, const RigidBody* body, BodySnapshot& output,
+                   const BodySnapshot* previous = nullptr)
 {
     for (const Node* ancestor = &node; ancestor != nullptr; ancestor = ancestor->parent())
     {
@@ -496,14 +587,37 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
         }
     }
     const auto* transform = node.get_component<Transform>();
-    JPH::Mat44 matrix;
-    if (transform == nullptr || !world_matrix(*transform, matrix) ||
-        !decompose(matrix, output.position, output.rotation, output.scale))
+    if (transform == nullptr)
     {
         return false;
     }
+    const bool unchanged_output = previous != nullptr && previous->written_transform &&
+        node.parent() == nullptr && body != nullptr &&
+        body->settings().motion == schema::BodyMotion::dynamic &&
+        transform->settings() == *previous->written_transform;
+    if (unchanged_output)
+    {
+        output.position = previous->position;
+        output.rotation = previous->rotation;
+        output.scale = previous->scale;
+        output.written_transform = previous->written_transform;
+    }
+    else
+    {
+        JPH::Mat44 matrix;
+        if (!world_matrix(*transform, matrix) ||
+            !decompose(matrix, output.position, output.rotation, output.scale))
+        {
+            return false;
+        }
+    }
     output.node_id = node.id();
-    output.collider = collider;
+    // 比较完整描述，不能用组件地址判断：FlatBuffers 的嵌套凸包仍可能被修改。
+    const bool same_collider =
+        previous != nullptr && previous->collider && *previous->collider == collider;
+    const bool previously_valid = same_collider && previous->mesh == output.mesh &&
+                                  previous->transient_mesh == output.transient_mesh &&
+                                  previous->mesh_parts == output.mesh_parts;
     if (body != nullptr)
     {
         output.rigid_body = body->settings();
@@ -512,11 +626,155 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
     {
         output.rigid_body.motion = schema::BodyMotion::static_body;
     }
-    return (output.rigid_body.motion != schema::BodyMotion::dynamic || node.parent() == nullptr) &&
-           (output.collider.shape != schema::ColliderShape::mesh ||
-            output.rigid_body.motion == schema::BodyMotion::static_body) &&
-           Collider::valid_settings(output.collider, mesh) &&
-           RigidBody::valid_settings(output.rigid_body);
+    if ((output.rigid_body.motion == schema::BodyMotion::dynamic && node.parent() != nullptr) ||
+        (collider.shape == schema::ColliderShape::mesh &&
+         output.rigid_body.motion != schema::BodyMotion::static_body) ||
+        (!previously_valid && !Collider::valid_settings(collider, mesh, output.mesh_parts.get())) ||
+        !RigidBody::valid_settings(output.rigid_body))
+    {
+        return false;
+    }
+    output.collider = same_collider ? previous->collider
+                                   : std::make_shared<const schema::ColliderDataT>(collider);
+    return true;
+}
+
+bool make_mesh_compound(std::span<const JPH::RefConst<JPH::Shape>> shapes,
+                        JPH::RefConst<JPH::Shape>& output)
+{
+    JPH::StaticCompoundShapeSettings compound;
+    std::size_t count = 0;
+    output = nullptr;
+    for (const auto& shape : shapes)
+    {
+        if (shape != nullptr)
+        {
+            compound.AddShape(JPH::Vec3::sZero(), JPH::Quat::sIdentity(), shape.GetPtr());
+            output = shape;
+            ++count;
+        }
+    }
+    if (count > 1)
+    {
+        ENGINE_PROFILE_ZONE("Physics.create_mesh_compound");
+        const auto result = compound.Create();
+        if (result.HasError() || !result.IsValid())
+        {
+            output = nullptr;
+            return false;
+        }
+        output = result.Get();
+    }
+    return true;
+}
+
+bool prepare_mesh_parts(BodySnapshot& snapshot, const BodySnapshot* previous)
+{
+    ENGINE_PROFILE_ZONE("Physics.prepare_mesh_parts");
+    const bool reuse = previous != nullptr && previous->mesh_parts && previous->part_shapes &&
+                       previous->part_groups &&
+                       previous->shape_scale.IsClose(snapshot.scale, 1.0e-8F) &&
+                       previous->collider->center == snapshot.collider->center;
+    snapshot.shape_scale = reuse ? previous->shape_scale : snapshot.scale;
+    if (reuse && previous->mesh_parts == snapshot.mesh_parts)
+    {
+        snapshot.part_shapes = previous->part_shapes;
+        snapshot.part_groups = previous->part_groups;
+        snapshot.shape = previous->shape;
+        return true;
+    }
+    auto shapes = std::make_shared<MeshPartShapes>(snapshot.mesh_parts->parts.size());
+    for (std::size_t slot = 0; slot < shapes->size(); ++slot)
+    {
+        const auto& mesh = snapshot.mesh_parts->parts[slot];
+        if (!mesh)
+        {
+            continue;
+        }
+        auto& shape = (*shapes)[slot];
+        if (reuse && slot < previous->mesh_parts->parts.size() &&
+            previous->mesh_parts->parts[slot] == mesh)
+        {
+            shape = (*previous->part_shapes)[slot];
+        }
+        else if (mesh->schema_version != 1 ||
+                 !make_shape(*snapshot.collider, mesh.get(), snapshot.shape_scale, shape, true))
+        {
+            return false;
+        }
+    }
+    // 连续槽位分组复用官方复合树；核心不理解地形尺寸或体素坐标。
+    constexpr std::size_t group_size = 64;
+    auto groups = std::make_shared<MeshPartShapes>((shapes->size() + group_size - 1) / group_size);
+    const std::span<const JPH::RefConst<JPH::Shape>> leaves(*shapes);
+    for (std::size_t group = 0; group < groups->size(); ++group)
+    {
+        const auto first = group * group_size;
+        const auto last = std::min(first + group_size, shapes->size());
+        const bool same_group = reuse && group < previous->part_groups->size() &&
+            std::min(first + group_size, previous->part_shapes->size()) == last &&
+            std::equal(shapes->begin() + first, shapes->begin() + last,
+                       previous->part_shapes->begin() + first);
+        if (same_group)
+        {
+            (*groups)[group] = (*previous->part_groups)[group];
+        }
+        else if (!make_mesh_compound(leaves.subspan(first, last - first), (*groups)[group]))
+        {
+            return false;
+        }
+    }
+    if (reuse && *groups == *previous->part_groups)
+    {
+        snapshot.shape = previous->shape;
+        snapshot.part_groups = previous->part_groups;
+    }
+    else
+    {
+        if (!make_mesh_compound(*groups, snapshot.shape))
+        {
+            return false;
+        }
+        snapshot.part_groups = std::move(groups);
+    }
+    snapshot.part_shapes = std::move(shapes);
+    return true;
+}
+
+JPH::AABox part_bounds(const BodySnapshot& snapshot, const JPH::Shape& shape)
+{
+    // Shape 的包围盒以质心为原点；顶点缩放及 Collider.center 已烘入子形状。
+    const auto transform = JPH::Mat44::sRotationTranslation(snapshot.rotation, snapshot.position)
+                               .PreTranslated(shape.GetCenterOfMass());
+    return shape.GetWorldSpaceBounds(transform, JPH::Vec3::sOne());
+}
+
+JPH::AABox changed_bounds(const BodySnapshot& before, const BodySnapshot& after)
+{
+    JPH::AABox bounds;
+    const auto size = std::max(before.part_shapes->size(), after.part_shapes->size());
+    for (std::size_t slot = 0; slot < size; ++slot)
+    {
+        const auto* old_shape = slot < before.part_shapes->size()
+                                    ? (*before.part_shapes)[slot].GetPtr()
+                                    : nullptr;
+        const auto* new_shape = slot < after.part_shapes->size()
+                                    ? (*after.part_shapes)[slot].GetPtr()
+                                    : nullptr;
+        if (old_shape == new_shape)
+        {
+            continue;
+        }
+        if (old_shape != nullptr)
+        {
+            bounds.Encapsulate(part_bounds(before, *old_shape));
+        }
+        if (new_shape != nullptr)
+        {
+            bounds.Encapsulate(part_bounds(after, *new_shape));
+        }
+    }
+    return bounds;
 }
 
 bool active_transform(const Node& node)
@@ -585,6 +843,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
     {
         BodySnapshot snapshot;
         JPH::BodyID body;
+        std::uint64_t seen_frame = 0;
     };
 
     struct CharacterEntry
@@ -592,17 +851,21 @@ struct PhysicsSystem::State final : JPH::ContactListener
         CharacterSnapshot snapshot;
         JPH::Ref<JPH::CharacterVirtual> character;
         JPH::Vec3 external_velocity = JPH::Vec3::sZero();
+        std::uint64_t seen_frame = 0;
     };
 
     BroadPhaseLayers layers;
     BroadPhaseFilter broad_filter;
     ObjectFilter object_filter;
-    JPH::TempAllocatorMalloc allocator;
-    JPH::JobSystemSingleThreaded jobs;
+    // 官方临时栈分配器，超过预留空间仍用官方 malloc fallback，不限制场景规模。
+    JPH::TempAllocatorImplWithMallocFallback allocator{10U * 1024U * 1024U};
+    physics_detail::PhysicsJobs jobs;
     JPH::PhysicsSystem physics;
     std::map<std::uint64_t, Entry> bodies;
     JPH::CharacterVsCharacterCollisionSimple character_collisions;
     std::map<std::uint64_t, CharacterEntry> characters;
+    std::vector<BodySnapshot> body_snapshots;
+    std::vector<CharacterSnapshot> character_snapshots;
     std::uint64_t scene_id = 0;
     std::uint64_t frame = 0;
     double accumulated = 0.0;
@@ -613,6 +876,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
     void collect_impact(const JPH::Body& first, const JPH::Body& second,
                         const JPH::ContactManifold& manifold, const JPH::ContactSettings& settings)
     {
+        ENGINE_PROFILE_ZONE("Physics.collect_impact");
         const auto first_node = first.GetUserData();
         const auto second_node = second.GetUserData();
         if (settings.mIsSensor || first.IsSensor() || second.IsSensor() || first_node == 0 ||
@@ -646,10 +910,13 @@ struct PhysicsSystem::State final : JPH::ContactListener
         // 这里只读传入 body，不调用带锁 BodyInterface，不访问场景或执行业务。
         JPH::CollisionEstimationResult estimate;
         const auto& configuration = physics.GetPhysicsSettings();
-        JPH::EstimateCollisionResponse(first, second, manifold, estimate,
-                                       settings.mCombinedFriction, settings.mCombinedRestitution,
-                                       configuration.mMinVelocityForRestitution,
-                                       configuration.mNumVelocitySteps);
+        {
+            ENGINE_PROFILE_ZONE("Physics.estimate_impact");
+            JPH::EstimateCollisionResponse(first, second, manifold, estimate,
+                                           settings.mCombinedFriction, settings.mCombinedRestitution,
+                                           configuration.mMinVelocityForRestitution,
+                                           configuration.mNumVelocitySteps);
+        }
         float impulse = 0;
         for (const auto& item : estimate.mImpulses)
         {
@@ -706,6 +973,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
             interface.DestroyBody(entry.body);
         }
         bodies.clear();
+        body_snapshots.clear();
+        character_snapshots.clear();
         scene_id = 0;
         accumulated = 0.0;
         pending_impacts.clear();
@@ -734,37 +1003,96 @@ struct PhysicsSystem::State final : JPH::ContactListener
     {
         auto& interface = physics.GetBodyInterface();
         auto found = bodies.find(snapshot.node_id);
+        const bool moving = snapshot.rigid_body.motion != schema::BodyMotion::static_body;
+        // Velocity is mutable motion state, not a reason to replace the shape or BodyID.
+        auto previous_settings = found != bodies.end() ? found->second.snapshot.rigid_body
+                                                       : snapshot.rigid_body;
+        previous_settings.linear_velocity = snapshot.rigid_body.linear_velocity;
+        previous_settings.angular_velocity = snapshot.rigid_body.angular_velocity;
         const bool rebuild = found == bodies.end() ||
-                             found->second.snapshot.collider != snapshot.collider ||
+                             (found->second.snapshot.collider != snapshot.collider &&
+                              *found->second.snapshot.collider != *snapshot.collider) ||
                              found->second.snapshot.mesh != snapshot.mesh ||
                              found->second.snapshot.transient_mesh != snapshot.transient_mesh ||
-                             found->second.snapshot.rigid_body != snapshot.rigid_body ||
-                             !found->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F);
+                             found->second.snapshot.mesh_parts != snapshot.mesh_parts ||
+                             previous_settings != snapshot.rigid_body ||
+                             found->second.snapshot.shape != snapshot.shape;
         if (!rebuild)
         {
+            const bool moved_static = !moving &&
+                (found->second.snapshot.position != snapshot.position ||
+                 found->second.snapshot.rotation != snapshot.rotation);
+            JPH::AABox affected;
+            if (moved_static)
+            {
+                affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
+            }
             interface.SetPositionAndRotationWhenChanged(
                 found->second.body, JPH::RVec3(snapshot.position), snapshot.rotation,
                 JPH::EActivation::Activate);
+            const auto& previous = found->second.snapshot.rigid_body;
+            if (previous.linear_velocity != snapshot.rigid_body.linear_velocity ||
+                previous.angular_velocity != snapshot.rigid_body.angular_velocity)
+            {
+                interface.SetLinearAndAngularVelocity(
+                    found->second.body, vector(snapshot.rigid_body.linear_velocity),
+                    vector(snapshot.rigid_body.angular_velocity));
+            }
             found->second.snapshot = snapshot;
+            if (moved_static)
+            {
+                affected.Encapsulate(
+                    interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds());
+                activate_bounds(affected);
+            }
             return true;
         }
+        ENGINE_PROFILE_ZONE("Physics.publish_body");
         JPH::AABox affected;
+        bool local_change = false;
         if (found != bodies.end())
         {
-            affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
+            const auto& previous = found->second.snapshot;
+            local_change = !moving && previous.part_shapes && snapshot.part_shapes &&
+                           *previous.collider == *snapshot.collider &&
+                           previous.rigid_body == snapshot.rigid_body &&
+                           previous.position == snapshot.position &&
+                           previous.rotation == snapshot.rotation &&
+                           previous.shape_scale == snapshot.shape_scale;
+            affected = local_change ? changed_bounds(previous, snapshot)
+                                    : interface.GetTransformedShape(found->second.body)
+                                          .GetWorldSpaceBounds();
         }
-        const bool moving = snapshot.rigid_body.motion != schema::BodyMotion::static_body;
         if (found != bodies.end() && !moving &&
             found->second.snapshot.rigid_body == snapshot.rigid_body &&
-            found->second.snapshot.collider.is_trigger == snapshot.collider.is_trigger)
+            found->second.snapshot.collider->is_trigger == snapshot.collider->is_trigger)
         {
             // 候选形状已完整准备；静态形状替换不会销毁原 BodyID。
             interface.SetShape(found->second.body, snapshot.shape.GetPtr(), false,
                                JPH::EActivation::DontActivate);
-            interface.SetPositionAndRotation(found->second.body, JPH::RVec3(snapshot.position),
-                                             snapshot.rotation, JPH::EActivation::DontActivate);
-            interface.SetFriction(found->second.body, snapshot.collider.friction);
-            interface.SetRestitution(found->second.body, snapshot.collider.restitution);
+            const auto& previous = found->second.snapshot;
+            if (previous.position != snapshot.position || previous.rotation != snapshot.rotation)
+            {
+                interface.SetPositionAndRotation(found->second.body, JPH::RVec3(snapshot.position),
+                                                 snapshot.rotation, JPH::EActivation::DontActivate);
+            }
+            if (previous.collider->friction != snapshot.collider->friction)
+            {
+                interface.SetFriction(found->second.body, snapshot.collider->friction);
+            }
+            if (previous.collider->restitution != snapshot.collider->restitution)
+            {
+                interface.SetRestitution(found->second.body, snapshot.collider->restitution);
+            }
+            if (static_cast<bool>(found->second.snapshot.mesh_parts) !=
+                static_cast<bool>(snapshot.mesh_parts))
+            {
+                JPH::BodyLockWrite lock(physics.GetBodyLockInterface(), found->second.body);
+                if (lock.Succeeded())
+                {
+                    lock.GetBody().SetEnhancedInternalEdgeRemoval(snapshot.mesh_parts != nullptr);
+                }
+            }
             found->second.snapshot = snapshot;
         }
         else
@@ -772,10 +1100,13 @@ struct PhysicsSystem::State final : JPH::ContactListener
             JPH::BodyCreationSettings settings(
                 snapshot.shape.GetPtr(), JPH::RVec3(snapshot.position), snapshot.rotation,
                 motion_type(snapshot.rigid_body.motion), moving ? moving_layer : static_layer);
-            settings.mIsSensor = snapshot.collider.is_trigger;
+            settings.mIsSensor = snapshot.collider->is_trigger;
+            // Jolt 官方 MeshShapeUserDataTest：复合网格边界需要增强内部边消除。
+            // 只标记分段表面；Jolt 对接触双方取 OR，不增加普通刚体间的求解负担。
+            settings.mEnhancedInternalEdgeRemoval = snapshot.mesh_parts != nullptr;
             settings.mUserData = snapshot.node_id;
-            settings.mFriction = snapshot.collider.friction;
-            settings.mRestitution = snapshot.collider.restitution;
+            settings.mFriction = snapshot.collider->friction;
+            settings.mRestitution = snapshot.collider->restitution;
             settings.mLinearDamping = snapshot.rigid_body.linear_damping;
             settings.mAngularDamping = snapshot.rigid_body.angular_damping;
             settings.mGravityFactor = snapshot.rigid_body.gravity_factor;
@@ -785,8 +1116,12 @@ struct PhysicsSystem::State final : JPH::ContactListener
             settings.mMaxAngularVelocity = 10000.0F;
             settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
             settings.mMassPropertiesOverride.mMass = snapshot.rigid_body.mass;
-            const auto body = interface.CreateAndAddBody(
-                settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+            JPH::BodyID body;
+            {
+                ENGINE_PROFILE_ZONE("Physics.create_body");
+                body = interface.CreateAndAddBody(
+                    settings, moving ? JPH::EActivation::Activate : JPH::EActivation::DontActivate);
+            }
             if (body.IsInvalid())
             {
                 return false;
@@ -805,26 +1140,39 @@ struct PhysicsSystem::State final : JPH::ContactListener
         }
         if (!moving)
         {
-            affected.Encapsulate(
-                interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds());
-            affected.ExpandBy(JPH::Vec3::sReplicate(0.1F));
-            interface.ActivateBodiesInAABox(affected,
-                                            physics.GetDefaultBroadPhaseLayerFilter(static_layer),
-                                            physics.GetDefaultLayerFilter(static_layer));
+            if (!local_change)
+            {
+                affected.Encapsulate(
+                    interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds());
+            }
+            activate_bounds(affected);
         }
         return true;
     }
 
+    void activate_bounds(JPH::AABox bounds)
+    {
+        if (bounds.IsValid())
+        {
+            bounds.ExpandBy(JPH::Vec3::sReplicate(0.1F));
+            physics.GetBodyInterface().ActivateBodiesInAABox(
+                bounds, physics.GetDefaultBroadPhaseLayerFilter(static_layer),
+                physics.GetDefaultLayerFilter(static_layer));
+        }
+    }
+
     bool synchronize(const std::vector<BodySnapshot>& snapshots)
     {
-        std::set<std::uint64_t> retained;
         for (const auto& snapshot : snapshots)
         {
-            retained.insert(snapshot.node_id);
+            if (auto found = bodies.find(snapshot.node_id); found != bodies.end())
+            {
+                found->second.seen_frame = frame;
+            }
         }
         for (auto iterator = bodies.begin(); iterator != bodies.end();)
         {
-            if (!retained.contains(iterator->first))
+            if (iterator->second.seen_frame != frame)
             {
                 const auto id = iterator->first;
                 ++iterator;
@@ -846,14 +1194,16 @@ struct PhysicsSystem::State final : JPH::ContactListener
     }
     bool synchronize_characters(const std::vector<CharacterSnapshot>& snapshots)
     {
-        std::set<std::uint64_t> retained;
         for (const auto& snapshot : snapshots)
         {
-            retained.insert(snapshot.node_id);
+            if (auto found = characters.find(snapshot.node_id); found != characters.end())
+            {
+                found->second.seen_frame = frame;
+            }
         }
         for (auto iterator = characters.begin(); iterator != characters.end();)
         {
-            if (!retained.contains(iterator->first))
+            if (iterator->second.seen_frame != frame)
             {
                 character_collisions.Remove(iterator->second.character.GetPtr());
                 iterator = characters.erase(iterator);
@@ -897,6 +1247,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 }
                 JPH::CharacterVirtualSettings configuration;
                 configuration.mShape = shape.Get();
+                configuration.mEnhancedInternalEdgeRemoval = true;
                 configuration.mMaxSlopeAngle =
                     settings.max_slope_degrees * std::numbers::pi_v<float> / 180.0F;
                 configuration.mSupportingVolume = JPH::Plane(JPH::Vec3::sAxisY(), -settings.radius);
@@ -1082,6 +1433,7 @@ std::span<const PhysicsImpact> PhysicsSystem::impacts() const noexcept
 
 bool PhysicsSystem::set_collider_data(Collider& collider, const schema::ColliderDataT& settings)
 {
+    ENGINE_PROFILE_ZONE("Physics.set_collider");
     auto* scene = world_ != nullptr ? world_->scene() : nullptr;
     auto& node = collider.node();
     if (state_ == nullptr || scene == nullptr || &node.scene() != scene ||
@@ -1112,7 +1464,8 @@ bool PhysicsSystem::set_collider_data(Collider& collider, const schema::Collider
     }
     const bool active =
         collider.enabled() && active_transform(node) && (rigid == nullptr || rigid->enabled());
-    if (active && !make_shape(snapshot.collider, mesh, snapshot.scale, snapshot.shape))
+    snapshot.shape_scale = snapshot.scale;
+    if (active && !make_shape(*snapshot.collider, mesh, snapshot.shape_scale, snapshot.shape))
     {
         return false;
     }
@@ -1129,14 +1482,16 @@ bool PhysicsSystem::set_collider_data(Collider& collider, const schema::Collider
     {
         state_->remove_body(node.id());
     }
-    *collider.mutable_data().payload.AsColliderData() = std::move(snapshot.collider);
+    *collider.mutable_data().payload.AsColliderData() = *snapshot.collider;
     collider.mesh_ = std::move(snapshot.mesh);
     collider.transient_mesh_.reset();
+    collider.mesh_parts_.reset();
     return true;
 }
 
 bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& mesh)
 {
+    ENGINE_PROFILE_ZONE("Physics.set_mesh");
     auto* scene = world_ != nullptr ? world_->scene() : nullptr;
     auto& node = collider.node();
     if (state_ == nullptr || scene == nullptr || &node.scene() != scene ||
@@ -1152,18 +1507,24 @@ bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& m
         return false;
     }
     BodySnapshot snapshot;
+    snapshot.mesh_parts = collider.mesh_parts_;
     if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
     {
         return false;
     }
-    snapshot.collider.shape = schema::ColliderShape::mesh;
-    snapshot.collider.mesh_guid.clear();
-    snapshot.collider.hulls.clear();
+    auto candidate = *snapshot.collider;
+    candidate.shape = schema::ColliderShape::mesh;
+    candidate.mesh_guid.clear();
+    candidate.hulls.clear();
+    snapshot.collider = std::make_shared<const schema::ColliderDataT>(std::move(candidate));
+    snapshot.mesh_parts.reset();
     // 拷贝隔离调用方后续修改；不发布未完成的 Jolt Shape。
     snapshot.transient_mesh = std::make_shared<const schema::MeshDataT>(mesh);
     const bool empty = mesh.vertices.empty() && mesh.indices.empty();
-    if (!empty && !make_shape(snapshot.collider, snapshot.transient_mesh.get(), snapshot.scale,
-                              snapshot.shape))
+    snapshot.shape_scale = snapshot.scale;
+    if (!empty &&
+        !make_shape(*snapshot.collider, snapshot.transient_mesh.get(), snapshot.shape_scale,
+                     snapshot.shape))
     {
         return false;
     }
@@ -1182,14 +1543,78 @@ bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& m
     {
         state_->remove_body(node.id());
     }
-    *collider.mutable_data().payload.AsColliderData() = snapshot.collider;
+    *collider.mutable_data().payload.AsColliderData() = *snapshot.collider;
     collider.mesh_.reset();
     collider.transient_mesh_ = std::move(snapshot.transient_mesh);
+    collider.mesh_parts_.reset();
+    return true;
+}
+
+bool PhysicsSystem::set_mesh_parts(Collider& collider, const MeshCollisionData& parts)
+{
+    ENGINE_PROFILE_ZONE("Physics.set_mesh_parts");
+    auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    auto& node = collider.node();
+    if (state_ == nullptr || scene == nullptr || &node.scene() != scene ||
+        node.get_component<Collider>() != &collider)
+    {
+        return false;
+    }
+    const auto* rigid = node.get_component<RigidBody>();
+    const auto* motor = node.get_component<CharacterMotor>();
+    if ((rigid != nullptr && rigid->settings().motion != schema::BodyMotion::static_body) ||
+        (motor != nullptr && motor->enabled() && collider.enabled()))
+    {
+        return false;
+    }
+    BodySnapshot snapshot;
+    snapshot.mesh_parts = collider.mesh_parts_;
+    if (!read_snapshot(node, collider.settings(), collider.mesh_data(), rigid, snapshot))
+    {
+        return false;
+    }
+    auto settings = *snapshot.collider;
+    settings.shape = schema::ColliderShape::mesh;
+    settings.mesh_guid.clear();
+    settings.hulls.clear();
+    snapshot.collider = std::make_shared<const schema::ColliderDataT>(std::move(settings));
+    if (!snapshot.mesh_parts || snapshot.mesh_parts->parts != parts.parts)
+    {
+        snapshot.mesh_parts = std::make_shared<const MeshCollisionData>(parts);
+    }
+    const auto found = state_->bodies.find(node.id());
+    const auto* previous = state_->scene_id == scene->id() && found != state_->bodies.end()
+                               ? &found->second.snapshot
+                               : nullptr;
+    if (!prepare_mesh_parts(snapshot, previous))
+    {
+        return false;
+    }
+    const bool active = snapshot.shape != nullptr && collider.enabled() && active_transform(node) &&
+                        (rigid == nullptr || rigid->enabled());
+    if (state_->scene_id != scene->id())
+    {
+        state_->clear();
+        state_->scene_id = scene->id();
+    }
+    if (active && !state_->publish_body(snapshot))
+    {
+        return false;
+    }
+    if (!active)
+    {
+        state_->remove_body(node.id());
+    }
+    *collider.mutable_data().payload.AsColliderData() = *snapshot.collider;
+    collider.mesh_.reset();
+    collider.transient_mesh_.reset();
+    collider.mesh_parts_ = std::move(snapshot.mesh_parts);
     return true;
 }
 
 bool PhysicsSystem::on_tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Physics.tick");
     auto* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (!state_)
     {
@@ -1214,264 +1639,321 @@ bool PhysicsSystem::on_tick(double delta_time)
         state_->clear();
         state_->scene_id = scene->id();
     }
-    std::vector<BodySnapshot> snapshots;
-    std::vector<CharacterSnapshot> character_snapshots;
-    for (const auto& node : scene->nodes())
+    auto& snapshots = state_->body_snapshots;
+    auto& character_snapshots = state_->character_snapshots;
+    snapshots.clear();
+    character_snapshots.clear();
+    auto& interface = state_->physics.GetBodyInterface();
     {
-        if (auto* motor = node->get_component<CharacterMotor>())
+        ENGINE_PROFILE_ZONE("Physics.prepare");
+        for (const auto& node : scene->nodes())
         {
-            if (motor->enabled() && active_transform(*node))
+            if (auto* motor = node->get_component<CharacterMotor>())
             {
-                CharacterSnapshot snapshot;
-                if (!read_character(*node, *motor, snapshot))
+                if (motor->enabled() && active_transform(*node))
                 {
-                    std::fputs("Physics rejects character pose or conflicting body components\n",
+                    CharacterSnapshot snapshot;
+                    if (!read_character(*node, *motor, snapshot))
+                    {
+                        std::fputs(
+                            "Physics rejects character pose or conflicting body components\n",
+                            stderr);
+                        clear();
+                        return false;
+                    }
+                    snapshot.instance_id = motor->instance_id();
+                    snapshot.reset_velocity = motor->reset_pending_;
+                    character_snapshots.push_back(std::move(snapshot));
+                }
+                else
+                {
+                    motor->desired_velocity_ = {};
+                    motor->velocity_ = {};
+                    motor->pending_velocity_ = {};
+                    motor->pending_jump_ = 0.0F;
+                    motor->grounded_ = false;
+                    motor->reset_pending_ = false;
+                }
+            }
+            const auto* collider = node->get_component<Collider>();
+            auto* rigid_body = node->get_component<RigidBody>();
+            if (collider == nullptr || !collider->enabled() ||
+                (rigid_body != nullptr && !rigid_body->enabled()) || !active_transform(*node))
+            {
+                if (rigid_body != nullptr)
+                {
+                    rigid_body->pending_impulse_ = {};
+                }
+                continue;
+            }
+            BodySnapshot snapshot;
+            snapshot.mesh = collider->mesh_;
+            snapshot.transient_mesh = collider->transient_mesh_;
+            snapshot.mesh_parts = collider->mesh_parts_;
+            const auto existing = state_->bodies.find(node->id());
+            const auto* previous =
+                existing != state_->bodies.end() ? &existing->second.snapshot : nullptr;
+            if (!read_snapshot(*node, collider->settings(), collider->mesh_data(), rigid_body,
+                               snapshot, previous))
+            {
+                std::fputs(
+                    "Physics rejects invalid settings, shear, reflection or a dynamic parent\n",
+                    stderr);
+                clear();
+                return false;
+            }
+            if (snapshot.transient_mesh && snapshot.transient_mesh->vertices.empty() &&
+                snapshot.transient_mesh->indices.empty())
+            {
+                continue;
+            }
+            if (snapshot.mesh_parts)
+            {
+                if (!prepare_mesh_parts(snapshot, previous))
+                {
+                    std::fputs("Physics cannot create segmented mesh collision\n", stderr);
+                    clear();
+                    return false;
+                }
+                if (snapshot.shape == nullptr)
+                {
+                    continue;
+                }
+            }
+            else if (existing != state_->bodies.end() &&
+                     existing->second.snapshot.collider == snapshot.collider &&
+                     existing->second.snapshot.mesh == snapshot.mesh &&
+                     existing->second.snapshot.transient_mesh == snapshot.transient_mesh &&
+                     existing->second.snapshot.shape_scale.IsClose(snapshot.scale, 1.0e-8F))
+            {
+                snapshot.shape = existing->second.snapshot.shape;
+                snapshot.shape_scale = existing->second.snapshot.shape_scale;
+            }
+            else
+            {
+                snapshot.shape_scale = snapshot.scale;
+                if (!make_shape(*snapshot.collider, collider->mesh_data(), snapshot.shape_scale,
+                                snapshot.shape))
+                {
+                    std::fputs("Physics cannot create collider with the requested world scale\n",
                                stderr);
                     clear();
                     return false;
                 }
-                snapshot.instance_id = motor->instance_id();
-                snapshot.reset_velocity = motor->reset_pending_;
-                character_snapshots.push_back(std::move(snapshot));
             }
-            else
-            {
-                motor->desired_velocity_ = {};
-                motor->velocity_ = {};
-                motor->pending_velocity_ = {};
-                motor->pending_jump_ = 0.0F;
-                motor->grounded_ = false;
-                motor->reset_pending_ = false;
-            }
+            snapshots.push_back(std::move(snapshot));
         }
-        const auto* collider = node->get_component<Collider>();
-        auto* rigid_body = node->get_component<RigidBody>();
-        if (collider == nullptr || !collider->enabled() ||
-            (rigid_body != nullptr && !rigid_body->enabled()) || !active_transform(*node))
+        if (snapshots.size() + character_snapshots.size() > maximum_bodies ||
+            !state_->synchronize(snapshots) || !state_->synchronize_characters(character_snapshots))
         {
-            if (rigid_body != nullptr)
-            {
-                rigid_body->pending_impulse_ = {};
-            }
-            continue;
-        }
-        BodySnapshot snapshot;
-        if (!read_snapshot(*node, collider->settings(), collider->mesh_data(), rigid_body,
-                           snapshot))
-        {
-            std::fputs("Physics rejects invalid settings, shear, reflection or a dynamic parent\n",
-                       stderr);
             clear();
             return false;
         }
-        const auto existing = state_->bodies.find(node->id());
-        snapshot.mesh = collider->mesh_;
-        snapshot.transient_mesh = collider->transient_mesh_;
-        if (snapshot.transient_mesh && snapshot.transient_mesh->vertices.empty() &&
-            snapshot.transient_mesh->indices.empty())
+        snapshots.clear();
+        character_snapshots.clear();
+        for (auto& [id, entry] : state_->bodies)
         {
-            continue;
-        }
-        if (existing != state_->bodies.end() &&
-            existing->second.snapshot.collider == snapshot.collider &&
-            existing->second.snapshot.mesh == snapshot.mesh &&
-            existing->second.snapshot.transient_mesh == snapshot.transient_mesh &&
-            existing->second.snapshot.scale.IsClose(snapshot.scale, 1.0e-8F))
-        {
-            snapshot.shape = existing->second.snapshot.shape;
-        }
-        else if (!make_shape(snapshot.collider, collider->mesh_data(), snapshot.scale,
-                             snapshot.shape))
-        {
-            std::fputs("Physics cannot create collider with the requested world scale\n", stderr);
-            clear();
-            return false;
-        }
-        snapshots.push_back(std::move(snapshot));
-    }
-    if (snapshots.size() + character_snapshots.size() > maximum_bodies ||
-        !state_->synchronize(snapshots) || !state_->synchronize_characters(character_snapshots))
-    {
-        clear();
-        return false;
-    }
-    auto& interface = state_->physics.GetBodyInterface();
-    for (auto& [id, entry] : state_->bodies)
-    {
-        auto* node = scene->find_node(id);
-        auto* body = node == nullptr ? nullptr : node->get_component<RigidBody>();
-        if (body != nullptr && body->settings().motion == schema::BodyMotion::dynamic)
-        {
-            if (body->pending_impulse_ != Vec3{})
+            auto* node = scene->find_node(id);
+            auto* body = node == nullptr ? nullptr : node->get_component<RigidBody>();
+            if (body != nullptr && body->settings().motion == schema::BodyMotion::dynamic)
             {
-                interface.AddImpulse(entry.body, vector(body->pending_impulse_));
-                body->pending_impulse_ = {};
+                if (body->pending_impulse_ != Vec3{})
+                {
+                    interface.AddImpulse(entry.body, vector(body->pending_impulse_));
+                    body->pending_impulse_ = {};
+                }
             }
         }
     }
+    ENGINE_PROFILE_PLOT("Physics.bodies", static_cast<double>(state_->bodies.size()));
+    ENGINE_PROFILE_PLOT("Physics.characters", static_cast<double>(state_->characters.size()));
+    ENGINE_PROFILE_PLOT("Physics.active_bodies",
+                        static_cast<double>(state_->physics.GetNumActiveBodies(JPH::EBodyType::RigidBody)));
     state_->accumulated = std::min(state_->accumulated + delta_time, fixed_step * maximum_steps);
     bool advanced = false;
     for (unsigned int step = 0; step < maximum_steps && state_->accumulated + 1.0e-12 >= fixed_step;
          ++step)
     {
+        ENGINE_PROFILE_ZONE("Physics.fixed_step");
         // 复用 Jolt CharacterVirtualTest 的速度/地面逻辑与 ExtendedUpdate 台阶求解。
         // 来源 Jolt Physics v5.4.0, Jorrit Rouwe, MIT。
-        for (auto& [id, entry] : state_->characters)
         {
-            auto* node = scene->find_node(id);
-            auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
-            if (motor == nullptr)
+            ENGINE_PROFILE_ZONE("Physics.characters_step");
+            for (auto& [id, entry] : state_->characters)
             {
-                clear();
-                return false;
-            }
-            auto& character = *entry.character;
-            character.UpdateGroundVelocity();
-            const auto ground_velocity = character.GetGroundVelocity();
-            const bool on_ground =
-                character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
-            const bool toward_ground =
-                character.GetLinearVelocity().GetY() - ground_velocity.GetY() < 0.1F;
-            JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
-            if (on_ground && toward_ground)
-            {
-                velocity = ground_velocity;
-                if (motor->pending_jump_ > 0.0F)
+                auto* node = scene->find_node(id);
+                auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
+                if (motor == nullptr)
                 {
-                    velocity += JPH::Vec3(0, motor->pending_jump_, 0);
+                    clear();
+                    return false;
                 }
-            }
-            motor->pending_jump_ = 0.0F;
-            const auto delta = vector(motor->pending_velocity_);
-            motor->pending_velocity_ = {};
-            entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
-            const auto gravity = state_->physics.GetGravity() * motor->settings().gravity_factor;
-            velocity += gravity * static_cast<float>(fixed_step) +
-                        vector(motor->desired_velocity_) + entry.external_velocity +
-                        JPH::Vec3(0, delta.GetY(), 0);
-            if (!finite(velocity) || !finite(entry.external_velocity))
-            {
-                clear();
-                return false;
-            }
-            character.SetLinearVelocity(velocity);
-            JPH::CharacterVirtual::ExtendedUpdateSettings settings;
-            settings.mStickToFloorStepDown =
-                JPH::Vec3(0, -motor->settings().ground_snap_distance, 0);
-            settings.mWalkStairsStepUp = JPH::Vec3(0, motor->settings().step_height, 0);
-            character.ExtendedUpdate(static_cast<float>(fixed_step), gravity, settings,
-                                     state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
-                                     state_->physics.GetDefaultLayerFilter(moving_layer),
-                                     SolidBodyFilter{}, {}, state_->allocator);
-            // ExtendedUpdate 求解位移，持久速度按 Jolt 的实际接触法线去掉被阻挡部分。
-            // 不把受阻的主动输入反算成击退，防止下一帧出现相反方向的虚假速度。
-            auto resolved = character.GetLinearVelocity();
-            for (const auto& contact : character.GetActiveContacts())
-            {
-                if (!contact.mHadCollision || contact.mWasDiscarded || contact.mIsSensorB)
+                auto& character = *entry.character;
+                character.UpdateGroundVelocity();
+                const auto ground_velocity = character.GetGroundVelocity();
+                const bool on_ground =
+                    character.GetGroundState() == JPH::CharacterBase::EGroundState::OnGround;
+                const bool toward_ground =
+                    character.GetLinearVelocity().GetY() - ground_velocity.GetY() < 0.1F;
+                JPH::Vec3 velocity(0, character.GetLinearVelocity().GetY(), 0);
+                if (on_ground && toward_ground)
                 {
-                    continue;
-                }
-                const auto normal = contact.mContactNormal;
-                const float toward = (resolved - contact.mLinearVelocity).Dot(normal);
-                if (toward < 0.0F)
-                {
-                    resolved -= normal * toward;
-                }
-                if (character.IsSlopeTooSteep(contact.mSurfaceNormal))
-                {
-                    const JPH::Vec3 horizontal_normal(normal.GetX(), 0, normal.GetZ());
-                    const float length_squared = horizontal_normal.LengthSq();
-                    const float external_toward = entry.external_velocity.Dot(horizontal_normal);
-                    if (length_squared > 1.0e-12F && external_toward < 0.0F)
+                    velocity = ground_velocity;
+                    if (motor->pending_jump_ > 0.0F)
                     {
-                        entry.external_velocity -=
-                            horizontal_normal * (external_toward / length_squared);
+                        velocity += JPH::Vec3(0, motor->pending_jump_, 0);
                     }
                 }
+                motor->pending_jump_ = 0.0F;
+                const auto delta = vector(motor->pending_velocity_);
+                motor->pending_velocity_ = {};
+                entry.external_velocity += JPH::Vec3(delta.GetX(), 0, delta.GetZ());
+                const auto gravity =
+                    state_->physics.GetGravity() * motor->settings().gravity_factor;
+                velocity += gravity * static_cast<float>(fixed_step) +
+                            vector(motor->desired_velocity_) + entry.external_velocity +
+                            JPH::Vec3(0, delta.GetY(), 0);
+                if (!finite(velocity) || !finite(entry.external_velocity))
+                {
+                    clear();
+                    return false;
+                }
+                character.SetLinearVelocity(velocity);
+                JPH::CharacterVirtual::ExtendedUpdateSettings settings;
+                settings.mStickToFloorStepDown =
+                    JPH::Vec3(0, -motor->settings().ground_snap_distance, 0);
+                settings.mWalkStairsStepUp = JPH::Vec3(0, motor->settings().step_height, 0);
+                character.ExtendedUpdate(
+                    static_cast<float>(fixed_step), gravity, settings,
+                    state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+                    state_->physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {},
+                    state_->allocator);
+                // ExtendedUpdate 求解位移，持久速度按 Jolt 的实际接触法线去掉被阻挡部分。
+                // 不把受阻的主动输入反算成击退，防止下一帧出现相反方向的虚假速度。
+                auto resolved = character.GetLinearVelocity();
+                for (const auto& contact : character.GetActiveContacts())
+                {
+                    if (!contact.mHadCollision || contact.mWasDiscarded || contact.mIsSensorB)
+                    {
+                        continue;
+                    }
+                    const auto normal = contact.mContactNormal;
+                    const float toward = (resolved - contact.mLinearVelocity).Dot(normal);
+                    if (toward < 0.0F)
+                    {
+                        resolved -= normal * toward;
+                    }
+                    if (character.IsSlopeTooSteep(contact.mSurfaceNormal))
+                    {
+                        const JPH::Vec3 horizontal_normal(normal.GetX(), 0, normal.GetZ());
+                        const float length_squared = horizontal_normal.LengthSq();
+                        const float external_toward =
+                            entry.external_velocity.Dot(horizontal_normal);
+                        if (length_squared > 1.0e-12F && external_toward < 0.0F)
+                        {
+                            entry.external_velocity -=
+                                horizontal_normal * (external_toward / length_squared);
+                        }
+                    }
+                }
+                character.SetLinearVelocity(resolved);
+                entry.external_velocity *=
+                    std::exp(-motor->settings().external_damping * static_cast<float>(fixed_step));
             }
-            character.SetLinearVelocity(resolved);
-            entry.external_velocity *=
-                std::exp(-motor->settings().external_damping * static_cast<float>(fixed_step));
         }
-        if (state_->physics.Update(static_cast<float>(fixed_step), 1, &state_->allocator,
-                                   &state_->jobs) != JPH::EPhysicsUpdateError::None)
         {
-            clear();
-            return false;
+            ENGINE_PROFILE_ZONE("Physics.jolt_step");
+            if (state_->physics.Update(static_cast<float>(fixed_step), 1, &state_->allocator,
+                                       &state_->jobs) != JPH::EPhysicsUpdateError::None)
+            {
+                clear();
+                return false;
+            }
         }
         state_->accumulated = std::max(0.0, state_->accumulated - fixed_step);
         advanced = true;
     }
-    for (auto& [id, entry] : state_->characters)
     {
-        auto* node = scene->find_node(id);
-        auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
-        auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
-        if (motor == nullptr || transform == nullptr)
+        ENGINE_PROFILE_ZONE("Physics.sync_results");
+        for (auto& [id, entry] : state_->characters)
         {
-            clear();
-            return false;
+            auto* node = scene->find_node(id);
+            auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
+            auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
+            if (motor == nullptr || transform == nullptr)
+            {
+                clear();
+                return false;
+            }
+            auto pose = transform->settings();
+            pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
+            if (!transform->set_settings(pose))
+            {
+                clear();
+                return false;
+            }
+            motor->velocity_ = vector(entry.character->GetLinearVelocity());
+            motor->reset_pending_ = false;
+            motor->grounded_ =
+                entry.character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround &&
+                entry.character->GetLinearVelocity().GetY() -
+                        entry.character->GetGroundVelocity().GetY() <
+                    0.1F;
         }
-        auto pose = transform->settings();
-        pose.position = vector(JPH::Vec3(entry.character->GetPosition()));
-        if (!transform->set_settings(pose))
+        for (auto& [id, entry] : state_->bodies)
         {
-            clear();
-            return false;
+            if (entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
+            {
+                continue;
+            }
+            auto* node = scene->find_node(id);
+            auto* body = node == nullptr ? nullptr : node->get_component<RigidBody>();
+            if (body == nullptr)
+            {
+                clear();
+                return false;
+            }
+            JPH::RVec3 position;
+            JPH::Quat rotation;
+            interface.GetPositionAndRotation(entry.body, position, rotation);
+            if (advanced &&
+                !write_transform(*node, JPH::Vec3(position), rotation, entry.snapshot.scale))
+            {
+                std::fputs("Cannot write physics pose through the node hierarchy\n", stderr);
+                clear();
+                return false;
+            }
+            if (advanced && entry.snapshot.rigid_body.motion == schema::BodyMotion::dynamic)
+            {
+                entry.snapshot.position = JPH::Vec3(position);
+                entry.snapshot.rotation = rotation;
+                entry.snapshot.written_transform = node->get_component<Transform>()->settings();
+            }
+            JPH::Vec3 linear_velocity;
+            JPH::Vec3 angular_velocity;
+            interface.GetLinearAndAngularVelocity(entry.body, linear_velocity, angular_velocity);
+            auto settings = body->settings();
+            settings.linear_velocity = vector(linear_velocity);
+            settings.angular_velocity = vector(angular_velocity);
+            if (!body->set_settings(settings))
+            {
+                clear();
+                return false;
+            }
+            entry.snapshot.rigid_body = settings;
         }
-        motor->velocity_ = vector(entry.character->GetLinearVelocity());
-        motor->reset_pending_ = false;
-        motor->grounded_ =
-            entry.character->GetGroundState() == JPH::CharacterBase::EGroundState::OnGround &&
-            entry.character->GetLinearVelocity().GetY() -
-                    entry.character->GetGroundVelocity().GetY() <
-                0.1F;
+        state_->impacts.reserve(state_->pending_impacts.size());
+        for (const auto& [pair, impact] : state_->pending_impacts)
+        {
+            const auto* a = scene->find_node(pair.first);
+            const auto* b = scene->find_node(pair.second);
+            if (a && b && active_collision(*a) && active_collision(*b))
+            {
+                state_->impacts.push_back(impact);
+            }
+        }
+        state_->pending_impacts.clear();
     }
-    for (auto& [id, entry] : state_->bodies)
-    {
-        if (entry.snapshot.rigid_body.motion == schema::BodyMotion::static_body)
-        {
-            continue;
-        }
-        auto* node = scene->find_node(id);
-        auto* body = node == nullptr ? nullptr : node->get_component<RigidBody>();
-        if (body == nullptr)
-        {
-            clear();
-            return false;
-        }
-        JPH::RVec3 position;
-        JPH::Quat rotation;
-        interface.GetPositionAndRotation(entry.body, position, rotation);
-        if (advanced &&
-            !write_transform(*node, JPH::Vec3(position), rotation, entry.snapshot.scale))
-        {
-            std::fputs("Cannot write physics pose through the node hierarchy\n", stderr);
-            clear();
-            return false;
-        }
-        auto settings = body->settings();
-        settings.linear_velocity = vector(interface.GetLinearVelocity(entry.body));
-        settings.angular_velocity = vector(interface.GetAngularVelocity(entry.body));
-        if (!body->set_settings(settings))
-        {
-            clear();
-            return false;
-        }
-        entry.snapshot.rigid_body = settings;
-    }
-    state_->impacts.reserve(state_->pending_impacts.size());
-    for (const auto& [pair, impact] : state_->pending_impacts)
-    {
-        const auto* a = scene->find_node(pair.first);
-        const auto* b = scene->find_node(pair.second);
-        if (a && b && active_collision(*a) && active_collision(*b))
-        {
-            state_->impacts.push_back(impact);
-        }
-    }
-    state_->pending_impacts.clear();
     return true;
 }
 

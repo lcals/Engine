@@ -1,5 +1,6 @@
 #include "runtime/audio/audio_system.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/scene/audio_listener.hpp"
 #include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/scene.hpp"
@@ -288,6 +289,7 @@ bool AudioSystem::on_initialize(const EngineConfig&)
 
 bool AudioSystem::on_tick(double)
 {
+    ENGINE_PROFILE_ZONE("Audio.tick");
     if (!impl_)
     {
         return false;

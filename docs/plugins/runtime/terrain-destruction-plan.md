@@ -1,14 +1,8 @@
 # 可修改体积地形与建筑破坏方案
 
-记录日期：2026-10-31。
+更新日期：2026-11-01。同步地形、建筑破坏、地基/撞击联动、重力应力、土石提取、静态导航和 showcase 火箭场已实现；本轮单线程碰撞优化已经结束。当前采用 4³ 单元碰撞叶与连续 64 槽组树缓存，渲染仍完整上传。最终增量碰撞样本满足单次 <0.5 ms，Jolt 单步及整体物理仍未达到该目标，数值统一见[最终可信基线](../../runtime/performance.md#最终可信基线)。
 
-状态：步骤 1 的同步地形插件、资源导入、脚本/MCP 与 showcase 实验场已实现，macOS Debug/Release 累计各六项定向测试均通过；macOS Metal 窗口验收通过，本次正式代码尚未验证 Android。步骤 0 的地形普通单元、Blast 基础拆分与 Jolt 碰撞替换曾在 Mac ARM64、Android ARM64 模拟器的独立程序运行通过，不能替代步骤 1 的设备验证。用户要求先同步分步实现功能，后续再移到工作线程异步处理。全部功能测试统一放在首个示例项目 `projects/showcase/`，可自建场景和生成模型。步骤 2 的建筑破坏代码已接入，Mac 定向测试、MCP 窗口预览及最终菜单/UI 玩法已通过，其余平台范围统一见[步骤 2 验证记录](terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，不构成全平台功能验收。详见[跨平台与性能研究](terrain-destruction-feasibility.md)和[编辑器方案](../editor/terrain-destruction-authoring.md)。
-
-步骤 3 的同步联动首版已实现，Mac Debug/Release 各六项定向测试及窗口操作通过。
-实际结果与剩余范围见[步骤 3 验证记录](terrain-destruction-feasibility.md#步骤-3-综合联动验证)；
-尚未完成综合世界存档及移动平台联动验收。
-
-步骤 4 已实现同步重力应力、土石提取与动态碰撞、显式静态导航瓦片重建和有界火箭场。Mac Debug/Release 累计各 8 项定向测试、Android ARM64 独立应力探针通过；本阶段 Mac 窗口连射、停火、重置及返回已验证。详情见[步骤 4 记录](terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
+全部功能场景位于 `projects/showcase/`。macOS 已完成记录中的定向测试与窗口流程；Android ARM64 只有部分独立算法/Graph/应力探针通过，不能作为正式插件、APK 或实体手机性能验收。其他平台范围、阶段结果与未完成能力见[跨平台记录](terrain-destruction-feasibility.md)，制作流程见[编辑器方案](../editor/terrain-destruction-authoring.md)。
 
 ## 目标与数据选择
 
@@ -18,19 +12,18 @@
 - 地形采用分块密度/SDF 与材质数据；建筑保留模型、碎块和连接关系。初始高度图可以转换成体积数据，运行时不能只保留无法表达地下空间的高度图。
 - 地形网格生成不会自动产生土石塌方。悬空土石需要单独识别脱离的连通区域，再转换为动态碎块。
 
-## 开源实现与复用边界
+## 开源来源与复用边界
 
-| 任务 | 优先实现来源 | 复用边界 |
+| 任务 | 来源 | 复用边界 |
 | --- | --- | --- |
-| 体积数据、分块编辑、存储和局部重建 | [Voxel Tools](https://github.com/Zylann/godot_voxel) | Godot 模块，需要适配相关算法和数据处理，不能作为独立库直接链接 |
-| 表面网格及不同 LOD 的接缝 | [Transvoxel](https://github.com/EricLengyel/Transvoxel) | 官方仓库主要提供查找表，不包含完整地形、物理或坍塌系统 |
-| 程序地形噪声 | 可选 [FastNoise2](https://github.com/Auburn/FastNoise2) | 只解决噪声，不能替代地形生成与资源流程 |
-| 预破碎、连接损伤、结构拆分 | 已接入 [Blast](https://nvidia-omniverse.github.io/PhysX/blast/) | low-level、官方 Authoring 及步骤 4 ExtStress 标量路径已接入，Jolt 桥接由插件完成；各平台验证单独记录 |
-| 重力、刚体、碰撞和角色运动 | 已有 Jolt | 继续使用现有物理世界，破坏库不替换 Jolt |
-| 烟尘、碎屑和声音 | 已有 Effekseer、音频系统 | 根据破坏事件驱动已有组件 |
+| 体积连通与浮岛提取 | [Voxel Tools](https://github.com/Zylann/godot_voxel) | 适配固定版本的算法和数据处理，不引入整个 Godot |
+| 表面网格及 LOD 过渡算法 | [Transvoxel](https://github.com/EricLengyel/Transvoxel) | 已采用 regular-cell 查找表；LOD transition 尚未实现 |
+| 程序地形噪声 | 可选 [FastNoise2](https://github.com/Auburn/FastNoise2) | 仍为候选，不替代地形资源流程 |
+| 预破碎、连接损伤与应力 | [Blast](https://nvidia-omniverse.github.io/PhysX/blast/) | 已接入 low-level、官方 Authoring 与 ExtStress 标量路径，Jolt 桥接由插件完成 |
+| 刚体、碰撞和角色运动 | [Jolt](https://github.com/jrouwe/JoltPhysics) | 继续使用现有物理世界及官方形状，不替换物理引擎 |
+| 烟尘、碎屑和声音 | 现有 Effekseer、音频系统 | 根据破坏事件驱动已有组件 |
 
-
-商业源码、私有参考实现和付费资源留在本地，不搬入 Engine Git。可公开复用的实现固定版本并保留来源与许可，不把商业代码翻译后作为自有代码提交。
+开源实现固定版本并保留来源与许可，具体版本见[核对基线](terrain-destruction-feasibility.md#核对基线)，Voxel Tools 的完整 MIT 声明见[许可记录](../../../third_party/notices/voxel-tools-terrain.md)。商业/私有参考源码、实现和资源不得进入仓库。
 
 ### Blast 与 Jolt 的分工及待验证项
 
@@ -61,18 +54,18 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 
 ## 运行流程
 
-### 先同步实现，再异步优化
+### 同步准备与安全提交
 
-2026-10-31 用户明确允许先同步实现功能，后续再移动到工作线程异步处理。地形生成、修改、网格和碰撞准备、建筑破坏先按同步流程跑通，在 showcase 中验证完整效果；线程池、异步队列、取消与调度预算不作为首版前置条件。
+当前地形生成、修改、网格和碰撞准备、建筑破坏均同步执行，已在 showcase 验证完整流程。本轮没有新增线程池或异步队列。
 
 实现保持“计算生成结果”和“向渲染/物理世界提交结果”两个清晰步骤。计算只读明确的输入并拥有输出，不直接修改活动场景、GPU 或物理世界；同步版本在当前调用中完成准备，再在安全时点提交。失败保留旧有效状态，显示与碰撞保持同一版本。这里只划分职责，不提前建立通用任务框架。
 
-功能完成后依据实际耗时把生成、网格和碰撞准备等适合并行的计算移到工作线程，提交仍遵守渲染和物理系统的线程约束；届时再增加输入快照、过期任务处理、取消和队列预算，不把整段包含场景操作的代码直接丢到后台。异步优化继续使用相同资源、组件和算法，不另做一套玩法实现。
+后台准备属于后续候选工作；只有选定目标后再依据实测安排，提交仍须遵守渲染和物理系统线程约束。若采用，需要输入快照、版本校验、取消和队列预算，不能把包含场景操作的整段事务直接移到后台。
 
 ### 地形修改
 
 1. 调用方提交球形挖掘或填充请求，修改受影响的密度样本；项目通过球形挖掘表达爆炸，材质笔刷留待后续。
-2. 脚本直接调用 `apply_sphere` 时复用缓存，同步重建脏块及边界梯度涉及的相邻块。MCP 笔刷经 `TerrainStateEdit`/`restore` 提交 ETRS 快照，会重新初始化并重建全部块；撤销/重做、加载与重置同样全块重建。两条路径最终均合并为单 Mesh，完整准备 Jolt 碰撞形状；当前并非分块 GPU 上传或局部碰撞 cook。后续依据耗时将准备计算移到工作线程。
+2. 脚本 `apply_sphere` 复用粗块缓存，重建脏块及梯度邻块；MCP 事务/restore、撤销/重做、加载与 Reset 仍从快照或初始资源重建全部粗块。渲染合并为单 Mesh 并完整上传；碰撞按 4³ 单元叶子组织，未变位置/索引复用不可变快照，核心复用叶子与连续 64 槽组树。局部路径不再完整 cook 地形，详见[碰撞方案](terrain-collision-plan.md)。
 3. 在安全时点提交匹配版本的显示与碰撞，失败保留原有有效状态；异步阶段再校验任务版本，拒绝过期结果覆盖新修改。
 4. 通过返回状态、revision、重建块数及三角形数报告结果；步骤 3/4 由项目明确刷新建筑支撑并提交导航脏区。
 
@@ -96,14 +89,14 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 
 原始生成资源与游戏存档分离。当前 `TerrainStateData` 保存完整体积快照及基础资源 GUID/hash，加载校验基础身份与数据后重新提交显示和碰撞，不覆盖原始资源。建筑当前通过快照保存基础 GUID/hash、连接血量、块分组、世界变换、线速度与角速度，用于编辑器撤销/重做；独立建筑游戏存档槽 API 尚未提供，地形仅保存修改块也仍属后续目标。编辑器快照位于 `cache/terrain-states/`；脚本使用 App 持久目录中的命名存档槽。
 
-核心已补 `PhysicsSystem::set_mesh_data(Collider&, MeshDataT)`，同步准备完整候选碰撞并安全替换；兼容的静态体复用 Jolt `SetShape`，空网格清除碰撞，失败保留旧状态。地形系统使用现有 MeshRenderer 和该通用接口，不将地形策略放入核心。生成的 MeshRenderer/Collider 标记为瞬态，场景保存只记录 TerrainComponent 的资源与配置。后台准备与运行时任务调度留到后续优化；编辑器 Taskflow 不代表运行时已有异步调度，也不能由运行时反向依赖编辑器 TaskSystem。步骤 4 的 NavigationSystem 已实现显式构建、局部瓦片替换和只返回完整路径的 Detour 查询；没有自动场景扫描、移动残骸更新或代理避让。发生土石塌方后，静态 TerrainStateData 无法完整记录动态土石，snapshot/save/restore/load 明确拒绝直到显式 Reset 或更换源资源，不用假存档掩盖缺失。
+核心提供 `PhysicsSystem::set_mesh_data` 与 `set_mesh_parts`，分别提交单网格和不可变分段列表；候选全部成功后安全替换，兼容静态体复用 Jolt `SetShape`，全空几何清除碰撞，失败保留旧状态。地形使用现有 MeshRenderer 与分段碰撞接口，核心不包含地形策略。生成的 MeshRenderer/Collider 标记为瞬态，场景保存只记录 TerrainComponent 的资源与配置。后台准备与运行时任务调度留到后续优化；编辑器 Taskflow 不代表运行时已有异步调度，也不能由运行时反向依赖编辑器 TaskSystem。步骤 4 的 NavigationSystem 已实现显式构建、局部瓦片替换和只返回完整路径的 Detour 查询；没有自动场景扫描、移动残骸更新或代理避让。发生土石塌方后，静态 TerrainStateData 无法完整记录动态土石，snapshot/save/restore/load 明确拒绝直到显式 Reset 或更换源资源，不用假存档掩盖缺失。
 
 ## 步骤 1 当前范围
 
 - Transvoxel 官方 regular-cell 查找表固定于 `51a494f03c5b024cd153b596bcc7152eb3cc93a6`，通过 `third_party/transvoxel` 子模块复用；未实现 LOD transition cells，未引入整个 Godot。
 - `.terrain` 描述提供尺寸、采样间距、16/32 格分块、起点、种子、平面/正弦起伏及球形洞穴，导入后生成独立 GUID 体积资源。当前密度为 `float`，每轴最多 256 格且总样本不超过 4M；暂无逐样本材质层、FastNoise2 或高度图导入。
-- 脚本直接球形笔刷复用 CPU 块缓存并局部重建；MCP 事务提交/撤销、加载与重置从快照或初始资源恢复，当前会全块重建。最终均合并为一个 Mesh 后完整上传并构建静态碰撞。同步链路会占用调用线程，不能当作已完成大地图性能优化。
-- showcase 第六入口 `Terrain laboratory` 提供 64×64 米、32 米高的自制地形，以及挖隧道、爆炸挖坑、填充、保存/恢复、重置与第三人称行走。使用原有示例角色，没有迁入商业素材。
+- 脚本球形笔刷复用 CPU 粗块缓存；MCP 事务提交/撤销、加载与 Reset 仍全块重建。步骤 5 后碰撞按细叶增量准备并复用组树，渲染仍合并为完整 Mesh 上传。同步链路占用调用线程，首次建图和大地图性能尚未完成验收。
+- showcase 第六入口 `Terrain laboratory` 提供 64×64 米、32 米高的自制地形，以及挖隧道、爆炸挖坑、填充、保存/恢复、重置与第三人称行走。复用原有示例角色。
 - 步骤 1 当时不含土石塌方、应力或导航；它们已在下述步骤 4 接入。异步调度仍未实现。
 
 ## 步骤 2 当前范围
@@ -114,7 +107,7 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 - 普通根节点挂载 `DestructionComponent`，要求正等比缩放；每个连通组生成一个瞬态 `Node + MeshRenderer + Collider(compound) + RigidBody`，组内多块保持一个刚体，失去支撑后受重力和显式冲量作用。场景文件只保存源组件和设置。
 - C++/脚本提供世界坐标球形损伤与重置；MCP 提供资源创建、设置、查询、损伤和重置。损伤、重置及设置通过完整快照撤销重做；普通物理运动不改变损伤 revision，外部显式修改会使旧编辑记录失效。
 - showcase 第七入口 `Destruction laboratory` 提供 48 块、8 层切片塔试件，24 块 Voronoi 墙和 8 段柱，另有自制地面、灯光、两台固定相机及触屏按钮。它们是验证支撑与碎块行为的实心试件，不是已完成的真实空心建筑系统。
-- 每次成功损伤提交仍同步重建组网格和碰撞，步骤 3 后续联通撞击再损伤、烟尘与声音，步骤 4 增加同步应力、导航和有界炮击。异步调度及性能扩量仍属后续。
+- 步骤 2 的初版损伤提交同步重建组网格与碰撞；步骤 5 已改为按组增量发布，兼容未变组复用节点、网格和碰撞。步骤 3/4 的撞击再损伤、烟尘声音、同步应力、导航和有界炮击继续使用同一套插件。异步调度及性能扩量仍属后续。
 - 验证明细统一见[步骤 2 验证记录](terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，区分已通过的 Mac 定向测试/MCP 预览/菜单玩法与独立 ARM 探针；不宣称 Android/iOS/Windows 已完成正式集成验收。
 
 ## 步骤 3 综合联动
@@ -139,6 +132,14 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 
 实现与来源见[地形](class-diagrams/terrain.md)、[破坏](class-diagrams/destruction.md)、[导航](../../runtime/class-diagrams/navigation-system.md)、[项目说明](../../../projects/showcase/destruction-integration.md)和[验证记录](terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
 
+## 步骤 5 单线程性能优化
+
+已复用 `PerformanceSystem` 接入可选 Tracy CPU zone、完整帧标记与 bgfx GPU/资源统计，并在 `scripts/performance/` 固化采集、活动窗口和预算分析流程。Scene 索引/子树删除、破坏组增量发布、物理速度原地更新、共享快照、根动态体姿态回写缓存及官方临时分配器复用均已实现。
+
+地形采用 4³ 碰撞叶、连续 64 槽嵌套 StaticCompound 缓存、局部旧/新范围唤醒、实际烘入缩放基准与官方接缝处理；塌方只标脏变化样本及梯度邻域。严格八角点盒形在成功构建 Hull 后可复用官方 BoxShape，保留实际圆角、密度、材质和偏移，其他形状继续使用 Hull；不保证浮点运动轨迹逐位一致。
+
+当前保持单线程、碰撞精度和求解迭代数。本轮结束时，macOS 最终增量地形碰撞样本满足单次 <0.5 ms，Jolt 单步及整体物理未达标；首次建图/Reset、同帧重复提交、连通扫描和完整渲染上传仍有后续工作。后台任务、同帧损伤合并和其他模块优化未实施。统一的实现、可信数据与验证范围见[当前实现](../../runtime/performance.md#当前实现)和[最终可信基线](../../runtime/performance.md#最终可信基线)，不在多份文档重复维护逐轮数字。
+
 ## 实施顺序与验收
 
 | 阶段 | 结果与验收重点 |
@@ -147,14 +148,17 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 | 1. 地形实验场 | 已实现同步小地图生成、跨块球形挖洞/填充、地表/洞壁颜色、碰撞更新和保存恢复；Debug/Release 定向测试通过，macOS Metal 窗口验收通过 |
 | 2. 建筑破坏场 | 代码已实现官方参数盒体预破碎、连接损伤、Jolt 复合组与完整状态撤销，showcase 第七入口已加入；Mac 定向测试与 MCP 预览已通过，后续验收以步骤 2 验证记录为准 |
 | 3. 综合联动场 | 同步首版已联通挖地基、建筑下落、撞击再破坏、烟尘和音频播放；Mac 定向测试及窗口流程通过，综合存档和其他平台联动尚未验收 |
-| 4. 同步玩法补齐 | 已实现官方重力应力、动态土石、静态导航瓦片更新及有界火箭场；Mac 定向测试与 Android 独立应力探针通过，Mac 窗口连射与清理通过，真实射速低于请求值，后续再异步优化 |
-| 5. 异步与扩量 | 功能跑通后依据耗时将准备计算移入工作线程，再处理任务预算、连续炮击吞吐、高楼和大量敌人同屏、碎块数量及 LOD |
+| 4. 同步玩法补齐 | 已实现官方重力应力、动态土石、静态导航瓦片更新及有界火箭场；Mac 定向测试与窗口流程、Android 独立应力探针通过，完整移动宿主与实体手机性能未验收 |
+| 5. 单线程性能优化 | 已完成分段地形碰撞、组树复用及物理准备/形状优化，macOS 实景结果见性能文档；本轮已停止优化，Jolt 单步与整体物理仍未达到 0.5 ms，异步和其他平台性能未验收 |
 
-步骤 0 的编译缓存与独立验证程序放在忽略的 `build/terrain-step0/`，结果归档到 `projects/showcase/cache/terrain-step0/`。步骤 1 起在 `projects/showcase/` 内增加测试场景，复用原有角色与菜单，生成自制地形和建筑；同时维护桌面与 Android 运行资源清单，不新增游戏测试项目，不迁入其他项目的付费资源。分步安排与指标见[测试与性能计划](terrain-destruction-feasibility.md#首个项目内的分步实现与测量)。
+阶段探针与原始验证证据保留在忽略的 `build/` 和项目 `cache/`。功能场景统一在 `projects/showcase/` 内增加测试场景，复用原有角色与菜单，生成自制地形和建筑；同时维护桌面与 Android 运行资源清单，不新增游戏测试项目。分步安排与指标见[测试与性能计划](terrain-destruction-feasibility.md#首个项目内的分步实现与测量)。
 
 综合场景的完整目标是第三人称角色在建筑旁挖洞、炸断地基、观察坍塌，并进入新洞穴、踩上残骸，保存后重开保持修改和碰撞状态。步骤 3 本轮已验证挖地基、下落撞击、二次损伤、表现、角色地面短走和重置；洞穴/残骸通行仍需专项验收，跨模块世界存档尚未实现。这些继续作为后续目标保留，不以本轮场景 Reset 代替存档。每阶段只做相关验证，不因研究选型触发全量依赖重编或自动 CI。
 
 ## 参考入口
 
+- [Transvoxel 官方表与许可](https://github.com/EricLengyel/Transvoxel)
+- [Voxel Tools 公开实现](https://github.com/Zylann/godot_voxel)
 - [Blast 构建说明](https://github.com/NVIDIA-Omniverse/PhysX/blob/main/blast/README.md)
+- [Jolt 官方仓库](https://github.com/jrouwe/JoltPhysics)
 - [现有物理能力](../../runtime/physics.md)、[现有导航范围](../../runtime/navigation.md)、[插件边界](../plugins.md)

@@ -834,6 +834,10 @@ if(TARGET engine_terrain)
     engine_apply_options(engine_terrain_runtime_test)
     add_test(NAME engine.terrain_runtime COMMAND engine_terrain_runtime_test)
     set_tests_properties(engine.terrain_runtime PROPERTIES TIMEOUT 60)
+
+    add_executable(engine_terrain_collision_benchmark terrain_collision_benchmark.cpp)
+    target_link_libraries(engine_terrain_collision_benchmark PRIVATE engine::terrain)
+    engine_apply_options(engine_terrain_collision_benchmark)
 endif()
 
 if(TARGET engine_terrain_editor)

@@ -1,6 +1,7 @@
 #include "runtime/render/render_system.hpp"
 
 #include "runtime/font/font_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_context.hpp"
 #include "runtime/render/render_extension.hpp"
@@ -27,6 +28,7 @@ namespace engine
 
 bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& rendering)
 {
+    ENGINE_PROFILE_ZONE("Render.drawScene");
     if (!prepare_scene(view_camera))
     {
         return false;
@@ -141,6 +143,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         std::min(settings.far_clip, rendering.shadow_distance) > settings.near_clip;
     if (shadow_enabled)
     {
+        ENGINE_PROFILE_ZONE("Render.shadows");
         if (!resources.shadow.prepare(rendering.shadow_resolution) ||
             !render_detail::prepare_shadow_frame(settings, rendering, aspect, camera_world, view,
                                                  light_direction_outer[shadow_light],
@@ -316,6 +319,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     };
     if (rendering.ao_enabled)
     {
+        ENGINE_PROFILE_ZONE("Render.ambientOcclusion");
         if (!resources.ambient_occlusion.prepare(static_cast<std::uint16_t>(width_),
                                                  static_cast<std::uint16_t>(height_)))
         {
@@ -349,11 +353,14 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     {
         resources.hdr_post_process.release();
     }
-    if (!draw_meshes(render_detail::main_view, false) ||
-        (fonts_ != nullptr &&
-         !fonts_->render_scene(*scene, render_detail::main_view, rendering.hdr_enabled)))
     {
-        return false;
+        ENGINE_PROFILE_ZONE("Render.mainSubmit");
+        if (!draw_meshes(render_detail::main_view, false) ||
+            (fonts_ != nullptr &&
+             !fonts_->render_scene(*scene, render_detail::main_view, rendering.hdr_enabled)))
+        {
+            return false;
+        }
     }
     if (!extensions_.empty())
     {

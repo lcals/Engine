@@ -24,4 +24,4 @@ UI 在 RmlUi 正常渲染阶段提交字体几何，沿用视图顺序、模型�
 
 首版支持导入字符集内的 UTF-8 码点、换行、英文 kerning 和字间距；缺字使用字体 notdef。复杂文字整形、跨字体自动回退和竖排尚未实现，不将 GPU 曲线渲染等同于完整文字排版引擎。
 
-算法来源为公开 MIT 授权的 [bgfx 示例](https://github.com/bkaradzic/bgfx/tree/a7016487e5970c5299bb837f1af42dcb24909a67/examples/51-gpufont) 与 [Slug](https://github.com/EricLengyel/Slug)。完整 MIT 版权和许可保留在 `fs_font.sc`；实现没有引用或复制受限 C4 源文件。
+算法来源为公开 MIT 授权的 [bgfx 示例](https://github.com/bkaradzic/bgfx/tree/a7016487e5970c5299bb837f1af42dcb24909a67/examples/51-gpufont) 与 [Slug](https://github.com/EricLengyel/Slug)。完整 MIT 版权和许可保留在 `fs_font.sc`。

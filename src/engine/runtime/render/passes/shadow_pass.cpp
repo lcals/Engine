@@ -1,5 +1,6 @@
 #include "runtime/render/passes/shadow_pass.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_math.hpp"
 #include "runtime/scene/material.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -222,6 +223,7 @@ bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, Shadow
                       const std::vector<GpuMesh>& meshes, const std::vector<GpuTexture>& textures,
                       bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform)
 {
+    ENGINE_PROFILE_ZONE("Render.shadowSubmit");
     struct Caster
     {
         const GpuMesh* mesh = nullptr;

@@ -8,6 +8,7 @@
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/performance/performance_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -138,6 +139,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
 
 FrameStatus RuntimeHost::tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Host.runtime_tick");
     if (!initialized_ || failed_ || !std::isfinite(delta_time) || delta_time < 0.0)
     {
         return FrameStatus::failed;

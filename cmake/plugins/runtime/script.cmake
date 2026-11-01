@@ -9,6 +9,7 @@ endif()
 
 function(engine_configure_script_plugin)
     engine_add_system(plugins/runtime script)
+    engine_enable_profiling(engine_script)
     file(GLOB _bindings CONFIGURE_DEPENDS
          "${PROJECT_SOURCE_DIR}/src/engine/plugins/runtime/script/bindings/*_binding.cpp")
     target_sources(

@@ -1,6 +1,7 @@
 #include "runtime/scene/collider.hpp"
 
 #include "runtime/core/guid_map.hpp"
+#include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/rigid_body.hpp"
@@ -26,7 +27,8 @@ Collider::Collider(Node& node) : Component(node)
 }
 
 bool Collider::valid_settings(const schema::ColliderDataT& value,
-                              const schema::MeshDataT* transient_mesh) noexcept
+                              const schema::MeshDataT* transient_mesh,
+                              const MeshCollisionData* mesh_parts) noexcept
 {
     constexpr std::size_t maximum_hulls = 4096;
     constexpr std::size_t maximum_vertices = 1024U * 1024U;
@@ -64,7 +66,8 @@ bool Collider::valid_settings(const schema::ColliderDataT& value,
            value.shape <= schema::ColliderShape::compound &&
            (value.shape == schema::ColliderShape::mesh
                 ? GuidMap::valid_guid(value.mesh_guid) ||
-                      (value.mesh_guid.empty() && transient_mesh != nullptr)
+                      (value.mesh_guid.empty() &&
+                       (transient_mesh != nullptr || mesh_parts != nullptr))
                 : value.mesh_guid.empty()) &&
            bounded(value.half_extents.x(), 0.0001, 100000.0) &&
            bounded(value.half_extents.y(), 0.0001, 100000.0) &&
@@ -83,12 +86,13 @@ const schema::ColliderDataT& Collider::settings() const noexcept
 
 bool Collider::set_settings(const schema::ColliderDataT& value)
 {
-    if (!valid_settings(value, transient_mesh_.get()))
+    if (!valid_settings(value, transient_mesh_.get(), mesh_parts_.get()))
     {
         return false;
     }
     auto replacement = mesh_;
     auto transient = transient_mesh_;
+    auto parts = mesh_parts_;
     if (value.shape == schema::ColliderShape::mesh)
     {
         const auto* body = node().get_component<RigidBody>();
@@ -112,16 +116,19 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
         if (!value.mesh_guid.empty())
         {
             transient.reset();
+            parts.reset();
         }
     }
     else
     {
         replacement.reset();
         transient.reset();
+        parts.reset();
     }
     *mutable_data().payload.AsColliderData() = value;
     mesh_ = std::move(replacement);
     transient_mesh_ = std::move(transient);
+    mesh_parts_ = std::move(parts);
     return true;
 }
 
@@ -139,7 +146,7 @@ bool Collider::restore_data(const schema::ComponentDataT& value)
 bool Collider::build_data(schema::ComponentDataT& output) const
 {
     output = {};
-    return transient_mesh_ == nullptr && Component::build_data(output);
+    return transient_mesh_ == nullptr && mesh_parts_ == nullptr && Component::build_data(output);
 }
 
 const schema::MeshDataT* Collider::mesh_data() const noexcept

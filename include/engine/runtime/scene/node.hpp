@@ -73,7 +73,7 @@ public:
 
 private:
     friend class Scene;
-    Node(Scene& scene, std::uint64_t id, std::string_view name);
+    Node(Scene& scene, std::uint64_t id, std::uint64_t local_id, std::string_view name);
 
     Scene& scene_;
     std::uint64_t entity_id_;

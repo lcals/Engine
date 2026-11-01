@@ -21,6 +21,9 @@ classDiagram
         +set_active_camera(Camera#42; camera) bool
         +build_data(SceneDataT& output) bool
         -restore_data(const SceneDataT& data) bool
+        -create_node(string_view name, uint64_t local_id) Node#42;
+        -node_index_ unordered_map~uint64_t, Node#42;~
+        -local_node_index_ unordered_map~uint64_t, Node#42;~
         -find_local_node(uint64_t local_id) Node#42;
     }
     class Resource
@@ -64,7 +67,10 @@ classDiagram
 - 节点身份使用 flecs 完整 64 位标识（含代次），删除后不会由新节点冒用。`create_node()` 自动添加 Transform，Node 本身不包含具体组件创建逻辑。
 - Camera 添加后由调用方显式 `set_active_camera()`，没有添加组件隐式修改场景状态的行为。传空指针清除，拒绝其他场景的相机。
 - 各 Camera 的瞬态网格隐藏列表独立，由[相机组件接口](component.md)管理；Scene 不保存全局观察者遮罩，场景快照不包含隐藏列表。调用方可显式传入另一个镜头观察同一场景，不修改活动相机或网格状态。
-- `destroy_node()` 连同后代一起删除；如果活动相机属于该子树，清除记录的相机节点 id。不存在时返回 false。
+- `find_node()` 使用完整运行时实体 ID 索引，父节点和活动相机使用独立的场景局部 ID 索引，平均 O(1) 查找；ID 为 0 直接返回空。索引只借用节点，`nodes_` 仍按创建／恢复顺序独占节点，Node 不持有组件专用指针或新增层级缓存。
+- 创建时同时登记两类 ID；恢复直接登记源资源的局部 ID，允许乱序、不连续及最大 `uint64_t` 值，后续自动 ID 从最大已用值递增，耗尽后返回空。不得先以临时递增 ID 登记再覆盖，避免与后续资源 ID 碰撞。
+- `destroy_node()` 连同后代一起删除；一次删除以临时祖先归属表缓存已判断分支，平均 O(N) 判定后稳定删除，避免逐节点全表父查找和删除集合线性扫描。保留节点的相对顺序及借用地址不变；活动相机若属于该子树则清除。不存在时返回 false。
+- 节点组件释放后、实体销毁前移除该节点的两类索引；部分构造失败和候选场景加载失败使用同一析构路径。场景关闭先销毁所有节点，再释放索引和资源引用。
 - 返回节点和组件均为借用，删除所属节点或场景后失效。遍历 `nodes()` 期间不可增加或删除节点。
 - `build_data()` 从生成类型组成的运行时状态创建独立的 `SceneDataT` 内存快照；失败输出为空。快照可由 FlatBuffers Pack、Verifier、UnPack，并保留层级、组件类型及参数。资源写入由编辑器转换器完成；WorldSystem 读取运行时缓存并向候选 Scene 恢复数据。
 - `include/schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。C++ 与 TypeScript 从同一 schema 生成类型，不另定义数据模型。

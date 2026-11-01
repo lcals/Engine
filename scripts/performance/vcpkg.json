@@ -1,0 +1,19 @@
+{
+  "name": "engine-performance-tools",
+  "version-string": "0.14.1",
+  "dependencies": [
+    {
+      "name": "capstone",
+      "default-features": false,
+      "features": [
+        "arm",
+        "arm64",
+        "x86"
+      ]
+    },
+    "nlohmann-json",
+    "ppqsort",
+    "zstd"
+  ],
+  "builtin-baseline": "74e6536215718009aae747d86d84b78376bf9e09"
+}

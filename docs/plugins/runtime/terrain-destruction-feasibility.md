@@ -1,325 +1,180 @@
-# 地形与建筑破坏：跨平台及性能研究
+# 地形与建筑破坏：跨平台及验证范围
 
-日期：2026-10-31。范围：官方源码、构建配置、步骤 0 的独立 ARM64 编译/运行验证，以及步骤 1–4 的地形、破坏、联动、应力/塌方/导航分阶段验证。结果区分上游声明、最小程序实测与正式引擎验证，不将独立探针或上游平台列表等同于全平台完成。
+更新日期：2026-11-01。本文保留开源选型依据、正式实现边界和已完成验证，区分上游平台声明、独立探针与完整引擎场景。功能统一在 `projects/showcase/` 验证，当前保持单线程；本轮优化已经结束，后续工作不在本次继续实施。
 
-用户要求分步实现，并把全部功能测试放在第一个示例项目 `projects/showcase/`，允许自建场景和生成模型。步骤 1 同步地形插件和实验场已完成既定 Mac 验收；步骤 2 的建筑破坏插件及第七个实验场代码已接入，macOS Debug/Release 定向测试、MCP 窗口预览及最终正常菜单/UI 玩法流程已通过，步骤 3 的 Mac 联动窗口流程已通过；步骤 4 同步应力、土石、导航及火箭场代码已实现，Mac 定向测试和 Android 独立应力探针通过，窗口验收待补。按[总体方案](terrain-destruction-plan.md)继续推进。
-
-实施顺序补充（2026-10-31）：用户要求先同步实现功能，后面再移到其他线程异步处理。本文的后台准备、队列和预算分析作为后续优化依据，不是首版门槛；同步阶段先分开计算与安全提交，记录基线耗时。
+地形、建筑破坏、地基/撞击联动、应力、土石、静态导航和火箭场已实现。macOS 已完成记录中的定向测试与窗口流程；Android ARM64 仅部分独立探针通过，不能推断完整 APK、实体手机或其他平台已经验收。最终性能数值统一见[最终可信基线](../../runtime/performance.md#最终可信基线)：增量地形碰撞样本满足单次 <0.5 ms，**Jolt 单步和整体物理仍未达到 0.5 ms**。
 
 ## 结论与采用范围
 
-- 地形采用 CPU 体积数据处理、Transvoxel 网格与现有 bgfx 渲染，作为各平台共用路径。优先适配 Voxel Tools 相关算法，不引入整个 Godot，也不把它的 GPU 管线作为首版条件。
-- 新版 FastNoise2 有 ARM/NEON 支持，可作生成器候选；不能套用旧版本不支持 ARM 的结论。
-- Jolt 继续负责物理。步骤 1 已补通用瞬时网格碰撞提交，候选形状准备完成后安全替换；步骤 2 已增加官方凸包/compound 动态组接入，批量预算和后台调度仍需后续补齐，不能把这些工作归给 Blast。
-- Blast 已按模块接入：low-level 与官方损伤 Shader 提供连接损伤和结构拆分；ExtStress 上游默认构建存在明确 x86 依赖，步骤 4 已按固定社区补丁隔离 x86 专用路径，复用原标量求解器；Mac 正式定向测试及 Android ARM64 独立探针通过，不扩大为完整移动宿主或手机性能结论。离线 Authoring 只进入桌面编辑器，Mac 编译、定向测试与 MCP 预览流程已通过，验证明细和剩余范围见下文步骤 2。
-- Windows、macOS、Linux、Android、iOS 是技术评估范围；iOS 的第三方可行性不代表 Engine 宿主及打包链已经完整实现。平台差异集中在依赖适配与构建配置，不进入项目玩法。
+- 地形采用 CPU 密度数据、Transvoxel regular-cell 表与现有 bgfx 渲染；不引入整个 Godot。Voxel Tools 的六邻域连通/浮岛提取用于土石识别，LOD transition 尚未实现。
+- Jolt 负责静态网格、动态凸形/compound、碰撞查询和角色运动。地形已使用分段静态碰撞，未变叶子和组树复用，渲染仍完整上传。
+- Blast low-level、官方损伤 Shader、编辑器 Authoring 及 ExtStress 标量路径已接入；不引入 PhysX，不自写 Voronoi 或应力求解器。Toolkit 和整套示例未接入。
+- FastNoise2 仍为候选；其当前 ARM/NEON 支持不能替代 Engine 的接入、确定性和设备验证。
+- 后台准备、综合世界存档、动态残骸导航和真实空心建筑力学尚未完成。平台差异集中于依赖适配和构建配置，不写入项目玩法。
 
 ## 核对基线
 
-以下为固定研究基线。Transvoxel 和 Blast 已以表中版本登记为正式插件子模块；Blast 已启用 low-level、ExtShaders、步骤 4 ExtStress 标量路径和编辑器 Authoring；Toolkit 及整套示例未接入。Voxel Tools 的六邻域连通/浮岛提取思路已用于步骤 4，不引入整个 Godot；FastNoise2 仍是候选。
+| 开源上游 | 固定研究/接入版本 | 当前用途 |
+| --- | --- | --- |
+| [Voxel Tools](https://github.com/Zylann/godot_voxel/tree/045ff9326a32fd10ac6fdac6357b5a098aaf2093) | `045ff9326a32fd10ac6fdac6357b5a098aaf2093` | 连通域/浮岛算法参考，未引入 Godot 框架 |
+| [Transvoxel](https://github.com/EricLengyel/Transvoxel/tree/51a494f03c5b024cd153b596bcc7152eb3cc93a6) | `51a494f03c5b024cd153b596bcc7152eb3cc93a6` | 正式子模块，regular-cell 查找表，MIT |
+| [FastNoise2](https://github.com/Auburn/FastNoise2/tree/721400f9560831be2fc9790be9b72c44bee7d33f) | `721400f9560831be2fc9790be9b72c44bee7d33f`；候选发布 `v1.1.1` | 尚未接入 |
+| [Blast](https://github.com/NVIDIAGameWorks/Blast/tree/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7) | `636e7eb43b8d41e44c40eb1b4799bfd027f17ba7`，5.1.0 | 正式子模块，NVIDIA BSD-3-Clause；附属依赖保留各自许可 |
+| [Jolt](https://github.com/jrouwe/JoltPhysics/tree/v5.4.0) | 5.4.0 | 已有物理依赖，MIT |
 
-| 上游 | 基线 |
-| --- | --- |
-| Voxel Tools | `045ff9326a32fd10ac6fdac6357b5a098aaf2093` |
-| Transvoxel 查找表 | `51a494f03c5b024cd153b596bcc7152eb3cc93a6` |
-| FastNoise2 | 主线 `721400f9560831be2fc9790be9b72c44bee7d33f`；发布候选 `v1.1.1` |
-| Blast 独立仓库 | `636e7eb43b8d41e44c40eb1b4799bfd027f17ba7`；变更记录为 `5.1.0` |
+正式复用保留固定版本、源文件许可和必要来源说明；Voxel Tools 的完整 MIT 声明见[许可记录](../../../third_party/notices/voxel-tools-terrain.md)，Blast 兼容补丁及其依据位于 [third_party/patches/blast](../../../third_party/patches/blast/README.md)。商业/私有参考源码、实现和资源不得进入仓库。
 
 ## 平台支持证据
 
-| 技术 | 官方证据覆盖 | Engine 尚需完成 |
+| 技术 | 上游证据 | Engine 已验证与限制 |
 | --- | --- | --- |
-| Voxel Tools CPU 路线 | GDExtension 构建矩阵含 Windows x64、macOS universal、Linux x64/arm64、Android arm64、iOS arm64 | 适配体素、数学及资源接口，逐平台编译和场景验证；上游矩阵不证明所有功能均已真机测试 |
-| Transvoxel | CPU 表面/过渡算法及查找表不绑定图形 API | 已实现同步普通单元分块、存储、渲染/碰撞接入；LOD 过渡、异步任务及其他平台正式代码验证仍未完成 |
-| FastNoise2 | 官方声明 Windows/Linux/macOS/Android/iOS，含 NEON；主要 CI 有桌面平台 | Android/iOS 最小编译验证；API、序列化与 Voxel Tools 旧噪声包装不能直接混用 |
-| Jolt | 官方列出 Windows、macOS、Linux、Android、iOS 的对应架构，ARM64 使用 NEON | 新增瞬时碰撞与碎块能力必须单独验证，已有基础物理通过不等于新能力通过 |
-| Blast 基础库/Toolkit | 官方明确 Windows/Linux x64 构建路径；头文件有 Apple、Android、ARM 条件 | low-level 已完成步骤 0 的 Mac/Android ARM64 独立验证；步骤 2 正式 Mac 定向测试与 MCP 预览已通过；已完成的菜单玩法与其他平台限制见下文。Android 独立 Graph 检查不是完整 APK，Toolkit、iOS 未验收 |
-| Blast ExtStress | 原实现使用 x86 SSE/AVX，Linux 配置还有 `-march=haswell` | 步骤 4 标量兼容补丁后通过 Mac 正式定向测试与 Android ARM64 独立探针；完整 Android 场景、iOS/Windows/Linux 集成及手机性能仍未验证 |
-| Blast Authoring | Windows/Linux 桌面构建路径 | Mac 已编译并通过预破碎/导入相关定向测试，三份示例资源已成功导入并用于窗口预览；设备只消费独立生成资源，不部署制作工具 |
+| Voxel Tools CPU 路线 | GDExtension 构建矩阵含 Windows、macOS、Linux、Android arm64、iOS arm64 | 仅适配所需算法；上游矩阵不等于本引擎各平台功能通过 |
+| Transvoxel | CPU 算法和查找表不绑定图形 API | Mac/Android ARM64 普通单元独立探针通过；正式地形插件已有 Mac 验证，其他平台正式集成未验收 |
+| FastNoise2 | 官方声明桌面、Android/iOS 与 NEON 支持 | 尚未完成 Engine 接入及移动端验证 |
+| Jolt | 官方列出桌面、Android/iOS 对应架构，ARM64 使用 NEON | 步骤 0 Mac/Android ARM64 验证静态 MeshShape 替换；本轮新增分段/compound 优化只完成记录中的 Mac 正式验证 |
+| Blast low-level | 官方工程主要覆盖 Windows/Linux x64，头文件含 Apple/Android/ARM 条件 | 目标级链接适配后 Mac/Android ARM64 独立探针通过；正式 Mac 插件通过，Android Graph 探针不是完整 APK；Toolkit 未验收 |
+| Blast ExtStress | 原默认路径包含 x86 SSE/AVX 和 CPU 探测 | 固定标量兼容补丁后 Mac 正式定向测试、Android ARM64 独立探针通过；完整移动宿主及其他平台集成未验收 |
+| Blast Authoring | 官方桌面 Windows/Linux 构建路径 | Mac 编译、预破碎/导入测试和 MCP 预览通过；制作工具只进入桌面编辑器，设备消费独立资源 |
 
-依据：[Voxel Tools 构建矩阵](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/.github/workflows/extension_builds.yml)、[FastNoise2 平台声明](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/README.md)、[FastNoise2 CI](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/.github/workflows/main.yml)、[Jolt 平台说明](https://github.com/jrouwe/JoltPhysics#supported-platforms)、[Blast 构建配置](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/premake5.lua)。
+依据：[Voxel Tools 矩阵](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/.github/workflows/extension_builds.yml)、[FastNoise2 平台说明](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/README.md)、[Jolt 平台说明](https://github.com/jrouwe/JoltPhysics#supported-platforms)、[Blast 构建配置](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/premake5.lua)。iOS 第三方可行性不代表 Engine 宿主、打包和设备链已完整实现。
 
 ## 步骤 0 实测记录
 
-以下保留步骤 0 的历史结果：当时只构建独立 C++20 验证程序，使用 Ninja、ccache 与目标级无异常/无 RTTI 配置；Jolt 复用已有 5.4.0 静态库。没有重编 Engine、V8、APK 或整套依赖，没有运行 CI；该阶段未修改正式构建预设、插件清单与项目场景。步骤 1/2 的后续改动与验证单列在后文。
+2026-10-31 使用独立 C++20 Release 程序、Ninja/ccache 和已有 Jolt 5.4.0 静态库验证基础能力。Mac 环境为 M1 Max / AppleClang 21；Android 使用 NDK r27c、目标 API 28，在 Android 14 ARM64 模拟器执行。该步骤不是正式引擎场景、APK 或手机性能测试。
 
-环境：Mac 为 Apple M1 Max、macOS 27.0.1、AppleClang 21；Android 为 NDK r27c / Clang 18、目标 API 28，在 Android 14 ARM64 模拟器上执行。两端均为 Release 原生 ARM64 程序；Android 使用静态 C++ 运行库。该步骤没有测试手机性能、Windows、Linux 或 iOS。
+| 独立验证 | 已通过范围 |
+| --- | --- |
+| 地形普通单元 | 256 个 Transvoxel regular-cell 表项；相邻 16³ 块的平面和球形挖洞；有限值、索引、非退化三角形及接缝端点/绕序 |
+| Blast 基础损伤 | 三块连接体的部分损伤、断裂、组归属与完整释放，重复 256 次；不含 Toolkit、应力或 Authoring |
+| Jolt 安全替换 | 512 三角平面变为 504 三角带洞平面；候选准备时旧形状可查，SetShape 后洞口/剩余面查询正确，动态箱体正常落地 |
 
-### 地形普通单元与跨块边界
+必要适配是目标级 `NV_C_EXPORT=extern "C"`，修正 Apple/Android 上声明与实现的链接方式；未直接修改上游检出。原 ExtStress x86 头在 ARM 上不能原样编译，后续步骤 4 已通过标量路径解决该编译问题。微型样例不代表高楼、连续爆炸或设备容量，性能结论不沿用其单次计时。
 
-直接使用上述固定版本官方 Transvoxel 查找表，验证 256 个普通单元表项，以及两个相邻 16³ 块的平面与球形挖洞。检查顶点有限值、索引、三角形非退化和共享边两侧端点及相反绕序，两端均通过。平面共 1,024 个三角形、每侧 16 条接缝边；球形挖洞共 1,316 个三角形、每侧 26 条接缝边。
-
-这是官方表驱动的最小验证循环，不是完整 Voxel Tools 移植；没有顶点复用优化，没有验证不同 LOD 的过渡单元、材质、存档或引擎渲染。
-
-### Blast 基础连接损伤
-
-仅编译 low-level 与必要 common 源码；不用 PhysX、CUDA、Toolkit、应力或 Authoring。三块支持结构 A–B–C 中，部分损伤保持连接，断开 A–B 后得到 `{A}` 与 `{B,C}`，再断开 B–C 后得到三个独立 Actor。检查 Chunk 归属，逐个释放后 Family 为空，重复 256 次；Mac 与 Android 均通过，零错误/警告回调。
-
-发现并修正一项构建适配：上游 `NV_C_EXPORT` 在 Apple/Android 上为空，但实现使用 C 链接，初次编译报 `different language linkage`。验证目标通过 PUBLIC `NV_C_EXPORT=extern "C"` 定义同时修正库与调用方，不修改上游检出。此结论是“加该目标级配置后基础子集可用”，不是上游默认工程原样通过。Mac 上仍有上游断言代码的 `sprintf` 弃用警告。
-
-最小资源大小为 Asset 384 B、Family 448 B、Scratch 176 B；它们仅是该三块样例的 API 内存需求，不是整个进程占用。Android 二进制动态依赖只有系统 `libm`、`libdl`、`libc`，Mac 只有系统 C++ 与系统库，没有额外 Blast/PhysX 动态库。
-
-### ARM 应力障碍
-
-分别用两端相同工具链对官方 `stress_solver/simd/simd.h` 做最小语法编译，均在 `xmmintrin.h` 报 `This header is only meant to be used on x86 and x64 architecture`。这证实当前应力实现不能原样进入 ARM 构建，不是运行时开关可以解决的问题。后续单独适配标量路径或成熟 SIMD 兼容方案；步骤 0 当时未展开应力移植，也未编译 Mac Authoring。步骤 2 的 Authoring 进展见后文。
-
-### Jolt 碰撞网格安全替换
-
-两端均验证 16×16 平面网格从 512 个三角形变为中心带洞的 504 个三角形：候选形状准备时旧地面仍可命中；无并发物理更新的安全点调用 `BodyInterface::SetShape` 后，洞口射线不命中、旁边仍命中。动态箱体在剩余地面模拟 180 步正常落地，所有更新返回成功。
-
-首次独立程序因默认构造 `JobSystemSingleThreaded` 后没有初始化容量而崩溃；按官方接口传入 `cMaxPhysicsJobs` 后通过，并设置 Trace 回调。修改仅在验证程序，不是引擎缺陷，也没有重编 Jolt。该结果在步骤 0 仅验证 Jolt 底层能力，不能替代后续核心 Collider、地形联合提交或建筑碎块的正式集成验收。
-
-### 微型耗时与范围
-
-| 单项工作 | Mac ARM64 Release | Android ARM64 模拟器 |
-| --- | --- | --- |
-| 两块平面网格生成 | 0.097 ms | 0.179 ms |
-| 两块球形挖洞网格生成 | 0.124 ms | 0.178 ms |
-| Blast 两次断裂与拆分，中位数 | 0.166 μs | 0.208 μs |
-| Blast 两次断裂与拆分，P95 | 0.208 μs | 0.209 μs |
-| Jolt 原始 512 三角形碰撞构建 | 0.176 ms | 0.180 ms |
-| Jolt 带洞 504 三角形碰撞构建 | 0.110 ms | 0.110 ms |
-
-地形耗时为单次网格生成，不包含正确性检查、碰撞或 GPU；Blast 统计只包括两次 apply/split，不包含资源分配、创建与检查；Jolt 单次计时从 MeshShapeSettings 创建到形状构建完成，不包括输入网格生成、SetShape 或物理步进。样例很小，计时存在分辨率和宿主调度影响；模拟器不是手机，不能据此承诺大地图、高楼或连续爆炸的帧率和容量。
-
-验证源码、CMake、固定上游检出与日志在忽略的 `build/terrain-step0/`；回执汇总在 `projects/showcase/cache/terrain-step0/`。后续步骤 1 已完成地形所属层级类图及 Transvoxel 正式依赖登记。LOD 过渡、FastNoise2、Voxel Tools 整套适配、Toolkit、离线预破碎及 Blast→Jolt 碎块接入均不在步骤 0 的通过范围内；不能以该历史列表否认步骤 2 后续完成的代码与单测。
-
-步骤 0 决策：可以继续步骤 1 的同步地形实验场，并使用现有 Jolt 做静态碰撞更新。建筑连接损伤可采用经过上述修正的 Blast low-level 子集；应力和 Mac 制作工具保留独立验证任务，不能因基础拆分通过而直接启用完整破坏模块。这是步骤 0 当时的结论；后续步骤 1 的实际范围如下。
+独立程序和原始回执保留在忽略的 `build/terrain-step0/` 与项目 `cache/terrain-step0/`，不作为运行资源或正式源码发布。
 
 ## 步骤 1 正式实现与验证
 
-已实现 `runtime/terrain`、`editor/terrain` 插件及各自 CMake 清单，正式接入 Transvoxel 普通单元表、独立 `.terrain` 资源、TerrainComponent/TerrainSystem、脚本、可撤销 MCP 编辑与 showcase 第六个菜单入口。核心仅扩展通用瞬时碰撞提交和组件瞬态标记，编辑器基础不引用具体地形插件。详见[运行时类图](class-diagrams/terrain.md)与[编辑器类图](../editor/class-diagrams/terrain-editor.md)。
+`runtime/terrain`、`editor/terrain` 及各自清单已正式接入普通单元表、`.terrain` 资源、组件/系统、脚本、MCP 可撤销编辑和第六个菜单入口。密度使用 `float`，16/32 格粗块，每轴最多 256 格且总样本不超过 4M；暂无逐样本材质、FastNoise2 或高度图导入。
 
-当前为同步实现，密度使用 `float`。脚本直接球形笔刷经 `TerrainComponent::apply_sphere` 复用缓存，仅重建脏块及梯度边界邻块；MCP 通过 `TerrainStateEdit` 将候选 ETRS 交给 `restore`，当前重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置均重建全部块。脚本 `Load`/`Reset` 也会全块重建。两条路径最终均合并为单个 Mesh，完整上传 GPU 并进行 Jolt cook。该地形插件没有分块 GPU 更新、局部碰撞 cook、LOD 或后台任务；建筑破坏由独立的步骤 2 插件提供，不属于步骤 1。存档保存完整体积快照及基础 GUID/hash，不是差量块存档。
+脚本球形笔刷复用 CPU 粗块缓存，只重建脏块和梯度邻块；MCP 事务、restore、撤销/重做、Load/Reset 仍从快照或初始资源重建全部粗块。当前碰撞已升级为 4³ 叶子与 64 槽组树复用，渲染继续合并为完整 Mesh 上传。存档保存完整体积及基础 GUID/hash，不是差量块存档。
 
-| 验证 | 结果与范围 |
-| --- | --- |
-| macOS ARM64 Debug 构建及定向 CTest | `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline` 五项均通过，合计 6.74 秒 |
-| macOS ARM64 Release 构建及定向 CTest | 同五项均通过，合计 3.35 秒 |
-| MCP 注册器补充回归 | 地形工具参数约束使用注册器支持的 `minimum`；`engine.mcp_registry` Debug 0.76 秒、Release 0.61 秒均通过，两套配置累计各六项通过 |
-| 正式地形测试覆盖 | 16/32 格分块等价、接缝及跨块局部修改、渲染/碰撞提交失败保留、清空碰撞、存档恢复与基础版本不匹配拒绝、瞬态组件不进入场景保存、资源增量/失败保留及组件编解码 |
-| showcase 窗口场景 | Metal 实景通过跨块挖掘、填充、撤销/重做、保存恢复、菜单往返、预览与退出空白；详见下述实景记录 |
-| Android 及其他平台 | 本次正式插件代码尚未验证；上文 Android 独立步骤 0 探针通过不等于新插件或 APK 已通过 |
+Mac Debug/Release 的 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline` 及补充的 `engine.mcp_registry` 均通过。覆盖分块等价、接缝、局部修改、失败保留、空碰撞、存档身份校验、瞬态组件与增量导入；正式 Android 地形插件尚未验收。
 
-测试日志保留在忽略的 `build/terrain-step1/debug-tests.log`、`build/terrain-step1/release-tests.log`。未重复运行全仓库测试、V8 构建或 CI。定向测试用时是测试进程总时长，不是游戏帧耗时或地形修改延迟。
+### 步骤 1 实景记录
+
+macOS ARM64 / Metal / Release / QuickJS 的 64×64×32 米体积验证跨块隧道、挖坑、填充、撤销/重做、保存/加载和 Reset，ETRS 哈希确认恢复一致。菜单、预览关闭及退出空场景通过；这不是大地图吞吐或其他平台场景验收。
 
 ## 适配边界
 
 ### 地形
 
-Voxel Tools 的 Transvoxel 实现已有较独立的网格输出与缓存，但仍依赖其 VoxelBuffer、数学类型、分配器和辅助代码；外层还使用 Godot Resource、ArrayMesh 等。移植保留成熟算法，资源提交改接本引擎，避免复刻一套 Godot 运行框架。参见[算法实现](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/meshers/transvoxel/transvoxel.cpp)。
+Voxel Tools 的网格与缓存仍依赖其 VoxelBuffer、数学、分配器及 Godot 外层，不能作为独立库直接链接。其 GPU 路线使用 Godot RenderingDevice/GLSL，不能视为 Engine Metal/D3D12/Vulkan 通用实现。相关公开依据：[Transvoxel 实现](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/meshers/transvoxel/transvoxel.cpp)、[GPU 与编辑限制](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/doc/source/smooth_terrain.md)。
 
-上游 GPU 路径依赖 Godot RenderingDevice/GLSL；细节法线对部分节点和已编辑体素有限制，不能直接视为本引擎 Metal/D3D12/Vulkan 通用实现。后续确有收益再通过 bgfx 适配。参见[GPU 与编辑限制](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/doc/source/smooth_terrain.md)。
-
-FastNoise2 的 `FASTNOISE2_STRICT_FP` 默认关闭，不能默认不同 SIMD 后端按同种子得到逐字节相同数据。首版预生成初始块并加载，存档保存实际修改与基础版本；未来运行时重新生成必须明确生成器版本及确定性要求。参见[构建选项](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/CMakeLists.txt)。
+FastNoise2 的 `FASTNOISE2_STRICT_FP` 默认关闭，不能默认各 SIMD 后端由同种子生成逐字节一致结果。若以后接入运行时生成，需明确版本及确定性要求；当前资源/存档保存实际密度与基础身份。见[构建选项](https://github.com/Auburn/FastNoise2/blob/721400f9560831be2fc9790be9b72c44bee7d33f/CMakeLists.txt)。
 
 ### Blast
 
-独立仓库的 5.1.0 默认不要求 PhysX；其构建采用 repo tools/Premake，不能假设有可直接引用的 CMake 工程。已按 Engine 规则补目标级配置，接入 NvBlast 与必要 Globals、官方伤害函数和编辑器 Authoring；Toolkit 仍按需选用，不整套引入示例查看器、Exporter 和 PhysX 适配。参见[变更记录](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/docs/CHANGELOG.md)与[README](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/README.md)。
+Blast 5.1.0 不要求 PhysX，原构建使用 repo tools/Premake；Engine 使用目标级配置选择所需模块。Authoring 和 Boost Multiprecision 留在编辑器，不另引 Cap'n Proto 或上游查看器/Exporter。Android 产物继续遵守仅 `libmain.so` 的静态合入约定，不部署 PhysX、CUDA 或制作工具。
 
-ExtStress 的 SIMD 头直接引用 x86 intrinsics，求解代码使用 CPU 指令探测。现存标量求解器不能通过运行时关闭 SIMD 自动避开 ARM 编译问题。可先评估隔离现有标量路径，再考虑成熟 SIMD 兼容层或 NEON 适配；这是独立移植任务，不能承诺只改宏即可。基础平台识别对 Apple ARM 也需核对 macOS/iOS 的区分。参见[SIMD 头](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/source/shared/stress_solver/simd/simd.h)、[求解实现](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/source/shared/stress_solver/stress.cpp)、[平台宏](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/include/shared/NvFoundation/NvPreprocessor.h)。
-
-应力求解耗时受支持图规模和迭代次数影响，预处理应放加载阶段；不能用细小渲染三角形数量直接定义承重图粒度。官方实验性图简化选项不作为首版可靠性前提。参见[应力扩展参数](https://github.com/NVIDIAGameWorks/Blast/blob/636e7eb43b8d41e44c40eb1b4799bfd027f17ba7/docs/api/extensions/ext_stress.rst)。
-
-Authoring 包含几何处理和额外依赖，留在编辑器；已有 FlatBuffers 契约不因接入而强制再引入其 Cap'n Proto 序列化扩展。SDK 默认动态库目标需按 Engine 产物要求合入；Android 仍只有 `libmain.so`，不附带 PhysX、CUDA 或制作工具。
+ExtStress 已采用现有 `CGNR_SISD` / `Float_Scalar`，通过兼容补丁隔离 x86 特化、intrinsics 和 CPU 探测；不是运行时关闭 SIMD，也未引入新的求解器。支持图规模和迭代次数影响耗时，不能用渲染三角形数量直接决定承重图粒度。当前只实现现有支撑图的重力应力，不等同完整建筑材料、动态冲击应力或结构工程认证。
 
 ### Blast 移动端适配与社区证据
 
-补充研究日期：2026-10-31。用户要求先找现成移动适配，减少自写算法。本节是当时的只读来源调查，仅检查公开源码、提交与报告，没有运行这些社区工程；这次调查本身未新增 Android/iOS、ExtStress 或 Authoring 测试。后续本仓步骤 2 的实现与验证另列，不与社区报告混为一项证据。不能把“仓库位于 NVIDIA 组织”或“在官方 issue 下发言”当作 NVIDIA 官方平台认证。
+以下保留公开来源及其可复用边界，不将社区报告视为本仓测试结果：
 
-| 证据 | 已核对内容 | 适用范围与限制 |
-| --- | --- | --- |
-| [PhysX issue 360 的移动演示留言](https://github.com/NVIDIA-Omniverse/PhysX/issues/360#issuecomment-2688366260) | 社区开发者说明把 Blast 移到 CMake，适配移动端/Mac，并报告在 Google Pixel 和 iPhone 上运行了 common fracture 与运行时 Voronoi，附[演示视频](https://youtu.be/MnusdXUDvx0)；[NVIDIA 维护者回应](https://github.com/NVIDIA-Omniverse/PhysX/issues/360#issuecomment-2741677399)确认看到手机演示 | 属于社区设备演示报告。本次读取了留言，未独立复现；留言没有可锁定的移植源码、测试工程或性能原始数据，并明确说当时尚未测试 bonds generation。不能据此声称 ExtStress、完整建筑坍塌或本仓 iOS 已通过 |
-| [DemiEngine 固定版本报告](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/docs/3d-compound-transition-feasibility.md) | 报告日期 2026-09-13，说明 Linux 与实体 Pixel 7 / Android 15 上验证 Blast low-level 拆分后替换 Jolt compound；有 16/64/256 块、守恒、碰撞、容量不足回退等检查和分阶段计时 | 源码和运行器可读；原始 CSV/日志只记在该作者忽略的 `build/`，本次不能独立核验。该报告明确不包含应力、作者工具、渲染、完整 Android 游戏或持续热负载，不能照搬其计时作为 Engine 的性能结果 |
-| [Glavin001 的 ExtStress 适配](https://github.com/Glavin001/blast-stress-solver/blob/f3955688c392661d8e9bed350542f5a5cdd39383/blast/blast-stress-solver-rs/README.md) | 已提供 `aarch64-apple-darwin` 和 WASM 包装及源码构建路径；[构建说明](https://github.com/Glavin001/blast-stress-solver/blob/f3955688c392661d8e9bed350542f5a5cdd39383/blast/STRESS_SOLVER_DEMOS.md)与实现使用现有标量求解器，绕开 x86 intrinsics/CPUID | 是可复用的源代码适配证据；Apple Silicon macOS 与 WASM 不等于 iOS/Android 真机测试。当前读取的目标清单没有声明 Android/iOS ExtStress 已验证 |
-
-DemiEngine 的[最小 CMake 接入](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/cmake/DemiBlast.cmake)固定 NVIDIA PhysX `4f2103c3a9052906296defb12166753450ef787c`（Blast 5.0.6），只编译 low-level/common 和 NvFoundation 头；Android 通过目标级 `NV_C_EXPORT=extern "C"` 修正链接。该工程与其 Blast 上游源码分别保留 [BSD-3-Clause](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/LICENSE) 及 NVIDIA BSD-3-Clause 声明。它与本仓步骤 0 发现一致，可参考依赖裁剪与拆分交接方式；不直接替换本仓已选 5.1.0，不为接入另引 PhysX。
-
-ExtStress 原始源码本来就有 `CGNR_SISD` / `Float_Scalar`，问题是 x86 头、类型特化和 CPU 探测仍参与编译。Glavin001 的补丁保留该数值算法，通过 `STRESS_SOLVER_FORCE_SCALAR`、`STRESS_SOLVER_NO_SIMD`、`STRESS_SOLVER_NO_DEVICE_QUERY` 选择它。可锁定[源码快照 `230003d9a640927f1bd61d9cf4b88c84d51c1cc1`](https://github.com/Glavin001/blast-stress-solver/tree/230003d9a640927f1bd61d9cf4b88c84d51c1cc1/blast/source/shared/stress_solver)作为早期移植参考，按相关文件提取必要兼容改动，避免同时带入后续优化及 Rust/Rapier 框架。关键提交来源：
-
-- [`a954c98f56053fe79dc8cfb4f824ae08706fffde`](https://github.com/Glavin001/blast-stress-solver/commit/a954c98f56053fe79dc8cfb4f824ae08706fffde)：允许强制标量选择，补 WASM 指令探测处理。
-- [`b0c090fee591396d6ca6632d4375d8f615a472ed`](https://github.com/Glavin001/blast-stress-solver/commit/b0c090fee591396d6ca6632d4375d8f615a472ed)：在 `solver_types.h`、`anglin6.h`、`inertia.h`、`coupling.h`、`math/cgnr.h` 隔离 SIMD 实现，复用标量运算。
-- [`230003d9a640927f1bd61d9cf4b88c84d51c1cc1`](https://github.com/Glavin001/blast-stress-solver/commit/230003d9a640927f1bd61d9cf4b88c84d51c1cc1)：补 macOS 平台/计时、`NsFPU.h` 标量 guard 以及 `simd_device_query.h` 禁用探测路径。该快照包含此前累积改动，不能只应用这一条提交就视为完整适配。
-
-上述 SDK 修改文件仍保留 NVIDIA BSD-3-Clause 头，见[许可证](https://github.com/Glavin001/blast-stress-solver/blob/f3955688c392661d8e9bed350542f5a5cdd39383/blast/PACKAGE-LICENSES/blast-sdk-LICENSE.md)。正式采用时仍需对照本仓 Blast 固定版本审查差异，把补丁及来源放入 `third_party/`，由构建在编译上游代码前应用；这次来源调查只记录 ExtStress 补丁，没有声称应力适配已移植或验证。
-
-SIMD 兼容库作为后续测量后的备选：
-
-- [sse2neon `2272251cc3ad9cba8b8c47c4065811cfb396b802`](https://github.com/DLTcollab/sse2neon/tree/2272251cc3ad9cba8b8c47c4065811cfb396b802)，MIT：覆盖 SSE 到 ARM NEON；Blast 当前还使用 256-bit AVX/FMA，不能只替换 SSE 头就宣称整套可用，亦未找到可核验的 Blast 移动适配测试。
-- [SIMDe `65c15e6b545361f6dd89b1e3bcc76273e1344653`](https://github.com/simd-everywhere/simde/tree/65c15e6b545361f6dd89b1e3bcc76273e1344653)，MIT：有 SSE/AVX/FMA 的可移植实现及 ARM CI，可作为后续优化候选；本次未找到已有 Blast 结合该库的 Android/iOS 设备验收，不能把 SIMDe 自身测试视为 Blast 测试。
-
-步骤 2 已采用官方 Blast 损伤/连接拆分与 Authoring，Jolt 处理凸形/复合碰撞。预破碎制作留在编辑器，设备消费独立生成资源；不自写 Voronoi、应力求解或新物理引擎。ExtStress 后续优先适配上述现成标量路径，再根据真实设备测量决定是否引入 SIMD 兼容库；iOS、本仓正式 Android 破坏插件、Mac Authoring 与 ExtStress 的通过状态都必须单独记录。
-
-### 步骤 1 实景记录
-
-macOS ARM64 / Metal / Release / QuickJS 下，64×64×32 米实验体积实际生成 32 块、初始 24356 个三角形。固定笔刷将隧道推进至 z=-18，穿过 z=0 和 z=-16 块边界；挖坑、填充、撤销/重做、颜色修改保留体积、存档加载及重置均已执行，ETRS 全量哈希验证恢复一致。脚本 UI 直接挖掘仅重建 4/32 块，UI Save→Reset→Load 也恢复相同哈希；这不是大地图/连续爆炸吞吐测试。
-
-首次预览发现宿主错误地直接 Tick 子系统，现改用插件公开同步接口，并保留核心生命周期限制。修复后真实预览生成地形，关闭预览返回空场景、零节点和空白窗口，重新运行项目正常；新增实际子系统装配回归在 Debug/Release 分别 2.26/0.75 秒通过。场景阴影偏移调整到 0.004，解决初始参数产生的主要条纹，没有修改渲染算法。过程证据保留在 `build/terrain-step1/` 的 JSON/JSONL 回执及 `projects/showcase/cache/screenshots/`。本次未做正式 Android 插件或其他平台运行验收。
+- [Glavin001 标量补丁快照](https://github.com/Glavin001/blast-stress-solver/tree/230003d9a640927f1bd61d9cf4b88c84d51c1cc1/blast/source/shared/stress_solver)用于隔离 SIMD 与探测路径；关键提交为 [`a954c98f`](https://github.com/Glavin001/blast-stress-solver/commit/a954c98f56053fe79dc8cfb4f824ae08706fffde)、[`b0c090fe`](https://github.com/Glavin001/blast-stress-solver/commit/b0c090fee591396d6ca6632d4375d8f615a472ed) 和 [`230003d9`](https://github.com/Glavin001/blast-stress-solver/commit/230003d9a640927f1bd61d9cf4b88c84d51c1cc1)。SDK 修改保留 [NVIDIA BSD-3-Clause](https://github.com/Glavin001/blast-stress-solver/blob/f3955688c392661d8e9bed350542f5a5cdd39383/blast/PACKAGE-LICENSES/blast-sdk-LICENSE.md)，只提取必要兼容改动，不引入 Rust/Rapier 框架。本仓已落地补丁和范围见 [Blast 补丁说明](../../../third_party/patches/blast/README.md)。
+- [DemiEngine 固定版本报告](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/docs/3d-compound-transition-feasibility.md)提供 Blast low-level→Jolt compound 的公开实现/Android 报告；[接入文件](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/cmake/DemiBlast.cmake)和项目为 [BSD-3-Clause](https://github.com/JEAPI-DEV/DemiEngine/blob/b5f94e9e1cfc79482690c166b240e03e6ff2ed6e/LICENSE)。其版本、设备和原始日志不等同本仓，不能照搬计时或推断应力/完整游戏通过。
+- [PhysX issue 360 的手机演示报告](https://github.com/NVIDIA-Omniverse/PhysX/issues/360#issuecomment-2688366260)属于社区报告，未独立复现，不能作为 ExtStress、iOS 或本仓正式集成证据。
+- [sse2neon](https://github.com/DLTcollab/sse2neon/tree/2272251cc3ad9cba8b8c47c4065811cfb396b802) 与 [SIMDe](https://github.com/simd-everywhere/simde/tree/65c15e6b545361f6dd89b1e3bcc76273e1344653) 均为 MIT 候选，当前未接入；前者的 SSE 覆盖不能自动解决 Blast AVX/FMA，后者自身 ARM CI 也不等于 Blast 设备验收。
 
 ## 步骤 2 当前实现与验证范围
 
-`runtime/destruction` / `editor/destruction` 已按清单接入固定 Blast 5.1.0。运行时使用官方 low-level 和 `NvBlastExtFalloffGraphShader`；编辑器使用官方切片/Voronoi、三角网格体积积分及 `bondsFromPrefractured(EXACT)` 接触生成。EXACT 路径以三角面实际接触建立连接，避免把仅边/点接触误当有效支撑面；导入 recipe 指纹已升级，使早期缓存重新生成。
+运行时使用 low-level 与官方 `NvBlastExtFalloffGraphShader`；编辑器使用切片/Voronoi、体积积分及 `bondsFromPrefractured(EXACT)`，按实际三角面接触生成连接。输入仍是最多 256 块的参数盒体，不宣称任意 FBX、空心楼体、层级碎裂或运行时重切割。
 
-参数盒体生成独立破坏资源，最多 256 块。每个连通组拥有一个瞬态渲染/碰撞节点，使用 Jolt 凸包/compound；根节点和正等比缩放是当前限制。完整快照支持损伤、重置与设置的撤销，保留连接血量、组姿态和速度。当前仍同步重建网格与碰撞，没有地形地基联动、碰撞再损伤、承重应力或后台调度。
+每个连通组拥有普通瞬态 Node、MeshRenderer、Collider(compound) 与 RigidBody，要求源根节点正等比缩放。完整图/组快照支持损伤、设置和重置的撤销。步骤 5 已改为复用兼容未变组、只发布变化组；地基/撞击联动和应力由后续步骤接入，当前仍同步执行。
 
-| 验证层级 | 当前记录 |
+| 验证 | 已完成范围 |
 | --- | --- |
-| macOS 正式代码 | Debug 与 Release 各 9 项定向 CTest 全部通过，测试进程总时长分别 4.12 / 4.33 秒；不是游戏帧耗时 |
-| Android ARM64 | 已进行独立 `DestructionGraph` 运行检查；不包含完整引擎宿主、Jolt/渲染集成、UI 或 APK 场景验收，也不是实体手机性能测试 |
-| 其他范围 | iOS、Windows、Linux 的本轮正式插件集成验收尚未完成；ExtStress 未接入 |
-| showcase 导入与预览 | 最终三份资源 ready，块数为 48 / 24 / 8。MCP 预览中墙体从 1 组拆成 6 组，其中 5 组为动态；undo 回 1 组，redo 回 6 组。关闭预览后 scene 为空，窗口截图已保存 |
-| 正常菜单与 UI | 最终 TS 刷新后，由正常菜单第七入口进入；初始共 3 组、0 动态。column 后柱为 3 个动态组并实际倾倒；wall 后墙为 6 组、5 动态；top 后塔为 15 组、14 动态；base 后塔为 24 组、24 动态，三对象合计 33 组、32 动态。reset 后三对象各恢复 1 组、0 动态 |
-| 源节点生命周期补充 | 新增源 Transform 禁用回归，仅重跑 `engine.destruction_runtime`，Debug 0.87 秒、Release 0.46 秒通过 |
-| 镜头与退出 | front/overview 切换及 Back 返回 `Scene launcher` 均通过；停止项目后 scene 为空、节点数为 0，已保存空白窗口截图 |
+| macOS Debug/Release | 当时九项定向 CTest 通过：physics、MCP 注册器、scene、场景持久化、destruction graph/runtime、authoring/pipeline/commands；另有源 Transform 禁用回归 |
+| 导入与 MCP | 48/24/8 块示例资源 ready；损伤拆组、undo/redo、预览关闭和空场景通过 |
+| 正常菜单/UI | 第七入口的柱、墙、塔损伤及实际运动、Reset、镜头切换、返回菜单和停止清理通过 |
+| Android ARM64 | 独立 DestructionGraph 编译/运行通过；不是正式 Jolt/渲染宿主、APK 或手机性能测试 |
+| 其他平台 | 本轮 iOS、Windows、Linux 正式插件集成未验收 |
 
-九项测试为 `engine.physics`、`engine.mcp_registry`、`engine.scene`、`editor.scene_persistence`、`engine.destruction_graph`、`engine.destruction_runtime`、`editor.destruction_authoring`、`editor.destruction_pipeline` 与 `editor.destruction_commands`。测试日志在忽略的 `build/terrain-step2-tests-debug.log` 和 `build/terrain-step2-tests-release.log`。
-
-最终源码的 Android ARM64 独立 Graph 增量编译及执行再次通过（exit 0）；二进制和源码指纹见
-`build/destruction-step2/android-final-result.json`，不扩大为完整 APK 或设备性能结论。
-
-预览证据在 `build/terrain-step2/preview-ready-report.json`、`preview-damage-report.json` 和 `preview-history-report.json`；截图为 `projects/showcase/cache/screenshots/destruction-step2-preview-ready.png`、`destruction-step2-preview-damage.png` 与 `destruction-step2-closed-preview.png`。这些是本机真实窗口记录，不是生成图。最终脚本版本的正常玩法证据为 `build/terrain-step2/finish-*-report.json`（before、column、wall、top、base、reset、front、overview、back、stop）；代表截图为 `destruction-step2-finish-before.png`、`destruction-step2-finish-base.png`、`destruction-step2-finish-reset.png`、`destruction-step2-finish-back.png`，同样位于 showcase 的 cache/screenshots。较早的 `final-*` 回执保留为调参过程，不替代这些最终结果。
-
-演示中原始居中爆心会让已经断键的块继续通过碰撞互相支撑，因此图拆分不等于所有块必然立即散开。仅在项目脚本中调整爆心/冲量：柱试件使用 20000 的冲量、塔底使用 60000；同参 MCP 检查与随后刷新脚本后的 UI 流程已观察到柱倒下和塔体下沉。该结果验证显式损伤与刚体接触的组合，不是高楼完整承重、ExtStress 或地基地形联动的验收，具体参数也不是引擎内置特例。
-
-步骤 0 的微型计时和社区设备报告不能替代这一阶段的正式结果。最终运行证据由根 README 及本阶段回执统一记录；既不触发 V8 重编，也不以自动 CI 扩大验证范围。
+拆组不等于所有片块立即分离，已断键块仍可通过物理接触互相支撑。项目使用显式爆心/冲量，不在核心写试件特例；该场景不能替代完整楼体承重验收。
 
 ## 步骤 3 综合联动验证
 
-同步首版已在 `projects/showcase/` 第八个菜单入口 **Combined destruction** 联通地形、
-Blast、Jolt、Effekseer 与音频。核心新增指定 Collider 的射线查询和非消费碰撞快照；
-破坏插件按底面采样覆盖解除 world bonds；项目脚本负责修改后的支撑刷新、碰撞伤害预算与表现。
-地形与破坏插件不互相依赖，碰撞回调不运行脚本。`estimatedImpulse` 来自 Jolt 官方
-`EstimateCollisionResponse` 的碰前估算，不等于求解器实际施加的冲量。
+第八入口 Combined destruction 联通地形、Blast、Jolt、Effekseer 和音频。核心只提供指定 Collider 射线与非消费撞击快照，项目显式刷新支撑并组织伤害预算与表现，两个运行时插件不形成循环依赖。`estimatedImpulse` 来自官方 `EstimateCollisionResponse` 的碰前估算，不等于求解后实际冲量。
 
-| 验证范围 | 本轮结果 |
-| --- | --- |
-| macOS ARM64 正式目标 | 受影响 Debug/Release 目标构建成功，各六项定向 CTest 最终均通过；Release 六项共 3.01 秒，是测试进程总时长，非游戏帧耗时 |
-| 项目与资源 | TypeScript 与生成脚本 `--check` 通过；官方 Effekseer 导出器生成两种原创效果，自制音频进入正常资源管线；最后活动资源版本为 `cc5ba4ecc02fc5af` |
-| 挖地基 | `Dig foundation` 不调用直接建筑损伤；真实下落撞击触发二次破坏，最终记录塔体为 8 个动态组，灰尘可见 |
-| 爆破 | 继续点击 `Blast tower` 后记录塔体为 24 个动态组，碎块运动、烟尘及火花可见；灰尘和爆破节点的 Effect/Audio 查询同时返回 playing，音频 playback 为 2。只验证了播放状态，没有听音质量评估 |
-| 填充、重置 | 填土不重新接上已断锚点；最终 Reset 后三个试件各恢复 1 组、0 动态组，表现池停止效果与声音 |
-| 镜头与角色 | Overview/Front/Walk 切换正常，第三人称 W 键短走约 2.33 米，地面碰撞正常；未据此宣称已验收洞穴穿行或踩残骸 |
-| 返回与关闭 | 返回 Scene launcher 成功；停止项目后 scene 为空、totalNodes 为 0、脚本 running 为 false 且 lastError 为空；只关闭了本轮测试拥有的编辑器进程 |
-| 其他平台及规模 | 本轮未运行 Android/iOS/Windows/Linux 联动验收或性能压测；步骤 2 的 Android 独立 Graph 探针不代表步骤 3 正式 APK 通过 |
+Mac Debug/Release 当时各六项定向测试通过：physics、script runtime、MCP 注册器、destruction graph/runtime 和 destruction commands。真实窗口验证挖地基下落、撞击再损伤、爆破、填土、Reset、三镜头、角色地面短走及返回/停止清理；Effect/Audio 查询确认播放请求生效，未做听音质量评估。
 
-六项测试为 `engine.physics`、`engine.script_runtime`、`engine.mcp_registry`、
-`engine.destruction_graph`、`engine.destruction_runtime` 和 `editor.destruction_commands`。
-Debug 首轮发现测试错误假定 `create_scene` 替换旧场景，以及 MCP schema 不支持
-`exclusiveMinimum`；分别改为先销毁旧场景、使用 `minimum` 并由处理函数拒绝零后，
-受影响测试复跑通过。日志保留在 `build/terrain-step3/tests-debug*.log`、
-`tests-release.log`；物理 Debug 修复后的单项通过回执为 0.96 秒。没有重跑全仓测试或 CI。
-
-最终窗口回执为 `build/terrain-step3/final-*-report.json` 与对应 `*-receipts.jsonl`；
-关闭结果为 `editor-closed.json`。真实截图保留在 `projects/showcase/cache/screenshots/`：
-`destruction-step3-final-before.png`、`destruction-step3-final-dig.png`、
-`destruction-step3-final-blast.png`、`destruction-step3-final-walk-moved.png`、
-`destruction-step3-final-reset.png` 和 `destruction-step3-final-back.png`。
-
-上述是步骤 3 当时的平面底部实心试件地基覆盖与撞击联动记录，不能当作完整楼体承重计算。
-该阶段不含土石塌方、ExtStress 或导航；它们的后续步骤 4 进展单列如下。
-异步调度与综合世界存档仍未实现，模块快照、编辑器撤销和 Reset 不能替代跨模块游戏存档。
+该步骤不构成洞穴/残骸通行专项、完整建筑承重或其他平台联动验收。综合世界存档尚未实现，模块快照、编辑器撤销和 Reset 不能替代跨模块游戏存档。
 
 ## 步骤 4 应力、土石、导航与火箭场
 
-日期：2026-10-31。正式实现仍为主线程同步准备/提交，不新增运行时线程框架。用户要求在现有首个项目里验证，并增加角色火箭、更多碎块和连续炮击，作为后续优化基线；不能把有界示例等同于已完成性能优化。
-
 ### 实现、来源与边界
 
-- **ExtStress**：`runtime/destruction` 复用 Blast 5.1 的 `CGNR_SISD` / `Float_Scalar`。固定社区快照 `230003d9a640927f1bd61d9cf4b88c84d51c1cc1` 提供隔离 x86 特化/CPUID 的必要补丁；全平台目标统一选择标量路径。只在构建目录打补丁，不改官方子模块，不引入 PhysX 或第三方包装框架。连接血量先换算为剩余承载面积，再把求解损伤映射回血量；实例旋转/正等比缩放参与重力变换。接口只处理当前支撑图的重力应力，不是完整建筑材料、动态冲击应力或结构工程认证。
-- **原点修正**：本轮 Debug 测试复现上游把无限质量 world node 的 `(0,0,0)` 占位位置当压力计算端点，导致资产原点处锚块产生无穷损伤。兼容补丁改用同一官方文件已有的连接实际中心端点规则，不添加任意 epsilon 或改写求解公式；资产平移不变性、物理面积和实例旋转/缩放回归已补齐。来源与修正范围见 [Blast 补丁说明](../../../third_party/patches/blast/README.md)。
-- **土石**：`runtime/terrain` 参考固定 Voxel Tools `island_finder` / `floating_chunks` 六邻域连通和边界排除流程，识别不连接下/侧边界的土石，按项目参数分组。现有 Transvoxel 生成表面，逐单元凸形交给 Jolt compound，生成普通瞬态节点。候选准备或预算失败时不删未转换样本；总量限额由调用者指定、运行时上限 128。发生塌方后直到显式 Reset/更换源资源，旧静态体积快照保存/恢复明确失败，即便碎块被外部删除也不能假装完整保存。
-- **导航**：核心 `NavigationSystem` 复用 Recast 1.6 `Sample_TileMesh` 与 Detour。调用者显式提交当前全部几何及 dirty 世界 AABB，完整构建或只重建受影响瓦片和边界；失败使相关旧瓦片失效，查询只接受完整可达路径。核心不自动扫描场景。示例只提交静态 Terrain 的实际 MeshRenderer，移动土石/建筑碎块不进入导航；没有寻路代理、局部避让或动态残骸导航。
-- **火箭场**：第八场景资产塔/墙/柱/梁为 256/128/64/72 块，共 520 个预破碎片段；其实际刚体数取决于连通组，不能把资产片段数当性能承诺。土石预算 96，弹池 64，8 个灰尘与 6 个爆破表现槽。请求频率 2/6/12 发每秒，默认 6；60 发齐射可停止，停止后在途弹体继续飞行；每帧最多新发一枚、不补卡顿积压。逐段球形扫掠命中后才按实际位置施伤、挖土、提取土石、刷新支撑并更新导航脏区。参数均在项目脚本，旧的独立地形/建筑实验场保留。
-- **计时**：面板用 `Date.now()` 展示真实墙钟帧间隔指数平均与最大值，不用宿主截断到 0.1 秒的 `Time.deltaTime`。每轮连射清帧间隔统计，每约一秒及最终 `complete` 输出 `Rocket range sample` JSON，记录 actualRate、发射/命中/blocked、碎块/土石和导航。墙钟值包含引擎限帧等待和截图开销，不是纯 CPU/GPU 耗时、百分位或设备吞吐认证。应力按项目 0.5 秒节奏请求，导航以 0.25 秒节奏合并 dirty 范围，均同步执行。实际每秒发射量可能因同步工作和帧率低于请求值，不能据配置数字宣称达到 12 发/秒。
+- **ExtStress：** 使用官方标量求解器，将连接血量换算为剩余承载面积，再映射求解损伤；实例旋转和正等比缩放参与重力转换。world-bond 原点兼容补丁使用官方已有实际连接中心规则，原点平移不变性、面积及变换回归已覆盖。
+- **土石：** 固定 Voxel Tools 六邻域/浮岛流程识别不连接下/侧边界的区域；Transvoxel 生成表面，逐单元凸形形成 Jolt compound。候选或预算失败不删除未转换样本；运行时上限 128，项目预算 96。继续挖填保留碎块，Reset 清理；塌方后的静态存档明确拒绝，直到 Reset 或换源。
+- **导航：** 核心复用 Recast 1.6 `Sample_TileMesh` 和 Detour，调用者显式提交静态 Mesh、世界矩阵及新旧 dirty AABB。失败失效相关旧瓦片，路径查询只返回完整路径；没有自动场景扫描、动态残骸导航或代理避让。
+- **火箭场：** 塔/墙/柱/梁共 520 个预破碎片段，实际刚体数由连通组决定；弹池 64 槽，请求 2/6/12 发每秒，默认 6，60 发齐射可停止，每帧至多发一枚且不追赶积压。每段实际球扫命中后才施伤、挖土、塌方和刷新支撑/导航。
+- **项目预算：** 有界特效/声音节点池、每帧最多 2 次且重置间最多 24 次二次碰撞损伤；应力按 0.5 秒、导航按 0.25 秒节奏显式同步请求。这些是项目策略，不是引擎设备容量承诺。
 
 ### 已完成验证
 
-| 验证 | 结果与证据范围 |
-| --- | --- |
-| macOS ARM64 Debug | 受影响目标构建成功，累计 8 项定向 CTest 通过。首轮应力 runtime 失败暴露上述 world-bond 原点问题，修复后 Graph/runtime 两项复跑通过；不把首轮失败日志标成一次全绿 |
-| macOS ARM64 Release | 同 8 项 CTest 全部通过，总计 3.94 秒；这是测试进程总时长，不是游戏帧耗时 |
-| Android ARM64 独立探针 | `destruction_graph_test` 连同标量 ExtStress、物理面积归一化和原点平移不变性，在 ARM64 模拟器执行 exit 0；不是 Engine APK、Jolt/渲染场景集成或实体手机性能验证 |
-| 当前未验收 | 步骤 4 真窗口/UI 炮击、其他平台完整集成、手机热负载、吞吐上限及峰值内存。下面的实景项由实际回执单独补充 |
+Mac Debug/Release 当时各八项定向测试通过：script runtime、MCP 注册器、navigation、navigation script、terrain runtime、destruction graph/runtime 和 destruction commands。覆盖细支撑切断、预算失败保留、实际下落、继续挖填、静态存档拒绝、生命周期、导航瓦片边界与失败失效。
 
-8 项为 `engine.script_runtime`、`engine.mcp_registry`、`engine.navigation`、
-`engine.navigation_script`、`engine.terrain_runtime`、`engine.destruction_graph`、
-`engine.destruction_runtime`、`editor.destruction_commands`。
-土石用例覆盖细支撑保留/切断后八碎块、预算失败原样、实际 Jolt 下落、继续挖填、
-静态存档拒绝、禁用/恢复/Reset/移除清理；导航覆盖瓦片替换、边界、失败失效、
-完整路径与脚本场景隔离。正式 Debug 日志为 `build/terrain-step4/tests-debug-core.log`、
-`tests-debug-bindings.log`、`stress-origin-debug-tests.log`；Release 为 `tests-release.log`。
-Android 回执为 `build/terrain-step4/stress-origin-android-run.json`，构建位于同目录 `stress-probe/`。
-本记录只归纳已完成的定向验证，不要求重复测试、V8 编译或自动运行 CI。
+Android ARM64 模拟器的独立 Graph/ExtStress 探针通过，包括面积归一化和原点平移不变性；未覆盖正式 Engine APK、Jolt/渲染场景集成或手机性能。
 
 ### 步骤 4 实景验收
 
-Mac ARM64 / Metal / Release 真实窗口使用最终资源版本 `521195c3c186be37`，64 槽弹体池。原始回执在 `build/terrain-step4/final-*-report.json`，逐秒日志在同目录 `editor.log`。以下两轮发射期间不截图，保留正常主循环、同步工作和限帧；这是功能负载记录，不能代替隔离的 CPU/GPU 性能测量。
+Mac ARM64 / Metal / Release 真窗口完成两档各 60 发的连射、停火、土帽坍塌、弱梁应力、Reset、角色地面短走及返回菜单。弹体按实际碰撞命中或到期，不伪造爆点；Reset 恢复原始试件和土石数量，停止后场景/节点/脚本已清理。播放状态已查验，不代表听音质量评估。
 
-| 请求频率 | 发射 / 命中 / 寿命到期 | 实际发射率 | 最终建筑组 / 动态组 | 动态土石 | 最长墙钟帧间隔 |
-| --- | --- | --- | --- | --- | --- |
-| 6 发/秒 | 60 / 41 / 19 | 约 2.57 发/秒 | 414 / 413 | 67 | 947 ms |
-| 12 发/秒 | 60 / 43 / 17 | 约 3.89 发/秒 | 376 / 375 | 67 | 795 ms |
-
-两轮 `blocked=0`、结束时在途弹体为 0，脚本 `lastError` 为空。失手表示按固定目标继续发射后，建筑已炸散，弹体没有碰撞而到期；不假造爆点。碎块统计表示 Blast 连通组及其运动类型，不是 Jolt 醒着的刚体数。物理轨迹与命中几何不同，不将两次最长帧间隔比较成高档更快。
-
-初次进入四个建筑各 1 组、0 动态组，土石为 0；6 发档结束后场景 787 节点，Reset 恢复 310 节点、四个建筑各 1 组/0 动态组及 0 土石。单独土帽射击切断细底座后产生 67 动态土石；同一实现调参阶段的 `Weak beam` 在无火箭损伤时产生 111 断键、24 动态组，截图和回执分别为 `cap-collapse` / `weak-beam`。Effect/Audio 播放状态同时为 true，只证明播放请求生效，没有听音质量评估。
-
-当前密集负载暴露同步更新长帧，实际射速明显低于请求值；各阶段 CPU/GPU 占比尚未采样，不能直接断言某个库占比。旧 12 槽弹体池还曾阻塞发射，现已增至覆盖 12×5 秒寿命需求的 64 槽。另一次未分页 `get_scene` 超过 1 MiB 回执限制，后续检查改用已有 `offset/limit=64`，没有放宽协议上限。下一步以这些固定操作记录为依据拆分后台准备和主线程提交。
-
-补充停火试验在第 23 发后停止新发射，最终 21 命中、2 到期、0 在途，未继续发满 60。再次 Reset 恢复 310 节点和原始试件；第三人称 W 键短走约 1.93 米，高度维持地面，未扩大为踩残骸或洞穴专项验收。返回 Scene launcher 成功，停止后 scene 为空、totalNodes=0、脚本 running=false 且 lastError 为空；仅关闭本轮拥有的编辑器 PID，记录为 `editor-closed.json`。
-
-最终资源截图位于 `projects/showcase/cache/screenshots/destruction-step4-final-barrage-view.png`，显示在途火箭、拖尾、建筑碎块、土石与弹坑；该停火/截图轮含截图开销，未混入上表两轮结果。第三人称短走截图为 `destruction-step4-final-walk-moved.png`。步骤 3 的旧截图与测试数据仍只作为历史记录。
+面板的 `Date.now()` 指标是墙钟帧间隔，包含限帧及采集干扰，不能代替 CPU/GPU 阶段计时；步骤 5 已改用 Tracy 固定流程建立正式基线。原始阶段回执、截图和日志保留在忽略的 `build/terrain-step4/` 与项目 `cache/`，逐轮性能数据不在本文重复维护。
 
 ### 未完成范围
 
-综合世界存档、动态土石/移动建筑残骸导航、后台任务/取消/版本队列、分块 GPU/碰撞增量提交、完整空心楼体承重与材料模型，以及实体手机的性能和发热验收均未完成。新增应力、土石、导航接口通过定向测试，不等于这些后续目标已完成。
+综合世界存档、动态土石/建筑残骸导航、后台准备/取消/版本队列、分块 GPU 上传、完整空心楼体承重与材料模型、实体手机长期负载与发热验收均未完成。分段碰撞增量提交已在步骤 5 实现，不再列为未完成能力。
+
+## 步骤 5 实测基线与可复用流程
+
+可选 Tracy 已覆盖地形、破坏、物理、导航等 CPU 阶段，提供完整帧标记及 bgfx GPU/资源数据；采集、窗口分析与碰撞预算工具位于 `scripts/performance/`。完整原始证据保留在忽略的 `build/`，方法和最终数据统一见[最终可信基线](../../runtime/performance.md#最终可信基线)。
+
+当前已实现 Scene 索引/子树删除、未变破坏组复用、物理共享快照和速度原地更新、根动态体原始姿态保留、官方临时分配器复用、地形 4³ 叶与 64 槽组树、局部唤醒及塌方标脏。严格完整盒形可在成功构建 Hull 后使用保留实际参数的官方 BoxShape；缺角、不规则和微斜顶维持 Hull。完整说明见[当前实现](../../runtime/performance.md#当前实现)。
+
+最终 Mac Debug（Tracy OFF）和 Release（ON）受影响构建及五项定向 CTest 通过，覆盖 physics、character controller、terrain runtime、destruction runtime 和 destruction commands。最新实景仅证明记录窗口中的增量碰撞预算；首次建图/Reset 未由该窗口覆盖，Jolt 单步和整体物理仍高于 0.5 ms，其他平台性能未验收。
 
 ## 性能判断及当前接入缺口
 
-以下是源码证据与工程推断，不是 FPS 或设备容量实测。整个链路都需观察，不能把噪声吞吐量等同于地形性能。表中线程、任务队列和发布预算属于同步功能完成后的优化，不提前建设。
+以下均为剩余工作，不在本轮继续修改源码：
 
-| 环节 | 主要成本与拟处理方式 |
+| 环节 | 当前事实与后续边界 |
 | --- | --- |
-| 体积修改/网格生成 | 限定脏块、复用缓存、合并重复修改；先比较 16³、32³ 两种块规格，不做大规模参数排列 |
-| 碰撞准备 | 先同步准备并安全替换，独立记录构建时间；后续后台化时，网格完成不代表碰撞已可用 |
-| 主线程提交 | 限制每帧发布工作量，过期任务丢弃；保持显示与碰撞版本一致，记录修改生效延迟 |
-| GPU 更新 | 避免同帧集中上传/释放大量网格；是否增加局部更新接口由数据决定 |
-| 建筑碎块 | 离线预破碎、凸形/复合碰撞、批量创建、睡眠；活跃刚体和接触数量比模型面数更能说明物理负载 |
-| 任务与内存 | 有限在途任务、块快照与结果缓存；连续爆炸不能无限积压旧版本 |
-| 导航/表现 | 局部导航重建与特效分别计时，不让地形、物理、导航同时无预算占满工作线程 |
+| 碰撞与物理 | 变化叶和组树已复用，原碰撞精度/迭代数保留；窄相、接触和同帧固定步累计仍未达预算，需进一步区分成本 |
+| 全量地形 | 首次建图、Reset 和恢复仍有同步全量成本；同帧重复提交合并未实现，须保留即时查询与失败原子性 |
+| 塌方与连通扫描 | 已缩小碰撞扫描和标脏范围，但连通识别/事务仍同步；后台化需独占快照、版本和取消，不直接搬迁场景操作 |
+| 渲染上传 | `MeshRenderer::set_mesh_data` 仍完整复制 Mesh，revision 后重建 GPU 几何及切线，尚无分块 GPU 更新 |
+| 导航与表现 | 静态导航可局部重建，动态残骸和代理未实现；其他模块热点只记录，另行指定范围后再优化 |
+| 线程与内存 | 当前单线程；未来异步必须限制在途快照、过期结果及发布预算，并观察内存和长期负载 |
 
-上游性能讨论也强调碰撞准备、主线程提交、网格数量和任务预算；其 Godot 条件下的具体倍数不能当成 Engine/Jolt 测量。参见[Voxel Tools 性能说明](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/doc/source/performance.md)。Jolt 有后台批量准备及提交接口，可复用而非另造物理调度逻辑；动态三角网格有碰撞限制及性能代价，碎块优先使用凸形/复合形状。参见[Jolt 架构](https://jrouwe.github.io/JoltPhysics/)。
+总刚体/角色上限 4096 是配置约束，不能写成已实测支持 4096 活跃碎块。三角 Mesh 继续仅用于静态碰撞，动态组使用凸形/compound。官方接触缓存仍须在根形状变化时正确失效，不能以叶子共享绕过该契约。
 
-当前 Engine 核对结果：
+上游讨论可参考 [Voxel Tools 性能说明](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/doc/source/performance.md)与 [Jolt 架构](https://jrouwe.github.io/JoltPhysics/)，不能把其环境中的倍数或容量当作 Engine 结果。
 
-- `MeshRenderer::set_mesh_data` 完整复制数据；revision 更新会重建 GPU 几何，包含切线计算与整块上传，并非已有局部顶点更新。见 [mesh_renderer.cpp](../../../src/engine/runtime/scene/mesh_renderer.cpp)、[render_scene_resources.cpp](../../../src/engine/runtime/render/render_scene_resources.cpp)、[gpu_geometry.cpp](../../../src/engine/runtime/render/resources/gpu_geometry.cpp)。
-- `PhysicsSystem` 仍使用单线程 JobSystem 与 `TempAllocatorMalloc`。新增 `set_mesh_data` 先同步准备候选，兼容静态体使用 `SetShape`，否则先创建新体再移除旧体；清空网格可移除碰撞，错误不替换有效状态。整份网格 cook 和提交仍在调用线程，后续再后台化并按实际负载评估上游线程池。见 [physics_system.cpp](../../../src/engine/runtime/physics/physics_system.cpp)。
-- 三角网格碰撞继续仅允许静态用途；步骤 2 的动态碎块使用新增凸形/compound。总刚体/角色上限 4096 是当前配置约束，不是已实测支持 4096 活跃碎块的承诺。
-- [NavigationSystem](../../../src/engine/runtime/navigation/navigation_system.cpp) 已在步骤 4 增加同步瓦片构建/替换及完整路径查询，但不自动更新动态物体，也没有代理调度；[TaskSystem](../../../src/engine/editor/task/task_system.cpp) 是编辑器任务系统，调用后同步等待；[PerformanceSystem](../../../src/engine/runtime/performance/performance_system.cpp) 的 Tracy 接入仍无这些阶段的采样。
+### 内存边界
 
-### 内存量级示例
-
-假设测试区 64×64×32 米，采样间距 0.5 米，每采样点暂按密度 16 bit＋材质 16 bit 估算：`128×128×64×4` 约 4 MiB。采样间距减半为 0.25 米，原始量约 32 MiB，即 8 倍。
-
-这是步骤 0 假设的样本量估算，忽略边界点且不是运行峰值。步骤 1 实际 schema 使用每点 32 bit 浮点密度，尚无每点材质，样本还需包括边界点；总占用仍要另计网格、碰撞、LOD、接缝、快照、GPU 数据及碎块。它说明精度必须作为项目参数，不能把整个世界长期保持最高精度和完整副本。
+当前每点为 32 bit 浮点密度，样本包含块边界；采样间距减半会使三维样本量约增至八倍。运行峰值还需计入网格、碰撞树、共享快照、GPU 与碎块，不能只用密度数组容量估计整场内存。RSS 是进程总量，不是地形或物理单项占用。
 
 ## 首个项目内的分步实现与测量
 
-所有场景位于 `projects/showcase/`，复用现有角色、菜单、UI 和特效。自建山地、洞穴、墙体、多层楼，不使用其他项目的商业素材。菜单、桌面和 Android 资源清单在对应阶段同时登记，保留原有测试场景。
-
-| 步骤 | 内容 | 验收结果 |
+| 步骤 | 当前完成范围 | 仍需区分的验收边界 |
 | --- | --- | --- |
-| 0. 技术验证 | 先用最小算法/资源验证 Mac ARM64、Android ARM64 的地形和 Blast 基础子集；应力、Mac Authoring 分开验证 | 列清能编译、能运行、尚未覆盖的平台；不触发整套依赖重编 |
-| 1. 地形实验场 | 已实现 64×64 米、32 米高体积，丘陵、洞穴、跨块隧道及球形挖掘/填充 | Debug/Release 定向测试通过；macOS Metal 窗口验收通过，正式 Android 插件尚未验证 |
-| 2. 建筑破坏场 | 已创建实心塔、Voronoi 墙、分段柱与固定损伤按钮；空心多层建筑输入尚未支持 | Mac 定向测试、MCP 窗口预览及最终菜单/UI 玩法均已通过；详见上文步骤 2，Android 独立 Graph 不等于 APK 通过 |
-| 3. 综合联动场 | 已联通挖地基、建筑下落、撞击再破坏、角色行走、烟尘与声音 | Mac 定向测试与窗口流程通过；洞穴/残骸通行尚未专项验收，综合世界存档未实现，详见步骤 3 记录 |
-| 4. 同步玩法补齐 | 已实现官方重力应力、动态土石、静态导航瓦片更新和有界密集火箭场 | Mac Debug/Release 各 8 项定向测试及 Android 独立应力探针通过；Mac 真实窗口两档连射、停火/重置/返回通过；手机性能未验收，不静默关闭某平台玩法 |
-| 5. 异步与扩量 | 功能完成后将重计算移到工作线程，同一场景加入连续爆炸和更多对象 | 对比同步基线，校验线程安全、版本和取消，再依据设备结果确定精度、数量及预算 |
+| 0. 技术验证 | Mac/Android ARM64 的基础算法与 Jolt 独立探针 | 不是完整引擎或手机性能 |
+| 1. 地形实验场 | 跨块挖填、颜色、保存恢复与 Mac 窗口流程 | LOD、分块上传、正式移动插件未验收 |
+| 2. 建筑破坏场 | 官方预破碎、组拆分/运动、撤销和 Mac 菜单流程 | 参数实心试件，不是任意模型或空心楼体 |
+| 3. 综合联动场 | 挖地基、撞击再损伤、表现和清理 | 综合存档、洞穴/残骸专项未完成 |
+| 4. 同步玩法补齐 | 应力、动态土石、静态导航、Mac 火箭场与 Android 独立应力探针 | 正式移动场景和手机长期负载未验收 |
+| 5. 单线程性能优化 | 分段/组树及物理准备优化，最终 Mac 基线已记录 | Jolt 单步和整体物理未达 0.5 ms；本轮停止优化 |
 
-固定种子、已发布资源版本、镜头路径和操作序列，用短流程重复对比。性能使用 Release，Debug 用于正确性检查；记录设备、后端、编译配置和帧率上限，将限帧等待与实际工作耗时分开。Mac 首跑、Android 实机复核；模拟器只能证明其环境下的功能，不代表手机性能。Windows/Linux/iOS 按实际可用环境补充，没测到的明确标记。
-
-每阶段记录帧耗时 P50/P95/P99 与最大值，生成、meshing、碰撞准备、提交各阶段耗时，修改到可见/可碰撞的延迟，CPU 峰值内存、GPU 上传量、活跃块/三角形、活跃刚体/接触数量。同步首版不要求队列指标；异步阶段再增加任务峰值、过期结果与取消统计。数值来自同一短场景的实测；不预先承诺手机同时炸几栋楼，也不重复全仓库测试。
-
-上述是逐步建立的测量清单，按当前阶段选择必要项；同步功能首版可先记录操作总耗时、网格/碰撞准备耗时与峰值内存，不把完整百分位采样或性能框架作为功能实现前置条件。
-
-步骤 0 至步骤 4 的验证范围分别见上文。步骤 1–3 已完成各自记录中的 Mac 定向测试和窗口流程；步骤 4 当前完成定向测试及 Android 独立应力探针。微型程序与无窗口测试都不能替代引擎窗口场景及实体设备验收。
+后续测量固定资源版本、镜头和操作序列，使用 Release 采样、Debug 检查正确性；分别报告单次、同帧累计、完整帧和固定步，保留零步/追赶帧及首次全量成本。平台只记录实际验证范围，模拟器不替代实体手机。测试与采样按当前模块选择，不触发全仓依赖重编或自动 CI。

@@ -1,10 +1,10 @@
 # 地形与建筑破坏制作方案
 
-记录日期：2026-10-31。状态：步骤 1 已实现同步地形导入、组件编解码、MCP、撤销/重做和 showcase 实验场，macOS Debug/Release 累计各六项定向测试均通过；macOS Metal 窗口验收通过。本次正式插件尚未验证 Android，步骤 0 的独立 ARM64 结果另列。步骤 2 已实现官方建筑预破碎、资源导入、MCP 和完整状态撤销代码；Mac 定向测试、MCP 窗口预览及最终菜单/UI 玩法已通过，具体事实与其余范围统一见[步骤 2 验证记录](../runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。整体目标见[运行时方案](../runtime/terrain-destruction-plan.md)，验证范围见[技术研究](../runtime/terrain-destruction-feasibility.md)。
+地形导入、组件编解码、MCP、撤销/重做、建筑预破碎及 showcase 实验场已实现。制作工具保持同步准备和原子发布；运行时已接入地基联动、撞击反馈、应力、土石塌方、导航和连续火箭测试。整体目标见[运行时方案](../runtime/terrain-destruction-plan.md)，各阶段实际平台验证见[技术研究](../runtime/terrain-destruction-feasibility.md)，当前性能与待优化项见[性能采样](../../runtime/performance.md)。
 
 全部测试统一放在第一个示例项目 `projects/showcase/`。当前已生成自制地形、墙柱和分层塔试件，后续扩展空心楼板与多层建筑，复用现有菜单、角色与效果；每阶段扩展本项目的场景和桌面/Android 资源清单，不另开测试项目或导入其他项目的商业资源。
 
-2026-10-31 用户补充：功能先同步实现，之后再移动到工作线程异步处理。首版生成、笔刷和预破碎同步返回完成或失败，保留准备与提交的职责边界；不以新增任务队列或进度框架为前置条件。既有 MCP 请求回执与编辑器命令通道继续沿用。
+生成、笔刷和预破碎同步返回完成或失败，保留准备与提交的职责边界。后台准备留待后续，既有 MCP 请求回执与编辑器命令通道继续沿用。
 
 ## 编辑器职责
 
@@ -16,7 +16,7 @@
 
 - 已实现 `.terrain` TOML 参数化生成：`cells_x/y/z`、`voxel_size`、`chunk_cells`、`origin`、`height`、`amplitude`、`frequency`、`seed` 与 `[[cavities]]` 的 `center/radius`。当前为平面/正弦起伏与球形洞穴，FastNoise2 和高度图导入尚未接入。
 - `.terrain.meta` 保留唯一资源身份，导入器按源数据和 schema/生成器指纹增量生成 `cache/gen/<GUID>`；运行时加载预生成密度，不依赖编辑器解析器。
-- 已实现节点局部坐标下的球形挖掘、填充、重置及保存/恢复。脚本直接笔刷会复用块缓存并局部重建；编辑器/MCP 使用候选 ETRS 快照和 `TerrainStateEdit`，当前 `restore` 重新初始化体积，因此笔刷、撤销/重做、加载和重置均重建全部块。两条路径都合并成单 Mesh 后整体上传与构建碰撞，当前同步执行。
+- 已实现节点局部坐标下的球形挖掘、填充、重置及保存/恢复。脚本直接笔刷会复用块缓存并局部重建；编辑器/MCP 使用候选 ETRS 快照和 `TerrainStateEdit`，当前 `restore` 重新初始化体积，因此笔刷、撤销/重做、加载和重置均重建全部块。渲染仍合并为单 Mesh 后整体上传；静态碰撞使用分段几何，直接笔刷可复用未变叶子和复合树分组。恢复路径的全量准备成本仍需单独测量，不能套用局部笔刷预算。见[碰撞方案](../runtime/terrain-collision-plan.md)。
 - 地表与洞壁可设置顶点色及 UV 缩放，材质引用使用通用资源路径和 Shader 参数；平滑、材质层笔刷和更丰富的纹理映射尚未实现。
 - 初始地图与运行修改分离；无限地图、运行时按需生成和后台队列均留待后续。
 
@@ -27,7 +27,7 @@
 - 生成 `DestructionAssetData` 保存片段几何、体积、质心、初始锚点与连接；初始锚点强度使用 `bond_health`。不发布 Blast 平台内存布局，材质由场景组件显式引用。
 - `DestructionImporter` 参与现有增量管线和原子资源发布；`DestructionCodec` 维护 `type = "destruction"` 与 destruction/material GUID、密度、摩擦及恢复系数。运行时不需要 TOML、Authoring 或 Boost。
 - 动态组使用 Jolt 官方凸包/复合形状，一个组可保留多个相连碎块。首版仅允许根节点与正等比缩放；显示和碰撞节点都是可重建的瞬态对象，不进入场景持久数据。
-- 切面独立材质、碎块层级、任意模型输入、应力、自动地基采样和撞击反馈尚未实现。
+- 切面独立材质、碎块层级和任意模型输入尚未实现。运行时应力、地基采样和撞击反馈已接入，使用相同破坏资源；制作工具不承担运行时求解。
 
 ## 参数、导入与发布
 
@@ -73,12 +73,12 @@ showcase 菜单第六项 `Terrain laboratory` 进入 `project/scenes/terrain.sce
 
 编辑记录使用场景身份、稳定节点、组件设置与共享预期 revision 验证。连续编辑共用游标并在成功应用/撤销后更新，支持多层 undo/redo；普通物理位移不改变 revision，脚本外部损伤则拒绝由旧历史覆盖。新资源输入失败时保留原有效资源；后台线程和任务取消不属于当前实现。
 
-脚本 `DestructionComponent.DamageSphere(x,y,z,radius,damage,impulse=0)` 与 `Reset()` 使用相同运行时系统。当前没有独立建筑 Save/Load 槽位，也没有自动地形地基联动。MCP schema 使用现有注册器支持的 `minimum`，半径和密度的严格正数要求由业务校验落实。
+脚本 `DestructionComponent.DamageSphere(x,y,z,radius,damage,impulse=0)` 与 `Reset()` 使用相同运行时系统。当前没有独立建筑 Save/Load 槽位；地基联动由项目调用已有支撑更新接口组织。MCP schema 使用现有注册器支持的 `minimum`，半径和密度的严格正数要求由业务校验落实。
 
 ## 开发前约束
 
 先核实开源版本、许可、依赖和平台可用性，再更新所属层级类图并实现。商业包只在本地参考，不提交其源码、转换片段或付费素材。公开测试使用可提交的自制或许可允许的资源；项目专有内容不迁移到其他项目。
 
-步骤 1 已完成正式地形实现并通过 macOS Debug/Release 的 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline` 五项定向测试；地形 MCP schema 改用注册器支持的 `minimum` 后，补跑 `engine.mcp_registry` 也通过（Debug 0.76 秒、Release 0.61 秒），累计各六项。日志见忽略目录 `build/terrain-step1/`。真实 Metal 窗口的地形操作及预览生命周期已通过，正式 Android 地形插件尚未验证；没有因本次实现把商业插件源码或素材加入仓库。
+地形制作阶段已通过 macOS Debug/Release 的 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline`、`engine.mcp_registry` 六项定向测试，日志保留在忽略目录 `build/terrain-step1/`。Metal 窗口的地形操作及预览生命周期已通过；正式 Android 地形插件尚未验证。
 
-步骤 2 的具体测试、窗口回执及剩余验收范围统一维护在上述验证记录，不将资源清单登记、依赖编译或独立 Graph 探针视为全平台完成。
+建筑制作的测试、窗口回执及剩余验收范围统一维护在[技术研究](../runtime/terrain-destruction-feasibility.md)，不将资源清单登记、依赖编译或独立 Graph 探针视为全平台完成。

@@ -9,7 +9,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
 - [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
-- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、应力/塌方/导航与火箭场步骤 4、开源来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
+- [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、应力/塌方/导航与火箭场步骤 4、开源技术来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
 - [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
 架构以[类图索引](docs/class-diagrams/index.md)为评审入口。`include/engine/` 与 `src/engine/` 按 `runtime/`、`editor/`、`plugins/runtime/`、`plugins/editor/` 对应组织；运行时各系统继续独立成目录，公共工具放在 `runtime/utils/`。自有头文件从层级名开始包含，例如 `runtime/resource/resource_system.hpp`、`editor/editor_system.hpp`、`plugins/editor/mcp/mcp_system.hpp`，搜索根由目标传递。`Engine` 只管理抽象根系统，不直接依赖窗口、渲染、脚本或项目模块。`RuntimeHost` 负责系统装配、窗口与帧调度，`GameplaySession` 负责玩法会话及场景资源清理；世界持有物理、导航、动画、字体、运行时 UI、音频及可选脚本子系统。引擎启动不需要项目，项目是编辑器宿主的启动上下文。
@@ -518,7 +518,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 `set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
 
-独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主，当前没有业务采样逻辑。`ENGINE_ENABLE_TRACY=ON` 在配置期选择并私有链接 Tracy 0.14.1 客户端，使用按需连接模式、不启用崩溃处理器；默认 `OFF` 时不引入 Tracy 依赖。客户端保留上游进程生命周期与后台连接线程，尚未接入 CPU 区域、GPU 或内存跟踪。此选项与 bgfx 面板开关独立。
+独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、脚本、地形、破坏、物理、导航、渲染、UI、动画及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
+
+后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[最终可信基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
@@ -977,7 +979,7 @@ Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含�
 | `ENGINE_RUNTIME_PLUGINS` | 按运行时依赖选择 | 运行时依赖开启时包含 `resource_graph;character_controller;effects;terrain;destruction`，脚本开启时加入 `script`；分号分隔，支持显式空列表 |
 | `ENGINE_EDITOR_PLUGINS` | 按已启用能力选择 | 选择满足依赖的编辑器插件，含资源管线启用时的 `terrain` 和 `destruction`；完整默认清单见[插件说明](docs/plugins/plugins.md)，支持显式空列表 |
 | `ENGINE_ENABLE_GPU_TESTS`           | `OFF`      | 注册需要图形桌面和真实 GPU 的窗口测试                                                         |
-| `ENGINE_ENABLE_TRACY` | `OFF` | 编译性能系统的 Tracy 按需客户端；仅占位接入，未添加业务采样 |
+| `ENGINE_ENABLE_TRACY` | `OFF` | 编译 Tracy 按需客户端与分段 CPU/帧/bgfx 统计采样，默认关闭 |
 | `ENGINE_ENABLE_V8` | `OFF` | 未装配脚本插件时启用独立 V8 验证；脚本插件由 `ENGINE_SCRIPT_BACKEND` 决定依赖 |
 | `ENGINE_SCRIPT_BACKEND` | `quickjs` | 脚本插件编译期后端，只接受 `quickjs` 或 `v8` |
 | `ENGINE_V8_ENABLE_WEBASSEMBLY` | `OFF` | V8 WebAssembly，全部平台默认裁剪 |
@@ -1022,7 +1024,6 @@ Showcase 主菜单的 `Effects laboratory` 打开两个公开上游示例：Lase
 
 模型实景验证修正了 efkbgfx 与 Effekseer 1808 的三处适配：采用官方独立模型渲染器工厂完成 Shader 初始化，顶点布局包含新增 UV2，模型实例常量容量与现有 Shader 的 40 项一致。布局偏移及大小具有编译期检查，补丁只应用到构建副本；最后的 Debug／Release 模型回归同时验证真实网格上传、与粒子同屏及删除后的 GPU 资源释放。
 
-
 ## 地形插件与实验场
 
 同步步骤 1 由 `runtime/terrain` 和 `editor/terrain` 两个插件实现。前者提供 `TerrainVolume`、`TerrainSystem` 及普通节点上的 `TerrainComponent`；后者负责源数据导入、组件编解码、可撤销编辑与 MCP。核心只补通用瞬时网格碰撞提交，不依赖地形插件。运行时复用现有 MeshRenderer 和 Jolt，生成的显示/碰撞组件标记为瞬态，不重复写入场景文件。
@@ -1041,13 +1042,9 @@ MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terra
 
 状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
 
-当前脚本直接调用 `TerrainComponent::apply_sphere` 时复用块缓存，CPU 只重建脏块及相邻梯度边界。MCP 笔刷经 `TerrainStateEdit` 提交候选 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置会重建全部块；脚本 `Load`/`Reset` 同样全块重建。两条路径最终都合并成单个 Mesh，完整 GPU 上传与 Jolt cook，并同步占用调用线程。分块 GPU/碰撞提交、后台线程和差量存档尚未实现，不能将局部 CPU 重建能力概括为所有编辑入口均已增量。
+当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。全部路径继续同步执行，分块 GPU 上传、后台线程和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
 
-本次 macOS ARM64 Debug/Release 构建及累计各六项定向 CTest 均通过：首批 `engine.physics`、`engine.scene`、`editor.scene_persistence`、`engine.terrain_runtime`、`editor.terrain_pipeline` 总时长分别 6.74/3.35 秒；地形 MCP 参数约束改用注册器支持的 `minimum` 后，补跑 `engine.mcp_registry`，分别为 0.76/0.61 秒。日志在忽略目录 `build/terrain-step1/`。真实 Metal 窗口的地形操作与预览生命周期已通过，正式 Android 插件代码尚未验证；步骤 0 的 Android ARM64 独立探针结果不能替代这次新插件验证。未运行全仓库测试、V8 构建或 CI。
-
-实景验证包含隧道穿过 z=0、z=-16 两条块边界、挖坑/填充、MCP 撤销/重做和设置颜色后保持体积，以及 UI 保存→重置→加载的 ETRS 字节哈希比对。脚本直接挖掘实测重建 4/32 块；这一数量不是所有笔刷位置的固定承诺。场景阴影偏移调整到 0.004，消除了初始参数导致的主要自阴影条纹。预览通过显式 `TerrainSystem::synchronize()` 同步，未绕过核心对子系统直接 Tick 的限制；关闭预览后场景和节点归零、窗口空白。该修复补跑 Debug/Release `engine.terrain_runtime`，分别 2.26/0.75 秒通过。回执与截图见忽略的 `build/terrain-step1/terrain-r1-report.json`、`terrain-r1-extra-report.json`、`terrain-r3-report.json` 和 `projects/showcase/cache/screenshots/terrain-*.png`。
-
-最终运行还验证了角色短走 2.373 米并稳定停留在地形上，以及 UI 爆炸挖坑重建 6/32 块。回执为 `build/terrain-step1/terrain-r3-finish-report.json`，最终画面为 `projects/showcase/cache/screenshots/terrain-r3-final-crater-overview.png`；角色行走仍需键鼠，触屏当前仅操作实验按钮。
+已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[最终可信基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
 
 架构见[运行时类图](docs/plugins/runtime/class-diagrams/terrain.md)、[编辑器类图](docs/plugins/editor/class-diagrams/terrain-editor.md)和[脚本接口](docs/plugins/runtime/class-diagrams/terrain-script-api.md)；阶段范围及实测限制见[总体方案](docs/plugins/runtime/terrain-destruction-plan.md)与[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)。
 
@@ -1079,15 +1076,9 @@ MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
-实现仍同步：每次成功损伤提交会重建组的网格与碰撞，尚未针对大规模连续爆炸优化。
-地形地基、撞击再破坏及烟尘音效已在步骤 3 联通；步骤 4 已接入官方 ExtStress 同步重力应力，异步调度仍属后续。下述 9 项及窗口数据为步骤 2 的历史验收。
-macOS ARM64 Debug/Release 各 9 项定向测试通过，覆盖运行时图与物理、Authoring、导入、
-编辑事务、MCP 注册和相关核心回归。真实窗口已验证预览损伤/撤销重做/关闭空白，
-以及正常菜单第七入口和 wall/column/base/top/reset 按钮；重置后三个试件均回到 1 组、0 动态组。
-针对源 Transform 禁用补充的运行时回归也已在 Debug/Release 通过。
-本轮只调整示例脚本的爆心和冲量以展示运动，不将塔体下沉宣称为高楼承重应力坍塌。
-最终脚本参数刷新后的 UI 损伤/重置、两台观察镜头和返回菜单均已实测通过；
-停止项目后场景为空、节点数归零。完整事实统一见
+实现仍同步，按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
+
+已有 macOS ARM64 Debug/Release 回归覆盖运行时图与物理、Authoring、导入、编辑事务、MCP 注册及组件禁用。真实窗口验证过预览损伤/撤销重做、菜单入口、各试件损伤与重置、观察镜头和返回清理；停止后场景为空、节点数归零。功能事实见
 [步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
 Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；异步处理尚未实现。
 
@@ -1109,8 +1100,10 @@ Showcase 主菜单第八项 **Combined destruction** 共用地形、Blast 破坏
 - `Weak beam / normal` 切换梁的项目强度参数；填土或恢复强度不会自动接上已断连接。`Reset all` 停止炮击、清理弹体/表现/土石、恢复地形与四个结构，并重建导航和复位角色。火箭尾焰、烟尘与爆破由固定版本 Effekseer 官方导出器制作，音效为原创合成资源。
 
 Mac Debug / Release 已累计各通过 8 项定向测试；Android ARM64 仅通过独立 Graph/ExtStress 探针。
-步骤 4 当前真实窗口验收待补，不能沿用步骤 3 的截图当成本阶段结果。
+步骤 4 已用最终资源版本完成真实窗口两档连射、停火、重置、短走及返回清理；这些是同步功能验收，不等于达到请求射速。
 证据与限制见[步骤 4 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
 面板用 `Date.now()` 显示实际墙钟帧间隔的指数平均与最大值，**包含限帧等待与截图开销**，不是 CPU/GPU 工作耗时或 P95。每轮连射清帧间隔统计，每约一秒和最终完成时输出 `Rocket range sample` JSON（含实际发射率、命中、blocked、碎块/土石与导航状态）。
 目前没有综合世界存档、移动残骸导航、异步任务、完整建筑力学或手机性能结论；
 这些能力的单测通过也不代表连续炮击已经达到目标吞吐。
+
+物理与直接相关的地形碰撞继续采用单线程，已有 Mac Debug/Release 受影响构建与定向回归通过。最终可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[最终可信基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。

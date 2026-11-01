@@ -220,9 +220,34 @@ bool runtime_contract()
     auto* collider = node->get_component<Collider>();
     schema::SceneDataT scene_data;
     if (!expect(renderer && collider && renderer->transient() && collider->transient() &&
+                    collider->mesh_data() == nullptr && scene->nodes().size() == 1 &&
                     scene->build_data(scene_data) && scene_data.nodes.size() == 1 &&
                     scene_data.nodes.front()->components.size() == 2 && cast(0.25, true),
                 "scene snapshot retains only Transform and Terrain, excluding generated outputs"))
+    {
+        return false;
+    }
+    float original_fraction = 0;
+    float edited_fraction = 0;
+    if (!expect(physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, original_fraction) &&
+                    original_fraction < 1 && component->apply_sphere({-8, -1, 0.25}, 2, false) &&
+                    component->rebuilt_chunks() > 0 &&
+                    component->rebuilt_chunks() < component->chunk_count() &&
+                    physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
+                    edited_fraction > original_fraction + 0.1F && edited_fraction < 1 &&
+                    cast(12, true) && physics.body_count() == 1 && scene->nodes().size() == 1 &&
+                    node->get_component<Collider>() == collider && component->reset() &&
+                    physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
+                    std::abs(edited_fraction - original_fraction) < 0.001F,
+                "a local brush replaces only affected chunks on the same collider and restores "
+                "the original surface"))
+    {
+        return false;
+    }
+    physics.clear();
+    if (!expect(physics.tick(0) && physics.body_count() == 1 && cast(12, true) &&
+                    node->get_component<Collider>() == collider,
+                "clearing physics rebuilds all terrain chunks from the retained collider"))
     {
         return false;
     }
@@ -298,7 +323,8 @@ bool runtime_contract()
                     !collider->enabled() && physics.body_count() == 0 && cast(0.25, false) &&
                     component->apply_sphere({0, -4, 0}, 4, true) &&
                     component->triangle_count() > 0 && renderer->visible() && collider->enabled() &&
-                    physics.body_count() == 1 && cast(0.25, true) && component->restore(saved) &&
+                    physics.body_count() == 1 && node->get_component<Collider>() == collider &&
+                    scene->nodes().size() == 1 && cast(0.25, true) && component->restore(saved) &&
                     cast(0.25, false) && cast(12, true),
                 "filling an entirely empty terrain restores collision without a physics tick"))
     {
@@ -312,7 +338,8 @@ bool runtime_contract()
         return false;
     }
     component->set_enabled(true);
-    if (!expect(terrain.tick(0) && physics.tick(0) && cast(12, true),
+    if (!expect(terrain.tick(0) && physics.tick(0) && cast(12, true) &&
+                    physics.body_count() == 1 && node->get_component<Collider>() == collider,
                 "reenabling terrain restores its modified surface"))
     {
         return false;
@@ -450,10 +477,35 @@ bool island_contract()
         total_volume += fragment.volume;
         if (!expect(MeshUtils::validate(fragment.mesh) &&
                         Collider::valid_settings(fragment.collision) &&
-                        fragment.collision.hulls.size() > 1,
-                    "fragment surface and per-cell compound retain valid concave collision"))
+                        fragment.collision.hulls.size() == 27,
+                    "each two-sample cube retains its interior cell and all 26 boundary hulls"))
         {
             return false;
+        }
+        std::array<double, 3> low{};
+        std::array<double, 3> high{};
+        low.fill(std::numeric_limits<double>::max());
+        high.fill(std::numeric_limits<double>::lowest());
+        for (const auto& hull : fragment.collision.hulls)
+        {
+            for (const auto& vertex : hull->vertices)
+            {
+                const std::array<double, 3> point{vertex.x(), vertex.y(), vertex.z()};
+                for (std::size_t axis = 0; axis < point.size(); ++axis)
+                {
+                    low[axis] = std::min(low[axis], point[axis]);
+                    high[axis] = std::max(high[axis], point[axis]);
+                }
+            }
+        }
+        for (std::size_t axis = 0; axis < low.size(); ++axis)
+        {
+            if (!expect(high[axis] - low[axis] == 2.0 &&
+                            (low[axis] == 5.5 || low[axis] == 7.5),
+                        "collision keeps both half-cell surfaces and the original world bounds"))
+            {
+                return false;
+            }
         }
     }
     std::size_t removed = 0;
@@ -475,6 +527,75 @@ bool island_contract()
                       volume.extract_detached(8, 8, 2, fragments, error) && fragments.empty() &&
                       volume.data() == connected,
                   "a thin six-connected support preserves the island until it is severed");
+}
+
+bool incremental_collapse_contract()
+{
+    schema::TerrainAssetDataT asset;
+    asset.cells_x = asset.cells_y = asset.cells_z = 32;
+    asset.chunk_cells = 16;
+    asset.density.assign(33 * 33 * 33, 1);
+    for (unsigned z = 1; z < 32; ++z)
+    {
+        for (unsigned y = 1; y <= 10; ++y)
+        {
+            for (unsigned x = 1; x < 32; ++x)
+            {
+                // Place the sample beside the top edge: the neighboring normal has x/y
+                // components, so changing its x gradient changes the normalized direction.
+                // A flat wall would change only gradient magnitude, not its final normal.
+                const bool ground = y <= 2;
+                const bool wall = x >= 17 && y <= 8 && z >= 6 && z <= 10;
+                const bool island = x == 15 && y == 8 && z == 8;
+                if (ground || wall || island)
+                {
+                    asset.density[(z * 33 + y) * 33 + x] = -1;
+                }
+            }
+        }
+    }
+    TerrainVolume volume;
+    TerrainVolume rebuilt;
+    schema::MeshDataT before;
+    schema::MeshDataT after;
+    schema::MeshDataT full;
+    std::string error;
+    std::vector<plugins::terrain::TerrainFragment> fragments;
+    if (!expect(volume.initialize(asset, error) && volume.build_mesh(before, error) &&
+                    volume.chunk_count() == 8 &&
+                    volume.extract_detached(1, 1, 2, fragments, error) && fragments.size() == 1 &&
+                    volume.build_mesh(after, error) && volume.rebuilt_chunks() == 2 &&
+                    rebuilt.initialize(volume.data(), error) && rebuilt.build_mesh(full, error) &&
+                    triangles(after) == triangles(full),
+                "collapse rebuilds only geometry/normal neighbors and matches full regeneration"))
+    {
+        return false;
+    }
+    const auto right_side = [](const schema::MeshDataT& mesh)
+    {
+        std::vector<std::array<float, 6>> result;
+        for (const auto& vertex : mesh.vertices)
+        {
+            if (vertex.x() >= 16)
+            {
+                result.push_back({vertex.x(), vertex.y(), vertex.z(), vertex.nx(), vertex.ny(),
+                                  vertex.nz()});
+            }
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    if (!expect(right_side(before) != right_side(after),
+                "removing a boundary sample changes the neighboring chunk's normalized normals"))
+    {
+        return false;
+    }
+    const auto collision = volume.collision_data();
+    return expect(volume.extract_detached(1, 1, 2, fragments, error) && fragments.empty() &&
+                      volume.build_mesh(full, error) && volume.rebuilt_chunks() == 0 &&
+                      volume.collision_data().parts == collision.parts &&
+                      triangles(full) == triangles(after),
+                  "empty extraction retains all geometry and collision caches");
 }
 
 bool collapse_runtime_contract()
@@ -605,7 +726,7 @@ bool collapse_runtime_contract()
 int main()
 {
     return volume_contract() && runtime_contract() && subsystem_contract() && island_contract() &&
-                   collapse_runtime_contract()
+                   incremental_collapse_contract() && collapse_runtime_contract()
                ? 0
                : 1;
 }

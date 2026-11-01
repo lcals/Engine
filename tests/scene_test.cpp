@@ -14,8 +14,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <fstream>
 #include <limits>
 #include <memory>
+#include <string>
+#include <vector>
 #include <utility>
 
 namespace
@@ -218,6 +221,223 @@ bool hierarchy_and_transforms()
            expect(scene->active_camera() == nullptr && scene->nodes().size() == 1 &&
                       scene->find_node(sibling_id) == sibling,
                   "subtree deletion clears active camera and preserves unrelated nodes");
+}
+
+// Use the public resource boundary so restoration still runs through WorldSystem's candidate scene.
+bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
+                         const engine::schema::SceneDataT& data)
+{
+    using namespace engine;
+    flatbuffers::FlatBufferBuilder builder;
+    schema::FinishSceneDataBuffer(builder, schema::SceneData::Pack(builder, &data));
+    auto entry = std::make_unique<schema::AssetEntryT>();
+    std::array<char, 37> guid{};
+    std::snprintf(guid.data(), guid.size(), "40000000-0000-4000-8000-%012zu",
+                  fixture.catalog.entries.size() + 1);
+    entry->guid = guid.data();
+    entry->path = path;
+    entry->kind = schema::AssetKind::scene;
+    ByteBuffer entity;
+    const ByteView payload(reinterpret_cast<const std::byte*>(builder.GetBufferPointer()),
+                           builder.GetSize());
+    if (!ResourceSystem::encode_resource(entry->guid, entry->kind, payload, entity,
+                                         entry->header_size))
+    {
+        return false;
+    }
+    std::uint64_t hash = 14695981039346656037ULL;
+    for (const auto value : entity)
+    {
+        hash = (hash ^ std::to_integer<std::uint8_t>(value)) * 1099511628211ULL;
+    }
+    std::array<char, 17> digest{};
+    std::snprintf(digest.data(), digest.size(), "%016llx", static_cast<unsigned long long>(hash));
+    entry->content_hash = digest.data();
+    entry->content_size = entity.size();
+    entry->location = std::make_unique<schema::FileLocationT>();
+    entry->location->mount = "content";
+    entry->location->path = "gen/" + entry->guid;
+    entry->location->length = entity.size();
+    std::ofstream stream(fixture.root / entry->location->path, std::ios::binary);
+    stream.write(reinterpret_cast<const char*>(entity.data()),
+                 static_cast<std::streamsize>(entity.size()));
+    stream.close();
+    if (!stream)
+    {
+        return false;
+    }
+    fixture.catalog.entries.push_back(std::move(entry));
+    return true;
+}
+
+bool indexed_scene_restore()
+{
+    using namespace engine;
+    test_support::ResourceFixture fixture;
+    auto* resources = ResourceSystem::instance();
+    WorldSystem world;
+    if (!resources || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* original = world.create_scene("Indexed nodes");
+    if (!original)
+    {
+        return false;
+    }
+    for (const char* name : {"Leaf", "Root", "Branch", "Spare"})
+    {
+        if (!original->create_node(name))
+        {
+            return false;
+        }
+    }
+    auto* camera = original->nodes()[0]->add_component<Camera>();
+    schema::SceneDataT source;
+    if (!camera || !original->set_active_camera(camera) || !original->build_data(source))
+    {
+        return false;
+    }
+    // Parents follow children; consecutive resource IDs also collide with naive temporary IDs.
+    const std::array<std::uint64_t, 4> ids{42, 1, 2, 10000};
+    for (std::size_t i = 0; i < ids.size(); ++i)
+    {
+        source.nodes[i]->info->id = ids[i];
+    }
+    source.nodes[0]->info->parent_id = 2;
+    source.nodes[2]->info->parent_id = 1;
+    source.info->active_camera_node = 42;
+    if (!add_scene_resource(fixture, "project/indexed.scene", source) ||
+        !fixture.publish(*resources))
+    {
+        return false;
+    }
+    auto* loaded = world.load_scene("project/indexed.scene");
+    if (!expect(loaded && loaded->nodes().size() == ids.size(), "restore sparse unordered IDs"))
+    {
+        return false;
+    }
+    for (std::size_t i = 0; i < ids.size(); ++i)
+    {
+        auto* node = loaded->nodes()[i].get();
+        if (!expect(node->info().id == ids[i] && loaded->find_node(node->id()) == node &&
+                        std::as_const(*loaded).find_node(node->id()) == node,
+                    "resource order and both const/mutable runtime lookups survive restoration"))
+        {
+            return false;
+        }
+    }
+    auto* leaf = loaded->nodes()[0].get();
+    auto* root = loaded->nodes()[1].get();
+    auto* branch = loaded->nodes()[2].get();
+    auto* spare = loaded->nodes()[3].get();
+    if (!expect(leaf->parent() == branch && branch->parent() == root && !root->parent() &&
+                    !spare->parent() && loaded->active_camera() == leaf->get_component<Camera>() &&
+                    !loaded->find_node(0),
+                "local identity index resolves parents and camera independently of runtime IDs"))
+    {
+        return false;
+    }
+    camera = loaded->active_camera();
+    for (unsigned failure = 0; failure < 5; ++failure)
+    {
+        auto invalid = source;
+        if (failure == 0)
+        {
+            invalid.nodes[3]->info->id = 2;
+        }
+        else if (failure == 1)
+        {
+            invalid.nodes[1]->info->parent_id = 42;
+        }
+        else if (failure == 2)
+        {
+            invalid.nodes[3]->info->parent_id = 999;
+        }
+        else if (failure == 3)
+        {
+            invalid.info->active_camera_node = 10000;
+        }
+        else
+        {
+            invalid.nodes[3]->components.clear();
+        }
+        const auto path = "project/invalid-index-" + std::to_string(failure) + ".scene";
+        if (!add_scene_resource(fixture, path, invalid) || !fixture.publish(*resources) ||
+            !expect(!world.load_scene(path) && world.scene() == loaded &&
+                        loaded->find_node(leaf->id()) == leaf && leaf->parent() == branch &&
+                        loaded->active_camera() == camera,
+                    "failed candidate cleans its indices without changing the active scene"))
+        {
+            return false;
+        }
+    }
+    std::vector<Node*> survivors{spare};
+    std::vector<std::uint64_t> removed{leaf->id(), root->id(), branch->id()};
+    for (std::size_t i = 0; i < 256; ++i)
+    {
+        auto* node = loaded->create_node("Indexed growth");
+        if (!expect(node && node->info().id == 10001 + i && !node->parent(),
+                    "new local IDs advance from the restored maximum"))
+        {
+            return false;
+        }
+        if (i % 2 == 0)
+        {
+            survivors.push_back(node);
+        }
+        else
+        {
+            if (!node->set_parent(branch))
+            {
+                return false;
+            }
+            removed.push_back(node->id());
+        }
+    }
+    auto* unrelated = loaded->create_node("Unrelated root");
+    if (!expect(unrelated && loaded->destroy_node(unrelated->id()) &&
+                    loaded->active_camera() == camera,
+                "deleting another root keeps the indexed active camera"))
+    {
+        return false;
+    }
+    if (!expect(leaf->parent() == branch && loaded->destroy_node(root->id()) &&
+                    !loaded->active_camera() && loaded->nodes().size() == survivors.size(),
+                "subtree deletion works after index growth with interleaved surviving nodes"))
+    {
+        return false;
+    }
+    for (auto id : removed)
+    {
+        if (!expect(!loaded->find_node(id),
+                    "deleted descendants cannot resolve through stale indices"))
+        {
+            return false;
+        }
+    }
+    for (std::size_t i = 0; i < survivors.size(); ++i)
+    {
+        if (!expect(loaded->nodes()[i].get() == survivors[i] &&
+                        loaded->find_node(survivors[i]->id()) == survivors[i] &&
+                        !survivors[i]->parent(),
+                    "stable erase preserves remaining node order, addresses and root identity"))
+        {
+            return false;
+        }
+    }
+    source.nodes[0]->info->id = std::numeric_limits<std::uint64_t>::max();
+    source.info->active_camera_node = source.nodes[0]->info->id;
+    if (!add_scene_resource(fixture, "project/index-limit.scene", source) ||
+        !fixture.publish(*resources))
+    {
+        return false;
+    }
+    loaded = world.load_scene("project/index-limit.scene");
+    return expect(loaded && loaded->nodes().size() == ids.size() && loaded->active_camera() &&
+                      loaded->nodes()[0]->parent() == loaded->nodes()[2].get() &&
+                      !loaded->create_node("Cannot wrap ID"),
+                  "maximum local ID may precede other nodes; automatic allocation never wraps");
 }
 
 bool component_contracts()
@@ -634,7 +854,8 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !hierarchy_and_transforms() || !component_contracts() || !transient_nodes() ||
+        !hierarchy_and_transforms() || !indexed_scene_restore() || !component_contracts() ||
+        !transient_nodes() ||
         !material_contracts() || !resource_namespaces())
     {
         return 1;

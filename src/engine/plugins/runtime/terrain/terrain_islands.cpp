@@ -1,5 +1,7 @@
 #include "plugins/runtime/terrain/terrain_volume.hpp"
 
+#include "runtime/performance/profiling.hpp"
+
 // Algorithm references: Godot Voxel Tools, MIT, commit
 // 045ff9326a32fd10ac6fdac6357b5a098aaf2093, util/island_finder.h and
 // edition/floating_chunks.cpp. Adapt the six-neighbor/boundary exclusion workflow;
@@ -38,36 +40,50 @@ schema::Vec3 position(const Data& data, unsigned x, unsigned y, unsigned z)
             data.origin.z() + z * data.voxel_size};
 }
 
-bool build_collision(const Data& data, schema::ColliderDataT& collision, std::string& error)
+bool build_collision(const Data& data, const Coordinate& cells, schema::ColliderDataT& collision,
+                     std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.fragment_collision");
     collision.shape = schema::ColliderShape::compound;
     // A convex hull for each occupied cell preserves concavity between cells. Interior cells
     // contain their eight solid corners; surface cells also contain exact SDF edge intersections.
     // Jolt constructs and validates every hull; no separate convex-decomposition implementation.
-    for (unsigned z = 0; z < data.cells_z; ++z)
+    // Only cells touching the isolated negative samples can contain geometry. The rest of the
+    // padded meshing volume is air; keep both boundary cells around the sample bounds.
+    for (unsigned z = 0; z < cells[2]; ++z)
     {
-        for (unsigned y = 0; y < data.cells_y; ++y)
+        for (unsigned y = 0; y < cells[1]; ++y)
         {
-            for (unsigned x = 0; x < data.cells_x; ++x)
+            for (unsigned x = 0; x < cells[0]; ++x)
             {
                 std::array<float, 8> values{};
                 std::array<schema::Vec3, 8> corners{};
-                auto hull = std::make_unique<schema::ColliderHullDataT>();
+                bool solid = false;
                 for (unsigned corner = 0; corner < 8; ++corner)
                 {
                     const auto px = x + (corner & 1U);
                     const auto py = y + ((corner >> 1U) & 1U);
                     const auto pz = z + ((corner >> 2U) & 1U);
-                    corners[corner] = position(data, px, py, pz);
                     values[corner] = data.density[offset(data, px, py, pz)];
-                    if (values[corner] < 0)
-                    {
-                        hull->vertices.push_back(corners[corner]);
-                    }
+                    solid = solid || values[corner] < 0;
                 }
-                if (hull->vertices.empty())
+                if (!solid)
                 {
                     continue;
+                }
+                // Eight corners plus at most twelve edge crossings; allocate the final vertex
+                // array once after collecting the same ordered points as the full-cell scan.
+                std::array<schema::Vec3, 20> points{};
+                std::size_t point_count = 0;
+                for (unsigned corner = 0; corner < 8; ++corner)
+                {
+                    corners[corner] = position(data, x + (corner & 1U),
+                                               y + ((corner >> 1U) & 1U),
+                                               z + ((corner >> 2U) & 1U));
+                    if (values[corner] < 0)
+                    {
+                        points[point_count++] = corners[corner];
+                    }
                 }
                 for (unsigned corner = 0; corner < 8; ++corner)
                 {
@@ -86,9 +102,9 @@ bool build_collision(const Data& data, schema::ColliderDataT& collision, std::st
                                          static_cast<double>(values[corner] - values[other]);
                         const auto& a = corners[corner];
                         const auto& b = corners[other];
-                        hull->vertices.emplace_back(a.x() + t * (b.x() - a.x()),
-                                                     a.y() + t * (b.y() - a.y()),
-                                                     a.z() + t * (b.z() - a.z()));
+                        points[point_count++] = {a.x() + t * (b.x() - a.x()),
+                                                a.y() + t * (b.y() - a.y()),
+                                                a.z() + t * (b.z() - a.z())};
                     }
                 }
                 if (collision.hulls.size() >= 4096)
@@ -96,6 +112,8 @@ bool build_collision(const Data& data, schema::ColliderDataT& collision, std::st
                     error = "Terrain fragment exceeds the compound hull budget";
                     return false;
                 }
+                auto hull = std::make_unique<schema::ColliderHullDataT>();
+                hull->vertices.assign(points.data(), points.data() + point_count);
                 collision.hulls.push_back(std::move(hull));
             }
         }
@@ -106,6 +124,7 @@ bool build_collision(const Data& data, schema::ColliderDataT& collision, std::st
 bool build_fragment(const Data& source, const std::vector<std::size_t>& samples,
                     TerrainFragment& output, std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.fragment_mesh");
     Coordinate low{source.cells_x, source.cells_y, source.cells_z};
     Coordinate high{};
     for (auto index : samples)
@@ -154,8 +173,11 @@ bool build_fragment(const Data& source, const std::vector<std::size_t>& samples,
                                  point[2] - low[2])] = source.density[index];
     }
     TerrainVolume mesh_volume;
+    const Coordinate collision_cells{high[0] - low[0] + 1, high[1] - low[1] + 1,
+                                      high[2] - low[2] + 1};
     if (!mesh_volume.initialize(isolated, error) || !mesh_volume.build_mesh(output.mesh, error) ||
-        output.mesh.indices.empty() || !build_collision(isolated, output.collision, error))
+        output.mesh.indices.empty() ||
+        !build_collision(isolated, collision_cells, output.collision, error))
     {
         if (error.empty())
         {
@@ -173,6 +195,7 @@ bool TerrainVolume::extract_detached(std::uint32_t min_samples, std::uint32_t ma
                                      std::uint32_t fragment_cells,
                                      std::vector<TerrainFragment>& output, std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Terrain.extract_detached");
     output.clear();
     error.clear();
     if (chunks_.empty() || min_samples == 0 || min_samples > data_.density.size() ||
@@ -184,65 +207,69 @@ bool TerrainVolume::extract_detached(std::uint32_t min_samples, std::uint32_t ma
     std::vector<std::uint8_t> visited(data_.density.size());
     std::vector<std::vector<std::size_t>> fragments;
     std::vector<std::size_t> island;
-    for (std::size_t seed = 0; seed < data_.density.size(); ++seed)
     {
-        if (visited[seed] || data_.density[seed] >= 0)
+        ENGINE_PROFILE_ZONE("Terrain.find_islands");
+        for (std::size_t seed = 0; seed < data_.density.size(); ++seed)
         {
-            continue;
-        }
-        island.clear();
-        island.push_back(seed);
-        visited[seed] = 1;
-        bool anchored = false;
-        for (std::size_t cursor = 0; cursor < island.size(); ++cursor)
-        {
-            const auto point = coordinate(data_, island[cursor]);
-            anchored = anchored || point[0] <= 1 || point[0] >= data_.cells_x - 1 ||
-                       point[1] <= 1 || point[2] <= 1 || point[2] >= data_.cells_z - 1;
-            // Six face neighbors, matching Voxel Tools' connected-component policy.
-            for (unsigned axis = 0; axis < 3; ++axis)
+            if (visited[seed] || data_.density[seed] >= 0)
             {
-                const unsigned dimension[] = {data_.cells_x, data_.cells_y, data_.cells_z};
-                for (int step : {-1, 1})
+                continue;
+            }
+            island.clear();
+            island.push_back(seed);
+            visited[seed] = 1;
+            bool anchored = false;
+            for (std::size_t cursor = 0; cursor < island.size(); ++cursor)
+            {
+                const auto point = coordinate(data_, island[cursor]);
+                anchored = anchored || point[0] <= 1 || point[0] >= data_.cells_x - 1 ||
+                           point[1] <= 1 || point[2] <= 1 || point[2] >= data_.cells_z - 1;
+                // Six face neighbors, matching Voxel Tools' connected-component policy.
+                for (unsigned axis = 0; axis < 3; ++axis)
                 {
-                    if ((step < 0 && point[axis] == 0) ||
-                        (step > 0 && point[axis] == dimension[axis]))
+                    const unsigned dimension[] = {data_.cells_x, data_.cells_y, data_.cells_z};
+                    for (int step : {-1, 1})
                     {
-                        continue;
-                    }
-                    auto neighbor = point;
-                    neighbor[axis] = static_cast<unsigned>(static_cast<int>(point[axis]) + step);
-                    const auto index = offset(data_, neighbor[0], neighbor[1], neighbor[2]);
-                    if (!visited[index] && data_.density[index] < 0)
-                    {
-                        visited[index] = 1;
-                        island.push_back(index);
+                        if ((step < 0 && point[axis] == 0) ||
+                            (step > 0 && point[axis] == dimension[axis]))
+                        {
+                            continue;
+                        }
+                        auto neighbor = point;
+                        neighbor[axis] =
+                            static_cast<unsigned>(static_cast<int>(point[axis]) + step);
+                        const auto index = offset(data_, neighbor[0], neighbor[1], neighbor[2]);
+                        if (!visited[index] && data_.density[index] < 0)
+                        {
+                            visited[index] = 1;
+                            island.push_back(index);
+                        }
                     }
                 }
             }
-        }
-        if (anchored || island.size() < min_samples)
-        {
-            continue;
-        }
-        std::map<Coordinate, std::vector<std::size_t>> groups;
-        for (auto index : island)
-        {
-            auto cell = coordinate(data_, index);
-            for (auto& value : cell)
+            if (anchored || island.size() < min_samples)
             {
-                value /= fragment_cells;
+                continue;
             }
-            groups[cell].push_back(index);
-            if (fragments.size() + groups.size() > max_fragments)
+            std::map<Coordinate, std::vector<std::size_t>> groups;
+            for (auto index : island)
             {
-                error = "Detached terrain exceeds the requested fragment budget";
-                return false;
+                auto cell = coordinate(data_, index);
+                for (auto& value : cell)
+                {
+                    value /= fragment_cells;
+                }
+                groups[cell].push_back(index);
+                if (fragments.size() + groups.size() > max_fragments)
+                {
+                    error = "Detached terrain exceeds the requested fragment budget";
+                    return false;
+                }
             }
-        }
-        for (auto& [cell, samples] : groups)
-        {
-            fragments.push_back(std::move(samples));
+            for (auto& [cell, samples] : groups)
+            {
+                fragments.push_back(std::move(samples));
+            }
         }
     }
     std::vector<TerrainFragment> prepared;
@@ -261,17 +288,11 @@ bool TerrainVolume::extract_detached(std::uint32_t min_samples, std::uint32_t ma
         for (auto index : samples)
         {
             data_.density[index] = std::max(data_.voxel_size, -data_.density[index]);
+            const auto point = coordinate(data_, index);
+            mark_sample_dirty(point[0], point[1], point[2]);
         }
     }
-    if (!fragments.empty())
-    {
-        // Keep this uncommon structural operation simple; brush editing retains its incremental
-        // dirty-chunk path. Extraction rebuilds the source once after all candidates succeed.
-        for (auto& chunk : chunks_)
-        {
-            chunk.dirty = true;
-        }
-    }
+    ENGINE_PROFILE_PLOT("Terrain.extracted_fragments", static_cast<double>(prepared.size()));
     output = std::move(prepared);
     return true;
 }

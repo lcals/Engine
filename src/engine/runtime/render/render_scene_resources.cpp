@@ -1,6 +1,7 @@
 #include "runtime/render/render_system.hpp"
 
 #include "runtime/font/font_system.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/render/scene_render_query.hpp"
@@ -24,6 +25,7 @@ namespace engine
 
 bool RenderSystem::prepare_scene(const Camera* camera)
 {
+    ENGINE_PROFILE_ZONE("Render.prepareSceneResources");
     if (!is_initialized())
     {
         return false;
@@ -142,6 +144,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         if (mesh->instance_id != renderer->mesh_instance_id() ||
             mesh->revision != renderer->mesh_revision())
         {
+            ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
             const auto source = renderer->mesh_resource();
             std::shared_ptr<render_detail::GpuGeometry> geometry;
             if (source)

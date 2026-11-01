@@ -1,5 +1,6 @@
 #include "runtime/render/resources/gpu_geometry.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 
@@ -34,6 +35,7 @@ bool GpuGeometry::pack_vertices(const schema::MeshDataT& data,
                                 std::vector<GpuVertex>& packed, std::array<float, 3>& minimum,
                                 std::array<float, 3>& maximum)
 {
+    ENGINE_PROFILE_ZONE("Render.geometryPackVertices");
     if (positions.size() != data.vertices.size() || tangents.size() != positions.size())
     {
         return false;
@@ -95,6 +97,7 @@ bgfx::VertexLayout GpuGeometry::vector_layout()
 
 bool GpuGeometry::create(const MeshRenderer& renderer)
 {
+    ENGINE_PROFILE_ZONE("Render.geometryCreate");
     release();
     const auto* data = renderer.mesh_data();
     std::vector<schema::Vec4> tangents;
@@ -171,12 +174,16 @@ bool GpuGeometry::create(const MeshRenderer& renderer)
             return false;
         }
     }
-    vertices = bgfx::createVertexBuffer(
-        bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)), vertex_layout(),
-        data->skin.empty() ? BGFX_BUFFER_NONE : BGFX_BUFFER_COMPUTE_READ);
-    indices = bgfx::createIndexBuffer(
-        bgfx::copy(data->indices.data(), static_cast<std::uint32_t>(index_bytes)),
-        BGFX_BUFFER_INDEX32);
+    {
+        // 这里只采集 CPU 拷贝与提交；GPU 执行时间由 GPU 时间戳表示。
+        ENGINE_PROFILE_ZONE("Render.geometryBuffersSubmit");
+        vertices = bgfx::createVertexBuffer(
+            bgfx::copy(packed.data(), static_cast<std::uint32_t>(vertex_bytes)), vertex_layout(),
+            data->skin.empty() ? BGFX_BUFFER_NONE : BGFX_BUFFER_COMPUTE_READ);
+        indices = bgfx::createIndexBuffer(
+            bgfx::copy(data->indices.data(), static_cast<std::uint32_t>(index_bytes)),
+            BGFX_BUFFER_INDEX32);
+    }
     if (!bgfx::isValid(vertices) || !bgfx::isValid(indices))
     {
         return false;

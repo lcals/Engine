@@ -4,6 +4,7 @@
 #include "plugins/runtime/effects/effect_model_loader.hpp"
 #include "plugins/runtime/effects/effect_resource_path.hpp"
 #include "plugins/runtime/effects/effect_resources.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_context.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -291,6 +292,7 @@ struct EffectSystem::State
 
     bool synchronize(Scene& scene, double delta_time)
     {
+        ENGINE_PROFILE_ZONE("Effects.synchronize");
         resources.error.clear();
         scene_id = scene.id();
         std::set<std::uint64_t> alive;
@@ -377,7 +379,10 @@ struct EffectSystem::State
                 ++entry;
             }
         }
-        manager->Update(static_cast<float>(delta_time * 60.0));
+        {
+            ENGINE_PROFILE_ZONE("Effects.managerUpdate");
+            manager->Update(static_cast<float>(delta_time * 60.0));
+        }
         time += static_cast<float>(delta_time);
         bool restarted = false;
         for (const auto& [component, entry] : active)
@@ -445,6 +450,7 @@ bool EffectSystem::on_initialize(const EngineConfig&)
 
 bool EffectSystem::on_tick(double delta_time)
 {
+    ENGINE_PROFILE_ZONE("Effects.tick");
     if (!std::isfinite(delta_time) || delta_time < 0.0 ||
         delta_time > std::numeric_limits<float>::max() / 60.0 - pending_seconds_)
     {
@@ -476,6 +482,7 @@ bool EffectSystem::on_tick(double delta_time)
 
 bool EffectSystem::draw(const RenderContext& context)
 {
+    ENGINE_PROFILE_ZONE("Effects.drawSubmit");
     if (!is_initialized() || world_.scene() != &context.scene)
     {
         last_error_ = "Effect renderer requires its current world scene";

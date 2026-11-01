@@ -1,5 +1,6 @@
 #include "runtime/navigation/navigation_system.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/schema/mesh_generated.h"
 
 #include <recastnavigation/DetourAlloc.h>
@@ -138,6 +139,7 @@ bool valid_settings(const NavigationSettings& settings, const NavigationBounds& 
 bool prepare_geometry(std::span<const NavigationGeometry> sources, InputGeometry& output,
                       std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Navigation.prepare_geometry");
     output = {};
     if (sources.size() > maximum_geometry)
     {
@@ -257,6 +259,7 @@ rcConfig tile_config(const NavigationData& data, int x, int z)
 bool build_tile(const NavigationData& data, const InputGeometry& input, TileData& tile,
                 std::string& error)
 {
+    ENGINE_PROFILE_ZONE("Navigation.build_tile");
     const auto config = tile_config(data, tile.x, tile.z);
     std::vector<int> triangles;
     for (std::size_t index = 0; index < input.bounds.size(); ++index)
@@ -293,30 +296,33 @@ bool build_tile(const NavigationData& data, const InputGeometry& input, TileData
         error = "Cannot allocate Recast tile working data";
         return false;
     }
-    const int vertex_count = static_cast<int>(input.vertices.size() / 3);
-    const int triangle_count = static_cast<int>(triangles.size() / 3);
-    std::vector<unsigned char> areas(static_cast<std::size_t>(triangle_count), RC_NULL_AREA);
-    rcMarkWalkableTriangles(&context, config.walkableSlopeAngle, input.vertices.data(),
-                            vertex_count, triangles.data(), triangle_count, areas.data());
-    if (!rcRasterizeTriangles(&context, input.vertices.data(), vertex_count, triangles.data(),
-                              areas.data(), triangle_count, *solid, config.walkableClimb))
     {
-        error = "Recast tile rasterization failed";
-        return false;
-    }
-    rcFilterLowHangingWalkableObstacles(&context, config.walkableClimb, *solid);
-    rcFilterLedgeSpans(&context, config.walkableHeight, config.walkableClimb, *solid);
-    rcFilterWalkableLowHeightSpans(&context, config.walkableHeight, *solid);
-    if (!rcBuildCompactHeightfield(&context, config.walkableHeight, config.walkableClimb, *solid,
-                                   *compact))
-    {
-        error = "Recast compact heightfield failed";
-        return false;
-    }
-    solid.reset();
-    if (compact->spanCount == 0)
-    {
-        return true;
+        ENGINE_PROFILE_ZONE("Navigation.rasterize");
+        const int vertex_count = static_cast<int>(input.vertices.size() / 3);
+        const int triangle_count = static_cast<int>(triangles.size() / 3);
+        std::vector<unsigned char> areas(static_cast<std::size_t>(triangle_count), RC_NULL_AREA);
+        rcMarkWalkableTriangles(&context, config.walkableSlopeAngle, input.vertices.data(),
+                                vertex_count, triangles.data(), triangle_count, areas.data());
+        if (!rcRasterizeTriangles(&context, input.vertices.data(), vertex_count, triangles.data(),
+                                  areas.data(), triangle_count, *solid, config.walkableClimb))
+        {
+            error = "Recast tile rasterization failed";
+            return false;
+        }
+        rcFilterLowHangingWalkableObstacles(&context, config.walkableClimb, *solid);
+        rcFilterLedgeSpans(&context, config.walkableHeight, config.walkableClimb, *solid);
+        rcFilterWalkableLowHeightSpans(&context, config.walkableHeight, *solid);
+        if (!rcBuildCompactHeightfield(&context, config.walkableHeight, config.walkableClimb,
+                                       *solid, *compact))
+        {
+            error = "Recast compact heightfield failed";
+            return false;
+        }
+        solid.reset();
+        if (compact->spanCount == 0)
+        {
+            return true;
+        }
     }
     // Clamp the navigable surface to the caller's bounds; border geometry still participates
     // in rasterization/clearance, but never becomes an escape route outside the declared grid.
@@ -338,35 +344,38 @@ bool build_tile(const NavigationData& data, const InputGeometry& input, TileData
             }
         }
     }
-    if (!rcErodeWalkableArea(&context, config.walkableRadius, *compact) ||
-        !rcBuildDistanceField(&context, *compact) ||
-        !rcBuildRegions(&context, *compact, config.borderSize, config.minRegionArea,
-                        config.mergeRegionArea) ||
-        !rcBuildContours(&context, *compact, config.maxSimplificationError, config.maxEdgeLen,
-                         *contours))
     {
-        error = "Recast erosion, region or contour construction failed";
-        return false;
-    }
-    if (contours->nconts == 0)
-    {
-        return true;
-    }
-    if (!rcBuildPolyMesh(&context, *contours, config.maxVertsPerPoly, *polygons) ||
-        polygons->nverts >= 0xffff || polygons->npolys > maximum_polygons)
-    {
-        error = "Recast polygon construction failed or exceeded the tile polygon limit";
-        return false;
-    }
-    if (polygons->npolys == 0)
-    {
-        return true;
-    }
-    if (!rcBuildPolyMeshDetail(&context, *polygons, *compact, config.detailSampleDist,
-                               config.detailSampleMaxError, *detail))
-    {
-        error = "Recast detail mesh construction failed";
-        return false;
+        ENGINE_PROFILE_ZONE("Navigation.build_polygons");
+        if (!rcErodeWalkableArea(&context, config.walkableRadius, *compact) ||
+            !rcBuildDistanceField(&context, *compact) ||
+            !rcBuildRegions(&context, *compact, config.borderSize, config.minRegionArea,
+                            config.mergeRegionArea) ||
+            !rcBuildContours(&context, *compact, config.maxSimplificationError, config.maxEdgeLen,
+                             *contours))
+        {
+            error = "Recast erosion, region or contour construction failed";
+            return false;
+        }
+        if (contours->nconts == 0)
+        {
+            return true;
+        }
+        if (!rcBuildPolyMesh(&context, *contours, config.maxVertsPerPoly, *polygons) ||
+            polygons->nverts >= 0xffff || polygons->npolys > maximum_polygons)
+        {
+            error = "Recast polygon construction failed or exceeded the tile polygon limit";
+            return false;
+        }
+        if (polygons->npolys == 0)
+        {
+            return true;
+        }
+        if (!rcBuildPolyMeshDetail(&context, *polygons, *compact, config.detailSampleDist,
+                                   config.detailSampleMaxError, *detail))
+        {
+            error = "Recast detail mesh construction failed";
+            return false;
+        }
     }
     for (int index = 0; index < polygons->npolys; ++index)
     {
@@ -538,6 +547,7 @@ std::string_view NavigationSystem::last_error() const noexcept
 bool NavigationSystem::build(std::span<const NavigationGeometry> geometry,
                              const NavigationBounds& bounds, const NavigationSettings& settings)
 {
+    ENGINE_PROFILE_ZONE("Navigation.build");
     if (!state_ || !is_initialized())
     {
         return false;
@@ -584,6 +594,7 @@ bool NavigationSystem::build(std::span<const NavigationGeometry> geometry,
         }
     }
     state_->rebuilt = static_cast<std::size_t>(candidate->columns * candidate->rows);
+    ENGINE_PROFILE_PLOT("Navigation.rebuilt_tiles", static_cast<double>(state_->rebuilt));
     state_->data = std::move(candidate);
     state_->changed();
     state_->error.clear();
@@ -593,6 +604,7 @@ bool NavigationSystem::build(std::span<const NavigationGeometry> geometry,
 bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
                                const NavigationBounds& dirty)
 {
+    ENGINE_PROFILE_ZONE("Navigation.replace");
     if (!ready())
     {
         if (state_)
@@ -662,6 +674,7 @@ bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
         }
     }
     state_->rebuilt = tiles.size();
+    ENGINE_PROFILE_PLOT("Navigation.rebuilt_tiles", static_cast<double>(state_->rebuilt));
     state_->changed();
     state_->error.clear();
     return true;
@@ -670,6 +683,7 @@ bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
 bool NavigationSystem::find_path(const Vec3& start, const Vec3& end,
                                  std::vector<Vec3>& output) const
 {
+    ENGINE_PROFILE_ZONE("Navigation.find_path");
     output.clear();
     if (!ready())
     {

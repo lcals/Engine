@@ -1,5 +1,6 @@
 #include "runtime/render/resources/gpu_texture.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource.hpp"
 
 #include <SDL3/SDL.h>
@@ -38,6 +39,7 @@ GpuTexture& GpuTexture::operator=(GpuTexture&& other) noexcept
 
 bool GpuTexture::create(const ResourcePtr& source)
 {
+    ENGINE_PROFILE_ZONE("Render.textureCreate");
     const auto* data = source ? source->texture() : nullptr;
     const auto* caps = bgfx::getCaps();
     if (data == nullptr || data->width == 0 || data->height == 0 ||

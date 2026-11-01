@@ -56,7 +56,8 @@ private:
                                       const DestructionGraph& candidate, bool preserve,
                                       std::vector<schema::DestructionGroupStateT>& states);
     [[nodiscard]] bool publish(DestructionComponent& component, DestructionGraph candidate,
-                               const std::vector<schema::DestructionGroupStateT>& groups);
+                               const std::vector<schema::DestructionGroupStateT>& groups,
+                               bool reuse_groups);
     struct State;
     WorldSystem& world_;
     PhysicsSystem& physics_;
