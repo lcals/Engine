@@ -1,4 +1,5 @@
 #include "runtime/storage/key_value_store.hpp"
+#include "runtime/storage/storage_file.hpp"
 
 #include <array>
 #include <chrono>
@@ -88,6 +89,54 @@ bool read_file(const std::filesystem::path& path, std::string& text)
     }
     text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     return !file.bad();
+}
+
+bool exclusive_creation(const std::filesystem::path& root)
+{
+    const auto path = root / std::filesystem::path(u8"独占-🙂.tmp");
+    std::error_code error;
+    auto* file = engine::storage_detail::open_exclusive_file(path, error);
+    if (!expect(file != nullptr && !error, "exclusively create a Unicode temporary path"))
+    {
+        if (file != nullptr)
+        {
+            (void)std::fclose(file);
+        }
+        return false;
+    }
+    constexpr std::string_view content = "keep the already created file";
+    const bool written = std::fwrite(content.data(), 1, content.size(), file) == content.size();
+    const bool closed = std::fclose(file) == 0;
+    if (!expect(written && closed, "write and close the exclusively created file"))
+    {
+        return false;
+    }
+    file = engine::storage_detail::open_exclusive_file(path, error);
+    if (file != nullptr)
+    {
+        (void)std::fclose(file);
+    }
+    std::string actual;
+    if (!expect(file == nullptr && error && read_file(path, actual) && actual == content,
+                "exclusive creation rejects an existing file without truncating its contents"))
+    {
+        return false;
+    }
+
+    const auto link = root / "exclusive-link.tmp";
+    std::filesystem::create_symlink(path, link, error);
+    if (error)
+    {
+        std::puts("Key value store test: exclusive symlink check skipped (not permitted)");
+        return true;
+    }
+    file = engine::storage_detail::open_exclusive_file(link, error);
+    if (file != nullptr)
+    {
+        (void)std::fclose(file);
+    }
+    return expect(file == nullptr && error && read_file(path, actual) && actual == content,
+                  "exclusive creation rejects a symlink without touching its target");
 }
 
 bool persistence(const std::filesystem::path& root)
@@ -297,9 +346,9 @@ int main()
     static_assert(!std::is_move_constructible_v<engine::KeyValueStore>);
     TestDirectory directory;
     return expect(create_directory(directory), "create a private test directory") &&
-                   persistence(directory.path) && invalid_inputs(directory.path) &&
-                   failed_reload(directory.path) && failed_save(directory.path) &&
-                   symbolic_links(directory.path)
+                   exclusive_creation(directory.path) && persistence(directory.path) &&
+                   invalid_inputs(directory.path) && failed_reload(directory.path) &&
+                   failed_save(directory.path) && symbolic_links(directory.path)
                ? 0
                : 1;
 }

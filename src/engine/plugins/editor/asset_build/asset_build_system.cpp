@@ -282,10 +282,6 @@ bool collect(const ResourceCatalog& catalog, std::string_view guid, std::set<Gui
         const auto* entry = catalog.find(current);
         if (entry == nullptr)
         {
-            entry = builtin_resource_info(current);
-        }
-        if (entry == nullptr)
-        {
             error = "runtime dependency has no resource: " + current;
             return false;
         }
@@ -322,18 +318,8 @@ bool select_resources(const ResourceCatalog& catalog, BuildManifest& manifest, s
         for (const auto& path : item.roots)
         {
             Guid guid;
-            if (!catalog.identities().path_to_guid(path, guid))
-            {
-                for (const auto& builtin : builtin_resource_catalog().entries)
-                {
-                    if (builtin->path == path)
-                    {
-                        guid = builtin->guid;
-                        break;
-                    }
-                }
-            }
-            if (guid.empty() || !collect(catalog, guid, visited, closure, error))
+            if (!catalog.identities().path_to_guid(path, guid) ||
+                !collect(catalog, guid, visited, closure, error))
             {
                 if (error.empty())
                 {

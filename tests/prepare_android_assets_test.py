@@ -19,6 +19,7 @@ SPEC = importlib.util.spec_from_file_location(
 )
 PACK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACK)
+import resource_catalog as catalog
 from resource_catalog import FNV_MASK, FNV_OFFSET, FNV_PRIME, catalog_entries
 
 
@@ -64,9 +65,7 @@ def checksum(contents):
     return f"{value:016x}"
 
 
-def resource_entry(
-    payload, number=1, kind=1, path="scripts/game.ts", module="scripts/game.js"
-):
+def resource_entry(payload, number=1, kind=1, path="scripts/game.ts", module="scripts/game.js"):
     guid = f"30000000-0000-4000-8000-{number:012x}"
     header = BufferBuilder(b"ERSH")
     fields, root = header.table(5)
@@ -178,21 +177,29 @@ class AndroidBuildArgumentTest(unittest.TestCase):
 
     def test_prepare_uses_explicit_android_target_without_shell(self):
         with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
+            root = Path(directory).resolve()
             builder = root / "asset builder $literal"
             project = root / "project with spaces"
             compiled = root / "compiled resources"
             compiled.mkdir()
             receipt = {"status": "ok", "targetPlatform": "android", "output": str(compiled)}
             with mock.patch.object(
-                PACK.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=json.dumps(receipt))
+                PACK.subprocess,
+                "run",
+                return_value=mock.Mock(returncode=0, stdout=json.dumps(receipt)),
             ) as run:
                 self.assertEqual(PACK.compile_catalog(project, builder), compiled)
             self.assertEqual(
                 run.call_args.args[0],
                 [
-                    str(builder.resolve()), "--project", str(project), "--package",
-                    "--target", "android", "--manifest", "settings/resource-build.toml",
+                    str(builder.resolve()),
+                    "--project",
+                    str(project),
+                    "--package",
+                    "--target",
+                    "android",
+                    "--manifest",
+                    "settings/resource-build.toml",
                 ],
             )
             self.assertNotIn("shell", run.call_args.kwargs)
@@ -201,7 +208,7 @@ class AndroidBuildArgumentTest(unittest.TestCase):
 class PrepareAndroidAssetsTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="engine-android-assets-")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
         self.project = self.root / "项目 with spaces $literal"
         for name in ("settings", "assets", "cache"):
             (self.project / name).mkdir(parents=True)
@@ -217,18 +224,21 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_revision_change_during_copy_is_rejected(self):
-        copy = PACK.copy_asset
+        copy = catalog.copy_asset
+        previous = self.snapshot()
 
-        def changed(source, destination, limit=PACK.MAX_ASSET_SIZE):
-            if source.name == "catalog.bin":
-                source.write_bytes(
-                    source.read_bytes().replace(b"fixture-guid-catalog", b"changed-guid-catalog")
-                )
+        def changed(source, destination, limit):
+            path = self.source / "catalog.bin"
+            path.write_bytes(
+                path.read_bytes().replace(b"fixture-guid-catalog", b"changed-guid-catalog")
+            )
             return copy(source, destination, limit)
 
-        with mock.patch.object(PACK, "copy_asset", side_effect=changed):
+        with mock.patch.object(catalog, "copy_asset", side_effect=changed):
             with self.assertRaisesRegex(ValueError, "catalog 发生变化"):
                 self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
 
     def write_resources(self, target="android"):
         carriers = {}
@@ -267,9 +277,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         (self.source / "assets.sqlite").write_bytes(b"editor only")
         (self.source / "gen/stale").write_bytes(b"not referenced")
         receipt = self.prepare()
-        self.assertEqual(
-            receipt, {"revision": "fixture-guid-catalog", "file_count": 4}
-        )
+        self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 4})
         self.assertEqual(
             set(self.snapshot()),
             {"catalog.bin", "v8/icudtl.dat"} | {entry["path"] for entry in self.entries},
@@ -292,9 +300,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.entries.append(second)
         self.write_resources()
         receipt = self.prepare()
-        self.assertEqual(
-            receipt, {"revision": "fixture-guid-catalog", "file_count": 2}
-        )
+        self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 2})
         self.assertEqual(set(self.snapshot()), {"catalog.bin", "packs/game", "v8/icudtl.dat"})
         previous = self.snapshot()
         path = self.source / "packs/game"
@@ -302,6 +308,17 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         content[-1] ^= 1
         path.write_bytes(content)
         with self.assertRaisesRegex(ValueError, "校验不符"):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+        self.assert_clean()
+
+    def test_unindexed_carrier_tail_keeps_previous_snapshot(self):
+        self.prepare()
+        previous = self.snapshot()
+        path = self.source / self.entries[0]["path"]
+        with path.open("ab") as stream:
+            stream.write(b"unindexed bytes")
+        with self.assertRaisesRegex(ValueError, "字节上限"):
             self.prepare()
         self.assertEqual(self.snapshot(), previous)
         self.assert_clean()
@@ -324,9 +341,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def test_unknown_resource_kind_preserves_previous_output(self):
         self.prepare()
         previous = self.snapshot()
-        self.entries.append(
-            resource_entry(b"unsupported resource", 2, 16, "future.bin", "")
-        )
+        self.entries.append(resource_entry(b"unsupported resource", 2, 16, "future.bin", ""))
         self.write_resources()
         with self.assertRaises(ValueError):
             self.prepare()
@@ -357,9 +372,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.entries.append(audio)
         self.write_resources()
         self.prepare()
-        self.assertEqual(
-            (self.output / "gen" / audio["guid"]).read_bytes(), audio["entity"]
-        )
+        self.assertEqual((self.output / "gen" / audio["guid"]).read_bytes(), audio["entity"])
         self.assert_clean()
 
     def test_font_and_ui_resources_preserve_identity_and_dependencies(self):
@@ -370,9 +383,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.write_resources()
         receipt = self.prepare()
         for entry in (font, ui):
-            self.assertEqual(
-                (self.output / "gen" / entry["guid"]).read_bytes(), entry["entity"]
-            )
+            self.assertEqual((self.output / "gen" / entry["guid"]).read_bytes(), entry["entity"])
         self.assertEqual(receipt["file_count"], 4)
         self.assert_clean()
 
@@ -505,7 +516,8 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         recovered = {
             path.relative_to(backups[0]).as_posix(): path.read_bytes()
-            for path in backups[0].rglob("*") if path.is_file()
+            for path in backups[0].rglob("*")
+            if path.is_file()
         }
         self.assertEqual(recovered, previous)
         self.assertFalse((self.output.parent / ".assets-export-lock").exists())

@@ -1127,7 +1127,7 @@ bool UiSystem::process_event(const SDL_Event& event)
     };
     if (state_->pointer_context &&
         (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
-         event.type == SDL_EVENT_MOUSE_BUTTON_UP))
+         event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_WHEEL))
     {
         for (auto& document : state_->documents)
         {

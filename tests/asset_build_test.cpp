@@ -77,6 +77,11 @@ struct Fixture
         {
             return false;
         }
+        root = std::filesystem::canonical(root, code);
+        if (code)
+        {
+            return false;
+        }
         root /= "engine-resource-build-" +
                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
         for (const char* directory : {"settings", "assets", "cache"})
@@ -280,7 +285,14 @@ bool tests()
                     builder.build(fixture.root) &&
                     builder.last_build().resource_count == builtin_count &&
                     builder.last_build().package_count == 1,
-                "an explicit empty root list selects no project assets but retains builtins"))
+                "an explicit empty root list selects no project assets but retains builtins") ||
+        !expect(write(fixture.root / "settings/resource-build.toml",
+                      "[[items]]\nname = \"baseline\"\nstorage = \"package\"\n"
+                      "roots = [\"builtin://materials/default-pbr\"]\n") &&
+                    builder.build(fixture.root) &&
+                    builder.last_build().resource_count == builtin_count &&
+                    builder.last_build().package_count == 1,
+                "explicit builtin roots resolve through the catalog and share its baseline"))
     {
         return false;
     }

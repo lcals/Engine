@@ -63,6 +63,8 @@ public:
     void set_scene_id(std::uint64_t value) noexcept;
     [[nodiscard]] double delta_time() const noexcept;
     [[nodiscard]] KeyValueStore& storage();
+    void set_storage_error(std::string_view error);
+    [[nodiscard]] const std::string& storage_error();
 
     // owner 由当前 Run 的虚拟机提供；Run 必须覆盖所有原生回调的生命期。
     [[nodiscard]] static BindingContext* current(const Arguments& arguments,
@@ -92,6 +94,7 @@ private:
     bool callable_ = false;
     double delta_time_ = 0.0;
     KeyValueStore storage_;
+    std::string storage_error_;
     bool storage_attempted_ = false;
 };
 

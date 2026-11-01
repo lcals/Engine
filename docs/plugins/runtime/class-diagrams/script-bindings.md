@@ -50,6 +50,8 @@ classDiagram
         +set_input_error(string_view error) void
         +input_error() const string&
         +storage() KeyValueStore&
+        +set_storage_error(string_view error) void
+        +storage_error() const string&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
         +delta_time() double
@@ -60,6 +62,7 @@ classDiagram
     class WorldSystem
     class RenderSystem
     class UiSystem
+    class PhysicsSystem
     class NavigationSystem
     class InputSystem
     class InputChannelHandle
@@ -75,6 +78,7 @@ classDiagram
     BindingContext --> UiSystem : 有效回调期间的可空借用
     BindingContext --> WorldSystem : 可空借用
     BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
+    BindingContext --> PhysicsSystem : 有效回调期间的可空借用
     BindingContext --> NavigationSystem : 有效回调借用及所属场景结束清理
     BindingContext --> InputSystem : 可空借用，覆盖Run清理
     BindingContext *-- InputChannelHandle : 本Run创建清单

@@ -187,6 +187,16 @@ KeyValueStore& BindingContext::storage()
     return storage_;
 }
 
+void BindingContext::set_storage_error(std::string_view error)
+{
+    storage_error_ = error;
+}
+
+const std::string& BindingContext::storage_error()
+{
+    return storage_error_.empty() ? storage().last_error() : storage_error_;
+}
+
 BindingContext* BindingContext::current(const Arguments& arguments, bool require_callable)
 {
     auto* active = static_cast<BindingContext*>(arguments.owner());

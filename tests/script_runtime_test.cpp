@@ -1009,6 +1009,37 @@ import { Gameplay, Storage } from 'engine';
 const topLevelBlocked = !Storage.isReady && Storage.lastError === null &&
     Storage.GetString('blocked') === null && !Storage.SetString('blocked', 'value') &&
     !Storage.HasKey('blocked') && !Storage.DeleteKey('blocked') && !Storage.Save();
+function checkStorageArguments(kept) {
+    const oversized = 'x'.repeat(4 * 1024 * 1024 + 1);
+    const invalid = [
+        [() => Storage.GetString(), null],
+        [() => Storage.GetString('存档🔑', 'extra'), null],
+        [() => Storage.GetString(true), null],
+        [() => Storage.GetString(oversized), null],
+        [() => Storage.SetString('存档🔑'), false],
+        [() => Storage.SetString('存档🔑', 'changed', 'extra'), false],
+        [() => Storage.SetString('存档🔑', 7), false],
+        [() => Storage.SetString('存档🔑', oversized), false],
+        [() => Storage.HasKey(), false],
+        [() => Storage.HasKey('存档🔑', 'extra'), false],
+        [() => Storage.HasKey(true), false],
+        [() => Storage.HasKey(oversized), false],
+        [() => Storage.DeleteKey(), false],
+        [() => Storage.DeleteKey('存档🔑', 'extra'), false],
+        [() => Storage.DeleteKey(true), false],
+        [() => Storage.DeleteKey(oversized), false],
+        [() => Storage.Save('extra'), false],
+    ];
+    for (const [call, expected] of invalid) {
+        if (call() !== expected || typeof Storage.lastError !== 'string' ||
+            Storage.lastError.length === 0) return false;
+        const error = Storage.lastError;
+        if (!Storage.isReady || Storage.lastError !== error ||
+            Storage.GetString('存档🔑') !== kept || Storage.lastError !== '' ||
+            Storage.GetString('missing') !== null || Storage.lastError !== '') return false;
+    }
+    return true;
+}
 export default class extends Gameplay {
     constructor() {
         super();
@@ -1025,8 +1056,7 @@ export default class extends Gameplay {
             Storage.SetString('empty', '') && Storage.GetString('empty') === '' &&
             Storage.SetString('delete-me', 'value') && Storage.DeleteKey('delete-me') &&
             !Storage.HasKey('delete-me') && Storage.DeleteKey('missing') &&
-            Storage.GetString(true) === null && !Storage.SetString('invalid', 7) &&
-            !Storage.HasKey(true) && !Storage.DeleteKey(true) && Storage.Save() &&
+            checkStorageArguments(value) && Storage.Save() && Storage.lastError === '' &&
             Storage.SetString('unsaved', 'discard this');
     }
     OnShutdown() {
@@ -1064,7 +1094,13 @@ function unavailable() {
         !Storage.DeleteKey('存档🔑') && !Storage.Save() && Storage.lastError.length > 0;
 }
 export default class extends Gameplay {
-    OnInitialize() { return unavailable(); }
+    OnInitialize() {
+        if (!unavailable()) return false;
+        const loadError = Storage.lastError;
+        if (Storage.SetString('overwrite', 7) || Storage.lastError === loadError ||
+            Storage.lastError.length === 0 || Storage.isReady) return false;
+        return unavailable() && Storage.lastError === loadError;
+    }
     Update() {
         if (!unavailable()) throw new Error('Failed storage retried within the same run');
         Debug.Log('storage:failed-run-stays-unavailable');

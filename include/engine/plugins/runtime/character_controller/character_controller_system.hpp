@@ -9,6 +9,7 @@ namespace engine
 {
 class WorldSystem;
 class Node;
+class Scene;
 } // namespace engine
 
 namespace engine::plugins::character_controller
@@ -31,6 +32,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    static void discard_component_inputs(Scene& scene) noexcept;
     void stop_driving() noexcept;
     WorldSystem& world_;
     CharacterInput input_{};

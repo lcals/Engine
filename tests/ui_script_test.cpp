@@ -646,6 +646,51 @@ bool type_name(Systems& systems)
     return expect(systems.ui.process_event(event), "UI consumes SDL text input");
 }
 
+bool native_mouse_capture_case(Systems& systems)
+{
+    if (!systems.world.load_scene(main_scene) || !systems.ui.synchronize())
+    {
+        return false;
+    }
+    const auto window = SDL_GetWindowID(systems.window.native_window());
+    SDL_Event button{};
+    button.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    button.button.windowID = window;
+    button.button.button = SDL_BUTTON_LEFT;
+    button.button.down = true;
+    button.button.x = 60;
+    button.button.y = 40;
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.windowID = window;
+    motion.motion.x = 600;
+    motion.motion.y = 400;
+    SDL_Event wheel{};
+    wheel.type = SDL_EVENT_MOUSE_WHEEL;
+    wheel.wheel.windowID = window;
+    wheel.wheel.mouse_x = motion.motion.x;
+    wheel.wheel.mouse_y = motion.motion.y;
+    wheel.wheel.y = 1;
+    if (!expect(systems.ui.process_event(button) && systems.ui.process_event(motion) &&
+                    systems.ui.owns_pointer(wheel) && systems.ui.process_event(wheel),
+                "UI drag retains wheel input after the pointer leaves interactive controls"))
+    {
+        return false;
+    }
+    button.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    button.button.down = false;
+    button.button.x = motion.motion.x;
+    button.button.y = motion.motion.y;
+    if (!expect(systems.ui.process_event(button) && !systems.ui.owns_pointer(wheel) &&
+                    !systems.ui.process_event(wheel),
+                "released UI capture returns background wheel input to gameplay"))
+    {
+        return false;
+    }
+    systems.ui.release_scene();
+    return true;
+}
+
 bool native_touch_case(Systems& systems)
 {
     auto* scene = systems.world.load_scene(main_scene);
@@ -964,9 +1009,9 @@ int main(int argc, char** argv)
         passed = systems.initialize(project.root) && systems.frames() &&
                  expect(bgfx::getRendererType() != bgfx::RendererType::Noop,
                         "integration requires a real GPU backend") &&
-                 native_touch_case(systems) && mvc_case(systems, project.root) &&
-                 lifetime_cases(systems) && bubbling_cases(systems) &&
-                 independent_documents(systems) && missing_ui(systems) &&
+                 native_mouse_capture_case(systems) && native_touch_case(systems) &&
+                 mvc_case(systems, project.root) && lifetime_cases(systems) &&
+                 bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);
     }
     engine::LogSystem::instance().shutdown();

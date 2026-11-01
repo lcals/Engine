@@ -33,29 +33,6 @@ namespace engine::editor::asset_pipeline
 {
 namespace
 {
-bool shader_target(std::string_view target, std::string& platform, std::string& profile)
-{
-    if (target == "macos" || target == "ios")
-    {
-        platform = target == "macos" ? "osx" : "ios";
-        profile = "metal";
-        return true;
-    }
-    if (target == "windows")
-    {
-        platform = "windows";
-        profile = "s_5_0";
-        return true;
-    }
-    if (target == "android" || target == "linux")
-    {
-        platform = target;
-        profile = "spirv";
-        return true;
-    }
-    return false;
-}
-
 bool builtin_texture(std::string_view path, const ImportContext& context,
                      std::vector<Guid>& dependencies, std::string& error)
 {

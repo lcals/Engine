@@ -8,7 +8,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 - [引擎架构总览](docs/architecture.md)：模块职责、依赖方向与说明入口。
 - [资源系统](docs/class-diagrams/index.md#资源系统)：完整编辑器目录、精简运行清单、同步按需加载与依赖释放。
-- [首个游戏](docs/runtime/first-game.md)：割草射击游戏的核心玩法循环。
+- [首个游戏](docs/first-game.md)：割草射击游戏的核心玩法循环。
 - [可修改地形与建筑破坏方案](docs/plugins/runtime/terrain-destruction-plan.md)：同步地形步骤 1、建筑破坏步骤 2、综合联动步骤 3、应力/塌方/导航与火箭场步骤 4、开源技术来源及阶段验收；[编辑器制作方案](docs/plugins/editor/terrain-destruction-authoring.md)记录生成、预破碎、资源与 MCP 边界。
 - [地形与破坏技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)：步骤 0 的 Mac／Android ARM64 最小验证、正式地形与建筑破坏插件的分阶段验证、Blast 应力移植资料及 showcase 实施计划；各阶段代码、测试与窗口验收范围分别记录。
 
@@ -36,11 +36,7 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 
 UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElement` 提供 View，派生 `UiController<T>` 处理事件和显式刷新。`Bind()` 执行 `OnBind → OnRefresh`，`Listen()` 自动登记订阅，`Unbind()` 释放订阅；文档、控件或脚本上下文销毁后旧引用失效。支持 click/change/input 及输入值快照，事件按目标到祖先冒泡，`target` 保留目标，`currentTarget` 表示当前订阅控件，业务无需逐帧轮询。控件支持纯文本、表单值、显隐、禁用、样式、类名及已登记纹理切换。API 与职责见 [MVC 类图](docs/plugins/runtime/class-diagrams/ui-script-api.md)，示例拆分在 `assets/scripts/models/` 与 `controllers/`。
 
-当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及脚本组件和项目场景跳转。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
-
-字体/UI 基础接入阶段（V8 后端）已在 macOS Metal 完成 Debug / Release 构建，Debug 相关回归 9/9、Release 全套 CTest 74/74 通过；覆盖多字体、逐字体 Shader、多图片、多个文档同名字体别名隔离、鼠标捕获、输入焦点、3D 文字和停止后的 GPU 资源回收。正式编辑器经 MCP 验证待机、启动菜单、截图、停止恢复待机及有限帧退出。关闭 `font_import` / `ui_import` 后，编辑器与 MCP 仍构建、链接并启动成功；字体解析器仅由编辑器导入插件使用，RmlUi 的默认 FreeType 后端已关闭。 Android ARM64 Debug APK 已在独立 Vulkan 模拟器验证菜单、真实触摸设备事件、Tab 焦点、前后台恢复、120 帧正常退出、重启、MCP 完整资源同步及 3D 文字入口；APK 内不含 FreeType 和两个编辑器导入插件。该基础接入未验证 Android 实体设备、Windows DX12 或 iOS。
-
-2026-10-30 的 UI MVC 初次绑定阶段验证在 macOS Metal 完成 Debug / Release 构建，两配置全套 CTest 均为 75/75。新增 `engine.ui_script` 使用真实 SDL 输入、V8 和 Metal，覆盖初始化绑定、Model/View 刷新、目标到祖先的冒泡顺序、订阅快照、解绑、文档/控件失效及脚本重载清理；异步事件回调会按脚本错误流程停止。字体/UI GPU 回归增加同 GUID 新旧资源并存与单个 View 替换释放检查。正式编辑器经 MCP 启动 MVC 菜单并截图、停止恢复待机，3600 帧正常退出。TypeScript 检查、154 个 Mermaid 块实际渲染和相关文档链接检查通过。记录保存在忽略的 `build/ui-mvc-*.log` 与 `build/ui-mvc-validation/`，截图在 `projects/showcase/cache/ui-mvc-validation/`；该次 UI MVC 绑定验证未重建或运行 Android APK。
+当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及节点脚本组件。项目已通过 Gameplay 和 UI MVC 实现场景切换。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
 
 ## 构建与测试
 
@@ -139,8 +135,6 @@ Debug 使用对应的 `windows-static-debug` 和 `windows-static-debug-prepare`�
 
 V8 在 Windows、macOS、Linux、Android 等平台统一默认关闭 WebAssembly、Intl/ICU、Temporal 和系统 instrumentation（包括 Windows ETW），保留 Sparkplug、Maglev、TurboFan 等 JIT、指针压缩、sandbox 与既有编译优化等级。对应 CMake 开关为 `ENGINE_V8_ENABLE_WEBASSEMBLY`、`ENGINE_V8_ENABLE_I18N`、`ENGINE_V8_ENABLE_TEMPORAL`、`ENGINE_V8_ENABLE_SYSTEM_INSTRUMENTATION`，全部默认 OFF。项目脚本不能使用已关闭的全局 API；默认没有 ICU 资源部署。裁剪参数参与缓存身份，精简归档与头文件存放在带 `-f0000` 的独立目录；此前完整配置的缓存保留。
 
-Windows 修复阶段的历史验证记录（2026-10-30）：x64 静态组合的 Debug / Release 全量 CTest 均为 75/75，使用真实 DX12。静态编辑器和项目程序的 PE 导入仅包含 Windows 系统 DLL；两者分别复制到中文/emoji 路径、仅保留一个 EXE 及独立数据，在 PATH 仅含 Windows/System32 时均完成 120 帧并正常退出。正式 showcase 导出 1134 项资源、一个独立合并包；同一编辑器进程的实际运行日志记录四个菜单场景均成功打开并正常退出。验证日志位于忽略的 `build/windows-static-*-test.log` 与 `build/windows-validation/static-final/`。
-
 依赖维护需保留以下兼容约束：
 
 - `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
@@ -172,10 +166,6 @@ cmake --build --preset macos-native-release --target engine_export
 编辑器导出包含 Shader 编译器、Node.js、引擎声明、Schema 和固定版本的 TypeScript。导入优先使用项目安装的 TypeScript；项目未安装时，只有声明版本与随包版本一致才使用随包编译器。部署目录存在但工具缺失会报告失败，避免意外借用构建电脑的工具。资源运行包不包含这些编辑器工具。
 
 macOS 编辑器的 `lib/` 同时包含 USD 导入所需的 `libusd_*` / TBB，以及随包 Node.js 工具的依赖。当前 Node.js 使用 `libnode`、`libicu*`、SSL 等动态库；这些属于离线 TypeScript 编译工具，不是引擎脚本 VM 的依赖，不受 `ENGINE_SCRIPT_BACKEND` 切换影响，也不进入项目运行包。引擎默认不部署的 `icudtl.dat` 与 Node.js 的 ICU 动态库需要区分。
-
-跨平台交付阶段的 Mac 复核（提交 `57f8bf6`，当时使用 V8）完成 Debug / Release CTest 各 78/78。原生运行包搬迁后以受限 PATH 完成 Metal 菜单及 120 帧退出；编辑器搬迁后，在无项目 node_modules 的独立项目中实际导入 TypeScript、Shader 和 USD，再运行 120 帧退出。可选 `.app` 内置资源直接读取及 120 帧退出、原生与应用包的 USD 注册和私有动态依赖闭包均通过。该阶段仅审查 Windows 代码及跨平台构建契约，未在 Windows 设备重跑。
-
-同一跨平台交付阶段的 V8 Android Debug / Release APK 均通过单 `libmain.so`、系统动态依赖、签名、ZIP / ELF 16 KiB 对齐及 1134 项资源完整性检查。在独立 API 34 ARM64 软件 Vulkan 模拟器上，两配置已验证菜单、四场景进入并返回、键盘焦点、前后台同进程恢复、120 帧正常退出和 V8 执行。最终 Release 包重新完成上述全流程；最终 Debug 包在此前全流程基础上复核安装哈希、菜单和有限帧退出。Android 预设显式装配角色控制器，避免旧 CMake 缓存遗漏插件导致庭院加载失败。日志、截图及安装哈希回执保存在忽略的 `build/windows-cross-platform-review/`；未验证 Android 实体设备或 16 KiB 页设备。
 
 ### 插件选择
 
@@ -222,14 +212,6 @@ ctest --preset ninja-engine-v8-debug
 ```
 
 QuickJS 使用固定的 quickjs-ng 0.10.1 vcpkg port；其编译期模块图检查扩展由 `third_party/overlay-ports/quickjs-ng/` 的补丁维护，不修改上游安装目录。首次安装按 vcpkg 二进制缓存复用，日常代码修改不重新下载或准备依赖。两个后端均只运行项目 JavaScript，不加载 Node.js；模块预检不执行顶层代码，活动与候选 Run 的 VM、模块和 Promise 队列独立。顶层 await 与动态 import 不在当前同步契约内。
-
-本轮 QuickJS 验证（2026-10-30）：Mac Release 全量 CTest 77/77；Debug 77 项均已通过，其中 MCP 传输测试在并行重编和模拟器负载下两次超过原有 60 秒限制，停止重编后单独复跑在 47.75 秒通过，未放宽超时。最后的模块路径补丁另在两配置通过脚本、UI、动画、项目生命周期、插件选择和架构边界回归。覆盖循环模块、缺失导出、顶层 await 预检、拒绝动态 import、Promise 清理、BigInt 身份及 NUL 路径。默认原生运行包和编辑器搬迁到中文路径、限制 PATH 后均运行 120 帧正常退出，主程序符号确认只有 QuickJS，无 V8 或 ICU 数据。
-
-Mac 裁剪 V8 Debug / Release 均完成真实宿主链接，并通过 `engine.v8`、`engine.script_runtime`、`engine.ui_script`、`engine.model_animation_script` 四项定向回归；独立上游验证还覆盖 V8 缓存和插件选择。两配置运行包均从搬迁目录直接读取独立资源，启动菜单后运行 120 帧正常退出；未链接 QuickJS，未生成或部署 ICU 数据。Release 同项目主程序大小为 QuickJS 12,059,888 字节、V8 45,769,024 字节，独立资源另计。这些是本次构建结果，不是性能测试。
-
-Android QuickJS Debug / Release 最终 APK 均验证唯一 `libmain.so`、系统动态依赖、签名、ZIP / ELF 16 KiB 对齐和 1134 项运行资源。最终 Release 在独立 API 34 ARM64 软件 Vulkan 模拟器完成四场景进入/返回、键盘焦点、同进程前后台恢复和 120 帧正常退出；Debug 先完成全流程，更新模块路径补丁后的最终包再次核对安装哈希、菜单及 120 帧退出。APK 分别为 51,341,503 / 31,951,764 字节，不包含 V8/ICU；这些大小包含相同项目资源，不代表 VM 库本身体积。证据保留在忽略的 `build/quickjs-validation/`。本轮未在 Windows、Linux、iOS、Android 实体机或 16 KiB 页设备重新运行；统一配置不等于这些设备已经验证。
-
-按用户要求，后续验证已停止。裁剪 V8 的 Android 配置已生成，但首次依赖编译未完成，本轮没有该组合的 APK 运行结果；已完成的 QuickJS Android 和两种 VM 的 Mac 结果不受影响。
 
 ### V8 依赖
 
@@ -303,7 +285,7 @@ cmake --build --preset ninja-debug
 ctest --preset ninja-debug
 ```
 
-`engine.font_ui_render` 验证多字体、多 Shader、多图片、跨文档输入焦点、3D 文字、缩放与反复启停后的 GPU 资源回收。`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。`editor.mcp_commands` 验证场景查询、组件修改、批量回滚、撤销与会话隔离。这些窗口测试仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；命令执行、协议注册和文件传输测试无需 GPU。
+`engine.font_ui_render` 验证多字体、多 Shader、多图片、跨文档输入焦点、3D 文字、缩放与反复启停后的 GPU 资源回收。`engine.window_render` 验证真实后端、窗口生命周期、方块提交、场景切换及重复启停后实际 bgfx 资源回到待机基线。`engine.input` 使用真实平台窗口验证输入映射、设备配对与触摸路由。`editor.project_lifecycle` 使用真实编辑器、TypeScript 编译器和 MCP，验证空白待机、启停、重载和失败清理。`editor.mcp_commands` 验证场景查询、组件修改、批量回滚、撤销与会话隔离。这些窗口测试仅在 `ENGINE_ENABLE_GPU_TESTS=ON` 时注册并串行执行；命令执行、协议注册和文件传输测试无需 GPU。
 
 ### 桌面脚本与同步
 
@@ -323,7 +305,7 @@ cmake --workflow --preset ninja-engine-release
 
 Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
-编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("scenes/launcher.scene")`，显示可进入四个场景的菜单，停止时释放场景及本次运行 GPU 资源。
+编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("scenes/launcher.scene")`，显示项目场景菜单，停止时释放场景及本次运行 GPU 资源。
 
 编辑器运行时，若在另一终端修改了项目源脚本或其他资源，可执行：
 
@@ -368,9 +350,7 @@ InputSystem 在单次 SDL 事件泵后、宿主暂停判断前发布快照；重
 
 showcase 默认键位仍是 WASD、Space、鼠标右键观察和 Tab 切镜头。`CharacterControls.SaveKeys` 显式保存 KV 覆盖，初始化时在 TS 合并；初始选择一个手柄也是示例 TS 的策略，重连后由 `AssignGamepad` 明确重新配对。触屏默认使用左下摇杆、右下拖动观察和右下角高优先级跳跃区域；尺寸与锚点在项目 TS 中，InputSystem 只执行区域，不绘制控件。编辑器预览使用自己的键鼠通道，全部调用方已移除 WindowSystem 的有限输入接口。
 
-2026-11-01 输入模块定向验证：Windows 静态 Debug / Release 的 `engine_app`、`editor_app` 及受影响测试目标编译链接通过；`engine.input`、`engine.script_runtime`、`engine.character_controller`、`engine.character_host`、`engine.ui_script` 均通过（每配置 5/5），SDK 与 showcase TypeScript 检查及架构依赖检查通过。多手柄采用 SDL 虚拟设备，触摸采用事件注入，UI / 宿主测试使用 Direct3D 12；尚未确认真实手柄和移动设备触控，也未在本轮验证 Android / macOS。
-
-原生最多保留 4096 个存活通道；每个配置列表最多 4096 项，单个动作名 / 虚拟控件 id / 引用最多 4096 字节，每份配置的 parts 与 modifiers 合计最多 65536 项，捕获 devices / kinds 列表各最多 4096 项。超限整份拒绝且保留原配置。脚本对象桥另限单次输入 4 MiB。虚拟控件的 visible=false 或 enabled=false 阻止命中和值输出，显示由项目 UI 负责；普通 RmlUi 触摸桥使用一个指针，不承诺同一文档的多指独立拖拽，也未提供震动、传感器或 tap / pinch 等独立手势 API。当前变更的平台验证由后续实际记录列明。
+输入配置超限时整份拒绝并保留原配置，具体预算见[输入系统契约](docs/runtime/class-diagrams/input-system.md#捕获和错误)。虚拟控件的 visible=false 或 enabled=false 阻止命中和值输出，显示由项目 UI 负责；普通 RmlUi 触摸桥使用一个指针，不承诺同一文档的多指独立拖拽，也未提供震动、传感器或 tap / pinch 等独立手势 API。平台验证范围集中在[验证范围与限制](#验证范围与限制)。
 
 `App` 的静态只读路径具有以下含义：
 
@@ -397,8 +377,6 @@ if (Storage.lastError) Debug.LogError(Storage.lastError);
 ```
 
 原生 KV 使用固定数据文件、UTF-8 字符串与同目录临时写入后替换；key 为 1–256 字节，整个序列化文件最多 4 MiB。保存失败保留旧文件，不暴露任意路径、不实现游戏字段或隐式迁移。大块世界快照继续由原生模块整理。完整契约见 [KeyValueStore](docs/runtime/class-diagrams/key-value-store.md) 与 [脚本接口](docs/plugins/runtime/class-diagrams/storage-script-api.md)。
-
-2026-11-01 的 KV 实现使用 Windows x64 静态 Debug / Release Presets 增量构建 `engine_key_value_store_test` 和 `engine_script_runtime_test`，两配置各 2 项定向 CTest 通过；覆盖 Unicode、空值、删除、容量与格式校验、坏文件禁写、未保存变更丢弃和旧 Run 关闭保存后新 Run 读取。符号链接用例因本机权限不足跳过。实际 CMake 依赖与源码包含方向检查通过；记录位于忽略的 `build/kv-storage/`，未重跑完整测试套件或其他平台运行。
 
 持久版本保存在 `persistentDataPath/assets/versions/<revision>/`，只含 `catalog.bin` 和其引用的散文件或合并包，SQLite 不进包。全部内容核对大小及 FNV-1a 64 哈希后，才原子发布 `assets/available.json`。运行开始先选择完整持久版本，未发布时使用内置版本；运行模块和场景持有实际加载资源的共享引用；核心目录只保存元数据，不预读所有实体。TS 相对 import 通过清单中的模块路径映射到 GUID，已删除模块不会回退到旧包体。绝对路径、越界路径和越界符号链接会被拒绝。
 
@@ -817,8 +795,6 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
 
-角色基础实现阶段的既有 macOS / Metal / QuickJS 回归记录为：Debug、Release 均通过 `engine.physics`、`engine.character_motor`、`engine.character_controller`、`engine.character_host`、`engine.window_render`、`engine.script_runtime`、`engine.script_tooling`、`editor.character_controller`，每种配置 8 项。覆盖击退与碰撞、移除／禁用停止、生产宿主同帧顺序、双镜头过滤与阴影、脚本绑定和可撤销编辑。当时编辑器与 MCP 可执行目标同时构建通过，未执行 Windows 或 Android 测试。本次文档核对未复跑构建、CTest 或 GPU 场景。
-
 ### 资源运行包
 
 业务使用 `Scene.Load("scenes/launcher.scene")`、`builtin://materials/default-pbr` 等逻辑名；不拼接项目名、平台目录或 `packs/`。`assets/` 是项目与引擎运行实体的共同读取根，`builtin://` 表示引擎定义的逻辑名字。引擎通过 catalog 解析 GUID 与实际位置，Windows 和 Android 共用同一逻辑名。`editor://` 为编辑器专属命名空间保留，当前不提供该命名空间的实体加载器，运行包拒绝它。
@@ -936,51 +912,20 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 ## 验证范围与限制
 
-资源路径升级基线（提交 `4c6c4dd`，2026-11-01）使用根 Presets、默认 QuickJS 和各平台默认插件，未触发 CI。以下先保留该提交的验证记录，再说明后续 Android 清单收敛修复；表格继续保留此前各功能阶段的历史验证范围。交付结构见[交付目录](#交付目录)。
+下表只说明有记录的验证范围。历史结果与后续改动分别列出，不能据一次平台验证推断当前全部功能已跨平台验收。构建使用根 Presets 或继承它们的本机 Presets；CI 仅手动触发。
 
-Windows x64 静态 Debug / Release 完整构建通过。Release 本轮完整 CTest 为 91/91 通过；Debug 已通过前 14 项，按用户要求停止剩余测试，未完成本轮完整 Debug CTest。已完成的检查覆盖路径、资源读取、打包、脚本与同步；Release 还覆盖资源解码、依赖图、窗口渲染、GPU 蒙皮、字体/UI、特效和编辑器生命周期。
+| 平台与范围 | 已有证据 | 未覆盖范围 |
+| --- | --- | --- |
+| Windows x64 / DX12 / QuickJS | 2026-11-01 资源路径升级：Debug / Release 构建与运行包导出；Release 91/91 CTest，Debug 完成前 14 项。catalog-only 修复后做受影响目标构建、首次与重复同步、运行包启动检查 | 最新改动未做完整 Debug CTest；未逐一验证全部示例交互 |
+| Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
+| Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
+| macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归 | 本轮未重跑全套 CTest、应用导出或其他平台构建；手柄和触摸使用虚拟设备或事件注入 |
+| Android ARM64 / API 34 软件 Vulkan 模拟器 | 路径升级前已有菜单与场景往返、角色/动画、音频状态、前后台恢复、完整资源同步和有限帧退出验证 | 不代表当前包或实体设备性能、扬声器、真实触屏与 16 KiB 页设备已验证 |
+| Linux / iOS | 保留平台配置与统一后端约束 | 尚无本分支的构建及端到端运行结果 |
 
-Windows 两配置均已导出新运行包：EXE 旁的 `assets/` 包含 `catalog.bin` 和两个合并包，共 1202 个实体，其中 11 项引擎内置资源位于独立 `packs/builtin-*`。两配置的 catalog 摘要相同，实体头、范围和内容哈希全部通过校验；四个内置 Shader 的双阶段字节码均确认是 DirectX DXBC。两包均在 PATH 仅含 Windows 与 System32 时使用 DX12 启动菜单，完成 120 帧并正常退出。项目缓存已恢复为 Windows 目标，未逐一验收所有示例场景交互。
+验证输出留在忽略目录：分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
 
-Android ARM64 Debug / Release APK 均完成构建和静态检查，分别为 58,628,783 / 35,206,676 字节。两包均只有未压缩的 `lib/arm64-v8a/libmain.so`，签名、ZIP / ELF LOAD 16 KiB 对齐和系统动态依赖检查通过；1202 个实体及全部载体通过身份、实体头、范围与哈希校验。11 项内置资源实际外置，四个内置 Shader 的双阶段均解析出合法 SPIR-V `main` 入口。资源直接位于 APK `assets/`，无项目子目录；两包资源版本一致，使用本机调试签名。adb 未发现设备，未安装或运行 APK。
-
-本轮新增回归包含缺省清单全量、单份配置跨平台构建、显式空入口、保留内置身份、拒绝编辑器命名空间，以及外置内置实体缺失或损坏时禁止回退编入定义。已修改的 10 份源 meta 中 GUID 均保持原样。平台打包 Python 单测共 35 项，34 项通过、1 项因符号链接权限跳过；受影响文档链接、关键 C++ 格式和差异空白检查通过。
-
-后续收敛修复删除 Android 包内 `resource-manifest.json` 及启动导出的 `builtin.json`。所有平台统一直接读取 catalog；首次同步从空基线发布完整资源，后续只沿用已有 `available.json`，缺项不从 APK 恢复。共享的持久版本发布协议仍使用 `available.json`，属于完整版本发布与校验，不是包内资源的第二份索引。
-
-该修复仅增量构建 Windows Debug / Release 的 `mcp_app`、`engine_project_app` 及 Android 两配置的受影响原生目标，并更新四份运行包。Windows Release 输出包使用 DX12 启动并完成 3 帧；定向 MCP 检查通过首次同步（无包内清单、无既有持久版本、无启动状态文件）及重复同步。Android 资源准备单测为 23 项通过、1 项因符号链接权限跳过；两个新 APK 均含 `assets/catalog.bin`、不含额外清单且仅有 `libmain.so`，大小分别为 58,622,604 / 35,199,841 字节。复用已有资源缓存，未重跑完整 CTest，也未进行 Android 设备运行验证。
-
-基线证据位于忽略的 `build/resource-path-validation/`，Android 报告位于其 `android/` 子目录；本次清单修复的定向记录位于 `build/catalog-only-fix/`。本次未重新执行 macOS / Linux / iOS 运行验证或完整角色生产外部工具链。
-
-| 环境 | 已验证范围 |
-| --- | --- |
-| macOS Metal / 渲染职责与平台拆分 | Debug / Release 受影响目标构建通过，Release 编辑器链接通过；两配置的渲染基础、窗口渲染、字体/UI 渲染与编辑命令各 4 项定向 CTest 全部通过。覆盖 GPU 资源切换、CSM、AO、HDR/Bloom、截图和释放；40 个相关 C++ 文件格式检查通过。Metal、DX12、Vulkan 的共用 Shader 与平台源码选择已核对，本轮未运行其他平台 |
-| macOS ARM64 / AppleClang 21 | Debug / Release 完整构建通过；统一项目与 Model v2 改动后，Debug 全量 70 项通过，Release 首轮 69 项通过，修正 FBX 构建测试清单的共享骨架存储冲突后，该项在两配置复测通过，分别覆盖全部 70 项 |
-| macOS Metal 公寓 | 330 节点、77 碰撞体；小球落地、施加冲量后再次落地；默认 SDL 设备播放、暂停、续播、停止、调整音量和项目重启；真实渲染截图保存成功 |
-| macOS Metal 统一项目 | 同一编辑器会话依次切换基础方块、公寓、动画庭院，再返回方块，分别为 3 / 330 / 388 / 3 节点；公寓音频与庭院 walk 动画正常运行，返回方块后显式恢复其渲染参数；各次停止后场景、脚本及编辑历史清空，入口与 meta 恢复且全部源文件哈希不变 |
-| Android ARM64 / API 34 软件 Vulkan 模拟器 | 新增物理音频功能的 Debug APK 编译、安装和哈希核对通过；落球、音频状态、三次前后台、有限帧退出、冷重启、包含音频的 MCP 合并包同步及持久版本启动通过 |
-| Android 统一项目 / 模型动画 / 角色控制器 | 最终 Debug APK 的 1123 个独立资源实体与 Android 缓存匹配，含三场景、Model v2、一个骨架和 walk，排除 jog/run/静止 Take 及未引用模型；正式包的 Vulkan 画面、双视角、前后台、120 帧退出和冷启动通过；同源探针包覆盖真实蒙皮、移动、跳跃落地及 360 帧释放，MCP 完整目录同步与持久版激活通过 |
-| 既有精简插件与 Android Release | 前次模块分层验证中，关闭脚本/V8/建模的桌面 Release 47 项测试通过，Android Debug / Release 完成资源目录和生命周期验证；本次物理音频未重建 Android Release APK |
-| 精简插件装配 | 关闭全部插件的 engine_app、关闭编辑器与 V8 的 pipeline-only asset_build_app 均实际编译、链接及启动帮助命令成功；检查链接命令与依赖边界，无反向链接 |
-| Windows / Linux / iOS / Android 实体设备 | 未验证本次新增功能的端到端运行 |
-
-架构检查覆盖源码包含方向和实际 CMake 目标的直接、传递链接；核心、编辑器和插件保持单向依赖。物理音频及初版动画阶段已检查自有代码格式、145 块 Mermaid 图和文档链接；统一项目及 Model v2 阶段另对 20 块受影响类图实际解析、渲染，并检查对应源码格式和文档链接。
-
-动画与模型资源回归覆盖子资源身份稳定、增量导入、非法输入保留旧缓存、独立骨架映射、播放/暂停/停止/定位、模型实例化失败清理与撤销重做。FBX 源法线保留与显式重算均有回归；USD 限定范围的导入和拒绝路径独立测试。窗口测试比较真实变形网格与等价静态网格的主画面及阴影，检查瞬态隐藏/恢复与 GPU 资源释放。桌面通过 MCP 运行含真实 PAB 模型的 388 节点庭院，比较两个采样时刻的实际像素，验证地面及两级台阶落地、切换视角并停止、重新启动。最终画面采用 4096 阴影图与 0.0015 bias；32 个真实渲染姿态编码为演示视频，视频帧率不代表引擎性能。统一项目最后的入口修正另通过 Debug `engine.script_tooling` 与 Release `editor.project_lifecycle` 回归。
-
-物理回归覆盖盒/球/胶囊接触、静态/运动学/动态体、固定步进、单次冲量、触发器、父变换约束、极小尺度、旋转奇异角度以及清理恢复。音频回归覆盖 WAV/meta 增量导入、损坏输入保留旧缓存、PCM 实体校验、多个声源、循环、暂停、修改参数、组件删除、换场景和释放；自动化输出使用 SDL dummy。MCP 在真实编辑器中完成添加组件、方块落地、音频控制、场景保存、重新导入和再次启动；组件历史测试覆盖批量回滚、无效参数原子性和节点重建后的身份关联。
-
-公寓保留原有家具与灯光，新增 76 个静态家具/建筑碰撞体、一个动态球和原创循环音频。通过 MCP 施加冲量后球心最终稳定在约 0.255 米，符合地面高度与球半径；停止后场景释放，再次启动恢复播放。音频实际打开了桌面默认 SDL 输出设备，但这些检查不代表主观听觉评测。
-
-Android APK 的资源包包含 kind=7 / EAUD 音频实体，原生包未包含编辑器、建模或 MCP 插件。设备端落球接触后速度归零，播放、暂停、续播、停止和重播状态正常；360 帧运行正常退出。MCP 同步后的 catalog 与包文件逐字节匹配，冷启动使用已发布持久版本。日志未发现崩溃、ANR 或图形设备丢失；模拟器关闭宿主音频输出，不代表实体扬声器验证。
-
-验证记录和截图位于忽略的 `build/physics-audio-*.log`、`build/physics-audio-apartment/`、`build/physics-audio-android/` 与 `build/plugin-layout-validation/`。Android 测试结束恢复资源版本指针并清理测试版本，只关闭本次启动的独立模拟器；已有模拟器和编辑器保持不动。验证产物不提交，桌面复跑入口保留在 Presets、`tests/` 和公寓示例脚本。
-
-模型与动画的本机验证记录位于忽略的 `build/animation-*.log`、`build/animation-playground/` 和 `build/model-animation-android/`。桌面实景截图保存到 `projects/showcase/cache/screenshots/`，不提交生成缓存。
-
-统一项目、独立模型子资源和庭院的本轮回执位于忽略的 `build/animation-courtyard/`：`verified-final/report.json` 记录实景及生命周期，`verify-samples-release-3/report.json` 记录四次样例切换，`showcase-preview.html` 内嵌真实截图和动画视频。最终原始帧位于 `projects/showcase/cache/courtyard-verification/`；独立 GUID、meta 冲突和项目路径检查均通过。
-
-动画 Android 包包含 Model、Skeleton、Animation 实体及 ozz 蒙皮和运行时控制器；包内容检查未发现编辑器、MCP、FBX/USD 导入实现。MCP 同步核对设备文件和 active/available 版本回执，测试结束恢复原版本指针。此轮只使用独立测试模拟器，不修改其他已运行模拟器。Android 新增动画与控制器仅验证 Debug/API 34 ARM64 模拟器，未重建 Release 或验证实体机。统一项目的最终 APK、资源及设备回执位于 `build/showcase-android-validation/`；无探针正式资源 APK 与带状态日志的测试 APK 分别验证。冷启动在 Gameplay ready 后约 4.51 秒观察到首个庭院画面，固定 2 秒的截图早于首帧，后续校验等待实际出图。MCP 激活检查等待当前进程的新状态，不能把上一次进程残留的 builtin 报告当作最终结果；正式 catalog 和合并包上传后逐字节一致，确认新版本激活再清理测试部署。
+性能指标与固定采样流程统一维护在[性能文档](docs/runtime/performance.md)，功能验证不代表容量或帧耗时达标。资源版本发布和包体布局以[资源加载](docs/runtime/resource-loading.md)及[构建插件](docs/plugins/editor/resource-build.md)为准。
 
 限制：
 

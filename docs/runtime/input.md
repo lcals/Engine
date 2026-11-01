@@ -2,7 +2,7 @@
 
 输入由核心 InputSystem 统一采集和求值，WindowSystem 只保留窗口与单次事件泵。原生接口、生成数据和脚本 SDK 共用下述契约；平台构建与运行验证范围另见根 README 的实际记录。
 
-[原生类图](class-diagrams/input-system.md) · [数据契约](class-diagrams/input-data.md) · [脚本接口](../plugins/runtime/class-diagrams/input-script-api.md) · [首个游戏](first-game.md)
+[原生类图](class-diagrams/input-system.md) · [数据契约](class-diagrams/input-data.md) · [脚本接口](../plugins/runtime/class-diagrams/input-script-api.md) · [首个游戏](../first-game.md)
 
 ## 确定的职责边界
 
@@ -153,16 +153,7 @@ RuntimeHost 初始化 WindowSystem 后创建并初始化 InputSystem；输入在
 
 ## 预算、调用方与限制
 
-原生配置在整份提交时检查以下预算，超限失败并保留旧配置；不截断应用：
-
-| 项目 | 上限 |
-| --- | --- |
-| 存活通道 | 4096 |
-| 每个配置列表，以及捕获 devices / kinds 列表 | 各 4096 项 |
-| 单个动作名、虚拟控件 id 及其引用 | 4096 字节 |
-| 每份通道配置的 parts 与 modifiers 合计 | 65536 项 |
-
-脚本对象桥另限制单次序列化输入为 4 MiB、单列表 4096 项、单文本 4096 字节。字段名沿用 schema 的 snake_case；uint64 使用 bigint，仅在对象桥传递时转换为十进制文本。该转换不读取或保存任何 JSON 文件。
+配置预算和失败原子性以[输入系统类图](class-diagrams/input-system.md#捕获和错误)为唯一说明；脚本对象桥的输入限制见[脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)。数据字段沿用 schema 的 snake_case，uint64 在 TS 使用 bigint。桥接转换不读取或保存 JSON 文件。
 
 - WindowSystem 删除六键枚举、三按钮状态与相关查询，保留窗口、生命周期、退出状态和单次事件泵；已有项目和编辑器调用方直接升级，不保留旧输入兼容层。
 - CharacterControllerSystem 删除 Window 借用和固定 WASD / Space / Tab fallback，保留调用方明确提交 CharacterInput 的路线。多通道与角色的关联由玩法决定，输入模块不选择场景节点；完整多角色控制属于角色插件的独立契约。

@@ -126,10 +126,13 @@ schema::InputChannelDataT configuration(std::uint64_t keyboard)
 
 bool run()
 {
-    SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
     WindowSystem window;
     EngineConfig config;
-    if (!expect(window.initialize(config), "window initializes"))
+    config.window_title = "Input mapping test";
+    config.width = 640;
+    config.height = 480;
+    if (!expect(window.initialize(config) && SDL_HideWindow(window.native_window()),
+                "native window initializes and hides"))
     {
         return false;
     }

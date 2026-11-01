@@ -1,5 +1,8 @@
 #include "plugins/runtime/character_controller/character_controller.hpp"
 
+#include "runtime/scene/character_motor.hpp"
+#include "runtime/scene/node.hpp"
+
 #include <atomic>
 #include <cmath>
 #include <limits>
@@ -96,6 +99,12 @@ bool CharacterController::set_input(const CharacterInput& input) noexcept
 void CharacterController::clear_input() noexcept
 {
     input_ = {};
+    auto* motor = node().get_component<CharacterMotor>();
+    if (motor != nullptr && motor->instance_id() == driven_motor_)
+    {
+        motor->clear_input();
+    }
+    driven_motor_ = 0;
 }
 
 bool CharacterController::restore_data(const schema::ComponentDataT& value)

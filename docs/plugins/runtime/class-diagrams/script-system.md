@@ -66,7 +66,7 @@ classDiagram
     ScriptSystem *-- ScriptVm : 每个候选及活动Run独占
 ```
 
-- `world`、`renderer`、`ui`、`physics` 和 `navigation` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
+- `world`、`renderer`、`ui`、`physics`、`navigation` 和 `input` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理，input 须覆盖 Run 的通道与捕获清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
 - `prepare_gameplay()` 接收调用方提供的目录和挂载，入口默认 `scripts/game.js`，修订默认目录修订。只沿静态 import 图读取候选 JS、编译和链接，不执行模块或用户回调、不更新核心目录、不停止旧玩法。失败保留旧运行。
 - 宿主预检成功后停止旧玩法及 GPU、更新资源目录，再调用 `start_prepared_gameplay()`。启动核对活动资源与预检脚本的内容及模块身份，取得共享引用，然后执行模块并创建入口。执行失败停止本次玩法，不承诺撤销外部副作用。
 - `start_gameplay()` 是从已经提交的活动目录直接准备并启动的入口；目录未提交或模块缺失时返回失败，不回退物理脚本目录。
@@ -78,9 +78,9 @@ classDiagram
 - `ENGINE_SCRIPT_BACKEND` 在编译期选择 `quickjs`（默认）或 `v8`，只编译所选后端；不提供运行时切换。QuickJS 的 runtime/context 与 V8 的 isolate/context 都由各 Run 独占，V8 platform 每进程共享。所有平台的 V8 默认关闭 WebAssembly、Intl/ICU、Temporal、系统 instrumentation，保留 JIT，默认无 ICU 数据部署。
 - `status()` 返回只读借用，下一次运行操作可更新内容。`entry` 默认空、`revision` 默认空；MountList 为标准容器别名。构造、析构、停止、查询及关闭为 noexcept，返回状态与重要查询标注 nodiscard，钩子标注 override。
 
-- 可执行宿主按插件清单向 RuntimeHost 提供创建工厂；工厂接收 WorldSystem、RenderSystem、UiSystem、PhysicsSystem 和 NavigationSystem 借用，返回未初始化实例。世界独占插件并统一调度；核心只包含 ScriptRuntime/ScriptStatus 头文件，不链接具体虚拟机或本插件。RuntimeHost 在关闭渲染器前通过 GameplaySession 停止玩法。
+- 可执行宿主按插件清单向 RuntimeHost 提供创建工厂；工厂接收 WorldSystem、RenderSystem、UiSystem、PhysicsSystem、NavigationSystem 和 InputSystem 借用，返回未初始化实例。世界独占插件并统一调度；核心只包含 ScriptRuntime/ScriptStatus 头文件，不链接具体虚拟机或本插件。RuntimeHost 在关闭渲染器前通过 GameplaySession 停止玩法。
 
-步骤 3：宿主追加注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问当前场景的只读撞击快照，不推进物理、不在 Jolt 回调里执行脚本。
+宿主注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问当前场景的只读撞击快照，不推进物理、不在 Jolt 回调里执行脚本。
 
 ```mermaid
 classDiagram
@@ -96,4 +96,4 @@ PhysicsBinding ..> PhysicsSystem : reads impact snapshot
 PhysicsBinding ..> BindingContext : validates scene
 ```
 
-步骤 4：宿主额外注入可空 NavigationSystem 借用，接口见[导航脚本类图](navigation-script-api.md)。BindingContext 在自己拥有的场景切换/停止时 clear 导航；候选 Run 预检不修改活动导航。导航仅接受调用方明确提交的网格与范围，失败路径不能继续使用受影响旧 tile。
+宿主注入可空 NavigationSystem 借用，接口见[导航脚本类图](navigation-script-api.md)。BindingContext 在自己拥有的场景切换/停止时 clear 导航；候选 Run 预检不修改活动导航。导航仅接受调用方明确提交的网格与范围，失败路径不能继续使用受影响旧 tile。

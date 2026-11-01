@@ -23,26 +23,26 @@
 
 ## 当前评估
 
-本节基线于 2026-11-01 按提交 `0e8cc06` 的源码核对；同日后续实现已补入下表的字符串 KV 与统一输入能力。现有能力可以复用来制作战斗原型，但尚未组成完整的割草射击游戏框架，也没有大量敌人同时模拟、寻路、播放动作和渲染的性能结论。依赖已接入、演示场景已运行、目标能力已规划，三者分别记录。
+本节描述当前代码能力与玩法缺口；平台验证范围集中在根 README。现有能力可以复用来制作战斗原型，但尚未组成完整的割草射击游戏框架，也没有大量敌人同时模拟、寻路、播放动作和渲染的性能结论。依赖已接入、演示场景已运行、目标能力已规划，三者分别记录。
 
 ### 已有能力
 
 | 范围 | 已实现内容 | 使用边界与依据 |
 | --- | --- | --- |
-| 玩法与场景生命周期 | Gameplay 初始化、逐帧回调、关闭；场景加载、节点和组件创建与销毁，模型实例化 | [脚本 API](../../include/engine.d.ts)、[场景实现](../../src/engine/runtime/scene/scene.cpp)；项目入口可以组织流程，自定义脚本组件框架尚未实现 |
-| 菜单与场景切换 | 示例已有菜单、子玩法启动、返回、初始化失败清理与配对关闭 | [菜单脚本](../../projects/showcase/assets/scripts/modules/menu.ts)；可复用对局入口与退场流程 |
-| 资源与发布 | GUID 资源、依赖闭包、增量导入、运行包构建与完整版本同步 | [资源加载](resource-loading.md)、[构建插件](../plugins/editor/resource-build.md)；运行时消费编译资源，业务按资源逻辑路径引用 |
-| 统一输入 | 完整键鼠、多手柄与热插拔、原始 Joystick、多指触摸、通道映射和重绑定捕获；TS 可提交最终配置与查询快照 | [输入设计](input.md)、[输入 SDK](../../include/engine.d.ts)；TS 负责默认 / 覆盖 / 保存及玩家配对，原生执行映射与虚拟触摸 |
-| 角色移动 | CharacterMotor 提供碰撞移动、速度和跳跃；角色控制器消费明确提交的移动、观察、跳跃和切镜头意图 | [角色控制器](../../src/engine/plugins/runtime/character_controller/character_controller_system.cpp)、[示例输入](../../projects/showcase/assets/scripts/character_controls.ts)；完整多角色控制仍需扩展角色插件 |
-| 物理基础 | Collider、RigidBody、冲量、碰撞扫掠与物理撞击记录 | [PhysicsSystem](../../include/engine/runtime/physics/physics_system.hpp)；现有全场球扫只返回比例，撞击记录也不是通用 Trigger 事件 |
-| 导航基础 | 显式构建瓦片导航网格、局部替换、查询完整可达路径 | [NavigationSystem](../../include/engine/runtime/navigation/navigation_system.hpp)；尚无完整怪群代理跟随与局部避让 |
-| 动画与模型 | FBX 模型、骨架和动作导入，动作播放、暂停、定位、两动作淡入淡出，共享编译缓存和 GPU 蒙皮 | [动画能力](animation.md)；当前完整关节路径匹配不等于跨骨架重定向 |
-| 画面与表现 | 材质、PBR、阴影、AO、HDR/Bloom，Effekseer 特效和音频播放 | [渲染](rendering.md)、[特效插件](../../include/engine/plugins/runtime/effects/effect_system.hpp)、[音频](audio.md)；这些能力已有实现，战斗中的数量与更新预算仍需明确 |
-| UI MVC | 控件事件、文本与样式刷新，脚本 Controller 与项目 Model | [运行时 UI](ui.md)、[菜单 Controller](../../projects/showcase/assets/scripts/controllers/launcher_controller.ts)；可以制作血条、收益、升级和结算界面 |
-| 字符串 KV | 原生缓存和文件读取，脚本获取、设置、删除、显式保存及错误查询 | [Storage 接口](../plugins/runtime/class-diagrams/storage-script-api.md)；每 Run 惰性载入，未保存变更在停止时丢弃，文件损坏时禁止覆盖；游戏字段和版本由项目维护 |
-| 弹体池示例 | 固定池、发射、飞行段球扫、命中或超时回收 | [火箭示例](../../projects/showcase/assets/scripts/modules/destruction-rockets.ts)、[独立数值配置](../../projects/showcase/assets/scripts/models/destruction_range_config.ts)；目前是 TS 演示实现，应作为行为参考，正式大量弹体迁入原生批处理 |
-| 地形与建筑破坏 | 地形挖填、土石抽离、建筑损伤、碎块与碰撞联动 | [破坏范围](../plugins/runtime/terrain-destruction-plan.md)；示例射击主要影响这些对象，尚无完整敌人战斗体系 |
-| AI 制作与分析工具 | MCP 构建、同步、启停、场景编辑和截图，已有 Tracy 采样流程 | [项目 MCP](../plugins/editor/class-diagrams/project-mcp-tools.md)、[性能流程](performance.md)；可复用现有工具，不需要先建立新的制作界面 |
+| 玩法与场景生命周期 | Gameplay 初始化、逐帧回调、关闭；场景加载、节点和组件创建与销毁，模型实例化 | [脚本 API](../include/engine.d.ts)、[场景实现](../src/engine/runtime/scene/scene.cpp)；项目入口可以组织流程，自定义脚本组件框架尚未实现 |
+| 菜单与场景切换 | 示例已有菜单、子玩法启动、返回、初始化失败清理与配对关闭 | [菜单脚本](../projects/showcase/assets/scripts/modules/menu.ts)；可复用对局入口与退场流程 |
+| 资源与发布 | GUID 资源、依赖闭包、增量导入、运行包构建与完整版本同步 | [资源加载](runtime/resource-loading.md)、[构建插件](plugins/editor/resource-build.md)；运行时消费编译资源，业务按资源逻辑路径引用 |
+| 统一输入 | 完整键鼠、多手柄与热插拔、原始 Joystick、多指触摸、通道映射和重绑定捕获；TS 可提交最终配置与查询快照 | [输入设计](runtime/input.md)、[输入 SDK](../include/engine.d.ts)；TS 负责默认 / 覆盖 / 保存及玩家配对，原生执行映射与虚拟触摸 |
+| 角色移动 | CharacterMotor 提供碰撞移动、速度和跳跃；角色控制器消费明确提交的移动、观察、跳跃和切镜头意图 | [角色控制器](../src/engine/plugins/runtime/character_controller/character_controller_system.cpp)、[示例输入](../projects/showcase/assets/scripts/character_controls.ts)；完整多角色控制仍需扩展角色插件 |
+| 物理基础 | Collider、RigidBody、冲量、碰撞扫掠与物理撞击记录 | [PhysicsSystem](../include/engine/runtime/physics/physics_system.hpp)；现有全场球扫只返回比例，撞击记录也不是通用 Trigger 事件 |
+| 导航基础 | 显式构建瓦片导航网格、局部替换、查询完整可达路径 | [NavigationSystem](../include/engine/runtime/navigation/navigation_system.hpp)；尚无完整怪群代理跟随与局部避让 |
+| 动画与模型 | FBX 模型、骨架和动作导入，动作播放、暂停、定位、两动作淡入淡出，共享编译缓存和 GPU 蒙皮 | [动画能力](runtime/animation.md)；当前完整关节路径匹配不等于跨骨架重定向 |
+| 画面与表现 | 材质、PBR、阴影、AO、HDR/Bloom，Effekseer 特效和音频播放 | [渲染](runtime/rendering.md)、[特效插件](../include/engine/plugins/runtime/effects/effect_system.hpp)、[音频](runtime/audio.md)；这些能力已有实现，战斗中的数量与更新预算仍需明确 |
+| UI MVC | 控件事件、文本与样式刷新，脚本 Controller 与项目 Model | [运行时 UI](runtime/ui.md)、[菜单 Controller](../projects/showcase/assets/scripts/controllers/launcher_controller.ts)；可以制作血条、收益、升级和结算界面 |
+| 字符串 KV | 原生缓存和文件读取，脚本获取、设置、删除、显式保存及错误查询 | [Storage 接口](plugins/runtime/class-diagrams/storage-script-api.md)；每 Run 惰性载入，未保存变更在停止时丢弃，文件损坏时禁止覆盖；游戏字段和版本由项目维护 |
+| 弹体池示例 | 固定池、发射、飞行段球扫、命中或超时回收 | [火箭示例](../projects/showcase/assets/scripts/modules/destruction-rockets.ts)、[独立数值配置](../projects/showcase/assets/scripts/models/destruction_range_config.ts)；目前是 TS 演示实现，应作为行为参考，正式大量弹体迁入原生批处理 |
+| 地形与建筑破坏 | 地形挖填、土石抽离、建筑损伤、碎块与碰撞联动 | [破坏范围](plugins/runtime/terrain-destruction-plan.md)；示例射击主要影响这些对象，尚无完整敌人战斗体系 |
+| AI 制作与分析工具 | MCP 构建、同步、启停、场景编辑和截图，已有 Tracy 采样流程 | [项目 MCP](plugins/editor/class-diagrams/project-mcp-tools.md)、[性能流程](runtime/performance.md)；可复用现有工具，不需要先建立新的制作界面 |
 
 ### 缺少的通用能力与原生游戏模块
 
@@ -58,7 +58,7 @@
 | P1 | 怪群追击与避让 | 有单次同步路径查询，没有代理跟随、局部避让、共享路径和更新预算。需要低频重寻路、错峰更新、拥堵处理及目标不可达策略 | 原生导航扩展 / 游戏模块 |
 | P1 | 对局暂停与时间控制 | TS 只有 `Time.deltaTime`；跳过 Gameplay.Update 不会停止独立推进的物理。需要明确模拟暂停、时间倍率，以及暂停时继续处理的 UI、输入和显示时间 | 核心提供时间能力，宿主 / 对局调用方选择策略 |
 | P1 | 攻击动作衔接 | 已有两动作过渡；缺动作事件、上半身与下半身分层、瞄准叠加等能力。需要处理攻击生效、发射、受击打断与动作结束；首版可由原生战斗时间线明确驱动 | 动画能力及原生游戏模块；具体状态规则归项目 |
-| P1 | 跨骨架动作复用 | 当前要求完整关节名称与层级匹配，直接使用源局部 TRS；语义映射、参考姿态和比例补偿、运行时重定向仍未实现 | 编辑器准备适配数据，运行时动画执行；见[角色制作规划](../editor/character-production.md) |
+| P1 | 跨骨架动作复用 | 当前要求完整关节名称与层级匹配，直接使用源局部 TRS；语义映射、参考姿态和比例补偿、运行时重定向仍未实现 | 编辑器准备适配数据，运行时动画执行；见[角色制作规划](editor/character-production.md) |
 | P1 | 大量单位渲染与动画预算 | 共享几何与 GPU 蒙皮已有实现，但普通 Mesh 仍逐实例提交；动画采样和蒙皮也逐角色执行。需要处理已知查找复杂度，并按真实怪群负载决定批绘制、剔除、LOD 与更新分级 | 渲染、动画及相关原生模块，按实测逐项推进 |
 | 条件项 | 局外进度与大块快照 | 通用字符串 KV 已实现；本游戏保存哪些收益、解锁和升级数据及如何迁移尚待业务定义。通用脚本文件接口和大块世界快照仍未实现 | 项目脚本组织低频进度并调用 KV；批量快照归原生游戏模块 |
 
@@ -66,7 +66,7 @@
 
 模型实例化只负责模型层级和表现资源，不能当作包含血量、武器、行为与完整碰撞配置的玩法 Prefab。首版可由原生单位工厂消费项目配置组合现有组件；是否扩展正式 Prefab 资源契约，随实际复用需求单独评审。
 
-持久化已提供类似 [Unity PlayerPrefs](https://docs.unity.cn/6000.2/Documentation/ScriptReference/PlayerPrefs.html) 的轻量 KV 使用方式：Storage 按 key 获取、设置、判断存在、删除，以及显式保存并报告失败；缺少 key 与读取失败通过 `lastError` 区分。少量金币、解锁、设置可序列化为字符串，结构化进度由脚本转换为 JSON；本引擎使用自己的文件后端，接口与限制见 [KV 类图](class-diagrams/key-value-store.md)。
+持久化已提供类似 [Unity PlayerPrefs](https://docs.unity.cn/6000.2/Documentation/ScriptReference/PlayerPrefs.html) 的轻量 KV 使用方式：Storage 按 key 获取、设置、判断存在、删除，以及显式保存并报告失败；缺少 key 与读取失败通过 `lastError` 区分。少量金币、解锁、设置可序列化为字符串，结构化进度由脚本转换为 JSON；本引擎使用自己的文件后端，接口与限制见 [KV 类图](runtime/class-diagrams/key-value-store.md)。
 
 原生负责应用数据隔离、读写边界与写入后替换，数据落在持久目录的独立用户数据区域。若后续暴露文件接口，使用该区域下的相对路径；二进制大快照由原生模块读写。游戏字段含义、版本和迁移保持项目职责，本项不要求新增专用游戏存档系统，也不涉及加密、防作弊或云存档。
 
@@ -89,18 +89,18 @@
 
 大量敌人围攻用于验证单位能否同时更新、移动、攻击、播放动作和渲染。静态摆放数量、建筑碎块数量或某个第三方库的容量上限，不能代替这一目标。
 
-- **渲染查找与提交。** [资源准备](../../src/engine/runtime/render/render_scene_resources.cpp)和[绘制](../../src/engine/runtime/render/render_scene.cpp)逐节点在线性 Mesh 容器中查找；当实例数量随节点数量增长时存在 O(N²) 查找路径。普通网格尚无 instancing；Camera 的可见名单是显式隐藏控制，不是自动视锥剔除。上述为源码结构判断，实际耗时尚需对应场景测量。
+- **渲染查找与提交。** [资源准备](../src/engine/runtime/render/render_scene_resources.cpp)和[绘制](../src/engine/runtime/render/render_scene.cpp)逐节点在线性 Mesh 容器中查找；当实例数量随节点数量增长时存在 O(N²) 查找路径。普通网格尚无 instancing；Camera 的可见名单是显式隐藏控制，不是自动视锥剔除。上述为源码结构判断，实际耗时尚需对应场景测量。
 - **动画与蒙皮。** 不可变骨架和动作编译物已共享，但 CPU 仍逐实例采样、计算骨矩阵；每个蒙皮实例拥有独立 palette 和输出顶点流，分别提交 compute。尚无动画更新分级和群体蒙皮批处理。
 - **导航与物理。** 当前导航同步构建、替换和查询，没有群体代理与避让。不能默认每名敌人每帧独立寻路，也不能默认所有敌人与弹体都使用完整动态刚体；碰撞精度与近远更新策略要由真实玩法和预算决定。
 - **破坏后的通行。** 已有局部导航替换能力，但挖地、建筑倒塌、残骸移动后的更新时机、重寻路和拥堵处理仍需调用方组织；没有自动动态残骸导航。
 - **特效与声音。** 已接入真实播放能力，仍需定义同时在播上限、远近优先级、过载处理和复用策略。Effekseer 的固定容量不能解读成可支持同数量敌人。
 
-[现有性能基线](performance.md)来自建筑破坏场景，其中 503 个物理 body 不代表 503 名具有追击、攻击和动画的敌人。现有动画与 GPU 蒙皮检查覆盖功能正确性，尚未给出大量战斗单位的容量结论；Windows、M1 Max 和 Android 设备分别需要自己的目标预算。
+[现有性能基线](runtime/performance.md)来自建筑破坏场景，其中 503 个物理 body 不代表 503 名具有追击、攻击和动画的敌人。现有动画与 GPU 蒙皮检查覆盖功能正确性，尚未给出大量战斗单位的容量结论；Windows、M1 Max 和 Android 设备分别需要自己的目标预算。
 
 ## 实现顺序与验收
 
-1. **打通最小射击链路。** 补输入、瞄准和可识别目标的命中查询；由原生游戏模块驱动一个玩家、一类敌人和一种武器，完成移动、追击、开火、受伤、死亡与奖励。脚本只控制开始、结束及 HUD。
-2. **形成完整对局。** 加入原生批量生成与回收、持续来袭、收益升级、失败或完成和重开；补齐暂停语义。需要局外成长时接入通用 KV，由项目脚本保存进度。
+1. **打通最小射击链路。** 连接已有输入，补齐瞄准和可识别目标的命中查询；由原生游戏模块驱动一个玩家、一类敌人和一种武器，完成移动、追击、开火、受伤、死亡与奖励。脚本只控制开始、结束及 HUD。
+2. **形成完整对局。** 加入原生批量生成与回收、持续来袭、收益升级、失败或完成和重开；补齐暂停语义。需要局外成长时由项目脚本使用已有 KV 保存进度。
 3. **验证怪群规模。** 使用同一真实战斗场景逐档增加活动敌人和弹体，记录帧时间分位数、脚本边界调用量、原生模拟、导航、动画、渲染和内存；确认瓶颈后处理对应模块，保持可见单位确实参与模拟。
 4. **完善角色与内容生产。** 完成攻击动作衔接、跨骨架动作复用、更多敌人与武器配置，并为 AI 提供可复用的资源准备、配置校验和验收步骤。
 
@@ -110,4 +110,4 @@ AI 自动验证复用现有 MCP 启停、资源同步、截图和日志。项目
 
 当前仍需确定玩家视角与瞄准方式、桌面和移动端操作、目标设备与同时活动数量、收益升级规则，以及局内 / 局外成长边界。这些决定具体内容与预算，不影响先打通上述最小闭环。
 
-初次框架盘点仅核对源码和既有记录；后续 KV 实现已完成 Windows Debug / Release 的原生存取与脚本绑定定向验证，未新增怪群或战斗性能结论。后续新增架构类或公开契约时，按[类图索引](../class-diagrams/index.md)先更新相应职责、所有权和接口供评审。
+新增架构类或公开契约时，按[类图索引](class-diagrams/index.md)先更新相应职责、所有权和接口供评审。

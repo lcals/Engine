@@ -1,5 +1,6 @@
 #include "runtime/storage/key_value_store.hpp"
 
+#include "runtime/storage/storage_file.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL_error.h>
@@ -372,13 +373,14 @@ bool KeyValueStore::save()
         return fail(last_error_, "Cannot create a regular KV directory");
     }
     const auto temporary_text = PathUtils::to_utf8(temporary);
-    auto* file = SDL_IOFromFile(temporary_text.c_str(), "wbx");
+    auto* file = storage_detail::open_exclusive_file(temporary, code);
     if (file == nullptr)
     {
-        return fail(last_error_, "Cannot exclusively create KV temporary file");
+        last_error_ = "Cannot exclusively create KV temporary file: " + code.message();
+        return false;
     }
-    const bool written = SDL_WriteIO(file, text.data(), text.size()) == text.size();
-    const bool closed = SDL_CloseIO(file);
+    const bool written = std::fwrite(text.data(), 1, text.size(), file) == text.size();
+    const bool closed = std::fclose(file) == 0;
     if (!written || !closed)
     {
         remove_temporary(temporary);

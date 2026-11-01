@@ -38,20 +38,66 @@ declare module "engine" {
         static readonly lastError: string | null;
     }
 
-    export enum InputDeviceKind { keyboard, mouse, gamepad, joystick, touch }
-    export enum InputControlKind {
-        key, mouse_button, mouse_position, mouse_delta, mouse_relative, mouse_wheel,
-        gamepad_button, gamepad_axis, joystick_button, joystick_axis, joystick_hat,
-        touch, gamepad_touch
+    export enum InputDeviceKind {
+        keyboard,
+        mouse,
+        gamepad,
+        joystick,
+        touch,
     }
-    export enum InputActionKind { button, axis1d, axis2d }
-    export enum InputValueMode { state, delta }
-    export enum InputCombine { maximum, sum_clamped }
-    export enum InputActivation { wait_for_neutral, use_current_state }
-    export enum InputVirtualKind { button, stick, drag }
-    export enum InputCaptureStatus { waiting, completed, canceled }
-    export enum InputUnit { none, normalized, logical, relative, wheel }
-    export enum InputRegionShape { rectangle, circle }
+    export enum InputControlKind {
+        key,
+        mouse_button,
+        mouse_position,
+        mouse_delta,
+        mouse_relative,
+        mouse_wheel,
+        gamepad_button,
+        gamepad_axis,
+        joystick_button,
+        joystick_axis,
+        joystick_hat,
+        touch,
+        gamepad_touch,
+    }
+    export enum InputActionKind {
+        button,
+        axis1d,
+        axis2d,
+    }
+    export enum InputValueMode {
+        state,
+        delta,
+    }
+    export enum InputCombine {
+        maximum,
+        sum_clamped,
+    }
+    export enum InputActivation {
+        wait_for_neutral,
+        use_current_state,
+    }
+    export enum InputVirtualKind {
+        button,
+        stick,
+        drag,
+    }
+    export enum InputCaptureStatus {
+        waiting,
+        completed,
+        canceled,
+    }
+    export enum InputUnit {
+        none,
+        normalized,
+        logical,
+        relative,
+        wheel,
+    }
+    export enum InputRegionShape {
+        rectangle,
+        circle,
+    }
 
     export interface InputFrameState {
         readonly frame_id: bigint;
@@ -59,8 +105,14 @@ declare module "engine" {
         readonly cancel_revision: bigint;
     }
     /** Session handle; not a persistent player or device identifier. */
-    export interface InputChannelHandle { readonly slot: number; readonly generation: number; }
-    export interface InputCaptureHandle { readonly slot: number; readonly generation: number; }
+    export interface InputChannelHandle {
+        readonly slot: number;
+        readonly generation: number;
+    }
+    export interface InputCaptureHandle {
+        readonly slot: number;
+        readonly generation: number;
+    }
     export interface InputControlRef {
         readonly connection_id: bigint;
         readonly kind: InputControlKind;
@@ -186,12 +238,18 @@ declare module "engine" {
         static CreateChannel(): InputChannelHandle | null;
         /** Accepts a complete mapping; activation occurs at the next input frame. */
         static ConfigureChannel(channel: InputChannelHandle, data: InputChannelData): boolean;
-        static SetChannelEnabled(channel: InputChannelHandle, enabled: boolean,
-                                 activation: InputActivation): boolean;
+        static SetChannelEnabled(
+            channel: InputChannelHandle,
+            enabled: boolean,
+            activation: InputActivation,
+        ): boolean;
         static DestroyChannel(channel: InputChannelHandle): boolean;
         /** Returns a non-consuming copy of the last published action snapshot. */
         static ReadAction(channel: InputChannelHandle, name: string): InputActionState | null;
-        static BeginCapture(channel: InputChannelHandle, options: InputCaptureOptions): InputCaptureHandle | null;
+        static BeginCapture(
+            channel: InputChannelHandle,
+            options: InputCaptureOptions,
+        ): InputCaptureHandle | null;
         static ReadCapture(capture: InputCaptureHandle): InputCaptureState | null;
         static CancelCapture(capture: InputCaptureHandle): boolean;
         static readonly lastError: string | null;
@@ -222,15 +280,25 @@ declare module "engine" {
             sky: readonly [number, number, number],
             equator: readonly [number, number, number],
             ground: readonly [number, number, number],
-            intensity: number
+            intensity: number,
         ): boolean;
         /** Linear RGB and world distances. Requires 0 <= start < end, even when disabled. */
         static SetLinearFog(
-            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            start: number,
+            end: number,
         ): boolean;
         /** Nonnegative density, forward camera depth. squared defaults to false. */
         static SetExponentialFog(
-            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            density: number,
+            squared?: boolean,
         ): boolean;
         /** Exposure in (0, 100]. */
         static SetExposure(value: number): boolean;
@@ -240,20 +308,30 @@ declare module "engine" {
         /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
         /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
         static SetBloom(
-            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+            enabled: boolean,
+            threshold?: number,
+            intensity?: number,
+            radius?: number,
         ): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         static SetAmbientOcclusion(
-            enabled: boolean, radius?: number, strength?: number, power?: number,
-            fadeStart?: number, fadeEnd?: number
+            enabled: boolean,
+            radius?: number,
+            strength?: number,
+            power?: number,
+            fadeStart?: number,
+            fadeEnd?: number,
         ): boolean;
         /** Full atlas resolution defaults to 2048; bias to 0.001. Preserves cascade settings. */
         static SetDirectionalShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
         static SetShadowCascades(
-            count: number, distance: number, splitLambda?: number, blend?: number
+            count: number,
+            distance: number,
+            splitLambda?: number,
+            blend?: number,
         ): boolean;
         /** Unsigned 32-bit 0xRRGGBBAA; MCP uses a normalized [r,g,b,a] array in the same order. */
         static SetClearColor(rgba: number): boolean;
@@ -340,13 +418,23 @@ declare module "engine" {
             sky: readonly [number, number, number],
             equator: readonly [number, number, number],
             ground: readonly [number, number, number],
-            intensity: number
+            intensity: number,
         ): boolean;
         SetLinearFog(
-            enabled: boolean, r: number, g: number, b: number, start: number, end: number
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            start: number,
+            end: number,
         ): boolean;
         SetExponentialFog(
-            enabled: boolean, r: number, g: number, b: number, density: number, squared?: boolean
+            enabled: boolean,
+            r: number,
+            g: number,
+            b: number,
+            density: number,
+            squared?: boolean,
         ): boolean;
         /** Unsigned 32-bit 0xRRGGBBAA. */
         SetClearColor(rgba: number): boolean;
@@ -361,13 +449,20 @@ declare module "engine" {
         /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
         /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
         SetBloom(
-            enabled: boolean, threshold?: number, intensity?: number, radius?: number
+            enabled: boolean,
+            threshold?: number,
+            intensity?: number,
+            radius?: number,
         ): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         SetAmbientOcclusion(
-            enabled: boolean, radius?: number, strength?: number, power?: number,
-            fadeStart?: number, fadeEnd?: number
+            enabled: boolean,
+            radius?: number,
+            strength?: number,
+            power?: number,
+            fadeStart?: number,
+            fadeEnd?: number,
         ): boolean;
     }
     export class Light extends Component {
@@ -380,7 +475,10 @@ declare module "engine" {
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
         SetShadowCascades(
-            count: number, distance: number, splitLambda?: number, blend?: number
+            count: number,
+            distance: number,
+            splitLambda?: number,
+            blend?: number,
         ): boolean;
         SetPoint(range: number): boolean;
         /** Cone half-angles in degrees. */
@@ -425,8 +523,12 @@ declare module "engine" {
         DigSphere(x: number, y: number, z: number, radius: number): boolean;
         FillSphere(x: number, y: number, z: number, radius: number): boolean;
         /** Extract unsupported soil; refuses over-budget work without removing that soil. */
-        CollapseDetached(minSamples: number, maxFragments: number,
-                         fragmentCells?: number, density?: number): boolean;
+        CollapseDetached(
+            minSamples: number,
+            maxFragments: number,
+            fragmentCells?: number,
+            density?: number,
+        ): boolean;
         readonly fragmentCount: number | null;
         Reset(): boolean;
         /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
@@ -469,10 +571,21 @@ declare module "engine" {
         /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
         static GetImpacts(): PhysicsImpact[];
         /** Sweeps a sphere through the full displacement. 1 = no hit; null = invalid query. */
-        static CastSphere(x: number, y: number, z: number,
-                          dx: number, dy: number, dz: number, radius: number): number | null;
+        static CastSphere(
+            x: number,
+            y: number,
+            z: number,
+            dx: number,
+            dy: number,
+            dz: number,
+            radius: number,
+        ): number | null;
     }
-    export interface Vector3 { readonly x: number; readonly y: number; readonly z: number; }
+    export interface Vector3 {
+        readonly x: number;
+        readonly y: number;
+        readonly z: number;
+    }
     export interface NavigationOptions {
         readonly minimum: Vector3;
         readonly maximum: Vector3;
@@ -501,14 +614,26 @@ declare module "engine" {
     export class DestructionComponent extends Component {
         private constructor();
         /** World-space damage sphere; impulse is in newton-seconds. */
-        DamageSphere(x: number, y: number, z: number, radius: number,
-                     damage: number, impulse?: number): boolean;
+        DamageSphere(
+            x: number,
+            y: number,
+            z: number,
+            radius: number,
+            damage: number,
+            impulse?: number,
+        ): boolean;
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
         OwnsFragment(nodeId: bigint): boolean;
         /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
-        ApplyStress(x: number, y: number, z: number, elasticLimit: number,
-                    fatalLimit: number, iterations: number): number | null;
+        ApplyStress(
+            x: number,
+            y: number,
+            z: number,
+            elasticLimit: number,
+            fatalLimit: number,
+            iterations: number,
+        ): number | null;
         Reset(): boolean;
         readonly ready: boolean;
         readonly revision: bigint | null;
@@ -566,8 +691,15 @@ declare module "engine" {
     export class CharacterController extends Component {
         private constructor();
         /** Caller supplies movement, look delta and one-shot jump/view intents explicitly. */
-        SetInput(moveX: number, moveY: number, lookX: number, lookY: number,
-                 jump: boolean, toggleView: boolean): boolean;
+        SetInput(
+            moveX: number,
+            moveY: number,
+            lookX: number,
+            lookY: number,
+            jump: boolean,
+            toggleView: boolean,
+        ): boolean;
+        /** Cancel this controller's input and its driven motor's movement/jump; preserve external velocity. */
         ClearInput(): boolean;
     }
     export class AudioSource extends Component {

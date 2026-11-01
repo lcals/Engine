@@ -29,15 +29,14 @@ classDiagram
     AssetSyncSystem ..> PathUtils : UTF-8 路径转换
 ```
 
-`sync()` 返回是否完整发布，`revision()` 只表示可用版本，不表示脚本已经运行。相对路径拒绝越界及符号链接，版本目录不可变。`available.json` 包含 revision、entry、files（path、size、FNV-1a 64 位 hash）和累计 deleted；删除项阻止包内回退复活。失败保持旧清单，暂存不参与加载。
+`sync()` 返回是否完整发布，`revision()` 只表示可用版本，不表示脚本已经运行。同步不要求目录包含玩法脚本；`entry` 只是启动提示，宿主负责检查入口、激活资源及执行 Gameplay。
 
 返回状态及只读访问方法标注 `[[nodiscard]]`；析构和清理为 `noexcept`，钩子标注 `override`。`last_error()` 与 `revision()` 为 const noexcept，只读字符串借用在下一次业务操作前有效。
 
 公共路径编码复用 [PathUtils](../../../runtime/class-diagrams/path-utils.md)；路径规范化和安全检查仍由本类负责。
 
-资源输入可以是项目 `cache/` 或指定清单构建的独立运行目录，只发布 `catalog.bin` 与它引用的散文件或包。项目缓存不创建版本子目录；设备持久运行目录使用不可变 `assets/versions/<revision>/` 快照，每份快照保持清单中的相对存储路径。同步校验目录全部记录与产物后才原子发布可用版本；接收端不依赖 SQLite。
+资源输入可以是项目 `cache/` 或独立运行构建目录，只发布 `catalog.bin` 与 `entry.location.path` 引用的唯一载体，挂载限定为部署根 `content`。开发缓存未提供外置内置条目时，运行程序继续使用编入的 bootstrap 定义；打包输出携带独立的内置资源包。有物理位置的条目必须读取实际实体，缺失或损坏不会回退。SQLite、源 meta 与项目设置不进入版本。
 
-基于 catalog 同步全部引用产物，不要求存在玩法脚本；entry 只记录玩法启动提示。是否可以启动由脚本系统检查，同步系统不代替运行时激活资源或执行 Gameplay。
+路径拒绝越界及符号链接。源目录和暂存目录中的实体逐个校验，同一合并包只复制一次，包摘要通过固定大小缓冲区流式计算，因此包体可以大于单个实体的读取上限。全部校验完成后，发布不可变的 `assets/versions/<revision>/` 快照，再原子更新 `available.json`；失败保留旧可用版本，暂存内容不参与加载。项目导入缓存仍为单份 `cache/gen/`，不创建同步版本子目录。
 
-
-统一运行清单接入：同步收集 `entry.location.path` 的唯一物理文件集合及 catalog.bin，挂载限定为部署根 content；多个资源位于同一合并包时只复制一次包。源与暂存中的每个实体通过公共解包校验，临时字节逐个释放，不构造全量 ResourceCatalog 字节快照。合并包以固定大小缓冲区流式校验哈希，允许包体大于单个资源实体的读取上限。资源目录可以不含玩法入口；同步只交付资源，能否启动由宿主检查。sqlite、源meta和settings不会进入版本。
+`available.json` 保存 `revision`、`entry`、`files`（路径、大小和 FNV-1a 64 位摘要）及累计 `deleted` 载体路径。运行时按当前完整 catalog 查找项目资源，缺失条目不从旧包补齐；删除后不会恢复旧资源，依据的是这一目录边界，而非 `deleted` 驱动的逐项回退规则。

@@ -1,6 +1,8 @@
 if(ENGINE_ENABLE_RUNTIME_DEPS)
     add_library(engine_storage STATIC src/engine/runtime/storage/key_value_store.cpp)
     add_library(engine::storage ALIAS engine_storage)
+    target_include_directories(engine_storage PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_configure_platform_storage()
     target_link_libraries(
         engine_storage
         PUBLIC engine::core
@@ -27,8 +29,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_sources(engine_input PRIVATE src/engine/runtime/input/input_devices.cpp
                                         src/engine/runtime/input/input_mapping.cpp)
     target_include_directories(engine_input PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(engine_input PUBLIC engine::scene_data
-                                       PRIVATE engine::window SDL3::SDL3)
+    target_link_libraries(
+        engine_input
+        PUBLIC engine::scene_data
+        PRIVATE engine::window SDL3::SDL3)
 
     engine_add_system(runtime render)
     engine_enable_profiling(engine_render)
@@ -142,8 +146,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     engine_add_system(runtime navigation)
     engine_enable_profiling(engine_navigation)
-    target_link_libraries(engine_navigation PUBLIC engine::scene_data PRIVATE RecastNavigation::Recast
-                                                    RecastNavigation::Detour)
+    target_link_libraries(
+        engine_navigation
+        PUBLIC engine::scene_data
+        PRIVATE RecastNavigation::Recast RecastNavigation::Detour)
 
     engine_add_system(runtime animation)
     engine_enable_profiling(engine_animation)
@@ -164,15 +170,20 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime ui)
     engine_enable_profiling(engine_ui)
     target_sources(
-        engine_ui
-        PRIVATE src/engine/runtime/ui/rml_font.cpp
-                src/engine/runtime/ui/rml_render.cpp
-                src/engine/runtime/ui/rml_input.cpp)
+        engine_ui PRIVATE src/engine/runtime/ui/rml_font.cpp src/engine/runtime/ui/rml_render.cpp
+                          src/engine/runtime/ui/rml_input.cpp)
     target_include_directories(engine_ui PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_ui
-        PRIVATE RmlUi::Core engine::font engine::resource engine::world engine::window
-                SDL3::SDL3 bgfx::bgfx bgfx::bx basisu::basisu_encoder)
+        PRIVATE RmlUi::Core
+                engine::font
+                engine::resource
+                engine::world
+                engine::window
+                SDL3::SDL3
+                bgfx::bgfx
+                bgfx::bx
+                basisu::basisu_encoder)
     engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
@@ -194,8 +205,14 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_gameplay
         PUBLIC engine::core engine::scene_data
-        PRIVATE engine::world engine::render engine::resource engine::physics engine::audio
-                engine::animation engine::font engine::ui)
+        PRIVATE engine::world
+                engine::render
+                engine::resource
+                engine::physics
+                engine::audio
+                engine::animation
+                engine::font
+                engine::ui)
     target_link_libraries(engine_gameplay PRIVATE engine::app engine::log
                                                   nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)

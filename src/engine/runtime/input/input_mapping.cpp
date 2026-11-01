@@ -12,7 +12,7 @@ constexpr double epsilon = 0.000001;
 
 bool pointer_kind(Kind kind)
 {
-    return kind >= Kind::mouse_button && kind <= Kind::mouse_wheel || kind == Kind::touch;
+    return (kind >= Kind::mouse_button && kind <= Kind::mouse_wheel) || kind == Kind::touch;
 }
 
 template <class T> bool valid_enum(T value)
@@ -253,8 +253,8 @@ bool validate(const schema::InputChannelDataT& data, std::string& error)
             action->bindings.size() > 4096 || !names.insert(action->name).second ||
             !valid_enum(action->kind) || !valid_enum(action->value_mode) ||
             !valid_enum(action->combine) ||
-            action->kind == schema::InputActionKind::button &&
-                action->value_mode != schema::InputValueMode::state)
+            (action->kind == schema::InputActionKind::button &&
+             action->value_mode != schema::InputValueMode::state))
         {
             return fail("Invalid or duplicate input action");
         }
@@ -301,10 +301,10 @@ bool validate(const schema::InputChannelDataT& data, std::string& error)
                     {
                         return fail("Virtual input part must name exactly one valid source");
                     }
-                    if (found->second->kind == schema::InputVirtualKind::button &&
-                            part->virtual_axis != 0 ||
-                        found->second->kind != schema::InputVirtualKind::button &&
-                            part->virtual_axis == 0)
+                    if ((found->second->kind == schema::InputVirtualKind::button &&
+                         part->virtual_axis != 0) ||
+                        (found->second->kind != schema::InputVirtualKind::button &&
+                         part->virtual_axis == 0))
                     {
                         return fail("Virtual input axis does not match its control kind");
                     }
@@ -633,7 +633,7 @@ void cancel(State& state, bool keyboard, bool pointer, bool all)
     for (auto& [control_key, control] : state.controls)
     {
         const auto kind = std::get<1>(control_key);
-        if (all || keyboard && kind == Kind::key || pointer && pointer_kind(kind))
+        if (all || (keyboard && kind == Kind::key) || (pointer && pointer_kind(kind)))
         {
             for (auto& channel : state.channels)
             {
@@ -838,11 +838,11 @@ void capture_candidates(State& state)
                                            control.released;
             if (control.suppressed || control.repeat || capture.blocked.contains(control_key) ||
                 (std::abs(control.value) < options.threshold && !modifier_released) ||
-                !options.devices.empty() &&
-                    std::find(options.devices.begin(), options.devices.end(),
-                              ref.connection_id()) == options.devices.end() ||
-                !options.kinds.empty() && std::find(options.kinds.begin(), options.kinds.end(),
-                                                    ref.kind()) == options.kinds.end())
+                (!options.devices.empty() &&
+                 std::find(options.devices.begin(), options.devices.end(), ref.connection_id()) ==
+                     options.devices.end()) ||
+                (!options.kinds.empty() && std::find(options.kinds.begin(), options.kinds.end(),
+                                                     ref.kind()) == options.kinds.end()))
             {
                 continue;
             }

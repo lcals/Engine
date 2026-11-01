@@ -64,7 +64,7 @@ classDiagram
 ```
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
-- 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，当前仅接入可选 Tracy 客户端；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
+- 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，通过可选 Tracy 客户端接收各模块采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
 - `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
 - RuntimeHost 和 GameplaySession 只依赖 [ScriptRuntime](script-runtime.md) 契约，不包含或链接具体脚本插件，不依据虚拟机或插件编译宏改变核心实现。无工厂时仍能初始化窗口、场景和渲染；启动脚本玩法明确返回不可用。
 - 每帧先处理窗口事件，退出返回 exit_requested；窗口不可绘制时暂停音频输出，返回 paused 并继续接收恢复事件；恢复后继续音频与物理步进。随后由 Engine 更新根系统，由 GameplaySession 处理显式部署控制和资源切换，最后提交渲染帧。
@@ -104,9 +104,9 @@ flowchart TD
 具体玩家控制器和相机插件只由可执行宿主装配，RuntimeHost 不包含插件头文件。
 阶段枚举仅决定一次性的子系统登记位置，不增加 System 的逐帧阶段、事件总线或额外调度器。
 
-步骤 3：脚本工厂追加借用已构造的物理系统，用于读取上一物理帧撞击快照；工厂不调用尚未初始化的物理能力，玩法结束后才释放该借用。
+脚本工厂借用已构造的物理系统，用于读取上一物理帧撞击快照；工厂不调用尚未初始化的物理能力，玩法结束后才释放该借用。
 
-步骤 4：脚本工厂继续追加已构造的 NavigationSystem 引用，世界独占该子系统，宿主和脚本仅借用；世界关闭前结束玩法与查询。
+脚本工厂借用已构造的 NavigationSystem 引用，世界独占该子系统，宿主和脚本仅借用；世界关闭前结束玩法与查询。
 
 ## 输入装配
 

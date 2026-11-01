@@ -117,4 +117,4 @@ classDiagram
 
 InputSystem 不拥有或依赖 UiSystem、ScriptSystem、Storage、项目配置系统、Scene 或具体角色 / 战斗插件。
 
-原生预算为最多 4096 个存活通道、每列表 4096 项、单 name / id / 引用 4096 字节、每通道配置 parts 与 modifiers 合计 65536 项；捕获设备及控件类型列表各最多 4096 项。所有预算在提交前校验，超限返回 false，不截断应用。脚本桥还有单次 4 MiB 序列化输入限制。
+原生预算为最多 4096 个存活通道、每列表 4096 项、单 name / id / 引用 4096 字节、每通道配置 parts 与 modifiers 合计 65536 项；捕获设备及控件类型列表各最多 4096 项。所有预算在提交前校验，超限返回 false，不截断应用。脚本对象转换限制见[输入脚本接口](../../plugins/runtime/class-diagrams/input-script-api.md#生命周期与调用限制)。

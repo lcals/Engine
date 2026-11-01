@@ -1,6 +1,10 @@
 """桌面与 Android 交付共用的运行资源目录和实体校验。"""
 
+import json
+import os
+from pathlib import Path
 import re
+import stat
 import struct
 
 MAX_ASSET_SIZE = 64 * 1024 * 1024
@@ -10,6 +14,25 @@ ENTRY = "scripts/game.js"
 FNV_OFFSET = 14695981039346656037
 FNV_PRIME = 1099511628211
 FNV_MASK = (1 << 64) - 1
+
+
+def parse_build_output(text, target_platform):
+    """读取构建回执的绝对输出目录；目录存在性由调用方按用途检查。"""
+    try:
+        receipt = json.loads(text)
+    except (ValueError, TypeError) as error:
+        raise ValueError("资源构建未返回有效 JSON 回执") from error
+    if not isinstance(receipt, dict):
+        raise ValueError("资源构建回执必须是 JSON 对象")
+    if receipt.get("status") != "ok" or receipt.get("targetPlatform") != target_platform:
+        raise ValueError(f"资源构建回执目标必须是 {target_platform} 且状态为 ok")
+    output = receipt.get("output")
+    if not isinstance(output, str) or not output:
+        raise ValueError("资源构建回执 output 必须是非空目录字符串")
+    path = Path(output)
+    if not path.is_absolute():
+        raise ValueError("资源构建回执 output 必须是绝对目录")
+    return path
 
 
 def safe_relative(path):
@@ -222,6 +245,78 @@ def safe_file(root, relative):
     if not current.is_file():
         raise ValueError(f"资源必须是普通文件：{current}")
     return current
+
+
+def copy_asset(source, destination, limit=MAX_ASSET_SIZE):
+    before = source.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise ValueError(f"资源必须是普通文件，不能是符号链接：{source}")
+    if limit is None:
+        limit = before.st_size
+    if before.st_size > limit:
+        raise ValueError(f"资源超过 {limit} 字节上限：{source}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    size = 0
+    with source.open("rb") as input_file, destination.open("xb") as output_file:
+        opened = os.fstat(input_file.fileno())
+        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
+            before.st_dev,
+            before.st_ino,
+        ):
+            raise ValueError(f"准备资源期间文件来源发生变化：{source}")
+        while block := input_file.read(1024 * 1024):
+            size += len(block)
+            if size > limit:
+                raise ValueError(f"读取期间资源超过 {limit} 字节上限：{source}")
+            output_file.write(block)
+    if size != before.st_size:
+        raise ValueError(f"准备资源期间文件长度发生变化：{source}")
+
+
+def copy_resource_snapshot(
+    source,
+    destination,
+    target_platform,
+    *,
+    carrier_roots=None,
+    exact_carrier_size=False,
+    require_unchanged_catalog=False,
+):
+    """固定目录后复制唯一载体并校验全部实体；发布由平台入口负责。"""
+    snapshot = read_catalog(source)
+    expected = parse_catalog(snapshot, target_platform)
+    carriers = {}
+    for entry in expected:
+        root, separator, _ = entry["path"].partition("/")
+        if carrier_roots is not None and (root not in carrier_roots or not separator):
+            roots = " 或 ".join(name + "/" for name in carrier_roots)
+            raise ValueError(f"GUID 资源载体必须位于 {roots} 下")
+        carriers[entry["path"]] = max(
+            carriers.get(entry["path"], 0), entry["offset"] + entry["size"]
+        )
+    # 使用已验证的目录快照，实体必须与这一版目录匹配。
+    catalog_path = destination / "catalog.bin"
+    if catalog_path.exists() or catalog_path.is_symlink():
+        raise ValueError("资源清单与已部署文件冲突")
+    with catalog_path.open("xb") as stream:
+        stream.write(snapshot)
+    for relative, extent in sorted(carriers.items()):
+        target = destination / relative
+        if target.exists() or target.is_symlink():
+            raise ValueError(f"资源路径与已部署文件冲突：{relative}")
+        copy_asset(safe_file(source, relative), target, extent if exact_carrier_size else None)
+    if read_catalog(destination) != snapshot or (
+        require_unchanged_catalog and read_catalog(source) != snapshot
+    ):
+        raise ValueError("复制期间 GUID catalog 发生变化，请重新打包。")
+    for entry in expected:
+        validate_entity(safe_file(destination, entry["path"]), entry)
+    catalog = FlatBuffer(snapshot, b"EASC")
+    return {
+        "revision": catalog.string(catalog.root, 1),
+        "resource_count": len(expected),
+        "file_count": len(carriers) + 1,
+    }
 
 
 def validate_entity(path, entry):

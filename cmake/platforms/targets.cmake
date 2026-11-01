@@ -14,6 +14,14 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
 endif()
 
+function(engine_configure_platform_storage)
+    if(WIN32)
+        target_sources(engine_storage PRIVATE platforms/windows/storage_file.cpp)
+    else()
+        target_sources(engine_storage PRIVATE src/engine/runtime/storage/storage_file.cpp)
+    endif()
+endfunction()
+
 function(engine_configure_platform_graphics)
     if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
         set(_render_platform ios)

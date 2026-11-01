@@ -10,28 +10,14 @@ import subprocess
 import sys
 
 from artifact_output import plain_path, staged_output, validate_output
-from resource_catalog import parse_catalog, read_catalog, safe_file, safe_relative, validate_entity
+from resource_catalog import copy_resource_snapshot, parse_build_output, safe_relative
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def copy_resources(source, destination, platform):
-    snapshot = read_catalog(source)
-    expected = parse_catalog(snapshot, target_platform=platform)
-    carriers = {entry["path"] for entry in expected}
-    # 先固定清单，再复制实体；只接受与固定清单完全相符的快照。
-    if (destination / "catalog.bin").exists():
-        raise ValueError("资源清单与已部署文件冲突")
-    (destination / "catalog.bin").write_bytes(snapshot)
-    for relative in sorted(carriers):
-        target = destination / relative
-        if target.exists():
-            raise ValueError(f"资源路径与程序或工具冲突：{relative}")
-        target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(safe_file(source, relative), target)
-    for entry in expected:
-        validate_entity(safe_file(destination, entry["path"]), entry)
-    return len(expected), len(carriers)
+    receipt = copy_resource_snapshot(source, destination, platform)
+    return receipt["resource_count"], receipt["file_count"] - 1
 
 
 def build_resources(args):
@@ -55,13 +41,7 @@ def build_resources(args):
     )
     if result.returncode != 0:
         raise ValueError(f"项目资源构建失败：\n{result.stdout}\n{result.stderr}")
-    receipt = json.loads(result.stdout)
-    if receipt.get("status") != "ok" or receipt.get("targetPlatform") != args.platform:
-        raise ValueError("资源构建回执平台与导出平台不符")
-    source = Path(receipt["output"])
-    if not source.is_absolute():
-        raise ValueError("资源构建回执 output 必须为绝对目录")
-    return plain_path(source)
+    return plain_path(parse_build_output(result.stdout, args.platform))
 
 
 def macos_bundle(args, stage):

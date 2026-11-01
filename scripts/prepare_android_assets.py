@@ -4,20 +4,15 @@ import argparse
 import json
 import os
 from pathlib import Path
-import stat
 import subprocess
 import sys
 
 from artifact_output import plain_path, staged_output
 from resource_catalog import (
-    MAX_ASSET_SIZE,
-    MAX_MANIFEST_SIZE,
-    FlatBuffer,
-    parse_catalog,
-    read_catalog,
-    safe_file,
+    copy_asset,
+    copy_resource_snapshot,
+    parse_build_output,
     safe_relative,
-    validate_entity,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,69 +81,22 @@ def compile_catalog(project, asset_builder=None, manifest=None, resource_root=No
     )
     if result.returncode != 0:
         raise ValueError("Android 资产任务编译失败；包内旧资源保持原样，请修复编译诊断后重试。")
-    try:
-        receipt = json.loads(result.stdout)
-        output = receipt["output"]
-    except (ValueError, TypeError, KeyError) as error:
-        raise ValueError("资源构建未返回有效 output 路径，请检查 asset_build_app 版本。") from error
-    if (
-        receipt.get("status") != "ok"
-        or receipt.get("targetPlatform") != "android"
-        or not isinstance(output, str)
-    ):
-        raise ValueError("资源构建回执目标不是 android，不能复制桌面资源。")
-    source = Path(output)
-    if not source.is_absolute():
-        raise ValueError("资源构建回执 output 必须是绝对目录")
+    source = parse_build_output(result.stdout, "android")
     require_directory(source)
     return source
 
 
-def copy_asset(source, destination, limit=MAX_ASSET_SIZE):
-    before = source.lstat()
-    if not stat.S_ISREG(before.st_mode):
-        raise ValueError(f"资源必须是普通文件，不能是符号链接：{source}")
-    if before.st_size > limit:
-        raise ValueError(f"资源超过 {limit} 字节上限：{source}")
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    size = 0
-    with source.open("rb") as input_file, destination.open("xb") as output_file:
-        opened = os.fstat(input_file.fileno())
-        if not stat.S_ISREG(opened.st_mode) or (opened.st_dev, opened.st_ino) != (
-            before.st_dev,
-            before.st_ino,
-        ):
-            raise ValueError(f"准备资源期间文件来源发生变化：{source}")
-        while block := input_file.read(1024 * 1024):
-            size += len(block)
-            if size > limit:
-                raise ValueError(f"读取期间资源超过 {limit} 字节上限：{source}")
-            output_file.write(block)
-    if size != before.st_size:
-        raise ValueError(f"准备资源期间文件长度发生变化：{source}")
-
-
 def stage_assets(source, staging):
     require_directory(source)
-    snapshot = read_catalog(source)
-    expected = parse_catalog(snapshot)
-    carriers = {"catalog.bin": MAX_MANIFEST_SIZE}
-    for entry in expected:
-        root, separator, _ = entry["path"].partition("/")
-        if root not in ("gen", "packs") or not separator:
-            raise ValueError("GUID 资源载体必须位于 gen/ 或 packs/ 下")
-        carriers[entry["path"]] = max(
-            carriers.get(entry["path"], 0), entry["offset"] + entry["size"]
-        )
-    for relative, limit in sorted(carriers.items()):
-        path = safe_file(source, relative)
-        copy_asset(path, staging / relative, limit)
-    if read_catalog(staging) != snapshot:
-        raise ValueError("复制期间 GUID catalog 发生变化，请重新打包。")
-    for entry in expected:
-        validate_entity(staging / entry["path"], entry)
-    catalog = FlatBuffer(snapshot, b"EASC")
-    return {"revision": catalog.string(catalog.root, 1), "file_count": len(carriers)}
+    receipt = copy_resource_snapshot(
+        source,
+        staging,
+        "android",
+        carrier_roots=("gen", "packs"),
+        exact_carrier_size=True,
+        require_unchanged_catalog=True,
+    )
+    return {"revision": receipt["revision"], "file_count": receipt["file_count"]}
 
 
 def prepare(project, output, asset_builder=None, manifest=None, resource_root=None):

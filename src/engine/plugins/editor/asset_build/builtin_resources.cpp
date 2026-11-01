@@ -46,28 +46,6 @@ bool inspect_cache_path(const std::filesystem::path& path, std::string& error)
     return true;
 }
 
-bool shader_profile(std::string_view target, std::string& platform, std::string& profile)
-{
-    platform = target == "macos" ? "osx" : std::string(target);
-    if (target == "macos" || target == "ios")
-    {
-        profile = "metal";
-    }
-    else if (target == "windows")
-    {
-        profile = "s_5_0";
-    }
-    else if (target == "android" || target == "linux")
-    {
-        profile = "spirv";
-    }
-    else
-    {
-        return false;
-    }
-    return true;
-}
-
 bool compile_shaders(std::string_view target, const std::filesystem::path& cache,
                      std::map<std::string, std::vector<std::uint8_t>>& shaders, std::string& error)
 {
@@ -76,7 +54,7 @@ bool compile_shaders(std::string_view target, const std::filesystem::path& cache
     std::filesystem::path sources;
     std::string platform;
     std::string profile;
-    if (!shader_profile(target, platform, profile) ||
+    if (!pipeline::shader_target(target, platform, profile) ||
         !pipeline::editor_tool_path("shaderc", ENGINE_SHADERC_EXECUTABLE, compiler, error) ||
         !pipeline::editor_tool_data_path("bgfx", ENGINE_BGFX_SHADER_INCLUDE_DIR, includes, error) ||
         !pipeline::editor_tool_data_path("builtin-shaders", ENGINE_BUILTIN_SHADER_SOURCE_DIR,

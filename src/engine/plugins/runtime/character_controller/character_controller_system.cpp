@@ -25,18 +25,18 @@ bool valid_input(const Vec2& value) noexcept
            std::abs(value.x()) <= 1000000.0 && std::abs(value.y()) <= 1000000.0;
 }
 
-void clear_component_inputs(Scene& scene) noexcept
+} // namespace
+
+void CharacterControllerSystem::discard_component_inputs(Scene& scene) noexcept
 {
     for (const auto& node : scene.nodes())
     {
         if (auto* controller = node->get_component<CharacterController>())
         {
-            controller->clear_input();
+            controller->input_ = {};
         }
     }
 }
-
-} // namespace
 
 CharacterControllerSystem::CharacterControllerSystem(WorldSystem& world) noexcept : world_(world)
 {
@@ -138,7 +138,7 @@ bool CharacterControllerSystem::on_tick(double)
             }
             if (player != nullptr)
             {
-                clear_component_inputs(*scene);
+                discard_component_inputs(*scene);
                 stop_driving();
                 return false;
             }
@@ -151,7 +151,7 @@ bool CharacterControllerSystem::on_tick(double)
     {
         input = controller->input_;
     }
-    clear_component_inputs(*scene);
+    discard_component_inputs(*scene);
     if (controller == nullptr || !controller->enabled() || !detail::active(*player) ||
         motor == nullptr || !motor->enabled())
     {
@@ -229,6 +229,7 @@ bool CharacterControllerSystem::on_tick(double)
     driving_node_ = player->id();
     driving_controller_ = controller->instance_id();
     driving_motor_ = motor->instance_id();
+    controller->driven_motor_ = driving_motor_;
     return true;
 }
 
@@ -237,7 +238,7 @@ void CharacterControllerSystem::on_shutdown() noexcept
     stop_driving();
     if (auto* scene = world_.scene())
     {
-        clear_component_inputs(*scene);
+        discard_component_inputs(*scene);
     }
     explicit_player_ = false;
     selected_scene_ = 0;

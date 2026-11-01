@@ -62,6 +62,7 @@ classDiagram
     CharacterVisual ..> CharacterVisualDataT : 参数及返回类型
     CharacterController ..> ComponentDataT : 恢复参数
     CharacterController *-- CharacterInput : 瞬态待消费输入
+    CharacterController ..> CharacterMotor : 按最近驱动实例身份取消主动意图
     CharacterCamera ..> ComponentDataT : 恢复参数
     CharacterVisual ..> ComponentDataT : 恢复参数
     CharacterControllerSystem ..> Node : 选择参数
@@ -86,6 +87,8 @@ classDiagram
 
 ## 输入链路
 
-CharacterControllerSystem 不借用 WindowSystem，也不提供固定按键 fallback；调用方读取明确通道后，可向选中角色的 CharacterController 组件或直接向系统提交 CharacterInput，未提交时保持零输入。组件的 `set_input` 返回 bool，`clear_input` 为 `noexcept`；二者只管理瞬态意图，不进入 FlatBuffers 持久数据。系统作为组件 friend 消费输入，同帧显式系统提交优先于组件提交；所有组件的待输入每次系统更新后清除，未选中或禁用组件也不跨帧积压。停止驱动与系统关闭清除相关组件待输入及 Motor 主动意图，不影响外部速度。
+CharacterControllerSystem 不借用 WindowSystem，也不提供固定按键 fallback；调用方读取明确通道后，可向选中角色的 CharacterController 组件或直接向系统提交 CharacterInput，未提交时保持零输入。组件的 `set_input` 返回 bool，`clear_input` 为 `noexcept`；二者只管理瞬态意图，不进入 FlatBuffers 持久数据。`clear_input` 清除组件待输入，并按最近成功驱动的 Motor 实例身份清除其主动移动和未消费跳跃；不清除外部速度、待消费速度增量、未驱动角色或同节点替换后的 Motor。系统成功提交时记录该瞬态身份，不增加资源所有者。
+
+系统作为组件 friend 消费输入，同帧显式系统提交优先于组件提交；所有组件的待输入每次系统更新后内部归零，未选中或禁用组件也不跨帧积压。日常消费不调用完整 `clear_input`，因而尚未发生物理子步的已排队跳跃会保留到固定步。停止驱动与系统关闭清除相关组件待输入及原 Motor 主动意图，不影响外部速度。
 
 输入模块不选择玩家节点，多手柄可分别驱动多个输入通道；角色实例与通道关联、是否暂停和重连恢复由玩法决定。现有单玩家选择接口尚未扩展为完整多角色控制，不能把多设备输入写成多人玩法已实现。

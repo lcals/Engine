@@ -79,4 +79,4 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [脚本与插件](plugins/plugins.md)：虚拟机选择、共享绑定、Gameplay、热重载和 MCP。
 - [编辑器](editor/editor.md)、[编辑器配置](editor/configuration.md)：环境、项目控制和工具设置。
 - [项目与出包](editor/project.md)：项目目录契约、运行内容与平台部署。
-- [首个游戏](runtime/first-game.md)：玩法目标及引擎验证需求。
+- [首个游戏](first-game.md)：玩法目标及引擎验证需求。
