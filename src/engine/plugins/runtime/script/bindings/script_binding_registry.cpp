@@ -36,6 +36,9 @@
 #if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
 #include "plugins/runtime/script/bindings/character_controller_binding.hpp"
 #endif
+#if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+#include "plugins/runtime/script/bindings/navigation_agent_binding.hpp"
+#endif
 #if defined(ENGINE_HAS_DESTRUCTION_PLUGIN) && ENGINE_HAS_DESTRUCTION_PLUGIN
 #include "plugins/runtime/script/bindings/destruction_binding.hpp"
 #endif
@@ -58,15 +61,15 @@ bool ScriptBindingRegistry::initialize()
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
     if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
-        !add<StorageBinding>() || !add<InputBinding>() || !add<PhysicsBinding>() || !add<NavigationBinding>() ||
-        !add<EngineBinding>() || !add<TimeBinding>() || !add<RenderBinding>() ||
-        !add<SceneBinding>() || !add<NodeBinding>() || !add<ComponentBinding>() ||
-        !add<TransformBinding>() || !add<CameraBinding>() || !add<EnvironmentComponentBinding>() ||
-        !add<PostProcessComponentBinding>() || !add<LightBinding>() ||
-        !add<MeshRendererBinding>() || !add<MaterialBinding>() || !add<ColliderBinding>() ||
-        !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() || !add<AudioSourceBinding>() ||
-        !add<AudioListenerBinding>() || !add<AnimatorBinding>() || !add<UiComponentBinding>() ||
-        !add<UiElementBinding>() || !add<UiControllerBinding>())
+        !add<StorageBinding>() || !add<InputBinding>() || !add<PhysicsBinding>() ||
+        !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
+        !add<RenderBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||
+        !add<ComponentBinding>() || !add<TransformBinding>() || !add<CameraBinding>() ||
+        !add<EnvironmentComponentBinding>() || !add<PostProcessComponentBinding>() ||
+        !add<LightBinding>() || !add<MeshRendererBinding>() || !add<MaterialBinding>() ||
+        !add<ColliderBinding>() || !add<RigidBodyBinding>() || !add<CharacterMotorBinding>() ||
+        !add<AudioSourceBinding>() || !add<AudioListenerBinding>() || !add<AnimatorBinding>() ||
+        !add<UiComponentBinding>() || !add<UiElementBinding>() || !add<UiControllerBinding>())
     {
         bindings_.clear();
         return false;
@@ -80,6 +83,13 @@ bool ScriptBindingRegistry::initialize()
 #endif
 #if defined(ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN) && ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN
     if (!add<CharacterControllerBinding>())
+    {
+        bindings_.clear();
+        return false;
+    }
+#endif
+#if defined(ENGINE_HAS_NAVIGATION_CROWD_PLUGIN) && ENGINE_HAS_NAVIGATION_CROWD_PLUGIN
+    if (!add<NavigationAgentBinding>())
     {
         bindings_.clear();
         return false;

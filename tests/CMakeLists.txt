@@ -417,6 +417,12 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 "${ENGINE_NODE_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_test.mjs" "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_navigation PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_navigation_crowd
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_crowd_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_navigation_crowd PROPERTIES TIMEOUT 60)
         find_package(
             Python3
             COMPONENTS Interpreter
@@ -861,6 +867,14 @@ if(TARGET engine_navigation AND TARGET engine_script)
     set_tests_properties(engine.navigation_script PROPERTIES TIMEOUT 60)
 endif()
 
+if(TARGET engine_navigation AND TARGET engine_terrain)
+    add_executable(engine_navigation_terrain_test navigation_terrain_test.cpp)
+    target_link_libraries(engine_navigation_terrain_test PRIVATE engine::navigation engine::terrain)
+    engine_apply_options(engine_navigation_terrain_test)
+    add_test(NAME engine.navigation_terrain COMMAND engine_navigation_terrain_test)
+    set_tests_properties(engine.navigation_terrain PROPERTIES TIMEOUT 60)
+endif()
+
 if(TARGET engine_terrain)
     add_executable(engine_terrain_runtime_test terrain_runtime_test.cpp)
     target_link_libraries(engine_terrain_runtime_test PRIVATE engine::terrain)
@@ -907,4 +921,43 @@ if(TARGET engine_destruction_editor AND TARGET engine_editor)
     engine_apply_options(engine_destruction_commands_test)
     add_test(NAME editor.destruction_commands COMMAND engine_destruction_commands_test)
     set_tests_properties(editor.destruction_commands PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd)
+    add_executable(engine_navigation_crowd_test navigation_crowd_test.cpp)
+    target_link_libraries(engine_navigation_crowd_test PRIVATE engine::navigation_crowd)
+    engine_apply_options(engine_navigation_crowd_test)
+    add_test(NAME engine_navigation_crowd COMMAND engine_navigation_crowd_test)
+    set_tests_properties(engine_navigation_crowd PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd AND TARGET engine_script)
+    add_executable(engine_navigation_agent_script_test navigation_agent_script_test.cpp)
+    target_link_libraries(
+        engine_navigation_agent_script_test
+        PRIVATE engine::script
+                engine::navigation_crowd
+                engine::world
+                engine::physics
+                engine::window
+                engine::render
+                engine::resource
+                engine::app
+                engine::log)
+    target_include_directories(engine_navigation_agent_script_test
+                               PRIVATE "${PROJECT_SOURCE_DIR}/src")
+    target_compile_definitions(engine_navigation_agent_script_test
+                               PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=1)
+    engine_apply_options(engine_navigation_agent_script_test)
+    add_test(NAME engine.navigation_agent_script COMMAND engine_navigation_agent_script_test)
+    set_tests_properties(engine.navigation_agent_script PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET engine_navigation_crowd_editor)
+    add_executable(engine_navigation_agent_codec_test navigation_agent_codec_test.cpp)
+    target_link_libraries(engine_navigation_agent_codec_test
+                          PRIVATE engine::navigation_crowd_editor)
+    engine_apply_options(engine_navigation_agent_codec_test)
+    add_test(NAME editor.navigation_agent_codec COMMAND engine_navigation_agent_codec_test)
+    set_tests_properties(editor.navigation_agent_codec PROPERTIES TIMEOUT 60)
 endif()

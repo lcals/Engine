@@ -4,6 +4,7 @@
 #include "runtime/schema/mesh_generated.h"
 
 #include <recastnavigation/DetourAlloc.h>
+#include <recastnavigation/DetourCrowd.h>
 #include <recastnavigation/DetourNavMesh.h>
 #include <recastnavigation/DetourNavMeshBuilder.h>
 #include <recastnavigation/DetourNavMeshQuery.h>
@@ -11,6 +12,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -18,6 +20,7 @@
 #include <utility>
 
 // Tile construction adapts Recast Navigation 1.6.0 RecastDemo/Source/Sample_TileMesh.cpp.
+// Crowd configuration adapts RecastDemo/Source/CrowdTool.cpp; lifecycle and handles are local.
 // Changes: caller-owned MeshData inputs, bounded synchronous tile replacement and failure
 // invalidation; no demo UI, scene discovery, serialization or custom pathfinding algorithm.
 //
@@ -50,8 +53,12 @@ constexpr int maximum_tiles = 1024;
 constexpr int maximum_polygons = 4096;
 constexpr int maximum_query_nodes = 8192;
 constexpr int maximum_path = 1024;
+constexpr std::uint32_t maximum_agents = 4096;
+constexpr double crowd_step = 1.0 / 60.0;
+constexpr unsigned int maximum_crowd_steps = 8;
 constexpr double maximum_coordinate = 1000000;
 
+using CrowdPtr = std::unique_ptr<dtCrowd, decltype(&dtFreeCrowd)>;
 using NavMeshPtr = std::unique_ptr<dtNavMesh, decltype(&dtFreeNavMesh)>;
 using NavQueryPtr = std::unique_ptr<dtNavMeshQuery, decltype(&dtFreeNavMeshQuery)>;
 
@@ -460,14 +467,299 @@ bool complete(dtStatus status)
            (status & (DT_PARTIAL_RESULT | DT_BUFFER_TOO_SMALL | DT_OUT_OF_NODES)) == 0;
 }
 
+struct CrowdAgent
+{
+    std::uint64_t generation = 0;
+    int index = -1;
+    NavigationAgentSettings settings;
+    NavigationAgentState state;
+    dtPolyRef target_reference = 0;
+    std::array<float, 3> projected_target{};
+};
+
+std::uint64_t next_agent_generation() noexcept
+{
+    static std::atomic<std::uint64_t> next{1};
+    auto value = next.load(std::memory_order_relaxed);
+    while (value != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (next.compare_exchange_weak(value, value + 1, std::memory_order_relaxed))
+        {
+            return value;
+        }
+    }
+    return 0;
+}
+
+bool valid_agent_settings(const NavigationAgentSettings& settings, const NavigationData& data)
+{
+    return bounded(settings.radius, 0.01F, std::min(10.0F, data.settings.agent_radius)) &&
+           bounded(settings.height, 0.01F, std::min(100.0F, data.settings.agent_height)) &&
+           bounded(settings.max_speed, 0.01F, 1000) &&
+           bounded(settings.max_acceleration, 0.01F, 1000) &&
+           bounded(settings.separation_weight, 0, 100) &&
+           bounded(settings.arrival_distance, 0.01F, 10);
+}
+
+dtCrowdAgentParams agent_parameters(const NavigationAgentSettings& settings)
+{
+    dtCrowdAgentParams parameters{};
+    parameters.radius = settings.radius;
+    parameters.height = settings.height;
+    parameters.maxSpeed = settings.max_speed;
+    parameters.maxAcceleration = settings.max_acceleration;
+    parameters.separationWeight = settings.separation_weight;
+    parameters.collisionQueryRange = settings.radius * 12;
+    parameters.pathOptimizationRange = settings.radius * 30;
+    parameters.updateFlags = DT_CROWD_ANTICIPATE_TURNS | DT_CROWD_OBSTACLE_AVOIDANCE |
+                             DT_CROWD_SEPARATION | DT_CROWD_OPTIMIZE_VIS | DT_CROWD_OPTIMIZE_TOPO;
+    return parameters;
+}
+
+bool project_position(const NavigationData& data, const Vec3& value, dtPolyRef& reference,
+                      float* projected)
+{
+    reference = 0;
+    if (!valid_vector(value) || value.x() < data.bounds.minimum.x() ||
+        value.x() > data.bounds.maximum.x() || value.y() < data.bounds.minimum.y() ||
+        value.y() > data.bounds.maximum.y() || value.z() < data.bounds.minimum.z() ||
+        value.z() > data.bounds.maximum.z())
+    {
+        return false;
+    }
+    const float position[3]{static_cast<float>(value.x()), static_cast<float>(value.y()),
+                            static_cast<float>(value.z())};
+    const auto& range = data.settings.query_half_extents;
+    const float extents[3]{static_cast<float>(range.x()), static_cast<float>(range.y()),
+                           static_cast<float>(range.z())};
+    dtQueryFilter filter;
+    filter.setIncludeFlags(1);
+    return complete(
+               data.query->findNearestPoly(position, extents, &filter, &reference, projected)) &&
+           reference != 0;
+}
+
 } // namespace
 
 struct NavigationSystem::State
 {
+    // Crowd queries borrow data->mesh; reverse destruction releases the crowd first.
     std::unique_ptr<NavigationData> data;
+    CrowdPtr crowd{nullptr, dtFreeCrowd};
+    std::vector<CrowdAgent> agents;
+    double accumulated = 0;
     std::uint64_t revision = 0;
     std::size_t rebuilt = 0;
     std::string error;
+
+    CrowdAgent* agent(NavigationAgentHandle handle)
+    {
+        if (handle.generation == 0 || handle.slot >= agents.size() ||
+            agents[handle.slot].generation != handle.generation)
+        {
+            error = "Invalid or expired navigation agent handle";
+            return nullptr;
+        }
+        return &agents[handle.slot];
+    }
+
+    void stop_motion(CrowdAgent& record)
+    {
+        record.state.velocity = {};
+        record.target_reference = 0;
+        if (!crowd || record.index < 0)
+        {
+            return;
+        }
+        if (!crowd->resetMoveTarget(record.index))
+        {
+            record.state.status = NavigationAgentStatus::invalid;
+            return;
+        }
+        auto* current = crowd->getEditableAgent(record.index);
+        std::fill_n(current->vel, 3, 0.0F);
+        std::fill_n(current->nvel, 3, 0.0F);
+        std::fill_n(current->dvel, 3, 0.0F);
+        current->desiredSpeed = 0;
+    }
+
+    bool request_target(CrowdAgent& record)
+    {
+        stop_motion(record);
+        record.state.status = NavigationAgentStatus::unreachable;
+        if (!data || !crowd || record.index < 0)
+        {
+            record.state.status = NavigationAgentStatus::invalid;
+            error = "Navigation agent has no valid surface position";
+            return false;
+        }
+        dtPolyRef begin_reference = 0;
+        float begin[3]{};
+        if (!project_position(*data, record.state.position, begin_reference, begin))
+        {
+            record.state.status = NavigationAgentStatus::invalid;
+            error = "No navigable polygon near the agent";
+            return false;
+        }
+        if (!project_position(*data, record.state.target, record.target_reference,
+                              record.projected_target.data()))
+        {
+            error = "No navigable polygon near the requested agent target";
+            return false;
+        }
+        auto* current = crowd->getEditableAgent(record.index);
+        current->corridor.reset(begin_reference, begin);
+        if (!crowd->requestMoveTarget(record.index, record.target_reference,
+                                      record.projected_target.data()))
+        {
+            error = "DetourCrowd rejected the agent target";
+            return false;
+        }
+        record.state.status = NavigationAgentStatus::pending;
+        return true;
+    }
+
+    bool add_agent(CrowdAgent& record)
+    {
+        record.index = -1;
+        record.state.velocity = {};
+        record.state.status = NavigationAgentStatus::invalid;
+        dtPolyRef reference = 0;
+        float projected[3]{};
+        if (!data || !crowd ||
+            !project_position(*data, record.state.position, reference, projected))
+        {
+            error = "No navigable polygon near the agent position";
+            return false;
+        }
+        const auto parameters = agent_parameters(record.settings);
+        const int index = crowd->addAgent(projected, &parameters);
+        if (index < 0)
+        {
+            error = "DetourCrowd has no free agent slot";
+            return false;
+        }
+        const auto* current = crowd->getAgent(index);
+        if (!current || !current->active || current->state == DT_CROWDAGENT_STATE_INVALID)
+        {
+            crowd->removeAgent(index);
+            error = "DetourCrowd could not place the agent on a navigable polygon";
+            return false;
+        }
+        record.index = index;
+        record.state.position = {current->npos[0], current->npos[1], current->npos[2]};
+        record.state.status = NavigationAgentStatus::idle;
+        return true;
+    }
+
+    void refresh_agent(CrowdAgent& record)
+    {
+        if (!crowd || record.index < 0)
+        {
+            return;
+        }
+        const auto* current = crowd->getAgent(record.index);
+        record.state.position = {current->npos[0], current->npos[1], current->npos[2]};
+        record.state.velocity = {current->vel[0], current->vel[1], current->vel[2]};
+        if (!current->active || current->state == DT_CROWDAGENT_STATE_INVALID)
+        {
+            stop_motion(record);
+            record.state.status = NavigationAgentStatus::invalid;
+            return;
+        }
+        if (!record.state.has_target || record.state.status == NavigationAgentStatus::arrived ||
+            record.state.status == NavigationAgentStatus::unreachable ||
+            record.state.status == NavigationAgentStatus::invalid)
+        {
+            return;
+        }
+        if (current->targetState == DT_CROWDAGENT_TARGET_FAILED ||
+            current->targetState == DT_CROWDAGENT_TARGET_NONE || current->partial ||
+            (current->targetState == DT_CROWDAGENT_TARGET_VALID &&
+             current->corridor.getLastPoly() != record.target_reference))
+        {
+            stop_motion(record);
+            record.state.status = NavigationAgentStatus::unreachable;
+            return;
+        }
+        if (current->targetState != DT_CROWDAGENT_TARGET_VALID)
+        {
+            record.state.status = NavigationAgentStatus::pending;
+            return;
+        }
+        record.state.status = NavigationAgentStatus::moving;
+        const double x = record.state.position.x() - record.projected_target[0];
+        const double y = record.state.position.y() - record.projected_target[1];
+        const double z = record.state.position.z() - record.projected_target[2];
+        const double distance = record.settings.arrival_distance;
+        if (x * x + y * y + z * z <= distance * distance)
+        {
+            stop_motion(record);
+            record.state.status = NavigationAgentStatus::arrived;
+        }
+    }
+
+    void detach_crowd()
+    {
+        for (auto& record : agents)
+        {
+            if (record.generation != 0)
+            {
+                refresh_agent(record);
+                record.index = -1;
+                record.state.velocity = {};
+                record.state.status = NavigationAgentStatus::invalid;
+            }
+        }
+        crowd.reset();
+        accumulated = 0;
+    }
+
+    bool restore_crowd()
+    {
+        if (agents.empty())
+        {
+            return true;
+        }
+        if (!data || data->settings.agent_radius < 0.01F)
+        {
+            error = "Crowd requires a built navigation mesh with positive agent clearance";
+            return false;
+        }
+        CrowdPtr candidate{dtAllocCrowd(), dtFreeCrowd};
+        if (!candidate || !candidate->init(static_cast<int>(agents.size()),
+                                           data->settings.agent_radius, data->mesh.get()))
+        {
+            error = "Cannot initialize DetourCrowd";
+            return false;
+        }
+        candidate->getEditableFilter(0)->setIncludeFlags(1);
+        auto avoidance = *candidate->getObstacleAvoidanceParams(0);
+        avoidance.adaptiveDivs = 5;
+        avoidance.adaptiveRings = 2;
+        avoidance.adaptiveDepth = 2;
+        candidate->setObstacleAvoidanceParams(0, &avoidance);
+        crowd = std::move(candidate);
+        for (auto& record : agents)
+        {
+            if (record.generation != 0 && add_agent(record) && record.state.has_target)
+            {
+                // Individual failures stay queryable; they do not invalidate other agents.
+                if (!request_target(record))
+                {
+                    continue;
+                }
+            }
+        }
+        return true;
+    }
+
+    void clear_crowd() noexcept
+    {
+        crowd.reset();
+        agents.clear();
+        accumulated = 0;
+    }
 
     void changed() noexcept
     {
@@ -484,14 +776,21 @@ struct NavigationSystem::State
         {
             return;
         }
+        detach_crowd();
         for (const auto& tile : tiles)
         {
             const auto reference = data->mesh->getTileRefAt(tile.x, tile.z, 0);
             if (reference && dtStatusFailed(data->mesh->removeTile(reference, nullptr, nullptr)))
             {
+                clear_crowd();
                 data.reset();
                 break;
             }
+        }
+        if (!restore_crowd())
+        {
+            // All identities already report invalid and have zero velocity.
+            error = "Navigation tiles invalidated; crowd restoration failed";
         }
         changed();
     }
@@ -514,6 +813,7 @@ void NavigationSystem::clear() noexcept
 {
     if (state_)
     {
+        state_->clear_crowd();
         if (state_->data)
         {
             state_->data.reset();
@@ -595,6 +895,7 @@ bool NavigationSystem::build(std::span<const NavigationGeometry> geometry,
     }
     state_->rebuilt = static_cast<std::size_t>(candidate->columns * candidate->rows);
     ENGINE_PROFILE_PLOT("Navigation.rebuilt_tiles", static_cast<double>(state_->rebuilt));
+    state_->clear_crowd();
     state_->data = std::move(candidate);
     state_->changed();
     state_->error.clear();
@@ -663,7 +964,8 @@ bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
             return fail(state_->error);
         }
     }
-    // All expensive preparation completed. Publish only at this caller-owned safe point.
+    // All expensive preparation completed. Discard old corridors and queues before publishing.
+    state_->detach_crowd();
     for (auto& tile : tiles)
     {
         const auto reference = data.mesh->getTileRefAt(tile.x, tile.z, 0);
@@ -676,6 +978,10 @@ bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
     state_->rebuilt = tiles.size();
     ENGINE_PROFILE_PLOT("Navigation.rebuilt_tiles", static_cast<double>(state_->rebuilt));
     state_->changed();
+    if (!state_->restore_crowd())
+    {
+        return false;
+    }
     state_->error.clear();
     return true;
 }
@@ -752,6 +1058,237 @@ bool NavigationSystem::find_path(const Vec3& start, const Vec3& end,
         output.emplace_back(points[static_cast<std::size_t>(index) * 3],
                             points[static_cast<std::size_t>(index) * 3 + 1],
                             points[static_cast<std::size_t>(index) * 3 + 2]);
+    }
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::configure_crowd(std::uint32_t capacity)
+{
+    if (!ready())
+    {
+        if (state_)
+        {
+            state_->error = "Crowd requires a complete navigation build";
+        }
+        return false;
+    }
+    if (capacity == 0 || capacity > maximum_agents || state_->data->settings.agent_radius < 0.01F)
+    {
+        state_->error = "Crowd capacity must be 1..4096 and baked radius at least 0.01";
+        return false;
+    }
+    if (state_->agents.size() == capacity && state_->crowd)
+    {
+        state_->error.clear();
+        return true;
+    }
+    if (state_->agents.size() != capacity &&
+        std::any_of(state_->agents.begin(), state_->agents.end(),
+                    [](const CrowdAgent& record) { return record.generation != 0; }))
+    {
+        state_->error = "Cannot change crowd capacity while agents exist";
+        return false;
+    }
+    state_->detach_crowd();
+    state_->agents.resize(capacity);
+    if (!state_->restore_crowd())
+    {
+        return false;
+    }
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::create_agent(const Vec3& position, const NavigationAgentSettings& settings,
+                                    NavigationAgentHandle& output)
+{
+    output = {};
+    if (!ready() || !state_->crowd)
+    {
+        if (state_)
+        {
+            state_->error = "Configure a built navigation crowd before creating agents";
+        }
+        return false;
+    }
+    if (!valid_agent_settings(settings, *state_->data))
+    {
+        state_->error = "Invalid crowd agent settings or size exceeds baked navigation clearance";
+        return false;
+    }
+    const auto free = std::find_if(state_->agents.begin(), state_->agents.end(),
+                                   [](const CrowdAgent& record) { return record.generation == 0; });
+    if (free == state_->agents.end())
+    {
+        state_->error = "Navigation crowd capacity exhausted";
+        return false;
+    }
+    CrowdAgent candidate;
+    candidate.settings = settings;
+    candidate.state.position = position;
+    if (!state_->add_agent(candidate))
+    {
+        return false;
+    }
+    candidate.generation = next_agent_generation();
+    if (candidate.generation == 0)
+    {
+        state_->crowd->removeAgent(candidate.index);
+        state_->error = "Navigation agent generation space exhausted";
+        return false;
+    }
+    *free = candidate;
+    output.slot = static_cast<std::uint32_t>(free - state_->agents.begin());
+    output.generation = candidate.generation;
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::set_agent_settings(NavigationAgentHandle handle,
+                                          const NavigationAgentSettings& settings)
+{
+    if (!state_)
+    {
+        return false;
+    }
+    auto* record = state_->agent(handle);
+    if (!record)
+    {
+        return false;
+    }
+    if (!state_->data || !valid_agent_settings(settings, *state_->data))
+    {
+        state_->error = "Invalid crowd agent settings or size exceeds baked navigation clearance";
+        return false;
+    }
+    record->settings = settings;
+    if (state_->crowd && record->index >= 0)
+    {
+        const auto parameters = agent_parameters(settings);
+        state_->crowd->updateAgentParameters(record->index, &parameters);
+    }
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::set_agent_target(NavigationAgentHandle handle, const Vec3& target)
+{
+    if (!state_)
+    {
+        return false;
+    }
+    auto* record = state_->agent(handle);
+    if (!record)
+    {
+        return false;
+    }
+    if (!valid_vector(target))
+    {
+        state_->stop_motion(*record);
+        record->state.target = {};
+        record->state.has_target = false;
+        record->state.status = NavigationAgentStatus::unreachable;
+        state_->error = "Agent target must be finite and within coordinate limits";
+        return false;
+    }
+    record->state.target = target;
+    record->state.has_target = true;
+    if (!state_->request_target(*record))
+    {
+        return false;
+    }
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::stop_agent(NavigationAgentHandle handle)
+{
+    if (!state_)
+    {
+        return false;
+    }
+    auto* record = state_->agent(handle);
+    if (!record)
+    {
+        return false;
+    }
+    state_->stop_motion(*record);
+    record->state.target = {};
+    record->state.has_target = false;
+    record->state.status =
+        record->index >= 0 ? NavigationAgentStatus::idle : NavigationAgentStatus::invalid;
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::remove_agent(NavigationAgentHandle handle)
+{
+    if (!state_)
+    {
+        return false;
+    }
+    auto* record = state_->agent(handle);
+    if (!record)
+    {
+        return false;
+    }
+    if (state_->crowd && record->index >= 0)
+    {
+        state_->crowd->removeAgent(record->index);
+    }
+    *record = {};
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::agent_state(NavigationAgentHandle handle, NavigationAgentState& output) const
+{
+    output = {};
+    if (!state_)
+    {
+        return false;
+    }
+    const auto* record = state_->agent(handle);
+    if (!record)
+    {
+        return false;
+    }
+    output = record->state;
+    state_->error.clear();
+    return true;
+}
+
+bool NavigationSystem::step_crowd(double delta_time)
+{
+    ENGINE_PROFILE_ZONE("Navigation.step_crowd");
+    if (!state_ || !state_->crowd)
+    {
+        if (state_)
+        {
+            state_->error = "Navigation crowd is not configured";
+        }
+        return false;
+    }
+    if (!std::isfinite(delta_time) || delta_time < 0)
+    {
+        state_->error = "Navigation crowd step must be finite and nonnegative";
+        return false;
+    }
+    state_->accumulated =
+        std::min(state_->accumulated + delta_time, crowd_step * maximum_crowd_steps);
+    for (unsigned int step = 0;
+         step < maximum_crowd_steps && state_->accumulated + 1.0e-12 >= crowd_step; ++step)
+    {
+        state_->crowd->update(static_cast<float>(crowd_step), nullptr);
+        for (auto& record : state_->agents)
+        {
+            if (record.generation != 0)
+            {
+                state_->refresh_agent(record);
+            }
+        }
+        state_->accumulated = std::max(0.0, state_->accumulated - crowd_step);
     }
     state_->error.clear();
     return true;

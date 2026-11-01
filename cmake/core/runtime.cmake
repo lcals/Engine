@@ -151,7 +151,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_navigation
         PUBLIC engine::scene_data
-        PRIVATE RecastNavigation::Recast RecastNavigation::Detour)
+        PRIVATE RecastNavigation::Recast RecastNavigation::Detour RecastNavigation::DetourCrowd)
 
     engine_add_system(runtime animation)
     engine_enable_profiling(engine_animation)

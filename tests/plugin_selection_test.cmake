@@ -128,7 +128,7 @@ set(CMAKE_SYSTEM_NAME Android)
 set(ANDROID_ABI arm64-v8a)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
-   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
+   NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/resource_graph;runtime/character_controller;runtime/navigation_crowd;runtime/effects;runtime/terrain;runtime/destruction;runtime/script")
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
@@ -146,6 +146,18 @@ set(ENGINE_EDITOR_PLUGINS terrain CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
 if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/terrain;editor/terrain")
     message(FATAL_ERROR "Terrain editor dependency closure differs: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
+    navigation_crowd_editor_closure
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS script CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS navigation_crowd CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "runtime/navigation_crowd;runtime/script;editor/navigation_crowd")
+    message(FATAL_ERROR "Navigation editor/script closure differs: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 ]=])
 

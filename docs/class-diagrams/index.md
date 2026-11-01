@@ -95,6 +95,8 @@
 - [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)：逐类 Animator 绑定、CrossFade 及播放状态；SetAnimation 与切换预检的区别。
 - [物理与音频脚本接口](../plugins/runtime/class-diagrams/physics-audio-script-api.md)：组件创建、设置、冲量与播放控制，复用原生能力。
 - [导航脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)：显式提交静态网格、局部重建、完整路径查询及场景生命周期清理。
+- [多角色导航](../plugins/runtime/class-diagrams/navigation-crowd.md)：DetourCrowd 代理与场景组件同步，原生路径跟随、避让和位置更新。
+- [导航代理编解码](../plugins/editor/class-diagrams/navigation-crowd.md)：可选编辑器插件读写代理参数；瞬态目标与状态不持久化。
 
 - [地形脚本接口](../plugins/runtime/class-diagrams/terrain-script-api.md)：条件装配地形组件绑定、球形挖填、固定槽位保存与恢复。
 
@@ -167,7 +169,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | ---- | ---------------------------------------------------------- | -------------- |
 | 1    | [字体系统](../runtime/class-diagrams/font-system.md) | 核心字体资源与 bgfx 曲线绘制 |
 | 2    | [界面系统](../runtime/class-diagrams/ui-system.md)         | RmlUi；借用核心 FontSystem |
-| 3    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour |
+| 3    | [导航系统](../runtime/class-diagrams/navigation-system.md) | Recast、Detour、DetourCrowd |
 | 4    | [脚本执行契约](../runtime/class-diagrams/script-runtime.md) | 可选宿主工厂；随后登记玩家输入插件 |
 | 5    | [物理系统](../runtime/class-diagrams/physics-system.md)    | Jolt；消费本帧意图 |
 | 6    | [动画系统](../runtime/class-diagrams/animation-system.md)  | ozz-animation；随后登记独立相机插件 |

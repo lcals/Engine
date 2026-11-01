@@ -42,6 +42,12 @@ function(engine_configure_script_plugin)
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
+    if("runtime/navigation_crowd" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::navigation_crowd)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_NAVIGATION_CROWD_PLUGIN=0)
+    endif()
     if("runtime/character_controller" IN_LIST ENGINE_SELECTED_PLUGINS)
         target_link_libraries(engine_script PRIVATE engine::character_controller)
         target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN=1)
@@ -72,6 +78,12 @@ endfunction()
 # script-only plugin selection. The dependency is owned by this plugin manifest.
 set(_script_plugin_dependencies)
 if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR (NOT DEFINED ENGINE_EDITOR_PLUGINS AND ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
+   OR "navigation_crowd" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "navigation_crowd" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/navigation_crowd)
+endif()
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
    OR "character_controller" IN_LIST ENGINE_RUNTIME_PLUGINS
    OR "character_controller" IN_LIST ENGINE_EDITOR_PLUGINS)
     list(APPEND _script_plugin_dependencies runtime/character_controller)
@@ -91,5 +103,12 @@ if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
    OR "effects" IN_LIST ENGINE_EDITOR_PLUGINS)
     list(APPEND _script_plugin_dependencies runtime/effects)
 endif()
-engine_register_plugin(NAME runtime/script CONFIGURE engine_configure_script_plugin
-                       DEPENDS ${_script_plugin_dependencies} OPTIONS ENGINE_ENABLE_RUNTIME_DEPS)
+engine_register_plugin(
+    NAME
+    runtime/script
+    CONFIGURE
+    engine_configure_script_plugin
+    DEPENDS
+    ${_script_plugin_dependencies}
+    OPTIONS
+    ENGINE_ENABLE_RUNTIME_DEPS)

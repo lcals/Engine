@@ -797,7 +797,27 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 庭院由 MCP 创建并保存为 231 个节点、225 个环境 Mesh、47,004 个环境三角形和 31 个静态碰撞体；三棵树共 840 片薄叶，每树合为一个 Mesh。人物由 Gameplay 在加载场景后实例化，避免保存后重复生成。项目启动直接读取建图脚本保存的场景组件参数；截图和动作采样来自真实渲染器。
 
-组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+组件扩展也由宿主装配：`RuntimeSetup` 在世界初始化前按 `before_physics`、`after_physics` 各装配一次可选子系统；正式执行顺序为脚本／玩家输入 → 群体导航 → 物理 → 动画 → 跟随相机 → 音频。组件在各系统初始化时登记；`WorldSystem::component_registry()` 提供工厂登记借用。编辑器公开 `SceneComponentCodec` 及显式注册函数，插件拥有自己的 TOML 转换。`EditorSystem::scene_commands()` 提供共享节点身份入口，插件事务复用撤销重建后的 ID；核心组件不感知 MCP、撤销或编辑器模式。
+
+### 多角色导航实验场
+
+showcase 主菜单第十项 **Navigation laboratory** 提供 16／32／64 个公开范例角色：四组交叉移动或两组通过 2.4 米窄门，支持反转目标、停止、继续、重置和观察镜头。地面使用真实 TerrainComponent，可挖坑、切断门洞地面和恢复地形；面板显示地形版本、导航版本与本次重建瓦片数。每次进入等待地形就绪后显式构建一次共享导航面，切换数量不重复烘焙；[范例说明](projects/showcase/navigation.md)记录操作与参数。
+
+核心直接复用 Recast Navigation 1.6.0 的 DetourCrowd 路径队列、近邻格、分离避让和位置积分；可选 `runtime/navigation_crowd` 插件将 `NavigationAgent` 绑定到普通 Node。编辑器 `editor/navigation_crowd` 只负责持久参数编解码。默认完整预设启用两者；已有显式插件缓存需将 `navigation_crowd` 加到对应清单。插件不依赖角色控制器，核心不依赖该插件。
+
+```ts
+const agent = node.AddComponent(NavigationAgent);
+if (!agent || !agent.Configure({ radius: 0.3, height: 1.8, maxSpeed: 3, arrivalDistance: 0.4 }))
+    return false;
+if (!agent.MoveTo({ x: 12, y: 0, z: 8 })) return false;
+// 此后原生系统推进；仅在需要时读 agent.state / agent.velocity，或调用 agent.Stop()。
+```
+
+代理根节点保持单位缩放，无父节点，不同时启用 CharacterMotor、Collider 或 RigidBody。当前沿导航面移动，未与 Jolt 刚体碰撞/击退合并；有物理移动要求的角色继续使用 Motor，不能把两套积分叠加。代理半径与高度不得超过烘焙净空。`MoveTo` 返回成功仅表示请求接受；`pending`、`moving`、`arrived`、`unreachable`、`invalid` 由原生反馈，精确到达不会用低速度代替。密集目标可设置适当到达范围；局部避让不保证双向窄门限时无拥堵。
+
+脚本只做创建、提交目标及低频观察，不逐帧搬位置。完整网格重建使核心句柄失效，插件重新登记并提交组件保留的目标；局部瓦片更新保留身份、丢弃旧走廊后重新排队。禁用、删除和切场景移除代理，场景文件只保存配置。公开契约与容量/路径预算见[导航模块](docs/runtime/navigation.md)及[代理类图](docs/plugins/runtime/class-diagrams/navigation-crowd.md)。
+
+地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。当前是同步局部重建，不包含自动追踪动态残骸、后台构建或脚下地面消失后的物理下落。
 
 ### 资源运行包
 
@@ -924,10 +944,15 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
 | macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
+| macOS 多角色与可破坏地形导航 | Debug / Release 的导航、原生代理、脚本、编解码及装配边界共 10 项定向回归通过，范例 TS 编译与编排检查通过。Metal 实窗观察 16／64 角色移动、反转及启停；16 角色挖坑绕行全部到达，断沟后停止，恢复地面后原目标自动续行 | 未做其他平台运行、完整战斗联调或容量压测；同步重建与避让的性能尚无目标设备结论 |
 | Android ARM64 / API 34 软件 Vulkan 模拟器 | 路径升级前已有菜单与场景往返、角色/动画、音频状态、前后台恢复、完整资源同步和有限帧退出验证 | 不代表当前包或实体设备性能、扬声器、真实触屏与 16 KiB 页设备已验证 |
 | Linux / iOS | 保留平台配置与统一后端约束 | 尚无本分支的构建及端到端运行结果 |
 
 验证输出留在忽略目录：射击回归为 `build/shooting-range-tests-*.log`，窗口验收为 `build/shooting-range-final-report.json` 与项目 `cache/screenshots/shooting-range-final-*`；分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
+
+导航回归记录为 `build/navigation-tests-*.log`、`build/navigation-terrain-tests-*.log` 和 `build/navigation-terrain-showcase-tests.log`；窗口回执在 `build/navigation-review-report.json`、`build/navigation-terrain-review-report.json`，真实截图在项目 `cache/screenshots/navigation-*-review-*`。实窗中初次构建 40 个瓦片，挖坑局部更新 9 个，断沟更新 18 个，同时恢复此前两处修改更新 24 个；这些计数只证明局部更新范围，不作为耗时或容量结论。
+
+挖坑后的交叉组 16 个角色全部到达。门洞断沟后 8 个角色无路、8 个因当前位置无法投影而 invalid；恢复后全部重新移动，观察结束时 14 个到达、2 个仍处于 moving，未声称全员限时通过。停止群体再修改/恢复地形仍保持 idle，返回菜单再进入会创建新的场景与代理。
 
 性能指标与固定采样流程统一维护在[性能文档](docs/runtime/performance.md)，功能验证不代表容量或帧耗时达标。资源版本发布和包体布局以[资源加载](docs/runtime/resource-loading.md)及[构建插件](docs/plugins/editor/resource-build.md)为准。
 
@@ -937,7 +962,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 - adb 同步只支持 Debug 包；正式发布签名和内容更新渠道未实现。FNV-1a 哈希用于完整性检查，不提供签名认证。
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
-- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，静态导航构建、局部瓦片更新及完整路径查询已接入；动态残骸导航、代理避让和完整编辑器界面未实现。
+- 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，静态导航构建、局部瓦片更新、完整路径查询及 DetourCrowd 多代理跟随/避让已接入；动态残骸自动导航、与 Jolt 的代理运动融合和完整编辑器界面未实现。
 - 物理已支持静态 Mesh 碰撞、凸包/复合碰撞和只读碰撞估算快照；约束关节、传感器及 CharacterVirtual 接触事件尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。

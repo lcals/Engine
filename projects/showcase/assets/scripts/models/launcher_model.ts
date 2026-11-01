@@ -27,6 +27,11 @@ export class LauncherModel {
             scene: "scenes/destruction-integration.scene",
         },
         { button: "scene-shooting", title: "Shooting range", scene: "scenes/shooting-range.scene" },
+        {
+            button: "scene-navigation",
+            title: "Navigation laboratory",
+            scene: "scenes/navigation.scene",
+        },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

@@ -10,6 +10,7 @@ import Terrain from "./terrain.js";
 import Destruction from "./destruction.js";
 import DestructionIntegration from "./destruction-integration.js";
 import ShootingRange from "./shooting-range.js";
+import NavigationLab from "./navigation.js";
 
 type ShowcaseGame =
     | Minimal
@@ -20,7 +21,8 @@ type ShowcaseGame =
     | Terrain
     | Destruction
     | DestructionIntegration
-    | ShootingRange;
+    | ShootingRange
+    | NavigationLab;
 
 const scene_games = new Map<string, new () => ShowcaseGame>([
     ["scenes/main.scene", Minimal],
@@ -32,6 +34,7 @@ const scene_games = new Map<string, new () => ShowcaseGame>([
     ["scenes/destruction.scene", Destruction],
     ["scenes/destruction-integration.scene", DestructionIntegration],
     ["scenes/shooting-range.scene", ShootingRange],
+    ["scenes/navigation.scene", NavigationLab],
 ]);
 
 export default class Game extends Gameplay {

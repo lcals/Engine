@@ -24,6 +24,9 @@
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_codec.hpp"
 #endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+#include "plugins/editor/navigation_crowd/navigation_agent_codec.hpp"
+#endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_commands.hpp"
 #endif
@@ -171,6 +174,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         if (!engine::plugins::character_controller::register_controller_codec())
         {
             std::fputs("Cannot register character controller scene codec\n", stderr);
+            return 1;
+        }
+#endif
+#if ENGINE_HAS_NAVIGATION_CROWD_EDITOR
+        if (!engine::plugins::navigation_crowd::register_navigation_agent_codec())
+        {
+            std::fputs("Cannot register navigation agent scene codec\n", stderr);
             return 1;
         }
 #endif

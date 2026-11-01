@@ -90,6 +90,7 @@ export class MeshRenderer {}
 // 菜单会加载所有玩法模块；此处只提供未执行玩法所需的导出身份。
 export class Camera {}
 export class CharacterMotor {}
+export class NavigationAgent {}
 export class CharacterController {
     constructor() { this.inputs = []; this.cancellations = 0; }
     IsValid() { return true; }

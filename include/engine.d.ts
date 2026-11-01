@@ -650,6 +650,35 @@ declare module "engine" {
         readonly agentMaxClimb?: number;
         readonly agentMaxSlope?: number;
     }
+    export interface NavigationAgentOptions {
+        readonly radius?: number;
+        readonly height?: number;
+        readonly maxSpeed?: number;
+        readonly maxAcceleration?: number;
+        readonly separationWeight?: number;
+        readonly arrivalDistance?: number;
+        readonly faceVelocity?: boolean;
+    }
+    export type NavigationAgentStatus =
+        | "idle"
+        | "pending"
+        | "moving"
+        | "arrived"
+        | "unreachable"
+        | "invalid";
+    /** Available when the optional navigation_crowd runtime plugin is enabled. */
+    export class NavigationAgent extends Component {
+        private constructor();
+        /** Atomically replace configuration; omitted fields use schema defaults. */
+        Configure(options: NavigationAgentOptions): boolean;
+        /** Submit a world-space destination; true does not mean the agent has arrived. */
+        MoveTo(target: Vector3): boolean;
+        /** Cancel this agent's active movement request. */
+        Stop(): boolean;
+        /** All methods validate this component instance, including IsValid and SetEnabled. */
+        readonly state: NavigationAgentStatus | null;
+        readonly velocity: Vector3 | null;
+    }
     export class Navigation {
         private constructor();
         /** Submit explicit same-scene static mesh nodes; does not scan the whole scene. */

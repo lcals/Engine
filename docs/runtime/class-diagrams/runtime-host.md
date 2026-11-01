@@ -57,6 +57,7 @@ classDiagram
     RuntimeHost ..> ScriptRuntimeFactory : 可选宿主创建函数
     RuntimeHost ..> RuntimeSetup : 初始化前调用宿主装配函数
     RuntimeSetup ..> RuntimeStage : 选择子系统登记位置
+    RuntimeSetup ..> NavigationSystem : 借用已构造导航供宿主装配
     RuntimeHost --> AnimationSystem : 装配后借用以清理会话
     RuntimeHost ..> ScriptRuntime : 创建后移交世界独占
     RuntimeHost ..> EngineConfig : 初始化参数
@@ -78,7 +79,7 @@ classDiagram
 
 可执行宿主负责按构建清单装配 ResourceGraphSystem 并向资源底层注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
 
-`RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, RenderSystem&)` 是宿主回调别名。
+`RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, NavigationSystem&, RenderSystem&)` 是宿主回调别名。NavigationSystem 借用在调用前已构造，生命周期覆盖插件子系统；宿主可据此显式装配多人导航，无需按类型扫描子系统。
 
 渲染器在装配回调前已经构造，尚未初始化；宿主可登记 [RenderExtension](render-extension.md)，将具体插件所有权移交世界。核心不识别插件类型，扩展 GPU 准备在渲染器初始化成功后的绘制阶段执行。
 对象先构造，世界尚未初始化时分别以 `before_physics` 和 `after_physics` 调用一次；窗口已就绪，
@@ -93,7 +94,7 @@ flowchart TD
     F[FontSystem] --> U[UiSystem]
     U --> N[NavigationSystem]
     N --> S[可选 ScriptRuntime：脚本与 UI 业务意图]
-    S --> B[before_physics：宿主追加玩家输入系统]
+    S --> B[before_physics：地形、破坏、玩家意图、多人导航]
     B --> P[PhysicsSystem：同帧消费移动意图]
     P --> A[AnimationSystem：消费物理后的状态]
     A --> C[after_physics：宿主追加相机跟随系统]
