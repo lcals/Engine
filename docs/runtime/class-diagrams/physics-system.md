@@ -18,6 +18,9 @@ classDiagram
         +set_mesh_parts(Collider& collider, const MeshCollisionData& data) bool
         +cast_sphere(const Vec3& origin, const Vec3& displacement, float radius, float& fraction) bool
         +cast_ray(const Collider& collider, const Vec3& origin, const Vec3& displacement, float& fraction) bool
+        +query_ray(const Vec3& origin, const Vec3& displacement, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
+        +query_sphere(const Vec3& origin, const Vec3& displacement, float radius, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
+        +is_hit_valid(const PhysicsQueryHit& hit) bool
         +impacts() span~const PhysicsImpact~
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
@@ -43,6 +46,26 @@ classDiagram
     class MeshDataT
     class MeshCollisionData
     class ColliderDataT
+    class PhysicsQueryFilter {
+        <<struct>>
+        +uint64_t ignore_node_id = 0
+        +bool ignore_descendants = true
+        +bool include_static = true
+        +bool include_kinematic = true
+        +bool include_dynamic = true
+        +bool include_sensors = false
+    }
+    class PhysicsQueryHit {
+        <<struct>>
+        +bool hit = false
+        +uint64_t scene_id = 0
+        +uint64_t node_id = 0
+        +uint64_t collider_id = 0
+        +Vec3 point
+        +Vec3 normal
+        +float distance = 0
+        +float fraction = 0
+    }
     class PhysicsImpact {
         <<struct>>
         +uint64_t frame
@@ -68,6 +91,9 @@ classDiagram
     PhysicsSystem ..> MeshCollisionData : 原子发布分段静态几何
     PhysicsState o-- MeshCollisionData : 共享不可变几何列表与叶子缓存
     PhysicsSystem ..> ColliderDataT : 校验并原子提交通用碰撞描述
+    PhysicsSystem ..> PhysicsQueryFilter : 最近命中过滤参数
+    PhysicsSystem ..> PhysicsQueryHit : 输出数值快照并校验身份
+    PhysicsQueryHit ..> Vec3 : 世界命中点与法线
     PhysicsState *-- PhysicsImpact : 持有当前物理帧只读快照
     PhysicsSystem ..> PhysicsImpact : 返回非消费借用
     PhysicsImpact ..> Vec3 : 世界接触点与法线
@@ -107,6 +133,14 @@ classDiagram
 `set_collider_data` 对禁用 Collider、禁用 RigidBody 或禁用变换层级只检查数据与变换，立即移除已有碰撞并提交描述，不做凸包 cook。恢复启用后在提交/下一次物理同步时构建形状。调用方可先禁用再用当前 settings 调用此 API，在不推进模拟的情况下立即回收碰撞；销毁 Node 的普通路径仍在下一次同步清理。
 
 `cast_ray` 只查询调用方指定、属于当前世界的 Collider，射线由世界起点和完整位移表示，复用 Jolt NarrowPhaseQuery。命中返回 `true` 和 `[0,1]` 比例，无命中或已禁用/尚未生成物理体返回 `true/1`；归属或参数错误返回 `false/0`。忽略 sensor，其他 Collider 不会遮挡目标，三角形双面可命中；不加载资源或推进模拟。
+
+`query_ray` / `query_sphere` 查询当前场景已提交碰撞世界中的最近 Collider，保持上述两个旧查询契约。输入为世界起点和非零完整位移；所有数值须有限，起点各轴绝对值不超过 1e7，位移各轴不超过 1e5，球半径为 0.0001..1000。未初始化、无当前场景、物理世界尚未同步到当前场景、忽略节点不属于当前场景或参数无效时返回 false 并清空 hit。有效但没有命中返回 true 和空 hit；命中返回 true 且 hit.hit 为 true。查询只读，不推进模拟、不隐式同步，须在主线程物理步进及场景修改之外调用。
+
+`PhysicsQueryFilter` 默认包含静态、运动学和动态实体并忽略 sensor；类别按已提交物理体判断，sensor 还须通过对应运动类别。ignore_node_id 为零表示不忽略节点，非零时可连同其子树一起忽略。过滤在 Jolt BodyFilter 内执行，同时按 body 的节点映射、当前 Collider 实例及启用状态排除删除、重建或禁用对象，失效前景不会遮挡后方有效对象。类别不是业务碰撞 layer，不改变碰撞层矩阵或资源格式。CharacterVirtual 不属于 Collider，不进入结果。
+
+`PhysicsQueryHit` 是值快照，不保存借用指针或 Jolt 类型。scene_id、node_id 和 collider_id 共同标识命中对象；Collider 的实例身份不进入持久数据。fraction 为 [0,1]，distance 为位移长度乘 fraction；球扫 distance 是球心行程，point 是被命中 Collider 上的世界接触点，normal 朝向扫掠球。射线 point 为起点加 fraction 倍位移，普通命中 normal 为表面外法线，网格双面可命中。射线从凸体内部出发返回 fraction/distance 为零、point 为起点、normal 为反向单位位移，此时 normal 表示退回方向。球扫初始重叠同样返回零距离，多个重叠由 Jolt 选择最深接触；退化接触法线使用反向单位位移。
+
+`is_hit_valid` 只检查当前场景、节点、Collider 实例身份及碰撞组件、刚体和变换层级的启用状态；删除、同节点重建 Collider 或切换场景后旧快照失效。位置或形状变化不重算历史命中，不使仍存活的对象身份失效；调用者需要当前命中时须重新查询。
 
 `PhysicsImpact` 是通用瞬时数据，不保存 Node 指针、Jolt 类型或具体破坏组件。每次 `on_tick` 清除前帧快照（没有固定子步也清除），`frame` 在当前系统生命周期内单调递增；多个固定子步与复合形状接触按节点对保留估算冲量最大的撞击，同值时保留接近速度更大的一条。`point` 为代表接触点，`normal` 从 `node_a` 指向 `node_b`，`closing_speed` 为包含角速度的碰前法向接近速度（m/s），`estimated_impulse` 为 Jolt 官方 `EstimateCollisionResponse` 给出的该接触面的估算法向冲量（N·s），不是求解器实际冲量，多体堆叠时尤其不能视为精确值。
 

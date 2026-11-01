@@ -84,6 +84,32 @@ classDiagram
 class Physics {
     +GetImpacts() PhysicsImpact[]
     +CastSphere(number x, number y, number z, number dx, number dy, number dz, number radius) numberOrNull
+    +Raycast(Vector3 origin, Vector3 displacement, PhysicsQueryOptions options) PhysicsQueryHitOrNull
+    +SphereCast(Vector3 origin, Vector3 displacement, number radius, PhysicsQueryOptions options) PhysicsQueryHitOrNull
+    +IsHitValid(PhysicsQueryHit hit) boolean
+}
+class PhysicsQueryOptions {
+    +NodeOrNull ignoreNode
+    +boolean ignoreDescendants
+    +boolean includeStatic
+    +boolean includeKinematic
+    +boolean includeDynamic
+    +boolean includeSensors
+}
+class PhysicsQueryHit {
+    +boolean hit
+    +bigint sceneId
+    +bigint nodeId
+    +bigint colliderId
+    +NodeOrNull node
+    +Vector3 point
+    +Vector3 normal
+    +number fraction
+    +number distance
+}
+class Node {
+    +bigint id
+    +bigint sceneId
 }
 class PhysicsImpact {
     +bigint frame
@@ -96,8 +122,22 @@ class PhysicsImpact {
     +number estimatedImpulse
 }
 Physics ..> PhysicsImpact : copied values
+Physics ..> PhysicsQueryOptions : 校验并转换原生过滤参数
+Physics ..> PhysicsQueryHit : 返回只读值快照
+PhysicsQueryHit --> Node : 仅身份包装，不拥有节点
+PhysicsQueryOptions --> Node : 可选忽略节点，当前场景
 ```
 
 `Physics.GetImpacts()` 只返回当前 Run 所属活动场景的上一物理帧快照；无物理系统、无场景或无事件时返回空数组。读取不消费，多次读取同帧返回相同数据，调用者按 `frame` 去重。节点在读取前已删除或禁用的记录不暴露。`normal` 从 A 指向 B；速度为碰前法向接近速度 m/s，冲量为 Jolt 官方 `EstimateCollisionResponse` 的法向估计 N·s，不能当作求解后的真实冲量。传感器和 CharacterVirtual 不在本接口范围。项目脚本在下一次 Tick 决定损伤、阈值、冷却及预算，不从碰撞回调执行场景修改。
 
 `Physics.CastSphere` 复用核心 Jolt 形状扫掠；完整世界位移、有限半径，返回最早命中比例 [0,1]，无命中 1，错误 null。忽略传感器，不隐式推进物理。项目 `Fire` 将弹体放在发射口，首次及后续 Tick 均从上次位置扫掠本帧完整位移，不跳过发射口前的首段距离；发射、目标、引爆和频率均归项目。
+
+## 世界最近命中查询
+
+`Raycast` 与 `SphereCast` 使用世界起点和完整位移，查询当前 Run 所属场景已提交的碰撞世界，不推进物理或加载资源。无效参数、无可用物理世界或跨场景忽略对象返回 `null`；有效查询返回只读快照，`hit=false` 明确表示未命中，此时身份、向量与数值归零、`node=null`。命中时 `node` 是已有 Node 身份包装，可直接取组件；不靠节点名称识别目标。
+
+过滤默认包含静态、运动学和动态 Collider，排除 Sensor。`ignoreNode` 默认 null，指定时默认连同其后代忽略；必须属于当前有效场景。这些是物理对象类别，不是新增的业务碰撞层。CharacterMotor 使用的 CharacterVirtual 不属于 Collider 查询结果；需要可射击身体的调用方应显式配置 Collider。
+
+`point` 为世界命中点，`normal` 为世界单位法线，`fraction` 为完整位移中的比例，`distance` 为该比例对应的移动距离；球扫的距离是球心行程，点在被击形状上。零位移被拒绝，不兼任重叠查询。起点位于凸体内部的射线返回零距离，法线按反向射线给出退回方向；此时起点不被当作物体表面点。三角网格采用双面查询，具体重叠语义与核心[物理查询](../../../runtime/class-diagrams/physics-system.md)一致。
+
+`Node.id` 与 `sceneId` 为只读身份，销毁后仍可用于识别旧记录，是否可用通过 `IsValid()` 判断。`Physics.IsHitValid(hit)` 另校验场景、节点、Collider 实例和启用状态；删除后重建同名节点或同节点重挂 Collider 不会恢复旧命中。移动只改变后续查询，不使历史命中位置自动更新。模块顶层、构造、预检与过期 Run 不允许查询，返回 null/false。玩法计分、伤害、阵营和射速由调用方决定。

@@ -406,6 +406,222 @@ try {
     console.log(
         "PASS real character input policy preserves mappings across unrelated device changes",
     );
+
+    // 实际菜单、靶场模块及 MVC；只替代加载场景和原生查询结果，不模拟碰撞数学。
+    const api = await load("node_modules/engine/index.js");
+    const originalLoad = api.Scene.Load;
+    const rangeMarkup = await readFile(
+        path.join(root, "projects/showcase/assets/ui/shooting-range.rml"),
+        "utf8",
+    );
+    fixture.ids.push(...[...rangeMarkup.matchAll(/\bid="([^"]+)"/g)].map((match) => match[1]));
+    const nodes = new Map();
+    const queries = [];
+    const aspects = [];
+    const rangePath = "scenes/shooting-range.scene";
+    const rangeScene = {
+        path: rangePath,
+        IsValid() {
+            return fixture.scene === this;
+        },
+    };
+    rangeScene.view = new api.UiComponent(rangeScene);
+    let nextNode = 1n;
+    const enabledComponent = () => ({
+        enabled: true,
+        SetEnabled(value) {
+            this.enabled = value;
+            return true;
+        },
+    });
+    const makeNode = (name) => {
+        const transform = {
+            SetPosition() {
+                return true;
+            },
+            SetRotation() {
+                return true;
+            },
+        };
+        const renderer = {
+            ...enabledComponent(),
+            material: {
+                SetType() {
+                    return true;
+                },
+            },
+        };
+        const collider = enabledComponent();
+        const character = new api.CharacterController();
+        const camera = {
+            ViewportPointToRay(u, v, aspect) {
+                assert.deepEqual([u, v], [0.5, 0.5]);
+                aspects.push(aspect);
+                return { origin: { x: 0, y: 2, z: 8 }, direction: { x: 0, y: 0, z: -1 } };
+            },
+        };
+        const node = {
+            id: nextNode++,
+            sceneId: 10n,
+            name,
+            collider,
+            renderer,
+            character,
+            IsValid() {
+                return rangeScene.IsValid();
+            },
+            SetParent() {
+                return true;
+            },
+            FindChild(child) {
+                return nodes.get(`${name}/${child}`) ?? null;
+            },
+            GetComponent(type) {
+                return (
+                    new Map([
+                        [api.Transform, transform],
+                        [api.MeshRenderer, renderer],
+                        [api.Collider, collider],
+                        [api.Camera, camera],
+                        [api.CharacterController, character],
+                        [api.UiComponent, rangeScene.view],
+                    ]).get(type) ?? null
+                );
+            },
+            AddComponent(type) {
+                if (type === api.Animator)
+                    return {
+                        SetAnimation() {
+                            return true;
+                        },
+                        Play() {
+                            return true;
+                        },
+                    };
+                return this.GetComponent(type);
+            },
+        };
+        nodes.set(name, node);
+        return node;
+    };
+    for (const name of [
+        "Player",
+        "Camera",
+        "Hit marker",
+        "Shooting range UI",
+        "Avatar",
+        "GENERIC MAN new",
+        "Near target",
+        "Far target",
+        "Covered target",
+        "Cover wall",
+    ])
+        makeNode(name);
+    for (const name of ["Near target", "Far target", "Covered target"])
+        for (const child of ["Center", "Bullseye"]) makeNode(`${name}/${child}`);
+    rangeScene.FindNode = (name) => nodes.get(name) ?? null;
+    rangeScene.InstantiateModel = () => nodes.get("Avatar");
+    rangeScene.CreateNode = (name) => makeNode(name);
+    api.Scene.Load = (path) => {
+        if (path !== rangePath) return originalLoad(path);
+        fixture.scene = rangeScene;
+        return rangeScene;
+    };
+    let queryResult = null;
+    const hit = (name) => {
+        const node = nodes.get(name);
+        return {
+            hit: true,
+            node,
+            nodeId: node.id,
+            sceneId: node.sceneId,
+            colliderId: node.id,
+            point: { x: 0, y: 1.6, z: -6 },
+            normal: { x: 0, y: 0, z: 1 },
+            distance: 14,
+            fraction: 0.14,
+        };
+    };
+    api.Physics.Raycast = (origin, displacement, options) => {
+        queries.push({ kind: "ray", origin, displacement, options });
+        return queryResult;
+    };
+    api.Physics.SphereCast = (origin, displacement, radius, options) => {
+        queries.push({ kind: "sphere", origin, displacement, radius, options });
+        return queryResult;
+    };
+    api.Physics.IsHitValid = (result) => result.valid !== false;
+    api.Render.GetViewportSize = () => ({ x: 900, y: 1200 });
+    const destroyedBeforeRange = inputFixture.destroyed;
+    try {
+        application = begin();
+        fixture.click("scene-shooting");
+        application.Update();
+        assert.equal(fixture.scene, rangeScene, "menu opens the independent shooting range");
+        const score = () => rangeScene.view.FindElement("range-score").text;
+        const click = (id) => {
+            fixture.click(id);
+            application.Update();
+        };
+        queryResult = hit("Cover wall");
+        click("range-fire");
+        assert.match(score(), /0 \/ 3 targets.*1 shots/, "obstruction does not score");
+        assert.equal(aspects[0], 0.75, "uses actual viewport aspect, including portrait");
+        assert.equal(queries[0].options.ignoreNode, nodes.get("Player"));
+        assert.equal(queries[0].options.ignoreDescendants, true);
+        queryResult = hit("Near target");
+        click("range-fire");
+        assert.match(score(), /1 \/ 3 targets.*2 shots/);
+        assert.equal(nodes.get("Near target").collider.enabled, false);
+        assert.equal(nodes.get("Near target/Center").renderer.enabled, false);
+        click("range-fire");
+        assert.match(score(), /1 \/ 3 targets.*3 shots/, "same target never scores twice");
+        click("range-sphere");
+        queryResult = hit("Far target");
+        click("range-fire");
+        assert.equal(queries.at(-1).kind, "sphere");
+        assert.equal(queries.at(-1).radius, 0.12);
+        queryResult = hit("Covered target");
+        queryResult.valid = false;
+        click("range-fire");
+        assert.match(score(), /2 \/ 3 targets/, "stale identity does not score");
+        queryResult = hit("Covered target");
+        click("range-fire");
+        assert.match(score(), /3 \/ 3 targets/);
+        assert.equal(rangeScene.view.FindElement("range-fire").enabled, false);
+        assert.match(rangeScene.view.FindElement("range-status").text, /Range cleared/);
+        click("range-reset");
+        assert.match(score(), /0 \/ 3 targets.*0 shots/);
+        for (const name of ["Near target", "Far target", "Covered target"]) {
+            assert.equal(nodes.get(name).collider.enabled, true);
+            assert.equal(nodes.get(name).renderer.enabled, true);
+            assert.equal(nodes.get(`${name}/Center`).renderer.enabled, true);
+        }
+        assert.equal(nodes.get("Hit marker").renderer.enabled, false);
+        queryResult = { hit: false };
+        click("range-fire");
+        assert.match(score(), /0 \/ 3 targets.*1 shots/);
+        click("back-menu");
+        assert.equal(fixture.scene.path, launcherPath);
+        assert.equal(
+            inputFixture.destroyed,
+            destroyedBeforeRange + 2,
+            "both shooting and movement channels released",
+        );
+        assert.equal(
+            [...rangeScene.view.elements.values()].flatMap((element) => element.listeners).length,
+            0,
+            "range and navigation subscriptions removed on return",
+        );
+        application.OnShutdown();
+        console.log(
+            "PASS real shooting range handles obstruction, score deduplication, reset, aspect and cleanup",
+        );
+    } finally {
+        application?.OnShutdown();
+        application = null;
+        api.Scene.Load = originalLoad;
+    }
 } finally {
     await rm(output, { recursive: true, force: true });
 }

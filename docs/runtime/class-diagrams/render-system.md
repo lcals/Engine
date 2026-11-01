@@ -231,6 +231,7 @@ classDiagram
         +gpu_resource_count() uint32_t
         +gpu_ready() bool
         +frame_number() uint32_t
+        +viewport_size(Vec2& output) bool
         +set_settings(const RenderSettings& settings) bool
         +settings() RenderSettings
         +set_stats_visible(bool visible) void
@@ -248,6 +249,7 @@ classDiagram
     class WorldSystem
     class Scene
     class Camera
+    class Vec2
     class Light
     class EnvironmentComponent
     class PostProcessComponent
@@ -329,6 +331,7 @@ classDiagram
     RenderSystem --> RenderExtension : 登记期间借用，独立透明通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
+    RenderSystem ..> Vec2 : 当前绘制目标像素尺寸输出
     RenderSystem ..> Light : 从节点读取方向与光照
     RenderSystem ..> EnvironmentComponent : 借用场景唯一启用环境
     RenderSystem ..> PostProcessComponent : 借用场景活动相机画面参数
@@ -357,9 +360,11 @@ classDiagram
 - 显式视角提供观察位置、投影及本镜头的网格隐藏列表。主绘制与 AO 深度预通道按实际观察 Camera 的 `mesh_visible(mesh_instance_id)` 过滤，阴影仍使用全局启用且可见的投影网格；仅对镜头隐藏的网格保留 GPU 资源，其他镜头仍可绘制。全部网格被该镜头隐藏时仍可成功提交空画面。环境始终读取世界场景的唯一启用 `EnvironmentComponent`，曝光与色调映射始终读取场景活动 Camera 同节点的启用 `PostProcessComponent`，独立预览相机不会覆盖场景的画面参数。
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
+- `viewport_size(Vec2& output) const noexcept` 返回最近为绘制目标配置的像素宽高，标注 `[[nodiscard]]`。未初始化、GPU 不可用或任一尺寸为零时返回 false 并清零输出。查询只读取本系统当前尺寸；窗口大小变化由既有 `render()` 流程应用后反映，不在查询中轮询窗口或重置交换链。
 - `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，阴影使用 1..4，AO 深度预通道与计算使用 5/6，主场景使用 7，[渲染扩展](render-extension.md) 使用 8，HDR/Bloom 使用 9..11，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。
+- 相机基和投影矩阵统一由场景私有 `camera_math` 函数计算，供 RenderSystem 与 Camera 射线查询复用；bx 类型保持私有，场景核心不依赖渲染系统。渲染传入当前设备的深度约定，射线几何仍使用同一近裁面和镜头投影。
 - Android 的 `RenderSurface` 通过 SDL 窗口属性取得原生窗口，调用 `ANativeWindow_acquire()` 持有原生引用，bgfx 完全关闭后配对 `ANativeWindow_release()`；底层窗口由平台共享，不由渲染系统独占。
 - Android 宿主在 Activity 暂停及 Surface 销毁前同步请求 SDL 主线程关闭 bgfx，并等待后台渲染线程退出；确认后才允许 SDL 释放 Surface。宿主不直接调用 bgfx，具体协议见 [Android 宿主](android-host.md)。
 - Android 暂停期间保留系统对象，GPU 初始化可推迟；Activity 与 Surface 均就绪后按需重建场景所需的渲染资源。系统生命周期就绪与 GPU 暂时关闭是两个不同状态，公共系统接口不变。

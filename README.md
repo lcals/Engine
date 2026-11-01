@@ -20,11 +20,15 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场和综合破坏场共用一套设置、资源目录和缓存。默认进入 UI 菜单；八个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场和射击靶场共用一套设置、资源目录和缓存。默认进入 UI 菜单；九个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
 核心命名空间使用 `engine`，编辑器使用 `engine::editor`，插件使用 `engine::plugins::<插件名>`。核心不包含或链接编辑器、具体插件；编辑器基础库不包含或链接具体插件。插件实现下层声明的接口，由可执行宿主注入。建模 Mesh 导入扩展通过 `AssetPipelineSystem::set_importer` 登记；未启用建模插件时仍可导入普通 Mesh，权威建模源会明确报错。第三方类型尽量限制在实现中，FlatBuffers 唯一数据模型继续保留。
+
+`Shooting range` 打开独立的[射击靶场](projects/showcase/assets/scenes/shooting-range.scene)：沿用范例角色，提供近靶、远靶和蓝墙后的遮挡靶。WASD 移动、按住鼠标右键观察、左键或 `Fire` 单发射击，Space 跳跃、Tab 切换视角；`Ray` / `Sphere 0.12 m` 切换查询方式，R 或 `Reset targets` 恢复三靶和计分，`Back to scenes` 返回菜单。命中后显示落点并移除靶面，墙体挡住射击；全部命中后可重置再玩。当前为相机近裁剪面发出的即时命中范例，尚无枪口弹道、弹药、敌人 AI 或伤害系统。触屏沿用移动／观察区域与 `Fire` 按钮，尚未做本场景的移动设备实机验证。
+
+相机射线与 Jolt 查询是通用核心能力；靶场的输入、靶子识别、计分和 UI MVC 只在 showcase 脚本中。`Camera.ScreenPointToRay` 接收同单位的视口局部坐标与尺寸，`ViewportPointToRay` 接收归一化坐标与实际宽高比，两者以左上为原点；`Render.GetViewportSize()` 提供绘制目标像素尺寸。`Physics.Raycast` / `SphereCast` 返回最近命中快照及节点身份，支持忽略自己与子树、筛选刚体类别；无效查询返回 `null`，有效但未命中返回 `hit=false`。删除、替换组件或切场景后用 `Physics.IsHitValid` 检查身份，历史点位不会自动重算。详见[物理查询契约](docs/runtime/physics.md)与 [SDK](include/engine.d.ts)。
 
 绑定、导入器、资源解码和组件编解码按类型独立文件，以最小接口和显式注册扩展。详细规则见 [AGENTS.md](AGENTS.md) 与[架构总览](docs/architecture.md)。CTest 的 `engine.architecture_boundaries` 检查源码包含方向及当前配置实际 `engine_*` 目标的链接方向、别名和循环；`engine.architecture_rules` 验证检查器的正反例。
 
@@ -919,11 +923,11 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows x64 / DX12 / QuickJS | 2026-11-01 资源路径升级：Debug / Release 构建与运行包导出；Release 91/91 CTest，Debug 完成前 14 项。catalog-only 修复后做受影响目标构建、首次与重复同步、运行包启动检查 | 最新改动未做完整 Debug CTest；未逐一验证全部示例交互 |
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
-| macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归 | 本轮未重跑全套 CTest、应用导出或其他平台构建；手柄和触摸使用虚拟设备或事件注入 |
+| macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
 | Android ARM64 / API 34 软件 Vulkan 模拟器 | 路径升级前已有菜单与场景往返、角色/动画、音频状态、前后台恢复、完整资源同步和有限帧退出验证 | 不代表当前包或实体设备性能、扬声器、真实触屏与 16 KiB 页设备已验证 |
 | Linux / iOS | 保留平台配置与统一后端约束 | 尚无本分支的构建及端到端运行结果 |
 
-验证输出留在忽略目录：分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
+验证输出留在忽略目录：射击回归为 `build/shooting-range-tests-*.log`，窗口验收为 `build/shooting-range-final-report.json` 与项目 `cache/screenshots/shooting-range-final-*`；分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
 
 性能指标与固定采样流程统一维护在[性能文档](docs/runtime/performance.md)，功能验证不代表容量或帧耗时达标。资源版本发布和包体布局以[资源加载](docs/runtime/resource-loading.md)及[构建插件](docs/plugins/editor/resource-build.md)为准。
 

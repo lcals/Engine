@@ -1,0 +1,600 @@
+name = "Shooting range"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 2.1, 8.6]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 55.0
+near_clip = 0.08
+far_clip = 120.0
+
+[[nodes.components]]
+type = "post_process"
+exposure = 1.05
+filmic_tonemap = true
+hdr_enabled = true
+ao_enabled = true
+ao_radius = 0.8
+ao_strength = 0.5
+ao_power = 1.2
+
+[[nodes.components]]
+type = "character_camera"
+target_node_id = 2
+mode = "third_person"
+eye_height = 2.1
+camera_distance = 4.6
+pitch_min = -75.0
+pitch_max = 75.0
+collision_radius = 0.15
+collision_margin = 0.02
+
+[[nodes]]
+id = 2
+name = "Player"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.05, 4]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "character_motor"
+radius = 0.3
+half_height = 0.6
+max_slope_degrees = 50.0
+step_height = 0.35
+ground_snap_distance = 0.2
+gravity_factor = 1.0
+
+[[nodes.components]]
+type = "character_controller"
+camera_node_id = 1
+move_speed = 4.0
+jump_speed = 5.0
+look_sensitivity = 0.12
+
+[[nodes]]
+id = 3
+name = "Environment"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "environment"
+ambient_tricolor = true
+ambient_sky_color = [0.58, 0.75, 0.9]
+ambient_equator_color = [0.48, 0.56, 0.6]
+ambient_ground_color = [0.24, 0.2, 0.16]
+ambient_intensity = 0.4
+fog_mode = "linear"
+fog_color = [0.4, 0.55, 0.65]
+fog_start = 80.0
+fog_end = 120.0
+clear_color = 1719691519
+
+[[nodes]]
+id = 4
+name = "Sun"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 20, 0]
+rotation = [-42, -32, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [1, 0.9, 0.75, 1]
+intensity = 3.0
+cast_shadows = true
+shadow_resolution = 2048
+shadow_bias = 0.003
+shadow_cascades = 4
+shadow_distance = 80.0
+
+[[nodes]]
+id = 5
+name = "Shooting range UI"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "ui"
+document = "ce91c32b-c7df-4bb8-934e-8836625dfde7"
+
+[[nodes]]
+id = 6
+name = "Range ground"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.3, -14]
+rotation = [0, 0, 0]
+scale = [14, 0.3, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "39a83443-bd97-47e8-bf5a-2ebdccdec22e"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 7
+name = "Left boundary"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-13.8, 1, -14]
+rotation = [0, 0, 0]
+scale = [0.2, 1, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 8
+name = "Right boundary"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [13.8, 1, -14]
+rotation = [0, 0, 0]
+scale = [0.2, 1, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 9
+name = "Backstop"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 3, -35.8]
+rotation = [0, 0, 0]
+scale = [14, 3, 0.2]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 10
+name = "Entrance barrier"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.55, 7.8]
+rotation = [0, 0, 0]
+scale = [14, 0.55, 0.2]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 11
+name = "Near target"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.6, -6]
+rotation = [0, 0, 0]
+scale = [1.05, 1.05, 0.15]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 12
+name = "Center"
+parent = 11
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.1]
+rotation = [0, 0, 0]
+scale = [0.62, 0.62, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 13
+name = "Bullseye"
+parent = 11
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.3]
+rotation = [0, 0, 0]
+scale = [0.22, 0.22, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes]]
+id = 14
+name = "Near target stand"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.4, -6]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 15
+name = "Far target"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5, 1.6, -25]
+rotation = [0, 0, 0]
+scale = [1.05, 1.05, 0.15]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 16
+name = "Center"
+parent = 15
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.1]
+rotation = [0, 0, 0]
+scale = [0.62, 0.62, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 17
+name = "Bullseye"
+parent = 15
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.3]
+rotation = [0, 0, 0]
+scale = [0.22, 0.22, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes]]
+id = 18
+name = "Far target stand"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5, 0.4, -25]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 19
+name = "Covered target"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6, 1.6, -22]
+rotation = [0, 0, 0]
+scale = [1.05, 1.05, 0.15]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 20
+name = "Center"
+parent = 19
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.1]
+rotation = [0, 0, 0]
+scale = [0.62, 0.62, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 21
+name = "Bullseye"
+parent = 19
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.3]
+rotation = [0, 0, 0]
+scale = [0.22, 0.22, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes]]
+id = 22
+name = "Covered target stand"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6, 0.4, -22]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 23
+name = "Cover wall"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6, 1.75, -14]
+rotation = [0, 0, 0]
+scale = [2.8, 1.75, 0.45]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "fd69729e-b45a-4554-8f7f-6f4d128d16ff"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 24
+name = "Distance stripe 1"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, 1]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 25
+name = "Distance stripe -9"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -9]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 26
+name = "Distance stripe -19"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -19]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 27
+name = "Distance stripe -29"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -29]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 28
+name = "Lane stripe -2.5"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-2.5, 0.015, -14]
+rotation = [0, 0, 0]
+scale = [0.035, 0.015, 20]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 29
+name = "Lane stripe 2.5"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [2.5, 0.015, -14]
+rotation = [0, 0, 0]
+scale = [0.035, 0.015, 20]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 30
+name = "Hit marker"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, -10, 0]
+rotation = [0, 0, 0]
+scale = [0.065, 0.065, 0.065]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "225da99a-8bad-4f8c-bb24-3a1873c95fdf"

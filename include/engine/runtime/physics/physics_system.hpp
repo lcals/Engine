@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/physics/physics_impact.hpp"
+#include "runtime/physics/physics_query.hpp"
 #include "runtime/system/system.hpp"
 
 #include <cstddef>
@@ -47,6 +48,14 @@ public:
     // 世界起点和完整位移；读取已提交碰撞，不推进模拟，与物理步进不并发。
     [[nodiscard]] bool cast_ray(const Collider& collider, const Vec3& origin,
                                 const Vec3& displacement, float& fraction) const;
+    // 世界起点与非零完整位移；只读当前场景已提交碰撞，须在主线程步进外调用。
+    // false 为无效查询；true 且 !hit.hit 为无命中。两者输出均为空。
+    [[nodiscard]] bool query_ray(const Vec3& origin, const Vec3& displacement,
+                                 const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const;
+    [[nodiscard]] bool query_sphere(const Vec3& origin, const Vec3& displacement, float radius,
+                                    const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const;
+    // 只检查场景、节点、Collider 实例及启用；位置/形状变化不重算历史命中。
+    [[nodiscard]] bool is_hit_valid(const PhysicsQueryHit& hit) const noexcept;
     // 主线程步进外非消费借用；下一 tick（含零步）、clear 或无效节点清理后失效。
     // 删除/禁用的节点不返回；frame 在系统生命周期内单调递增。
     [[nodiscard]] std::span<const PhysicsImpact> impacts() const noexcept;

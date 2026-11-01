@@ -9,8 +9,18 @@ import Effects from "./effects.js";
 import Terrain from "./terrain.js";
 import Destruction from "./destruction.js";
 import DestructionIntegration from "./destruction-integration.js";
+import ShootingRange from "./shooting-range.js";
 
-type ShowcaseGame = Minimal | Apartment | Courtyard | FontGallery | Effects | Terrain | Destruction | DestructionIntegration;
+type ShowcaseGame =
+    | Minimal
+    | Apartment
+    | Courtyard
+    | FontGallery
+    | Effects
+    | Terrain
+    | Destruction
+    | DestructionIntegration
+    | ShootingRange;
 
 const scene_games = new Map<string, new () => ShowcaseGame>([
     ["scenes/main.scene", Minimal],
@@ -21,6 +31,7 @@ const scene_games = new Map<string, new () => ShowcaseGame>([
     ["scenes/terrain.scene", Terrain],
     ["scenes/destruction.scene", Destruction],
     ["scenes/destruction-integration.scene", DestructionIntegration],
+    ["scenes/shooting-range.scene", ShootingRange],
 ]);
 
 export default class Game extends Gameplay {

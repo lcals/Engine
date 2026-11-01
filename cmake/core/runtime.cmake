@@ -59,6 +59,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_include_directories(engine_render PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(
         engine_render
+        PUBLIC engine::scene_data
         PRIVATE engine::window
                 engine::world
                 engine::resource
@@ -123,6 +124,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/model_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
+                src/engine/runtime/scene/camera_math.cpp
                 src/engine/runtime/scene/light.cpp
                 src/engine/runtime/scene/environment_component.cpp
                 src/engine/runtime/scene/post_process_component.cpp
@@ -134,7 +136,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE flecs::flecs_static engine::resource engine::log)
+        PRIVATE flecs::flecs_static engine::resource engine::log bgfx::bx)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)

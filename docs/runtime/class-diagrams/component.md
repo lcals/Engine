@@ -29,6 +29,8 @@ classDiagram
     class Camera {
         +settings() const CameraSettings&
         +set_settings(const CameraSettings& settings) bool
+        +screen_point_to_ray(const Vec2& point, const Vec2& viewport_size, Vec3& origin, Vec3& direction) bool
+        +viewport_point_to_ray(const Vec2& point, double aspect, Vec3& origin, Vec3& direction) bool
         +set_hidden_meshes(span~const uint64_t~ mesh_instance_ids) bool
         +clear_hidden_meshes() void
         +mesh_visible(uint64_t mesh_instance_id) bool
@@ -66,6 +68,8 @@ classDiagram
         -initialize() bool
     }
     class Node
+    class Vec2
+    class Vec3
     class ComponentDataT {
         <<FlatBuffers生成>>
         +bool enabled
@@ -131,6 +135,9 @@ classDiagram
     MeshRendererDataT ..> MaterialDataT : GUID引用定义
     Transform ..> TransformDataT : settings别名
     Camera ..> CameraDataT : settings别名
+    Camera ..> Transform : 调用期间借用同节点世界变换
+    Camera ..> Vec2 : 屏幕或归一化视口坐标与尺寸
+    Camera ..> Vec3 : 射线原点及归一化世界方向输出
     Light ..> LightDataT : settings别名
     MeshRenderer "1" *-- "1..*" Material : 按槽独占参数行为
     MeshRenderer "1" *-- "0..1" MeshDataT : 瞬时网格独立快照
@@ -147,6 +154,8 @@ classDiagram
 - 变换必须全部有限，缩放非零，可为负数；失败保持原值。`world_matrix()` 写 16 个列主序 float，父链缺失变换或溢出时返回 false，非空输出保持单位矩阵。
 - Camera 从同节点 Transform 获得位置和朝向；视场角在 (0,180)，近裁面大于 0，远裁面大于近裁面。Camera 支持透视与正交投影；orthographic_size 为竖直半高且大于零。Light 支持方向光、点光与聚光；方向使用世界 -Z，强度非负且有限，range 大于零，聚光半角满足 0 <= inner_angle < outer_angle < 90。
 - Camera 按 `mesh_instance_id()` 保存本镜头隐藏的网格身份，仅影响该视图的主绘制和 AO 深度，不改变网格的 `visible`、`enabled` 或投影。`set_hidden_meshes()` 整批替换列表，任一 ID 为 0 则失败并保留原列表；重复 ID 合并，空列表清空。`mesh_visible()` 为 `const noexcept`，0 返回 false；`clear_hidden_meshes()` 为 `noexcept`。列表只保存 ID，不持有组件借用，不进入生成持久数据；成功恢复 Camera 数据时清空，失败保持原状态。重建网格产生新身份，不继承旧隐藏项。
+- Camera 的两种射线查询均为 `const noexcept`、`[[nodiscard]]` 的纯计算，不要求窗口、GPU、启用状态或活动镜头。`screen_point_to_ray` 的点相对视口左上角，尺寸与点使用同一单位；`viewport_point_to_ray` 使用左上 `(0,0)`、右下 `(1,1)`，aspect 是正宽高比。X 向右、Y 向下，有限的视口外坐标允许外推，不截断。
+- 射线从近裁剪面出发，方向为归一化世界向量；透视射线发散，正交射线平行。相机与渲染共用场景内部的正交相机基和 bx 投影计算，去掉缩放大小并正交化父链剪切。非有限参数、非正尺寸/宽高比、无法表示的投影或退化世界变换返回 false，两个输出均归零；不自动选择其他相机或修复参数。
 - MeshRenderer 默认使用内置 cube，通过 set_mesh 按 GUID 加载并持有 Mesh 资源；成功取得新引用后才替换旧网格，提供 Material 借用。材质先选择类型，再按名称设置带类型参数，具体参数及失败规则见独立材质类图。
 - 禁用不改变所有权；Transform 的启用标记不改变层级空间关系。GPU 缓冲、Shader 和管线仍由 RenderSystem 管理。
 

@@ -12,7 +12,6 @@ namespace engine::render_detail
 [[nodiscard]] bool finite_matrix(const float* matrix);
 [[nodiscard]] double linear_determinant(const float* matrix);
 [[nodiscard]] std::uint64_t cull_state(schema::CullMode mode, const float* model);
-[[nodiscard]] bool camera_view(const float* world, float* view);
 [[nodiscard]] bool normal_matrix(const float* model, float* normal);
 [[nodiscard]] std::array<float, 3> transform_point(const float* matrix,
                                                    const std::array<float, 3>& point) noexcept;

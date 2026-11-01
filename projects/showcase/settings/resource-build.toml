@@ -15,6 +15,8 @@ roots = [
     "scenes/destruction.scene",
     "scripts/modules/destruction-integration.ts",
     "scenes/destruction-integration.scene",
+    "scripts/modules/shooting-range.ts",
+    "scenes/shooting-range.scene",
     "scripts/modules/minimal.ts",
     "scripts/modules/apartment.ts",
     "scripts/modules/courtyard.ts",

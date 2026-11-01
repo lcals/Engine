@@ -584,6 +584,163 @@ bool component_contracts()
                   "active camera can be cleared");
 }
 
+bool camera_rays()
+{
+    using namespace engine;
+    const auto vector_near = [](const Vec3& actual, const Vec3& expected)
+    {
+        return std::abs(actual.x() - expected.x()) < 0.0001 &&
+               std::abs(actual.y() - expected.y()) < 0.0001 &&
+               std::abs(actual.z() - expected.z()) < 0.0001;
+    };
+    const EngineConfig config;
+    WorldSystem world;
+    if (!expect(world.initialize(config), "initialize camera ray world without a window"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Camera rays");
+    auto* parent = scene != nullptr ? scene->create_node("Camera parent") : nullptr;
+    auto* node = scene != nullptr ? scene->create_node("Camera") : nullptr;
+    auto* camera = node != nullptr ? node->add_component<Camera>() : nullptr;
+    if (!expect(camera != nullptr && parent != nullptr, "create ray camera"))
+    {
+        return false;
+    }
+    CameraSettings settings;
+    settings.fov_degrees = 90.0F;
+    settings.near_clip = 1.0F;
+    settings.far_clip = 100.0F;
+    camera->set_enabled(false);
+    Vec3 origin;
+    Vec3 direction;
+    if (!expect(camera->set_settings(settings) && scene->active_camera() == nullptr &&
+                    camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+                    vector_near(origin, {0.0, 0.0, -1.0}) &&
+                    vector_near(direction, {0.0, 0.0, -1.0}),
+                "disabled non-active camera computes a center ray from its near plane"))
+    {
+        return false;
+    }
+    const double corner_length = std::sqrt(6.0);
+    const Vec3 corner_direction{2.0 / corner_length, 1.0 / corner_length, -1.0 / corner_length};
+    if (!expect(camera->viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
+                    vector_near(origin, {2.0, 1.0, -1.0}) &&
+                    vector_near(direction, corner_direction),
+                "perspective top right follows vertical field of view and aspect ratio") ||
+        !expect(
+            camera->screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
+                vector_near(origin, {2.0, 1.0, -1.0}) && vector_near(direction, corner_direction) &&
+                camera->screen_point_to_ray({400.0, 0.0}, {400.0, 200.0}, origin, direction) &&
+                vector_near(origin, {2.0, 1.0, -1.0}) && vector_near(direction, corner_direction),
+            "screen rays agree for matching logical or pixel coordinate units") ||
+        !expect(camera->viewport_point_to_ray({1.5, 1.5}, 2.0, origin, direction) &&
+                    vector_near(origin, {4.0, -2.0, -1.0}),
+                "finite points outside the viewport are extrapolated without clamping"))
+    {
+        return false;
+    }
+    settings.projection = schema::Projection::orthographic;
+    settings.orthographic_size = 2.0F;
+    if (!expect(
+            camera->set_settings(settings) &&
+                camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+                vector_near(origin, {0.0, 0.0, -1.0}) && vector_near(direction, {0.0, 0.0, -1.0}) &&
+                camera->screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
+                vector_near(origin, {4.0, 2.0, -1.0}) && vector_near(direction, {0.0, 0.0, -1.0}),
+            "orthographic rays shift along the near plane while remaining parallel"))
+    {
+        return false;
+    }
+    settings.projection = schema::Projection::perspective;
+    TransformSettings parent_settings;
+    parent_settings.position = {10.0, 20.0, 30.0};
+    parent_settings.scale = {2.0, 3.0, 4.0};
+    TransformSettings local_settings;
+    local_settings.position = {1.0, 2.0, 3.0};
+    local_settings.rotation = {0.0, 45.0, 0.0};
+    local_settings.scale = {5.0, 6.0, 7.0};
+    const double root_five = std::sqrt(5.0);
+    const Vec3 shear_origin{12.0 + 3.0 / root_five, 27.0, 42.0 - 4.0 / root_five};
+    const Vec3 shear_direction{3.0 / root_five / corner_length, 1.0 / corner_length,
+                               -4.0 / root_five / corner_length};
+    if (!expect(camera->set_settings(settings) && node->set_parent(parent) &&
+                    parent->get_component<Transform>()->set_settings(parent_settings) &&
+                    node->get_component<Transform>()->set_settings(local_settings) &&
+                    camera->viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
+                    vector_near(origin, shear_origin) && vector_near(direction, shear_direction),
+                "world ray uses the rendered orthogonal basis under parent scale and shear"))
+    {
+        return false;
+    }
+    local_settings.scale.mutate_z(-7.0);
+    if (!expect(node->get_component<Transform>()->set_settings(local_settings) &&
+                    camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+                    vector_near(origin, {12.0 + 1.0 / root_five, 26.0, 42.0 + 2.0 / root_five}) &&
+                    vector_near(direction, {1.0 / root_five, 0.0, 2.0 / root_five}),
+                "mirrored camera keeps the rendered forward direction"))
+    {
+        return false;
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double infinity = std::numeric_limits<double>::infinity();
+    const std::array<Vec2, 5> invalid_sizes = {Vec2{0.0, 100.0}, Vec2{100.0, 0.0},
+                                               Vec2{-100.0, 100.0}, Vec2{nan, 100.0},
+                                               Vec2{100.0, infinity}};
+    for (const Vec2& size : invalid_sizes)
+    {
+        origin = {1.0, 2.0, 3.0};
+        direction = {4.0, 5.0, 6.0};
+        if (!expect(!camera->screen_point_to_ray({0.5, 0.5}, size, origin, direction) &&
+                        vector_near(origin, {}) && vector_near(direction, {}),
+                    "invalid screen dimensions clear both ray outputs"))
+        {
+            return false;
+        }
+    }
+    for (double aspect : {0.0, -1.0, nan, infinity, std::numeric_limits<double>::max()})
+    {
+        origin = {1.0, 2.0, 3.0};
+        direction = {4.0, 5.0, 6.0};
+        if (!expect(!camera->viewport_point_to_ray({0.5, 0.5}, aspect, origin, direction) &&
+                        vector_near(origin, {}) && vector_near(direction, {}),
+                    "invalid or unrepresentable aspect clears both ray outputs"))
+        {
+            return false;
+        }
+    }
+    for (const Vec2 point : {Vec2{nan, 0.0}, Vec2{0.0, infinity}})
+    {
+        origin = {1.0, 2.0, 3.0};
+        direction = {4.0, 5.0, 6.0};
+        if (!expect(!camera->viewport_point_to_ray(point, 2.0, origin, direction) &&
+                        vector_near(origin, {}) && vector_near(direction, {}) &&
+                        !camera->screen_point_to_ray(point, {800.0, 400.0}, origin, direction),
+                    "both coordinate APIs reject non-finite points"))
+        {
+            return false;
+        }
+    }
+    local_settings.scale.mutate_x(1e-100);
+    origin = {1.0, 2.0, 3.0};
+    direction = {4.0, 5.0, 6.0};
+    if (!expect(node->get_component<Transform>()->set_settings(local_settings) &&
+                    !camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+                    vector_near(origin, {}) && vector_near(direction, {}),
+                "a world axis lost to float underflow is rejected as a degenerate transform"))
+    {
+        return false;
+    }
+    local_settings.scale.mutate_x(5.0);
+    local_settings.position.mutate_x(std::numeric_limits<double>::max());
+    origin = {1.0, 2.0, 3.0};
+    direction = {4.0, 5.0, 6.0};
+    return expect(node->get_component<Transform>()->set_settings(local_settings) &&
+                      !camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+                      vector_near(origin, {}) && vector_near(direction, {}),
+                  "unrepresentable world transform fails without partial ray outputs");
+}
+
 bool transient_nodes()
 {
     engine::WorldSystem world;
@@ -853,7 +1010,7 @@ int main()
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
         !hierarchy_and_transforms() || !indexed_scene_restore() || !component_contracts() ||
-        !transient_nodes() || !material_contracts() || !resource_namespaces())
+        !camera_rays() || !transient_nodes() || !material_contracts() || !resource_namespaces())
     {
         return 1;
     }

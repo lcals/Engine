@@ -273,6 +273,8 @@ declare module "engine" {
     /** Scene parameter facade. Requires an active callback and existing scene components. */
     export class Render {
         private constructor();
+        /** Current render target size in pixels; null without an initialized renderer. */
+        static GetViewportSize(): Vector2 | null;
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
         static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
         /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
@@ -371,6 +373,9 @@ declare module "engine" {
 
     export class Node {
         private constructor();
+        /** Stable lifetime identities; use IsValid() before accessing a deleted node. */
+        readonly id: bigint;
+        readonly sceneId: bigint;
         IsValid(): boolean;
         Destroy(): boolean;
         SetParent(parent: Node | null): boolean;
@@ -407,6 +412,10 @@ declare module "engine" {
         SetPerspective(fovDegrees: number, nearClip: number, farClip: number): boolean;
         /** Size is the vertical half-height in world units. */
         SetOrthographic(size: number, nearClip: number, farClip: number): boolean;
+        /** Viewport-local point and dimensions in matching units; origin is top-left. */
+        ScreenPointToRay(x: number, y: number, width: number, height: number): Ray | null;
+        /** Top-left normalized coordinates; rays start on the near plane with unit direction. */
+        ViewportPointToRay(u: number, v: number, aspect: number): Ray | null;
     }
     /** Scene-wide environment parameters, stored with the scene. */
     export class EnvironmentComponent extends Component {
@@ -580,11 +589,55 @@ declare module "engine" {
             dz: number,
             radius: number,
         ): number | null;
+        /** Closest Collider hit through a nonzero world displacement. Null = invalid query. */
+        static Raycast(
+            origin: Vector3,
+            displacement: Vector3,
+            options?: PhysicsQueryOptions,
+        ): PhysicsQueryHit | null;
+        /** Radius must be positive. Hit distance is sphere-center travel; point is on the target. */
+        static SphereCast(
+            origin: Vector3,
+            displacement: Vector3,
+            radius: number,
+            options?: PhysicsQueryOptions,
+        ): PhysicsQueryHit | null;
+        /** Checks scene, node and Collider lifetime/enablement, not whether the snapshot moved. */
+        static IsHitValid(hit: PhysicsQueryHit): boolean;
+    }
+    export interface Vector2 {
+        readonly x: number;
+        readonly y: number;
     }
     export interface Vector3 {
         readonly x: number;
         readonly y: number;
         readonly z: number;
+    }
+    export interface Ray {
+        readonly origin: Vector3;
+        readonly direction: Vector3;
+    }
+    export interface PhysicsQueryOptions {
+        readonly ignoreNode?: Node | null;
+        /** Defaults to true when ignoring a node. */
+        readonly ignoreDescendants?: boolean;
+        readonly includeStatic?: boolean;
+        readonly includeKinematic?: boolean;
+        readonly includeDynamic?: boolean;
+        /** Defaults to false; other body categories default to true. */
+        readonly includeSensors?: boolean;
+    }
+    export interface PhysicsQueryHit {
+        readonly hit: boolean;
+        readonly sceneId: bigint;
+        readonly nodeId: bigint;
+        readonly colliderId: bigint;
+        readonly node: Node | null;
+        readonly point: Vector3;
+        readonly normal: Vector3;
+        readonly fraction: number;
+        readonly distance: number;
     }
     export interface NavigationOptions {
         readonly minimum: Vector3;

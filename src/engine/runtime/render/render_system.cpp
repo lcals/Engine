@@ -102,7 +102,7 @@ void profile_renderer_stats()
     }
 }
 #endif
-}
+} // namespace
 
 RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem* fonts,
                            UiSystem* ui) noexcept
@@ -253,6 +253,17 @@ bool RenderSystem::gpu_ready() const noexcept
 std::uint32_t RenderSystem::frame_number() const noexcept
 {
     return frame_number_;
+}
+
+bool RenderSystem::viewport_size(Vec2& output) const noexcept
+{
+    output = {};
+    if (!is_initialized() || !renderer_initialized_ || width_ == 0 || height_ == 0)
+    {
+        return false;
+    }
+    output = {static_cast<double>(width_), static_cast<double>(height_)};
+    return true;
 }
 
 void RenderSystem::set_stats_visible(bool visible)

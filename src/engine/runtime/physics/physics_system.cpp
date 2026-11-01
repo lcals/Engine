@@ -550,6 +550,7 @@ using MeshPartShapes = std::vector<JPH::RefConst<JPH::Shape>>;
 struct BodySnapshot
 {
     std::uint64_t node_id = 0;
+    std::uint64_t collider_id = 0;
     std::shared_ptr<const schema::ColliderDataT> collider;
     schema::RigidBodyDataT rigid_body;
     JPH::Vec3 position = JPH::Vec3::sZero();
@@ -573,6 +574,13 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
                    const schema::MeshDataT* mesh, const RigidBody* body, BodySnapshot& output,
                    const BodySnapshot* previous = nullptr)
 {
+    const auto* component = node.get_component<Collider>();
+    if (component == nullptr)
+    {
+        return false;
+    }
+    const bool same_instance =
+        previous != nullptr && previous->collider_id == component->instance_id();
     for (const Node* ancestor = &node; ancestor != nullptr; ancestor = ancestor->parent())
     {
         const auto* ancestor_transform = ancestor->get_component<Transform>();
@@ -591,10 +599,10 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
     {
         return false;
     }
-    const bool unchanged_output = previous != nullptr && previous->written_transform &&
-        node.parent() == nullptr && body != nullptr &&
-        body->settings().motion == schema::BodyMotion::dynamic &&
-        transform->settings() == *previous->written_transform;
+    const bool unchanged_output = same_instance && previous->written_transform &&
+                                  node.parent() == nullptr && body != nullptr &&
+                                  body->settings().motion == schema::BodyMotion::dynamic &&
+                                  transform->settings() == *previous->written_transform;
     if (unchanged_output)
     {
         output.position = previous->position;
@@ -612,9 +620,10 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
         }
     }
     output.node_id = node.id();
+    output.collider_id = component->instance_id();
     // 比较完整描述，不能用组件地址判断：FlatBuffers 的嵌套凸包仍可能被修改。
     const bool same_collider =
-        previous != nullptr && previous->collider && *previous->collider == collider;
+        same_instance && previous->collider && *previous->collider == collider;
     const bool previously_valid = same_collider && previous->mesh == output.mesh &&
                                   previous->transient_mesh == output.transient_mesh &&
                                   previous->mesh_parts == output.mesh_parts;
@@ -798,6 +807,29 @@ bool active_collision(const Node& node)
            (body == nullptr || body->enabled()) && active_transform(node);
 }
 
+bool active_query_collision(const Node& node, std::uint64_t collider_id)
+{
+    const auto* collider = node.get_component<Collider>();
+    const auto* body = node.get_component<RigidBody>();
+    return collider != nullptr && collider->instance_id() == collider_id && collider->enabled() &&
+           (body == nullptr || body->enabled()) && active_transform(node);
+}
+
+bool valid_query(const Scene* scene, std::uint64_t scene_id, JPH::Vec3Arg position,
+                 JPH::Vec3Arg direction, const PhysicsQueryFilter& filter)
+{
+    return scene != nullptr && scene->id() == scene_id && finite(position) && finite(direction) &&
+           position.Abs().ReduceMax() <= 10000000.0F && direction.Abs().ReduceMax() <= 100000.0F &&
+           direction.LengthSq() > 0.0F &&
+           (filter.ignore_node_id == 0 || scene->find_node(filter.ignore_node_id) != nullptr);
+}
+
+JPH::Vec3 query_normal(JPH::Vec3Arg normal, JPH::Vec3Arg direction)
+{
+    return finite(normal) && normal.LengthSq() > 0.0F ? normal.Normalized()
+                                                      : -direction.Normalized();
+}
+
 bool write_transform(Node& node, JPH::Vec3Arg position, JPH::QuatArg rotation,
                      JPH::Vec3Arg world_scale)
 {
@@ -872,6 +904,73 @@ struct PhysicsSystem::State final : JPH::ContactListener
     std::mutex impact_mutex;
     std::map<std::pair<std::uint64_t, std::uint64_t>, PhysicsImpact> pending_impacts;
     std::vector<PhysicsImpact> impacts;
+
+    class QueryBodyFilter final : public JPH::BodyFilter
+    {
+    public:
+        QueryBodyFilter(const State& state, const Scene& scene,
+                        const PhysicsQueryFilter& filter) noexcept
+            : state_(state), scene_(scene), filter_(filter)
+        {
+        }
+
+        bool ShouldCollideLocked(const JPH::Body& body) const override
+        {
+            const auto found = state_.bodies.find(body.GetUserData());
+            const auto* node = scene_.find_node(body.GetUserData());
+            if (found == state_.bodies.end() || found->second.body != body.GetID() ||
+                node == nullptr ||
+                !active_query_collision(*node, found->second.snapshot.collider_id) ||
+                (!filter_.include_sensors && body.IsSensor()) ||
+                (body.IsStatic() && !filter_.include_static) ||
+                (body.IsKinematic() && !filter_.include_kinematic) ||
+                (body.IsDynamic() && !filter_.include_dynamic))
+            {
+                return false;
+            }
+            if (filter_.ignore_node_id != 0)
+            {
+                for (const Node* current = node; current != nullptr; current = current->parent())
+                {
+                    if (current->id() == filter_.ignore_node_id)
+                    {
+                        return false;
+                    }
+                    if (!filter_.ignore_descendants)
+                    {
+                        break;
+                    }
+                }
+            }
+            return true;
+        }
+
+    private:
+        const State& state_;
+        const Scene& scene_;
+        const PhysicsQueryFilter& filter_;
+    };
+
+    bool query_hit(const Scene& scene, const JPH::Body& body, float fraction,
+                   JPH::Vec3Arg direction, JPH::RVec3Arg point, JPH::Vec3Arg normal,
+                   PhysicsQueryHit& output) const
+    {
+        const auto found = bodies.find(body.GetUserData());
+        if (found == bodies.end() || found->second.body != body.GetID() ||
+            !std::isfinite(fraction) || !finite(JPH::Vec3(point)))
+        {
+            return false;
+        }
+        output.hit = true;
+        output.scene_id = scene.id();
+        output.node_id = found->first;
+        output.collider_id = found->second.snapshot.collider_id;
+        output.point = {point.GetX(), point.GetY(), point.GetZ()};
+        output.normal = vector(query_normal(normal, direction));
+        output.fraction = std::clamp(fraction, 0.0F, 1.0F);
+        output.distance = direction.Length() * output.fraction;
+        return true;
+    }
 
     void collect_impact(const JPH::Body& first, const JPH::Body& second,
                         const JPH::ContactManifold& manifold, const JPH::ContactSettings& settings)
@@ -1010,6 +1109,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
         previous_settings.linear_velocity = snapshot.rigid_body.linear_velocity;
         previous_settings.angular_velocity = snapshot.rigid_body.angular_velocity;
         const bool rebuild = found == bodies.end() ||
+                             found->second.snapshot.collider_id != snapshot.collider_id ||
                              (found->second.snapshot.collider != snapshot.collider &&
                               *found->second.snapshot.collider != *snapshot.collider) ||
                              found->second.snapshot.mesh != snapshot.mesh ||
@@ -1064,6 +1164,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
                                           .GetWorldSpaceBounds();
         }
         if (found != bodies.end() && !moving &&
+            found->second.snapshot.collider_id == snapshot.collider_id &&
             found->second.snapshot.rigid_body == snapshot.rigid_body &&
             found->second.snapshot.collider->is_trigger == snapshot.collider->is_trigger)
         {
@@ -1405,6 +1506,93 @@ bool PhysicsSystem::cast_ray(const Collider& collider, const Vec3& origin, const
         fraction = std::clamp(hit.mFraction, 0.0F, 1.0F);
     }
     return true;
+}
+
+bool PhysicsSystem::query_ray(const Vec3& origin, const Vec3& displacement,
+                              const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const
+{
+    hit = {};
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    const auto position = vector(origin);
+    const auto direction = vector(displacement);
+    if (!state_ || !valid_query(scene, state_->scene_id, position, direction, filter))
+    {
+        return false;
+    }
+    JPH::RayCastResult result;
+    const JPH::RRayCast ray{JPH::RVec3(position), direction};
+    if (!state_->physics.GetNarrowPhaseQuery().CastRay(
+            ray, result, state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+            state_->physics.GetDefaultLayerFilter(moving_layer),
+            State::QueryBodyFilter{*state_, *scene, filter}))
+    {
+        return true;
+    }
+    JPH::BodyLockRead lock(state_->physics.GetBodyLockInterface(), result.mBodyID);
+    if (!lock.Succeeded())
+    {
+        return false;
+    }
+    const auto point = ray.GetPointOnRay(result.mFraction);
+    const auto normal = result.mFraction > 0.0F
+                            ? lock.GetBody().GetWorldSpaceSurfaceNormal(result.mSubShapeID2, point)
+                            : -direction.Normalized();
+    return state_->query_hit(*scene, lock.GetBody(), result.mFraction, direction, point, normal,
+                             hit);
+}
+
+bool PhysicsSystem::query_sphere(const Vec3& origin, const Vec3& displacement, float radius,
+                                 const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const
+{
+    hit = {};
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    const auto position = vector(origin);
+    const auto direction = vector(displacement);
+    if (!state_ || !valid_query(scene, state_->scene_id, position, direction, filter) ||
+        !std::isfinite(radius) || radius < 0.0001F || radius > 1000.0F)
+    {
+        return false;
+    }
+    const auto shape = JPH::SphereShapeSettings(radius).Create();
+    if (shape.HasError() || !shape.IsValid())
+    {
+        return false;
+    }
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    JPH::ShapeCastSettings settings;
+    settings.mReturnDeepestPoint = true;
+    settings.SetBackFaceMode(JPH::EBackFaceMode::CollideWithBackFaces);
+    const auto base = JPH::RVec3(position);
+    const auto cast = JPH::RShapeCast::sFromWorldTransform(
+        shape.Get().GetPtr(), JPH::Vec3::sOne(), JPH::RMat44::sTranslation(base), direction);
+    state_->physics.GetNarrowPhaseQuery().CastShape(
+        cast, settings, base, collector,
+        state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+        state_->physics.GetDefaultLayerFilter(moving_layer),
+        State::QueryBodyFilter{*state_, *scene, filter});
+    if (!collector.HadHit())
+    {
+        return true;
+    }
+    const auto& result = collector.mHit;
+    JPH::BodyLockRead lock(state_->physics.GetBodyLockInterface(), result.mBodyID2);
+    if (!lock.Succeeded())
+    {
+        return false;
+    }
+    return state_->query_hit(*scene, lock.GetBody(), result.mFraction, direction,
+                             base + result.mContactPointOn2, -result.mPenetrationAxis, hit);
+}
+
+bool PhysicsSystem::is_hit_valid(const PhysicsQueryHit& hit) const noexcept
+{
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    if (!state_ || !scene || !hit.hit || hit.scene_id != scene->id())
+    {
+        return false;
+    }
+    const auto* node = scene->find_node(hit.node_id);
+    return node != nullptr && active_query_collision(*node, hit.collider_id);
 }
 
 std::span<const PhysicsImpact> PhysicsSystem::impacts() const noexcept

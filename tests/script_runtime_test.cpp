@@ -999,6 +999,127 @@ export default class extends Gameplay {
                   "real drop delivers one validated snapshot and clears on stop");
 }
 
+bool run_shooting_query_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Transform, Camera, Collider, Physics, Render } from 'engine';
+const origin = {x: 0, y: 0, z: 7}, displacement = {x: 0, y: 0, z: -20};
+const blockedOutside = Physics.Raycast(origin, displacement) === null &&
+    !Physics.IsHitValid({hit: true, sceneId: 1n, nodeId: 1n, colliderId: 1n});
+function check(value, message) { if (!value) throw new Error(message); }
+function near(a, b) { return Math.abs(a - b) < 0.0001; }
+export default class extends Gameplay {
+    OnInitialize() {
+        this.scene = Scene.Create('shooting-queries');
+        this.phase = 0;
+        this.target = this.scene?.CreateNode('target');
+        this.blocker = this.scene?.CreateNode('blocker');
+        const cameraNode = this.scene?.CreateNode('camera');
+        this.camera = cameraNode?.AddComponent(Camera);
+        if (!blockedOutside || !this.target || !this.blocker || !this.camera ||
+            !cameraNode.GetComponent(Transform).SetPosition(0, 0, 8) ||
+            !this.camera.SetPerspective(90, 1, 100) ||
+            !this.target.AddComponent(Collider)?.SetBox(1, 1, 1) ||
+            !this.blocker.GetComponent(Transform).SetPosition(0, 0, 3) ||
+            !this.blocker.AddComponent(Collider)?.SetBox(.5, .5, .5)) return false;
+        check(typeof this.target.id === 'bigint' && this.target.id !== this.blocker.id &&
+            this.target.sceneId === this.blocker.sceneId, 'stable node identities');
+        const ray = this.camera.ViewportPointToRay(.5, .5, 2);
+        const screen = this.camera.ScreenPointToRay(200, 100, 400, 200);
+        check(ray && screen && near(ray.origin.z, 7) && near(ray.direction.z, -1) &&
+            near(screen.origin.z, ray.origin.z) && near(screen.direction.x, 0), 'center rays');
+        check(this.camera.ViewportPointToRay(.5, .5, 0) === null &&
+            this.camera.ScreenPointToRay(0, 0, 0, 100) === null &&
+            this.camera.ScreenPointToRay(NaN, 0, 100, 100) === null &&
+            Render.GetViewportSize() === null, 'invalid viewport and absent renderer');
+        check(this.camera.SetOrthographic(2, 1, 100), 'orthographic setup');
+        const left = this.camera.ViewportPointToRay(0, .5, 2);
+        const right = this.camera.ViewportPointToRay(1, .5, 2);
+        check(left && right && near(left.origin.x, -4) && near(right.origin.x, 4) &&
+            near(left.direction.z, right.direction.z), 'parallel orthographic rays');
+        return this.camera.SetPerspective(90, 1, 100);
+    }
+    Update() {
+        if (this.phase++ === 0) {
+            const wall = Physics.Raycast(origin, displacement);
+            check(wall?.hit && Physics.IsHitValid(wall) && wall.node.IsValid() &&
+                wall.node.id === this.blocker.id && wall.nodeId === this.blocker.id &&
+                wall.sceneId === this.blocker.sceneId && typeof wall.colliderId === 'bigint' &&
+                near(wall.point.z, 3.5) && near(wall.normal.z, 1) && near(wall.distance, 3.5) &&
+                near(wall.fraction, .175), 'closest wall hit');
+            check(Object.isFrozen(wall) && Object.isFrozen(wall.point), 'readonly hit snapshot');
+            const sphere = Physics.SphereCast(origin, displacement, .25);
+            check(sphere?.hit && sphere.nodeId === this.blocker.id &&
+                near(sphere.distance, 3.25) && near(sphere.point.z, 3.5), 'sphere target point');
+            this.oldHit = Physics.Raycast(origin, displacement, {ignoreNode: this.blocker});
+            check(this.oldHit?.hit && this.oldHit.nodeId === this.target.id &&
+                near(this.oldHit.distance, 6), 'ignore foreground body');
+            const filtered = Physics.Raycast(origin, displacement, {includeStatic: false});
+            check(filtered && !filtered.hit && filtered.node === null && filtered.nodeId === 0n &&
+                filtered.distance === 0 && !Physics.IsHitValid(filtered), 'empty query snapshot');
+            check(Physics.Raycast(origin, {x:0,y:0,z:0}) === null &&
+                Physics.Raycast({x:NaN,y:0,z:0}, displacement) === null &&
+                Physics.Raycast(origin, displacement, null) === null &&
+                Physics.Raycast(origin, displacement, {includeStatic: 1}) === null &&
+                Physics.Raycast(origin, displacement, {ignoreNode: {id: 1n}}) === null &&
+                Physics.SphereCast(origin, displacement, 0) === null, 'invalid query boundaries');
+            check(this.blocker.Destroy() && !Physics.IsHitValid(wall) && !wall.node.IsValid(),
+                'deleted wall cannot remain valid');
+            check(Physics.Raycast(origin, displacement)?.nodeId === this.target.id,
+                'deleted foreground does not hide surviving target before physics tick');
+        } else if (this.phase === 2) {
+            check(this.target.IsValid() && !Physics.IsHitValid(this.oldHit),
+                'replaced collider invalidates old hit, not node identity');
+            const staleBody = Physics.Raycast(origin, displacement);
+            check(staleBody && !staleBody.hit, 'replaced collider cannot reuse old Jolt body');
+        } else {
+            const hit = Physics.Raycast(origin, displacement);
+            check(hit?.hit && Physics.IsHitValid(hit) && hit.nodeId === this.target.id &&
+                hit.colliderId !== this.oldHit.colliderId, 'new collider owns new hit identity');
+            check(this.scene.Destroy(), 'destroy shot scene');
+            this.scene = Scene.Create('shooting-done');
+            check(this.scene && !hit.node.IsValid() && !Physics.IsHitValid(hit) &&
+                this.camera.ViewportPointToRay(.5, .5, 1) === null &&
+                Physics.Raycast(origin, displacement, {ignoreNode: this.target}) === null,
+                'old scene query and camera identities cannot revive');
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "shooting-queries", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input), "initialize camera and shooting query bindings") ||
+        !expect(physics.tick(0) && script.tick(.016), "query closest targets from script"))
+    {
+        return false;
+    }
+    engine::Node* target = nullptr;
+    for (const auto& node : world.scene()->nodes())
+    {
+        if (node->name() == "target")
+        {
+            target = node.get();
+        }
+    }
+    if (!expect(target && target->remove_component(engine::Collider::component_type) &&
+                    target->add_component<engine::Collider>() && script.tick(.016) &&
+                    physics.tick(0) && script.tick(.016),
+                "query bindings reject replaced collider and expired scene identities"))
+    {
+        return false;
+    }
+    const bool complete = world.scene() && world.scene()->name() == "shooting-done" &&
+                          script.status().last_error.empty();
+    script.stop_gameplay();
+    physics.clear();
+    return expect(complete, "camera and shooting query script lifecycle completes");
+}
+
 bool run_storage_binding_cases(const fs::path& workspace)
 {
     engine::plugins::script::ScriptSystem script;
@@ -1758,7 +1879,8 @@ int main(int argc, char** argv)
         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
-        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace);
+        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
+        run_shooting_query_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

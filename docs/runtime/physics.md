@@ -40,3 +40,7 @@ mesh = "<独立 Mesh 资源的完整 GUID>"
 `cast_sphere()` 查询已同步的物理世界，返回状态与可通行比例，忽略触发器。第一/第三人称输入和相机防穿墙策略由可选运行时[角色控制器插件](../plugins/runtime/class-diagrams/character-controller.md)负责，核心不读取键鼠、不引用该插件。
 
 `cast_ray(collider, origin, displacement, fraction)` 只查询指定 Collider 已提交的碰撞体，复用 Jolt 射线查询和 BodyID 过滤，其他碰撞体不会遮挡目标。源点与位移使用世界坐标；凸体视为实体、三角形允许双面命中。无命中、合法空网格、尚未同步或禁用目标返回 `true/1`；非法输入、外部世界组件返回 `false/0`。它不隐式创建碰撞或推进模拟，目标是否能作为某种玩法支撑由调用方决定。
+
+`query_ray` 与 `query_sphere` 使用世界起点和非零完整位移查询最近 Collider，返回查询状态及独立的 `PhysicsQueryHit` 值快照。查询成功但未命中时 hit.hit 为 false；参数、当前场景同步状态或忽略节点无效时返回 false，输出均清空。结果包含场景、节点、Collider 实例身份、世界点与法线、距离和行程比例；球扫距离是球心的行程，命中点位于目标表面。过滤可排除自身节点及其子树，并选择静态、运动学、动态体和 sensor，默认查询全部实体；不引入业务 layer，CharacterVirtual 不进入结果。
+
+查询读取已提交的几何及运动类别，须在主线程物理步进外调用，不加载资源或同步场景。删除、重建或禁用 Collider 会在过滤阶段立即排除，避免其残留物理体遮挡后方对象。`is_hit_valid` 按当前场景、节点、Collider 实例及启用状态检查历史结果，位置或形状变化不重新计算命中。射线从凸体内部出发返回零距离、起点与反向位移法线；球扫初始重叠返回零距离及最深接触。完整数值与失效契约见[物理系统类图](class-diagrams/physics-system.md)。
