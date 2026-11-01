@@ -6,7 +6,8 @@ function(engine_configure_fbx_import_plugin)
     target_include_directories(engine_ufbx SYSTEM PUBLIC "${PROJECT_SOURCE_DIR}/third_party/ufbx")
     set_target_properties(engine_ufbx PROPERTIES C_STANDARD 99 C_STANDARD_REQUIRED YES)
     add_library(engine_fbx_import STATIC src/engine/plugins/editor/fbx_import/fbx_importer.cpp
-                                         src/engine/plugins/editor/fbx_import/fbx_document.cpp)
+                                         src/engine/plugins/editor/fbx_import/fbx_document.cpp
+                                         src/engine/plugins/editor/fbx_import/fbx_motion.cpp)
     add_library(engine::fbx_import ALIAS engine_fbx_import)
     target_include_directories(engine_fbx_import PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_fbx_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
@@ -14,7 +15,7 @@ function(engine_configure_fbx_import_plugin)
     target_link_libraries(
         engine_fbx_import
         PUBLIC engine::asset_pipeline
-        PRIVATE engine::resource engine_ufbx)
+        PRIVATE engine::resource engine_ufbx ozz_animation_offline)
     target_compile_definitions(
         engine_fbx_import
         PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0

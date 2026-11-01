@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/physics/physics_contact.hpp"
 #include "runtime/physics/physics_impact.hpp"
 #include "runtime/physics/physics_query.hpp"
 #include "runtime/system/system.hpp"
@@ -7,6 +8,7 @@
 #include <cstddef>
 #include <memory>
 #include <span>
+#include <vector>
 
 namespace engine
 {
@@ -54,8 +56,19 @@ public:
                                  const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const;
     [[nodiscard]] bool query_sphere(const Vec3& origin, const Vec3& displacement, float radius,
                                     const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) const;
-    // 只检查场景、节点、Collider 实例及启用；位置/形状变化不重算历史命中。
+    // 查询世界空间的球/轴对齐盒，按对象身份去重并排序；失败清空输出。
+    [[nodiscard]] bool overlap_sphere(const Vec3& center, float radius,
+                                      const PhysicsQueryFilter& filter,
+                                      std::vector<PhysicsObject>& objects) const;
+    [[nodiscard]] bool overlap_box(const Vec3& center, const Vec3& half_extents,
+                                   const PhysicsQueryFilter& filter,
+                                   std::vector<PhysicsObject>& objects) const;
+    // 只检查场景、节点、组件类型/实例及启用；位置/形状变化不重算历史命中。
+    [[nodiscard]] bool is_object_valid(const PhysicsObject& object) const noexcept;
     [[nodiscard]] bool is_hit_valid(const PhysicsQueryHit& hit) const noexcept;
+    // 当前物理 tick 内按固定子步顺序发布；end 可以包含已删除对象的历史身份。
+    // 下一 tick、clear 或切场景后失效；零子步仅发布删除/禁用产生的 end。
+    [[nodiscard]] std::span<const PhysicsContactEvent> contacts() const noexcept;
     // 主线程步进外非消费借用；下一 tick（含零步）、clear 或无效节点清理后失效。
     // 删除/禁用的节点不返回；frame 在系统生命周期内单调递增。
     [[nodiscard]] std::span<const PhysicsImpact> impacts() const noexcept;

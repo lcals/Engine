@@ -83,6 +83,17 @@ CharacterMotor 的脚底原点、设置校验与碰撞由[核心组件](../../..
 classDiagram
 class Physics {
     +GetImpacts() PhysicsImpact[]
+    +GetContacts() PhysicsContactEvent[]
+    +OnCollisionEnter(Node node, callback) number
+    +OnCollisionStay(Node node, callback) number
+    +OnCollisionExit(Node node, callback) number
+    +OnTriggerEnter(Node node, callback) number
+    +OnTriggerStay(Node node, callback) number
+    +OnTriggerExit(Node node, callback) number
+    +Off(number subscription) boolean
+    +OverlapSphere(Vector3 center, number radius, PhysicsQueryOptions options) PhysicsObjectArrayOrNull
+    +OverlapBox(Vector3 center, Vector3 halfExtents, PhysicsQueryOptions options) PhysicsObjectArrayOrNull
+    +IsObjectValid(PhysicsObject object) boolean
     +CastSphere(number x, number y, number z, number dx, number dy, number dz, number radius) numberOrNull
     +Raycast(Vector3 origin, Vector3 displacement, PhysicsQueryOptions options) PhysicsQueryHitOrNull
     +SphereCast(Vector3 origin, Vector3 displacement, number radius, PhysicsQueryOptions options) PhysicsQueryHitOrNull
@@ -95,17 +106,41 @@ class PhysicsQueryOptions {
     +boolean includeKinematic
     +boolean includeDynamic
     +boolean includeSensors
+    +boolean includeCharacters
+}
+class PhysicsObject {
+    +string kind
+    +bigint instanceId
+    +bigint sceneId
+    +bigint nodeId
+    +NodeOrNull node
 }
 class PhysicsQueryHit {
     +boolean hit
-    +bigint sceneId
-    +bigint nodeId
-    +bigint colliderId
-    +NodeOrNull node
     +Vector3 point
     +Vector3 normal
     +number fraction
     +number distance
+}
+class PhysicsContactEvent {
+    +bigint frame
+    +bigint step
+    +string phase
+    +PhysicsObject a
+    +PhysicsObject b
+    +Vector3 point
+    +Vector3 normal
+    +boolean isTrigger
+}
+class PhysicsContact {
+    +bigint frame
+    +bigint step
+    +string phase
+    +PhysicsObject self
+    +PhysicsObject other
+    +Vector3 point
+    +Vector3 normal
+    +boolean isTrigger
 }
 class Node {
     +bigint id
@@ -124,7 +159,14 @@ class PhysicsImpact {
 Physics ..> PhysicsImpact : copied values
 Physics ..> PhysicsQueryOptions : 校验并转换原生过滤参数
 Physics ..> PhysicsQueryHit : 返回只读值快照
-PhysicsQueryHit --> Node : 仅身份包装，不拥有节点
+PhysicsObject <|-- PhysicsQueryHit
+PhysicsObject --> Node : 仅身份包装，不拥有节点
+Physics ..> PhysicsObject : 范围结果与身份校验
+Physics ..> PhysicsContactEvent : 只读上一帧事件
+PhysicsContactEvent *-- PhysicsObject : 双方身份值
+Physics ..> PhysicsContact : 同步回调参数，只读值
+PhysicsContact *-- PhysicsObject : self 与 other 身份值
+Physics ..> Node : 订阅时捕获物理组件身份，不拥有节点
 PhysicsQueryOptions --> Node : 可选忽略节点，当前场景
 ```
 
@@ -136,8 +178,18 @@ PhysicsQueryOptions --> Node : 可选忽略节点，当前场景
 
 `Raycast` 与 `SphereCast` 使用世界起点和完整位移，查询当前 Run 所属场景已提交的碰撞世界，不推进物理或加载资源。无效参数、无可用物理世界或跨场景忽略对象返回 `null`；有效查询返回只读快照，`hit=false` 明确表示未命中，此时身份、向量与数值归零、`node=null`。命中时 `node` 是已有 Node 身份包装，可直接取组件；不靠节点名称识别目标。
 
-过滤默认包含静态、运动学和动态 Collider，排除 Sensor。`ignoreNode` 默认 null，指定时默认连同其后代忽略；必须属于当前有效场景。这些是物理对象类别，不是新增的业务碰撞层。CharacterMotor 使用的 CharacterVirtual 不属于 Collider 查询结果；需要可射击身体的调用方应显式配置 Collider。
+过滤默认包含静态、运动学和动态 Collider，排除 Sensor。`ignoreNode` 默认 null，指定时默认连同其后代忽略；必须属于当前有效场景。这些是物理对象类别，不是新增的业务碰撞层。角色通过官方 CharacterVirtual inner body 加入查询；includeCharacters 默认 true，独立于 includeKinematic。CharacterMotor 不应再叠加 Collider。
 
 `point` 为世界命中点，`normal` 为世界单位法线，`fraction` 为完整位移中的比例，`distance` 为该比例对应的移动距离；球扫的距离是球心行程，点在被击形状上。零位移被拒绝，不兼任重叠查询。起点位于凸体内部的射线返回零距离，法线按反向射线给出退回方向；此时起点不被当作物体表面点。三角网格采用双面查询，具体重叠语义与核心[物理查询](../../../runtime/class-diagrams/physics-system.md)一致。
 
-`Node.id` 与 `sceneId` 为只读身份，销毁后仍可用于识别旧记录，是否可用通过 `IsValid()` 判断。`Physics.IsHitValid(hit)` 另校验场景、节点、Collider 实例和启用状态；删除后重建同名节点或同节点重挂 Collider 不会恢复旧命中。移动只改变后续查询，不使历史命中位置自动更新。模块顶层、构造、预检与过期 Run 不允许查询，返回 null/false。玩法计分、伤害、阵营和射速由调用方决定。
+`Node.id` 与 `sceneId` 为只读身份，销毁后仍可用于识别旧记录，是否可用通过 `IsValid()` 判断。`Physics.IsHitValid(hit)` 另校验场景、节点、对应物理组件实例和启用状态；删除后重建同名节点或同节点重挂 Collider 不会恢复旧命中。移动只改变后续查询，不使历史命中位置自动更新。模块顶层、构造、预检与过期 Run 不允许查询，返回 null/false。玩法计分、伤害、阵营和射速由调用方决定。
+
+## 范围查询与接触生命周期
+
+OverlapSphere(center, radius, options) 与 OverlapBox(center, halfExtents, options) 返回只读 PhysicsObject 列表；盒为世界轴对齐半尺寸。无效查询返回 null，合法但没有对象返回空数组。结果按组件身份去重，与 Raycast/SphereCast 使用同一过滤和同步语义。PhysicsObject 保存 sceneId/nodeId/kind/instanceId/node；kind 为 collider 或 character，实例代际独立于节点。IsObjectValid 校验身份，IsHitValid 额外要求 hit=true。不保留旧 colliderId 字段，项目与测试统一迁移。
+
+GetContacts 返回上一物理 tick 的只读事件数组，调用方按 frame 整批去重；step 表示固定物理子步，phase 为 begin/stay/end，同帧多次转换不丢失。a/b 是 PhysicsObject，normal 从 a 指向 b；isTrigger 为任一方 sensor。零子步不产生 stay，休眠持续接触仍有 stay。end 可携带已删除或禁用对象的历史身份，其 node.IsValid/IsObjectValid 可为 false；不要在发布时过滤掉退出事件。切场景/clear 清空所有旧事件。脚本在正常 Tick 读取，不在 Jolt 回调执行。
+
+常规脚本使用 `Physics.OnCollisionEnter/Stay/Exit(node, callback)` 与 `OnTriggerEnter/Stay/Exit(node, callback)`。返回本 Run 的订阅 ID，失败为 0；`Physics.Off(id)` 显式解除，重复解除返回 false。节点必须具有唯一启用的 Collider 或 CharacterMotor；订阅捕获当前组件实例，在初始化时即可创建，不要求先推进物理。禁用、销毁或替换接收组件后自动解除，重建不会复活旧订阅；存活接收者仍收到包含失效 `other` 身份的 Exit。订阅本身不持有原生组件。
+
+回调收到 `PhysicsContact`，`self` 是订阅对象，`other` 是对方，法线从 self 指向 other；其他字段与快照一致。脚本插件复用现有绑定事件钩子，在 Gameplay.Update 前同步派发，每批只派发一次，保留同帧全部子步转换；GetContacts 读取不消费订阅。仅递送订阅之后产生的事件，回调中新加订阅从下一物理批次生效，Off 立即生效。切场景不继续派发旧场景，停止与热重载清空订阅；回调不得返回 Promise。按对象身份索引订阅，不逐事件扫描全体订阅者。核心仍只发布值事件，不持有脚本回调。

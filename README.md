@@ -20,7 +20,7 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场和射击靶场共用一套设置、资源目录和缓存。默认进入 UI 菜单；九个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场、射击靶场、多角色导航和物理交互范例共用一套设置、资源目录和缓存。默认进入 UI 菜单；十一个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
@@ -28,7 +28,9 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 
 `Shooting range` 打开独立的[射击靶场](projects/showcase/assets/scenes/shooting-range.scene)：沿用范例角色，提供近靶、远靶和蓝墙后的遮挡靶。WASD 移动、按住鼠标右键观察、左键或 `Fire` 单发射击，Space 跳跃、Tab 切换视角；`Ray` / `Sphere 0.12 m` 切换查询方式，R 或 `Reset targets` 恢复三靶和计分，`Back to scenes` 返回菜单。命中后显示落点并移除靶面，墙体挡住射击；全部命中后可重置再玩。当前为相机近裁剪面发出的即时命中范例，尚无枪口弹道、弹药、敌人 AI 或伤害系统。触屏沿用移动／观察区域与 `Fire` 按钮，尚未做本场景的移动设备实机验证。
 
-相机射线与 Jolt 查询是通用核心能力；靶场的输入、靶子识别、计分和 UI MVC 只在 showcase 脚本中。`Camera.ScreenPointToRay` 接收同单位的视口局部坐标与尺寸，`ViewportPointToRay` 接收归一化坐标与实际宽高比，两者以左上为原点；`Render.GetViewportSize()` 提供绘制目标像素尺寸。`Physics.Raycast` / `SphereCast` 返回最近命中快照及节点身份，支持忽略自己与子树、筛选刚体类别；无效查询返回 `null`，有效但未命中返回 `hit=false`。删除、替换组件或切场景后用 `Physics.IsHitValid` 检查身份，历史点位不会自动重算。详见[物理查询契约](docs/runtime/physics.md)与 [SDK](include/engine.d.ts)。
+相机射线与 Jolt 查询是通用核心能力；靶场的输入、靶子识别、计分和 UI MVC 只在 showcase 脚本中。`Camera.ScreenPointToRay` 接收同单位的视口局部坐标与尺寸，`ViewportPointToRay` 接收归一化坐标与实际宽高比，两者以左上为原点；`Render.GetViewportSize()` 提供绘制目标像素尺寸。`Physics.Raycast` / `SphereCast` 返回最近 Collider 或 CharacterMotor 命中，身份包含场景、节点、对象类型和组件实例；支持忽略自己与子树、筛选刚体类别及独立筛选角色。无效查询返回 `null`，有效但未命中返回 `hit=false`。`OverlapSphere` 与世界轴对齐的 `OverlapBox` 返回去重后的全部对象，使用相同过滤规则；`null` 表示无效查询，空数组表示没有重叠。删除、替换组件或切场景后用 `Physics.IsHitValid` / `IsObjectValid` 检查身份，历史点位不会自动重算。详见[物理查询契约](docs/runtime/physics.md)与 [SDK](include/engine.d.ts)。
+
+普通碰撞与 Trigger 都提供 begin / stay / end 接触事件，包含角色。脚本可用 `Physics.OnCollisionEnter(node, callback)`、`OnCollisionStay`、`OnCollisionExit` 订阅普通碰撞，用 `OnTriggerEnter`、`OnTriggerStay`、`OnTriggerExit` 订阅触发区域；这些函数返回数字订阅 ID，失败返回 `0`，`Physics.Off(id)` 返回取消是否成功。`GetContacts()` 仍可读取上一物理 tick 的只读快照，同一 tick 内不同固定子步的开始和结束均保留；删除或禁用引发的 end 保留历史身份，不能因对象已失效而漏掉退出。物理回调只收集数据，脚本在安全阶段处理事件。
 
 绑定、导入器、资源解码和组件编解码按类型独立文件，以最小接口和显式注册扩展。详细规则见 [AGENTS.md](AGENTS.md) 与[架构总览](docs/architecture.md)。CTest 的 `engine.architecture_boundaries` 检查源码包含方向及当前配置实际 `engine_*` 目标的链接方向、别名和循环；`engine.architecture_rules` 验证检查器的正反例。
 
@@ -791,7 +793,7 @@ MCP 的 `cameraNodeId`／`targetNodeId` 使用当前运行节点 ID 字符串，
 
 后续采用“购买/生成角色 → AI 调用工具整理与绑定 → 建立骨架适配配置 → 共享动作进入引擎 → 实景检查”的制作流程。保留合格原绑定，无绑定或不可用绑定在派生副本中重建；AI 编排不强制使用机器学习，也不要求自研制作界面。引擎运行时复用与重定向是明确目标，逐角色离线烘焙仅可作为制作结果或对照，不能代替该能力。完整职责、工具候选和分阶段验收见[角色与动画制作流程（规划）](docs/editor/character-production.md)及[动画模块](docs/runtime/animation.md#动画复用与重定向方向规划)。
 
-庭院示例固定循环播放 walk 以检查蒙皮，静止时也会播放；地形实验场另按角色水平速度调整同一 walk 的播放速度，这仍不是多个动作之间的混合或状态图。尚未实现 Root Motion 或 IK。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
+当前默认采用 InPlace：showcase 的 walk/jog/run 在 FBX `.meta` 用 `animation_motion` 明确指定关节与局部轴，复用 ozz `MotionExtractor` 去除前进位移，角色位置由物理或导航控制。导航和物理交互范例按实际水平速度与 walk 参考步速匹配播放倍率，避免循环回跳及平均步频不匹配；配置和限制见[动画模块](docs/runtime/animation.md#inplace-与角色移动)。庭院示例仍固定循环播放 walk 检查蒙皮，地形实验场另按速度调速，这不是动画状态图。Root Motion 驱动、运行时模式切换和 IK 尚未实现。手机端复用控制器的 `set_input`，本场景未制作触屏摇杆。FBX `.meta` 的 `normals` 默认为 `"import"`；本样例源法线反向，显式用 `"generate"` 调用 ufbx 按拓扑和平滑组重新生成，源 FBX 不变。
 
 模型适配由导入属性组合完成：FBX `.meta` 的 `scale_factor` 控制统一缩放，`rotation_offset` 指定 XYZ 欧拉角（度），`material_remaps` 按 Mesh 子资源路径绑定各材质槽。模型、骨架和动画使用一致的导入坐标；外部动画与引用骨架的坐标设置必须相同。材质引用自动进入模型的运行依赖，参数变化参与增量构建，已有子 GUID 保持不变。错误配置保留上一批有效缓存，不能通过项目名或模型名分支修补。字段格式与限制见 [FBX 导入契约](docs/plugins/editor/class-diagrams/fbx-importer.md)。
 
@@ -813,11 +815,17 @@ if (!agent.MoveTo({ x: 12, y: 0, z: 8 })) return false;
 // 此后原生系统推进；仅在需要时读 agent.state / agent.velocity，或调用 agent.Stop()。
 ```
 
-代理根节点保持单位缩放，无父节点，不同时启用 CharacterMotor、Collider 或 RigidBody。当前沿导航面移动，未与 Jolt 刚体碰撞/击退合并；有物理移动要求的角色继续使用 Motor，不能把两套积分叠加。代理半径与高度不得超过烘焙净空。`MoveTo` 返回成功仅表示请求接受；`pending`、`moving`、`arrived`、`unreachable`、`invalid` 由原生反馈，精确到达不会用低速度代替。密集目标可设置适当到达范围；局部避让不保证双向窄门限时无拥堵。
+代理根节点保持单位缩放、无父节点，不同时启用 CharacterMotor。需要物理查询或接触身份时，可同时启用 `Collider + RigidBody`，其中 RigidBody 必须为 `kinematic`，线速度和角速度均为零；Crowd 唯一写入 Transform，Physics 同步该碰撞形体。仅启用 Collider、仅启用 RigidBody、动态或静态 RigidBody，以及非零刚体速度的组合均被拒绝。当前沿导航面移动，未与 Jolt 的动态位移、重力或击退合并；需要这些运动能力的角色继续使用 Motor。代理半径与高度不得超过烘焙净空。`MoveTo` 返回成功仅表示请求接受；`pending`、`moving`、`arrived`、`unreachable`、`invalid` 由原生反馈，精确到达不会用低速度代替。密集目标可设置适当到达范围；局部避让不保证双向窄门限时无拥堵。
 
 脚本只做创建、提交目标及低频观察，不逐帧搬位置。完整网格重建使核心句柄失效，插件重新登记并提交组件保留的目标；局部瓦片更新保留身份、丢弃旧走廊后重新排队。禁用、删除和切场景移除代理，场景文件只保存配置。公开契约与容量/路径预算见[导航模块](docs/runtime/navigation.md)及[代理类图](docs/plugins/runtime/class-diagrams/navigation-crowd.md)。
 
 地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。当前是同步局部重建，不包含自动追踪动态残骸、后台构建或脚下地面消失后的物理下落。
+
+### 物理交互技术范例
+
+showcase 主菜单第十一项 **Physics interactions** 打开独立的[物理交互场景](projects/showcase/physics-interactions.md)。两条路线使用 CharacterMotor，三条路线使用 NavigationAgent 与零速度的运动学 sensor 胶囊；移动由原生系统推进。选择路线后，沿蓝线执行 Raycast 或半径 0.12 米的 SphereCast，显示对象类型、实例身份、距离和命中点；球形／轴对齐盒范围查询将命中角色标为绿色，橙色 Trigger 区域统计 enter / stay / exit。按钮支持暂停、继续、反转路线及清空统计，返回菜单时释放角色和订阅。
+
+本场景用于观察统一物理身份、真实范围查询与接触生命周期，不包含伤害或战斗规则。脚本回归只模拟宿主边界，Jolt 与 Detour 行为由原生测试验证；macOS Metal 实窗已验证角色命中、球/盒范围、触发统计、暂停/恢复及菜单往返，停止后场景为空。
 
 ### 资源运行包
 
@@ -945,10 +953,14 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
 | macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
 | macOS 多角色与可破坏地形导航 | Debug / Release 的导航、原生代理、脚本、编解码及装配边界共 10 项定向回归通过，范例 TS 编译与编排检查通过。Metal 实窗观察 16／64 角色移动、反转及启停；16 角色挖坑绕行全部到达，断沟后停止，恢复地面后原目标自动续行 | 未做其他平台运行、完整战斗联调或容量压测；同步重建与避让的性能尚无目标设备结论 |
+| macOS ARM64 / QuickJS 物理交互 | 物理查询、角色、范围与接触生命周期、脚本及导航运动学组合的定向 Debug 5 项、Release 7 项 CTest 均通过；新增订阅和 Trigger 类型切换后，受影响物理/脚本测试再次通过两配置回归。Metal 实窗验证角色与导航对象查询、两类范围、触发统计、启停和返回清理 | 未做其他平台构建或运行验证、容量或性能验收；不代表全套 CTest 通过 |
+| macOS InPlace 动画导入 | Debug / Release 的 FBX 管线、轴向处理与动画定向测试通过；范例 TS 与编排回归通过。实际 walk 缓存每周期前进位移从约 1.4253 米降到浮点误差范围，未选轴、旋转、缩放及其他骨骼不变；新资源同步与 Metal 场景启动通过，停止后零节点 | 尚未做其他平台实窗验证；未实现 RootMotion 驱动与运行时模式切换 |
 | Android ARM64 / API 34 软件 Vulkan 模拟器 | 路径升级前已有菜单与场景往返、角色/动画、音频状态、前后台恢复、完整资源同步和有限帧退出验证 | 不代表当前包或实体设备性能、扬声器、真实触屏与 16 KiB 页设备已验证 |
 | Linux / iOS | 保留平台配置与统一后端约束 | 尚无本分支的构建及端到端运行结果 |
 
 验证输出留在忽略目录：射击回归为 `build/shooting-range-tests-*.log`，窗口验收为 `build/shooting-range-final-report.json` 与项目 `cache/screenshots/shooting-range-final-*`；分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
+
+物理交互回归记录为 `build/physics-interaction-tests-*.log`、`build/physics-subscriptions-tests-*.log` 与 `build/physics-contact-transition-tests-*.log`。实窗操作回执在 `build/physics-interaction-review-report.json`，截图在项目 `cache/screenshots/physics-interaction-review-*`；场景包含 2 个 Motor 与 3 个导航角色，返回菜单剩 2 个菜单节点，停止后为 0。Trigger 类型切换的最终修复由两配置定向回归验证，未在窗口中切换该属性。
 
 导航回归记录为 `build/navigation-tests-*.log`、`build/navigation-terrain-tests-*.log` 和 `build/navigation-terrain-showcase-tests.log`；窗口回执在 `build/navigation-review-report.json`、`build/navigation-terrain-review-report.json`，真实截图在项目 `cache/screenshots/navigation-*-review-*`。实窗中初次构建 40 个瓦片，挖坑局部更新 9 个，断沟更新 18 个，同时恢复此前两处修改更新 24 个；这些计数只证明局部更新范围，不作为耗时或容量结论。
 
@@ -963,7 +975,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 - 软件 Vulkan 不反映真机性能，设备纹理压缩格式矩阵仍需实机验证。
 - 固定版本 bimg 的部分带 alpha 图片往返会因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败；已测样本像素一致，元数据兼容问题未修补。
 - 阴影覆盖唯一启用投影的方向光，支持 1/2/4 级 CSM，尚无点光/聚光阴影。IBL 来自输入环境贴图，尚无场景几何反射探针或 Lightmap。PNG/JPG/JPEG 经 UASTC/ETC1S 导入二维纹理；半浮点二维/cube 纹理使用 KTX1。动画新增范围见 Animator 与 FBX 模型资源模块；游戏 UI 已支持文档和 MVC 脚本绑定，静态导航构建、局部瓦片更新、完整路径查询及 DetourCrowd 多代理跟随/避让已接入；动态残骸自动导航、与 Jolt 的代理运动融合和完整编辑器界面未实现。
-- 物理已支持静态 Mesh 碰撞、凸包/复合碰撞和只读碰撞估算快照；约束关节、传感器及 CharacterVirtual 接触事件尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
+- 物理已支持静态 Mesh、凸包/复合碰撞、Collider/CharacterMotor 统一查询、球/盒范围，以及普通碰撞和 Trigger 的 begin/stay/end；只读碰撞估算快照继续独立提供。约束关节尚未提供，物理回调不直接执行脚本。动态刚体不支持父节点，球必须等比缩放，胶囊横向缩放必须一致。音频暂不支持压缩音频、流式长音频、混响或音频总线；自动回归使用 SDL dummy 输出，不等于真实扬声器的听觉验证。
 - FBX 尚未转换源材质、贴图、混合形状或双四元数蒙皮；USD 仅支持上述自包含静态范围。动画支持 GPU 蒙皮与两动作过渡，尚未实现通用动画状态图、运行时 Humanoid 重定向、Root Motion 驱动或 IK；控制器未附带触屏 UI。
 - 建模尚未达到 ProBuilder/UModeler 完整等价：选边倒角限闭合凸体，扫掠未支持闭环路径，UV 只有一个通道；其他范围以[建模功能边界](docs/plugins/editor/modeling.md#几何与持久化边界)为准。
 

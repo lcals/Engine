@@ -19,6 +19,8 @@ roots = [
     "scenes/shooting-range.scene",
     "scripts/modules/navigation.ts",
     "scenes/navigation.scene",
+    "scripts/modules/physics-interactions.ts",
+    "scenes/physics-interactions.scene",
     "scripts/modules/minimal.ts",
     "scripts/modules/apartment.ts",
     "scripts/modules/courtyard.ts",

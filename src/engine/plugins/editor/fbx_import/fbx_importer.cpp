@@ -317,7 +317,7 @@ bool FbxImporter::inspect_batch(const ImportContext& context, std::string& finge
     {
         return false;
     }
-    fingerprint += ":ufbx-0.23.1:fbx-importer-7";
+    fingerprint += ":ufbx-0.23.1:ozz-0.16.0:fbx-importer-8";
     return true;
 }
 bool FbxImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,

@@ -63,6 +63,11 @@ if(TARGET engine_physics)
     engine_apply_options(engine_physics_test)
     add_test(NAME engine.physics COMMAND engine_physics_test)
     set_tests_properties(engine.physics PROPERTIES TIMEOUT 60)
+    add_executable(engine_physics_interaction_test physics_interaction_test.cpp)
+    target_link_libraries(engine_physics_interaction_test PRIVATE engine::physics engine::world)
+    engine_apply_options(engine_physics_interaction_test)
+    add_test(NAME engine.physics_interaction COMMAND engine_physics_interaction_test)
+    set_tests_properties(engine.physics_interaction PROPERTIES TIMEOUT 60)
     add_executable(engine_character_motor_test character_motor_test.cpp)
     target_link_libraries(engine_character_motor_test PRIVATE engine::physics engine::world)
     engine_apply_options(engine_character_motor_test)
@@ -423,6 +428,12 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                     "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_crowd_test.mjs"
                     "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_navigation_crowd PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_physics_interactions
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_physics_interactions_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_physics_interactions PROPERTIES TIMEOUT 60)
         find_package(
             Python3
             COMPONENTS Interpreter

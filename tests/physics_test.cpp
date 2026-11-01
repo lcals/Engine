@@ -469,7 +469,7 @@ bool targeted_ray()
 
 bool empty_hit(const engine::PhysicsQueryHit& hit)
 {
-    return !hit.hit && hit.scene_id == 0 && hit.node_id == 0 && hit.collider_id == 0 &&
+    return !hit.hit && hit.object.scene_id == 0 && hit.object.node_id == 0 && hit.object.instance_id == 0 &&
            hit.point == engine::Vec3{} && hit.normal == engine::Vec3{} && hit.distance == 0 &&
            hit.fraction == 0;
 }
@@ -495,15 +495,15 @@ bool closest_queries()
         return false;
     }
     if (!expect(fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
-                    hit.scene_id == scene.id() && hit.node_id == near->id() &&
-                    hit.collider_id == near->get_component<engine::Collider>()->instance_id() &&
+                    hit.object.scene_id == scene.id() && hit.object.node_id == near->id() &&
+                    hit.object.instance_id == near->get_component<engine::Collider>()->instance_id() &&
                     std::abs(hit.fraction - 0.1875F) < 0.001F &&
                     std::abs(hit.distance - 1.5F) < 0.001F &&
                     std::abs(hit.point.y() - 2.5) < 0.001 && hit.normal.y() > 0.99 &&
                     fixture.physics.is_hit_valid(hit),
                 "nearest ray returns collider identity, surface point, normal and distance") ||
         !expect(fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
-                    hit.node_id == near->id() && std::abs(hit.fraction - 0.15625F) < 0.001F &&
+                    hit.object.node_id == near->id() && std::abs(hit.fraction - 0.15625F) < 0.001F &&
                     std::abs(hit.distance - 1.25F) < 0.01F &&
                     std::abs(hit.point.y() - 2.5) < 0.01 && hit.normal.y() > 0.99,
                 "sphere result distinguishes target surface point from sphere center travel") ||
@@ -511,11 +511,11 @@ bool closest_queries()
                     std::abs(hit.fraction - 1.0F) < 0.001F,
                 "nearest ray includes its end point") ||
         !expect(fixture.physics.query_ray({0, 2, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
-                    hit.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
                     hit.point == engine::Vec3(0, 2, 0) && hit.normal == engine::Vec3(0, 1, 0),
                 "ray starting inside a convex collider returns a stable retreat direction") ||
         !expect(fixture.physics.query_sphere({0, 2.4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
-                    hit.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
                     hit.normal.y() > 0.99 && std::abs(hit.point.y() - 2.5) < 0.01,
                 "initial sphere overlap returns the target surface and outward contact normal") ||
         !expect(fixture.physics.query_ray({3, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit) &&
@@ -527,7 +527,7 @@ bool closest_queries()
         return false;
     }
     hit.hit = true;
-    hit.node_id = near->id();
+    hit.object.node_id = near->id();
     if (!expect(!fixture.physics.query_ray({}, {}, {}, hit) && empty_hit(hit) &&
                     !fixture.physics.query_sphere({}, {}, 0.25F, {}, hit) && empty_hit(hit) &&
                     !fixture.physics.query_sphere({}, {0, -8, 0}, 0, {}, hit) && empty_hit(hit) &&
@@ -576,9 +576,9 @@ bool query_filters()
     const auto query = [&](std::uint64_t expected)
     {
         return fixture.physics.query_ray({0, 7, 0}, {0, -10, 0}, filter, hit) &&
-               hit.node_id == expected && hit.hit == (expected != 0) &&
+               hit.object.node_id == expected && hit.hit == (expected != 0) &&
                fixture.physics.query_sphere({0, 7, 0}, {0, -10, 0}, 0.2F, filter, hit) &&
-               hit.node_id == expected && hit.hit == (expected != 0);
+               hit.object.node_id == expected && hit.hit == (expected != 0);
     };
     if (!expect(query(solid->id()), "default filters include all solid motion categories"))
     {
@@ -649,9 +649,9 @@ bool query_lifecycle()
     const auto query = [&](std::uint64_t expected)
     {
         return fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
-               hit.node_id == expected &&
+               hit.object.node_id == expected &&
                fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
-               hit.node_id == expected;
+               hit.object.node_id == expected;
     };
     if (!query(near->id()))
     {
@@ -706,10 +706,10 @@ bool query_lifecycle()
         return false;
     }
     collider = near->add_component<engine::Collider>();
-    if (!expect(collider != nullptr && collider->instance_id() != saved.collider_id &&
+    if (!expect(collider != nullptr && collider->instance_id() != saved.object.instance_id &&
                     !fixture.physics.is_hit_valid(saved) && query(far->id()) &&
                     fixture.physics.tick(0) && query(near->id()) &&
-                    hit.collider_id == collider->instance_id() &&
+                    hit.object.instance_id == collider->instance_id() &&
                     !fixture.physics.is_hit_valid(saved),
                 "same-node collider replacement cannot resurrect an old body or hit identity"))
     {
@@ -1016,7 +1016,7 @@ bool transient_mesh_collision()
         return false;
     }
     if (!expect(fixture.physics.query_ray({0.25, 3, 0.25}, {0, -6, 0}, {}, hit) && hit.hit &&
-                    hit.node_id == floor->id() && std::abs(hit.distance - 3.0F) < 0.001F &&
+                    hit.object.node_id == floor->id() && std::abs(hit.distance - 3.0F) < 0.001F &&
                     std::abs(hit.point.y()) < 0.001 && hit.normal.y() > 0.99 &&
                     fixture.physics.query_ray({0.25, -3, 0.25}, {0, 6, 0}, {}, hit) && hit.hit &&
                     std::abs(hit.distance - 3.0F) < 0.001F && hit.normal.y() > 0.99 &&
@@ -1898,7 +1898,7 @@ bool compound_collision()
     }
     engine::PhysicsQueryHit hit;
     if (!expect(fixture.physics.query_ray({1, 8, 0}, {0, -6, 0}, {}, hit) && hit.hit &&
-                    hit.node_id == island->id() && hit.collider_id == collider->instance_id() &&
+                    hit.object.node_id == island->id() && hit.object.instance_id == collider->instance_id() &&
                     std::abs(hit.point.y() - 4.5) < 0.01 && hit.normal.y() > 0.99 &&
                     fixture.physics.query_ray({0, 8, 0}, {0, -6, 0}, {}, hit) && empty_hit(hit) &&
                     fixture.physics.query_sphere({0, 8, 0}, {0, -6, 0}, 0.1F, {}, hit) &&

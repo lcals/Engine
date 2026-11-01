@@ -3,6 +3,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/scene/character_motor.hpp"
+#include "runtime/scene/collider.hpp"
+#include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/mesh_generated.h"
@@ -321,9 +323,105 @@ bool capacity_replacement()
                   "same-frame replacement at full capacity frees the old slot first");
 }
 
+bool physics_shape_ownership()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* agent = fixture.agent({2, 0, 6});
+    if (!agent || !agent->move_to({20, 0, 6}))
+    {
+        return false;
+    }
+    auto& node = agent->node();
+    auto* collider = node.add_component<engine::Collider>();
+    if (!expect(collider && fixture.advance(1) &&
+                    agent->state() == NavigationAgentStatus::invalid,
+                "a moving crowd must not silently relocate a standalone static collider"))
+    {
+        return false;
+    }
+    auto* body = node.add_component<engine::RigidBody>();
+    if (!expect(body && fixture.advance(1) &&
+                    agent->state() == NavigationAgentStatus::invalid,
+                "a dynamic body conflicts with navigation position ownership"))
+    {
+        return false;
+    }
+    auto settings = body->settings();
+    settings.motion = engine::schema::BodyMotion::kinematic;
+    const auto initial = position(*agent);
+    if (!expect(body->set_settings(settings) && fixture.advance(60) &&
+                    agent->state() == NavigationAgentStatus::moving &&
+                    position(*agent).x() > initial.x(),
+                "zero-velocity kinematic collider follows crowd-owned transforms"))
+    {
+        return false;
+    }
+    settings.linear_velocity = {1, 0, 0};
+    const auto before_conflict = position(*agent);
+    if (!expect(body->set_settings(settings) && fixture.advance(10) &&
+                    agent->state() == NavigationAgentStatus::invalid &&
+                    distance(position(*agent), before_conflict) < 0.001,
+                "velocity-driven kinematic bodies cannot also be crowd-driven"))
+    {
+        return false;
+    }
+    settings.linear_velocity = {};
+    settings.angular_velocity = {0, 1, 0};
+    if (!expect(body->set_settings(settings) && fixture.advance(1) &&
+                    agent->state() == NavigationAgentStatus::invalid,
+                "kinematic angular integration also conflicts with crowd pose ownership"))
+    {
+        return false;
+    }
+    settings.angular_velocity = {};
+    settings.motion = engine::schema::BodyMotion::static_body;
+    if (!expect(body->set_settings(settings) && fixture.advance(1) &&
+                    agent->state() == NavigationAgentStatus::invalid,
+                "an explicitly static body is not a moving navigation mirror"))
+    {
+        return false;
+    }
+    settings.motion = engine::schema::BodyMotion::kinematic;
+    if (!body->set_settings(settings))
+    {
+        return false;
+    }
+    collider->set_enabled(false);
+    if (!expect(fixture.advance(1) && agent->state() == NavigationAgentStatus::invalid,
+                "an enabled rigid body without an enabled collider is rejected"))
+    {
+        return false;
+    }
+    body->set_enabled(false);
+    if (!expect(fixture.advance(30) && agent->state() == NavigationAgentStatus::moving,
+                "disabled physical components do not own the pose"))
+    {
+        return false;
+    }
+    collider->set_enabled(true);
+    if (!expect(fixture.advance(1) && agent->state() == NavigationAgentStatus::invalid,
+                "an enabled collider with a disabled rigid body is rejected"))
+    {
+        return false;
+    }
+    body->set_enabled(true);
+    auto shape = collider->settings();
+    shape.is_trigger = true;
+    return expect(collider->set_settings(shape) && fixture.advance(30) &&
+                      agent->state() == NavigationAgentStatus::moving,
+                  "kinematic sensors are supported without introducing a second position solver");
+}
+
 } // namespace
 
 int main()
 {
-    return requests_and_lifetime() && many_agents() && capacity_replacement() ? 0 : 1;
+    return requests_and_lifetime() && many_agents() && capacity_replacement() &&
+                   physics_shape_ownership()
+               ? 0
+               : 1;
 }

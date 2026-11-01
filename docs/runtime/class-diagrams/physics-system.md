@@ -20,7 +20,11 @@ classDiagram
         +cast_ray(const Collider& collider, const Vec3& origin, const Vec3& displacement, float& fraction) bool
         +query_ray(const Vec3& origin, const Vec3& displacement, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
         +query_sphere(const Vec3& origin, const Vec3& displacement, float radius, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
+        +overlap_sphere(const Vec3& center, float radius, const PhysicsQueryFilter& filter, vector~PhysicsObject~& objects) bool
+        +overlap_box(const Vec3& center, const Vec3& half_extents, const PhysicsQueryFilter& filter, vector~PhysicsObject~& objects) bool
+        +is_object_valid(const PhysicsObject& object) bool
         +is_hit_valid(const PhysicsQueryHit& hit) bool
+        +contacts() span~const PhysicsContactEvent~
         +impacts() span~const PhysicsImpact~
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
@@ -54,13 +58,41 @@ classDiagram
         +bool include_kinematic = true
         +bool include_dynamic = true
         +bool include_sensors = false
+        +bool include_characters = true
+    }
+    class PhysicsObjectKind {
+        <<enumeration>>
+        collider
+        character
+    }
+    class PhysicsObject {
+        <<struct>>
+        +uint64_t scene_id = 0
+        +uint64_t node_id = 0
+        +PhysicsObjectKind kind
+        +uint64_t instance_id = 0
+    }
+    class PhysicsContactPhase {
+        <<enumeration>>
+        begin
+        stay
+        end
+    }
+    class PhysicsContactEvent {
+        <<struct>>
+        +uint64_t frame
+        +uint64_t step
+        +PhysicsContactPhase phase
+        +PhysicsObject a
+        +PhysicsObject b
+        +Vec3 point
+        +Vec3 normal
+        +bool is_trigger
     }
     class PhysicsQueryHit {
         <<struct>>
         +bool hit = false
-        +uint64_t scene_id = 0
-        +uint64_t node_id = 0
-        +uint64_t collider_id = 0
+        +PhysicsObject object
         +Vec3 point
         +Vec3 normal
         +float distance = 0
@@ -93,6 +125,14 @@ classDiagram
     PhysicsSystem ..> ColliderDataT : 校验并原子提交通用碰撞描述
     PhysicsSystem ..> PhysicsQueryFilter : 最近命中过滤参数
     PhysicsSystem ..> PhysicsQueryHit : 输出数值快照并校验身份
+    PhysicsQueryHit *-- PhysicsObject : 命中身份值
+    PhysicsObject ..> PhysicsObjectKind : 区分组件身份空间
+    PhysicsSystem ..> PhysicsObject : 重叠列表与有效性查询
+    PhysicsSystem ..> PhysicsContactEvent : 返回只读事件快照
+    PhysicsState *-- PhysicsContactEvent : 拥有当前帧事件
+    PhysicsContactEvent *-- PhysicsObject : 双方身份值
+    PhysicsContactEvent ..> PhysicsContactPhase : 子步生命周期
+    PhysicsContactEvent ..> Vec3 : 最后接触点和A到B法线
     PhysicsQueryHit ..> Vec3 : 世界命中点与法线
     PhysicsState *-- PhysicsImpact : 持有当前物理帧只读快照
     PhysicsSystem ..> PhysicsImpact : 返回非消费借用
@@ -134,13 +174,13 @@ classDiagram
 
 `cast_ray` 只查询调用方指定、属于当前世界的 Collider，射线由世界起点和完整位移表示，复用 Jolt NarrowPhaseQuery。命中返回 `true` 和 `[0,1]` 比例，无命中或已禁用/尚未生成物理体返回 `true/1`；归属或参数错误返回 `false/0`。忽略 sensor，其他 Collider 不会遮挡目标，三角形双面可命中；不加载资源或推进模拟。
 
-`query_ray` / `query_sphere` 查询当前场景已提交碰撞世界中的最近 Collider，保持上述两个旧查询契约。输入为世界起点和非零完整位移；所有数值须有限，起点各轴绝对值不超过 1e7，位移各轴不超过 1e5，球半径为 0.0001..1000。未初始化、无当前场景、物理世界尚未同步到当前场景、忽略节点不属于当前场景或参数无效时返回 false 并清空 hit。有效但没有命中返回 true 和空 hit；命中返回 true 且 hit.hit 为 true。查询只读，不推进模拟、不隐式同步，须在主线程物理步进及场景修改之外调用。
+`query_ray` / `query_sphere` 查询当前场景已提交碰撞世界中的最近 Collider 或 CharacterMotor，保持上述两个旧查询契约。输入为世界起点和非零完整位移；所有数值须有限，起点各轴绝对值不超过 1e7，位移各轴不超过 1e5，球半径为 0.0001..1000。未初始化、无当前场景、物理世界尚未同步到当前场景、忽略节点不属于当前场景或参数无效时返回 false 并清空 hit。有效但没有命中返回 true 和空 hit；命中返回 true 且 hit.hit 为 true。查询只读，不推进模拟、不隐式同步，须在主线程物理步进及场景修改之外调用。
 
-`PhysicsQueryFilter` 默认包含静态、运动学和动态实体并忽略 sensor；类别按已提交物理体判断，sensor 还须通过对应运动类别。ignore_node_id 为零表示不忽略节点，非零时可连同其子树一起忽略。过滤在 Jolt BodyFilter 内执行，同时按 body 的节点映射、当前 Collider 实例及启用状态排除删除、重建或禁用对象，失效前景不会遮挡后方有效对象。类别不是业务碰撞 layer，不改变碰撞层矩阵或资源格式。CharacterVirtual 不属于 Collider，不进入结果。
+`PhysicsQueryFilter` 默认包含静态、运动学和动态实体并忽略 sensor；类别按已提交物理体判断，sensor 还须通过对应运动类别。ignore_node_id 为零表示不忽略节点，非零时可连同其子树一起忽略。过滤在 Jolt BodyFilter 内执行，同时按 body 的节点映射、当前 Collider 实例及启用状态排除删除、重建或禁用对象，失效前景不会遮挡后方有效对象。类别不是业务碰撞 layer，不改变碰撞层矩阵或资源格式。CharacterMotor 通过 Jolt 官方 CharacterVirtual inner body 进入同一查询空间；include_characters 独立控制角色，不受 include_kinematic 约束。
 
-`PhysicsQueryHit` 是值快照，不保存借用指针或 Jolt 类型。scene_id、node_id 和 collider_id 共同标识命中对象；Collider 的实例身份不进入持久数据。fraction 为 [0,1]，distance 为位移长度乘 fraction；球扫 distance 是球心行程，point 是被命中 Collider 上的世界接触点，normal 朝向扫掠球。射线 point 为起点加 fraction 倍位移，普通命中 normal 为表面外法线，网格双面可命中。射线从凸体内部出发返回 fraction/distance 为零、point 为起点、normal 为反向单位位移，此时 normal 表示退回方向。球扫初始重叠同样返回零距离，多个重叠由 Jolt 选择最深接触；退化接触法线使用反向单位位移。
+`PhysicsQueryHit` 是值快照，不保存借用指针或 Jolt 类型。object 中 scene_id、node_id、kind 和 instance_id 共同标识命中对象；Collider 的实例身份不进入持久数据。fraction 为 [0,1]，distance 为位移长度乘 fraction；球扫 distance 是球心行程，point 是被命中 Collider 上的世界接触点，normal 朝向扫掠球。射线 point 为起点加 fraction 倍位移，普通命中 normal 为表面外法线，网格双面可命中。射线从凸体内部出发返回 fraction/distance 为零、point 为起点、normal 为反向单位位移，此时 normal 表示退回方向。球扫初始重叠同样返回零距离，多个重叠由 Jolt 选择最深接触；退化接触法线使用反向单位位移。
 
-`is_hit_valid` 只检查当前场景、节点、Collider 实例身份及碰撞组件、刚体和变换层级的启用状态；删除、同节点重建 Collider 或切换场景后旧快照失效。位置或形状变化不重算历史命中，不使仍存活的对象身份失效；调用者需要当前命中时须重新查询。
+`is_object_valid` / `is_hit_valid` 只检查当前场景、节点、对应 Collider 或 CharacterMotor 实例身份及组件和变换层级的启用状态；删除、同节点重建 Collider 或切换场景后旧快照失效。位置或形状变化不重算历史命中，不使仍存活的对象身份失效；调用者需要当前命中时须重新查询。
 
 `PhysicsImpact` 是通用瞬时数据，不保存 Node 指针、Jolt 类型或具体破坏组件。每次 `on_tick` 清除前帧快照（没有固定子步也清除），`frame` 在当前系统生命周期内单调递增；多个固定子步与复合形状接触按节点对保留估算冲量最大的撞击，同值时保留接近速度更大的一条。`point` 为代表接触点，`normal` 从 `node_a` 指向 `node_b`，`closing_speed` 为包含角速度的碰前法向接近速度（m/s），`estimated_impulse` 为 Jolt 官方 `EstimateCollisionResponse` 给出的该接触面的估算法向冲量（N·s），不是求解器实际冲量，多体堆叠时尤其不能视为精确值。
 
@@ -149,3 +189,13 @@ Jolt ContactListener 回调只读取传入 body 并收集数值，不访问 Scen
 根动态刚体的私有快照还记录最后一次成功写回的 `TransformSettings` 和 Jolt 原始姿态。下一帧仅当节点仍为根动态刚体、组件 TRS 与该写回值精确相同时复用原始姿态；调用方改位置、旋转或缩放均重新走正常世界变换检查。此缓存不放宽精度容差，避免自身 Euler 往返造成四元数翻号、重复更新 BroadPhase 与重置睡眠。父级变换、静态和运动学刚体继续使用原同步路径。
 
 临时物理内存复用 Jolt 官方 `TempAllocatorImplWithMallocFallback` 预留的 10 MiB 栈式分配缓冲区，超出后使用其官方 malloc 分配；不改变物体上限或求解设置。静态形状替换复用 `SetShape` 已完成的空间树通知，位姿没有变化时不重复提交位置/旋转；动态速度读取用 `GetLinearAndAngularVelocity` 合并锁操作。
+
+## 范围与接触事件契约
+
+球形范围和轴对齐盒形范围使用 Jolt NarrowPhaseQuery.CollideShape，按 PhysicsObject 去重并稳定排序；全部结果返回 vector，没有“最近一个”的替代。失败清空输出，成功空列表表示没有重叠。查询复用最近命中的身份、生命周期和过滤规则，不推进模拟。接触点不属于对象范围名单，需要接触位置时读取射线/球扫或接触事件。
+
+PhysicsContactEvent 仅保存值，a/b 使用与查询相同的身份。每个固定子步发布 begin/stay/end，frame 标识宿主物理 tick，step 标识单调固定子步；同一 tick 内开始和结束均保留，按子步顺序读取。sleeping 的持续接触仍报告 stay；没有固定步时不生成 stay。删除或禁用在同步时生成 end，保留已失效的历史身份，读取方可用 is_object_valid 判断，不因对象已消失而漏掉退出。clear、切场景和关闭直接清空旧事件与接触集合，不向新场景递送旧事件。end 的点和法线取最后有效接触，不是新求解结果。
+
+sensor 与 CharacterMotor 纳入接触生命周期；is_trigger 表示至少一方是 sensor。GetImpacts 保留原有非 sensor 撞击估算语义，不扩为伤害或持续触发。Jolt 回调只收集物理身份和数值，事件在主线程安全点发布，脚本显式读取上一物理 tick 的快照，不从回调修改场景。
+
+同一物理组件在接触中切换 Trigger 类型时，旧类型 end 先于新类型 begin；对象实例不变，两个事件仍属于各自的接触区间。

@@ -22,6 +22,26 @@
 
 公开契约见 [Animator](class-diagrams/animator.md)、[AnimationSystem](class-diagrams/animation-system.md) 和 [动画脚本接口](../plugins/runtime/class-diagrams/animation-script-api.md)。
 
+## InPlace 与角色移动
+
+当前项目默认采用 InPlace：物理控制器或导航系统负责节点移动，动画只表现姿态。源动作若包含持续前进的骨骼位移，须先在导入时去除；否则节点移动与骨骼位移叠加，动作每次循环又返回首帧，画面会周期性后跳。`SetSpeed` 只改变播放速率，不重置播放时间，也不能消除这段位移。
+
+FBX 导入复用 ozz `MotionExtractor`，在相邻 `.meta` 按动画 key、完整关节路径和局部轴配置。例如 showcase 的公开 walk 动作使用：
+
+```toml
+[[animation_motion]]
+animation = "animations/walk"
+joint = "root/Hips"
+position = [false, false, true]
+rotation = [false, false, false]
+```
+
+该配置将选中轴保留在首帧位置，保留未选轴的上下起伏和侧向姿态。骨骼与轴由资源指定，引擎不猜测模型约定；无配置的片段保留源数据。完整参数、旋转提取对平移的影响及增量发布规则见 [FBX 导入契约](../plugins/editor/class-diagrams/fbx-importer.md)。
+
+项目按实际水平速度除以源动作参考步速设置播放倍率；showcase walk 的参考步速约为 `1.4253 / 1.333333 = 1.068975 m/s`。这只匹配平均步频，不提供脚锁或接触 IK。
+
+当前实现的是导入阶段的原地动画，尚未输出独立运动曲线或实现 RootMotion 驱动及运行时模式切换。未来 RootMotion 需把提取出的位移交给角色运动求解，并处理循环、混合和碰撞；不能直接把骨骼位移当作节点移动。
+
 ## 动画复用与重定向方向（规划）
 
 完整资产制作流程见[角色与动画制作](../editor/character-production.md)。模型检查、绑定创建、权重生成及服务调用在离线工具或编辑器侧执行；已有优质绑定优先保留，无绑定或不可用绑定可在派生副本中标准化重建。AI 负责调用与验证，不要求这些算法使用机器学习。

@@ -263,6 +263,239 @@ bool material_remaps(editor::AssetPipelineSystem& pipeline, const Project& proje
     return true;
 }
 
+bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& project,
+                      const std::string& base_meta)
+{
+    const auto source = project.root / "assets/models/locomotions.fbx";
+    const auto meta = project.root / "assets/models/locomotions.fbx.meta";
+    constexpr auto walk_path = "models/locomotions.fbx/animations/walk";
+    constexpr auto run_path = "models/locomotions.fbx/animations/run";
+    ResourceCatalog catalog;
+    ByteBuffer bytes;
+    ByteBuffer original_run;
+    Guid walk_guid;
+    if (!expect(write(meta, base_meta) && pipeline.build_assets(project.root) &&
+                    ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                    catalog.identities().path_to_guid(walk_path, walk_guid) &&
+                    read(catalog, project.root, run_path, original_run) &&
+                    read(catalog, project.root, walk_path, bytes),
+                "prepare unmodified animation baseline"))
+    {
+        return false;
+    }
+    const auto original_walk = bytes;
+    const std::unique_ptr<schema::AnimationDataT> original{
+        schema::GetAnimationData(bytes.data())->UnPack()};
+    if (!read(catalog, project.root, "models/skeleton.fbx/skeleton", bytes))
+    {
+        return false;
+    }
+    const auto* joints = schema::GetSkeletonData(bytes.data())->joints();
+    std::uint32_t joint = joints->size();
+    for (std::uint32_t index = 0; index < joints->size(); ++index)
+    {
+        if (joints->Get(index)->name()->str() == "Hips")
+        {
+            joint = index;
+            break;
+        }
+    }
+    const auto original_track = std::find_if(original->tracks.begin(), original->tracks.end(),
+                                             [joint](const auto& track)
+                                             { return track->joint == joint; });
+    if (!expect(original_track != original->tracks.end() &&
+                    std::abs((*original_track)->translations.back().value().z() -
+                             (*original_track)->translations.front().value().z()) > 100.0,
+                "fixture locomotion contains substantial forward joint displacement"))
+    {
+        return false;
+    }
+    const std::string header = "\n[[animation_motion]]\nanimation = \"animations/walk\"\n"
+                               "joint = \"root/Hips\"\n";
+    const auto valid_meta = base_meta + header + "position = [false, false, true]\n";
+    for (const bool defaults : {false, true})
+    {
+        if (!expect(write(meta, defaults ? base_meta + header : valid_meta) &&
+                        pipeline.build_assets(project.root) &&
+                        pipeline.last_build().imported == 4 &&
+                        ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                        read(catalog, project.root, walk_path, bytes),
+                    "motion settings rebuild only the animation source and its three clips"))
+        {
+            return false;
+        }
+        Guid current_guid;
+        const std::unique_ptr<schema::AnimationDataT> baked{
+            schema::GetAnimationData(bytes.data())->UnPack()};
+        if (!expect(catalog.identities().path_to_guid(walk_path, current_guid) &&
+                        current_guid == walk_guid && baked->tracks.size() == original->tracks.size(),
+                    "InPlace preserves animation identity and track layout"))
+        {
+            return false;
+        }
+        for (std::size_t index = 0; index < baked->tracks.size(); ++index)
+        {
+            const auto& before = *original->tracks[index];
+            const auto& after = *baked->tracks[index];
+            if (after.joint != joint)
+            {
+                if (!expect(after == before, "unselected joint tracks remain exactly unchanged"))
+                {
+                    return false;
+                }
+                continue;
+            }
+            if (!expect(after.rotations == before.rotations && after.scales == before.scales &&
+                            after.translations.size() == before.translations.size(),
+                        "position-only extraction preserves rotation, scale and sample count"))
+            {
+                return false;
+            }
+            for (std::size_t key = 0; key < after.translations.size(); ++key)
+            {
+                const auto& value = after.translations[key].value();
+                const auto& unchanged = before.translations[key].value();
+                const auto& first = before.translations.front().value();
+                if (!expect(after.translations[key].time() == before.translations[key].time() &&
+                                value.y() == unchanged.y() &&
+                                std::abs(value.z() - first.z()) < 0.00002 &&
+                                (defaults ? std::abs(value.x() - first.x()) < 0.00002
+                                          : value.x() == unchanged.x()),
+                            "selected axes stay at first pose; vertical bounce and unselected "
+                            "components retain their exact values"))
+                {
+                    return false;
+                }
+            }
+        }
+        if (!expect(read(catalog, project.root, run_path, bytes) && bytes == original_run,
+                    "unconfigured animation remains byte-for-byte unchanged"))
+        {
+            return false;
+        }
+    }
+    if (!expect(write(meta, base_meta + header + "position = [false, false, false]\n"
+                                                "rotation = [true, true, true]\n") &&
+                    pipeline.build_assets(project.root) &&
+                    ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                    read(catalog, project.root, walk_path, bytes),
+                "explicit rotation extraction is supported"))
+    {
+        return false;
+    }
+    const std::unique_ptr<schema::AnimationDataT> rotated{
+        schema::GetAnimationData(bytes.data())->UnPack()};
+    bool translation_recomposed = false;
+    for (std::size_t index = 0; index < rotated->tracks.size(); ++index)
+    {
+        const auto& before = *original->tracks[index];
+        const auto& after = *rotated->tracks[index];
+        if (after.joint != joint)
+        {
+            if (!expect(after == before, "rotation extraction leaves other joints untouched"))
+            {
+                return false;
+            }
+            continue;
+        }
+        for (std::size_t key = 0; key < after.rotations.size(); ++key)
+        {
+            const auto& first = before.rotations.front().value();
+            const auto& value = after.rotations[key].value();
+            const auto dot = first.x() * value.x() + first.y() * value.y() +
+                             first.z() * value.z() + first.w() * value.w();
+            if (!expect(std::abs(std::abs(dot) - 1.0) < 0.00001 &&
+                            after.scales == before.scales,
+                        "all selected rotations are baked to the first orientation"))
+            {
+                return false;
+            }
+        }
+        for (std::size_t key = 0; key < after.translations.size(); ++key)
+        {
+            const auto& value = after.translations[key].value();
+            const auto& prior = before.translations[key].value();
+            translation_recomposed |= std::hypot(value.x() - prior.x(), value.y() - prior.y(),
+                                                 value.z() - prior.z()) > 0.001;
+        }
+    }
+    if (!expect(translation_recomposed, "rotation bake retains ozz translation recomposition") ||
+        !expect(write(meta, base_meta + header + "position = [false, false, false]\n") &&
+                    pipeline.build_assets(project.root) &&
+                    ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                    read(catalog, project.root, walk_path, bytes) && bytes == original_walk,
+                "explicitly disabling all axes preserves the original clip") ||
+        !expect(write(meta, valid_meta) && pipeline.build_assets(project.root) &&
+                    ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                    read(catalog, project.root, walk_path, bytes),
+                "restore selected motion configuration"))
+    {
+        return false;
+    }
+    const auto payload = bytes;
+    const auto revision = pipeline.last_build().revision;
+    if (!expect(pipeline.build_assets(project.root) && pipeline.last_build().imported == 0 &&
+                    pipeline.last_build().revision == revision,
+                "unchanged motion configuration reuses cached outputs"))
+    {
+        return false;
+    }
+    const std::vector<std::string> invalid{
+        "animation_motion = false\n" + base_meta,
+        "animation_motion = [42]\n" + base_meta,
+        base_meta + "\n[[animation_motion]]\nanimation = 7\njoint = \"root/Hips\"\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = true\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"walk\"\njoint = \"root/Hips\"\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"animations/missing\"\njoint = \"root\"\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = \"Hips\"\n",
+        base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = \"root/missing\"\n",
+        valid_meta + header,
+        base_meta + header + "position = true\n",
+        base_meta + header + "position = [true, false]\n",
+        base_meta + header + "position = [true, false, 1]\n",
+        base_meta + header + "rotation = [true, false, false, false]\n",
+        base_meta + header + "rotation = [false, \"false\", false]\n",
+        base_meta + header + "rotation = [false, 0, false]\n",
+        valid_meta + "typo = true\n"};
+    for (std::size_t invalid_index = 0; invalid_index < invalid.size(); ++invalid_index)
+    {
+        const auto& invalid_meta = invalid[invalid_index];
+        auto parameters = invalid_meta;
+        parameters.erase(parameters.find(base_meta), base_meta.size());
+        if (!expect(write(meta, invalid_meta) && !pipeline.build_assets(project.root),
+                    "invalid motion configuration case " + std::to_string(invalid_index) +
+                        " must fail: " + parameters) ||
+            !expect(pipeline.last_build().revision == revision &&
+                        ResourceSystem::read_catalog(project.root / "cache", catalog) &&
+                        catalog.revision() == revision &&
+                        read(catalog, project.root, walk_path, bytes) && bytes == payload,
+                    "invalid motion configuration preserves the last published animation"))
+        {
+            return false;
+        }
+    }
+    plugins::fbx_import::FbxImporter snapshot;
+    editor::asset_pipeline::ImportAsset asset;
+    asset.source = source;
+    asset.importer_id = "fbx";
+    const std::vector<const editor::asset_pipeline::ImportAsset*> sources{&asset};
+    const std::map<Guid, schema::AssetKind> kinds;
+    const editor::asset_pipeline::ImportContext context{
+        catalog.identities(),       kinds, project.root, project.root / "assets",
+        project.root / "cache/gen", "",    nullptr,      sources};
+    std::vector<editor::asset_pipeline::ImportSubresource> children;
+    std::string error;
+    std::string fingerprint;
+    return expect(write(meta, valid_meta) && snapshot.discover(asset, children, error) &&
+                      write(meta, base_meta + header) &&
+                      !snapshot.inspect_batch(context, fingerprint, error),
+                  "motion settings changed after discovery invalidate the batch") &&
+           expect(write(meta, valid_meta) && pipeline.build_assets(project.root) &&
+                      pipeline.last_build().revision == revision,
+                  "restoring valid motion settings reuses the last complete version");
+}
+
 #if defined(ENGINE_FBX_TEST_GRAPH)
 bool model_loading(const Project& project, const ResourceCatalog& catalog, const Guid& model_guid,
                    const Guid& mesh_guid, const Guid& skeleton_guid)
@@ -621,6 +854,10 @@ int main()
         return 1;
     }
     if (!material_remaps(pipeline, project, generated_meta, model_guid, mesh_guid))
+    {
+        return 1;
+    }
+    if (!animation_motion(pipeline, project, original_locomotion_meta))
     {
         return 1;
     }

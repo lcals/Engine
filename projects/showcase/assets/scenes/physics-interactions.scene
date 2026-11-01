@@ -1,0 +1,922 @@
+name = "Physics interactions"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "Interaction camera"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-1, 15, 20]
+rotation = [-35, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "camera"
+fov_degrees = 52.0
+near_clip = 0.1
+far_clip = 100.0
+
+[[nodes.components]]
+type = "post_process"
+hdr_enabled = true
+filmic_tonemap = true
+exposure = 1.05
+ao_enabled = true
+ao_strength = 0.5
+
+[[nodes]]
+id = 2
+name = "Environment"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "environment"
+ambient_tricolor = true
+ambient_sky_color = [0.6, 0.75, 0.9]
+ambient_equator_color = [0.5, 0.58, 0.63]
+ambient_ground_color = [0.26, 0.22, 0.18]
+ambient_intensity = 0.45
+clear_color = 1719691519
+
+[[nodes]]
+id = 3
+name = "Sun"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 24, 0]
+rotation = [-48, -28, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "light"
+kind = "directional"
+color = [1, 0.92, 0.8, 1]
+intensity = 3.0
+cast_shadows = true
+shadow_resolution = 2048
+shadow_bias = 0.003
+shadow_cascades = 4
+shadow_distance = 80.0
+
+[[nodes]]
+id = 4
+name = "Interaction UI"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "ui"
+document = "96151489-67c8-464f-8aab-681a46d308d5"
+
+[[nodes]]
+id = 5
+name = "Interaction ground"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.25, 0]
+rotation = [0, 0, 0]
+scale = [12, 0.25, 9]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "39a83443-bd97-47e8-bf5a-2ebdccdec22e"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 6
+name = "North actor"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-8, 0.05, -3]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "collider"
+shape = "capsule"
+radius = 0.3
+half_height = 0.6
+center = [0, 0.9, 0]
+is_trigger = true
+
+[[nodes.components]]
+type = "rigid_body"
+motion = "kinematic"
+gravity_factor = 0.0
+linear_velocity = [0, 0, 0]
+angular_velocity = [0, 0, 0]
+
+[[nodes.components]]
+type = "navigation_agent"
+radius = 0.3
+height = 1.8
+max_speed = 2.0
+max_acceleration = 6.0
+arrival_distance = 0.2
+face_velocity = true
+
+[[nodes]]
+id = 7
+name = "Middle actor"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [8, 0.05, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "collider"
+shape = "capsule"
+radius = 0.3
+half_height = 0.6
+center = [0, 0.9, 0]
+is_trigger = true
+
+[[nodes.components]]
+type = "rigid_body"
+motion = "kinematic"
+gravity_factor = 0.0
+linear_velocity = [0, 0, 0]
+angular_velocity = [0, 0, 0]
+
+[[nodes.components]]
+type = "navigation_agent"
+radius = 0.3
+height = 1.8
+max_speed = 2.0
+max_acceleration = 6.0
+arrival_distance = 0.2
+face_velocity = true
+
+[[nodes]]
+id = 8
+name = "South actor"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-8, 0.05, 3]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "collider"
+shape = "capsule"
+radius = 0.3
+half_height = 0.6
+center = [0, 0.9, 0]
+is_trigger = true
+
+[[nodes.components]]
+type = "rigid_body"
+motion = "kinematic"
+gravity_factor = 0.0
+linear_velocity = [0, 0, 0]
+angular_velocity = [0, 0, 0]
+
+[[nodes.components]]
+type = "navigation_agent"
+radius = 0.3
+height = 1.8
+max_speed = 2.0
+max_acceleration = 6.0
+arrival_distance = 0.2
+face_velocity = true
+
+[[nodes]]
+id = 9
+name = "Event region"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1.5, 1.0, 7.5]
+is_trigger = true
+
+[[nodes]]
+id = 10
+name = "Overlap region"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, 0]
+rotation = [0, 0, 0]
+scale = [3, 0.012, 7]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 11
+name = "Event west edge"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-1.5, 0.04, 0]
+rotation = [0, 0, 0]
+scale = [0.035, 0.025, 7.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 12
+name = "Event east edge"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [1.5, 0.04, 0]
+rotation = [0, 0, 0]
+scale = [0.035, 0.025, 7.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 13
+name = "Event north edge"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.04, -7.5]
+rotation = [0, 0, 0]
+scale = [1.5, 0.025, 0.035]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 14
+name = "Event south edge"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.04, 7.5]
+rotation = [0, 0, 0]
+scale = [1.5, 0.025, 0.035]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 15
+name = "Query line"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.055, 0]
+rotation = [0, 0, 0]
+scale = [10, 0.025, 0.025]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "da118a34-a384-4863-b1ab-5d6dea5fdb82"
+
+[[nodes]]
+id = 16
+name = "Hit marker"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1, 0]
+rotation = [0, 0, 0]
+scale = [0.09, 0.09, 0.09]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 17
+name = "North motor"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-8, 0.05, -6]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "character_motor"
+radius = 0.3
+half_height = 0.6
+step_height = 0.35
+ground_snap_distance = 0.2
+gravity_factor = 1.0
+
+[[nodes]]
+id = 18
+name = "South motor"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [8, 0.05, 6]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "character_motor"
+radius = 0.3
+half_height = 0.6
+step_height = 0.35
+ground_snap_distance = 0.2
+gravity_factor = 1.0
+
+[[nodes]]
+id = 19
+name = "Sphere footprint 0"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6.767256, 0.035, 0.666517]
+rotation = [0, -5.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 20
+name = "Sphere footprint 1"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6.507194, 0.035, 1.973936]
+rotation = [0, -16.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 21
+name = "Sphere footprint 2"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [5.997065, 0.035, 3.205498]
+rotation = [0, -28.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 22
+name = "Sphere footprint 3"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [5.256471, 0.035, 4.313874]
+rotation = [0, -39.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 23
+name = "Sphere footprint 4"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [4.313874, 0.035, 5.256471]
+rotation = [0, -50.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 24
+name = "Sphere footprint 5"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [3.205498, 0.035, 5.997065]
+rotation = [0, -61.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 25
+name = "Sphere footprint 6"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [1.973936, 0.035, 6.507194]
+rotation = [0, -73.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 26
+name = "Sphere footprint 7"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.666517, 0.035, 6.767256]
+rotation = [0, -84.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 27
+name = "Sphere footprint 8"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-0.666517, 0.035, 6.767256]
+rotation = [0, -95.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 28
+name = "Sphere footprint 9"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-1.973936, 0.035, 6.507194]
+rotation = [0, -106.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 29
+name = "Sphere footprint 10"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-3.205498, 0.035, 5.997065]
+rotation = [0, -118.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 30
+name = "Sphere footprint 11"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-4.313874, 0.035, 5.256471]
+rotation = [0, -129.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 31
+name = "Sphere footprint 12"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5.256471, 0.035, 4.313874]
+rotation = [0, -140.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 32
+name = "Sphere footprint 13"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5.997065, 0.035, 3.205498]
+rotation = [0, -151.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 33
+name = "Sphere footprint 14"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6.507194, 0.035, 1.973936]
+rotation = [0, -163.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 34
+name = "Sphere footprint 15"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6.767256, 0.035, 0.666517]
+rotation = [0, -174.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 35
+name = "Sphere footprint 16"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6.767256, 0.035, -0.666517]
+rotation = [0, -185.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 36
+name = "Sphere footprint 17"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-6.507194, 0.035, -1.973936]
+rotation = [0, -196.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 37
+name = "Sphere footprint 18"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5.997065, 0.035, -3.205498]
+rotation = [0, -208.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 38
+name = "Sphere footprint 19"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-5.256471, 0.035, -4.313874]
+rotation = [0, -219.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 39
+name = "Sphere footprint 20"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-4.313874, 0.035, -5.256471]
+rotation = [0, -230.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 40
+name = "Sphere footprint 21"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-3.205498, 0.035, -5.997065]
+rotation = [0, -241.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 41
+name = "Sphere footprint 22"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-1.973936, 0.035, -6.507194]
+rotation = [0, -253.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 42
+name = "Sphere footprint 23"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-0.666517, 0.035, -6.767256]
+rotation = [0, -264.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 43
+name = "Sphere footprint 24"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0.666517, 0.035, -6.767256]
+rotation = [0, -275.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 44
+name = "Sphere footprint 25"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [1.973936, 0.035, -6.507194]
+rotation = [0, -286.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 45
+name = "Sphere footprint 26"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [3.205498, 0.035, -5.997065]
+rotation = [0, -298.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 46
+name = "Sphere footprint 27"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [4.313874, 0.035, -5.256471]
+rotation = [0, -309.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 47
+name = "Sphere footprint 28"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [5.256471, 0.035, -4.313874]
+rotation = [0, -320.625000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 48
+name = "Sphere footprint 29"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [5.997065, 0.035, -3.205498]
+rotation = [0, -331.875000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 49
+name = "Sphere footprint 30"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6.507194, 0.035, -1.973936]
+rotation = [0, -343.125000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 50
+name = "Sphere footprint 31"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [6.767256, 0.035, -0.666517]
+rotation = [0, -354.375000, 0]
+scale = [0.035, 0.02, 0.667]
+
+[[nodes.components]]
+type = "mesh_renderer"
+enabled = false
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"

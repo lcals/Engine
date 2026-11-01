@@ -24,7 +24,7 @@
 
 ## 当前演示与范围
 
-Showcase 由项目脚本提交 Terrain 产生的静态网格，在一次爆炸处理完地形后合并范围并局部重建。移动碎块不自动加入导航，群体代理由独立运行时导航群体插件连接普通 Node 与 NavigationSystem，显式步进后同步 Transform；不与同节点 CharacterMotor 或 RigidBody 双重积分。离线导航资源、成本区域、跳跃连接及 TileCache 尚未实现。
+Showcase 由项目脚本提交 Terrain 产生的静态网格，在一次爆炸处理完地形后合并范围并局部重建。移动碎块不自动加入导航，群体代理由独立运行时导航群体插件连接普通 Node 与 NavigationSystem，显式步进后由 Crowd 唯一写入 Transform。同节点不能同时启用 CharacterMotor；可选 `Collider + kinematic RigidBody` 组合要求刚体线/角速度均为零，Physics 只同步该形体供查询及接触使用。单独启用 Collider 或 RigidBody、非运动学刚体及非零速度组合会被拒绝；该组合不提供重力或击退位移。离线导航资源、成本区域、跳跃连接及 TileCache 尚未实现。
 
 回归测试位于 `tests/navigation_test.cpp`，覆盖跨 tile 寻路、挖洞绕路、完全断路、填补恢复、失败时局部失效、空几何删除、变换及参数边界。[脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)由 `tests/navigation_script_test.cpp` 验证真实后端、显式输入及场景生命周期。实际构建与测试结果以本次交付记录为准。依赖方向见[运行时模块](runtime.md)。
 

@@ -19,8 +19,10 @@
 #include <Jolt/Core/TempAllocator.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyLock.h>
+#include <Jolt/Physics/Body/BodyLockMulti.h>
 #include <Jolt/Physics/Character/CharacterVirtual.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/EstimateCollisionResponse.h>
@@ -53,6 +55,7 @@
 #include <numbers>
 #include <optional>
 #include <span>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -66,6 +69,7 @@ constexpr std::size_t maximum_bodies = 4096;
 constexpr unsigned int maximum_steps = 8;
 constexpr JPH::ObjectLayer static_layer = 0;
 constexpr JPH::ObjectLayer moving_layer = 1;
+constexpr JPH::ObjectLayer character_layer = 2;
 
 std::mutex registration_mutex;
 JPH::Factory* owned_factory = nullptr;
@@ -132,7 +136,7 @@ public:
 
     JPH::BroadPhaseLayer GetBroadPhaseLayer(JPH::ObjectLayer layer) const override
     {
-        return JPH::BroadPhaseLayer(static_cast<JPH::uint8>(layer));
+        return JPH::BroadPhaseLayer(static_cast<JPH::uint8>(layer == static_layer ? 0 : 1));
     }
 
 #if defined(JPH_EXTERNAL_PROFILE) || defined(JPH_PROFILE_ENABLED)
@@ -148,7 +152,7 @@ class BroadPhaseFilter final : public JPH::ObjectVsBroadPhaseLayerFilter
 public:
     bool ShouldCollide(JPH::ObjectLayer object, JPH::BroadPhaseLayer broad) const override
     {
-        return object == moving_layer || broad.GetValue() == moving_layer;
+        return object != static_layer || broad.GetValue() == moving_layer;
     }
 };
 
@@ -157,7 +161,8 @@ class ObjectFilter final : public JPH::ObjectLayerPairFilter
 public:
     bool ShouldCollide(JPH::ObjectLayer left, JPH::ObjectLayer right) const override
     {
-        return left == moving_layer || right == moving_layer;
+        return (left != static_layer || right != static_layer) &&
+               !(left == character_layer && right == character_layer);
     }
 };
 
@@ -309,7 +314,7 @@ void canonicalize_box_hull(std::span<const JPH::Vec3> points, JPH::Shape::ShapeR
     if (center != JPH::Vec3::sZero())
     {
         candidate = JPH::RotatedTranslatedShapeSettings(center, JPH::Quat::sIdentity(),
-                                                       candidate.Get().GetPtr())
+                                                        candidate.Get().GetPtr())
                         .Create();
         if (candidate.HasError() || !candidate.IsValid())
         {
@@ -488,7 +493,18 @@ class SolidBodyFilter final : public JPH::BodyFilter
 public:
     bool ShouldCollideLocked(const JPH::Body& body) const override
     {
-        return !body.IsSensor();
+        return !body.IsSensor() && body.GetObjectLayer() != character_layer;
+    }
+};
+
+// CharacterVirtual 已经排除自身 inner body；这里也排除其他角色的 inner body，
+// 角色互撞统一交给 CharacterVsCharacterCollision，sensor 仍进入官方接触监听器。
+class CharacterBodyFilter final : public JPH::BodyFilter
+{
+public:
+    bool ShouldCollideLocked(const JPH::Body& body) const override
+    {
+        return body.GetObjectLayer() != character_layer;
     }
 };
 
@@ -644,7 +660,7 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
         return false;
     }
     output.collider = same_collider ? previous->collider
-                                   : std::make_shared<const schema::ColliderDataT>(collider);
+                                    : std::make_shared<const schema::ColliderDataT>(collider);
     return true;
 }
 
@@ -720,7 +736,8 @@ bool prepare_mesh_parts(BodySnapshot& snapshot, const BodySnapshot* previous)
     {
         const auto first = group * group_size;
         const auto last = std::min(first + group_size, shapes->size());
-        const bool same_group = reuse && group < previous->part_groups->size() &&
+        const bool same_group =
+            reuse && group < previous->part_groups->size() &&
             std::min(first + group_size, previous->part_shapes->size()) == last &&
             std::equal(shapes->begin() + first, shapes->begin() + last,
                        previous->part_shapes->begin() + first);
@@ -764,12 +781,10 @@ JPH::AABox changed_bounds(const BodySnapshot& before, const BodySnapshot& after)
     const auto size = std::max(before.part_shapes->size(), after.part_shapes->size());
     for (std::size_t slot = 0; slot < size; ++slot)
     {
-        const auto* old_shape = slot < before.part_shapes->size()
-                                    ? (*before.part_shapes)[slot].GetPtr()
-                                    : nullptr;
-        const auto* new_shape = slot < after.part_shapes->size()
-                                    ? (*after.part_shapes)[slot].GetPtr()
-                                    : nullptr;
+        const auto* old_shape =
+            slot < before.part_shapes->size() ? (*before.part_shapes)[slot].GetPtr() : nullptr;
+        const auto* new_shape =
+            slot < after.part_shapes->size() ? (*after.part_shapes)[slot].GetPtr() : nullptr;
         if (old_shape == new_shape)
         {
             continue;
@@ -813,6 +828,81 @@ bool active_query_collision(const Node& node, std::uint64_t collider_id)
     const auto* body = node.get_component<RigidBody>();
     return collider != nullptr && collider->instance_id() == collider_id && collider->enabled() &&
            (body == nullptr || body->enabled()) && active_transform(node);
+}
+
+bool active_physics_object(const Scene& scene, const PhysicsObject& object)
+{
+    if (object.scene_id != scene.id() || object.instance_id == 0)
+    {
+        return false;
+    }
+    const auto* node = scene.find_node(object.node_id);
+    if (node == nullptr)
+    {
+        return false;
+    }
+    if (object.kind == PhysicsObjectKind::collider)
+    {
+        return active_query_collision(*node, object.instance_id);
+    }
+    if (object.kind != PhysicsObjectKind::character)
+    {
+        return false;
+    }
+    const auto* motor = node->get_component<CharacterMotor>();
+    const auto* collider = node->get_component<Collider>();
+    const auto* body = node->get_component<RigidBody>();
+    return motor != nullptr && motor->instance_id() == object.instance_id && motor->enabled() &&
+           active_transform(*node) && (collider == nullptr || !collider->enabled()) &&
+           (body == nullptr || !body->enabled());
+}
+
+bool object_less(const PhysicsObject& left, const PhysicsObject& right)
+{
+    return std::tie(left.scene_id, left.node_id, left.kind, left.instance_id) <
+           std::tie(right.scene_id, right.node_id, right.kind, right.instance_id);
+}
+
+bool same_object(const PhysicsObject& left, const PhysicsObject& right)
+{
+    return !object_less(left, right) && !object_less(right, left);
+}
+
+struct ContactPair
+{
+    PhysicsObject a;
+    PhysicsObject b;
+
+    bool operator<(const ContactPair& other) const
+    {
+        return object_less(a, other.a) || (same_object(a, other.a) && object_less(b, other.b));
+    }
+};
+
+struct ContactSample
+{
+    ContactPair pair;
+    Vec3 point;
+    Vec3 normal;
+    bool is_trigger = false;
+};
+
+ContactSample contact_sample(const PhysicsObject& a, const PhysicsObject& b, JPH::RVec3Arg point,
+                             JPH::Vec3Arg normal, bool is_trigger)
+{
+    const bool reverse = object_less(b, a);
+    return {{reverse ? b : a, reverse ? a : b},
+            vector(JPH::Vec3(point)),
+            vector(reverse ? -normal : normal),
+            is_trigger};
+}
+
+bool valid_overlap(const Scene* scene, std::uint64_t scene_id, JPH::Vec3Arg center,
+                   const PhysicsQueryFilter& filter)
+{
+    return scene != nullptr && scene->id() == scene_id && finite(center) &&
+           center.Abs().ReduceMax() <= 10000000.0F &&
+           (filter.ignore_node_id == 0 || scene->find_node(filter.ignore_node_id) != nullptr);
 }
 
 bool valid_query(const Scene* scene, std::uint64_t scene_id, JPH::Vec3Arg position,
@@ -869,7 +959,7 @@ bool write_transform(Node& node, JPH::Vec3Arg position, JPH::QuatArg rotation,
 
 } // namespace
 
-struct PhysicsSystem::State final : JPH::ContactListener
+struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactListener
 {
     struct Entry
     {
@@ -900,10 +990,21 @@ struct PhysicsSystem::State final : JPH::ContactListener
     std::vector<CharacterSnapshot> character_snapshots;
     std::uint64_t scene_id = 0;
     std::uint64_t frame = 0;
+    std::uint64_t step = 0;
     double accumulated = 0.0;
     std::mutex impact_mutex;
     std::map<std::pair<std::uint64_t, std::uint64_t>, PhysicsImpact> pending_impacts;
     std::vector<PhysicsImpact> impacts;
+    // BodyID 包含 Jolt 代际；公开身份另外保留组件类型及实例代际。
+    std::map<JPH::BodyID, PhysicsObject> body_objects;
+    std::map<JPH::CharacterID, PhysicsObject> character_objects;
+    std::mutex contact_mutex;
+    std::map<JPH::SubShapeIDPair, ContactSample> body_contacts;
+    using CharacterContactKey = std::tuple<std::uint32_t, bool, std::uint32_t, std::uint32_t>;
+    std::map<CharacterContactKey, ContactSample> character_contacts;
+    std::map<ContactPair, ContactSample> previous_contacts;
+    std::map<ContactPair, ContactSample> touched_contacts;
+    std::vector<PhysicsContactEvent> contacts;
 
     class QueryBodyFilter final : public JPH::BodyFilter
     {
@@ -916,15 +1017,24 @@ struct PhysicsSystem::State final : JPH::ContactListener
 
         bool ShouldCollideLocked(const JPH::Body& body) const override
         {
-            const auto found = state_.bodies.find(body.GetUserData());
+            const auto found = state_.body_objects.find(body.GetID());
             const auto* node = scene_.find_node(body.GetUserData());
-            if (found == state_.bodies.end() || found->second.body != body.GetID() ||
-                node == nullptr ||
-                !active_query_collision(*node, found->second.snapshot.collider_id) ||
-                (!filter_.include_sensors && body.IsSensor()) ||
-                (body.IsStatic() && !filter_.include_static) ||
-                (body.IsKinematic() && !filter_.include_kinematic) ||
-                (body.IsDynamic() && !filter_.include_dynamic))
+            if (found == state_.body_objects.end() || node == nullptr ||
+                !active_physics_object(scene_, found->second))
+            {
+                return false;
+            }
+            if (found->second.kind == PhysicsObjectKind::character)
+            {
+                if (!filter_.include_characters)
+                {
+                    return false;
+                }
+            }
+            else if ((!filter_.include_sensors && body.IsSensor()) ||
+                     (body.IsStatic() && !filter_.include_static) ||
+                     (body.IsKinematic() && !filter_.include_kinematic) ||
+                     (body.IsDynamic() && !filter_.include_dynamic))
             {
                 return false;
             }
@@ -955,20 +1065,43 @@ struct PhysicsSystem::State final : JPH::ContactListener
                    JPH::Vec3Arg direction, JPH::RVec3Arg point, JPH::Vec3Arg normal,
                    PhysicsQueryHit& output) const
     {
-        const auto found = bodies.find(body.GetUserData());
-        if (found == bodies.end() || found->second.body != body.GetID() ||
+        const auto found = body_objects.find(body.GetID());
+        if (found == body_objects.end() || found->second.scene_id != scene.id() ||
             !std::isfinite(fraction) || !finite(JPH::Vec3(point)))
         {
             return false;
         }
         output.hit = true;
-        output.scene_id = scene.id();
-        output.node_id = found->first;
-        output.collider_id = found->second.snapshot.collider_id;
+        output.object = found->second;
         output.point = {point.GetX(), point.GetY(), point.GetZ()};
         output.normal = vector(query_normal(normal, direction));
         output.fraction = std::clamp(fraction, 0.0F, 1.0F);
         output.distance = direction.Length() * output.fraction;
+        return true;
+    }
+
+    bool overlap(const Scene& scene, const JPH::Shape& shape, JPH::RVec3Arg center,
+                 const PhysicsQueryFilter& filter, std::vector<PhysicsObject>& objects) const
+    {
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        JPH::CollideShapeSettings settings;
+        settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+        physics.GetNarrowPhaseQuery().CollideShape(
+            &shape, JPH::Vec3::sOne(), JPH::RMat44::sTranslation(center), settings, center,
+            collector, physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
+            physics.GetDefaultLayerFilter(moving_layer), QueryBodyFilter{*this, scene, filter});
+        for (const auto& hit : collector.mHits)
+        {
+            const auto found = body_objects.find(hit.mBodyID2);
+            if (found == body_objects.end())
+            {
+                objects.clear();
+                return false;
+            }
+            objects.push_back(found->second);
+        }
+        std::sort(objects.begin(), objects.end(), object_less);
+        objects.erase(std::unique(objects.begin(), objects.end(), same_object), objects.end());
         return true;
     }
 
@@ -978,9 +1111,10 @@ struct PhysicsSystem::State final : JPH::ContactListener
         ENGINE_PROFILE_ZONE("Physics.collect_impact");
         const auto first_node = first.GetUserData();
         const auto second_node = second.GetUserData();
-        if (settings.mIsSensor || first.IsSensor() || second.IsSensor() || first_node == 0 ||
-            second_node == 0 || first_node == second_node ||
-            manifold.mRelativeContactPointsOn1.empty() ||
+        if (settings.mIsSensor || first.IsSensor() || second.IsSensor() ||
+            first.GetObjectLayer() == character_layer ||
+            second.GetObjectLayer() == character_layer || first_node == 0 || second_node == 0 ||
+            first_node == second_node || manifold.mRelativeContactPointsOn1.empty() ||
             manifold.mRelativeContactPointsOn1.size() !=
                 manifold.mRelativeContactPointsOn2.size() ||
             !finite(manifold.mWorldSpaceNormal))
@@ -1011,10 +1145,10 @@ struct PhysicsSystem::State final : JPH::ContactListener
         const auto& configuration = physics.GetPhysicsSettings();
         {
             ENGINE_PROFILE_ZONE("Physics.estimate_impact");
-            JPH::EstimateCollisionResponse(first, second, manifold, estimate,
-                                           settings.mCombinedFriction, settings.mCombinedRestitution,
-                                           configuration.mMinVelocityForRestitution,
-                                           configuration.mNumVelocitySteps);
+            JPH::EstimateCollisionResponse(
+                first, second, manifold, estimate, settings.mCombinedFriction,
+                settings.mCombinedRestitution, configuration.mMinVelocityForRestitution,
+                configuration.mNumVelocitySteps);
         }
         float impulse = 0;
         for (const auto& item : estimate.mImpulses)
@@ -1050,6 +1184,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
                         const JPH::ContactManifold& manifold,
                         JPH::ContactSettings& settings) override
     {
+        collect_contact(first, second, manifold, settings);
         collect_impact(first, second, manifold, settings);
     }
 
@@ -1057,7 +1192,275 @@ struct PhysicsSystem::State final : JPH::ContactListener
                             const JPH::ContactManifold& manifold,
                             JPH::ContactSettings& settings) override
     {
+        collect_contact(first, second, manifold, settings);
         collect_impact(first, second, manifold, settings);
+    }
+
+    void collect_contact(const JPH::Body& first, const JPH::Body& second,
+                         const JPH::ContactManifold& manifold, const JPH::ContactSettings& settings)
+    {
+        const auto a = body_objects.find(first.GetID());
+        const auto b = body_objects.find(second.GetID());
+        if (a == body_objects.end() || b == body_objects.end() ||
+            manifold.mRelativeContactPointsOn1.empty() ||
+            manifold.mRelativeContactPointsOn2.empty() || !finite(manifold.mWorldSpaceNormal))
+        {
+            return;
+        }
+        const auto point =
+            (manifold.GetWorldSpaceContactPointOn1(0) + manifold.GetWorldSpaceContactPointOn2(0)) *
+            0.5F;
+        const auto sample = contact_sample(a->second, b->second, point, manifold.mWorldSpaceNormal,
+                                           settings.mIsSensor);
+        const JPH::SubShapeIDPair key(first.GetID(), manifold.mSubShapeID1, second.GetID(),
+                                      manifold.mSubShapeID2);
+        const std::lock_guard lock(contact_mutex);
+        body_contacts.insert_or_assign(key, sample);
+        touched_contacts.insert_or_assign(sample.pair, sample);
+    }
+
+    void OnContactRemoved(const JPH::SubShapeIDPair& pair) override
+    {
+        // Removed 回调时物体可能已经销毁；只处理此前缓存的数值与身份。
+        const std::lock_guard lock(contact_mutex);
+        body_contacts.erase(pair);
+    }
+
+    void collect_character_contact(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
+                                   const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
+                                   JPH::Vec3Arg normal)
+    {
+        const auto a = character_objects.find(character->GetID());
+        const auto b = body_objects.find(body);
+        if (a == character_objects.end() || b == body_objects.end())
+        {
+            return;
+        }
+        const auto entry = bodies.find(b->second.node_id);
+        const bool sensor = entry != bodies.end() && entry->second.snapshot.collider->is_trigger;
+        const auto sample = contact_sample(a->second, b->second, point, normal, sensor);
+        const CharacterContactKey key{character->GetID().GetValue(), false,
+                                      body.GetIndexAndSequenceNumber(), subshape.GetValue()};
+        const std::lock_guard lock(contact_mutex);
+        character_contacts.insert_or_assign(key, sample);
+        touched_contacts.insert_or_assign(sample.pair, sample);
+    }
+
+    void collect_character_contact(const JPH::CharacterVirtual* character,
+                                   const JPH::CharacterVirtual* other,
+                                   const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
+                                   JPH::Vec3Arg normal)
+    {
+        const auto a = character_objects.find(character->GetID());
+        const auto b = character_objects.find(other->GetID());
+        if (a == character_objects.end() || b == character_objects.end())
+        {
+            return;
+        }
+        const auto sample = contact_sample(a->second, b->second, point, normal, false);
+        const CharacterContactKey key{character->GetID().GetValue(), true,
+                                      other->GetID().GetValue(), subshape.GetValue()};
+        const std::lock_guard lock(contact_mutex);
+        character_contacts.insert_or_assign(key, sample);
+        touched_contacts.insert_or_assign(sample.pair, sample);
+    }
+
+    void OnContactAdded(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
+                        const JPH::SubShapeID& subshape, JPH::RVec3Arg point, JPH::Vec3Arg normal,
+                        JPH::CharacterContactSettings&) override
+    {
+        collect_character_contact(character, body, subshape, point, normal);
+    }
+
+    void OnContactPersisted(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
+                            const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
+                            JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+    {
+        collect_character_contact(character, body, subshape, point, normal);
+    }
+
+    void OnContactRemoved(const JPH::CharacterVirtual* character, const JPH::BodyID& body,
+                          const JPH::SubShapeID& subshape) override
+    {
+        const std::lock_guard lock(contact_mutex);
+        character_contacts.erase({character->GetID().GetValue(), false,
+                                  body.GetIndexAndSequenceNumber(), subshape.GetValue()});
+    }
+
+    void OnCharacterContactAdded(const JPH::CharacterVirtual* character,
+                                 const JPH::CharacterVirtual* other,
+                                 const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
+                                 JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+    {
+        collect_character_contact(character, other, subshape, point, normal);
+    }
+
+    void OnCharacterContactPersisted(const JPH::CharacterVirtual* character,
+                                     const JPH::CharacterVirtual* other,
+                                     const JPH::SubShapeID& subshape, JPH::RVec3Arg point,
+                                     JPH::Vec3Arg normal, JPH::CharacterContactSettings&) override
+    {
+        collect_character_contact(character, other, subshape, point, normal);
+    }
+
+    void OnCharacterContactRemoved(const JPH::CharacterVirtual* character,
+                                   const JPH::CharacterID& other,
+                                   const JPH::SubShapeID& subshape) override
+    {
+        const std::lock_guard lock(contact_mutex);
+        character_contacts.erase(
+            {character->GetID().GetValue(), true, other.GetValue(), subshape.GetValue()});
+    }
+
+    JPH::BodyID object_body(const PhysicsObject& object) const
+    {
+        if (object.scene_id != scene_id)
+        {
+            return {};
+        }
+        if (object.kind == PhysicsObjectKind::collider)
+        {
+            const auto found = bodies.find(object.node_id);
+            if (found != bodies.end() && found->second.snapshot.collider_id == object.instance_id)
+            {
+                return found->second.body;
+            }
+        }
+        else if (object.kind == PhysicsObjectKind::character)
+        {
+            const auto found = characters.find(object.node_id);
+            if (found != characters.end() &&
+                found->second.snapshot.instance_id == object.instance_id)
+            {
+                return found->second.character->GetInnerBodyID();
+            }
+        }
+        return {};
+    }
+
+    void append_contact(const ContactSample& sample, PhysicsContactPhase phase)
+    {
+        contacts.push_back({frame, step, phase, sample.pair.a, sample.pair.b, sample.point,
+                            sample.normal, sample.is_trigger});
+    }
+
+    void synchronize_contacts()
+    {
+        const auto removed = [&](const ContactSample& sample)
+        {
+            return object_body(sample.pair.a).IsInvalid() || object_body(sample.pair.b).IsInvalid();
+        };
+        std::erase_if(body_contacts,
+                      [&](const auto& item)
+                      {
+                          return !body_objects.contains(item.first.GetBody1ID()) ||
+                                 !body_objects.contains(item.first.GetBody2ID()) ||
+                                 removed(item.second);
+                      });
+        std::erase_if(character_contacts,
+                      [&](const auto& item)
+                      {
+                          const auto& [actor, other_character, target, subshape] = item.first;
+                          return !character_objects.contains(JPH::CharacterID(actor)) ||
+                                 (other_character
+                                      ? !character_objects.contains(JPH::CharacterID(target))
+                                      : !body_objects.contains(JPH::BodyID(target))) ||
+                                 removed(item.second);
+                      });
+        std::erase_if(touched_contacts, [&](const auto& item) { return removed(item.second); });
+        for (auto iterator = previous_contacts.begin(); iterator != previous_contacts.end();)
+        {
+            if (removed(iterator->second))
+            {
+                append_contact(iterator->second, PhysicsContactPhase::end);
+                iterator = previous_contacts.erase(iterator);
+            }
+            else
+            {
+                ++iterator;
+            }
+        }
+    }
+
+    bool sleeping_contact(const ContactSample& sample) const
+    {
+        const auto a = object_body(sample.pair.a);
+        const auto b = object_body(sample.pair.b);
+        if (a.IsInvalid() || b.IsInvalid())
+        {
+            return false;
+        }
+        const JPH::BodyID ids[]{a, b};
+        JPH::BodyLockMultiRead lock(physics.GetBodyLockInterface(), ids, 2);
+        const auto* first = lock.GetBody(0);
+        const auto* second = lock.GetBody(1);
+        if (first == nullptr || second == nullptr || first->IsActive() || second->IsActive())
+        {
+            return false;
+        }
+        // Jolt 休眠会移除求解接触；用上游窄相位复核已有对象对，不扫描整个世界。
+        const auto shape = first->GetTransformedShape();
+        const auto other = second->GetTransformedShape();
+        JPH::CollideShapeSettings settings;
+        settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+        settings.mMaxSeparationDistance =
+            sample.is_trigger ? 0.0F : physics.GetPhysicsSettings().mSpeculativeContactDistance;
+        JPH::AnyHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        other.CollideShape(first->GetShape(), shape.GetShapeScale(),
+                           shape.GetCenterOfMassTransform(), settings,
+                           first->GetCenterOfMassPosition(), collector);
+        return collector.HadHit();
+    }
+
+    void publish_contacts()
+    {
+        std::map<ContactPair, ContactSample> current;
+        for (const auto& [key, sample] : body_contacts)
+        {
+            current.insert_or_assign(sample.pair, sample);
+        }
+        for (const auto& [key, sample] : character_contacts)
+        {
+            current.insert_or_assign(sample.pair, sample);
+        }
+        for (const auto& [pair, sample] : previous_contacts)
+        {
+            if (!current.contains(pair) && sleeping_contact(sample))
+            {
+                current.emplace(pair, sample);
+            }
+        }
+        for (const auto& [pair, sample] : previous_contacts)
+        {
+            const auto next = current.find(pair);
+            if (next == current.end() || next->second.is_trigger != sample.is_trigger)
+            {
+                append_contact(sample, PhysicsContactPhase::end);
+            }
+        }
+        for (const auto& [pair, sample] : current)
+        {
+            const auto previous = previous_contacts.find(pair);
+            const bool continuing = previous != previous_contacts.end() &&
+                                    previous->second.is_trigger == sample.is_trigger;
+            append_contact(sample,
+                           continuing ? PhysicsContactPhase::stay : PhysicsContactPhase::begin);
+        }
+        // 一次角色操作内产生又消失的接触仍保留 begin/end，不漏掉穿过窄触发区。
+        for (const auto& [pair, sample] : touched_contacts)
+        {
+            const auto previous = previous_contacts.find(pair);
+            const auto next = current.find(pair);
+            if ((previous == previous_contacts.end() ||
+                 previous->second.is_trigger != sample.is_trigger) &&
+                (next == current.end() || next->second.is_trigger != sample.is_trigger))
+            {
+                append_contact(sample, PhysicsContactPhase::begin);
+                append_contact(sample, PhysicsContactPhase::end);
+            }
+        }
+        previous_contacts = std::move(current);
+        touched_contacts.clear();
     }
 
     void clear() noexcept
@@ -1078,6 +1481,13 @@ struct PhysicsSystem::State final : JPH::ContactListener
         accumulated = 0.0;
         pending_impacts.clear();
         impacts.clear();
+        body_objects.clear();
+        character_objects.clear();
+        body_contacts.clear();
+        character_contacts.clear();
+        previous_contacts.clear();
+        touched_contacts.clear();
+        contacts.clear();
     }
 
     void remove_body(std::uint64_t node_id)
@@ -1090,6 +1500,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
         auto& interface = physics.GetBodyInterface();
         auto affected = interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
         affected.ExpandBy(JPH::Vec3::sReplicate(0.1F));
+        body_objects.erase(found->second.body);
         interface.RemoveBody(found->second.body);
         interface.DestroyBody(found->second.body);
         bodies.erase(found);
@@ -1104,8 +1515,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
         auto found = bodies.find(snapshot.node_id);
         const bool moving = snapshot.rigid_body.motion != schema::BodyMotion::static_body;
         // Velocity is mutable motion state, not a reason to replace the shape or BodyID.
-        auto previous_settings = found != bodies.end() ? found->second.snapshot.rigid_body
-                                                       : snapshot.rigid_body;
+        auto previous_settings =
+            found != bodies.end() ? found->second.snapshot.rigid_body : snapshot.rigid_body;
         previous_settings.linear_velocity = snapshot.rigid_body.linear_velocity;
         previous_settings.angular_velocity = snapshot.rigid_body.angular_velocity;
         const bool rebuild = found == bodies.end() ||
@@ -1119,9 +1530,9 @@ struct PhysicsSystem::State final : JPH::ContactListener
                              found->second.snapshot.shape != snapshot.shape;
         if (!rebuild)
         {
-            const bool moved_static = !moving &&
-                (found->second.snapshot.position != snapshot.position ||
-                 found->second.snapshot.rotation != snapshot.rotation);
+            const bool moved_static =
+                !moving && (found->second.snapshot.position != snapshot.position ||
+                            found->second.snapshot.rotation != snapshot.rotation);
             JPH::AABox affected;
             if (moved_static)
             {
@@ -1134,9 +1545,9 @@ struct PhysicsSystem::State final : JPH::ContactListener
             if (previous.linear_velocity != snapshot.rigid_body.linear_velocity ||
                 previous.angular_velocity != snapshot.rigid_body.angular_velocity)
             {
-                interface.SetLinearAndAngularVelocity(
-                    found->second.body, vector(snapshot.rigid_body.linear_velocity),
-                    vector(snapshot.rigid_body.angular_velocity));
+                interface.SetLinearAndAngularVelocity(found->second.body,
+                                                      vector(snapshot.rigid_body.linear_velocity),
+                                                      vector(snapshot.rigid_body.angular_velocity));
             }
             found->second.snapshot = snapshot;
             if (moved_static)
@@ -1159,9 +1570,10 @@ struct PhysicsSystem::State final : JPH::ContactListener
                            previous.position == snapshot.position &&
                            previous.rotation == snapshot.rotation &&
                            previous.shape_scale == snapshot.shape_scale;
-            affected = local_change ? changed_bounds(previous, snapshot)
-                                    : interface.GetTransformedShape(found->second.body)
-                                          .GetWorldSpaceBounds();
+            affected =
+                local_change
+                    ? changed_bounds(previous, snapshot)
+                    : interface.GetTransformedShape(found->second.body).GetWorldSpaceBounds();
         }
         if (found != bodies.end() && !moving &&
             found->second.snapshot.collider_id == snapshot.collider_id &&
@@ -1202,6 +1614,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 snapshot.shape.GetPtr(), JPH::RVec3(snapshot.position), snapshot.rotation,
                 motion_type(snapshot.rigid_body.motion), moving ? moving_layer : static_layer);
             settings.mIsSensor = snapshot.collider->is_trigger;
+            settings.mCollideKinematicVsNonDynamic =
+                snapshot.rigid_body.motion == schema::BodyMotion::kinematic;
             // Jolt 官方 MeshShapeUserDataTest：复合网格边界需要增强内部边消除。
             // 只标记分段表面；Jolt 对接触双方取 OR，不增加普通刚体间的求解负担。
             settings.mEnhancedInternalEdgeRemoval = snapshot.mesh_parts != nullptr;
@@ -1230,6 +1644,7 @@ struct PhysicsSystem::State final : JPH::ContactListener
             // 创建失败时旧物体仍存在；成功后才移除旧物体。
             if (found != bodies.end())
             {
+                body_objects.erase(found->second.body);
                 interface.RemoveBody(found->second.body);
                 interface.DestroyBody(found->second.body);
                 found->second = Entry{snapshot, body};
@@ -1239,6 +1654,9 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 found = bodies.emplace(snapshot.node_id, Entry{snapshot, body}).first;
             }
         }
+        body_objects.insert_or_assign(found->second.body, PhysicsObject{scene_id, snapshot.node_id,
+                                                                        PhysicsObjectKind::collider,
+                                                                        snapshot.collider_id});
         if (!moving)
         {
             if (!local_change)
@@ -1306,6 +1724,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
         {
             if (iterator->second.seen_frame != frame)
             {
+                body_objects.erase(iterator->second.character->GetInnerBodyID());
+                character_objects.erase(iterator->second.character->GetID());
                 character_collisions.Remove(iterator->second.character.GetPtr());
                 iterator = characters.erase(iterator);
             }
@@ -1328,6 +1748,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
             {
                 if (found != characters.end())
                 {
+                    body_objects.erase(found->second.character->GetInnerBodyID());
+                    character_objects.erase(found->second.character->GetID());
                     character_collisions.Remove(found->second.character.GetPtr());
                     characters.erase(found);
                 }
@@ -1348,6 +1770,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 }
                 JPH::CharacterVirtualSettings configuration;
                 configuration.mShape = shape.Get();
+                configuration.mInnerBodyShape = shape.Get();
+                configuration.mInnerBodyLayer = character_layer;
                 configuration.mEnhancedInternalEdgeRemoval = true;
                 configuration.mMaxSlopeAngle =
                     settings.max_slope_degrees * std::numbers::pi_v<float> / 180.0F;
@@ -1357,12 +1781,22 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 entry.character =
                     new JPH::CharacterVirtual(&configuration, JPH::RVec3(snapshot.position),
                                               JPH::Quat::sIdentity(), snapshot.node_id, &physics);
+                if (entry.character->GetInnerBodyID().IsInvalid())
+                {
+                    return false;
+                }
+                const PhysicsObject object{scene_id, snapshot.node_id, PhysicsObjectKind::character,
+                                           snapshot.instance_id};
+                body_objects.insert_or_assign(entry.character->GetInnerBodyID(), object);
+                character_objects.insert_or_assign(entry.character->GetID(), object);
+                entry.character->SetListener(this);
                 entry.character->SetCharacterVsCharacterCollision(&character_collisions);
                 character_collisions.Add(entry.character.GetPtr());
                 found = characters.emplace(snapshot.node_id, std::move(entry)).first;
                 found->second.character->RefreshContacts(
                     physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
-                    physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
+                    physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
+                    allocator);
             }
             else if (snapshot.reset_velocity || !found->second.character->GetPosition().IsClose(
                                                     JPH::RVec3(snapshot.position), 1.0e-10F))
@@ -1372,7 +1806,8 @@ struct PhysicsSystem::State final : JPH::ContactListener
                 found->second.external_velocity = JPH::Vec3::sZero();
                 found->second.character->RefreshContacts(
                     physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
-                    physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {}, allocator);
+                    physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
+                    allocator);
             }
             found->second.snapshot = snapshot;
         }
@@ -1584,15 +2019,64 @@ bool PhysicsSystem::query_sphere(const Vec3& origin, const Vec3& displacement, f
                              base + result.mContactPointOn2, -result.mPenetrationAxis, hit);
 }
 
-bool PhysicsSystem::is_hit_valid(const PhysicsQueryHit& hit) const noexcept
+bool PhysicsSystem::overlap_sphere(const Vec3& center, float radius,
+                                   const PhysicsQueryFilter& filter,
+                                   std::vector<PhysicsObject>& objects) const
 {
+    objects.clear();
     const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
-    if (!state_ || !scene || !hit.hit || hit.scene_id != scene->id())
+    const auto position = vector(center);
+    if (!state_ || !valid_overlap(scene, state_->scene_id, position, filter) ||
+        !std::isfinite(radius) || radius < 0.0001F || radius > 1000.0F)
     {
         return false;
     }
-    const auto* node = scene->find_node(hit.node_id);
-    return node != nullptr && active_query_collision(*node, hit.collider_id);
+    const auto shape = JPH::SphereShapeSettings(radius).Create();
+    return !shape.HasError() && shape.IsValid() &&
+           state_->overlap(*scene, *shape.Get(), JPH::RVec3(position), filter, objects);
+}
+
+bool PhysicsSystem::overlap_box(const Vec3& center, const Vec3& half_extents,
+                                const PhysicsQueryFilter& filter,
+                                std::vector<PhysicsObject>& objects) const
+{
+    objects.clear();
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    const auto position = vector(center);
+    const auto extents = vector(half_extents);
+    if (!state_ || !valid_overlap(scene, state_->scene_id, position, filter) || !finite(extents) ||
+        extents.ReduceMin() < 0.0001F || extents.ReduceMax() > 1000.0F)
+    {
+        return false;
+    }
+    const auto shape = JPH::BoxShapeSettings(extents, 0.0F).Create();
+    return !shape.HasError() && shape.IsValid() &&
+           state_->overlap(*scene, *shape.Get(), JPH::RVec3(position), filter, objects);
+}
+
+bool PhysicsSystem::is_object_valid(const PhysicsObject& object) const noexcept
+{
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    return state_ != nullptr && scene != nullptr && active_physics_object(*scene, object);
+}
+
+bool PhysicsSystem::is_hit_valid(const PhysicsQueryHit& hit) const noexcept
+{
+    return hit.hit && is_object_valid(hit.object);
+}
+
+std::span<const PhysicsContactEvent> PhysicsSystem::contacts() const noexcept
+{
+    const auto* scene = world_ != nullptr ? world_->scene() : nullptr;
+    if (!state_ || !scene || state_->scene_id != scene->id())
+    {
+        if (state_)
+        {
+            state_->contacts.clear();
+        }
+        return {};
+    }
+    return state_->contacts;
 }
 
 std::span<const PhysicsImpact> PhysicsSystem::impacts() const noexcept
@@ -1710,9 +2194,8 @@ bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& m
     snapshot.transient_mesh = std::make_shared<const schema::MeshDataT>(mesh);
     const bool empty = mesh.vertices.empty() && mesh.indices.empty();
     snapshot.shape_scale = snapshot.scale;
-    if (!empty &&
-        !make_shape(*snapshot.collider, snapshot.transient_mesh.get(), snapshot.shape_scale,
-                     snapshot.shape))
+    if (!empty && !make_shape(*snapshot.collider, snapshot.transient_mesh.get(),
+                              snapshot.shape_scale, snapshot.shape))
     {
         return false;
     }
@@ -1810,6 +2293,8 @@ bool PhysicsSystem::on_tick(double delta_time)
     }
     state_->impacts.clear();
     state_->pending_impacts.clear();
+    state_->contacts.clear();
+    state_->touched_contacts.clear();
     if (state_->frame == std::numeric_limits<std::uint64_t>::max())
     {
         clear();
@@ -1939,6 +2424,7 @@ bool PhysicsSystem::on_tick(double delta_time)
         }
         snapshots.clear();
         character_snapshots.clear();
+        state_->synchronize_contacts();
         for (auto& [id, entry] : state_->bodies)
         {
             auto* node = scene->find_node(id);
@@ -1955,14 +2441,22 @@ bool PhysicsSystem::on_tick(double delta_time)
     }
     ENGINE_PROFILE_PLOT("Physics.bodies", static_cast<double>(state_->bodies.size()));
     ENGINE_PROFILE_PLOT("Physics.characters", static_cast<double>(state_->characters.size()));
-    ENGINE_PROFILE_PLOT("Physics.active_bodies",
-                        static_cast<double>(state_->physics.GetNumActiveBodies(JPH::EBodyType::RigidBody)));
+    ENGINE_PROFILE_PLOT(
+        "Physics.active_bodies",
+        static_cast<double>(state_->physics.GetNumActiveBodies(JPH::EBodyType::RigidBody)));
     state_->accumulated = std::min(state_->accumulated + delta_time, fixed_step * maximum_steps);
     bool advanced = false;
     for (unsigned int step = 0; step < maximum_steps && state_->accumulated + 1.0e-12 >= fixed_step;
          ++step)
     {
         ENGINE_PROFILE_ZONE("Physics.fixed_step");
+        if (state_->step == std::numeric_limits<std::uint64_t>::max())
+        {
+            clear();
+            return false;
+        }
+        ++state_->step;
+        state_->touched_contacts.clear();
         // 复用 Jolt CharacterVirtualTest 的速度/地面逻辑与 ExtendedUpdate 台阶求解。
         // 来源 Jolt Physics v5.4.0, Jorrit Rouwe, MIT。
         {
@@ -2014,7 +2508,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                 character.ExtendedUpdate(
                     static_cast<float>(fixed_step), gravity, settings,
                     state_->physics.GetDefaultBroadPhaseLayerFilter(moving_layer),
-                    state_->physics.GetDefaultLayerFilter(moving_layer), SolidBodyFilter{}, {},
+                    state_->physics.GetDefaultLayerFilter(moving_layer), CharacterBodyFilter{}, {},
                     state_->allocator);
                 // ExtendedUpdate 求解位移，持久速度按 Jolt 的实际接触法线去掉被阻挡部分。
                 // 不把受阻的主动输入反算成击退，防止下一帧出现相反方向的虚假速度。
@@ -2058,6 +2552,7 @@ bool PhysicsSystem::on_tick(double delta_time)
                 return false;
             }
         }
+        state_->publish_contacts();
         state_->accumulated = std::max(0.0, state_->accumulated - fixed_step);
         advanced = true;
     }
@@ -2104,7 +2599,10 @@ bool PhysicsSystem::on_tick(double delta_time)
             JPH::RVec3 position;
             JPH::Quat rotation;
             interface.GetPositionAndRotation(entry.body, position, rotation);
-            if (advanced &&
+            const bool driven = entry.snapshot.rigid_body.motion == schema::BodyMotion::dynamic ||
+                                entry.snapshot.rigid_body.linear_velocity != Vec3{} ||
+                                entry.snapshot.rigid_body.angular_velocity != Vec3{};
+            if (advanced && driven &&
                 !write_transform(*node, JPH::Vec3(position), rotation, entry.snapshot.scale))
             {
                 std::fputs("Cannot write physics pose through the node hierarchy\n", stderr);

@@ -32,6 +32,11 @@ export class LauncherModel {
             title: "Navigation laboratory",
             scene: "scenes/navigation.scene",
         },
+        {
+            button: "scene-interactions",
+            title: "Physics interactions",
+            scene: "scenes/physics-interactions.scene",
+        },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

@@ -14,6 +14,7 @@ import {
     UiComponent,
     Vector3,
 } from "engine";
+import { walk_animation, walk_reference_speed } from "../character_animations.js";
 import { NavigationController } from "../controllers/navigation_controller.js";
 import { NavigationAction, NavigationModel } from "../models/navigation_model.js";
 
@@ -295,7 +296,7 @@ export default class Game extends Gameplay {
             !renderer?.material.SetType("materials/character.material") ||
             !renderer.material.SetV4("baseColor", color[0], color[1], color[2], 1) ||
             !animator ||
-            !animator.SetAnimation("models/locomotions.fbx/animations/walk") ||
+            !animator.SetAnimation(walk_animation) ||
             !animator.SetSpeed(0) ||
             !animator.Play()
         )
@@ -410,7 +411,7 @@ export default class Game extends Gameplay {
             const velocity = actor.agent.velocity;
             const speed =
                 state === "moving" && velocity
-                    ? Math.min(2.5, Math.hypot(velocity.x, velocity.z) / 1.6)
+                    ? Math.min(16, Math.hypot(velocity.x, velocity.z) / walk_reference_speed)
                     : 0;
             if (actor.animator.IsValid() && Math.abs(speed - actor.animationSpeed) > 0.05) {
                 if (!actor.animator.SetSpeed(speed))

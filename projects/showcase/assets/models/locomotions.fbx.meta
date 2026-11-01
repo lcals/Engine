@@ -4,6 +4,24 @@ meta_version = 1
 sample_rate = 30
 skeleton = 'models/skeleton.fbx/skeleton'
 
+[[animation_motion]]
+animation = 'animations/walk'
+joint = 'root/Hips'
+position = [false, false, true]
+rotation = [false, false, false]
+
+[[animation_motion]]
+animation = 'animations/jog'
+joint = 'root/Hips'
+position = [false, false, true]
+rotation = [false, false, false]
+
+[[animation_motion]]
+animation = 'animations/run'
+joint = 'root/Hips'
+position = [false, false, true]
+rotation = [false, false, false]
+
 [[subresources]]
 guid = 'c89b6ae5-e5be-4f8b-86b7-8a2c70063e7b'
 key = 'animations/jog'

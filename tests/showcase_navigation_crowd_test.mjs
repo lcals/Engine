@@ -69,11 +69,11 @@ export class TerrainComponent {
     Reset() { fixture.events.push('reset'); this.commit(); return true; }
 }
 export class Animator {
-    constructor(node) { this.node=node; this.speed=0; fixture.animators.push(this); }
+    constructor(node) { this.node=node; this.speed=0; this.animations=[]; this.speeds=[]; this.plays=0; fixture.animators.push(this); }
     IsValid() { return this.node.IsValid(); }
-    SetAnimation() { return true; }
-    SetSpeed(value) { this.speed=value; return this.IsValid(); }
-    Play() { return true; }
+    SetAnimation(value) { this.animations.push(value); return true; }
+    SetSpeed(value) { this.speed=value; this.speeds.push(value); return this.IsValid(); }
+    Play() { ++this.plays; return true; }
 }
 export class NavigationAgent {
     constructor(node) { this.node=node; this.phase='idle'; this.requests=[]; this.currentVelocity={x:0,y:0,z:0}; fixture.agents.push(this); }
@@ -200,6 +200,13 @@ try {
             assert.equal(agent.options.faceVelocity, true);
         }
         assert.equal(new Set(fixture.animators.map((animator) => animator.node)).size, 16);
+        const animators = [...fixture.animators];
+        const assert_continuous_animation = () => {
+            for (const animator of animators) {
+                assert.deepEqual(animator.animations, ["models/locomotions.fbx/animations/walk"]);
+                assert.equal(animator.plays, 1, "speed changes never restart the current clip");
+            }
+        };
         assert.deepEqual(
             new Set(fixture.paths),
             new Set(["root/GENERIC MAN new"]),
@@ -211,7 +218,7 @@ try {
         const writes = fixture.positions;
         for (const agent of alive()) {
             agent.phase = "moving";
-            agent.currentVelocity = { x: 1.6, y: 0, z: 0 };
+            agent.currentVelocity = { x: 1.068975, y: 0, z: 0 };
         }
         Time.deltaTime = 0.25;
         game.Update();
@@ -220,7 +227,24 @@ try {
             writes,
             "ordinary updates never move actor transforms from TS",
         );
-        assert.equal(fixture.animators.filter((value) => value.speed > 0).length, 16);
+        assert.ok(animators.every((value) => value.speed === 1), "measured walk speed plays at 1x");
+        for (const agent of alive()) agent.currentVelocity = { x: 0, y: 5, z: 3 };
+        game.Update();
+        assert.ok(
+            animators.every((value) => value.speed > 2.8 && value.speed < 2.81),
+            "3 m/s horizontal movement is calibrated to walk and is not capped at 2.5x",
+        );
+        alive()[0].currentVelocity = { x: 100, y: 0, z: 0 };
+        game.Update();
+        assert.equal(animators[0].speed, 16, "playback stays within Animator's supported limit");
+        const speedCalls = animators.map((value) => value.speeds.length);
+        game.Update();
+        assert.deepEqual(
+            animators.map((value) => value.speeds.length),
+            speedCalls,
+            "unchanged velocity does not resubmit animation settings",
+        );
+        assert_continuous_animation();
         const pitStops = fixture.stops;
         const pitRequests = alive().map((agent) => agent.requests.length);
         click("pit");
@@ -243,10 +267,24 @@ try {
         click("reverse");
         for (const agent of alive())
             assert.deepEqual(agent.requests.at(-1), agent.node.GetComponent(Transform).position);
+        for (const agent of alive()) {
+            agent.phase = "moving";
+            agent.currentVelocity = { x: -1.068975, y: 0, z: 0 };
+        }
+        game.Update();
         click("stop");
         assert.equal(alive().filter((agent) => agent.phase === "idle").length, 16);
+        assert.ok(animators.every((value) => value.speed === 0), "stopping freezes the walk pose");
         click("resume");
         assert.equal(alive().filter((agent) => agent.phase === "pending").length, 16);
+        assert.ok(animators.every((value) => value.speed === 0), "pending paths keep walk frozen");
+        for (const agent of alive()) {
+            agent.phase = "moving";
+            agent.currentVelocity = { x: -1.068975, y: 0, z: 0 };
+        }
+        game.Update();
+        assert.ok(animators.every((value) => value.speed === 1), "movement resumes the walk rate");
+        assert_continuous_animation();
         const previous = alive();
         click("count64");
         assert.equal(alive().length, 64);

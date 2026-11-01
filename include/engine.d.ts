@@ -575,10 +575,65 @@ declare module "engine" {
         /** Jolt's estimated normal impulse, not the actual solver result (N s). */
         readonly estimatedImpulse: number;
     }
+    export interface PhysicsContactEvent {
+        readonly frame: bigint;
+        readonly step: bigint;
+        readonly phase: "begin" | "stay" | "end";
+        readonly a: PhysicsObject;
+        readonly b: PhysicsObject;
+        /** End events retain the last contact point and normal. */
+        readonly point: Vector3;
+        /** World normal from a to b. */
+        readonly normal: Vector3;
+        readonly isTrigger: boolean;
+    }
+    /** Contact delivered to a subscribed node before Gameplay.Update; all values are snapshots. */
+    export interface PhysicsContact {
+        readonly frame: bigint;
+        readonly step: bigint;
+        readonly phase: "begin" | "stay" | "end";
+        readonly self: PhysicsObject;
+        /** May be invalid on Exit after the other component was disabled or removed. */
+        readonly other: PhysicsObject;
+        readonly point: Vector3;
+        /** World normal from self to other; Exit retains the last contact geometry. */
+        readonly normal: Vector3;
+        readonly isTrigger: boolean;
+    }
     export class Physics {
         private constructor();
         /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
         static GetImpacts(): PhysicsImpact[];
+        /** Last physics tick, ordered by fixed step; read once per frame, not per event. */
+        static GetContacts(): readonly PhysicsContactEvent[];
+        /**
+         * Subscribe to future contacts of this node's active Collider or CharacterMotor instance.
+         * Returns an ID, or 0 on failure. Callbacks must be synchronous; Off cancels immediately.
+         * Disable/removal/replacement of the receiver, scene changes and run shutdown cancel it.
+         * Subscriptions added inside callbacks start with the next physics batch.
+         */
+        static OnCollisionEnter(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnCollisionStay(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnCollisionExit(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerEnter(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerStay(node: Node, callback: (contact: PhysicsContact) => void): number;
+        static OnTriggerExit(node: Node, callback: (contact: PhysicsContact) => void): number;
+        /** Repeated cancellation or an unknown ID returns false. */
+        static Off(subscription: number): boolean;
+        /** All overlapping objects, deduplicated. Null = invalid query; [] = no overlap. */
+        static OverlapSphere(
+            center: Vector3,
+            radius: number,
+            options?: PhysicsQueryOptions,
+        ): readonly PhysicsObject[] | null;
+        /** World-axis-aligned box with positive half extents; same filter as Raycast. */
+        static OverlapBox(
+            center: Vector3,
+            halfExtents: Vector3,
+            options?: PhysicsQueryOptions,
+        ): readonly PhysicsObject[] | null;
+        /** Check component identity and enablement. Historical end-event objects may be invalid. */
+        static IsObjectValid(object: PhysicsObject): boolean;
         /** Sweeps a sphere through the full displacement. 1 = no hit; null = invalid query. */
         static CastSphere(
             x: number,
@@ -589,7 +644,7 @@ declare module "engine" {
             dz: number,
             radius: number,
         ): number | null;
-        /** Closest Collider hit through a nonzero world displacement. Null = invalid query. */
+        /** Closest Collider or CharacterMotor hit through a nonzero world displacement. Null = invalid query. */
         static Raycast(
             origin: Vector3,
             displacement: Vector3,
@@ -602,7 +657,7 @@ declare module "engine" {
             radius: number,
             options?: PhysicsQueryOptions,
         ): PhysicsQueryHit | null;
-        /** Checks scene, node and Collider lifetime/enablement, not whether the snapshot moved. */
+        /** Checks physics object lifetime/enablement, not whether the snapshot moved. */
         static IsHitValid(hit: PhysicsQueryHit): boolean;
     }
     export interface Vector2 {
@@ -627,13 +682,18 @@ declare module "engine" {
         readonly includeDynamic?: boolean;
         /** Defaults to false; other body categories default to true. */
         readonly includeSensors?: boolean;
+        /** Defaults to true, independently of includeKinematic. */
+        readonly includeCharacters?: boolean;
     }
-    export interface PhysicsQueryHit {
-        readonly hit: boolean;
+    export interface PhysicsObject {
         readonly sceneId: bigint;
         readonly nodeId: bigint;
-        readonly colliderId: bigint;
+        readonly kind: "collider" | "character";
+        readonly instanceId: bigint;
         readonly node: Node | null;
+    }
+    export interface PhysicsQueryHit extends PhysicsObject {
+        readonly hit: boolean;
         readonly point: Vector3;
         readonly normal: Vector3;
         readonly fraction: number;

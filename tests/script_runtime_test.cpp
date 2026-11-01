@@ -1005,7 +1005,7 @@ bool run_shooting_query_cases(const fs::path& workspace)
 import { Gameplay, Scene, Transform, Camera, Collider, Physics, Render } from 'engine';
 const origin = {x: 0, y: 0, z: 7}, displacement = {x: 0, y: 0, z: -20};
 const blockedOutside = Physics.Raycast(origin, displacement) === null &&
-    !Physics.IsHitValid({hit: true, sceneId: 1n, nodeId: 1n, colliderId: 1n});
+    !Physics.IsHitValid({hit: true, sceneId: 1n, nodeId: 1n, instanceId: 1n});
 function check(value, message) { if (!value) throw new Error(message); }
 function near(a, b) { return Math.abs(a - b) < 0.0001; }
 export default class extends Gameplay {
@@ -1044,7 +1044,7 @@ export default class extends Gameplay {
             const wall = Physics.Raycast(origin, displacement);
             check(wall?.hit && Physics.IsHitValid(wall) && wall.node.IsValid() &&
                 wall.node.id === this.blocker.id && wall.nodeId === this.blocker.id &&
-                wall.sceneId === this.blocker.sceneId && typeof wall.colliderId === 'bigint' &&
+                wall.sceneId === this.blocker.sceneId && typeof wall.instanceId === 'bigint' &&
                 near(wall.point.z, 3.5) && near(wall.normal.z, 1) && near(wall.distance, 3.5) &&
                 near(wall.fraction, .175), 'closest wall hit');
             check(Object.isFrozen(wall) && Object.isFrozen(wall.point), 'readonly hit snapshot');
@@ -1075,7 +1075,7 @@ export default class extends Gameplay {
         } else {
             const hit = Physics.Raycast(origin, displacement);
             check(hit?.hit && Physics.IsHitValid(hit) && hit.nodeId === this.target.id &&
-                hit.colliderId !== this.oldHit.colliderId, 'new collider owns new hit identity');
+                hit.instanceId !== this.oldHit.instanceId, 'new collider owns new hit identity');
             check(this.scene.Destroy(), 'destroy shot scene');
             this.scene = Scene.Create('shooting-done');
             check(this.scene && !hit.node.IsValid() && !Physics.IsHitValid(hit) &&
@@ -1118,6 +1118,438 @@ export default class extends Gameplay {
     script.stop_gameplay();
     physics.clear();
     return expect(complete, "camera and shooting query script lifecycle completes");
+}
+
+bool run_physics_interaction_binding_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Transform, CharacterMotor, Collider, Physics } from 'engine';
+const center = {x:0,y:.9,z:0};
+const blockedOutside = Physics.OverlapSphere(center, 2) === null &&
+    Physics.GetContacts().length === 0 && !Physics.IsObjectValid(null);
+function check(value, message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    phase = 0;
+    OnInitialize() {
+        this.scene = Scene.Create('physics-interactions');
+        this.actor = this.scene?.CreateNode('character');
+        this.trigger = this.scene?.CreateNode('sensor');
+        this.wall = this.scene?.CreateNode('wall');
+        this.motor = this.actor?.AddComponent(CharacterMotor);
+        this.pose = this.actor?.GetComponent(Transform);
+        const sensor = this.trigger?.AddComponent(Collider);
+        return blockedOutside && this.motor?.SetCapsule(.3,.6) &&
+            this.motor.SetGravityFactor(0) && this.pose && sensor?.SetBox(1,1,1) &&
+            sensor.SetTrigger(true) &&
+            this.trigger.GetComponent(Transform).SetPosition(0,.9,0) &&
+            this.wall?.GetComponent(Transform).SetPosition(0,.9,-4) &&
+            this.wall.AddComponent(Collider)?.SetBox(.5,.5,.5);
+    }
+    Update() {
+        const events = Physics.GetContacts();
+        const pair = events.filter(e => e.isTrigger &&
+            ((e.a.nodeId === this.actor.id && e.b.nodeId === this.trigger.id) ||
+             (e.b.nodeId === this.actor.id && e.a.nodeId === this.trigger.id)));
+        check(Object.isFrozen(events), 'contact array must be readonly');
+        for (const e of pair) {
+            check(Object.isFrozen(e) && Object.isFrozen(e.a) && Object.isFrozen(e.normal) &&
+                typeof e.frame === 'bigint' && typeof e.step === 'bigint' &&
+                e.a.node?.IsValid() && e.b.node?.IsValid(), 'contact identity and readonly values');
+        }
+        if (this.phase++ === 0) {
+            const origin = {x:0,y:.9,z:4}, displacement = {x:0,y:0,z:-10};
+            this.hit = Physics.Raycast(origin, displacement);
+            check(this.hit?.hit && this.hit.kind === 'character' &&
+                this.hit.nodeId === this.actor.id && typeof this.hit.instanceId === 'bigint' &&
+                Physics.IsHitValid(this.hit) && Physics.IsObjectValid(this.hit),
+                'character participates in the existing closest query');
+            check(Physics.SphereCast(origin,displacement,.2)?.kind === 'character' &&
+                Physics.Raycast(origin,displacement,{includeCharacters:false})?.nodeId === this.wall.id &&
+                Physics.Raycast(origin,displacement,{includeKinematic:false})?.kind === 'character',
+                'character filtering is independent of body motion categories');
+            for (const result of [Physics.OverlapSphere(center,2,{includeSensors:true}),
+                                 Physics.OverlapBox(center,{x:2,y:2,z:2},{includeSensors:true})]) {
+                check(result?.length === 2 && Object.isFrozen(result) &&
+                    new Set(result.map(o=>o.nodeId)).size === 2 &&
+                    result.every(o=>Object.isFrozen(o) && Physics.IsObjectValid(o) && o.node.IsValid()) &&
+                    result.some(o=>o.kind === 'character'), 'deduplicated object overlap snapshots');
+            }
+            check(Physics.OverlapSphere(center,2)?.length === 1 &&
+                Physics.OverlapSphere(center,2,{ignoreNode:this.actor})?.length === 0 &&
+                Physics.OverlapSphere(center,-1) === null &&
+                Physics.OverlapBox(center,{x:1,y:0,z:1}) === null &&
+                Physics.OverlapSphere(center,2,{includeCharacters:1}) === null &&
+                !Physics.IsObjectValid({...this.hit,kind:'invalid'}), 'overlap and identity boundaries');
+            check(pair.some(e=>e.phase==='begin'), 'sensor begin reaches the real script backend');
+            this.frame = pair[0].frame;
+        } else if (this.phase === 2) {
+            check(pair.some(e=>e.phase==='stay' && e.frame > this.frame), 'sensor stay snapshot');
+            check(this.pose.SetPosition(5,0,0), 'move character out of sensor');
+        } else {
+            check(pair.some(e=>e.phase==='end'), 'sensor end snapshot');
+            check(Physics.IsObjectValid(this.hit), 'movement preserves historical object identity');
+            check(this.motor.SetEnabled(false) && !Physics.IsHitValid(this.hit),
+                'disabled character invalidates query identity immediately');
+            check(this.scene.Destroy(), 'destroy interaction scene');
+            this.scene = Scene.Create('physics-interactions-done');
+            check(this.scene && Physics.GetContacts().length === 0 &&
+                !Physics.IsObjectValid(this.hit), 'no contact or identity leakage across scenes');
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "physics-interactions", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input), "initialize physics interaction bindings"))
+    {
+        return false;
+    }
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        if (!expect(physics.tick(1.0 / 60.0) && script.tick(1.0 / 60.0) &&
+                        script.status().running && script.status().last_error.empty(),
+                    "physics object, overlap and contact bindings use the real backend"))
+        {
+            std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+            return false;
+        }
+    }
+    const bool complete = world.scene() && world.scene()->name() == "physics-interactions-done";
+    script.stop_gameplay();
+    physics.clear();
+    return expect(complete && physics.contacts().empty(), "clear contact bindings on stop");
+}
+
+bool run_physics_subscription_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Transform,Collider,RigidBody,CharacterMotor,Physics} from 'engine';
+const blockedOutside = Physics.OnTriggerEnter(null, ()=>{}) === 0 && !Physics.Off(1);
+function check(value, message) { if (!value) throw new Error(message); }
+function wrong() { throw new Error('collision and trigger subscriptions crossed categories'); }
+function validate(e, self, other, trigger) {
+    check(Object.isFrozen(e) && Object.isFrozen(e.self) && Object.isFrozen(e.other) &&
+        Object.isFrozen(e.point) && Object.isFrozen(e.normal) &&
+        typeof e.frame === 'bigint' && typeof e.step === 'bigint' &&
+        ['begin','stay','end'].includes(e.phase) && e.isTrigger === trigger &&
+        e.self.nodeId === self.id && e.other.nodeId === other.id &&
+        Physics.IsObjectValid(e.self) && e.self.node.IsValid() &&
+        Number.isFinite(e.point.x) && Number.isFinite(e.normal.y), 'readonly self-oriented contact');
+}
+export default class extends Gameplay {
+    phase=0; trigger={begin:0,stay:0,end:0}; collision={begin:0,stay:0,end:0};
+    trace=[]; late=0; survivorEnters=0; exits=[]; freshEnters=0; freshExits=0;
+    replacementEnters=0; replacementExits=0;
+    OnInitialize() {
+        this.scene=Scene.Create('physics-subscriptions');
+        this.actor=this.scene?.CreateNode('subscribed-character');
+        this.sensor=this.scene?.CreateNode('subscribed-trigger');
+        this.floor=this.scene?.CreateNode('subscribed-floor');
+        this.solid=this.scene?.CreateNode('subscribed-solid');
+        const empty=this.scene?.CreateNode('unconfigured');
+        const conflict=this.scene?.CreateNode('conflicting-components');
+        this.motor=this.actor?.AddComponent(CharacterMotor);
+        this.pose=this.actor?.GetComponent(Transform);
+        const sensor=this.sensor?.AddComponent(Collider);
+        const floor=this.floor?.AddComponent(Collider);
+        const solid=this.solid?.AddComponent(Collider);
+        const body=this.solid?.AddComponent(RigidBody);
+        const conflictCollider=conflict?.AddComponent(Collider);
+        const conflictMotor=conflict?.AddComponent(CharacterMotor);
+        check(blockedOutside && this.motor?.SetGravityFactor(0) && this.pose &&
+            sensor?.SetBox(1,1,1) && sensor.SetTrigger(true) &&
+            this.sensor.GetComponent(Transform).SetPosition(0,.9,0) &&
+            floor?.SetBox(2,.5,2) && this.floor.GetComponent(Transform).SetPosition(10,-.5,0) &&
+            solid?.SetBox(.5,.5,.5) && body?.SetMotion('kinematic') &&
+            this.solid.GetComponent(Transform).SetPosition(10,.4,0), 'subscription scene setup');
+        check(Physics.OnTriggerEnter(empty, ()=>{}) === 0 &&
+            Physics.OnTriggerEnter({id:this.actor.id}, ()=>{}) === 0 &&
+            Physics.OnTriggerEnter(this.actor, null) === 0 &&
+            Physics.OnTriggerEnter(conflict, ()=>{}) === 0 &&
+            conflictCollider.SetEnabled(false) && conflictMotor.SetEnabled(false) &&
+            Physics.OnCollisionEnter(conflict, ()=>{}) === 0 &&
+            !Physics.Off(0) && !Physics.Off(-1) && !Physics.Off(.5) && !Physics.Off(NaN),
+            'invalid, ambiguous and disabled subscription targets fail');
+        this.enterId=Physics.OnTriggerEnter(this.actor, e=>{
+            validate(e,this.actor,this.sensor,true);
+            this.trigger.begin++; this.trace.push(e);
+            this.lateId=Physics.OnTriggerStay(this.actor, ()=>{this.late++;});
+            check(this.lateId > 0 && Physics.Off(this.cancelId), 'subscribe and cancel inside callback');
+        });
+        this.stayId=Physics.OnTriggerStay(this.actor, e=>{
+            validate(e,this.actor,this.sensor,true); this.trigger.stay++; this.trace.push(e);
+        });
+        this.exitId=Physics.OnTriggerExit(this.actor, e=>{
+            validate(e,this.actor,this.sensor,true); this.trigger.end++;
+        });
+        this.cancelId=Physics.OnTriggerStay(this.actor, ()=>{
+            throw new Error('Off must take effect within the current dispatch batch');
+        });
+        this.sensorEnterId=Physics.OnTriggerEnter(this.sensor, e=>{
+            validate(e,this.sensor,this.actor,true); this.survivorEnters++;
+        });
+        this.sensorExitId=Physics.OnTriggerExit(this.sensor, e=>{
+            validate(e,this.sensor,this.actor,true); this.exits.push(Physics.IsObjectValid(e.other));
+        });
+        this.collisionEnter=Physics.OnCollisionEnter(this.solid, e=>{
+            validate(e,this.solid,this.floor,false);
+            check(e.normal.y < -.99, 'collision normal points from self down to floor');
+            this.collision.begin++;
+        });
+        this.collisionStay=Physics.OnCollisionStay(this.solid, e=>{
+            validate(e,this.solid,this.floor,false); this.collision.stay++;
+        });
+        this.collisionExit=Physics.OnCollisionExit(this.solid, e=>{
+            validate(e,this.solid,this.floor,false); this.collision.end++;
+        });
+        const inverse=Physics.OnCollisionEnter(this.floor, e=>{
+            validate(e,this.floor,this.solid,false);
+            check(e.normal.y > .99, 'opposite subscriber receives the inverted normal');
+        });
+        const ids=[this.enterId,this.stayId,this.exitId,this.cancelId,this.sensorEnterId,
+            this.sensorExitId,this.collisionEnter,this.collisionStay,this.collisionExit,inverse,
+            Physics.OnCollisionEnter(this.actor,wrong),Physics.OnCollisionStay(this.actor,wrong),
+            Physics.OnCollisionExit(this.actor,wrong),Physics.OnTriggerEnter(this.solid,wrong),
+            Physics.OnTriggerStay(this.solid,wrong),Physics.OnTriggerExit(this.solid,wrong)];
+        check(ids.every(id=>Number.isSafeInteger(id) && id>0) && new Set(ids).size===ids.length,
+            'OnInitialize captures unique subscriptions before physics synchronization');
+        return true;
+    }
+    Update() {
+        switch(this.phase++) {
+        case 0:
+            check(this.trigger.begin===1 && this.trigger.stay===2 && this.trigger.end===0 &&
+                this.collision.begin===1 && this.collision.stay===2 && this.collision.end===0 &&
+                this.survivorEnters===1 && this.late===0 && this.trace.length===3 &&
+                this.trace.every(e=>e.frame===this.trace[0].frame) &&
+                this.trace[1].step===this.trace[0].step+1n &&
+                this.trace[2].step===this.trace[1].step+1n,
+                'dispatch precedes Update and retains every substep without new subscribers');
+            break;
+        case 1:
+            check(this.trace.length===3 && this.collision.stay===2 && this.late===0,
+                'script-only tick cannot replay the previous physics frame');
+            break;
+        case 2:
+            check(this.trigger.stay===3 && this.collision.stay===3 && this.late===1 &&
+                Physics.Off(this.collisionStay) && !Physics.Off(this.collisionStay) &&
+                this.motor.SetEnabled(false), 'next batch activates late subscribers and explicit Off');
+            break;
+        case 3:
+            check(this.exits.length===1 && this.exits[0]===false && this.trigger.end===0 &&
+                !Physics.Off(this.enterId) && !Physics.Off(this.stayId) &&
+                !Physics.Off(this.exitId) && !Physics.Off(this.lateId),
+                'disabled owner cancels all subscriptions while its live counterpart receives Exit');
+            check(this.motor.SetEnabled(true), 'reenable motor');
+            this.freshEnterId=Physics.OnTriggerEnter(this.actor, ()=>{this.freshEnters++;});
+            this.freshExitId=Physics.OnTriggerExit(this.actor, ()=>{this.freshExits++;});
+            check(this.freshEnterId>0 && this.freshExitId>0, 'explicit subscription after enable');
+            break;
+        case 4:
+            check(this.freshEnters===1 && this.trigger.begin===1 && this.survivorEnters===2 &&
+                this.collision.stay===3 && this.late===1,
+                'reenabling cannot revive cancelled subscriptions');
+            check(this.pose.SetPosition(5,0,0) &&
+                this.solid.GetComponent(Transform).SetPosition(15,.4,0), 'separate both pairs');
+            break;
+        case 5:
+            check(this.freshExits===1 && this.exits.length===2 && this.exits[1]===true &&
+                this.collision.end===1, 'live separation delivers trigger and collision exits');
+            check(this.pose.SetPosition(0,0,0), 'return character before replacing its motor');
+            break;
+        case 6:
+            check(this.freshEnters===2 && this.survivorEnters===3, 'second contact interval begins');
+            break;
+        case 7:
+            check(this.exits.length===3 && this.exits[2]===false && this.freshExits===1 &&
+                !Physics.Off(this.freshEnterId) && !Physics.Off(this.freshExitId),
+                'same-node replacement cancels captured component generation');
+            check(Physics.OnTriggerEnter(this.actor, ()=>{this.replacementEnters++;})>0 &&
+                Physics.OnTriggerExit(this.actor, ()=>{this.replacementExits++;})>0,
+                'new motor receives independent subscriptions');
+            break;
+        case 8:
+            check(this.replacementEnters===1 && this.freshEnters===2 && this.survivorEnters===4 &&
+                this.actor.Destroy(), 'replacement callbacks execute once before node deletion');
+            break;
+        case 9:
+            check(this.exits.length===4 && this.exits[3]===false && this.replacementExits===0 &&
+                this.scene.Destroy() && Scene.Create('physics-subscriptions-done'),
+                'deleted owner stops callbacks while surviving trigger receives historical Exit');
+            break;
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "physics-subscriptions", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input), "subscribe to physics callbacks during initialization"))
+    {
+        return false;
+    }
+    constexpr double step = 1.0 / 60.0;
+    const std::array intervals{3 * step, -1.0, step, 0.0, step, step, step, 0.0, step, 0.0};
+    for (std::size_t phase = 0; phase < intervals.size(); ++phase)
+    {
+        if (phase == 7)
+        {
+            engine::Node* actor = nullptr;
+            for (const auto& node : world.scene()->nodes())
+            {
+                if (node->name() == "subscribed-character")
+                {
+                    actor = node.get();
+                }
+            }
+            if (!actor || !actor->remove_component(engine::CharacterMotor::component_type))
+            {
+                return false;
+            }
+            auto* motor = actor->add_component<engine::CharacterMotor>();
+            if (!motor)
+            {
+                return false;
+            }
+            auto settings = motor->settings();
+            settings.gravity_factor = 0;
+            if (!motor->set_settings(settings))
+            {
+                return false;
+            }
+        }
+        if (!expect((intervals[phase] < 0 || physics.tick(intervals[phase])) && script.tick(step) &&
+                        script.status().running && script.status().last_error.empty(),
+                    "physics subscriptions retain ordering, cancellation and component identity"))
+        {
+            std::fprintf(stderr, "subscription phase %zu: %s\n", phase,
+                         script.status().last_error.c_str());
+            return false;
+        }
+    }
+    const bool complete = world.scene() && world.scene()->name() == "physics-subscriptions-done";
+    script.stop_gameplay();
+    physics.clear();
+    return expect(complete, "physics subscription lifecycle reaches completion");
+}
+
+bool run_physics_subscription_scene_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics} from 'engine';
+function check(value,message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    switches=0; newEnters=0; phase=0;
+    populate(name) {
+        const scene=Scene.Create(name), actor=scene?.CreateNode('actor'), sensor=scene?.CreateNode('sensor');
+        check(actor?.AddComponent(CharacterMotor)?.SetGravityFactor(0) &&
+            sensor?.AddComponent(Collider)?.SetTrigger(true) &&
+            sensor.GetComponent(Transform).SetPosition(0,.9,0), 'scene-switch subscription setup');
+        return {scene,actor,sensor};
+    }
+    OnInitialize() {
+        this.old=this.populate('physics-subscription-before-switch');
+        check(Physics.OnTriggerEnter(this.old.actor, ()=>{
+            this.switches++;
+            check(this.old.scene.Destroy(), 'destroy scene from physics callback');
+            this.next=this.populate('physics-subscription-after-switch');
+            check(Physics.OnTriggerEnter(this.next.actor, ()=>{this.newEnters++;})>0,
+                'new-scene subscription from callback');
+        })>0, 'initial switching callback');
+        const stale=()=>{throw new Error('old scene batch continued after callback switched scene');};
+        this.oldId=Physics.OnTriggerEnter(this.old.actor,stale);
+        return this.oldId>0 && Physics.OnTriggerStay(this.old.actor,stale)>0 &&
+            Physics.OnTriggerExit(this.old.actor,stale)>0;
+    }
+    Update() {
+        if (this.switches===0) {
+            check(this.newEnters===0, 'restart cannot deliver the previous run physics batch');
+            return;
+        }
+        check(this.switches===1 && !Physics.Off(this.oldId), 'scene switch cancels old subscription IDs');
+        if (this.phase++<2) {
+            check(this.newEnters===0, 'new scene cannot consume any event from the old batch');
+        } else {
+            check(this.newEnters===1 && this.next.scene.Destroy() &&
+                Scene.Create('physics-subscription-switch-done'), 'next physics batch reaches new scene');
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}))
+    {
+        return false;
+    }
+    constexpr double step = 1.0 / 60.0;
+    for (const char* revision :
+         {"physics-subscription-switch-first", "physics-subscription-switch-next"})
+    {
+        Fixture input;
+        if (!fixture(workspace, revision, {{"scripts/game.js", std::string(source)}}, input) ||
+            !expect(apply(script, input) && script.tick(step) && physics.tick(3 * step) &&
+                        script.tick(step) && script.tick(step) && physics.tick(step) &&
+                        script.tick(step) && script.status().running &&
+                        script.status().last_error.empty() && world.scene() &&
+                        world.scene()->name() == "physics-subscription-switch-done",
+                    "callback scene switch stops the old batch and new runs isolate subscriptions"))
+        {
+            std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+            return false;
+        }
+    }
+    script.stop_gameplay();
+    physics.clear();
+    return expect(script.tick(step) && !script.status().running && world.scene() == nullptr,
+                  "stopped gameplay cannot retain or dispatch physics subscriptions");
+}
+
+bool run_physics_subscription_promise_case(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics,Debug} from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const scene=Scene.Create('physics-promise-callback');
+        const actor=scene?.CreateNode('actor'), sensor=scene?.CreateNode('sensor');
+        return actor?.AddComponent(CharacterMotor)?.SetGravityFactor(0) &&
+            sensor?.AddComponent(Collider)?.SetTrigger(true) &&
+            sensor.GetComponent(Transform).SetPosition(0,.9,0) &&
+            Physics.OnTriggerEnter(actor, ()=>Promise.resolve())>0;
+    }
+    Update() { throw new Error('Update must not run after an asynchronous physics callback'); }
+    OnShutdown() { Debug.Log('physics-subscription-promise:shutdown'); }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "physics-subscription-promise",
+                 {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input) && physics.tick(1.0 / 60.0) && script.tick(1.0 / 60.0) &&
+                    !script.status().running &&
+                    script.status().last_error.find("synchronous") != std::string::npos &&
+                    log_contains("physics-subscription-promise:shutdown"),
+                "physics subscriptions reject Promise results before Update and run shutdown"))
+    {
+        std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+        return false;
+    }
+    physics.clear();
+    return true;
 }
 
 bool run_storage_binding_cases(const fs::path& workspace)
@@ -1880,7 +2312,10 @@ int main(int argc, char** argv)
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
         run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
-        run_shooting_query_cases(workspace);
+        run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
+        run_physics_subscription_cases(workspace) &&
+        run_physics_subscription_scene_cases(workspace) &&
+        run_physics_subscription_promise_case(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();
