@@ -46,6 +46,9 @@
 #if ENGINE_HAS_UI_IMPORTER
 #include "plugins/editor/ui_import/ui_importer.hpp"
 #endif
+#if ENGINE_HAS_JSON_IMPORTER
+#include "plugins/editor/json_import/json_importer.hpp"
+#endif
 #if ENGINE_HAS_FBX_IMPORTER
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
 #endif
@@ -209,6 +212,15 @@ int main(int argc, char** argv)
     if (!pipeline.add_importer(ui_importer))
     {
         std::fputs("Cannot register ui importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> json_importer =
+        std::make_unique<engine::plugins::json_import::JsonImporter>();
+    if (!pipeline.add_importer(json_importer))
+    {
+        std::fputs("Cannot register JSON importer\n", stderr);
         return 1;
     }
 #endif

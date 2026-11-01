@@ -23,6 +23,14 @@ declare module "engine" {
         static readonly cachePath: string;
     }
 
+    /** Standard catalog resource, parsed into a fresh JS value. No filesystem access. */
+    export class Json {
+        private constructor();
+        /** Active callbacks only; missing/wrong-kind/invalid resources return null.
+         * JSON null also returns null. Validate the unknown result in project code. */
+        static Load(path: string): unknown;
+    }
+
     /** Per-run string storage. Methods require an active gameplay or component callback. */
     export class Storage {
         private constructor();

@@ -685,6 +685,13 @@ if(TARGET engine_font_import)
     set_tests_properties(editor.font_pipeline PROPERTIES TIMEOUT 120)
 endif()
 
+if(TARGET engine_json_import)
+    add_executable(engine_json_importer_test json_importer_test.cpp)
+    target_link_libraries(engine_json_importer_test PRIVATE engine::json_import engine::resource)
+    engine_apply_options(engine_json_importer_test)
+    add_test(NAME editor.json_importer COMMAND engine_json_importer_test)
+endif()
+
 if(TARGET engine_ui_import AND TARGET engine_font_import)
     add_executable(engine_ui_pipeline_test ui_pipeline_test.cpp)
     target_link_libraries(engine_ui_pipeline_test PRIVATE engine::ui_import engine::font_import

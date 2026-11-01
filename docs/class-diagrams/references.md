@@ -649,6 +649,8 @@ App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通
 
 ## 类型登记与框架分派
 
+JSON 资源扩展新增独立编辑器 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过 ResourceSystem / ResourceLoader 取得本次 ResourcePtr 并检查 json 类型后读取 bytes；JS 门面解析为当前 VM 的普通值。核心只追加 AssetKind 与 BinaryResourceCodec 登记，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
+
 脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
 
 ```mermaid

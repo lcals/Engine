@@ -104,7 +104,8 @@ std::string guid_for(std::string_view path)
 
 bool fixture(const fs::path& workspace, std::string_view revision,
              const std::map<std::string, std::string>& scripts, Fixture& output,
-             std::string_view scene_bytes = {}, std::string_view audio_bytes = {})
+             std::string_view scene_bytes = {}, std::string_view audio_bytes = {},
+             const std::map<std::string, std::string>& json_resources = {})
 {
     output = {};
     output.root = workspace / "versions" / engine::PathUtils::from_utf8(revision);
@@ -159,6 +160,13 @@ bool fixture(const fs::path& workspace, std::string_view revision,
         !add("sounds/test.wav", "", engine::schema::AssetKind::audio, audio_bytes))
     {
         return false;
+    }
+    for (const auto& [path, source] : json_resources)
+    {
+        if (!add(path, "", engine::schema::AssetKind::json, source))
+        {
+            return false;
+        }
     }
     return expect(output.catalog.assign(data), "assign runtime fixture metadata");
 }
@@ -1552,6 +1560,177 @@ export default class extends Gameplay {
     return true;
 }
 
+bool run_json_binding_cases(const fs::path& workspace)
+{
+    // 不注入 WorldSystem：配置读取不能要求先创建场景。
+    engine::plugins::script::ScriptSystem script;
+    constexpr std::string_view source = R"js(
+import { Gameplay, Json, Debug } from 'engine';
+const topLevelBlocked = Json.Load('config/maps.json') === null;
+function checkValues(revision) {
+    const value = Json.Load('config/maps.json');
+    const array = Json.Load('config/array.json');
+    return value !== null && Object.getPrototypeOf(value) === Object.prototype &&
+        value.title === '场景😀' && value.revision === revision && value.enabled === true &&
+        value.none === null && Array.isArray(value.maps) && value.maps[0].id === 'sample' &&
+        value.settings.exposure === 1.2 &&
+        Array.isArray(array) && array.length === 5 && array[0] === 7 &&
+        array[1] === false && array[2] === 'label' && array[3] === null &&
+        array[4].nested === 8 && Json.Load('config/number.json') === 42 &&
+        Json.Load('config/false.json') === false && Json.Load('config/null.json') === null &&
+        Json.Load('config/string.json') === 'text 中文' &&
+        Json.Load('config/nul-string.json') === 'a\u0000b' &&
+        Json.Load('config/maximum.json') === true;
+}
+function checkFailures() {
+    const calls = [
+        () => Json.Load(),
+        () => Json.Load(null),
+        () => Json.Load(true),
+        () => Json.Load(42),
+        () => Json.Load({}),
+        () => Json.Load('config/maps.json', 'extra'),
+        () => Json.Load(''),
+        () => Json.Load('../loose.json'),
+        () => Json.Load(physicalJsonPath),
+        () => Json.Load('config/maps.json\u0000trailing'),
+        () => Json.Load('config/missing.json'),
+        () => Json.Load('config/unavailable.json'),
+        () => Json.Load('scripts/looks-like-json.js'),
+        () => Json.Load('config/invalid.json'),
+        () => Json.Load('config/invalid-utf8.json'),
+        () => Json.Load('config/empty.json'),
+        () => Json.Load('config/oversized.json'),
+    ];
+    return calls.every(call => call() === null);
+}
+function checkIndependentValues() {
+    const first = Json.Load('config/maps.json');
+    const second = Json.Load('config/maps.json');
+    if (first === second || first.maps === second.maps ||
+        first.maps[0] === second.maps[0] || first.settings === second.settings) return false;
+    first.maps[0].id = 'changed';
+    first.maps.push({ id: 'extra' });
+    first.settings.exposure = 9;
+    const fresh = Json.Load('config/maps.json');
+    return second.maps.length === 1 && second.maps[0].id === 'sample' &&
+        second.settings.exposure === 1.2 && fresh !== second &&
+        fresh.maps.length === 1 && fresh.maps[0].id === 'sample' &&
+        fresh.settings.exposure === 1.2;
+}
+export default class extends Gameplay {
+    frame = 0;
+    inactiveBlocked = false;
+    constructor() {
+        super();
+        this.constructorBlocked = Json.Load('config/maps.json') === null;
+    }
+    checkOutsideCallback() {
+        this.inactiveBlocked = false;
+        Promise.resolve().then(() => {
+            this.inactiveBlocked = Json.Load('config/maps.json') === null;
+            if (!this.inactiveBlocked) throw new Error('JSON read outside a gameplay callback');
+        });
+    }
+    OnInitialize() {
+        this.lastRevision = expectedRevision;
+        this.checkOutsideCallback();
+        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Json) &&
+            checkValues(expectedRevision) && checkFailures() && checkIndependentValues();
+    }
+    Update() {
+        const revision = expectedRevision === 1 && ++this.frame > 1 ? 2 : expectedRevision;
+        if (!this.inactiveBlocked || !checkValues(revision))
+            throw new Error('JSON callback state or current catalog is incorrect');
+        this.lastRevision = revision;
+        this.checkOutsideCallback();
+        Debug.Log('json:update:' + expectedRevision + ':' + revision);
+    }
+    OnShutdown() {
+        if (Json.Load('config/maps.json')?.revision !== this.lastRevision)
+            throw new Error('JSON read unavailable during shutdown');
+        Debug.Log('json:shutdown:' + expectedRevision + ':' + this.lastRevision);
+    }
+}
+)js";
+    constexpr std::size_t maximum_bytes = 4U * 1024U * 1024U;
+    std::string maximum(maximum_bytes, ' ');
+    maximum.replace(0, 4, "true");
+    std::string oversized(maximum_bytes + 1U, ' ');
+    oversized.replace(0, 4, "true");
+    std::map<std::string, std::string> json_resources{
+        {"config/maps.json",
+         R"json({"title":"场景😀","revision":1,"enabled":true,"none":null,"maps":[{"id":"sample"}],"settings":{"exposure":1.2}})json"},
+        {"config/array.json", R"json([7,false,"label",null,{"nested":8}])json"},
+        {"config/number.json", "42"},
+        {"config/false.json", "false"},
+        {"config/null.json", "null"},
+        {"config/string.json", R"json("text \u4e2d\u6587")json"},
+        {"config/nul-string.json", R"json("a\u0000b")json"},
+        {"config/invalid.json", R"json({"broken":)json"},
+        {"config/invalid-utf8.json", std::string("\x22\xc0\xaf\x22", 4)},
+        {"config/empty.json", ""},
+        {"config/maximum.json", std::move(maximum)},
+        {"config/oversized.json", std::move(oversized)},
+        {"config/unavailable.json", "true"}};
+    const auto physical_json = workspace / "loose.json";
+    const auto make_source = [&](int revision)
+    {
+        return "const expectedRevision = " + std::to_string(revision) +
+               "; const physicalJsonPath = " + Json(engine::PathUtils::to_utf8(physical_json)).dump() +
+               ";\n" + std::string(source);
+    };
+    Fixture first;
+    Fixture next;
+    if (!script.initialize({}) || !write_file(physical_json, R"json({"host_file":true})json") ||
+        !fixture(workspace, "json-first",
+                 {{"scripts/game.js", make_source(1)},
+                  {"scripts/looks-like-json.js", R"js("not a JSON resource")js"}},
+                 first, {}, {}, json_resources))
+    {
+        return false;
+    }
+    json_resources["config/maps.json"] =
+        R"json({"title":"场景😀","revision":2,"enabled":true,"none":null,"maps":[{"id":"sample"}],"settings":{"exposure":1.2}})json";
+    if (!fixture(workspace, "json-next",
+                 {{"scripts/game.js", make_source(2)},
+                  {"scripts/looks-like-json.js", R"js("not a JSON resource")js"}},
+                 next, {}, {}, json_resources))
+    {
+        return false;
+    }
+    std::error_code error;
+    if (!fs::remove(first.root / "gen" / guid_for("config/unavailable.json"), error) || error ||
+        !fs::remove(next.root / "gen" / guid_for("config/unavailable.json"), error) || error)
+    {
+        return false;
+    }
+    auto* resources = engine::ResourceSystem::instance();
+    // 顶层和构造测试前即发布真实可读目录，避免因路径缺失而误判为权限拒绝。
+    if (!expect(resources != nullptr &&
+                    resources->update_catalog(first.catalog.data(), first.mounts) &&
+                    apply(script, first) && script.status().running,
+                "JSON resources load in initialization without a scene; top level and constructor "
+                "stay blocked; primitive, size, UTF-8, kind and parse contracts hold") ||
+        !expect(script.tick(.01) && script.status().running &&
+                    log_contains("json:update:1:1"),
+                "JSON reads work in Update while queued jobs outside callbacks return null") ||
+        !expect(resources->update_catalog(next.catalog.data(), next.mounts) && script.tick(.01) &&
+                    script.status().running && script.status().active_revision == "json-first" &&
+                    log_contains("json:update:1:2"),
+                "JSON follows the current catalog generation without replacing the script Run") ||
+        !expect(apply(script, next) && script.tick(.01) && script.status().running &&
+                    log_contains("json:shutdown:1:2") && log_contains("json:update:2:2"),
+                "replacement Run parses independent JSON values and shutdown can still read"))
+    {
+        std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(script.status().last_error.empty() && log_contains("json:shutdown:2:2"),
+                  "JSON facade shuts down cleanly after the final permitted callback");
+}
+
 bool run_storage_binding_cases(const fs::path& workspace)
 {
     engine::plugins::script::ScriptSystem script;
@@ -2311,7 +2490,8 @@ int main(int argc, char** argv)
         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
-        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
+        run_json_binding_cases(workspace) && run_storage_binding_cases(workspace) &&
+        run_input_binding_cases(workspace) &&
         run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&
         run_physics_subscription_scene_cases(workspace) &&

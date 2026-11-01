@@ -41,6 +41,7 @@
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
 - [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：独立编辑器插件读取 TTF 和 meta，生成共享字形曲线与度量资源。
 - [UI 资源导入](../plugins/editor/class-diagrams/ui-importer.md)：文档、字体和图片引用转换为标准运行资源依赖。
+- [JSON 资源导入](../plugins/editor/class-diagrams/json-importer.md)：独立 `.json` 配置、严格 UTF-8 校验、原字节发布与空依赖。
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
 - [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
@@ -87,6 +88,7 @@
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
 - [字符串 KV](../runtime/class-diagrams/key-value-store.md)：原生通用存取、每 Run 缓存、显式保存和脚本外观；游戏数据内容与版本由项目维护。
 - [KV 脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)：Storage 静态门面、逐类绑定与回调边界。
+- [JSON 资源脚本接口](../plugins/runtime/class-diagrams/json-script-api.md)：`Json.Load` 在活动回调读取标准资源，返回普通 JavaScript 值。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。

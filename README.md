@@ -44,6 +44,12 @@ UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElemen
 
 当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及节点脚本组件。项目已通过 Gameplay 和 UI MVC 实现场景切换。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
 
+项目配置可保存为独立 `.json` 资源。编辑器插件 `json_import` 校验 1 字节至 4 MiB 的严格 UTF-8 JSON，拒绝 BOM、原始 NUL、注释和尾逗号；成功后原样进入 GUID 缓存、同步与运行包。运行时复用普通资源字节，不向核心增加 JSON 解析器。显式设置 `ENGINE_EDITOR_PLUGINS` 的已有构建需在原清单追加 `json_import`，默认清单已包含该插件。
+
+资源类型表参与公共导入指纹，首次升级会重新导入旧项目缓存；之后继续按资源增量构建，不需清空缓存或重编第三方依赖。
+
+脚本在 `Gameplay.OnInitialize` 等有效回调内调用 `Json.Load("config/maps.json")`，得到 `unknown` 类型的独立 JavaScript 值，并由项目校验字段。模块顶层、构造阶段、缺失路径、非 JSON 资源和非法载荷返回 `null`，合法 JSON `null` 同样返回 `null`。JSON 内的字符串不会自动成为资源依赖；精简包须在 `settings/resource-build.toml` 显式列出配置及其使用的场景、模型等入口，UI 图片继续在 `.rml.meta` 声明。接口及边界见 [JSON 导入](docs/plugins/editor/class-diagrams/json-importer.md)与[脚本读取](docs/plugins/runtime/class-diagrams/json-script-api.md)。
+
 ## 构建与测试
 
 需要支持 C++20 的编译器：Windows 安装 Visual Studio 2022+ 的 C++ 桌面开发工作负载，Linux 使用 GCC 或 Clang，macOS 安装 Xcode Command Line Tools。环境脚本负责检查、安装 CMake 3.25+、Git、Ninja 和编译缓存工具；Windows 默认使用 sccache，Linux / macOS 默认使用 ccache。默认只检查，显式传入安装参数才补齐工具，安装后重新运行版本检查，失败返回非零状态。
@@ -952,6 +958,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
 | macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
+| macOS ARM64 / JSON 配置与项目 UI | 2026-11-01：JSON 扩展受影响目标 Debug / Release 构建，各 5 项定向 CTest（脚本运行、JSON 导入、资源解码、插件开关、架构边界）通过。项目 TS 检查及资源打包通过；真实 Metal 验证菜单、加载、关卡 HUD、图鉴、按键重绑定及保存、曝光应用与默认恢复、退出关卡后回到 2 节点菜单；独立原生 UI 探针覆盖 1280×720、1920×1080、1440×900、3440×1440 的 15 种页面状态 | 未运行全套 CTest、V8、其他平台或原生应用导出。Xbox 输入及断连使用模拟验证，未连接物理手柄；分辨率、窗口模式、语言和退出桌面保留 UI 与项目空实现 |
 | macOS 多角色与可破坏地形导航 | Debug / Release 的导航、原生代理、脚本、编解码及装配边界共 10 项定向回归通过，范例 TS 编译与编排检查通过。Metal 实窗观察 16／64 角色移动、反转及启停；16 角色挖坑绕行全部到达，断沟后停止，恢复地面后原目标自动续行 | 未做其他平台运行、完整战斗联调或容量压测；同步重建与避让的性能尚无目标设备结论 |
 | macOS ARM64 / QuickJS 物理交互 | 物理查询、角色、范围与接触生命周期、脚本及导航运动学组合的定向 Debug 5 项、Release 7 项 CTest 均通过；新增订阅和 Trigger 类型切换后，受影响物理/脚本测试再次通过两配置回归。Metal 实窗验证角色与导航对象查询、两类范围、触发统计、启停和返回清理 | 未做其他平台构建或运行验证、容量或性能验收；不代表全套 CTest 通过 |
 | macOS InPlace 动画导入 | Debug / Release 的 FBX 管线、轴向处理与动画定向测试通过；范例 TS 与编排回归通过。实际 walk 缓存每周期前进位移从约 1.4253 米降到浮点误差范围，未选轴、旋转、缩放及其他骨骼不变；新资源同步与 Metal 场景启动通过，停止后零节点 | 尚未做其他平台实窗验证；未实现 RootMotion 驱动与运行时模式切换 |

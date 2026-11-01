@@ -8,6 +8,8 @@
 
 InputBinding 提供统一输入能力，BindingContext 借用 InputSystem 并清理本 Run 创建的通道与捕获；公开方法、数据依赖与失败语义见[输入脚本接口](input-script-api.md)。
 
+JSON 扩展：下方登记关系中的 JsonBinding 为本轮新增实现，公开方法与 `Json.Load(path): unknown` 门面只在 [JSON 资源脚本接口](json-script-api.md)定义。它复用 BindingContext 的活动回调检查和 ResourceSystem 的标准加载能力，不增加上下文服务、字段或第二套 JSON 值模型；已按评审契约实现。
+
 已选角色插件登记独立 CharacterControllerBinding，方法与关系见[角色输入脚本接口](character-input-script-api.md)。它只提交瞬态意图，运动与相机计算保留原生。插件未选时不创建该绑定，也不强制启用角色插件。
 
 ```mermaid
@@ -123,6 +125,7 @@ classDiagram
     }
     class AppBinding
     class StorageBinding
+    class JsonBinding
     class EngineBinding
     class DebugBinding
     class GameplayBinding
@@ -151,6 +154,7 @@ classDiagram
     class UiControllerBinding
     ScriptBinding <|-- AppBinding
     ScriptBinding <|-- StorageBinding
+    ScriptBinding <|-- JsonBinding
     ScriptBinding <|-- EngineBinding
     ScriptBinding <|-- DebugBinding
     ScriptBinding <|-- GameplayBinding
