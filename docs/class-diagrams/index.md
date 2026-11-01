@@ -6,6 +6,8 @@
 
 统一评审原则：**业务、运行宿主和编辑器都驱动最小核心，核心不承载调用方流程。** 评审每个方法时区分“提供能力”和“决定何时使用能力”，后者归调用方。完整边界见[调用方驱动核心](../architecture.md#调用方驱动核心)。
 
+[统一输入模块](../runtime/input.md)由 TS 加载 / 覆盖 / 保存绑定并显式配对多手柄，原生采集设备、执行最终映射并处理虚拟触摸。接口入口为[输入系统](../runtime/class-diagrams/input-system.md)、[生成数据](../runtime/class-diagrams/input-data.md)、[输入脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)，脚本声明位于 `include/engine.d.ts`；平台验证范围以 README 为准。
+
 [角色与动画制作流程（规划）](../editor/character-production.md)记录 AI 离线加工、骨骼不匹配处理及引擎运行时动作复用的方向，并与[当前动画能力](../runtime/animation.md)区分。该规划尚未新增类或公开接口；后续骨架适配数据与重定向契约须先在所属类图及本索引中评审，不能把工具调研当成已实现契约。
 
 ## 资源系统

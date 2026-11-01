@@ -8,7 +8,7 @@
 classDiagram
     class ScenePreview {
         <<final>>
-        +ScenePreview(EditorEnvironment& environment, GameplaySession& gameplay, WorldSystem& world, RenderSystem& renderer, WindowSystem& window, filesystem_path project_root, ImportCallback import)
+        +ScenePreview(EditorEnvironment& environment, GameplaySession& gameplay, WorldSystem& world, RenderSystem& renderer, InputSystem& input, filesystem_path project_root, ImportCallback import)
         +~ScenePreview()
         +initialize(const EngineConfig& config) bool
         +register_commands(EditorCommands& commands) bool
@@ -23,7 +23,7 @@ classDiagram
     class EditorEnvironment
     class GameplaySession
     class RenderSystem
-    class WindowSystem
+    class InputSystem
     class EditorCommands
     class Camera
     class EngineConfig
@@ -35,7 +35,7 @@ classDiagram
     ScenePreview --> EditorEnvironment : 借用资源目录刷新
     ScenePreview --> GameplaySession : 借用并停止玩法释放项目资源
     ScenePreview --> RenderSystem : 借用资源准备与镜头渲染
-    ScenePreview --> WindowSystem : 借用窗口输入
+    ScenePreview --> InputSystem : 借用并持有自己的预览通道句柄
     ScenePreview --> EditorCommands : 借用命令及修改代次
     ScenePreview ..> Camera : 返回独立世界镜头借用
     ScenePreview ..> EngineConfig : 初始化参数
@@ -48,6 +48,7 @@ classDiagram
 - `initialize` 初始化仅含通用场景组件的镜头世界，并监听项目 assets 与 settings。efsw 回调只记录变化，编辑器主线程在最后一次变更 500 ms 后执行增量导入；目录版本每 250 ms 检查一次。导入失败保留现有画面，等待后续修改或显式刷新。
 - 注册 `open_scene_preview(path, camera?)`、`close_scene_preview()`、`get_scene_preview()`、`set_preview_camera(position?, rotation?, speed?)`、`refresh_scene_preview(discardChanges?)`。镜头初始姿态取场景相机世界姿态，无场景相机则使用 `(0,2,5)`；不改项目的 active_camera。
 - 独立镜头持续借用给 RenderSystem 的单次 prepare/render 调用，核心不保存编辑器状态。按住右键时 WASD 前后左右、Q/E 升降，Shift 加速；MCP 可直接设置世界坐标、角度及速度。
+- 预览创建并独占一个输入通道句柄，默认绑定由编辑器调用方提交；关闭预览停用通道，对象析构销毁通道。设备版本变化时重新组织键鼠来源，不再直接调用 SDL 状态查询。预览宿主与正式运行共用 RuntimeHost.poll_events，后台也继续处理设备变化。
 - `EditorCommands::mutation_revision()` 在影响场景的修改、批量、撤销及重做成功后递增；曝光、环境光等组件参数也属于场景编辑。预览保存自己的检查点，存在未保存编辑时外部资源变更只置 `reloadPending`，保留当前节点；`refresh_scene_preview(discardChanges=true)` 才丢弃修改。
 - 成功保存当前预览路径后，`mark_saved` 记录当时的修改代次及本批实际发布资源的 GUID、源文件与 meta 摘要。下一次增量导入成功，确认目录仅含这些资源的新增或修改，且源文件及 meta 内容仍匹配，再提交新目录；保留当前场景、隐藏镜头和撤销/重做历史，不重新加载场景。多个连续保存合并最新摘要，无内容变更的保存不制造新目录。导入完成不会再次更新保存代次，因此保存后的编辑或撤销仍保持未保存状态。
 - 自保存识别不暂停文件监听、不跳过任意下一次更新。其他资源改动、资源删除、同一源文件或 meta 的并行修改均按外部更新处理；未保存编辑继续受到保护。打开、显式刷新或关闭预览仍清理旧场景历史。

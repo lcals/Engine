@@ -8,7 +8,6 @@
 namespace engine
 {
 class WorldSystem;
-class WindowSystem;
 class Node;
 } // namespace engine
 
@@ -18,8 +17,8 @@ namespace engine::plugins::character_controller
 class CharacterControllerSystem final : public System
 {
 public:
-    // 借用对象须覆盖本系统生命周期；可空窗口允许业务直接提交输入。
-    explicit CharacterControllerSystem(WorldSystem& world, WindowSystem* window = nullptr) noexcept;
+    // 世界借用须覆盖本系统生命周期，输入仅由调用方明确提交。
+    explicit CharacterControllerSystem(WorldSystem& world) noexcept;
     ~CharacterControllerSystem() noexcept override;
     // 选中当前场景玩家；空指针解除选择，不自动接管其他玩家。
     [[nodiscard]] bool set_player(Node* node) noexcept;
@@ -34,7 +33,6 @@ protected:
 private:
     void stop_driving() noexcept;
     WorldSystem& world_;
-    WindowSystem* window_ = nullptr;
     CharacterInput input_{};
     bool has_input_ = false;
     bool explicit_player_ = false;

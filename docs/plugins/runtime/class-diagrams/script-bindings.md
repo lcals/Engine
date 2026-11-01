@@ -6,6 +6,10 @@
 
 绑定类型统一位于 `engine::plugins::script::bindings`，包含 `ScriptBinding`、`ScriptBindingRegistry`、`BindingContext` 及各模块绑定类；它们通过 `engine` 中的核心公开接口实现脚本操作。
 
+InputBinding 提供统一输入能力，BindingContext 借用 InputSystem 并清理本 Run 创建的通道与捕获；公开方法、数据依赖与失败语义见[输入脚本接口](input-script-api.md)。
+
+已选角色插件登记独立 CharacterControllerBinding，方法与关系见[角色输入脚本接口](character-input-script-api.md)。它只提交瞬态意图，运动与相机计算保留原生。插件未选时不创建该绑定，也不强制启用角色插件。
+
 ```mermaid
 classDiagram
     direction TB
@@ -26,7 +30,7 @@ classDiagram
     }
     class BindingContext {
         <<final>>
-        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation)
+        +BindingContext(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input)
         +~BindingContext()
         +activate() void
         +begin_call(double delta_time) void
@@ -37,6 +41,14 @@ classDiagram
         +ui() UiSystem#42;
         +physics() PhysicsSystem#42;
         +navigation() NavigationSystem#42;
+        +input() InputSystem#42;
+        +remember_input_channel(InputChannelHandle channel) void
+        +owns_input_channel(InputChannelHandle channel) bool
+        +forget_input_channel(InputChannelHandle channel) void
+        +remember_input_capture(InputChannelHandle channel, InputCaptureHandle capture) void
+        +owns_input_capture(InputCaptureHandle capture) bool
+        +set_input_error(string_view error) void
+        +input_error() const string&
         +storage() KeyValueStore&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
@@ -49,6 +61,9 @@ classDiagram
     class RenderSystem
     class UiSystem
     class NavigationSystem
+    class InputSystem
+    class InputChannelHandle
+    class InputCaptureHandle
     class KeyValueStore
     ScriptBindingRegistry "1" *-- "0..*" ScriptBinding : 独占实现对象
     ScriptBinding ..> ScriptVm : 注册原生函数和只读常量
@@ -61,10 +76,13 @@ classDiagram
     BindingContext --> WorldSystem : 可空借用
     BindingContext --> RenderSystem : 有效玩法回调期间的可空借用
     BindingContext --> NavigationSystem : 有效回调借用及所属场景结束清理
+    BindingContext --> InputSystem : 可空借用，覆盖Run清理
+    BindingContext *-- InputChannelHandle : 本Run创建清单
+    BindingContext *-- InputCaptureHandle : 本Run捕获清单
     BindingContext *-- KeyValueStore : 每个 Run 独占惰性加载缓存
 ```
 
-`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`ui`、`physics`、`navigation`、`scene_id`、`delta_time` 为 `const noexcept`，服务返回可修改对象的可空借用。构造的 renderer、ui、physics 和 navigation 默认空；除 world 外，服务查询在非生命周期及绑定回调期间返回空。成员函数的 `const` 在此说明，不写入返回类型。
+`ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`ui`、`physics`、`navigation`、`input`、`scene_id`、`delta_time` 为 `const noexcept`，服务返回可修改对象的可空借用。构造的服务指针默认空；除 world 外，服务查询在非生命周期及绑定回调期间返回空。输入句柄归属与失败语义见[输入脚本接口](input-script-api.md)。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 是 `const vm::Arguments&`，由本次原生回调临时借用；通过 owner 访问当前 Run 的绑定上下文，参数与返回值不暴露 JS 句柄。
 

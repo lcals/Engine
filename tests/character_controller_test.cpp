@@ -199,6 +199,65 @@ bool movement_jump_and_settings()
     return true;
 }
 
+bool component_input_consumption()
+{
+    Fixture fixture;
+    if (!expect(fixture.initialize(), "initialize component input fixture"))
+    {
+        return false;
+    }
+    auto* component = fixture.player->get_component<CharacterController>();
+    auto* motor = fixture.player->get_component<engine::CharacterMotor>();
+    CharacterInput forward;
+    forward.move = {0, 1};
+    CharacterInput invalid;
+    invalid.look = {std::numeric_limits<double>::quiet_NaN(), 0};
+    const auto step = [&]()
+    { return fixture.controller.tick(1.0 / 60.0) && fixture.physics.tick(1.0 / 60.0); };
+    const auto stopped = [&]() { return std::abs(motor->velocity().z()) < 0.01; };
+    engine::schema::ComponentDataT before;
+    engine::schema::ComponentDataT after;
+    if (!expect(component->build_data(before) && component->set_input(forward) &&
+                    !component->set_input(invalid) && component->build_data(after) &&
+                    before == after && step() && motor->velocity().z() < -3.9,
+                "component input is transient and rejected input preserves accepted intent") ||
+        !expect(step() && stopped(), "component intent is consumed once") ||
+        !expect(component->set_input(forward) && fixture.controller.set_input({}) && step() &&
+                    stopped() && step() && stopped(),
+                "explicit system input overrides and consumes pending component input"))
+    {
+        return false;
+    }
+    if (!component->set_input(forward))
+    {
+        return false;
+    }
+    component->clear_input();
+    if (!expect(step() && stopped(), "explicit component clearing drops pending intent") ||
+        !component->set_input(forward))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(!component->set_input(forward) && step() && stopped(),
+                "disabled components reject submissions and discard pending input"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    if (!expect(step() && stopped() && fixture.controller.set_player(nullptr) &&
+                    component->set_input(forward) && step() &&
+                    fixture.controller.set_player(fixture.player) && step() && stopped(),
+                "disabled and unselected input cannot revive after selecting a player") ||
+        !component->set_input(forward))
+    {
+        return false;
+    }
+    fixture.controller.shutdown();
+    return expect(fixture.controller.initialize({}) && step() && stopped(),
+                  "controller shutdown clears component pending input before reuse");
+}
+
 bool collisions_steps_and_lifecycle()
 {
     Fixture fixture;
@@ -585,10 +644,10 @@ bool hierarchy_conflicts_and_cast_validation()
 
 int main()
 {
-    return movement_jump_and_settings() && collisions_steps_and_lifecycle() &&
-                   camera_modes_and_occlusion() && first_person_visibility_lifecycle() &&
-                   player_selection_and_removal() && independent_follow_camera() &&
-                   hierarchy_conflicts_and_cast_validation()
+    return movement_jump_and_settings() && component_input_consumption() &&
+                   collisions_steps_and_lifecycle() && camera_modes_and_occlusion() &&
+                   first_person_visibility_lifecycle() && player_selection_and_removal() &&
+                   independent_follow_camera() && hierarchy_conflicts_and_cast_validation()
                ? 0
                : 1;
 }

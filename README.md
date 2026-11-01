@@ -362,6 +362,16 @@ export default class Game extends Gameplay {
 
 每次玩法运行只有一个项目入口，可直接承载业务；它独立于节点。`OnInitialize` 必须返回布尔值。`Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 接受字符串并映射到原生日志。`Scene.Load(path)` 从当前目录按需加载场景及必要依赖，`Scene.FindNode(name)` 查找节点；`Scene.Create` 可以动态创建所属玩法会话的场景；`Scene.CreateNode` 创建节点，节点可以添加 `Camera`、`Light`、`MeshRenderer`、`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 组件。物理与音频接口见[脚本类图](docs/plugins/runtime/class-diagrams/physics-audio-script-api.md)。全部场景对象都遵守这个结构。节点管理父子关系，Transform 提供局部位置、旋转与缩放；`Time.deltaTime` 为当前 Update 的秒数。完整用法见 [示例 Game](projects/showcase/assets/scripts/game.ts) 与 [SDK 声明](include/engine.d.ts)。停止或重载后旧句柄失效，失败返回 false/null。
 
+[统一输入模块](docs/runtime/input.md)由原生 InputSystem 采集完整 scancode、鼠标、标准 Gamepad / 原始 Joystick 与触摸，执行调用方明确提交的通道映射；支持多手柄连接身份、版本化设备清单、Button / state / delta 动作、多来源组合、虚拟 button / stick / drag 和重绑定捕获。TS 负责加载默认值、读取 / 合并 / 保存覆盖以及玩家配对和重连策略，原生不读取 Storage 或项目文件。公开 API 见[输入系统类图](docs/runtime/class-diagrams/input-system.md)、[脚本门面](docs/plugins/runtime/class-diagrams/input-script-api.md)与 [SDK](include/engine.d.ts)。
+
+InputSystem 在单次 SDL 事件泵后、宿主暂停判断前发布快照；重复查询不消费边沿，设备断开 / 失焦产生取消，旧通道和捕获句柄不复活。ScriptSystem 可空借用 InputSystem，每个 Run 只操作自己创建的通道，停止与热重载销毁其通道、虚拟指针归属和待生效配置；不隐式保存。showcase 的 [character_controls.ts](projects/showcase/assets/scripts/character_controls.ts) 演示项目侧策略，并通过可选 CharacterController.SetInput 显式提交角色意图；输入通道支持多个玩家，当前角色控制器仍只推进选中的角色。
+
+showcase 默认键位仍是 WASD、Space、鼠标右键观察和 Tab 切镜头。`CharacterControls.SaveKeys` 显式保存 KV 覆盖，初始化时在 TS 合并；初始选择一个手柄也是示例 TS 的策略，重连后由 `AssignGamepad` 明确重新配对。触屏默认使用左下摇杆、右下拖动观察和右下角高优先级跳跃区域；尺寸与锚点在项目 TS 中，InputSystem 只执行区域，不绘制控件。编辑器预览使用自己的键鼠通道，全部调用方已移除 WindowSystem 的有限输入接口。
+
+2026-11-01 输入模块定向验证：Windows 静态 Debug / Release 的 `engine_app`、`editor_app` 及受影响测试目标编译链接通过；`engine.input`、`engine.script_runtime`、`engine.character_controller`、`engine.character_host`、`engine.ui_script` 均通过（每配置 5/5），SDK 与 showcase TypeScript 检查及架构依赖检查通过。多手柄采用 SDL 虚拟设备，触摸采用事件注入，UI / 宿主测试使用 Direct3D 12；尚未确认真实手柄和移动设备触控，也未在本轮验证 Android / macOS。
+
+原生最多保留 4096 个存活通道；每个配置列表最多 4096 项，单个动作名 / 虚拟控件 id / 引用最多 4096 字节，每份配置的 parts 与 modifiers 合计最多 65536 项，捕获 devices / kinds 列表各最多 4096 项。超限整份拒绝且保留原配置。脚本对象桥另限单次输入 4 MiB。虚拟控件的 visible=false 或 enabled=false 阻止命中和值输出，显示由项目 UI 负责；普通 RmlUi 触摸桥使用一个指针，不承诺同一文档的多指独立拖拽，也未提供震动、传感器或 tap / pinch 等独立手势 API。当前变更的平台验证由后续实际记录列明。
+
 `App` 的静态只读路径具有以下含义：
 
 | 脚本接口                 | 用途                                                                      |

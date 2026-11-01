@@ -1,8 +1,8 @@
-#include "runtime/performance/profiling.hpp"
 #include "runtime/app/runtime_host.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime_plugins.hpp"
 
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -117,12 +117,12 @@ int main(int argc, char* argv[])
     engine::ScriptRuntimeFactory script_factory = nullptr;
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                        engine::UiSystem& ui,
-                        engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::UiSystem& ui, engine::PhysicsSystem& physics,
+                        engine::NavigationSystem& navigation,
+                        engine::InputSystem& input) -> std::unique_ptr<engine::ScriptRuntime>
     {
-        return std::make_unique<engine::plugins::script::ScriptSystem>(&world, &renderer, &ui,
-                                                                       &physics, &navigation);
+        return std::make_unique<engine::plugins::script::ScriptSystem>(
+            &world, &renderer, &ui, &physics, &navigation, &input);
     };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -203,8 +203,9 @@ int main(int argc, char* argv[])
         }
 #if defined(ENGINE_ENABLE_TRACY)
         ENGINE_PROFILE_PLOT("Host work ms",
-            (std::chrono::duration<double, std::milli>(
-                std::chrono::steady_clock::now() - profile_frame_begin).count()));
+                            (std::chrono::duration<double, std::milli>(
+                                 std::chrono::steady_clock::now() - profile_frame_begin)
+                                 .count()));
 #endif
         {
             ENGINE_PROFILE_ZONE("Host.frame_limit_wait");

@@ -2,6 +2,7 @@
 #include "runtime/app/app.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
@@ -19,6 +20,7 @@
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 
 #include <array>
@@ -1135,6 +1137,197 @@ export default class extends Gameplay {
                   "repaired storage remains intact after an explicit shutdown save");
 }
 
+bool run_input_binding_cases(const fs::path& workspace)
+{
+    constexpr std::string_view missing_source = R"js(
+import { Gameplay, Input } from 'engine';
+const blocked = Input.GetDevices() === null && Input.CreateChannel() === null && Input.lastError === null;
+export default class extends Gameplay {
+    OnInitialize() {
+        return blocked && Input.GetFrameState() === null && Input.CreateChannel() === null &&
+            !Input.ConfigureChannel({slot:0,generation:1}, {actions:[]}) &&
+            typeof Input.lastError === 'string' && Input.lastError.length > 0;
+    }
+}
+)js";
+    {
+        engine::plugins::script::ScriptSystem script;
+        Fixture missing;
+        if (!script.initialize({}) ||
+            !fixture(workspace, "input-missing", {{"scripts/game.js", std::string(missing_source)}},
+                     missing) ||
+            !expect(apply(script, missing), "input binding rejects an absent injected service"))
+        {
+            return false;
+        }
+    }
+    engine::EngineConfig config;
+    config.window_title = "Script input binding test";
+    config.width = config.height = 64;
+    engine::WindowSystem window;
+    engine::InputSystem input(window);
+    if (!expect(window.initialize(config) && input.initialize(config),
+                "initialize input without a renderer"))
+    {
+        return false;
+    }
+    SDL_HideWindow(window.native_window());
+    engine::schema::InputChannelHandle foreign;
+    if (!input.create_channel(foreign))
+    {
+        return false;
+    }
+    const std::string source = R"js(
+import { Gameplay, Debug, Input, InputDeviceKind, InputControlKind, InputActionKind,
+    InputActivation, InputCaptureStatus } from 'engine';
+const blocked = Input.GetDevices() === null && Input.CreateChannel() === null && Input.lastError === null;
+export default class extends Gameplay {
+    constructor() { super(); this.blocked = Input.CreateChannel() === null; this.phase = 0; }
+    OnInitialize() {
+        const foreign = {slot:)js" +
+                               std::to_string(foreign.slot()) +
+                               ",generation:" + std::to_string(foreign.generation()) + R"js(};
+        const keyboard = Input.GetDevices()?.find(d => d.kind === InputDeviceKind.keyboard);
+        const controls = keyboard && Input.GetControls(keyboard.connection_id);
+        this.source = controls?.find(c => c.source.kind === InputControlKind.key && c.source.code === )js" +
+                               std::to_string(SDL_SCANCODE_F24) + R"js()?.source;
+        this.channel = Input.CreateChannel();
+        if (!blocked || !this.blocked || !Object.isFrozen(Input) || !this.source || !this.channel ||
+            typeof keyboard.connection_id !== 'bigint' || controls.length <= 6 ||
+            !Input.ReadControl(this.source) || Input.GetContacts() === null ||
+            Input.DestroyChannel(foreign) || Input.ConfigureChannel(foreign, {actions:[]}) ||
+            Input.ReadAction(foreign, 'fire') !== null) return false;
+        const data = {activation:InputActivation.use_current_state, actions:[{
+            name:'fire', kind:InputActionKind.button, bindings:[{parts:[{source:this.source}]}]
+        }]};
+        if (!Input.ConfigureChannel(this.channel, data) ||
+            Input.ReadAction(this.channel, 'fire') !== null ||
+            Input.ConfigureChannel(this.channel, {...data, typo:true}) ||
+            Input.ConfigureChannel(this.channel, {...data, priority:Infinity}) ||
+            Input.ConfigureChannel(this.channel, {...data, activation:999}) ||
+            Input.lastError.length === 0) return false;
+        const old = Input.BeginCapture(this.channel, {devices:[keyboard.connection_id], kinds:[InputControlKind.key]});
+        if (!old || !Input.CancelCapture(old)) return false;
+        this.capture = Input.BeginCapture(this.channel, {devices:[keyboard.connection_id], kinds:[InputControlKind.key]});
+        if (!this.capture || Input.CancelCapture(old) ||
+            Input.ReadCapture(this.capture)?.status !== InputCaptureStatus.waiting) return false;
+        Debug.Log('input-owned=' + JSON.stringify(this.channel));
+        Debug.Log('input-capture=' + JSON.stringify(this.capture));
+        return true;
+    }
+    Update() {
+        const a = Input.ReadAction(this.channel, 'fire'), b = Input.ReadAction(this.channel, 'fire');
+        const raw = Input.ReadControl(this.source), frame = Input.GetFrameState();
+        if (!a || !b || !raw || !frame || a.frame_id !== frame.frame_id ||
+            JSON.stringify(a, (_, v) => typeof v === 'bigint' ? v.toString() : v) !==
+            JSON.stringify(b, (_, v) => typeof v === 'bigint' ? v.toString() : v))
+            throw new Error('Input snapshot is unavailable or consuming');
+        if (this.phase === 0 && (!a.held || !a.pressed || a.released || !raw.held ||
+            Input.ReadCapture(this.capture)?.status !== InputCaptureStatus.completed))
+            throw new Error('Input press or capture did not reach the script');
+        if (this.phase === 1 && (a.held || a.pressed || !a.released || raw.held))
+            throw new Error('Input release did not reach the script');
+        Debug.Log('input-frame=' + this.phase++);
+    }
+}
+)js";
+    engine::plugins::script::ScriptSystem script(nullptr, nullptr, nullptr, nullptr, nullptr,
+                                                 &input);
+    Fixture first;
+    if (!script.initialize(config) ||
+        !fixture(workspace, "input-first", {{"scripts/game.js", source}}, first) ||
+        !expect(apply(script, first),
+                "input maps schema objects, protects ownership and replaces capture tokens"))
+    {
+        return false;
+    }
+    const auto logged_handle = []<typename Handle>(std::string_view marker, Handle& output)
+    {
+        auto& log = engine::LogSystem::instance();
+        if (!log.flush())
+        {
+            return false;
+        }
+        std::ifstream file(log.file_path(), std::ios::binary);
+        const std::string contents{std::istreambuf_iterator<char>(file),
+                                   std::istreambuf_iterator<char>()};
+        const auto found = contents.find(marker);
+        const auto begin = found == std::string::npos ? found : contents.find('{', found);
+        const auto end = begin == std::string::npos ? begin : contents.find('}', begin);
+        if (!file.is_open() || file.bad() || end == std::string::npos)
+        {
+            return false;
+        }
+        const auto value = Json::parse(contents.substr(begin, end - begin + 1), nullptr, false);
+        if (!value.is_object() || !value.contains("slot") || !value.contains("generation") ||
+            !value["slot"].is_number_unsigned() || !value["generation"].is_number_unsigned())
+        {
+            return false;
+        }
+        output = {value["slot"].get<std::uint32_t>(), value["generation"].get<std::uint32_t>()};
+        return true;
+    };
+    engine::schema::InputChannelHandle owned;
+    engine::schema::InputCaptureHandle capture;
+    if (!logged_handle("input-owned=", owned) || !logged_handle("input-capture=", capture))
+    {
+        return false;
+    }
+    for (int phase = 0; phase != 2; ++phase)
+    {
+        SDL_Event event{};
+        event.type = phase == 0 ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+        event.key.windowID = SDL_GetWindowID(window.native_window());
+        event.key.scancode = SDL_SCANCODE_F24;
+        event.key.down = phase == 0;
+        if (!expect(input.begin_frame() && input.set_routing_state({}) &&
+                        input.process_event(event, false) && input.tick(.016) && script.tick(.016),
+                    "published press and release snapshots cross the shared VM binding"))
+        {
+            return false;
+        }
+    }
+    Fixture next;
+    constexpr std::string_view next_source = R"js(
+import { Gameplay, Input, Debug } from 'engine';
+export default class extends Gameplay {
+    OnInitialize() {
+        const channel = Input.CreateChannel();
+        if (!channel || !Input.ConfigureChannel(channel, {actions:[]})) return false;
+        Debug.Log('input-pending=' + JSON.stringify(channel));
+        return true;
+    }
+}
+)js";
+    if (!fixture(workspace, "input-next", {{"scripts/game.js", std::string(next_source)}}, next) ||
+        !expect(apply(script, next), "input channels can be created by a replacement run"))
+    {
+        return false;
+    }
+    engine::schema::InputActionState old_action;
+    engine::schema::InputCaptureStateT old_capture;
+    if (!expect(!input.read_action(owned, "fire", old_action) &&
+                    !input.read_capture(capture, old_capture) &&
+                    input.set_channel_enabled(foreign, false,
+                                              engine::schema::InputActivation::wait_for_neutral) &&
+                    log_contains("input-frame=0") && log_contains("input-frame=1"),
+                "Run replacement clears owned channels/captures without destroying host channels"))
+    {
+        return false;
+    }
+    engine::schema::InputChannelHandle pending;
+    if (!logged_handle("input-pending=", pending))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(script.status().last_error.empty() &&
+                      !input.set_channel_enabled(
+                          pending, false, engine::schema::InputActivation::wait_for_neutral) &&
+                      input.destroy_channel(foreign),
+                  "input Run cleanup also discards pending mappings");
+}
+
 bool run_frame_rate_binding_cases(const fs::path& workspace)
 {
     auto& engine = engine::Engine::instance();
@@ -1529,7 +1722,7 @@ int main(int argc, char** argv)
         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
-        run_storage_binding_cases(workspace);
+        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();
     engine::App::shutdown();

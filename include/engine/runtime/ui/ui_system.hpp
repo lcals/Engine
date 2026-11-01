@@ -43,6 +43,12 @@ public:
     [[nodiscard]] bool set_image(UiElementHandle handle, std::string_view path);
     void release_scene() noexcept;
     [[nodiscard]] bool process_event(const SDL_Event& event);
+    // 文档同步后查询持续占用；普通指针 capture 不表示全局独占。
+    [[nodiscard]] bool keyboard_claimed() const noexcept;
+    [[nodiscard]] bool pointer_claimed() const noexcept;
+    [[nodiscard]] bool owns_pointer(const SDL_Event& event) const noexcept;
+    // 安全取消不产生普通 click；文档、控件和已排队业务事件保持原契约。
+    void cancel_input() noexcept;
     [[nodiscard]] std::size_t document_count() const noexcept;
     [[nodiscard]] bool poll_event(UiEvent& output);
 

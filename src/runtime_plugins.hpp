@@ -64,7 +64,7 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
     {
         std::unique_ptr<engine::System> controller =
             std::make_unique<engine::plugins::character_controller::CharacterControllerSystem>(
-                world, &window);
+                world);
         if (!world.add_subsystem(controller))
         {
             return false;

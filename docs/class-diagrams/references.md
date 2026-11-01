@@ -84,11 +84,14 @@ classDiagram
     class RuntimeHost
     class GameplaySession
     class ScriptRuntimeFactory
+    class InputSystem
     class RuntimeSetup
     class PhysicsSystem
     class AudioSystem
     RuntimeHost --> Engine : 借用框架并注册根系统
     RuntimeHost "1" *-- "0..1" WindowSystem : 独占窗口根系统
+    RuntimeHost "1" *-- "0..1" InputSystem : 独占输入，暂停前更新
+    InputSystem --> WindowSystem : 借用，窗口最后关闭
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
     Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
@@ -102,6 +105,7 @@ classDiagram
     ScriptRuntimeFactory ..> WorldSystem : 参数借用
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
     ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
+    ScriptRuntimeFactory ..> InputSystem : 设备及通道绑定的参数借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -632,7 +636,7 @@ VirtualFileSystem 的 SDL 打开文件操作保留原生 `path.u8string()` 编�
 
 | 类别               | 直接继承 System 的类型                                                   | 配置与其他参数依赖                                                                             |
 | ------------------ | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
-| 运行宿主独占根系统 | WindowSystem                                                             | EngineConfig 生命周期参数；由 RuntimeHost 独立管理窗口                                         |
+| 运行宿主独占根系统 | WindowSystem、InputSystem | EngineConfig 生命周期参数；RuntimeHost 独立管理窗口与输入，暂停前发布设备及动作快照 |
 | 引擎根系统         | ResourceSystem、WorldSystem、RenderSystem                                | EngineConfig 生命周期参数；RenderSystem 构造借用 WindowSystem 和可空 WorldSystem               |
 | 世界子系统         | PhysicsSystem、NavigationSystem、AnimationSystem、FontSystem、UiSystem、AudioSystem、ScriptRuntime | EngineConfig 生命周期参数；UI 借用窗口、世界与字体，脚本接口还使用入口字符串及 ScriptStatus |
 | 独立单例根系统     | LogSystem                                                                | EngineConfig、LogLevel、日志文本；返回日志路径借用                                             |
@@ -789,6 +793,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | App                   | SDL3、PathUtils、标准库文件系统                                                                                                               | 桌面与 Android 平台目录及逻辑 APK 根                   |
 | LogSystem             | System、App、标准库线程与文件接口                                                                                                             | 进程日志、写盘、刷新和轮换                             |
 | WindowSystem          | SDL3                                                                                                                                          | 窗口、事件及平台生命周期                               |
+| InputSystem | SDL3、WindowSystem、FlatBuffers 输入数据 | 设备、热插拔、快照、通道映射、捕获与原生虚拟触摸；不依赖 UI / 项目 / 脚本 |
 | VirtualFileSystem     | SDL3、PathUtils                                                                                                                               | 挂载、文件范围读取与流式摘要，统一处理 APK 内置路径    |
 | ResourceCatalog       | FlatBuffers、GuidMap                                                                                                                          | 纯元数据目录、身份索引与依赖校验                       |
 | Resource              | FlatBuffers、标准库共享指针                                                                                                                   | 单项实体、目录代际与生成数据                             |
@@ -821,7 +826,7 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
 | FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 编辑器格式插件；不进入运行时 |
 | UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 编辑器格式插件；OpenUSD 从基础管线分离 |
-| CharacterControllerSystem | WorldSystem、PhysicsSystem、WindowSystem、CharacterMotor | 运行时插件；输入与相机策略 |
+| CharacterControllerSystem | WorldSystem、CharacterController、CharacterMotor | 运行时插件；消费明确意图并计算移动与观察 |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。
 
@@ -1121,7 +1126,7 @@ classDiagram
     CharacterControllerSystem ..> CharacterController : 逐节点读取策略设置
     CharacterControllerSystem ..> CharacterMotor : 提交运动请求
     CharacterControllerSystem --> PhysicsSystem : 借用碰撞查询
-    CharacterControllerSystem --> WindowSystem : 可空输入借用
+    CharacterControllerSystem ..> CharacterInput : 调用方明确提交的瞬态意图
     SceneComponentCodec <|-- CharacterControllerCodec
     CharacterControllerCodec ..> CharacterController : 复用公开参数校验
     EditorSystem *-- SceneCommands : 拥有场景身份映射
@@ -1133,3 +1138,7 @@ classDiagram
 - `SceneComponentCodec` 的公开注册函数由编辑器宿主调用。基础表静态存活，扩展表独占插件 Codec，注册与并行导入不能并发，代码不能在运行中卸载。
 - `EditorSystem::scene_commands()` 返回可空服务借用；插件编辑记录通过 `SceneCommands::node_identity` 共用可撤销节点的当前身份值。该值不是 Node 所有权，历史仍须核验原场景代次。
 - 角色输入/相机策略在[运行时角色插件](../plugins/runtime/class-diagrams/character-controller.md)，胶囊运动在[核心 CharacterMotor](../runtime/class-diagrams/character-motor.md)，TOML、撤销和 MCP 注册在[编辑器角色插件](../plugins/editor/class-diagrams/character-controller.md)。MCP 只把调用送入编辑器主线程。
+
+## 输入关系
+
+[输入系统](../runtime/class-diagrams/input-system.md)由 RuntimeHost 独占，借用 WindowSystem，并在宿主暂停模拟前更新；不加入 World，也不反向依赖 UI、脚本或角色插件。脚本 BindingContext 仅借用系统并记录本 Run 创建句柄的清理责任。CharacterControllerSystem 无 WindowSystem 借用及固定输入 fallback，调用方明确提交 CharacterInput；脚本通过可选角色组件绑定提交。完整边界见[输入设计](../runtime/input.md)。

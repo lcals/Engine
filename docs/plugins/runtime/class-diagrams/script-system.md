@@ -10,7 +10,7 @@ C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对
 classDiagram
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation)
+        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input)
         +~ScriptSystem()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
@@ -28,6 +28,7 @@ classDiagram
     class RenderSystem
     class UiSystem
     class NavigationSystem
+    class InputSystem
     class ResourceCatalog
     class ResourceMount
     class Resource
@@ -39,6 +40,7 @@ classDiagram
     ScriptSystem --> RenderSystem : 可空借用，仅供有效玩法回调
     ScriptSystem --> UiSystem : 可空借用，主线程控件事件
     ScriptSystem --> NavigationSystem : 可空借用，覆盖玩法及场景清理
+    ScriptSystem --> InputSystem : 可空借用，覆盖Run句柄清理
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入

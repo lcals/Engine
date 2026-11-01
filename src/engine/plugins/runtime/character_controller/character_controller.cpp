@@ -73,6 +73,31 @@ bool CharacterController::set_settings(const schema::CharacterControllerDataT& v
     return true;
 }
 
+bool CharacterController::set_input(const CharacterInput& input) noexcept
+{
+    const auto valid = [](const Vec2& value)
+    {
+        return std::isfinite(value.x()) && std::isfinite(value.y()) &&
+               std::abs(value.x()) <= 1000000.0 && std::abs(value.y()) <= 1000000.0;
+    };
+    if (!enabled())
+    {
+        clear_input();
+        return false;
+    }
+    if (!valid(input.move) || !valid(input.look))
+    {
+        return false;
+    }
+    input_ = input;
+    return true;
+}
+
+void CharacterController::clear_input() noexcept
+{
+    input_ = {};
+}
+
 bool CharacterController::restore_data(const schema::ComponentDataT& value)
 {
     const auto* settings = value.payload.AsCharacterControllerData();
@@ -81,6 +106,7 @@ bool CharacterController::restore_data(const schema::ComponentDataT& value)
         return false;
     }
     set_enabled(value.enabled);
+    clear_input();
     return true;
 }
 

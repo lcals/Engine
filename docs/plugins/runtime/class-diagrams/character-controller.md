@@ -7,11 +7,13 @@ classDiagram
     class CharacterController {
         +settings() const CharacterControllerDataT&
         +set_settings(const CharacterControllerDataT& settings) bool
+        +set_input(const CharacterInput& input) bool
+        +clear_input() void
         +instance_id() uint64_t
         +restore_data(const ComponentDataT& data) bool
     }
     class CharacterControllerSystem {
-        +CharacterControllerSystem(WorldSystem& world, WindowSystem* window)
+        +CharacterControllerSystem(WorldSystem& world)
         +set_player(Node* node) bool
         +set_input(const CharacterInput& input) bool
         #on_tick(double delta_time) bool
@@ -38,7 +40,6 @@ classDiagram
     class System
     class Node
     class WorldSystem
-    class WindowSystem
     class PhysicsSystem
     class CharacterMotor
     class Camera
@@ -60,12 +61,12 @@ classDiagram
     CharacterCamera ..> CharacterCameraDataT : 参数及返回类型
     CharacterVisual ..> CharacterVisualDataT : 参数及返回类型
     CharacterController ..> ComponentDataT : 恢复参数
+    CharacterController *-- CharacterInput : 瞬态待消费输入
     CharacterCamera ..> ComponentDataT : 恢复参数
     CharacterVisual ..> ComponentDataT : 恢复参数
     CharacterControllerSystem ..> Node : 选择参数
     CharacterControllerSystem ..> CharacterInput : 输入参数
     CharacterControllerSystem --> WorldSystem : 借用
-    CharacterControllerSystem --> WindowSystem : 可空借用
     CharacterControllerSystem ..> CharacterController : 仅选中的玩家
     CharacterControllerSystem ..> CharacterMotor : 物理前提交意图
     CharacterControllerSystem ..> CharacterCamera : 可选观察方向
@@ -82,3 +83,9 @@ classDiagram
 - `CharacterVisual` 标记身体、头部或第一人称手/武器，子树使用最近的标记，默认身体。第一人称只从自己的镜头隐藏身体/头部，第一人称手/武器仅向对应第一人称镜头显示。其他镜头仍看得到身体。本插件独占场景 Camera 的瞬态隐藏实例列表；过滤使用该列表，不修改 MeshRenderer 的全局可见性；角色身体继续投射阴影，禁用动画与可见性无关。
 - 正式宿主按脚本/玩家意图、物理、动画、跟随相机、音频的顺序装配系统。核心不包含具体插件，插件的物理前/后安装入口由宿主提供；测试必须使用同一顺序。
 - 原控制器中的相机参数迁移为相机节点上的 `character_camera`，其目标为角色节点；美术部件可挂 `character_visual`。二进制 schema 保留已废弃字段的编号，源场景显式迁移并重新导入，不在运行时偷偷创建相机或修改场景结构。
+
+## 输入链路
+
+CharacterControllerSystem 不借用 WindowSystem，也不提供固定按键 fallback；调用方读取明确通道后，可向选中角色的 CharacterController 组件或直接向系统提交 CharacterInput，未提交时保持零输入。组件的 `set_input` 返回 bool，`clear_input` 为 `noexcept`；二者只管理瞬态意图，不进入 FlatBuffers 持久数据。系统作为组件 friend 消费输入，同帧显式系统提交优先于组件提交；所有组件的待输入每次系统更新后清除，未选中或禁用组件也不跨帧积压。停止驱动与系统关闭清除相关组件待输入及 Motor 主动意图，不影响外部速度。
+
+输入模块不选择玩家节点，多手柄可分别驱动多个输入通道；角色实例与通道关联、是否暂停和重连恢复由玩法决定。现有单玩家选择接口尚未扩展为完整多角色控制，不能把多设备输入写成多人玩法已实现。

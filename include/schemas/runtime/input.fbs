@@ -1,0 +1,142 @@
+include "common.fbs";
+namespace engine.schema;
+
+enum InputDeviceKind:ubyte { keyboard, mouse, gamepad, joystick, touch }
+enum InputControlKind:ubyte {
+    key, mouse_button, mouse_position, mouse_delta, mouse_relative, mouse_wheel,
+    gamepad_button, gamepad_axis, joystick_button, joystick_axis, joystick_hat,
+    touch, gamepad_touch
+}
+enum InputActionKind:ubyte { button, axis1d, axis2d }
+enum InputValueMode:ubyte { state, delta }
+enum InputCombine:ubyte { maximum, sum_clamped }
+enum InputActivation:ubyte { wait_for_neutral, use_current_state }
+enum InputVirtualKind:ubyte { button, stick, drag }
+enum InputCaptureStatus:ubyte { waiting, completed, canceled }
+enum InputUnit:ubyte { none, normalized, logical, relative, wheel }
+enum InputRegionShape:ubyte { rectangle, circle }
+
+struct InputFrameState { frame_id:ulong; device_revision:ulong; cancel_revision:ulong; }
+struct InputChannelHandle { slot:uint; generation:uint; }
+struct InputCaptureHandle { slot:uint; generation:uint; }
+struct InputControlRef { connection_id:ulong; kind:InputControlKind; code:uint; }
+struct InputControlState {
+    source:InputControlRef;
+    frame_id:ulong;
+    value:double;
+    held:bool;
+    pressed:bool;
+    released:bool;
+    canceled:bool;
+    repeat:bool;
+}
+struct InputActionState {
+    frame_id:ulong;
+    value_x:double;
+    value_y:double;
+    held:bool;
+    pressed:bool;
+    released:bool;
+    canceled:bool;
+}
+table InputDeviceData {
+    connection_id:ulong;
+    kind:InputDeviceKind;
+    name:string;
+    layout_key:string;
+    capabilities:ulong;
+}
+table InputControlInfo {
+    source:InputControlRef (native_inline);
+    name:string;
+    value_mode:InputValueMode;
+    unit:InputUnit;
+    minimum:double;
+    maximum:double = 1;
+}
+table InputContactState {
+    source:InputControlRef (native_inline);
+    contact_id:ulong;
+    normalized_x:double;
+    normalized_y:double;
+    logical_x:double;
+    logical_y:double;
+    pressure:double;
+    held:bool;
+}
+table InputBindingPartData {
+    source:InputControlRef (native_inline);
+    virtual_control:string;
+    virtual_axis:ubyte;
+    weight_x:double = 1;
+    weight_y:double;
+}
+table InputBindingData {
+    parts:[InputBindingPartData];
+    modifiers:[InputControlRef];
+    scale:double = 1;
+    deadzone:double;
+    press_threshold:double = 0.5;
+    release_threshold:double = 0.4;
+    normalize:bool = true;
+}
+table InputActionData {
+    name:string;
+    kind:InputActionKind;
+    value_mode:InputValueMode;
+    combine:InputCombine;
+    bindings:[InputBindingData];
+}
+table InputRegionData {
+    connection_id:ulong;
+    x:double;
+    y:double;
+    width:double;
+    height:double;
+    anchor_x:double;
+    anchor_y:double;
+    shape:InputRegionShape;
+    floating:bool;
+    deadzone:double = 0.1;
+    cancel_on_exit:bool;
+}
+table InputVirtualControlData {
+    id:string;
+    kind:InputVirtualKind;
+    priority:int;
+    enabled:bool = true;
+    visible:bool = true;
+    region:InputRegionData;
+}
+table InputChannelData {
+    enabled:bool = true;
+    priority:int;
+    consume_inputs:bool;
+    activation:InputActivation;
+    actions:[InputActionData];
+    virtual_controls:[InputVirtualControlData];
+}
+table InputRoutingData {
+    keyboard_claimed:bool;
+    pointer_claimed:bool;
+    viewport_x:double;
+    viewport_y:double;
+    viewport_width:double;
+    viewport_height:double;
+    safe_left:double;
+    safe_top:double;
+    safe_right:double;
+    safe_bottom:double;
+}
+table InputCaptureOptions {
+    devices:[ulong];
+    kinds:[InputControlKind];
+    threshold:double = 0.5;
+    neutral_threshold:double = 0.2;
+    include_modifiers:bool = true;
+}
+table InputCaptureState {
+    status:InputCaptureStatus;
+    frame_id:ulong;
+    candidates:[InputControlRef];
+}

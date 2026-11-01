@@ -4,6 +4,7 @@ import {
 } from "engine";
 import { TerrainController } from "../controllers/terrain_controller.js";
 import { TerrainAction, TerrainModel } from "../models/terrain_model.js";
+import { CharacterControls } from "../character_controls.js";
 
 const save_slot = "showcase-terrain";
 const camera_nodes = { overview: "Overview camera", cave: "Cave camera", walk: "Player camera" };
@@ -15,6 +16,7 @@ export default class Game extends Gameplay {
     private animator: Animator | null = null;
     private controller: TerrainController | null = null;
     private readonly model = new TerrainModel();
+    private readonly input = new CharacterControls();
     private player_started = false;
     private tunnel_step = 0;
     private blast_radius = 4.0;
@@ -46,10 +48,11 @@ export default class Game extends Gameplay {
         this.controller = new TerrainController(view, this.model);
         if (!this.controller.Bind()) return false;
         Debug.Log("Terrain laboratory: fixed brush actions cross chunk seams; WASD, Space and right mouse explore the result.");
-        return true;
+        return this.input.Bind(scene);
     }
 
     override Update(): void {
+        this.input.Update();
         const terrain = this.terrain;
         if (!terrain || !terrain.IsValid()) return;
         let changed = false;
@@ -156,6 +159,7 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        this.input.Shutdown();
         this.controller?.Unbind();
         this.controller = null;
         this.animator = null;

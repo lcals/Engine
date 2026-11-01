@@ -1,5 +1,6 @@
 #pragma once
 
+#include "plugins/runtime/character_controller/character_input.hpp"
 #include "runtime/scene/component.hpp"
 
 #include <cstdint>
@@ -15,14 +16,19 @@ public:
     valid_settings(const schema::CharacterControllerDataT& settings) noexcept;
     [[nodiscard]] const schema::CharacterControllerDataT& settings() const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterControllerDataT& settings) noexcept;
+    // 瞬态意图仅供下次控制器更新消费；不进入组件持久数据。
+    [[nodiscard]] bool set_input(const CharacterInput& input) noexcept;
+    void clear_input() noexcept;
     [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
 
 private:
     friend class engine::Node;
+    friend class CharacterControllerSystem;
     explicit CharacterController(Node& node);
     [[nodiscard]] bool initialize() override;
     const std::uint64_t instance_id_;
+    CharacterInput input_{};
 };
 
 } // namespace engine::plugins::character_controller

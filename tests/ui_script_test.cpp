@@ -95,11 +95,14 @@ input { display: block; position: absolute; left: 20px; top: 100px; width: 240px
         height: 40px; background-color: #34475d; }
 #label { display: block; position: absolute; left: 20px; top: 170px; }
 #plain { display: block; position: absolute; left: 20px; top: 220px; }
+#custom-capture { display: block; position: absolute; left: 320px; top: 220px;
+                  width: 160px; height: 40px; }
 </style></head><body>
 <div id="panel"><button id="action">Add</button></div>
 <button id="bubble-button"><span id="caption">Child caption</span></button>
 <input type="text" id="name"/>
 <p id="label">Initial</p><p id="plain">Plain</p>
+<div id="custom-capture" data-input-capture>Custom control</div>
 </body></rml>
 )rml";
 
@@ -643,6 +646,125 @@ bool type_name(Systems& systems)
     return expect(systems.ui.process_event(event), "UI consumes SDL text input");
 }
 
+bool native_touch_case(Systems& systems)
+{
+    auto* scene = systems.world.load_scene(main_scene);
+    int width = 0;
+    int height = 0;
+    if (!expect(scene != nullptr && systems.ui.synchronize() &&
+                    SDL_GetWindowSize(systems.window.native_window(), &width, &height) &&
+                    width > 0 && height > 0 && !systems.ui.keyboard_claimed() &&
+                    !systems.ui.pointer_claimed(),
+                "ordinary full-screen HUD does not reserve all gameplay input"))
+    {
+        return false;
+    }
+    const auto window = SDL_GetWindowID(systems.window.native_window());
+    const auto touch = [&](SDL_EventType type, SDL_FingerID finger, float x, float y)
+    {
+        SDL_Event event{};
+        event.type = type;
+        event.tfinger.windowID = window;
+        event.tfinger.touchID = 19;
+        event.tfinger.fingerID = finger;
+        event.tfinger.x = x / static_cast<float>(width);
+        event.tfinger.y = y / static_cast<float>(height);
+        return event;
+    };
+    const auto no_clicks = [&]()
+    {
+        engine::UiEvent event;
+        bool clean = true;
+        while (systems.ui.poll_event(event))
+        {
+            clean = clean && event.type != "click";
+        }
+        return clean;
+    };
+    auto primary = touch(SDL_EVENT_FINGER_DOWN, 1, 60, 40);
+    auto secondary = touch(SDL_EVENT_FINGER_DOWN, 2, 60, 40);
+    auto background = touch(SDL_EVENT_FINGER_DOWN, 3, 600, 400);
+    if (!expect(systems.ui.process_event(primary) && systems.ui.owns_pointer(primary) &&
+                    !systems.ui.pointer_claimed() && !systems.ui.process_event(background) &&
+                    !systems.ui.owns_pointer(background) && systems.ui.process_event(secondary) &&
+                    systems.ui.owns_pointer(secondary),
+                "one UI touch captures its pointer while a separate gameplay finger stays free"))
+    {
+        return false;
+    }
+    secondary.type = SDL_EVENT_FINGER_UP;
+    primary.type = SDL_EVENT_FINGER_CANCELED;
+    if (!expect(systems.ui.process_event(secondary) && !systems.ui.owns_pointer(secondary) &&
+                    systems.ui.process_event(primary) && !systems.ui.owns_pointer(primary) &&
+                    no_clicks(),
+                "a second UI finger and canceled primary produce no ordinary click"))
+    {
+        return false;
+    }
+    primary.type = SDL_EVENT_FINGER_DOWN;
+    if (!systems.ui.process_event(primary))
+    {
+        return false;
+    }
+    primary.type = SDL_EVENT_FINGER_UP;
+    engine::UiEvent clicked;
+    if (!expect(systems.ui.process_event(primary) && !systems.ui.owns_pointer(primary) &&
+                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && no_clicks(),
+                "a completed native UI touch produces one button click"))
+    {
+        return false;
+    }
+    SDL_Event synthetic{};
+    synthetic.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    synthetic.button.windowID = window;
+    synthetic.button.which = SDL_TOUCH_MOUSEID;
+    synthetic.button.button = SDL_BUTTON_LEFT;
+    synthetic.button.down = true;
+    synthetic.button.x = 60;
+    synthetic.button.y = 40;
+    if (!expect(!systems.ui.process_event(synthetic) && no_clicks(),
+                "SDL synthetic touch mouse input cannot duplicate the native touch"))
+    {
+        return false;
+    }
+    for (const auto type :
+         {SDL_EVENT_WINDOW_FOCUS_LOST, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_DID_ENTER_BACKGROUND})
+    {
+        primary.type = SDL_EVENT_FINGER_DOWN;
+        SDL_Event boundary{};
+        boundary.type = type;
+        boundary.window.windowID = window;
+        if (!expect(systems.ui.process_event(primary) && !systems.ui.process_event(boundary) &&
+                        !systems.ui.owns_pointer(primary) && no_clicks(),
+                    "focus, layout and background boundaries cancel UI capture without clicks"))
+        {
+            return false;
+        }
+    }
+    auto custom = touch(SDL_EVENT_FINGER_DOWN, 4, 350, 240);
+    if (!systems.ui.process_event(custom))
+    {
+        return expect(false, "an explicit custom region captures the native touch");
+    }
+    custom.type = SDL_EVENT_FINGER_UP;
+    if (!expect(systems.ui.process_event(custom) && systems.ui.poll_event(clicked) &&
+                    clicked.type == "click" && clicked.element_id == "custom-capture" &&
+                    no_clicks() && click(systems, 60, 120) && systems.ui.keyboard_claimed() &&
+                    !systems.ui.pointer_claimed(),
+                "custom regions and persistent text focus keep independent routing facts"))
+    {
+        return false;
+    }
+    systems.ui.cancel_input();
+    const bool clean = !systems.ui.keyboard_claimed() && !systems.ui.pointer_claimed();
+    systems.stop();
+    // This fixture created the scene natively, so no script Run owns its destruction.
+    systems.world.destroy_scene();
+    return expect(clean && systems.world.scene() == nullptr && systems.ui.document_count() == 0,
+                  "native touch fixture releases its own scene and persistent focus");
+}
+
 bool mvc_case(Systems& systems, const fs::path& project)
 {
     if (!systems.start("mvc") || !systems.tick() || !systems.label_is("0:0:") || !click(systems) ||
@@ -842,8 +964,9 @@ int main(int argc, char** argv)
         passed = systems.initialize(project.root) && systems.frames() &&
                  expect(bgfx::getRendererType() != bgfx::RendererType::Noop,
                         "integration requires a real GPU backend") &&
-                 mvc_case(systems, project.root) && lifetime_cases(systems) &&
-                 bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
+                 native_touch_case(systems) && mvc_case(systems, project.root) &&
+                 lifetime_cases(systems) && bubbling_cases(systems) &&
+                 independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);
     }
     engine::LogSystem::instance().shutdown();

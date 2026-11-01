@@ -35,6 +35,14 @@ if(TARGET engine_storage)
     set_tests_properties(engine.key_value_store PROPERTIES TIMEOUT 30)
 endif()
 
+if(TARGET engine_input)
+    add_executable(engine_input_test input_test.cpp)
+    target_link_libraries(engine_input_test PRIVATE engine::input engine::window SDL3::SDL3)
+    engine_apply_options(engine_input_test)
+    add_test(NAME engine.input COMMAND engine_input_test)
+    set_tests_properties(engine.input PROPERTIES TIMEOUT 30)
+endif()
+
 if(TARGET engine_resource)
     add_executable(engine_resource_read_test resource_read_test.cpp)
     target_link_libraries(engine_resource_read_test PRIVATE engine::resource SDL3::SDL3)
@@ -72,6 +80,9 @@ if(TARGET engine_script)
     target_link_libraries(
         engine_script_runtime_test
         PRIVATE engine::script
+                engine::input
+                engine::window
+                SDL3::SDL3
                 engine::app
                 engine::log
                 engine::resource

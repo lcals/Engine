@@ -5,8 +5,7 @@ function(engine_configure_character_controller_plugin)
                            src/engine/plugins/runtime/character_controller/character_camera.cpp
                            src/engine/plugins/runtime/character_controller/character_camera_system.cpp
                            src/engine/plugins/runtime/character_controller/character_visual.cpp)
-    target_link_libraries(engine_character_controller PUBLIC engine::world engine::physics
-                                                             engine::window)
+    target_link_libraries(engine_character_controller PUBLIC engine::world engine::physics)
 endfunction()
 
 engine_register_plugin(

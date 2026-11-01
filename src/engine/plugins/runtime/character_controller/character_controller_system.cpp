@@ -6,7 +6,6 @@
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
-#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include "plugins/runtime/character_controller/detail/character_scene.hpp"
@@ -26,11 +25,20 @@ bool valid_input(const Vec2& value) noexcept
            std::abs(value.x()) <= 1000000.0 && std::abs(value.y()) <= 1000000.0;
 }
 
+void clear_component_inputs(Scene& scene) noexcept
+{
+    for (const auto& node : scene.nodes())
+    {
+        if (auto* controller = node->get_component<CharacterController>())
+        {
+            controller->clear_input();
+        }
+    }
+}
+
 } // namespace
 
-CharacterControllerSystem::CharacterControllerSystem(WorldSystem& world,
-                                                     WindowSystem* window) noexcept
-    : world_(world), window_(window)
+CharacterControllerSystem::CharacterControllerSystem(WorldSystem& world) noexcept : world_(world)
 {
 }
 
@@ -85,6 +93,11 @@ void CharacterControllerSystem::stop_driving() noexcept
     {
         motor->clear_input();
     }
+    auto* controller = node != nullptr ? node->get_component<CharacterController>() : nullptr;
+    if (controller != nullptr && controller->instance_id() == driving_controller_)
+    {
+        controller->clear_input();
+    }
     driving_scene_ = 0;
     driving_node_ = 0;
     driving_controller_ = 0;
@@ -94,17 +107,7 @@ void CharacterControllerSystem::stop_driving() noexcept
 bool CharacterControllerSystem::on_tick(double)
 {
     auto input = input_;
-    if (!has_input_ && window_ != nullptr)
-    {
-        input.move = {static_cast<double>(window_->key_down(WindowKey::d)) -
-                          static_cast<double>(window_->key_down(WindowKey::a)),
-                      static_cast<double>(window_->key_down(WindowKey::w)) -
-                          static_cast<double>(window_->key_down(WindowKey::s))};
-        input.look =
-            window_->pointer_down(WindowPointerButton::right) ? window_->pointer_delta() : Vec2{};
-        input.jump = window_->key_pressed(WindowKey::space);
-        input.toggle_view = window_->key_pressed(WindowKey::tab);
-    }
+    const bool explicit_input = has_input_;
     input_ = {};
     has_input_ = false;
     auto* scene = world_.scene();
@@ -135,6 +138,7 @@ bool CharacterControllerSystem::on_tick(double)
             }
             if (player != nullptr)
             {
+                clear_component_inputs(*scene);
                 stop_driving();
                 return false;
             }
@@ -143,6 +147,11 @@ bool CharacterControllerSystem::on_tick(double)
     }
     auto* controller = player != nullptr ? player->get_component<CharacterController>() : nullptr;
     auto* motor = player != nullptr ? player->get_component<CharacterMotor>() : nullptr;
+    if (!explicit_input && controller != nullptr)
+    {
+        input = controller->input_;
+    }
+    clear_component_inputs(*scene);
     if (controller == nullptr || !controller->enabled() || !detail::active(*player) ||
         motor == nullptr || !motor->enabled())
     {
@@ -226,6 +235,10 @@ bool CharacterControllerSystem::on_tick(double)
 void CharacterControllerSystem::on_shutdown() noexcept
 {
     stop_driving();
+    if (auto* scene = world_.scene())
+    {
+        clear_component_inputs(*scene);
+    }
     explicit_player_ = false;
     selected_scene_ = 0;
     selected_node_ = 0;

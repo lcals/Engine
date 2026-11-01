@@ -31,6 +31,7 @@ function(engine_configure_script_plugin)
         engine_script
         PRIVATE engine::app
                 engine::storage
+                engine::input
                 engine::log
                 engine::resource
                 engine::world
@@ -41,6 +42,12 @@ function(engine_configure_script_plugin)
                 SDL3::SDL3
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script PRIVATE JSON_NOEXCEPTION=1)
+    if("runtime/character_controller" IN_LIST ENGINE_SELECTED_PLUGINS)
+        target_link_libraries(engine_script PRIVATE engine::character_controller)
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN=1)
+    else()
+        target_compile_definitions(engine_script PRIVATE ENGINE_HAS_CHARACTER_CONTROLLER_PLUGIN=0)
+    endif()
     if("runtime/effects" IN_LIST ENGINE_SELECTED_PLUGINS)
         target_link_libraries(engine_script PRIVATE engine::effects)
         target_compile_definitions(engine_script PRIVATE ENGINE_HAS_EFFECTS_PLUGIN=1)
@@ -64,6 +71,11 @@ endfunction()
 # Bindings depend only on explicitly selected/default terrain, without forcing it into a
 # script-only plugin selection. The dependency is owned by this plugin manifest.
 set(_script_plugin_dependencies)
+if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
+   OR "character_controller" IN_LIST ENGINE_RUNTIME_PLUGINS
+   OR "character_controller" IN_LIST ENGINE_EDITOR_PLUGINS)
+    list(APPEND _script_plugin_dependencies runtime/character_controller)
+endif()
 if((NOT DEFINED ENGINE_RUNTIME_PLUGINS AND ENGINE_ENABLE_RUNTIME_DEPS)
    OR "terrain" IN_LIST ENGINE_RUNTIME_PLUGINS
    OR "terrain" IN_LIST ENGINE_EDITOR_PLUGINS)

@@ -23,6 +23,13 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         PUBLIC engine::scene_data
         PRIVATE SDL3::SDL3)
 
+    engine_add_system(runtime input)
+    target_sources(engine_input PRIVATE src/engine/runtime/input/input_devices.cpp
+                                        src/engine/runtime/input/input_mapping.cpp)
+    target_include_directories(engine_input PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_input PUBLIC engine::scene_data
+                                       PRIVATE engine::window SDL3::SDL3)
+
     engine_add_system(runtime render)
     engine_enable_profiling(engine_render)
     target_sources(
@@ -171,6 +178,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::performance
         engine::window
+        engine::input
         engine::resource
         engine::world
         engine::physics

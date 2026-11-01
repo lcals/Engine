@@ -1,18 +1,23 @@
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 
 #include "runtime/app/app.hpp"
+#include "runtime/input/input_system.hpp"
+#include "runtime/log/log_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
 namespace engine::plugins::script::bindings
 {
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
-                               PhysicsSystem* physics, NavigationSystem* navigation) noexcept
-    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation)
+                               PhysicsSystem* physics, NavigationSystem* navigation,
+                               InputSystem* input) noexcept
+    : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
+      input_(input)
 {
 }
 
@@ -42,6 +47,19 @@ void BindingContext::shutdown() noexcept
 {
     active_ = false;
     end_call();
+    if (input_ && input_->is_initialized())
+    {
+        for (const auto channel : input_channels_)
+        {
+            if (!input_->destroy_channel(channel))
+            {
+                LogSystem::write(LogLevel::warning, "Cannot release a script input channel");
+            }
+        }
+    }
+    input_channels_.clear();
+    input_captures_.clear();
+    input_error_.clear();
     if (world_ != nullptr && world_->scene() != nullptr && world_->scene()->id() == scene_id_)
     {
         if (navigation_)
@@ -76,6 +94,63 @@ PhysicsSystem* BindingContext::physics() const noexcept
 NavigationSystem* BindingContext::navigation() const noexcept
 {
     return callable_ ? navigation_ : nullptr;
+}
+
+InputSystem* BindingContext::input() const noexcept
+{
+    return callable_ ? input_ : nullptr;
+}
+
+void BindingContext::remember_input_channel(schema::InputChannelHandle channel)
+{
+    input_channels_.push_back(channel);
+}
+
+bool BindingContext::owns_input_channel(schema::InputChannelHandle channel) const noexcept
+{
+    return std::any_of(
+        input_channels_.begin(), input_channels_.end(), [channel](const auto& value)
+        { return value.slot() == channel.slot() && value.generation() == channel.generation(); });
+}
+
+void BindingContext::forget_input_channel(schema::InputChannelHandle channel)
+{
+    const auto matches = [channel](const auto& value)
+    { return value.slot() == channel.slot() && value.generation() == channel.generation(); };
+    std::erase_if(input_channels_, matches);
+    std::erase_if(input_captures_, [&matches](const auto& value) { return matches(value.first); });
+}
+
+void BindingContext::remember_input_capture(schema::InputChannelHandle channel,
+                                            schema::InputCaptureHandle capture)
+{
+    std::erase_if(input_captures_,
+                  [channel](const auto& value)
+                  {
+                      return value.first.slot() == channel.slot() &&
+                             value.first.generation() == channel.generation();
+                  });
+    input_captures_.emplace_back(channel, capture);
+}
+
+bool BindingContext::owns_input_capture(schema::InputCaptureHandle capture) const noexcept
+{
+    return std::any_of(input_captures_.begin(), input_captures_.end(),
+                       [capture](const auto& value)
+                       {
+                           return value.second.slot() == capture.slot() &&
+                                  value.second.generation() == capture.generation();
+                       });
+}
+
+void BindingContext::set_input_error(std::string_view error)
+{
+    input_error_ = error;
+}
+
+const std::string& BindingContext::input_error() const noexcept
+{
+    return input_error_;
 }
 
 std::uint64_t BindingContext::scene_id() const noexcept

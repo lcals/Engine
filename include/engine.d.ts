@@ -38,6 +38,165 @@ declare module "engine" {
         static readonly lastError: string | null;
     }
 
+    export enum InputDeviceKind { keyboard, mouse, gamepad, joystick, touch }
+    export enum InputControlKind {
+        key, mouse_button, mouse_position, mouse_delta, mouse_relative, mouse_wheel,
+        gamepad_button, gamepad_axis, joystick_button, joystick_axis, joystick_hat,
+        touch, gamepad_touch
+    }
+    export enum InputActionKind { button, axis1d, axis2d }
+    export enum InputValueMode { state, delta }
+    export enum InputCombine { maximum, sum_clamped }
+    export enum InputActivation { wait_for_neutral, use_current_state }
+    export enum InputVirtualKind { button, stick, drag }
+    export enum InputCaptureStatus { waiting, completed, canceled }
+    export enum InputUnit { none, normalized, logical, relative, wheel }
+    export enum InputRegionShape { rectangle, circle }
+
+    export interface InputFrameState {
+        readonly frame_id: bigint;
+        readonly device_revision: bigint;
+        readonly cancel_revision: bigint;
+    }
+    /** Session handle; not a persistent player or device identifier. */
+    export interface InputChannelHandle { readonly slot: number; readonly generation: number; }
+    export interface InputCaptureHandle { readonly slot: number; readonly generation: number; }
+    export interface InputControlRef {
+        readonly connection_id: bigint;
+        readonly kind: InputControlKind;
+        readonly code: number;
+    }
+    export interface InputDeviceData {
+        readonly connection_id: bigint;
+        readonly kind: InputDeviceKind;
+        readonly name: string;
+        readonly layout_key: string;
+        readonly capabilities: bigint;
+    }
+    export interface InputControlInfo {
+        readonly source: InputControlRef;
+        readonly name: string;
+        readonly value_mode: InputValueMode;
+        readonly unit: InputUnit;
+        readonly minimum: number;
+        readonly maximum: number;
+    }
+    export interface InputControlState {
+        readonly source: InputControlRef;
+        readonly frame_id: bigint;
+        readonly value: number;
+        readonly held: boolean;
+        readonly pressed: boolean;
+        readonly released: boolean;
+        readonly canceled: boolean;
+        readonly repeat: boolean;
+    }
+    export interface InputActionState {
+        readonly frame_id: bigint;
+        readonly value_x: number;
+        readonly value_y: number;
+        readonly held: boolean;
+        readonly pressed: boolean;
+        readonly released: boolean;
+        readonly canceled: boolean;
+    }
+    export interface InputContactState {
+        readonly source: InputControlRef;
+        readonly contact_id: bigint;
+        readonly normalized_x: number;
+        readonly normalized_y: number;
+        readonly logical_x: number;
+        readonly logical_y: number;
+        readonly pressure: number;
+        readonly held: boolean;
+    }
+    /** Each part selects one physical or virtual scalar and contributes to the binding vector. */
+    export interface InputBindingPartData {
+        readonly source?: InputControlRef;
+        readonly virtual_control?: string;
+        readonly virtual_axis?: number;
+        readonly weight_x?: number;
+        readonly weight_y?: number;
+    }
+    export interface InputBindingData {
+        readonly parts: readonly InputBindingPartData[];
+        readonly modifiers?: readonly InputControlRef[];
+        readonly scale?: number;
+        readonly deadzone?: number;
+        readonly press_threshold?: number;
+        readonly release_threshold?: number;
+        readonly normalize?: boolean;
+    }
+    export interface InputActionData {
+        readonly name: string;
+        readonly kind?: InputActionKind;
+        readonly value_mode?: InputValueMode;
+        readonly combine?: InputCombine;
+        readonly bindings: readonly InputBindingData[];
+    }
+    export interface InputRegionData {
+        readonly connection_id: bigint;
+        readonly x?: number;
+        readonly y?: number;
+        readonly width: number;
+        readonly height: number;
+        readonly anchor_x?: number;
+        readonly anchor_y?: number;
+        readonly shape?: InputRegionShape;
+        readonly floating?: boolean;
+        readonly deadzone?: number;
+        readonly cancel_on_exit?: boolean;
+    }
+    export interface InputVirtualControlData {
+        readonly id: string;
+        readonly kind?: InputVirtualKind;
+        readonly priority?: number;
+        readonly enabled?: boolean;
+        readonly visible?: boolean;
+        readonly region: InputRegionData;
+    }
+    export interface InputChannelData {
+        readonly enabled?: boolean;
+        readonly priority?: number;
+        readonly consume_inputs?: boolean;
+        readonly activation?: InputActivation;
+        readonly actions: readonly InputActionData[];
+        readonly virtual_controls?: readonly InputVirtualControlData[];
+    }
+    export interface InputCaptureOptions {
+        readonly devices?: readonly bigint[];
+        readonly kinds?: readonly InputControlKind[];
+        readonly threshold?: number;
+        readonly neutral_threshold?: number;
+        readonly include_modifiers?: boolean;
+    }
+    export interface InputCaptureState {
+        readonly status: InputCaptureStatus;
+        readonly frame_id: bigint;
+        readonly candidates: readonly InputControlRef[];
+    }
+    /** Device facts and explicitly submitted mappings; requires an active Run callback. */
+    export class Input {
+        private constructor();
+        static GetFrameState(): InputFrameState | null;
+        static GetDevices(): InputDeviceData[] | null;
+        static GetControls(device: bigint): InputControlInfo[] | null;
+        static ReadControl(control: InputControlRef): InputControlState | null;
+        static GetContacts(): InputContactState[] | null;
+        static CreateChannel(): InputChannelHandle | null;
+        /** Accepts a complete mapping; activation occurs at the next input frame. */
+        static ConfigureChannel(channel: InputChannelHandle, data: InputChannelData): boolean;
+        static SetChannelEnabled(channel: InputChannelHandle, enabled: boolean,
+                                 activation: InputActivation): boolean;
+        static DestroyChannel(channel: InputChannelHandle): boolean;
+        /** Returns a non-consuming copy of the last published action snapshot. */
+        static ReadAction(channel: InputChannelHandle, name: string): InputActionState | null;
+        static BeginCapture(channel: InputChannelHandle, options: InputCaptureOptions): InputCaptureHandle | null;
+        static ReadCapture(capture: InputCaptureHandle): InputCaptureState | null;
+        static CancelCapture(capture: InputCaptureHandle): boolean;
+        static readonly lastError: string | null;
+    }
+
     /** Frame scheduling. Methods require an active gameplay or component callback. */
     export class Engine {
         private constructor();
@@ -402,6 +561,14 @@ declare module "engine" {
         /** Accepted only while grounded, consumed at the next physics step. */
         Jump(speed: number): boolean;
         readonly grounded: boolean;
+    }
+    /** Available when the optional character_controller runtime plugin is enabled. */
+    export class CharacterController extends Component {
+        private constructor();
+        /** Caller supplies movement, look delta and one-shot jump/view intents explicitly. */
+        SetInput(moveX: number, moveY: number, lookX: number, lookY: number,
+                 jump: boolean, toggleView: boolean): boolean;
+        ClearInput(): boolean;
     }
     export class AudioSource extends Component {
         private constructor();

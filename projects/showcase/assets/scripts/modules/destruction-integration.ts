@@ -9,6 +9,7 @@ import { DestructionIntegrationModel, IntegrationAction } from "../models/destru
 import { DestructionRockets } from "./destruction-rockets.js";
 import { DestructionNavigation } from "./destruction-navigation.js";
 import { range_config as tuning } from "../models/destruction_range_config.js";
+import { CharacterControls } from "../character_controls.js";
 
 interface Specimen {
     readonly name: string;
@@ -30,6 +31,7 @@ const camera_names = { overview: "Overview camera", front: "Front camera", walk:
 const max_secondary_damage = 24;
 
 export default class Game extends Gameplay {
+    private readonly input = new CharacterControls();
     scene: Scene | null = null;
     private terrain: TerrainComponent | null = null;
     private motor: CharacterMotor | null = null;
@@ -107,10 +109,11 @@ export default class Game extends Gameplay {
         this.controller = new DestructionIntegrationController(view, this.model);
         if (!this.controller.Bind()) return false;
         Debug.Log("Combined destruction preparing. Use the buttons to excavate, blast and reset.");
-        return true;
+        return this.input.Bind(scene);
     }
 
     override Update(): void {
+        this.input.Update();
         const dt = Math.max(0, Time.deltaTime);
         const wall_ms = Date.now();
         const interval_ms = this.previous_wall_ms > 0 ? Math.max(0, wall_ms - this.previous_wall_ms) : 0;
@@ -446,6 +449,7 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        this.input.Shutdown();
         this.barrage_left = 0;
         this.rockets.Shutdown();
         this.navigation.Shutdown();

@@ -2058,8 +2058,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
 {
     engine::RuntimeHost host;
     const auto failed_factory = [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&,
-                                   engine::PhysicsSystem&,
-                                   engine::NavigationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                                   engine::PhysicsSystem&, engine::NavigationSystem&,
+                                   engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -2069,9 +2069,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     }
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
-                            engine::UiSystem&,
-                            engine::PhysicsSystem&,
-                                   engine::NavigationSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
+                            engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);

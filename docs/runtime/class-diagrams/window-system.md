@@ -14,6 +14,7 @@ classDiagram
         +exit_requested() bool
         +can_render() bool
         +native_window() SDL_Window#42;
+        +set_event_handler(WindowEventHandler handler, void#42; context) void
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
         #on_shutdown() void
@@ -30,11 +31,15 @@ classDiagram
     class SDL3 {
         <<library>>
     }
+    class WindowEventHandler
+    class SDL_Event
     System <|-- WindowSystem
     WindowSystem ..> EngineConfig : on_initialize 参数
     WindowSystem "1" *-- "0..1" SDL_Window : 拥有窗口资源
     WindowSystem ..> SDL_Window : native_window 返回借用
     WindowSystem ..> SDL3 : 初始化 事件 销毁
+    WindowSystem ..> WindowEventHandler : 宿主事件接收函数参数
+    WindowEventHandler ..> SDL_Event : 同步借用事件
     note for WindowSystem "继承 System 生命周期；析构中调用 shutdown()"
 ```
 
@@ -49,3 +54,7 @@ classDiagram
 - 平台窗口选项配合已确定的图形后端：macOS / iOS 为 Metal，Windows 为 Direct3D12，Android / Linux 为 Vulkan。平台差异集中在窗口和渲染实现。
 
 C++ 限定符：构造、析构、状态及窗口访问器为 `noexcept`；访问器为 `const`。受保护钩子和析构标注 `override`，`on_shutdown()` 为 `noexcept`，状态返回值标注 `[[nodiscard]]`。
+
+## 输入职责
+
+窗口只保留唯一 SDL 事件泵和窗口生命周期；`WindowEventHandler = void (*)(void*, const SDL_Event&)` 同步把每个事件交给宿主，不保存或消费输入。原六键 / 三按钮接口已删除，角色和预览直接升级为[统一输入](../input.md)调用方，没有兼容层。设备与输入状态见[输入系统类图](input-system.md)。
