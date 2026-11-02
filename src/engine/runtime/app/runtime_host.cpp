@@ -237,7 +237,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         {
             return FrameStatus::paused;
         }
-        if (world_->scene() != nullptr)
+        if (!world_->scenes().empty())
         {
             gameplay_->stop("Project rendering failed; the project was stopped");
             if (renderer_->render())

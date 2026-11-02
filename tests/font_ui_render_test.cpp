@@ -366,6 +366,7 @@ struct Systems
         for (int attempt = 0; attempt < maximum_attempts && rendered < count; ++attempt)
         {
             if (!expect(window.tick(delta_time), "poll SDL events") ||
+                !expect(fonts.tick(delta_time), "retire unused font GPU resources") ||
                 !expect(!window.exit_requested(), "test window remains open"))
             {
                 return false;
@@ -915,6 +916,40 @@ bool multiple_documents(Systems& systems, const fs::path& screenshots, const Gpu
                   "independent documents release all font, shader and input resources");
 }
 
+bool persistent_font_resources(Systems& systems, const GpuCounts& idle)
+{
+    auto* scene = systems.world.load_scene("scenes/launcher.scene");
+    auto* component = scene ? single_ui_component(*scene) : nullptr;
+    if (!expect(component && component->node().set_persistent(true), "retain a UI root") ||
+        !systems.frames())
+    {
+        return false;
+    }
+    auto& node = component->node();
+    const auto retained_fonts = systems.fonts.gpu_resource_count();
+    const auto retained_gpu = gpu_counts();
+    systems.world.unload_scene();
+    if (!systems.frames() ||
+        !expect(systems.world.scene() == nullptr && systems.ui.document_count() == 1 &&
+                    systems.fonts.gpu_resource_count() == retained_fonts &&
+                    gpu_counts() == retained_gpu,
+                "empty scene interval preserves the existing UI and font GPU resources") ||
+        !expect(systems.world.create_scene("Empty gameplay"), "create next gameplay scene") ||
+        !systems.frames() ||
+        !expect(systems.fonts.gpu_resource_count() == retained_fonts,
+                "new gameplay scene reuses retained font GPU resources") ||
+        !expect(node.scene().destroy_node(node.id()), "delete retained UI") || !systems.frames() ||
+        !expect(systems.ui.document_count() == 0 &&
+                    systems.fonts.gpu_resource_count() < retained_fonts,
+                "deleted retained document releases unused font textures incrementally"))
+    {
+        return false;
+    }
+    systems.stop_scene();
+    return systems.frames() &&
+           expect(gpu_counts() == idle, "full stop clears retained font GPU resources");
+}
+
 bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
 {
     if (!systems.frames() || !expect(bgfx::getRendererType() != bgfx::RendererType::Noop,
@@ -1030,7 +1065,8 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
             return false;
         }
     }
-    return custom_shader_scenes(systems, project, screenshots, idle) &&
+    return persistent_font_resources(systems, idle) &&
+           custom_shader_scenes(systems, project, screenshots, idle) &&
            multiple_documents(systems, screenshots, idle) &&
            document_generations(systems, project, idle) &&
            systems.screenshot(screenshots, "stopped.png");

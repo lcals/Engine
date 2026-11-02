@@ -37,6 +37,9 @@ public:
     // 只影响场景保存；有效瞬态状态包含祖先标记，渲染和物理行为不变。
     [[nodiscard]] bool transient() const noexcept;
     void set_transient(bool transient) noexcept;
+    // 只允许根节点设置；整棵子树跨场景卸载保留，不影响保存策略。
+    [[nodiscard]] bool set_persistent(bool value) noexcept;
+    [[nodiscard]] bool persistent() const noexcept;
 
     // 返回借用，由本节点独占；每类组件至多一个，重复添加返回空指针。
     template <std::derived_from<Component> T> [[nodiscard]] T* add_component()
@@ -79,6 +82,7 @@ private:
     std::uint64_t entity_id_;
     schema::NodeInfoT info_{};
     bool transient_ = false;
+    bool persistent_ = false;
     std::vector<std::unique_ptr<Component>> components_;
 };
 

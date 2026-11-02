@@ -14,6 +14,7 @@
 #include <limits>
 #include <new>
 #include <string>
+#include <utility>
 
 namespace engine
 {
@@ -34,14 +35,17 @@ Scene* WorldSystem::create_scene(std::string_view name)
     {
         return nullptr;
     }
-    scene_.reset(new (std::nothrow) Scene(*world_, scene_sequence_ + 1, name, components_));
-    if (scene_ != nullptr)
+    std::unique_ptr<Scene> candidate(
+        new (std::nothrow) Scene(*world_, scene_sequence_ + 1, name, components_));
+    if (candidate != nullptr)
     {
+        scene_ = candidate.get();
+        scenes_.push_back(std::move(candidate));
         ++scene_sequence_;
         restoring_.reset();
         paused_ = false;
     }
-    return scene_.get();
+    return scene_;
 }
 
 Scene* WorldSystem::load_scene(std::string_view path)
@@ -80,10 +84,12 @@ Scene* WorldSystem::load_scene(std::string_view path)
     }
     candidate->resource_ = std::move(resource);
     restoring_.reset();
-    scene_ = std::move(candidate);
+    retain_persistent();
+    scene_ = candidate.get();
+    scenes_.push_back(std::move(candidate));
     ++scene_sequence_;
     paused_ = false;
-    return scene_.get();
+    return scene_;
 }
 
 std::uint64_t WorldSystem::begin_restore_scene(std::shared_ptr<const Resource> resource)
@@ -174,10 +180,12 @@ Scene* WorldSystem::commit_restore_scene(std::uint64_t request)
     {
         return nullptr;
     }
-    scene_ = std::move(restoring_);
+    retain_persistent();
+    scene_ = restoring_.get();
+    scenes_.push_back(std::move(restoring_));
     paused_ = false;
     restore_ready_ = false;
-    return scene_.get();
+    return scene_;
 }
 
 void WorldSystem::cancel_restore_scene(std::uint64_t request) noexcept
@@ -192,18 +200,70 @@ void WorldSystem::cancel_restore_scene(std::uint64_t request) noexcept
 void WorldSystem::destroy_scene() noexcept
 {
     restoring_.reset();
-    scene_.reset();
+    restore_ready_ = false;
+    scene_ = nullptr;
+    scenes_.clear();
     paused_ = false;
+}
+
+void WorldSystem::retain_persistent()
+{
+    scene_ = nullptr;
+    for (const auto& scene : scenes_)
+    {
+        scene->retain_persistent();
+    }
+    std::erase_if(scenes_, [](const auto& scene) { return scene->nodes().empty(); });
+}
+
+void WorldSystem::unload_scene() noexcept
+{
+    restoring_.reset();
+    restore_ready_ = false;
+    retain_persistent();
+    paused_ = false;
+}
+
+bool WorldSystem::destroy_scene(std::uint64_t id) noexcept
+{
+    if (scene_ != nullptr && scene_->id() == id)
+    {
+        scene_ = nullptr;
+        paused_ = false;
+    }
+    return std::erase_if(scenes_, [id](const auto& scene) { return scene->id() == id; }) != 0;
 }
 
 Scene* WorldSystem::scene() noexcept
 {
-    return scene_.get();
+    return scene_;
 }
 
 const Scene* WorldSystem::scene() const noexcept
 {
-    return scene_.get();
+    return scene_;
+}
+
+const std::vector<std::unique_ptr<Scene>>& WorldSystem::scenes() const noexcept
+{
+    return scenes_;
+}
+
+Node* WorldSystem::find_node(std::uint64_t id) noexcept
+{
+    return const_cast<Node*>(std::as_const(*this).find_node(id));
+}
+
+const Node* WorldSystem::find_node(std::uint64_t id) const noexcept
+{
+    for (const auto& scene : scenes_)
+    {
+        if (const auto* node = scene->find_node(id))
+        {
+            return node;
+        }
+    }
+    return nullptr;
 }
 
 bool WorldSystem::set_paused(bool paused) noexcept
@@ -249,6 +309,8 @@ bool WorldSystem::on_tick(double delta_time)
     {
         return false;
     }
+    std::erase_if(scenes_, [this](const auto& scene)
+                  { return scene.get() != scene_ && scene->nodes().empty(); });
     return world_ != nullptr &&
            (paused() || ecs_progress(world_, static_cast<ecs_ftime_t>(delta_time)));
 }

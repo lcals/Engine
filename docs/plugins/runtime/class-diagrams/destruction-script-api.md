@@ -27,7 +27,7 @@ DestructionBinding ..> CompletionBinding : main-thread completion delegate
 | `node.GetComponent(DestructionComponent)` | 读取普通节点组件 |
 | `DamageSphere(x, y, z, radius, damage, impulse = 0)` | 世界坐标球形损伤，官方 Blast falloff；独立物理冲量 |
 | `DamageSphereAsync(x, y, z, radius, damage, impulse, completed)` | 返回是否接收请求，后台准备后主线程发布；`completed(success)` 调用一次，拒绝请求不回调 |
-| `RefreshSupport(support: Collider, maxGap, minCoverage)` | 显式检查同场景指定碰撞体；多点覆盖不足则解除 world 支撑，不自动重新连接 |
+| `RefreshSupport(support: Collider, maxGap, minCoverage)` | 显式检查本 Run 已发布节点上的指定碰撞体，允许常驻对象与当前关卡对象跨 Scene；多点覆盖不足则解除 world 支撑，不自动重新连接 |
 | `OwnsFragment(nodeId: bigint)` | 当前生成碎块组归属查询；失效 ID 返回 false |
 | `ApplyStress(x,y,z,elasticLimit,fatalLimit,iterations)` | 显式调用官方 Blast 应力；成功返回本次完全断裂连接数，失败 null；单位 Pa，由项目控制频率 |
 | `Reset()` | 恢复源资源图和初始组 |

@@ -10,7 +10,7 @@
 
 namespace engine
 {
-class Scene;
+class WorldSystem;
 class Material;
 } // namespace engine
 
@@ -28,8 +28,8 @@ public:
     ShadowPass& operator=(ShadowPass&&) = delete;
 
     [[nodiscard]] bool prepare(std::uint16_t size);
-    [[nodiscard]] bool draw(const Scene& scene, const RenderSettings& settings, ShadowFrame& frame,
-                            const std::vector<GpuMesh>& meshes,
+    [[nodiscard]] bool draw(const WorldSystem& world, const RenderSettings& settings,
+                            ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
                             const std::vector<GpuTexture>& textures, bgfx::TextureHandle fallback,
                             bgfx::UniformHandle depth_uniform);
     [[nodiscard]] bgfx::TextureHandle texture() const noexcept;

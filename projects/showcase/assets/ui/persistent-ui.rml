@@ -1,0 +1,34 @@
+<rml>
+<head>
+<title>Persistent UI laboratory</title>
+<style>
+body { margin: 0; width: 100%; height: 100%; pointer-events: none; font-family: body; color: #eef3fa; font-size: 17px; }
+div, h1, p { display: block; }
+.panel { position: absolute; left: 24px; top: 90px; width: 540px; max-width: 90%; padding: 24px; box-sizing: border-box; background: #17263bf0; pointer-events: auto; }
+h1 { font-family: heading; font-size: 28px; margin: 0 0 16px; }
+p { margin: 12px 0; }
+input { display: block; width: 95%; height: 30px; color: #eef3fa; background: #263b53; border-width: 1px; border-color: #73dfc3; padding: 6px; tab-index: auto; }
+button { display: inline-block; margin: 6px 4px 0 0; padding: 10px 14px; background: #263b53; color: #eef3fa; border-width: 0; tab-index: auto; font-family: body; }
+button:hover, button:focus { background: #375973; }
+.identity { font-size: 14px; color: #b4c7da; }
+</style>
+</head>
+<body>
+<div class="panel">
+    <h1>One UI, multiple scenes</h1>
+    <p>Type a note. Loading, unloading and failed requests must keep it and its original event subscription.</p>
+    <input id="lifetime-note" type="text" value="Keep this note across scene loads" />
+    <div>
+        <button id="load-a">Load cube</button>
+        <button id="load-b">Load font gallery</button>
+        <button id="cancel">Cancel a load</button>
+        <button id="fail">Missing resource</button>
+        <button id="unload">Unload gameplay</button>
+        <button id="destroy">Destroy this UI</button>
+    </div>
+    <p id="lifetime-status"></p>
+    <p id="lifetime-counts"></p>
+    <p id="lifetime-identity" class="identity"></p>
+</div>
+</body>
+</rml>

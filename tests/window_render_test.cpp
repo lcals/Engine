@@ -186,9 +186,9 @@ bool test_window_controls(engine::WindowSystem& windows)
     }
     for (const auto& value : modes)
     {
-        if (!expect(value.width > 0 && value.height > 0 &&
-                        std::isfinite(value.pixel_density) && value.pixel_density > 0.0F &&
-                        std::isfinite(value.refresh_rate) && value.refresh_rate >= 0.0F,
+        if (!expect(value.width > 0 && value.height > 0 && std::isfinite(value.pixel_density) &&
+                        value.pixel_density > 0.0F && std::isfinite(value.refresh_rate) &&
+                        value.refresh_rate >= 0.0F,
                     "enumerated modes preserve dimensions, density, and refresh rate"))
         {
             return false;
@@ -196,11 +196,11 @@ bool test_window_controls(engine::WindowSystem& windows)
     }
     return expect(!windows.set_mouse_mode(static_cast<engine::MouseMode>(99)),
                   "reject an invalid mouse mode") &&
-           expect(windows.set_mouse_mode(engine::MouseMode::hidden) &&
-                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::hidden,
+           expect(windows.set_mouse_mode(engine::MouseMode::hidden) && windows.mouse_mode(mouse) &&
+                      mouse == engine::MouseMode::hidden,
                   "hidden mouse uses SDL cursor visibility") &&
-           expect(windows.set_mouse_mode(engine::MouseMode::normal) &&
-                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::normal,
+           expect(windows.set_mouse_mode(engine::MouseMode::normal) && windows.mouse_mode(mouse) &&
+                      mouse == engine::MouseMode::normal,
                   "normal mouse restores a visible cursor without relative capture");
 }
 
@@ -474,7 +474,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
             return false;
         }
 
-        // 热重载替换场景时不提前通知渲染器，render 按场景编号重新准备资源。
+        // 热重载替换场景时不提前通知渲染器，render 按存活节点增量准备资源。
         world.destroy_scene();
         if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
             !expect(renderer.gpu_resource_count() > 0 &&
@@ -507,7 +507,37 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     {
         return false;
     }
-    return true;
+    world.destroy_scene();
+    if (!create_cube_scene(world, true))
+    {
+        return false;
+    }
+    auto* retained = world.scene()->nodes().front().get();
+    if (!expect(retained->set_persistent(true), "retain a rendered mesh") ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    const auto retained_counts = gpu_counts();
+    world.unload_scene();
+    if (!render_frames(windows, renderer, 8) ||
+        !expect(world.scene() == nullptr && gpu_counts() == retained_counts &&
+                    bgfx::getStats()->numDraw == idle_draws,
+                "camera-less interval retains mesh buffers without rendering the old camera") ||
+        !create_cube_scene(world, true) || !render_frames(windows, renderer, 8) ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 2,
+                "new active camera renders both retained and current meshes") ||
+        !expect(retained->scene().destroy_node(retained->id()),
+                "delete retained mesh explicitly") ||
+        !render_frames(windows, renderer, 8) ||
+        !expect(bgfx::getStats()->numDraw == idle_draws + 1,
+                "only surviving meshes remain in the GPU cache"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    return render_frames(windows, renderer, 8) &&
+           expect(gpu_counts() == idle, "full stop releases retained mesh resources");
 }
 
 struct Screenshot
@@ -1613,8 +1643,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
 bool test_async_capture(const engine::EngineConfig& config)
 {
     engine::ThreadSystem threads({.worker_limit = 1});
-    engine::TaskSystem tasks(threads, {.name = "Capture test", .max_concurrency = 1,
-                                      .max_pending = 1});
+    engine::TaskSystem tasks(threads,
+                             {.name = "Capture test", .max_concurrency = 1, .max_pending = 1});
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows, nullptr, nullptr, nullptr, &tasks);
     test_support::ResourceFixture fixture;
@@ -1625,7 +1655,8 @@ bool test_async_capture(const engine::EngineConfig& config)
     }
     std::promise<void> release;
     const auto gate = release.get_future().share();
-    auto busy = tasks.submit("Occupy capture admission", [gate]
+    auto busy = tasks.submit("Occupy capture admission",
+                             [gate]
                              {
                                  gate.wait();
                                  return true;
@@ -1932,6 +1963,30 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         extension.accept_draw = true;
+        const auto retained_releases = extension.scene_releases;
+        if (!expect(camera_node->set_persistent(true), "retain a camera and its HDR settings"))
+        {
+            return false;
+        }
+        world.unload_scene();
+        if (!render_frames(windows, renderer, 1) ||
+            !expect(extension.scene_releases == retained_releases && extension.draws == 3,
+                    "ordinary unload neither releases extensions nor uses the retained camera"))
+        {
+            return false;
+        }
+        auto* replacement = world.create_scene("New active camera");
+        auto* next_node = replacement ? replacement->create_node("Camera") : nullptr;
+        auto* next_camera = next_node ? next_node->add_component<engine::Camera>() : nullptr;
+        if (!expect(next_camera && replacement->set_active_camera(next_camera),
+                    "select new scene camera explicitly") ||
+            !render_frames(windows, renderer, 1) ||
+            !expect(extension.scene_releases == retained_releases && !extension.hdr &&
+                        extension.scene_id == replacement->id(),
+                    "new scene uses default postprocess and retains extension resources"))
+        {
+            return false;
+        }
         // 先销毁节点再释放扩展，验证清理只使用扩展自身状态。
         world.destroy_scene();
         const auto releases = extension.scene_releases;
@@ -2212,11 +2267,10 @@ private:
 bool test_script_runtime_factory(const engine::EngineConfig& config)
 {
     engine::RuntimeHost host;
-    const auto failed_factory = [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&,
-                                   engine::PhysicsSystem&, engine::NavigationSystem&,
-                                   engine::InputSystem&,
-                                   engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
-    { return {}; };
+    const auto failed_factory =
+        [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&, engine::PhysicsSystem&,
+           engine::NavigationSystem&, engine::InputSystem&,
+           engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime> { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
                 "failed script factory unwinds the partial host without a fallback"))
@@ -2267,8 +2321,8 @@ int main(int, char**)
     bool textures_passed = scene_passed && test_textured_renderer(config, false);
     textures_passed = textures_passed && test_textured_renderer(config, true);
     const bool skinning_passed = textures_passed && test_gpu_skinning(config);
-    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config) &&
-                                 test_async_capture(config);
+    const bool settings_passed =
+        skinning_passed && test_render_settings_and_capture(config) && test_async_capture(config);
     const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
     const bool extensions_passed = hdr_passed && test_render_extensions(config);
     const bool engine_passed = extensions_passed && test_engine(config);

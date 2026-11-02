@@ -31,7 +31,6 @@ private:
     void clear_visibility() noexcept;
     WorldSystem& world_;
     PhysicsSystem& physics_;
-    std::uint64_t visibility_scene_ = 0;
     std::vector<std::uint64_t> filtered_cameras_;
 };
 

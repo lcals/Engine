@@ -52,8 +52,9 @@
 ## 场景与项目运行
 
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
-- [场景](../runtime/class-diagrams/scene.md)：世界独占活动场景，场景独占节点。
+- [场景](../runtime/class-diagrams/scene.md)：世界独占已发布场景及恢复候选，区分当前玩法场景与常驻容器；场景独占节点。
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
+- [常驻节点与场景切换](../runtime/class-diagrams/persistent-nodes.md)：根节点及子树跨场景存活、原 UI/Controller 复用，以及完整停止时的清理边界。
 - [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。
 - [组件](../runtime/class-diagrams/component.md)：Component、Transform、Camera、Light、MeshRenderer 及当前参数。
 - [环境与后处理组件](../runtime/class-diagrams/environment-components.md)：环境光、雾与清屏色归环境节点，曝光与色调映射归相机节点，阴影归灯光；预览与运行共用场景数据。

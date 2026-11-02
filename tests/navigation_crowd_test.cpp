@@ -442,13 +442,44 @@ bool world_pause_preserves_agents()
                   "crowd resumes one fresh step without accumulating paused time");
 }
 
+bool persistent_agent()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* agent = fixture.agent({2, 0, 2});
+    auto* removed = fixture.agent({2, 0, 8});
+    if (!agent || !removed || !agent->node().set_persistent(true) || !agent->move_to({20, 0, 2}) ||
+        !fixture.advance(30))
+    {
+        return false;
+    }
+    const auto identity = agent->instance_id();
+    const auto node = agent->node().id();
+    const auto before = position(*agent);
+    fixture.world.unload_scene();
+    if (!expect(fixture.advance(2) && agent->instance_id() == identity &&
+                    fixture.world.find_node(node) == &agent->node() &&
+                    position(*agent).x() > before.x(),
+                "persistent crowd agent keeps its movement request without an active scene") ||
+        !fixture.world.create_scene("Next navigation level"))
+    {
+        return false;
+    }
+    const auto continued = position(*agent);
+    return expect(fixture.build() && fixture.advance(30) && position(*agent).x() > continued.x() &&
+                      agent->velocity().x() > 0,
+                  "navigation revision rebuild reattaches the retained agent to the new mesh");
+}
+
 } // namespace
 
 int main()
 {
-    return world_pause_preserves_agents() && requests_and_lifetime() && many_agents() &&
-                   capacity_replacement() &&
-                   physics_shape_ownership()
+    return persistent_agent() && world_pause_preserves_agents() && requests_and_lifetime() &&
+                   many_agents() && capacity_replacement() && physics_shape_ownership()
                ? 0
                : 1;
 }

@@ -182,6 +182,7 @@ struct UiSystem::State final : Rml::EventListener
     };
     struct Document
     {
+        std::uint64_t scene = 0;
         std::uint64_t node = 0;
         std::uint64_t view = 0;
         std::uint64_t revision = 0;
@@ -192,6 +193,8 @@ struct UiSystem::State final : Rml::EventListener
         Rml::ElementDocument* markup = nullptr;
         std::map<std::uint64_t, Element> elements;
         std::uint64_t element_sequence = 0;
+        std::size_t order = 0;
+        bool persistent = false;
         bool visible = true;
     };
     explicit State(FontSystem& fonts) : font_engine(fonts), renderer(fonts, font_engine)
@@ -203,7 +206,6 @@ struct UiSystem::State final : Rml::EventListener
     ui_detail::RmlRender renderer;
     std::vector<Document> documents;
     std::deque<UiEvent> events;
-    std::uint64_t scene_id = 0;
     bool initialized = false;
     Rml::Context* keyboard_context = nullptr;
     Rml::Context* pointer_context = nullptr;
@@ -394,7 +396,7 @@ struct UiSystem::State final : Rml::EventListener
                 output.node_id = document.node;
                 output.element_id = target->GetId();
                 output.type = event.GetType();
-                output.scene_id = scene_id;
+                output.scene_id = document.scene;
                 output.target = identity;
                 for (auto* current = target;
                      current && current->GetOwnerDocument() == document.markup;
@@ -451,10 +453,9 @@ bool UiSystem::synchronize()
     {
         return false;
     }
-    const auto* scene = world_.scene();
-    if (!scene)
+    if (world_.scenes().empty())
     {
-        if (state_->scene_id != 0 || !state_->documents.empty())
+        if (!state_->documents.empty())
         {
             release_scene();
         }
@@ -474,16 +475,12 @@ bool UiSystem::synchronize()
     }
     state_->logical_width = logical_width;
     state_->logical_height = logical_height;
-    if (state_->scene_id != scene->id())
-    {
-        release_scene();
-        state_->scene_id = scene->id();
-    }
     const auto wanted = [&](const State::Document& document)
     {
-        const auto* node = scene->find_node(document.node);
+        const auto* node = world_.find_node(document.node);
         const auto* ui = node ? node->get_component<UiComponent>() : nullptr;
-        return ui && ui->enabled() && ui->view_id() == document.view &&
+        return ui && node->scene().id() == document.scene && ui->enabled() &&
+               ui->view_id() == document.view &&
                ui->document_revision() == document.revision && ui->document() == document.resource;
     };
     bool changed = false;
@@ -498,61 +495,73 @@ bool UiSystem::synchronize()
                       changed = true;
                       return true;
                   });
-    for (const auto& node : scene->nodes())
+    std::size_t order = 0;
+    for (const auto& scene : world_.scenes())
     {
-        const auto* ui = node->get_component<UiComponent>();
-        if (!ui || !ui->enabled() || !ui->document() || state_->find_document(node->id()))
+        for (const auto& node : scene->nodes())
         {
-            continue;
+            const auto* ui = node->get_component<UiComponent>();
+            if (!ui || !ui->enabled() || !ui->document())
+            {
+                continue;
+            }
+            if (auto* document = state_->find_document(node->id()))
+            {
+                document->order = order++;
+                document->persistent = node->persistent();
+                continue;
+            }
+            State::Document candidate;
+            candidate.scene = scene->id();
+            candidate.node = node->id();
+            candidate.view = ui->view_id();
+            candidate.revision = ui->document_revision();
+            candidate.id = next_document_id();
+            candidate.order = order++;
+            candidate.persistent = node->persistent();
+            candidate.resource = ui->document();
+            candidate.key = candidate.resource->info().guid + "-" +
+                            std::to_string(candidate.resource->generation());
+            if (candidate.id == 0 || !state_->activate(candidate))
+            {
+                state_->prune();
+                return false;
+            }
+            const auto name = "scene-ui-" + std::to_string(candidate.id);
+            candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
+            if (!candidate.context)
+            {
+                state_->prune();
+                return false;
+            }
+            candidate.markup = candidate.context->LoadDocumentFromMemory(
+                candidate.resource->ui()->markup,
+                "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
+            if (!candidate.markup)
+            {
+                state_->close(candidate);
+                state_->prune();
+                return false;
+            }
+            candidate.markup->AddEventListener("click", state_.get());
+            candidate.markup->AddEventListener("change", state_.get());
+            candidate.markup->AddEventListener("input", state_.get());
+            candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            state_->documents.push_back(std::move(candidate));
+            changed = true;
         }
-        State::Document candidate;
-        candidate.node = node->id();
-        candidate.view = ui->view_id();
-        candidate.revision = ui->document_revision();
-        candidate.id = next_document_id();
-        candidate.resource = ui->document();
-        candidate.key = candidate.resource->info().guid + "-" +
-                        std::to_string(candidate.resource->generation());
-        if (candidate.id == 0 || !state_->activate(candidate))
-        {
-            state_->prune();
-            return false;
-        }
-        const auto name = "scene-ui-" + std::to_string(candidate.id);
-        candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
-        if (!candidate.context)
-        {
-            state_->prune();
-            return false;
-        }
-        candidate.markup = candidate.context->LoadDocumentFromMemory(
-            candidate.resource->ui()->markup,
-            "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
-        if (!candidate.markup)
-        {
-            state_->close(candidate);
-            state_->prune();
-            return false;
-        }
-        candidate.markup->AddEventListener("click", state_.get());
-        candidate.markup->AddEventListener("change", state_.get());
-        candidate.markup->AddEventListener("input", state_.get());
-        candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
-        state_->documents.push_back(std::move(candidate));
-        changed = true;
     }
     if (changed)
     {
         state_->prune();
     }
-    const auto order = [&](std::uint64_t id)
-    {
-        return std::find_if(scene->nodes().begin(), scene->nodes().end(),
-                            [id](const auto& node) { return node->id() == id; });
-    };
     std::stable_sort(state_->documents.begin(), state_->documents.end(),
-                     [&](const auto& left, const auto& right)
-                     { return order(left.node) < order(right.node); });
+                     [](const auto& left, const auto& right)
+                     {
+                         return left.persistent != right.persistent
+                                    ? !left.persistent
+                                    : left.order < right.order;
+                     });
     for (auto& document : state_->documents)
     {
         document.context->SetDimensions({logical_width, logical_height});
@@ -908,7 +917,6 @@ void UiSystem::release_scene() noexcept
     state_->blocked_touches.clear();
     state_->documents.clear();
     state_->events.clear();
-    state_->scene_id = 0;
     Rml::ReleaseRenderManagers();
     Rml::ReleaseFontResources();
     state_->renderer.release();
@@ -1281,7 +1289,7 @@ bool UiSystem::poll_event(UiEvent& output)
         state_->events.pop_front();
         State::Document* document = nullptr;
         const auto* element = state_->resolve(event.target, &document);
-        if (event.scene_id != state_->scene_id || !element || !document->visible ||
+        if (!element || event.scene_id != document->scene || !document->visible ||
             document->node != event.node_id || !element->reference->IsVisible() ||
             !element_enabled(*element->reference.get()))
         {

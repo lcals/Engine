@@ -378,6 +378,59 @@ bool playback_and_lifecycle()
                   "shutdown is repeatable and releases the owned SDL subsystem");
 }
 
+bool persistent_audio()
+{
+    test_support::ResourceFixture fixture;
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::AudioSystem audio(&world);
+    if (!expect(prepare(fixture, resources) && world.initialize({}) && audio.initialize({}),
+                "initialize persistent audio test"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Retained audio");
+    auto* node = scene ? scene->create_node("Music") : nullptr;
+    auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
+    auto* ordinary_node = scene ? scene->create_node("Ordinary audio") : nullptr;
+    auto* ordinary = ordinary_node ? ordinary_node->add_component<engine::AudioSource>() : nullptr;
+    if (!expect(source && ordinary && node->set_persistent(true) &&
+                    source->set_clip("audio/mono.wav") && ordinary->set_clip("audio/stereo.wav") &&
+                    audio.tick(0) && source->pause() && audio.tick(0) && audio.voice_count() == 2,
+                "create a paused persistent stream and an ordinary voice"))
+    {
+        return false;
+    }
+    world.unload_scene();
+    if (!expect(audio.tick(0) && audio.voice_count() == 1 &&
+                    source->playback() == engine::AudioPlayback::paused &&
+                    SDL_WasInit(SDL_INIT_AUDIO) != 0,
+                "unload keeps the existing paused stream and audio device") ||
+        !expect(world.create_scene("Next audio scene") && audio.tick(0) &&
+                    audio.voice_count() == 1 && source->play() && audio.tick(0) &&
+                    source->playing(),
+                "resume retained stream after creating another scene") ||
+        !expect(node->remove_component(engine::AudioSource::component_type),
+                "remove retained source while its stream exists"))
+    {
+        return false;
+    }
+    source = node->add_component<engine::AudioSource>();
+    if (!expect(source && source->set_clip("audio/mono.wav") && source->play() && source->pause() &&
+                    audio.tick(0) && audio.voice_count() == 0,
+                "replacement source cannot inherit a stream with a matching revision") ||
+        !expect(source->play() && audio.tick(0) && audio.voice_count() == 1,
+                "replacement source starts its own stream") ||
+        !expect(node->scene().destroy_node(node->id()) && audio.tick(0) && audio.voice_count() == 0,
+                "explicit retained node deletion closes its stream"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    return expect(audio.tick(0) && SDL_WasInit(SDL_INIT_AUDIO) == 0,
+                  "full world cleanup closes the output device");
+}
+
 bool unavailable_device()
 {
     if (!SDL_SetHintWithPriority(SDL_HINT_AUDIO_DRIVER, "engine-missing-audio-driver",
@@ -419,5 +472,8 @@ bool unavailable_device()
 
 int main()
 {
-    return settings_and_resources() && playback_and_lifecycle() && unavailable_device() ? 0 : 1;
+    return settings_and_resources() && playback_and_lifecycle() && persistent_audio() &&
+                   unavailable_device()
+               ? 0
+               : 1;
 }

@@ -67,6 +67,7 @@ classDiagram
         +storage_error() const string&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
+        +find_node(uint64_t scene_id, uint64_t node_id) Node#42;
         +delta_time() double
     }
     class ScriptVm
@@ -84,6 +85,7 @@ classDiagram
     class ResourceLoadProgress
     class ResourceLoadStatus
     class Scene
+    class Node
     class InputChannelHandle
     class InputCaptureHandle
     class KeyValueStore
@@ -106,6 +108,7 @@ classDiagram
     BindingContext ..> ResourceLoadProgress : step计数输出
     BindingContext ..> ResourceLoadStatus : step状态返回
     BindingContext ..> Scene : commit返回世界拥有的借用
+    BindingContext ..> Node : 校验本Run场景归属及存活身份
     BindingContext *-- InputChannelHandle : 本Run创建清单
     BindingContext *-- InputCaptureHandle : 本Run捕获清单
     BindingContext *-- KeyValueStore : 每个 Run 独占惰性加载缓存
@@ -142,7 +145,7 @@ classDiagram
     class Node
     class Component
     BindingContext ..> Scene : 校验后返回可空借用
-    BindingContext ..> Node : 查找当前场景节点
+    BindingContext ..> Node : 查找本Run已发布场景的存活节点
     BindingContext ..> Component : 通过生成的种类值查询组件
 ```
 
@@ -258,7 +261,11 @@ classDiagram
 
 SceneBinding 提供 Scene.Load 与 FindNode：Load 仅可替换当前 Run 拥有的场景，失败保留原场景；FindNode 按节点顺序查首个同名节点，缺失返回 null。场景字节来自已激活 ResourceCatalog，不直接访问可变项目缓存或 SQLite。
 
-NodeBinding 提供 `Node.FindChild(path)`：从当前实例逐段匹配直接子节点，例如 `Assembly/Body`，不会使用场景全局同名查找。空路径、`.`、`..`、首尾斜线、连续斜线、缺失节点、任一层同名歧义或失效句柄均返回 null。绑定以既有 `parent()` 和 `name()` 过滤当前场景节点，不向核心 Node 增加脚本专用接口。
+BindingContext 在成功 Create/Load/Commit 后记录 Scene ID，活动 Scene ID 与仍存活的所属容器分开保存；场景变化时裁剪已释放记录。`find_node(scene_id, node_id)` 为 `const noexcept`，只在活动回调内返回本 Run 所属场景中精确匹配的存活节点。Scene 句柄仍只代表当前关卡；Node/Component 句柄可访问同一 Run 的常驻节点。`Scene.Destroy()` 卸载关卡并保留常驻子树；关闭 Run 先取消自身请求，再按记录的 Scene ID 完整销毁，候选 Run 和旧 Run 不能清理其他调用方的场景。
+
+NodeBinding 提供 `SetPersistent(value)` 与 `IsPersistent()`，语义见[常驻节点](../../../runtime/class-diagrams/persistent-nodes.md)。只允许根节点设置，重复设置幂等；子节点继承祖先标记；常驻根先取消标记才能重新设置父节点。绑定不维护另一份常驻状态。
+
+NodeBinding 提供 `Node.FindChild(path)`：从当前实例逐段匹配直接子节点，例如 `Assembly/Body`，不会使用场景全局同名查找。空路径、`.`、`..`、首尾斜线、连续斜线、缺失节点、任一层同名歧义或失效句柄均返回 null。绑定以既有 `parent()` 和 `name()` 过滤节点实际所属场景，不向核心 Node 增加脚本专用接口。
 
 CharacterMotorBinding 独立提供胶囊移动设置、水平速度请求、实际速度查询、地面状态和跳跃；仅转发 CharacterMotor，不读取键鼠或设置相机。第一/第三人称控制器属于另一个可选插件，未在通用脚本插件中声明未实现的绑定。
 
@@ -266,7 +273,7 @@ UI 绑定见 [UI 脚本与 MVC](ui-script-api.md)。绑定模块可登记事件�
 
 TerrainBinding 在 `ENGINE_HAS_TERRAIN_PLUGIN=1` 时登记，脚本插件的地形依赖由插件清单显式声明；关闭时不生成该门面或引用地形符号。公开契约见[地形脚本接口](terrain-script-api.md)。
 
-步骤 3：宿主追加注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问当前场景的只读撞击快照，不推进物理、不在 Jolt 回调里执行脚本。
+宿主注入可空 `PhysicsSystem*`，其有效期覆盖玩法。绑定仅在有效回调中访问本 Run 存活对象的只读撞击快照，包含常驻对象；不推进物理、不在 Jolt 回调里执行脚本。
 
 ```mermaid
 classDiagram

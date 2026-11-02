@@ -202,13 +202,14 @@ bool support_coverage(const schema::DestructionChunkDataT& chunk, const float* m
     return true;
 }
 
-bool release_groups(Scene& scene, PhysicsSystem& physics, const std::vector<GeneratedGroup>& groups)
+bool release_groups(WorldSystem& world, PhysicsSystem& physics,
+                    const std::vector<GeneratedGroup>& groups)
 {
     std::vector<std::pair<Collider*, bool>> disabled;
     // Keep every node alive until the whole batch has released its collision successfully.
     for (const auto& group : groups)
     {
-        auto* node = scene.find_node(group.node);
+        auto* node = world.find_node(group.node);
         if (!node)
         {
             continue;
@@ -242,9 +243,9 @@ bool release_groups(Scene& scene, PhysicsSystem& physics, const std::vector<Gene
     bool result = true;
     for (const auto& group : groups)
     {
-        if (scene.find_node(group.node))
+        if (auto* node = world.find_node(group.node))
         {
-            result = scene.destroy_node(group.node) && result;
+            result = node->scene().destroy_node(group.node) && result;
         }
     }
     return result;
@@ -313,7 +314,6 @@ struct DestructionSystem::State
         std::function<void(bool)> callback;
         bool success = false;
     };
-    std::uint64_t scene_id = 0;
     std::map<std::uint64_t, std::vector<GeneratedGroup>> generated;
     std::map<std::uint64_t, Owner> owners;
     std::vector<Completion> ready;
@@ -438,19 +438,14 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
                                 bool reuse_groups, const std::vector<PreparedGroup>* prepared)
 {
     ENGINE_PROFILE_ZONE("Destruction.publish_fragments");
-    auto* scene = world_.scene();
-    if (!state_ || !scene || scene != &component.node().scene() || component.node().parent() ||
-        groups.size() != candidate.groups().size() ||
+    auto* scene = &component.node().scene();
+    if (!state_ || world_.find_node(component.node().id()) != &component.node() ||
+        component.node().parent() || groups.size() != candidate.groups().size() ||
         (prepared != nullptr && prepared->size() != groups.size()) ||
         component.revision_ == std::numeric_limits<std::uint64_t>::max())
     {
         component.last_error_ = "Destruction requires a root node in the active world";
         return false;
-    }
-    if (state_->scene_id != scene->id())
-    {
-        state_->generated.clear();
-        state_->scene_id = scene->id();
     }
     std::string material = "builtin://materials/default-pbr";
     if (!component.settings().material_guid.empty() &&
@@ -473,7 +468,7 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
     bool changed = !reuse_groups || candidate.healths() != component.graph_.healths();
     const auto fail = [&](std::string error)
     {
-        if (!release_groups(*scene, physics_, created))
+        if (!release_groups(world_, physics_, created))
         {
             error += "; failed to clean candidate bodies";
         }
@@ -496,7 +491,7 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
             reuse_groups && found != previous_by_chunk.end() ? found->second : nullptr;
         if (old && old->chunks == description.chunks && old->anchored == description.anchored)
         {
-            auto* node = scene->find_node(old->node);
+            auto* node = world_.find_node(old->node);
             auto* transform = node ? node->get_component<Transform>() : nullptr;
             auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
             auto* collider = node ? node->get_component<Collider>() : nullptr;
@@ -595,7 +590,7 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         retired.push_back(*group);
     }
     // No physics step or query occurs between preparation and this publication point.
-    if (!release_groups(*scene, physics_, retired))
+    if (!release_groups(world_, physics_, retired))
     {
         return fail("Cannot release previous destruction groups");
     }
@@ -880,9 +875,10 @@ bool DestructionSystem::request_damage(DestructionComponent& component, const Ve
 {
     if (!state_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
         !completed || !component.ready_ || !active_component(component) ||
-        &component.node().scene() != world_.scene() || !finite(center) || !std::isfinite(radius) ||
-        radius <= 0 || radius > 100000 || !std::isfinite(damage_value) || damage_value < 0 ||
-        damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 || impulse > 1000000)
+        world_.find_node(component.node().id()) != &component.node() || !finite(center) ||
+        !std::isfinite(radius) || radius <= 0 || radius > 100000 || !std::isfinite(damage_value) ||
+        damage_value < 0 || damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 ||
+        impulse > 1000000)
     {
         component.last_error_ = "Invalid asynchronous destruction request or task domain";
         return false;
@@ -918,7 +914,6 @@ void DestructionSystem::process_requests()
     {
         return;
     }
-    auto* scene = world_.scene();
     std::size_t commits = 0;
     auto item = state_->owners.upper_bound(state_->published_after);
     for (std::size_t remaining = state_->owners.size(); remaining != 0; --remaining)
@@ -929,8 +924,11 @@ void DestructionSystem::process_requests()
         }
         const auto current = item++;
         auto& owner = current->second;
-        auto* node =
-            scene && scene->id() == owner.scene ? scene->find_node(current->first) : nullptr;
+        auto* node = world_.find_node(current->first);
+        if (node && node->scene().id() != owner.scene)
+        {
+            node = nullptr;
+        }
         auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
         if (!component || !component->ready_ || !active_component(*component) ||
             owner.lifetime.lock() != component->lifetime_ || owner.revision != component->revision_)
@@ -961,7 +959,7 @@ void DestructionSystem::process_requests()
                         generated->second.begin(), generated->second.end(),
                         [&](const auto& value) { return value.chunks == source.group.chunks; });
                     auto* fragment =
-                        found != generated->second.end() ? scene->find_node(found->node) : nullptr;
+                        found != generated->second.end() ? world_.find_node(found->node) : nullptr;
                     const auto* transform =
                         fragment ? fragment->get_component<Transform>() : nullptr;
                     success = transform && valid_transform(transform->settings()) &&
@@ -1025,7 +1023,7 @@ void DestructionSystem::process_requests()
         {
             continue;
         }
-        auto* component = scene->find_node(id)->get_component<DestructionComponent>();
+        auto* component = world_.find_node(id)->get_component<DestructionComponent>();
         if (!owner.prepared)
         {
             auto prepared = std::make_shared<State::Prepared>();
@@ -1042,7 +1040,7 @@ void DestructionSystem::process_requests()
                     std::find_if(found->second.begin(), found->second.end(),
                                  [&](const auto& value) { return value.chunks == group.chunks; });
                 auto* fragment =
-                    generated != found->second.end() ? scene->find_node(generated->node) : nullptr;
+                    generated != found->second.end() ? world_.find_node(generated->node) : nullptr;
                 const auto* transform = fragment ? fragment->get_component<Transform>() : nullptr;
                 State::SourceGroup source;
                 valid = transform && valid_transform(transform->settings()) &&
@@ -1093,15 +1091,14 @@ void DestructionSystem::process_requests()
 bool DestructionSystem::owns_fragment(const DestructionComponent& component,
                                       std::uint64_t node_id) const noexcept
 {
-    const auto* scene = world_.scene();
-    if (!state_ || !component.ready_ || !scene || scene != &component.node().scene() ||
-        state_->scene_id != scene->id() ||
+    if (!state_ || !component.ready_ ||
+        world_.find_node(component.node().id()) != &component.node() ||
         component.node().get_component<DestructionComponent>() != &component)
     {
         return false;
     }
     const auto found = state_->generated.find(component.node().id());
-    const auto* node = scene->find_node(node_id);
+    const auto* node = world_.find_node(node_id);
     return found != state_->generated.end() && node && node->transient() &&
            std::any_of(found->second.begin(), found->second.end(),
                        [node_id](const auto& group) { return group.node == node_id; });
@@ -1111,10 +1108,9 @@ bool DestructionSystem::refresh_support(DestructionComponent& component, const C
                                         float max_gap, float min_coverage)
 {
     ENGINE_PROFILE_ZONE("Destruction.refresh_support");
-    auto* scene = world_.scene();
-    if (!state_ || !component.ready_ || !active_component(component) || !scene ||
-        scene != &component.node().scene() || scene != &support.node().scene() ||
-        state_->scene_id != scene->id() ||
+    if (!state_ || !component.ready_ || !active_component(component) ||
+        world_.find_node(component.node().id()) != &component.node() ||
+        world_.find_node(support.node().id()) != &support.node() ||
         component.node().get_component<DestructionComponent>() != &component ||
         support.node().get_component<Collider>() != &support || !std::isfinite(max_gap) ||
         max_gap <= 0 || max_gap > 1000 || !std::isfinite(min_coverage) || min_coverage <= 0 ||
@@ -1155,7 +1151,7 @@ bool DestructionSystem::refresh_support(DestructionComponent& component, const C
         const auto group = std::find_if(
             found->second.begin(), found->second.end(), [chunk_id](const auto& value)
             { return std::binary_search(value.chunks.begin(), value.chunks.end(), chunk_id); });
-        const auto* node = group != found->second.end() ? scene->find_node(group->node) : nullptr;
+        const auto* node = group != found->second.end() ? world_.find_node(group->node) : nullptr;
         const auto* transform = node ? node->get_component<Transform>() : nullptr;
         float matrix[16];
         if (!transform || !valid_transform(transform->settings()) ||
@@ -1192,8 +1188,8 @@ bool DestructionSystem::snapshot(const DestructionComponent& component,
                                  schema::DestructionStateDataT& output) const
 {
     output = {};
-    if (!state_ || !component.ready_ || !component.resource_ || !world_.scene() ||
-        world_.scene() != &component.node().scene() || state_->scene_id != world_.scene()->id())
+    if (!state_ || !component.ready_ || !component.resource_ ||
+        world_.find_node(component.node().id()) != &component.node())
     {
         return false;
     }
@@ -1209,7 +1205,7 @@ bool DestructionSystem::snapshot(const DestructionComponent& component,
     for (const auto& group : found->second)
     {
         auto saved = std::make_unique<schema::DestructionGroupStateT>();
-        if (!read_group(*world_.scene(), group, *saved))
+        if (!read_group(component.node().scene(), group, *saved))
         {
             return false;
         }
@@ -1268,24 +1264,13 @@ bool DestructionSystem::synchronize()
     {
         return false;
     }
-    auto* scene = world_.scene();
-    if (!scene || scene->id() != state_->scene_id)
-    {
-        state_->generated.clear();
-        state_->scene_id = scene ? scene->id() : 0;
-    }
-    if (!scene)
-    {
-        process_requests();
-        return true;
-    }
     for (auto found = state_->generated.begin(); found != state_->generated.end();)
     {
-        auto* node = scene->find_node(found->first);
+        auto* node = world_.find_node(found->first);
         auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
         if (!component || !component->resource_)
         {
-            if (!release_groups(*scene, physics_, found->second))
+            if (!release_groups(world_, physics_, found->second))
             {
                 return false;
             }
@@ -1297,16 +1282,19 @@ bool DestructionSystem::synchronize()
         }
     }
     std::vector<std::uint64_t> owners;
-    for (const auto& node : scene->nodes())
+    for (const auto& scene : world_.scenes())
     {
-        if (node->get_component<DestructionComponent>())
+        for (const auto& node : scene->nodes())
         {
-            owners.push_back(node->id());
+            if (node->get_component<DestructionComponent>())
+            {
+                owners.push_back(node->id());
+            }
         }
     }
     for (auto id : owners)
     {
-        auto* node = scene->find_node(id);
+        auto* node = world_.find_node(id);
         if (!node || !synchronize(*node))
         {
             return false;
@@ -1318,15 +1306,9 @@ bool DestructionSystem::synchronize()
 
 bool DestructionSystem::synchronize(Node& owner)
 {
-    auto* scene = world_.scene();
-    if (!state_ || !is_initialized() || !scene || scene != &owner.scene())
+    if (!state_ || !is_initialized() || world_.find_node(owner.id()) != &owner)
     {
         return false;
-    }
-    if (state_->scene_id != scene->id())
-    {
-        state_->generated.clear();
-        state_->scene_id = scene->id();
     }
     auto* node = &owner;
     auto* component = node->get_component<DestructionComponent>();
@@ -1335,12 +1317,28 @@ bool DestructionSystem::synchronize(Node& owner)
         const auto found = state_->generated.find(node->id());
         if (found != state_->generated.end())
         {
-            if (!release_groups(*scene, physics_, found->second))
+            if (!release_groups(world_, physics_, found->second))
             {
                 return false;
             }
             state_->generated.erase(found);
         }
+        return true;
+    }
+    if (const auto generated = state_->generated.find(node->id());
+        generated != state_->generated.end() &&
+        std::any_of(generated->second.begin(), generated->second.end(),
+                    [&](const auto& group) { return world_.find_node(group.node) == nullptr; }))
+    {
+        if (!release_groups(world_, physics_, generated->second))
+        {
+            return false;
+        }
+        state_->generated.erase(generated);
+        component->ready_ = false;
+        component->pending_ = false;
+        component->last_error_ =
+            "Generated destruction nodes were unloaded; Reset recreates the assembly";
         return true;
     }
     if (component->pending_ && component->enabled())
@@ -1366,7 +1364,7 @@ bool DestructionSystem::synchronize(Node& owner)
     const bool enabled = active_component(*component);
     for (const auto& group : found->second)
     {
-        auto* fragment = scene->find_node(group.node);
+        auto* fragment = world_.find_node(group.node);
         if (!fragment)
         {
             component->last_error_ = "A generated destruction fragment was removed externally";
@@ -1418,12 +1416,11 @@ void DestructionSystem::on_shutdown() noexcept
     {
         active_system = nullptr;
     }
-    auto* scene = world_.scene();
-    if (state_ && scene && scene->id() == state_->scene_id)
+    if (state_)
     {
         for (const auto& [id, groups] : state_->generated)
         {
-            if (auto* node = scene->find_node(id))
+            if (auto* node = world_.find_node(id))
             {
                 if (auto* component = node->get_component<DestructionComponent>())
                 {
@@ -1431,7 +1428,7 @@ void DestructionSystem::on_shutdown() noexcept
                     component->pending_ = component->resource_ != nullptr;
                 }
             }
-            (void)release_groups(*scene, physics_, groups);
+            (void)release_groups(world_, physics_, groups);
         }
     }
     state_.reset();

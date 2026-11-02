@@ -77,7 +77,7 @@ struct RenderSystem::SceneGpuResources
     [[nodiscard]] bool initialize();
     void release() noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
-    [[nodiscard]] bool prepare_ibl(const Scene& scene, std::size_t staging_bytes);
+    [[nodiscard]] bool prepare_ibl(const Scene* scene, std::size_t staging_bytes);
 };
 
 } // namespace engine

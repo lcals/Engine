@@ -429,6 +429,7 @@ declare module "engine" {
         /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
         InstantiateModel(path: string, name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;
+        /** Unloads this active scene, preserving persistent subtrees until gameplay stops. */
         Destroy(): boolean;
     }
 
@@ -439,6 +440,10 @@ declare module "engine" {
         readonly sceneId: bigint;
         IsValid(): boolean;
         Destroy(): boolean;
+        /** Root nodes only. Retains the subtree across scene unloads within this gameplay Run. */
+        SetPersistent(value: boolean): boolean;
+        /** True when this node or one of its ancestors is marked persistent. */
+        IsPersistent(): boolean;
         SetParent(parent: Node | null): boolean;
         /** Relative child path, e.g. "Assembly/Body". Invalid, missing or ambiguous paths return null. */
         FindChild(path: string): Node | null;
@@ -635,9 +640,8 @@ declare module "engine" {
     }
     export interface PhysicsImpact {
         readonly frame: bigint;
-        readonly sceneId: bigint;
-        readonly nodeA: bigint;
-        readonly nodeB: bigint;
+        readonly a: PhysicsObject;
+        readonly b: PhysicsObject;
         readonly point: { readonly x: number; readonly y: number; readonly z: number };
         /** World normal from A to B. */
         readonly normal: { readonly x: number; readonly y: number; readonly z: number };
@@ -673,14 +677,15 @@ declare module "engine" {
     }
     export class Physics {
         private constructor();
-        /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
+        /** Last physics tick for this Run's live objects, including persistent nodes. */
         static GetImpacts(): PhysicsImpact[];
         /** Last physics tick, ordered by fixed step; read once per frame, not per event. */
         static GetContacts(): readonly PhysicsContactEvent[];
         /**
          * Subscribe to future contacts of this node's active Collider or CharacterMotor instance.
          * Returns an ID, or 0 on failure. Callbacks must be synchronous; Off cancels immediately.
-         * Disable/removal/replacement of the receiver, scene changes and run shutdown cancel it.
+         * Disable/removal/replacement of the receiver and run shutdown cancel it.
+         * Persistent receivers keep subscriptions across scene changes.
          * Subscriptions added inside callbacks start with the next physics batch.
          */
         static OnCollisionEnter(node: Node, callback: (contact: PhysicsContact) => void): number;

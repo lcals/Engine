@@ -13,6 +13,11 @@ export class Node {
     get id() { return handles.get(this).node; }
     get sceneId() { return handles.get(this).scene; }
     IsValid() { const h = handles.get(this); return native.NodeValid(h.scene, h.node); }
+    SetPersistent(value) {
+        const h = handles.get(this);
+        return native.NodePersistentSet(h.scene, h.node, value);
+    }
+    IsPersistent() { const h = handles.get(this); return native.NodePersistent(h.scene, h.node); }
     Destroy() { const h = handles.get(this); return native.NodeDestroy(h.scene, h.node); }
     SetParent(parent) {
         const h = handles.get(this);
@@ -68,6 +73,19 @@ void destroy(const Arguments& arguments)
     auto* node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node != nullptr &&
                          node->scene().destroy_node(node->id()));
+}
+
+void set_persistent(const Arguments& arguments)
+{
+    auto* node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 3 && node && arguments.is_boolean(2) &&
+                         node->set_persistent(arguments.boolean(2)));
+}
+
+void persistent(const Arguments& arguments)
+{
+    const auto* node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node && node->persistent());
 }
 
 void set_parent(const Arguments& arguments)
@@ -143,6 +161,8 @@ std::string_view NodeBinding::source() const noexcept
 bool NodeBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.function("NodeCreate", create) && vm.function("NodeValid", valid) &&
+           vm.function("NodePersistentSet", set_persistent) &&
+           vm.function("NodePersistent", persistent) &&
            vm.function("NodeDestroy", destroy) && vm.function("NodeParent", set_parent) &&
            vm.function("NodeFindChild", find_child);
 }

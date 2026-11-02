@@ -474,8 +474,8 @@ bool camera_modes_and_occlusion()
     }
     auto settings = component->settings();
     settings.target_node_id = 999999;
-    return expect(component->set_settings(settings) && !fixture.cameras.tick(0.0),
-                  "missing explicit camera reference fails instead of selecting another camera");
+    return expect(component->set_settings(settings) && fixture.cameras.tick(0.0),
+                  "missing target suspends following instead of selecting another scene target");
 }
 
 bool first_person_visibility_lifecycle()
@@ -755,16 +755,108 @@ bool world_pause_discards_transient_input()
                   "resume does not replay one-shot input submitted during pause");
 }
 
+bool persistent_player_loses_external_camera()
+{
+    Fixture fixture;
+    if (!fixture.initialize() || !fixture.player->set_persistent(true) ||
+        !fixture.controller.set_player(fixture.player))
+    {
+        return false;
+    }
+    CharacterInput input;
+    input.move = {0, 1};
+    if (!fixture.advance(input, 2))
+    {
+        return false;
+    }
+    const auto before = position(*fixture.player);
+    const auto camera_local = fixture.camera->info().id;
+    fixture.world.unload_scene();
+    auto* next = fixture.world.create_scene("Replacement camera scene");
+    if (!next || !fixture.box("Floor", {0, -0.5, 0}, {30, 0.5, 30}) ||
+        !next->create_node("Same player local ID"))
+    {
+        return false;
+    }
+    auto* camera = next->create_node("Same camera local ID");
+    if (!camera || camera->info().id != camera_local || !camera->add_component<engine::Camera>() ||
+        !camera->add_component<CharacterCamera>())
+    {
+        return false;
+    }
+    return expect(
+        fixture.advance(input, 2) && std::abs(position(*fixture.player).x() - before.x()) < 0.01 &&
+            std::abs(position(*fixture.player).z() - before.z()) < 0.01,
+        "unloaded external camera stops persistent player input without binding a new local ID");
+}
+
+bool persistent_player_and_camera()
+{
+    Fixture fixture;
+    if (!fixture.initialize() || !fixture.player->set_persistent(true) ||
+        !fixture.camera->set_persistent(true) || !fixture.controller.set_player(fixture.player))
+    {
+        return false;
+    }
+    CharacterInput input;
+    input.move = {0, 1};
+    input.look = {2, 0};
+    if (!fixture.advance(input, 1))
+    {
+        return false;
+    }
+    const auto old_scene = fixture.player->scene().id();
+    const auto player_id = fixture.player->id();
+    const auto camera_id = fixture.camera->id();
+    const auto controller_id = fixture.player->get_component<CharacterController>()->instance_id();
+    const auto before = position(*fixture.player);
+    const auto yaw = fixture.camera->get_component<CharacterCamera>()->yaw();
+    fixture.world.unload_scene();
+    auto* next = fixture.world.create_scene("New level");
+    if (!next || !fixture.box("New floor", {0, -0.5, 0}, {30, 0.5, 30}))
+    {
+        return false;
+    }
+    input.look = {};
+    if (!expect(fixture.advance(input, 1) && fixture.world.find_node(player_id) == fixture.player &&
+                    fixture.world.find_node(camera_id) == fixture.camera &&
+                    fixture.player->scene().id() == old_scene &&
+                    fixture.player->get_component<CharacterController>()->instance_id() ==
+                        controller_id &&
+                    fixture.camera->get_component<CharacterCamera>()->yaw() == yaw &&
+                    position(*fixture.player).z() < before.z(),
+                "selected persistent player and camera retain input, motor and view state"))
+    {
+        return false;
+    }
+    auto* fake_target = next->create_node("Same local target");
+    if (!fake_target || fake_target->info().id != fixture.player->info().id ||
+        !fake_target->set_persistent(true) || !fixture.player->set_persistent(false))
+    {
+        return false;
+    }
+    const auto view = position(*fixture.camera);
+    fixture.world.unload_scene();
+    if (!expect(fixture.controller.tick(0) && fixture.physics.tick(0) && fixture.cameras.tick(0) &&
+                    fixture.world.find_node(player_id) == nullptr &&
+                    position(*fixture.camera) == view,
+                "unloaded target suspends the retained camera without stopping the host"))
+    {
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 int main()
 {
-    return world_pause_discards_transient_input() && movement_jump_and_settings() &&
-                   component_input_consumption() &&
-                   complete_input_cancellation() && collisions_steps_and_lifecycle() &&
-                   camera_modes_and_occlusion() && first_person_visibility_lifecycle() &&
-                   player_selection_and_removal() && independent_follow_camera() &&
-                   hierarchy_conflicts_and_cast_validation()
+    return persistent_player_loses_external_camera() && persistent_player_and_camera() &&
+                   world_pause_discards_transient_input() && movement_jump_and_settings() &&
+                   component_input_consumption() && complete_input_cancellation() &&
+                   collisions_steps_and_lifecycle() && camera_modes_and_occlusion() &&
+                   first_person_visibility_lifecycle() && player_selection_and_removal() &&
+                   independent_follow_camera() && hierarchy_conflicts_and_cast_validation()
                ? 0
                : 1;
 }

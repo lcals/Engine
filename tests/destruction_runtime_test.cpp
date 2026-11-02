@@ -1219,12 +1219,85 @@ bool asynchronous_damage_fairness(std::size_t concurrency)
     return tasks.wait() && passed;
 }
 
+bool persistent_destruction_contract()
+{
+    ThreadSystem threads({.worker_limit = 1});
+    TaskSystem tasks(threads, {.name = "Persistent destruction", .max_concurrency = 1});
+    Fixture fixture;
+    if (!threads.initialize({}) || !tasks.initialize({}) || !fixture.initialize(&tasks))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Retained destruction");
+    auto* owner = scene ? scene->create_node("Source") : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    schema::DestructionDataT settings;
+    settings.destruction_guid = asset_guid;
+    if (!component || !owner->set_persistent(true) || !component->set_settings(settings) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    // Generated roots have their own lifetime. Explicitly retain them for this pending request.
+    auto fragments = generated_ids(*scene);
+    for (const auto id : fragments)
+    {
+        if (!scene->find_node(id)->set_persistent(true))
+        {
+            return false;
+        }
+    }
+    bool completed = false;
+    bool success = false;
+    const auto revision = component->revision();
+    if (!fixture.destruction->request_damage(*component, {0.5, 0, 0}, 0.1F, 0.25F, 0,
+                                             [&](bool result)
+                                             {
+                                                 completed = true;
+                                                 success = result;
+                                             }) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    fixture.world.unload_scene();
+    if (!fixture.world.create_scene("Next destruction level") || !tasks.wait() ||
+        !expect(
+            fixture.destruction->synchronize() && completed && success &&
+                component->revision() > revision && generated_ids(*scene) == fragments,
+            "pending damage publishes into its retained scene and preserves fragment identities"))
+    {
+        return false;
+    }
+    for (const auto id : fragments)
+    {
+        if (!scene->find_node(id)->set_persistent(false))
+        {
+            return false;
+        }
+    }
+    const auto damaged_revision = component->revision();
+    fixture.world.unload_scene();
+    if (!expect(fixture.destruction->synchronize() && fixture.destruction->synchronize() &&
+                    !component->ready() && component->revision() == damaged_revision &&
+                    !component->last_error().empty() && generated_ids(*scene).empty() &&
+                    fixture.physics.tick(0) && fixture.physics.body_count() == 0,
+                "unloaded ordinary generated roots invalidate the assembly once without failing "
+                "the host"))
+    {
+        return false;
+    }
+    return expect(component->reset() && component->ready() && !generated_ids(*scene).empty() &&
+                      component->last_error().empty(),
+                  "explicit reset recreates the retained source assembly after its outputs unload");
+}
+
 } // namespace
 
 int main()
 {
-    return runtime_contract() && incremental_contract() && support_contract() &&
-                   stress_contract() && asynchronous_damage_contract() &&
+    return persistent_destruction_contract() && runtime_contract() && incremental_contract() &&
+                   support_contract() && stress_contract() && asynchronous_damage_contract() &&
                    asynchronous_damage_fairness(1) && asynchronous_damage_fairness(2)
                ? 0
                : 1;

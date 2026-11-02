@@ -3,17 +3,12 @@ import { LauncherModel } from "../models/launcher_model.js";
 
 export class LauncherController extends UiController<LauncherModel> {
     protected override OnBind(): boolean {
-        if (this.model.selected) {
-            const back = this.view.FindElement("back-menu");
-            return (
-                back !== null &&
-                this.Listen(back, "click", () => {
-                    if (this.model.pending !== null) return;
-                    this.model.pending = "menu";
-                    if (!this.Refresh()) throw new Error("Cannot refresh the launcher view");
-                })
-            );
-        }
+        const back = this.view.FindElement("back-menu");
+        if (!back || !this.Listen(back, "click", () => {
+            if (this.model.pending !== null) return;
+            this.model.pending = "menu";
+            if (!this.Refresh()) throw new Error("Cannot refresh the launcher view");
+        })) return false;
         for (const choice of this.model.choices) {
             const button = this.view.FindElement(choice.button);
             if (

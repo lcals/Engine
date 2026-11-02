@@ -78,6 +78,50 @@ bool sampling_and_controls()
                   "invalid settings, types and seek values preserve live state");
 }
 
+bool persistent_animation()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* node = fixture.create();
+    auto* ordinary = fixture.create();
+    if (!expect(node && ordinary && node->set_persistent(true) && fixture.animation.tick(0.25),
+                "prepare retained and ordinary animated nodes"))
+    {
+        return false;
+    }
+    const auto ordinary_id = ordinary->id();
+    auto* animator = node->get_component<engine::Animator>();
+    auto* renderer = node->get_component<engine::MeshRenderer>();
+    const auto revision = renderer->deformation_revision();
+    if (!expect(animator->pause(), "pause retained pose before unloading"))
+    {
+        return false;
+    }
+    fixture.world.unload_scene();
+    if (!expect(fixture.world.scene() == nullptr && fixture.world.find_node(node->id()) == node &&
+                    fixture.world.find_node(ordinary_id) == nullptr &&
+                    fixture.animation.tick(0.25) && close(animator->time(), 0.25) &&
+                    renderer->deformation_revision() == revision,
+                "unload preserves the paused palette without rebuilding it"))
+    {
+        return false;
+    }
+    if (!expect(fixture.world.create_scene("Next animation scene") && fixture.create() &&
+                    animator->play() && fixture.animation.tick(0.25) &&
+                    close(animator->time(), 0.5) && close(sampled_vertex(*renderer).x(), 2),
+                "retained animator and new scene both advance") ||
+        !expect(node->scene().destroy_node(node->id()) && fixture.animation.tick(0),
+                "explicit retained node deletion retires its animation state"))
+    {
+        return false;
+    }
+    fixture.world.destroy_scene();
+    return expect(fixture.animation.tick(0), "full stop retires every animation container");
+}
+
 bool skinning_and_lifecycle()
 {
     Fixture fixture;
@@ -294,10 +338,11 @@ bool world_pause_preserves_individual_playback()
     {
         return false;
     }
-    return expect(fixture.world.set_paused(false) && fixture.animation.tick(0.25) &&
-                      close(active->time(), 0.5) && close(individual->time(), 0.25) &&
-                      individual->playback() == engine::AnimationPlayback::paused,
-                  "world resume advances only fresh time and preserves an individually paused action");
+    return expect(
+        fixture.world.set_paused(false) && fixture.animation.tick(0.25) &&
+            close(active->time(), 0.5) && close(individual->time(), 0.25) &&
+            individual->playback() == engine::AnimationPlayback::paused,
+        "world resume advances only fresh time and preserves an individually paused action");
 }
 
 using Palettes = std::vector<std::vector<std::array<float, 16>>>;
@@ -397,16 +442,16 @@ bool parallel_sampling_matches_serial()
         }
     }
     tasks.shutdown();
-    engine::TaskSystem limited(threads, {.name = "Limited animation test",
-                                        .max_concurrency = 2,
-                                        .max_pending = 1});
+    engine::TaskSystem limited(
+        threads, {.name = "Limited animation test", .max_concurrency = 2, .max_pending = 1});
     if (!limited.initialize(config))
     {
         return false;
     }
     std::promise<void> release;
     const auto gate = release.get_future().share();
-    auto busy = limited.submit("Occupy admission", [gate]
+    auto busy = limited.submit("Occupy admission",
+                               [gate]
                                {
                                    gate.wait();
                                    return true;
@@ -426,8 +471,8 @@ bool parallel_sampling_matches_serial()
 
 int main()
 {
-    return parallel_sampling_matches_serial() && world_pause_preserves_individual_playback() &&
-                   sampling_and_controls() &&
+    return persistent_animation() && parallel_sampling_matches_serial() &&
+                   world_pause_preserves_individual_playback() && sampling_and_controls() &&
                    skinning_and_lifecycle() && blending_and_instances()
                ? 0
                : 1;

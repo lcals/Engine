@@ -9,6 +9,8 @@
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 #include "runtime_plugins.hpp"
@@ -141,6 +143,8 @@ bool run(test_support::ResourceFixture& files)
 {
     using engine::plugins::navigation_crowd::NavigationAgent;
     engine::ResourceSystem resources;
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Navigation binding tests", .max_concurrency = 2});
     engine::WorldSystem world;
     auto navigation = std::make_unique<engine::NavigationSystem>();
     auto* navigation_ptr = navigation.get();
@@ -149,12 +153,13 @@ bool run(test_support::ResourceFixture& files)
     engine::RenderSystem renderer(window, &world);
     engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, navigation_ptr);
     std::unique_ptr<engine::System> navigation_base = std::move(navigation);
-    if (!expect(resources.initialize({}) && world.add_subsystem(navigation_base) &&
+    if (!expect(resources.initialize({}) && threads.initialize({}) && tasks.initialize({}) &&
+                    world.add_subsystem(navigation_base) &&
                     configure_runtime_plugins(engine::RuntimeStage::before_physics, world, window,
-                                              physics, *navigation_ptr, renderer) &&
+                                              physics, *navigation_ptr, renderer, tasks) &&
                     world.subsystem_count() == 2 &&
                     configure_runtime_plugins(engine::RuntimeStage::after_physics, world, window,
-                                              physics, *navigation_ptr, renderer) &&
+                                              physics, *navigation_ptr, renderer, tasks) &&
                     world.subsystem_count() == 2 && world.initialize({}) &&
                     world.component_registry().contains(NavigationAgent::component_type) &&
                     script.initialize({}) && add_script(files) && files.publish(resources) &&

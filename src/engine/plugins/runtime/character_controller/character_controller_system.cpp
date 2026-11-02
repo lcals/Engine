@@ -27,13 +27,16 @@ bool valid_input(const Vec2& value) noexcept
 
 } // namespace
 
-void CharacterControllerSystem::discard_component_inputs(Scene& scene) noexcept
+void CharacterControllerSystem::discard_component_inputs() noexcept
 {
-    for (const auto& node : scene.nodes())
+    for (const auto& scene : world_.scenes())
     {
-        if (auto* controller = node->get_component<CharacterController>())
+        for (const auto& node : scene->nodes())
         {
-            controller->input_ = {};
+            if (auto* controller = node->get_component<CharacterController>())
+            {
+                controller->input_ = {};
+            }
         }
     }
 }
@@ -49,15 +52,14 @@ CharacterControllerSystem::~CharacterControllerSystem() noexcept
 
 bool CharacterControllerSystem::set_player(Node* node) noexcept
 {
-    auto* scene = world_.scene();
     auto* controller = node != nullptr ? node->get_component<CharacterController>() : nullptr;
-    if (node != nullptr && (scene == nullptr || &node->scene() != scene || controller == nullptr))
+    if (node != nullptr && (world_.find_node(node->id()) != node || controller == nullptr))
     {
         return false;
     }
     stop_driving();
     explicit_player_ = true;
-    selected_scene_ = node != nullptr ? scene->id() : 0;
+    selected_scene_ = node != nullptr ? node->scene().id() : 0;
     selected_node_ = node != nullptr ? node->id() : 0;
     selected_controller_ = controller != nullptr ? controller->instance_id() : 0;
     input_ = {};
@@ -85,9 +87,11 @@ bool CharacterControllerSystem::on_initialize(const EngineConfig&)
 
 void CharacterControllerSystem::stop_driving() noexcept
 {
-    auto* scene = world_.scene();
-    auto* node = scene != nullptr && scene->id() == driving_scene_ ? scene->find_node(driving_node_)
-                                                                   : nullptr;
+    auto* node = world_.find_node(driving_node_);
+    if (node && node->scene().id() != driving_scene_)
+    {
+        node = nullptr;
+    }
     auto* motor = node != nullptr ? node->get_component<CharacterMotor>() : nullptr;
     if (motor != nullptr && motor->instance_id() == driving_motor_)
     {
@@ -110,22 +114,20 @@ bool CharacterControllerSystem::on_tick(double)
     const bool explicit_input = has_input_;
     input_ = {};
     has_input_ = false;
-    auto* scene = world_.scene();
-    if (scene == nullptr)
-    {
-        stop_driving();
-        return true;
-    }
     if (world_.paused())
     {
-        discard_component_inputs(*scene);
+        discard_component_inputs();
         stop_driving();
         return true;
     }
     Node* player = nullptr;
     if (explicit_player_)
     {
-        player = scene->id() == selected_scene_ ? scene->find_node(selected_node_) : nullptr;
+        player = world_.find_node(selected_node_);
+        if (player && player->scene().id() != selected_scene_)
+        {
+            player = nullptr;
+        }
         const auto* component =
             player != nullptr ? player->get_component<CharacterController>() : nullptr;
         if (component == nullptr || component->instance_id() != selected_controller_)
@@ -135,20 +137,23 @@ bool CharacterControllerSystem::on_tick(double)
     }
     else
     {
-        for (const auto& node : scene->nodes())
+        for (const auto& scene : world_.scenes())
         {
-            const auto* component = node->get_component<CharacterController>();
-            if (component == nullptr || !component->enabled() || !detail::active(*node))
+            for (const auto& node : scene->nodes())
             {
-                continue;
+                const auto* component = node->get_component<CharacterController>();
+                if (component == nullptr || !component->enabled() || !detail::active(*node))
+                {
+                    continue;
+                }
+                if (player != nullptr)
+                {
+                    discard_component_inputs();
+                    stop_driving();
+                    return false;
+                }
+                player = node.get();
             }
-            if (player != nullptr)
-            {
-                discard_component_inputs(*scene);
-                stop_driving();
-                return false;
-            }
-            player = node.get();
         }
     }
     auto* controller = player != nullptr ? player->get_component<CharacterController>() : nullptr;
@@ -157,14 +162,14 @@ bool CharacterControllerSystem::on_tick(double)
     {
         input = controller->input_;
     }
-    discard_component_inputs(*scene);
+    discard_component_inputs();
     if (controller == nullptr || !controller->enabled() || !detail::active(*player) ||
         motor == nullptr || !motor->enabled())
     {
         stop_driving();
         return true;
     }
-    if (driving_scene_ != scene->id() || driving_node_ != player->id() ||
+    if (driving_scene_ != player->scene().id() || driving_node_ != player->id() ||
         driving_controller_ != controller->instance_id() || driving_motor_ != motor->instance_id())
     {
         stop_driving();
@@ -185,8 +190,14 @@ bool CharacterControllerSystem::on_tick(double)
     double yaw = transform->settings().rotation.y();
     if (settings.camera_node_id != 0)
     {
-        auto* camera_node = detail::find_local_node(*scene, settings.camera_node_id);
-        auto* camera = camera_node != nullptr ? camera_node->get_component<Camera>() : nullptr;
+        auto* camera_node = detail::find_local_node(player->scene(), settings.camera_node_id);
+        if (camera_node == nullptr)
+        {
+            stop_driving();
+            motor->clear_input();
+            return true;
+        }
+        auto* camera = camera_node->get_component<Camera>();
         auto* rig =
             camera_node != nullptr ? camera_node->get_component<CharacterCamera>() : nullptr;
         if (camera == nullptr || !camera->enabled() || rig == nullptr || !rig->enabled() ||
@@ -231,7 +242,7 @@ bool CharacterControllerSystem::on_tick(double)
     {
         return fail();
     }
-    driving_scene_ = scene->id();
+    driving_scene_ = player->scene().id();
     driving_node_ = player->id();
     driving_controller_ = controller->instance_id();
     driving_motor_ = motor->instance_id();
@@ -242,10 +253,7 @@ bool CharacterControllerSystem::on_tick(double)
 void CharacterControllerSystem::on_shutdown() noexcept
 {
     stop_driving();
-    if (auto* scene = world_.scene())
-    {
-        discard_component_inputs(*scene);
-    }
+    discard_component_inputs();
     explicit_player_ = false;
     selected_scene_ = 0;
     selected_node_ = 0;

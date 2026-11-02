@@ -3,16 +3,40 @@
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <utility>
 
 namespace engine
 {
+namespace
+{
 
-AudioSource::AudioSource(Node& node) : Component(node)
+std::uint64_t next_instance_id() noexcept
+{
+    static std::atomic<std::uint64_t> sequence{0};
+    auto current = sequence.load(std::memory_order_relaxed);
+    while (current != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
+        {
+            return current + 1;
+        }
+    }
+    return 0;
+}
+
+} // namespace
+
+AudioSource::AudioSource(Node& node) : Component(node), instance_id_(next_instance_id())
 {
     mutable_data().payload.Set(schema::AudioSourceDataT{});
+}
+
+bool AudioSource::initialize()
+{
+    return instance_id_ != 0;
 }
 
 bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexcept

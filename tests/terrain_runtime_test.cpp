@@ -938,14 +938,76 @@ bool asynchronous_brush_fairness(std::size_t concurrency)
     return tasks.wait() && passed;
 }
 
+bool persistent_terrain_contract()
+{
+    ResourceSystem resources;
+    WorldSystem world;
+    PhysicsSystem physics(&world);
+    ThreadSystem threads({.worker_limit = 1});
+    TaskSystem tasks(threads, {.name = "Persistent terrain", .max_concurrency = 1});
+    TerrainSystem terrain(world, physics, &tasks);
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize({}) || !world.initialize({}) || !physics.initialize({}) ||
+        !threads.initialize({}) || !tasks.initialize({}) || !terrain.initialize({}) ||
+        !add_terrain(fixture, collapse_asset(true)) || !fixture.publish(resources))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Retained terrain");
+    auto* node = scene ? scene->create_node("Source") : nullptr;
+    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
+    schema::TerrainDataT description;
+    description.terrain_guid = fixture.catalog.entries.front()->guid;
+    if (!component || !node->set_persistent(true) || !component->set_settings(description) ||
+        !terrain.synchronize() || !component->apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !component->collapse_detached(8, 16, 2, 100) || component->fragment_count() != 8)
+    {
+        return false;
+    }
+    const auto revision = component->revision();
+    auto* renderer = node->get_component<MeshRenderer>();
+    auto* collider = node->get_component<Collider>();
+    world.unload_scene();
+    if (!expect(terrain.synchronize() && physics.tick(0) && component->ready() &&
+                    component->revision() == revision && component->fragment_count() == 0 &&
+                    node->get_component<MeshRenderer>() == renderer &&
+                    node->get_component<Collider>() == collider && physics.body_count() == 1,
+                "ordinary soil roots unload while the retained source keeps mesh, volume and "
+                "collision"))
+    {
+        return false;
+    }
+    bool completed = false;
+    bool success = false;
+    if (!terrain.request_apply_sphere(*component, {3, 2, 3}, 1, false,
+                                      [&](bool result)
+                                      {
+                                          completed = true;
+                                          success = result;
+                                      }) ||
+        !terrain.synchronize())
+    {
+        return false;
+    }
+    world.unload_scene();
+    if (!world.create_scene("Next terrain level") || !tasks.wait() || !terrain.synchronize())
+    {
+        return false;
+    }
+    return expect(
+        completed && success && component->revision() > revision &&
+            world.find_node(node->id()) == node,
+        "queued terrain candidate publishes to the retained source across scene replacement");
+}
+
 } // namespace
 
 int main()
 {
-    return volume_contract() && runtime_contract() && subsystem_contract() && island_contract() &&
-                   incremental_collapse_contract() && collapse_runtime_contract() &&
-                   asynchronous_brush_contract() && asynchronous_brush_fairness(1) &&
-                   asynchronous_brush_fairness(2)
+    return persistent_terrain_contract() && volume_contract() && runtime_contract() &&
+                   subsystem_contract() && island_contract() && incremental_collapse_contract() &&
+                   collapse_runtime_contract() && asynchronous_brush_contract() &&
+                   asynchronous_brush_fairness(1) && asynchronous_brush_fairness(2)
                ? 0
                : 1;
 }

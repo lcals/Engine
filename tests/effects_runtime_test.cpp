@@ -310,10 +310,11 @@ int main(int argc, char** argv)
     }
     auto* cold_node = scene->create_node("Deferred across world pause");
     auto* cold = cold_node ? cold_node->add_component<EffectComponent>() : nullptr;
-    if (!expect(cold && first->pause() && world.set_paused(true) && cold->set_effect("red/effect") &&
-                    effects.tick(120) && renderer.render() && renderer.render() &&
-                    !cold->playing() && !first->playing() && second->playing(),
-                "world pause blocks both tick and draw fallback emission, preserving individual pause") ||
+    if (!expect(cold && first->pause() && world.set_paused(true) &&
+                    cold->set_effect("red/effect") && effects.tick(120) && renderer.render() &&
+                    renderer.render() && !cold->playing() && !first->playing() && second->playing(),
+                "world pause blocks both tick and draw fallback emission, preserving individual "
+                "pause") ||
         !expect(world.set_paused(false), "resume effect world") ||
         !advance(windows, renderer, effects) ||
         !expect(cold->playing() && !first->playing() && second->playing() && first->play() &&
@@ -437,6 +438,47 @@ int main(int argc, char** argv)
         !advance(windows, renderer, effects) ||
         !expect(bgfx::getStats()->numTextures == renderer_textures,
                 "last emitter deletion retires all asset textures, retaining renderer defaults"))
+    {
+        return 1;
+    }
+    auto* retained_node = scene->create_node("Retained emitter");
+    auto* retained = retained_node ? retained_node->add_component<EffectComponent>() : nullptr;
+    if (!expect(retained && retained_node->set_persistent(true) &&
+                    retained->set_effect("red/effect"),
+                "create persistent emitter"))
+    {
+        return 1;
+    }
+    auto retained_settings = retained->settings();
+    retained_settings.loop = true;
+    if (!expect(retained->set_settings(retained_settings) && retained->play(),
+                "loop the retained effect") ||
+        !advance(windows, renderer, effects) ||
+        !expect(retained->playing(), "start retained effect"))
+    {
+        return 1;
+    }
+    const auto retained_id = retained->instance_id();
+    world.unload_scene();
+    if (!advance(windows, renderer, effects) ||
+        !expect(world.scene() == nullptr && retained->instance_id() == retained_id &&
+                    retained->playing() && bgfx::getStats()->numTextures >= binding_count + 2,
+                "camera-less interval preserves live effect assets and SDK instance"))
+    {
+        return 1;
+    }
+    scene = world.create_scene("New effect scene");
+    camera_node = scene ? scene->create_node("Camera") : nullptr;
+    camera = camera_node ? camera_node->add_component<Camera>() : nullptr;
+    if (!expect(camera && scene->set_active_camera(camera) &&
+                    camera_node->get_component<Transform>()->set_settings(camera_transform),
+                "new scene camera views retained effects") ||
+        !advance(windows, renderer, effects) ||
+        !expect(retained->playing() && retained_node->scene().destroy_node(retained_node->id()),
+                "retained effect continues until explicitly destroyed") ||
+        !advance(windows, renderer, effects) ||
+        !expect(bgfx::getStats()->numTextures == renderer_textures,
+                "retained emitter deletion releases its GPU textures"))
     {
         return 1;
     }

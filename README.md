@@ -20,7 +20,13 @@ Engine 是一个 C++20 跨平台游戏引擎，使用 CMake 与 vcpkg。`Engine`
 
 Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在 `platforms/android/`，默认启用 QuickJS 脚本运行时，可用独立 V8 预设替换。APK 运行打包项目的 Gameplay，支持默认写盘日志、持久资源版本优先及包内资源回退；桌面 MCP 可通过 adb 同步到 Debug 包并控制引擎热重载。此前 V8 阶段的资源目录 v2、散文件与合并包已通过 Debug / Release APK 及 ARM64 模拟器验证，详见下方验证范围。项目启停工具用于桌面编辑器，Android 宿主直接启动打包 Gameplay。
 
-仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场、射击靶场、多角色导航和物理交互范例共用一套设置、资源目录和缓存。默认进入 UI 菜单；十一个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
+示例项目 `projects/showcase/` 共用一套设置、资源目录和缓存。默认菜单提供十二个技术场景：基础方块、现代公寓、动画庭院、3D 文字、特效、地形、建筑破坏、综合破坏、射击靶场、多角色导航、物理交互和常驻 UI。项目 MVC 脚本处理选择，场景内的 `Back to scenes` 返回菜单，无需修改入口。
+
+菜单 UI 根通过 `Node.SetPersistent(true)` 只创建、绑定一次；切关复用原文档与 Controller，停止或热重载完整清理。常驻 UI 实验室可检查换关、取消、加载失败、无活动关卡时的输入及显式销毁；输入框内容随原文档保留。接口与清理边界见[常驻节点](docs/runtime/class-diagrams/persistent-nodes.md)。
+
+示例入口 `assets/scripts/game.ts` 导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动不会重新导入源码。
+
+TS 源码使用 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，源码及其他资源放 `assets/`，每个资源邻接唯一 GUID 的 `.meta`。生成 JS 和二进制资源放 `cache/gen/<完整 GUID>`，无扩展名；缓存与 `node_modules/` 不提交。
 
 `engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 oneTBB 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 

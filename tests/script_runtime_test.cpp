@@ -746,6 +746,96 @@ export default class extends Gameplay {
     return true;
 }
 
+bool run_persistent_scene_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Transform} from 'engine';
+function check(value,message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    phase=0;
+    OnInitialize() {
+        this.first=Scene.Create('persistent-before');
+        this.root=this.first?.CreateNode('persistent-root');
+        this.child=this.first?.CreateNode('persistent-child');
+        this.temporary=this.first?.CreateNode('temporary');
+        this.transform=this.child?.GetComponent(Transform);
+        return this.root && !this.root.IsPersistent() && !this.root.SetPersistent(1) &&
+            this.root.SetPersistent(true) && this.root.SetPersistent(true) &&
+            this.child.SetParent(this.root) && this.child.IsPersistent() &&
+            !this.child.SetPersistent(true) && !this.root.SetParent(this.temporary) &&
+            this.transform?.SetPosition(1,2,3);
+    }
+    Update() {
+        if (this.phase++===0) {
+            check(this.first.Destroy() && !this.first.IsValid() &&
+                this.first.CreateNode('stale')===null && !this.temporary.IsValid() &&
+                this.root.IsValid() && this.child.IsValid() && this.transform.IsValid(),
+                'unload retains the subtree and rejects the old Scene handle');
+            this.next=Scene.Create('persistent-after');
+            check(this.next && this.next.CreateNode('new') &&
+                this.root.FindChild('persistent-child')?.id===this.child.id &&
+                this.child.sceneId===this.root.sceneId &&
+                Scene.Load('missing.scene')===null && this.next.IsValid() &&
+                this.transform.SetPosition(4,5,6), 'live identities survive a new scene and load failure');
+        } else {
+            check(!this.next.IsValid() && !this.next.Destroy() &&
+                Scene.Create('steal')===null && Scene.Load('missing.scene')===null &&
+                this.child.SetParent(null) && !this.child.IsPersistent() &&
+                this.child.IsValid() && this.root.IsPersistent(),
+                'native scene is protected and detached descendants remain Run-owned');
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture initial;
+    if (!world.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "persistent-scene", {{"scripts/game.js", std::string(source)}}, initial) ||
+        !expect(apply(script, initial), "initialize persistent script nodes"))
+    {
+        return false;
+    }
+    auto* root = world.scene()->nodes()[0].get();
+    auto* child = world.scene()->nodes()[1].get();
+    const auto root_id = root->id();
+    const auto child_id = child->id();
+    if (!expect(script.tick(.016) && script.status().running && world.scenes().size() == 2 &&
+                    world.find_node(root_id) == root && world.find_node(child_id) == child,
+                "persistent script handles preserve exact native objects"))
+    {
+        return false;
+    }
+    Fixture candidate;
+    if (!fixture(workspace, "persistent-candidate",
+                 {{"scripts/game.js", "import {Gameplay,Scene} from 'engine';"
+                                      "const blocked=Scene.Create('forbidden')===null;"
+                                      "export default class extends Gameplay{OnInitialize(){return blocked;}}"}},
+                 candidate) ||
+        !expect(script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
+                    script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
+                    world.find_node(root_id) == root && world.scenes().size() == 2,
+                "discarding an unactivated candidate cannot destroy another Run's scenes"))
+    {
+        return false;
+    }
+    world.unload_scene();
+    auto* foreign = world.create_scene("foreign-persistent-owner");
+    auto* native = foreign ? foreign->create_node("foreign-root") : nullptr;
+    if (!expect(native && native->set_persistent(true) && script.tick(.016) &&
+                    script.status().running && world.find_node(child_id) == child,
+                "old Run can detach its own child without acquiring the foreign scene"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    script.shutdown();
+    return expect(!world.find_node(root_id) && !world.find_node(child_id) &&
+                      world.scene() == foreign && world.scenes().size() == 1 &&
+                      foreign->nodes().front().get() == native,
+                  "Run shutdown clears every owned container and leaves native ownership intact");
+}
+
 bool run_guid_cases(const fs::path& workspace)
 {
     engine::WorldSystem world;
@@ -969,9 +1059,11 @@ export default class extends Gameplay {
         const hits = Physics.GetImpacts();
         if (!hits.length) return;
         const hit = hits[0], repeat = Physics.GetImpacts()[0];
-        if (typeof hit.frame !== 'bigint' || typeof hit.sceneId !== 'bigint' ||
-            typeof hit.nodeA !== 'bigint' || typeof hit.nodeB !== 'bigint' ||
-            hit.nodeA === hit.nodeB || hit.frame !== repeat?.frame ||
+        if (typeof hit.frame !== 'bigint' || typeof hit.a.sceneId !== 'bigint' ||
+            typeof hit.a.nodeId !== 'bigint' || typeof hit.b.nodeId !== 'bigint' ||
+            hit.a.nodeId === hit.b.nodeId || hit.frame !== repeat?.frame ||
+            !Physics.IsObjectValid(hit.a) || !Physics.IsObjectValid(hit.b) ||
+            !hit.a.node.IsValid() || !hit.b.node.IsValid() ||
             hit.closingSpeed <= 0 || hit.estimatedImpulse <= 0 ||
             !Number.isFinite(hit.point.y) || Math.abs(hit.normal.y) < .9)
             throw new Error('Invalid physics snapshot');
@@ -1526,6 +1618,87 @@ export default class extends Gameplay {
                   "stopped gameplay cannot retain or dispatch physics subscriptions");
 }
 
+bool run_persistent_physics_subscription_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Transform,Collider,CharacterMotor,Physics} from 'engine';
+function check(value,message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    phase=0; enters=0; exits=0;
+    addSensor(scene) {
+        const sensor=scene.CreateNode('sensor');
+        check(sensor?.GetComponent(Transform).SetPosition(0,.9,0) &&
+            sensor.AddComponent(Collider)?.SetTrigger(true), 'configure trigger');
+        return sensor;
+    }
+    OnInitialize() {
+        this.scene=Scene.Create('persistent-contact-before');
+        this.actor=this.scene?.CreateNode('persistent-actor');
+        check(this.actor?.SetPersistent(true) &&
+            this.actor.AddComponent(CharacterMotor)?.SetGravityFactor(0), 'persistent actor');
+        this.oldSensor=this.addSensor(this.scene);
+        this.enter=Physics.OnTriggerEnter(this.actor,event=>{
+            check(event.self.node.id===this.actor.id && event.self.node.IsPersistent() &&
+                Physics.IsObjectValid(event.self) && Physics.IsObjectValid(event.other),
+                'contact preserves actual receiver ownership');
+            ++this.enters;
+        });
+        this.exit=Physics.OnTriggerExit(this.actor,event=>{
+            check(Physics.IsObjectValid(event.self) && !Physics.IsObjectValid(event.other) &&
+                !event.other.node.IsValid(), 'Exit carries removed object history to live receiver');
+            ++this.exits;
+        });
+        return this.enter>0 && this.exit>0;
+    }
+    Update() {
+        if (this.phase++===0) {
+            check(this.enters===1 && this.exits===0 && this.scene.Destroy(), 'first trigger enter');
+            this.scene=Scene.Create('persistent-contact-after');
+            this.newSensor=this.addSensor(this.scene);
+        } else if (this.phase===2) {
+            check(this.enters===2 && this.exits===1 && this.actor.IsValid() &&
+                !this.oldSensor.IsValid(), 'same subscriptions deliver cross-scene enter and old exit');
+            const hits=Physics.OverlapSphere({x:0,y:.9,z:0},2,{includeSensors:true});
+            check(hits?.length===2 && new Set(hits.map(hit=>hit.sceneId)).size===2 &&
+                hits.every(hit=>Physics.IsObjectValid(hit) && hit.node.IsValid()),
+                'world queries return accurate scene identities');
+            check(this.scene.Destroy() && this.actor.IsValid(), 'leave only the persistent actor');
+        } else {
+            check(this.exits===2 && this.enters===2 &&
+                Physics.GetContacts().some(event=>event.phase==='end') &&
+                Physics.OverlapSphere({x:0,y:.9,z:0},2)?.length===1 &&
+                Physics.Off(this.enter) && Physics.Off(this.exit) &&
+                Scene.Create('persistent-contact-done'),
+                'persistent subscriptions and queries work without an active gameplay scene');
+        }
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world);
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
+    Fixture input;
+    if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "persistent-physics", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input), "initialize persistent contact receiver"))
+    {
+        return false;
+    }
+    for (int frame = 0; frame < 3; ++frame)
+    {
+        if (!expect(physics.tick(1.0 / 60.0) && script.tick(1.0 / 60.0) &&
+                        script.status().running && script.status().last_error.empty(),
+                    "persistent script callbacks survive scene unload and world-only intervals"))
+        {
+            std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+            return false;
+        }
+    }
+    const bool complete = world.scene() && world.scene()->name() == "persistent-contact-done";
+    script.stop_gameplay();
+    return expect(complete && world.scenes().empty(), "stop releases persistent physics ownership");
+}
+
 bool run_physics_subscription_promise_case(const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
@@ -1835,7 +2008,8 @@ export default class extends Gameplay {
     phase=0;
     OnInitialize() {
         this.old = Scene.Create('kept-loading-menu');
-        if (!blocked || !this.old || !this.old.SetPaused(true) ||
+        this.loading = this.old?.CreateNode('persistent-loading-root');
+        if (!blocked || !this.old || !this.loading?.SetPersistent(true) || !this.old.SetPaused(true) ||
             !Scene.BeginLoad('scenes/main.scene') || Scene.BeginLoad('scenes/main.scene') ||
             Scene.StepLoad(-1) !== null || Scene.StepLoad(0.5) !== null ||
             Scene.StepLoad('1') !== null || Scene.CommitLoad() !== null) return false;
@@ -1864,6 +2038,7 @@ export default class extends Gameplay {
             if (progress?.status !== 'ready') throw new Error('New directory was not loaded');
             this.loaded = Scene.CommitLoad();
             if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() ||
+                !this.loading.IsValid() || !this.loading.IsPersistent() ||
                 this.old.SetPaused(false) || this.old.GetPaused() !== null ||
                 this.loaded.GetPaused() !== false || Scene.StepLoad(0) !== null ||
                 !this.loaded.SetPaused(true)) throw new Error('Prepared scene did not commit safely');
@@ -2676,6 +2851,7 @@ int main(int argc, char** argv)
         resources.initialize(config) && run_cases(workspace) &&
         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
+        run_persistent_scene_cases(workspace) &&
         run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
         run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
@@ -2685,6 +2861,7 @@ int main(int argc, char** argv)
         run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&
         run_physics_subscription_scene_cases(workspace) &&
+        run_persistent_physics_subscription_cases(workspace) &&
         run_physics_subscription_promise_case(workspace);
     resources.shutdown();
     engine::LogSystem::instance().shutdown();

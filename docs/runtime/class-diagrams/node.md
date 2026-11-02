@@ -16,6 +16,8 @@ classDiagram
         +set_parent(Node#42; parent) bool
         +transient() bool
         +set_transient(bool transient) void
+        +set_persistent(bool value) bool
+        +persistent() bool
         +add_component~T~() T#42;
         +get_component~T~() T#42;
         +get_component~T~() const T#42;
@@ -53,3 +55,5 @@ classDiagram
 `remove_component(type)` 按类型销毁节点独占的组件，缺失返回 false；原借用立即失效。编辑器用它回滚新加组件，调用方负责保留场景必需的 Transform。
 
 节点默认非瞬态。`set_transient` 只设置本节点的运行时标记，`transient()` 沿父链查询有效状态；瞬态父节点的子树同样不进入 Scene/编辑器保存。标记不改变渲染、物理或节点查询，不写入 NodeInfo/schema，也不依赖具体生成插件。调用方拥有并负责释放自己生成的节点；取消本节点标记不会覆盖父节点的瞬态状态。
+
+`set_persistent(bool)` 只接受根节点，返回成功状态；默认关闭，重复调用幂等。`persistent()` 包含祖先标记。常驻根及子树跨场景卸载保留原对象、组件和身份，但显式销毁、停止项目及世界关闭仍释放。已直接标记的根不能设置非空父节点；取消标记后可重新挂接，移出常驻子树的节点不再继承常驻。标记不写入 schema，与是否保存的 `transient` 独立；完整契约见[常驻节点与场景切换](persistent-nodes.md)。两方法均为 `[[nodiscard]] noexcept`，查询为 `const`。

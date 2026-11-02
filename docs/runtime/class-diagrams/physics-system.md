@@ -102,9 +102,8 @@ classDiagram
     class PhysicsImpact {
         <<struct>>
         +uint64_t frame
-        +uint64_t scene_id
-        +uint64_t node_a
-        +uint64_t node_b
+        +PhysicsObject a
+        +PhysicsObject b
         +Vec3 point
         +Vec3 normal
         +float closing_speed
@@ -139,6 +138,7 @@ classDiagram
     PhysicsQueryHit ..> Vec3 : 世界命中点与法线
     PhysicsState *-- PhysicsImpact : 持有当前物理帧只读快照
     PhysicsSystem ..> PhysicsImpact : 返回非消费借用
+    PhysicsImpact *-- PhysicsObject : 双方原场景和组件实例身份
     PhysicsImpact ..> Vec3 : 世界接触点与法线
     PhysicsSystem ..> Scene : 按ID重新解析节点
     PhysicsSystem ..> Collider : 读取形状
@@ -149,7 +149,7 @@ classDiagram
     PhysicsSystem ..> EngineConfig : 初始化参数
 ```
 
-世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。场景切换、对象禁用及删除在下一次更新同步，停止玩法由宿主显式清理。固定步进与变换限制见[物理模块](../physics.md)。
+世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。对象禁用、删除及普通场景卸载在下一次更新同步；常驻节点保留原 Scene、组件和 Jolt 实例，完整关闭由宿主显式清理。系统遍历 `WorldSystem::scenes()` 的已发布节点，恢复候选不参与模拟。固定步进与变换限制见[物理模块](../physics.md)。
 
 物理任务复用 Jolt v5.4.0 官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，只桥接任务对象创建、释放和 `TaskSystem::enqueue`。任务域与引擎其他域共享 oneTBB worker；不创建物理专用线程池。任务域先初始化并存活到物理关闭后；不传任务域时由 Barrier 在调用线程串行执行，传入未初始化域则初始化失败。域的并发额度控制后台执行数，Jolt 的并发数另计参与 Barrier 的调用线程。投递受到在途上限限制时，释放桥接引用并交给已登记的官方 Barrier 执行；不在当前 Jolt Job 内递归运行后继，保留上游每任务 BodyAccess 作用域约束。
 
@@ -179,17 +179,17 @@ classDiagram
 
 `cast_ray` 只查询调用方指定、属于当前世界的 Collider，射线由世界起点和完整位移表示，复用 Jolt NarrowPhaseQuery。命中返回 `true` 和 `[0,1]` 比例，无命中或已禁用/尚未生成物理体返回 `true/1`；归属或参数错误返回 `false/0`。忽略 sensor，其他 Collider 不会遮挡目标，三角形双面可命中；不加载资源或推进模拟。
 
-`query_ray` / `query_sphere` 查询当前场景已提交碰撞世界中的最近 Collider 或 CharacterMotor，保持上述两个旧查询契约。输入为世界起点和非零完整位移；所有数值须有限，起点各轴绝对值不超过 1e7，位移各轴不超过 1e5，球半径为 0.0001..1000。未初始化、无当前场景、物理世界尚未同步到当前场景、忽略节点不属于当前场景或参数无效时返回 false 并清空 hit。有效但没有命中返回 true 和空 hit；命中返回 true 且 hit.hit 为 true。查询只读，不推进模拟、不隐式同步，须在主线程物理步进及场景修改之外调用。
+`query_ray` / `query_sphere` 查询已发布场景集合中已提交碰撞世界的最近 Collider 或 CharacterMotor，保持上述两个旧查询契约。输入为世界起点和非零完整位移；所有数值须有限，起点各轴绝对值不超过 1e7，位移各轴不超过 1e5，球半径为 0.0001..1000。未初始化、已发布场景均未同步过、clear 后未重新同步、忽略节点不属于已发布世界或参数无效时返回 false 并清空 hit。只有常驻节点、没有活动玩法 Scene 时仍可查询。有效但没有命中返回 true 和空 hit；命中返回 true 且 hit.hit 为 true。查询只读，不推进模拟、不隐式同步，须在主线程物理步进及场景修改之外调用。
 
 `PhysicsQueryFilter` 默认包含静态、运动学和动态实体并忽略 sensor；类别按已提交物理体判断，sensor 还须通过对应运动类别。ignore_node_id 为零表示不忽略节点，非零时可连同其子树一起忽略。过滤在 Jolt BodyFilter 内执行，同时按 body 的节点映射、当前 Collider 实例及启用状态排除删除、重建或禁用对象，失效前景不会遮挡后方有效对象。类别不是业务碰撞 layer，不改变碰撞层矩阵或资源格式。CharacterMotor 通过 Jolt 官方 CharacterVirtual inner body 进入同一查询空间；include_characters 独立控制角色，不受 include_kinematic 约束。
 
 `PhysicsQueryHit` 是值快照，不保存借用指针或 Jolt 类型。object 中 scene_id、node_id、kind 和 instance_id 共同标识命中对象；Collider 的实例身份不进入持久数据。fraction 为 [0,1]，distance 为位移长度乘 fraction；球扫 distance 是球心行程，point 是被命中 Collider 上的世界接触点，normal 朝向扫掠球。射线 point 为起点加 fraction 倍位移，普通命中 normal 为表面外法线，网格双面可命中。射线从凸体内部出发返回 fraction/distance 为零、point 为起点、normal 为反向单位位移，此时 normal 表示退回方向。球扫初始重叠同样返回零距离，多个重叠由 Jolt 选择最深接触；退化接触法线使用反向单位位移。
 
-`is_object_valid` / `is_hit_valid` 只检查当前场景、节点、对应 Collider 或 CharacterMotor 实例身份及组件和变换层级的启用状态；删除、同节点重建 Collider 或切换场景后旧快照失效。位置或形状变化不重算历史命中，不使仍存活的对象身份失效；调用者需要当前命中时须重新查询。
+`is_object_valid` / `is_hit_valid` 按对象的原 Scene、节点、对应 Collider 或 CharacterMotor 实例身份及启用状态检查；删除、同节点重建组件或普通节点卸载后旧快照失效。常驻节点不因活动 Scene 更换而失效。位置或形状变化不重算历史命中，不使仍存活的对象身份失效；调用者需要当前命中时须重新查询。
 
-`PhysicsImpact` 是通用瞬时数据，不保存 Node 指针、Jolt 类型或具体破坏组件。每次 `on_tick` 清除前帧快照（没有固定子步也清除），`frame` 在当前系统生命周期内单调递增；多个固定子步与复合形状接触按节点对保留估算冲量最大的撞击，同值时保留接近速度更大的一条。`point` 为代表接触点，`normal` 从 `node_a` 指向 `node_b`，`closing_speed` 为包含角速度的碰前法向接近速度（m/s），`estimated_impulse` 为 Jolt 官方 `EstimateCollisionResponse` 给出的该接触面的估算法向冲量（N·s），不是求解器实际冲量，多体堆叠时尤其不能视为精确值。
+`PhysicsImpact` 是通用瞬时数据，不保存 Node 指针、Jolt 类型或具体破坏组件。每次 `on_tick` 清除前帧快照（没有固定子步也清除），`frame` 在当前系统生命周期内单调递增；多个固定子步与复合形状接触按完整物理对象身份对保留估算冲量最大的撞击，同值时保留接近速度更大的一条。`point` 为代表接触点，`a`/`b` 各保存实际原属 Scene、节点、类型和组件实例 ID，`normal` 从 `a` 指向 `b`，`closing_speed` 为包含角速度的碰前法向接近速度（m/s），`estimated_impulse` 为 Jolt 官方 `EstimateCollisionResponse` 给出的该接触面的估算法向冲量（N·s），不是求解器实际冲量，多体堆叠时尤其不能视为精确值。
 
-Jolt ContactListener 回调只读取传入 body 并收集数值，不访问 Scene、不调用带锁的 BodyInterface、不修改物理或场景。仅收集非 sensor 且法向接近速度为正的接触，在全部子步完成、姿态和速度写回后发布。`impacts()` 返回非消费快照，调用方只能在主线程物理步进外读取；下一次物理 tick、clear、场景切换或查询时清理已删除/禁用节点会使此前借用失效。清理和场景切换不重置 `frame`。调用方负责伤害阈值、冷却与具体业务，核心不将静置接触自动转换为伤害。CharacterVirtual 的专用接触不在本次刚体事件范围。
+Jolt ContactListener 回调只读取传入 body 并收集数值，不访问 Scene、不调用带锁的 BodyInterface、不修改物理或场景。仅收集非 sensor 且法向接近速度为正的接触，在全部子步完成、姿态和速度写回后发布。`impacts()` 返回非消费快照，调用方只能在主线程物理步进外读取；下一次物理 tick、clear 或查询时清理已删除/禁用/替换组件会使此前借用失效。跨 Scene 碰撞保留双方各自的身份，不用单一活动场景 ID 表达。清理和场景切换不重置 `frame`。调用方负责伤害阈值、冷却与具体业务，核心不将静置接触自动转换为伤害。CharacterVirtual 的专用接触不在本次刚体事件范围。
 
 根动态刚体的私有快照还记录最后一次成功写回的 `TransformSettings` 和 Jolt 原始姿态。下一帧仅当节点仍为根动态刚体、组件 TRS 与该写回值精确相同时复用原始姿态；调用方改位置、旋转或缩放均重新走正常世界变换检查。此缓存不放宽精度容差，避免自身 Euler 往返造成四元数翻号、重复更新 BroadPhase 与重置睡眠。父级变换、静态和运动学刚体继续使用原同步路径。
 
@@ -199,7 +199,7 @@ Jolt ContactListener 回调只读取传入 body 并收集数值，不访问 Scen
 
 球形范围和轴对齐盒形范围使用 Jolt NarrowPhaseQuery.CollideShape，按 PhysicsObject 去重并稳定排序；全部结果返回 vector，没有“最近一个”的替代。失败清空输出，成功空列表表示没有重叠。查询复用最近命中的身份、生命周期和过滤规则，不推进模拟。接触点不属于对象范围名单，需要接触位置时读取射线/球扫或接触事件。
 
-PhysicsContactEvent 仅保存值，a/b 使用与查询相同的身份。每个固定子步发布 begin/stay/end，frame 标识宿主物理 tick，step 标识单调固定子步；同一 tick 内开始和结束均保留，按子步顺序读取。sleeping 的持续接触仍报告 stay；没有固定步时不生成 stay。删除或禁用在同步时生成 end，保留已失效的历史身份，读取方可用 is_object_valid 判断，不因对象已消失而漏掉退出。clear、切场景和关闭直接清空旧事件与接触集合，不向新场景递送旧事件。end 的点和法线取最后有效接触，不是新求解结果。
+PhysicsContactEvent 仅保存值，a/b 使用与查询相同的身份。每个固定子步发布 begin/stay/end，frame 标识宿主物理 tick，step 标识单调固定子步；同一 tick 内开始和结束均保留，按子步顺序读取。sleeping 的持续接触仍报告 stay；没有固定步时不生成 stay。删除或禁用在同步时生成 end，保留已失效的历史身份，读取方可用 is_object_valid 判断，不因对象已消失而漏掉退出。clear 和关闭清空事件与接触集合；普通场景卸载在下一次同步为保留的接触者发布 end。常驻双方的接触持续；双方原属 Scene 均已销毁时直接退役旧接触，不向新的 Scene 发布旧 end。完整销毁后的失效对象不能复活订阅或命中。end 的点和法线取最后有效接触，不是新求解结果。
 
 sensor 与 CharacterMotor 纳入接触生命周期；is_trigger 表示至少一方是 sensor。GetImpacts 保留原有非 sensor 撞击估算语义，不扩为伤害或持续触发。Jolt 回调只收集物理身份和数值，事件在主线程安全点发布，脚本显式读取上一物理 tick 的快照，不从回调修改场景。
 

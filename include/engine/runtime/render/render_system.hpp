@@ -107,7 +107,6 @@ private:
     std::unique_ptr<SceneGpuResources> scene_resources_;
     std::unique_ptr<RendererCallbacks> callbacks_;
     RenderSettings idle_settings_{};
-    std::uint64_t scene_id_ = 0;
     std::unique_ptr<render_detail::RenderSurface> surface_;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;

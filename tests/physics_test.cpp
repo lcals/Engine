@@ -796,11 +796,12 @@ bool impact_snapshots()
         return false;
     };
     engine::PhysicsImpact first;
-    if (!expect(strike(first) && first.frame > 0 && first.scene_id == scene.id() &&
-                    first.node_a == floor->id() && first.node_b == sphere->id() &&
-                    first.normal.y() > 0.99 && std::abs(first.point.y()) < 0.1 &&
-                    first.closing_speed > 5.5F && first.closing_speed < 6.5F &&
-                    first.estimated_impulse > 10 && first.estimated_impulse < 14,
+    if (!expect(strike(first) && first.frame > 0 && first.a.scene_id == scene.id() &&
+                    first.b.scene_id == scene.id() && first.a.node_id == floor->id() &&
+                    first.b.node_id == sphere->id() && first.normal.y() > 0.99 &&
+                    std::abs(first.point.y()) < 0.1 && first.closing_speed > 5.5F &&
+                    first.closing_speed < 6.5F && first.estimated_impulse > 10 &&
+                    first.estimated_impulse < 14,
                 "official Jolt contact estimate retains pre-solve speed, mass and world normal") ||
         !expect(fixture.physics.impacts().size() == 1 &&
                     fixture.physics.impacts().front().frame == first.frame,
@@ -845,6 +846,26 @@ bool impact_snapshots()
     }
     sphere->get_component<engine::Transform>()->set_enabled(true);
     if (!strike(next))
+    {
+        return false;
+    }
+    const auto old_object = next.b;
+    if (!sphere->remove_component(engine::Collider::component_type))
+    {
+        return false;
+    }
+    auto* replacement_collider = sphere->add_component<engine::Collider>();
+    if (!expect(replacement_collider != nullptr &&
+                    replacement_collider->instance_id() != old_object.instance_id &&
+                    fixture.physics.impacts().empty() &&
+                    !fixture.physics.is_object_valid(old_object),
+                "replacing a collider on the same node invalidates its previous impact"))
+    {
+        return false;
+    }
+    auto replacement_settings = replacement_collider->settings();
+    replacement_settings.shape = engine::schema::ColliderShape::sphere;
+    if (!replacement_collider->set_settings(replacement_settings) || !strike(next))
     {
         return false;
     }

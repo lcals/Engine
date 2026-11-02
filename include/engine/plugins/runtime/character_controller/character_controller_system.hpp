@@ -9,7 +9,6 @@ namespace engine
 {
 class WorldSystem;
 class Node;
-class Scene;
 } // namespace engine
 
 namespace engine::plugins::character_controller
@@ -21,7 +20,7 @@ public:
     // 世界借用须覆盖本系统生命周期，输入仅由调用方明确提交。
     explicit CharacterControllerSystem(WorldSystem& world) noexcept;
     ~CharacterControllerSystem() noexcept override;
-    // 选中当前场景玩家；空指针解除选择，不自动接管其他玩家。
+    // 选中已发布世界中的玩家；空指针解除选择，不自动接管其他玩家。
     [[nodiscard]] bool set_player(Node* node) noexcept;
     // 覆盖下一帧输入，消费一次；不持续保留上一次按键。
     [[nodiscard]] bool set_input(const CharacterInput& input) noexcept;
@@ -32,7 +31,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    static void discard_component_inputs(Scene& scene) noexcept;
+    void discard_component_inputs() noexcept;
     void stop_driving() noexcept;
     WorldSystem& world_;
     CharacterInput input_{};

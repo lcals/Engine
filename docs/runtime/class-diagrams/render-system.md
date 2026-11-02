@@ -18,7 +18,7 @@ classDiagram
         +initialize() bool
         +release() void
         +resource_count() uint32_t
-        +prepare_ibl(const Scene& scene, size_t staging_bytes) bool
+        +prepare_ibl(const Scene* scene, size_t staging_bytes) bool
     }
     class GpuTexture {
         +create(const PreparedTexture& prepared) bool
@@ -111,7 +111,7 @@ classDiagram
 - 平台实现位于 `platforms/<platform>/`，由 CMake 为当前目标选择。`RenderSurface` 负责原生句柄取得、保留、变更策略与 Android 暂停握手；渲染调度不分支判断平台。先停止 bgfx，再释放原生表面。GPU 暂停后可恢复，场景 CPU 数据仍由世界拥有。
 - GPU 拥有者禁用复制，移动必须转移并清空源句柄，析构兜底；全部 GPU 对象在 bgfx 关闭前销毁。参数结构独立于系统头，不改变场景、脚本或 MCP 的公开契约。
 
-`SceneGpuResources` 与 `RendererCallbacks` 是 `RenderSystem` 的私有嵌套类型。前者独占场景通用 Uniform、回退纹理、三张 IBL 纹理、逐类型 GPU 集合及渲染通道；`initialize()` 创建通用资源，`release()` 支持部分初始化和重复清理，`resource_count()` 汇总有效句柄。`prepare_ibl()` 只在调用期间借用场景，不保留组件指针。`SceneGpuResources` 不可复制或移动，析构兜底；计数查询为 `const noexcept`，释放为 `noexcept`，状态返回值为 `[[nodiscard]]`。
+`SceneGpuResources` 与 `RendererCallbacks` 是 `RenderSystem` 的私有嵌套类型。前者独占场景通用 Uniform、回退纹理、三张 IBL 纹理、逐类型 GPU 集合及渲染通道；`initialize()` 创建通用资源，`release()` 支持部分初始化和重复清理，`resource_count()` 汇总有效句柄。`prepare_ibl()` 只在调用期间借用活动场景，不保留组件指针；空指针清理 IBL 并使用默认环境。`SceneGpuResources` 不可复制或移动，析构兜底；计数查询为 `const noexcept`，释放为 `noexcept`，状态返回值为 `[[nodiscard]]`。
 
 ### 阴影通道
 
@@ -131,7 +131,7 @@ classDiagram
     class GpuMesh
     class GpuTexture
     class Material
-    ShadowPass ..> Scene : 调用期间借用
+    ShadowPass ..> WorldSystem : 按世界节点身份查询投射物
     ShadowPass ..> RenderSettings : 调用期间借用
     ShadowPass ..> ShadowFrame : 填写调用方帧数据
     ShadowPass ..> GpuMesh : 借用上传后的几何
@@ -142,7 +142,7 @@ classDiagram
 为避免单行签名撑宽类图，`draw()` 的完整参数单列如下；其中所有引用和句柄均仅在调用期间借用：
 
 ```cpp
-bool draw(const Scene& scene, const RenderSettings& settings,
+bool draw(const WorldSystem& world, const RenderSettings& settings,
           ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
           const std::vector<GpuTexture>& textures,
           bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform);
@@ -404,7 +404,7 @@ classDiagram
 - `set_stats_visible()` 在主线程控制 bgfx 自带的 `BGFX_DEBUG_STATS` 面板，默认关闭，`stats_visible()` 返回保存的开关。开关独立于场景与渲染效果配置，适用于待机、预览及玩法；切换场景、释放场景资源和临时重建图形设备均保留设置，设备恢复后重新应用。该面板只显示上游可提供的统计，不另外启用 `BGFX_DEBUG_PROFILER`。
 - 默认内置 Mesh 为 24 顶点、36 索引方块；项目 Mesh 来自独立缓存定义，可提供其他顶点和 uint32 索引。内置 PBR/无光照 Shader 的程序数据由固定版本 bgfx `shaderc` 编译并交给 ResourceSystem 注册。材质按 `builtin://...` 或 assets 相对路径取得资源，渲染器通过 `Material::shader_data()` 借用该材质实际持有的 ShaderData，不经过全局缓存查询或按材质路径分支选择效果。
 - 每个在用 Shader 路径拥有一套 Program 和参数 Uniform；多个组件可使用不同 Shader。按生成数据中的 uniform 名称、偏移及数值类型映射参数，上传实例值和隐藏默认值。反射双向核对全部非引擎 Uniform，缺失声明或不存在的声明均拒绝，失败清理本次场景 GPU 资源。
-- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 根据场景标识释放旧 GPU 资源并建立新资源。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
+- 材质变更 Shader 或 Mesh 后释放已无人使用的程序或网格缓冲。显式停止项目时，GameplaySession 协调释放场景、脚本资源引用和 GPU 句柄，CPU 资源随最后一个使用者释放。热重载由 GameplaySession 通过 ScriptRuntime 契约停止旧运行，再提交新目录并启动；RenderSystem 在下一次 prepare_scene 按世界中仍存活的节点和材质增量更新 GPU 资源，不因活动场景 ID 改变销毁常驻对象的缓存。GPU 通过 bgfx::copy 持有独立字节，不借用已替换的 CPU 定义；builtin 定义保留至资源系统关闭。编译后的 Shader 必须符合当前渲染后端、顶点和内置引擎 Uniform 契约；不提供 Shader 源码运行时编译。
 - Android 暂停关闭 bgfx 时同时释放场景 GPU 资源；恢复后根据仍存活的场景重新建立资源。平台运行验证范围见根 README。
 - Android Surface 处理代码集中在平台实现中；APK、模拟器暂停恢复和真机验证范围见根 [README.md](../../../README.md)。
 
@@ -416,7 +416,7 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 - 每个子网格按材质槽独立提交，空子网格表绘制完整索引与槽 0。所有材质槽遵循相同 Shader 与命名参数规则。
 - 主 pass 与阴影 pass 共用材质面剔除状态和 alpha 裁切语义；cast_shadows=false 的组件不进入阴影边界拟合和投射，仍保留主绘制。UV 变换、基础色和纹理 alpha 在两个 pass 保持一致。
 - 纹理来自 ResourcePtr 持有的 TextureData，Basis Universal 转码后上传全部 mip。auto 按实际 GPU 能力与 Basis 转码器支持情况选择 BC7、ASTC 4x4、ETC2 或 RGBA8；显式请求不支持的格式返回失败。sRGB 只用于颜色纹理，法线及 ORM 使用线性采样。
-- GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，停止项目、场景替换及设备关闭统一释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
+- GPU 纹理按 ResourcePtr 对象身份共享并只保留当前可绘制材质实际引用，普通场景切换增量回收已无使用者的资源，停止项目及设备关闭完整释放。Shader sampler 名称、类型及数量与反射双向验证。bgfx 公共反射不提供绑定槽，元数据中的 stage 必须与源码 SAMPLER2D 的绑定一致；运行时另外检查槽唯一及设备上限。纹理包含单层或完整 mip 链，转码工作集上限为 512 MiB。
 - HDR IBL 使用 KTX1 容器的 RGBA16F 立方图和 RG16F 二维查找表；运行时验证格式与设备能力后直接上传，不在运行时重新烘焙。环境引用的三个 GUID 是独立纹理资源，随资源代际变化重新加载；失败不悄悄回退旧图。未烘焙的全空引用允许启用 IBL，但本帧采用关闭状态和内置黑色回退纹理；任一非空引用要求三项齐全、存在且格式正确。
 - AO 保留纹理槽 11，IBL 漫反射、预过滤反射、BRDF 查找表分别保留 12/13/14，阴影保留 15；项目材质使用 0..10。IBL 采样适配 Ant 的 split-sum 和 bgfx 18-ibl，使用线性 HDR 值、法线方向漫反射、反射方向与粗糙度 mip，最后结合当前材质反射率和环境强度。IBL 只消费烘焙结果，GPU 烘焙及文件发布归编辑器插件；AO 消费当帧深度，无资源落盘。许可与修改说明保留于 Shader 和 third_party/notices。
 - 内置 PBR 采样 baseColorTexture、normalTexture、ormTexture（R=AO、G=roughness、B=metallic）；顶点色与 baseColor 相乘。切线空间参考 bgfx 06-bump，PBR 核心直接适配 The Forge ShaderUtilities.h.fsl 的 GGX、Smith 与 Schlick 函数，保留来源和许可。
@@ -466,7 +466,7 @@ classDiagram
     AmbientOcclusionPass ..> RenderSettings : 本帧AO参数
 ```
 
-AmbientOcclusionPass 位于渲染私有实现目录，拥有深度附件、法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、切换场景、设备重建和失败时完整释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
+AmbientOcclusionPass 位于渲染私有实现目录，拥有深度附件、法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、设备重建和失败时完整释放；切换场景重新读取活动相机设置，按实际开关保留或释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
 
 AO 默认关闭，由活动场景相机的 PostProcessDataT.ao_enabled 控制，可随时关闭并保留半径、强度与淡出参数。只有参数随场景保存；遮蔽结果每帧在 GPU 计算，不产生贴图源文件、meta 或 GUID 资源，不加入烘焙任务。预览隐藏镜头不持有另一份 AO 配置。
 
@@ -500,3 +500,5 @@ classDiagram
 采用固定 bgfx `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `09-hdr` 通道组织、全屏三角形和归一化 blur9。适配为真正 RGBA16F 线性场景目标，替代上游 RGBE8 与提前 gamma；沿用显式曝光，不加入自动测光。View 7 为场景，8 为共用颜色及深度附件的插件透明绘制，9 为半尺寸亮部提取，10 为八分之一尺寸纵向 blur9，11 为横向 blur9、HDR 合成与一次色调映射/gamma；UI View 200 后绘制，不受 Bloom 影响。亮部阈值使用曝光前线性颜色，模糊结果与场景先相加，再一起曝光与映射。关闭 Bloom 只保留 HDR 合成并释放两个中间目标；关闭 HDR、停止场景、设备重建均释放该通道，尺寸变化只重建尺寸相关目标。
 
 场景 Shader 通过既有 `u_tonemap.z` 获知目标：为 1 时输出未曝光、未 tone map、未 gamma 的线性颜色；为 0 保持 SDR 输出。内置材质与项目天空共用这一契约，HDR 路径对无光照材质也统一执行最终画面映射。自定义 Shader 必须遵守该输出语义。3D 字体保留场景深度与预乘 alpha，调用方显式请求线性输出；UI 字体维持显示色输出。
+
+常驻节点接入：Mesh、文字和阴影投射物从 `WorldSystem::scenes()` 收集，节点 ID 在世界内唯一；相机、灯光/环境参数及后处理仍取当前活动场景。没有活动场景时不使用保留容器里的旧镜头，常驻 UI 继续同步并绘制，已有常驻 Mesh 的 GPU 几何可保留。普通切换不调用扩展、UI 或字体的 `release_scene()`；明确停止、全部场景消失或设备释放仍执行完整清理。

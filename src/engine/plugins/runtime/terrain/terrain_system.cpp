@@ -27,12 +27,12 @@ namespace
 {
 TerrainSystem* active_system = nullptr;
 
-void release_fragments(Scene& scene, PhysicsSystem& physics,
+void release_fragments(WorldSystem& world, PhysicsSystem& physics,
                        const std::vector<std::uint64_t>& fragments) noexcept
 {
     for (auto id : fragments)
     {
-        auto* node = scene.find_node(id);
+        auto* node = world.find_node(id);
         if (!node)
         {
             continue;
@@ -57,7 +57,7 @@ void release_fragments(Scene& scene, PhysicsSystem& physics,
                 collider->set_enabled(false);
             }
         }
-        (void)scene.destroy_node(id);
+        (void)node->scene().destroy_node(id);
     }
 }
 
@@ -188,17 +188,11 @@ bool TerrainSystem::commit_prepared(TerrainComponent& component, TerrainVolume c
 {
     ENGINE_PROFILE_ZONE("Terrain.publish");
     auto& node = component.node();
-    if (&node.scene() != world_.scene() ||
+    if (world_.find_node(node.id()) != &node ||
         component.revision_ == std::numeric_limits<std::uint64_t>::max())
     {
         component.last_error_ = "Terrain is not in the active world";
         return false;
-    }
-    if (scene_id_ != node.scene().id())
-    {
-        generated_.clear();
-        fragments_.clear();
-        scene_id_ = node.scene().id();
     }
     auto* renderer = node.get_component<MeshRenderer>();
     auto* collider = node.get_component<Collider>();
@@ -287,7 +281,6 @@ bool TerrainSystem::commit_prepared(TerrainComponent& component, TerrainVolume c
     component.ready_ = true;
     component.last_error_.clear();
     ++component.revision_;
-    scene_id_ = node.scene().id();
     generated_.insert(node.id());
     return true;
 }
@@ -298,9 +291,9 @@ bool TerrainSystem::request_apply_sphere(TerrainComponent& component, const Vec3
 {
     if (!async_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
         !completed || !component.ready_ || !component.enabled() ||
-        &component.node().scene() != world_.scene() || !std::isfinite(center.x()) ||
-        !std::isfinite(center.y()) || !std::isfinite(center.z()) || !std::isfinite(radius) ||
-        radius <= 0 || radius > 10000)
+        world_.find_node(component.node().id()) != &component.node() ||
+        !std::isfinite(center.x()) || !std::isfinite(center.y()) || !std::isfinite(center.z()) ||
+        !std::isfinite(radius) || radius <= 0 || radius > 10000)
     {
         component.last_error_ = "Invalid asynchronous terrain request or task domain";
         return false;
@@ -336,7 +329,6 @@ void TerrainSystem::process_requests()
     {
         return;
     }
-    auto* scene = world_.scene();
     std::size_t commits = 0;
     auto item = async_->owners.upper_bound(async_->published_after);
     for (std::size_t remaining = async_->owners.size(); remaining != 0; --remaining)
@@ -347,8 +339,11 @@ void TerrainSystem::process_requests()
         }
         const auto current = item++;
         auto& owner = current->second;
-        auto* node =
-            scene && scene->id() == owner.scene ? scene->find_node(current->first) : nullptr;
+        auto* node = world_.find_node(current->first);
+        if (node && node->scene().id() != owner.scene)
+        {
+            node = nullptr;
+        }
         auto* component = node ? node->get_component<TerrainComponent>() : nullptr;
         if (!component || !component->ready_ || !component->enabled() ||
             owner.lifetime.lock() != component->lifetime_ || owner.revision != component->revision_)
@@ -406,7 +401,7 @@ void TerrainSystem::process_requests()
         {
             continue;
         }
-        auto* component = scene->find_node(id)->get_component<TerrainComponent>();
+        auto* component = world_.find_node(id)->get_component<TerrainComponent>();
         if (!owner.prepared)
         {
             owner.prepared = std::make_shared<AsyncState::Prepared>();
@@ -456,8 +451,7 @@ bool TerrainSystem::on_tick(double)
 
 std::size_t TerrainSystem::fragment_count(const TerrainComponent& component) const noexcept
 {
-    const auto* scene = world_.scene();
-    if (!scene || scene->id() != scene_id_ || &component.node().scene() != scene)
+    if (world_.find_node(component.node().id()) != &component.node())
     {
         return 0;
     }
@@ -468,20 +462,19 @@ std::size_t TerrainSystem::fragment_count(const TerrainComponent& component) con
     }
     return static_cast<std::size_t>(std::count_if(found->second.begin(), found->second.end(),
                                                   [&](std::uint64_t id)
-                                                  { return scene->find_node(id) != nullptr; }));
+                                                  { return world_.find_node(id) != nullptr; }));
 }
 
 void TerrainSystem::clear_fragments(TerrainComponent& component) noexcept
 {
-    auto* scene = world_.scene();
-    if (!scene || scene->id() != scene_id_ || &component.node().scene() != scene)
+    if (world_.find_node(component.node().id()) != &component.node())
     {
         return;
     }
     const auto found = fragments_.find(component.node().id());
     if (found != fragments_.end())
     {
-        release_fragments(*scene, physics_, found->second);
+        release_fragments(world_, physics_, found->second);
         fragments_.erase(found);
     }
 }
@@ -491,10 +484,10 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
                                       float density)
 {
     ENGINE_PROFILE_ZONE("Terrain.collapse");
-    auto* scene = world_.scene();
+    auto* scene = &component.node().scene();
     TransformSettings pose;
-    if (!is_initialized() || !scene || scene != &component.node().scene() || !component.ready_ ||
-        !component.enabled() || !component.settings().collision ||
+    if (!is_initialized() || world_.find_node(component.node().id()) != &component.node() ||
+        !component.ready_ || !component.enabled() || !component.settings().collision ||
         !collapse_pose(component.node(), pose) || !std::isfinite(density) || density <= 0 ||
         density > 100000 || max_fragments == 0 || max_fragments > 128)
     {
@@ -531,7 +524,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
     std::vector<std::uint64_t> created;
     const auto fail = [&](const char* message)
     {
-        release_fragments(*scene, physics_, created);
+        release_fragments(world_, physics_, created);
         component.last_error_ = message;
         return false;
     };
@@ -572,11 +565,11 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
     // No simulation/query runs between preparing candidate bodies and committing the source.
     if (!commit(component, std::move(candidate)))
     {
-        release_fragments(*scene, physics_, created);
+        release_fragments(world_, physics_, created);
         return false;
     }
     auto& owned = fragments_[component.node().id()];
-    std::erase_if(owned, [&](std::uint64_t id) { return scene->find_node(id) == nullptr; });
+    std::erase_if(owned, [&](std::uint64_t id) { return world_.find_node(id) == nullptr; });
     owned.insert(owned.end(), created.begin(), created.end());
     component.detached_ = true;
     return true;
@@ -589,35 +582,23 @@ bool TerrainSystem::synchronize()
     {
         return false;
     }
-    auto* scene = world_.scene();
-    if (!scene || scene->id() != scene_id_)
-    {
-        generated_.clear();
-        fragments_.clear();
-        scene_id_ = scene ? scene->id() : 0;
-    }
-    if (!scene)
-    {
-        process_requests();
-        return true;
-    }
     for (auto item = fragments_.begin(); item != fragments_.end();)
     {
-        auto* node = scene->find_node(item->first);
+        auto* node = world_.find_node(item->first);
         auto* component = node ? node->get_component<TerrainComponent>() : nullptr;
         if (!component || !component->resource_)
         {
-            release_fragments(*scene, physics_, item->second);
+            release_fragments(world_, physics_, item->second);
             item = fragments_.erase(item);
             continue;
         }
         std::erase_if(item->second,
-                      [&](std::uint64_t id) { return scene->find_node(id) == nullptr; });
+                      [&](std::uint64_t id) { return world_.find_node(id) == nullptr; });
         const auto* transform = node->get_component<Transform>();
         const bool enabled = component->enabled() && transform && transform->enabled();
         for (auto id : item->second)
         {
-            auto* fragment = scene->find_node(id);
+            auto* fragment = world_.find_node(id);
             if (auto* renderer = fragment->get_component<MeshRenderer>())
             {
                 renderer->set_enabled(enabled);
@@ -641,7 +622,7 @@ bool TerrainSystem::synchronize()
     }
     for (auto item = generated_.begin(); item != generated_.end();)
     {
-        auto* node = scene->find_node(*item);
+        auto* node = world_.find_node(*item);
         auto* component = node ? node->get_component<TerrainComponent>() : nullptr;
         if (!component || !component->resource_)
         {
@@ -665,30 +646,33 @@ bool TerrainSystem::synchronize()
             ++item;
         }
     }
-    for (const auto& node : scene->nodes())
+    for (const auto& scene : world_.scenes())
     {
-        auto* component = node->get_component<TerrainComponent>();
-        if (!component)
+        for (const auto& node : scene->nodes())
         {
-            continue;
-        }
-        if (component->pending_ && component->enabled())
-        {
-            if (!commit(*component, component->volume_))
+            auto* component = node->get_component<TerrainComponent>();
+            if (!component)
             {
-                return false;
+                continue;
             }
-        }
-        if (generated_.contains(node->id()))
-        {
-            if (auto* renderer = node->get_component<MeshRenderer>())
+            if (component->pending_ && component->enabled())
             {
-                renderer->set_enabled(component->enabled());
+                if (!commit(*component, component->volume_))
+                {
+                    return false;
+                }
             }
-            if (auto* collider = node->get_component<Collider>())
+            if (generated_.contains(node->id()))
             {
-                collider->set_enabled(component->enabled() && component->settings().collision &&
-                                      component->triangles_ != 0);
+                if (auto* renderer = node->get_component<MeshRenderer>())
+                {
+                    renderer->set_enabled(component->enabled());
+                }
+                if (auto* collider = node->get_component<Collider>())
+                {
+                    collider->set_enabled(component->enabled() && component->settings().collision &&
+                                          component->triangles_ != 0);
+                }
             }
         }
     }
@@ -704,39 +688,34 @@ void TerrainSystem::on_shutdown() noexcept
     {
         active_system = nullptr;
     }
-    auto* scene = world_.scene();
-    if (scene && scene->id() == scene_id_)
+    for (const auto& [id, fragments] : fragments_)
     {
-        for (const auto& [id, fragments] : fragments_)
+        release_fragments(world_, physics_, fragments);
+    }
+    for (auto id : generated_)
+    {
+        auto* node = world_.find_node(id);
+        if (!node)
         {
-            release_fragments(*scene, physics_, fragments);
+            continue;
         }
-        for (auto id : generated_)
+        if (auto* component = node->get_component<TerrainComponent>())
         {
-            auto* node = scene->find_node(id);
-            if (!node)
-            {
-                continue;
-            }
-            if (auto* component = node->get_component<TerrainComponent>())
-            {
-                component->ready_ = false;
-                component->pending_ = component->resource_ != nullptr;
-            }
-            if (auto* renderer = node->get_component<MeshRenderer>();
-                renderer && renderer->transient())
-            {
-                (void)node->remove_component(MeshRenderer::component_type);
-            }
-            if (auto* collider = node->get_component<Collider>(); collider && collider->transient())
-            {
-                (void)node->remove_component(Collider::component_type);
-            }
+            component->ready_ = false;
+            component->pending_ = component->resource_ != nullptr;
+        }
+        if (auto* renderer = node->get_component<MeshRenderer>();
+            renderer && renderer->transient())
+        {
+            (void)node->remove_component(MeshRenderer::component_type);
+        }
+        if (auto* collider = node->get_component<Collider>(); collider && collider->transient())
+        {
+            (void)node->remove_component(Collider::component_type);
         }
     }
     generated_.clear();
     fragments_.clear();
-    scene_id_ = 0;
 }
 
 } // namespace engine::plugins::terrain

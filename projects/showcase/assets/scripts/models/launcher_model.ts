@@ -37,6 +37,7 @@ export class LauncherModel {
             title: "Physics interactions",
             scene: "scenes/physics-interactions.scene",
         },
+        { button: "scene-persistent-ui", title: "Persistent UI", scene: "scenes/persistent-ui.scene" },
     ];
     selected: LauncherChoice | null = null;
     pending: LauncherChoice | "menu" | null = null;

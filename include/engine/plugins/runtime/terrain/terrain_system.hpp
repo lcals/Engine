@@ -65,7 +65,6 @@ private:
     std::size_t max_pending_requests_ = 64;
     std::size_t max_commits_per_tick_ = 1;
     std::unique_ptr<AsyncState> async_;
-    std::uint64_t scene_id_ = 0;
     std::set<std::uint64_t> generated_;
     std::map<std::uint64_t, std::vector<std::uint64_t>> fragments_;
 };

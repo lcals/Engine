@@ -836,11 +836,152 @@ bool transient_contact_in_one_tick()
                   "reading the next zero-step snapshot cannot replay a transient contact");
 }
 
+bool persistent_world_objects()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* sensor = fixture.box("Persistent trigger", {}, {1, 1, 1},
+                               engine::schema::BodyMotion::static_body, true);
+    auto* transient =
+        fixture.box("Unloaded contact", {}, {0.5, 0.5, 0.5}, engine::schema::BodyMotion::dynamic);
+    auto* moving = fixture.box("Persistent body", {5, 0, 0}, {0.5, 0.5, 0.5},
+                               engine::schema::BodyMotion::dynamic);
+    auto* character = fixture.character("Persistent motor", {10, 0, 0});
+    if (!sensor || !transient || !moving || !character || !sensor->set_persistent(true) ||
+        !moving->set_persistent(true) || !character->set_persistent(true))
+    {
+        return false;
+    }
+    const auto sensor_id = object(*sensor, PhysicsObjectKind::collider);
+    const auto transient_id = object(*transient, PhysicsObjectKind::collider);
+    const auto moving_id = object(*moving, PhysicsObjectKind::collider);
+    const auto character_id = object(*character, PhysicsObjectKind::character);
+    auto* body = moving->get_component<engine::RigidBody>();
+    auto motion = body->settings();
+    motion.linear_velocity = {1, 0, 0};
+    if (!body->set_settings(motion) ||
+        !character->get_component<engine::CharacterMotor>()->set_velocity({1, 0, 0}) ||
+        !fixture.physics.tick(fixed_step) ||
+        !expect(!events(fixture.physics, sensor_id, transient_id).empty(),
+                "persistent receiver first contacts the ordinary scene object"))
+    {
+        return false;
+    }
+    const auto x = moving->get_component<engine::Transform>()->settings().position.x();
+    fixture.world.unload_scene();
+    if (!expect(fixture.world.scene() == nullptr && fixture.physics.is_object_valid(moving_id) &&
+                    fixture.physics.is_object_valid(character_id) &&
+                    !fixture.physics.is_object_valid(transient_id) && fixture.physics.tick(0),
+                "unloading a scene retains body and motor identities without an active scene"))
+    {
+        return false;
+    }
+    const auto ended = events(fixture.physics, sensor_id, transient_id);
+    if (!expect(ended.size() == 1 && ended.front().phase == PhysicsContactPhase::end &&
+                    fixture.physics.is_object_valid(sensor_id),
+                "persistent receiver gets one exit for its unloaded contact") ||
+        !fixture.physics.tick(fixed_step) ||
+        !expect(moving->get_component<engine::Transform>()->settings().position.x() > x &&
+                    body->settings().linear_velocity.x() > 0.99 &&
+                    character->get_component<engine::Transform>()->settings().position.x() > 10,
+                "retained physics advances and preserves velocity without an active scene") ||
+        fixture.world.create_scene("New gameplay") == nullptr)
+    {
+        return false;
+    }
+    auto* next = fixture.box("New object", {15, 0, 0});
+    engine::PhysicsQueryHit hit;
+    std::vector<PhysicsObject> overlaps;
+    if (!next || !fixture.physics.tick(0) ||
+        !expect(
+            fixture.physics.query_ray({5, 3, 0}, {0, -6, 0}, {}, hit) && hit.hit &&
+                same(hit.object, moving_id) &&
+                fixture.physics.overlap_sphere({7, 0, 0}, 10, {}, overlaps) &&
+                std::any_of(overlaps.begin(), overlaps.end(),
+                            [&](const auto& value) { return same(value, moving_id); }) &&
+                std::any_of(overlaps.begin(), overlaps.end(), [&](const auto& value)
+                            { return same(value, object(*next, PhysicsObjectKind::collider)); }),
+            "queries return actual scene and component identities across published scenes"))
+    {
+        return false;
+    }
+    if (!moving->remove_component(engine::Collider::component_type) ||
+        moving->add_component<engine::Collider>() == nullptr ||
+        !expect(!fixture.physics.is_hit_valid(hit) && !fixture.physics.is_object_valid(moving_id),
+                "same-node replacement cannot revive a retained collider identity"))
+    {
+        return false;
+    }
+    const auto old_scene = sensor_id.scene_id;
+    return expect(fixture.world.destroy_scene(old_scene) &&
+                      !fixture.physics.is_object_valid(sensor_id) &&
+                      fixture.physics.is_object_valid(object(*next, PhysicsObjectKind::collider)) &&
+                      fixture.physics.tick(0) && fixture.physics.body_count() == 1 &&
+                      fixture.physics.character_count() == 0,
+                  "destroying one retained scene removes its physics without clearing new bodies");
+}
+
+bool cross_scene_impacts()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* floor = fixture.box("Persistent floor", {0, -0.5, 0}, {4, 0.5, 4});
+    if (!floor || !floor->set_persistent(true) || !fixture.physics.tick(0))
+    {
+        return false;
+    }
+    const auto floor_id = object(*floor, PhysicsObjectKind::collider);
+    fixture.world.unload_scene();
+    if (!fixture.world.create_scene("Impact world"))
+    {
+        return false;
+    }
+    auto* falling = fixture.box("New falling body", {0, 0.6, 0}, {0.5, 0.5, 0.5},
+                                engine::schema::BodyMotion::dynamic);
+    if (!falling)
+    {
+        return false;
+    }
+    auto* body = falling->get_component<engine::RigidBody>();
+    auto motion = body->settings();
+    motion.linear_velocity = {0, -6, 0};
+    if (!body->set_settings(motion))
+    {
+        return false;
+    }
+    for (unsigned index = 0; index < 6; ++index)
+    {
+        if (!fixture.physics.tick(fixed_step))
+        {
+            return false;
+        }
+        for (const auto& impact : fixture.physics.impacts())
+        {
+            if (same(impact.a, floor_id) &&
+                same(impact.b, object(*falling, PhysicsObjectKind::collider)))
+            {
+                return expect(
+                    impact.a.scene_id != impact.b.scene_id && impact.normal.y() > 0.99 &&
+                        impact.closing_speed > 5.5,
+                    "impact retains each participant's scene, component and A-to-B normal");
+            }
+        }
+    }
+    return expect(false, "cross-scene bodies produce an impact");
+}
+
 bool run_suite()
 {
     return character_queries() && overlap_objects_and_filters() && overlap_failures() &&
            resting_contacts_and_substeps() && contact_lifecycle() && contact_type_changes() &&
-           character_trigger_contacts() && transient_contact_in_one_tick();
+           character_trigger_contacts() && transient_contact_in_one_tick() &&
+           persistent_world_objects() && cross_scene_impacts();
 }
 
 } // namespace

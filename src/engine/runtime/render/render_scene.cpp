@@ -36,7 +36,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     }
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
     if (scene == nullptr || scene_resources_ == nullptr ||
-        !render_detail::drawable_scene(*scene, view_camera, !extensions_.empty()))
+        !render_detail::drawable_scene(*world_, view_camera, !extensions_.empty()))
     {
         return true;
     }
@@ -138,7 +138,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
             !render_detail::prepare_shadow_frame(settings, rendering, aspect, camera_world, view,
                                                  light_direction_outer[shadow_light],
                                                  shadow_frame) ||
-            !resources.shadow.draw(*scene, rendering, shadow_frame, resources.meshes,
+            !resources.shadow.draw(*world_, rendering, shadow_frame, resources.meshes,
                                    resources.textures, resources.shadow_fallback,
                                    resources.shadow_depth))
         {
@@ -182,126 +182,131 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     // 复用完整材质保留顶点变形、裁剪透明与自定义天空的深度语义。
     const auto draw_meshes = [&](std::uint16_t view_id, bool depth_only)
     {
-        for (const auto& node : scene->nodes())
+        for (const auto& owner : world_->scenes())
         {
-            const MeshRenderer* renderer = node->get_component<MeshRenderer>();
-            if (renderer == nullptr || !renderer->enabled() || !renderer->visible() ||
-                !camera.mesh_visible(renderer->mesh_instance_id()))
+            for (const auto& node : owner->nodes())
             {
-                continue;
-            }
-            float model[16]{};
-            const auto* transform = node->get_component<Transform>();
-            if (transform == nullptr || !transform->world_matrix(model))
-            {
-                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
-                return false;
-            }
-            float normal_transform[16]{};
-            if (!render_detail::normal_matrix(model, normal_transform))
-            {
-                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh normal transform is invalid");
-                return false;
-            }
-            const auto mesh =
-                std::find_if(resources.meshes.begin(), resources.meshes.end(),
-                             [&node](const auto& item) { return item.node_id == node->id(); });
-            const auto* data = renderer->mesh_data();
-            if (mesh == resources.meshes.end() || data == nullptr)
-            {
-                return false;
-            }
-            const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
-            {
-                const Material* material = renderer->material(slot);
-                if (material == nullptr)
+                const MeshRenderer* renderer = node->get_component<MeshRenderer>();
+                if (renderer == nullptr || !renderer->enabled() || !renderer->visible() ||
+                    !camera.mesh_visible(renderer->mesh_instance_id()))
+                {
+                    continue;
+                }
+                float model[16]{};
+                const auto* transform = node->get_component<Transform>();
+                if (transform == nullptr || !transform->world_matrix(model))
+                {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh world matrix is invalid");
+                    return false;
+                }
+                float normal_transform[16]{};
+                if (!render_detail::normal_matrix(model, normal_transform))
+                {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Mesh normal transform is invalid");
+                    return false;
+                }
+                const auto mesh =
+                    std::find_if(resources.meshes.begin(), resources.meshes.end(),
+                                 [&node](const auto& item) { return item.node_id == node->id(); });
+                const auto* data = renderer->mesh_data();
+                if (mesh == resources.meshes.end() || data == nullptr)
                 {
                     return false;
                 }
-                auto program = std::find_if(resources.programs.begin(), resources.programs.end(),
-                                            [material](const auto& item)
-                                            { return item.path == material->shader_path(); });
-                if (program == resources.programs.end() ||
-                    !program->bind_material(*material, resources.textures))
+                const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
                 {
-                    SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-                                 "Material parameters do not match its shader");
-                    return false;
-                }
-                bgfx::setUniform(resources.normal_transform, normal_transform);
-                bgfx::setUniform(resources.camera_position, camera_position);
-                bgfx::setUniform(resources.light_direction, light_direction.data());
-                bgfx::setUniform(resources.light_color, light_color.data());
-                bgfx::setUniform(resources.light_count, count_value);
-                bgfx::setUniform(resources.light_position_range, light_position_range.data(),
-                                 render_detail::maximum_lights);
-                bgfx::setUniform(resources.light_direction_outer, light_direction_outer.data(),
-                                 render_detail::maximum_lights);
-                bgfx::setUniform(resources.light_color_intensity, light_color_intensity.data(),
-                                 render_detail::maximum_lights);
-                bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(),
-                                 render_detail::maximum_lights);
-                bgfx::setUniform(resources.ambient, ambient);
-                bgfx::setUniform(resources.ambient_sky, ambient_sky);
-                bgfx::setUniform(resources.ambient_equator, ambient_equator);
-                bgfx::setUniform(resources.ambient_ground, ambient_ground);
-                bgfx::setUniform(resources.fog_color, fog_color);
-                bgfx::setUniform(resources.fog_range, fog_range);
-                bgfx::setUniform(resources.tonemap, tonemap);
-                bgfx::setUniform(resources.ibl_params, ibl_params);
-                const bool ao_enabled = rendering.ao_enabled && !depth_only;
-                const float ao_settings[] = {1.0F / width_, 1.0F / height_,
-                                             ao_enabled ? 1.0F : 0.0F, 0.0F};
-                bgfx::setUniform(resources.ao_settings, ao_settings);
-                bgfx::setTexture(render_detail::ambient_occlusion_stage, resources.ao_sampler,
-                                 ao_enabled ? resources.ambient_occlusion.texture()
-                                            : resources.shadow_fallback);
-                bgfx::setTexture(
-                    render_detail::ibl_irradiance_stage, resources.ibl_irradiance_sampler,
-                    ibl_ready ? resources.ibl_textures[0].handle : resources.ibl_cube_fallback);
-                bgfx::setTexture(
-                    render_detail::ibl_prefilter_stage, resources.ibl_prefilter_sampler,
-                    ibl_ready ? resources.ibl_textures[1].handle : resources.ibl_cube_fallback);
-                bgfx::setTexture(render_detail::ibl_lut_stage, resources.ibl_lut_sampler,
-                                 ibl_ready ? resources.ibl_textures[2].handle
-                                           : resources.ibl_lut_fallback);
-                const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F
-                                                                                         : 0.0F,
-                                         0.0F, 0.0F, 0.0F};
-                bgfx::setUniform(resources.surface, surface);
-                bgfx::setUniform(resources.shadow_matrices, shadow_frame.matrices.data(),
-                                 render_detail::maximum_shadow_cascades);
-                bgfx::setUniform(resources.shadow_rects, shadow_frame.rectangles.data(),
-                                 render_detail::maximum_shadow_cascades);
-                bgfx::setUniform(resources.shadow_splits, shadow_frame.splits.data());
-                bgfx::setUniform(resources.shadow_params, shadow_frame.parameters.data());
-                bgfx::setUniform(resources.shadow_settings, shadow_settings);
-                bgfx::setTexture(render_detail::shadow_sampler_stage, resources.shadow_sampler,
-                                 shadow_enabled ? resources.shadow.texture()
+                    const Material* material = renderer->material(slot);
+                    if (material == nullptr)
+                    {
+                        return false;
+                    }
+                    auto program =
+                        std::find_if(resources.programs.begin(), resources.programs.end(),
+                                     [material](const auto& item)
+                                     { return item.path == material->shader_path(); });
+                    if (program == resources.programs.end() ||
+                        !program->bind_material(*material, resources.textures))
+                    {
+                        SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                     "Material parameters do not match its shader");
+                        return false;
+                    }
+                    bgfx::setUniform(resources.normal_transform, normal_transform);
+                    bgfx::setUniform(resources.camera_position, camera_position);
+                    bgfx::setUniform(resources.light_direction, light_direction.data());
+                    bgfx::setUniform(resources.light_color, light_color.data());
+                    bgfx::setUniform(resources.light_count, count_value);
+                    bgfx::setUniform(resources.light_position_range, light_position_range.data(),
+                                     render_detail::maximum_lights);
+                    bgfx::setUniform(resources.light_direction_outer, light_direction_outer.data(),
+                                     render_detail::maximum_lights);
+                    bgfx::setUniform(resources.light_color_intensity, light_color_intensity.data(),
+                                     render_detail::maximum_lights);
+                    bgfx::setUniform(resources.light_kind_inner, light_kind_inner.data(),
+                                     render_detail::maximum_lights);
+                    bgfx::setUniform(resources.ambient, ambient);
+                    bgfx::setUniform(resources.ambient_sky, ambient_sky);
+                    bgfx::setUniform(resources.ambient_equator, ambient_equator);
+                    bgfx::setUniform(resources.ambient_ground, ambient_ground);
+                    bgfx::setUniform(resources.fog_color, fog_color);
+                    bgfx::setUniform(resources.fog_range, fog_range);
+                    bgfx::setUniform(resources.tonemap, tonemap);
+                    bgfx::setUniform(resources.ibl_params, ibl_params);
+                    const bool ao_enabled = rendering.ao_enabled && !depth_only;
+                    const float ao_settings[] = {1.0F / width_, 1.0F / height_,
+                                                 ao_enabled ? 1.0F : 0.0F, 0.0F};
+                    bgfx::setUniform(resources.ao_settings, ao_settings);
+                    bgfx::setTexture(render_detail::ambient_occlusion_stage, resources.ao_sampler,
+                                     ao_enabled ? resources.ambient_occlusion.texture()
                                                 : resources.shadow_fallback);
-                bgfx::setTransform(model);
-                mesh->bind_vertices();
-                bgfx::setIndexBuffer(mesh->geometry->indices, first, count);
-                const auto state = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
-                                   render_detail::cull_state(material->cull_mode(), model);
-                bgfx::setState(depth_only ? state
-                                          : state | BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
-                                                BGFX_STATE_MSAA);
-                bgfx::submit(view_id, program->program);
-                return true;
-            };
-            if (data->submeshes.empty())
-            {
-                if (!submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+                    bgfx::setTexture(
+                        render_detail::ibl_irradiance_stage, resources.ibl_irradiance_sampler,
+                        ibl_ready ? resources.ibl_textures[0].handle : resources.ibl_cube_fallback);
+                    bgfx::setTexture(
+                        render_detail::ibl_prefilter_stage, resources.ibl_prefilter_sampler,
+                        ibl_ready ? resources.ibl_textures[1].handle : resources.ibl_cube_fallback);
+                    bgfx::setTexture(render_detail::ibl_lut_stage, resources.ibl_lut_sampler,
+                                     ibl_ready ? resources.ibl_textures[2].handle
+                                               : resources.ibl_lut_fallback);
+                    const float surface[] = {material->cull_mode() != schema::CullMode::back ? 1.0F
+                                                                                             : 0.0F,
+                                             0.0F, 0.0F, 0.0F};
+                    bgfx::setUniform(resources.surface, surface);
+                    bgfx::setUniform(resources.shadow_matrices, shadow_frame.matrices.data(),
+                                     render_detail::maximum_shadow_cascades);
+                    bgfx::setUniform(resources.shadow_rects, shadow_frame.rectangles.data(),
+                                     render_detail::maximum_shadow_cascades);
+                    bgfx::setUniform(resources.shadow_splits, shadow_frame.splits.data());
+                    bgfx::setUniform(resources.shadow_params, shadow_frame.parameters.data());
+                    bgfx::setUniform(resources.shadow_settings, shadow_settings);
+                    bgfx::setTexture(render_detail::shadow_sampler_stage, resources.shadow_sampler,
+                                     shadow_enabled ? resources.shadow.texture()
+                                                    : resources.shadow_fallback);
+                    bgfx::setTransform(model);
+                    mesh->bind_vertices();
+                    bgfx::setIndexBuffer(mesh->geometry->indices, first, count);
+                    const auto state = BGFX_STATE_WRITE_Z | BGFX_STATE_DEPTH_TEST_LESS |
+                                       render_detail::cull_state(material->cull_mode(), model);
+                    bgfx::setState(depth_only ? state
+                                              : state | BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
+                                                    BGFX_STATE_MSAA);
+                    bgfx::submit(view_id, program->program);
+                    return true;
+                };
+                if (data->submeshes.empty())
                 {
-                    return false;
+                    if (!submit(0, static_cast<std::uint32_t>(data->indices.size()), 0))
+                    {
+                        return false;
+                    }
                 }
-            }
-            for (const auto& submesh : data->submeshes)
-            {
-                if (!submit(submesh.first_index(), submesh.index_count(), submesh.material_slot()))
+                for (const auto& submesh : data->submeshes)
                 {
-                    return false;
+                    if (!submit(submesh.first_index(), submesh.index_count(),
+                                submesh.material_slot()))
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -345,11 +350,19 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     }
     {
         ENGINE_PROFILE_ZONE("Render.mainSubmit");
-        if (!draw_meshes(render_detail::main_view, false) ||
-            (fonts_ != nullptr &&
-             !fonts_->render_scene(*scene, render_detail::main_view, rendering.hdr_enabled)))
+        if (!draw_meshes(render_detail::main_view, false))
         {
             return false;
+        }
+        if (fonts_ != nullptr)
+        {
+            for (const auto& owner : world_->scenes())
+            {
+                if (!fonts_->render_scene(*owner, render_detail::main_view, rendering.hdr_enabled))
+                {
+                    return false;
+                }
+            }
         }
     }
     if (!extensions_.empty())

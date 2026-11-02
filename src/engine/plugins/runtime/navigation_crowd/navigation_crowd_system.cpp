@@ -75,7 +75,6 @@ struct NavigationCrowdSystem::State
     };
 
     std::unordered_map<std::uint64_t, Entry> agents;
-    std::uint64_t scene_id = 0;
     bool retry_failed_agents = false;
 };
 
@@ -120,23 +119,12 @@ void NavigationCrowdSystem::release_agents() noexcept
         }
     }
     state_->agents.clear();
-    state_->scene_id = 0;
     state_->retry_failed_agents = false;
 }
 
 bool NavigationCrowdSystem::on_tick(double delta_time)
 {
     ENGINE_PROFILE_ZONE("NavigationCrowd.Sync");
-    auto* scene = world_.scene();
-    if (scene == nullptr || state_->scene_id != scene->id())
-    {
-        release_agents();
-        if (scene == nullptr)
-        {
-            return true;
-        }
-        state_->scene_id = scene->id();
-    }
     if (world_.paused())
     {
         return true;
@@ -146,27 +134,30 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         entry.component = nullptr;
     }
     const bool available = navigation_.ready() && navigation_.configure_crowd(capacity_);
-    for (const auto& node : scene->nodes())
+    for (const auto& scene : world_.scenes())
     {
-        auto* component = node->get_component<NavigationAgent>();
-        if (component == nullptr)
+        for (const auto& node : scene->nodes())
         {
-            continue;
+            auto* component = node->get_component<NavigationAgent>();
+            if (component == nullptr)
+            {
+                continue;
+            }
+            if (!component->enabled())
+            {
+                component->stop();
+                continue;
+            }
+            auto* transform = node->get_component<Transform>();
+            if (!available || !can_drive(*node, transform))
+            {
+                component->state_ = NavigationAgentStatus::invalid;
+                component->velocity_ = {};
+                continue;
+            }
+            auto& entry = state_->agents[component->instance_id()];
+            entry.component = component;
         }
-        if (!component->enabled())
-        {
-            component->stop();
-            continue;
-        }
-        auto* transform = node->get_component<Transform>();
-        if (!available || !can_drive(*node, transform))
-        {
-            component->state_ = NavigationAgentStatus::invalid;
-            component->velocity_ = {};
-            continue;
-        }
-        auto& entry = state_->agents[component->instance_id()];
-        entry.component = component;
     }
     // 先释放旧实例再分配，满容量下同帧替换也能使用刚释放的槽位。
     bool retry = state_->retry_failed_agents;

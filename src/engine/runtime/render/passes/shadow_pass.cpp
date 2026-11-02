@@ -4,9 +4,10 @@
 #include "runtime/render/render_math.hpp"
 #include "runtime/scene/material.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
-#include "runtime/scene/scene.hpp"
+#include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/shader_generated.h"
+#include "runtime/world/world_system.hpp"
 
 #include "fs_shadow.bin.h"
 #include "vs_shadow.bin.h"
@@ -219,7 +220,7 @@ bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTe
     return true;
 }
 
-bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, ShadowFrame& frame,
+bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, ShadowFrame& frame,
                       const std::vector<GpuMesh>& meshes, const std::vector<GpuTexture>& textures,
                       bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform)
 {
@@ -235,7 +236,7 @@ bool ShadowPass::draw(const Scene& scene, const RenderSettings& settings, Shadow
     casters.reserve(meshes.size());
     for (const auto& mesh : meshes)
     {
-        const Node* node = scene.find_node(mesh.node_id);
+        const Node* node = world.find_node(mesh.node_id);
         const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
         const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
         if (renderer != nullptr && !renderer->cast_shadows())

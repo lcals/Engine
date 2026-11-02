@@ -507,6 +507,199 @@ bool incremental_scene_restore()
     return expect(world.scene() == nullptr, "shutdown destroys candidate before ECS world");
 }
 
+bool persistent_nodes()
+{
+    using namespace engine;
+    WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Persistent hierarchy");
+    auto* child = scene ? scene->create_node("Created before root") : nullptr;
+    auto* ordinary = scene ? scene->create_node("Ordinary") : nullptr;
+    auto* root = scene ? scene->create_node("Persistent root") : nullptr;
+    auto* leaf = scene ? scene->create_node("Leaf") : nullptr;
+    if (!child || !ordinary || !root || !leaf || !child->set_parent(root) ||
+        !leaf->set_parent(child))
+    {
+        return false;
+    }
+    const auto scene_id = scene->id();
+    const auto root_id = root->id();
+    const auto child_id = child->id();
+    const auto leaf_id = leaf->id();
+    const auto ordinary_id = ordinary->id();
+    const auto root_local_id = root->info().id;
+    auto* transform = root->get_component<Transform>();
+    if (!expect(!root->persistent() && root->set_persistent(true) && root->set_persistent(true) &&
+                    child->persistent() && leaf->persistent() && !child->set_persistent(false),
+                "only roots can set persistence; repeated calls preserve the complete subtree") ||
+        !expect(!root->set_parent(ordinary) && root->parent() == nullptr && !root->transient(),
+                "marked root cannot be reparented and persistence does not imply transient") ||
+        !world.set_paused(true))
+    {
+        return false;
+    }
+    world.unload_scene();
+    world.unload_scene();
+    if (!expect(!world.scene() && !world.paused() && world.scenes().size() == 1 &&
+                    world.find_node(root_id) == root && world.find_node(child_id) == child &&
+                    std::as_const(world).find_node(leaf_id) == leaf &&
+                    !world.find_node(ordinary_id) && &root->scene() == scene &&
+                    root->info().id == root_local_id && root->get_component<Transform>() == transform &&
+                    child->parent() == root && leaf->parent() == child,
+                "unload preserves original owners and identities, including child-before-parent"))
+    {
+        return false;
+    }
+    auto* next = world.create_scene("Next");
+    auto* next_node = next ? next->create_node("Next root") : nullptr;
+    if (!next_node || !expect(!child->set_parent(next_node), "cross-scene parenting stays rejected") ||
+        !expect(child->set_parent(nullptr) && !child->persistent() && !leaf->persistent(),
+                "detached branch no longer inherits persistence"))
+    {
+        return false;
+    }
+    world.unload_scene();
+    if (!expect(world.find_node(root_id) == root && !world.find_node(child_id) &&
+                    !world.find_node(leaf_id) && world.scenes().size() == 1,
+                "next unload removes detached branch and ordinary next scene") ||
+        !expect(root->set_persistent(false) && world.find_node(root_id) == root,
+                "unmark does not immediately destroy a node"))
+    {
+        return false;
+    }
+    world.unload_scene();
+    if (!expect(world.scenes().empty() && !world.find_node(root_id) && !world.destroy_scene(scene_id),
+                "unmarked roots and their empty retained scene are reclaimed"))
+    {
+        return false;
+    }
+    auto* retained_scene = world.create_scene("Retained");
+    auto* retained = retained_scene ? retained_scene->create_node("Retained") : nullptr;
+    if (!retained || !retained->set_persistent(true))
+    {
+        return false;
+    }
+    const auto retained_scene_id = retained_scene->id();
+    world.unload_scene();
+    auto* active = world.create_scene("Other owner");
+    if (!active || !world.set_paused(true) ||
+        !expect(world.destroy_scene(retained_scene_id) && world.scene() == active && world.paused(),
+                "precise cleanup does not clear another scene or its pause state"))
+    {
+        return false;
+    }
+    auto* explicit_root = active->create_node("Explicit destroy");
+    if (!explicit_root || !explicit_root->set_persistent(true))
+    {
+        return false;
+    }
+    const auto explicit_id = explicit_root->id();
+    world.unload_scene();
+    if (!expect(active->destroy_node(explicit_id) && !world.find_node(explicit_id) &&
+                    world.tick(0) && world.scenes().empty(),
+                "explicit node destruction reclaims empty container at the next world update"))
+    {
+        return false;
+    }
+    active = world.create_scene("Shutdown");
+    auto* last = active ? active->create_node("Last") : nullptr;
+    if (!last || !last->set_persistent(true))
+    {
+        return false;
+    }
+    const auto last_id = last->id();
+    world.unload_scene();
+    world.destroy_scene();
+    world.destroy_scene();
+    return expect(world.scenes().empty() && !world.find_node(last_id),
+                  "complete cleanup releases persistent nodes even without an active scene");
+}
+
+bool persistent_scene_loading()
+{
+    using namespace engine;
+    test_support::ResourceFixture fixture;
+    auto* resources = ResourceSystem::instance();
+    WorldSystem world({64, 1.0});
+    auto* source = resources && world.initialize({}) ? world.create_scene("Source") : nullptr;
+    auto* node = source ? source->create_node("Resource owner") : nullptr;
+    schema::SceneDataT data;
+    if (!node || !source->build_data(data) || !add_scene_resource(fixture, "persistent.scene", data))
+    {
+        return false;
+    }
+    data.info->name = "Replacement";
+    if (!add_scene_resource(fixture, "replacement.scene", data) || !fixture.publish(*resources))
+    {
+        return false;
+    }
+    ResourcePtr resource;
+    if (!fixture.load("persistent.scene", resource))
+    {
+        return false;
+    }
+    const std::weak_ptr<const Resource> original_resource = resource;
+    const auto first = world.begin_restore_scene(resource);
+    if (!first || world.step_restore_scene(first, 64) != SceneRestoreStatus::ready)
+    {
+        return false;
+    }
+    auto* loaded = world.commit_restore_scene(first);
+    auto* persistent = loaded ? loaded->nodes().front().get() : nullptr;
+    if (!persistent || !persistent->set_persistent(true))
+    {
+        return false;
+    }
+    resource.reset();
+    const auto persistent_id = persistent->id();
+    if (!expect(!original_resource.expired(), "active scene owns its loaded root resource") ||
+        !fixture.load("replacement.scene", resource))
+    {
+        return false;
+    }
+    const auto cancelled = world.begin_restore_scene(resource);
+    if (!cancelled || world.step_restore_scene(cancelled, 64) != SceneRestoreStatus::ready ||
+        !expect(world.scenes().size() == 1 && world.scene() == loaded,
+                "restored candidates remain outside the published world"))
+    {
+        return false;
+    }
+    world.cancel_restore_scene(cancelled);
+    if (!expect(!world.commit_restore_scene(cancelled) && !world.load_scene("missing.scene") &&
+                    world.find_node(persistent_id) == persistent && !original_resource.expired(),
+                "cancellation and failed load keep the active scene and persistent objects"))
+    {
+        return false;
+    }
+    const auto next_request = world.begin_restore_scene(resource);
+    if (!next_request || world.step_restore_scene(next_request, 64) != SceneRestoreStatus::ready)
+    {
+        return false;
+    }
+    auto* next = world.commit_restore_scene(next_request);
+    if (!expect(next && next != loaded && world.scenes().size() == 2 &&
+                    world.find_node(persistent_id) == persistent && original_resource.expired(),
+                "commit preserves original nodes but releases the entire old scene resource root"))
+    {
+        return false;
+    }
+    auto* synchronous = world.load_scene("replacement.scene");
+    if (!expect(synchronous && world.scenes().size() == 2 &&
+                    world.find_node(persistent_id) == persistent,
+                "synchronous replacement has the same persistence contract"))
+    {
+        return false;
+    }
+    const auto pending = world.begin_restore_scene(resource);
+    world.unload_scene();
+    return expect(pending && world.step_restore_scene(pending, 64) == SceneRestoreStatus::failed &&
+                      !world.scene() && world.find_node(persistent_id) == persistent,
+                  "explicit unload cancels pending restore and keeps the persistent subtree");
+}
+
 bool component_contracts()
 {
     const engine::EngineConfig config;
@@ -1079,7 +1272,7 @@ int main()
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
         !hierarchy_and_transforms() || !indexed_scene_restore() || !incremental_scene_restore() ||
-        !component_contracts() ||
+        !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
         !camera_rays() || !transient_nodes() || !material_contracts() || !resource_namespaces())
     {
         return 1;

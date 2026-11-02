@@ -307,16 +307,19 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene& scene, std::size_t staging_bytes)
+bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_t staging_bytes)
 {
     const EnvironmentSettings* environment = nullptr;
-    for (const auto& node : scene.nodes())
+    if (scene != nullptr)
     {
-        const auto* component = node->get_component<EnvironmentComponent>();
-        if (component != nullptr && component->enabled())
+        for (const auto& node : scene->nodes())
         {
-            environment = &component->settings();
-            break;
+            const auto* component = node->get_component<EnvironmentComponent>();
+            if (component != nullptr && component->enabled())
+            {
+                environment = &component->settings();
+                break;
+            }
         }
     }
     if (environment == nullptr || environment->ibl_irradiance_guid.empty())

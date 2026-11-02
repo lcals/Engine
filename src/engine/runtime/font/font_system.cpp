@@ -104,7 +104,7 @@ struct FontSystem::GpuState
 
     struct Program
     {
-        ResourcePtr resource;
+        std::weak_ptr<const Resource> resource;
         bgfx::ProgramHandle handle = BGFX_INVALID_HANDLE;
 
         ~Program() noexcept
@@ -218,11 +218,14 @@ struct FontSystem::GpuState
 
     Program* get_program(const ResourcePtr& resource)
     {
+        std::erase_if(programs, [](const auto& program) { return program->resource.expired(); });
         for (const auto& program : programs)
         {
-            if (program->resource->info().guid == resource->info().guid &&
-                program->resource->generation() == resource->generation())
+            const auto existing = program->resource.lock();
+            if (existing && existing->info().guid == resource->info().guid &&
+                existing->generation() == resource->generation())
             {
+                program->resource = resource;
                 return program.get();
             }
         }
@@ -311,6 +314,20 @@ FontSystem::~FontSystem() noexcept
 bool FontSystem::on_initialize(const EngineConfig&)
 {
     last_error_.clear();
+    return true;
+}
+
+bool FontSystem::on_tick(double)
+{
+    if (gpu_)
+    {
+        std::erase_if(gpu_->textures, [](const auto& item) { return item->resource.expired(); });
+        std::erase_if(gpu_->programs, [](const auto& item) { return item->resource.expired(); });
+        if (gpu_->textures.empty() && gpu_->programs.empty())
+        {
+            gpu_.reset();
+        }
+    }
     return true;
 }
 

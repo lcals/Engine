@@ -450,6 +450,63 @@ export default class extends Gameplay {
 }
 )js";
 
+constexpr std::string_view persistent_source = R"js(
+import {Gameplay,Scene,UiComponent,UiController} from 'engine';
+function check(value,message) { if (!value) throw new Error(message); }
+class PersistentController extends UiController {
+    OnBind() {
+        ++this.model.binds;
+        return this.Listen(this.model.button,'click',()=>{
+            const model=this.model;
+            ++model.count;
+            if (model.count===1 || model.count===3) {
+                model.current=Scene.Load('scenes/alternate.scene');
+                check(model.current && !model.original.IsValid(), 'replace gameplay scene');
+                const regular=model.current.FindNode('View').GetComponent(UiComponent);
+                check(regular.FindElement('action').On('click',()=>{
+                    throw new Error('ordinary scene UI received a click through persistent UI');
+                })>0, 'ordinary document remains underneath');
+            } else if (model.count===2) {
+                check(model.current.Destroy(), 'unload gameplay while Loading remains');
+            } else if (model.count===4) {
+                check(Scene.Load('missing.scene')===null && model.button.isValid &&
+                    model.current.IsValid(), 'failed loading leaves both documents intact');
+                check(this.view.node.Destroy(), 'explicit persistent destruction');
+                return;
+            }
+            check(model.input.value==='kept' && model.button.isValid && this.bound &&
+                this.Refresh(), 'original controller, input state and handles survive');
+        });
+    }
+    OnRefresh() { return this.model.label.SetText(String(this.model.count)); }
+    OnUnbind() { ++this.model.unbinds; }
+}
+export default class extends Gameplay {
+    OnInitialize() {
+        const original=Scene.Load('scenes/main.scene'), root=original?.FindNode('View');
+        const view=root?.GetComponent(UiComponent);
+        check(root?.SetPersistent(true) && view, 'mark ordinary UI node persistent');
+        this.model={original,current:original,count:0,binds:0,unbinds:0,
+            button:view.FindElement('action'),input:view.FindElement('name'),
+            label:view.FindElement('label')};
+        check(this.model.input.SetValue('kept'), 'set initial control state');
+        this.controller=new PersistentController(view,this.model);
+        return this.controller.Bind();
+    }
+    Update() {
+        check(this.model.binds===1, 'scene changes must not rebind the controller');
+        if (this.model.count<4) {
+            check(this.controller.bound && this.model.unbinds===0 &&
+                this.model.button.isValid && this.model.input.value==='kept',
+                'retained document remains bound');
+        } else {
+            check(!this.controller.bound && this.model.unbinds===1 &&
+                !this.model.button.isValid, 'explicit removal invalidates and unbinds once');
+        }
+    }
+}
+)js";
+
 struct Systems
 {
     engine::ResourceSystem resources;
@@ -529,6 +586,7 @@ struct Systems
         }
         auto catalog = pipeline.catalog();
         if (!add_script(catalog, project, "mvc", mvc_source) ||
+            !add_script(catalog, project, "persistent", persistent_source) ||
             !add_script(catalog, project, "no-ui", no_ui_source) ||
             !add_script(catalog, project, "async", async_source))
         {
@@ -886,6 +944,75 @@ bool mvc_case(Systems& systems, const fs::path& project)
     return true;
 }
 
+bool persistent_documents(Systems& systems, const fs::path& project)
+{
+    if (!systems.start("persistent"))
+    {
+        return false;
+    }
+    auto* root = systems.world.scene()->nodes().front().get();
+    const auto node_id = root->id();
+    engine::UiElementHandle original;
+    if (!expect(systems.ui.find_element(node_id, "action", original),
+                "record original persistent element identity"))
+    {
+        return false;
+    }
+    for (int phase = 1; phase <= 4; ++phase)
+    {
+        if (!click(systems) || !systems.tick() || !systems.frames())
+        {
+            return false;
+        }
+        if (phase < 4)
+        {
+            engine::UiElementHandle current;
+            if (!expect(systems.world.find_node(node_id) == root &&
+                            systems.ui.find_element(node_id, "action", current) &&
+                            current.document_id == original.document_id &&
+                            current.element_id == original.element_id &&
+                            systems.ui.is_valid(original) &&
+                            (phase != 2 || systems.world.scene() == nullptr),
+                        "same native node, document and element survive scene changes and empty world"))
+            {
+                return false;
+            }
+        }
+    }
+    if (!expect(!systems.world.find_node(node_id) && !systems.ui.is_valid(original) &&
+                    systems.ui.document_count() == 1,
+                "explicitly destroyed persistent UI leaves ordinary scene UI intact"))
+    {
+        return false;
+    }
+    systems.stop();
+    if (!systems.start("persistent") || !click(systems) || !systems.tick() ||
+        !expect(systems.script.prepare_gameplay(systems.resources.catalog(),
+                                                {{"content", project / "cache"}},
+                                                "scripts/persistent.js"),
+                "prepare a new Run while persistent UI is live"))
+    {
+        return false;
+    }
+    const auto old_node = systems.world.scenes().front()->nodes().front()->id();
+    engine::UiElementHandle old_element;
+    if (!systems.ui.find_element(old_node, "action", old_element))
+    {
+        return false;
+    }
+    systems.stop();
+    if (!expect(systems.world.scenes().empty() && !systems.ui.is_valid(old_element) &&
+                    systems.script.start_prepared_gameplay() && systems.renderer.prepare_scene(),
+                "Run replacement destroys persistent objects before creating new ones") ||
+        !systems.frames() || !systems.tick() || !click(systems) || !systems.tick())
+    {
+        return false;
+    }
+    systems.stop();
+    return expect(systems.world.scenes().empty() && systems.ui.document_count() == 0,
+                  "stopping clears all persistent UI and its subscriptions");
+}
+
 bool lifetime_cases(Systems& systems)
 {
     for (const auto* operation :
@@ -1052,7 +1179,8 @@ int main(int argc, char** argv)
                  expect(bgfx::getRendererType() != bgfx::RendererType::Noop,
                         "integration requires a real GPU backend") &&
                  native_mouse_capture_case(systems) && native_touch_case(systems) &&
-                 mvc_case(systems, project.root) && lifetime_cases(systems) &&
+                 mvc_case(systems, project.root) && persistent_documents(systems, project.root) &&
+                 lifetime_cases(systems) &&
                  bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);
     }
