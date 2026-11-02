@@ -111,6 +111,7 @@
 
 - [组件与系统](../plugins/runtime/class-diagrams/destruction.md)：普通节点绑定破坏资源，世界子系统拥有瞬态连通组，调用核心物理能力。
 - [Blast 损伤图](../plugins/runtime/class-diagrams/destruction-graph.md)：官方图、部分损伤、支撑拆分与候选状态克隆，不依赖渲染或编辑器。
+- [动态碎片退休](../plugins/runtime/class-diagrams/fragment-retirement.md)：按源组件显式执行动态碎片数量/寿命预算，复用 Blast actor 释放与 Jolt 回收，保持快照和后续破坏一致。
 - [官方预破碎](../plugins/editor/class-diagrams/destruction-authoring.md)：参数盒体切片/Voronoi 与连接生成，离线依赖留在编辑器插件。
 - [导入、编辑事务与 MCP](../plugins/editor/class-diagrams/destruction-editor.md)：独立资源、场景 GUID、完整状态撤销及工具转发。
 

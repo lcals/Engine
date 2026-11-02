@@ -35,6 +35,9 @@ struct GeneratedGroup
     std::vector<std::uint32_t> chunks;
     std::uint64_t node = 0;
     bool anchored = false;
+    double dynamic_age_seconds = 0;
+    std::uint64_t renderer_instance = 0;
+    std::uint64_t collider_instance = 0;
 };
 
 void build_group_geometry(const schema::DestructionAssetDataT& asset,
@@ -302,6 +305,7 @@ struct DestructionSystem::State
     };
     struct Owner
     {
+        std::uint64_t node = 0;
         std::uint64_t scene = 0;
         std::uint64_t revision = 0;
         std::weak_ptr<const std::uint8_t> lifetime;
@@ -313,10 +317,12 @@ struct DestructionSystem::State
     {
         std::function<void(bool)> callback;
         bool success = false;
+        std::uint64_t owner = 0;
     };
     std::map<std::uint64_t, std::vector<GeneratedGroup>> generated;
     std::map<std::uint64_t, Owner> owners;
     std::vector<Completion> ready;
+    std::map<std::uint64_t, std::size_t> pending_by_owner;
     std::size_t pending = 0;
     std::uint64_t published_after = 0;
     std::uint64_t submitted_after = 0;
@@ -326,7 +332,7 @@ struct DestructionSystem::State
     {
         for (auto& request : owner.requests)
         {
-            ready.push_back({std::move(request.completed), false});
+            ready.push_back({std::move(request.completed), false, owner.node});
         }
     }
 
@@ -465,7 +471,8 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
     std::vector<GeneratedGroup> created;
     std::vector<GeneratedGroup> published;
     std::vector<std::pair<RigidBody*, schema::RigidBodyDataT>> velocity_updates;
-    bool changed = !reuse_groups || candidate.healths() != component.graph_.healths();
+    bool changed = !reuse_groups || groups.size() != previous.size() ||
+                   candidate.healths() != component.graph_.healths();
     const auto fail = [&](std::string error)
     {
         if (!release_groups(world_, physics_, created))
@@ -481,7 +488,9 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         const auto& saved = groups[index];
         if (saved.chunks != description.chunks || !saved.transform ||
             !valid_transform(*saved.transform) || !finite(saved.linear_velocity) ||
-            !finite(saved.angular_velocity))
+            !finite(saved.angular_velocity) || !std::isfinite(saved.dynamic_age_seconds) ||
+            saved.dynamic_age_seconds < 0 ||
+            (description.anchored && saved.dynamic_age_seconds != 0))
         {
             return fail("Invalid destruction group pose or identity");
         }
@@ -548,7 +557,8 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
             return fail("Cannot create destruction fragment node");
         }
         node->set_transient(true);
-        created.push_back({description.chunks, node->id(), description.anchored});
+        created.push_back({description.chunks, node->id(), description.anchored,
+                           saved.dynamic_age_seconds});
         auto* renderer = node->add_component<MeshRenderer>();
         auto* collider = node->add_component<Collider>();
         auto* body = node->add_component<RigidBody>();
@@ -576,6 +586,9 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         {
             return fail("Cannot prepare destruction convex compound collision");
         }
+        auto& record = created.back();
+        record.renderer_instance = renderer->mesh_instance_id();
+        record.collider_instance = collider->instance_id();
         published.push_back(created.back());
     }
     if (!changed)
@@ -898,11 +911,13 @@ bool DestructionSystem::request_damage(DestructionComponent& component, const Ve
         return false;
     }
     auto& owner = state_->owners[id];
+    owner.node = id;
     owner.scene = component.node().scene().id();
     owner.revision = component.revision_;
     owner.lifetime = component.lifetime_;
     owner.requests.push_back({center, radius, damage_value, impulse, std::move(completed)});
     ++state_->pending;
+    ++state_->pending_by_owner[id];
     component.last_error_.clear();
     return true;
 }
@@ -994,7 +1009,8 @@ void DestructionSystem::process_requests()
                 component->last_error_ = prepared.error;
             }
             owner.prepared.reset();
-            state_->ready.push_back({std::move(owner.requests.front().completed), success});
+            state_->ready.push_back(
+                {std::move(owner.requests.front().completed), success, owner.node});
             owner.requests.pop_front();
         }
         if (owner.requests.empty())
@@ -1055,7 +1071,7 @@ void DestructionSystem::process_requests()
             if (!valid)
             {
                 component->last_error_ = "Cannot capture asynchronous destruction input";
-                state_->ready.push_back({std::move(owner.requests.front().completed), false});
+                state_->ready.push_back({std::move(owner.requests.front().completed), false, id});
                 owner.requests.pop_front();
                 continue;
             }
@@ -1084,6 +1100,11 @@ void DestructionSystem::process_requests()
         {
             return;
         }
+        const auto pending = state_->pending_by_owner.find(completion.owner);
+        if (pending != state_->pending_by_owner.end() && --pending->second == 0)
+        {
+            state_->pending_by_owner.erase(pending);
+        }
         completion.callback(completion.success);
     }
 }
@@ -1102,6 +1123,96 @@ bool DestructionSystem::owns_fragment(const DestructionComponent& component,
     return found != state_->generated.end() && node && node->transient() &&
            std::any_of(found->second.begin(), found->second.end(),
                        [node_id](const auto& group) { return group.node == node_id; });
+}
+
+bool DestructionSystem::retire_fragments(DestructionComponent& component, std::uint32_t max_count,
+                                         double max_age_seconds, std::uint32_t& retired_count)
+{
+    ENGINE_PROFILE_ZONE("Destruction.retire_fragments");
+    retired_count = 0;
+    const auto id = component.node().id();
+    if (!state_ || !is_initialized() || !component.ready_ ||
+        world_.find_node(id) != &component.node() ||
+        component.node().get_component<DestructionComponent>() != &component ||
+        !std::isfinite(max_age_seconds) || max_age_seconds < 0)
+    {
+        component.last_error_ = "Invalid destruction retirement owner or budget";
+        return false;
+    }
+    if (state_->pending_by_owner.contains(id))
+    {
+        component.last_error_ = "Destruction retirement requires all owner requests to complete";
+        return false;
+    }
+    const auto found = state_->generated.find(id);
+    if (found == state_->generated.end() ||
+        found->second.size() != component.graph_.groups().size())
+    {
+        component.last_error_ = "Cannot locate destruction groups for retirement";
+        return false;
+    }
+    std::vector<const GeneratedGroup*> dynamic;
+    for (const auto& group : found->second)
+    {
+        const auto* node = world_.find_node(group.node);
+        const auto* transform = node ? node->get_component<Transform>() : nullptr;
+        const auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
+        const auto* collider = node ? node->get_component<Collider>() : nullptr;
+        const auto* body = node ? node->get_component<RigidBody>() : nullptr;
+        if (!node || !node->transient() || node->parent() || !transform || !renderer ||
+            !collider || !body || renderer->mesh_instance_id() != group.renderer_instance ||
+            collider->instance_id() != group.collider_instance ||
+            !valid_transform(transform->settings()) ||
+            !Collider::valid_settings(collider->settings()) ||
+            collider->settings().shape != schema::ColliderShape::compound ||
+            !RigidBody::valid_settings(body->settings()) ||
+            body->settings().motion != (group.anchored ? schema::BodyMotion::static_body
+                                                       : schema::BodyMotion::dynamic))
+        {
+            component.last_error_ = "A generated destruction fragment was removed or replaced";
+            return false;
+        }
+        if (!group.anchored)
+        {
+            dynamic.push_back(&group);
+        }
+    }
+    std::sort(dynamic.begin(), dynamic.end(), [](const auto* a, const auto* b)
+              {
+                  return a->dynamic_age_seconds != b->dynamic_age_seconds
+                             ? a->dynamic_age_seconds > b->dynamic_age_seconds
+                             : a->chunks.front() < b->chunks.front();
+              });
+    const auto expired = max_age_seconds > 0
+                             ? static_cast<std::size_t>(std::count_if(
+                                   dynamic.begin(), dynamic.end(), [&](const auto* group)
+                                   {
+                                       return group->dynamic_age_seconds >= max_age_seconds;
+                                   }))
+                             : 0;
+    const auto excess = dynamic.size() > max_count ? dynamic.size() - max_count : 0;
+    const auto count = std::max(expired, excess);
+    if (count == 0)
+    {
+        component.last_error_.clear();
+        return true;
+    }
+    std::vector<std::uint32_t> groups;
+    for (std::size_t index = 0; index < count; ++index)
+    {
+        groups.push_back(dynamic[index]->chunks.front());
+    }
+    DestructionGraph candidate;
+    std::vector<schema::DestructionGroupStateT> states;
+    if (!component.graph_.clone(candidate, component.last_error_) ||
+        !candidate.retire_groups(groups, component.last_error_) ||
+        !prepare_groups(component, candidate, true, states) ||
+        !publish(component, std::move(candidate), states, true))
+    {
+        return false;
+    }
+    retired_count = static_cast<std::uint32_t>(count);
+    return true;
 }
 
 bool DestructionSystem::refresh_support(DestructionComponent& component, const Collider& support,
@@ -1209,7 +1320,23 @@ bool DestructionSystem::snapshot(const DestructionComponent& component,
         {
             return false;
         }
+        saved->dynamic_age_seconds = group.dynamic_age_seconds;
         state.groups.push_back(std::move(saved));
+    }
+    std::vector<bool> active(component.graph_.data().chunks.size(), false);
+    for (const auto& group : component.graph_.groups())
+    {
+        for (const auto chunk : group.chunks)
+        {
+            active[chunk] = true;
+        }
+    }
+    for (std::size_t chunk = 0; chunk < active.size(); ++chunk)
+    {
+        if (!active[chunk])
+        {
+            state.retired_chunks.push_back(static_cast<std::uint32_t>(chunk));
+        }
     }
     output = std::move(state);
     return true;
@@ -1218,7 +1345,7 @@ bool DestructionSystem::snapshot(const DestructionComponent& component,
 bool DestructionSystem::restore(DestructionComponent& component,
                                 const schema::DestructionStateDataT& state)
 {
-    if (!component.resource_ || state.schema_version != 1 ||
+    if (!component.resource_ || state.schema_version != 2 ||
         state.base_guid != component.resource_->info().guid ||
         state.base_hash != component.resource_->info().content_hash)
     {
@@ -1228,6 +1355,39 @@ bool DestructionSystem::restore(DestructionComponent& component,
     DestructionGraph candidate;
     if (!candidate.initialize(component.graph_.data(), component.last_error_) ||
         !candidate.restore_health(state.bond_health, component.last_error_))
+    {
+        return false;
+    }
+    if (!std::is_sorted(state.retired_chunks.begin(), state.retired_chunks.end()) ||
+        std::adjacent_find(state.retired_chunks.begin(), state.retired_chunks.end()) !=
+            state.retired_chunks.end() ||
+        (!state.retired_chunks.empty() &&
+         state.retired_chunks.back() >= candidate.data().chunks.size()))
+    {
+        component.last_error_ = "Invalid retired destruction chunk identities";
+        return false;
+    }
+    std::vector<std::uint32_t> retired_groups;
+    for (const auto& group : candidate.groups())
+    {
+        const auto count = std::count_if(
+            group.chunks.begin(), group.chunks.end(), [&](std::uint32_t chunk)
+            {
+                return std::binary_search(state.retired_chunks.begin(),
+                                           state.retired_chunks.end(), chunk);
+            });
+        if (count == 0)
+        {
+            continue;
+        }
+        if (group.anchored || static_cast<std::size_t>(count) != group.chunks.size())
+        {
+            component.last_error_ = "Retired chunks do not match complete detached groups";
+            return false;
+        }
+        retired_groups.push_back(group.id);
+    }
+    if (!candidate.retire_groups(retired_groups, component.last_error_))
     {
         return false;
     }
@@ -1252,9 +1412,35 @@ bool DestructionSystem::restore(DestructionComponent& component,
     return publish(component, std::move(candidate), groups, false);
 }
 
-bool DestructionSystem::on_tick(double)
+bool DestructionSystem::on_tick(double delta_time)
 {
-    return world_.paused() || synchronize();
+    if (world_.paused())
+    {
+        return true;
+    }
+    if (!state_ || !std::isfinite(delta_time) || delta_time < 0)
+    {
+        return false;
+    }
+    for (auto& [id, groups] : state_->generated)
+    {
+        const auto* node = world_.find_node(id);
+        const auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
+        if (!component || !active_component(*component))
+        {
+            continue;
+        }
+        for (auto& group : groups)
+        {
+            if (!group.anchored)
+            {
+                group.dynamic_age_seconds =
+                    std::min(group.dynamic_age_seconds,
+                              std::numeric_limits<double>::max() - delta_time) + delta_time;
+            }
+        }
+    }
+    return synchronize();
 }
 
 bool DestructionSystem::synchronize()

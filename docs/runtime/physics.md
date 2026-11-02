@@ -2,7 +2,9 @@
 
 `PhysicsSystem` 使用 [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 建立碰撞世界，由宿主借用 `WorldSystem` 并统一安排生命周期。公开接口和场景组件不包含 Jolt 类型。
 
-宿主可同时注入已初始化的 `TaskSystem`，刚体求解通过 Jolt 官方 `JobSystemWithBarrier` 在共享 oneTBB worker 上执行；任务域控制并发与优先级，不另建物理线程池。域不传时同步执行。域必须活到物理系统关闭之后，关闭或重配不得与物理步进并发。当前帧内完成求解、包装任务引用释放、组件回写及事件发布，保持既有查询和脚本时序；角色循环仍串行。详见[物理任务契约](class-diagrams/physics-system.md)。
+宿主可同时注入已初始化的 `TaskSystem`，刚体求解通过 Jolt 官方 `JobSystemWithBarrier` 在共享 oneTBB worker 上执行；任务域控制并发与优先级，不另建物理线程池。域不传时同步执行。域必须活到物理系统关闭之后，关闭或重配不得与物理步进并发。当前帧内完成真实求解、组件回写及事件发布，保持既有查询和脚本时序；角色循环仍串行。
+
+包装任务的在途数不超过任务域并发额度，满额或投递被拒绝时由官方 Barrier 执行就绪工作。调用线程已完成的 Job 可由迟到的包装任务继续持有，后者只释放引用，不重复求解，也不延长每个物理子步的等待；官方任务存储预留额外容量。`clear()` 和关闭在释放物理世界前等待这些引用回收。Tracy 以 `Physics.barrier` 区分求解等待，以 `Physics.drain_wrappers` 记录生命周期回收。回归覆盖 worker 被占用时连续步进、任务拒绝、清理及重启。详见[物理任务契约](class-diagrams/physics-system.md)。
 
 场景中的物理对象使用节点和组件表达：`Collider` 定义盒、球、胶囊或静态三角网格，以及中心、摩擦、弹性和触发器属性；`RigidBody` 定义静态、运动学或动态运动、质量、阻尼、重力倍率及速度。持久数据来自 `scene.fbs`。没有刚体组件的碰撞体视为静态物体；禁用碰撞体、刚体或变换会移除对应物理对象。
 

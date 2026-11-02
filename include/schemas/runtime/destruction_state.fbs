@@ -6,15 +6,17 @@ table DestructionGroupState {
     transform:TransformData (required);
     linear_velocity:Vec3 (required, native_inline);
     angular_velocity:Vec3 (required, native_inline);
+    dynamic_age_seconds:double = 0;
 }
 
 table DestructionStateData {
-    schema_version:uint = 1;
+    schema_version:uint = 2;
     base_guid:string (required);
     base_hash:string (required);
     // Stable resource bond order, followed by world bonds in ascending anchored chunk order.
     bond_health:[float] (required);
     groups:[DestructionGroupState] (required);
+    retired_chunks:[uint] (required);
 }
 
 root_type DestructionStateData;

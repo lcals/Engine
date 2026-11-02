@@ -468,6 +468,60 @@ bool crowd_crossing()
                   navigation);
 }
 
+bool crowd_moving_target()
+{
+    using Status = engine::NavigationAgentStatus;
+    engine::NavigationSystem navigation(navigation_tasks);
+    auto mesh = grid(24, 16);
+    const std::array sources{engine::NavigationGeometry{&mesh}};
+    engine::NavigationAgentHandle handle;
+    engine::NavigationAgentState state;
+    engine::NavigationAgentSettings settings;
+    settings.max_acceleration = 12;
+    if (!expect(navigation.initialize({}) &&
+                    navigation.build(sources, {{0, -2, 0}, {24, 4, 16}}, {}) &&
+                    navigation.configure_crowd(1) &&
+                    navigation.create_agent({2, 0, 8}, settings, handle) &&
+                    navigation.set_agent_target(handle, {22, 0, 8}) && advance(navigation, 60) &&
+                    navigation.agent_state(handle, state) && state.velocity.x() > 2.5,
+                "pursuer accelerates before its target begins moving", navigation))
+    {
+        return false;
+    }
+    const auto start = state.position;
+    for (int frame = 0; frame < 120; ++frame)
+    {
+        const auto velocity = state.velocity;
+        const engine::Vec3 target{22, 0, 8 + 0.5 * std::sin(frame / 60.0)};
+        if (!expect(navigation.set_agent_target(handle, target) &&
+                        navigation.agent_state(handle, state) && state.status == Status::pending &&
+                        distance(state.velocity, velocity) < 1.0e-8 && advance(navigation, 1) &&
+                        navigation.agent_state(handle, state) && state.status == Status::moving &&
+                        state.velocity.x() > 2.5,
+                    "continuous target updates preserve motion instead of restarting acceleration",
+                    navigation))
+        {
+            return false;
+        }
+    }
+    if (!expect(state.position.x() - start.x() > 5 &&
+                    !navigation.set_agent_target(handle, {100, 0, 8}) &&
+                    navigation.agent_state(handle, state) && state.status == Status::unreachable &&
+                    distance(state.velocity, {}) == 0,
+                "moving pursuer makes progress but a failed target immediately stops it",
+                navigation))
+    {
+        return false;
+    }
+    const auto stopped = state.position;
+    return expect(advance(navigation, 30) && navigation.agent_state(handle, state) &&
+                      distance(state.position, stopped) < 0.001 &&
+                      navigation.set_agent_target(handle, {22, 0, 8}) && advance(navigation, 60) &&
+                      navigation.agent_state(handle, state) && state.position.x() > stopped.x() + 2,
+                  "failed retarget discards old motion and a later valid target resumes pursuit",
+                  navigation);
+}
+
 bool crowd_rebuild()
 {
     using Status = engine::NavigationAgentStatus;
@@ -564,7 +618,7 @@ bool crowd_rebuild()
 bool run_suite()
 {
     return local_rebuild() && geometry_and_boundaries() && crowd_lifecycle() && crowd_crossing() &&
-           crowd_rebuild();
+           crowd_moving_target() && crowd_rebuild();
 }
 
 } // namespace

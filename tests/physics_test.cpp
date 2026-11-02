@@ -12,10 +12,14 @@
 #include "runtime/world/world_system.hpp"
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <limits>
 #include <memory>
+#include <semaphore>
+#include <thread>
 #include <utility>
 
 namespace
@@ -2189,6 +2193,91 @@ bool run_suite()
            query_lifecycle() && impact_snapshots();
 }
 
+bool occupied_workers(engine::ThreadSystem& threads, bool reject_submissions)
+{
+    engine::TaskConfig task_config;
+    task_config.name = "Physics occupied worker";
+    task_config.max_concurrency = 1;
+    task_config.max_pending = reject_submissions ? 1 : 8192;
+    engine::TaskSystem tasks(threads, task_config);
+    engine::WorldSystem world;
+    engine::PhysicsSystem physics(&world, &tasks);
+    if (!expect(tasks.initialize({}) && world.initialize({}) && physics.initialize({}) &&
+                    world.create_scene("Occupied worker"),
+                "initialize physics with an independently occupied task domain"))
+    {
+        return false;
+    }
+    auto* body = create(*world.scene(), "Falling body", {0, 1000, 0},
+                        engine::schema::ColliderShape::box, true);
+    if (!expect(body != nullptr, "create body for queued-wrapper regression"))
+    {
+        return false;
+    }
+
+    std::binary_semaphore started{0};
+    std::binary_semaphore release_worker{0};
+    auto blocker = tasks.submit(
+        "Occupy physics worker", [&]
+        {
+            started.release();
+            release_worker.acquire();
+            return true;
+        });
+    if (!expect(blocker.valid(), "accept the worker gate"))
+    {
+        return false;
+    }
+    if (!started.try_acquire_for(std::chrono::seconds(5)))
+    {
+        release_worker.release();
+        const bool drained = tasks.wait();
+        return expect(drained && blocker.get(), "release delayed worker gate") &&
+               expect(false, "worker gate started before physics steps");
+    }
+
+    std::binary_semaphore stepped{0};
+    std::binary_semaphore cleared{0};
+    std::atomic<bool> step_timeout{false};
+    std::atomic<bool> cleared_before_workers{false};
+    std::jthread release(
+        [&]
+        {
+            // A broken adapter must fail the test instead of hanging its caller forever.
+            if (!stepped.try_acquire_for(std::chrono::seconds(5)))
+            {
+                step_timeout = true;
+            }
+            else if (!reject_submissions)
+            {
+                cleared_before_workers = cleared.try_acquire_for(std::chrono::milliseconds(50));
+            }
+            release_worker.release();
+        });
+    // Enough updates to exhaust the job free-list if stale wrapper references are unbounded.
+    const bool advanced = advance(physics, 512);
+    const bool published = height(*body) < 900 &&
+                           body->get_component<engine::RigidBody>()->linear_velocity().y() < -50;
+    stepped.release();
+    physics.clear();
+    cleared.release();
+    release.join();
+    const bool drained = tasks.wait();
+    if (!expect(advanced && published && !step_timeout,
+                "official barriers finish repeated simulation while workers are occupied") ||
+        !expect(!cleared_before_workers,
+                "clear drains accepted wrapper references before releasing the Jolt world") ||
+        !expect(drained && blocker.get(), "all accepted tasks finish after opening the gate") ||
+        !expect(physics.body_count() == 0 && physics.tick(0) && physics.body_count() == 1,
+                "clear and recreation retain no stale wrapper or body state"))
+    {
+        return false;
+    }
+    physics.shutdown();
+    return expect(physics.initialize({}) && physics.tick(1.0 / 60.0),
+                  "physics can restart with the same task domain after draining jobs");
+}
+
 } // namespace
 
 int main()
@@ -2216,6 +2305,10 @@ int main()
         return 1;
     }
     tasks.shutdown();
+    if (!occupied_workers(threads, false) || !occupied_workers(threads, true))
+    {
+        return 1;
+    }
 
     engine::TaskConfig limited_config;
     limited_config.name = "Physics limited";

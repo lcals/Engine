@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/task/task_system.hpp"
 
 // Jolt requires its base definitions before other headers.
@@ -9,6 +10,7 @@
 #include <Jolt/Core/JobSystemWithBarrier.h>
 // clang-format on
 
+#include <algorithm>
 #include <atomic>
 #include <memory>
 #include <thread>
@@ -42,8 +44,12 @@ public:
     void initialize(JPH::uint max_jobs, JPH::uint max_barriers, TaskSystem* tasks)
     {
         tasks_ = tasks;
+        wrapper_capacity_ = max_jobs;
         JPH::JobSystemWithBarrier::Init(max_barriers);
-        jobs_.Init(max_jobs, max_jobs);
+        // A completed job can remain referenced by a queued wrapper across updates.
+        // Reserve a second official allocator page for those bounded references; keep
+        // the power-of-two page size and allow the task domain to change its idle budget.
+        jobs_.Init(tasks_ != nullptr ? max_jobs * 2 : max_jobs, max_jobs);
     }
 
     int GetMaxConcurrency() const override
@@ -75,9 +81,21 @@ public:
 
     void WaitForJobs(Barrier* barrier) override
     {
+        ENGINE_PROFILE_ZONE("Physics.barrier");
         JPH::JobSystemWithBarrier::WaitForJobs(barrier);
-        // Barrier completion does not include enqueued wrappers that lost the Execute race.
-        wait_for_wrappers();
+        // Real jobs are complete. Wrappers that lost Execute's race need only release
+        // their references later; their queue latency must not extend each simulation step.
+    }
+
+    void wait_for_wrappers() const noexcept
+    {
+        ENGINE_PROFILE_ZONE("Physics.drain_wrappers");
+        auto count = pending_->load(std::memory_order_acquire);
+        while (count != 0)
+        {
+            pending_->wait(count, std::memory_order_acquire);
+            count = pending_->load(std::memory_order_acquire);
+        }
     }
 
 private:
@@ -107,8 +125,18 @@ private:
             // Jolt's barrier runs ready jobs on the caller when no workers are supplied.
             return;
         }
+        // At most one wrapper per available worker, also bounded by the extra job storage.
+        // Saturation leaves ready jobs on Jolt's barrier, without creating another queue.
+        const auto limit = std::min(tasks_->max_concurrency(), wrapper_capacity_);
+        auto count = pending_->load(std::memory_order_relaxed);
+        do
+        {
+            if (count >= limit)
+            {
+                return;
+            }
+        } while (!pending_->compare_exchange_weak(count, count + 1, std::memory_order_relaxed));
         job->AddRef();
-        pending_->fetch_add(1, std::memory_order_relaxed);
         const auto execute = [job, pending = pending_]()
         {
             job->Execute();
@@ -143,17 +171,8 @@ private:
         jobs_.DestructObject(job);
     }
 
-    void wait_for_wrappers() const noexcept
-    {
-        auto count = pending_->load(std::memory_order_acquire);
-        while (count != 0)
-        {
-            pending_->wait(count, std::memory_order_acquire);
-            count = pending_->load(std::memory_order_acquire);
-        }
-    }
-
     TaskSystem* tasks_ = nullptr;
+    std::size_t wrapper_capacity_ = 0;
     JPH::FixedSizeFreeList<Job> jobs_;
     // The last wrapper may still notify after the waiter sees zero; it retains this counter.
     std::shared_ptr<std::atomic<std::size_t>> pending_ =

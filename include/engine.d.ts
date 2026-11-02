@@ -615,6 +615,9 @@ declare module "engine" {
             density?: number,
         ): boolean;
         readonly fragmentCount: number | null;
+        /** Keep at most maxCount dynamic fragments; zero retires all. A zero age disables expiry.
+         * Explicit main-thread request; returns retired count, or null for invalid/busy owners. */
+        RetireFragments(maxCount: number, maxAgeSeconds: number): number | null;
         Reset(): boolean;
         /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
         Save(slot: string): boolean;
@@ -849,6 +852,9 @@ declare module "engine" {
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
         OwnsFragment(nodeId: bigint): boolean;
+        /** Keep at most maxCount dynamic groups; static support is preserved. Zero retires all.
+         * A zero age disables expiry. Returns retired count, or null for invalid/busy owners. */
+        RetireFragments(maxCount: number, maxAgeSeconds: number): number | null;
         /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
         ApplyStress(
             x: number,

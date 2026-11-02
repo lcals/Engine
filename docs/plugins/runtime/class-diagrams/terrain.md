@@ -38,6 +38,7 @@ class TerrainComponent {
 +restore_data(ComponentDataT data) bool
 +apply_sphere(Vec3 center, float radius, bool fill) bool
 +collapse_detached(uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
++retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +fragment_count() size_t
 +reset() bool
 +snapshot(ByteBuffer output) bool
@@ -57,6 +58,7 @@ class TerrainSystem {
 +commit(TerrainComponent component, TerrainVolume candidate) bool
 +request_apply_sphere(TerrainComponent& component, const Vec3& center, float radius, bool fill, function~void(bool)~ completed) bool
 +collapse_detached(TerrainComponent component, uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
++retire_fragments(TerrainComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +clear_fragments(TerrainComponent component) void
 +fragment_count(TerrainComponent component) size_t
 +synchronize() bool
@@ -113,6 +115,8 @@ TerrainSystem ..> TerrainComponent : prepares and commits
 同步入口限制每次及每个地形至多 128 个活动碎块；超出调用预算或任一候选无效时整次保留原地形和旧碎块。候选网格、刚体与碰撞全部准备后，才从静态体积去掉已经转换的样本。碎块质量为近似样本体积乘调用方密度，并考虑正等比缩放；第一版只接受根节点、正等比缩放。`fragment_cells`、密度及最小岛大小由项目选择；不是引擎里的项目特判。
 
 碎块跟随真实刚体模拟。继续挖/填只修改剩余静态体积，不吞掉已有碎块；禁用地形同时隐藏/禁用碎块，重新启用保留其姿态。Reset 成功后恢复源体积并清理所有碎块；清资源、移除组件、删除源节点、普通源节点卸载、关闭系统均清理生成物。普通场景保存排除瞬态节点。当前 `TerrainStateData` 只支持静态密度，发生过塌方后直到显式 Reset/更换基础资源，`snapshot`、`save_state`、`restore`、`load_state` 明确失败（即便外部删除碎块节点也不放行）；不得保存一份丢失动态土石的“成功”快照。综合运行存档留待独立 schema 扩展。
+
+调用方通过 `retire_fragments(max_count, max_age_seconds, retired_count)` 显式回收本组件的动态土块；脚本对应 `RetireFragments(maxCount, maxAgeSeconds)`，成功返回实际退休数量，失败返回 null。先删除达到模拟寿命的土块，再按发布时间和稳定节点 ID 从旧到新裁到数量预算；数量 0 删除全部，年龄 0 不按年龄筛选。年龄只在未暂停的 `tick` 累计，`synchronize()` 不推进年龄。缺失或替换生成组件、非法参数、同 owner 仍有排队/在途/未派发完成项时整次拒绝；最后一项完成委托内可调用。退休不重建静态网格、不填回密度、不改变剩余土块的节点、姿态和速度，仅实际删除时推进 revision。全部退休仍保留上述塌方存档限制；Reset 才恢复源体积。完整契约见[动态碎片退休](fragment-retirement.md)。
 
 算法依据：[Godot Voxel Tools island_finder](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/util/island_finder.h) 及 [floating_chunks](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/edition/floating_chunks.cpp)，固定版本 MIT。复用其“六邻域标记→排除边界连接→隔离密度→生成动态体”思路，按本引擎现有 schema、Transvoxel、Jolt 接口实现；未引入 Godot 类或运行框架。当前没有颗粒堆积求解、土壤应力、异步塌方和 LOD；球形编辑已有上述异步入口。
 

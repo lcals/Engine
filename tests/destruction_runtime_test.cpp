@@ -237,6 +237,175 @@ struct Fixture
     }
 };
 
+bool retirement_contract()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Retirement contracts");
+    auto* owner = scene ? scene->create_node("Selected owner") : nullptr;
+    auto* other = scene ? scene->create_node("Other owner") : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    auto* untouched = other ? other->add_component<DestructionComponent>() : nullptr;
+    if (!component || !untouched)
+    {
+        return false;
+    }
+    auto pose = owner->get_component<Transform>()->settings();
+    pose.position = {0, 5, 0};
+    if (!owner->get_component<Transform>()->set_settings(pose))
+    {
+        return false;
+    }
+    pose.position = {20, 5, 0};
+    auto settings = component->settings();
+    settings.destruction_guid = asset_guid;
+    settings.density = 1;
+    ByteBuffer other_before;
+    ByteBuffer before;
+    ByteBuffer after;
+    if (!expect(other->get_component<Transform>()->set_settings(pose) &&
+                    component->set_settings(settings) && untouched->set_settings(settings) &&
+                    fixture.destruction->synchronize() && untouched->snapshot(other_before) &&
+                    component->damage_sphere({0.5, 5, 0}, 0.1F, 1) &&
+                    fixture.world.tick(0.75) &&
+                    component->damage_sphere({1.5, 5, 0}, 0.1F, 1) &&
+                    component->dynamic_groups() == 2 && component->snapshot(before),
+                "prepare owners and split an aged dynamic group", component->last_error()))
+    {
+        return false;
+    }
+    const auto split = unpack(before);
+    for (const auto& group : split->groups)
+    {
+        if (!expect(group->dynamic_age_seconds == (group->chunks.front() == 0 ? 0 : 0.75),
+                    "split children inherit the original dynamic lifetime"))
+        {
+            return false;
+        }
+    }
+    auto* oldest = dynamic_group(*scene);
+    const auto removed_id = oldest ? oldest->id() : 0;
+    std::uint32_t retired = 99;
+    const auto revision = component->revision();
+    if (!expect(removed_id != 0 && component->retire_fragments(1, 0, retired) && retired == 1 &&
+                    !fixture.world.find_node(removed_id) && !component->owns_fragment(removed_id) &&
+                    component->ready() && component->group_count() == 2 &&
+                    component->dynamic_groups() == 1 && component->revision() == revision + 1 &&
+                    fixture.physics.body_count() == 3 && component->snapshot(before),
+                "owner-local count budget removes the oldest group and collision",
+                component->last_error()))
+    {
+        return false;
+    }
+    const auto saved = unpack(before);
+    if (!expect(saved->retired_chunks == std::vector<std::uint32_t>{1} &&
+                    fixture.world.set_paused(true) && fixture.world.tick(5) &&
+                    component->retire_fragments(8, 1, retired) && retired == 0 &&
+                    component->snapshot(after) && after == before &&
+                    fixture.world.set_paused(false),
+                "paused simulation does not age or expire fragments"))
+    {
+        return false;
+    }
+    component->set_enabled(false);
+    if (!expect(fixture.destruction->synchronize() && fixture.world.tick(5) &&
+                    component->snapshot(after) && after == before,
+                "disabled components retain exact dynamic age and pose"))
+    {
+        return false;
+    }
+    component->set_enabled(true);
+    const auto stable_ids = generated_ids(*scene);
+    if (!expect(fixture.destruction->synchronize() &&
+                    !component->retire_fragments(0, -1, retired) && retired == 0 &&
+                    !component->retire_fragments(0, std::numeric_limits<double>::infinity(),
+                                                  retired) && retired == 0 &&
+                    component->snapshot(after) && after == before &&
+                    generated_ids(*scene) == stable_ids,
+                "invalid budgets leave every group and snapshot unchanged"))
+    {
+        return false;
+    }
+    auto invalid = *saved;
+    invalid.groups.back()->dynamic_age_seconds = std::numeric_limits<double>::quiet_NaN();
+    if (!expect(!component->restore(pack(invalid)) && component->snapshot(after) &&
+                    after == before && generated_ids(*scene) == stable_ids,
+                "invalid saved ages fail without replacing live groups"))
+    {
+        return false;
+    }
+    invalid = *saved;
+    invalid.retired_chunks.push_back(1);
+    if (!expect(!component->restore(pack(invalid)) && component->snapshot(after) &&
+                    after == before && component->reset() && component->restore(before) &&
+                    component->snapshot(after) && after == before &&
+                    fixture.world.tick(0.5) && component->retire_fragments(8, 1, retired) &&
+                    retired == 1 && component->dynamic_groups() == 0,
+                "retirement masks validate; restore retains lifetime and expiry removes survivors",
+                component->last_error()))
+    {
+        return false;
+    }
+    std::uint32_t broken = 99;
+    if (!expect(component->apply_stress({0, -9.81, 0}, 1e8F, 2e8F, 500, broken) &&
+                    component->group_count() == 1,
+                "stress preserves previously retired groups", component->last_error()))
+    {
+        return false;
+    }
+    if (!expect(component->damage_sphere({0, 4.5, 0}, 0.1F, 2) &&
+                    component->retire_fragments(0, 0, retired) && retired == 1 &&
+                    component->ready() && component->group_count() == 0 &&
+                    component->snapshot(before),
+                "retiring the final detached group leaves a ready empty assembly",
+                component->last_error()))
+    {
+        return false;
+    }
+    if (!expect(component->reset() && component->restore(before) &&
+                    component->snapshot(after) && after == before &&
+                    component->damage_sphere({}, 10, 1) && component->group_count() == 0,
+                "empty retired assemblies stay empty across damage and restore",
+                component->last_error()))
+    {
+        return false;
+    }
+    if (!expect(fixture.physics.body_count() == 1 && untouched->snapshot(after) &&
+                    after == other_before,
+                "other owners retain their exact state and sole remaining collision"))
+    {
+        return false;
+    }
+    invalid = *unpack(before);
+    invalid.schema_version = 1;
+    if (!expect(!component->restore(pack(invalid)) && component->group_count() == 0 &&
+                    component->reset() && component->damage_sphere({0.5, 5, 0}, 0.1F, 1),
+                "old snapshot versions fail explicitly; Reset restores the complete source"))
+    {
+        return false;
+    }
+    auto* fragment = dynamic_group(*scene);
+    auto* collider = fragment ? fragment->get_component<Collider>() : nullptr;
+    if (!collider)
+    {
+        return false;
+    }
+    const auto shape = collider->settings();
+    const auto ids = generated_ids(*scene);
+    if (!fragment->remove_component(Collider::component_type))
+    {
+        return false;
+    }
+    collider = fragment->add_component<Collider>();
+    return expect(collider && fixture.physics.set_collider_data(*collider, shape) &&
+                      !component->retire_fragments(0, 0, retired) && retired == 0 &&
+                      generated_ids(*scene) == ids && component->group_count() == 2,
+                  "replaced fragment components reject retirement without deleting other groups");
+}
+
 bool runtime_contract()
 {
     Fixture fixture;
@@ -1000,7 +1169,16 @@ bool asynchronous_damage_contract()
     const auto ids = generated_ids(*scene);
     const auto revision = component->revision();
     std::vector<bool> results;
-    const auto completed = [&](bool success) { results.push_back(success); };
+    std::vector<bool> callback_retirement;
+    const auto completed = [&](bool success)
+    {
+        results.push_back(success);
+        if (callback_retirement.size() < 2)
+        {
+            std::uint32_t retired = 99;
+            callback_retirement.push_back(component->retire_fragments(256, 0, retired));
+        }
+    };
     std::binary_semaphore gate(0);
     auto occupied = tasks.submit("Hold destruction worker",
                                  [&]
@@ -1012,17 +1190,21 @@ bool asynchronous_damage_contract()
     {
         return false;
     }
+    std::uint32_t retired = 99;
     const bool queued =
         fixture.destruction->request_damage(*component, {0.5, 10, 0}, 0.1F, 0.25F, 0, completed) &&
         fixture.destruction->request_damage(*component, {0.5, 10, 0}, 0.1F, 0.25F, 0, completed) &&
         !fixture.destruction->request_damage(*component, {}, 1, 1, 0, completed) &&
-        fixture.destruction->synchronize() && results.empty() && component->revision() == revision;
+        fixture.destruction->synchronize() && results.empty() && component->revision() == revision &&
+        !component->retire_fragments(0, 0, retired) && retired == 0 &&
+        generated_ids(*scene) == ids;
     gate.release();
     ByteBuffer bytes;
     if (!expect(occupied.get() && queued && tasks.wait() && fixture.destruction->synchronize() &&
                     results == std::vector<bool>{true} && component->revision() == revision + 1 &&
                     tasks.wait() && fixture.destruction->synchronize() &&
                     results == std::vector<bool>({true, true}) && generated_ids(*scene) == ids &&
+                    callback_retirement == std::vector<bool>({false, true}) &&
                     component->snapshot(bytes),
                 "nonblocking ordered damage keeps unchanged geometry and obeys commit budget",
                 component->last_error()))
@@ -1296,7 +1478,8 @@ bool persistent_destruction_contract()
 
 int main()
 {
-    return persistent_destruction_contract() && runtime_contract() && incremental_contract() &&
+    return retirement_contract() && persistent_destruction_contract() && runtime_contract() &&
+                   incremental_contract() &&
                    support_contract() && stress_contract() && asynchronous_damage_contract() &&
                    asynchronous_damage_fairness(1) && asynchronous_damage_fairness(2)
                ? 0

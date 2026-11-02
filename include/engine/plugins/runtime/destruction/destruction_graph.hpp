@@ -38,6 +38,9 @@ public:
     // Source chunk IDs; only their live world bonds are fractured. Duplicates are harmless.
     [[nodiscard]] bool release_anchors(std::span<const std::uint32_t> chunk_ids,
                                        std::string& error);
+    // Retire complete detached groups using Blast actor deactivation. Failure preserves the graph.
+    [[nodiscard]] bool retire_groups(std::span<const std::uint32_t> group_ids,
+                                      std::string& error);
     // Asset-local gravity; the caller corrects world rotation and uniform scale.
     [[nodiscard]] bool apply_stress(std::uint32_t group_id, const schema::Vec3& gravity,
                                      float density, float elastic_limit, float fatal_limit,

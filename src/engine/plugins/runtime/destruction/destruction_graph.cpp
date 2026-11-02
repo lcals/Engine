@@ -63,11 +63,15 @@ struct DestructionGraph::Impl
     Memory memory;
     NvBlastFamily* family = nullptr;
     std::vector<DestructionGroup> groups;
+    std::vector<std::uint32_t> retired_chunks;
+    // Blast exposes health through a live actor. Keep the last values when none remain.
+    std::vector<float> empty_health;
 
     bool refresh(std::string& error)
     {
         std::vector<NvBlastActor*> actors(NvBlastFamilyGetActorCount(family, nullptr));
-        if (NvBlastFamilyGetActors(actors.data(), static_cast<std::uint32_t>(actors.size()), family,
+        if (!actors.empty() &&
+            NvBlastFamilyGetActors(actors.data(), static_cast<std::uint32_t>(actors.size()), family,
                                    nullptr) != actors.size())
         {
             error = "Blast could not enumerate the current actors";
@@ -96,6 +100,46 @@ struct DestructionGraph::Impl
         return true;
     }
 
+    bool remove_retired(std::string& error)
+    {
+        std::vector<NvBlastActor*> actors;
+        for (const auto& group : groups)
+        {
+            const auto count = std::count_if(group.chunks.begin(), group.chunks.end(),
+                                              [&](std::uint32_t chunk)
+                                              {
+                                                  return std::binary_search(
+                                                      retired_chunks.begin(), retired_chunks.end(),
+                                                      chunk);
+                                              });
+            if (count == 0)
+            {
+                continue;
+            }
+            if (static_cast<std::size_t>(count) != group.chunks.size() || group.anchored)
+            {
+                error = "Retired chunks must cover complete detached Blast actors";
+                return false;
+            }
+            auto* actor = NvBlastFamilyGetChunkActor(family, group.id, nullptr);
+            if (!actor)
+            {
+                error = "Cannot locate the Blast actor to retire";
+                return false;
+            }
+            actors.push_back(actor);
+        }
+        for (auto* actor : actors)
+        {
+            if (!NvBlastActorDeactivate(actor, nullptr))
+            {
+                error = "Blast could not deactivate a detached actor";
+                return false;
+            }
+        }
+        return refresh(error);
+    }
+
     bool split(NvBlastActor* actor, std::string& error)
     {
         const auto size = NvBlastActorGetRequiredScratchForSplit(actor, nullptr);
@@ -114,6 +158,7 @@ struct DestructionGraph::Impl
 
     bool reset(std::span<const float> health, std::string& error)
     {
+        empty_health.assign(health.begin(), health.end());
         memory = allocate(NvBlastAssetGetFamilyMemorySize(asset->asset, nullptr));
         if (!memory)
         {
@@ -162,7 +207,7 @@ struct DestructionGraph::Impl
                                             broken.data(), nullptr};
             NvBlastActorApplyFracture(nullptr, actor, &commands, nullptr, nullptr);
         }
-        return split(actor, error);
+        return split(actor, error) && remove_retired(error);
     }
 };
 
@@ -321,6 +366,8 @@ bool DestructionGraph::clone(DestructionGraph& output, std::string& error) const
     }
     auto candidate = std::make_unique<Impl>();
     candidate->asset = impl_->asset;
+    candidate->retired_chunks = impl_->retired_chunks;
+    candidate->empty_health = impl_->empty_health;
     const auto size = NvBlastFamilyGetSize(impl_->family, nullptr);
     candidate->memory = allocate(size);
     if (!candidate->memory)
@@ -432,6 +479,54 @@ bool DestructionGraph::release_anchors(std::span<const std::uint32_t> chunk_ids,
             return false;
         }
     }
+    return true;
+}
+
+bool DestructionGraph::retire_groups(std::span<const std::uint32_t> group_ids, std::string& error)
+{
+    ENGINE_PROFILE_ZONE("Destruction.retire_graph");
+    error.clear();
+    if (!impl_)
+    {
+        error = "Destruction graph is not initialized";
+        return false;
+    }
+    std::vector<std::uint32_t> selected(group_ids.begin(), group_ids.end());
+    std::sort(selected.begin(), selected.end());
+    if (std::adjacent_find(selected.begin(), selected.end()) != selected.end())
+    {
+        error = "Destruction retirement contains a duplicate group";
+        return false;
+    }
+    auto retired = impl_->retired_chunks;
+    for (const auto id : selected)
+    {
+        const auto group = std::find_if(impl_->groups.begin(), impl_->groups.end(),
+                                        [id](const auto& value) { return value.id == id; });
+        if (group == impl_->groups.end() || group->anchored)
+        {
+            error = "Only current detached destruction groups can be retired";
+            return false;
+        }
+        retired.insert(retired.end(), group->chunks.begin(), group->chunks.end());
+    }
+    if (selected.empty())
+    {
+        return true;
+    }
+    std::sort(retired.begin(), retired.end());
+    DestructionGraph candidate;
+    if (!clone(candidate, error))
+    {
+        return false;
+    }
+    candidate.impl_->retired_chunks = std::move(retired);
+    candidate.impl_->empty_health = healths();
+    if (!candidate.impl_->remove_retired(error))
+    {
+        return false;
+    }
+    impl_ = std::move(candidate.impl_);
     return true;
 }
 
@@ -594,6 +689,7 @@ bool DestructionGraph::restore_health(std::span<const float> health, std::string
     }
     auto candidate = std::make_unique<Impl>();
     candidate->asset = impl_->asset;
+    candidate->retired_chunks = impl_->retired_chunks;
     if (!candidate->reset(health, error))
     {
         return false;
@@ -604,9 +700,13 @@ bool DestructionGraph::restore_health(std::span<const float> health, std::string
 
 std::vector<float> DestructionGraph::healths() const
 {
-    if (!impl_ || impl_->groups.empty())
+    if (!impl_)
     {
         return {};
+    }
+    if (impl_->groups.empty())
+    {
+        return impl_->empty_health;
     }
     const auto* actor =
         NvBlastFamilyGetChunkActor(impl_->family, impl_->groups.front().id, nullptr);

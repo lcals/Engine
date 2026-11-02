@@ -24,6 +24,7 @@ class DestructionComponent {
 +refresh_support(Collider support, float max_gap, float min_coverage) bool
 +apply_stress(Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(uint64_t node_id) bool
++retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset() bool
 +snapshot(ByteBuffer output) bool
 +restore(ByteView bytes) bool
@@ -45,6 +46,7 @@ class DestructionSystem {
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
 +apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
++retire_fragments(DestructionComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset(DestructionComponent component) bool
 +snapshot(DestructionComponent component, DestructionStateDataT output) bool
 +restore(DestructionComponent component, DestructionStateDataT state) bool
@@ -92,7 +94,7 @@ MeshRenderer、Collider 与 RigidBody，不重新拼网格或构建凸包。只�
 同步必须将速度真正提交给 Jolt；不把组件数据更新当作物理已经消费。
 断裂组继承原组姿态及质心速度（包含角速度产生的偏移），其他组身份保持稳定。
 Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建，不复用陈旧材质或碰撞配置。
-快照使用 FlatBuffers 的基础 GUID/hash、稳定 bond 血量以及各组块 ID、姿态和速度，
+快照使用 FlatBuffers 的基础 GUID/hash、稳定 bond 血量、退休 chunk 集合，以及存活组的块 ID、姿态、速度和动态年龄，
 不保存 Blast ABI 内存。状态恢复先校验再提交；正常场景保存只保存初始资源与组件配置。
 
 系统在物理前由父系统驱动；编辑器预览调用 synchronize，不直接 tick 子系统。
@@ -120,6 +122,18 @@ Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建�
 
 `owns_fragment` 查询已发布世界中该组件生成的组节点，不向核心增加归属知识，
 不保留节点引用。失败、组件移除或组节点卸载后不会报告旧节点归属。
+
+## 显式动态碎片退休
+
+`retire_fragments(max_count, max_age_seconds, retired_count)` 只回收指定组件的动态组。
+调用方决定预算和调用频率；0 数量清除全部动态组，0 年龄关闭按寿命筛选。
+同 owner 的异步请求及未派发完成项必须全部结束，最后一个完成回调内可以调用。
+失败将输出计数清零，保留有效组；成功保持 owner ready，返回实际退休数量。
+动态年龄按模拟时间累计，世界暂停和禁用源组件/Transform 时冻结，拆分继承年龄。
+退休使用官方 Blast actor deactivation 与现有 Jolt/Node 回收路径；不会填回碎片、
+重新连接或在应力求解后复活。生成 Collider/MeshRenderer 的实例身份变化时拒绝退休；
+Transform/RigidBody 沿用现有存在性、有效参数和运动模式校验，没有新增组件身份接口。
+完整语义和状态字段见[动态碎片退休](fragment-retirement.md)。
 
 ## 显式承重应力（步骤 4）
 

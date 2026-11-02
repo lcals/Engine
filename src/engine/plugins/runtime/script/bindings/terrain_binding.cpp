@@ -43,6 +43,11 @@ export class TerrainComponent extends Component {
         return native.TerrainCollapse(h.scene, h.node, minSamples, maxFragments,
             fragmentCells, density);
     }
+    RetireFragments(maxCount, maxAgeSeconds) {
+        if (arguments.length !== 2) return null;
+        const h = handles.get(this);
+        return native.TerrainRetire(h.scene, h.node, maxCount, maxAgeSeconds);
+    }
     get fragmentCount() { const h = handles.get(this); return native.TerrainFragments(h.scene, h.node); }
     Reset() { const h = handles.get(this); return native.TerrainReset(h.scene, h.node); }
     Save(slot) { const h = handles.get(this); return native.TerrainSave(h.scene, h.node, slot); }
@@ -235,6 +240,20 @@ void collapse(const Arguments& arguments)
     }
 }
 
+void retire(const Arguments& arguments)
+{
+    auto* value = component(arguments, 4);
+    arguments.set_return({});
+    double max_age_seconds = 0;
+    std::uint32_t retired_count = 0;
+    if (value && arguments.is_uint32(2) &&
+        BindingContext::number(arguments, 3, max_age_seconds) &&
+        value->retire_fragments(arguments.unsigned_integer(2), max_age_seconds, retired_count))
+    {
+        arguments.set_return(static_cast<double>(retired_count));
+    }
+}
+
 void statistic(const Arguments& arguments)
 {
     const auto* value = component(arguments, 2);
@@ -286,6 +305,7 @@ bool TerrainBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("TerrainDigAsync", sphere_async, 0) &&
            vm.function("TerrainFillAsync", sphere_async, 1) &&
            vm.function("TerrainCollapse", collapse) &&
+           vm.function("TerrainRetire", retire) &&
            vm.function("TerrainFragments", statistic, 5) &&
            vm.function("TerrainSave", persistence, 1) &&
            vm.function("TerrainLoad", persistence, 0) && vm.function("TerrainReady", ready) &&

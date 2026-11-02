@@ -36,6 +36,11 @@ export class DestructionComponent extends Component {
     OwnsFragment(nodeId) {
         const h = handles.get(this); return native.DestructionOwns(h.scene, h.node, nodeId);
     }
+    RetireFragments(maxCount, maxAgeSeconds) {
+        if (arguments.length !== 2) return null;
+        const h = handles.get(this);
+        return native.DestructionRetire(h.scene, h.node, maxCount, maxAgeSeconds);
+    }
     ApplyStress(x, y, z, elasticLimit, fatalLimit, iterations) {
         const h = handles.get(this);
         return native.DestructionStress(h.scene, h.node, x, y, z,
@@ -143,6 +148,22 @@ void reset(const Arguments& arguments)
     arguments.set_return(value && value->reset());
 }
 
+void retire_fragments(const Arguments& arguments)
+{
+    auto* value = component(arguments, 4);
+    arguments.set_return({});
+    double max_age = 0;
+    if (!value || !arguments.is_uint32(2) || !BindingContext::number(arguments, 3, max_age))
+    {
+        return;
+    }
+    std::uint32_t retired = 0;
+    if (value->retire_fragments(arguments.unsigned_integer(2), max_age, retired))
+    {
+        arguments.set_return(retired);
+    }
+}
+
 void stress(const Arguments& arguments)
 {
     auto* value = component(arguments, 8);
@@ -213,6 +234,7 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("DestructionDamageAsync", damage_async) &&
            vm.function("DestructionSupport", support) &&
            vm.function("DestructionOwns", owns_fragment) &&
+           vm.function("DestructionRetire", retire_fragments) &&
            vm.function("DestructionStress", stress) && vm.function("DestructionReset", reset) &&
            vm.function("DestructionReady", statistic, 0) &&
            vm.function("DestructionRevision", statistic, 1) &&

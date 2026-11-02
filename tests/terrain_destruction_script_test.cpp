@@ -55,6 +55,15 @@ export default class extends Gameplay {
     Update() {
         if (this.phase === 0) {
             check(this.terrain.ready && this.building.ready, 'native fixtures not ready');
+            for (const owner of [this.terrain, this.building]) {
+                check(owner.RetireFragments(128,0) === 0, 'empty dynamic pool must return zero');
+                check(owner.RetireFragments(-1,0) === null &&
+                      owner.RetireFragments(1,-1) === null &&
+                      owner.RetireFragments(1,NaN) === null &&
+                      owner.RetireFragments(1) === null &&
+                      owner.RetireFragments(1,0,0) === null,
+                      'retirement must reject invalid budgets and argument counts');
+            }
             const unexpected = () => { throw new Error('invalid request delivered callback'); };
             check(!this.terrain.DigSphereAsync(0,0,0,0,unexpected) &&
                   !this.terrain.FillSphereAsync(NaN,0,0,1,unexpected) &&
@@ -78,6 +87,11 @@ export default class extends Gameplay {
         }
         if (this.phase === 1 && this.callbacks === 3) {
             check(this.terrain.revision > this.revision, 'successful callback preceded publication');
+            check(this.building.DamageSphere(.5,0,0,100,10,0), 'detach script fixture');
+            const fragments = this.building.dynamicGroups;
+            check(fragments > 0 && this.building.RetireFragments(0,0) === fragments &&
+                  this.building.ready && this.building.dynamicGroups === 0 &&
+                  this.building.Reset(), 'script retirement removes actual groups and Reset restores');
             check(this.terrain.DigSphereAsync(0,-1,0,2,success => {
                 check(!success && this.phase === 2, 'reset did not cancel the queued brush');
                 ++this.cancelled;
@@ -95,7 +109,9 @@ export default class extends Gameplay {
             check(this.scene.Destroy(), 'destroy previous scene');
             this.scene = Scene.Create('Complete');
             check(this.scene && !this.terrain.DigSphereAsync(0,0,0,1,stale) &&
-                  !this.building.DamageSphereAsync(0,0,0,2,.25,0,stale),
+                  !this.building.DamageSphereAsync(0,0,0,2,.25,0,stale) &&
+                  this.terrain.RetireFragments(0,0) === null &&
+                  this.building.RetireFragments(0,0) === null,
                   'old scene handles remained usable');
             this.phase = 3;
         }

@@ -1000,6 +1000,12 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
     std::map<ContactPair, ContactSample> touched_contacts;
     std::vector<PhysicsContactEvent> contacts;
 
+    ~State() override
+    {
+        // Member destruction releases the Jolt world before its job allocator.
+        jobs.wait_for_wrappers();
+    }
+
     bool can_query(const WorldSystem* world) const noexcept
     {
         return world != nullptr &&
@@ -1490,6 +1496,7 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
 
     void clear() noexcept
     {
+        jobs.wait_for_wrappers();
         character_collisions.mCharacters.clear();
         characters.clear();
         auto& interface = physics.GetBodyInterface();

@@ -44,6 +44,7 @@ classDiagram
     class Jolt["Jolt"]
     class PhysicsJobs {
         <<private task adapter>>
+        +wait_for_wrappers() void
     }
     class JoltJobSystem["JPH::JobSystemWithBarrier"]
     class JoltJobs["JPH::FixedSizeFreeList~Job~"]
@@ -151,11 +152,13 @@ classDiagram
 
 世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。对象禁用、删除及普通场景卸载在下一次更新同步；常驻节点保留原 Scene、组件和 Jolt 实例，完整关闭由宿主显式清理。系统遍历 `WorldSystem::scenes()` 的已发布节点，恢复候选不参与模拟。固定步进与变换限制见[物理模块](../physics.md)。
 
-物理任务复用 Jolt v5.4.0 官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，只桥接任务对象创建、释放和 `TaskSystem::enqueue`。任务域与引擎其他域共享 oneTBB worker；不创建物理专用线程池。任务域先初始化并存活到物理关闭后；不传任务域时由 Barrier 在调用线程串行执行，传入未初始化域则初始化失败。域的并发额度控制后台执行数，Jolt 的并发数另计参与 Barrier 的调用线程。投递受到在途上限限制时，释放桥接引用并交给已登记的官方 Barrier 执行；不在当前 Jolt Job 内递归运行后继，保留上游每任务 BodyAccess 作用域约束。
+物理任务复用 Jolt v5.4.0 官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，只桥接任务对象创建、释放和 `TaskSystem::enqueue`。任务域与引擎其他域共享 oneTBB worker；不创建物理专用线程池。任务域先初始化并存活到物理关闭后；不传任务域时由 Barrier 在调用线程串行执行，传入未初始化域则初始化失败。域的并发额度控制后台执行数，Jolt 的并发数另计参与 Barrier 的调用线程。包装在途数由原子预留限制为域并发额度与额外存储容量的较小值；满额直接留给已登记的官方 Barrier，投递被拒绝则释放桥接引用及预留。不在当前 Jolt Job 内递归运行后继，保留上游每任务 BodyAccess 作用域约束。
 
-`WaitForJobs` 先等待官方 Barrier，再等待本桥接已投递包装释放 Job 引用；不等待任务域内不相关任务。完成计数由包装共享持有，避免最后通知与物理状态销毁竞争。每个物理 tick 仍在返回前完成刚体求解、结果回写与接触快照发布，查询与场景修改仍只能在主线程步进外进行。角色使用的 `CharacterVsCharacterCollisionSimple` 和临时分配器保持串行，未将角色循环直接分发到多个 worker。
+`WaitForJobs` 只等待官方 Barrier 完成真实求解。迟到包装仍保留 Job 引用，调用上游 `Execute()` 不会重复运行已完成函数；先释放引用，再减少完成计数。官方 free-list 为跨步保留引用增加一页，页大小仍为原 `max_jobs`，不改变其二次幂要求。`State::clear` 与析构体在物理世界释放前调用 `wait_for_wrappers()`，适配器析构再次兜底；不主动等待任务域内其他工作。完成计数由包装共享持有，避免归零后的最后通知访问已销毁状态。
 
-开启 `ENGINE_ENABLE_TRACY` 且分析器已连接时，任务执行使用 `Physics.jolt.<上游任务名>` 的 transient source location；名称由包装拥有并由 Tracy 复制。分析时区分 worker 总工作量和调用线程 `Physics.jolt_step` 的墙钟耗时，不能将并行任务 inclusive 耗时相加当作帧时长。关闭 Tracy 不分配分析名称。此适配不启用 `JPH_EXTERNAL_PROFILE` / `JPH_PROFILE_ENABLED`，不改变 Jolt ABI，也不要求重编依赖。
+每个物理 tick 仍在返回前完成刚体求解、结果回写与接触快照发布，查询与场景修改仍只能在主线程步进外进行。角色使用的 `CharacterVsCharacterCollisionSimple` 和临时分配器保持串行，未将角色循环直接分发到多个 worker。回归在单 worker 被占用时连续执行多次更新，并覆盖清理等待、完全拒绝投递和同域重启，确保包装积压不耗尽任务存储、不丢失真实求解。
+
+开启 `ENGINE_ENABLE_TRACY` 且分析器已连接时，任务执行使用 `Physics.jolt.<上游任务名>` 的 transient source location；名称由包装拥有并由 Tracy 复制。`Physics.barrier` 记录真实求解等待，`Physics.drain_wrappers` 单独记录清理/关闭的包装回收。分析时区分 worker 总工作量和调用线程 `Physics.jolt_step` 的墙钟耗时，不能将并行任务 inclusive 耗时相加当作帧时长。关闭 Tracy 不分配分析名称。此适配不启用 `JPH_EXTERNAL_PROFILE` / `JPH_PROFILE_ENABLED`，不改变 Jolt ABI，也不要求重编依赖。
 
 刚体只改变线速度/角速度时，下一次同步复用已有形状及 BodyID，通过 Jolt `BodyInterface::SetLinearAndAngularVelocity` 原地提交，仅在速度实际变化时调用；非零速度由官方接口唤醒物体。质量、运动类型、阻尼、重力因子或碰撞形状等结构设置变化仍走原有候选重建流程。速度仍属于同一 FlatBuffers 设置与快照，冲量在同步后按原契约消费；不增加项目专用物理接口，也不因碎块增量复用而丢失速度变更。
 

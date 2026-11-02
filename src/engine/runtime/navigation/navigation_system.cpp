@@ -627,18 +627,17 @@ struct NavigationSystem::State
 
     bool request_target(CrowdAgent& record)
     {
-        stop_motion(record);
-        record.state.status = NavigationAgentStatus::unreachable;
         if (!data || !crowd || record.index < 0)
         {
+            stop_motion(record);
             record.state.status = NavigationAgentStatus::invalid;
             error = "Navigation agent has no valid surface position";
             return false;
         }
-        dtPolyRef begin_reference = 0;
-        float begin[3]{};
-        if (!project_position(*data, record.state.position, begin_reference, begin))
+        const auto* current = crowd->getAgent(record.index);
+        if (!current->active || current->state == DT_CROWDAGENT_STATE_INVALID)
         {
+            stop_motion(record);
             record.state.status = NavigationAgentStatus::invalid;
             error = "No navigable polygon near the agent";
             return false;
@@ -646,14 +645,18 @@ struct NavigationSystem::State
         if (!project_position(*data, record.state.target, record.target_reference,
                               record.projected_target.data()))
         {
+            stop_motion(record);
+            record.state.status = NavigationAgentStatus::unreachable;
             error = "No navigable polygon near the requested agent target";
             return false;
         }
-        auto* current = crowd->getEditableAgent(record.index);
-        current->corridor.reset(begin_reference, begin);
+        // Detour updates the target while preserving current velocity and corridor. New agents
+        // (including teleport/rebuild replacements) already have an initialized corridor.
         if (!crowd->requestMoveTarget(record.index, record.target_reference,
                                       record.projected_target.data()))
         {
+            stop_motion(record);
+            record.state.status = NavigationAgentStatus::unreachable;
             error = "DetourCrowd rejected the agent target";
             return false;
         }

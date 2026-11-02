@@ -29,12 +29,13 @@ DestructionBinding ..> CompletionBinding : main-thread completion delegate
 | `DamageSphereAsync(x, y, z, radius, damage, impulse, completed)` | 返回是否接收请求，后台准备后主线程发布；`completed(success)` 调用一次，拒绝请求不回调 |
 | `RefreshSupport(support: Collider, maxGap, minCoverage)` | 显式检查本 Run 已发布节点上的指定碰撞体，允许常驻对象与当前关卡对象跨 Scene；多点覆盖不足则解除 world 支撑，不自动重新连接 |
 | `OwnsFragment(nodeId: bigint)` | 当前生成碎块组归属查询；失效 ID 返回 false |
+| `RetireFragments(maxCount, maxAgeSeconds)` | 明确执行本 owner 动态碎片保留预算；成功返回退休数（含 0），失败 null；两个参数必填，非法/额外参数拒绝，详见[退休契约](fragment-retirement.md) |
 | `ApplyStress(x,y,z,elasticLimit,fatalLimit,iterations)` | 显式调用官方 Blast 应力；成功返回本次完全断裂连接数，失败 null；单位 Pa，由项目控制频率 |
 | `Reset()` | 恢复源资源图和初始组 |
 | `ready`、`revision`、`lastError` | 就绪、成功修改版本及错误 |
 | `chunkCount`、`groupCount`、`dynamicGroups` | 资产碎块、当前连接组及脱离支撑的组数 |
 
-纯物理运动不递增 revision；损伤、配置、恢复与重置成功发布才递增。
+纯物理运动和年龄累计不递增 revision；损伤、实际退休、配置、恢复与重置成功发布才递增。
 源生成参数与材料保存在资产/场景，业务脚本只提交操作，不在引擎判断试验场或具体建筑。
 
 异步入口使用相同世界坐标、伤害与冲量单位，`impulse` 显式传入（无冲量传 `0`）。

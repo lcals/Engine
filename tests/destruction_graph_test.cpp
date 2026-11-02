@@ -106,6 +106,62 @@ bool contract()
     return true;
 }
 
+bool retirement_contract()
+{
+    DestructionGraph graph;
+    DestructionGraph copy;
+    const auto asset = chain();
+    std::string error;
+    const std::uint32_t anchored[] = {0};
+    const std::uint32_t last[] = {2};
+    const std::uint32_t duplicate[] = {2, 2};
+    const std::uint32_t invalid[] = {2, 99};
+    if (!expect(graph.initialize(asset, error) &&
+                    graph.damage_sphere(0, {1.5, 0.5, 0}, 0.1F, 1, error),
+                "prepare one detached and one anchored actor", error))
+    {
+        return false;
+    }
+    const auto before = graph.healths();
+    if (!expect(!graph.retire_groups(anchored, error) &&
+                    !graph.retire_groups(duplicate, error) &&
+                    !graph.retire_groups(invalid, error) && graph.groups().size() == 2 &&
+                    graph.healths() == before && graph.retire_groups(last, error) &&
+                    graph.groups().size() == 1 && graph.groups().front().chunks.size() == 2 &&
+                    graph.healths() == before,
+                "invalid retirement is atomic; official deactivation keeps bond health", error))
+    {
+        return false;
+    }
+    std::uint32_t broken = 99;
+    if (!expect(graph.clone(copy, error) && copy.restore_health(before, error) &&
+                    copy.apply_stress(0, {0, -9.81, 0}, 100, 1e8F, 2e8F, 500, broken, error) &&
+                    copy.groups().size() == 1 && copy.groups().front().chunks.size() == 2 &&
+                    broken == 0 && copy.healths() == before,
+                "cloning, health restoration and stress do not revive retired chunks", error))
+    {
+        return false;
+    }
+    auto reconnect = before;
+    reconnect[1] = 1;
+    if (!expect(!graph.restore_health(reconnect, error) && graph.healths() == before &&
+                    graph.release_anchors(anchored, error) &&
+                    graph.retire_groups(anchored, error) && graph.groups().empty(),
+                "retirement cannot reconnect to a live actor; all detached actors may retire",
+                error))
+    {
+        return false;
+    }
+    const auto empty_health = graph.healths();
+    return expect(empty_health.size() == before.size() && graph.clone(copy, error) &&
+                      copy.groups().empty() && copy.healths() == empty_health &&
+                      copy.restore_health(empty_health, error) && copy.groups().empty() &&
+                      copy.healths() == empty_health && graph.initialize(asset, error) &&
+                      graph.groups().size() == 1 && graph.groups().front().chunks.size() == 3,
+                  "empty families keep health and clone/restore correctly; initialize resets",
+                  error);
+}
+
 bool anchor_contract()
 {
     std::string error;
@@ -303,5 +359,5 @@ bool stress_contract()
 
 int main()
 {
-    return contract() && anchor_contract() && stress_contract() ? 0 : 1;
+    return contract() && anchor_contract() && stress_contract() && retirement_contract() ? 0 : 1;
 }

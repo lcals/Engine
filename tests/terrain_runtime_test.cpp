@@ -723,6 +723,165 @@ bool collapse_runtime_contract()
     resources.shutdown();
     return true;
 }
+bool fragment_retirement_contract()
+{
+    ResourceSystem resources;
+    WorldSystem world;
+    PhysicsSystem physics(&world);
+    TerrainSystem terrain(world, physics);
+    test_support::ResourceFixture fixture;
+    if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
+                    terrain.initialize({}) && add_terrain(fixture, collapse_asset(true)) &&
+                    fixture.publish(resources),
+                "initialize fragment retirement with a real terrain resource"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Terrain retirement");
+    auto* first_node = scene ? scene->create_node("First owner") : nullptr;
+    auto* second_node = scene ? scene->create_node("Second owner") : nullptr;
+    auto* first = first_node ? first_node->add_component<TerrainComponent>() : nullptr;
+    auto* second = second_node ? second_node->add_component<TerrainComponent>() : nullptr;
+    std::uint32_t retired = 99;
+    if (!expect(first && second && !first->retire_fragments(0, 0, retired) && retired == 0,
+                "unready retirement fails with a cleared output"))
+    {
+        return false;
+    }
+    auto pose = second_node->get_component<Transform>()->settings();
+    pose.position = {30, 0, 0};
+    schema::TerrainDataT description;
+    description.terrain_guid = fixture.catalog.entries.front()->guid;
+    ByteBuffer before_collapse;
+    if (!second_node->get_component<Transform>()->set_settings(pose) ||
+        !first->set_settings(description) || !second->set_settings(description) ||
+        !terrain.synchronize() || !first->apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !first->snapshot(before_collapse) || !first->collapse_detached(8, 16, 2, 100))
+    {
+        return false;
+    }
+    std::vector<std::uint64_t> first_ids;
+    for (const auto& node : scene->nodes())
+    {
+        if (node->transient())
+        {
+            first_ids.push_back(node->id());
+        }
+    }
+    std::sort(first_ids.begin(), first_ids.end());
+    if (!terrain.tick(0.5) || !second->apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !second->collapse_detached(8, 16, 2, 100) || !terrain.tick(0.5) ||
+        !expect(first_ids.size() == 8 && second->fragment_count() == 8 &&
+                    physics.body_count() == 18,
+                "two independent owners publish eight soil fragments at distinct ages"))
+    {
+        return false;
+    }
+    const auto revision = first->revision();
+    const auto source_triangles = first->triangle_count();
+    const auto rebuilt_chunks = first->rebuilt_chunks();
+    const auto* source_mesh = first_node->get_component<MeshRenderer>()->mesh_data();
+    auto* retained = scene->find_node(first_ids.back());
+    auto* retained_body = retained->get_component<RigidBody>();
+    const auto retained_pose = retained->get_component<Transform>()->settings();
+    if (!retained_body->set_linear_velocity({1, 2, 3}))
+    {
+        return false;
+    }
+    std::vector<PhysicsObject> hits;
+    if (!physics.overlap_box({8, 8, 8}, {16, 16, 16}, {}, hits))
+    {
+        return false;
+    }
+    const auto found = std::find_if(hits.begin(), hits.end(), [&](const auto& hit)
+                                   { return hit.node_id == first_ids.front(); });
+    if (!expect(found != hits.end(), "fragment collision is present before retirement"))
+    {
+        return false;
+    }
+    const auto old_handle = *found;
+    if (!expect(!first->retire_fragments(0, -1, retired) && retired == 0 &&
+                    !first->retire_fragments(0, std::numeric_limits<double>::infinity(), retired) &&
+                    retired == 0 && first->revision() == revision && first->fragment_count() == 8 &&
+                    first->retire_fragments(6, 0, retired) && retired == 2 &&
+                    !scene->find_node(first_ids[0]) && !scene->find_node(first_ids[1]) &&
+                    scene->find_node(first_ids.back()) == retained &&
+                    retained->get_component<Transform>()->settings() == retained_pose &&
+                    retained_body->linear_velocity() == Vec3(1, 2, 3) &&
+                    first->fragment_count() == 6 && second->fragment_count() == 8 &&
+                    physics.body_count() == 16 && !physics.is_object_valid(old_handle) &&
+                    first->revision() == revision + 1 && first->triangle_count() == source_triangles &&
+                    first->rebuilt_chunks() == rebuilt_chunks &&
+                    first_node->get_component<MeshRenderer>()->mesh_data() == source_mesh,
+                "count retirement removes stable oldest IDs without rebuilding source or survivors"))
+    {
+        return false;
+    }
+    if (!expect(physics.overlap_box({8, 8, 8}, {16, 16, 16}, {}, hits) &&
+                    std::none_of(hits.begin(), hits.end(), [&](const auto& hit)
+                                 { return hit.node_id == old_handle.node_id; }),
+                "retired soil disappears from collision queries immediately"))
+    {
+        return false;
+    }
+    if (!expect(world.set_paused(true) && terrain.tick(100) && terrain.synchronize() &&
+                    first->retire_fragments(128, 1.5, retired) && retired == 0 &&
+                    first->revision() == revision + 1 && world.set_paused(false) &&
+                    terrain.tick(0.5) && first->retire_fragments(128, 1.5, retired) && retired == 6 &&
+                    second->retire_fragments(128, 1.5, retired) && retired == 0 &&
+                    second->fragment_count() == 8 && physics.body_count() == 10,
+                "simulation age excludes pause and editor synchronization, and remains owner-local"))
+    {
+        return false;
+    }
+    ByteBuffer saved;
+    const auto empty_revision = first->revision();
+    if (!expect(first->retire_fragments(0, 0, retired) && retired == 0 &&
+                    first->revision() == empty_revision && !first->snapshot(saved) && saved.empty() &&
+                    !first->restore(before_collapse) &&
+                    first->apply_sphere({3, 2, 3}, 1, false) &&
+                    first->collapse_detached(8, 16, 2, 100) && first->fragment_count() == 0 &&
+                    !first->snapshot(saved),
+                "empty retirement preserves detached-state restriction and never refills source soil"))
+    {
+        return false;
+    }
+    Node* second_fragment = nullptr;
+    for (const auto& node : scene->nodes())
+    {
+        if (node->transient())
+        {
+            second_fragment = node.get();
+            break;
+        }
+    }
+    auto* child = scene->create_node("Project attachment");
+    const auto second_revision = second->revision();
+    if (!expect(second_fragment && child && child->set_parent(second_fragment) &&
+                    !second->retire_fragments(0, 0, retired) && retired == 0 &&
+                    second->revision() == second_revision && second->fragment_count() == 8 &&
+                    scene->destroy_node(child->id()),
+                "foreign child nodes reject the entire retirement before mutation"))
+    {
+        return false;
+    }
+    if (!expect(second_fragment->remove_component(Collider::component_type) &&
+                    second_fragment->add_component<Collider>() &&
+                    !second->retire_fragments(0, 0, retired) && retired == 0 &&
+                    second->revision() == second_revision && second->fragment_count() == 8 &&
+                    physics.body_count() == 10 && second->reset() &&
+                    second->fragment_count() == 0 && first->reset() && first->snapshot(saved) &&
+                    first->apply_sphere({7, 4, 7}, 1.8F, false) &&
+                    first->collapse_detached(8, 16, 2, 100) && first->fragment_count() == 8 &&
+                    first->retire_fragments(0, 0, retired) && retired == 8 &&
+                    first->fragment_count() == 0 && physics.body_count() == 2,
+                "replaced generated components reject atomically; reset explicitly restores source"))
+    {
+        return false;
+    }
+    return true;
+}
+
 bool asynchronous_brush_contract()
 {
     ResourceSystem resources;
@@ -768,23 +927,39 @@ bool asynchronous_brush_contract()
         return false;
     }
     std::vector<bool> results;
-    const auto completed = [&](bool success) { results.push_back(success); };
+    std::vector<bool> retirement_allowed;
+    bool observe_retirement = true;
+    const auto completed = [&](bool success)
+    {
+        results.push_back(success);
+        if (observe_retirement)
+        {
+            std::uint32_t retired = 99;
+            const bool allowed = component->retire_fragments(128, 0, retired);
+            retirement_allowed.push_back(allowed && retired == 0);
+        }
+    };
     const auto before = component->revision();
+    std::uint32_t retired = 99;
     const bool queued =
         terrain.request_apply_sphere(*component, {-2, -1, 0}, 2, false, completed) &&
         terrain.request_apply_sphere(*component, {2, -1, 0}, 2, false, completed) &&
         !terrain.request_apply_sphere(*component, {}, 1, true, completed) &&
-        terrain.synchronize() && results.empty() && component->revision() == before;
+        !component->retire_fragments(0, 0, retired) && retired == 0 &&
+        terrain.synchronize() && results.empty() && component->revision() == before &&
+        !component->retire_fragments(0, 0, retired) && retired == 0;
     gate.release();
     if (!expect(occupied.get() && queued && tasks.wait() && terrain.synchronize() &&
                     results == std::vector<bool>{true} && component->revision() == before + 1 &&
                     tasks.wait() && terrain.synchronize() &&
                     results == std::vector<bool>({true, true}) &&
-                    component->revision() == before + 2,
-                "queued edits remain nonblocking, ordered and limited to one commit per tick"))
+                    component->revision() == before + 2 &&
+                    retirement_allowed == std::vector<bool>({false, true}),
+                "queued edits stay ordered; retirement waits through the last owner completion"))
     {
         return false;
     }
+    observe_retirement = false;
     TerrainVolume reference;
     ByteBuffer bytes;
     if (!reference.initialize(asset, error) ||
@@ -1006,7 +1181,8 @@ int main()
 {
     return persistent_terrain_contract() && volume_contract() && runtime_contract() &&
                    subsystem_contract() && island_contract() && incremental_collapse_contract() &&
-                   collapse_runtime_contract() && asynchronous_brush_contract() &&
+                   collapse_runtime_contract() && fragment_retirement_contract() &&
+                   asynchronous_brush_contract() &&
                    asynchronous_brush_fairness(1) && asynchronous_brush_fairness(2)
                ? 0
                : 1;

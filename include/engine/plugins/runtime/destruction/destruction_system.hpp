@@ -49,6 +49,8 @@ public:
                                      std::uint32_t iterations, std::uint32_t& broken_bonds);
     [[nodiscard]] bool owns_fragment(const DestructionComponent& component,
                                      std::uint64_t node_id) const noexcept;
+    [[nodiscard]] bool retire_fragments(DestructionComponent& component, std::uint32_t max_count,
+                                         double max_age_seconds, std::uint32_t& retired_count);
     [[nodiscard]] bool reset(DestructionComponent& component);
     [[nodiscard]] bool snapshot(const DestructionComponent& component,
                                 schema::DestructionStateDataT& output) const;
