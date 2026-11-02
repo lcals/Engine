@@ -6,6 +6,7 @@
 #include "runtime/scene/component.hpp"
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 namespace engine
@@ -52,6 +53,7 @@ private:
     explicit DestructionComponent(Node& node);
     ResourcePtr resource_;
     DestructionGraph graph_;
+    std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);
     std::uint64_t revision_ = 0;
     bool ready_ = false;
     bool pending_ = false;

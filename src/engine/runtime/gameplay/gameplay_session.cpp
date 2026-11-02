@@ -13,12 +13,15 @@
 #include "runtime/app/app.hpp"
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/performance/profiling.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL.h>
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -154,135 +157,93 @@ struct Snapshot
     std::string entry = "scripts/game.js";
 };
 
-} // namespace
-
-struct GameplaySession::State
+struct ControlRead
 {
-    GameplaySession& owner;
-    Snapshot builtin;
-    std::unique_ptr<Snapshot> available;
-    std::string requested_entry;
-    std::string last_manifest;
-    std::string last_control;
-    fs::file_time_type last_control_time{};
-    bool control_seen = false;
-    std::string last_attempt;
-    std::string last_status;
-    bool gameplay_requested = false;
-    mutable ScriptStatus reported;
+    std::string text;
+    fs::file_time_type written{};
+    bool exists = false;
+    bool valid = false;
+    bool hot_reload = false;
+    std::string error;
+};
 
-    explicit State(GameplaySession& session) : owner(session)
+ControlRead read_control(const fs::path& root)
+{
+    ControlRead output;
+    const auto file = root / "script-control.json";
+    std::error_code error;
+    output.exists = fs::exists(file, error);
+    if (!output.exists && !error)
     {
+        return output;
     }
+    if (error || !read_text(file, output.text))
+    {
+        output.error = "Cannot read script control";
+        return output;
+    }
+    output.written = fs::last_write_time(file, error);
+    if (error)
+    {
+        output.error = "Cannot inspect script control timestamp";
+        return output;
+    }
+    const auto document = Json::parse(output.text, nullptr, false);
+    if (!document.is_object() || !document.contains("hotReload") ||
+        !document["hotReload"].is_boolean())
+    {
+        output.error = "Script control requires a boolean hotReload";
+        return output;
+    }
+    output.valid = true;
+    output.hot_reload = document["hotReload"].get<bool>();
+    return output;
+}
+
+bool write_status(const fs::path& root, const std::string& text, std::string& message)
+{
+    const auto target = root / "script-status.json";
+    const auto temporary = root / "script-status.json.tmp";
+    std::error_code error;
+    fs::remove(temporary, error);
+    if (error)
+    {
+        message = "Cannot remove temporary script status: " + error.message();
+        return false;
+    }
+    std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+    file << text;
+    file.close();
+    if (!file)
+    {
+        message = "Cannot write script status";
+        return false;
+    }
+    if (!SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(), PathUtils::to_utf8(target).c_str()))
+    {
+        message = std::string("Cannot publish script status: ") + SDL_GetError();
+        return false;
+    }
+    return true;
+}
+
+struct DeploymentRead
+{
+    std::string last_manifest;
+    std::string current_revision;
+    std::unique_ptr<Snapshot> available;
+    std::string error;
 
     bool fail(std::string message)
     {
-        if (owner.last_error_ != message)
-        {
-            LogSystem::write(LogLevel::error, message);
-            owner.last_error_ = std::move(message);
-        }
+        error = std::move(message);
         return false;
     }
 
-    void publish()
+    [[nodiscard]] bool read(const fs::path& persistent_root,
+                            const std::atomic<bool>* cancelled = nullptr)
     {
-        if (!App::is_initialized())
-        {
-            return;
-        }
-        const auto* status = owner.script_status();
-        if (status == nullptr)
-        {
-            return;
-        }
-        const Json document = {{"running", status->running},
-                               {"hotReload", status->hot_reload},
-                               {"activeRevision", status->active_revision},
-                               {"availableRevision", status->available_revision},
-                               {"lastError", status->last_error}};
-        const std::string text = document.dump(-1, ' ', false, Json::error_handler_t::replace);
-        if (text == last_status)
-        {
-            return;
-        }
-        const fs::path target = App::persistent_data_path() / "script-status.json";
-        const fs::path temporary = App::persistent_data_path() / "script-status.json.tmp";
-        std::error_code error;
-        fs::remove(temporary, error);
-        if (error)
-        {
-            (void)fail("Cannot remove temporary script status: " + error.message());
-            return;
-        }
-        std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
-        file << text;
-        file.close();
-        if (!file)
-        {
-            (void)fail("Cannot write script status");
-            return;
-        }
-        if (!SDL_RenamePath(PathUtils::to_utf8(temporary).c_str(),
-                            PathUtils::to_utf8(target).c_str()))
-        {
-            (void)fail(std::string("Cannot publish script status: ") + SDL_GetError());
-            return;
-        }
-        last_status = text;
-    }
-
-    void poll_control()
-    {
-        if (!App::is_initialized())
-        {
-            return;
-        }
-        const fs::path file = App::persistent_data_path() / "script-control.json";
-        std::error_code error;
-        if (!fs::exists(file, error) && !error)
-        {
-            last_control.clear();
-            control_seen = false;
-            return;
-        }
-        std::string text;
-        if (error || !read_text(file, text))
-        {
-            (void)fail("Cannot read script control");
-            return;
-        }
-        const auto written = fs::last_write_time(file, error);
-        if (error)
-        {
-            (void)fail("Cannot inspect script control timestamp");
-            return;
-        }
-        if (control_seen && text == last_control && written == last_control_time)
-        {
-            return;
-        }
-        last_control = text;
-        last_control_time = written;
-        control_seen = true;
-        const auto document = Json::parse(text, nullptr, false);
-        if (!document.is_object() || !document.contains("hotReload") ||
-            !document["hotReload"].is_boolean())
-        {
-            (void)fail("Script control requires a boolean hotReload");
-            return;
-        }
-        const bool enabled = document["hotReload"].get<bool>();
-        if (enabled && !owner.script_->status().hot_reload)
-        {
-            last_attempt.clear();
-        }
-        owner.script_->set_hot_reload(enabled);
-    }
-
-    [[nodiscard]] bool poll_available()
-    {
-        const fs::path root = App::persistent_data_path() / "assets";
+        const fs::path root = persistent_root / "assets";
         const fs::path manifest = root / "available.json";
         std::error_code error;
         if (!fs::exists(manifest, error) && !error)
@@ -316,19 +277,23 @@ struct GameplaySession::State
         {
             return fail("Unsafe asset revision or entry path");
         }
-        if (available && candidate->revision == available->revision)
+        if (candidate->revision == current_revision)
         {
             return fail("A published revision is immutable; publish a new revision");
         }
         fs::path version_root;
-        if (!contained_file(App::persistent_data_path(), "assets/versions/" + candidate->revision,
-                            version_root, true))
+        if (!contained_file(persistent_root, "assets/versions/" + candidate->revision, version_root,
+                            true))
         {
             return fail("Missing or escaping asset version directory");
         }
         std::set<std::string> seen;
         for (const auto& item : document["files"])
         {
+            if (cancelled && cancelled->load(std::memory_order_relaxed))
+            {
+                return fail("Deployment verification cancelled");
+            }
             if (!item.is_object() || !item.contains("path") || !item["path"].is_string() ||
                 !item.contains("size") || !item["size"].is_number_unsigned() ||
                 !item.contains("hash") || !item["hash"].is_string())
@@ -390,6 +355,221 @@ struct GameplaySession::State
         available = std::move(candidate);
         return true;
     }
+};
+
+} // namespace
+
+struct GameplaySession::State
+{
+    struct BackgroundIo
+    {
+        std::atomic<bool> cancelled{false};
+        std::uint64_t generation = 0;
+        ControlRead control;
+        DeploymentRead deployment;
+        std::string status_text;
+        std::string write_error;
+        bool status_written = false;
+        bool ready = false; // 仅完成委托在所属线程写入。
+    };
+
+    GameplaySession& owner;
+    fs::path persistent_root;
+    std::shared_ptr<BackgroundIo> pending;
+    std::uint64_t generation = 1;
+    std::string desired_status;
+    Snapshot builtin;
+    std::unique_ptr<Snapshot> available;
+    std::string requested_entry;
+    std::string last_manifest;
+    std::string last_control;
+    fs::file_time_type last_control_time{};
+    bool control_seen = false;
+    std::string last_attempt;
+    std::string last_status;
+    bool gameplay_requested = false;
+    mutable ScriptStatus reported;
+
+    explicit State(GameplaySession& session)
+        : owner(session),
+          persistent_root(App::is_initialized() ? App::persistent_data_path() : fs::path{})
+    {
+    }
+
+    bool fail(std::string message)
+    {
+        if (owner.last_error_ != message)
+        {
+            LogSystem::write(LogLevel::error, message);
+            owner.last_error_ = std::move(message);
+        }
+        return false;
+    }
+
+    void publish()
+    {
+        if (!App::is_initialized())
+        {
+            return;
+        }
+        const auto* status = owner.script_status();
+        if (status == nullptr)
+        {
+            return;
+        }
+        const Json document = {{"running", status->running},
+                               {"hotReload", status->hot_reload},
+                               {"activeRevision", status->active_revision},
+                               {"availableRevision", status->available_revision},
+                               {"lastError", status->last_error}};
+        desired_status = document.dump(-1, ' ', false, Json::error_handler_t::replace);
+        if (owner.background_ != nullptr || desired_status == last_status)
+        {
+            return;
+        }
+        std::string error;
+        if (!write_status(persistent_root, desired_status, error))
+        {
+            (void)fail(std::move(error));
+            return;
+        }
+        last_status = desired_status;
+    }
+
+    void accept_control(const ControlRead& control)
+    {
+        if (!control.error.empty())
+        {
+            (void)fail(control.error);
+            return;
+        }
+        if (!control.exists)
+        {
+            last_control.clear();
+            control_seen = false;
+            return;
+        }
+        if (!control.valid ||
+            (control_seen && control.text == last_control && control.written == last_control_time))
+        {
+            return;
+        }
+        last_control = control.text;
+        last_control_time = control.written;
+        control_seen = true;
+        if (control.hot_reload && !owner.script_->status().hot_reload)
+        {
+            last_attempt.clear();
+        }
+        owner.script_->set_hot_reload(control.hot_reload);
+    }
+
+    void poll_control()
+    {
+        if (App::is_initialized())
+        {
+            accept_control(read_control(persistent_root));
+        }
+    }
+
+    void invalidate_background() noexcept
+    {
+        ++generation;
+        if (pending)
+        {
+            pending->cancelled.store(true, std::memory_order_relaxed);
+        }
+    }
+
+    bool collect_background()
+    {
+        if (!pending || !pending->ready)
+        {
+            return true;
+        }
+        auto result = std::move(pending);
+        if (result->generation != generation)
+        {
+            return true;
+        }
+        accept_control(result->control);
+        if (result->status_written)
+        {
+            last_status = result->status_text;
+        }
+        if (!result->write_error.empty())
+        {
+            (void)fail(std::move(result->write_error));
+        }
+        if (!result->deployment.error.empty())
+        {
+            return fail(std::move(result->deployment.error));
+        }
+        accept_deployment(result->deployment);
+        return true;
+    }
+
+    void schedule_background()
+    {
+        if (owner.background_ == nullptr || pending || persistent_root.empty())
+        {
+            return;
+        }
+        auto operation = std::make_shared<BackgroundIo>();
+        operation->generation = generation;
+        operation->deployment.last_manifest = last_manifest;
+        operation->deployment.current_revision = available ? available->revision : "";
+        if (desired_status != last_status)
+        {
+            operation->status_text = desired_status;
+        }
+        const bool submitted = owner.background_->submit(
+            "Gameplay.deployment",
+            [operation, root = persistent_root]()
+            {
+                ENGINE_PROFILE_ZONE("Gameplay.deployment");
+                if (operation->cancelled.load(std::memory_order_relaxed))
+                {
+                    return false;
+                }
+                operation->control = read_control(root);
+                const bool valid = operation->deployment.read(root, &operation->cancelled);
+                if (!operation->status_text.empty() &&
+                    !operation->cancelled.load(std::memory_order_relaxed))
+                {
+                    operation->status_written =
+                        write_status(root, operation->status_text, operation->write_error);
+                }
+                return valid;
+            },
+            [operation](bool) { operation->ready = true; }, TaskPriority::low);
+        if (submitted)
+        {
+            pending = std::move(operation);
+        }
+    }
+
+    [[nodiscard]] bool poll_available()
+    {
+        DeploymentRead result;
+        result.last_manifest = last_manifest;
+        result.current_revision = available ? available->revision : "";
+        if (!result.read(persistent_root))
+        {
+            return fail(std::move(result.error));
+        }
+        accept_deployment(result);
+        return true;
+    }
+
+    void accept_deployment(DeploymentRead& result)
+    {
+        last_manifest = std::move(result.last_manifest);
+        if (result.available)
+        {
+            available = std::move(result.available);
+        }
+    }
 
     bool apply(const Snapshot& snapshot)
     {
@@ -428,16 +608,29 @@ struct GameplaySession::State
 
 GameplaySession::GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
                                  PhysicsSystem* physics, AudioSystem* audio,
-                                 AnimationSystem* animation, FontSystem* fonts,
-                                 UiSystem* ui) noexcept
+                                 AnimationSystem* animation, FontSystem* fonts, UiSystem* ui,
+                                 TaskSystem* background) noexcept
     : world_(world), renderer_(renderer), script_(script), physics_(physics), audio_(audio),
-      animation_(animation), fonts_(fonts), ui_(ui)
+      animation_(animation), fonts_(fonts), ui_(ui), background_(background)
 {
 }
 
 GameplaySession::~GameplaySession() noexcept
 {
     stop();
+    if (background_ && state_)
+    {
+        // 关闭边界可以等待；先收尾旧写入，再确保磁盘上的最终状态为 stopped。
+        (void)background_->wait();
+        if (!state_->desired_status.empty())
+        {
+            std::string error;
+            if (!write_status(state_->persistent_root, state_->desired_status, error))
+            {
+                (void)state_->fail(std::move(error));
+            }
+        }
+    }
 }
 
 bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const MountList& mounts,
@@ -490,6 +683,13 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
     {
         candidate->available = std::move(state_->available);
     }
+    if (state_)
+    {
+        state_->invalidate_background();
+        candidate->generation = state_->generation;
+        candidate->pending = std::move(state_->pending);
+        candidate->last_status = state_->last_status;
+    }
     state_ = std::move(candidate);
     last_error_.clear();
     return true;
@@ -525,6 +725,7 @@ bool GameplaySession::start(std::string_view entry)
         candidate->builtin.revision = candidate->builtin.catalog.revision();
         state_ = std::move(candidate);
     }
+    state_->invalidate_background();
     state_->requested_entry = entry;
     state_->poll_control();
     if (!state_->poll_available())
@@ -536,6 +737,7 @@ bool GameplaySession::start(std::string_view entry)
     state_->last_attempt = selected.revision;
     const bool result = state_->apply(selected);
     state_->publish();
+    state_->schedule_background();
     return result;
 }
 
@@ -545,8 +747,11 @@ bool GameplaySession::tick()
     {
         return true;
     }
-    state_->poll_control();
-    const bool complete = state_->poll_available();
+    if (!background_)
+    {
+        state_->poll_control();
+    }
+    const bool complete = background_ ? state_->collect_background() : state_->poll_available();
     if (state_->gameplay_requested && !script_->status().running)
     {
         state_->gameplay_requested = false;
@@ -560,6 +765,7 @@ bool GameplaySession::tick()
         (void)state_->apply(*state_->available);
     }
     state_->publish();
+    state_->schedule_background();
     return true;
 }
 
@@ -598,6 +804,7 @@ void GameplaySession::stop(std::string_view reason) noexcept
     if (state_)
     {
         state_->gameplay_requested = false;
+        state_->invalidate_background();
     }
     if (script_ != nullptr)
     {
@@ -607,6 +814,7 @@ void GameplaySession::stop(std::string_view reason) noexcept
     if (state_)
     {
         state_->publish();
+        state_->schedule_background();
     }
 }
 

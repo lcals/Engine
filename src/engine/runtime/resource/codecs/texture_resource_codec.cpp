@@ -13,7 +13,7 @@
 namespace engine
 {
 
-bool TextureResourceCodec::validate(const schema::TextureDataT& data)
+void TextureResourceCodec::initialize_transcoder()
 {
     static const bool initialized = []
     {
@@ -21,6 +21,11 @@ bool TextureResourceCodec::validate(const schema::TextureDataT& data)
         return true;
     }();
     static_cast<void>(initialized);
+}
+
+bool TextureResourceCodec::validate(const schema::TextureDataT& data)
+{
+    initialize_transcoder();
     if (data.schema_version != 1 || !valid_path(data.path) || data.width == 0 || data.height == 0 ||
         data.width > 16384 || data.height > 16384 || data.mip_count == 0 ||
         data.format < schema::TextureFormat::MIN || data.format > schema::TextureFormat::MAX ||

@@ -17,6 +17,7 @@ function(engine_configure_script_plugin)
         PRIVATE ${_bindings}
                 src/engine/plugins/runtime/script/bindings/binding_context.cpp
                 src/engine/plugins/runtime/script/bindings/script_binding_registry.cpp
+                src/engine/plugins/runtime/script/bindings/completion_binding.cpp
                 src/engine/plugins/runtime/script/vm/script_vm.cpp
                 "src/engine/plugins/runtime/script/vm/${ENGINE_SCRIPT_BACKEND}_vm.cpp")
     if(ENGINE_SCRIPT_BACKEND STREQUAL "quickjs")

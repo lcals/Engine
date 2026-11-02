@@ -121,7 +121,7 @@ nullptr，查询为 const noexcept；窗口必须覆盖当前 Run 和清理过�
 begin/step/commit/cancel 只协调该 Run 的一项加载请求，实际读取和依赖策略仍交给 ResourceLoader；
 不引入自动队列或新资源系统。cancel 为 noexcept 且幂等，scene_load_error 为 const noexcept 的
 本上下文错误借用；其余返回值标 nodiscard。操作先于目录换代和加载器关闭清理，成功提交后 Scene
-接管根资源；候选预检、旧句柄和其他 Run 不可取消活动请求。具体边界只在[玩法入口](../../../runtime/class-diagrams/gameplay.md#暂停和单线程分步加载)维护。
+接管根资源；候选预检、旧句柄和其他 Run 不可取消活动请求。具体边界只在[玩法入口](../../../runtime/class-diagrams/gameplay.md#暂停与后台资源加载)维护。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 是 `const vm::Arguments&`，由本次原生回调临时借用；通过 owner 访问当前 Run 的绑定上下文，参数与返回值不暴露 JS 句柄。
 
@@ -283,3 +283,29 @@ PhysicsBinding ..> BindingContext : validates scene
 ```
 
 步骤 4：宿主额外注入可空 NavigationSystem 借用。BindingContext 在自己拥有的场景切换/停止时 clear 导航；候选 Run 预检不修改活动导航。导航仅接受调用方明确提交的网格与范围，失败路径不能继续使用受影响旧 tile。
+
+## 原生异步完成委托
+
+`CompletionBinding` 是插件内部绑定，复用每个 Run 的事件派发钩子，无公开线程或任务类。`BindingContext::submit_async(start)` 接收立即返回是否排队成功的启动函数，返回非零请求身份；`take_async(id)` 返回 pending/成功/失败/失效。每个 Run 最多 128 个未领取结果。原生完成委托只保存弱结果引用，不持有 VM 或 BindingContext；Run 停止、场景更换时失效。JS 闭包在下一次绑定事件阶段调用一次，拒绝 Promise 回调，取消不会调用旧场景委托。
+
+```mermaid
+classDiagram
+    class ScriptBinding
+    class BindingContext {
+        +submit_async(function~bool(function void(bool))~ start) uint64_t
+        +take_async(uint64_t request) int
+    }
+    class CompletionBinding {
+        +name() string_view
+        +source() string_view
+        +register_functions(ScriptVm& vm) bool
+    }
+    class ScriptBindingRegistry
+    class ScriptVm
+    ScriptBinding <|-- CompletionBinding
+    ScriptBindingRegistry *-- CompletionBinding
+    CompletionBinding ..> BindingContext
+    CompletionBinding ..> ScriptVm
+```
+
+`TerrainComponent.DigSphereAsync/FillSphereAsync(..., completed)`、`DestructionComponent.DamageSphereAsync(..., completed)` 返回是否接收请求；完成布尔值表示候选是否成功提交。同步方法保留。脚本不等待 future，也不接触工作线程。

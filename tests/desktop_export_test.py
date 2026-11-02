@@ -95,7 +95,32 @@ class DesktopExportTest(unittest.TestCase):
                     (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
                 )
                 self.assertFalse((base / "catalog.bin").exists())
+                self.assertEqual(json.loads((base / "settings/runtime.json").read_text()), {"version": 1})
+                self.assertFalse((base / "assets/settings").exists())
                 self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
+
+    def test_runtime_settings_aggregate_sources_without_shipping_toml(self):
+        args = self.export_arguments()
+        settings = args.project / "settings"
+        settings.mkdir()
+        (settings / "runtime.toml").write_text(
+            'version=1\n[defaults.engine]\nwidth=1600\ntarget_frame_rate=45\n', encoding="utf-8"
+        )
+        (settings / "parallel.toml").write_text(
+            'version=1\n[profiles.mobile.threads]\nworker_limit=2\n', encoding="utf-8"
+        )
+        (settings / "editor.toml").write_text("must not ship", encoding="utf-8")
+        with (
+            mock.patch.object(desktop, "ROOT", self.root),
+            mock.patch.object(desktop, "build_resources", return_value=self.source),
+            mock.patch.object(desktop.subprocess, "run"),
+            mock.patch("builtins.print"),
+        ):
+            desktop.export(args)
+        result = json.loads((self.destination / "settings/runtime.json").read_text())
+        self.assertEqual(result["defaults"]["engine"], {"width": 1600, "target_frame_rate": 45})
+        self.assertEqual(result["profiles"]["mobile"]["parallel"]["threads"]["worker_limit"], 2)
+        self.assertEqual({p.name for p in (self.destination / "settings").iterdir()}, {"runtime.json"})
 
     def test_build_resources_passes_package_target_and_optional_manifest(self):
         args = self.export_arguments()

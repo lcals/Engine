@@ -1,6 +1,6 @@
 # 导航模块
 
-`NavigationSystem` 使用 [Recast Navigation 1.6.0](https://github.com/recastnavigation/recastnavigation/tree/v1.6.0) 生成分块导航网格，使用 Detour 查询完整路径，并使用 DetourCrowd 做多代理路径跟随、局部避让及位置积分。生成流程参考官方 `RecastDemo/Source/Sample_TileMesh.cpp`，保留 Zlib 许可说明；第三方类型只存在于实现文件。系统由世界系统拥有，架构入口见[导航类图](class-diagrams/navigation-system.md)。
+`NavigationSystem` 使用 [Recast Navigation 1.6.0](https://github.com/recastnavigation/recastnavigation/tree/v1.6.0) 生成分块导航网格，使用 Detour 查询完整路径，并使用 DetourCrowd 做多代理路径跟随、局部避让及位置积分。生成流程参考官方 `RecastDemo/Source/Sample_TileMesh.cpp`，保留 Zlib 许可说明；第三方类型只存在于实现文件。宿主负责装配及生命周期，架构入口见[导航类图](class-diagrams/navigation-system.md)。
 
 ## 调用契约
 
@@ -10,7 +10,9 @@
 - `revision()` 在网格发布、失效或清空时变化；`rebuilt_tiles()` 返回最近一次构建实际处理的 tile 数，包括生成结果为空的 tile。调用方缓存路径时须同时记录 revision，变化后重新查询。
 - `clear()` 幂等。`ready()` 表示已创建有效导航网格容器；全部为空的网格也可以 ready，此时寻路失败。
 
-核心不扫描 Scene，不识别地形、建筑、NPC 或具体插件，不自动监听几何。玩法与宿主负责选择 Mesh、合并一次变更的 dirty 范围，并在场景切换时清空旧导航。同步操作应放在调用方安全点，不允许构建、替换或寻路并发。后续可分离准备计算与发布，但当前没有后台任务或异步承诺。
+核心不扫描 Scene，不识别地形、建筑、NPC 或具体插件，不自动监听几何。玩法与宿主负责选择 Mesh、合并一次变更的 dirty 范围，并在场景切换时清空旧导航。同步操作应放在调用方安全点，不允许构建、替换或寻路并发。
+
+构造时可借用已初始化的 `TaskSystem` 并设置 `parallel_tile_threshold`（默认 4，范围 1..1024）。达到阈值时把各 tile 的 Recast 准备交给共享 worker，工作数据和结果各自独占，所有 tile 准备结束后在调用线程统一更新 Detour 网格。域并发额度限制实际并行数；小批次、未传任务域或域饱和拒绝提交时同步准备。任务域先初始化、后关闭，不能在构建期间关闭或重配。`build` / `replace` 仍在完成发布后返回，不代表跨帧异步加载；共享查询器和 DetourCrowd 的更新继续有序执行。
 
 ## 生成和失败处理
 

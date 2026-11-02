@@ -8,6 +8,8 @@
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <flatbuffers/flatbuffers.h>
@@ -19,8 +21,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
+#include <semaphore>
 #include <string>
 #include <utility>
 #include <vector>
@@ -202,9 +206,10 @@ struct Fixture
         resources.shutdown();
     }
 
-    bool initialize()
+    bool initialize(TaskSystem* tasks = nullptr, std::size_t max_pending_requests = 64)
     {
-        auto owned = std::make_unique<DestructionSystem>(world, physics);
+        auto owned =
+            std::make_unique<DestructionSystem>(world, physics, tasks, max_pending_requests);
         destruction = owned.get();
         std::unique_ptr<System> child = std::move(owned);
         return !destruction->synchronize() && world.add_subsystem(child) &&
@@ -965,11 +970,262 @@ bool stress_contract()
     return true;
 }
 
+bool asynchronous_damage_contract()
+{
+    ThreadSystem threads({.worker_limit = 1});
+    TaskSystem tasks(threads, {.name = "Destruction asynchronous tests", .max_concurrency = 1});
+    Fixture fixture;
+    if (!expect(threads.initialize({}) && tasks.initialize({}) && fixture.initialize(&tasks, 2),
+                "initialize asynchronous destruction task budget"))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Async destruction");
+    auto* owner = scene ? scene->create_node("Source") : nullptr;
+    auto* component = owner ? owner->add_component<DestructionComponent>() : nullptr;
+    if (!component)
+    {
+        return false;
+    }
+    auto pose = owner->get_component<Transform>()->settings();
+    pose.position = {0, 10, 0};
+    auto settings = component->settings();
+    settings.destruction_guid = asset_guid;
+    settings.density = 1;
+    if (!owner->get_component<Transform>()->set_settings(pose) ||
+        !component->set_settings(settings) || !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    const auto ids = generated_ids(*scene);
+    const auto revision = component->revision();
+    std::vector<bool> results;
+    const auto completed = [&](bool success) { results.push_back(success); };
+    std::binary_semaphore gate(0);
+    auto occupied = tasks.submit("Hold destruction worker",
+                                 [&]
+                                 {
+                                     gate.acquire();
+                                     return true;
+                                 });
+    if (!occupied.valid())
+    {
+        return false;
+    }
+    const bool queued =
+        fixture.destruction->request_damage(*component, {0.5, 10, 0}, 0.1F, 0.25F, 0, completed) &&
+        fixture.destruction->request_damage(*component, {0.5, 10, 0}, 0.1F, 0.25F, 0, completed) &&
+        !fixture.destruction->request_damage(*component, {}, 1, 1, 0, completed) &&
+        fixture.destruction->synchronize() && results.empty() && component->revision() == revision;
+    gate.release();
+    ByteBuffer bytes;
+    if (!expect(occupied.get() && queued && tasks.wait() && fixture.destruction->synchronize() &&
+                    results == std::vector<bool>{true} && component->revision() == revision + 1 &&
+                    tasks.wait() && fixture.destruction->synchronize() &&
+                    results == std::vector<bool>({true, true}) && generated_ids(*scene) == ids &&
+                    component->snapshot(bytes),
+                "nonblocking ordered damage keeps unchanged geometry and obeys commit budget",
+                component->last_error()))
+    {
+        return false;
+    }
+    auto saved = unpack(bytes);
+    if (!expect(saved && std::abs(saved->bond_health[0] - 0.5F) < 0.0001F,
+                "queued Blast candidates accumulate both damages"))
+    {
+        return false;
+    }
+
+    results.clear();
+    if (!expect(
+            fixture.destruction->request_damage(*component, {0.5, 10, 0}, 0.1F, 1, 0, completed) &&
+                fixture.destruction->synchronize() && tasks.wait() && component->reset() &&
+                fixture.destruction->synchronize() && results == std::vector<bool>{false} &&
+                component->group_count() == 1,
+            "reset invalidates a fully prepared Blast candidate"))
+    {
+        return false;
+    }
+
+    if (!component->damage_sphere({0.5, 10, 0}, 0.1F, 1))
+    {
+        return false;
+    }
+    auto* moving = dynamic_group(*scene);
+    if (!moving)
+    {
+        return false;
+    }
+    auto body = moving->get_component<RigidBody>()->settings();
+    body.gravity_factor = 0;
+    body.linear_damping = 0;
+    body.linear_velocity = {3, 0, 0};
+    if (!moving->get_component<RigidBody>()->set_settings(body) || !fixture.physics.tick(0))
+    {
+        return false;
+    }
+    results.clear();
+    if (!fixture.destruction->request_damage(*component, {1.5, 10, 0}, 0.1F, 1, 0, completed) ||
+        !fixture.destruction->synchronize() || !tasks.wait() || !fixture.physics.tick(1.0 / 60.0))
+    {
+        return false;
+    }
+    const auto moved_pose = moving->get_component<Transform>()->settings();
+    if (!expect(moved_pose.position.x() > 0 && fixture.destruction->synchronize() &&
+                    results == std::vector<bool>{true} && component->group_count() == 3,
+                "split commits after physics has advanced the original dynamic group",
+                component->last_error()))
+    {
+        return false;
+    }
+    for (const auto& node : scene->nodes())
+    {
+        const auto* rigid = node->get_component<RigidBody>();
+        if (node->transient() && rigid && rigid->settings().motion == schema::BodyMotion::dynamic &&
+            !expect(node->get_component<Transform>()->settings() == moved_pose &&
+                        std::abs(rigid->settings().linear_velocity.x() - 3) < 0.0001,
+                    "new fragments retain current pose and velocity instead of request-time state"))
+        {
+            return false;
+        }
+    }
+
+    results.clear();
+    moving = dynamic_group(*scene);
+    if (!fixture.destruction->request_damage(*component, {}, 100, 0, 1, completed) ||
+        !fixture.destruction->synchronize() || !tasks.wait())
+    {
+        return false;
+    }
+    auto scaled = moving->get_component<Transform>()->settings();
+    scaled.scale = {2, 2, 2};
+    if (!expect(moving->get_component<Transform>()->set_settings(scaled) &&
+                    fixture.destruction->synchronize() && results == std::vector<bool>{false},
+                "source scale conflicts cancel stale impulse and geometry"))
+    {
+        return false;
+    }
+    if (!component->reset())
+    {
+        return false;
+    }
+
+    auto* identity_node = scene->create_node("Identity");
+    auto* original = identity_node->add_component<DestructionComponent>();
+    if (!original || !original->set_settings(settings) || !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    const auto original_revision = original->revision();
+    results.clear();
+    if (!fixture.destruction->request_damage(*original, {0.5, 0, 0}, 0.1F, 1, 0, completed) ||
+        !fixture.destruction->synchronize() || !tasks.wait() ||
+        !identity_node->remove_component(DestructionComponent::component_type))
+    {
+        return false;
+    }
+    auto* replacement = identity_node->add_component<DestructionComponent>();
+    if (!expect(replacement && replacement->set_settings(settings) &&
+                    fixture.destruction->synchronize() && results == std::vector<bool>{false} &&
+                    replacement->revision() == original_revision && replacement->group_count() == 1,
+                "old request cannot attach to a new component with the same revision"))
+    {
+        return false;
+    }
+
+    results.clear();
+    if (!fixture.destruction->request_damage(*replacement, {}, 10, 1, 0, completed) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    fixture.world.destroy_scene();
+    if (!expect(fixture.world.create_scene("Other") && tasks.wait() &&
+                    fixture.destruction->synchronize() && results == std::vector<bool>{false},
+                "scene replacement cancels old damage without accessing its objects"))
+    {
+        return false;
+    }
+    owner = fixture.world.scene()->create_node("Shutdown");
+    component = owner->add_component<DestructionComponent>();
+    results.clear();
+    if (!component || !component->set_settings(settings) || !fixture.destruction->synchronize() ||
+        !fixture.destruction->request_damage(*component, {}, 10, 1, 0, completed) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    fixture.world.shutdown();
+    return expect(tasks.wait() && results.empty(),
+                  "closing the world drops pending damage delegates");
+}
+
+bool asynchronous_damage_fairness(std::size_t concurrency)
+{
+    ThreadSystem threads({.worker_limit = concurrency});
+    TaskSystem tasks(threads, {.name = "Destruction fairness", .max_concurrency = concurrency});
+    Fixture fixture;
+    if (!threads.initialize({}) || !tasks.initialize({}) || !fixture.initialize(&tasks, 4))
+    {
+        return false;
+    }
+    auto* scene = fixture.world.create_scene("Fair damage requests");
+    auto* low_node = scene ? scene->create_node("Frequent damage") : nullptr;
+    auto* high_node = scene ? scene->create_node("Occasional damage") : nullptr;
+    auto* low = low_node ? low_node->add_component<DestructionComponent>() : nullptr;
+    auto* high = high_node ? high_node->add_component<DestructionComponent>() : nullptr;
+    schema::DestructionDataT settings;
+    settings.destruction_guid = asset_guid;
+    if (!low || !high || !low->set_settings(settings) || !high->set_settings(settings) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    bool high_finished = false;
+    bool succeeded = true;
+    unsigned low_completions = 0;
+    std::function<void(bool)> refill;
+    refill = [&](bool success)
+    {
+        succeeded = success && succeeded;
+        ++low_completions;
+        if (!high_finished)
+        {
+            succeeded = fixture.destruction->request_damage(*low, {}, 1, 0, 0, refill) && succeeded;
+        }
+    };
+    if (!fixture.destruction->request_damage(*low, {}, 1, 0, 0, refill) ||
+        !fixture.destruction->request_damage(*low, {}, 1, 0, 0, refill) ||
+        !fixture.destruction->request_damage(*high, {}, 1, 0, 0,
+                                             [&](bool success)
+                                             {
+                                                 succeeded = success && succeeded;
+                                                 high_finished = true;
+                                             }) ||
+        !fixture.destruction->synchronize())
+    {
+        return false;
+    }
+    for (unsigned frame = 0; frame < 4 && !high_finished; ++frame)
+    {
+        if (!tasks.wait() || !fixture.destruction->synchronize())
+        {
+            return false;
+        }
+    }
+    const bool passed = expect(high_finished && succeeded && low_completions > 0,
+                               "higher node ID finishes despite continuous lower-ID damage");
+    fixture.world.shutdown();
+    return tasks.wait() && passed;
+}
+
 } // namespace
 
 int main()
 {
-    return runtime_contract() && incremental_contract() && support_contract() && stress_contract()
+    return runtime_contract() && incremental_contract() && support_contract() &&
+                   stress_contract() && asynchronous_damage_contract() &&
+                   asynchronous_damage_fairness(1) && asynchronous_damage_fairness(2)
                ? 0
                : 1;
 }

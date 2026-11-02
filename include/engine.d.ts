@@ -592,6 +592,16 @@ declare module "engine" {
         /** Sphere center and radius are in terrain-node local space. */
         DigSphere(x: number, y: number, z: number, radius: number): boolean;
         FillSphere(x: number, y: number, z: number, radius: number): boolean;
+        /** Accept a queued edit; completed runs on the main thread after publish or cancellation.
+         * Scene changes and script shutdown discard callbacks. No callback on rejected requests. */
+        DigSphereAsync(
+            x: number, y: number, z: number, radius: number,
+            completed: (success: boolean) => void,
+        ): boolean;
+        FillSphereAsync(
+            x: number, y: number, z: number, radius: number,
+            completed: (success: boolean) => void,
+        ): boolean;
         /** Extract unsupported soil; refuses over-budget work without removing that soil. */
         CollapseDetached(
             minSamples: number,
@@ -824,6 +834,12 @@ declare module "engine" {
             radius: number,
             damage: number,
             impulse?: number,
+        ): boolean;
+        /** Accept queued damage; completed runs on the main thread after publish or cancellation.
+         * Scene changes and script shutdown discard callbacks. No callback on rejected requests. */
+        DamageSphereAsync(
+            x: number, y: number, z: number, radius: number, damage: number, impulse: number,
+            completed: (success: boolean) => void,
         ): boolean;
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;

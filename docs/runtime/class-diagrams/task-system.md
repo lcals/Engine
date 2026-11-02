@@ -29,6 +29,7 @@ classDiagram
         +string name
         +size_t max_concurrency
         +TaskPriority priority
+        +size_t max_pending
     }
     class TaskPriority {
         <<enumeration>>
@@ -48,6 +49,9 @@ classDiagram
         +configure_concurrency(size_t count) bool
         +submit(string name, function~bool()~ task, TaskPriority priority) future~bool~
         +submit_batch(vector~TaskDescription~ tasks, TaskPriority priority) future~bool~
+        +submit(string name, function~bool()~ task, function~void(bool)~ completed, TaskPriority priority) bool
+        +enqueue(string name, function~void()~ task, TaskPriority priority) bool
+        +dispatch_completions(size_t max_count, double max_seconds) size_t
         +run(const vector~TaskDescription~& tasks) bool
         +wait() bool
         +max_concurrency() size_t
@@ -100,9 +104,15 @@ TaskSystem 借用已初始化的 ThreadSystem，各自拥有 arena、入口图�
 
 编辑器入口拥有 ThreadSystem 和低优先 TaskSystem，向 AssetPipelineSystem 注入已初始化 TaskSystem&；管线不再自建池。import_threads 默认 4，当前在空闲时配置编辑器域，有在途任务时不能改变额度。整批导入仍由协调线程同步组织，仅转换阶段在 worker 执行。
 
-RuntimeHost 最后一个可空初始化参数借用已有 ThreadSystem；独立运行时自行创建。宿主拥有高优先运行时 TaskSystem，tasks() 返回初始化期间的可空借用；先关闭任务域，再释放场景、资源与自有线程预算。
+RuntimeHost 通过可空参数借用已有 ThreadSystem；独立运行时自行创建。宿主独占运行、后台、加载、物理、动画和导航任务域，tasks() 返回运行域的可空借用；额度与优先级由 RuntimeParallelConfig 配置。关闭先停止玩法和资源异步服务，再销毁各领域系统并等待其已接受工作，最后关闭任务域与自有线程预算，不能先关域再等 Jolt barrier。
 
 ## 提交、依赖与优先级
+
+- `TaskConfig.max_pending` 默认 1024，限制尚未完成的请求与尚未派发的完成委托总数；满额拒绝提交，不阻塞生产者。一个批次算一个请求，调用方仍须限制批次大小。
+- 委托版 `submit` 在 worker 执行计算，在初始化线程显式 `dispatch_completions` 执行完成委托；每次同时受数量和秒数预算限制，任一为 0 不派发。委托本身不可抢占，调用方应保持短小。派发先释放该请求额度，允许委托提交下一阶段；同一轮不递归派发新完成委托。
+- `enqueue` 是 Jolt 等已有 job 系统的最小桥接，允许 worker 动态投递，无 future、无完成委托。接收即保证函数执行；失败返回 false，不跨线程写入 last_error。关闭开始后拒绝新工作，使用者必须先完成自身 job/barrier。
+- OS 优先级设置失败记录 Tracy 消息，但仍执行已接收函数；有返回值任务报告优先级或工作失败。该失败不能让 Jolt 丢失 job 而永久等待。
+- 关闭等待工作执行结束，丢弃未派发的完成委托；不在析构期间调用业务。请求取消、代际校验和数据生命周期继续由所属模块管理。
 
 - submit(name, task, priority=normal) / submit_batch(tasks, priority=normal) 返回 std::future<bool>。未初始化、空函数、非法枚举、无效/重复依赖或环，返回无效 future 并设置 last_error；接收后的结果表示整项成功/失败。空批次返回已完成 true。
 - last_error 仅报告协调线程上的提交、配置和同步 run 错误；worker 不并发改写它。异步回调失败或 OS 优先级设置/恢复失败，通过 future 返回 false，任务身份可在 Tracy 追踪。
@@ -113,12 +123,12 @@ RuntimeHost 最后一个可空初始化参数借用已有 ThreadSystem；独立�
 
 ## OS 优先度与 Tracy
 
-ThreadPriority 独立于 TaskPriority。worker_priority=normal 保持 worker 基线；low/high 仅执行引擎函数期间临时设置并恢复，不能永久给共享 worker 贴域标签。Apple 使用 QoS，Windows 使用线程优先度，Linux/Android 使用可恢复的调度策略/nice。设置失败不执行回调，恢复失败返回失败；无权限提升不能报告成功。UI/输入仍属于主线程关键路径。
+ThreadPriority 独立于 TaskPriority。worker_priority=normal 保持 worker 基线；low/high 仅执行引擎函数期间临时设置并恢复，不能永久给共享 worker 贴域标签。Apple 使用 QoS，Windows 使用线程优先度，Linux/Android 使用可恢复的调度策略/nice。设置失败仍执行已接收函数并记录观测消息；有结果的任务在设置或恢复失败时返回 false，因此 false 不代表函数没有副作用，调用者不能据此自动重跑。无权限提升不能报告成功。UI/输入仍属于主线程关键路径。
 
 复用 ENGINE_ENABLE_TRACY；记录任务名、域、优先度、入队到执行等待、批次与关闭等待。排队纳秒与域、任务名和优先级合成一条单行注释，避免官方 TSV 导出的多行问题；批次节点的排队时间包含依赖等待，不代表依赖就绪后的纯排队延迟。不伪造跨线程 zone。关闭开关不链接客户端。
 
 ## 边界
 
-本轮实现底座、编辑器转换迁移和运行时域装配；物理、导航、文件读取、动画等消费者后续分别接入。活动 Scene/Node/Component、VM、GPU 提交保持原线程契约。资源代际校验、主线程应用预算归具体模块，不放进通用任务系统。
+文件、物理、导航、动画、纹理准备和地形/破坏已按各自契约接入，SDL 音频与 bgfx 复用其官方线程。活动 Scene/Node/Component、VM、GPU 提交保持原线程契约；并行计算、跨帧异步和同步回退的区别见[运行并行与项目预算](../parallelism.md)。资源代际校验、主线程应用预算归具体模块，不放进通用任务系统。
 
 依赖使用现有固定 oneTBB 版本和补丁；平台声明与实际测试分开记录于 README。Mac 动态库通过不代表 Android/iOS 或静态链接已验证。

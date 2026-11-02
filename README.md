@@ -538,9 +538,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 `set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
 
-独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、脚本、地形、破坏、物理、导航、渲染、UI、动画及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
+独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、文件/资源、任务域、脚本、地形、破坏、物理、导航、渲染、UI、动画、音频供数及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
 
-后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[最终可信基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
+后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点、按域任务排队与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[历史单线程基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
@@ -689,11 +689,13 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 
 ### 线程与异步任务
 
-线程底座位于 `runtime/task/`，使用已固定的 oneTBB 2022.2.0。`ThreadSystem` 只拥有进程并行预算，oneTBB 管理 worker；编辑器与运行时各有 `TaskSystem` 任务域。编辑器域默认低优先、并发上限 4，运行时域默认高优先；共享 worker，不重复创建线程池。
+线程底座位于 `runtime/task/`，使用已固定的 oneTBB 2022.2.0。`ThreadSystem` 只拥有进程并行预算，oneTBB 管理 worker；编辑器与运行时各有 `TaskSystem` 任务域。编辑器域默认低优先、并发上限 4；运行宿主分别装配通用、后台、加载、物理、动画和导航域，共享 worker，不重复创建线程池。
 
-`submit` / `submit_batch` 返回标准 `future<bool>`，支持三档任务优先度和原生依赖图；拒绝提交返回无效 future。控制和提交只在初始化线程调用，后台函数不修改活动场景或脚本 VM，也不阻塞等待同池 future。当前导入沿用同步协调流程；文件加载、物理等业务后续分别迁移。接口、生命周期和两类优先级的语义见[线程类图](docs/runtime/class-diagrams/task-system.md)，拆分次序见[性能文档](docs/runtime/performance.md#任务线程观测与迁移次序)。
+`submit` / `submit_batch` 返回标准 `future<bool>`，委托版 submit 在协调线程按预算派发完成；支持三档任务优先度和原生依赖图。普通提交和配置由初始化线程调用，`enqueue` 为 Jolt 等已有 job 系统提供线程安全非等待投递。后台函数不修改活动场景或脚本 VM，也不阻塞等待同池 future。接口与生命周期见[线程类图](docs/runtime/class-diagrams/task-system.md)。
 
-`ThreadPriority` 为独立 OS 策略：normal 保持基线，low/high 在函数执行期间临时设置并精确恢复；权限不足返回失败。Apple 使用 QoS，Windows 使用原生线程优先级，Linux/Android 使用可恢复的调度策略和 nice。所有档位均不保证实时响应。`ENGINE_ENABLE_TRACY` 控制任务执行、排队和关闭等待的观测，默认关闭。
+项目源通过 `settings/parallel.toml` 配置 defaults、desktop/mobile 档位和 overrides，控制进程预算、各域并发/优先级、资源在途数量与字节、动画和纹理批量、场景恢复与主线程完成委托预算。TOML 仅由编辑器/构建链读取并转换为核心配置；项目可选 `settings/runtime.toml` 保存 EngineConfig。运行包读取聚合的 `settings/runtime.json`，以 RuntimeSettings 包含 engine、parallel 等运行设置；原生桌面位于程序旁，macOS `.app` 位于 `Contents/Resources/settings`，Android 位于 `apk:/assets/settings`。运行时不解析项目 TOML。文件传输使用 SDL AsyncIO，物理 Jolt job、动画 ozz 采样及导航 tile 准备复用 oneTBB；音频按 SDL 回调供数，渲染保留 bgfx 自有线程。物理/动画/导航和场景贴图准备仍在既有安全点等待必要结果，不能称为全部跨帧异步。配置、部署与边界见[运行并行](docs/runtime/parallelism.md)，阶段观测见[性能文档](docs/runtime/performance.md#并行观测)。
+
+`ThreadPriority` 为独立 OS 策略：normal 保持基线，low/high 在函数执行期间临时设置并精确恢复；权限不足仍执行已接收函数并报告失败，不因调度提示失败丢失 Jolt job。返回失败不代表函数未执行，不能自动重跑有副作用的任务。Apple 使用 QoS，Windows 使用原生线程优先级，Linux/Android 使用可恢复的调度策略和 nice。所有档位均不保证实时响应。`ENGINE_ENABLE_TRACY` 控制任务执行、排队和关闭等待的观测，默认关闭。
 
 ### 资源导入与 GUID
 
@@ -833,7 +835,7 @@ if (!agent.MoveTo({ x: 12, y: 0, z: 8 })) return false;
 
 脚本只做创建、提交目标及低频观察，不逐帧搬位置。完整网格重建使核心句柄失效，插件重新登记并提交组件保留的目标；局部瓦片更新保留身份、丢弃旧走廊后重新排队。禁用、删除和切场景移除代理，场景文件只保存配置。公开契约与容量/路径预算见[导航模块](docs/runtime/navigation.md)及[代理类图](docs/plugins/runtime/class-diagrams/navigation-crowd.md)。
 
-地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。当前是同步局部重建，不包含自动追踪动态残骸、后台构建或脚下地面消失后的物理下落。
+地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。局部重建的各 tile 可在任务域并行准备，但 Replace 仍在统一发布后返回；不包含跨帧导航构建、自动追踪动态残骸或脚下地面消失后的物理下落。
 
 ### 物理交互技术范例
 
@@ -967,7 +969,6 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
 | macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
-| macOS ARM64 / JSON、项目 UI 与运行控制 | 受影响目标 Debug / Release 构建与定向 CTest 通过，覆盖 JSON 导入/脚本读取、资源加载、暂停及插件边界；项目 TS 与桌面/Android 资源脚本检查通过。Metal 实窗验证菜单、重绑定、设置保存、Retina 分辨率切换、VSync 读回、相对鼠标、世界暂停/恢复及分步加载；Mac 原生包独立启动并从菜单正常退出 | 未运行全套 CTest、V8 或其他平台构建。Xbox 仅模拟输入和断连，未验证实体手柄；语言仍为空实现。加载为单线程分步推进，百分比只表示完成资源数；单项解码、场景恢复和首帧 GPU 准备仍同步，不保证无卡顿 |
 | macOS 多角色与可破坏地形导航 | Debug / Release 的导航、原生代理、脚本、编解码及装配边界共 10 项定向回归通过，范例 TS 编译与编排检查通过。Metal 实窗观察 16／64 角色移动、反转及启停；16 角色挖坑绕行全部到达，断沟后停止，恢复地面后原目标自动续行 | 未做其他平台运行、完整战斗联调或容量压测；同步重建与避让的性能尚无目标设备结论 |
 | macOS ARM64 / QuickJS 物理交互 | 物理查询、角色、范围与接触生命周期、脚本及导航运动学组合的定向 Debug 5 项、Release 7 项 CTest 均通过；新增订阅和 Trigger 类型切换后，受影响物理/脚本测试再次通过两配置回归。Metal 实窗验证角色与导航对象查询、两类范围、触发统计、启停和返回清理 | 未做其他平台构建或运行验证、容量或性能验收；不代表全套 CTest 通过 |
 | macOS InPlace 动画导入 | Debug / Release 的 FBX 管线、轴向处理与动画定向测试通过；范例 TS 与编排回归通过。实际 walk 缓存每周期前进位移从约 1.4253 米降到浮点误差范围，未选轴、旋转、缩放及其他骨骼不变；新资源同步与 Metal 场景启动通过，停止后零节点 | 尚未做其他平台实窗验证；未实现 RootMotion 驱动与运行时模式切换 |
@@ -1094,9 +1095,9 @@ MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terra
 
 状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
 
-当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。全部路径继续同步执行，分块 GPU 上传、后台线程和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
+当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。同步接口保留；异步球形笔刷在共享任务域准备独占体积/网格，按请求版本在主线程有界发布。Reset、首次生成、连通塌方及 MCP 事务仍有同步路径；分块 GPU 上传和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
 
-已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[最终可信基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
+已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[历史单线程基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
 
 架构见[运行时类图](docs/plugins/runtime/class-diagrams/terrain.md)、[编辑器类图](docs/plugins/editor/class-diagrams/terrain-editor.md)和[脚本接口](docs/plugins/runtime/class-diagrams/terrain-script-api.md)；阶段范围及实测限制见[总体方案](docs/plugins/runtime/terrain-destruction-plan.md)与[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)。
 
@@ -1128,11 +1129,11 @@ MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
-实现仍同步，按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
+同步损伤接口保留，另提供有界异步损伤准备与版本校验后的主线程发布；两条路径都按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
 
 已有 macOS ARM64 Debug/Release 回归覆盖运行时图与物理、Authoring、导入、编辑事务、MCP 注册及组件禁用。真实窗口验证过预览损伤/撤销重做、菜单入口、各试件损伤与重置、观察镜头和返回清理；停止后场景为空、节点数归零。功能事实见
 [步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
-Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；异步处理尚未实现。
+Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；新增异步损伤路径不代表移动端性能已验收。
 
 移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
 架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。
@@ -1155,7 +1156,7 @@ Mac Debug / Release 已累计各通过 8 项定向测试；Android ARM64 仅通�
 步骤 4 已用最终资源版本完成真实窗口两档连射、停火、重置、短走及返回清理；这些是同步功能验收，不等于达到请求射速。
 证据与限制见[步骤 4 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
 面板用 `Date.now()` 显示实际墙钟帧间隔的指数平均与最大值，**包含限帧等待与截图开销**，不是 CPU/GPU 工作耗时或 P95。每轮连射清帧间隔统计，每约一秒和最终完成时输出 `Rocket range sample` JSON（含实际发射率、命中、blocked、碎块/土石与导航状态）。
-目前没有综合世界存档、移动残骸导航、异步任务、完整建筑力学或手机性能结论；
+目前没有综合世界存档、移动残骸导航、完整建筑力学或手机性能结论；异步笔刷和损伤已接入，其他同步事务仍需按各自边界评估；
 这些能力的单测通过也不代表连续炮击已经达到目标吞吐。
 
-物理与直接相关的地形碰撞继续采用单线程，已有 Mac Debug/Release 受影响构建与定向回归通过。最终可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[最终可信基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。
+以下数据对应 2026-11-01 单线程版本及其 Mac 定向回归，不代表当前并行版本。历史可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[历史单线程基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。

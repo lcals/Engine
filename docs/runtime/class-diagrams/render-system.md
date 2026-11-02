@@ -4,7 +4,7 @@
 
 公开图定义 `RenderSystem` 的方法；私有实现另列职责与所有权，其他节点为跨图引用或第三方库。
 
-> **已实现**：经评审，在既有 `RenderSystem` 追加运行时 VSync 请求和查询接口；其余公开方法及所有权保持不变。成功只表示请求已接受，在下一次可提交的渲染帧应用。
+VSync 请求在下一次可提交的帧应用。场景纹理准备和截图编码可借用宿主任务域，GPU 对象仍由主线程创建与提交；平台后端执行复用 bgfx 自有渲染线程。
 
 ## 私有实现边界
 
@@ -18,11 +18,17 @@ classDiagram
         +initialize() bool
         +release() void
         +resource_count() uint32_t
-        +prepare_ibl(const Scene& scene) bool
+        +prepare_ibl(const Scene& scene, size_t staging_bytes) bool
     }
     class GpuTexture {
-        +create(const ResourcePtr& source) bool
+        +create(const PreparedTexture& prepared) bool
         +release() void
+    }
+    class PreparedTexture {
+        <<private struct>>
+        +describe(const ResourcePtr& source, const bgfx_Caps& caps, size_t max_bytes) bool
+        +prepare() bool
+        +size_t bytes
     }
     class GpuProgram {
         +create(const ShaderDataT& shader) bool
@@ -77,6 +83,8 @@ classDiagram
     SceneGpuResources *-- HdrPostProcessPass
     SceneGpuResources ..> Scene : 准备IBL期间借用
     GpuTexture o-- Resource : 共享CPU资源
+    PreparedTexture o-- Resource : 独立准备时持有不可变源
+    GpuTexture ..> PreparedTexture : 主线程上传已完成字节
     GpuProgram *-- GpuUniform
     GpuProgram *-- GpuSampler
     GpuProgram ..> ShaderDataT : 创建参数及拥有定义副本
@@ -200,10 +208,14 @@ classDiagram
     class RendererCallbacks {
         <<private final>>
         +screenShot(...) void
+        +process(TaskSystem* tasks) void
+        +finish() void
     }
+    class TaskSystem
     class ScreenshotStatus
     CallbackI <|-- RendererCallbacks
     RendererCallbacks --> ScreenshotStatus : 原子保存截图回执
+    RendererCallbacks ..> TaskSystem : 主线程提交截图编码和写入
 ```
 
 `CallbackI` 来自 `bgfx`。关键重写接收完整帧数据：
@@ -223,7 +235,7 @@ classDiagram
     direction TB
     class RenderSystem {
         <<final>>
-        +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui)
+        +RenderSystem(WindowSystem& windows, WorldSystem#42; world, FontSystem#42; fonts, UiSystem#42; ui, TaskSystem#42; tasks = nullptr, const RenderConfig& config = {})
         +~RenderSystem()
         +add_extension(RenderExtension& extension) bool
         +remove_extension(RenderExtension& extension) bool
@@ -250,6 +262,11 @@ classDiagram
         <<abstract>>
     }
     class WindowSystem
+    class RenderConfig {
+        <<struct>>
+        +size_t texture_batch_size = 4
+        +size_t texture_staging_bytes = 67108864
+    }
     class WorldSystem
     class Scene
     class Camera
@@ -328,10 +345,12 @@ classDiagram
         <<library>>
     }
     System <|-- RenderSystem
+    RenderSystem *-- RenderConfig : 保存配置值
     RenderSystem --> WindowSystem : 构造参数及持续借用
     RenderSystem --> WorldSystem : 可空借用 活动场景来源
     RenderSystem --> FontSystem : 可空借用 3D 文字绘制
     RenderSystem --> UiSystem : 可空借用 场景后的 UI 通道
+    RenderSystem --> TaskSystem : 可空借用 纹理准备及截图任务域
     RenderSystem --> RenderExtension : 登记期间借用，独立透明通道
     RenderSystem ..> Scene : 借用节点列表和唯一场景编号
     RenderSystem ..> Camera : 调用期间借用显式视角或场景活动镜头
@@ -408,7 +427,10 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 - 环境光、雾和曝光变化只更新帧 Uniform，不重建场景 Mesh、材质程序或纹理；阴影分辨率变化仅重建阴影通道资源，修改偏移、级联数量、距离或混合参数复用已有 atlas，并在本帧重新计算级联投影。
 - 可选 `ambient_tricolor` 根据世界法线 Y 在天空、赤道与地面线性颜色间插值，仍乘 `ambient_intensity`；关闭时使用原有 `ambient_color`。`fog_mode` 选择关闭、线性、指数或平方指数雾。线性模式保留相机到片元的世界距离，在 `fog_start` 到 `fog_end` 间混合；指数模式用相机前向深度减近裁面，透过率分别为 `exp(-density*d)` 与 `exp(-(density*d)^2)`，density 为非负有限数。颜色均为线性 `fog_color`，要求 `0 <= start < end`。两者默认关闭，数据由调用方明确提交，不识别 Unity 或具体项目。
 - 方向光阴影从启用方向灯的 `cast_shadows`、`shadow_resolution`、`shadow_bias` 及下述 CSM 参数读取，当前支持一个投影方向灯；多个投影方向灯明确失败。灯的变换仍来自节点。每级根据本次镜头视锥拟合正交投影，深度范围纳入相交投射物，复用 bgfx `15-shadowmaps-simple` 的 packed-depth 路径与 16 点 PCF 采样；没有投影方向灯不产生阴影。RGBA8 深度编码与 D16 深度附件避免依赖硬件比较采样；纹理、帧缓冲及程序随场景释放，设备不支持附件格式时返回失败，不假报开启。阴影使用保留纹理槽 15，项目材质不得占用该槽。ACES 色调映射直接适配 bgfx `shaderlib.sh` 的曲线，保留来源。
-- `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧经 bgfx 回调写入 PNG 后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。回调处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时完成或取消等待中的请求。请求和查询由主线程调用，回调状态跨线程同步。
+- `request_screenshot()` 仅接受调用方提供的绝对 UTF-8 `.png` 路径，父目录必须存在；核心不选择项目目录、不创建目录。返回 `true` 表示已排队，后续帧完成编码和文件关闭后 `screenshot_status()` 才变为 `complete`；失败为 `failed`，等待期间拒绝第二个请求。bgfx 回调仅校验并复制读回像素，单个缓冲最多 256 MiB；压图和文件写入经主线程提交至借用的 `TaskSystem`，不阻塞渲染线程。任务域满时保留同一缓冲待下帧重试，不积累截图队列。
+- 新纹理先依据当前 GPU 能力选择格式并精确计算全部 mip 的输出字节，再按 `texture_batch_size` 和 `texture_staging_bytes` 双重预算分批准备。默认每批最多 4 张、64 MiB；单张超预算直接失败，不暗中放宽。资源和选定格式作为稳定输入；worker 只做 BasisU 转码或字节整理，不访问 bgfx、Scene、Node。全部本批任务完成后主线程创建与上传 GPU 纹理，释放本批 CPU 输出，再处理下一批。无任务域或整个批次拒绝时使用同一串行准备；已接收失败不重跑。
+- `prepare_scene()` 仍是同步完成契约，等待内部并行批次，不声称已实现跨帧 GPU 上传；Shader、Mesh、IBL 的 GPU 创建继续在主线程。IBL 的预编码 KTX 同样检查单项暂存预算。字节预算只限制本批 CPU 输出，不包含已交给 bgfx 的上传队列；字体/UI 和 Effekseer 同步纹理回调有独立路径，不属于这批场景材质纹理配置。`RenderConfig` 两项必须大于零，批次数不超过 64。
+- 任务只共享拥有独立截图数据，不借用渲染系统、回调或 GPU 对象。`tasks` 非空时须先初始化、覆盖渲染系统生命周期；为空则主线程处理截图，保留无需任务系统的独立宿主。编码处理 pitch、BGRA 与 Y 翻转；不借用桌面截图权限。关闭时等待已接收的写入任务，取消尚未提交的读回结果，不在返回后留下借用。请求、查询、提交和完成回收均由主线程调用，读回槽跨线程加锁。
 
 
 ## CSM 级联阴影契约

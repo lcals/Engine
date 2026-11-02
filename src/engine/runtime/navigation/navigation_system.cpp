@@ -2,6 +2,7 @@
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/schema/mesh_generated.h"
+#include "runtime/task/task_system.hpp"
 
 #include <recastnavigation/DetourAlloc.h>
 #include <recastnavigation/DetourCrowd.h>
@@ -21,8 +22,8 @@
 
 // Tile construction adapts Recast Navigation 1.6.0 RecastDemo/Source/Sample_TileMesh.cpp.
 // Crowd configuration adapts RecastDemo/Source/CrowdTool.cpp; lifecycle and handles are local.
-// Changes: caller-owned MeshData inputs, bounded synchronous tile replacement and failure
-// invalidation; no demo UI, scene discovery, serialization or custom pathfinding algorithm.
+// Changes: caller-owned MeshData inputs, independent parallel tile preparation, synchronous
+// publication and failure invalidation; no custom pathfinding algorithm or task scheduler.
 //
 // Copyright (c) 2009-2010 Mikko Mononen memon@inside.org
 //
@@ -423,6 +424,47 @@ bool build_tile(const NavigationData& data, const InputGeometry& input, TileData
     return true;
 }
 
+bool build_tiles(const NavigationData& data, const InputGeometry& input,
+                 std::vector<TileData>& tiles, TaskSystem* tasks, std::size_t threshold,
+                 std::string& error)
+{
+    if (tasks != nullptr && tiles.size() >= threshold)
+    {
+        std::vector<std::string> errors(tiles.size());
+        std::vector<TaskDescription> descriptions;
+        descriptions.reserve(tiles.size());
+        for (std::size_t index = 0; index < tiles.size(); ++index)
+        {
+            TaskDescription task;
+            task.name = "Navigation.tile";
+            task.execute = [&, index]
+            { return build_tile(data, input, tiles[index], errors[index]); };
+            descriptions.push_back(std::move(task));
+        }
+        auto completion = tasks->submit_batch(std::move(descriptions));
+        if (completion.valid())
+        {
+            if (completion.get())
+            {
+                return true;
+            }
+            const auto failure = std::find_if(errors.begin(), errors.end(),
+                                              [](const auto& value) { return !value.empty(); });
+            error = failure != errors.end() ? *failure : "Navigation tile batch failed";
+            return false;
+        }
+    }
+    // Rejected batches have not started. Small batches and saturated domains run synchronously.
+    for (auto& tile : tiles)
+    {
+        if (!build_tile(data, input, tile, error))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool initialize_grid(NavigationData& data)
 {
     data.mesh.reset(dtAllocNavMesh());
@@ -796,7 +838,10 @@ struct NavigationSystem::State
     }
 };
 
-NavigationSystem::NavigationSystem() noexcept = default;
+NavigationSystem::NavigationSystem(TaskSystem* tasks, std::size_t parallel_tile_threshold) noexcept
+    : tasks_(tasks), parallel_tile_threshold_(parallel_tile_threshold)
+{
+}
 
 NavigationSystem::~NavigationSystem() noexcept
 {
@@ -805,6 +850,11 @@ NavigationSystem::~NavigationSystem() noexcept
 
 bool NavigationSystem::on_initialize(const EngineConfig&)
 {
+    if ((tasks_ != nullptr && !tasks_->is_initialized()) || parallel_tile_threshold_ == 0 ||
+        parallel_tile_threshold_ > static_cast<std::size_t>(maximum_tiles))
+    {
+        return false;
+    }
     state_ = std::make_unique<State>();
     return true;
 }
@@ -876,21 +926,26 @@ bool NavigationSystem::build(std::span<const NavigationGeometry> geometry,
     {
         return fail("Cannot initialize Detour navigation grid");
     }
+    std::vector<TileData> tiles;
+    tiles.reserve(static_cast<std::size_t>(candidate->columns * candidate->rows));
     for (int z = 0; z < candidate->rows; ++z)
     {
         for (int x = 0; x < candidate->columns; ++x)
         {
-            TileData tile;
-            tile.x = x;
-            tile.z = z;
-            if (!build_tile(*candidate, input, tile, state_->error))
-            {
-                return fail(state_->error);
-            }
-            if (!add_tile(*candidate, tile))
-            {
-                return fail("Cannot publish Detour navigation tile");
-            }
+            tiles.emplace_back();
+            tiles.back().x = x;
+            tiles.back().z = z;
+        }
+    }
+    if (!build_tiles(*candidate, input, tiles, tasks_, parallel_tile_threshold_, state_->error))
+    {
+        return fail(state_->error);
+    }
+    for (auto& tile : tiles)
+    {
+        if (!add_tile(*candidate, tile))
+        {
+            return fail("Cannot publish Detour navigation tile");
         }
     }
     state_->rebuilt = static_cast<std::size_t>(candidate->columns * candidate->rows);
@@ -957,12 +1012,9 @@ bool NavigationSystem::replace(std::span<const NavigationGeometry> geometry,
     {
         return fail(state_->error);
     }
-    for (auto& tile : tiles)
+    if (!build_tiles(data, input, tiles, tasks_, parallel_tile_threshold_, state_->error))
     {
-        if (!build_tile(data, input, tile, state_->error))
-        {
-            return fail(state_->error);
-        }
+        return fail(state_->error);
     }
     // All expensive preparation completed. Discard old corridors and queues before publishing.
     state_->detach_crowd();

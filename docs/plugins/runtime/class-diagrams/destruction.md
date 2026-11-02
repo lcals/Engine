@@ -10,6 +10,7 @@ class System
 class Component
 class WorldSystem
 class PhysicsSystem
+class TaskSystem
 class Collider
 class Resource
 class DestructionGraph
@@ -34,12 +35,13 @@ class DestructionComponent {
 +last_error() string
 }
 class DestructionSystem {
-+DestructionSystem(WorldSystem world, PhysicsSystem physics)
++DestructionSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks, size_t max_pending_requests, size_t max_commits_per_tick)
 +instance() DestructionSystem*
 +synchronize() bool
 +synchronize(Node node) bool
 +rebuild(DestructionComponent component, DestructionGraph candidate, bool preserve) bool
 +damage(DestructionComponent component, Vec3 center, float radius, float damage, float impulse) bool
++request_damage(DestructionComponent& component, const Vec3& center, float radius, float damage, float impulse, function~void(bool)~ completed) bool
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
 +apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
@@ -59,10 +61,19 @@ DestructionComponent ..> DestructionStateDataT : portable snapshot
 DestructionComponent ..> Collider : explicit support query target
 DestructionSystem --> WorldSystem : borrowed
 DestructionSystem --> PhysicsSystem : borrowed
+DestructionSystem --> TaskSystem : optional borrowed
 DestructionSystem ..> Collider : borrowed for the current refresh call
 DestructionSystem ..> DestructionComponent : prepares and publishes
 DestructionSystem ..> DestructionGraph : candidate clone
 ```
+
+`request_damage` 是独立的非阻塞请求入口，保留同步 `damage` 契约。构造可借用已初始化任务域，默认最多 64 个未完成请求、每次同步最多发布 1 个候选；无任务域、空委托或预算满时拒绝请求。每个建筑串行排队，不同建筑可并行，候选数量受域并发上限限制。完成委托只在主线程全局 `synchronize`/tick 执行；关闭丢弃委托，worker 仅保留独占数据。
+
+启动请求时复制 Blast family 并捕获各原始组的世界矩阵和缩放，worker 只计算资产局部损伤、变更组网格/凸包描述与该时刻的爆炸速度增量。发布时重新读取当前组姿态、速度并进行质心修正，再叠加速度增量；后台期间发生的刚体运动不会被旧 Transform 覆盖。源组缩放变化、组件 revision 改变、删除重建或换场景会取消旧结果。独立组件生命周期 token 避免同节点同 revision 的新组件被旧任务写入。同步 Reset/Restore 等仍立即生效，旧候选和排队请求随后以 false 完成。
+
+队列预算包含尚未派发的完成项；提交预算限制单次发布数量，不承诺对一个节点/Jolt 原子发布做时间抢占。暂停时不启动或发布请求。异步应力与地基查询尚未迁移，查询继续在物理安全点使用原同步接口。
+
+后台投递与主线程发布各自保存现有 owner 表的轮转位置；同一建筑内部仍严格按请求顺序执行。即使并发和每次发布预算只有 1，持续受击的低 ID 建筑也不会使其他建筑的已接收请求饥饿。
 
 建筑是普通根节点挂 DestructionComponent，首版要求正等比缩放。每个 Blast 连通组对应
 一个生成的瞬态根节点，拥有 MeshRenderer、凸包复合 Collider 和 RigidBody。
@@ -85,7 +96,7 @@ Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建�
 不保存 Blast ABI 内存。状态恢复先校验再提交；正常场景保存只保存初始资源与组件配置。
 
 系统在物理前由父系统驱动；编辑器预览调用 synchronize，不直接 tick 子系统。
-承重应力使用下述显式步骤 4 接口；导航与异步任务保留后续顺序。
+承重应力使用下述显式步骤 4 接口；异步 damage 完成后，调用方按依赖顺序刷新支撑与导航。
 
 编辑器单对象事务调用 `synchronize(Node&)`，只发布或回收该节点的输出；
 每帧全局同步仍负责扫描和调度，不在编辑某一个对象时顺带发布其他待处理对象。

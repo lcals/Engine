@@ -4,13 +4,17 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace
@@ -256,8 +260,7 @@ bool test_step_progress_and_ownership()
                     progress.completed == 0 && progress.total == 4 && !operation->resource() &&
                     !graph.find(guid(1)) && !graph.find(guid(4)),
                 "entity failure retains exact counters and publishes no partial closure") ||
-        !put_source(fixture, 1, std::byte{1}) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
+        !put_source(fixture, 1, std::byte{1}) || !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
         !put_source(fixture, 3, std::byte{3}, {guid(1)}) ||
         !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}))
     {
@@ -266,9 +269,8 @@ bool test_step_progress_and_ownership()
     ResourcePtr leaf;
     if (!graph.load(guid(1), leaf) || !graph.begin_load(guid(4), operation) ||
         !expect(operation->step(2, progress) == ResourceLoadStatus::loading &&
-                    progress.completed == 2 && progress.total == 4 &&
-                    graph.find(guid(1)) == leaf && !graph.find(guid(2)) &&
-                    !graph.find(guid(4)) && !operation->resource(),
+                    progress.completed == 2 && progress.total == 4 && graph.find(guid(1)) == leaf &&
+                    !graph.find(guid(2)) && !graph.find(guid(4)) && !operation->resource(),
                 "budget counts a cached leaf and private parent while withholding candidates"))
     {
         return false;
@@ -323,8 +325,7 @@ bool test_step_terminal_and_generation_rules()
     resources.set_loader(&graph);
     test_support::ResourceFixture fixture;
     if (!put_source(fixture, 1, std::byte{1}) ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}, false) ||
-        !fixture.publish(resources))
+        !put_source(fixture, 2, std::byte{2}, {guid(1)}, false) || !fixture.publish(resources))
     {
         return false;
     }
@@ -348,8 +349,7 @@ bool test_step_terminal_and_generation_rules()
                     progress.completed == 1 && progress.total == 2 &&
                     operation->last_error() == error,
                 "failed terminal snapshot owns its error independently from later loader calls") ||
-        !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
-        !graph.begin_load(guid(2), operation) ||
+        !put_source(fixture, 2, std::byte{2}, {guid(1)}) || !graph.begin_load(guid(2), operation) ||
         operation->step(1, progress) != ResourceLoadStatus::loading ||
         !put_source(fixture, 1, std::byte{3}) || !fixture.publish(resources) ||
         !expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
@@ -507,6 +507,109 @@ bool test_external_builtin_lookup()
                   "corrupt new builtin generations cannot expose stale or compiled definitions");
 }
 
+bool test_async_graph_loading()
+{
+    ThreadSystem threads({2});
+    TaskSystem tasks(threads, {"ResourceTest", 2});
+    ResourceSystem resources;
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
+    if (!threads.initialize({}) || !tasks.initialize({}) || !resources.initialize({}) ||
+        !graph.initialize({}))
+    {
+        return false;
+    }
+    resources.set_loader(&graph);
+    test_support::ResourceFixture fixture;
+    if (!put_source(fixture, 1, std::byte{1}) || !put_source(fixture, 2, std::byte{2}, {guid(1)}) ||
+        !put_source(fixture, 3, std::byte{3}, {guid(1)}) ||
+        !put_source(fixture, 4, std::byte{4}, {guid(2), guid(3)}) || !fixture.publish(resources) ||
+        !resources.configure_async(tasks, {2, 1024 * 1024, 1}))
+    {
+        return false;
+    }
+    auto pump = [&](ResourceLoad& operation)
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        ResourceLoadProgress progress;
+        while (std::chrono::steady_clock::now() < deadline)
+        {
+            (void)tasks.dispatch_completions(8, 0.01);
+            const auto status = operation.step(8, progress);
+            if (status != ResourceLoadStatus::loading)
+            {
+                return status;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return ResourceLoadStatus::loading;
+    };
+    std::unique_ptr<ResourceLoad> operation;
+    ResourceLoadProgress progress;
+    if (!graph.begin_load(guid(4), operation) ||
+        !expect(operation->step(8, progress) == ResourceLoadStatus::loading &&
+                    !operation->resource() && !graph.find(guid(1)),
+                "async graph submits reads without publishing incomplete dependencies") ||
+        !expect(pump(*operation) == ResourceLoadStatus::ready &&
+                    operation->resource()->bytes()[0] == std::byte{4} && graph.find(guid(1)),
+                "async graph finishes under a two-request budget with a one-callback budget"))
+    {
+        return false;
+    }
+    ResourcePtr synchronous;
+    if (!expect(graph.load(guid(4), synchronous) && synchronous == operation->resource(),
+                "explicit synchronous load shares completed asynchronous roots"))
+    {
+        return false;
+    }
+    operation.reset();
+    synchronous.reset();
+    if (!graph.begin_load(guid(4), operation) ||
+        operation->step(8, progress) != ResourceLoadStatus::loading)
+    {
+        return false;
+    }
+    operation.reset(); // 已提交读取取消；无等待，结果由文件队列回收。
+    if (!graph.begin_load(guid(4), operation) ||
+        !expect(pump(*operation) == ResourceLoadStatus::ready,
+                "cancellation returns in-flight capacity without publishing abandoned roots"))
+    {
+        return false;
+    }
+    operation.reset();
+    if (!graph.begin_load(guid(4), operation) ||
+        operation->step(8, progress) != ResourceLoadStatus::loading ||
+        !put_source(fixture, 1, std::byte{9}) || !fixture.publish(resources) ||
+        !expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
+                    !operation->resource() && !graph.find(guid(4)),
+                "catalog replacement rejects old reads before publication") ||
+        !graph.begin_load(guid(4), operation) ||
+        !expect(pump(*operation) == ResourceLoadStatus::ready &&
+                    graph.find(guid(1))->bytes()[0] == std::byte{9},
+                "new reads use the replacement catalog and mount snapshot"))
+    {
+        return false;
+    }
+    operation.reset();
+    resources.shutdown_async();
+    if (!resources.configure_async(tasks, {1, 1, 1}) || !resources.begin_load(guid(4), operation) ||
+        !expect(operation->step(1, progress) == ResourceLoadStatus::failed,
+                "an entity exceeding the byte budget fails instead of stalling forever"))
+    {
+        return false;
+    }
+    operation.reset();
+    resources.shutdown_async();
+    if (!resources.configure_async(tasks) || !resources.begin_load(guid(4), operation) ||
+        operation->step(1, progress) != ResourceLoadStatus::loading)
+    {
+        return false;
+    }
+    resources.shutdown_async();
+    return expect(operation->step(0, progress) == ResourceLoadStatus::failed &&
+                      !resources.async_enabled() && graph.load(guid(4), synchronous),
+                  "shutdown invalidates pending operations and leaves synchronous APIs usable");
+}
+
 } // namespace
 
 int main()
@@ -514,7 +617,7 @@ int main()
     return test_shared_graph_and_generations() && test_cross_entity_validation() &&
                    test_step_progress_and_ownership() &&
                    test_step_terminal_and_generation_rules() && test_deep_graph_cleanup() &&
-                   test_external_builtin_lookup()
+                   test_external_builtin_lookup() && test_async_graph_loading()
                ? 0
                : 1;
 }

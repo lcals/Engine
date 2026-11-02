@@ -2,13 +2,13 @@
 
 [类图索引](../../class-diagrams/index.md) · [导航模块](../navigation.md)
 
-核心提供同步导航网格构建、指定区域重建、寻路及 DetourCrowd 群体避让；调用方提交全部当前几何，核心不扫描场景，不识别地形、破坏、角色或编辑器。
+核心提供导航网格构建、指定区域重建、寻路及 DetourCrowd 群体避让；调用方提交全部当前几何，核心不扫描场景，不识别地形、破坏、角色或编辑器。构建接口同步返回，可注入任务域并行准备 tile，统一在调用线程发布。
 
 ```mermaid
 classDiagram
     class NavigationSystem {
         <<final>>
-        +NavigationSystem()
+        +NavigationSystem(TaskSystem#42; tasks, size_t parallel_tile_threshold)
         +~NavigationSystem()
         +build(span~const NavigationGeometry~ geometry, const NavigationBounds& bounds, const NavigationSettings& settings) bool
         +replace(span~const NavigationGeometry~ geometry, const NavigationBounds& dirty) bool
@@ -86,10 +86,12 @@ classDiagram
     class Recast["Recast 1.6.0"]
     class Detour["Detour 1.6.0"]
     class System
+    class TaskSystem
     class EngineConfig
     class MeshDataT
     class Vec3
     System <|-- NavigationSystem
+    NavigationSystem --> TaskSystem : 可空借用且先初始化后关闭
     NavigationSystem *-- NavigationState : 独占导航数据及查询器
     NavigationState ..> DetourCrowd : 私有群体、位置积分和局部避让
     NavigationSystem ..> NavigationAgentHandle : 带世代的值句柄
@@ -108,6 +110,10 @@ classDiagram
     NavigationBounds ..> Vec3 : 世界 AABB
     NavigationSettings ..> Vec3 : 最近可行走多边形搜索范围
 ```
+
+`tasks` 默认空，`parallel_tile_threshold` 默认 4、范围 1..1024。达到阈值时各 tile 独占 Recast 工作数据、Detour 编码结果和错误文本，几何与构建配置只读共享；通过任务域的 `submit_batch` 执行，并只等待这一批。域饱和拒绝整批提交时同步准备，不丢失本次请求。域借用须覆盖导航生命周期，未初始化域或非法阈值使初始化失败。任务域并发额度决定同时准备的数量，阈值只用于避免小批次的调度开销。
+
+全部准备成功后，调用线程按既有 tile 顺序执行 `addTile` / `removeTile`，失败仍遵守原来的脏区失效规则。`dtNavMeshQuery`、`dtCrowd`、代理句柄表和活动网格不被 worker 修改；寻路与 Crowd 更新仍有序。`build` / `replace` 返回时已完成本次任务和发布，仍不可与查询、场景修改或关闭并发；这属于同步接口的内部并行，不是跨帧异步请求。
 
 - NavigationGeometry 借用 MeshData，列主序仿射矩阵默认为单位矩阵，输入只需位置及索引；同步返回后不保留源指针。允许空几何集合，表示区域内没有可行走表面。反射矩阵反转三角形索引保持源面朝向；退化变换、非有限坐标、越界索引失败。
 - build 固定导航范围、代理参数及 tile 网格；沿用官方 Sample_TileMesh 的光栅化、低障碍/台阶/净高过滤、侵蚀、分区、轮廓、PolyMesh、DetailMesh 和 Detour tile 发布流程。每个 tile 高度覆盖全局 Y 范围，支持多个高度层。

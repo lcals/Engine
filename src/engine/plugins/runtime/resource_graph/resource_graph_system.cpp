@@ -54,9 +54,9 @@ struct ResourceBundle
 class GraphResourceLoad final : public ResourceLoad
 {
 public:
-    GraphResourceLoad(ResourceGraphSystem& graph, std::string guid)
+    GraphResourceLoad(ResourceGraphSystem& graph, std::string guid, bool asynchronous)
         : graph_(graph), loader_(&graph.resources_.loader()), generation_(graph.generation_),
-          guid_(std::move(guid))
+          guid_(std::move(guid)), asynchronous_(asynchronous)
     {
     }
 
@@ -115,6 +115,32 @@ public:
         {
             fail("Resource catalog or loader changed during graph load");
         }
+        if (asynchronous_ && status_ == ResourceLoadStatus::loading && resource_budget != 0)
+        {
+            graph_.resources_.poll_async();
+            const auto end = std::min<std::size_t>(
+                plan_.size(), static_cast<std::size_t>(progress_.completed) + resource_budget);
+            for (std::size_t index = progress_.completed; index < end; ++index)
+            {
+                const auto& identity = plan_[index];
+                if (graph_.find(identity))
+                {
+                    continue;
+                }
+                auto& operation = pending_[identity];
+                if (!operation && !graph_.resources_.begin_load(identity, operation))
+                {
+                    fail(graph_.resources_.last_error());
+                    break;
+                }
+                ResourceLoadProgress single_progress;
+                if (operation->step(1, single_progress) == ResourceLoadStatus::failed)
+                {
+                    fail(operation->last_error());
+                    break;
+                }
+            }
+        }
         while (status_ == ResourceLoadStatus::loading && resource_budget != 0)
         {
             const auto& identity = plan_[progress_.completed];
@@ -143,7 +169,17 @@ public:
                 {
                     break;
                 }
-                if (!graph_.resources_.load(identity, retained.candidate->entity))
+                if (asynchronous_)
+                {
+                    const auto found = pending_.find(identity);
+                    if (found == pending_.end() || !found->second->resource())
+                    {
+                        break;
+                    }
+                    retained.candidate->entity = found->second->resource();
+                    pending_.erase(found);
+                }
+                else if (!graph_.resources_.load(identity, retained.candidate->entity))
                 {
                     fail(graph_.resources_.last_error());
                     break;
@@ -205,6 +241,7 @@ private:
         status_ = ResourceLoadStatus::failed;
         root_.reset();
         retained_.clear();
+        pending_.clear();
         plan_.clear();
     }
 
@@ -236,6 +273,7 @@ private:
         root_ = retained_.find(guid_)->second.resource;
         status_ = ResourceLoadStatus::ready;
         retained_.clear();
+        pending_.clear();
         plan_.clear();
     }
 
@@ -245,10 +283,12 @@ private:
     std::string guid_;
     std::vector<std::string> plan_;
     std::map<std::string, Retained, std::less<>> retained_;
+    std::map<std::string, std::unique_ptr<ResourceLoad>, std::less<>> pending_;
     ResourcePtr root_;
     ResourceLoadProgress progress_;
     ResourceLoadStatus status_ = ResourceLoadStatus::loading;
     std::string last_error_;
+    bool asynchronous_ = false;
 };
 
 ResourceGraphSystem::ResourceGraphSystem(ResourceSystem& resources) noexcept : resources_(resources)
@@ -308,9 +348,22 @@ bool ResourceGraphSystem::load(std::string_view guid, ResourcePtr& output)
         output = std::move(cached);
         return true;
     }
-    std::unique_ptr<ResourceLoad> operation;
-    if (!begin_load(identity, operation))
+    // 显式同步调用不启动后台操作，也不在此轮询 future 或重入帧循环。
+    if (!is_initialized() || !resources_.is_initialized() || !GuidMap::valid_guid(identity) ||
+        resources_.catalog().find(identity) == nullptr)
     {
+        last_error_ = "Unknown resource or resource graph not initialized: " + identity;
+        return false;
+    }
+    if (generation_ != resources_.generation())
+    {
+        loaded_.clear();
+        generation_ = resources_.generation();
+    }
+    auto operation = std::make_unique<GraphResourceLoad>(*this, identity, false);
+    if (!operation->initialize())
+    {
+        last_error_ = operation->last_error();
         return false;
     }
     ResourceLoadProgress progress;
@@ -342,7 +395,8 @@ bool ResourceGraphSystem::begin_load(std::string_view guid, std::unique_ptr<Reso
         generation_ = resources_.generation();
     }
     std::erase_if(loaded_, [](const auto& item) { return item.second.expired(); });
-    auto operation = std::make_unique<GraphResourceLoad>(*this, identity);
+    auto operation =
+        std::make_unique<GraphResourceLoad>(*this, identity, resources_.async_enabled());
     if (!operation->initialize())
     {
         last_error_ = operation->last_error();

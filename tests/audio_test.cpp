@@ -227,9 +227,15 @@ bool playback_and_lifecycle()
                 "play-on-awake creates a real SDL stream even when spatially muted") ||
         !expect(SDL_GetCurrentAudioDriver() &&
                     std::string_view(SDL_GetCurrentAudioDriver()) == "dummy",
-                "test explicitly uses dummy output") ||
-        !expect(wait_stopped(audio, *source) && audio.voice_count() == 0,
-                "SDL consumes a one-shot stream and the voice is released") ||
+                "test explicitly uses dummy output"))
+    {
+        return false;
+    }
+    // 不调度 AudioSystem：旧的主线程 80ms 补流无法播放完这个 120ms 片段。
+    SDL_Delay(350);
+    if (!expect(audio.tick(0.0) && source->playback() == engine::AudioPlayback::stopped &&
+                    audio.voice_count() == 0,
+                "SDL callback finishes a one-shot clip without main-thread refills") ||
         !expect(audio.tick(0.0) && !source->playing() && audio.voice_count() == 0,
                 "play-on-awake does not repeat after completion"))
     {
@@ -321,6 +327,18 @@ bool playback_and_lifecycle()
         !expect(source->play() && audio.tick(0.0) && scene->destroy_node(node->id()) &&
                     audio.tick(0.0) && audio.voice_count() == 0,
                 "deleted source leaves no stream or dangling component"))
+    {
+        return false;
+    }
+    if (!expect(second->play() && audio.tick(0.0) && second->set_clip("audio/mono.wav"),
+                "replace source clip while an SDL callback may own the previous PCM"))
+    {
+        return false;
+    }
+    SDL_Delay(25);
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 &&
+                    second->playback() == engine::AudioPlayback::stopped,
+                "old stream is destroyed before releasing its pinned resource"))
     {
         return false;
     }

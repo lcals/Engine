@@ -82,7 +82,7 @@ classDiagram
     }
     Scene ..> Node : 创建借用包装
     Scene ..> Camera : 活动相机
-    Scene ..> SceneLoadProgress : 单线程操作状态快照
+    Scene ..> SceneLoadProgress : 所属线程查询的加载状态快照
     Node ..> Component : 泛型添加或查找
     Node ..> ComponentType : 组件类型参数
 ```
@@ -140,7 +140,7 @@ classDiagram
 
 `Scene.Load(path)` 从当前 Run 已激活的 GUID catalog 读取已编译场景；输入使用 assets 相对逻辑资源路径，例如 scenes/main.scene，成功替换活动场景，失败返回 null 且保留原场景。运行时不解析源 TOML、不访问 SQLite。
 
-## 暂停和单线程分步加载
+## 暂停与后台资源加载
 
 以下接口由 SceneBinding 实现，`Scene.Load` 保留同步语义。
 
@@ -152,8 +152,8 @@ classDiagram
   成功后旧场景继续有效。
 - `Scene.StepLoad(resourceBudget)` 要求预算为非负 uint32 整数。无操作、非法参数或失效回调
   返回 null；否则返回 completed、total、status 和 error 快照。status 为 loading/ready/failed，
-  失败时 error 非空。预算及计数含义见[资源加载契约](resource-loader.md#单线程分步操作)。
-- `Scene.CommitLoad()` 成功返回新场景并释放操作；失败返回 null，保留旧场景及暂停值。
+  失败时 error 非空。先推进后台资源链，资源 ready 后在主线程分帧恢复候选场景；只有候选恢复完成才返回 ready。completed/total 仅统计资源，节点恢复阶段可能 completed 等于 total 而 status 仍为 loading。预算及计数含义见[资源加载契约](resource-loader.md#分步与后台加载操作)。
+- `Scene.CommitLoad()` 提交已恢复的候选，成功返回新场景并释放操作；失败返回 null，保留旧场景及暂停值。
   未 ready 时不结束请求；目录、加载器或所属场景变化以及恢复失败，将请求置为 failed。
   错误和最后计数仍可由 StepLoad(0) 查询，重试须先 CancelLoad 再 BeginLoad。
 - `Scene.CancelLoad()` 释放当前 Run 的操作和候选引用，重复调用安全。
@@ -163,3 +163,5 @@ classDiagram
 
 加载、场景恢复、图形准备的完成依据与取消边界统一见[加载阶段与限制](resource-loader.md#加载阶段与限制)；
 依赖遍历和缓存发布见[资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)。
+
+当前 showcase 场景入口仍使用同步 Scene.Load。异步加载由调用方组合 Begin/Step/Commit。脚本无需管理线程，但必须选择合适的同步或分步入口。

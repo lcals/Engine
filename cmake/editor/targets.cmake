@@ -13,7 +13,8 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
     target_compile_definitions(engine_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
     target_sources(
         engine_editor
-        PRIVATE src/engine/editor/render/render_commands.cpp
+        PRIVATE src/engine/editor/project/runtime_settings_io.cpp
+                src/engine/editor/render/render_commands.cpp
                 src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
@@ -35,6 +36,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
         engine_editor
         PUBLIC nlohmann_json::nlohmann_json
         PRIVATE engine::project
+                engine::runtime
                 engine::render
                 engine::gameplay
                 engine::app

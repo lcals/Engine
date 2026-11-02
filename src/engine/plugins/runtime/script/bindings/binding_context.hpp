@@ -7,6 +7,8 @@
 #include "runtime/window/window_system.hpp"
 
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -64,6 +66,10 @@ public:
     [[nodiscard]] Scene* commit_scene_load();
     void cancel_scene_load() noexcept;
     [[nodiscard]] std::string_view scene_load_error() const noexcept;
+    [[nodiscard]] std::uint64_t submit_async(
+        const std::function<bool(std::function<void(bool)>)>& start);
+    // -2 失效、-1 未完成、0 失败、1 成功；已完成结果领取后删除。
+    [[nodiscard]] int take_async(std::uint64_t request);
     void remember_input_channel(schema::InputChannelHandle channel);
     [[nodiscard]] bool owns_input_channel(schema::InputChannelHandle channel) const noexcept;
     void forget_input_channel(schema::InputChannelHandle channel);
@@ -95,6 +101,13 @@ private:
     [[nodiscard]] bool scene_load_context_valid() const noexcept;
     void fail_scene_load(std::string_view error);
 
+    struct AsyncResult
+    {
+        bool ready = false;
+        bool success = false;
+    };
+    std::map<std::uint64_t, std::shared_ptr<AsyncResult>> async_results_;
+    std::uint64_t async_sequence_ = 0;
     WorldSystem* world_ = nullptr;
     RenderSystem* renderer_ = nullptr;
     UiSystem* ui_ = nullptr;
@@ -111,6 +124,7 @@ private:
     ResourceLoadProgress scene_load_progress_;
     ResourceLoadStatus scene_load_status_ = ResourceLoadStatus::loading;
     std::uint64_t scene_load_generation_ = 0;
+    std::uint64_t scene_restore_request_ = 0;
     std::string scene_load_path_;
     std::string scene_load_error_;
     std::vector<schema::InputChannelHandle> input_channels_;

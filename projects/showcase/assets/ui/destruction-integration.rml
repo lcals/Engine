@@ -58,7 +58,7 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
     <div id="integration-statistics">Preparing collision and support...</div>
     <div id="integration-impacts">0 qualifying contacts / 0 secondary damage events</div>
     <div id="integration-status">Waiting for all scene systems.</div>
-    <div class="footnote">Every rocket sweeps real collision geometry.<br/>Green markers show ground navigation; moving debris is not baked into it.<br/>Stop ends new fire; Reset clears fragments, rockets and changes.<br/>Synchronous prototype. Frame interval includes the frame cap; not a hardware performance benchmark.</div>
+    <div class="footnote">Every rocket sweeps real collision geometry.<br/>Ground and building edits prepare in the background; support and routes refresh after publication.<br/>Stop ends new fire; Reset clears fragments, rockets and changes.<br/>Frame interval includes the frame cap; not a hardware performance benchmark.</div>
 </div>
 </body>
 </rml>

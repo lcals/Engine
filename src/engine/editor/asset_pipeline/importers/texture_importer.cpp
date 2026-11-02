@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/texture_generated.h"
 #include "runtime/utils/path_utils.hpp"
@@ -237,6 +238,7 @@ std::string_view TextureImporter::version() noexcept
 
 bool TextureImporter::initialize(std::string& error)
 {
+    TextureResourceCodec::initialize_transcoder();
     if (!basisu::basisu_encoder_init())
     {
         error = "cannot initialize BasisU texture encoder";

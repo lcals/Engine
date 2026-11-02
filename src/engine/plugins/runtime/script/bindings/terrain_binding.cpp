@@ -4,6 +4,7 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "plugins/runtime/terrain/terrain_component.hpp"
+#include "plugins/runtime/terrain/terrain_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/scene/node.hpp"
 
@@ -28,6 +29,14 @@ export class TerrainComponent extends Component {
     FillSphere(x, y, z, radius) {
         const h = handles.get(this);
         return native.TerrainFill(h.scene, h.node, x, y, z, radius);
+    }
+    DigSphereAsync(x, y, z, radius, completed) {
+        const h = handles.get(this);
+        return submitCompletion(() => native.TerrainDigAsync(h.scene, h.node, x, y, z, radius), completed);
+    }
+    FillSphereAsync(x, y, z, radius, completed) {
+        const h = handles.get(this);
+        return submitCompletion(() => native.TerrainFillAsync(h.scene, h.node, x, y, z, radius), completed);
     }
     CollapseDetached(minSamples, maxFragments, fragmentCells = 4, density = 1600) {
         const h = handles.get(this);
@@ -166,6 +175,28 @@ void sphere(const Arguments& arguments)
     }
 }
 
+void sphere_async(const Arguments& arguments)
+{
+    auto* value = component(arguments, 6);
+    auto* context = BindingContext::current(arguments);
+    auto* system = terrain::TerrainSystem::instance();
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    float radius = 0;
+    if (value && context && system && BindingContext::number(arguments, 2, x) &&
+        BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z) &&
+        BindingContext::scalar(arguments, 5, radius))
+    {
+        arguments.set_return(context->submit_async(
+            [=, fill = arguments.data() != 0](std::function<void(bool)> completed)
+            {
+                return system->request_apply_sphere(*value, {x, y, z}, radius, fill,
+                                                    std::move(completed));
+            }));
+    }
+}
+
 void reset(const Arguments& arguments)
 {
     auto* value = component(arguments, 2);
@@ -252,6 +283,8 @@ bool TerrainBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("TerrainKind", static_cast<int>(terrain::TerrainComponent::component_type)) &&
            vm.function("TerrainAdd", add) && vm.function("TerrainDig", sphere, 0) &&
            vm.function("TerrainFill", sphere, 1) && vm.function("TerrainReset", reset) &&
+           vm.function("TerrainDigAsync", sphere_async, 0) &&
+           vm.function("TerrainFillAsync", sphere_async, 1) &&
            vm.function("TerrainCollapse", collapse) &&
            vm.function("TerrainFragments", statistic, 5) &&
            vm.function("TerrainSave", persistence, 1) &&

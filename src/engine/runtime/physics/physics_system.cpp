@@ -1815,7 +1815,8 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
     }
 };
 
-PhysicsSystem::PhysicsSystem(WorldSystem* world) noexcept : world_(world)
+PhysicsSystem::PhysicsSystem(WorldSystem* world, TaskSystem* tasks) noexcept
+    : world_(world), tasks_(tasks)
 {
 }
 
@@ -1826,6 +1827,10 @@ PhysicsSystem::~PhysicsSystem() noexcept
 
 bool PhysicsSystem::on_initialize(const EngineConfig&)
 {
+    if (tasks_ != nullptr && !tasks_->is_initialized())
+    {
+        return false;
+    }
     if (!acquire_jolt())
     {
         std::fputs("Cannot initialize Jolt: ABI mismatch or externally owned registration\n",
@@ -1838,7 +1843,7 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
         release_jolt();
         return false;
     }
-    state_->jobs.Init(JPH::cMaxPhysicsJobs);
+    state_->jobs.initialize(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, tasks_);
     state_->physics.Init(static_cast<JPH::uint>(maximum_bodies), 0, 65536, 16384, state_->layers,
                          state_->broad_filter, state_->object_filter);
     state_->physics.SetGravity(JPH::Vec3(0.0F, -9.81F, 0.0F));

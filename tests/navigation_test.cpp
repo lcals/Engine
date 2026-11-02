@@ -1,16 +1,21 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/navigation/navigation_system.hpp"
 #include "runtime/schema/mesh_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <semaphore>
 #include <vector>
 
 namespace
 {
+
+engine::TaskSystem* navigation_tasks = nullptr;
 
 bool expect(bool condition, const char* message, const engine::NavigationSystem& navigation)
 {
@@ -54,7 +59,7 @@ engine::schema::MeshDataT grid(int width, int depth, int hole_x0 = 0, int hole_x
 
 bool local_rebuild()
 {
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     auto mesh = grid(24, 16);
     std::array sources{engine::NavigationGeometry{&mesh}};
     const engine::NavigationBounds bounds{{0, -2, 0}, {24, 4, 16}};
@@ -165,7 +170,7 @@ bool local_rebuild()
 
 bool geometry_and_boundaries()
 {
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     auto mesh = grid(8, 8);
     std::array sources{engine::NavigationGeometry{&mesh}};
     sources[0].transform[0] = -1;
@@ -252,7 +257,7 @@ bool advance(engine::NavigationSystem& navigation, int steps)
 bool crowd_lifecycle()
 {
     using Status = engine::NavigationAgentStatus;
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     auto mesh = grid(24, 16);
     std::array sources{engine::NavigationGeometry{&mesh}};
     const engine::NavigationBounds bounds{{0, -2, 0}, {24, 4, 16}};
@@ -397,7 +402,7 @@ bool crowd_lifecycle()
 bool crowd_crossing()
 {
     using Status = engine::NavigationAgentStatus;
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     auto mesh = grid(24, 24);
     std::array sources{engine::NavigationGeometry{&mesh}};
     if (!expect(navigation.initialize({}) &&
@@ -466,7 +471,7 @@ bool crowd_crossing()
 bool crowd_rebuild()
 {
     using Status = engine::NavigationAgentStatus;
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     auto mesh = grid(24, 16, 10, 14, 4, 12);
     std::array sources{engine::NavigationGeometry{&mesh}};
     const engine::NavigationBounds bounds{{0, -2, 0}, {24, 4, 16}};
@@ -556,12 +561,62 @@ bool crowd_rebuild()
                   navigation);
 }
 
+bool run_suite()
+{
+    return local_rebuild() && geometry_and_boundaries() && crowd_lifecycle() && crowd_crossing() &&
+           crowd_rebuild();
+}
+
 } // namespace
 
 int main()
 {
-    return local_rebuild() && geometry_and_boundaries() && crowd_lifecycle() && crowd_crossing() &&
-                   crowd_rebuild()
-               ? 0
-               : 1;
+    if (!run_suite())
+    {
+        return 1;
+    }
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Navigation tests", .max_concurrency = 2});
+    engine::NavigationSystem invalid_domain(&tasks);
+    engine::NavigationSystem invalid_threshold(nullptr, 0);
+    if (invalid_domain.initialize({}) || invalid_threshold.initialize({}) ||
+        !threads.initialize({}) || !tasks.initialize({}))
+    {
+        std::fputs("navigation test: invalid configuration or task lifecycle\n", stderr);
+        return 1;
+    }
+    navigation_tasks = &tasks;
+    const bool parallel_ok = run_suite();
+    navigation_tasks = nullptr;
+    if (!parallel_ok || !tasks.wait())
+    {
+        return 1;
+    }
+    tasks.shutdown();
+
+    engine::TaskConfig limited_config;
+    limited_config.name = "Navigation limited";
+    limited_config.max_concurrency = 1;
+    limited_config.max_pending = 1;
+    engine::TaskSystem limited(threads, limited_config);
+    if (!limited.initialize({}))
+    {
+        return 1;
+    }
+    std::binary_semaphore gate(0);
+    auto occupied = limited.submit("Hold sole pending slot",
+                                   [&]
+                                   {
+                                       gate.acquire();
+                                       return true;
+                                   });
+    if (!occupied.valid())
+    {
+        return 1;
+    }
+    navigation_tasks = &limited;
+    const bool fallback_ok = local_rebuild();
+    navigation_tasks = nullptr;
+    gate.release();
+    return occupied.get() && fallback_ok ? 0 : 1;
 }

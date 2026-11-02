@@ -16,9 +16,8 @@ public:
     virtual ~ResourceLoader() noexcept = default;
 
     [[nodiscard]] virtual bool load(std::string_view guid, ResourcePtr& output) = 0;
-    // 可选的单线程分步能力；不支持的加载器保持同步 load 契约。
-    [[nodiscard]] virtual bool begin_load(std::string_view,
-                                         std::unique_ptr<ResourceLoad>& output)
+    // 可选的分步/后台加载能力；不支持的加载器保持同步 load 契约。
+    [[nodiscard]] virtual bool begin_load(std::string_view, std::unique_ptr<ResourceLoad>& output)
     {
         output.reset();
         return false;

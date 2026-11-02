@@ -223,6 +223,35 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
+    def test_parallel_settings_ship_outside_the_resource_catalog(self):
+        settings = "version = 1\n[profiles.mobile.threads]\nworker_limit = 2\n"
+        (self.project / "settings/parallel.toml").write_text(settings, encoding="utf-8")
+        (self.project / "settings/private.json").write_text("must not ship", encoding="utf-8")
+        receipt = self.prepare()
+        self.assertEqual(json.loads((self.output / "settings/runtime.json").read_text()),
+                         {"version": 1, "profiles": {"mobile": {"parallel": {"threads": {"worker_limit": 2}}}}})
+        self.assertFalse((self.output / "settings/parallel.toml").exists())
+        self.assertFalse((self.output / "settings/runtime.toml").exists())
+        self.assertFalse((self.output / "settings/private.json").exists())
+        self.assertEqual(receipt["file_count"], len(self.entries) + 1)
+        previous = self.snapshot()
+        (self.project / "settings/parallel.toml").write_text("invalid", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+
+    def test_duplicate_parallel_source_does_not_replace_previous_package(self):
+        (self.project / "settings/runtime.toml").write_text(
+            "version=1\n[defaults.parallel.threads]\nworker_limit=2\n", encoding="utf-8"
+        )
+        (self.project / "settings/parallel.toml").write_text(
+            "version=1\n[defaults.threads]\nworker_limit=4\n", encoding="utf-8"
+        )
+        previous = self.snapshot()
+        with self.assertRaises(ValueError):
+            self.prepare()
+        self.assertEqual(self.snapshot(), previous)
+
     def test_revision_change_during_copy_is_rejected(self):
         copy = catalog.copy_asset
         previous = self.snapshot()
@@ -280,7 +309,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 4})
         self.assertEqual(
             set(self.snapshot()),
-            {"catalog.bin", "v8/icudtl.dat"} | {entry["path"] for entry in self.entries},
+            {"catalog.bin", "v8/icudtl.dat", "settings/runtime.json"} | {entry["path"] for entry in self.entries},
         )
         self.assertFalse((self.output / "resource-manifest.json").exists())
         for entry in self.entries:
@@ -301,7 +330,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.write_resources()
         receipt = self.prepare()
         self.assertEqual(receipt, {"revision": "fixture-guid-catalog", "file_count": 2})
-        self.assertEqual(set(self.snapshot()), {"catalog.bin", "packs/game", "v8/icudtl.dat"})
+        self.assertEqual(set(self.snapshot()), {"catalog.bin", "packs/game", "v8/icudtl.dat", "settings/runtime.json"})
         previous = self.snapshot()
         path = self.source / "packs/game"
         content = bytearray(path.read_bytes())
@@ -511,7 +540,7 @@ class PrepareAndroidAssetsTest(unittest.TestCase):
         self.prepare()
         self.assertEqual(
             set(self.snapshot()),
-            {"catalog.bin", "v8/icudtl.dat", self.entries[0]["path"]},
+            {"catalog.bin", "v8/icudtl.dat", "settings/runtime.json", self.entries[0]["path"]},
         )
         self.assertEqual((self.output / "v8/icudtl.dat").read_bytes(), b"ICU data must survive")
         self.assert_clean()

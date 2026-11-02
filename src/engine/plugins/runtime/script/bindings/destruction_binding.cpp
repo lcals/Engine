@@ -3,10 +3,13 @@
 #include "plugins/runtime/script/bindings/destruction_binding.hpp"
 
 #include "plugins/runtime/destruction/destruction_component.hpp"
+#include "plugins/runtime/destruction/destruction_system.hpp"
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/scene.hpp"
+
+#include <utility>
 
 namespace engine::plugins::script::bindings
 {
@@ -18,6 +21,11 @@ export class DestructionComponent extends Component {
     DamageSphere(x, y, z, radius, damage, impulse = 0) {
         const h = handles.get(this);
         return native.DestructionDamage(h.scene, h.node, x, y, z, radius, damage, impulse);
+    }
+    DamageSphereAsync(x, y, z, radius, damage, impulse, completed) {
+        const h = handles.get(this);
+        return submitCompletion(() => native.DestructionDamageAsync(
+            h.scene, h.node, x, y, z, radius, damage, impulse), completed);
     }
     RefreshSupport(support, maxGap, minCoverage) {
         const h = handles.get(this), other = handles.get(support);
@@ -75,6 +83,31 @@ void damage(const Arguments& arguments)
         BindingContext::scalar(arguments, 7, impulse))
     {
         arguments.set_return(value->damage_sphere({x, y, z}, radius, amount, impulse));
+    }
+}
+void damage_async(const Arguments& arguments)
+{
+    auto* value = component(arguments, 8);
+    auto* context = BindingContext::current(arguments);
+    auto* system = destruction::DestructionSystem::instance();
+    double x = 0;
+    double y = 0;
+    double z = 0;
+    float radius = 0;
+    float amount = 0;
+    float impulse = 0;
+    if (value && context && system && BindingContext::number(arguments, 2, x) &&
+        BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z) &&
+        BindingContext::scalar(arguments, 5, radius) &&
+        BindingContext::scalar(arguments, 6, amount) &&
+        BindingContext::scalar(arguments, 7, impulse))
+    {
+        arguments.set_return(context->submit_async(
+            [=](std::function<void(bool)> completed)
+            {
+                return system->request_damage(*value, {x, y, z}, radius, amount, impulse,
+                                              std::move(completed));
+            }));
     }
 }
 void support(const Arguments& arguments)
@@ -173,10 +206,10 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("DestructionKind",
                       static_cast<int>(destruction::DestructionComponent::component_type)) &&
            vm.function("DestructionAdd", add) && vm.function("DestructionDamage", damage) &&
+           vm.function("DestructionDamageAsync", damage_async) &&
            vm.function("DestructionSupport", support) &&
            vm.function("DestructionOwns", owns_fragment) &&
-           vm.function("DestructionStress", stress) &&
-           vm.function("DestructionReset", reset) &&
+           vm.function("DestructionStress", stress) && vm.function("DestructionReset", reset) &&
            vm.function("DestructionReady", statistic, 0) &&
            vm.function("DestructionRevision", statistic, 1) &&
            vm.function("DestructionChunks", statistic, 2) &&

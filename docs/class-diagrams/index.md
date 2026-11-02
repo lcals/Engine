@@ -32,6 +32,7 @@
 - [运行时线程与任务系统](../runtime/class-diagrams/task-system.md)：oneTBB 共享 worker、编辑器与运行时独立任务域，两级优先度、异步依赖批次与 Tracy。
 - [帧率限制](../runtime/class-diagrams/frame-limiter.md)：核心整帧休眠能力，编辑器和项目选择上限。
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
+- [运行设置](../runtime/class-diagrams/runtime-settings.md)：项目 TOML 仅由编辑器/打包读取，统一 JSON 交付运行宿主，核心接收类型配置。
 - [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。

@@ -26,6 +26,8 @@ struct TaskConfig
     std::string name = "Tasks";
     std::size_t max_concurrency = 4;
     TaskPriority priority = TaskPriority::normal;
+    // 包括未派发的完成委托；满额立即拒绝，不阻塞提交线程。
+    std::size_t max_pending = 1024;
 };
 
 struct TaskDescription
@@ -52,6 +54,16 @@ public:
                                            TaskPriority priority = TaskPriority::normal);
     [[nodiscard]] std::future<bool> submit_batch(std::vector<TaskDescription> tasks,
                                                  TaskPriority priority = TaskPriority::normal);
+    // 完成委托只由所属线程 dispatch_completions 派发；关闭会丢弃未派发委托。
+    [[nodiscard]] bool submit(std::string name, std::function<bool()> task,
+                              std::function<void(bool)> completed,
+                              TaskPriority priority = TaskPriority::normal);
+    // 允许任意线程动态投递。接受后保证执行；拒绝不写 last_error。
+    // 调用方确保系统存活；关闭前先结束外部 job/barrier，不在函数内等待本池。
+    [[nodiscard]] bool enqueue(std::string name, std::function<void()> task,
+                               TaskPriority priority = TaskPriority::normal);
+    // 两项预算任一为 0 不派发；一次调用只处理进入时已有的完成项。
+    [[nodiscard]] std::size_t dispatch_completions(std::size_t max_count, double max_seconds);
     // 同步入口不在调用线程执行用户函数；回调内禁止等待本池任务。
     [[nodiscard]] bool run(const std::vector<TaskDescription>& tasks);
     [[nodiscard]] bool wait();

@@ -2,6 +2,8 @@
 
 `PhysicsSystem` 使用 [Jolt Physics](https://github.com/jrouwe/JoltPhysics) 建立碰撞世界，由宿主借用 `WorldSystem` 并统一安排生命周期。公开接口和场景组件不包含 Jolt 类型。
 
+宿主可同时注入已初始化的 `TaskSystem`，刚体求解通过 Jolt 官方 `JobSystemWithBarrier` 在共享 oneTBB worker 上执行；任务域控制并发与优先级，不另建物理线程池。域不传时同步执行。域必须活到物理系统关闭之后，关闭或重配不得与物理步进并发。当前帧内完成求解、包装任务引用释放、组件回写及事件发布，保持既有查询和脚本时序；角色循环仍串行。详见[物理任务契约](class-diagrams/physics-system.md)。
+
 场景中的物理对象使用节点和组件表达：`Collider` 定义盒、球、胶囊或静态三角网格，以及中心、摩擦、弹性和触发器属性；`RigidBody` 定义静态、运动学或动态运动、质量、阻尼、重力倍率及速度。持久数据来自 `scene.fbs`。没有刚体组件的碰撞体视为静态物体；禁用碰撞体、刚体或变换会移除对应物理对象。
 
 静态三角网格通过 Collider 的 `mesh_guid` 独立引用 Mesh 资源；可复用渲染 Mesh，也可使用专用碰撞 Mesh，不要求同节点有 MeshRenderer。场景导入将引用加入构建和运行依赖，运行时从统一资源加载接口取得顶点与三角形索引，并由 Jolt MeshShape 构建碰撞体。Collider 和物理快照持有共享引用，删除或清理后按现有资源生命周期释放。源网格使用引擎约定的逆时针绕序；Jolt 清理退化三角形，全部退化或非法索引通过返回值失败。该形状只支持静态用途，动态及运动学刚体组合均拒绝；不跟随蒙皮变形。角色胶囊、台阶和相机球扫直接使用同一碰撞世界。
@@ -17,7 +19,7 @@ mesh = "<独立 Mesh 资源的完整 GUID>"
 
 无需添加 RigidBody；如果显式添加，其 motion 必须为 `static_body`。MCP `set_collider` 的 `mesh` 参数与脚本 `Collider.SetMesh(path)` 接受 assets 相对路径或 `builtin://...` 逻辑路径，落盘仍保存 GUID。
 
-瞬态静态几何通过 `set_mesh_data` 或 `set_mesh_parts` 同步提交，先准备候选，失败保留原碰撞。分段输入使用稳定槽位与共享不可变网格，复用未变 Jolt 叶形状和复合树分组；一个 Collider 仍对应一个 Body，空槽、清空、禁用恢复与局部支撑唤醒见[分段碰撞契约](class-diagrams/mesh-collision-data.md)。这些接口不识别地形或项目，也不负责线程调度。当前单线程物理的实测范围及剩余优化集中维护在[性能采样](performance.md#最终可信基线)。
+瞬态静态几何通过 `set_mesh_data` 或 `set_mesh_parts` 同步提交，先准备候选，失败保留原碰撞。分段输入使用稳定槽位与共享不可变网格，复用未变 Jolt 叶形状和复合树分组；一个 Collider 仍对应一个 Body，空槽、清空、禁用恢复与局部支撑唤醒见[分段碰撞契约](class-diagrams/mesh-collision-data.md)。这些接口不识别地形或项目，也不负责线程调度。既有单线程基线及后续并行采样集中维护在[性能采样](performance.md#最终可信基线)，旧基线不代表并行后的耗时。
 
 每次更新先按场景和节点 ID 同步组件，再以固定 `1/60` 秒模拟，最后将运动物体的位置、旋转和速度写回组件。每帧最多执行 8 个固定步，过量时间丢弃，避免长帧无限追赶；零时间更新只同步配置，不推进模拟。冲量只作用于动态刚体，作为一次性瞬态请求消费，不写入场景数据。
 

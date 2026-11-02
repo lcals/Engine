@@ -21,6 +21,8 @@
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
@@ -597,6 +599,20 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
     {
         return false;
     }
+    for (int attempt = 0; attempt < max_frame_attempts &&
+                          renderer.screenshot_status() == engine::ScreenshotStatus::pending;
+         ++attempt)
+    {
+        if (!render_frames(windows, renderer, 1, camera))
+        {
+            return false;
+        }
+    }
+    if (!expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete,
+                "GPU readback is encoded and written before inspecting pixels"))
+    {
+        return false;
+    }
     // bgfx 的默认回调保存 TGA；读取实际 GPU 输出，不给正式接口添加测试入口。
     auto image_path = path;
     image_path += ".tga";
@@ -857,15 +873,18 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
 
 bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Texture preparation", .max_concurrency = 2});
     engine::ResourceSystem resources;
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
 #endif
     engine::WorldSystem world;
     engine::WindowSystem windows;
-    engine::RenderSystem renderer(windows, &world);
+    engine::RenderSystem renderer(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr);
     test_support::ResourceFixture fixture;
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
+    if (!expect((!shared || (threads.initialize(config) && tasks.initialize(config))) &&
+                    resources.initialize(config) && world.initialize(config) &&
                     windows.initialize(config) && renderer.initialize(config),
                 "initialize texture rendering systems") ||
         !expect(fixture.add(test_texture("textures/blocks", true, true)) &&
@@ -1186,9 +1205,18 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
     world.destroy_scene();
     renderer.release_scene();
-    return render_frames(windows, renderer, 8) &&
-           expect(gpu_counts() == idle && renderer.gpu_resource_count() == 0,
-                  "stopping textured scene retires every texture, mesh, program and uniform");
+    if (!render_frames(windows, renderer, 8) ||
+        !expect(gpu_counts() == idle && renderer.gpu_resource_count() == 0,
+                "stopping textured scene retires every texture, mesh, program and uniform"))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    engine::RenderSystem limited(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr,
+                                 {.texture_batch_size = 4, .texture_staging_bytes = 1});
+    return expect(limited.initialize(config) && create_cube_scene(world, false) &&
+                      !limited.prepare_scene() && limited.gpu_resource_count() == 0,
+                  "oversized texture fails before allocating staging pixels and cleans candidates");
 }
 
 bool test_render_settings_and_capture(const engine::EngineConfig& config)
@@ -1580,6 +1608,63 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     return render_frames(windows, renderer, 8) &&
            expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
                   "capture and enhanced lighting retain no stopped-scene GPU resources");
+}
+
+bool test_async_capture(const engine::EngineConfig& config)
+{
+    engine::ThreadSystem threads({.worker_limit = 1});
+    engine::TaskSystem tasks(threads, {.name = "Capture test", .max_concurrency = 1,
+                                      .max_pending = 1});
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, nullptr, nullptr, nullptr, &tasks);
+    test_support::ResourceFixture fixture;
+    if (!threads.initialize(config) || !tasks.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    auto busy = tasks.submit("Occupy capture admission", [gate]
+                             {
+                                 gate.wait();
+                                 return true;
+                             });
+    if (!busy.valid())
+    {
+        return false;
+    }
+    const auto capture = fixture.root / "async-capture.png";
+    std::error_code error;
+    const bool pending = renderer.request_screenshot(engine::PathUtils::to_utf8(capture)) &&
+                         render_frames(windows, renderer, 8) &&
+                         renderer.screenshot_status() == engine::ScreenshotStatus::pending &&
+                         !std::filesystem::exists(capture, error) && !error;
+    release.set_value();
+    if (!expect(busy.get() && pending,
+                "full task domain leaves one pending readback without blocking GPU frames"))
+    {
+        return false;
+    }
+    // 至少一次主线程提交；关闭必须等待已经接收的独立截图数据写入。
+    if (!render_frames(windows, renderer, 1))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    engine::ByteBuffer png;
+    constexpr std::array<unsigned char, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
+    if (!expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete &&
+                    engine::ResourceSystem::read_binary(capture, png) && png.size() > 24 &&
+                    std::equal(signature.begin(), signature.end(), png.begin(),
+                               [](unsigned char expected, std::byte value)
+                               { return expected == std::to_integer<unsigned char>(value); }),
+                "renderer shutdown waits for accepted capture and reports actual PNG output"))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    return true;
 }
 
 bool test_hdr_and_bloom(const engine::EngineConfig& config)
@@ -2180,11 +2265,10 @@ int main(int, char**)
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
     bool textures_passed = scene_passed && test_textured_renderer(config, false);
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
     textures_passed = textures_passed && test_textured_renderer(config, true);
-#endif
     const bool skinning_passed = textures_passed && test_gpu_skinning(config);
-    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config);
+    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config) &&
+                                 test_async_capture(config);
     const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
     const bool extensions_passed = hdr_passed && test_render_extensions(config);
     const bool engine_passed = extensions_passed && test_engine(config);

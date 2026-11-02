@@ -985,3 +985,37 @@ if(TARGET engine_navigation_crowd_editor)
     add_test(NAME editor.navigation_agent_codec COMMAND engine_navigation_agent_codec_test)
     set_tests_properties(editor.navigation_agent_codec PROPERTIES TIMEOUT 60)
 endif()
+
+if(TARGET engine_runtime)
+    add_executable(engine_gameplay_session_test gameplay_session_test.cpp)
+    target_link_libraries(engine_gameplay_session_test PRIVATE engine::runtime)
+    engine_apply_options(engine_gameplay_session_test)
+    add_test(NAME engine.gameplay_session COMMAND engine_gameplay_session_test)
+    set_tests_properties(engine.gameplay_session PROPERTIES TIMEOUT 60)
+
+    add_executable(engine_runtime_settings_test runtime_settings_test.cpp)
+    target_link_libraries(engine_runtime_settings_test PRIVATE engine::runtime)
+    engine_apply_options(engine_runtime_settings_test)
+    add_test(NAME engine.runtime_settings COMMAND engine_runtime_settings_test)
+    set_tests_properties(engine.runtime_settings PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET engine_editor)
+    add_executable(engine_project_runtime_settings_test project_runtime_settings_test.cpp)
+    target_link_libraries(engine_project_runtime_settings_test PRIVATE engine::editor engine::runtime)
+    engine_apply_options(engine_project_runtime_settings_test)
+    add_test(NAME editor.runtime_settings COMMAND engine_project_runtime_settings_test
+        "${PROJECT_SOURCE_DIR}/projects/showcase")
+    set_tests_properties(editor.runtime_settings PROPERTIES TIMEOUT 30)
+endif()
+
+if(TARGET engine_script AND TARGET engine_terrain AND TARGET engine_destruction)
+    add_executable(engine_terrain_destruction_script_test terrain_destruction_script_test.cpp)
+    target_link_libraries(engine_terrain_destruction_script_test PRIVATE
+        engine::script engine::terrain engine::destruction engine::task
+        engine::physics engine::world engine::resource engine::app engine::log)
+    engine_apply_options(engine_terrain_destruction_script_test)
+    engine_copy_script_data(engine_terrain_destruction_script_test)
+    add_test(NAME engine.terrain_destruction_script COMMAND engine_terrain_destruction_script_test)
+    set_tests_properties(engine.terrain_destruction_script PROPERTIES TIMEOUT 60)
+endif()

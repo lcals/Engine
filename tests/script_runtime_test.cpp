@@ -1845,8 +1845,10 @@ export default class extends Gameplay {
     Update() {
         if (this.phase === 0) {
             const progress = Scene.StepLoad(1);
-            if (progress?.status !== 'ready' || progress.completed !== progress.total || !this.old.IsValid())
-                throw new Error('Single-thread progress or menu lifetime is invalid');
+            if (!this.old.IsValid()) throw new Error('Loading replaced the old scene');
+            if (progress?.status === 'loading') return;
+            if (progress?.status !== 'ready' || progress.completed !== progress.total)
+                throw new Error('Budgeted progress or menu lifetime is invalid');
         } else if (this.phase === 1) {
             if (Scene.CommitLoad() !== null || !this.old.IsValid() || !this.old.GetPaused())
                 throw new Error('A changed catalog must preserve the paused old scene');
@@ -1857,7 +1859,9 @@ export default class extends Gameplay {
             if (Scene.StepLoad(0) !== null || !Scene.BeginLoad('scenes/main.scene'))
                 throw new Error('Canceled operation could not be restarted');
         } else if (this.phase === 2) {
-            if (Scene.StepLoad(1)?.status !== 'ready') throw new Error('New directory was not loaded');
+            const progress = Scene.StepLoad(1);
+            if (progress?.status === 'loading') return;
+            if (progress?.status !== 'ready') throw new Error('New directory was not loaded');
             this.loaded = Scene.CommitLoad();
             if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() ||
                 this.old.SetPaused(false) || this.old.GetPaused() !== null ||
@@ -1872,11 +1876,19 @@ export default class extends Gameplay {
 )js";
         Fixture first;
         Fixture next;
+        const auto advance_to = [&](std::string_view message)
+        {
+            for (int frame = 0; frame < 16 && !log_contains(message); ++frame)
+            {
+                if (!script.tick(.016) || !script.status().running) return false;
+            }
+            return log_contains(message);
+        };
         if (!script.initialize({}) ||
             !fixture(workspace, "step-first", {{"scripts/game.js", std::string(source)}}, first, bytes) ||
             !fixture(workspace, "step-next", {{"scripts/game.js", std::string(source)}}, next, bytes) ||
-            !expect(apply(script, first) && world.paused() && script.tick(.016) &&
-                        script.status().running && log_contains("step-loading:0"),
+            !expect(apply(script, first) && world.paused() && advance_to("step-loading:0") &&
+                        script.status().running,
                     "single-thread loading reaches ready without replacing the loading scene"))
         {
             return false;
@@ -1887,7 +1899,7 @@ export default class extends Gameplay {
                         world.scene()->id() == old_scene && world.paused() &&
                         log_contains("step-loading:1"),
                     "stale generation commit fails and exposes an error snapshot") ||
-            !expect(script.tick(.016) && script.status().running &&
+            !expect(advance_to("step-loading:2") && script.status().running &&
                         world.scene()->id() != old_scene && world.paused() &&
                         log_contains("step-loading:2") && script.tick(.016) &&
                         log_contains("step-loading:3"),

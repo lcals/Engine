@@ -15,6 +15,15 @@
 namespace engine
 {
 
+class TaskSystem;
+
+struct ResourceAsyncConfig
+{
+    std::size_t max_in_flight = 4;
+    std::uint64_t max_in_flight_bytes = 64U * 1024U * 1024U;
+    std::size_t completion_budget = 16;
+};
+
 class ResourceSystem final : public System, public ResourceLoader
 {
 public:
@@ -33,6 +42,13 @@ public:
     [[nodiscard]] bool read_header(std::string_view guid, schema::ResourceHeaderDataT& output);
     // 单项读取和格式校验；不递归、不缓存、不拥有依赖。
     [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output) override;
+    // 所属线程配置和派发；借用 tasks，先关闭异步读取再关闭任务域。
+    [[nodiscard]] bool configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config = {});
+    void shutdown_async() noexcept;
+    [[nodiscard]] bool async_enabled() const noexcept;
+    [[nodiscard]] bool begin_load(std::string_view guid,
+                                  std::unique_ptr<ResourceLoad>& output) override;
+    void poll_async();
     [[nodiscard]] ResourcePtr find(std::string_view guid) const noexcept override;
     // 调用方提供已加载的直接引用，验证跨实体契约；不读取或保留这些引用。
     [[nodiscard]] bool validate_dependencies(const Resource& resource,
@@ -71,14 +87,22 @@ public:
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
+    [[nodiscard]] bool on_tick(double delta_time) override;
     void on_shutdown() noexcept override;
 
 private:
+    struct AsyncState;
+    class AsyncLoad;
+    [[nodiscard]] static bool decode_loaded(const ResourceCatalog& catalog,
+                                            std::uint64_t generation, std::string_view guid,
+                                            ByteView entity, ResourcePtr& output);
+
     ResourceCatalog catalog_;
     VirtualFileSystem files_;
     ResourceLoader* loader_ = nullptr;
     std::uint64_t generation_ = 0;
     std::string last_error_;
+    std::shared_ptr<AsyncState> async_;
 };
 
 } // namespace engine

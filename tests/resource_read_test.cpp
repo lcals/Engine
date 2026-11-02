@@ -1,4 +1,7 @@
+#include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <SDL3/SDL_filesystem.h>
@@ -13,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 namespace
@@ -283,6 +287,82 @@ bool apk_path_failures(const std::filesystem::path& root)
     return success;
 }
 
+bool asynchronous_ranges(const std::filesystem::path& root)
+{
+    using namespace engine;
+    ThreadSystem threads({2});
+    TaskSystem tasks(threads, {"FileTest", 2});
+    VirtualFileSystem files;
+    if (!write_file(root / "async.pack", "prefixDATAtrailer") || !threads.initialize({}) ||
+        !tasks.initialize({}) || !files.configure({{"content", root}}) ||
+        !files.configure_async(tasks, {1, 4}))
+    {
+        return false;
+    }
+    schema::FileLocationT location;
+    location.mount = "content";
+    location.path = "async.pack";
+    location.offset = 6;
+    location.length = 4;
+    const auto owner = std::this_thread::get_id();
+    bool finished = false;
+    bool result = false;
+    auto completed = [&](bool success, ByteBuffer bytes)
+    {
+        result = success && std::this_thread::get_id() == owner && bytes.size() == 4 &&
+                 std::string(reinterpret_cast<const char*>(bytes.data()), bytes.size()) == "DATA";
+        finished = true;
+    };
+    auto pump = [&]
+    {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (!finished && std::chrono::steady_clock::now() < deadline)
+        {
+            files.poll_async(1);
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        return finished;
+    };
+    if (!expect(files.read_async(location, 0, 4, completed) == FileReadStatus::accepted &&
+                    !finished &&
+                    files.read_async(location, 0, 4, completed) == FileReadStatus::busy,
+                "async submission returns before callback and limits in-flight reads") ||
+        !expect(pump() && result, "async range reads only the pack member and calls back on owner"))
+    {
+        return false;
+    }
+    location.path = "missing.pack";
+    finished = false;
+    result = false;
+    if (!expect(files.read_async(location, 0, 4,
+                                 [&](bool success, ByteBuffer bytes)
+                                 {
+                                     result = !success && bytes.empty();
+                                     finished = true;
+                                 }) == FileReadStatus::accepted &&
+                    pump() && result,
+                "failed file preparation reports failure and returns its byte reservation"))
+    {
+        return false;
+    }
+    location.path = "async.pack";
+    finished = false;
+    if (!expect(files.read_async(location, 0, 4, completed) == FileReadStatus::accepted && pump() &&
+                    result,
+                "a failed read does not leak the entire in-flight budget"))
+    {
+        return false;
+    }
+    finished = false;
+    if (files.read_async(location, 0, 4, completed) != FileReadStatus::accepted)
+    {
+        return false;
+    }
+    files.shutdown_async();
+    return expect(!finished && files.poll_async(1) == 0,
+                  "shutdown suppresses pending completion delegates and safely closes I/O");
+}
+
 } // namespace
 
 int main()
@@ -298,5 +378,6 @@ int main()
     failures += !empty_and_failures(directory.path);
     failures += !oversized_file(directory.path);
     failures += !apk_path_failures(directory.path);
+    failures += !asynchronous_ranges(directory.path);
     return failures == 0 ? 0 : 1;
 }

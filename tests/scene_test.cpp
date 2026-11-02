@@ -438,6 +438,75 @@ bool indexed_scene_restore()
                   "maximum local ID may precede other nodes; automatic allocation never wraps");
 }
 
+bool incremental_scene_restore()
+{
+    using namespace engine;
+    test_support::ResourceFixture fixture;
+    auto* resources = ResourceSystem::instance();
+    WorldSystem world({2, 1.0});
+    if (!resources || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* active = world.create_scene("Keep until commit");
+    auto* child = active ? active->create_node("Child") : nullptr;
+    auto* parent = active ? active->create_node("Parent") : nullptr;
+    schema::SceneDataT data;
+    if (!child || !parent || !child->set_parent(parent) ||
+        !active->set_active_camera(child->add_component<Camera>()) ||
+        !active->build_data(data) || !add_scene_resource(fixture, "staged.scene", data) ||
+        !fixture.publish(*resources) || !world.set_paused(true))
+    {
+        return false;
+    }
+    ResourcePtr resource;
+    if (!fixture.load("staged.scene", resource))
+    {
+        return false;
+    }
+    const auto cancelled = world.begin_restore_scene(resource);
+    if (!expect(cancelled != 0 && world.begin_restore_scene(resource) == 0 &&
+                    world.step_restore_scene(cancelled, 0) == SceneRestoreStatus::loading &&
+                    !world.commit_restore_scene(cancelled) && world.scene() == active,
+                "zero budget and premature commit preserve active scene"))
+    {
+        return false;
+    }
+    world.cancel_restore_scene(cancelled);
+    const auto request = world.begin_restore_scene(resource);
+    world.cancel_restore_scene(cancelled);
+    if (!expect(request > cancelled &&
+                    world.step_restore_scene(cancelled, 100) == SceneRestoreStatus::failed &&
+                    world.step_restore_scene(request, 100) == SceneRestoreStatus::loading &&
+                    world.scene() == active && world.paused(),
+                "configured node budget and cancelled request cannot publish candidate") ||
+        !expect(world.step_restore_scene(request, 100) == SceneRestoreStatus::loading &&
+                    world.step_restore_scene(request, 100) == SceneRestoreStatus::ready,
+                "node creation, hierarchy and camera finish over separate steps"))
+    {
+        return false;
+    }
+    auto* restored = world.commit_restore_scene(request);
+    if (!expect(restored && restored != active && restored->nodes().size() == 2 &&
+                    restored->nodes()[0]->parent() == restored->nodes()[1].get() &&
+                    restored->active_camera() && !world.paused(),
+                "commit publishes complete hierarchy and clears old pause"))
+    {
+        return false;
+    }
+    const auto stale = world.begin_restore_scene(resource);
+    if (!add_scene_resource(fixture, "another.scene", data) || !fixture.publish(*resources) ||
+        !expect(world.step_restore_scene(stale, 100) == SceneRestoreStatus::failed &&
+                    !world.commit_restore_scene(stale) && world.scene() == restored,
+                "directory replacement invalidates candidate without replacing scene") ||
+        !fixture.load("staged.scene", resource) || world.begin_restore_scene(resource) == 0)
+    {
+        return false;
+    }
+    world.shutdown();
+    return expect(world.scene() == nullptr, "shutdown destroys candidate before ECS world");
+}
+
 bool component_contracts()
 {
     const engine::EngineConfig config;
@@ -1009,7 +1078,8 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !hierarchy_and_transforms() || !indexed_scene_restore() || !component_contracts() ||
+        !hierarchy_and_transforms() || !indexed_scene_restore() || !incremental_scene_restore() ||
+        !component_contracts() ||
         !camera_rays() || !transient_nodes() || !material_contracts() || !resource_namespaces())
     {
         return 1;

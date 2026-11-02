@@ -307,7 +307,7 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     return count;
 }
 
-bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene& scene)
+bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene& scene, std::size_t staging_bytes)
 {
     const EnvironmentSettings* environment = nullptr;
     for (const auto& node : scene.nodes())
@@ -353,8 +353,11 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene& scene)
         const auto* texture = source ? source->texture() : nullptr;
         const bool cube = index < 2;
         const auto format = cube ? schema::TextureFormat::rgba16f : schema::TextureFormat::rg16f;
+        render_detail::PreparedTexture prepared;
         if (!loaded || texture == nullptr || texture->cube_map != cube || texture->srgb ||
-            texture->format != format || !candidate[index].create(source))
+            texture->format != format ||
+            !prepared.describe(source, *bgfx::getCaps(), staging_bytes) || !prepared.prepare() ||
+            !candidate[index].create(prepared))
         {
             for (auto& item : candidate)
             {

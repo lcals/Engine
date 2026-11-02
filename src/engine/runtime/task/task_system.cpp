@@ -11,6 +11,8 @@
 #include <array>
 #include <chrono>
 #include <condition_variable>
+#include <cmath>
+#include <deque>
 #include <mutex>
 #include <thread>
 #include <utility>
@@ -109,6 +111,12 @@ struct TaskSystem::Impl
     {
         std::function<bool()> execute;
         std::promise<bool> completion;
+        std::function<void(bool)> callback;
+    };
+    struct Completion
+    {
+        std::function<void(bool)> callback;
+        bool success = false;
     };
     using Entry = tbb::flow::function_node<std::shared_ptr<Submission>, tbb::flow::continue_msg>;
 
@@ -120,6 +128,9 @@ struct TaskSystem::Impl
     std::mutex mutex;
     std::condition_variable completed;
     std::size_t pending = 0;
+    std::size_t outstanding = 0;
+    std::deque<Completion> ready;
+    bool dispatching = false;
     bool accepting = false;
     std::thread::id owner = std::this_thread::get_id();
     ThreadPriority thread_priority = ThreadPriority::normal;
@@ -157,6 +168,14 @@ struct TaskSystem::Impl
                             {
                                 const std::lock_guard lock(mutex);
                                 --pending;
+                                if (submission->callback)
+                                {
+                                    ready.push_back({std::move(submission->callback), success});
+                                }
+                                else
+                                {
+                                    --outstanding;
+                                }
                             }
                             submission->completion.set_value(success);
                             completed.notify_one();
@@ -192,25 +211,34 @@ struct TaskSystem::Impl
         arena.reset();
     }
 
-    std::future<bool> enqueue(std::function<bool()> execute, TaskPriority priority)
+    bool enqueue(const std::shared_ptr<Submission>& submission, TaskPriority priority)
+    {
+        // Hold through try_put: shutdown/configuration must not destroy the graph between
+        // accepting a request and handing it to oneTBB. No caller waits for worker execution.
+        const std::lock_guard lock(mutex);
+        if (!accepting || outstanding >= config.max_pending)
+        {
+            return false;
+        }
+        ++pending;
+        ++outstanding;
+        if (!entries[static_cast<std::size_t>(priority)]->try_put(submission))
+        {
+            --pending;
+            --outstanding;
+            return false;
+        }
+        return true;
+    }
+
+    std::future<bool> submit(std::function<bool()> execute, TaskPriority priority)
     {
         auto submission = std::make_shared<Submission>();
         submission->execute = std::move(execute);
         auto future = submission->completion.get_future();
+        if (!enqueue(submission, priority))
         {
-            const std::lock_guard lock(mutex);
-            if (!accepting)
-            {
-                error = "task domain is not accepting work";
-                return {};
-            }
-            ++pending;
-        }
-        if (!entries[static_cast<std::size_t>(priority)]->try_put(submission))
-        {
-            const std::lock_guard lock(mutex);
-            --pending;
-            error = "task graph rejected submission";
+            error = "task domain is closed or its pending budget is exhausted";
             return {};
         }
         return future;
@@ -253,21 +281,25 @@ struct TaskSystem::Impl
 #endif
         task_detail::ThreadPriorityState previous;
         std::string priority_error;
-        if (!task_detail::apply_current_thread_priority(thread_priority, previous, priority_error))
+        const bool priority_applied =
+            task_detail::apply_current_thread_priority(thread_priority, previous, priority_error);
+        if (!priority_applied)
         {
+            // Accepted work must finish even when the OS denies a scheduling hint.
+            // In particular, dropping a physics job would leave its barrier waiting forever.
             ENGINE_PROFILE_MESSAGE(priority_error.data(), priority_error.size());
-            return false;
         }
         const bool was_in_task = in_task;
         in_task = true;
         const bool success = execute();
         in_task = was_in_task;
-        if (!task_detail::restore_current_thread_priority(previous, priority_error))
+        if (priority_applied &&
+            !task_detail::restore_current_thread_priority(previous, priority_error))
         {
             ENGINE_PROFILE_MESSAGE(priority_error.data(), priority_error.size());
             return false;
         }
-        return success;
+        return success && priority_applied;
     }
 
     bool execute_batch(const std::vector<TaskDescription>& tasks, Clock::time_point submitted)
@@ -334,6 +366,7 @@ bool TaskSystem::on_initialize(const EngineConfig&)
     impl_->error.clear();
     if (!impl_->threads.is_initialized() || impl_->config.name.empty() ||
         impl_->config.max_concurrency == 0 || impl_->config.max_concurrency > 64 ||
+        impl_->config.max_pending == 0 ||
         !valid_priority(impl_->config.priority))
     {
         impl_->error = "invalid task domain configuration or uninitialized thread budget";
@@ -355,6 +388,13 @@ void TaskSystem::on_shutdown() noexcept
     }
     impl_->drain();
     impl_->release_arena();
+    // Destroy captures outside the mutex; no application callbacks run during shutdown.
+    std::deque<Impl::Completion> discarded;
+    {
+        const std::lock_guard lock(impl_->mutex);
+        discarded.swap(impl_->ready);
+        impl_->outstanding = 0;
+    }
 }
 
 bool TaskSystem::configure_concurrency(std::size_t count)
@@ -371,6 +411,7 @@ bool TaskSystem::configure_concurrency(std::size_t count)
             impl_->error = "invalid concurrency or task domain is not idle";
             return false;
         }
+        impl_->accepting = false;
     }
     if (count != impl_->config.max_concurrency)
     {
@@ -378,6 +419,10 @@ bool TaskSystem::configure_concurrency(std::size_t count)
         impl_->release_arena();
         impl_->config.max_concurrency = count;
         impl_->create_arena();
+    }
+    {
+        const std::lock_guard lock(impl_->mutex);
+        impl_->accepting = true;
     }
     return true;
 }
@@ -395,7 +440,7 @@ std::future<bool> TaskSystem::submit(std::string name, std::function<bool()> tas
         impl_->error = "task has no function or invalid priority: " + name;
         return {};
     }
-    return impl_->enqueue(
+    return impl_->submit(
         [this, name = std::move(name), task = std::move(task), priority, submitted = Clock::now()]
         { return impl_->execute_task(name, task, priority, submitted); }, priority);
 }
@@ -423,8 +468,90 @@ std::future<bool> TaskSystem::submit_batch(std::vector<TaskDescription> tasks,
         ready.set_value(true);
         return ready.get_future();
     }
-    return impl_->enqueue([this, tasks = std::move(tasks), submitted = Clock::now()]
+    return impl_->submit([this, tasks = std::move(tasks), submitted = Clock::now()]
                           { return impl_->execute_batch(tasks, submitted); }, priority);
+}
+
+bool TaskSystem::submit(std::string name, std::function<bool()> task,
+                        std::function<void(bool)> completed, TaskPriority priority)
+{
+    if (!impl_->on_owner())
+    {
+        return false;
+    }
+    impl_->error.clear();
+    if (!task || !completed || !valid_priority(priority))
+    {
+        impl_->error = "task requires work, completion and a valid priority";
+        return false;
+    }
+    auto submission = std::make_shared<Impl::Submission>();
+    submission->callback = std::move(completed);
+    submission->execute =
+        [this, name = std::move(name), task = std::move(task), priority, submitted = Clock::now()]
+        { return impl_->execute_task(name, task, priority, submitted); };
+    if (!impl_->enqueue(submission, priority))
+    {
+        impl_->error = "task domain is closed or its pending budget is exhausted";
+        return false;
+    }
+    return true;
+}
+
+bool TaskSystem::enqueue(std::string name, std::function<void()> task, TaskPriority priority)
+{
+    if (!task || !valid_priority(priority))
+    {
+        return false;
+    }
+    auto submission = std::make_shared<Impl::Submission>();
+    submission->execute =
+        [this, name = std::move(name), task = std::move(task), priority, submitted = Clock::now()]
+        {
+            return impl_->execute_task(name, [&] { task(); return true; }, priority, submitted);
+        };
+    return impl_->enqueue(submission, priority);
+}
+
+std::size_t TaskSystem::dispatch_completions(std::size_t max_count, double max_seconds)
+{
+    if (!impl_->on_owner() || impl_->dispatching || max_count == 0 ||
+        !std::isfinite(max_seconds) || max_seconds <= 0.0)
+    {
+        return 0;
+    }
+    ENGINE_PROFILE_ZONE("Task.complete");
+    std::size_t available = 0;
+    {
+        const std::lock_guard lock(impl_->mutex);
+        if (!impl_->accepting)
+        {
+            return 0;
+        }
+        available = std::min(max_count, impl_->ready.size());
+    }
+    const auto started = Clock::now();
+    impl_->dispatching = true;
+    std::size_t count = 0;
+    while (count < available &&
+           std::chrono::duration<double>(Clock::now() - started).count() < max_seconds)
+    {
+        Impl::Completion completion;
+        {
+            const std::lock_guard lock(impl_->mutex);
+            if (!impl_->accepting || impl_->ready.empty())
+            {
+                break;
+            }
+            completion = std::move(impl_->ready.front());
+            impl_->ready.pop_front();
+            --impl_->outstanding;
+        }
+        completion.callback(completion.success);
+        ++count;
+    }
+    impl_->dispatching = false;
+    return count;
 }
 
 bool TaskSystem::run(const std::vector<TaskDescription>& tasks)

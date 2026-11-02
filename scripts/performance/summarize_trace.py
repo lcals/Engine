@@ -9,6 +9,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import statistics
 import subprocess
 import sys
@@ -71,6 +72,39 @@ def event_start(row: dict) -> int:
 
 def event_end(row: dict) -> int:
     return event_start(row) + int(row["exec_time_ns"])
+
+
+def task_queue_summary(events: list[dict]) -> dict:
+    """Task.execute 可有动态名称；从官方 value 列读取单行排队注释。"""
+    groups = defaultdict(list)
+    missing = invalid = 0
+    pattern = re.compile(r"domain=(.*?); task=(.*); priority=(low|normal|high); queued_ns=(\d+)")
+    for row in events:
+        details = row.get("value", "")
+        if row["name"] != "Task.execute" and not (
+                row["src_file"].replace("\\", "/").endswith("/task_system.cpp")
+                and details.startswith("domain=")):
+            continue
+        if not details:
+            missing += 1
+            continue
+        match = pattern.fullmatch(details)
+        if match is None:
+            invalid += 1
+            continue
+        domain, task, priority, queued = match.groups()
+        groups[domain, task, priority].append(
+            (int(queued) / 1e6, int(row["exec_time_ns"]) / 1e6, row["thread"]))
+    return {
+        "groups": [{"domain": domain, "task": task, "priority": priority,
+                    "threads": sorted({item[2] for item in samples}),
+                    "queued_ms": statistics_of([item[0] for item in samples]),
+                    "execution_ms": statistics_of([item[1] for item in samples])}
+                   for (domain, task, priority), samples in sorted(groups.items())],
+        "missing_metadata_events": missing, "invalid_metadata_events": invalid,
+        "notes": ["queued_ms is submission-to-start wall time, including batch dependencies",
+                  "execution_ms is instrumented thread elapsed time, not CPU utilization",
+                  "only completed execution zones inside the selected window are included; queued work without a completed zone is absent"]}
 
 
 def messages_window(args, messages: list[dict], zones: list[dict]) -> tuple[int, int, dict]:
@@ -214,6 +248,7 @@ def analyze(args) -> Path:
               "frames_over_50_ms": sum(v > 50 for v in frame_values),
               "frames_over_100_ms": sum(v > 100 for v in frame_values),
               "zones": grouped, "plots": plot_stats, "worst_frames": worst_frames,
+              "task_queue": task_queue_summary(selected),
               "messages": [row for row in messages if start <= int(row["total_ns"]) < end],
               "notes": ["CPU zones are thread elapsed wall time, not CPU cycles or utilization",
                         "inclusive parent/child totals overlap; self subtracts instrumented children only",

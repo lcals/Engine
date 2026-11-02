@@ -10,7 +10,7 @@ function(engine_configure_terrain_plugin)
         src/engine/plugins/runtime/terrain/terrain_volume.cpp)
     target_include_directories(engine_terrain SYSTEM PRIVATE "${PROJECT_SOURCE_DIR}/third_party/transvoxel")
     target_link_libraries(engine_terrain PUBLIC engine::world engine::physics engine::resource
-                                        PRIVATE SDL3::SDL3)
+                                        PRIVATE SDL3::SDL3 engine::task)
 endfunction()
 
 engine_register_plugin(NAME runtime/terrain CONFIGURE engine_configure_terrain_plugin

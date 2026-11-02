@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 
 namespace engine::plugins::terrain
@@ -44,6 +45,8 @@ private:
     explicit TerrainComponent(Node& node);
     ResourcePtr resource_;
     TerrainVolume volume_;
+    // Weak tokens identify this exact component even if a node removes and recreates it.
+    std::shared_ptr<const std::uint8_t> lifetime_ = std::make_shared<const std::uint8_t>(0);
     std::uint64_t revision_ = 0;
     std::size_t triangles_ = 0;
     bool ready_ = false;

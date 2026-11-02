@@ -342,12 +342,71 @@ bool os_priority()
     return true;
 }
 
+bool completion_budget_and_nested_jobs()
+{
+    const engine::EngineConfig config;
+    const auto owner = std::this_thread::get_id();
+    std::atomic<int> jobs{0};
+    int callbacks = 0;
+    bool callback_thread = true;
+    engine::ThreadSystem threads({2});
+    engine::TaskSystem tasks(threads, {"Bounded callbacks", 2, engine::TaskPriority::normal, 2});
+    if (!threads.initialize(config) || !tasks.initialize(config))
+    {
+        return false;
+    }
+    for (int index = 0; index < 2; ++index)
+    {
+        if (!tasks.submit("prepare", [] { return true; },
+                          [&](bool success)
+                          {
+                              callback_thread &= success && std::this_thread::get_id() == owner;
+                              ++callbacks;
+                          }))
+        {
+            return false;
+        }
+    }
+    if (!expect(tasks.wait() && callbacks == 0, "waiting never executes owner callbacks") ||
+        !expect(!tasks.submit("full", [] { return true; }).valid(),
+                "undispatched results retain backpressure") ||
+        !expect(tasks.dispatch_completions(0, 1.0) == 0 &&
+                    tasks.dispatch_completions(1, 0.0) == 0 && callbacks == 0,
+                "zero callback budgets do not drain") ||
+        !expect(tasks.dispatch_completions(1, 1.0) == 1 && callbacks == 1,
+                "callback count budget") ||
+        !expect(tasks.dispatch_completions(8, 1.0) == 1 && callbacks == 2 && callback_thread,
+                "callbacks execute once on owner"))
+    {
+        return false;
+    }
+    auto parent = tasks.submit("parent", [&]
+    {
+        ++jobs;
+        return tasks.enqueue("child", [&] { ++jobs; }, engine::TaskPriority::high);
+    });
+    if (!expect(result(parent) && tasks.wait() && jobs == 2,
+                "workers may submit dependent library jobs without owner-thread calls"))
+    {
+        return false;
+    }
+    if (!tasks.submit("abandoned completion", [] { return true; },
+                      [&](bool) { ++callbacks; }))
+    {
+        return false;
+    }
+    tasks.shutdown();
+    return expect(callbacks == 2 && !tasks.enqueue("closed", [] {}) &&
+                      tasks.dispatch_completions(8, 1.0) == 0,
+                  "shutdown drains work but discards application callbacks");
+}
+
 } // namespace
 
 int main()
 {
     return lifecycle_and_validation() && priority_and_async() && dependency_batches(1) &&
-                   dependency_batches(3) && independent_domains() && os_priority()
+                   dependency_batches(3) && independent_domains() && os_priority() && completion_budget_and_nested_jobs()
                ? 0
                : 1;
 }

@@ -90,3 +90,22 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_RUNTIME_DEPS)
 elseif(ENGINE_BUILD_APP)
     message(STATUS "engine_app requires ENGINE_ENABLE_RUNTIME_DEPS; building core only")
 endif()
+
+function(engine_configure_runtime_settings target)
+    if(ANDROID)
+        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
+            ENGINE_RUNTIME_SETTINGS_PATH="settings/runtime.json"
+            ENGINE_RUNTIME_SETTINGS_REQUIRED=1)
+    elseif(IOS)
+        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="mobile"
+            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
+            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+    else()
+        target_compile_definitions(${target} PRIVATE ENGINE_RUNTIME_PROFILE="desktop"
+            ENGINE_RUNTIME_SETTINGS_PATH="../settings/runtime.json"
+            ENGINE_RUNTIME_SETTINGS_REQUIRED=0)
+    endif()
+endfunction()
+if(TARGET engine_app)
+    engine_configure_runtime_settings(engine_app)
+endif()

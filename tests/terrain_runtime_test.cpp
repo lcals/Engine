@@ -10,6 +10,8 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/terrain_state_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -18,8 +20,10 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
+#include <semaphore>
 #include <string>
 #include <vector>
 
@@ -719,12 +723,229 @@ bool collapse_runtime_contract()
     resources.shutdown();
     return true;
 }
+bool asynchronous_brush_contract()
+{
+    ResourceSystem resources;
+    WorldSystem world;
+    PhysicsSystem physics(&world);
+    ThreadSystem threads({.worker_limit = 1});
+    TaskSystem tasks(threads, {.name = "Terrain asynchronous tests", .max_concurrency = 1});
+    TerrainSystem terrain(world, physics, &tasks, 2, 1);
+    test_support::ResourceFixture fixture;
+    schema::TerrainAssetDataT asset;
+    auto settings = generator();
+    settings.cells_x = settings.cells_y = settings.cells_z = 16;
+    settings.origin = {-8, -8, -8};
+    std::string error;
+    if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
+                    threads.initialize({}) && tasks.initialize({}) && terrain.initialize({}) &&
+                    TerrainVolume::generate(settings, asset, error) &&
+                    add_terrain(fixture, asset) && fixture.publish(resources),
+                "initialize asynchronous terrain with a bounded shared worker"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Async terrain");
+    auto* node = scene ? scene->create_node("Volume") : nullptr;
+    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
+    schema::TerrainDataT description;
+    description.terrain_guid = fixture.catalog.entries.front()->guid;
+    if (!component || !component->set_settings(description) || !terrain.synchronize())
+    {
+        return false;
+    }
+
+    // Holding the sole worker proves request + synchronize do not wait on preparation.
+    std::binary_semaphore gate(0);
+    auto occupied = tasks.submit("Hold terrain worker",
+                                 [&]
+                                 {
+                                     gate.acquire();
+                                     return true;
+                                 });
+    if (!occupied.valid())
+    {
+        return false;
+    }
+    std::vector<bool> results;
+    const auto completed = [&](bool success) { results.push_back(success); };
+    const auto before = component->revision();
+    const bool queued =
+        terrain.request_apply_sphere(*component, {-2, -1, 0}, 2, false, completed) &&
+        terrain.request_apply_sphere(*component, {2, -1, 0}, 2, false, completed) &&
+        !terrain.request_apply_sphere(*component, {}, 1, true, completed) &&
+        terrain.synchronize() && results.empty() && component->revision() == before;
+    gate.release();
+    if (!expect(occupied.get() && queued && tasks.wait() && terrain.synchronize() &&
+                    results == std::vector<bool>{true} && component->revision() == before + 1 &&
+                    tasks.wait() && terrain.synchronize() &&
+                    results == std::vector<bool>({true, true}) &&
+                    component->revision() == before + 2,
+                "queued edits remain nonblocking, ordered and limited to one commit per tick"))
+    {
+        return false;
+    }
+    TerrainVolume reference;
+    ByteBuffer bytes;
+    if (!reference.initialize(asset, error) ||
+        !reference.apply_sphere({-2, -1, 0}, 2, false, error) ||
+        !reference.apply_sphere({2, -1, 0}, 2, false, error) || !component->snapshot(bytes))
+    {
+        return false;
+    }
+    auto saved =
+        schema::UnPackTerrainStateData(reinterpret_cast<const std::uint8_t*>(bytes.data()));
+    if (!expect(saved->volume->density == reference.data().density,
+                "successive candidates use the preceding committed terrain"))
+    {
+        return false;
+    }
+
+    results.clear();
+    if (!expect(terrain.request_apply_sphere(*component, {}, 3, false, completed) &&
+                    terrain.synchronize() && tasks.wait() && component->reset() &&
+                    terrain.synchronize() && results == std::vector<bool>{false} &&
+                    component->snapshot(bytes),
+                "synchronous reset invalidates an already prepared asynchronous candidate"))
+    {
+        return false;
+    }
+    saved = schema::UnPackTerrainStateData(reinterpret_cast<const std::uint8_t*>(bytes.data()));
+    if (!expect(saved->volume->density == asset.density, "stale edit cannot overwrite reset"))
+    {
+        return false;
+    }
+
+    auto* replacement_node = scene->create_node("Replacement identity");
+    auto* original = replacement_node->add_component<TerrainComponent>();
+    results.clear();
+    if (!original || !original->set_settings(description) || !terrain.synchronize())
+    {
+        return false;
+    }
+    const auto original_revision = original->revision();
+    if (!terrain.request_apply_sphere(*original, {}, 2, false, completed) ||
+        !terrain.synchronize() || !tasks.wait() ||
+        !replacement_node->remove_component(TerrainComponent::component_type))
+    {
+        return false;
+    }
+    auto* replacement = replacement_node->add_component<TerrainComponent>();
+    if (!expect(replacement && replacement->set_settings(description) && terrain.synchronize() &&
+                    replacement->revision() == original_revision &&
+                    results == std::vector<bool>{false},
+                "same node and revision cannot revive a removed component request"))
+    {
+        return false;
+    }
+
+    results.clear();
+    if (!terrain.request_apply_sphere(*replacement, {}, 2, false, completed) ||
+        !terrain.synchronize())
+    {
+        return false;
+    }
+    world.destroy_scene();
+    if (!expect(world.create_scene("Other scene") && tasks.wait() && terrain.synchronize() &&
+                    results == std::vector<bool>{false},
+                "scene replacement discards the old candidate and completes cancellation"))
+    {
+        return false;
+    }
+    node = world.scene()->create_node("Shutdown");
+    component = node->add_component<TerrainComponent>();
+    results.clear();
+    if (!component || !component->set_settings(description) || !terrain.synchronize() ||
+        !terrain.request_apply_sphere(*component, {}, 2, false, completed) ||
+        !terrain.synchronize())
+    {
+        return false;
+    }
+    terrain.shutdown();
+    return expect(tasks.wait() && results.empty(),
+                  "shutdown drops callbacks while worker-owned candidates finish safely");
+}
+
+bool asynchronous_brush_fairness(std::size_t concurrency)
+{
+    ResourceSystem resources;
+    WorldSystem world;
+    PhysicsSystem physics(&world);
+    ThreadSystem threads({.worker_limit = concurrency});
+    TaskSystem tasks(threads, {.name = "Terrain fairness", .max_concurrency = concurrency});
+    TerrainSystem terrain(world, physics, &tasks, 4, 1);
+    test_support::ResourceFixture files;
+    schema::TerrainAssetDataT asset;
+    auto settings = generator();
+    settings.cells_x = settings.cells_y = settings.cells_z = 16;
+    settings.origin = {-8, -8, -8};
+    std::string error;
+    if (!resources.initialize({}) || !world.initialize({}) || !physics.initialize({}) ||
+        !threads.initialize({}) || !tasks.initialize({}) || !terrain.initialize({}) ||
+        !TerrainVolume::generate(settings, asset, error) || !add_terrain(files, asset) ||
+        !files.publish(resources))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Fair terrain edits");
+    auto* low_node = scene ? scene->create_node("Frequent edits") : nullptr;
+    auto* high_node = scene ? scene->create_node("Occasional edit") : nullptr;
+    auto* low = low_node ? low_node->add_component<TerrainComponent>() : nullptr;
+    auto* high = high_node ? high_node->add_component<TerrainComponent>() : nullptr;
+    schema::TerrainDataT description;
+    description.terrain_guid = files.catalog.entries.front()->guid;
+    if (!low || !high || !low->set_settings(description) || !high->set_settings(description) ||
+        !terrain.synchronize())
+    {
+        return false;
+    }
+    bool high_finished = false;
+    bool succeeded = true;
+    unsigned low_completions = 0;
+    std::function<void(bool)> refill;
+    refill = [&](bool success)
+    {
+        succeeded = success && succeeded;
+        ++low_completions;
+        if (!high_finished)
+        {
+            succeeded = terrain.request_apply_sphere(*low, {}, 1, false, refill) && succeeded;
+        }
+    };
+    if (!terrain.request_apply_sphere(*low, {}, 1, false, refill) ||
+        !terrain.request_apply_sphere(*low, {}, 1, false, refill) ||
+        !terrain.request_apply_sphere(*high, {}, 1, false,
+                                      [&](bool success)
+                                      {
+                                          succeeded = success && succeeded;
+                                          high_finished = true;
+                                      }) ||
+        !terrain.synchronize())
+    {
+        return false;
+    }
+    // One worker exercises dispatch fairness; two ready candidates exercise publish fairness.
+    for (unsigned frame = 0; frame < 4 && !high_finished; ++frame)
+    {
+        if (!tasks.wait() || !terrain.synchronize())
+        {
+            return false;
+        }
+    }
+    const bool passed = expect(high_finished && succeeded && low_completions > 0,
+                               "higher node ID finishes despite continuous lower-ID refill");
+    terrain.shutdown();
+    return tasks.wait() && passed;
+}
+
 } // namespace
 
 int main()
 {
     return volume_contract() && runtime_contract() && subsystem_contract() && island_contract() &&
-                   incremental_collapse_contract() && collapse_runtime_contract()
+                   incremental_collapse_contract() && collapse_runtime_contract() &&
+                   asynchronous_brush_contract() && asynchronous_brush_fairness(1) &&
+                   asynchronous_brush_fairness(2)
                ? 0
                : 1;
 }

@@ -125,7 +125,7 @@ nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结�
 核心只传抽象脚本工厂，不 include 或链接 WindowBinding。
 
 加载操作的接口与所有权见[资源加载契约](../../../runtime/class-diagrams/resource-loader.md)，
-脚本入口见[Scene 接口](../../../runtime/class-diagrams/gameplay.md#暂停和单线程分步加载)。
+脚本入口见[Scene 接口](../../../runtime/class-diagrams/gameplay.md#暂停与后台资源加载)。
 
 ## 项目接入范围
 

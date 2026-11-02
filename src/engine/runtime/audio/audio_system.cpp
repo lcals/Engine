@@ -1,6 +1,7 @@
 #include "runtime/audio/audio_system.hpp"
 
 #include "runtime/performance/profiling.hpp"
+#include "runtime/resource/resource.hpp"
 #include "runtime/scene/audio_listener.hpp"
 #include "runtime/scene/audio_source.hpp"
 #include "runtime/scene/scene.hpp"
@@ -124,11 +125,80 @@ struct AudioSystem::Impl
             }
         }
 
+        static void SDLCALL feed(void* userdata, SDL_AudioStream* stream, int additional_bytes,
+                                 int)
+        {
+            ENGINE_PROFILE_ZONE("Audio.feed");
+            auto& voice = *static_cast<Voice*>(userdata);
+            if (additional_bytes <= 0 || voice.feed_failed)
+            {
+                return;
+            }
+            // SDL 已持有流锁；这里只消费驻留 PCM 和已发布参数，不访问场景。
+            const auto& clip = *voice.clip->audio();
+            constexpr std::size_t block_frames = 1024;
+            constexpr std::size_t frame_bytes = 2 * sizeof(float);
+            std::size_t requested =
+                (static_cast<std::size_t>(additional_bytes) + frame_bytes - 1) / frame_bytes;
+            std::array<float, block_frames * 2> block;
+            while (requested != 0)
+            {
+                if (voice.frame == clip.frames)
+                {
+                    if (!voice.loop)
+                    {
+                        break;
+                    }
+                    voice.frame = 0;
+                    voice.flushed = false;
+                }
+                const auto count = static_cast<std::size_t>(std::min<std::uint64_t>(
+                    std::min(block_frames, requested), clip.frames - voice.frame));
+                for (std::size_t frame = 0; frame < count; ++frame)
+                {
+                    const auto index =
+                        static_cast<std::size_t>(voice.frame + frame) * clip.channels;
+                    const float left = clip.samples[index];
+                    const float right = clip.channels == 2 ? clip.samples[index + 1] : left;
+                    if (voice.spatial)
+                    {
+                        const float mono = (left + right) * 0.5F;
+                        block[frame * 2] = mono * voice.left_gain;
+                        block[frame * 2 + 1] = mono * voice.right_gain;
+                    }
+                    else
+                    {
+                        block[frame * 2] = left;
+                        block[frame * 2 + 1] = right;
+                    }
+                }
+                if (!SDL_PutAudioStreamData(stream, block.data(),
+                                           static_cast<int>(count * frame_bytes)))
+                {
+                    voice.feed_failed = true;
+                    return;
+                }
+                voice.frame += count;
+                requested -= count;
+            }
+            if (voice.frame == clip.frames && !voice.loop && !voice.flushed)
+            {
+                voice.flushed = SDL_FlushAudioStream(stream);
+                voice.feed_failed = !voice.flushed;
+            }
+        }
+
         SDL_AudioStream* stream = nullptr;
+        ResourcePtr clip;
         std::uint64_t revision = 0;
         std::uint64_t frame = 0;
+        float left_gain = 1.0F;
+        float right_gain = 1.0F;
+        bool loop = false;
+        bool spatial = false;
         bool bound = false;
         bool flushed = false;
+        bool feed_failed = false;
     };
 
     ~Impl()
@@ -185,14 +255,10 @@ struct AudioSystem::Impl
         }
     }
 
-    bool fill(Voice& voice, const AudioSource& source, const Listener& listener)
+    bool publish(Voice& voice, const AudioSource& source, const Listener& listener, bool& finished)
     {
-        const auto* clip = source.clip_data();
-        if (!clip || !valid_clip(*clip))
-        {
-            error = "Audio source has no valid PCM clip";
-            return false;
-        }
+        ENGINE_PROFILE_ZONE("Audio.publish");
+        finished = false;
         float gain = 1.0F;
         float pan = 0.0F;
         if (!spatial_mix(source, listener, gain, pan))
@@ -200,66 +266,37 @@ struct AudioSystem::Impl
             error = "Audio source or listener world transform is invalid";
             return false;
         }
-        if (!SDL_SetAudioStreamFrequencyRatio(voice.stream, source.settings().pitch) ||
-            !SDL_SetAudioStreamGain(voice.stream, gain))
+        const float left_gain = std::sqrt(0.5F * (1.0F - pan));
+        const float right_gain = std::sqrt(0.5F * (1.0F + pan));
+        if (!SDL_LockAudioStream(voice.stream))
         {
-            return fail("Cannot update audio stream settings");
+            return fail("Cannot lock audio stream settings");
         }
-        int queued = SDL_GetAudioStreamQueued(voice.stream);
-        if (queued < 0)
+        // 与 SDL 回调共用流锁，只发布标量参数并查询状态，不在锁内生成 PCM。
+        voice.loop = source.settings().loop;
+        voice.spatial = source.settings().spatial;
+        voice.left_gain = left_gain;
+        voice.right_gain = right_gain;
+        const bool updated =
+            SDL_SetAudioStreamFrequencyRatio(voice.stream, source.settings().pitch) &&
+            SDL_SetAudioStreamGain(voice.stream, gain);
+        const int available = SDL_GetAudioStreamAvailable(voice.stream);
+        const int queued = SDL_GetAudioStreamQueued(voice.stream);
+        const bool feed_failed = voice.feed_failed;
+        finished = voice.flushed && !voice.loop && available == 0 && queued == 0;
+        if (!SDL_UnlockAudioStream(voice.stream))
         {
-            return fail("Cannot query audio stream queue");
+            return fail("Cannot unlock audio stream settings");
         }
-        constexpr std::size_t block_frames = 1024;
-        constexpr int frame_bytes = static_cast<int>(2 * sizeof(float));
-        const int target_bytes = static_cast<int>(std::ceil(static_cast<double>(clip->sample_rate) *
-                                                            source.settings().pitch * 0.08)) *
-                                 frame_bytes;
-        std::array<float, block_frames * 2> block{};
-        while (queued < target_bytes)
+        if (!updated || available < 0 || queued < 0)
         {
-            if (voice.frame == clip->frames)
-            {
-                if (!source.settings().loop)
-                {
-                    if (!voice.flushed && !SDL_FlushAudioStream(voice.stream))
-                    {
-                        return fail("Cannot finish audio stream");
-                    }
-                    voice.flushed = true;
-                    break;
-                }
-                voice.frame = 0;
-                voice.flushed = false;
-            }
-            const std::size_t count = static_cast<std::size_t>(
-                std::min<std::uint64_t>(block_frames, clip->frames - voice.frame));
-            const float left_gain = std::sqrt(0.5F * (1.0F - pan));
-            const float right_gain = std::sqrt(0.5F * (1.0F + pan));
-            for (std::size_t frame = 0; frame < count; ++frame)
-            {
-                const auto index = static_cast<std::size_t>(voice.frame + frame) * clip->channels;
-                const float left = clip->samples[index];
-                const float right = clip->channels == 2 ? clip->samples[index + 1] : left;
-                if (source.settings().spatial)
-                {
-                    const float mono = (left + right) * 0.5F;
-                    block[frame * 2] = mono * left_gain;
-                    block[frame * 2 + 1] = mono * right_gain;
-                }
-                else
-                {
-                    block[frame * 2] = left;
-                    block[frame * 2 + 1] = right;
-                }
-            }
-            const int bytes = static_cast<int>(count) * frame_bytes;
-            if (!SDL_PutAudioStreamData(voice.stream, block.data(), bytes))
-            {
-                return fail("Cannot queue audio samples");
-            }
-            voice.frame += count;
-            queued += bytes;
+            return fail("Cannot update audio stream settings or query playback progress");
+        }
+        if (feed_failed)
+        {
+            // SDL 错误按线程保存，不能从主线程读取音频回调线程的错误字符串。
+            error = "Audio callback could not queue or finish PCM samples";
+            return false;
         }
         return true;
     }
@@ -387,8 +424,10 @@ bool AudioSystem::on_tick(double)
             const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
             const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
             voice->stream = SDL_CreateAudioStream(&input, &output);
+            voice->clip = source->clip_;
             voice->revision = source->revision_;
-            if (!voice->stream)
+            if (!voice->stream ||
+                !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))
             {
                 static_cast<void>(impl_->fail("Cannot create audio stream"));
                 fail_source();
@@ -397,12 +436,13 @@ bool AudioSystem::on_tick(double)
             found = impl_->voices.emplace(node->id(), std::move(voice)).first;
         }
         auto& voice = *found->second;
-        if (!impl_->fill(voice, *source, listener))
+        bool finished = false;
+        if (!impl_->publish(voice, *source, listener, finished))
         {
             fail_source();
             continue;
         }
-        if (!voice.bound)
+        if (!finished && !voice.bound)
         {
             if (!SDL_BindAudioStream(impl_->device, voice.stream))
             {
@@ -412,15 +452,7 @@ bool AudioSystem::on_tick(double)
             }
             voice.bound = true;
         }
-        const int available = SDL_GetAudioStreamAvailable(voice.stream);
-        const int queued = SDL_GetAudioStreamQueued(voice.stream);
-        if (available < 0 || queued < 0)
-        {
-            static_cast<void>(impl_->fail("Cannot query audio playback progress"));
-            fail_source();
-            continue;
-        }
-        if (voice.flushed && available == 0 && queued == 0)
+        if (finished)
         {
             source->playback_ = AudioPlayback::stopped;
             impl_->voices.erase(found);

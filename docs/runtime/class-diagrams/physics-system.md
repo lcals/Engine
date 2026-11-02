@@ -2,13 +2,13 @@
 
 [类图索引](../../class-diagrams/index.md) · [物理组件](physics-components.md) · [物理模块](../physics.md)
 
-`engine::PhysicsSystem` 借用世界并拥有 Jolt 碰撞世界；场景行为类和公开头不依赖 Jolt。
+`engine::PhysicsSystem` 借用世界和可选任务域，拥有 Jolt 碰撞世界；场景行为类和公开头不依赖 Jolt。
 
 ```mermaid
 classDiagram
     class PhysicsSystem {
         <<final>>
-        +PhysicsSystem(WorldSystem#42; world)
+        +PhysicsSystem(WorldSystem#42; world, TaskSystem#42; tasks)
         +~PhysicsSystem()
         +clear() void
         +body_count() size_t
@@ -32,6 +32,7 @@ classDiagram
     }
     class System
     class WorldSystem
+    class TaskSystem
     class Scene
     class Collider
     class RigidBody
@@ -42,10 +43,10 @@ classDiagram
     class PhysicsState["PhysicsSystem::State"]
     class Jolt["Jolt"]
     class PhysicsJobs {
-        <<private Tracy adapter>>
+        <<private task adapter>>
     }
-    class JoltJobSystem["JPH::JobSystem"]
-    class JoltSingleThreaded["JPH::JobSystemSingleThreaded"]
+    class JoltJobSystem["JPH::JobSystemWithBarrier"]
+    class JoltJobs["JPH::FixedSizeFreeList~Job~"]
     class Resource
     class MeshDataT
     class MeshCollisionData
@@ -111,11 +112,13 @@ classDiagram
     }
     System <|-- PhysicsSystem
     PhysicsSystem --> WorldSystem : 可空借用
+    PhysicsSystem --> TaskSystem : 可空借用且先初始化后关闭
     PhysicsSystem *-- PhysicsState : 独占实现
     PhysicsState ..> Jolt : 私有实现依赖
-    PhysicsState *-- PhysicsJobs : 仅 Tracy 开启时独占
+    PhysicsState *-- PhysicsJobs : 拥有任务及完成跟踪
     JoltJobSystem <|-- PhysicsJobs
-    PhysicsJobs *-- JoltSingleThreaded : 官方单线程执行器拥有实际 Job 和 Barrier
+    PhysicsJobs *-- JoltJobs : 官方任务对象存储
+    PhysicsJobs --> TaskSystem : 线程安全非等待投递
     PhysicsState o-- Resource : 碰撞体快照共享保留网格
     PhysicsState o-- MeshDataT : 共享不可变瞬时网格
     PhysicsState o-- ColliderDataT : 私有快照共享不可变已校验描述
@@ -148,9 +151,11 @@ classDiagram
 
 世界有效期须覆盖系统。无世界时仍可初始化和关闭空碰撞世界。`clear()` 和 `body_count()` 为 `noexcept`；状态返回值不可忽略。场景切换、对象禁用及删除在下一次更新同步，停止玩法由宿主显式清理。固定步进与变换限制见[物理模块](../physics.md)。
 
-物理阶段诊断仅在 `ENGINE_ENABLE_TRACY` 开启时使用实现私有的 `physics_detail::PhysicsJobs`，继承官方 `JPH::JobSystem` 契约并独占 `JPH::JobSystemSingleThreaded`。`Init`、并发数查询及 Barrier 创建/等待/销毁全部转发；`CreateJob` 只包装原任务函数，保留依赖数与官方单线程执行顺序。实际 Job 的 owner 始终是内层官方执行器，外层 `QueueJob` / `QueueJobs` / `FreeJob` 不可到达，误入按内部不变量失败终止；不另建任务队列、线程池或调度策略。关闭 Tracy 时私有类型直接别名到官方单线程类型，没有包装或名称分配。
+物理任务复用 Jolt v5.4.0 官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，只桥接任务对象创建、释放和 `TaskSystem::enqueue`。任务域与引擎其他域共享 oneTBB worker；不创建物理专用线程池。任务域先初始化并存活到物理关闭后；不传任务域时由 Barrier 在调用线程串行执行，传入未初始化域则初始化失败。域的并发额度控制后台执行数，Jolt 的并发数另计参与 Barrier 的调用线程。投递受到在途上限限制时，释放桥接引用并交给已登记的官方 Barrier 执行；不在当前 Jolt Job 内递归运行后继，保留上游每任务 BodyAccess 作用域约束。
 
-任务执行时使用 `Physics.jolt.<上游任务名>` 的 Tracy transient source location；包装函数拥有名称字符串，Tracy 复制动态 source location，避免把动态名称写入静态 source location 或借用失效指针。单线程任务解除依赖可立即递归执行后继任务，因此 zone 会嵌套，阶段独占成本使用 self 耗时，不能将 inclusive 相加。`Physics.jolt_step` 继续覆盖整个 `Update`，保留任务创建、临时分配和未拆分部分；Jolt 内部更细函数与无活动刚体的短路路径不能由此细分。此适配不启用 `JPH_EXTERNAL_PROFILE` / `JPH_PROFILE_ENABLED`，不改变 Jolt ABI，也不要求重编依赖。
+`WaitForJobs` 先等待官方 Barrier，再等待本桥接已投递包装释放 Job 引用；不等待任务域内不相关任务。完成计数由包装共享持有，避免最后通知与物理状态销毁竞争。每个物理 tick 仍在返回前完成刚体求解、结果回写与接触快照发布，查询与场景修改仍只能在主线程步进外进行。角色使用的 `CharacterVsCharacterCollisionSimple` 和临时分配器保持串行，未将角色循环直接分发到多个 worker。
+
+开启 `ENGINE_ENABLE_TRACY` 且分析器已连接时，任务执行使用 `Physics.jolt.<上游任务名>` 的 transient source location；名称由包装拥有并由 Tracy 复制。分析时区分 worker 总工作量和调用线程 `Physics.jolt_step` 的墙钟耗时，不能将并行任务 inclusive 耗时相加当作帧时长。关闭 Tracy 不分配分析名称。此适配不启用 `JPH_EXTERNAL_PROFILE` / `JPH_PROFILE_ENABLED`，不改变 Jolt ABI，也不要求重编依赖。
 
 刚体只改变线速度/角速度时，下一次同步复用已有形状及 BodyID，通过 Jolt `BodyInterface::SetLinearAndAngularVelocity` 原地提交，仅在速度实际变化时调用；非零速度由官方接口唤醒物体。质量、运动类型、阻尼、重力因子或碰撞形状等结构设置变化仍走原有候选重建流程。速度仍属于同一 FlatBuffers 设置与快照，冲量在同步后按原契约消费；不增加项目专用物理接口，也不因碎块增量复用而丢失速度变更。
 

@@ -6,6 +6,7 @@
 #include "runtime/render/render_surface.hpp"
 #include "runtime/render/renderer_callbacks.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
 
@@ -105,8 +106,8 @@ void profile_renderer_stats()
 } // namespace
 
 RenderSystem::RenderSystem(WindowSystem& windows, WorldSystem* world, FontSystem* fonts,
-                           UiSystem* ui) noexcept
-    : windows_(windows), world_(world), fonts_(fonts), ui_(ui)
+                           UiSystem* ui, TaskSystem* tasks, const RenderConfig& config) noexcept
+    : windows_(windows), world_(world), fonts_(fonts), ui_(ui), tasks_(tasks), config_(config)
 {
 }
 
@@ -163,7 +164,9 @@ void RenderSystem::release_extensions_scene() noexcept
 
 bool RenderSystem::on_initialize(const EngineConfig&)
 {
-    if (!windows_.is_initialized() || windows_.native_window() == nullptr)
+    if (!windows_.is_initialized() || windows_.native_window() == nullptr ||
+        (tasks_ != nullptr && !tasks_->is_initialized()) || config_.texture_batch_size == 0 ||
+        config_.texture_batch_size > 64 || config_.texture_staging_bytes == 0)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Renderer requires a ready window");
         return false;
@@ -300,6 +303,10 @@ bool RenderSystem::stats_visible() const noexcept
 bool RenderSystem::render(const Camera* camera)
 {
     ENGINE_PROFILE_ZONE("Render.frame");
+    if (callbacks_ != nullptr)
+    {
+        callbacks_->process(tasks_);
+    }
     if (!is_initialized() || !windows_.can_render())
     {
         return false;
@@ -398,9 +405,9 @@ void RenderSystem::shutdown_renderer() noexcept
         active_renderer = nullptr;
         frame_number_ = 0;
     }
-    if (callbacks_ != nullptr && callbacks_->status.load() == ScreenshotStatus::pending)
+    if (callbacks_ != nullptr)
     {
-        callbacks_->status.store(ScreenshotStatus::failed);
+        callbacks_->finish();
     }
     // GPU后台线程退出后，平台才可释放原生表面并完成暂停握手。
     if (surface_ != nullptr)

@@ -2,6 +2,7 @@
 #include "plugins/runtime/script/bindings/animator_binding.hpp"
 
 #include "plugins/runtime/script/bindings/app_binding.hpp"
+#include "plugins/runtime/script/bindings/completion_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_listener_binding.hpp"
 #include "plugins/runtime/script/bindings/audio_source_binding.hpp"
 #include "plugins/runtime/script/bindings/camera_binding.hpp"
@@ -62,7 +63,7 @@ bool ScriptBindingRegistry::initialize()
         return false;
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
-    if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() || !add<WindowBinding>() ||
+    if (!add<CompletionBinding>() || !add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() || !add<WindowBinding>() ||
         !add<StorageBinding>() || !add<JsonBinding>() || !add<InputBinding>() || !add<PhysicsBinding>() ||
         !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
         !add<RenderBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||

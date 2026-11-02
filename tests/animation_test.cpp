@@ -1,5 +1,8 @@
 #include "animation_fixture.hpp"
 
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
+
 namespace
 {
 using namespace test_support::animation;
@@ -297,11 +300,134 @@ bool world_pause_preserves_individual_playback()
                   "world resume advances only fresh time and preserves an individually paused action");
 }
 
+using Palettes = std::vector<std::vector<std::array<float, 16>>>;
+
+bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
+{
+    // 非整批数量覆盖尾批；每实例使用不同时间与状态，暴露错误共享采样上下文。
+    Fixture fixture(tasks, {.min_parallel_count = 2, .batch_size = 4});
+    if (!expect(fixture.initialize(), "initialize sampling comparison fixture"))
+    {
+        return false;
+    }
+    std::vector<engine::Node*> nodes;
+    for (std::size_t index = 0; index < 19; ++index)
+    {
+        auto* node = fixture.create(false);
+        auto* animator = node != nullptr ? node->get_component<engine::Animator>() : nullptr;
+        if (!expect(animator != nullptr && animator->seek(static_cast<double>(index) / 20.0) &&
+                        (index % 3 == 0 || animator->play()),
+                    "configure independent comparison animation"))
+        {
+            return false;
+        }
+        nodes.push_back(node);
+    }
+    for (std::size_t frame = 0; frame < 3; ++frame)
+    {
+        if (frame == 1)
+        {
+            for (std::size_t index = 0; index < nodes.size(); ++index)
+            {
+                auto* animator = nodes[index]->get_component<engine::Animator>();
+                if (index % 2 == 0 &&
+                    !expect(animator->cross_fade(scale_path, 0.5), "start comparison blend"))
+                {
+                    return false;
+                }
+            }
+        }
+        if (!expect(fixture.animation.tick(0.125), "sample comparison frame"))
+        {
+            return false;
+        }
+        for (auto* node : nodes)
+        {
+            const auto* renderer = node->get_component<engine::MeshRenderer>();
+            palettes.emplace_back(renderer->skinning_palette().begin(),
+                                  renderer->skinning_palette().end());
+            palettes.emplace_back(renderer->skinning_normal_palette().begin(),
+                                  renderer->skinning_normal_palette().end());
+        }
+    }
+    // 已经 join 的批次不能保留旧场景节点或条目。
+    fixture.world.destroy_scene();
+    return expect(fixture.world.create_scene("Replacement") && fixture.create() != nullptr &&
+                      fixture.animation.tick(0.25),
+                  "replace comparison scene after joined animation tasks");
+}
+
+bool parallel_sampling_matches_serial()
+{
+    Palettes serial;
+    if (!collect_sampling_results(nullptr, serial))
+    {
+        return false;
+    }
+    const engine::EngineConfig config;
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Animation test", .max_concurrency = 2});
+    if (!expect(threads.initialize(config) && tasks.initialize(config),
+                "initialize animation comparison task domain"))
+    {
+        return false;
+    }
+    Palettes parallel;
+    if (!collect_sampling_results(&tasks, parallel) ||
+        !expect(parallel.size() == serial.size(), "parallel animation publishes every palette"))
+    {
+        return false;
+    }
+    for (std::size_t pose = 0; pose < serial.size(); ++pose)
+    {
+        if (!expect(serial[pose].size() == parallel[pose].size(), "palette sizes are identical"))
+        {
+            return false;
+        }
+        for (std::size_t joint = 0; joint < serial[pose].size(); ++joint)
+        {
+            for (std::size_t element = 0; element < 16; ++element)
+            {
+                if (!expect(close(serial[pose][joint][element], parallel[pose][joint][element]),
+                            "parallel sampling, blending and normal matrices match serial"))
+                {
+                    return false;
+                }
+            }
+        }
+    }
+    tasks.shutdown();
+    engine::TaskSystem limited(threads, {.name = "Limited animation test",
+                                        .max_concurrency = 2,
+                                        .max_pending = 1});
+    if (!limited.initialize(config))
+    {
+        return false;
+    }
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    auto busy = limited.submit("Occupy admission", [gate]
+                               {
+                                   gate.wait();
+                                   return true;
+                               });
+    if (!busy.valid())
+    {
+        return false;
+    }
+    Palettes fallback;
+    const bool sampled = collect_sampling_results(&limited, fallback);
+    release.set_value();
+    return expect(busy.get() && sampled && fallback == serial,
+                  "saturated task domain falls back without dropping or duplicating poses");
+}
+
 } // namespace
 
 int main()
 {
-    return world_pause_preserves_individual_playback() && sampling_and_controls() &&
+    return parallel_sampling_matches_serial() && world_pause_preserves_individual_playback() &&
+                   sampling_and_controls() &&
                    skinning_and_lifecycle() && blending_and_instances()
                ? 0
                : 1;

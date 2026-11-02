@@ -11,6 +11,7 @@ import sys
 
 from artifact_output import plain_path, staged_output, validate_output
 from resource_catalog import copy_resource_snapshot, parse_build_output, safe_relative
+from runtime_settings import export_runtime_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -109,6 +110,7 @@ def export(args):
         if source:
             resources.mkdir(exist_ok=True)
             count, carriers = copy_resources(source, resources, args.platform)
+            export_runtime_settings(args.project, base)
         else:
             count, carriers = 0, 0
         if bundle:
