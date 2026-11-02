@@ -7,11 +7,11 @@
 #include "editor/asset_pipeline/asset_publish.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
-#include "editor/task/task_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
+#include "runtime/task/task_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <efsw/efsw.hpp>
@@ -574,14 +574,8 @@ bool verify_sources(const std::vector<AssetRecord>& records, std::string& error)
 
 } // namespace
 
-AssetPipelineSystem::AssetPipelineSystem()
+AssetPipelineSystem::AssetPipelineSystem(TaskSystem& tasks) : tasks_(tasks)
 {
-    std::unique_ptr<System> subsystem = std::make_unique<TaskSystem>();
-    auto* tasks = static_cast<TaskSystem*>(subsystem.get());
-    if (add_subsystem(subsystem))
-    {
-        tasks_ = tasks;
-    }
 }
 
 AssetPipelineSystem::~AssetPipelineSystem() noexcept
@@ -591,7 +585,13 @@ AssetPipelineSystem::~AssetPipelineSystem() noexcept
 
 bool AssetPipelineSystem::on_initialize(const EngineConfig&)
 {
-    if (tasks_ == nullptr || !register_builtin_render_resources())
+    last_error_.clear();
+    if (!tasks_.is_initialized())
+    {
+        last_error_ = "asset pipeline requires an initialized task system";
+        return false;
+    }
+    if (!register_builtin_render_resources())
     {
         return false;
     }
@@ -657,7 +657,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
         return false;
     }
     last_error_.clear();
-    if (!is_initialized() || tasks_ == nullptr)
+    if (!is_initialized() || !tasks_.is_initialized())
     {
         last_error_ = "asset pipeline is not initialized";
         return false;
@@ -713,7 +713,7 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
 
     AssetBuildStats stats;
     if (!import_threads(root / "settings", stats.import_threads, last_error_) ||
-        !tasks_->configure_threads(stats.import_threads))
+        !tasks_.configure_concurrency(stats.import_threads))
     {
         if (last_error_.empty())
         {
@@ -946,9 +946,9 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
             }
         }
     }
-    if (!tasks_->run(tasks))
+    if (!tasks_.run(tasks))
     {
-        last_error_ = tasks_->last_error();
+        last_error_ = tasks_.last_error();
         for (const auto& error : errors)
         {
             if (!error.empty())

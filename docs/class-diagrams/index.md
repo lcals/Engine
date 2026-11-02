@@ -29,13 +29,13 @@
 
 ## 当前宿主与导入模块
 
+- [运行时线程与任务系统](../runtime/class-diagrams/task-system.md)：oneTBB 共享 worker、编辑器与运行时独立任务域，两级优先度、异步依赖批次与 Tracy。
 - [帧率限制](../runtime/class-diagrams/frame-limiter.md)：核心整帧休眠能力，编辑器和项目选择上限。
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
 - [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
-- [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
@@ -189,7 +189,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 - [项目系统](../editor/class-diagrams/project-system.md)：编辑器宿主先检查项目根目录及 settings、cache、assets；接入 toml++。
 - [编辑器系统](../editor/class-diagrams/editor-system.md)：借用已就绪的编辑器环境，创建 Dear ImGui 上下文，支持编辑器子系统。
 - `engine_app` 使用默认配置即可启动；`editor_app` 必须传入 `--project <path>`，先验证项目再启动窗口。编辑器默认空白待机，MCP 启动后项目占满同一窗口，停止后恢复空白；尚未绘制编辑器业务界面。
-- [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：Taskflow、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
+- [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：oneTBB、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
 - shaderc、texturec、geometryc 是构建提供的宿主工具；fmt 用于基础格式化。它们不引入额外引擎包装类。
 - 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内置资源通过 SDL 文件流读取，平台验证范围见根 [README.md](../../README.md)。
 

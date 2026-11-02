@@ -18,6 +18,21 @@ add_test(NAME engine.v8_cache
                  -P "${CMAKE_CURRENT_SOURCE_DIR}/v8_cache_test.cmake")
 set_tests_properties(engine.v8_cache PROPERTIES TIMEOUT 30)
 
+if(TARGET engine_task)
+    add_executable(engine_task_test task_test.cpp)
+    target_link_libraries(engine_task_test PRIVATE engine::task)
+    engine_apply_options(engine_task_test)
+    add_test(NAME runtime.task COMMAND engine_task_test)
+    set_tests_properties(runtime.task PROPERTIES TIMEOUT 30)
+
+    add_executable(engine_tbb_test tbb_test.cpp)
+    target_compile_features(engine_tbb_test PRIVATE cxx_std_20)
+    target_link_libraries(engine_tbb_test PRIVATE TBB::tbb)
+    engine_apply_options(engine_tbb_test)
+    add_test(NAME engine.tbb COMMAND engine_tbb_test)
+    set_tests_properties(engine.tbb PROPERTIES TIMEOUT 60)
+endif()
+
 if(TARGET engine_platform)
     add_executable(engine_app_log_test app_log_test.cpp)
     target_link_libraries(engine_app_log_test PRIVATE engine::app engine::log Threads::Threads)
@@ -386,12 +401,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_apply_options(engine_audio_pipeline_test)
     add_test(NAME editor.audio_pipeline COMMAND engine_audio_pipeline_test)
     set_tests_properties(editor.audio_pipeline PROPERTIES TIMEOUT 120)
-    add_executable(engine_task_test task_test.cpp)
-    target_link_libraries(engine_task_test PRIVATE engine::task)
-    engine_apply_options(engine_task_test)
-    add_test(NAME editor.task COMMAND engine_task_test)
-    set_tests_properties(editor.task PROPERTIES TIMEOUT 30)
-
     add_executable(engine_texture_pipeline_test texture_pipeline_test.cpp)
     target_link_libraries(
         engine_texture_pipeline_test PRIVATE engine::asset_pipeline engine::resource engine::world
@@ -472,13 +481,6 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
 
     if(TARGET engine_usd_import)
-        add_executable(engine_tbb_test tbb_test.cpp)
-        target_compile_features(engine_tbb_test PRIVATE cxx_std_20)
-        target_link_libraries(engine_tbb_test PRIVATE TBB::tbb)
-        engine_apply_options(engine_tbb_test)
-        add_test(NAME engine.tbb COMMAND engine_tbb_test)
-        set_tests_properties(engine.tbb PROPERTIES TIMEOUT 60)
-
         add_executable(engine_usd_test usd_test.cpp)
         target_compile_features(engine_usd_test PRIVATE cxx_std_20)
         target_link_libraries(engine_usd_test PRIVATE engine::core engine_usd_sdk)

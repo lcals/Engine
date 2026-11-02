@@ -42,6 +42,8 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -133,8 +135,10 @@ void print_usage()
 int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& environment,
                const engine::EngineConfig& config, std::uint64_t frame_limit)
 {
+    engine::ThreadSystem threads;
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
@@ -168,7 +172,19 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::uint64_t frames = 0;
     const int result = [&]()
     {
+        if (!threads.initialize(config))
+        {
+            LogSystem::write(LogLevel::error,
+                             "Thread initialization failed: " + threads.last_error());
+            return 1;
+        }
 #if ENGINE_HAS_ASSET_PIPELINE
+        if (!tasks.initialize(config))
+        {
+            LogSystem::write(LogLevel::error,
+                             "Editor tasks initialization failed: " + tasks.last_error());
+            return 1;
+        }
         if (!pipeline.initialize(config))
         {
             LogSystem::write(LogLevel::error, "Asset pipeline initialization failed");
@@ -285,11 +301,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
         resources.set_loader(&resource_graph);
-        const bool runtime_ready =
-            runtime.initialize(config, &resources, script_factory, configure_runtime_plugins);
+        const bool runtime_ready = runtime.initialize(config, &resources, script_factory,
+                                                      configure_runtime_plugins, &threads);
 #else
-        const bool runtime_ready =
-            runtime.initialize(config, nullptr, script_factory, configure_runtime_plugins);
+        const bool runtime_ready = runtime.initialize(config, nullptr, script_factory,
+                                                      configure_runtime_plugins, &threads);
 #endif
         if (!runtime_ready)
         {
@@ -654,7 +670,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
 #if ENGINE_HAS_ASSET_PIPELINE
     pipeline.shutdown();
+    tasks.shutdown();
 #endif
+    threads.shutdown();
     LogSystem::write(LogLevel::info,
                      "Editor stopped after " + std::to_string(frames) + " rendered frames");
     return result;

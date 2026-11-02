@@ -22,7 +22,7 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 
 仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场、射击靶场、多角色导航和物理交互范例共用一套设置、资源目录和缓存。默认进入 UI 菜单；十一个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
-`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
+`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 oneTBB 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
 核心命名空间使用 `engine`，编辑器使用 `engine::editor`，插件使用 `engine::plugins::<插件名>`。核心不包含或链接编辑器、具体插件；编辑器基础库不包含或链接具体插件。插件实现下层声明的接口，由可执行宿主注入。建模 Mesh 导入扩展通过 `AssetPipelineSystem::set_importer` 登记；未启用建模插件时仍可导入普通 Mesh，权威建模源会明确报错。第三方类型尽量限制在实现中，FlatBuffers 唯一数据模型继续保留。
 
@@ -687,6 +687,14 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 - Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。
 - EditorEnvironment 借用已校验的项目，配置 App 路径并直接提交导入目录与挂载。ProjectSystem 不提供重复的 root_path 入口；运行时继续通过 App 读取路径语义。
 
+### 线程与异步任务
+
+线程底座位于 `runtime/task/`，使用已固定的 oneTBB 2022.2.0。`ThreadSystem` 只拥有进程并行预算，oneTBB 管理 worker；编辑器与运行时各有 `TaskSystem` 任务域。编辑器域默认低优先、并发上限 4，运行时域默认高优先；共享 worker，不重复创建线程池。
+
+`submit` / `submit_batch` 返回标准 `future<bool>`，支持三档任务优先度和原生依赖图；拒绝提交返回无效 future。控制和提交只在初始化线程调用，后台函数不修改活动场景或脚本 VM，也不阻塞等待同池 future。当前导入沿用同步协调流程；文件加载、物理等业务后续分别迁移。接口、生命周期和两类优先级的语义见[线程类图](docs/runtime/class-diagrams/task-system.md)，拆分次序见[性能文档](docs/runtime/performance.md#任务线程观测与迁移次序)。
+
+`ThreadPriority` 为独立 OS 策略：normal 保持基线，low/high 在函数执行期间临时设置并精确恢复；权限不足返回失败。Apple 使用 QoS，Windows 使用原生线程优先级，Linux/Android 使用可恢复的调度策略和 nice。所有档位均不保证实时响应。`ENGINE_ENABLE_TRACY` 控制任务执行、排队和关闭等待的观测，默认关闭。
+
 ### 资源导入与 GUID
 
 ```sh
@@ -737,7 +745,7 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 `cache/gen/` 的直接子文件名只允许完整 GUID，不带扩展名。`cache/catalog.bin` 使用 v2 格式，包含 GUID、逻辑路径、类型、运行依赖、实体头大小、内容哈希、目标平台与存储定位；`cache/assets.sqlite` 是可重建的编辑器索引。删除 SQLite 后根据源文件/meta 重新导入，GUID 不变。导入使用项目锁和暂存/回滚记录，失败不会发布半成品；无变化时保持正式文件与版本不变。
 
-`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。普通逻辑路径直接相对 `assets/`，引擎资源使用 `builtin://`；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
+`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。普通逻辑路径直接相对 `assets/`，引擎资源使用 `builtin://`；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。编辑器 TaskSystem 默认并发上限为 4，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
 `SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮；FBX/USD 模型格式由可选编辑器插件导入，未配置专用导入器的普通源文件按字节缓存。已有格式 meta 与当前导入器不匹配时明确失败，不能把已导入模型静默改成普通字节资源。
 
@@ -752,7 +760,7 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 | 范围 | 职责 |
 | --- | --- |
 | C++ 运行时核心 | Model/Mesh/Skeleton/Animation 的 FlatBuffers Schema 与单项 ResourceCodec、Scene 实例化、Animator 与 AnimationSystem；核心不读取 FBX/USD 源文件 |
-| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、Taskflow、SQLite、独立缓存与原子目录发布 |
+| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、oneTBB、SQLite、独立缓存与原子目录发布 |
 | 编辑器格式插件 | ufbx/OpenUSD 解析、源格式设置、子对象枚举、坐标转换与运行数据生成，各插件单独声明依赖 |
 | MCP | 使用现有资源导入、打包、同步命令及模型实例化/动画控制命令；协议层不复制模型解析、骨骼采样或场景业务 |
 
@@ -954,6 +962,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 | 平台与范围 | 已有证据 | 未覆盖范围 |
 | --- | --- | --- |
+| macOS ARM64 / oneTBB 任务模块 | 2026-11-02：Debug（Tracy OFF）/ Release（ON）各 7 项定向测试通过；运行时、编辑器、资源构建、MCP 宿主编译链接；两配置编辑器及 Release 独立运行时空白 Metal 实窗正常启停。OS QoS 设置/精确恢复与失败路径通过独立探针；Tracy 实际采集及现有离线分析读取 360 次任务成功；关闭 runtime 依赖后核心配置不查找或链接 TBB | 未重跑全部插件测试；Windows/Linux/Android 未构建运行，iOS 仅优先级适配源码交叉语法编译；上游不正式支持静态 oneTBB，移动包及静态链接仍须定向验证 |
 | Windows x64 / DX12 / QuickJS | 2026-11-01 资源路径升级：Debug / Release 构建与运行包导出；Release 91/91 CTest，Debug 完成前 14 项。catalog-only 修复后做受影响目标构建、首次与重复同步、运行包启动检查 | 最新改动未做完整 Debug CTest；未逐一验证全部示例交互 |
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |

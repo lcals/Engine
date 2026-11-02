@@ -3,6 +3,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -78,8 +80,11 @@ int main()
     {
         return 1;
     }
-    engine::editor::AssetPipelineSystem pipeline;
-    if (!expect(pipeline.initialize({}) && pipeline.build_assets(project.root),
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
+    if (!expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}) &&
+                    pipeline.build_assets(project.root),
                 "import shared metadata", pipeline.last_error()))
     {
         return 1;

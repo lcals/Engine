@@ -2,6 +2,8 @@
 #include "plugins/editor/json_import/json_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <array>
@@ -165,13 +167,15 @@ bool pipeline_tests(const Fixture& fixture)
     constexpr std::string_view first =
         "{\n  \"map\": \"levels/missing.scene\", \"weapon\": \"weapons/missing.mesh\"\n}\n";
     const auto source = fixture.root / "assets/config.json";
-    editor::AssetPipelineSystem pipeline;
+    ThreadSystem threads;
+    TaskSystem tasks(threads, {"Editor", 4, TaskPriority::low});
     ResourceSystem resources;
+    editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::json_import::JsonImporter>();
-    if (!expect(resources.initialize({}) && pipeline.initialize({}) &&
-                    pipeline.add_importer(importer) && !importer && write(source, first) &&
-                    pipeline.build_assets(fixture.root),
+    if (!expect(threads.initialize({}) && tasks.initialize({}) && resources.initialize({}) &&
+                    pipeline.initialize({}) && pipeline.add_importer(importer) && !importer &&
+                    write(source, first) && pipeline.build_assets(fixture.root),
                 pipeline.last_error()))
     {
         return false;

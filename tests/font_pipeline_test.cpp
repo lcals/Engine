@@ -3,6 +3,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/codecs/font_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -98,12 +100,15 @@ int main(int argc, char** argv)
     const auto source = read(argv[1]);
     const auto path = project.root / "assets/test.ttf";
     const auto meta = project.root / "assets/test.ttf.meta";
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     ResourceSystem resources;
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::font_import::FontImporter>();
     if (!expect(!source.empty() && write(path, source), "copy fixture font") ||
-        !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.add_importer(importer), "register font import plugin") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1, "font source generates one resource") ||

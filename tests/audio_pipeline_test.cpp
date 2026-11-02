@@ -2,6 +2,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/codecs/audio_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -141,10 +143,13 @@ int main()
     const auto source = wav(1, 48000, 1, 16, samples);
     const auto path = project.root / "assets/tone.WAV";
     const auto meta = project.root / "assets/tone.WAV.meta";
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     ResourceSystem resources;
     if (!expect(write(path, source), "write PCM WAV") ||
-        !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||
         !expect(pipeline.last_build().imported == 1, "first build imports the WAV") ||
         !expect(resources.initialize({}), "initialize resource core") ||

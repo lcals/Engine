@@ -4,6 +4,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/terrain_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <flatbuffers/verifier.h>
 #include <toml++/toml.hpp>
@@ -110,10 +112,13 @@ bool run(Project& project)
     {
         return false;
     }
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::terrain::TerrainImporter>();
-    if (!expect(plugins::terrain::register_terrain_codec() && pipeline.initialize({}) &&
+    if (!expect(plugins::terrain::register_terrain_codec() && threads.initialize({}) &&
+                    tasks.initialize({}) && pipeline.initialize({}) &&
                     pipeline.add_importer(importer),
                 "initialize terrain importer and component codec") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))

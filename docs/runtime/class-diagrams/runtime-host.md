@@ -8,10 +8,11 @@ classDiagram
     class RuntimeHost {
         +RuntimeHost()
         +~RuntimeHost()
-        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ScriptRuntimeFactory script_factory, RuntimeSetup setup) bool
+        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ScriptRuntimeFactory script_factory, RuntimeSetup setup, ThreadSystem#42; threads) bool
         +tick(double delta_time) FrameStatus
         +poll_events(double delta_time) FrameStatus
         +gameplay() GameplaySession#42;
+        +tasks() TaskSystem#42;
         +world() WorldSystem#42;
         +window() WindowSystem#42;
         +input() InputSystem#42;
@@ -20,6 +21,8 @@ classDiagram
         +shutdown() void
     }
     class Engine
+    class ThreadSystem
+    class TaskSystem
     class WindowSystem
     class InputSystem
     class GameplaySession
@@ -41,6 +44,9 @@ classDiagram
     class AnimationSystem
     class EngineConfig
     class FrameStatus
+    RuntimeHost *-- TaskSystem : 独占运行时任务域
+    RuntimeHost *-- ThreadSystem : 独立宿主拥有预算
+    RuntimeHost --> ThreadSystem : 编辑器提供时借用预算
     RuntimeHost --> Engine : 借用进程框架并装配根系统
     RuntimeHost *-- WindowSystem : 独占窗口
     RuntimeHost *-- InputSystem : 独占输入，暂停前发布状态
@@ -125,3 +131,5 @@ flowchart TD
 脚本工厂参数包括 InputSystem&，BindingContext 取得可空借用；宿主在所有 Run 与世界 / UI 消费者关闭后才关闭输入，最后关闭窗口。输入不增加项目配置或默认绑定参数；TS 自行加载、合并和提交最终配置。原生对象与参数关系见[输入类图](input-system.md)。
 
 `poll_events(delta_time)` 在窗口可绘制时先同步 UI 文档，随后执行输入开帧、持续 UI 占用提交、唯一窗口事件泵和输入发布，并返回运行 / 暂停 / 退出 / 失败状态；不推进世界或渲染。`tick` 复用该方法，编辑器预览也调用同一入口，每宿主帧二者只选一个。`input()` 返回与 window() 相同生命周期的可空借用，供调用方创建和查询自己的通道，不新增编辑器模式。
+
+线程装配见[线程与任务系统](task-system.md)。initialize 最后一个 threads 参数默认空：空时创建并初始化进程预算，非空须已初始化并在宿主之后关闭。宿主独占高优先运行时任务域；tasks() 返回初始化期间的可空借用。关闭先 drain 任务域，再销毁场景与资源，最后释放自有预算。

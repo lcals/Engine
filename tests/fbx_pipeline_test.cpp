@@ -1,5 +1,7 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #if defined(ENGINE_FBX_TEST_BUILD)
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #endif
@@ -300,9 +302,9 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
             break;
         }
     }
-    const auto original_track = std::find_if(original->tracks.begin(), original->tracks.end(),
-                                             [joint](const auto& track)
-                                             { return track->joint == joint; });
+    const auto original_track =
+        std::find_if(original->tracks.begin(), original->tracks.end(),
+                     [joint](const auto& track) { return track->joint == joint; });
     if (!expect(original_track != original->tracks.end() &&
                     std::abs((*original_track)->translations.back().value().z() -
                              (*original_track)->translations.front().value().z()) > 100.0,
@@ -328,7 +330,8 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
         const std::unique_ptr<schema::AnimationDataT> baked{
             schema::GetAnimationData(bytes.data())->UnPack()};
         if (!expect(catalog.identities().path_to_guid(walk_path, current_guid) &&
-                        current_guid == walk_guid && baked->tracks.size() == original->tracks.size(),
+                        current_guid == walk_guid &&
+                        baked->tracks.size() == original->tracks.size(),
                     "InPlace preserves animation identity and track layout"))
         {
             return false;
@@ -374,8 +377,9 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
             return false;
         }
     }
-    if (!expect(write(meta, base_meta + header + "position = [false, false, false]\n"
-                                                "rotation = [true, true, true]\n") &&
+    if (!expect(write(meta, base_meta + header +
+                                "position = [false, false, false]\n"
+                                "rotation = [true, true, true]\n") &&
                     pipeline.build_assets(project.root) &&
                     ResourceSystem::read_catalog(project.root / "cache", catalog) &&
                     read(catalog, project.root, walk_path, bytes),
@@ -402,10 +406,9 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
         {
             const auto& first = before.rotations.front().value();
             const auto& value = after.rotations[key].value();
-            const auto dot = first.x() * value.x() + first.y() * value.y() +
-                             first.z() * value.z() + first.w() * value.w();
-            if (!expect(std::abs(std::abs(dot) - 1.0) < 0.00001 &&
-                            after.scales == before.scales,
+            const auto dot = first.x() * value.x() + first.y() * value.y() + first.z() * value.z() +
+                             first.w() * value.w();
+            if (!expect(std::abs(std::abs(dot) - 1.0) < 0.00001 && after.scales == before.scales,
                         "all selected rotations are baked to the first orientation"))
             {
                 return false;
@@ -447,9 +450,11 @@ bool animation_motion(editor::AssetPipelineSystem& pipeline, const Project& proj
         base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\n",
         base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = true\n",
         base_meta + "\n[[animation_motion]]\nanimation = \"walk\"\njoint = \"root/Hips\"\n",
-        base_meta + "\n[[animation_motion]]\nanimation = \"animations/missing\"\njoint = \"root\"\n",
+        base_meta +
+            "\n[[animation_motion]]\nanimation = \"animations/missing\"\njoint = \"root\"\n",
         base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = \"Hips\"\n",
-        base_meta + "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = \"root/missing\"\n",
+        base_meta +
+            "\n[[animation_motion]]\nanimation = \"animations/walk\"\njoint = \"root/missing\"\n",
         valid_meta + header,
         base_meta + header + "position = true\n",
         base_meta + header + "position = [true, false]\n",
@@ -653,12 +658,15 @@ int main()
     {
         return 1;
     }
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::fbx_import::FbxImporter>();
     if (!expect(!pipeline.add_importer(importer) && importer,
                 "uninitialized pipeline preserves ownership") ||
-        !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.add_importer(importer) && !importer, "register optional FBX importer") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))
     {

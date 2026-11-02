@@ -38,6 +38,10 @@
         },
         "flecs",
         "joltphysics",
+        {
+          "name": "tbb",
+          "default-features": false
+        },
         "recastnavigation",
         {
           "name": "rmlui",
@@ -82,7 +86,6 @@
         "meshoptimizer",
         "sqlite3",
         "sdl3",
-        "taskflow",
         "tomlplusplus"
       ]
     },

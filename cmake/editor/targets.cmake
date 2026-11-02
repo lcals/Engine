@@ -53,10 +53,6 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-    engine_add_system(editor task)
-    target_link_libraries(engine_task PRIVATE Taskflow::Taskflow Threads::Threads)
-    target_compile_definitions(engine_task PRIVATE TF_DISABLE_EXCEPTION_HANDLING=1)
-
     engine_add_system(editor asset_pipeline)
     target_sources(
         engine_asset_pipeline
@@ -102,9 +98,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     endif()
     target_link_libraries(
         engine_asset_pipeline
-        PUBLIC engine::scene_data
-        PRIVATE engine::task
-                engine::app
+        PUBLIC engine::scene_data engine::task
+        PRIVATE engine::app
                 engine::world
                 engine::resource
                 unofficial::sqlite3::sqlite3

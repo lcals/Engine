@@ -4,6 +4,8 @@
 #include "plugins/editor/ui_import/ui_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -157,7 +159,9 @@ int main(int argc, char** argv)
     const auto valid_meta =
         metadata(ui_guid, "textures = []\n[[ui.fonts]]\nfamily = \"Lato\"\nasset = \"lato.ttf\"\n"
                           "[[ui.fonts]]\nfamily = \"caption\"\nasset = \"lato.ttf\"\n");
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     ResourceSystem resources;
     std::unique_ptr<editor::asset_pipeline::AssetImporter> font_importer =
         std::make_unique<plugins::font_import::FontImporter>();
@@ -170,7 +174,8 @@ int main(int argc, char** argv)
                           "\"\nimporter = \"font\"\nmeta_version = 1\n"),
                 "write font identity") ||
         !expect(write(path, markup) && write(meta, valid_meta), "write UI source") ||
-        !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.add_importer(font_importer) && pipeline.add_importer(ui_importer),
                 "register optional font and UI import plugins") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()) ||

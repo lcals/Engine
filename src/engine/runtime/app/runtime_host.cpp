@@ -14,6 +14,8 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/system/system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -34,15 +36,34 @@ RuntimeHost::~RuntimeHost() noexcept
 }
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
-                             ScriptRuntimeFactory script_factory, RuntimeSetup setup)
+                             ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                             ThreadSystem* threads)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
-         (!resources->is_initialized() || ResourceSystem::instance() != resources)))
+         (!resources->is_initialized() || ResourceSystem::instance() != resources)) ||
+        (threads != nullptr && !threads->is_initialized()))
     {
         return false;
     }
     owns_engine_ = true;
+    if (threads == nullptr)
+    {
+        owned_threads_ = std::make_unique<ThreadSystem>();
+        if (!owned_threads_->initialize(config))
+        {
+            shutdown();
+            return false;
+        }
+        threads = owned_threads_.get();
+    }
+    tasks_ = std::make_unique<TaskSystem>(
+        *threads, TaskConfig{"Runtime", threads->worker_count(), TaskPriority::high});
+    if (!tasks_->initialize(config))
+    {
+        shutdown();
+        return false;
+    }
     window_ = std::make_unique<WindowSystem>();
     if (!window_->initialize(config))
     {
@@ -271,8 +292,18 @@ void RuntimeHost::request_exit() noexcept
     exit_requested_ = true;
 }
 
+TaskSystem* RuntimeHost::tasks() noexcept
+{
+    return initialized_ ? tasks_.get() : nullptr;
+}
+
 void RuntimeHost::shutdown() noexcept
 {
+    // 先停止接收并完成后台任务，避免它们跨越借用的世界/资源生命周期。
+    if (tasks_)
+    {
+        tasks_->shutdown();
+    }
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
     if (window_)
     {
@@ -293,6 +324,8 @@ void RuntimeHost::shutdown() noexcept
     }
     input_.reset();
     window_.reset();
+    tasks_.reset();
+    owned_threads_.reset();
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;

@@ -89,7 +89,7 @@ Blast 底层与 Toolkit 不绑定物理或渲染库，可根据碎块连接损�
 
 原始生成资源与游戏存档分离。当前 `TerrainStateData` 保存完整体积快照及基础资源 GUID/hash，加载校验基础身份与数据后重新提交显示和碰撞，不覆盖原始资源。建筑当前通过快照保存基础 GUID/hash、连接血量、块分组、世界变换、线速度与角速度，用于编辑器撤销/重做；独立建筑游戏存档槽 API 尚未提供，地形仅保存修改块也仍属后续目标。编辑器快照位于 `cache/terrain-states/`；脚本使用 App 持久目录中的命名存档槽。
 
-核心提供 `PhysicsSystem::set_mesh_data` 与 `set_mesh_parts`，分别提交单网格和不可变分段列表；候选全部成功后安全替换，兼容静态体复用 Jolt `SetShape`，全空几何清除碰撞，失败保留旧状态。地形使用现有 MeshRenderer 与分段碰撞接口，核心不包含地形策略。生成的 MeshRenderer/Collider 标记为瞬态，场景保存只记录 TerrainComponent 的资源与配置。后台准备与运行时任务调度留到后续优化；编辑器 Taskflow 不代表运行时已有异步调度，也不能由运行时反向依赖编辑器 TaskSystem。步骤 4 的 NavigationSystem 已实现显式构建、局部瓦片替换和只返回完整路径的 Detour 查询；没有自动场景扫描、移动残骸更新或代理避让。发生土石塌方后，静态 TerrainStateData 无法完整记录动态土石，snapshot/save/restore/load 明确拒绝直到显式 Reset 或更换源资源，不用假存档掩盖缺失。
+核心提供 `PhysicsSystem::set_mesh_data` 与 `set_mesh_parts`，分别提交单网格和不可变分段列表；候选全部成功后安全替换，兼容静态体复用 Jolt `SetShape`，全空几何清除碰撞，失败保留旧状态。地形使用现有 MeshRenderer 与分段碰撞接口，核心不包含地形策略。生成的 MeshRenderer/Collider 标记为瞬态，场景保存只记录 TerrainComponent 的资源与配置。后台准备留到后续优化；runtime/task 已提供 oneTBB 独立任务域，但地形准备尚未迁移，不能把调度底座接入当成地形已经异步。步骤 4 的 NavigationSystem 已实现显式构建、局部瓦片替换和只返回完整路径的 Detour 查询；没有自动场景扫描、移动残骸更新或代理避让。发生土石塌方后，静态 TerrainStateData 无法完整记录动态土石，snapshot/save/restore/load 明确拒绝直到显式 Reset 或更换源资源，不用假存档掩盖缺失。
 
 ## 步骤 1 当前范围
 

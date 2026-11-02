@@ -8,7 +8,7 @@
 - `ENGINE_ENABLE_TRACY` 默认 `OFF`。开启时目标私有链接 Tracy 0.14.1 on-demand 客户端；关闭时不查找、编译或链接该依赖，私有采样宏不求值。`Engine/System` 框架无 Tracy 依赖。
 - 私有宏位于 `src/engine/runtime/performance/profiling.hpp`，由 `cmake/core/profiling.cmake` 对明确目标启用。`ENGINE_PROFILE_ZONE` 的名称必须是静态字符串；私有 Jolt job 观察器另用复制名称的 transient zone。正常 `bgfx::frame()` 后提交唯一默认 FrameMark。
 - bgfx 状态面板仍默认关闭，通过已有 MCP 开关控制；它与 Tracy 构建开关独立。on-demand 客户端即使未连接也有线程和监听成本，不等于完全零开销。
-- 当前覆盖宿主工作/限帧等待、脚本、UI、动画、音频主线程管理、特效、地形、破坏、物理、导航和渲染。没有覆盖 SDL 后台混音或全局内存分配调用栈。
+- 当前覆盖宿主工作/限帧等待、脚本、UI、动画、音频主线程管理、特效、地形、破坏、物理、导航、渲染和 oneTBB 任务域。没有覆盖 SDL 后台混音或全局内存分配调用栈。
 
 ## 固定操作步骤
 
@@ -209,3 +209,21 @@ FindCollisions self 累计 468.788229 ms，占 Jolt 步进总计 692.487364 ms �
 - `physics-comparison.json`：四轮物理比较，包含阶段 ≥0.5 ms 次数、同帧累计、固定步分布、盒形命中数与最终 job self 分布；这是已保存结果，通用重采样入口仍是上文三个脚本。
 - `build-debug.log`、`build-release.log`、`tests-debug.log`、`tests-release.log`：实际构建与定向验证记录。
 - `cleanup-report.json`、`cleanup-receipts.jsonl`：`stop_project` 后场景为空、节点为 0、脚本停止且无错误，并已确认本次引擎进程退出。
+
+## 任务线程观测与迁移次序
+
+[线程与任务类图](class-diagrams/task-system.md)维护公共契约。Task.execute 的单行注释保存 domain、task、priority 和 queued_ns；排队纳秒从提交算到函数开始，批次节点也包含依赖等待。Task.batch 包含图构造、协作执行和等待，不能将其 inclusive 与同线程子任务耗时相加。Task.wait / Task.shutdown 表示域等待及关闭成本，不能当作任务的 CPU 运算时间。后台线程继续复用现有 Tracy 客户端。
+
+调度底座本身不改变场景帧耗时。后续按下表拆分，每次只迁移一条实际调用链并用本文流程采集前后同条件证据：
+
+| 次序 | 对象与复用方案 | 留在协调线程的部分与验收重点 |
+| --- | --- | --- |
+| 1 | 单项资源读取、解码准备放运行时域；编辑器转换已使用独立域 | 先建立不可变目录/挂载快照及结果代际校验，再让主线程按预算接收。现有 ResourceSystem/ResourceGraph 的活动缓存和目录不能直接并发读写；退出或换场景后的旧结果丢弃。加载等待、磁盘吞吐、主线程最大停顿分别统计。 |
+| 2 | 地形网格/碰撞候选、导航脏瓦片等 CPU 准备，复用现有算法与批次依赖 | 工作线程只读快照、产生候选；主线程提交 Jolt shape、导航瓦片与场景对象。先确认候选所有权、版本号和单帧提交预算，不直接把整个系统 tick 挪走。 |
+| 3 | Jolt job 图和动画批次，优先使用官方 job/并行接口 | 物理世界更新边界、接触事件归并、角色输入/相机顺序保持明确。当前 TaskSystem 为协调线程提交接口；Jolt 内部动态 job 提交需要按其官方契约单独适配评审，不能从 job 回调阻塞等待本池 future。动画只并行独立角色的采样/姿态准备，主线程提交最终状态。 |
+| 4 | 渲染 CPU 准备及 bgfx 已有内部渲染线程 | 先分别采集场景准备、提交、bgfx 等待及 GPU；需要并行时使用 bgfx 官方 encoder/线程契约，不在外面再套一个碰 GPU 对象的通用线程。 |
+| 5 | 音频资源准备 | SDL 音频输出已有后台线程；场景声音状态和回调数据必须交接。混音回调不等待普通任务、不调用场景或 VM，不重复建第二套混音线程。 |
+
+输入、UI 事件和主线程状态应用继续优先推进；高优先级不抢占已开始的任务。除了任务/arena 优先级，还必须控制后台并发、长任务粒度与主线程接收预算。当前只完成底座和已有导入转换迁移，上述消费者的后台化不算本轮交付。
+
+2026-11-02，macOS ARM64 / Release / Tracy ON：两个任务域的独立埋点探针完成 120 帧、120 个依赖批次和 360 次用户函数，正式 capture → csvexport → summarize_trace 流程通过；任务分别在三个 worker 上执行，主线程没有执行用户函数，任务名/域/优先度/排队注释可读。该探针包含合成等待，仅验证埋点与线程归属，不是游戏性能基线，也不替代上面的物理样本。原始证据保留于本地 build/performance/threading-smoke，未进入版本管理。

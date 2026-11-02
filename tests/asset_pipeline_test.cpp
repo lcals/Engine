@@ -5,6 +5,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/asset_catalog_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <flatbuffers/verifier.h>
@@ -432,13 +434,18 @@ bool tests()
     const auto assets = fixture.root / "assets";
     const auto cache = fixture.root / "cache";
     engine::ResourceSystem resources;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     const engine::EngineConfig config;
     if (!expect(!pipeline.build_assets(fixture.root), "uninitialized build rejected") ||
+        !expect(!pipeline.initialize(config), "pipeline requires an initialized task domain") ||
         !expect(resources.initialize(config),
                 "resource definitions live for the complete fixture") ||
-        !expect(pipeline.initialize(config), "initialize pipeline and Taskflow subsystem") ||
-        !expect(pipeline.subsystem_count() == 1, "TaskSystem is owned as a System child") ||
+        !expect(threads.initialize(config) && tasks.initialize(config) &&
+                    pipeline.initialize(config),
+                "initialize shared threads, editor task domain and pipeline") ||
+        !expect(pipeline.subsystem_count() == 0, "pipeline borrows the independent task domain") ||
         !expect(write(assets / "message.txt", "first"), "write source") ||
         !expect(write(assets / "cube.material", material(0.4)) &&
                     write(assets / "cube.material.meta", meta(material_guid, "material")),
@@ -582,7 +589,7 @@ bool tests()
         !expect(write(fixture.root / "settings/import.toml", "import_threads = 2\n") &&
                     build(pipeline, fixture) && pipeline.last_build().import_threads == 2 &&
                     pipeline.last_build().imported == 0,
-                "project setting safely changes Taskflow worker count") ||
+                "project setting safely changes editor task concurrency") ||
         !expect(write(fixture.root / "settings/import.toml", "import_threads = 0\n") &&
                     !pipeline.build_assets(fixture.root),
                 "invalid worker configuration fails") ||
@@ -666,7 +673,8 @@ bool tests()
     }
     pipeline.shutdown();
     pipeline.shutdown();
-    return true;
+    return expect(tasks.is_initialized() && threads.is_initialized(),
+                  "pipeline shutdown preserves borrowed task services");
 }
 
 } // namespace

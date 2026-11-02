@@ -107,6 +107,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
         PRIVATE engine::editor
                 engine::project
                 engine::runtime
+                engine::task
                 engine::app
                 engine::log
                 SDL3::SDL3

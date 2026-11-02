@@ -20,6 +20,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_FONT_IMPORTER
@@ -110,8 +112,16 @@ int main(int argc, char** argv)
         usage();
         return 2;
     }
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     const engine::EngineConfig config;
+    if (!threads.initialize(config) || !tasks.initialize(config))
+    {
+        std::fprintf(stderr, "Task services initialization failed: %s %s\n",
+                     threads.last_error().c_str(), tasks.last_error().c_str());
+        return 1;
+    }
     if (!pipeline.initialize(config))
     {
         std::fprintf(stderr, "Asset pipeline initialization failed: %s\n",

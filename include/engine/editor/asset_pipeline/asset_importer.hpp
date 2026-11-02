@@ -2,7 +2,7 @@
 
 #include "editor/asset_pipeline/import_context.hpp"
 #include "editor/asset_pipeline/import_subresource.hpp"
-#include "editor/task/task_system.hpp"
+#include "runtime/task/task_system.hpp"
 
 #include <string_view>
 

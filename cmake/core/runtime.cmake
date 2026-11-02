@@ -19,6 +19,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime performance)
     engine_enable_profiling(engine_performance)
 
+    engine_add_system(runtime task)
+    target_sources(engine_task PRIVATE src/engine/runtime/task/thread_system.cpp)
+    target_link_libraries(engine_task PRIVATE TBB::tbb Threads::Threads)
+    engine_enable_profiling(engine_task)
+    engine_configure_platform_tasks()
+
     engine_add_system(runtime window)
     target_link_libraries(
         engine_window
@@ -190,6 +196,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::performance
+        engine::task
         engine::window
         engine::input
         engine::resource

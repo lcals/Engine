@@ -14,6 +14,8 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -181,9 +183,12 @@ bool run(const fs::path& root)
     engine::editor::ProjectSystem project(PathUtils::to_utf8(root));
     ResourceSystem resources;
     WorldSystem world;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     if (!project.initialize({}) || !resources.initialize({}) || !world.initialize({}) ||
-        !pipeline.initialize({}) || !compound_scene_round_trip(root))
+        !threads.initialize({}) || !tasks.initialize({}) || !pipeline.initialize({}) ||
+        !compound_scene_round_trip(root))
     {
         return false;
     }
