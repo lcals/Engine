@@ -146,10 +146,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
                         engine::NavigationSystem& navigation,
-                        engine::InputSystem& input) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::InputSystem& input,
+                        engine::WindowSystem& window) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN

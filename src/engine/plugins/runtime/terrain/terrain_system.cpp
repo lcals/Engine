@@ -233,7 +233,7 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
 
 bool TerrainSystem::on_tick(double)
 {
-    return synchronize();
+    return world_.paused() || synchronize();
 }
 
 std::size_t TerrainSystem::fragment_count(const TerrainComponent& component) const noexcept

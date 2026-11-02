@@ -103,7 +103,7 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
 bool resize_window(engine::WindowSystem& windows, engine::RenderSystem& renderer)
 {
     SDL_Window* window = windows.native_window();
-    if (!expect(SDL_SetWindowSize(window, 800, 450), "request window resize"))
+    if (!expect(windows.set_size(800, 450), "request logical window resize through WindowSystem"))
     {
         return false;
     }
@@ -146,13 +146,78 @@ bool resize_window(engine::WindowSystem& windows, engine::RenderSystem& renderer
                   "GPU backbuffer must follow the actual drawable size");
 }
 
+bool test_window_controls(engine::WindowSystem& windows)
+{
+    engine::WindowSize size;
+    engine::WindowMode mode;
+    engine::MouseMode mouse;
+    std::vector<engine::DisplayMode> modes;
+    int logical_width = 0;
+    int logical_height = 0;
+    int pixel_width = 0;
+    int pixel_height = 0;
+    const engine::DisplayMode unsupported{0x7FFFFFFFU, 0x7FFFFFFFU, 1.0F, 60.0F};
+    if (!expect(windows.size(size) &&
+                    SDL_GetWindowSize(windows.native_window(), &logical_width, &logical_height) &&
+                    SDL_GetWindowSizeInPixels(windows.native_window(), &pixel_width, &pixel_height),
+                "query logical and drawable sizes independently") ||
+        !expect(size.logical_width == static_cast<std::uint32_t>(logical_width) &&
+                    size.logical_height == static_cast<std::uint32_t>(logical_height) &&
+                    size.pixel_width == static_cast<std::uint32_t>(pixel_width) &&
+                    size.pixel_height == static_cast<std::uint32_t>(pixel_height),
+                "window size preserves SDL logical/pixel semantics on high-density displays") ||
+        !expect(windows.mode(mode) && mode == engine::WindowMode::windowed,
+                "new window starts in windowed mode") ||
+        !expect(!windows.set_size(0, 1) && !windows.set_size(1, 0) &&
+                    !windows.set_size(std::numeric_limits<std::uint32_t>::max(), 1),
+                "invalid logical sizes fail without a resize request") ||
+        !expect(!windows.set_mode(static_cast<engine::WindowMode>(99)) &&
+                    !windows.set_mode(engine::WindowMode::fullscreen) &&
+                    !windows.set_mode(engine::WindowMode::windowed, &unsupported) &&
+                    !windows.set_mode(engine::WindowMode::fullscreen, &unsupported),
+                "invalid or non-enumerated fullscreen modes do not silently change window mode") ||
+        !expect(windows.mode(mode) && mode == engine::WindowMode::windowed,
+                "rejected fullscreen request keeps actual window mode queryable") ||
+        !expect(windows.display_modes(modes), "enumerate SDL modes of the window display"))
+    {
+        return false;
+    }
+    for (const auto& value : modes)
+    {
+        if (!expect(value.width > 0 && value.height > 0 &&
+                        std::isfinite(value.pixel_density) && value.pixel_density > 0.0F &&
+                        std::isfinite(value.refresh_rate) && value.refresh_rate >= 0.0F,
+                    "enumerated modes preserve dimensions, density, and refresh rate"))
+        {
+            return false;
+        }
+    }
+    return expect(!windows.set_mouse_mode(static_cast<engine::MouseMode>(99)),
+                  "reject an invalid mouse mode") &&
+           expect(windows.set_mouse_mode(engine::MouseMode::hidden) &&
+                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::hidden,
+                  "hidden mouse uses SDL cursor visibility") &&
+           expect(windows.set_mouse_mode(engine::MouseMode::normal) &&
+                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::normal,
+                  "normal mouse restores a visible cursor without relative capture");
+}
+
 bool test_window_and_renderer(const engine::EngineConfig& config)
 {
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows);
     engine::EngineConfig invalid_config = config;
     invalid_config.width = 0;
-    if (!expect(!windows.initialize(invalid_config), "reject zero window width") ||
+    engine::WindowSize absent_size{1, 1, 1, 1};
+    engine::MouseMode absent_mouse = engine::MouseMode::relative;
+    if (!expect(!windows.size(absent_size) && absent_size.logical_width == 0 &&
+                    absent_size.logical_height == 0 && absent_size.pixel_width == 0 &&
+                    absent_size.pixel_height == 0 && !windows.request_exit() &&
+                    !windows.mouse_mode(absent_mouse) && absent_mouse == engine::MouseMode::normal,
+                "uninitialized window operations fail with safe outputs") ||
+        !expect(renderer.vsync() && !renderer.set_vsync(false),
+                "VSync defaults on and rejects requests before renderer initialization") ||
+        !expect(!windows.initialize(invalid_config), "reject zero window width") ||
         !expect(windows.native_window() == nullptr,
                 "failed window initialization leaves no window") ||
         !expect(!renderer.render(), "reject rendering before initialization") ||
@@ -184,6 +249,10 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
 
     engine::RenderSystem second_renderer(windows);
     if (!expect(!second_renderer.initialize(config), "reject a second active bgfx instance") ||
+        !test_window_controls(windows) ||
+        !expect(renderer.set_vsync(false) && !renderer.vsync(), "accept VSync disable request") ||
+        !render_frames(windows, renderer, 2) ||
+        !expect(renderer.set_vsync(true) && renderer.vsync(), "accept VSync enable request") ||
         !render_frames(windows, renderer, 8) || !resize_window(windows, renderer) ||
         !push_application_event(SDL_EVENT_WILL_ENTER_BACKGROUND) ||
         !expect(windows.tick(delta_time), "poll background event") ||
@@ -217,7 +286,8 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
     {
         return false;
     }
-    return true;
+    return expect(windows.request_exit() && windows.request_exit() && windows.exit_requested(),
+                  "explicit exit request is accepted repeatedly and latched for the host");
 }
 
 struct GpuCounts
@@ -2059,7 +2129,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     engine::RuntimeHost host;
     const auto failed_factory = [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&,
                                    engine::PhysicsSystem&, engine::NavigationSystem&,
-                                   engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                                   engine::InputSystem&,
+                                   engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -2070,7 +2141,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
-                            engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::InputSystem&,
+                            engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);

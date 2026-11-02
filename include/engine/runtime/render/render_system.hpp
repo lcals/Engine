@@ -55,6 +55,9 @@ public:
     [[nodiscard]] std::uint32_t frame_number() const noexcept;
     // 最近配置的绘制目标像素尺寸；系统或 GPU 未就绪时失败并清零。
     [[nodiscard]] bool viewport_size(Vec2& output) const noexcept;
+    // 接受呈现配置请求；下次可提交的 render 应用，GPU 临时关闭期间保留。
+    [[nodiscard]] bool set_vsync(bool enabled);
+    [[nodiscard]] bool vsync() const noexcept;
     // 有场景时只修改现有组件；缺少变更域的组件时失败，不创建节点。
     // 无场景时保存空白窗口配置，该配置不成为后续场景的默认值。
     [[nodiscard]] bool set_settings(const RenderSettings& settings);
@@ -100,6 +103,8 @@ private:
     std::uint32_t frame_number_ = 0;
     bool renderer_initialized_ = false;
     bool stats_visible_ = false;
+    bool vsync_enabled_ = true;
+    bool vsync_applied_ = true;
     std::vector<RenderExtension*> extensions_;
     bool invoking_extensions_ = false;
 };

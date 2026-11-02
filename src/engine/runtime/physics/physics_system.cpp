@@ -2312,6 +2312,18 @@ bool PhysicsSystem::on_tick(double delta_time)
         state_->clear();
         state_->scene_id = scene->id();
     }
+    if (world_ != nullptr && world_->paused())
+    {
+        // 菜单期间不把新时间加入固定步累计器；一次性角色意图不能恢复后重放。
+        for (const auto& node : scene->nodes())
+        {
+            if (auto* motor = node->get_component<CharacterMotor>())
+            {
+                motor->clear_input();
+            }
+        }
+        return true;
+    }
     auto& snapshots = state_->body_snapshots;
     auto& character_snapshots = state_->character_snapshots;
     snapshots.clear();

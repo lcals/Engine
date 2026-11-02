@@ -1,4 +1,7 @@
 #include "plugins/runtime/script/script_system.hpp"
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+#include "plugins/runtime/resource_graph/resource_graph_system.hpp"
+#endif
 #include "runtime/app/app.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
@@ -1731,6 +1734,180 @@ export default class extends Gameplay {
                   "JSON facade shuts down cleanly after the final permitted callback");
 }
 
+bool run_runtime_control_cases(const fs::path& workspace)
+{
+    engine::WindowSystem window;
+    engine::WorldSystem world;
+    if (!window.initialize({}) || !world.initialize({}))
+    {
+        return false;
+    }
+    SDL_HideWindow(window.native_window());
+    engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, nullptr, nullptr,
+                                                 nullptr, &window);
+    constexpr std::string_view source = R"js(
+import {Gameplay,Window,Scene,App,Render,Time} from 'engine';
+const blocked = Window.GetSize() === null && Window.GetMode() === null &&
+    !Window.SetMouseMode('hidden') && !App.RequestQuit() && !Scene.BeginLoad('scenes/main.scene');
+function check(value, message) {
+    if (!value) throw new Error('Runtime controls: ' + message);
+}
+export default class extends Gameplay {
+    constructor() { super(); this.blocked = !App.RequestQuit(); }
+    OnInitialize() {
+        this.scene = Scene.Create('paused-window-test');
+        const size = Window.GetSize();
+        check(blocked && this.blocked, 'module and constructor calls must be blocked');
+        check(this.scene && size && size.logicalWidth > 0 && size.pixelWidth > 0,
+              'active callback must query actual window sizes');
+        check(Window.GetMode() === 'windowed', 'query windowed mode');
+        check(Array.isArray(Window.GetDisplayModes()), 'query display modes');
+        check(!Window.SetSize(0, 10) && !Window.SetSize(1.5, 20), 'reject invalid logical size');
+        check(!Window.SetMode('invalid') &&
+              !Window.SetMode('fullscreen', {width:1,height:1,pixelDensity:0,refreshRate:60}),
+              'reject invalid display modes');
+        check(!Window.SetMouseMode('invalid') && !Window.SetMouseMode(true),
+              'reject invalid mouse modes');
+        check(Window.SetMouseMode('hidden') && Window.GetMouseMode() === 'hidden',
+              'set and query hidden mouse mode');
+        check(!App.RequestQuit(1), 'invalid quit arguments must not request host exit');
+        check(!Render.SetVSync(false) && Render.GetVSync() === null,
+              'missing renderer must reject VSync access');
+        check(!this.scene.SetPaused('true') && this.scene.SetPaused(true) &&
+              this.scene.GetPaused() === true, 'typed scene pause must reach the world');
+        check(Scene.StepLoad(0) === null && Scene.CommitLoad() === null &&
+              !Scene.BeginLoad('missing.scene'), 'invalid scene-load operations must fail');
+        return true;
+    }
+    Update() {
+        if (!(Time.deltaTime > 0) || !this.scene.GetPaused() || !App.RequestQuit())
+            throw new Error('Paused world must retain active UI/gameplay callbacks');
+    }
+}
+)js";
+    Fixture input;
+    if (!script.initialize({}) ||
+        !fixture(workspace, "runtime-controls", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input) && world.paused() && !window.exit_requested(),
+                "window controls require active callbacks and pause does not request exit") ||
+        !expect(script.tick(.5) && script.status().running && window.exit_requested(),
+                "paused gameplay still handles an orderly exit request"))
+    {
+        std::fprintf(stderr, "%s\n", script.status().last_error.c_str());
+        return false;
+    }
+    script.stop_gameplay();
+    engine::MouseMode mode;
+    return expect(world.scene() == nullptr && !world.paused() && window.mouse_mode(mode) &&
+                      mode == engine::MouseMode::normal,
+                  "Run cleanup restores mouse and clears its paused scene");
+}
+
+bool run_step_loading_cases(const fs::path& workspace)
+{
+#if defined(ENGINE_TEST_RESOURCE_GRAPH)
+    auto& resources = *engine::ResourceSystem::instance();
+    engine::WorldSystem world;
+    engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
+    if (!world.initialize({}) || !graph.initialize({}))
+    {
+        return false;
+    }
+    auto* prototype = world.create_scene("step-loaded-scene");
+    engine::schema::SceneDataT data;
+    if (!prototype || !prototype->create_node("Prepared node") || !prototype->build_data(data))
+    {
+        return false;
+    }
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishSceneDataBuffer(builder, engine::schema::SceneData::Pack(builder, &data));
+    const std::string bytes(reinterpret_cast<const char*>(builder.GetBufferPointer()),
+                            builder.GetSize());
+    world.destroy_scene();
+    resources.set_loader(&graph);
+    const bool passed = [&]()
+    {
+        engine::plugins::script::ScriptSystem script(&world);
+        constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Debug} from 'engine';
+const blocked = !Scene.BeginLoad('scenes/main.scene') && Scene.StepLoad(0) === null;
+export default class extends Gameplay {
+    phase=0;
+    OnInitialize() {
+        this.old = Scene.Create('kept-loading-menu');
+        if (!blocked || !this.old || !this.old.SetPaused(true) ||
+            !Scene.BeginLoad('scenes/main.scene') || Scene.BeginLoad('scenes/main.scene') ||
+            Scene.StepLoad(-1) !== null || Scene.StepLoad(0.5) !== null ||
+            Scene.StepLoad('1') !== null || Scene.CommitLoad() !== null) return false;
+        const progress = Scene.StepLoad(0);
+        return progress?.completed === 0 && progress.total === 1 && progress.status === 'loading';
+    }
+    Update() {
+        if (this.phase === 0) {
+            const progress = Scene.StepLoad(1);
+            if (progress?.status !== 'ready' || progress.completed !== progress.total || !this.old.IsValid())
+                throw new Error('Single-thread progress or menu lifetime is invalid');
+        } else if (this.phase === 1) {
+            if (Scene.CommitLoad() !== null || !this.old.IsValid() || !this.old.GetPaused())
+                throw new Error('A changed catalog must preserve the paused old scene');
+            const failed = Scene.StepLoad(0);
+            if (failed?.status !== 'failed' || !failed.error || Scene.CommitLoad() !== null)
+                throw new Error('Commit failure must be queryable');
+            Scene.CancelLoad(); Scene.CancelLoad();
+            if (Scene.StepLoad(0) !== null || !Scene.BeginLoad('scenes/main.scene'))
+                throw new Error('Canceled operation could not be restarted');
+        } else if (this.phase === 2) {
+            if (Scene.StepLoad(1)?.status !== 'ready') throw new Error('New directory was not loaded');
+            this.loaded = Scene.CommitLoad();
+            if (!this.loaded?.FindNode('Prepared node') || this.old.IsValid() ||
+                this.old.SetPaused(false) || this.old.GetPaused() !== null ||
+                this.loaded.GetPaused() !== false || Scene.StepLoad(0) !== null ||
+                !this.loaded.SetPaused(true)) throw new Error('Prepared scene did not commit safely');
+        } else if (this.phase === 3 && !Scene.BeginLoad('scenes/main.scene')) {
+            throw new Error('Cannot prepare the operation canceled by Run cleanup');
+        }
+        Debug.Log('step-loading:' + this.phase++);
+    }
+}
+)js";
+        Fixture first;
+        Fixture next;
+        if (!script.initialize({}) ||
+            !fixture(workspace, "step-first", {{"scripts/game.js", std::string(source)}}, first, bytes) ||
+            !fixture(workspace, "step-next", {{"scripts/game.js", std::string(source)}}, next, bytes) ||
+            !expect(apply(script, first) && world.paused() && script.tick(.016) &&
+                        script.status().running && log_contains("step-loading:0"),
+                    "single-thread loading reaches ready without replacing the loading scene"))
+        {
+            return false;
+        }
+        const auto old_scene = world.scene()->id();
+        if (!resources.update_catalog(next.catalog.data(), next.mounts) ||
+            !expect(script.tick(.016) && script.status().running &&
+                        world.scene()->id() == old_scene && world.paused() &&
+                        log_contains("step-loading:1"),
+                    "stale generation commit fails and exposes an error snapshot") ||
+            !expect(script.tick(.016) && script.status().running &&
+                        world.scene()->id() != old_scene && world.paused() &&
+                        log_contains("step-loading:2") && script.tick(.016) &&
+                        log_contains("step-loading:3"),
+                    "fresh loading commits once and stale scene handles cannot change pause"))
+        {
+            return false;
+        }
+        script.stop_gameplay();
+        return expect(!world.paused() && world.scene() == nullptr &&
+                          !graph.find(guid_for("scenes/main.scene")),
+                      "stopping a Run cancels pending loads and releases unshared resources");
+    }();
+    resources.set_loader(nullptr);
+    return passed;
+#else
+    (void)workspace;
+    return true;
+#endif
+}
+
 bool run_storage_binding_cases(const fs::path& workspace)
 {
     engine::plugins::script::ScriptSystem script;
@@ -2492,6 +2669,7 @@ int main(int argc, char** argv)
         run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
         run_json_binding_cases(workspace) && run_storage_binding_cases(workspace) &&
         run_input_binding_cases(workspace) &&
+        run_runtime_control_cases(workspace) && run_step_loading_cases(workspace) &&
         run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&
         run_physics_subscription_scene_cases(workspace) &&

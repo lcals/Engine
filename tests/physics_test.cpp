@@ -2097,11 +2097,66 @@ bool snapshot_reuse_lifecycle()
                   "reenabled and removed colliders follow the current frame membership");
 }
 
+bool world_pause_and_resume()
+{
+    engine::WorldSystem inactive;
+    Fixture paused;
+    Fixture reference;
+    if (!expect(!inactive.paused() && !inactive.set_paused(true) && paused.initialize() &&
+                    reference.initialize(),
+                "pause requires an initialized world with an active scene"))
+    {
+        return false;
+    }
+    auto* body = create(*paused.world.scene(), "Paused body", {0, 10, 0},
+                        engine::schema::ColliderShape::box, true);
+    auto* other = create(*reference.world.scene(), "Reference body", {0, 10, 0},
+                         engine::schema::ColliderShape::box, true);
+    if (!expect(body && other && paused.physics.tick(1.0 / 60.0) &&
+                    reference.physics.tick(1.0 / 60.0),
+                "prepare identical Jolt bodies"))
+    {
+        return false;
+    }
+    const auto before = body->get_component<engine::Transform>()->settings();
+    const auto velocity = body->get_component<engine::RigidBody>()->linear_velocity();
+    if (!expect(paused.world.set_paused(true) && paused.world.set_paused(true) &&
+                    paused.world.paused() && paused.world.tick(60) && paused.physics.tick(60) &&
+                    body->get_component<engine::Transform>()->settings() == before &&
+                    body->get_component<engine::RigidBody>()->linear_velocity() == velocity &&
+                    paused.physics.contacts().empty(),
+                "world pause preserves pose and velocity without new contacts"))
+    {
+        return false;
+    }
+    if (!expect(paused.world.set_paused(false) && paused.physics.tick(1.0 / 60.0) &&
+                    reference.physics.tick(1.0 / 60.0) &&
+                    std::abs(height(*body) - height(*other)) < 1.0e-6,
+                "resume consumes one new step without accumulating paused time"))
+    {
+        return false;
+    }
+    if (!paused.world.set_paused(true))
+    {
+        return false;
+    }
+    paused.world.destroy_scene();
+    if (!expect(!paused.world.paused() && !paused.world.set_paused(true) &&
+                    paused.world.create_scene("Replacement") && !paused.world.paused(),
+                "destroy and replacement reset transient world pause"))
+    {
+        return false;
+    }
+    paused.world.shutdown();
+    return expect(!paused.world.paused() && !paused.world.set_paused(true),
+                  "shutdown clears world pause");
+}
+
 } // namespace
 
 int main()
 {
-    return collision_and_lifecycle() && fixed_step_and_validation() &&
+    return world_pause_and_resume() && collision_and_lifecycle() && fixed_step_and_validation() &&
                    velocity_updates_at_capacity() && hierarchy_and_kinematic() &&
                    trigger_and_registration() && rotation_and_scale() &&
                    transient_mesh_collision() && segmented_mesh_collision() &&

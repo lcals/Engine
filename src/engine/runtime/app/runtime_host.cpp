@@ -103,7 +103,7 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
     if (script_factory != nullptr)
     {
         auto script_system =
-            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_);
+            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_, *window_);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -176,6 +176,12 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
+    // Gameplay 可在本帧切换世界暂停；窗口不可绘制仍是独立的暂停原因。
+    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
     if (!renderer_->render())
     {
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。
@@ -227,7 +233,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         request_exit();
         return FrameStatus::exit_requested;
     }
-    if (!audio_->set_paused(!window_->can_render()))
+    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
     {
         failed_ = true;
         return FrameStatus::failed;

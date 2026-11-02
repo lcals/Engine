@@ -10,7 +10,7 @@ InputBinding 提供统一输入能力，BindingContext 借用 InputSystem 并清
 
 JSON 扩展：下方登记关系中的 JsonBinding 为本轮新增实现，公开方法与 `Json.Load(path): unknown` 门面只在 [JSON 资源脚本接口](json-script-api.md)定义。它复用 BindingContext 的活动回调检查和 ResourceSystem 的标准加载能力，不增加上下文服务、字段或第二套 JSON 值模型；已按评审契约实现。
 
-待评审：运行控制继续复用现有系统，窗口绑定、退出入口和生命周期见
+运行控制继续复用现有系统，窗口绑定、退出入口和生命周期见
 [运行时控制脚本接口](runtime-controls-script-api.md)。单线程场景操作由已有 SceneBinding 转发，
 世界暂停不增加 ScriptRuntime 方法或第二套脚本更新框架。
 
@@ -113,7 +113,7 @@ classDiagram
 
 `ScriptBinding` 的三个查询/注册方法为纯虚 `const` 方法，其中 name 和 source 为 `noexcept`；析构为公共虚析构且 `noexcept`。`ScriptBindingRegistry::register_functions` 和 `source` 为 `const`；`BindingContext::world`、`renderer`、`ui`、`physics`、`navigation`、`input`、`scene_id`、`delta_time` 为 `const noexcept`，服务返回可修改对象的可空借用。构造的服务指针默认空；除 world 外，服务查询在非生命周期及绑定回调期间返回空。输入句柄归属与失败语义见[输入脚本接口](input-script-api.md)。
 
-上图新增 window 参数/查询、鼠标与场景操作方法均为待评审；旧方法不变。window 构造参数默认
+上图新增 window 参数/查询、鼠标与场景操作方法已按评审契约实现；旧方法不变。window 构造参数默认
 nullptr，查询为 const noexcept；窗口必须覆盖当前 Run 和清理过程。set_mouse_mode 在首次尝试
 前查询并记录原模式，调用已有 WindowSystem；即使 SDL 部分操作失败，也在本 Run 停止时尝试
 恢复该快照，失败记录日志。未激活的候选不能记录或恢复窗口状态。它不管理输入动作或宿主。
@@ -121,7 +121,7 @@ nullptr，查询为 const noexcept；窗口必须覆盖当前 Run 和清理过�
 begin/step/commit/cancel 只协调该 Run 的一项加载请求，实际读取和依赖策略仍交给 ResourceLoader；
 不引入自动队列或新资源系统。cancel 为 noexcept 且幂等，scene_load_error 为 const noexcept 的
 本上下文错误借用；其余返回值标 nodiscard。操作先于目录换代和加载器关闭清理，成功提交后 Scene
-接管根资源；候选预检、旧句柄和其他 Run 不可取消活动请求。具体边界只在[玩法入口](../../../runtime/class-diagrams/gameplay.md#待评审暂停和单线程分步加载)维护。
+接管根资源；候选预检、旧句柄和其他 Run 不可取消活动请求。具体边界只在[玩法入口](../../../runtime/class-diagrams/gameplay.md#暂停和单线程分步加载)维护。
 
 以下是同一个 `BindingContext` 的静态帮助入口；生命周期与借用方法仅在上图定义。`Arguments` 是 `const vm::Arguments&`，由本次原生回调临时借用；通过 owner 访问当前 Run 的绑定上下文，参数与返回值不暴露 JS 句柄。
 

@@ -37,6 +37,7 @@ function(engine_configure_script_plugin)
                 engine::world
                 engine::physics
                 engine::navigation
+                engine::window
                 engine::render
                 engine::ui
                 SDL3::SDL3

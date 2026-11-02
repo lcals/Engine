@@ -205,7 +205,8 @@ bool RenderSystem::initialize_renderer()
     }
     width_ = init.resolution.width;
     height_ = init.resolution.height;
-    init.resolution.reset = render_detail::reset_flags;
+    init.resolution.reset = render_detail::reset_flags |
+                            (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE);
     if (callbacks_ == nullptr)
     {
         callbacks_.reset(new (std::nothrow) RendererCallbacks{});
@@ -221,6 +222,7 @@ bool RenderSystem::initialize_renderer()
         return false;
     }
     renderer_initialized_ = true;
+    vsync_applied_ = vsync_enabled_;
     active_renderer = this;
     if (bgfx::getRendererType() != init.type)
     {
@@ -275,6 +277,21 @@ void RenderSystem::set_stats_visible(bool visible)
     }
 }
 
+bool RenderSystem::set_vsync(bool enabled)
+{
+    if (!is_initialized())
+    {
+        return false;
+    }
+    vsync_enabled_ = enabled;
+    return true;
+}
+
+bool RenderSystem::vsync() const noexcept
+{
+    return vsync_enabled_;
+}
+
 bool RenderSystem::stats_visible() const noexcept
 {
     return stats_visible_;
@@ -321,9 +338,12 @@ bool RenderSystem::render(const Camera* camera)
     {
         bgfx::setPlatformData(data);
     }
-    if (surface_changed || width != width_ || height != height_)
+    if (surface_changed || width != width_ || height != height_ ||
+        vsync_enabled_ != vsync_applied_)
     {
-        bgfx::reset(width, height, render_detail::reset_flags);
+        bgfx::reset(width, height, render_detail::reset_flags |
+                                       (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE));
+        vsync_applied_ = vsync_enabled_;
         width_ = width;
         height_ = height;
     }

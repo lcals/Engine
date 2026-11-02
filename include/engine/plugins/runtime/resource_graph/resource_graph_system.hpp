@@ -24,6 +24,8 @@ public:
     ~ResourceGraphSystem() noexcept override;
 
     [[nodiscard]] bool load(std::string_view guid, ResourcePtr& output) override;
+    [[nodiscard]] bool begin_load(std::string_view guid,
+                                 std::unique_ptr<ResourceLoad>& output) override;
     [[nodiscard]] ResourcePtr find(std::string_view guid) const noexcept override;
     [[nodiscard]] const std::string& last_error() const noexcept override;
 
@@ -32,6 +34,8 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    friend class GraphResourceLoad;
+
     ResourceSystem& resources_;
     std::uint64_t generation_ = 0;
     std::map<std::string, std::weak_ptr<const Resource>, std::less<>> loaded_;

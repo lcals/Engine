@@ -29,6 +29,9 @@ public:
     void destroy_scene() noexcept;
     [[nodiscard]] Scene* scene() noexcept;
     [[nodiscard]] const Scene* scene() const noexcept;
+    // 临时世界模拟状态；菜单、输入和绘制仍由原有系统链更新。
+    [[nodiscard]] bool set_paused(bool paused) noexcept;
+    [[nodiscard]] bool paused() const noexcept;
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -40,6 +43,7 @@ private:
     ecs_world_t* world_ = nullptr;
     std::unique_ptr<Scene> scene_;
     std::uint64_t scene_sequence_ = 0;
+    bool paused_ = false;
 };
 
 } // namespace engine

@@ -32,6 +32,7 @@ Scene* WorldSystem::create_scene(std::string_view name)
     if (scene_ != nullptr)
     {
         ++scene_sequence_;
+        paused_ = false;
     }
     return scene_.get();
 }
@@ -73,12 +74,14 @@ Scene* WorldSystem::load_scene(std::string_view path)
     candidate->resource_ = std::move(resource);
     scene_ = std::move(candidate);
     ++scene_sequence_;
+    paused_ = false;
     return scene_.get();
 }
 
 void WorldSystem::destroy_scene() noexcept
 {
     scene_.reset();
+    paused_ = false;
 }
 
 Scene* WorldSystem::scene() noexcept
@@ -91,6 +94,21 @@ const Scene* WorldSystem::scene() const noexcept
     return scene_.get();
 }
 
+bool WorldSystem::set_paused(bool paused) noexcept
+{
+    if (!is_initialized() || scene_ == nullptr)
+    {
+        return false;
+    }
+    paused_ = paused;
+    return true;
+}
+
+bool WorldSystem::paused() const noexcept
+{
+    return is_initialized() && scene_ != nullptr && paused_;
+}
+
 ComponentRegistry& WorldSystem::component_registry() noexcept
 {
     return components_;
@@ -98,6 +116,7 @@ ComponentRegistry& WorldSystem::component_registry() noexcept
 
 bool WorldSystem::on_initialize(const EngineConfig&)
 {
+    paused_ = false;
     components_ = {};
     if (!register_scene_components(components_))
     {
@@ -113,7 +132,8 @@ bool WorldSystem::on_tick(double delta_time)
     {
         return false;
     }
-    return world_ != nullptr && ecs_progress(world_, static_cast<ecs_ftime_t>(delta_time));
+    return world_ != nullptr &&
+           (paused() || ecs_progress(world_, static_cast<ecs_ftime_t>(delta_time)));
 }
 
 void WorldSystem::on_shutdown() noexcept

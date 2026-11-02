@@ -27,7 +27,8 @@ class ScriptRuntime;
 // 所有系统借用只用于玩法回调，宿主关闭它们前先结束玩法。
 using ScriptRuntimeFactory = std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&,
                                                                 UiSystem&, PhysicsSystem&,
-                                                                NavigationSystem&, InputSystem&);
+                                                                NavigationSystem&, InputSystem&,
+                                                                WindowSystem&);
 
 // 只指定装配时的位置，逐帧调度继续使用 System 的子系统登记顺序。
 enum class RuntimeStage

@@ -4,7 +4,7 @@
 
 公开图定义 `RenderSystem` 的方法；私有实现另列职责与所有权，其他节点为跨图引用或第三方库。
 
-> **待评审**：本轮拟在既有 `RenderSystem` 追加运行时 VSync 请求和查询接口，尚未实现；其余公开方法及所有权保持不变。
+> **已实现**：经评审，在既有 `RenderSystem` 追加运行时 VSync 请求和查询接口；其余公开方法及所有权保持不变。成功只表示请求已接受，在下一次可提交的渲染帧应用。
 
 ## 私有实现边界
 
@@ -365,9 +365,9 @@ classDiagram
 - `release_scene()` 释放本次场景的全部 GPU 句柄并清除场景编号，可以重复调用；保持共享 bgfx 设备和窗口。随后 `render()` 在无场景时提交空白以覆盖上一帧。
 - `scene_prepared()` 与 `gpu_resource_count()` 为只读运行状态；资源数是本系统当前拥有的有效逻辑句柄数，不代表驱动端已经完成异步回收。切换场景前释放旧资源，bgfx 按帧安全完成实际销毁。
 - `viewport_size(Vec2& output) const noexcept` 返回最近为绘制目标配置的像素宽高，标注 `[[nodiscard]]`。未初始化、GPU 不可用或任一尺寸为零时返回 false 并清零输出。查询只读取本系统当前尺寸；窗口大小变化由既有 `render()` 流程应用后反映，不在查询中轮询窗口或重置交换链。
-- **待评审：** `set_vsync(bool enabled)` 在渲染系统已初始化时接受 VSync 请求并返回 `true`，未初始化返回 `false`；不在脚本回调中重置交换链。它只保存待应用的呈现配置，下一次可提交的 `render()` 使用新 reset flags 执行既有 bgfx reset 路径，即使窗口尺寸未变也会处理开关变化。`vsync() const noexcept` 返回最近接受的请求，默认 `true`，不是实际显示器呈现状态或实测帧率。setter 与 getter 均标注 `[[nodiscard]]`。
-- **待评审：** VSync 与窗口模式、场景后处理及 `Engine` 的目标帧率上限分别管理；不加入 `RenderSettings`，不保存在场景组件中。窗口重绑、Surface 暂时丢失和 GPU 重建期间保留最近请求，并在下次初始化或 reset 时使用；成功接收请求不保证操作系统、驱动或显示器立刻采用该呈现行为。持久化属于调用方，TS 拟在现有 `Render` 门面公开对应接口。
-- **待评审：** 实现只复用 [bgfx 的 reset 接口与 BGFX_RESET_VSYNC 标志](https://bkaradzic.github.io/bgfx/bgfx.html#reset)，在既有初始化和表面 reset 路径中更新标志；不新增依赖或重写呈现、垂直同步算法。窗口和显示模式切换仍由 SDL3 完成，不使用 bgfx 未支持的全屏 reset 标志代替窗口接口。
+- `set_vsync(bool enabled)` 在渲染系统已初始化时接受 VSync 请求并返回 `true`，未初始化返回 `false`；不在脚本回调中重置交换链。它只保存待应用的呈现配置，下一次可提交的 `render()` 使用新 reset flags 执行既有 bgfx reset 路径，即使窗口尺寸未变也会处理开关变化。`vsync() const noexcept` 返回最近接受的请求，默认 `true`，不是实际显示器呈现状态或实测帧率。setter 与 getter 均标注 `[[nodiscard]]`。
+- VSync 与窗口模式、场景后处理及 `Engine` 的目标帧率上限分别管理；不加入 `RenderSettings`，不保存在场景组件中。窗口重绑、Surface 暂时丢失和 GPU 重建期间保留最近请求，并在下次初始化或 reset 时使用；成功接收请求不保证操作系统、驱动或显示器立刻采用该呈现行为。持久化属于调用方，TS 通过现有 `Render` 门面的 `SetVSync()` / `GetVSync()` 访问对应接口。
+- 实现只复用 [bgfx 的 reset 接口与 BGFX_RESET_VSYNC 标志](https://bkaradzic.github.io/bgfx/bgfx.html#reset)，在既有初始化和表面 reset 路径中更新标志；不新增依赖或重写呈现、垂直同步算法。窗口和显示模式切换仍由 SDL3 完成，不使用 bgfx 未支持的全屏 reset 标志代替窗口接口。
 - `gpu_ready()` 表示当前图形设备可用；`frame_number()` 返回唯一帧提交入口 `bgfx::frame()` 的返回值，设备关闭后归零，不能当作 CPU 时间或 GPU 完成时间。调用方可以据此检查 bgfx 纹理读回的目标帧，不能自行提交第二条全局帧循环。GPU 蒙皮使用 View 0，阴影使用 1..4，AO 深度预通道与计算使用 5/6，主场景使用 7，[渲染扩展](render-extension.md) 使用 8，HDR/Bloom 使用 9..11，UI 使用 200，编辑器 GPU 作业保留 240..255；这些作业在主线程提交并在渲染设备关闭前销毁，不把编辑器任务状态放入渲染核心。
 - `render()` 按场景唯一编号识别热重载造成的场景替换；场景节点由 `Scene` 管理，渲染器不缓存组件借用指针。相机、灯光、方块均从 `Node + Component` 读取，不在渲染器内创建隐藏场景对象。
 - 相机和灯光以节点局部 `-Z` 为前向；节点世界矩阵使用列主序。相机从世界 `-Z` 和 `+Y` 正交化构建视图，忽略缩放大小，避免节点非均匀缩放扭曲投影。法线使用模型矩阵的逆转置，支持非均匀缩放。

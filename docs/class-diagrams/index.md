@@ -85,7 +85,7 @@
 
 ## 脚本接口
 
-- [运行时控制（待评审）](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：在现有 WindowSystem、RenderSystem、WorldSystem 和资源加载链路补齐显示、退出、鼠标、暂停及单线程资源进度；底层复用已选成熟库，类图更新尚未实现。
+- [运行时控制](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：在现有 WindowSystem、RenderSystem、WorldSystem 和资源加载链路补齐显示、退出、鼠标、暂停及单线程资源进度；底层复用已选成熟库，实现与 SDK 同步。
 
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
 - [字符串 KV](../runtime/class-diagrams/key-value-store.md)：原生通用存取、每 Run 缓存、显式保存和脚本外观；游戏数据内容与版本由项目维护。
@@ -93,7 +93,7 @@
 - [JSON 资源脚本接口](../plugins/runtime/class-diagrams/json-script-api.md)：`Json.Load` 在活动回调读取标准资源，返回普通 JavaScript 值。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
-- [世界暂停方案（待评审）](../runtime/world-pause.md)：冻结自动模拟并继续 UI、输入和菜单，保留既有系统装配与调度框架。
+- [世界暂停方案](../runtime/world-pause.md)：冻结自动模拟并继续 UI、输入和菜单，保留既有系统装配与调度框架。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
 - [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。

@@ -21,7 +21,7 @@ inline constexpr std::uint8_t ambient_occlusion_stage = 11;
 inline constexpr std::uint8_t ibl_irradiance_stage = 12;
 inline constexpr std::uint8_t ibl_prefilter_stage = 13;
 inline constexpr std::uint8_t ibl_lut_stage = 14;
-inline constexpr std::uint32_t reset_flags = BGFX_RESET_VSYNC;
+inline constexpr std::uint32_t reset_flags = BGFX_RESET_NONE;
 inline constexpr std::size_t maximum_lights = 64;
 
 inline constexpr std::uint16_t ambient_occlusion_compute_view = 6;

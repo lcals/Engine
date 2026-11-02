@@ -137,6 +137,10 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         }
         state_->scene_id = scene->id();
     }
+    if (world_.paused())
+    {
+        return true;
+    }
     for (auto& [id, entry] : state_->agents)
     {
         entry.component = nullptr;

@@ -66,9 +66,9 @@ classDiagram
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
 - 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，通过可选 Tracy 客户端接收各模块采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
-- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
+- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
 
-待评审：上述工厂最后追加 `WindowSystem&`，传入宿主已有窗口，供脚本插件的现有/新增绑定
+上述工厂最后一个参数 `WindowSystem&`，传入宿主已有窗口，供脚本插件的现有/新增绑定
 调用现有窗口系统；不传 RuntimeHost，不让脚本插件持有或关闭宿主。窗口有效期覆盖全部 Run，
 先停止玩法及清理鼠标请求，再关闭输入和窗口。核心不链接具体 WindowBinding。
 - RuntimeHost 和 GameplaySession 只依赖 [ScriptRuntime](script-runtime.md) 契约，不包含或链接具体脚本插件，不依据虚拟机或插件编译宏改变核心实现。无工厂时仍能初始化窗口、场景和渲染；启动脚本玩法明确返回不可用。
@@ -81,7 +81,7 @@ classDiagram
 - 关闭先销毁玩法会话，再关闭 Engine 拥有的渲染、世界及可选资源根系统，随后关闭输入、最后销毁窗口。借用的外部 ResourceSystem 由调用宿主继续管理，本对象不关闭它。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。
 
-待评审：[世界暂停](../world-pause.md)不改变 Engine/System 的调度接口。宿主音频暂停条件改为
+[世界暂停](../world-pause.md)不改变 Engine/System 的调度接口。宿主音频暂停条件改为
 `!window.can_render() || world.paused()`，在事件处理后和世界更新后同步，避免同帧菜单修改的
 暂停值延迟到下一帧，以及窗口恢复错误解除世界暂停。世界暂停时仍运行正常帧循环、UI 和渲染；
 仅窗口不可绘制时沿既有 FrameStatus::paused 返回。

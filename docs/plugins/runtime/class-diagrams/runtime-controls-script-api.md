@@ -1,8 +1,8 @@
-# 运行时窗口、退出与鼠标脚本接口（待评审）
+# 运行时窗口、退出与鼠标脚本接口
 
 [类图索引](../../../class-diagrams/index.md) · [窗口系统](../../../runtime/class-diagrams/window-system.md) · [渲染接口](render-script-api.md) · [世界暂停](../../../runtime/class-diagrams/world-system.md)
 
-本轮提议：补齐 项目设置和菜单的原生调用。以下方法尚未实现，评审前不写入
+已按评审契约补齐 项目设置和菜单的原生调用，公开声明同步至
 `include/engine.d.ts`。继续使用当前工作分支，不新增窗口管理器、输入框架或第三方依赖。
 原生能力全部扩展现有 WindowSystem、RenderSystem、WorldSystem 和资源加载契约；下方 Window
 只是项目脚本入口，不是另一个 C++ 窗口系统。成熟库仅在这些系统内部使用，项目不直接调用 SDL/bgfx。
@@ -66,7 +66,7 @@ classDiagram
   项目需重新查询尺寸与模式后更新显示。失败后读取实际状态，不宣称多个 SDL 操作具有事务性。
 - `MouseMode.normal` 退出相对模式并显示系统光标；hidden 退出相对模式并隐藏光标；relative
   直接启用 SDL 相对模式，由 SDL 隐藏、约束光标并提供无限相对位移。无需自行搬回鼠标位置。
-- 角色输入随模式改用已有 `InputControlKind.mouse_relative`；打开菜单、失焦或手柄断连页面时
+- 角色输入随模式改用已有 `InputControlKind.mouse_relative`；打开菜单、图鉴或手柄断连页面时
   由项目显式切回 normal。Run 停止或初始化失败时，绑定清理本 Run 的鼠标请求并恢复进入前状态；
   预检不修改窗口，不恢复其他 Run 的状态。
 
@@ -131,7 +131,7 @@ nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结�
 
 ## 项目接入范围
 
-- 分辨率预设按实际像素显示。windowed 使用查询到的 pixel/logical 比例转换为窗口逻辑尺寸，
+- 分辨率按实际像素显示，并补入当前显示器支持的尺寸。windowed 使用查询到的 pixel/logical 比例转换为窗口逻辑尺寸，
   应用后重新查询实际结果；fullscreen 从真实模式列表选择。borderless 固定桌面尺寸，UI 显示
   DESKTOP 并禁止修改该项，不把选项保存成功当作分辨率已应用。
 - 设置保存与应用结果分别反馈；失败显示当前有效值。进入玩法时应用已保存的显示与 VSync 设置，

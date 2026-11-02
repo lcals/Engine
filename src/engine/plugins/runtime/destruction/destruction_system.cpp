@@ -898,7 +898,7 @@ bool DestructionSystem::restore(DestructionComponent& component,
 
 bool DestructionSystem::on_tick(double)
 {
-    return synchronize();
+    return world_.paused() || synchronize();
 }
 
 bool DestructionSystem::synchronize()

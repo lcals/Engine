@@ -39,7 +39,7 @@ classDiagram
 
 - `Render` 是不可构造的静态门面；设置方法复制当前 RenderSettings，仅修改对应字段后调用 `RenderSystem::set_settings()`。一次设置调用的参数或原生校验失败时返回 false，整份设置不变。
 - `GetViewportSize()` 返回当前绘制目标的像素尺寸 `{x,y}`；系统未初始化、GPU 不可用、尺寸为零或当前回调没有可用渲染器时返回 null。查询不改变设置，也不触发窗口重置；窗口尺寸变化在下一次渲染应用后可见。
-- 待评审：`SetVSync(enabled)` / `GetVSync()` 通过既有 RenderBinding 调用 RenderSystem 的窗口级
+- `SetVSync(enabled)` / `GetVSync()` 通过既有 RenderBinding 调用 RenderSystem 的窗口级
   VSync 状态，使用 bgfx 的 reset 标志，不进入场景 RenderSettings 或持久组件。仅活动回调
   可用，未注入或未初始化渲染器时设置返回 false、查询返回 null。设置成功表示接受请求，
   下次正常绘制应用；重复设置不触发多余 reset。核心方法见[渲染系统](../../../runtime/class-diagrams/render-system.md)。

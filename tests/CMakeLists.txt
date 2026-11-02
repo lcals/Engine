@@ -101,6 +101,10 @@ if(TARGET engine_script)
     target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_script_runtime_test)
     engine_copy_script_data(engine_script_runtime_test)
+    if(TARGET engine_resource_graph)
+        target_link_libraries(engine_script_runtime_test PRIVATE engine::resource_graph)
+        target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_RESOURCE_GRAPH=1)
+    endif()
     add_test(NAME engine.script_runtime
              COMMAND engine_script_runtime_test
                      "${CMAKE_CURRENT_BINARY_DIR}/script-runtime-test-output")

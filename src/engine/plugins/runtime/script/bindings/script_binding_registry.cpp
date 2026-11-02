@@ -30,6 +30,7 @@
 #include "plugins/runtime/script/bindings/ui_component_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_controller_binding.hpp"
 #include "plugins/runtime/script/bindings/ui_element_binding.hpp"
+#include "plugins/runtime/script/bindings/window_binding.hpp"
 
 #if defined(ENGINE_HAS_TERRAIN_PLUGIN) && ENGINE_HAS_TERRAIN_PLUGIN
 #include "plugins/runtime/script/bindings/terrain_binding.hpp"
@@ -61,7 +62,7 @@ bool ScriptBindingRegistry::initialize()
         return false;
     }
     // 新增绑定仅在此注册实现类；各类自行注册native方法与组件工厂。
-    if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() ||
+    if (!add<GameplayBinding>() || !add<DebugBinding>() || !add<AppBinding>() || !add<WindowBinding>() ||
         !add<StorageBinding>() || !add<JsonBinding>() || !add<InputBinding>() || !add<PhysicsBinding>() ||
         !add<NavigationBinding>() || !add<EngineBinding>() || !add<TimeBinding>() ||
         !add<RenderBinding>() || !add<SceneBinding>() || !add<NodeBinding>() ||

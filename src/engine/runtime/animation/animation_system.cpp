@@ -339,6 +339,10 @@ bool AnimationSystem::on_tick(double delta_time)
         clear();
         state_->scene_id = scene->id();
     }
+    if (world_ != nullptr && world_->paused())
+    {
+        return true;
+    }
     std::set<std::uint64_t> retained;
     for (const auto& node : scene->nodes())
     {

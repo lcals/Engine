@@ -20,7 +20,7 @@ classDiagram
     ResourceLoader <|-- ResourceGraphSystem
     ResourceLoader ..> Resource : 返回共享只读引用
     ResourceLoader ..> ResourceLoad : 成功后转交调用方独占
-    note for ResourceLoader "begin_load 为待评审新增；其他接口保持既有契约"
+    note for ResourceLoader "begin_load 提供可选单线程分步能力；其他接口保持既有契约"
 ```
 
 - 接口归 `runtime/resource/`，不引用任何具体插件。虚析构为 noexcept；`find` 为 const noexcept，`last_error` 为 const noexcept；状态和查询标注 nodiscard。
@@ -31,9 +31,9 @@ classDiagram
 
 具体实现的公开契约分别维护在资源系统与资源依赖图插件图；此图只维护共同接口。
 
-## 单线程分步操作（待评审）
+## 单线程分步操作
 
-本节及上图的 `begin_load` 是新增提案，尚未实现。既有 `load/find/last_error` 契约不变，`Scene.Load` 继续同步返回。新增能力只让调用方把一个目标资源的必要闭包分多帧推进；不创建后台线程、线程池、调度器、消息队列或通用资源预加载框架。
+本节及上图的 `begin_load` 已实现。既有 `load/find/last_error` 契约不变，`Scene.Load` 继续同步返回。调用方可以把一个目标资源的必要闭包分多帧推进；不创建后台线程、线程池、调度器、消息队列或通用资源预加载框架。
 
 ```mermaid
 classDiagram
@@ -75,4 +75,4 @@ classDiagram
 
 `Scene::restore_data` 和渲染器 GPU 准备是资源计数之外的独立同步阶段，不能伪装成按比例逐项完成。资源计数完成不等于画面就绪；整体 Ready 需由调用方在新场景首帧成功后确认。取消只在 step 调用之间及场景提交前生效，不能中断正在读取的单项资源或已开始的场景提交。
 
-实现范围限于复用现有依赖图 DFS、标准 shared_ptr/weak_ptr 与单项读取接口，详见[插件提案](../../plugins/runtime/class-diagrams/resource-graph.md#单线程分步复用待评审)。不把编辑器 Taskflow 引入运行时；后续若接异步执行后端，再单独评审和复用成熟开源方案，本提案不预建该框架。
+实现范围限于复用现有依赖图 DFS、标准 shared_ptr/weak_ptr 与单项读取接口，详见[依赖图实现](../../plugins/runtime/class-diagrams/resource-graph.md#单线程分步复用)。不把编辑器 Taskflow 引入运行时；后续若接异步执行后端，再单独评审和复用成熟开源方案，本轮不预建该框架。

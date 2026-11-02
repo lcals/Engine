@@ -70,7 +70,7 @@ classDiagram
 
 - `world`、`renderer`、`ui`、`physics`、`navigation` 和 `input` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理，input 须覆盖 Run 的通道与捕获清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
 
-待评审：构造和宿主脚本工厂最后追加窗口借用。ScriptSystem 的 window 默认 nullptr，非空时
+构造和宿主脚本工厂最后追加窗口借用。ScriptSystem 的 window 默认 nullptr，非空时
 必须覆盖全部 Run 与鼠标状态恢复；只传给既有 BindingContext/逐类绑定，不在 ScriptSystem
 直接调用 SDL。世界暂停时 UI 事件和 Gameplay.Update 继续，项目自行跳过世界业务。
 分步资源操作由每 Run 的 BindingContext 独占，不另起加载系统、线程或调度器，停止先取消操作，

@@ -33,7 +33,7 @@ classDiagram
     ResourceGraphSystem ..> ResourceLoad : 创建并转交调用方独占
     ResourceGraphSystem ..> EngineConfig : 初始化参数
     Bundle o-- Resource : 当前资源和必要依赖
-    note for ResourceGraphSystem "begin_load 为待评审新增；复用现有同步加载契约"
+    note for ResourceGraphSystem "begin_load 与同步 load 复用单线程加载实现"
 ```
 
 - 构造、析构、`find`、`last_error` 和 `on_shutdown` 为 noexcept，查询为 const；实现重写接口和系统生命周期钩子。状态和查询标注 nodiscard，禁止不适当的复制或移动。
@@ -46,9 +46,9 @@ classDiagram
 
 插件由 `cmake/plugins/runtime/resource_graph.cmake` 自声明并通过运行时插件清单选择。其他运行时模块只引用 ResourceLoader 契约；未选插件不能残留到核心目标的源文件或链接项。
 
-## 单线程分步复用（待评审）
+## 单线程分步复用
 
-本节及上图的 `begin_load` 尚未实现；现有同步 `load`、缓存查询、Bundle 所有权与系统生命周期保持原契约。操作的公开方法只在[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#单线程分步操作待评审)定义，此处不重复成员。
+本节及上图的 `begin_load` 已实现；现有同步 `load`、缓存查询、Bundle 所有权与系统生命周期保持原契约。操作的公开方法只在[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#单线程分步操作)定义，此处不重复成员。
 
 ```mermaid
 classDiagram
@@ -67,7 +67,7 @@ classDiagram
     GraphResourceLoad o-- Resource : 本任务 retained 与 ready 根共享引用
 ```
 
-`GraphResourceLoad` 是 `engine::plugins::resource_graph` 内部的薄实现，不是新增系统或调度层。它将当前 `ResourceGraphSystem::load` 中的 DFS `pending/retained/visiting` 及迭代位置延续到调用方下一次 step，复用既有目录、单项 `ResourceSystem::load`、`validate_dependencies`、同代弱缓存与私有 Bundle。不得另外实现第二套依赖遍历、加载或引用计数框架。
+`GraphResourceLoad` 是 `engine::plugins::resource_graph` 内部的薄实现，不是新增系统或调度层。创建时复用既有迭代 DFS 确定唯一后序计划，step 保存当前完成位置与 retained 候选，复用既有目录、单项 `ResourceSystem::load`、`validate_dependencies`、同代弱缓存与私有 Bundle。同步 `load` 在缓存未命中时创建同一操作并一次推进完成，不维护第二套依赖遍历、加载或引用计数框架。
 
 - `ResourceGraphSystem::begin_load` 为 `[[nodiscard]]` 的普通重写方法，失败清空调用者输出并通过现有 `last_error` 说明原因；成功创建后把操作所有权转交调用方，本系统只被操作借用，不保存自动推进队列。
 - 创建时从目录元数据确定该目标的必要闭包、固定 generation 和唯一 GUID 总数，不读取实体。相同父/子资源在同一闭包中只安排一次；已有存活对象仍可复用。其余无关目录资源不会进入本任务，不扫描源文件、不预加载整个项目。
@@ -79,4 +79,4 @@ classDiagram
 - 提交阶段继续调用既有 WorldSystem::load_scene，并在返回前持有 ready 根引用，使正常 load 能复用已驻留闭包。成功后 Scene 接管根资源；恢复失败仍保留旧活动 Scene，调用方可丢弃任务。单活动场景及 UiSystem 随场景更换文档的生命周期不变。
 - 场景节点恢复和首次 GPU 准备本轮保留同步，不计入 completed/total。不得在它们的内部重入宿主循环来伪造可见进度，也不把候选 Scene 跨帧暴露给活动 ECS、物理或 UI。
 
-本提案只拆分已有专用加载代码的执行边界，不引入依赖或通用执行框架。编辑器 Taskflow 保留在编辑器作用域；后续真正异步加载的执行后端再优先选择成熟开源方案并单独评审。
+本轮只拆分已有专用加载代码的执行边界，不引入依赖或通用执行框架。编辑器 Taskflow 保留在编辑器作用域；后续真正异步加载的执行后端再优先选择成熟开源方案并单独评审。

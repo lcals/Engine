@@ -416,11 +416,38 @@ bool physics_shape_ownership()
                   "kinematic sensors are supported without introducing a second position solver");
 }
 
+bool world_pause_preserves_agents()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* agent = fixture.agent({2, 0, 2});
+    if (!agent || !agent->move_to({20, 0, 2}) || !fixture.advance(30))
+    {
+        return false;
+    }
+    const auto before = position(*agent);
+    const auto velocity = agent->velocity();
+    if (!expect(fixture.world.set_paused(true) && fixture.crowd.tick(60) &&
+                    distance(position(*agent), before) == 0 && agent->velocity() == velocity,
+                "world pause preserves Detour crowd position and movement state"))
+    {
+        return false;
+    }
+    return expect(fixture.world.set_paused(false) && fixture.advance(1) &&
+                      distance(position(*agent), before) > 0 &&
+                      distance(position(*agent), before) < 0.2,
+                  "crowd resumes one fresh step without accumulating paused time");
+}
+
 } // namespace
 
 int main()
 {
-    return requests_and_lifetime() && many_agents() && capacity_replacement() &&
+    return world_pause_preserves_agents() && requests_and_lifetime() && many_agents() &&
+                   capacity_replacement() &&
                    physics_shape_ownership()
                ? 0
                : 1;

@@ -265,9 +265,44 @@ bool blending_and_instances()
                       close(sampled_vertex(other_renderer).x(), 1) && close(other.time(), 0.25),
                   "resource generations and per-instance sampling state never share mutable data");
 }
+bool world_pause_preserves_individual_playback()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* playing = fixture.create();
+    auto* paused = fixture.create();
+    if (!playing || !paused || !fixture.animation.tick(0.25))
+    {
+        return false;
+    }
+    auto* active = playing->get_component<engine::Animator>();
+    auto* individual = paused->get_component<engine::Animator>();
+    auto* renderer = playing->get_component<engine::MeshRenderer>();
+    const auto pose = sampled_vertex(*renderer);
+    if (!expect(individual->pause() && fixture.world.set_paused(true) &&
+                    fixture.animation.tick(120) && close(active->time(), 0.25) &&
+                    close(individual->time(), 0.25) &&
+                    close(sampled_vertex(*renderer).x(), pose.x()) &&
+                    active->playback() == engine::AnimationPlayback::playing,
+                "world pause retains sampled pose without rewriting individual playback"))
+    {
+        return false;
+    }
+    return expect(fixture.world.set_paused(false) && fixture.animation.tick(0.25) &&
+                      close(active->time(), 0.5) && close(individual->time(), 0.25) &&
+                      individual->playback() == engine::AnimationPlayback::paused,
+                  "world resume advances only fresh time and preserves an individually paused action");
+}
+
 } // namespace
 
 int main()
 {
-    return sampling_and_controls() && skinning_and_lifecycle() && blending_and_instances() ? 0 : 1;
+    return world_pause_preserves_individual_playback() && sampling_and_controls() &&
+                   skinning_and_lifecycle() && blending_and_instances()
+               ? 0
+               : 1;
 }
