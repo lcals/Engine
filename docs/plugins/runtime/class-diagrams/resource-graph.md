@@ -13,6 +13,7 @@ classDiagram
         +ResourceGraphSystem(ResourceSystem& resources)
         +~ResourceGraphSystem()
         +load(string_view guid, ResourcePtr& output) bool
+        +begin_load(string_view guid, unique_ptr~ResourceLoad~& output) bool
         +find(string_view guid) ResourcePtr
         +last_error() const string&
         #on_initialize(const EngineConfig& config) bool
@@ -22,14 +23,17 @@ classDiagram
     class ResourceLoader
     class ResourceSystem
     class Resource
+    class ResourceLoad
     class EngineConfig
     class Bundle
     System <|-- ResourceGraphSystem
     ResourceLoader <|-- ResourceGraphSystem
     ResourceGraphSystem --> ResourceSystem : 借用单项底层与目录代际
     ResourceGraphSystem --> Resource : weak别名引用不保活Bundle
+    ResourceGraphSystem ..> ResourceLoad : 创建并转交调用方独占
     ResourceGraphSystem ..> EngineConfig : 初始化参数
     Bundle o-- Resource : 当前资源和必要依赖
+    note for ResourceGraphSystem "begin_load 为待评审新增；复用现有同步加载契约"
 ```
 
 - 构造、析构、`find`、`last_error` 和 `on_shutdown` 为 noexcept，查询为 const；实现重写接口和系统生命周期钩子。状态和查询标注 nodiscard，禁止不适当的复制或移动。
@@ -41,3 +45,38 @@ classDiagram
 - 宿主决定启用并注入插件。关闭顺序：停止领域使用者，`set_loader(nullptr)` 解除核心借用，关闭插件，再关闭核心。插件不判断编辑器身份或自动扫描、发布目录。
 
 插件由 `cmake/plugins/runtime/resource_graph.cmake` 自声明并通过运行时插件清单选择。其他运行时模块只引用 ResourceLoader 契约；未选插件不能残留到核心目标的源文件或链接项。
+
+## 单线程分步复用（待评审）
+
+本节及上图的 `begin_load` 尚未实现；现有同步 `load`、缓存查询、Bundle 所有权与系统生命周期保持原契约。操作的公开方法只在[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#单线程分步操作待评审)定义，此处不重复成员。
+
+```mermaid
+classDiagram
+    direction TB
+    class GraphResourceLoad {
+        <<private final>>
+    }
+    class ResourceLoad
+    class ResourceGraphSystem
+    class ResourceSystem
+    class Resource
+    ResourceLoad <|-- GraphResourceLoad
+    ResourceGraphSystem ..> GraphResourceLoad : 创建后转移独占所有权
+    GraphResourceLoad --> ResourceGraphSystem : 借用现有同代弱缓存
+    GraphResourceLoad --> ResourceSystem : 借用既有单项 load 与依赖校验
+    GraphResourceLoad o-- Resource : 本任务 retained 与 ready 根共享引用
+```
+
+`GraphResourceLoad` 是 `engine::plugins::resource_graph` 内部的薄实现，不是新增系统或调度层。它将当前 `ResourceGraphSystem::load` 中的 DFS `pending/retained/visiting` 及迭代位置延续到调用方下一次 step，复用既有目录、单项 `ResourceSystem::load`、`validate_dependencies`、同代弱缓存与私有 Bundle。不得另外实现第二套依赖遍历、加载或引用计数框架。
+
+- `ResourceGraphSystem::begin_load` 为 `[[nodiscard]]` 的普通重写方法，失败清空调用者输出并通过现有 `last_error` 说明原因；成功创建后把操作所有权转交调用方，本系统只被操作借用，不保存自动推进队列。
+- 创建时从目录元数据确定该目标的必要闭包、固定 generation 和唯一 GUID 总数，不读取实体。相同父/子资源在同一闭包中只安排一次；已有存活对象仍可复用。其余无关目录资源不会进入本任务，不扫描源文件、不预加载整个项目。
+- step 每完成一个缓存命中或一个通过完整读取、解码和依赖校验的资源，才增加一次 completed；每次最多完成 budget 项。直接依赖先就绪，再组合父项 Bundle。所有新候选都由本任务 retained 强引用，跨帧不会因弱缓存失去必要依赖。
+- loading 时每次推进和发布前检查目录 generation、加载器及资源核心状态。目录换代后失败并释放本任务引用，不能把旧候选写入新代索引。ready 后是已完成的旧资源共享快照，保持状态但不得再发布；提交方单独核对创建时的 generation。错误属于本操作，不覆盖其他存活资源或依赖引用。
+- ready 前不发布本任务产生的任何弱索引；失败或析构取消只释放私有候选引用，不留下部分驻留条目。完整闭包成功后，才按现有同步 load 的规则统一发布弱索引并持有根 ResourcePtr；ready 根与其所有依赖继续用既有 Bundle 别名共享引用。
+- 同一闭包内的重复依赖及已发布的同代缓存继续复用完整共享对象；本轮不增加多个未完成任务的合并器或在途去重服务。发布前若同代完整缓存已由其他调用建立，则复用其完整对象，不用私有候选覆盖它。取消只撤销本任务所持引用；不得删除或强制释放其他使用者持有的缓存对象。ready 后销毁操作也只减少本任务引用，若场景已接管根引用，闭包继续存活。
+- 所有创建、step、缓存访问和销毁发生在宿主现有线程；调用方在每帧 Update 中显式推进，System 不增加自动 tick 调度、线程、线程池或跨线程队列。宿主停止、重载或关闭加载器前，须先销毁该 Run 持有的操作。
+- 提交阶段继续调用既有 WorldSystem::load_scene，并在返回前持有 ready 根引用，使正常 load 能复用已驻留闭包。成功后 Scene 接管根资源；恢复失败仍保留旧活动 Scene，调用方可丢弃任务。单活动场景及 UiSystem 随场景更换文档的生命周期不变。
+- 场景节点恢复和首次 GPU 准备本轮保留同步，不计入 completed/total。不得在它们的内部重入宿主循环来伪造可见进度，也不把候选 Scene 跨帧暴露给活动 ECS、物理或 UI。
+
+本提案只拆分已有专用加载代码的执行边界，不引入依赖或通用执行框架。编辑器 Taskflow 保留在编辑器作用域；后续真正异步加载的执行后端再优先选择成熟开源方案并单独评审。

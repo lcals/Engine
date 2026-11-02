@@ -11,6 +11,8 @@ classDiagram
     class Render {
         <<static facade>>
         +GetViewportSize() Vector2_or_null$
+        +SetVSync(boolean enabled) boolean$
+        +GetVSync() boolean_or_null$
         +SetAmbient(number r, number g, number b, number intensity) boolean$
         +SetAmbientTricolor(number[] sky, number[] equator, number[] ground, number intensity) boolean$
         +SetLinearFog(boolean enabled, number r, number g, number b, number start, number end) boolean$
@@ -37,6 +39,10 @@ classDiagram
 
 - `Render` 是不可构造的静态门面；设置方法复制当前 RenderSettings，仅修改对应字段后调用 `RenderSystem::set_settings()`。一次设置调用的参数或原生校验失败时返回 false，整份设置不变。
 - `GetViewportSize()` 返回当前绘制目标的像素尺寸 `{x,y}`；系统未初始化、GPU 不可用、尺寸为零或当前回调没有可用渲染器时返回 null。查询不改变设置，也不触发窗口重置；窗口尺寸变化在下一次渲染应用后可见。
+- 待评审：`SetVSync(enabled)` / `GetVSync()` 通过既有 RenderBinding 调用 RenderSystem 的窗口级
+  VSync 状态，使用 bgfx 的 reset 标志，不进入场景 RenderSettings 或持久组件。仅活动回调
+  可用，未注入或未初始化渲染器时设置返回 false、查询返回 null。设置成功表示接受请求，
+  下次正常绘制应用；重复设置不触发多余 reset。核心方法见[渲染系统](../../../runtime/class-diagrams/render-system.md)。
 - `SetAmbient` 的 RGB 为线性颜色 `0..1`，强度为 `0..1000`；曝光为 `(0, 100]`。阴影分辨率默认 2048，为 `128..8192` 的二次幂，bias 默认 0.001、范围 `0..0.1`，实际设备限制仍由 RenderSystem 校验。
 - `SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个 `[r,g,b]` 线性颜色数组并开启三色模式；调用 `SetAmbient` 恢复常量色模式。`SetLinearFog(enabled, r, g, b, start, end)` 提交线性雾，颜色为线性 `0..1`，距离为世界单位，要求 `0 <= start < end`。`SetExponentialFog(enabled, r, g, b, density, squared=false)` 使用指数雾，squared=true 使用平方指数雾；density 为非负有限数，距离取前向深度减近裁面。两个雾接口写入同一 fog_mode，互相替换；关闭雾同样提交并保留参数，后续可再次开启。
 - `SetClearColor` 接收无符号 32 位整数，按 `0xRRGGBBAA` 打包；不接受负数、小数或溢出值。MCP 的 `clearColor` 输入为归一化 `[r,g,b,a]` 数组，两者采用相同的 RGBA 通道顺序，并提交同一个原生字段。

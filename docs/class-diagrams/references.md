@@ -106,6 +106,7 @@ classDiagram
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
     ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
     ScriptRuntimeFactory ..> InputSystem : 设备及通道绑定的参数借用
+    ScriptRuntimeFactory ..> WindowSystem : 待评审，窗口与鼠标薄绑定借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -407,6 +408,8 @@ classDiagram
         <<script binding>>
     }
     class ScriptApp["App 脚本绑定"]
+    class WindowBinding
+    class WindowSystem
     class Storage
     class StorageBinding
     class BindingContext
@@ -420,6 +423,9 @@ classDiagram
     Game ..> ScriptApp : 应用目录查询
     Debug ..> LogSystem : 静态日志转发
     ScriptApp ..> App : 只读平台路径绑定
+    ScriptApp ..> WindowSystem : 待评审，提交退出请求
+    WindowBinding ..> WindowSystem : 待评审，扩展现有窗口接口
+    BindingContext --> WindowSystem : 待评审，活动回调借用及鼠标恢复
     Game ..> Storage : 低频字符串 KV 与显式保存
     StorageBinding ..> Storage : 定义脚本外观
     StorageBinding ..> BindingContext : 有效回调期间借用
@@ -428,6 +434,12 @@ classDiagram
 ```
 
 Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并选择、加载和切换场景。
+
+待评审运行控制见[脚本入口](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：
+现有 WorldSystem 保存临时暂停状态，各实际模拟入口遵守该状态，UI/输入/Gameplay 菜单继续更新；
+Engine/System 不增加调度框架。每 Run 的 BindingContext 独占最多一个 ResourceLoad 操作，
+实际依赖遍历和缓存仍由 ResourceGraphSystem 实现；操作借用的加载器必须晚于 Run 释放。
+暂停和加载的方法分别只在世界/资源/玩法的独立类图定义，此处不重复接口。
 
 Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
 
