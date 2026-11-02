@@ -14,10 +14,13 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/system/system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <chrono>
 #include <cmath>
 #include <utility>
 
@@ -34,15 +37,50 @@ RuntimeHost::~RuntimeHost() noexcept
 }
 
 bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resources,
-                             ScriptRuntimeFactory script_factory, RuntimeSetup setup)
+                             ScriptRuntimeFactory script_factory, RuntimeSetup setup,
+                             ThreadSystem* threads, const RuntimeParallelConfig& parallel)
 {
     if (initialized_ || owns_engine_ || engine_.is_initialized() || engine_.system_count() != 0 ||
         (resources != nullptr &&
-         (!resources->is_initialized() || ResourceSystem::instance() != resources)))
+         (!resources->is_initialized() || ResourceSystem::instance() != resources)) ||
+        (threads != nullptr && !threads->is_initialized()) ||
+        (resources != nullptr && resources->async_enabled()) ||
+        !std::isfinite(parallel.completion_budget_seconds) ||
+        parallel.completion_budget_seconds < 0.0)
     {
         return false;
     }
     owns_engine_ = true;
+    parallel_ = parallel;
+    if (threads == nullptr)
+    {
+        owned_threads_ = std::make_unique<ThreadSystem>(parallel.threads);
+        if (!owned_threads_->initialize(config))
+        {
+            shutdown();
+            return false;
+        }
+        threads = owned_threads_.get();
+    }
+    const auto create_domain = [&](std::unique_ptr<TaskSystem>& domain, TaskConfig settings)
+    {
+        if (settings.max_concurrency == 0)
+        {
+            settings.max_concurrency = threads->worker_count();
+        }
+        domain = std::make_unique<TaskSystem>(*threads, settings);
+        return domain->initialize(config);
+    };
+    if (!create_domain(tasks_, parallel.runtime) ||
+        !create_domain(loading_tasks_, parallel.loading) ||
+        !create_domain(background_tasks_, parallel.background) ||
+        !create_domain(physics_tasks_, parallel.physics) ||
+        !create_domain(animation_tasks_, parallel.animation) ||
+        !create_domain(navigation_tasks_, parallel.navigation))
+    {
+        shutdown();
+        return false;
+    }
     window_ = std::make_unique<WindowSystem>();
     if (!window_->initialize(config))
     {
@@ -72,17 +110,19 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         return false;
     }
 
-    auto world = std::make_unique<WorldSystem>();
-    auto physics_system = std::make_unique<PhysicsSystem>(world.get());
+    auto world = std::make_unique<WorldSystem>(parallel.scene_restore);
+    auto physics_system = std::make_unique<PhysicsSystem>(world.get(), physics_tasks_.get());
     physics_ = physics_system.get();
     std::unique_ptr<System> physics = std::move(physics_system);
     auto audio_system = std::make_unique<AudioSystem>(world.get());
     audio_ = audio_system.get();
     std::unique_ptr<System> audio = std::move(audio_system);
-    auto navigation_system = std::make_unique<NavigationSystem>();
+    auto navigation_system = std::make_unique<NavigationSystem>(
+        navigation_tasks_.get(), parallel.navigation_tile_threshold);
     auto* navigation_ptr = navigation_system.get();
     std::unique_ptr<System> navigation = std::move(navigation_system);
-    auto animation_system = std::make_unique<AnimationSystem>(world.get());
+    auto animation_system = std::make_unique<AnimationSystem>(
+        world.get(), animation_tasks_.get(), parallel.animation_sampling);
     animation_ = animation_system.get();
     std::unique_ptr<System> animation = std::move(animation_system);
     auto font_system = std::make_unique<FontSystem>();
@@ -98,12 +138,13 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
-    auto renderer = std::make_unique<RenderSystem>(*window_, world.get(), fonts_, ui_);
+    auto renderer = std::make_unique<RenderSystem>(*window_, world.get(), fonts_, ui_,
+                                                   loading_tasks_.get(), parallel.render);
     ScriptRuntime* script = nullptr;
     if (script_factory != nullptr)
     {
         auto script_system =
-            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_);
+            script_factory(*world, *renderer, *ui_, *physics_, *navigation_ptr, *input_, *window_);
         script = script_system.get();
         std::unique_ptr<System> script_base = std::move(script_system);
         if (!world->add_subsystem(script_base))
@@ -113,10 +154,10 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         }
     }
     if ((setup != nullptr && !setup(RuntimeStage::before_physics, *world, *window_, *physics_,
-                                    *navigation_ptr, *renderer)) ||
+                                    *navigation_ptr, *renderer, *background_tasks_)) ||
         !world->add_subsystem(physics) || !world->add_subsystem(animation) ||
         (setup != nullptr && !setup(RuntimeStage::after_physics, *world, *window_, *physics_,
-                                    *navigation_ptr, *renderer)) ||
+                                    *navigation_ptr, *renderer, *background_tasks_)) ||
         !world->add_subsystem(audio))
     {
         shutdown();
@@ -136,8 +177,15 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         shutdown();
         return false;
     }
+    resources_ = resources != nullptr ? resources : ResourceSystem::instance();
+    if (resources_ == nullptr || !resources_->configure_async(*loading_tasks_, parallel.resources))
+    {
+        resources_ = nullptr;
+        shutdown();
+        return false;
+    }
     gameplay_ = std::make_unique<GameplaySession>(*world_, *renderer_, script, physics_, audio_,
-                                                  animation_, fonts_, ui_);
+                                                  animation_, fonts_, ui_, background_tasks_.get());
     window_->set_event_handler(
         [](void* context, const SDL_Event& event)
         {
@@ -176,6 +224,12 @@ FrameStatus RuntimeHost::tick(double delta_time)
         failed_ = true;
         return FrameStatus::failed;
     }
+    // Gameplay 可在本帧切换世界暂停；窗口不可绘制仍是独立的暂停原因。
+    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
+    {
+        failed_ = true;
+        return FrameStatus::failed;
+    }
     if (!renderer_->render())
     {
         // 平台暂停可以在本帧检查之后到达，等待恢复而不锁定为失败。
@@ -207,6 +261,21 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     {
         return FrameStatus::exit_requested;
     }
+    const auto completions_started = std::chrono::steady_clock::now();
+    std::size_t remaining = parallel_.completions_per_frame;
+    for (auto* domain : {tasks_.get(), physics_tasks_.get(), animation_tasks_.get(),
+                        navigation_tasks_.get(), background_tasks_.get(), loading_tasks_.get()})
+    {
+        const double elapsed = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - completions_started).count();
+        if (remaining == 0 || elapsed >= parallel_.completion_budget_seconds)
+        {
+            break;
+        }
+        remaining -= domain->dispatch_completions(
+            remaining, parallel_.completion_budget_seconds - elapsed);
+    }
+    resources_->poll_async();
     // 上一回调可能改变文档 / 可见性；没有 SDL 事件也必须刷新持续占用事实。
     if (window_->can_render() && !ui_->synchronize())
     {
@@ -227,7 +296,7 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
         request_exit();
         return FrameStatus::exit_requested;
     }
-    if (!audio_->set_paused(!window_->can_render()))
+    if (!audio_->set_paused(!window_->can_render() || world_->paused()))
     {
         failed_ = true;
         return FrameStatus::failed;
@@ -265,6 +334,11 @@ void RuntimeHost::request_exit() noexcept
     exit_requested_ = true;
 }
 
+TaskSystem* RuntimeHost::tasks() noexcept
+{
+    return initialized_ ? tasks_.get() : nullptr;
+}
+
 void RuntimeHost::shutdown() noexcept
 {
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
@@ -273,6 +347,11 @@ void RuntimeHost::shutdown() noexcept
         window_->set_event_handler(nullptr, nullptr);
     }
     gameplay_.reset();
+    if (resources_ != nullptr)
+    {
+        resources_->shutdown_async();
+        resources_ = nullptr;
+    }
     fonts_ = nullptr;
     ui_ = nullptr;
     animation_ = nullptr;
@@ -287,6 +366,13 @@ void RuntimeHost::shutdown() noexcept
     }
     input_.reset();
     window_.reset();
+    navigation_tasks_.reset();
+    animation_tasks_.reset();
+    physics_tasks_.reset();
+    background_tasks_.reset();
+    loading_tasks_.reset();
+    tasks_.reset();
+    owned_threads_.reset();
     initialized_ = false;
     exit_requested_ = false;
     failed_ = false;

@@ -22,6 +22,7 @@ class AnimationSystem;
 class FontSystem;
 class UiSystem;
 class ScriptRuntime;
+class TaskSystem;
 struct ScriptStatus;
 
 class GameplaySession final
@@ -31,7 +32,7 @@ public:
     GameplaySession(WorldSystem& world, RenderSystem& renderer, ScriptRuntime* script,
                     PhysicsSystem* physics = nullptr, AudioSystem* audio = nullptr,
                     AnimationSystem* animation = nullptr, FontSystem* fonts = nullptr,
-                    UiSystem* ui = nullptr) noexcept;
+                    UiSystem* ui = nullptr, TaskSystem* background = nullptr) noexcept;
     ~GameplaySession() noexcept;
 
     GameplaySession(const GameplaySession&) = delete;
@@ -59,6 +60,7 @@ private:
     AnimationSystem* animation_ = nullptr;
     FontSystem* fonts_ = nullptr;
     UiSystem* ui_ = nullptr;
+    TaskSystem* background_ = nullptr;
     std::string last_error_;
 };
 

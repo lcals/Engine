@@ -2,18 +2,27 @@
 
 #include "runtime/system/system.hpp"
 
+#include <cstddef>
 #include <memory>
 
 namespace engine
 {
 
 class WorldSystem;
+class TaskSystem;
+
+struct AnimationConfig
+{
+    std::size_t min_parallel_count = 8;
+    std::size_t batch_size = 16;
+};
 
 class AnimationSystem final : public System
 {
 public:
-    // 可空 world 由调用方拥有，存活期须覆盖本系统。
-    explicit AnimationSystem(WorldSystem* world = nullptr) noexcept;
+    // 可空 world/tasks 由调用方拥有，存活期须覆盖本系统；tasks 须先初始化。
+    explicit AnimationSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr,
+                             const AnimationConfig& config = {}) noexcept;
     ~AnimationSystem() noexcept override;
     void clear() noexcept;
 
@@ -25,6 +34,8 @@ protected:
 private:
     struct State;
     WorldSystem* world_ = nullptr;
+    TaskSystem* tasks_ = nullptr;
+    AnimationConfig config_;
     std::unique_ptr<State> state_;
 };
 

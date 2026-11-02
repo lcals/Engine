@@ -56,6 +56,7 @@ classDiagram
         +validate(const MeshDataT& data) bool$
     }
     class TextureResourceCodec {
+        +initialize_transcoder() void$
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate(const TextureDataT& data) bool$
     }
@@ -68,6 +69,10 @@ classDiagram
     ResourceCodec <|-- TextureResourceCodec
     ResourceCodec <|-- AudioResourceCodec
 ```
+
+`TextureResourceCodec::initialize_transcoder()` 统一完成进程级 BasisU 转码表的一次性初始化；
+资源校验、UI、场景烘焙以及编辑器编码器初始化均调用此入口，避免上游非原子初始化标记
+在不同模块首次调用时竞态。初始化后各任务独占 decoder，只共享只读表；不新增线程池或包装类。
 
 ```mermaid
 classDiagram
@@ -111,6 +116,7 @@ classDiagram
 - Audio 只校验并保存 `AudioClipDataT`：版本为 1、采样率 8000–192000、1/2 声道、非零帧数、交错样本数精确匹配帧数与声道，所有样本有限且在 [-1,1]，PCM 大小不超过 64 MiB 减 128 KiB。失败不发布候选；不创建音频设备或决定播放行为。
 - Shader 校验参数、Uniform、Sampler 和默认贴图声明；Material 校验结构与声明引用，跨实体校验材质参数是否匹配 Shader。
 - Binary 原样保存脚本和通用 source 载荷，脚本执行或具体二进制解释由使用者负责。
+- JSON 在 `AssetKind` 尾部追加 `json` 并登记到现有 BinaryResourceCodec，原字节保存在 `Resource.bytes()`；不新增解码器或 JSON 数据模型。格式校验归独立 [JSON 导入插件](../../plugins/editor/class-diagrams/json-importer.md)，脚本解析归 [JsonBinding](../../plugins/runtime/class-diagrams/json-script-api.md)。
 - 内置与项目数据使用同一类型校验。内置注册调用对应解码器的静态 validate；内置读取复制已注册定义，不执行 VFS I/O。
 
 ResourceSystem 在调用类型跨实体校验前统一验证当前目录代际、元数据一致性、直接依赖数量及唯一身份。解码器只校验调用方提供的实体，不读取文件或保留引用；依赖遍历、共享缓存及反向释放继续归运行时资源依赖图插件。

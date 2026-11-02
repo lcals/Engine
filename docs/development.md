@@ -38,9 +38,9 @@ CMake 按 `install/`（环境、缓存和运行数据安装）、`dependencies/`
 
 | 分组 | vcpkg feature | 依赖 |
 | --- | --- | --- |
-| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、Basis Universal |
+| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、oneTBB、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、Basis Universal |
 | 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
-| 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、Taskflow、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
+| 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 | 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
 | 编辑器字体导入插件 | `font-import` | FreeType；仅选中 `font_import` 插件时加入 |
 | 脚本插件 QuickJS 后端 | `quickjs` | quickjs-ng；仅选中脚本插件且 `ENGINE_SCRIPT_BACKEND=quickjs` 时加入 |

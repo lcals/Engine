@@ -8,7 +8,7 @@
 classDiagram
     class System
     class AssetPipelineSystem {
-        +AssetPipelineSystem()
+        +AssetPipelineSystem(TaskSystem& tasks)
         +~AssetPipelineSystem()
         +add_importer(unique_ptr~AssetImporter~& importer) bool
         +set_importer(unique_ptr~AssetImporter~& importer) bool
@@ -35,7 +35,7 @@ classDiagram
     class App
     class AssetCatalogDataT
     System <|-- AssetPipelineSystem
-    AssetPipelineSystem *-- TaskSystem : 子系统独占
+    AssetPipelineSystem --> TaskSystem : 借用已初始化编辑器任务域
     AssetPipelineSystem *-- AssetBuildStats : 最近成功批次
     AssetPipelineSystem ..> GuidMap : 核心 GUID 与逻辑路径映射
     AssetPipelineSystem *-- AssetImporterRegistry : 初始化登记并独占实现
@@ -58,7 +58,7 @@ Mesh 保持原六项位置/法线顶点表达，新增可选 `texcoords`（二�
 
 SQLite v2 保存源指纹、转换器/Schema/配置/工具/目标版本、构建依赖、运行依赖和产物指纹。两类依赖分别使用 `dependencies` 与 `runtime_dependencies` 表。首次全量；之后重新扫描但只转换失效产物及构建依赖变化的资源。命中缓存仍校验实体头与完整产物指纹。TS 按项目编译，JS 沿用对应 TS GUID；实际生成的模块 import / export 和字面量动态 import 成为运行依赖，类型导入和声明文件只作为构建输入。
 
-项目 OS 文件锁覆盖 meta、扫描、转换、发布。Taskflow 工作线程写独立临时产物，协调线程单独写 SQL。批次以同级暂存和备份交换 gen/catalog；SQL 提交 revision 作为恢复依据。转换失败不替换上一批产物；中断恢复在持锁后、下次扫描前完成。`build_scripts()` 调用完整的 `build_assets()`，不建立独立脚本发布流程。
+项目 OS 文件锁覆盖 meta、扫描、转换、发布。oneTBB 工作线程写独立临时产物，协调线程单独写 SQL。批次以同级暂存和备份交换 gen/catalog；SQL 提交 revision 作为恢复依据。转换失败不替换上一批产物；中断恢复在持锁后、下次扫描前完成。`build_scripts()` 调用完整的 `build_assets()`，不建立独立脚本发布流程。
 
 孤立的 `.meta` 不作为资源导入；删除源文件后保留的 meta 可以随源文件恢复。任务目标平台可显式指定 `macos/ios/windows/android/linux`，空值使用宿主；后端、工具与 Schema 指纹参与增量键。
 

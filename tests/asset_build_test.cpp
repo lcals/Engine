@@ -3,6 +3,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -139,11 +141,14 @@ bool tests()
     {
         return false;
     }
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
     const engine::EngineConfig config;
     if (!expect(!builder.initialize(config), "builder requires initialized borrowed pipeline") ||
-        !expect(pipeline.initialize(config) && builder.initialize(config),
+        !expect(threads.initialize(config) && tasks.initialize(config) &&
+                    pipeline.initialize(config) && builder.initialize(config),
                 "initialize build systems") ||
         !expect(build(builder, fixture, {"main"}), "build one selected package"))
     {

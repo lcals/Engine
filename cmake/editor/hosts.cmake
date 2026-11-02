@@ -68,7 +68,7 @@ function(engine_link_controller_editor target)
 endfunction()
 
 function(engine_link_asset_importers target)
-    foreach(_format fbx usd font ui)
+    foreach(_format fbx usd font ui json)
         string(TOUPPER "${_format}" _upper)
         if(TARGET engine_${_format}_import)
             target_link_libraries(${target} PRIVATE engine::${_format}_import)
@@ -107,6 +107,7 @@ if(ENGINE_BUILD_APP AND ENGINE_ENABLE_EDITOR_DEPS)
         PRIVATE engine::editor
                 engine::project
                 engine::runtime
+                engine::task
                 engine::app
                 engine::log
                 SDL3::SDL3

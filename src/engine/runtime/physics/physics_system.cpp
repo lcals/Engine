@@ -1815,7 +1815,8 @@ struct PhysicsSystem::State final : JPH::ContactListener, JPH::CharacterContactL
     }
 };
 
-PhysicsSystem::PhysicsSystem(WorldSystem* world) noexcept : world_(world)
+PhysicsSystem::PhysicsSystem(WorldSystem* world, TaskSystem* tasks) noexcept
+    : world_(world), tasks_(tasks)
 {
 }
 
@@ -1826,6 +1827,10 @@ PhysicsSystem::~PhysicsSystem() noexcept
 
 bool PhysicsSystem::on_initialize(const EngineConfig&)
 {
+    if (tasks_ != nullptr && !tasks_->is_initialized())
+    {
+        return false;
+    }
     if (!acquire_jolt())
     {
         std::fputs("Cannot initialize Jolt: ABI mismatch or externally owned registration\n",
@@ -1838,7 +1843,7 @@ bool PhysicsSystem::on_initialize(const EngineConfig&)
         release_jolt();
         return false;
     }
-    state_->jobs.Init(JPH::cMaxPhysicsJobs);
+    state_->jobs.initialize(JPH::cMaxPhysicsJobs, JPH::cMaxPhysicsBarriers, tasks_);
     state_->physics.Init(static_cast<JPH::uint>(maximum_bodies), 0, 65536, 16384, state_->layers,
                          state_->broad_filter, state_->object_filter);
     state_->physics.SetGravity(JPH::Vec3(0.0F, -9.81F, 0.0F));
@@ -2311,6 +2316,18 @@ bool PhysicsSystem::on_tick(double delta_time)
         // 旧场景已经由 WorldSystem 替换；不能清掉新组件在首个物理帧前提交的请求。
         state_->clear();
         state_->scene_id = scene->id();
+    }
+    if (world_ != nullptr && world_->paused())
+    {
+        // 菜单期间不把新时间加入固定步累计器；一次性角色意图不能恢复后重放。
+        for (const auto& node : scene->nodes())
+        {
+            if (auto* motor = node->get_component<CharacterMotor>())
+            {
+                motor->clear_input();
+            }
+        }
+        return true;
     }
     auto& snapshots = state_->body_snapshots;
     auto& character_snapshots = state_->character_snapshots;

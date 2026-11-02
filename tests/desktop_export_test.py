@@ -95,7 +95,32 @@ class DesktopExportTest(unittest.TestCase):
                     (base / "assets" / self.entry["path"]).read_bytes(), self.entry["entity"]
                 )
                 self.assertFalse((base / "catalog.bin").exists())
+                self.assertEqual(json.loads((base / "settings/runtime.json").read_text()), {"version": 1})
+                self.assertFalse((base / "assets/settings").exists())
                 self.assertEqual((base / "icudtl.dat").read_bytes(), b"fixture ICU")
+
+    def test_runtime_settings_aggregate_sources_without_shipping_toml(self):
+        args = self.export_arguments()
+        settings = args.project / "settings"
+        settings.mkdir()
+        (settings / "runtime.toml").write_text(
+            'version=1\n[defaults.engine]\nwidth=1600\ntarget_frame_rate=45\n', encoding="utf-8"
+        )
+        (settings / "parallel.toml").write_text(
+            'version=1\n[profiles.mobile.threads]\nworker_limit=2\n', encoding="utf-8"
+        )
+        (settings / "editor.toml").write_text("must not ship", encoding="utf-8")
+        with (
+            mock.patch.object(desktop, "ROOT", self.root),
+            mock.patch.object(desktop, "build_resources", return_value=self.source),
+            mock.patch.object(desktop.subprocess, "run"),
+            mock.patch("builtins.print"),
+        ):
+            desktop.export(args)
+        result = json.loads((self.destination / "settings/runtime.json").read_text())
+        self.assertEqual(result["defaults"]["engine"], {"width": 1600, "target_frame_rate": 45})
+        self.assertEqual(result["profiles"]["mobile"]["parallel"]["threads"]["worker_limit"], 2)
+        self.assertEqual({p.name for p in (self.destination / "settings").iterdir()}, {"runtime.json"})
 
     def test_build_resources_passes_package_target_and_optional_manifest(self):
         args = self.export_arguments()
@@ -214,6 +239,24 @@ class DesktopExportTest(unittest.TestCase):
         with output.staged_output(self.destination) as stage:
             self.assertEqual(desktop.copy_resources(self.source, stage, "macos"), (1, 1))
         self.assertEqual((self.destination / self.entry["path"]).read_bytes(), contents)
+
+    def test_desktop_exports_json_type_from_shared_package(self):
+        config = resource_entry(
+            b'{"map":"sample","weapons":["carbine"]}\n', 2, 16, "config/maps.json", ""
+        )
+        self.entry["path"] = config["path"] = "packs/game"
+        config["offset"] = len(self.entry["entity"])
+        package = self.source / "packs/game"
+        package.parent.mkdir()
+        contents = self.entry["entity"] + config["entity"]
+        package.write_bytes(contents)
+        (self.source / "catalog.bin").write_bytes(catalog_fixture([self.entry, config], "macos"))
+        with output.staged_output(self.destination) as stage:
+            self.assertEqual(desktop.copy_resources(self.source, stage, "macos"), (2, 1))
+        parsed = catalog.catalog_entries(self.destination, "macos")
+        self.assertEqual([entry["kind"] for entry in parsed], [1, 16])
+        self.assertEqual(parsed[1]["offset"], config["offset"])
+        self.assertEqual((self.destination / "packs/game").read_bytes(), contents)
 
     def test_catalog_and_carriers_cannot_overwrite_deployed_files(self):
         for relative in ("catalog.bin", self.entry["path"]):

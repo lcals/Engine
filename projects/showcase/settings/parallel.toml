@@ -1,0 +1,121 @@
+# 运行并行预算：默认值 → desktop/mobile 档位 → overrides。
+
+version = 1
+
+[defaults]
+navigation_tile_threshold = 4
+completions_per_frame = 16
+completion_budget_seconds = 0.001
+
+[defaults.threads]
+worker_limit = 0
+worker_priority = "normal"
+
+[defaults.runtime]
+max_concurrency = 0
+priority = "high"
+max_pending = 1024
+
+[defaults.background]
+max_concurrency = 2
+priority = "low"
+max_pending = 128
+
+[defaults.loading]
+max_concurrency = 2
+priority = "low"
+max_pending = 256
+
+[defaults.physics]
+max_concurrency = 0
+priority = "high"
+max_pending = 2048
+
+[defaults.animation]
+max_concurrency = 0
+priority = "high"
+max_pending = 256
+
+[defaults.navigation]
+max_concurrency = 0
+priority = "normal"
+max_pending = 256
+
+[defaults.resources]
+max_in_flight = 4
+max_in_flight_bytes = 67108864
+completion_budget = 16
+
+[defaults.animation_sampling]
+min_parallel_count = 8
+batch_size = 16
+
+[defaults.scene_restore]
+nodes_per_step = 64
+max_seconds = 0.001
+
+[defaults.render]
+texture_batch_size = 4
+texture_staging_bytes = 67108864
+
+[profiles]
+
+[profiles.desktop]
+completions_per_frame = 32
+completion_budget_seconds = 0.002
+
+[profiles.desktop.background]
+max_concurrency = 4
+
+[profiles.desktop.loading]
+max_concurrency = 4
+
+[profiles.desktop.resources]
+max_in_flight = 8
+max_in_flight_bytes = 134217728
+completion_budget = 32
+
+[profiles.desktop.scene_restore]
+nodes_per_step = 128
+max_seconds = 0.002
+
+[profiles.desktop.render]
+texture_batch_size = 8
+texture_staging_bytes = 134217728
+
+[profiles.mobile]
+completions_per_frame = 8
+
+[profiles.mobile.threads]
+worker_limit = 3
+
+[profiles.mobile.runtime]
+max_concurrency = 3
+
+[profiles.mobile.background]
+max_concurrency = 1
+
+[profiles.mobile.loading]
+max_concurrency = 1
+
+[profiles.mobile.physics]
+max_concurrency = 3
+
+[profiles.mobile.animation]
+max_concurrency = 2
+
+[profiles.mobile.navigation]
+max_concurrency = 2
+
+[profiles.mobile.resources]
+max_in_flight = 2
+completion_budget = 8
+
+[profiles.mobile.scene_restore]
+nodes_per_step = 32
+max_seconds = 0.001
+
+[profiles.mobile.render]
+texture_batch_size = 2
+
+[overrides]

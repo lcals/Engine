@@ -21,6 +21,8 @@
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
@@ -103,7 +105,7 @@ bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer
 bool resize_window(engine::WindowSystem& windows, engine::RenderSystem& renderer)
 {
     SDL_Window* window = windows.native_window();
-    if (!expect(SDL_SetWindowSize(window, 800, 450), "request window resize"))
+    if (!expect(windows.set_size(800, 450), "request logical window resize through WindowSystem"))
     {
         return false;
     }
@@ -146,13 +148,78 @@ bool resize_window(engine::WindowSystem& windows, engine::RenderSystem& renderer
                   "GPU backbuffer must follow the actual drawable size");
 }
 
+bool test_window_controls(engine::WindowSystem& windows)
+{
+    engine::WindowSize size;
+    engine::WindowMode mode;
+    engine::MouseMode mouse;
+    std::vector<engine::DisplayMode> modes;
+    int logical_width = 0;
+    int logical_height = 0;
+    int pixel_width = 0;
+    int pixel_height = 0;
+    const engine::DisplayMode unsupported{0x7FFFFFFFU, 0x7FFFFFFFU, 1.0F, 60.0F};
+    if (!expect(windows.size(size) &&
+                    SDL_GetWindowSize(windows.native_window(), &logical_width, &logical_height) &&
+                    SDL_GetWindowSizeInPixels(windows.native_window(), &pixel_width, &pixel_height),
+                "query logical and drawable sizes independently") ||
+        !expect(size.logical_width == static_cast<std::uint32_t>(logical_width) &&
+                    size.logical_height == static_cast<std::uint32_t>(logical_height) &&
+                    size.pixel_width == static_cast<std::uint32_t>(pixel_width) &&
+                    size.pixel_height == static_cast<std::uint32_t>(pixel_height),
+                "window size preserves SDL logical/pixel semantics on high-density displays") ||
+        !expect(windows.mode(mode) && mode == engine::WindowMode::windowed,
+                "new window starts in windowed mode") ||
+        !expect(!windows.set_size(0, 1) && !windows.set_size(1, 0) &&
+                    !windows.set_size(std::numeric_limits<std::uint32_t>::max(), 1),
+                "invalid logical sizes fail without a resize request") ||
+        !expect(!windows.set_mode(static_cast<engine::WindowMode>(99)) &&
+                    !windows.set_mode(engine::WindowMode::fullscreen) &&
+                    !windows.set_mode(engine::WindowMode::windowed, &unsupported) &&
+                    !windows.set_mode(engine::WindowMode::fullscreen, &unsupported),
+                "invalid or non-enumerated fullscreen modes do not silently change window mode") ||
+        !expect(windows.mode(mode) && mode == engine::WindowMode::windowed,
+                "rejected fullscreen request keeps actual window mode queryable") ||
+        !expect(windows.display_modes(modes), "enumerate SDL modes of the window display"))
+    {
+        return false;
+    }
+    for (const auto& value : modes)
+    {
+        if (!expect(value.width > 0 && value.height > 0 &&
+                        std::isfinite(value.pixel_density) && value.pixel_density > 0.0F &&
+                        std::isfinite(value.refresh_rate) && value.refresh_rate >= 0.0F,
+                    "enumerated modes preserve dimensions, density, and refresh rate"))
+        {
+            return false;
+        }
+    }
+    return expect(!windows.set_mouse_mode(static_cast<engine::MouseMode>(99)),
+                  "reject an invalid mouse mode") &&
+           expect(windows.set_mouse_mode(engine::MouseMode::hidden) &&
+                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::hidden,
+                  "hidden mouse uses SDL cursor visibility") &&
+           expect(windows.set_mouse_mode(engine::MouseMode::normal) &&
+                      windows.mouse_mode(mouse) && mouse == engine::MouseMode::normal,
+                  "normal mouse restores a visible cursor without relative capture");
+}
+
 bool test_window_and_renderer(const engine::EngineConfig& config)
 {
     engine::WindowSystem windows;
     engine::RenderSystem renderer(windows);
     engine::EngineConfig invalid_config = config;
     invalid_config.width = 0;
-    if (!expect(!windows.initialize(invalid_config), "reject zero window width") ||
+    engine::WindowSize absent_size{1, 1, 1, 1};
+    engine::MouseMode absent_mouse = engine::MouseMode::relative;
+    if (!expect(!windows.size(absent_size) && absent_size.logical_width == 0 &&
+                    absent_size.logical_height == 0 && absent_size.pixel_width == 0 &&
+                    absent_size.pixel_height == 0 && !windows.request_exit() &&
+                    !windows.mouse_mode(absent_mouse) && absent_mouse == engine::MouseMode::normal,
+                "uninitialized window operations fail with safe outputs") ||
+        !expect(renderer.vsync() && !renderer.set_vsync(false),
+                "VSync defaults on and rejects requests before renderer initialization") ||
+        !expect(!windows.initialize(invalid_config), "reject zero window width") ||
         !expect(windows.native_window() == nullptr,
                 "failed window initialization leaves no window") ||
         !expect(!renderer.render(), "reject rendering before initialization") ||
@@ -184,6 +251,10 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
 
     engine::RenderSystem second_renderer(windows);
     if (!expect(!second_renderer.initialize(config), "reject a second active bgfx instance") ||
+        !test_window_controls(windows) ||
+        !expect(renderer.set_vsync(false) && !renderer.vsync(), "accept VSync disable request") ||
+        !render_frames(windows, renderer, 2) ||
+        !expect(renderer.set_vsync(true) && renderer.vsync(), "accept VSync enable request") ||
         !render_frames(windows, renderer, 8) || !resize_window(windows, renderer) ||
         !push_application_event(SDL_EVENT_WILL_ENTER_BACKGROUND) ||
         !expect(windows.tick(delta_time), "poll background event") ||
@@ -217,7 +288,8 @@ bool test_window_and_renderer(const engine::EngineConfig& config)
     {
         return false;
     }
-    return true;
+    return expect(windows.request_exit() && windows.request_exit() && windows.exit_requested(),
+                  "explicit exit request is accepted repeatedly and latched for the host");
 }
 
 struct GpuCounts
@@ -527,6 +599,20 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
     {
         return false;
     }
+    for (int attempt = 0; attempt < max_frame_attempts &&
+                          renderer.screenshot_status() == engine::ScreenshotStatus::pending;
+         ++attempt)
+    {
+        if (!render_frames(windows, renderer, 1, camera))
+        {
+            return false;
+        }
+    }
+    if (!expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete,
+                "GPU readback is encoded and written before inspecting pixels"))
+    {
+        return false;
+    }
     // bgfx 的默认回调保存 TGA；读取实际 GPU 输出，不给正式接口添加测试入口。
     auto image_path = path;
     image_path += ".tga";
@@ -787,15 +873,18 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
 
 bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 {
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Texture preparation", .max_concurrency = 2});
     engine::ResourceSystem resources;
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     engine::plugins::resource_graph::ResourceGraphSystem graph(resources);
 #endif
     engine::WorldSystem world;
     engine::WindowSystem windows;
-    engine::RenderSystem renderer(windows, &world);
+    engine::RenderSystem renderer(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr);
     test_support::ResourceFixture fixture;
-    if (!expect(resources.initialize(config) && world.initialize(config) &&
+    if (!expect((!shared || (threads.initialize(config) && tasks.initialize(config))) &&
+                    resources.initialize(config) && world.initialize(config) &&
                     windows.initialize(config) && renderer.initialize(config),
                 "initialize texture rendering systems") ||
         !expect(fixture.add(test_texture("textures/blocks", true, true)) &&
@@ -1116,9 +1205,18 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
     world.destroy_scene();
     renderer.release_scene();
-    return render_frames(windows, renderer, 8) &&
-           expect(gpu_counts() == idle && renderer.gpu_resource_count() == 0,
-                  "stopping textured scene retires every texture, mesh, program and uniform");
+    if (!render_frames(windows, renderer, 8) ||
+        !expect(gpu_counts() == idle && renderer.gpu_resource_count() == 0,
+                "stopping textured scene retires every texture, mesh, program and uniform"))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    engine::RenderSystem limited(windows, &world, nullptr, nullptr, shared ? &tasks : nullptr,
+                                 {.texture_batch_size = 4, .texture_staging_bytes = 1});
+    return expect(limited.initialize(config) && create_cube_scene(world, false) &&
+                      !limited.prepare_scene() && limited.gpu_resource_count() == 0,
+                  "oversized texture fails before allocating staging pixels and cleans candidates");
 }
 
 bool test_render_settings_and_capture(const engine::EngineConfig& config)
@@ -1510,6 +1608,63 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     return render_frames(windows, renderer, 8) &&
            expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
                   "capture and enhanced lighting retain no stopped-scene GPU resources");
+}
+
+bool test_async_capture(const engine::EngineConfig& config)
+{
+    engine::ThreadSystem threads({.worker_limit = 1});
+    engine::TaskSystem tasks(threads, {.name = "Capture test", .max_concurrency = 1,
+                                      .max_pending = 1});
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, nullptr, nullptr, nullptr, &tasks);
+    test_support::ResourceFixture fixture;
+    if (!threads.initialize(config) || !tasks.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    std::promise<void> release;
+    const auto gate = release.get_future().share();
+    auto busy = tasks.submit("Occupy capture admission", [gate]
+                             {
+                                 gate.wait();
+                                 return true;
+                             });
+    if (!busy.valid())
+    {
+        return false;
+    }
+    const auto capture = fixture.root / "async-capture.png";
+    std::error_code error;
+    const bool pending = renderer.request_screenshot(engine::PathUtils::to_utf8(capture)) &&
+                         render_frames(windows, renderer, 8) &&
+                         renderer.screenshot_status() == engine::ScreenshotStatus::pending &&
+                         !std::filesystem::exists(capture, error) && !error;
+    release.set_value();
+    if (!expect(busy.get() && pending,
+                "full task domain leaves one pending readback without blocking GPU frames"))
+    {
+        return false;
+    }
+    // 至少一次主线程提交；关闭必须等待已经接收的独立截图数据写入。
+    if (!render_frames(windows, renderer, 1))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    engine::ByteBuffer png;
+    constexpr std::array<unsigned char, 8> signature{137, 80, 78, 71, 13, 10, 26, 10};
+    if (!expect(renderer.screenshot_status() == engine::ScreenshotStatus::complete &&
+                    engine::ResourceSystem::read_binary(capture, png) && png.size() > 24 &&
+                    std::equal(signature.begin(), signature.end(), png.begin(),
+                               [](unsigned char expected, std::byte value)
+                               { return expected == std::to_integer<unsigned char>(value); }),
+                "renderer shutdown waits for accepted capture and reports actual PNG output"))
+    {
+        return false;
+    }
+    renderer.shutdown();
+    return true;
 }
 
 bool test_hdr_and_bloom(const engine::EngineConfig& config)
@@ -2059,7 +2214,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     engine::RuntimeHost host;
     const auto failed_factory = [](engine::WorldSystem&, engine::RenderSystem&, engine::UiSystem&,
                                    engine::PhysicsSystem&, engine::NavigationSystem&,
-                                   engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                                   engine::InputSystem&,
+                                   engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     { return {}; };
     if (!expect(!host.initialize(config, nullptr, failed_factory) &&
                     engine::Engine::instance().system_count() == 0 && host.world() == nullptr,
@@ -2070,7 +2226,8 @@ bool test_script_runtime_factory(const engine::EngineConfig& config)
     script_lifecycle = {};
     const auto factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                             engine::UiSystem&, engine::PhysicsSystem&, engine::NavigationSystem&,
-                            engine::InputSystem&) -> std::unique_ptr<engine::ScriptRuntime>
+                            engine::InputSystem&,
+                            engine::WindowSystem&) -> std::unique_ptr<engine::ScriptRuntime>
     {
         script_lifecycle.renderer = &renderer;
         return std::make_unique<ObservedScriptRuntime>(world);
@@ -2108,11 +2265,10 @@ int main(int, char**)
     const bool windows_passed = test_window_and_renderer(config);
     const bool scene_passed = windows_passed && test_scene_renderer(config);
     bool textures_passed = scene_passed && test_textured_renderer(config, false);
-#if defined(ENGINE_TEST_RESOURCE_GRAPH)
     textures_passed = textures_passed && test_textured_renderer(config, true);
-#endif
     const bool skinning_passed = textures_passed && test_gpu_skinning(config);
-    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config);
+    const bool settings_passed = skinning_passed && test_render_settings_and_capture(config) &&
+                                 test_async_capture(config);
     const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
     const bool extensions_passed = hdr_passed && test_render_extensions(config);
     const bool engine_passed = extensions_passed && test_engine(config);

@@ -95,7 +95,7 @@ struct ScriptSystem::State
         Run(State& state, Snapshot version)
             : owner(state), snapshot(std::move(version)),
               bindings(state.world, state.renderer, state.ui, state.physics, state.navigation,
-                       state.input),
+                       state.input, state.window),
               machine(vm::create_script_vm())
         {
         }
@@ -160,15 +160,17 @@ struct ScriptSystem::State
     PhysicsSystem* physics = nullptr;
     NavigationSystem* navigation = nullptr;
     InputSystem* input = nullptr;
+    WindowSystem* window = nullptr;
     double delta_time = 0.0;
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
     State(ScriptStatus& state, WorldSystem* scene_world, RenderSystem* scene_renderer,
           UiSystem* scene_ui, PhysicsSystem* scene_physics, NavigationSystem* scene_navigation,
-          InputSystem* scene_input)
+          InputSystem* scene_input, WindowSystem* scene_window)
         : status(state), world(scene_world), renderer(scene_renderer), ui(scene_ui),
-          physics(scene_physics), navigation(scene_navigation), input(scene_input)
+          physics(scene_physics), navigation(scene_navigation), input(scene_input),
+          window(scene_window)
     {
     }
 
@@ -295,9 +297,9 @@ struct ScriptSystem::State
 
 ScriptSystem::ScriptSystem(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                            PhysicsSystem* physics, NavigationSystem* navigation,
-                           InputSystem* input) noexcept
+                           InputSystem* input, WindowSystem* window) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input)
+      input_(input), window_(window)
 {
 }
 
@@ -311,7 +313,8 @@ bool ScriptSystem::on_initialize(const EngineConfig&)
     status_.last_error.clear();
     status_.available_revision.clear();
     state_ =
-        std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_);
+        std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
+                                window_);
     if (!state_->binding_registry.initialize())
     {
         return state_->fail("Cannot register script binding modules");

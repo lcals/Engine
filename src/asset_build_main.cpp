@@ -20,6 +20,8 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/asset_build/asset_build_system.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_FONT_IMPORTER
@@ -27,6 +29,9 @@
 #endif
 #if ENGINE_HAS_UI_IMPORTER
 #include "plugins/editor/ui_import/ui_importer.hpp"
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+#include "plugins/editor/json_import/json_importer.hpp"
 #endif
 #if ENGINE_HAS_FBX_IMPORTER
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
@@ -107,8 +112,16 @@ int main(int argc, char** argv)
         usage();
         return 2;
     }
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     const engine::EngineConfig config;
+    if (!threads.initialize(config) || !tasks.initialize(config))
+    {
+        std::fprintf(stderr, "Task services initialization failed: %s %s\n",
+                     threads.last_error().c_str(), tasks.last_error().c_str());
+        return 1;
+    }
     if (!pipeline.initialize(config))
     {
         std::fprintf(stderr, "Asset pipeline initialization failed: %s\n",
@@ -174,6 +187,15 @@ int main(int argc, char** argv)
     if (!pipeline.add_importer(ui_importer))
     {
         std::fputs("Cannot register ui importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> json_importer =
+        std::make_unique<engine::plugins::json_import::JsonImporter>();
+    if (!pipeline.add_importer(json_importer))
+    {
+        std::fputs("Cannot register JSON importer\n", stderr);
         return 1;
     }
 #endif

@@ -8,7 +8,11 @@
 
 已校验的 FlatBuffers 数据经 ozz 纯内存 Builder 转换为不可变运行对象，不读取未经校验的 ozz archive。场景缓存按骨架 GUID、资源代际，以及动作的源/目标骨架身份共享编译结果；缓存保留本场景已使用动作，往返切换不重复编译。每个实例独占时间、采样上下文、局部姿态和矩阵。组件删除或停用等条件在系统更新时清理采样条目及组件变形，编译缓存继续保留；停用不销毁 Animator 的播放状态及打断过渡快照。`clear()` 清理系统条目及编译缓存，切场景和结束玩法同样释放该系统缓存，不建立进程永久动画缓存。
 
-`SamplingJob` 分别采样两层动作，`BlendingJob` 混合局部平移、旋转和缩放，最后一次 `LocalToModelJob` 生成模型矩阵。混合与共享不可变运行对象分别参照 ozz 的 [blend](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/blend/sample_blend.cc) 和 [multithread](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/multithread/sample_multithread.cc) 示例；本模块当前在统一帧调度中执行，不引入额外工作线程。
+`SamplingJob` 分别采样两层动作，`BlendingJob` 混合局部平移、旋转和缩放，最后一次 `LocalToModelJob` 生成模型矩阵。混合与共享不可变运行对象分别参照 ozz 的 [blend](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/blend/sample_blend.cc) 和 [multithread](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/multithread/sample_multithread.cc) 示例；本模块借用宿主的 `TaskSystem`，复用 oneTBB worker，不创建自己的线程池。
+
+主线程收集场景与播放状态、维护编译缓存并推进时间；待采样实例达到 `AnimationConfig::min_parallel_count`（默认 8）且超过一个 `batch_size`（默认 16）时，按批次并行执行 ozz 采样、混合及两组矩阵计算。各批次独占实例状态，只共享不可变骨架和动作，不在 worker 访问场景组件。全部批次完成后主线程发布 palette，保持原有本帧更新顺序。未注入任务域、工作量不足或任务域拒绝整个批次时走相同串行计算；已接收的执行失败按失败返回，不重跑。
+
+两项参数均须为正数；实际并发额度由宿主任务域决定，可按平台预算调整。当前 tick 内等待本帧计算，不跨帧写回，不与后续主线程阶段重叠；首次动作编译仍在主线程。Tracy 的 `Animation.sample_batch` 显示批次执行线程，`Animation.sample_join` 显示主线程等待或串行计算，`Animation.publish` 显示结果发布；分析应区分首次编译与稳定采样帧。
 
 骨骼 palette 组合 Mesh 到骨架绑定变换、关节当前模型变换和关节逆绑定矩阵，输出为 Mesh 局部坐标、Mesh 引用的目标 `SkeletonData` 原始关节索引顺序、列主序 `float[16]`，不是源动作索引或 ozz DFS 次序。法线 palette 仅保存线性 inverse-transpose，切线和副切线使用普通 palette。渲染 compute 对每个实例每次姿态更新生成一次顶点流，主画面、阴影和 AO 共用；Mesh 资源的绑定顶点、拓扑和资源身份不变。动画系统不再每帧处理或复制全部顶点。
 

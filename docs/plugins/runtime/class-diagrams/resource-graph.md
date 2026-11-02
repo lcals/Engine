@@ -13,6 +13,7 @@ classDiagram
         +ResourceGraphSystem(ResourceSystem& resources)
         +~ResourceGraphSystem()
         +load(string_view guid, ResourcePtr& output) bool
+        +begin_load(string_view guid, unique_ptr~ResourceLoad~& output) bool
         +find(string_view guid) ResourcePtr
         +last_error() const string&
         #on_initialize(const EngineConfig& config) bool
@@ -22,14 +23,17 @@ classDiagram
     class ResourceLoader
     class ResourceSystem
     class Resource
+    class ResourceLoad
     class EngineConfig
     class Bundle
     System <|-- ResourceGraphSystem
     ResourceLoader <|-- ResourceGraphSystem
     ResourceGraphSystem --> ResourceSystem : 借用单项底层与目录代际
     ResourceGraphSystem --> Resource : weak别名引用不保活Bundle
+    ResourceGraphSystem ..> ResourceLoad : 创建并转交调用方独占
     ResourceGraphSystem ..> EngineConfig : 初始化参数
     Bundle o-- Resource : 当前资源和必要依赖
+    note for ResourceGraphSystem "begin_load 使用异步单项操作；load 明确使用同步路径"
 ```
 
 - 构造、析构、`find`、`last_error` 和 `on_shutdown` 为 noexcept，查询为 const；实现重写接口和系统生命周期钩子。状态和查询标注 nodiscard，禁止不适当的复制或移动。
@@ -41,3 +45,34 @@ classDiagram
 - 宿主决定启用并注入插件。关闭顺序：停止领域使用者，`set_loader(nullptr)` 解除核心借用，关闭插件，再关闭核心。插件不判断编辑器身份或自动扫描、发布目录。
 
 插件由 `cmake/plugins/runtime/resource_graph.cmake` 自声明并通过运行时插件清单选择。其他运行时模块只引用 ResourceLoader 契约；未选插件不能残留到核心目标的源文件或链接项。
+
+## 同步与异步复用
+
+`begin_load` 创建插件私有操作，公开方法、预算和终态契约见[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#分步与后台加载操作)。
+
+```mermaid
+classDiagram
+    direction TB
+    class GraphResourceLoad {
+        <<private final>>
+    }
+    class ResourceLoad
+    class ResourceGraphSystem
+    class ResourceSystem
+    class Resource
+    ResourceLoad <|-- GraphResourceLoad
+    ResourceGraphSystem ..> GraphResourceLoad : 创建后转移独占所有权
+    GraphResourceLoad --> ResourceGraphSystem : 借用现有同代弱缓存
+    GraphResourceLoad --> ResourceSystem : 借用既有单项 load 与依赖校验
+    GraphResourceLoad o-- Resource : 本任务 retained 与 ready 根共享引用
+```
+
+`GraphResourceLoad` 位于 `engine::plugins::resource_graph`，由调用方独占并借用插件及资源核心。系统不自建任务池；同步 `load` 缓存未命中时使用同一依赖计划的同步模式，一次推进完成。配置核心异步任务域后，`begin_load` 启用后台模式，私有 pending 操作持有各单项读取，数量和字节上限由资源核心统一控制。
+
+1. 创建时遍历目标的目录依赖，使用迭代 DFS 检查循环并生成唯一后序计划，固定 generation 和资源总数。只安排必要闭包，每个 GUID 一次。
+2. step 按后序计划并发预读预算窗口内的实体，读取解码不依赖其他已加载实体；候选结果仍按计划先处理直接依赖。命中同代缓存时复用完整对象；否则通过单项异步操作（或显式同步 load）取得实体，再在协调线程调用 `validate_dependencies`，把实体及依赖放入私有 Bundle。retained 强引用保持跨帧候选存活。
+3. loading 时在推进和发布前检查目录 generation、加载器及资源核心状态；失败保存独立错误并释放候选。完整闭包就绪前不发布任何新弱索引，失败和取消不留下部分驻留条目。
+4. 完成后按后序统一发布。若其他调用已发布同代完整对象，优先复用它，并把尚未发布的父项接到最终共享依赖上；不覆盖仍存活的共享对象。不同未完成操作不合并在途候选。
+5. 发布完成后，操作保留根 ResourcePtr 并释放临时计划和 retained；根通过 Bundle 别名引用持有完整依赖。销毁操作仅减少自己的引用，其他使用者继续保活资源。
+
+`begin_load` 失败清空输出并填写插件的 `last_error`。宿主停止、重载或关闭加载器前，先销毁其借用的操作。场景提交与图形准备继续遵循[加载阶段与限制](../../../runtime/class-diagrams/resource-loader.md#加载阶段与限制)。

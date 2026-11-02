@@ -40,6 +40,7 @@ target_compile_definitions(
 engine_link_resource_plugin(engine_project_app)
 engine_link_script_plugin(engine_project_app)
 engine_link_character_plugin(engine_project_app)
+engine_configure_runtime_settings(engine_project_app)
 engine_apply_options(engine_project_app)
 engine_enable_profiling(engine_project_app)
 engine_copy_script_data(engine_project_app)

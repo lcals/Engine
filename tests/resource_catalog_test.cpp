@@ -522,6 +522,17 @@ bool run(const std::filesystem::path& root)
     {
         return false;
     }
+    if (!expect(world.set_paused(true) && world.load_scene("scenes/missing.scene") == nullptr &&
+                    world.scene() == restored && world.paused(),
+                "failed scene load retains current scene and its pause state"))
+    {
+        return false;
+    }
+    restored = world.load_scene("scenes/main.scene");
+    if (!expect(restored && !world.paused(), "successful scene replacement resets world pause"))
+    {
+        return false;
+    }
     std::weak_ptr<const Resource> weak = loaded;
     loaded.reset();
     shared.reset();

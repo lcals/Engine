@@ -29,18 +29,20 @@
 
 ## 当前宿主与导入模块
 
+- [运行时线程与任务系统](../runtime/class-diagrams/task-system.md)：oneTBB 共享 worker、编辑器与运行时独立任务域，两级优先度、异步依赖批次与 Tracy。
 - [帧率限制](../runtime/class-diagrams/frame-limiter.md)：核心整帧休眠能力，编辑器和项目选择上限。
 - [运行宿主](../runtime/class-diagrams/runtime-host.md)：装配具体系统，处理窗口事件、暂停与帧提交。
+- [运行设置](../runtime/class-diagrams/runtime-settings.md)：项目 TOML 仅由编辑器/打包读取，统一 JSON 交付运行宿主，核心接收类型配置。
 - [脚本运行契约](../runtime/class-diagrams/script-runtime.md)：核心定义的执行接口与状态，宿主通过工厂选择插件。
 - [玩法运行会话](../runtime/class-diagrams/gameplay-session.md)：协调脚本、场景、GPU 与项目资源的启动和释放。
 - [核心 GUID 映射](../runtime/class-diagrams/guid-map.md)：编辑器与真机复用，完整 GUID 与逻辑路径双向查询。
 
-- [任务系统](../editor/class-diagrams/task-system.md)：Taskflow 执行器，项目默认 4 个导入线程。
 - [逐类型资源导入](../editor/class-diagrams/asset-importers.md)：通用导入契约、显式登记与每类资源独立转换。
 - [FBX 模型资源导入](../plugins/editor/class-diagrams/fbx-importer.md)：ufbx 解析、稳定子资源、骨骼与动画采样。
 - [USD 静态模型导入](../plugins/editor/class-diagrams/usd-import.md)：独立源格式插件、自包含静态多边形及增量子网格。
 - [字体资源导入](../plugins/editor/class-diagrams/font-importer.md)：独立编辑器插件读取 TTF 和 meta，生成共享字形曲线与度量资源。
 - [UI 资源导入](../plugins/editor/class-diagrams/ui-importer.md)：文档、字体和图片引用转换为标准运行资源依赖。
+- [JSON 资源导入](../plugins/editor/class-diagrams/json-importer.md)：独立 `.json` 配置、严格 UTF-8 校验、原字节发布与空依赖。
 - [建模资源导入插件](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：宿主注入网格导入扩展，编辑器管线不依赖建模插件。
 - [场景组件描述编解码](../editor/class-diagrams/scene-component-codecs.md)：组件 TOML 读取、验证和写出按类型拆分。
 - [场景导入器](../editor/class-diagrams/scene-importer.md)：TOML 场景读写与生成数据校验。
@@ -84,11 +86,15 @@
 
 ## 脚本接口
 
+- [运行时控制](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：在现有 WindowSystem、RenderSystem、WorldSystem 和资源加载链路补齐显示、退出、鼠标、暂停及单线程资源进度；底层复用已选成熟库，实现与 SDK 同步。
+
 - [App 平台路径](../runtime/class-diagrams/app.md)：缓存、包内资源和持久数据具有跨平台一致含义。
 - [字符串 KV](../runtime/class-diagrams/key-value-store.md)：原生通用存取、每 Run 缓存、显式保存和脚本外观；游戏数据内容与版本由项目维护。
 - [KV 脚本接口](../plugins/runtime/class-diagrams/storage-script-api.md)：Storage 静态门面、逐类绑定与回调边界。
+- [JSON 资源脚本接口](../plugins/runtime/class-diagrams/json-script-api.md)：`Json.Load` 在活动回调读取标准资源，返回普通 JavaScript 值。
 - [日志系统](../runtime/class-diagrams/log-system.md)：宿主管理的单例，默认写入磁盘。
 - [项目玩法入口](../runtime/class-diagrams/gameplay.md)：项目 `Game` 继承 `Gameplay`，可承载项目业务与场景流转。
+- [世界暂停方案](../runtime/world-pause.md)：冻结自动模拟并继续 UI、输入和菜单，保留既有系统装配与调度框架。
 - [资源同步](../plugins/editor/class-diagrams/asset-sync-system.md)：完整批次发布到持久资源版本目录。
 
 - [渲染脚本接口](../plugins/runtime/class-diagrams/render-script-api.md)：环境色、曝光、阴影、清屏色，以及投影、灯光、具名贴图和材质槽。
@@ -184,7 +190,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 - [项目系统](../editor/class-diagrams/project-system.md)：编辑器宿主先检查项目根目录及 settings、cache、assets；接入 toml++。
 - [编辑器系统](../editor/class-diagrams/editor-system.md)：借用已就绪的编辑器环境，创建 Dear ImGui 上下文，支持编辑器子系统。
 - `engine_app` 使用默认配置即可启动；`editor_app` 必须传入 `--project <path>`，先验证项目再启动窗口。编辑器默认空白待机，MCP 启动后项目占满同一窗口，停止后恢复空白；尚未绘制编辑器业务界面。
-- [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：Taskflow、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
+- [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：oneTBB、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
 - shaderc、texturec、geometryc 是构建提供的宿主工具；fmt 用于基础格式化。它们不引入额外引擎包装类。
 - 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内置资源通过 SDL 文件流读取，平台验证范围见根 [README.md](../../README.md)。
 

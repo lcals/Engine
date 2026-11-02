@@ -10,7 +10,7 @@ C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对
 classDiagram
     class ScriptSystem {
         <<final>>
-        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input)
+        +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window)
         +~ScriptSystem()
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
@@ -29,6 +29,7 @@ classDiagram
     class UiSystem
     class NavigationSystem
     class InputSystem
+    class WindowSystem
     class ResourceCatalog
     class ResourceMount
     class Resource
@@ -41,6 +42,7 @@ classDiagram
     ScriptSystem --> UiSystem : 可空借用，主线程控件事件
     ScriptSystem --> NavigationSystem : 可空借用，覆盖玩法及场景清理
     ScriptSystem --> InputSystem : 可空借用，覆盖Run句柄清理
+    ScriptSystem --> WindowSystem : 可空借用，覆盖Run鼠标清理
     ScriptSystem *-- ScriptStatus : 状态
     ScriptSystem ..> ResourceCatalog : 复制候选元数据
     ScriptSystem ..> ResourceMount : 候选存储输入
@@ -67,6 +69,12 @@ classDiagram
 ```
 
 - `world`、`renderer`、`ui`、`physics`、`navigation` 和 `input` 默认空指针；非空世界必须比本系统存活更久。服务借用覆盖全部玩法回调，navigation 还须覆盖停止时的场景清理，input 须覆盖 Run 的通道与捕获清理；调用方先停止玩法再关闭这些系统。停止后上下文清理不访问渲染器。初始化准备绑定注册表，并创建临时 VM 验证所选后端能够初始化，随后释放；不启动项目，也不读取资源部署文件。
+
+构造和宿主脚本工厂最后追加窗口借用。ScriptSystem 的 window 默认 nullptr，非空时
+必须覆盖全部 Run 与鼠标状态恢复；只传给既有 BindingContext/逐类绑定，不在 ScriptSystem
+直接调用 SDL。世界暂停时 UI 事件和 Gameplay.Update 继续，项目自行跳过世界业务。
+分步资源操作由每 Run 的 BindingContext 独占，不另起加载系统、线程或调度器，停止先取消操作，
+再按已有顺序清理绑定、VM、场景和共享引用。详见[运行时控制](runtime-controls-script-api.md)。
 - `prepare_gameplay()` 接收调用方提供的目录和挂载，入口默认 `scripts/game.js`，修订默认目录修订。只沿静态 import 图读取候选 JS、编译和链接，不执行模块或用户回调、不更新核心目录、不停止旧玩法。失败保留旧运行。
 - 宿主预检成功后停止旧玩法及 GPU、更新资源目录，再调用 `start_prepared_gameplay()`。启动核对活动资源与预检脚本的内容及模块身份，取得共享引用，然后执行模块并创建入口。执行失败停止本次玩法，不承诺撤销外部副作用。
 - `start_gameplay()` 是从已经提交的活动目录直接准备并启动的入口；目录未提交或模块缺失时返回失败，不回退物理脚本目录。

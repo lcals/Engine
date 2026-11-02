@@ -10,6 +10,8 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/ui_component.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
@@ -451,7 +453,9 @@ export default class extends Gameplay {
 struct Systems
 {
     engine::ResourceSystem resources;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
+    engine::editor::AssetPipelineSystem pipeline{tasks};
     engine::WindowSystem window;
     engine::WorldSystem world;
     engine::FontSystem fonts;
@@ -469,6 +473,8 @@ struct Systems
         window.shutdown();
         resources.shutdown();
         pipeline.shutdown();
+        tasks.shutdown();
+        threads.shutdown();
     }
 
     bool add_script(engine::schema::AssetCatalogDataT& catalog, const fs::path& project,
@@ -512,7 +518,9 @@ struct Systems
             std::make_unique<engine::plugins::font_import::FontImporter>();
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> document =
             std::make_unique<engine::plugins::ui_import::UiImporter>();
-        if (!expect(pipeline.initialize(config), "initialize pipeline") ||
+        if (!expect(threads.initialize(config) && tasks.initialize(config) &&
+                        pipeline.initialize(config),
+                    "initialize pipeline") ||
             !expect(pipeline.add_importer(font) && pipeline.add_importer(document),
                     "register font and UI importers") ||
             !expect(pipeline.build_assets(project), pipeline.last_error()))
@@ -684,6 +692,40 @@ bool native_mouse_capture_case(Systems& systems)
     if (!expect(systems.ui.process_event(button) && !systems.ui.owns_pointer(wheel) &&
                     !systems.ui.process_event(wheel),
                 "released UI capture returns background wheel input to gameplay"))
+    {
+        return false;
+    }
+    engine::UiElementHandle action;
+    engine::UiEvent clicked;
+    if (!expect(systems.ui.find_element(systems.world.scene()->nodes().front()->id(), "action",
+                                       action) &&
+                    systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
+                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
+                "project-managed buttons retain mouse clicks without claiming the keyboard"))
+    {
+        return false;
+    }
+    for (const auto key : {SDLK_RETURN, SDLK_SPACE})
+    {
+        for (const auto type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP})
+        {
+            SDL_Event event{};
+            event.type = type;
+            event.key.windowID = window;
+            event.key.key = key;
+            event.key.down = type == SDL_EVENT_KEY_DOWN;
+            if (!expect(!systems.ui.process_event(event) && !systems.ui.keyboard_claimed() &&
+                            !systems.ui.poll_event(clicked),
+                        "Enter and Space remain unclaimed and do not click the old mouse target"))
+            {
+                return false;
+            }
+        }
+    }
+    if (!expect(click(systems) && systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && !systems.ui.poll_event(clicked),
+                "mouse clicks still produce exactly one event after keyboard navigation"))
     {
         return false;
     }

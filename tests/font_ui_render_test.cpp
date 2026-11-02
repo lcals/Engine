@@ -10,6 +10,8 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/text_component.hpp"
 #include "runtime/scene/ui_component.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
@@ -308,7 +310,9 @@ GpuCounts gpu_counts()
 struct Systems
 {
     engine::ResourceSystem resources;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
+    engine::editor::AssetPipelineSystem pipeline{tasks};
     engine::WindowSystem window;
     engine::WorldSystem world;
     engine::FontSystem fonts;
@@ -325,6 +329,8 @@ struct Systems
         window.shutdown();
         resources.shutdown();
         pipeline.shutdown();
+        tasks.shutdown();
+        threads.shutdown();
     }
 
     bool initialize(const fs::path& project)
@@ -337,7 +343,9 @@ struct Systems
             std::make_unique<engine::plugins::font_import::FontImporter>();
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> document =
             std::make_unique<engine::plugins::ui_import::UiImporter>();
-        return expect(pipeline.initialize(config), "initialize asset pipeline") &&
+        return expect(threads.initialize(config) && tasks.initialize(config) &&
+                          pipeline.initialize(config),
+                      "initialize asset pipeline") &&
                expect(pipeline.add_importer(font) && pipeline.add_importer(document),
                       "register font and UI importer plugins") &&
                expect(pipeline.build_assets(project), pipeline.last_error()) &&

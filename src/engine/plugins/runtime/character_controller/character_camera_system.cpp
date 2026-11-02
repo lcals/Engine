@@ -73,6 +73,10 @@ bool CharacterCameraSystem::on_tick(double)
         clear_visibility();
         return true;
     }
+    if (world_.paused())
+    {
+        return true;
+    }
     for (const auto& node : scene->nodes())
     {
         auto* rig = node->get_component<CharacterCamera>();

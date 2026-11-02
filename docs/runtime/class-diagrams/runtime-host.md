@@ -8,10 +8,11 @@ classDiagram
     class RuntimeHost {
         +RuntimeHost()
         +~RuntimeHost()
-        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ScriptRuntimeFactory script_factory, RuntimeSetup setup) bool
+        +initialize(const EngineConfig& config, ResourceSystem#42; resources, ScriptRuntimeFactory script_factory, RuntimeSetup setup, ThreadSystem#42; threads, const RuntimeParallelConfig& parallel) bool
         +tick(double delta_time) FrameStatus
         +poll_events(double delta_time) FrameStatus
         +gameplay() GameplaySession#42;
+        +tasks() TaskSystem#42;
         +world() WorldSystem#42;
         +window() WindowSystem#42;
         +input() InputSystem#42;
@@ -20,6 +21,30 @@ classDiagram
         +shutdown() void
     }
     class Engine
+    class ThreadSystem
+    class TaskSystem
+    class RuntimeParallelConfig {
+        +ThreadConfig threads
+        +TaskConfig runtime
+        +TaskConfig background
+        +TaskConfig loading
+        +TaskConfig physics
+        +TaskConfig animation
+        +TaskConfig navigation
+        +ResourceAsyncConfig resources
+        +AnimationConfig animation_sampling
+        +SceneRestoreConfig scene_restore
+        +RenderConfig render
+        +size_t navigation_tile_threshold
+        +size_t completions_per_frame
+        +double completion_budget_seconds
+    }
+    class ThreadConfig
+    class TaskConfig
+    class ResourceAsyncConfig
+    class AnimationConfig
+    class SceneRestoreConfig
+    class RenderConfig
     class WindowSystem
     class InputSystem
     class GameplaySession
@@ -41,6 +66,16 @@ classDiagram
     class AnimationSystem
     class EngineConfig
     class FrameStatus
+    RuntimeHost *-- TaskSystem : 独占各模块任务域，共享 worker
+    RuntimeHost *-- RuntimeParallelConfig : 运行预算快照
+    RuntimeParallelConfig *-- ThreadConfig
+    RuntimeParallelConfig *-- TaskConfig
+    RuntimeParallelConfig *-- ResourceAsyncConfig
+    RuntimeParallelConfig *-- AnimationConfig
+    RuntimeParallelConfig *-- SceneRestoreConfig
+    RuntimeParallelConfig *-- RenderConfig
+    RuntimeHost *-- ThreadSystem : 独立宿主拥有预算
+    RuntimeHost --> ThreadSystem : 编辑器提供时借用预算
     RuntimeHost --> Engine : 借用进程框架并装配根系统
     RuntimeHost *-- WindowSystem : 独占窗口
     RuntimeHost *-- InputSystem : 独占输入，暂停前发布状态
@@ -58,6 +93,7 @@ classDiagram
     RuntimeHost ..> RuntimeSetup : 初始化前调用宿主装配函数
     RuntimeSetup ..> RuntimeStage : 选择子系统登记位置
     RuntimeSetup ..> NavigationSystem : 借用已构造导航供宿主装配
+    RuntimeSetup ..> TaskSystem : 借用已初始化运行域供插件装配
     RuntimeHost --> AnimationSystem : 装配后借用以清理会话
     RuntimeHost ..> ScriptRuntime : 创建后移交世界独占
     RuntimeHost ..> EngineConfig : 初始化参数
@@ -66,7 +102,11 @@ classDiagram
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
 - 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，通过可选 Tracy 客户端接收各模块采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
-- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
+- `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
+
+上述工厂最后一个参数 `WindowSystem&`，传入宿主已有窗口，供脚本插件的现有/新增绑定
+调用现有窗口系统；不传 RuntimeHost，不让脚本插件持有或关闭宿主。窗口有效期覆盖全部 Run，
+先停止玩法及清理鼠标请求，再关闭输入和窗口。核心不链接具体 WindowBinding。
 - RuntimeHost 和 GameplaySession 只依赖 [ScriptRuntime](script-runtime.md) 契约，不包含或链接具体脚本插件，不依据虚拟机或插件编译宏改变核心实现。无工厂时仍能初始化窗口、场景和渲染；启动脚本玩法明确返回不可用。
 - 每帧先处理窗口事件，退出返回 exit_requested；窗口不可绘制时暂停音频输出，返回 paused 并继续接收恢复事件；恢复后继续音频与物理步进。随后由 Engine 更新根系统，由 GameplaySession 处理显式部署控制和资源切换，最后提交渲染帧。
 - 项目场景渲染失败时停止 GameplaySession 并尝试空白渲染；恢复成功继续运行，错误保留在会话中。系统更新或空白渲染失败保持 failed，直到关闭后重新初始化。渲染过程中收到平台暂停时返回 paused。
@@ -74,12 +114,25 @@ classDiagram
 - `world()` 返回同生命周期的可空世界借用，供宿主连接独立编辑器业务；运行时不认识命令服务或 MCP。
 - `window()` 返回同生命周期的可空窗口借用，供调用方独立组织事件处理和渲染帧；核心不判断调用方模式。
 - `renderer()` 返回同生命周期的可空渲染器借用，宿主据此装配编辑器渲染命令；截图和渲染设置接口由 RenderSystem 提供。
-- 关闭先销毁玩法会话，再关闭 Engine 拥有的渲染、世界及可选资源根系统，随后关闭输入、最后销毁窗口。借用的外部 ResourceSystem 由调用宿主继续管理，本对象不关闭它。部分初始化和重复关闭均安全。
+- 关闭顺序统一见下方[并行配置](#并行配置)。借用的外部 ResourceSystem 仍由调用宿主管理，RuntimeHost 仅解除其异步服务，不关闭资源系统本身。部分初始化和重复关闭均安全。
 - RuntimeHost 不解析项目目录、不读取编辑器配置，也不实现脚本热重载；这些职责分别属于编辑器、平台路径和脚本模块。
+
+## 并行配置
+
+`RuntimeParallelConfig` 是运行宿主装配参数，默认同一套实现用于桌面和移动端。编辑器读取项目源 TOML 后直接传递类型配置；打包链导出聚合 `settings/runtime.json`，原生宿主读取 RuntimeSettings 的 engine / parallel 后再传入本对象。RuntimeHost 不解析项目 TOML，EngineConfig 与并行设置均由调用者提供。平台宿主或项目启动配置可覆盖线程上限、各域并发/优先级/积压额度、资源在途数量与字节、动画批量及完成委托每帧预算；核心不按调用方身份选择策略。宿主中域并发为 0 表示采用实际进程 worker 预算，传入 TaskSystem 前解析为正整数。线程预算只在启动时确定，借用进程 ThreadSystem 时沿用其预算。
+
+运行时通用、物理、动画域默认高优先，导航正常，加载低优先；各域共享 oneTBB workers，额度不是独占核心。物理和动画关键计算仍在当前帧 join，保持输入/事件/骨骼时序；文件等待交给 SDL AsyncIO，资源解码交给加载域。每帧事件处理后先按数量和总时间预算派发完成委托，然后推进场景与绘制。数量或时间额度为零表示本帧不派发，不会等待队列。
+
+关闭依次销毁 GameplaySession、调用 ResourceSystem::shutdown_async()、关闭 Engine 拥有的渲染/世界及可选资源系统，再销毁 InputSystem 和 WindowSystem，随后收尾并关闭各 TaskSystem，最后释放自有 ThreadSystem。领域系统先完成其 Jolt barrier、资源操作和其他借用任务，才能销毁任务域；后台候选只拥有独立数据，不能借用已经销毁的输入或窗口。未派发委托不在关闭期间执行。
+
+[世界暂停](../world-pause.md)不改变 Engine/System 的调度接口。宿主音频暂停条件改为
+`!window.can_render() || world.paused()`，在事件处理后和世界更新后同步，避免同帧菜单修改的
+暂停值延迟到下一帧，以及窗口恢复错误解除世界暂停。世界暂停时仍运行正常帧循环、UI 和渲染；
+仅窗口不可绘制时沿既有 FrameStatus::paused 返回。
 
 可执行宿主负责按构建清单装配 ResourceGraphSystem 并向资源底层注入 ResourceLoader；RuntimeHost 库不 include 或链接具体资源插件。外部资源有效期覆盖本宿主及全部领域使用者，关闭消费者后先解除加载器借用，再关闭插件与资源底层。
 
-`RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, NavigationSystem&, RenderSystem&)` 是宿主回调别名。NavigationSystem 借用在调用前已构造，生命周期覆盖插件子系统；宿主可据此显式装配多人导航，无需按类型扫描子系统。
+`RuntimeSetup = bool (*)(RuntimeStage, WorldSystem&, WindowSystem&, PhysicsSystem&, NavigationSystem&, RenderSystem&, TaskSystem&)` 是宿主回调别名。NavigationSystem 借用在调用前已构造，生命周期覆盖插件子系统；TaskSystem 为已初始化的运行域，供宿主显式注入插件。宿主可据此装配多人导航及异步地形/破坏，无需按类型扫描子系统。
 
 渲染器在装配回调前已经构造，尚未初始化；宿主可登记 [RenderExtension](render-extension.md)，将具体插件所有权移交世界。核心不识别插件类型，扩展 GPU 准备在渲染器初始化成功后的绘制阶段执行。
 对象先构造，世界尚未初始化时分别以 `before_physics` 和 `after_physics` 调用一次；窗口已就绪，
@@ -113,6 +166,10 @@ flowchart TD
 
 按[输入设计](../input.md)，RuntimeHost 在 WindowSystem 后独占初始化 InputSystem，每帧先开输入帧、单次泵窗口事件、按 UI / 原生触摸占用路由，再更新输入并检查暂停。输入不进入 World 或现有世界子系统链，后台仍处理断开与清理。
 
-脚本工厂参数包括 InputSystem&，BindingContext 取得可空借用；宿主在所有 Run 与世界 / UI 消费者关闭后才关闭输入，最后关闭窗口。输入不增加项目配置或默认绑定参数；TS 自行加载、合并和提交最终配置。原生对象与参数关系见[输入类图](input-system.md)。
+脚本工厂参数包括 InputSystem&，BindingContext 取得可空借用；输入和窗口生命周期覆盖所有 Run 与世界 / UI 消费者，统一关闭顺序见[并行配置](#并行配置)。输入不增加项目配置或默认绑定参数；TS 自行加载、合并和提交最终配置。原生对象与参数关系见[输入类图](input-system.md)。
 
 `poll_events(delta_time)` 在窗口可绘制时先同步 UI 文档，随后执行输入开帧、持续 UI 占用提交、唯一窗口事件泵和输入发布，并返回运行 / 暂停 / 退出 / 失败状态；不推进世界或渲染。`tick` 复用该方法，编辑器预览也调用同一入口，每宿主帧二者只选一个。`input()` 返回与 window() 相同生命周期的可空借用，供调用方创建和查询自己的通道，不新增编辑器模式。
+
+线程装配见[线程与任务系统](task-system.md)。initialize 的 threads 参数默认空：空时创建并初始化进程预算，非空须已初始化并在宿主之后关闭。宿主独占运行、后台、加载、物理、动画和导航任务域；tasks() 返回初始化期间运行域的可空借用。
+
+遵守 TaskSystem 的生命周期契约：完成委托内需要退出时调用 `request_exit()`，由宿主循环在回调返回的安全点执行 `shutdown()`；委托内不得直接关闭或销毁当前任务域、RuntimeHost 等正在派发该委托的拥有者。

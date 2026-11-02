@@ -60,6 +60,7 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::effect, &binary},
     CodecEntry{schema::AssetKind::terrain, &binary},
     CodecEntry{schema::AssetKind::destruction, &binary},
+    CodecEntry{schema::AssetKind::json, &binary},
 };
 
 } // namespace

@@ -1,6 +1,7 @@
 #include "runtime/ui/rml_render.hpp"
 
 #include "fs_ui.bin.h"
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/ui/rml_font.hpp"
 #include "vs_ui.bin.h"
@@ -413,7 +414,7 @@ Rml::TextureHandle RmlRender::LoadTexture(Rml::Vector2i& dimensions, const Rml::
     }
     else
     {
-        basist::basisu_transcoder_init();
+        TextureResourceCodec::initialize_transcoder();
         basist::basisu_transcoder decoder;
         const auto size = static_cast<std::uint32_t>(data.data.size());
         if (!decoder.start_transcoding(data.data.data(), size) ||

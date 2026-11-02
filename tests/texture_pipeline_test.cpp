@@ -7,6 +7,8 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/schema/texture_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -324,9 +326,12 @@ bool tests()
 {
     Fixture fixture;
     ResourceSystem resources;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     EngineConfig config;
-    if (!fixture.initialize() || !resources.initialize(config) || !pipeline.initialize(config))
+    if (!fixture.initialize() || !resources.initialize(config) || !threads.initialize(config) ||
+        !tasks.initialize(config) || !pipeline.initialize(config))
     {
         return false;
     }
@@ -534,12 +539,15 @@ bool tests()
 bool ktx_tests()
 {
     Fixture fixture;
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     ResourceSystem resources;
     const auto cube_bytes = test_support::ktx_image(true, true, 3);
     const auto lut_bytes = test_support::ktx_image(false, false, 1);
-    if (!expect(fixture.initialize() && pipeline.initialize({}) && resources.initialize({}) &&
-                    !cube_bytes.empty() && !lut_bytes.empty(),
+    if (!expect(fixture.initialize() && threads.initialize({}) && tasks.initialize({}) &&
+                    pipeline.initialize({}) && resources.initialize({}) && !cube_bytes.empty() &&
+                    !lut_bytes.empty(),
                 "create HDR KTX import fixture") ||
         !expect(write(fixture.root / "assets/reflection.ktx", cube_bytes) &&
                     write(fixture.root / "assets/brdf.ktx", lut_bytes) && build(pipeline, fixture),

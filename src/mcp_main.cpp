@@ -38,6 +38,8 @@
 #include "plugins/editor/mcp/render_mcp_tools.hpp"
 #include "plugins/editor/mcp/scene_preview_mcp_tools.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #if ENGINE_HAS_FONT_IMPORTER
@@ -45,6 +47,9 @@
 #endif
 #if ENGINE_HAS_UI_IMPORTER
 #include "plugins/editor/ui_import/ui_importer.hpp"
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+#include "plugins/editor/json_import/json_importer.hpp"
 #endif
 #if ENGINE_HAS_FBX_IMPORTER
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
@@ -131,7 +136,9 @@ int main(int argc, char** argv)
         return 2;
     }
     const engine::EngineConfig config{};
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
     engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
     engine::plugins::asset_sync::AssetSyncSystem sync;
     engine::plugins::mcp::ProjectMcpTools project_tools(pipeline, builder, sync, project, target);
@@ -145,6 +152,12 @@ int main(int argc, char** argv)
     engine::plugins::scene_bake::SceneBakeMcpTools scene_bake_tools(editor_tools);
 #endif
     engine::plugins::mcp::McpSystem mcp;
+    if (!threads.initialize(config) || !tasks.initialize(config))
+    {
+        std::fprintf(stderr, "Cannot initialize task services: %s %s\n",
+                     threads.last_error().c_str(), tasks.last_error().c_str());
+        return 1;
+    }
     if (!pipeline.initialize(config))
     {
         std::fputs("Cannot initialize asset pipeline\n", stderr);
@@ -209,6 +222,15 @@ int main(int argc, char** argv)
     if (!pipeline.add_importer(ui_importer))
     {
         std::fputs("Cannot register ui importer\n", stderr);
+        return 1;
+    }
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+    std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> json_importer =
+        std::make_unique<engine::plugins::json_import::JsonImporter>();
+    if (!pipeline.add_importer(json_importer))
+    {
+        std::fputs("Cannot register JSON importer\n", stderr);
         return 1;
     }
 #endif

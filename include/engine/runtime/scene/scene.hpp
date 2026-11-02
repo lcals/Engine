@@ -54,6 +54,9 @@ private:
     [[nodiscard]] Node* create_node(std::string_view name, std::uint64_t local_id);
     [[nodiscard]] Node* find_local_node(std::uint64_t local_id) const noexcept;
     [[nodiscard]] bool restore_data(const schema::SceneDataT& data);
+    [[nodiscard]] bool restore_node(const schema::NodeDataT& data);
+    [[nodiscard]] bool restore_parent(const schema::NodeDataT& data);
+    [[nodiscard]] bool finish_restore(const schema::SceneDataT& data);
     void destroy_entity(std::uint64_t id, std::uint64_t local_id) noexcept;
 
     ecs_world_t& world_;

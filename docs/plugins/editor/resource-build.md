@@ -19,7 +19,7 @@
 | 模块 | 负责内容 |
 | --- | --- |
 | `AssetPipelineSystem` | 扫描资源和 meta、校验身份、记录构建依赖与运行依赖、管理 SQLite 版本、调度增量转换。 |
-| `TaskSystem` | 使用 Taskflow 执行转换任务；由资源管线读取 `settings/import.toml` 并配置，导入线程默认 4。 |
+| `TaskSystem` | 使用 oneTBB 执行转换任务；由资源管线读取 `settings/import.toml` 并配置，导入线程默认 4。 |
 | `AssetBuildSystem` | 借用资源管线，读取打包清单、计算运行资源闭包、组织输出、复用构建结果、校验并发布运行清单。 |
 | `ResourceSystem` | 接收目录与存储映射，提供 GUID / 路径转换和资源读取；不负责扫描、导入或打包。 |
 | MCP | 调用编辑器构建接口并返回结果，不另写依赖分析、转换或打包算法。 |

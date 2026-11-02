@@ -5,6 +5,8 @@
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/effect_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
 #include <Effekseer/IO/Effekseer.EfkEfcFactory.h>
@@ -318,10 +320,13 @@ int main(int argc, char** argv)
     {
         return 1;
     }
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> importer =
         std::make_unique<plugins::effects::EffectImporter>();
-    if (!expect(plugins::effects::register_effect_codec() && pipeline.initialize({}) &&
+    if (!expect(plugins::effects::register_effect_codec() && threads.initialize({}) &&
+                    tasks.initialize({}) && pipeline.initialize({}) &&
                     pipeline.add_importer(importer),
                 "initialize optional effect importer and codec") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))

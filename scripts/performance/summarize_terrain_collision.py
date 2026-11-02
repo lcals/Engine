@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""在已有 Tracy 分析窗口内统计地形同步碰撞提交预算，不启动引擎或重新导出 trace。"""
+"""在已有 Tracy 窗口内统计地形碰撞提交，区分完整同步成本与异步发布片段。"""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,8 @@ from summarize_trace import statistics_of
 ROOT = Path(__file__).resolve().parents[2]
 BUDGET_NS = 500_000
 COMMIT = "Terrain.commit"
+PUBLISH = "Terrain.publish"
+ASYNC_PREPARE = "Terrain.async_prepare"
 FRAME = "Host.frame"
 PREPARE = "Terrain.prepare_collision"
 RELEASE = "Terrain.release_previous_volume"
@@ -26,7 +28,7 @@ SHAPE_NAMES = ("Physics.create_mesh_compound", "Physics.create_shape")
 CHUNK = "Terrain.mesh_chunk"
 FRAGMENT = "Terrain.fragment_mesh"
 COLLAPSE = "Terrain.collapse"
-SELECTED_NAMES = {COMMIT, FRAME, PREPARE, RELEASE, CHUNK, FRAGMENT, COLLAPSE,
+SELECTED_NAMES = {COMMIT, PUBLISH, ASYNC_PREPARE, FRAME, PREPARE, RELEASE, CHUNK, FRAGMENT, COLLAPSE,
                   *SET_NAMES, *SHAPE_NAMES}
 
 
@@ -56,7 +58,7 @@ class ZoneIndex:
             group.sort(key=lambda event: (event.start, event.end))
             self.starts[key] = [event.start for event in group]
             # containing() 只用于这些不递归的同线程父区间，重叠会造成错误归属。
-            if key[1] in (COMMIT, FRAME, FRAGMENT, COLLAPSE):
+            if key[1] in (COMMIT, PUBLISH, FRAME, FRAGMENT, COLLAPSE):
                 if any(left.end > right.start for left, right in zip(group, group[1:])):
                     raise ValueError(f"同线程父区间发生重叠，无法唯一归属：{key[1]}")
         for group in self.names.values():
@@ -138,12 +140,15 @@ def commit_record(index: ZoneIndex, commit: Event, identifier: int,
                     for name in SHAPE_NAMES}
     collision_ns = sum_disjoint(preparation + submissions + releases)
     release_ns = sum(event.duration for event in releases) if releases else None
-    budget_complete = bool(releases) and bool(submissions)
+    # 独立 publish 不包含 worker 准备；没有请求 ID，不能按时间猜测跨线程配对。
+    preparation_unattributed = commit.name == PUBLISH
+    budget_complete = bool(releases) and bool(submissions) and not preparation_unattributed
     coarse_chunks = len(index.children(commit, CHUNK))
     frame = index.containing(commit, FRAME)
     return {
         "id": identifier, "start_ns": commit.start, "end_ns": commit.end,
         "thread": commit.thread, "commit_ms": commit.duration / 1e6,
+        "scope": commit.name, "preparation_unattributed": preparation_unattributed,
         "host_frame_id": frame_ids.get(frame),
         "geometry_group": "changed" if any(shape_counts.values()) else "no_change",
         "rebuilt_coarse_chunks": coarse_chunks,
@@ -179,6 +184,14 @@ def records_summary(records: list[dict]) -> dict:
     }
 
 
+def submission_events(index: ZoneIndex) -> list[Event]:
+    # 同步 commit 已包含 publish，保留其完整准备成本；只补充无 commit 父级的发布。
+    events = list(index.names.get(COMMIT, ()))
+    events.extend(event for event in index.names.get(PUBLISH, ())
+                  if index.containing(event, COMMIT) is None)
+    return sorted(events, key=lambda event: (event.start, event.thread))
+
+
 def analyze(args) -> Path:
     requested = args.output
     if requested.exists() or requested.is_symlink():
@@ -196,9 +209,9 @@ def analyze(args) -> Path:
         raise ValueError("summary.json 的窗口必须满足整数 0 <= start_ns < end_ns")
     events, input_counts = read_events(analysis / "zones.tsv", start, end)
     index = ZoneIndex(events)
-    commits = index.names.get(COMMIT, ())
+    commits = submission_events(index)
     if not commits:
-        raise ValueError("summary.json 窗口内没有完整 Terrain.commit 事件")
+        raise ValueError("summary.json 窗口内没有完整 Terrain.commit 或 Terrain.publish 事件")
     frames = index.names.get(FRAME, ())
     frame_ids = {frame: identifier for identifier, frame in enumerate(frames)}
     records = [commit_record(index, commit, identifier, frame_ids)
@@ -225,7 +238,8 @@ def analyze(args) -> Path:
             "over_0_5_ms": collision_ns > BUDGET_NS,
         })
     external = [event for event in index.names.get(PREPARE, ())
-                if index.containing(event, COMMIT) is None]
+                if index.containing(event, COMMIT) is None
+                and index.containing(event, PUBLISH) is None]
     fragments = [event for event in external if index.containing(event, FRAGMENT) is not None]
     full = [record for record in records if record["full_32_chunk_rebuild"]]
     result = {
@@ -241,6 +255,8 @@ def analyze(args) -> Path:
                 record["id"] for record in records if not record["release_previous_volume_calls"]],
             "missing_set_commit_ids": [record["id"] for record in records
                                        if not any(record["set_calls"].values())],
+            "unattributed_preparation_commit_ids": [record["id"] for record in records
+                                                   if record["preparation_unattributed"]],
         },
         "input_rows": input_counts,
         "per_commit": records,
@@ -266,18 +282,22 @@ def analyze(args) -> Path:
             "outside_fragment_mesh": timing([event.duration for event in external
                                              if index.containing(event, FRAGMENT) is None]),
         },
+        "async_prepare_ms": timing([event.duration
+                                    for event in index.names.get(ASYNC_PREPARE, ())]),
         "notes": [
             "只纳入 summary 窗口内完整 zone，按同线程父区间归属；plot 和空时间行不参加统计。",
-            "每提交碰撞预算为 Terrain.commit 内 prepare_collision、set_mesh_parts/set_mesh 与 release_previous_volume 的 inclusive 耗时之和。",
+            "每提交累计 prepare_collision、set_mesh_parts/set_mesh 与 release_previous_volume 的 inclusive 耗时；同步 commit 包含 publish 时只记一次。",
+            "独立 Terrain.publish 只覆盖主线程发布；worker prepare 单列，无请求关联标记时不推测配对，不将缺失准备时间当作零。",
             "release_previous_volume 包含旧几何最后引用释放，保守计入旧密度释放；缺埋点的旧 trace 不估算该项，budget_coverage 明示缺项。",
             "缺项提交的 collision_ms 仅是已测部分；低于预算时 meets_budget 为 null，已测部分超标时仍为 false。",
             "collision_compare 已包含在 prepare_collision 中；create_shape/create_mesh_compound 已包含在 set 中，均不重复相加。",
             "geometry_group 由 set 内 create_mesh_compound/create_shape 事件判断，是碰撞形状重建代理，不能证明三角形数据变化。",
             "rebuilt_coarse_chunks 统计 commit 内 Terrain.mesh_chunk 次数，不是细分碰撞 part 数；32 块全量重建仍纳入总体。",
+            "独立 publish 的 rebuilt_coarse_chunks 只记录发布线程内事件，不能把 0 理解为 worker 未重建；见 preparation_unattributed。",
             "外部 fragment_mesh 的 prepare_collision 单列，未计入地形提交预算。",
             "逐帧累计使用完整 Host.frame；无法归属完整帧的提交保留在总体并列出 id。",
             "P95 使用与 summarize_trace 相同的线性插值；不删除全量提交或其他慢样本。",
-            "完整 Terrain.commit 耗时始终单列，包含 mesh_chunk 等其余工作；不将整个 commit 误称为碰撞成本。",
+            "commit_ms 保留实际 scope 的墙钟耗时；Terrain.commit 含准备，独立 Terrain.publish 仅含发布，两者不可直接比较为同口径加速。",
             "zone 为线程经过的墙钟时间，不是 CPU cycles；低于 0.5 ms 才满足单次提交最低预算。",
         ],
     }

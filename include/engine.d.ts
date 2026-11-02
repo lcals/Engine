@@ -21,6 +21,46 @@ declare module "engine" {
         static readonly assetsPath: string;
         static readonly persistentDataPath: string;
         static readonly cachePath: string;
+        /** Requests normal host shutdown at a frame boundary. Active callbacks only. */
+        static RequestQuit(): boolean;
+    }
+
+    export type WindowMode = "windowed" | "borderless" | "fullscreen";
+    export type MouseMode = "normal" | "hidden" | "relative";
+    export interface WindowSize {
+        readonly logicalWidth: number;
+        readonly logicalHeight: number;
+        readonly pixelWidth: number;
+        readonly pixelHeight: number;
+    }
+    /** SDL mode dimensions; output pixels are width/height multiplied by pixelDensity. */
+    export interface DisplayMode {
+        readonly width: number;
+        readonly height: number;
+        readonly pixelDensity: number;
+        readonly refreshRate: number;
+    }
+    /** Existing native window; all operations require an active Run callback. */
+    export class Window {
+        private constructor();
+        static GetSize(): WindowSize | null;
+        static GetDisplayModes(): DisplayMode[] | null;
+        static GetMode(): WindowMode | null;
+        /** Logical window units, only in windowed mode. Query the actual size after events. */
+        static SetSize(logicalWidth: number, logicalHeight: number): boolean;
+        /** Fullscreen requires a supported mode; other modes require null (the default). */
+        static SetMode(mode: WindowMode, fullscreen?: DisplayMode | null): boolean;
+        static GetMouseMode(): MouseMode | null;
+        /** SDL relative mode hides/grabs the cursor; Run cleanup restores the previous mode. */
+        static SetMouseMode(mode: MouseMode): boolean;
+    }
+
+    /** Standard catalog resource, parsed into a fresh JS value. No filesystem access. */
+    export class Json {
+        private constructor();
+        /** Active callbacks only; missing/wrong-kind/invalid resources return null.
+         * JSON null also returns null. Validate the unknown result in project code. */
+        static Load(path: string): unknown;
     }
 
     /** Per-run string storage. Methods require an active gameplay or component callback. */
@@ -275,6 +315,10 @@ declare module "engine" {
         private constructor();
         /** Current render target size in pixels; null without an initialized renderer. */
         static GetViewportSize(): Vector2 | null;
+        /** Accepted requests are applied through bgfx at the next drawable frame. */
+        static SetVSync(enabled: boolean): boolean;
+        /** Last accepted request, not a measurement of presentation timing. */
+        static GetVSync(): boolean | null;
         /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
         static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
         /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
@@ -355,15 +399,32 @@ declare module "engine" {
         GetTexture(name: string): string | null;
     }
 
+    export interface SceneLoadProgress {
+        readonly completed: number;
+        readonly total: number;
+        readonly status: "loading" | "ready" | "failed";
+        readonly error: string;
+    }
     /** One active scene, owned by the current Gameplay run. */
     export class Scene {
         private constructor();
         static Create(name: string): Scene | null;
         /** Load a compiled scene from the active GUID resource catalog. */
         static Load(path: string): Scene | null;
+        /** Begin one single-thread dependency load. Keeps the current scene/UI intact. */
+        static BeginLoad(path: string): boolean;
+        /** Budget counts completed resources, not elapsed time; zero only queries. */
+        static StepLoad(resourceBudget: number): SceneLoadProgress | null;
+        /** Restore/commit a ready scene synchronously. Failure preserves the active scene. */
+        static CommitLoad(): Scene | null;
+        /** Release this Run's pending load. Cannot interrupt a running step/commit. */
+        static CancelLoad(): void;
         /** First node with the requested name in scene order. */
         FindNode(name: string): Node | null;
         IsValid(): boolean;
+        /** Freeze automatic world simulation while UI and Gameplay.Update continue. */
+        SetPaused(paused: boolean): boolean;
+        GetPaused(): boolean | null;
         CreateNode(name: string): Node | null;
         /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
         InstantiateModel(path: string, name: string): Node | null;
@@ -531,6 +592,16 @@ declare module "engine" {
         /** Sphere center and radius are in terrain-node local space. */
         DigSphere(x: number, y: number, z: number, radius: number): boolean;
         FillSphere(x: number, y: number, z: number, radius: number): boolean;
+        /** Accept a queued edit; completed runs on the main thread after publish or cancellation.
+         * Scene changes and script shutdown discard callbacks. No callback on rejected requests. */
+        DigSphereAsync(
+            x: number, y: number, z: number, radius: number,
+            completed: (success: boolean) => void,
+        ): boolean;
+        FillSphereAsync(
+            x: number, y: number, z: number, radius: number,
+            completed: (success: boolean) => void,
+        ): boolean;
         /** Extract unsupported soil; refuses over-budget work without removing that soil. */
         CollapseDetached(
             minSamples: number,
@@ -763,6 +834,12 @@ declare module "engine" {
             radius: number,
             damage: number,
             impulse?: number,
+        ): boolean;
+        /** Accept queued damage; completed runs on the main thread after publish or cancellation.
+         * Scene changes and script shutdown discard callbacks. No callback on rejected requests. */
+        DamageSphereAsync(
+            x: number, y: number, z: number, radius: number, damage: number, impulse: number,
+            completed: (success: boolean) => void,
         ): boolean;
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;

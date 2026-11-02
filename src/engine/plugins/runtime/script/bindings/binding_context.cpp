@@ -4,6 +4,7 @@
 #include "runtime/input/input_system.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
+#include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -15,9 +16,9 @@ namespace engine::plugins::script::bindings
 {
 BindingContext::BindingContext(WorldSystem* world, RenderSystem* renderer, UiSystem* ui,
                                PhysicsSystem* physics, NavigationSystem* navigation,
-                               InputSystem* input) noexcept
+                               InputSystem* input, WindowSystem* window) noexcept
     : world_(world), renderer_(renderer), ui_(ui), physics_(physics), navigation_(navigation),
-      input_(input)
+      input_(input), window_(window)
 {
 }
 
@@ -45,6 +46,14 @@ void BindingContext::end_call() noexcept
 
 void BindingContext::shutdown() noexcept
 {
+    cancel_scene_load();
+    async_results_.clear();
+    if (restore_mouse_mode_ && window_ != nullptr && window_->is_initialized() &&
+        !window_->set_mouse_mode(previous_mouse_mode_))
+    {
+        LogSystem::write(LogLevel::warning, "Cannot restore the previous script mouse mode");
+    }
+    restore_mouse_mode_ = false;
     active_ = false;
     end_call();
     if (input_ && input_->is_initialized())
@@ -99,6 +108,252 @@ NavigationSystem* BindingContext::navigation() const noexcept
 InputSystem* BindingContext::input() const noexcept
 {
     return callable_ ? input_ : nullptr;
+}
+
+WindowSystem* BindingContext::window() const noexcept
+{
+    return callable_ ? window_ : nullptr;
+}
+
+bool BindingContext::set_mouse_mode(MouseMode mode)
+{
+    if (!active_ || !callable_ || window_ == nullptr || !window_->is_initialized())
+    {
+        return false;
+    }
+    if (!restore_mouse_mode_)
+    {
+        if (!window_->mouse_mode(previous_mouse_mode_))
+        {
+            return false;
+        }
+        restore_mouse_mode_ = true;
+    }
+    return window_->set_mouse_mode(mode);
+}
+
+bool BindingContext::begin_scene_load(std::string_view path)
+{
+    if (!active_ || !callable_ || world_ == nullptr || !world_->is_initialized() ||
+        !scene_load_path_.empty())
+    {
+        return false;
+    }
+    const auto* current = world_->scene();
+    if ((current != nullptr ? current->id() : 0) != scene_id_)
+    {
+        return false;
+    }
+    scene_load_error_.clear();
+    auto* resources = ResourceSystem::instance();
+    Guid guid;
+    if (resources == nullptr || !ResourceSystem::path_to_guid(path, guid))
+    {
+        scene_load_error_ = "Scene path is unavailable: " + std::string(path);
+        return false;
+    }
+    const auto* entry = resources->catalog().find(guid);
+    if (entry == nullptr || entry->kind != schema::AssetKind::scene)
+    {
+        scene_load_error_ = "The requested resource is not a scene";
+        return false;
+    }
+    auto& loader = resources->loader();
+    std::unique_ptr<ResourceLoad> operation;
+    if (!loader.begin_load(guid, operation) || !operation)
+    {
+        scene_load_error_ = loader.last_error().empty() ? "Scene step loading is unavailable"
+                                                       : loader.last_error();
+        return false;
+    }
+    ResourceLoadProgress progress;
+    const auto status = operation->step(0, progress);
+    if (status == ResourceLoadStatus::failed || progress.total == 0)
+    {
+        scene_load_error_ = operation->last_error().empty() ? "Cannot prepare scene resources"
+                                                          : operation->last_error();
+        return false;
+    }
+    scene_load_ = std::move(operation);
+    scene_load_resources_ = resources;
+    scene_load_loader_ = &loader;
+    scene_load_generation_ = resources->generation();
+    scene_load_progress_ = progress;
+    scene_load_status_ = ResourceLoadStatus::loading;
+    scene_load_path_ = path;
+    return true;
+}
+
+ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget,
+                                                  ResourceLoadProgress& output)
+{
+    output = {};
+    if (!active_ || !callable_ || scene_load_path_.empty())
+    {
+        return ResourceLoadStatus::failed;
+    }
+    if (scene_load_status_ == ResourceLoadStatus::loading)
+    {
+        if (!scene_load_context_valid())
+        {
+            fail_scene_load("The scene loading directory or owning world changed");
+        }
+        else
+        {
+            const auto resources_status = scene_load_->step(resource_budget, scene_load_progress_);
+            if (resources_status == ResourceLoadStatus::failed)
+            {
+                fail_scene_load(scene_load_->last_error().empty() ? "Cannot load scene resources"
+                                                                : scene_load_->last_error());
+            }
+            else if (resources_status == ResourceLoadStatus::ready && resource_budget != 0)
+            {
+                if (scene_restore_request_ == 0)
+                {
+                    scene_restore_request_ = world_->begin_restore_scene(scene_load_->resource());
+                }
+                const auto restored = world_->step_restore_scene(scene_restore_request_, resource_budget);
+                if (restored == SceneRestoreStatus::failed)
+                {
+                    fail_scene_load("Cannot restore scene candidate: " + scene_load_path_);
+                }
+                else if (restored == SceneRestoreStatus::ready)
+                {
+                    scene_load_status_ = ResourceLoadStatus::ready;
+                }
+            }
+        }
+    }
+    output = scene_load_progress_;
+    return scene_load_status_;
+}
+
+Scene* BindingContext::commit_scene_load()
+{
+    if (!active_ || !callable_ || scene_load_path_.empty() ||
+        scene_load_status_ != ResourceLoadStatus::ready)
+    {
+        return nullptr;
+    }
+    if (!scene_load_context_valid())
+    {
+        fail_scene_load("Cannot commit scene after its directory or owning world changed");
+        return nullptr;
+    }
+    // 候选已在主线程按预算恢复；提交只切换活动场景所有权。
+    const auto root = scene_load_->resource();
+    if (!root || !root->scene() || root->generation() != scene_load_generation_)
+    {
+        fail_scene_load("The prepared scene resource is unavailable");
+        return nullptr;
+    }
+    auto* scene = world_->commit_restore_scene(scene_restore_request_);
+    if (scene == nullptr)
+    {
+        fail_scene_load("Cannot restore scene: " + scene_load_path_);
+        return nullptr;
+    }
+    set_scene_id(scene->id());
+    return scene;
+}
+
+void BindingContext::cancel_scene_load() noexcept
+{
+    if (world_ != nullptr && scene_restore_request_ != 0)
+    {
+        world_->cancel_restore_scene(scene_restore_request_);
+    }
+    scene_restore_request_ = 0;
+    scene_load_.reset();
+    scene_load_resources_ = nullptr;
+    scene_load_loader_ = nullptr;
+    scene_load_progress_ = {};
+    scene_load_status_ = ResourceLoadStatus::loading;
+    scene_load_generation_ = 0;
+    scene_load_path_.clear();
+    scene_load_error_.clear();
+}
+
+std::string_view BindingContext::scene_load_error() const noexcept
+{
+    return scene_load_error_;
+}
+
+bool BindingContext::scene_load_context_valid() const noexcept
+{
+    auto* resources = ResourceSystem::instance();
+    if (resources == nullptr || resources != scene_load_resources_ ||
+        resources->generation() != scene_load_generation_ ||
+        &resources->loader() != scene_load_loader_ || world_ == nullptr || !world_->is_initialized())
+    {
+        return false;
+    }
+    const auto* current = world_->scene();
+    return (current != nullptr ? current->id() : 0) == scene_id_;
+}
+
+void BindingContext::fail_scene_load(std::string_view error)
+{
+    if (world_ != nullptr && scene_restore_request_ != 0)
+    {
+        world_->cancel_restore_scene(scene_restore_request_);
+    }
+    scene_restore_request_ = 0;
+    scene_load_error_ = error;
+    scene_load_status_ = ResourceLoadStatus::failed;
+    scene_load_.reset();
+}
+
+std::uint64_t BindingContext::submit_async(
+    const std::function<bool(std::function<void(bool)>)>& start)
+{
+    if (!active_ || !callable_ || !start || async_results_.size() >= 128 ||
+        async_sequence_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return 0;
+    }
+    auto result = std::make_shared<AsyncResult>();
+    if (!start([weak = std::weak_ptr<AsyncResult>(result)](bool success)
+               {
+                   if (auto target = weak.lock())
+                   {
+                       target->success = success;
+                       target->ready = true;
+                   }
+               }))
+    {
+        return 0;
+    }
+    const auto request = ++async_sequence_;
+    async_results_.emplace(request, std::move(result));
+    return request;
+}
+
+int BindingContext::take_async(std::uint64_t request)
+{
+    if (!active_ || !callable_)
+    {
+        return -2;
+    }
+    const auto* scene = world_ && world_->is_initialized() ? world_->scene() : nullptr;
+    if (scene == nullptr || scene->id() != scene_id_)
+    {
+        // 原生宿主也可换场景；旧 Run 不能在新世界领取之前的委托。
+        async_results_.clear();
+        return -2;
+    }
+    const auto found = async_results_.find(request);
+    if (found == async_results_.end())
+    {
+        return -2;
+    }
+    if (!found->second->ready)
+    {
+        return -1;
+    }
+    const bool success = found->second->success;
+    async_results_.erase(found);
+    return success ? 1 : 0;
 }
 
 void BindingContext::remember_input_channel(schema::InputChannelHandle channel)
@@ -160,6 +415,11 @@ std::uint64_t BindingContext::scene_id() const noexcept
 
 void BindingContext::set_scene_id(std::uint64_t value) noexcept
 {
+    if (scene_id_ != value)
+    {
+        async_results_.clear();
+        cancel_scene_load();
+    }
     if (active_ && scene_id_ != value && navigation_)
     {
         navigation_->clear();

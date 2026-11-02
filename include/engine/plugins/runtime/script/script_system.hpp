@@ -14,6 +14,7 @@ class UiSystem;
 class PhysicsSystem;
 class NavigationSystem;
 class InputSystem;
+class WindowSystem;
 } // namespace engine
 
 namespace engine::plugins::script
@@ -25,7 +26,7 @@ public:
     explicit ScriptSystem(WorldSystem* world = nullptr, RenderSystem* renderer = nullptr,
                           UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
                           NavigationSystem* navigation = nullptr,
-                          InputSystem* input = nullptr) noexcept;
+                          InputSystem* input = nullptr, WindowSystem* window = nullptr) noexcept;
     ~ScriptSystem() noexcept override;
 
     // 预检只读取候选目录，不执行用户代码、不改变活动资源或旧玩法。
@@ -56,6 +57,7 @@ private:
     PhysicsSystem* physics_ = nullptr;
     NavigationSystem* navigation_ = nullptr;
     InputSystem* input_ = nullptr;
+    WindowSystem* window_ = nullptr;
     ScriptStatus status_;
     std::unique_ptr<State> state_;
 };

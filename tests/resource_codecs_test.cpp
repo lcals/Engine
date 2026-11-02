@@ -14,7 +14,9 @@
 #include <cstdio>
 #include <fstream>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace
@@ -149,10 +151,13 @@ bool codec_tests()
     node->components.push_back(std::move(component));
     scene.nodes.push_back(std::move(node));
     const std::array raw{std::byte{0}, std::byte{42}, std::byte{255}};
+    constexpr std::string_view json = "{\n  \"weapon\": \"carbine\", \"damage\": 24\n}\n";
     if (!add_payload(fixture, "main.scene", schema::AssetKind::scene, pack(scene, "ESCN"),
                      {renderer.mesh_guid, renderer.material_guid}) ||
         !add_payload(fixture, "data", schema::AssetKind::source, raw) ||
         !add_payload(fixture, "main.ts", schema::AssetKind::script, {}) ||
+        !add_payload(fixture, "config/weapon.json", schema::AssetKind::json,
+                     std::as_bytes(std::span(json.data(), json.size()))) ||
         !fixture.publish(resources))
     {
         return false;
@@ -164,6 +169,7 @@ bool codec_tests()
     ResourcePtr scene_resource;
     ResourcePtr binary_resource;
     ResourcePtr script_resource;
+    ResourcePtr json_resource;
     if (!expect(fixture.load(mesh.path, mesh_resource) && mesh_resource->mesh() &&
                     *mesh_resource->mesh() == mesh &&
                     fixture.load(texture.path, texture_resource) && texture_resource->texture() &&
@@ -181,12 +187,21 @@ bool codec_tests()
                     binary_resource->bytes()[2] == raw[2] &&
                     fixture.load("main.ts", script_resource) && script_resource->bytes().empty(),
                 "raw source retains embedded zeros and empty script is a valid byte payload") ||
+        !expect(fixture.load("config/weapon.json", json_resource) &&
+                    json_resource->info().kind == schema::AssetKind::json &&
+                    json_resource->info().dependencies.empty() &&
+                    json_resource->bytes().size() == json.size() &&
+                    std::string_view(reinterpret_cast<const char*>(json_resource->bytes().data()),
+                                     json_resource->bytes().size()) == json,
+                "JSON is a distinct resource kind retaining its original text bytes") ||
         !expect(resources.validate_dependencies(*scene_resource,
                                                 std::array{mesh_resource, material_resource}) &&
                     !resources.validate_dependencies(*scene_resource,
                                                      std::array{mesh_resource, texture_resource}),
                 "type codec validates only explicitly supplied scene references") ||
         !expect(find_resource_codec(schema::AssetKind::script) ==
+                        find_resource_codec(schema::AssetKind::source) &&
+                    find_resource_codec(schema::AssetKind::json) ==
                         find_resource_codec(schema::AssetKind::source) &&
                     !find_resource_codec(static_cast<schema::AssetKind>(255)),
                 "binary formats share one codec and unknown kinds have no decoder"))

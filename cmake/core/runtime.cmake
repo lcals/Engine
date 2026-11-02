@@ -19,6 +19,12 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime performance)
     engine_enable_profiling(engine_performance)
 
+    engine_add_system(runtime task)
+    target_sources(engine_task PRIVATE src/engine/runtime/task/thread_system.cpp)
+    target_link_libraries(engine_task PRIVATE TBB::tbb Threads::Threads)
+    engine_enable_profiling(engine_task)
+    engine_configure_platform_tasks()
+
     engine_add_system(runtime window)
     target_link_libraries(
         engine_window
@@ -61,6 +67,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
         engine_render
         PUBLIC engine::scene_data
         PRIVATE engine::window
+                engine::task
                 engine::world
                 engine::resource
                 engine::font
@@ -78,6 +85,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_configure_platform_graphics()
 
     engine_add_system(runtime resource)
+    engine_enable_profiling(engine_resource)
     target_sources(
         engine_resource
         PRIVATE src/engine/runtime/resource/builtin_resources.cpp
@@ -105,9 +113,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
-        PRIVATE flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg)
+        PRIVATE engine::task flatbuffers::flatbuffers basisu::basisu_encoder SDL3::SDL3 bgfx::bimg)
 
     engine_add_system(runtime world)
+    engine_enable_profiling(engine_world)
     include(${PROJECT_SOURCE_DIR}/cmake/core/scene_schema.cmake)
     engine_add_scene_schema()
     target_sources(
@@ -141,13 +150,20 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     engine_add_system(runtime physics)
     engine_enable_profiling(engine_physics)
-    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource)
+    target_link_libraries(engine_physics PRIVATE Jolt::Jolt engine::world engine::resource engine::task)
+    # Jolt's public job-system base is built without RTTI; the bridge must match it.
+    if(MSVC)
+        target_compile_options(engine_physics PRIVATE /GR-)
+    else()
+        target_compile_options(engine_physics PRIVATE -fno-rtti)
+    endif()
     engine_add_system(runtime audio)
     engine_enable_profiling(engine_audio)
     target_link_libraries(engine_audio PRIVATE engine::world engine::resource SDL3::SDL3)
 
     engine_add_system(runtime navigation)
     engine_enable_profiling(engine_navigation)
+    target_link_libraries(engine_navigation PRIVATE engine::task)
     target_link_libraries(
         engine_navigation
         PUBLIC engine::scene_data
@@ -156,7 +172,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_add_system(runtime animation)
     engine_enable_profiling(engine_animation)
     target_include_directories(engine_animation PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(engine_animation PRIVATE ozz_animation ozz_animation_offline
+    target_link_libraries(engine_animation PRIVATE engine::task ozz_animation ozz_animation_offline
                                                    engine::world engine::resource)
     # 上游子项目头文件按第三方处理，保留本项目的严格警告。
     get_target_property(_ozz_include ozz_animation INTERFACE_INCLUDE_DIRECTORIES)
@@ -190,6 +206,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::performance
+        engine::task
         engine::window
         engine::input
         engine::resource
@@ -218,14 +235,18 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(engine_gameplay PRIVATE engine::app engine::log
                                                   nlohmann_json::nlohmann_json SDL3::SDL3)
     target_compile_definitions(engine_gameplay PRIVATE JSON_NOEXCEPTION=1)
+    target_link_libraries(engine_gameplay PRIVATE engine::task)
+    engine_enable_profiling(engine_gameplay)
     engine_apply_options(engine_gameplay)
 
-    add_library(engine_runtime STATIC src/engine/runtime/app/runtime_host.cpp)
+    add_library(engine_runtime STATIC src/engine/runtime/app/runtime_host.cpp
+        src/engine/runtime/app/runtime_settings.cpp)
     add_library(engine::runtime ALIAS engine_runtime)
     target_link_libraries(
         engine_runtime
         PUBLIC engine::core engine::gameplay
-        PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS})
+        PRIVATE ${ENGINE_RUNTIME_SYSTEM_TARGETS} nlohmann_json::nlohmann_json)
+    target_compile_definitions(engine_runtime PRIVATE JSON_NOEXCEPTION=1)
     engine_apply_options(engine_runtime)
     engine_enable_profiling(engine_runtime)
 endif()

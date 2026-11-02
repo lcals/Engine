@@ -9,10 +9,14 @@
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <deque>
+#include <future>
 #include <limits>
 #include <string>
 #include <utility>
@@ -88,8 +92,56 @@ void decorate(schema::MeshDataT& mesh, const schema::TerrainDataT& settings)
 }
 } // namespace
 
-TerrainSystem::TerrainSystem(WorldSystem& world, PhysicsSystem& physics) noexcept
-    : world_(world), physics_(physics)
+struct TerrainSystem::AsyncState
+{
+    struct Prepared
+    {
+        TerrainVolume volume;
+        schema::MeshDataT mesh;
+        std::string error;
+    };
+    struct Request
+    {
+        Vec3 center;
+        float radius = 0;
+        bool fill = false;
+        std::function<void(bool)> completed;
+    };
+    struct Owner
+    {
+        std::uint64_t scene = 0;
+        std::uint64_t revision = 0;
+        std::weak_ptr<const std::uint8_t> lifetime;
+        std::deque<Request> requests;
+        std::shared_ptr<Prepared> prepared;
+        std::future<bool> completion;
+    };
+    struct Completion
+    {
+        std::function<void(bool)> callback;
+        bool success = false;
+    };
+    std::map<std::uint64_t, Owner> owners;
+    std::vector<Completion> ready;
+    std::size_t pending = 0;
+    std::uint64_t published_after = 0;
+    std::uint64_t submitted_after = 0;
+    std::shared_ptr<const std::uint8_t> lifetime = std::make_shared<const std::uint8_t>(0);
+
+    void cancel(Owner& owner)
+    {
+        for (auto& request : owner.requests)
+        {
+            ready.push_back({std::move(request.completed), false});
+        }
+    }
+};
+
+TerrainSystem::TerrainSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks,
+                             std::size_t max_pending_requests,
+                             std::size_t max_commits_per_tick) noexcept
+    : world_(world), physics_(physics), tasks_(tasks), max_pending_requests_(max_pending_requests),
+      max_commits_per_tick_(max_commits_per_tick)
 {
 }
 
@@ -104,7 +156,8 @@ TerrainSystem* TerrainSystem::instance() noexcept
 
 bool TerrainSystem::on_initialize(const EngineConfig&)
 {
-    if (active_system != nullptr)
+    if (active_system != nullptr || (tasks_ != nullptr && !tasks_->is_initialized()) ||
+        max_pending_requests_ == 0 || max_commits_per_tick_ == 0)
     {
         return false;
     }
@@ -113,6 +166,7 @@ bool TerrainSystem::on_initialize(const EngineConfig&)
     {
         return false;
     }
+    async_ = std::make_unique<AsyncState>();
     active_system = this;
     return true;
 }
@@ -120,6 +174,19 @@ bool TerrainSystem::on_initialize(const EngineConfig&)
 bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
 {
     ENGINE_PROFILE_ZONE("Terrain.commit");
+    schema::MeshDataT mesh;
+    if (!candidate.build_mesh(mesh, component.last_error_))
+    {
+        return false;
+    }
+    decorate(mesh, component.settings());
+    return commit_prepared(component, std::move(candidate), std::move(mesh));
+}
+
+bool TerrainSystem::commit_prepared(TerrainComponent& component, TerrainVolume candidate,
+                                    schema::MeshDataT mesh)
+{
+    ENGINE_PROFILE_ZONE("Terrain.publish");
     auto& node = component.node();
     if (&node.scene() != world_.scene() ||
         component.revision_ == std::numeric_limits<std::uint64_t>::max())
@@ -133,12 +200,6 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
         fragments_.clear();
         scene_id_ = node.scene().id();
     }
-    schema::MeshDataT mesh;
-    if (!candidate.build_mesh(mesh, component.last_error_))
-    {
-        return false;
-    }
-    decorate(mesh, component.settings());
     auto* renderer = node.get_component<MeshRenderer>();
     auto* collider = node.get_component<Collider>();
     const bool owns = generated_.contains(node.id());
@@ -231,9 +292,166 @@ bool TerrainSystem::commit(TerrainComponent& component, TerrainVolume candidate)
     return true;
 }
 
+bool TerrainSystem::request_apply_sphere(TerrainComponent& component, const Vec3& center,
+                                         float radius, bool fill,
+                                         std::function<void(bool)> completed)
+{
+    if (!async_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
+        !completed || !component.ready_ || !component.enabled() ||
+        &component.node().scene() != world_.scene() || !std::isfinite(center.x()) ||
+        !std::isfinite(center.y()) || !std::isfinite(center.z()) || !std::isfinite(radius) ||
+        radius <= 0 || radius > 10000)
+    {
+        component.last_error_ = "Invalid asynchronous terrain request or task domain";
+        return false;
+    }
+    const auto id = component.node().id();
+    auto found = async_->owners.find(id);
+    if (found != async_->owners.end() && (found->second.scene != component.node().scene().id() ||
+                                          found->second.lifetime.lock() != component.lifetime_ ||
+                                          found->second.revision != component.revision_))
+    {
+        async_->cancel(found->second);
+        async_->owners.erase(found);
+    }
+    if (async_->pending >= max_pending_requests_)
+    {
+        component.last_error_ = "Terrain asynchronous request budget is full";
+        return false;
+    }
+    auto& owner = async_->owners[id];
+    owner.scene = component.node().scene().id();
+    owner.revision = component.revision_;
+    owner.lifetime = component.lifetime_;
+    owner.requests.push_back({center, radius, fill, std::move(completed)});
+    ++async_->pending;
+    component.last_error_.clear();
+    return true;
+}
+
+void TerrainSystem::process_requests()
+{
+    ENGINE_PROFILE_ZONE("Terrain.async_publish");
+    if (world_.paused())
+    {
+        return;
+    }
+    auto* scene = world_.scene();
+    std::size_t commits = 0;
+    auto item = async_->owners.upper_bound(async_->published_after);
+    for (std::size_t remaining = async_->owners.size(); remaining != 0; --remaining)
+    {
+        if (item == async_->owners.end())
+        {
+            item = async_->owners.begin();
+        }
+        const auto current = item++;
+        auto& owner = current->second;
+        auto* node =
+            scene && scene->id() == owner.scene ? scene->find_node(current->first) : nullptr;
+        auto* component = node ? node->get_component<TerrainComponent>() : nullptr;
+        if (!component || !component->ready_ || !component->enabled() ||
+            owner.lifetime.lock() != component->lifetime_ || owner.revision != component->revision_)
+        {
+            async_->cancel(owner);
+            async_->owners.erase(current);
+            continue;
+        }
+        if (owner.completion.valid() && commits < max_commits_per_tick_ &&
+            owner.completion.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            ++commits;
+            async_->published_after = current->first;
+            bool success = owner.completion.get();
+            if (success)
+            {
+                success = commit_prepared(*component, std::move(owner.prepared->volume),
+                                          std::move(owner.prepared->mesh));
+                owner.revision = component->revision_;
+            }
+            else
+            {
+                component->last_error_ = owner.prepared->error.empty()
+                                             ? "Terrain asynchronous preparation failed"
+                                             : owner.prepared->error;
+            }
+            owner.prepared.reset();
+            async_->ready.push_back({std::move(owner.requests.front().completed), success});
+            owner.requests.pop_front();
+        }
+        if (owner.requests.empty())
+        {
+            async_->owners.erase(current);
+        }
+    }
+
+    std::size_t running = static_cast<std::size_t>(
+        std::count_if(async_->owners.begin(), async_->owners.end(),
+                      [](const auto& item) { return item.second.completion.valid(); }));
+    item = async_->owners.upper_bound(async_->submitted_after);
+    for (std::size_t remaining = async_->owners.size(); remaining != 0; --remaining)
+    {
+        if (tasks_ == nullptr || running >= tasks_->max_concurrency())
+        {
+            break;
+        }
+        if (item == async_->owners.end())
+        {
+            item = async_->owners.begin();
+        }
+        const auto current = item++;
+        const auto id = current->first;
+        auto& owner = current->second;
+        if (owner.completion.valid())
+        {
+            continue;
+        }
+        auto* component = scene->find_node(id)->get_component<TerrainComponent>();
+        if (!owner.prepared)
+        {
+            owner.prepared = std::make_shared<AsyncState::Prepared>();
+            owner.prepared->volume = component->volume_;
+        }
+        const auto& request = owner.requests.front();
+        owner.completion = tasks_->submit(
+            "Terrain.prepare",
+            [prepared = owner.prepared, center = request.center, radius = request.radius,
+             fill = request.fill, settings = component->settings()]
+            {
+                ENGINE_PROFILE_ZONE("Terrain.async_prepare");
+                if (!prepared->volume.apply_sphere(center, radius, fill, prepared->error) ||
+                    !prepared->volume.build_mesh(prepared->mesh, prepared->error))
+                {
+                    return false;
+                }
+                decorate(prepared->mesh, settings);
+                return true;
+            });
+        if (!owner.completion.valid())
+        {
+            break;
+        }
+        async_->submitted_after = id;
+        ++running;
+    }
+    // Callbacks can submit new work or mutate the world; no owner references survive this point.
+    auto ready = std::move(async_->ready);
+    async_->ready.clear();
+    async_->pending -= ready.size();
+    const std::weak_ptr<const std::uint8_t> lifetime = async_->lifetime;
+    for (auto& completion : ready)
+    {
+        if (lifetime.expired())
+        {
+            return;
+        }
+        completion.callback(completion.success);
+    }
+}
+
 bool TerrainSystem::on_tick(double)
 {
-    return synchronize();
+    return world_.paused() || synchronize();
 }
 
 std::size_t TerrainSystem::fragment_count(const TerrainComponent& component) const noexcept
@@ -380,6 +598,7 @@ bool TerrainSystem::synchronize()
     }
     if (!scene)
     {
+        process_requests();
         return true;
     }
     for (auto item = fragments_.begin(); item != fragments_.end();)
@@ -473,11 +692,14 @@ bool TerrainSystem::synchronize()
             }
         }
     }
+    process_requests();
     return true;
 }
 
 void TerrainSystem::on_shutdown() noexcept
 {
+    // Submitted closures own only candidates; dropping futures/callbacks never waits on workers.
+    async_.reset();
     if (active_system == this)
     {
         active_system = nullptr;

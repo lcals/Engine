@@ -11,10 +11,13 @@
 #include <string>
 #include <string_view>
 
+namespace engine
+{
+class TaskSystem;
+}
+
 namespace engine::editor
 {
-
-class TaskSystem;
 
 struct AssetBuildStats
 {
@@ -29,7 +32,8 @@ struct AssetBuildStats
 class AssetPipelineSystem final : public System
 {
 public:
-    AssetPipelineSystem();
+    // 借用任务域；调用方先初始化 tasks，并在管线关闭后再关闭它。
+    explicit AssetPipelineSystem(TaskSystem& tasks);
     ~AssetPipelineSystem() noexcept override;
 
     // 初始化后且空闲时添加新 id；成功才转移所有权。
@@ -53,7 +57,7 @@ protected:
 private:
     std::mutex build_mutex_;
     asset_pipeline::AssetImporterRegistry importers_;
-    TaskSystem* tasks_ = nullptr; // System 子系统树独占，本指针借用。
+    TaskSystem& tasks_;
     AssetBuildStats last_build_;
     std::string last_error_;
     schema::AssetCatalogDataT catalog_;

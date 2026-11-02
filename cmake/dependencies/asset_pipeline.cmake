@@ -1,5 +1,4 @@
 # Dependencies used by the editor and standalone asset pipeline tool.
-find_package(Taskflow CONFIG REQUIRED GLOBAL)
 find_package(unofficial-sqlite3 CONFIG REQUIRED GLOBAL)
 find_package(efsw CONFIG REQUIRED GLOBAL)
 find_package(basisu CONFIG REQUIRED GLOBAL)

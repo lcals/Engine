@@ -720,11 +720,47 @@ bool hierarchy_conflicts_and_cast_validation()
                   "character and separate rigid collider cannot overlap ownership");
 }
 
+bool world_pause_discards_transient_input()
+{
+    Fixture fixture;
+    if (!fixture.initialize())
+    {
+        return false;
+    }
+    auto* component = fixture.player->get_component<CharacterController>();
+    auto* rig = fixture.camera->get_component<CharacterCamera>();
+    const auto before = position(*fixture.player);
+    const auto camera = position(*fixture.camera);
+    const auto yaw = rig->yaw();
+    const auto mode = rig->settings().mode;
+    CharacterInput pending;
+    pending.move = {0, 1};
+    pending.look = {80, 20};
+    pending.jump = true;
+    pending.toggle_view = true;
+    if (!expect(fixture.world.set_paused(true) && component->set_input(pending) &&
+                    fixture.controller.set_input(pending) && fixture.controller.tick(60) &&
+                    fixture.physics.tick(60) && fixture.cameras.tick(60) &&
+                    position(*fixture.player) == before && position(*fixture.camera) == camera &&
+                    rig->yaw() == yaw && rig->settings().mode == mode,
+                "paused world does not consume movement, jump, look or camera toggles"))
+    {
+        return false;
+    }
+    return expect(fixture.world.set_paused(false) && fixture.controller.tick(1.0 / 60.0) &&
+                      fixture.physics.tick(1.0 / 60.0) && fixture.cameras.tick(0) &&
+                      std::abs(position(*fixture.player).z() - before.z()) < 0.01 &&
+                      rig->yaw() == yaw && rig->settings().mode == mode &&
+                      fixture.player->get_component<engine::CharacterMotor>()->grounded(),
+                  "resume does not replay one-shot input submitted during pause");
+}
+
 } // namespace
 
 int main()
 {
-    return movement_jump_and_settings() && component_input_consumption() &&
+    return world_pause_discards_transient_input() && movement_jump_and_settings() &&
+                   component_input_consumption() &&
                    complete_input_cancellation() && collisions_steps_and_lifecycle() &&
                    camera_modes_and_occlusion() && first_person_visibility_lifecycle() &&
                    player_selection_and_removal() && independent_follow_camera() &&

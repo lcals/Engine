@@ -33,6 +33,7 @@
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
+#include "editor/project/runtime_settings_io.hpp"
 #include "editor/render/render_commands.hpp"
 #include "editor/scene/scene_preview.hpp"
 #include "runtime/app/app.hpp"
@@ -42,6 +43,8 @@
 #include "runtime/gameplay/gameplay_session.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/render/render_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
@@ -61,6 +64,9 @@
 #endif
 #if ENGINE_HAS_UI_IMPORTER
 #include "plugins/editor/ui_import/ui_importer.hpp"
+#endif
+#if ENGINE_HAS_JSON_IMPORTER
+#include "plugins/editor/json_import/json_importer.hpp"
 #endif
 #if ENGINE_HAS_FBX_IMPORTER
 #include "plugins/editor/fbx_import/fbx_importer.hpp"
@@ -107,6 +113,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -124,14 +131,18 @@ void print_usage()
 {
     fmt::print("Usage: editor_app --project <project-directory> "
                "[--runtime-dir <persistent-directory>] [--frames <positive-count>] [--width "
-               "<pixels>] [--height <pixels>]\n");
+               "<pixels>] [--height <pixels>] [--workers <0..64>] [--runtime-profile "
+               "<desktop|mobile>]\n");
 }
 
 int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& environment,
-               const engine::EngineConfig& config, std::uint64_t frame_limit)
+               const engine::EngineConfig& config, std::uint64_t frame_limit,
+               const engine::RuntimeParallelConfig& parallel)
 {
+    engine::ThreadSystem threads(parallel.threads);
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::editor::AssetPipelineSystem pipeline;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem pipeline(tasks);
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
@@ -142,11 +153,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation,
-                        engine::InputSystem& input) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::NavigationSystem& navigation, engine::InputSystem& input,
+                        engine::WindowSystem& window) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window);
     };
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
@@ -164,7 +175,19 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     std::uint64_t frames = 0;
     const int result = [&]()
     {
+        if (!threads.initialize(config))
+        {
+            LogSystem::write(LogLevel::error,
+                             "Thread initialization failed: " + threads.last_error());
+            return 1;
+        }
 #if ENGINE_HAS_ASSET_PIPELINE
+        if (!tasks.initialize(config))
+        {
+            LogSystem::write(LogLevel::error,
+                             "Editor tasks initialization failed: " + tasks.last_error());
+            return 1;
+        }
         if (!pipeline.initialize(config))
         {
             LogSystem::write(LogLevel::error, "Asset pipeline initialization failed");
@@ -232,6 +255,15 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
 #endif
+#if ENGINE_HAS_JSON_IMPORTER
+        std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> json_importer =
+            std::make_unique<engine::plugins::json_import::JsonImporter>();
+        if (!pipeline.add_importer(json_importer))
+        {
+            std::fputs("Cannot register JSON importer\n", stderr);
+            return 1;
+        }
+#endif
 #if ENGINE_HAS_FBX_IMPORTER
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =
             std::make_unique<engine::plugins::fbx_import::FbxImporter>();
@@ -272,11 +304,11 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             return 1;
         }
         resources.set_loader(&resource_graph);
-        const bool runtime_ready =
-            runtime.initialize(config, &resources, script_factory, configure_runtime_plugins);
+        const bool runtime_ready = runtime.initialize(
+            config, &resources, script_factory, configure_runtime_plugins, &threads, parallel);
 #else
-        const bool runtime_ready =
-            runtime.initialize(config, nullptr, script_factory, configure_runtime_plugins);
+        const bool runtime_ready = runtime.initialize(
+            config, nullptr, script_factory, configure_runtime_plugins, &threads, parallel);
 #endif
         if (!runtime_ready)
         {
@@ -641,7 +673,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
 #if ENGINE_HAS_ASSET_PIPELINE
     pipeline.shutdown();
+    tasks.shutdown();
 #endif
+    threads.shutdown();
     LogSystem::write(LogLevel::info,
                      "Editor stopped after " + std::to_string(frames) + " rendered frames");
     return result;
@@ -651,7 +685,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 
 int main(int argc, char* argv[])
 {
-    engine::EngineConfig config;
+    engine::RuntimeSettings settings;
+    auto& config = settings.engine;
+    auto& parallel = settings.parallel;
+    std::optional<std::uint32_t> width_override;
+    std::optional<std::uint32_t> height_override;
+    std::optional<std::size_t> worker_override;
+    std::string runtime_profile = "desktop";
     config.window_title = "Engine Editor";
     std::string project_argument;
     fs::path runtime_directory;
@@ -659,6 +699,29 @@ int main(int argc, char* argv[])
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
+        if (argument == "--workers" && index + 1 < argc)
+        {
+            const std::string_view value(argv[++index]);
+            std::size_t count = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
+            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || count > 64)
+            {
+                fmt::print(stderr, "Worker limit must be within 0..64 (0 is automatic)\n");
+                return 2;
+            }
+            worker_override = count;
+            continue;
+        }
+        if (argument == "--runtime-profile" && index + 1 < argc)
+        {
+            runtime_profile = argv[++index];
+            if (runtime_profile != "desktop" && runtime_profile != "mobile")
+            {
+                print_usage();
+                return 2;
+            }
+            continue;
+        }
         if (argument == "--help" && argc == 2)
         {
             print_usage();
@@ -675,7 +738,7 @@ int main(int argc, char* argv[])
                 fmt::print(stderr, "Window dimension must be within 320..8192 pixels\n");
                 return 2;
             }
-            (argument == "--width" ? config.width : config.height) = pixels;
+            (argument == "--width" ? width_override : height_override) = pixels;
             continue;
         }
         if (argument == "--project" && index + 1 < argc && project_argument.empty())
@@ -755,7 +818,29 @@ int main(int argc, char* argv[])
     LogSystem::write(LogLevel::info, "Editor persistent directory: " +
                                          PathUtils::to_utf8(engine::App::persistent_data_path()));
     LogSystem::write(LogLevel::info, "Editor log: " + PathUtils::to_utf8(log.file_path()));
-    const int result = run_editor(project_root, environment, config, frame_limit);
+    std::string settings_error;
+    if (!engine::editor::load_project_runtime_settings(project_root, runtime_profile, settings,
+                                                       settings_error))
+    {
+        LogSystem::write(LogLevel::error, settings_error);
+        log.shutdown();
+        environment.shutdown();
+        project.shutdown();
+        return 1;
+    }
+    if (width_override)
+    {
+        config.width = *width_override;
+    }
+    if (height_override)
+    {
+        config.height = *height_override;
+    }
+    if (worker_override)
+    {
+        parallel.threads.worker_limit = *worker_override;
+    }
+    const int result = run_editor(project_root, environment, config, frame_limit, parallel);
     const bool flushed = log.flush();
     log.shutdown();
     environment.shutdown();

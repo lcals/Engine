@@ -19,6 +19,7 @@
 | 编辑器 USD | `plugins/editor/usd_import/` | 独立 OpenUSD 依赖，自包含静态模型转换 |
 | 编辑器字体导入 | `plugins/editor/font_import/` | FreeType 读取 TTF 轮廓及度量，meta 控制字符集与转换参数 |
 | 编辑器 UI 导入 | `plugins/editor/ui_import/` | RmlUi 文档及字体、图片依赖转换，生成独立 UI 资源 |
+| 编辑器 JSON 导入 | `plugins/editor/json_import/` | 严格校验 `.json` 后原字节发布；运行时复用字节资源和 JsonBinding |
 | 编辑器角色控制器 | `plugins/editor/character_controller/` | 组件 TOML、撤销编辑与 MCP 适配，依赖对应运行时插件 |
 | 编辑器建模 | `plugins/editor/modeling/` | 纯几何、拓扑、UV、网格编译、模型与节点映射、选择、撤销、源资源保存及本模块 MCP 适配 |
 | 编辑器 MCP | `plugins/editor/mcp/` | MCP 协议、工具注册、参数检查、项目/场景/渲染工具和固定目标通道 |
@@ -35,7 +36,7 @@
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
 - `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`json_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -58,6 +59,7 @@
 | `editor/usd_import` | 非设备构建，资源管线依赖开启 | 无；独立 `usd-import` vcpkg feature |
 | `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
 | `editor/ui_import` | 非设备构建，资源管线依赖开启 | 无；通过资源管线解析标准引用 |
+| `editor/json_import` | 非设备构建，资源管线依赖开启 | 无；依赖通用资源管线，nlohmann/json 私有于离线格式校验 |
 | `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | `runtime/resource_graph`；运行包不包含此插件 |
 | `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
@@ -105,6 +107,7 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 - [建筑破坏组件与系统](runtime/class-diagrams/destruction.md)、[Blast 图](runtime/class-diagrams/destruction-graph.md)、[官方预破碎](editor/class-diagrams/destruction-authoring.md)与[编辑器事务/MCP](editor/class-diagrams/destruction-editor.md)。
 - [资源构建](editor/resource-build.md)、[资源同步](editor/class-diagrams/asset-sync-system.md)。
 - [字体导入](editor/class-diagrams/font-importer.md)、[UI 导入](editor/class-diagrams/ui-importer.md)、[核心字体](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。
+- [JSON 导入](editor/class-diagrams/json-importer.md)与[JSON 脚本接口](runtime/class-diagrams/json-script-api.md)：独立编辑器插件校验配置，原生资源载荷和静态脚本读取复用现有契约。
 - [跨层完整引用关系](../class-diagrams/references.md)。
 
 模型格式以导入器 id 区分，FBX/USD 可同时产出 `model`。宿主通过 `add_importer` 装配新格式，现有同 id 才使用 `set_importer`；管线统一管理子 GUID、缓存和发布。格式解析器不进入运行包，后续格式遵循同一扩展契约，见[FBX](editor/class-diagrams/fbx-importer.md)及[USD](editor/class-diagrams/usd-import.md)。

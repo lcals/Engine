@@ -106,6 +106,7 @@ classDiagram
     ScriptRuntimeFactory ..> RenderSystem : 玩法回调期间的参数借用
     ScriptRuntimeFactory ..> UiSystem : UI绑定及事件派发的参数借用
     ScriptRuntimeFactory ..> InputSystem : 设备及通道绑定的参数借用
+    ScriptRuntimeFactory ..> WindowSystem : 窗口与鼠标薄绑定借用
     RuntimeHost ..> RuntimeSetup : 世界初始化前调用宿主扩展装配
     RuntimeHost ..> ScriptRuntime : 移交世界独占
     GameplaySession --> ScriptRuntime : 可空借用核心执行契约
@@ -358,7 +359,7 @@ AssetSyncSystem 由独立工具宿主装配，未挂入 ResourceSystem 子系统
 
 1. 解析项目与运行目录，初始化 ProjectSystem，检查项目根目录及 `settings/`、`cache/`、`assets/`。失败时尚未打开引擎窗口。
 2. 初始化 EditorEnvironment，由环境配置 App 路径，然后初始化 LogSystem。
-3. 初始化 AssetPipelineSystem 及其 TaskSystem 子系统，按项目导入线程设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
+3. 初始化进程 ThreadSystem、编辑器 TaskSystem 任务域和借用它的 AssetPipelineSystem，按项目并发设置转换资源，生成 `cache/gen/<完整 GUID>` 与资源目录；SQLite 索引留在 cache。
 4. 宿主初始化 ResourceSystem 和选中的 ResourceGraphSystem，并注入加载接口；再初始化 RuntimeHost，借用资源底层并创建窗口、世界和渲染。EditorEnvironment 直接提交管线内存目录和 cache 挂载，再以其玩法会话初始化 EditorSystem。
 5. 编辑器发布新会话状态，保持空白等待 MCP；收到本会话 start_project 后，调用 GameplaySession 入口，经 ScriptSystem 创建 Game 与场景，再准备 GPU 资源。
 
@@ -407,6 +408,8 @@ classDiagram
         <<script binding>>
     }
     class ScriptApp["App 脚本绑定"]
+    class WindowBinding
+    class WindowSystem
     class Storage
     class StorageBinding
     class BindingContext
@@ -420,6 +423,9 @@ classDiagram
     Game ..> ScriptApp : 应用目录查询
     Debug ..> LogSystem : 静态日志转发
     ScriptApp ..> App : 只读平台路径绑定
+    ScriptApp ..> WindowSystem : 提交退出请求
+    WindowBinding ..> WindowSystem : 扩展现有窗口接口
+    BindingContext --> WindowSystem : 活动回调借用及鼠标恢复
     Game ..> Storage : 低频字符串 KV 与显式保存
     StorageBinding ..> Storage : 定义脚本外观
     StorageBinding ..> BindingContext : 有效回调期间借用
@@ -428,6 +434,12 @@ classDiagram
 ```
 
 Game 是项目默认导出的 Gameplay 派生类型，是引擎与项目业务之间的胶水。ScriptSystem 持有当前运行的一个 Game 实例；项目可承载业务、组织业务对象，并选择、加载和切换场景。
+
+运行控制见[脚本入口](../plugins/runtime/class-diagrams/runtime-controls-script-api.md)：
+现有 WorldSystem 保存临时暂停状态，各实际模拟入口遵守该状态，UI/输入/Gameplay 菜单继续更新；
+Engine/System 不增加调度框架。每 Run 的 BindingContext 独占最多一个 ResourceLoad 操作，
+实际依赖遍历和缓存仍由 ResourceGraphSystem 实现；操作借用的加载器必须晚于 Run 释放。
+暂停和加载的方法分别只在世界/资源/玩法的独立类图定义，此处不重复接口。
 
 Node、Component、Scene 支持动态创建和脚本绑定，场景通过 TOML 源资源导入为 FlatBuffers 二进制并加载。图中的 App 脚本绑定是 C++ App 的只读暴露，不是第二个平台所有者；Debug 直接转发原生日志，不新增 C++ Debug 或 Logger 所有者。
 
@@ -649,6 +661,8 @@ App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通
 
 ## 类型登记与框架分派
 
+JSON 资源扩展新增独立编辑器 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过 ResourceSystem / ResourceLoader 取得本次 ResourcePtr 并检查 json 类型后读取 bytes；JS 门面解析为当前 VM 的普通值。核心只追加 AssetKind 与 BinaryResourceCodec 登记，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
+
 脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
 
 ```mermaid
@@ -719,7 +733,7 @@ classDiagram
     AssetImporter ..> ImportContext : 借用转换输入及目标信息
 ```
 
-单项资源的类型校验见 [ResourceCodec](../runtime/class-diagrams/resource-codecs.md)，离线依赖、类型指纹和转换见 [AssetImporter](../editor/class-diagrams/asset-importers.md)。资源解码器不加载依赖；导入器不拥有 Taskflow 执行器或 SQLite 发布事务。
+单项资源的类型校验见 [ResourceCodec](../runtime/class-diagrams/resource-codecs.md)，离线依赖、类型指纹和转换见 [AssetImporter](../editor/class-diagrams/asset-importers.md)。资源解码器不加载依赖；导入器不拥有 oneTBB 执行器或 SQLite 发布事务。
 
 建模导入扩展的完整关系见 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md)：插件继承编辑器 MeshImporter，宿主创建并通过 set_importer 转交管线持有。管线只拥有 AssetImporter 接口，不依赖建模插件目标；销毁管线时释放登记实现。
 
@@ -816,7 +830,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | EditorCommands        | 标准函数及独占指针、nlohmann/json                                                                                                             | 命令登记、批量执行及撤销/重做历史                      |
 | SceneCommands         | WorldSystem、Scene、Node、Transform、Light、Material、Collider、RigidBody、AudioSource、AudioListener、EditorEdit                                                                              | 场景业务校验与字段修改记录                             |
 | EditorCommandChannel  | EditorCommands、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                                | 编辑器会话请求、持久回执和重复请求防护                 |
-| AssetPipelineSystem   | Taskflow、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | Taskflow 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
+| ThreadSystem / TaskSystem | oneTBB（私有）、平台调度 API、可选 Tracy | 进程 worker 预算、独立任务域、优先级与依赖图 |
+| AssetPipelineSystem   | TaskSystem、SQLite、efsw、meshoptimizer、SDL3、PathUtils                                                                                   | oneTBB 并行导入、SQLite 增量索引、资源转换及 TS 编译 |
 | AssetBuildSystem      | AssetPipelineSystem、ResourceCatalog、ResourceSystem、toml++                                                                                  | 项目清单、运行依赖闭包、增量散文件或合并包及运行目录   |
 | AssetSyncSystem       | nlohmann/json、SDL3、ResourceSystem、VirtualFileSystem、PathUtils                                                                             | 完整版本校验与原子发布                                 |
 | McpSystem             | System、nlohmann/json、标准函数对象                                                                                                           | stdio 协议、工具注册、参数检查与调用                   |
@@ -850,7 +865,7 @@ classDiagram
     class ScriptSystem
     class System
     System <|-- TaskSystem
-    AssetPipelineSystem *-- TaskSystem : 独占导入子系统
+    AssetPipelineSystem --> TaskSystem : 借用已初始化编辑器任务域
     AssetPipelineSystem ..> GuidMap : 源文件逻辑路径与身份校验
     AssetPipelineSystem ..> AssetImporter : 调度已登记类型
     AssetImporter <|-- SceneAssetImporter
@@ -861,7 +876,7 @@ classDiagram
     ScriptSystem ..> ResourceCatalog : 候选预检输入
 ```
 
-GuidMap 属于纯标准库核心模块；Taskflow、SQLite、toml++ 仅用于编辑器导入，不进入设备运行时。完整数据结构与公开方法见对应独立图。源资源 meta、SQL 中的身份和运行期目录使用同一完整 GUID，生成路径固定为 `cache/gen/<GUID>`。
+GuidMap 属于纯标准库核心模块；SQLite 与 toml++ 仅用于编辑器导入；oneTBB 属于 runtime/task 私有依赖，编辑器借用其独立任务域。完整数据结构与公开方法见对应独立图。源资源 meta、SQL 中的身份和运行期目录使用同一完整 GUID，生成路径固定为 `cache/gen/<GUID>`。
 
 ## 资源调用关系
 
@@ -943,7 +958,7 @@ classDiagram
     class MeshRenderer
     class MeshUtils
     class RenderSystem
-    AssetPipelineSystem ..> AssetImporter : Taskflow任务通过统一接口调用
+    AssetPipelineSystem ..> AssetImporter : oneTBB任务通过统一接口调用
     AssetImporter <|-- TextureImporter
     TextureImporter ..> TextureDataT : BasisU缓存
     Resource *-- TextureDataT : 贴图载荷独占

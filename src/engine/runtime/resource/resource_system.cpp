@@ -1,11 +1,13 @@
 #include "runtime/resource/resource_system.hpp"
 
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
+#include "runtime/task/task_system.hpp"
 
 #include <SDL3/SDL_stdinc.h>
 #include <flatbuffers/idl.h>
@@ -13,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -131,6 +134,268 @@ const ResourceMount* find_mount(const MountList& mounts, std::string_view name)
 
 } // namespace
 
+struct ResourceSystem::AsyncState
+{
+    TaskSystem* tasks = nullptr;
+    ResourceAsyncConfig config;
+    std::shared_ptr<const ResourceCatalog> catalog;
+    std::atomic<std::size_t> in_flight{0};
+    std::atomic<std::uint64_t> in_flight_bytes{0};
+    bool active = true;
+};
+
+class ResourceSystem::AsyncLoad final : public ResourceLoad
+{
+public:
+    AsyncLoad(ResourceSystem& owner, std::string guid)
+        : owner_(owner), state_(owner.async_), catalog_(state_->catalog), guid_(std::move(guid)),
+          generation_(owner.generation_)
+    {
+    }
+
+    ~AsyncLoad() noexcept override
+    {
+        if (work_)
+        {
+            work_->cancelled.store(true, std::memory_order_relaxed);
+        }
+    }
+
+    ResourceLoadStatus step(std::uint32_t budget, ResourceLoadProgress& output) override
+    {
+        if (status_ == ResourceLoadStatus::loading &&
+            (!state_->active || !owner_.is_initialized() || owner_.generation_ != generation_))
+        {
+            fail("Resource catalog changed or asynchronous loading stopped");
+        }
+        if (status_ != ResourceLoadStatus::loading || budget == 0)
+        {
+            output = {status_ == ResourceLoadStatus::ready ? 1U : 0U, 1};
+            return status_;
+        }
+        const auto* entry = catalog_->find(guid_);
+        if (entry->location == nullptr)
+        {
+            // 内置注册表属于协调线程，不能在后台访问活动系统的全局定义。
+            if (owner_.load(guid_, root_))
+            {
+                status_ = ResourceLoadStatus::ready;
+            }
+            else
+            {
+                fail(owner_.last_error());
+            }
+        }
+        else
+        {
+            advance(*entry);
+        }
+        output = {status_ == ResourceLoadStatus::ready ? 1U : 0U, 1};
+        return status_;
+    }
+
+    ResourcePtr resource() const noexcept override
+    {
+        return root_;
+    }
+    std::string_view last_error() const noexcept override
+    {
+        return error_;
+    }
+
+private:
+    struct Work
+    {
+        std::shared_ptr<AsyncState> state;
+        std::uint64_t cost = 0;
+        std::atomic<bool> cancelled{false};
+        ByteBuffer bytes;
+        ResourcePtr resource;
+        bool reading = false;
+        bool read_done = false;
+        bool decoding = false;
+        bool decoded = false;
+        bool success = false;
+
+        ~Work() noexcept
+        {
+            state->in_flight.fetch_sub(1, std::memory_order_relaxed);
+            state->in_flight_bytes.fetch_sub(cost, std::memory_order_relaxed);
+        }
+    };
+
+    void fail(std::string_view error)
+    {
+        error_ = error;
+        status_ = ResourceLoadStatus::failed;
+        if (work_)
+        {
+            work_->cancelled.store(true, std::memory_order_relaxed);
+            work_.reset();
+        }
+    }
+
+    void advance(const schema::AssetEntryT& entry)
+    {
+        if (!work_)
+        {
+            if (entry.content_size > state_->config.max_in_flight_bytes)
+            {
+                fail("Resource exceeds asynchronous byte budget: " + entry.path);
+                return;
+            }
+            if (state_->in_flight.load(std::memory_order_relaxed) >= state_->config.max_in_flight ||
+                entry.content_size > state_->config.max_in_flight_bytes -
+                                         state_->in_flight_bytes.load(std::memory_order_relaxed))
+            {
+                return;
+            }
+            work_ = std::make_shared<Work>();
+            work_->state = state_;
+            work_->cost = entry.content_size;
+            state_->in_flight.fetch_add(1, std::memory_order_relaxed);
+            state_->in_flight_bytes.fetch_add(entry.content_size, std::memory_order_relaxed);
+        }
+        const auto work = work_;
+        if (!work->reading)
+        {
+            const auto result = owner_.files_.read_async(*entry.location, 0, entry.content_size,
+                                                         [work](bool success, ByteBuffer bytes)
+                                                         {
+                                                             work->bytes = std::move(bytes);
+                                                             work->success = success;
+                                                             work->read_done = true;
+                                                         });
+            if (result == FileReadStatus::failed)
+            {
+                fail("Cannot start asynchronous resource read: " + entry.path);
+                return;
+            }
+            work->reading = result == FileReadStatus::accepted;
+        }
+        if (!work->read_done)
+        {
+            return;
+        }
+        if (!work->success)
+        {
+            fail("Cannot read asynchronous resource: " + entry.path);
+            return;
+        }
+        if (!work->decoding)
+        {
+            work->decoding = state_->tasks->submit(
+                "Resource.decode",
+                [work, catalog = catalog_, guid = guid_, generation = generation_]()
+                {
+                    ENGINE_PROFILE_ZONE("Resource.decode");
+                    if (work->cancelled.load(std::memory_order_relaxed))
+                    {
+                        return false;
+                    }
+                    const bool result =
+                        decode_loaded(*catalog, generation, guid, work->bytes, work->resource);
+                    ByteBuffer{}.swap(work->bytes);
+                    return result;
+                },
+                [work](bool success)
+                {
+                    work->success = success;
+                    work->decoded = true;
+                },
+                TaskPriority::normal);
+        }
+        if (work->decoded)
+        {
+            if (!work->success)
+            {
+                fail("Invalid asynchronous resource: " + entry.path);
+                return;
+            }
+            root_ = work->resource;
+            status_ = ResourceLoadStatus::ready;
+            work_.reset();
+        }
+    }
+
+    ResourceSystem& owner_;
+    std::shared_ptr<AsyncState> state_;
+    std::shared_ptr<const ResourceCatalog> catalog_;
+    std::string guid_;
+    std::uint64_t generation_ = 0;
+    std::shared_ptr<Work> work_;
+    ResourcePtr root_;
+    ResourceLoadStatus status_ = ResourceLoadStatus::loading;
+    std::string error_;
+};
+
+bool ResourceSystem::configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config)
+{
+    if (!is_initialized() || !tasks.is_initialized() || config.max_in_flight == 0 ||
+        config.max_in_flight_bytes == 0 || config.completion_budget == 0 ||
+        (async_ && async_->in_flight.load(std::memory_order_relaxed) != 0))
+    {
+        last_error_ = "Invalid asynchronous resource configuration or active requests";
+        return false;
+    }
+    if (!files_.configure_async(tasks, {config.max_in_flight, config.max_in_flight_bytes}))
+    {
+        last_error_ = "Cannot initialize asynchronous resource I/O";
+        return false;
+    }
+    if (async_)
+    {
+        async_->active = false;
+    }
+    async_ = std::make_shared<AsyncState>();
+    async_->tasks = &tasks;
+    async_->config = config;
+    async_->catalog = std::make_shared<const ResourceCatalog>(catalog_);
+    return true;
+}
+
+void ResourceSystem::shutdown_async() noexcept
+{
+    if (async_)
+    {
+        async_->active = false;
+    }
+    files_.shutdown_async();
+    async_.reset();
+}
+
+bool ResourceSystem::async_enabled() const noexcept
+{
+    return async_ && async_->active;
+}
+
+bool ResourceSystem::begin_load(std::string_view guid, std::unique_ptr<ResourceLoad>& output)
+{
+    const std::string identity(guid);
+    output.reset();
+    if (!is_initialized() || !async_enabled() || catalog_.find(identity) == nullptr)
+    {
+        last_error_ = "Unknown resource or asynchronous loading not configured: " + identity;
+        return false;
+    }
+    output = std::make_unique<AsyncLoad>(*this, identity);
+    return true;
+}
+
+void ResourceSystem::poll_async()
+{
+    if (async_enabled())
+    {
+        files_.poll_async(async_->config.completion_budget);
+    }
+}
+
+bool ResourceSystem::on_tick(double)
+{
+    poll_async();
+    return true;
+}
+
 ResourceSystem::ResourceSystem() noexcept = default;
 
 ResourceSystem::~ResourceSystem() noexcept
@@ -194,9 +459,17 @@ bool ResourceSystem::update_catalog(const schema::AssetCatalogDataT& data, const
             return false;
         }
     }
+    if (!files_.configure(mounts))
+    {
+        last_error_ = "Invalid resource mounts";
+        return false;
+    }
     catalog_ = std::move(candidate);
-    files_ = std::move(files);
     ++generation_;
+    if (async_)
+    {
+        async_->catalog = std::make_shared<const ResourceCatalog>(catalog_);
+    }
     return true;
 }
 
@@ -353,24 +626,44 @@ bool ResourceSystem::load(std::string_view guid, ResourcePtr& output)
         return false;
     }
     const auto* entry = catalog_.find(guid);
-    auto resource = std::shared_ptr<Resource>(new Resource());
-    resource->generation_ = generation_;
-    resource->info_ = *entry;
-    ByteBuffer payload;
+    ByteBuffer entity;
     if (entry->location || !entry->path.starts_with("builtin://"))
     {
-        ByteBuffer entity;
-        if (!entry->location || !files_.read(*entry->location, 0, entry->content_size, entity) ||
-            !decode_resource(*entry, entity, payload))
+        if (!entry->location || !files_.read(*entry->location, 0, entry->content_size, entity))
         {
             last_error_ = "Invalid resource entity: " + entry->path;
             return false;
         }
     }
-    const auto* codec = find_resource_codec(entry->kind);
-    if (!codec || !codec->decode(catalog_, payload, *resource))
+    if (!decode_loaded(catalog_, generation_, guid, entity, output))
     {
         last_error_ = "Invalid resource entity or declared reference: " + entry->path;
+        return false;
+    }
+    return true;
+}
+
+bool ResourceSystem::decode_loaded(const ResourceCatalog& catalog, std::uint64_t generation,
+                                   std::string_view guid, ByteView entity, ResourcePtr& output)
+{
+    output.reset();
+    const auto* entry = catalog.find(guid);
+    if (entry == nullptr)
+    {
+        return false;
+    }
+    ByteBuffer payload;
+    if ((entry->location || !entry->path.starts_with("builtin://")) &&
+        !decode_resource(*entry, entity, payload))
+    {
+        return false;
+    }
+    auto resource = std::shared_ptr<Resource>(new Resource());
+    resource->generation_ = generation;
+    resource->info_ = *entry;
+    const auto* codec = find_resource_codec(entry->kind);
+    if (!codec || !codec->decode(catalog, payload, *resource))
+    {
         return false;
     }
     output = std::move(resource);
@@ -624,6 +917,7 @@ bool ResourceSystem::on_initialize(const EngineConfig&)
 
 void ResourceSystem::on_shutdown() noexcept
 {
+    shutdown_async();
     if (definition_owner == this)
     {
         loader_ = nullptr;

@@ -9,11 +9,16 @@
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <deque>
+#include <future>
 #include <limits>
 #include <map>
 #include <string>
@@ -31,6 +36,41 @@ struct GeneratedGroup
     std::uint64_t node = 0;
     bool anchored = false;
 };
+
+void build_group_geometry(const schema::DestructionAssetDataT& asset,
+                          const DestructionGroup& description,
+                          const schema::DestructionDataT& settings, schema::MeshDataT& mesh,
+                          schema::ColliderDataT& collision)
+{
+    collision.shape = schema::ColliderShape::compound;
+    collision.friction = settings.friction;
+    collision.restitution = settings.restitution;
+    for (auto chunk_index : description.chunks)
+    {
+        const auto& source = *asset.chunks[chunk_index]->mesh;
+        const auto offset = static_cast<std::uint32_t>(mesh.vertices.size());
+        mesh.vertices.insert(mesh.vertices.end(), source.vertices.begin(), source.vertices.end());
+        for (auto vertex_index : source.indices)
+        {
+            mesh.indices.push_back(offset + vertex_index);
+        }
+        for (std::size_t vertex_index = 0; vertex_index < source.vertices.size(); ++vertex_index)
+        {
+            const auto& vertex = source.vertices[vertex_index];
+            mesh.texcoords.push_back(source.texcoords.empty()
+                                         ? Vec2{vertex.x() * 0.2, vertex.y() * 0.2}
+                                         : source.texcoords[vertex_index]);
+            mesh.colors.push_back(source.colors.empty() ? Color{1, 1, 1, 1}
+                                                        : source.colors[vertex_index]);
+        }
+        auto hull = std::make_unique<schema::ColliderHullDataT>();
+        for (const auto& vertex : source.vertices)
+        {
+            hull->vertices.emplace_back(vertex.x(), vertex.y(), vertex.z());
+        }
+        collision.hulls.push_back(std::move(hull));
+    }
+}
 
 bool finite(const Vec3& value)
 {
@@ -229,14 +269,141 @@ bool read_group(const Scene& scene, const GeneratedGroup& group,
 
 } // namespace
 
-struct DestructionSystem::State
+struct DestructionSystem::PreparedGroup
 {
-    std::uint64_t scene_id = 0;
-    std::map<std::uint64_t, std::vector<GeneratedGroup>> generated;
+    schema::MeshDataT mesh;
+    schema::ColliderDataT collision;
 };
 
-DestructionSystem::DestructionSystem(WorldSystem& world, PhysicsSystem& physics) noexcept
-    : world_(world), physics_(physics)
+struct DestructionSystem::State
+{
+    struct SourceGroup
+    {
+        DestructionGroup group;
+        std::array<float, 16> matrix{};
+        double scale = 1;
+    };
+    struct Prepared
+    {
+        DestructionGraph graph;
+        std::vector<SourceGroup> sources;
+        std::vector<PreparedGroup> groups;
+        std::vector<Vec3> velocity_changes;
+        std::string error;
+    };
+    struct Request
+    {
+        Vec3 center;
+        float radius = 0;
+        float damage = 0;
+        float impulse = 0;
+        std::function<void(bool)> completed;
+    };
+    struct Owner
+    {
+        std::uint64_t scene = 0;
+        std::uint64_t revision = 0;
+        std::weak_ptr<const std::uint8_t> lifetime;
+        std::deque<Request> requests;
+        std::shared_ptr<Prepared> prepared;
+        std::future<bool> completion;
+    };
+    struct Completion
+    {
+        std::function<void(bool)> callback;
+        bool success = false;
+    };
+    std::uint64_t scene_id = 0;
+    std::map<std::uint64_t, std::vector<GeneratedGroup>> generated;
+    std::map<std::uint64_t, Owner> owners;
+    std::vector<Completion> ready;
+    std::size_t pending = 0;
+    std::uint64_t published_after = 0;
+    std::uint64_t submitted_after = 0;
+    std::shared_ptr<const std::uint8_t> lifetime = std::make_shared<const std::uint8_t>(0);
+
+    void cancel(Owner& owner)
+    {
+        for (auto& request : owner.requests)
+        {
+            ready.push_back({std::move(request.completed), false});
+        }
+    }
+
+    static bool prepare(Prepared& prepared, const Vec3& center, float radius, float damage,
+                        float impulse, const schema::DestructionDataT& settings)
+    {
+        ENGINE_PROFILE_ZONE("Destruction.async_prepare");
+        for (const auto& source : prepared.sources)
+        {
+            if (!prepared.graph.damage_sphere(
+                    source.group.id, local_point(source.matrix.data(), center, source.scale),
+                    static_cast<float>(radius / source.scale), damage, prepared.error))
+            {
+                return false;
+            }
+        }
+        prepared.groups.resize(prepared.graph.groups().size());
+        prepared.velocity_changes.resize(prepared.groups.size());
+        for (std::size_t index = 0; index < prepared.groups.size(); ++index)
+        {
+            const auto& group = prepared.graph.groups()[index];
+            const auto source = std::find_if(
+                prepared.sources.begin(), prepared.sources.end(),
+                [&](const auto& item)
+                {
+                    return std::includes(item.group.chunks.begin(), item.group.chunks.end(),
+                                         group.chunks.begin(), group.chunks.end());
+                });
+            if (source == prepared.sources.end())
+            {
+                prepared.error = "Asynchronous destruction group lost its source";
+                return false;
+            }
+            if (source->group.chunks != group.chunks || source->group.anchored != group.anchored)
+            {
+                auto& geometry = prepared.groups[index];
+                build_group_geometry(prepared.graph.data(), group, settings, geometry.mesh,
+                                     geometry.collision);
+            }
+            if (group.anchored || impulse == 0)
+            {
+                continue;
+            }
+            double volume = 0;
+            const auto pivot = world_point(source->matrix.data(),
+                                           center_of(prepared.graph.data(), group.chunks, volume));
+            const Vec3 offset{pivot.x() - center.x(), pivot.y() - center.y(),
+                              pivot.z() - center.z()};
+            const double distance = std::hypot(offset.x(), offset.y(), offset.z());
+            if (distance >= radius)
+            {
+                continue;
+            }
+            const double mass =
+                volume * source->scale * source->scale * source->scale * settings.density;
+            if (!std::isfinite(mass) || mass < 0.0001 || mass > 1000000)
+            {
+                prepared.error = "Asynchronous destruction mass is outside the physics range";
+                return false;
+            }
+            const double amount = impulse * (1 - distance / radius) / mass;
+            const Vec3 direction =
+                distance > 0.0001
+                    ? Vec3{offset.x() / distance, offset.y() / distance, offset.z() / distance}
+                    : Vec3{0, 1, 0};
+            prepared.velocity_changes[index] = {direction.x() * amount, direction.y() * amount,
+                                                direction.z() * amount};
+        }
+        return true;
+    }
+};
+
+DestructionSystem::DestructionSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks,
+                                     std::size_t max_pending_requests,
+                                     std::size_t max_commits_per_tick) noexcept
+    : world_(world), physics_(physics), tasks_(tasks), max_pending_requests_(max_pending_requests),
+      max_commits_per_tick_(max_commits_per_tick)
 {
 }
 DestructionSystem::~DestructionSystem() noexcept
@@ -250,7 +417,8 @@ DestructionSystem* DestructionSystem::instance() noexcept
 
 bool DestructionSystem::on_initialize(const EngineConfig&)
 {
-    if (active_system)
+    if (active_system || (tasks_ != nullptr && !tasks_->is_initialized()) ||
+        max_pending_requests_ == 0 || max_commits_per_tick_ == 0)
     {
         return false;
     }
@@ -267,12 +435,13 @@ bool DestructionSystem::on_initialize(const EngineConfig&)
 
 bool DestructionSystem::publish(DestructionComponent& component, DestructionGraph candidate,
                                 const std::vector<schema::DestructionGroupStateT>& groups,
-                                bool reuse_groups)
+                                bool reuse_groups, const std::vector<PreparedGroup>* prepared)
 {
     ENGINE_PROFILE_ZONE("Destruction.publish_fragments");
     auto* scene = world_.scene();
     if (!state_ || !scene || scene != &component.node().scene() || component.node().parent() ||
         groups.size() != candidate.groups().size() ||
+        (prepared != nullptr && prepared->size() != groups.size()) ||
         component.revision_ == std::numeric_limits<std::uint64_t>::max())
     {
         component.last_error_ = "Destruction requires a root node in the active world";
@@ -363,38 +532,13 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
             continue;
         }
         changed = true;
-        schema::MeshDataT mesh;
-        schema::ColliderDataT collision;
-        collision.shape = schema::ColliderShape::compound;
-        collision.friction = component.settings().friction;
-        collision.restitution = component.settings().restitution;
-        for (auto chunk_index : description.chunks)
+        PreparedGroup synchronous;
+        if (prepared == nullptr)
         {
-            const auto& source = *asset.chunks[chunk_index]->mesh;
-            const auto offset = static_cast<std::uint32_t>(mesh.vertices.size());
-            mesh.vertices.insert(mesh.vertices.end(), source.vertices.begin(),
-                                 source.vertices.end());
-            for (auto vertex_index : source.indices)
-            {
-                mesh.indices.push_back(offset + vertex_index);
-            }
-            for (std::size_t vertex_index = 0; vertex_index < source.vertices.size();
-                 ++vertex_index)
-            {
-                const auto& vertex = source.vertices[vertex_index];
-                mesh.texcoords.push_back(source.texcoords.empty()
-                                             ? Vec2{vertex.x() * 0.2, vertex.y() * 0.2}
-                                             : source.texcoords[vertex_index]);
-                mesh.colors.push_back(source.colors.empty() ? Color{1, 1, 1, 1}
-                                                            : source.colors[vertex_index]);
-            }
-            auto hull = std::make_unique<schema::ColliderHullDataT>();
-            for (const auto& vertex : source.vertices)
-            {
-                hull->vertices.emplace_back(vertex.x(), vertex.y(), vertex.z());
-            }
-            collision.hulls.push_back(std::move(hull));
+            build_group_geometry(asset, description, component.settings(), synchronous.mesh,
+                                 synchronous.collision);
         }
+        const auto& geometry = prepared != nullptr ? (*prepared)[index] : synchronous;
         double volume = 0;
         (void)center_of(asset, description.chunks, volume);
         const double scale = saved.transform->scale.x();
@@ -426,14 +570,14 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
         }
         if (!renderer || !collider || !body ||
             !node->get_component<Transform>()->set_settings(*saved.transform) ||
-            !renderer->material().set_type(material) || !renderer->set_mesh_data(mesh) ||
+            !renderer->material().set_type(material) || !renderer->set_mesh_data(geometry.mesh) ||
             !body->set_settings(settings))
         {
             return fail("Cannot prepare destruction fragment render or body settings");
         }
         renderer->set_enabled(enabled);
         collider->set_enabled(enabled);
-        if (!physics_.set_collider_data(*collider, collision))
+        if (!physics_.set_collider_data(*collider, geometry.collision))
         {
             return fail("Cannot prepare destruction convex compound collision");
         }
@@ -730,6 +874,222 @@ bool DestructionSystem::apply_stress(DestructionComponent& component, const Vec3
     return true;
 }
 
+bool DestructionSystem::request_damage(DestructionComponent& component, const Vec3& center,
+                                       float radius, float damage_value, float impulse,
+                                       std::function<void(bool)> completed)
+{
+    if (!state_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
+        !completed || !component.ready_ || !active_component(component) ||
+        &component.node().scene() != world_.scene() || !finite(center) || !std::isfinite(radius) ||
+        radius <= 0 || radius > 100000 || !std::isfinite(damage_value) || damage_value < 0 ||
+        damage_value > 1000000 || !std::isfinite(impulse) || impulse < 0 || impulse > 1000000)
+    {
+        component.last_error_ = "Invalid asynchronous destruction request or task domain";
+        return false;
+    }
+    const auto id = component.node().id();
+    auto found = state_->owners.find(id);
+    if (found != state_->owners.end() && (found->second.scene != component.node().scene().id() ||
+                                          found->second.lifetime.lock() != component.lifetime_ ||
+                                          found->second.revision != component.revision_))
+    {
+        state_->cancel(found->second);
+        state_->owners.erase(found);
+    }
+    if (state_->pending >= max_pending_requests_)
+    {
+        component.last_error_ = "Destruction asynchronous request budget is full";
+        return false;
+    }
+    auto& owner = state_->owners[id];
+    owner.scene = component.node().scene().id();
+    owner.revision = component.revision_;
+    owner.lifetime = component.lifetime_;
+    owner.requests.push_back({center, radius, damage_value, impulse, std::move(completed)});
+    ++state_->pending;
+    component.last_error_.clear();
+    return true;
+}
+
+void DestructionSystem::process_requests()
+{
+    ENGINE_PROFILE_ZONE("Destruction.async_publish");
+    if (world_.paused())
+    {
+        return;
+    }
+    auto* scene = world_.scene();
+    std::size_t commits = 0;
+    auto item = state_->owners.upper_bound(state_->published_after);
+    for (std::size_t remaining = state_->owners.size(); remaining != 0; --remaining)
+    {
+        if (item == state_->owners.end())
+        {
+            item = state_->owners.begin();
+        }
+        const auto current = item++;
+        auto& owner = current->second;
+        auto* node =
+            scene && scene->id() == owner.scene ? scene->find_node(current->first) : nullptr;
+        auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
+        if (!component || !component->ready_ || !active_component(*component) ||
+            owner.lifetime.lock() != component->lifetime_ || owner.revision != component->revision_)
+        {
+            state_->cancel(owner);
+            state_->owners.erase(current);
+            continue;
+        }
+        if (owner.completion.valid() && commits < max_commits_per_tick_ &&
+            owner.completion.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            ++commits;
+            state_->published_after = current->first;
+            bool success = owner.completion.get();
+            auto& prepared = *owner.prepared;
+            std::vector<schema::DestructionGroupStateT> groups;
+            if (success)
+            {
+                const auto generated = state_->generated.find(node->id());
+                success = generated != state_->generated.end();
+                for (const auto& source : prepared.sources)
+                {
+                    if (!success)
+                    {
+                        break;
+                    }
+                    const auto found = std::find_if(
+                        generated->second.begin(), generated->second.end(),
+                        [&](const auto& value) { return value.chunks == source.group.chunks; });
+                    auto* fragment =
+                        found != generated->second.end() ? scene->find_node(found->node) : nullptr;
+                    const auto* transform =
+                        fragment ? fragment->get_component<Transform>() : nullptr;
+                    success = transform && valid_transform(transform->settings()) &&
+                              transform->settings().scale.x() == source.scale;
+                }
+                if (!success)
+                {
+                    component->last_error_ =
+                        "Destruction source identity or scale changed during preparation";
+                }
+            }
+            if (success)
+            {
+                success = prepare_groups(*component, prepared.graph, true, groups);
+                if (success)
+                {
+                    for (std::size_t index = 0; index < groups.size(); ++index)
+                    {
+                        const auto& velocity = groups[index].linear_velocity;
+                        const auto& delta = prepared.velocity_changes[index];
+                        groups[index].linear_velocity = {velocity.x() + delta.x(),
+                                                         velocity.y() + delta.y(),
+                                                         velocity.z() + delta.z()};
+                    }
+                    success = publish(*component, std::move(prepared.graph), groups, true,
+                                      &prepared.groups);
+                }
+                owner.revision = component->revision_;
+            }
+            else if (!prepared.error.empty())
+            {
+                component->last_error_ = prepared.error;
+            }
+            owner.prepared.reset();
+            state_->ready.push_back({std::move(owner.requests.front().completed), success});
+            owner.requests.pop_front();
+        }
+        if (owner.requests.empty())
+        {
+            state_->owners.erase(current);
+        }
+    }
+    std::size_t running = static_cast<std::size_t>(
+        std::count_if(state_->owners.begin(), state_->owners.end(),
+                      [](const auto& item) { return item.second.completion.valid(); }));
+    item = state_->owners.upper_bound(state_->submitted_after);
+    for (std::size_t remaining = state_->owners.size(); remaining != 0; --remaining)
+    {
+        if (tasks_ == nullptr || running >= tasks_->max_concurrency())
+        {
+            break;
+        }
+        if (item == state_->owners.end())
+        {
+            item = state_->owners.begin();
+        }
+        const auto current = item++;
+        const auto id = current->first;
+        auto& owner = current->second;
+        if (owner.completion.valid() || owner.requests.empty())
+        {
+            continue;
+        }
+        auto* component = scene->find_node(id)->get_component<DestructionComponent>();
+        if (!owner.prepared)
+        {
+            auto prepared = std::make_shared<State::Prepared>();
+            const auto found = state_->generated.find(id);
+            bool valid = found != state_->generated.end() &&
+                         component->graph_.clone(prepared->graph, component->last_error_);
+            for (const auto& group : component->graph_.groups())
+            {
+                if (!valid)
+                {
+                    break;
+                }
+                const auto generated =
+                    std::find_if(found->second.begin(), found->second.end(),
+                                 [&](const auto& value) { return value.chunks == group.chunks; });
+                auto* fragment =
+                    generated != found->second.end() ? scene->find_node(generated->node) : nullptr;
+                const auto* transform = fragment ? fragment->get_component<Transform>() : nullptr;
+                State::SourceGroup source;
+                valid = transform && valid_transform(transform->settings()) &&
+                        transform->world_matrix(source.matrix.data());
+                if (valid)
+                {
+                    source.group = group;
+                    source.scale = transform->settings().scale.x();
+                    prepared->sources.push_back(std::move(source));
+                }
+            }
+            if (!valid)
+            {
+                component->last_error_ = "Cannot capture asynchronous destruction input";
+                state_->ready.push_back({std::move(owner.requests.front().completed), false});
+                owner.requests.pop_front();
+                continue;
+            }
+            owner.prepared = std::move(prepared);
+        }
+        const auto& request = owner.requests.front();
+        owner.completion = tasks_->submit(
+            "Destruction.prepare", [prepared = owner.prepared, center = request.center,
+                                    radius = request.radius, damage_value = request.damage,
+                                    impulse = request.impulse, settings = component->settings()]
+            { return State::prepare(*prepared, center, radius, damage_value, impulse, settings); });
+        if (!owner.completion.valid())
+        {
+            break;
+        }
+        state_->submitted_after = id;
+        ++running;
+    }
+    auto ready = std::move(state_->ready);
+    state_->ready.clear();
+    state_->pending -= ready.size();
+    const std::weak_ptr<const std::uint8_t> lifetime = state_->lifetime;
+    for (auto& completion : ready)
+    {
+        if (lifetime.expired())
+        {
+            return;
+        }
+        completion.callback(completion.success);
+    }
+}
+
 bool DestructionSystem::owns_fragment(const DestructionComponent& component,
                                       std::uint64_t node_id) const noexcept
 {
@@ -898,7 +1258,7 @@ bool DestructionSystem::restore(DestructionComponent& component,
 
 bool DestructionSystem::on_tick(double)
 {
-    return synchronize();
+    return world_.paused() || synchronize();
 }
 
 bool DestructionSystem::synchronize()
@@ -916,6 +1276,7 @@ bool DestructionSystem::synchronize()
     }
     if (!scene)
     {
+        process_requests();
         return true;
     }
     for (auto found = state_->generated.begin(); found != state_->generated.end();)
@@ -951,6 +1312,7 @@ bool DestructionSystem::synchronize()
             return false;
         }
     }
+    process_requests();
     return true;
 }
 

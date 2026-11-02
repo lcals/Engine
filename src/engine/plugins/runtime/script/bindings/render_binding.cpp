@@ -16,6 +16,8 @@ constexpr std::string_view javascript = R"js(
 export class Render {
     constructor() { throw new TypeError('Render is static'); }
     static GetViewportSize() { return native.RenderGetViewportSize(); }
+    static SetVSync(enabled) { return native.RenderSetVSync(enabled); }
+    static GetVSync() { return native.RenderGetVSync(); }
     static SetAmbient(r, g, b, intensity) {
         return native.RenderAmbient(r, g, b, intensity);
     }
@@ -69,6 +71,26 @@ void viewport_size(const Arguments& arguments)
     if (target != nullptr && arguments.count() == 0 && target->viewport_size(size))
     {
         arguments.set_return(vm::NativeValue::Object{{"x", size.x()}, {"y", size.y()}});
+    }
+}
+
+void set_vsync(const Arguments& arguments)
+{
+    auto* target = renderer(arguments, 1);
+    if (target != nullptr && arguments.is_boolean(0))
+    {
+        arguments.set_return(target->set_vsync(arguments.boolean(0)));
+    }
+}
+
+void vsync(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    const auto* target = binding != nullptr ? binding->renderer() : nullptr;
+    if (target != nullptr && target->is_initialized() && arguments.count() == 0)
+    {
+        arguments.set_return(target->vsync());
     }
 }
 
@@ -309,7 +331,8 @@ bool RenderBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("RenderDirectionalShadows", directional_shadows) &&
            vm.function("RenderShadowCascades", shadow_cascades) &&
            vm.function("RenderClearColor", clear_color) &&
-           vm.function("RenderGetViewportSize", viewport_size);
+           vm.function("RenderGetViewportSize", viewport_size) &&
+           vm.function("RenderSetVSync", set_vsync) && vm.function("RenderGetVSync", vsync);
 }
 
 } // namespace engine::plugins::script::bindings

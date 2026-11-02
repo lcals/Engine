@@ -166,7 +166,7 @@ def parse_catalog(snapshot, target_platform="android"):
             or guid == "00000000-0000-0000-0000-000000000000"
             or guid in identities
             or logical in paths
-            or kind > 15  # AssetKind in asset_catalog.fbs ends with effect, terrain, destruction.
+            or kind > 16  # AssetKind in asset_catalog.fbs ends with destruction=15, json=16.
             or version != 1
             or not re.fullmatch(r"[0-9a-f]{16}", checksum)
             or mount != "content"

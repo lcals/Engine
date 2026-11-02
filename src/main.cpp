@@ -1,4 +1,5 @@
 #include "runtime/app/runtime_host.hpp"
+#include "runtime/app/runtime_settings.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
@@ -27,27 +28,61 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
 
 namespace
 {
+#if ENGINE_START_PACKAGED_GAMEPLAY
+constexpr bool packaged_gameplay = true;
+#else
+constexpr bool packaged_gameplay = false;
+#endif
 
 void print_usage()
 {
-    fmt::print("Usage: engine_app [--frames <positive-count>]\n");
+    fmt::print("Usage: engine_app [--frames <positive-count>] [--workers <0..64>] "
+               "[--runtime-profile <desktop|mobile>]\n");
 }
 
 } // namespace
 
 int main(int argc, char* argv[])
 {
-    engine::EngineConfig config;
+    engine::RuntimeSettings settings;
+    auto& config = settings.engine;
+    auto& parallel = settings.parallel;
+    std::optional<std::size_t> worker_override;
+    std::string runtime_profile = ENGINE_RUNTIME_PROFILE;
     std::uint64_t frame_limit = 0;
     for (int index = 1; index < argc; ++index)
     {
         const std::string_view argument(argv[index]);
+        if (argument == "--workers" && index + 1 < argc)
+        {
+            const std::string_view value(argv[++index]);
+            std::size_t count = 0;
+            const auto parsed = std::from_chars(value.data(), value.data() + value.size(), count);
+            if (parsed.ec != std::errc{} || parsed.ptr != value.data() + value.size() || count > 64)
+            {
+                fmt::print(stderr, "Worker limit must be within 0..64 (0 is automatic)\n");
+                return 2;
+            }
+            worker_override = count;
+            continue;
+        }
+        if (argument == "--runtime-profile" && index + 1 < argc)
+        {
+            runtime_profile = argv[++index];
+            if (runtime_profile != "desktop" && runtime_profile != "mobile")
+            {
+                print_usage();
+                return 2;
+            }
+            continue;
+        }
         if (argument == "--help" && argc == 2)
         {
             print_usage();
@@ -81,6 +116,22 @@ int main(int argc, char* argv[])
         engine::LogSystem::write(engine::LogLevel::error, "Application path initialization failed");
         return 1;
     }
+    const auto settings_path = engine::App::assets_path() / ENGINE_RUNTIME_SETTINGS_PATH;
+    std::string settings_error;
+    // APK settings are required by the platform package; native filesystem probes cannot see them.
+    bool read_settings = packaged_gameplay || ENGINE_RUNTIME_SETTINGS_REQUIRED;
+    if (!read_settings)
+    {
+        std::error_code status;
+        read_settings = std::filesystem::exists(settings_path, status) || status;
+    }
+    if (read_settings &&
+        !engine::load_runtime_settings(settings_path, runtime_profile, settings, settings_error))
+    {
+        engine::LogSystem::write(engine::LogLevel::error, settings_error);
+        engine::App::shutdown();
+        return 1;
+    }
     auto& log = engine::LogSystem::instance();
     if (!log.initialize(config))
     {
@@ -89,6 +140,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 #endif
+    if (worker_override)
+    {
+        parallel.threads.worker_limit = *worker_override;
+    }
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
     engine::ResourceSystem resources;
     engine::plugins::resource_graph::ResourceGraphSystem resource_graph(resources);
@@ -118,19 +173,19 @@ int main(int argc, char* argv[])
 #if ENGINE_HAS_SCRIPT_PLUGIN
     script_factory = [](engine::WorldSystem& world, engine::RenderSystem& renderer,
                         engine::UiSystem& ui, engine::PhysicsSystem& physics,
-                        engine::NavigationSystem& navigation,
-                        engine::InputSystem& input) -> std::unique_ptr<engine::ScriptRuntime>
+                        engine::NavigationSystem& navigation, engine::InputSystem& input,
+                        engine::WindowSystem& window) -> std::unique_ptr<engine::ScriptRuntime>
     {
         return std::make_unique<engine::plugins::script::ScriptSystem>(
-            &world, &renderer, &ui, &physics, &navigation, &input);
+            &world, &renderer, &ui, &physics, &navigation, &input, &window);
     };
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
-    const bool engine_ready =
-        engine.initialize(config, &resources, script_factory, configure_runtime_plugins);
+    const bool engine_ready = engine.initialize(config, &resources, script_factory,
+                                                configure_runtime_plugins, nullptr, parallel);
 #else
-    const bool engine_ready =
-        engine.initialize(config, nullptr, script_factory, configure_runtime_plugins);
+    const bool engine_ready = engine.initialize(config, nullptr, script_factory,
+                                                configure_runtime_plugins, nullptr, parallel);
 #endif
     if (!engine_ready)
     {

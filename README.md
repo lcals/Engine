@@ -22,7 +22,7 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 
 仓库统一使用示例项目 `projects/showcase/`，入口菜单、基础方块、现代公寓、动画庭院、3D 文字、特效实验室、地形实验场、建筑破坏实验场、综合破坏场、射击靶场、多角色导航和物理交互范例共用一套设置、资源目录和缓存。默认进入 UI 菜单；十一个按钮通过项目 MVC 脚本打开对应场景，场景内的 `Back to scenes` 返回菜单，无需修改 `assets/scripts/game.ts`。入口继续导出 `modules/menu.js`，导航请求在 `Gameplay.Update()` 中处理。修改项目源脚本后，通过 MCP `stop_project → sync_assets → start_project` 更新缓存，或关闭后重新打开编辑器；仅停止再启动项目不会重新导入源脚本。TS 项目源码仍为 `.ts`，模块标识使用运行时 `.js` 后缀。TS 配置、package 与锁文件放 `settings/`，TS 源码和其他资源放 `assets/`，每个资源旁有唯一 GUID 的 `.meta`，生成 JS 与二进制资源统一放 `cache/gen/<完整 GUID>`，没有后缀。示例入口为 `assets/scripts/game.ts`；缓存产物及 `node_modules/` 不提交。
 
-`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 Taskflow 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
+`engine_app` 使用默认引擎配置即可启动，不接受 `--project`。`editor_app --project <path>` 必须传入项目根目录；编辑器宿主先通过 `ProjectSystem` 检查根目录及 `settings/`、`cache/`、`assets/` 三个子目录，缺失或类型不是目录就返回失败，不创建窗口；检查通过后才准备脚本并启动引擎及借用项目的 `EditorSystem`。`ProjectSystem` 自身仍只负责目录检查，TS 设置由资源管线读取。资源描述通过 toml++ 无异常解析，失败用返回值报告。TaskSystem 使用 oneTBB 执行导入任务，`settings/import.toml` 的 `import_threads` 默认 4，可设为 1–64。
 
 核心命名空间使用 `engine`，编辑器使用 `engine::editor`，插件使用 `engine::plugins::<插件名>`。核心不包含或链接编辑器、具体插件；编辑器基础库不包含或链接具体插件。插件实现下层声明的接口，由可执行宿主注入。建模 Mesh 导入扩展通过 `AssetPipelineSystem::set_importer` 登记；未启用建模插件时仍可导入普通 Mesh，权威建模源会明确报错。第三方类型尽量限制在实现中，FlatBuffers 唯一数据模型继续保留。
 
@@ -43,6 +43,12 @@ Android 已提供 ARM64 原生构建和 APK 打包入口，平台资源集中在
 UI 脚本使用 MVC：项目普通对象作为 Model，`UiComponent` / `UiElement` 提供 View，派生 `UiController<T>` 处理事件和显式刷新。`Bind()` 执行 `OnBind → OnRefresh`，`Listen()` 自动登记订阅，`Unbind()` 释放订阅；文档、控件或脚本上下文销毁后旧引用失效。支持 click/change/input 及输入值快照，事件按目标到祖先冒泡，`target` 保留目标，`currentTarget` 表示当前订阅控件，业务无需逐帧轮询。控件支持纯文本、表单值、显隐、禁用、样式、类名及已登记纹理切换。API 与职责见 [MVC 类图](docs/plugins/runtime/class-diagrams/ui-script-api.md)，示例拆分在 `assets/scripts/models/` 与 `controllers/`。
 
 当前 UI 支持内嵌 RCSS、基础控件几何、显式图片引用、矩形裁剪、变换、鼠标、滚轮、键盘和文本输入。字体支持导入字符范围内的 UTF-8、换行、legacy kerning 和缺字回退；尚未接入复杂文字整形、自动字体回退、RmlUi 高级 mask/filter/layer，以及节点脚本组件。项目已通过 Gameplay 和 UI MVC 实现场景切换。外部样式、模板、脚本和未登记图片引用在导入时拒绝，避免运行包遗漏依赖。
+
+项目配置可保存为独立 `.json` 资源。编辑器插件 `json_import` 校验 1 字节至 4 MiB 的严格 UTF-8 JSON，拒绝 BOM、原始 NUL、注释和尾逗号；成功后原样进入 GUID 缓存、同步与运行包。运行时复用普通资源字节，不向核心增加 JSON 解析器。显式设置 `ENGINE_EDITOR_PLUGINS` 的已有构建需在原清单追加 `json_import`，默认清单已包含该插件。
+
+资源类型表参与公共导入指纹，首次升级会重新导入旧项目缓存；之后继续按资源增量构建，不需清空缓存或重编第三方依赖。
+
+脚本在 `Gameplay.OnInitialize` 等有效回调内调用 `Json.Load("config/maps.json")`，得到 `unknown` 类型的独立 JavaScript 值，并由项目校验字段。模块顶层、构造阶段、缺失路径、非 JSON 资源和非法载荷返回 `null`，合法 JSON `null` 同样返回 `null`。JSON 内的字符串不会自动成为资源依赖；精简包须在 `settings/resource-build.toml` 显式列出配置及其使用的场景、模型等入口，UI 图片继续在 `.rml.meta` 声明。接口及边界见 [JSON 导入](docs/plugins/editor/class-diagrams/json-importer.md)与[脚本读取](docs/plugins/runtime/class-diagrams/json-script-api.md)。
 
 ## 构建与测试
 
@@ -532,9 +538,9 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 
 `set_render_stats {"enabled":true}` 开启面板，`{"enabled":false}` 关闭。开关在空白待机、场景预览和玩法运行中均生效，切换场景或模式保留当前状态；不进入撤销、不标记场景修改，也不随场景保存。面板直接使用 `BGFX_DEBUG_STATS`，不额外启用逐 View Profiler。
 
-独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、脚本、地形、破坏、物理、导航、渲染、UI、动画及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
+独立的 [PerformanceSystem](docs/runtime/class-diagrams/performance-system.md) 已接入运行宿主。`ENGINE_ENABLE_TRACY=ON` 私有链接 Tracy 0.14.1 按需客户端，已覆盖宿主、文件/资源、任务域、脚本、地形、破坏、物理、导航、渲染、UI、动画、音频供数及特效 CPU 区域，并记录真实帧标记和 bgfx GPU/资源统计。默认 `OFF` 时不引入 Tracy 依赖，采样宏不求值；Engine/System 框架没有第三方依赖。此选项与默认关闭的 bgfx 面板独立。CPU self/inclusive、GPU 延迟、内存估算及采集方法见[性能采样](docs/runtime/performance.md)。
 
-后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[最终可信基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
+后续性能工作复用 `scripts/performance/`：`capture.py` 包装官方采集器并可选记录同机 RSS，`summarize_trace.py` 按完整 FrameMark/业务窗口导出分位数、self/inclusive 热点、按域任务排队与 bgfx 曲线；独立 CMake 入口构建匹配版本的官方工具。原始证据统一留在 `build/`，记录相同设备、场景、资源版本、镜头与操作序列后再比较。固定命令见[性能采样流程](docs/runtime/performance.md)，物理与破坏的[当前实现](docs/runtime/performance.md#当前实现)和[历史单线程基线](docs/runtime/performance.md#最终可信基线)集中维护；不将其他模块热点自动纳入本轮优化。
 
 截图由 bgfx 帧回调输出 PNG，场景必须继续提交帧。编辑器校验相对路径并创建父目录，渲染器仅接受宿主提供的明确路径；MCP 不自行绘制图片。命令回执完成只表示请求已接受，截图自身的 `pending` 还须通过 `get_frame_capture` 查询；命令通道的 `activation: pending` 则按原请求身份查询 `get_editor_receipt`，不重复提交。
 
@@ -681,6 +687,16 @@ python3 scripts/create_modern_apartment.py --view-only --view kitchen --capture 
 - Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。
 - EditorEnvironment 借用已校验的项目，配置 App 路径并直接提交导入目录与挂载。ProjectSystem 不提供重复的 root_path 入口；运行时继续通过 App 读取路径语义。
 
+### 线程与异步任务
+
+线程底座位于 `runtime/task/`，使用已固定的 oneTBB 2022.2.0。`ThreadSystem` 只拥有进程并行预算，oneTBB 管理 worker；编辑器与运行时各有 `TaskSystem` 任务域。编辑器域默认低优先、并发上限 4；运行宿主分别装配通用、后台、加载、物理、动画和导航域，共享 worker，不重复创建线程池。
+
+`submit` / `submit_batch` 返回标准 `future<bool>`，委托版 submit 在协调线程按预算派发完成；支持三档任务优先度和原生依赖图。普通提交和配置由初始化线程调用，`enqueue` 为 Jolt 等已有 job 系统提供线程安全非等待投递。后台函数不修改活动场景或脚本 VM，也不阻塞等待同池 future。接口与生命周期见[线程类图](docs/runtime/class-diagrams/task-system.md)。
+
+项目源通过 `settings/parallel.toml` 配置 defaults、desktop/mobile 档位和 overrides，控制进程预算、各域并发/优先级、资源在途数量与字节、动画和纹理批量、场景恢复与主线程完成委托预算。TOML 仅由编辑器/构建链读取并转换为核心配置；项目可选 `settings/runtime.toml` 保存 EngineConfig。运行包读取聚合的 `settings/runtime.json`，以 RuntimeSettings 包含 engine、parallel 等运行设置；原生桌面位于程序旁，macOS `.app` 位于 `Contents/Resources/settings`，Android 位于 `apk:/assets/settings`。运行时不解析项目 TOML。文件传输使用 SDL AsyncIO，物理 Jolt job、动画 ozz 采样及导航 tile 准备复用 oneTBB；音频按 SDL 回调供数，渲染保留 bgfx 自有线程。物理/动画/导航和场景贴图准备仍在既有安全点等待必要结果，不能称为全部跨帧异步。配置、部署与边界见[运行并行](docs/runtime/parallelism.md)，阶段观测见[性能文档](docs/runtime/performance.md#并行观测)。
+
+`ThreadPriority` 为独立 OS 策略：normal 保持基线，low/high 在函数执行期间临时设置并精确恢复；权限不足仍执行已接收函数并报告失败，不因调度提示失败丢失 Jolt job。返回失败不代表函数未执行，不能自动重跑有副作用的任务。Apple 使用 QoS，Windows 使用原生线程优先级，Linux/Android 使用可恢复的调度策略和 nice。所有档位均不保证实时响应。`ENGINE_ENABLE_TRACY` 控制任务执行、排队和关闭等待的观测，默认关闭。
+
 ### 资源导入与 GUID
 
 ```sh
@@ -731,7 +747,7 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 `cache/gen/` 的直接子文件名只允许完整 GUID，不带扩展名。`cache/catalog.bin` 使用 v2 格式，包含 GUID、逻辑路径、类型、运行依赖、实体头大小、内容哈希、目标平台与存储定位；`cache/assets.sqlite` 是可重建的编辑器索引。删除 SQLite 后根据源文件/meta 重新导入，GUID 不变。导入使用项目锁和暂存/回滚记录，失败不会发布半成品；无变化时保持正式文件与版本不变。
 
-`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。普通逻辑路径直接相对 `assets/`，引擎资源使用 `builtin://`；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。TaskSystem 默认 4 个导入线程，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
+`GuidMap` 位于核心 `runtime/core/`，提供 `path_to_guid` / `guid_to_path`，编辑器与真机共享，不依赖 SQLite。普通逻辑路径直接相对 `assets/`，引擎资源使用 `builtin://`；运行时从资源目录恢复映射。MCP 同步允许没有玩法脚本的纯资源目录；入口是否可运行由启动阶段检查。编辑器 TaskSystem 默认并发上限为 4，由 `settings/import.toml` 配置；任务失败会跳过依赖任务并向调用者返回失败。
 
 `SceneImporter::write` 将节点数据写回 `.scene`，`read` 用于导入校验；运行时只读取 FlatBuffers。稳定节点 ID 与运行期实体 ID 分离，父子关系及活动相机在保存/加载后保持。编辑器尚未提供保存按钮；FBX/USD 模型格式由可选编辑器插件导入，未配置专用导入器的普通源文件按字节缓存。已有格式 meta 与当前导入器不匹配时明确失败，不能把已导入模型静默改成普通字节资源。
 
@@ -746,7 +762,7 @@ Shader `.shader` 中 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 | 范围 | 职责 |
 | --- | --- |
 | C++ 运行时核心 | Model/Mesh/Skeleton/Animation 的 FlatBuffers Schema 与单项 ResourceCodec、Scene 实例化、Animator 与 AnimationSystem；核心不读取 FBX/USD 源文件 |
-| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、Taskflow、SQLite、独立缓存与原子目录发布 |
+| 编辑器基础 | 源扫描、meta 主/子 GUID、增量依赖、oneTBB、SQLite、独立缓存与原子目录发布 |
 | 编辑器格式插件 | ufbx/OpenUSD 解析、源格式设置、子对象枚举、坐标转换与运行数据生成，各插件单独声明依赖 |
 | MCP | 使用现有资源导入、打包、同步命令及模型实例化/动画控制命令；协议层不复制模型解析、骨骼采样或场景业务 |
 
@@ -819,7 +835,7 @@ if (!agent.MoveTo({ x: 12, y: 0, z: 8 })) return false;
 
 脚本只做创建、提交目标及低频观察，不逐帧搬位置。完整网格重建使核心句柄失效，插件重新登记并提交组件保留的目标；局部瓦片更新保留身份、丢弃旧走廊后重新排队。禁用、删除和切场景移除代理，场景文件只保存配置。公开契约与容量/路径预算见[导航模块](docs/runtime/navigation.md)及[代理类图](docs/plugins/runtime/class-diagrams/navigation-crowd.md)。
 
-地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。当前是同步局部重建，不包含自动追踪动态残骸、后台构建或脚下地面消失后的物理下落。
+地形修改成功后，调用方合并变化范围并以最新静态几何同步调用 `Navigation.Replace`。断路返回不可达，恢复连通后原目标重新排队；正常更新无需脚本逐个重发目标。局部生成失败会使影响区域失效，范例停住代理并保留脏区供重试。局部重建的各 tile 可在任务域并行准备，但 Replace 仍在统一发布后返回；不包含跨帧导航构建、自动追踪动态残骸或脚下地面消失后的物理下落。
 
 ### 物理交互技术范例
 
@@ -948,6 +964,7 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 
 | 平台与范围 | 已有证据 | 未覆盖范围 |
 | --- | --- | --- |
+| macOS ARM64 / oneTBB 任务模块 | 2026-11-02：Debug（Tracy OFF）/ Release（ON）各 7 项定向测试通过；运行时、编辑器、资源构建、MCP 宿主编译链接；两配置编辑器及 Release 独立运行时空白 Metal 实窗正常启停。OS QoS 设置/精确恢复与失败路径通过独立探针；Tracy 实际采集及现有离线分析读取 360 次任务成功；关闭 runtime 依赖后核心配置不查找或链接 TBB | 未重跑全部插件测试；Windows/Linux/Android 未构建运行，iOS 仅优先级适配源码交叉语法编译；上游不正式支持静态 oneTBB，移动包及静态链接仍须定向验证 |
 | Windows x64 / DX12 / QuickJS | 2026-11-01 资源路径升级：Debug / Release 构建与运行包导出；Release 91/91 CTest，Debug 完成前 14 项。catalog-only 修复后做受影响目标构建、首次与重复同步、运行包启动检查 | 最新改动未做完整 Debug CTest；未逐一验证全部示例交互 |
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
@@ -1078,9 +1095,9 @@ MCP 工具包括 `create_terrain_asset`、`set_terrain`、`get_terrain`、`terra
 
 状态文件保存完整体积与基础资源 GUID/hash，恢复时校验基础版本，不覆盖 `.terrain` 或导入缓存。编辑器保存路径限制在 `cache/terrain-states/*.terrainstate`；脚本使用 App 持久目录的 `terrain/<slot>.bin`。两种入口共用相同运行时格式，路径职责分离。
 
-当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。全部路径继续同步执行，分块 GPU 上传、后台线程和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
+当前脚本笔刷与土石抽离复用块缓存，CPU 只重建实际变化样本影响的块及相邻梯度法线范围。渲染仍合并为单个 Mesh 并完整上传 GPU；碰撞则按稳定的 4 单元叶子分段提交，复用未变 Jolt 形状和上层分组，一个地形保持一个 Collider/BodyID。MCP 笔刷经 `TerrainStateEdit` 提交 ETRS 快照，`restore` 会重新初始化体积，因此 MCP 笔刷、撤销/重做、加载和重置仍重建全部块；脚本 `Load`/`Reset` 同样如此。同步接口保留；异步球形笔刷在共享任务域准备独占体积/网格，按请求版本在主线程有界发布。Reset、首次生成、连通塌方及 MCP 事务仍有同步路径；分块 GPU 上传和差量存档尚未实现。接口与形状复用细节见[当前实现](docs/runtime/performance.md#当前实现)。
 
-已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[最终可信基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
+已有 macOS ARM64 Debug/Release 定向回归及真实 Metal 窗口验证覆盖跨块隧道、挖填、撤销/重做、ETRS 保存恢复、角色落地与行走、预览启停和资源清理。预览通过显式 `TerrainSystem::synchronize()` 同步，关闭后场景和节点归零、窗口空白；角色行走仍需键鼠，触屏只操作实验按钮。阶段功能证据见[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)，性能数据以[历史单线程基线](docs/runtime/performance.md#最终可信基线)为准。Android 独立探针不能替代正式插件场景验证。
 
 架构见[运行时类图](docs/plugins/runtime/class-diagrams/terrain.md)、[编辑器类图](docs/plugins/editor/class-diagrams/terrain-editor.md)和[脚本接口](docs/plugins/runtime/class-diagrams/terrain-script-api.md)；阶段范围及实测限制见[总体方案](docs/plugins/runtime/terrain-destruction-plan.md)与[技术研究](docs/plugins/runtime/terrain-destruction-feasibility.md)。
 
@@ -1112,11 +1129,11 @@ MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
-实现仍同步，按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
+同步损伤接口保留，另提供有界异步损伤准备与版本校验后的主线程发布；两条路径都按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](docs/runtime/performance.md#当前实现)。
 
 已有 macOS ARM64 Debug/Release 回归覆盖运行时图与物理、Authoring、导入、编辑事务、MCP 注册及组件禁用。真实窗口验证过预览损伤/撤销重做、菜单入口、各试件损伤与重置、观察镜头和返回清理；停止后场景为空、节点数归零。功能事实见
 [步骤 2 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。
-Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；异步处理尚未实现。
+Android 已有独立 Graph 和步骤 4 标量 ExtStress 探针，完整 APK 的场景与地基联动尚未验收；新增异步损伤路径不代表移动端性能已验收。
 
 移动适配资料及证据分级见[研究记录](docs/plugins/runtime/terrain-destruction-feasibility.md)，
 架构见[破坏系统](docs/plugins/runtime/class-diagrams/destruction.md)。
@@ -1139,7 +1156,7 @@ Mac Debug / Release 已累计各通过 8 项定向测试；Android ARM64 仅通�
 步骤 4 已用最终资源版本完成真实窗口两档连射、停火、重置、短走及返回清理；这些是同步功能验收，不等于达到请求射速。
 证据与限制见[步骤 4 验证记录](docs/plugins/runtime/terrain-destruction-feasibility.md#步骤-4-应力土石导航与火箭场)。
 面板用 `Date.now()` 显示实际墙钟帧间隔的指数平均与最大值，**包含限帧等待与截图开销**，不是 CPU/GPU 工作耗时或 P95。每轮连射清帧间隔统计，每约一秒和最终完成时输出 `Rocket range sample` JSON（含实际发射率、命中、blocked、碎块/土石与导航状态）。
-目前没有综合世界存档、移动残骸导航、异步任务、完整建筑力学或手机性能结论；
+目前没有综合世界存档、移动残骸导航、完整建筑力学或手机性能结论；异步笔刷和损伤已接入，其他同步事务仍需按各自边界评估；
 这些能力的单测通过也不代表连续炮击已经达到目标吞吐。
 
-物理与直接相关的地形碰撞继续采用单线程，已有 Mac Debug/Release 受影响构建与定向回归通过。最终可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[最终可信基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。
+以下数据对应 2026-11-01 单线程版本及其 Mac 定向回归，不代表当前并行版本。历史可信采样中，单次完整地形碰撞更新最大 **0.468999 ms**；Jolt 单步均值 **1.135225 ms**、P95 **1.976267 ms**、最大 **3.280668 ms**，**整个物理模块仍未达到 0.5 ms**。操作口径、证据与限制统一见[历史单线程基线](docs/runtime/performance.md#最终可信基线)，实现见[当前实现](docs/runtime/performance.md#当前实现)；不同命中量不能直接换算等工作量加速比，也不据 Mac 结果外推其他平台性能。

@@ -16,10 +16,15 @@
 namespace engine
 {
 
+class TaskSystem;
+
 class NavigationSystem final : public System
 {
 public:
-    NavigationSystem() noexcept;
+    // 可空借用已初始化任务域，须存活到导航关闭后；阈值范围 1..1024。
+    // 达到阈值时独立 tile 并行准备，调用线程按序发布；不改变同步返回契约。
+    explicit NavigationSystem(TaskSystem* tasks = nullptr,
+                              std::size_t parallel_tile_threshold = 4) noexcept;
     ~NavigationSystem() noexcept override;
 
     // 主线程同步安全点；几何只借用到返回，不扫描场景，不与查询/修改并发。
@@ -62,6 +67,8 @@ protected:
 
 private:
     struct State;
+    TaskSystem* tasks_ = nullptr;
+    std::size_t parallel_tile_threshold_ = 4;
     std::unique_ptr<State> state_;
 };
 

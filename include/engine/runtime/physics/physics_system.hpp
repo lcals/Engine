@@ -14,6 +14,7 @@ namespace engine
 {
 
 class WorldSystem;
+class TaskSystem;
 class Collider;
 struct MeshCollisionData;
 namespace schema
@@ -26,7 +27,9 @@ class PhysicsSystem final : public System
 {
 public:
     // 可空借用；世界须存活到系统关闭。空世界用于独立初始化与链接验证。
-    explicit PhysicsSystem(WorldSystem* world = nullptr) noexcept;
+    // tasks 可空；非空时先初始化，并在物理关闭后再关闭，复用其后台并发额度。
+    // tick 在本帧完成求解与结果提交；查询、修改及关闭仍由主线程步进外调用。
+    explicit PhysicsSystem(WorldSystem* world = nullptr, TaskSystem* tasks = nullptr) noexcept;
     ~PhysicsSystem() noexcept override;
 
     void clear() noexcept;
@@ -81,6 +84,7 @@ protected:
 private:
     struct State;
     WorldSystem* world_ = nullptr;
+    TaskSystem* tasks_ = nullptr;
     std::unique_ptr<State> state_;
 };
 

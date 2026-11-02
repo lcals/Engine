@@ -229,55 +229,68 @@ bool Scene::restore_data(const schema::SceneDataT& data)
     nodes_.reserve(data.nodes.size());
     node_index_.reserve(data.nodes.size());
     local_node_index_.reserve(data.nodes.size());
-    std::set<std::uint64_t> identities;
     for (const auto& source : data.nodes)
     {
-        if (!source || !source->info || source->info->id == 0 ||
-            !identities.insert(source->info->id).second)
-        {
-            return false;
-        }
-        Node* node = create_node(source->info->name, source->info->id);
-        if (!node)
-        {
-            return false;
-        }
-        std::set<ComponentType> types;
-        for (const auto& component : source->components)
-        {
-            if (!component || component->payload.value == nullptr ||
-                !types.insert(component->payload.type).second)
-            {
-                return false;
-            }
-            Component* restored = node->get_component(component->payload.type);
-            if (restored == nullptr)
-            {
-                restored = components_.create(component->payload.type, *node);
-            }
-            if (!restored || !restored->restore_data(*component))
-            {
-                LogSystem::write(LogLevel::error, "Cannot restore component " +
-                                                      std::string(schema::EnumNameComponentPayload(
-                                                          component->payload.type)) +
-                                                      " on scene node: " + source->info->name);
-                return false;
-            }
-        }
-        if (!types.contains(ComponentType::TransformData))
+        if (!source || !restore_node(*source))
         {
             return false;
         }
     }
     for (const auto& source : data.nodes)
     {
-        auto* node = find_local_node(source->info->id);
-        auto* parent = find_local_node(source->info->parent_id);
-        if ((source->info->parent_id != 0 && parent == nullptr) || !node->set_parent(parent))
+        if (!restore_parent(*source))
         {
             return false;
         }
     }
+    return finish_restore(data);
+}
+
+bool Scene::restore_node(const schema::NodeDataT& source)
+{
+    if (!source.info || source.info->id == 0 || find_local_node(source.info->id))
+    {
+        return false;
+    }
+    Node* node = create_node(source.info->name, source.info->id);
+    if (!node)
+    {
+        return false;
+    }
+    std::set<ComponentType> types;
+    for (const auto& component : source.components)
+    {
+        if (!component || component->payload.value == nullptr ||
+            !types.insert(component->payload.type).second)
+        {
+            return false;
+        }
+        Component* restored = node->get_component(component->payload.type);
+        if (restored == nullptr)
+        {
+            restored = components_.create(component->payload.type, *node);
+        }
+        if (!restored || !restored->restore_data(*component))
+        {
+            LogSystem::write(LogLevel::error, "Cannot restore component " +
+                std::string(schema::EnumNameComponentPayload(component->payload.type)) +
+                " on scene node: " + source.info->name);
+            return false;
+        }
+    }
+    return types.contains(ComponentType::TransformData);
+}
+
+bool Scene::restore_parent(const schema::NodeDataT& source)
+{
+    auto* node = find_local_node(source.info->id);
+    auto* parent = find_local_node(source.info->parent_id);
+    return node != nullptr && (source.info->parent_id == 0 || parent != nullptr) &&
+           node->set_parent(parent);
+}
+
+bool Scene::finish_restore(const schema::SceneDataT& data)
+{
     Camera* camera = nullptr;
     if (data.info->active_camera_node != 0)
     {

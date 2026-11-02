@@ -4,6 +4,8 @@
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -120,13 +122,16 @@ int main()
                                "format = \"flatbuffers-hex\"\ndata = \"" +
                                hex + "\"\n";
     const fs::path path = project.root / "assets/cube.mesh";
-    AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<asset_pipeline::AssetImporter> importer =
         std::make_unique<ModelingMeshImporter>();
     if (!expect(write(path, source), "write source") ||
         !expect(!pipeline.set_importer(importer) && importer,
                 "uninitialized pipeline rejects registration without consuming ownership") ||
-        !expect(pipeline.initialize({}), "initialize pipeline") ||
+        !expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.set_importer(importer) && !importer, "host injects modeling importer") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))
     {

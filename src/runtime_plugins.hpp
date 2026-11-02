@@ -34,7 +34,8 @@ namespace
 {
 bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& world,
                                engine::WindowSystem& window, engine::PhysicsSystem& physics,
-                               engine::NavigationSystem& navigation, engine::RenderSystem& renderer)
+                               engine::NavigationSystem& navigation, engine::RenderSystem& renderer,
+                               engine::TaskSystem& background_tasks)
 {
     (void)stage;
     (void)world;
@@ -42,11 +43,12 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
     (void)physics;
     (void)navigation;
     (void)renderer;
+    (void)background_tasks;
 #if ENGINE_HAS_TERRAIN_PLUGIN
     if (stage == engine::RuntimeStage::before_physics)
     {
         std::unique_ptr<engine::System> terrain =
-            std::make_unique<engine::plugins::terrain::TerrainSystem>(world, physics);
+            std::make_unique<engine::plugins::terrain::TerrainSystem>(world, physics, &background_tasks);
         if (!world.add_subsystem(terrain))
         {
             return false;
@@ -57,7 +59,7 @@ bool configure_runtime_plugins(engine::RuntimeStage stage, engine::WorldSystem& 
     if (stage == engine::RuntimeStage::before_physics)
     {
         std::unique_ptr<engine::System> destruction =
-            std::make_unique<engine::plugins::destruction::DestructionSystem>(world, physics);
+            std::make_unique<engine::plugins::destruction::DestructionSystem>(world, physics, &background_tasks);
         if (!world.add_subsystem(destruction))
         {
             return false;

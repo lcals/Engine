@@ -308,6 +308,21 @@ int main(int argc, char** argv)
     {
         return 1;
     }
+    auto* cold_node = scene->create_node("Deferred across world pause");
+    auto* cold = cold_node ? cold_node->add_component<EffectComponent>() : nullptr;
+    if (!expect(cold && first->pause() && world.set_paused(true) && cold->set_effect("red/effect") &&
+                    effects.tick(120) && renderer.render() && renderer.render() &&
+                    !cold->playing() && !first->playing() && second->playing(),
+                "world pause blocks both tick and draw fallback emission, preserving individual pause") ||
+        !expect(world.set_paused(false), "resume effect world") ||
+        !advance(windows, renderer, effects) ||
+        !expect(cold->playing() && !first->playing() && second->playing() && first->play() &&
+                    scene->destroy_node(cold_node->id()),
+                "world resume starts deferred emitter but not an individually paused instance") ||
+        !advance(windows, renderer, effects))
+    {
+        return 1;
+    }
     auto* stopped_node = scene->create_node("Stopped across resource refresh");
     auto* stopped = stopped_node ? stopped_node->add_component<EffectComponent>() : nullptr;
     auto manual = second->settings();

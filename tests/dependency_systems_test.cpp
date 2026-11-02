@@ -21,6 +21,8 @@
 
 #if ENGINE_HAS_ASSET_PIPELINE
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #endif
 
 #if ENGINE_TEST_SCRIPT_PLUGIN
@@ -109,8 +111,11 @@ int main()
 #endif
 
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::editor::AssetPipelineSystem asset_pipeline;
-    if (!check_lifecycle(asset_pipeline, "AssetPipelineSystem", config))
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::editor::AssetPipelineSystem asset_pipeline(tasks);
+    if (!threads.initialize(config) || !tasks.initialize(config) ||
+        !check_lifecycle(asset_pipeline, "AssetPipelineSystem", config))
     {
         return 1;
     }

@@ -20,12 +20,21 @@ export class Scene {
         const id = native.SceneLoad(path);
         return id === null ? null : new Scene(key, id);
     }
+    static BeginLoad(...args) { return native.SceneBeginLoad(...args); }
+    static StepLoad(...args) { return native.SceneStepLoad(...args); }
+    static CommitLoad(...args) {
+        const id = native.SceneCommitLoad(...args);
+        return id === null ? null : new Scene(key, id);
+    }
+    static CancelLoad(...args) { native.SceneCancelLoad(...args); }
     FindNode(name) {
         const scene = handles.get(this).scene;
         const node = native.SceneFindNode(scene, name);
         return node === null ? null : new Node(key, scene, node);
     }
     IsValid() { return native.SceneValid(handles.get(this).scene); }
+    SetPaused(paused) { return native.SceneSetPaused(handles.get(this).scene, paused); }
+    GetPaused() { return native.SceneGetPaused(handles.get(this).scene); }
     Destroy() { return native.SceneDestroy(handles.get(this).scene); }
     CreateNode(name) {
         const scene = handles.get(this).scene;
@@ -88,6 +97,69 @@ void load(const Arguments& arguments)
     }
 }
 
+void begin_load(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* binding = BindingContext::current(arguments);
+    std::string path;
+    if (binding != nullptr && arguments.count() == 1 && BindingContext::text(arguments, 0, path))
+    {
+        arguments.set_return(binding->begin_scene_load(path));
+    }
+}
+
+void step_load(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    if (binding == nullptr || arguments.count() != 1 || !arguments.is_uint32(0))
+    {
+        return;
+    }
+    ResourceLoadProgress progress;
+    const auto status = binding->step_scene_load(arguments.unsigned_integer(0), progress);
+    if (progress.total == 0)
+    {
+        return; // 没有本 Run 的请求；失败请求保留非零总数和明确错误快照。
+    }
+    const char* name = "loading";
+    if (status == ResourceLoadStatus::ready)
+    {
+        name = "ready";
+    }
+    else if (status == ResourceLoadStatus::failed)
+    {
+        name = "failed";
+    }
+    arguments.set_return(vm::NativeValue::Object{{"completed", progress.completed},
+                                                {"total", progress.total},
+                                                {"status", name},
+                                                {"error", binding->scene_load_error()}});
+}
+
+void commit_load(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    if (binding != nullptr && arguments.count() == 0)
+    {
+        if (const auto* scene = binding->commit_scene_load(); scene != nullptr)
+        {
+            arguments.set_return(scene->id());
+        }
+    }
+}
+
+void cancel_load(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    if (binding != nullptr && arguments.count() == 0)
+    {
+        binding->cancel_scene_load();
+    }
+}
+
 void find_node(const Arguments& arguments)
 {
     arguments.set_return({});
@@ -110,6 +182,29 @@ void find_node(const Arguments& arguments)
 void valid(const Arguments& arguments)
 {
     arguments.set_return(arguments.count() == 1 && BindingContext::scene(arguments) != nullptr);
+}
+
+void set_paused(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* binding = BindingContext::current(arguments);
+    if (arguments.count() != 2 || !arguments.is_boolean(1) || binding == nullptr ||
+        BindingContext::scene(arguments) == nullptr)
+    {
+        return;
+    }
+    arguments.set_return(binding->world()->set_paused(arguments.boolean(1)));
+}
+
+void get_paused(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* binding = BindingContext::current(arguments);
+    if (arguments.count() == 1 && binding != nullptr &&
+        BindingContext::scene(arguments) != nullptr)
+    {
+        arguments.set_return(binding->world()->paused());
+    }
 }
 
 void instantiate_model(const Arguments& arguments)
@@ -174,7 +269,11 @@ std::string_view SceneBinding::source() const noexcept
 bool SceneBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.function("SceneCreate", create) && vm.function("SceneLoad", load) &&
+           vm.function("SceneBeginLoad", begin_load) && vm.function("SceneStepLoad", step_load) &&
+           vm.function("SceneCommitLoad", commit_load) &&
+           vm.function("SceneCancelLoad", cancel_load) &&
            vm.function("SceneFindNode", find_node) &&
+           vm.function("SceneSetPaused", set_paused) && vm.function("SceneGetPaused", get_paused) &&
            vm.function("SceneInstantiateModel", instantiate_model) &&
            vm.function("SceneValid", valid) && vm.function("SceneDestroy", destroy) &&
            vm.function("ActiveCamera", active_camera);

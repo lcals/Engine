@@ -286,7 +286,13 @@ struct Fixture
     test_support::ResourceFixture files;
     engine::ResourceSystem resources;
     engine::WorldSystem world;
-    engine::AnimationSystem animation{&world};
+    engine::AnimationSystem animation;
+
+    explicit Fixture(engine::TaskSystem* tasks = nullptr,
+                     const engine::AnimationConfig& animation_config = {})
+        : animation(&world, tasks, animation_config)
+    {
+    }
 
     bool initialize()
     {

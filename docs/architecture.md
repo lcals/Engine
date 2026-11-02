@@ -72,7 +72,7 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [场景](runtime/scene.md)：Node、组件、层级、变换及保存与加载。
 - [跨模块数据](runtime/data.md)：FlatBuffers 模型、GUID 引用与快照。
 - [渲染](runtime/rendering.md)：bgfx、平台后端、材质、PBR 与 GPU 资源生命周期。
-- [资源管线](editor/asset-pipeline.md)：meta、Taskflow、SQLite、增量转换和完整版本发布。
+- [资源管线](editor/asset-pipeline.md)：meta、oneTBB、SQLite、增量转换和完整版本发布。
 - [资源构建](plugins/editor/resource-build.md)：项目清单、依赖闭包、散文件和合并包。
 - [物理](runtime/physics.md)、[音频](runtime/audio.md)：节点组件、固定步模拟、PCM 播放与清理边界。
 - [导航](runtime/navigation.md)、[动画](runtime/animation.md)、[运行时 UI](runtime/ui.md)：各系统的依赖接入与能力范围。

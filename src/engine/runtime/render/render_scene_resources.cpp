@@ -9,6 +9,7 @@
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/ui/ui_system.hpp"
 #include "runtime/world/world_system.hpp"
 
@@ -99,7 +100,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         scene_id_ = scene->id();
     }
     auto& resources = *scene_resources_;
-    if (!resources.prepare_ibl(*scene))
+    if (!resources.prepare_ibl(*scene, config_.texture_staging_bytes))
     {
         release_scene();
         return false;
@@ -110,6 +111,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     std::set<std::string> needed_programs;
     std::set<std::uint64_t> needed_meshes;
     std::set<const Resource*> needed_textures;
+    std::vector<render_detail::PreparedTexture> missing_textures;
     bool needs_skinning = false;
     for (const auto& node : scene->nodes())
     {
@@ -238,10 +240,12 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                     std::none_of(textures.begin(), textures.end(),
                                  [&source](const auto& item) { return item.resource == source; }))
                 {
-                    textures.emplace_back();
-                    if (!textures.back().create(source))
+                    missing_textures.emplace_back();
+                    if (!missing_textures.back().describe(source, *bgfx::getCaps(),
+                                                          config_.texture_staging_bytes))
                     {
-                        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare texture resource: %s",
+                        SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                     "Unsupported texture or staging budget exceeded: %s",
                                      source->info().path.c_str());
                         release_scene();
                         return false;
@@ -249,6 +253,61 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 }
             }
         }
+    }
+    for (std::size_t begin = 0; begin < missing_textures.size();)
+    {
+        std::size_t end = begin;
+        std::size_t bytes = 0;
+        while (end < missing_textures.size() && end - begin < config_.texture_batch_size &&
+               missing_textures[end].bytes <= config_.texture_staging_bytes - bytes)
+        {
+            bytes += missing_textures[end].bytes;
+            ++end;
+        }
+        // describe 已拒绝超过单项预算的纹理，每批至少包含一项。
+        std::future<bool> prepared;
+        if (tasks_ != nullptr)
+        {
+            std::vector<TaskDescription> batch;
+            for (std::size_t index = begin; index < end; ++index)
+            {
+                auto* texture = &missing_textures[index];
+                TaskDescription task;
+                task.name = "Render.texturePrepare";
+                task.execute = [texture] { return texture->prepare(); };
+                batch.push_back(std::move(task));
+            }
+            prepared = tasks_->submit_batch(std::move(batch));
+        }
+        {
+            ENGINE_PROFILE_ZONE("Render.textureJoin");
+            const bool ready = prepared.valid()
+                                   ? prepared.get()
+                                   : std::all_of(missing_textures.begin() + begin,
+                                                 missing_textures.begin() + end,
+                                                 [](auto& texture) { return texture.prepare(); });
+            if (!ready)
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare texture batch");
+                release_scene();
+                return false;
+            }
+        }
+        ENGINE_PROFILE_PLOT("Render.textureStagingBytes", static_cast<double>(bytes));
+        for (std::size_t index = begin; index < end; ++index)
+        {
+            auto& texture = missing_textures[index];
+            textures.emplace_back();
+            if (!textures.back().create(texture))
+            {
+                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot upload texture resource: %s",
+                             texture.resource->info().path.c_str());
+                release_scene();
+                return false;
+            }
+            texture.levels.clear();
+        }
+        begin = end;
     }
     for (auto item = meshes.begin(); item != meshes.end();)
     {

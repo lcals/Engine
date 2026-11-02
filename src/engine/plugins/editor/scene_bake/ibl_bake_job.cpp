@@ -1,5 +1,7 @@
 #include "plugins/editor/scene_bake/ibl_bake_job.hpp"
 
+#include "runtime/resource/codecs/texture_resource_codec.hpp"
+
 #include <basisu/transcoder/basisu_transcoder.h>
 #include <bgfx/bgfx.h>
 #include <bimg/bimg.h>
@@ -16,7 +18,6 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
-#include <mutex>
 #include <span>
 
 namespace engine::plugins::scene_bake
@@ -77,8 +78,7 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
         basist::basisu_transcoder decoder;
         if (data.encoding == schema::TextureEncoding::basis)
         {
-            static std::once_flag initialized;
-            std::call_once(initialized, [] { basist::basisu_transcoder_init(); });
+            TextureResourceCodec::initialize_transcoder();
             if (!decoder.start_transcoding(data.data.data(), data.data.size()))
             {
                 error = "Cannot transcode the IBL input texture";

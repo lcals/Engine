@@ -5,6 +5,8 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/model_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <chrono>
 #include <cmath>
@@ -97,12 +99,15 @@ int main()
     {
         return 1;
     }
-    editor::AssetPipelineSystem pipeline;
+    engine::ThreadSystem threads;
+    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    editor::AssetPipelineSystem pipeline(tasks);
     std::unique_ptr<editor::asset_pipeline::AssetImporter> fbx =
         std::make_unique<plugins::fbx_import::FbxImporter>();
     std::unique_ptr<editor::asset_pipeline::AssetImporter> usd =
         std::make_unique<plugins::usd_import::UsdImporter>();
-    if (!expect(pipeline.initialize({}), "initialize pipeline") ||
+    if (!expect(threads.initialize({}) && tasks.initialize({}) && pipeline.initialize({}),
+                "initialize pipeline") ||
         !expect(pipeline.add_importer(fbx) && pipeline.add_importer(usd),
                 "register FBX and USD simultaneously despite both producing model assets") ||
         !expect(pipeline.build_assets(project.root), pipeline.last_error()))

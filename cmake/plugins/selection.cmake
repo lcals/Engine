@@ -12,6 +12,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/editor/modeling.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/fbx_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/font_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/ui_import.cmake")
+include("${CMAKE_CURRENT_LIST_DIR}/editor/json_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/usd_import.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/character_controller.cmake")
 include("${CMAKE_CURRENT_LIST_DIR}/editor/navigation_crowd.cmake")
@@ -64,7 +65,8 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD)
             terrain
             destruction
             font_import
-            ui_import)
+            ui_import
+            json_import)
         if(ENGINE_ENABLE_EDITOR_DEPS AND ENGINE_ENABLE_RUNTIME_DEPS)
             list(APPEND _editor_plugins scene_bake)
         endif()

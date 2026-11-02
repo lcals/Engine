@@ -7,6 +7,8 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/mesh_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <algorithm>
@@ -23,6 +25,7 @@ namespace
 {
 
 constexpr double fixed_step = 1.0 / 60.0;
+engine::TaskSystem* physics_tasks = nullptr;
 using engine::PhysicsContactEvent;
 using engine::PhysicsContactPhase;
 using engine::PhysicsObject;
@@ -89,7 +92,7 @@ bool position(engine::Node& node, const engine::Vec3& value)
 struct Fixture
 {
     engine::WorldSystem world;
-    engine::PhysicsSystem physics{&world};
+    engine::PhysicsSystem physics{&world, physics_tasks};
 
     bool initialize()
     {
@@ -833,14 +836,32 @@ bool transient_contact_in_one_tick()
                   "reading the next zero-step snapshot cannot replay a transient contact");
 }
 
+bool run_suite()
+{
+    return character_queries() && overlap_objects_and_filters() && overlap_failures() &&
+           resting_contacts_and_substeps() && contact_lifecycle() && contact_type_changes() &&
+           character_trigger_contacts() && transient_contact_in_one_tick();
+}
+
 } // namespace
 
 int main()
 {
-    return character_queries() && overlap_objects_and_filters() && overlap_failures() &&
-                   resting_contacts_and_substeps() && contact_lifecycle() &&
-                   contact_type_changes() && character_trigger_contacts() &&
-                   transient_contact_in_one_tick()
-               ? 0
-               : 1;
+    if (!run_suite())
+    {
+        return 1;
+    }
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Physics interaction tests",
+                                       .max_concurrency = 2,
+                                       .priority = engine::TaskPriority::high});
+    if (!expect(threads.initialize({}) && tasks.initialize({}),
+                "initialize shared worker domain for identical contact regressions"))
+    {
+        return 1;
+    }
+    physics_tasks = &tasks;
+    const bool result = run_suite();
+    physics_tasks = nullptr;
+    return result && tasks.wait() ? 0 : 1;
 }

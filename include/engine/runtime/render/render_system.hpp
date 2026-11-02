@@ -4,6 +4,7 @@
 #include "runtime/scene/scene_types.hpp"
 #include "runtime/system/system.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string_view>
@@ -18,6 +19,7 @@ class WorldSystem;
 class FontSystem;
 class UiSystem;
 class RenderExtension;
+class TaskSystem;
 
 namespace render_detail
 {
@@ -32,12 +34,19 @@ enum class ScreenshotStatus
     failed
 };
 
+struct RenderConfig
+{
+    std::size_t texture_batch_size = 4;
+    std::size_t texture_staging_bytes = 64 * 1024 * 1024;
+};
+
 class RenderSystem final : public System
 {
 public:
-    // windows 和可空 world 的有效期须覆盖本对象整个生命周期。
+    // windows 和可空借用对象须覆盖本系统生命周期；tasks 非空时须先初始化。
     explicit RenderSystem(WindowSystem& windows, WorldSystem* world = nullptr,
-                          FontSystem* fonts = nullptr, UiSystem* ui = nullptr) noexcept;
+                          FontSystem* fonts = nullptr, UiSystem* ui = nullptr,
+                          TaskSystem* tasks = nullptr, const RenderConfig& config = {}) noexcept;
     ~RenderSystem() noexcept override;
 
     // 不转移所有权；同一扩展只能属于一个渲染器。回调期间拒绝更改登记。
@@ -55,6 +64,9 @@ public:
     [[nodiscard]] std::uint32_t frame_number() const noexcept;
     // 最近配置的绘制目标像素尺寸；系统或 GPU 未就绪时失败并清零。
     [[nodiscard]] bool viewport_size(Vec2& output) const noexcept;
+    // 接受呈现配置请求；下次可提交的 render 应用，GPU 临时关闭期间保留。
+    [[nodiscard]] bool set_vsync(bool enabled);
+    [[nodiscard]] bool vsync() const noexcept;
     // 有场景时只修改现有组件；缺少变更域的组件时失败，不创建节点。
     // 无场景时保存空白窗口配置，该配置不成为后续场景的默认值。
     [[nodiscard]] bool set_settings(const RenderSettings& settings);
@@ -90,6 +102,8 @@ private:
     WorldSystem* world_ = nullptr;
     FontSystem* fonts_ = nullptr;
     UiSystem* ui_ = nullptr;
+    TaskSystem* tasks_ = nullptr;
+    RenderConfig config_;
     std::unique_ptr<SceneGpuResources> scene_resources_;
     std::unique_ptr<RendererCallbacks> callbacks_;
     RenderSettings idle_settings_{};
@@ -100,6 +114,8 @@ private:
     std::uint32_t frame_number_ = 0;
     bool renderer_initialized_ = false;
     bool stats_visible_ = false;
+    bool vsync_enabled_ = true;
+    bool vsync_applied_ = true;
     std::vector<RenderExtension*> extensions_;
     bool invoking_extensions_ = false;
 };

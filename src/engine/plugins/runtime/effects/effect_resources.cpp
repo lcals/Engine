@@ -93,8 +93,12 @@ int EffectResources::load_texture(const char* name, int, void* context)
         return -1;
     }
     TextureEntry entry;
+    render_detail::PreparedTexture prepared;
     // 颜色空间只由资源 meta 决定，不使用旧适配器固定传入的 srgb=0。
-    if (!resource->texture() || resource->texture()->cube_map || !entry.gpu.create(resource))
+    // SDK 的同步回调逐张加载，仍在 bgfx API 线程准备并上传。
+    if (!resource->texture() || resource->texture()->cube_map ||
+        !prepared.describe(resource, *bgfx::getCaps(), std::numeric_limits<std::size_t>::max()) ||
+        !prepared.prepare() || !entry.gpu.create(prepared))
     {
         resources.error = "Cannot upload effect texture: " + resource->info().path;
         return -1;

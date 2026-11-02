@@ -7,6 +7,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/task/task_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <ozz/animation/runtime/blending_job.h>
@@ -21,6 +22,7 @@
 #include <iterator>
 #include <map>
 #include <set>
+#include <utility>
 #include <vector>
 
 namespace engine
@@ -209,6 +211,30 @@ struct AnimationEntry
     }
 };
 
+// 只保存独占采样状态与值输入；worker 不接触场景组件。
+struct AnimationSample
+{
+    AnimationEntry* entry = nullptr;
+    std::uint64_t node_id = 0;
+    double seconds = 0.0;
+    double previous_seconds = 0.0;
+    double blend = 1.0;
+};
+
+bool sample_range(std::vector<AnimationSample>& samples, std::size_t begin, std::size_t end)
+{
+    ENGINE_PROFILE_ZONE("Animation.sample_batch");
+    for (std::size_t index = begin; index < end; ++index)
+    {
+        auto& sample = samples[index];
+        if (!sample.entry->sample(sample.seconds, sample.previous_seconds, sample.blend))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 struct AnimationSystem::State
@@ -220,6 +246,7 @@ struct AnimationSystem::State
              std::shared_ptr<const animation_detail::CompiledAnimation>>
         clips;
     std::map<std::uint64_t, std::unique_ptr<AnimationEntry>> entries;
+    std::vector<AnimationSample> samples;
     std::uint64_t scene_id = 0;
 
     bool compile(const ResourcePtr& clip, const schema::MeshDataT& mesh,
@@ -275,7 +302,9 @@ struct AnimationSystem::State
     }
 };
 
-AnimationSystem::AnimationSystem(WorldSystem* world) noexcept : world_(world)
+AnimationSystem::AnimationSystem(WorldSystem* world, TaskSystem* tasks,
+                                 const AnimationConfig& config) noexcept
+    : world_(world), tasks_(tasks), config_(config)
 {
 }
 
@@ -286,6 +315,11 @@ AnimationSystem::~AnimationSystem() noexcept
 
 bool AnimationSystem::on_initialize(const EngineConfig&)
 {
+    if (config_.min_parallel_count == 0 || config_.batch_size == 0 ||
+        (tasks_ != nullptr && !tasks_->is_initialized()))
+    {
+        return false;
+    }
     state_ = std::make_unique<State>();
     return true;
 }
@@ -314,6 +348,7 @@ void AnimationSystem::clear() noexcept
     }
     if (state_ != nullptr)
     {
+        state_->samples.clear();
         state_->entries.clear();
         state_->clips.clear();
         state_->skeletons.clear();
@@ -339,6 +374,12 @@ bool AnimationSystem::on_tick(double delta_time)
         clear();
         state_->scene_id = scene->id();
     }
+    if (world_ != nullptr && world_->paused())
+    {
+        return true;
+    }
+    auto& samples = state_->samples;
+    samples.clear();
     std::set<std::uint64_t> retained;
     for (const auto& node : scene->nodes())
     {
@@ -462,15 +503,53 @@ bool AnimationSystem::on_tick(double delta_time)
             const double blend = animator->fade_seconds_ > 0.0
                                      ? animator->fade_elapsed_ / animator->fade_seconds_
                                      : 1.0;
-            if (!entry.sample(animator->time_, animator->previous_time_, blend) ||
-                !renderer->set_skinning_palette(entry.palette, entry.normal_palette))
+            samples.push_back(
+                {&entry, node->id(), animator->time_, animator->previous_time_, blend});
+        }
+    }
+    std::future<bool> sampling;
+    ENGINE_PROFILE_PLOT("Animation.samples", static_cast<double>(samples.size()));
+    if (tasks_ != nullptr && samples.size() >= config_.min_parallel_count &&
+        samples.size() > config_.batch_size)
+    {
+        std::vector<TaskDescription> batch;
+        for (std::size_t begin = 0; begin < samples.size();)
+        {
+            const std::size_t end = begin + std::min(config_.batch_size, samples.size() - begin);
+            TaskDescription task;
+            task.name = "Animation.sample_batch";
+            task.execute = [&samples, begin, end] { return sample_range(samples, begin, end); };
+            batch.push_back(std::move(task));
+            begin = end;
+        }
+        sampling = tasks_->submit_batch(std::move(batch));
+    }
+    {
+        ENGINE_PROFILE_ZONE("Animation.sample_join");
+        // 批次拒绝时尚未执行任何用户任务，可安全回到相同串行路径。
+        if (!(sampling.valid() ? sampling.get() : sample_range(samples, 0, samples.size())))
+        {
+            std::fputs("Animation sampling failed\n", stderr);
+            return false;
+        }
+    }
+    {
+        ENGINE_PROFILE_ZONE("Animation.publish");
+        for (const auto& sample : samples)
+        {
+            auto* node = scene->find_node(sample.node_id);
+            auto* animator = node != nullptr ? node->get_component<Animator>() : nullptr;
+            auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
+            if (animator == nullptr || renderer == nullptr ||
+                !renderer->set_skinning_palette(sample.entry->palette,
+                                               sample.entry->normal_palette))
             {
-                std::fputs("Animation sampling or palette submission failed\n", stderr);
+                std::fputs("Animation palette submission failed\n", stderr);
                 return false;
             }
             animator->pose_dirty_ = false;
-            entry.deformation_revision = renderer->deformation_revision();
-            if (blend >= 1.0)
+            sample.entry->deformation_revision = renderer->deformation_revision();
+            if (sample.blend >= 1.0)
             {
                 animator->previous_animation_.reset();
                 animator->frozen_pose_.reset();

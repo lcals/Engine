@@ -116,6 +116,12 @@ bool CharacterControllerSystem::on_tick(double)
         stop_driving();
         return true;
     }
+    if (world_.paused())
+    {
+        discard_component_inputs(*scene);
+        stop_driving();
+        return true;
+    }
     Node* player = nullptr;
     if (explicit_player_)
     {

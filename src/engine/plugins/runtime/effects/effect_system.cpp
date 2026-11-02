@@ -290,7 +290,7 @@ struct EffectSystem::State
         return true;
     }
 
-    bool synchronize(Scene& scene, double delta_time)
+    bool synchronize(Scene& scene, double delta_time, bool world_paused)
     {
         ENGINE_PROFILE_ZONE("Effects.synchronize");
         resources.error.clear();
@@ -341,6 +341,10 @@ struct EffectSystem::State
             }
             if (component->awake_pending_)
             {
+                if (world_paused)
+                {
+                    continue;
+                }
                 component->requested_ = EffectComponent::Playback::playing;
                 component->awake_pending_ = false;
             }
@@ -349,6 +353,10 @@ struct EffectSystem::State
                 stop(instance);
                 instance.compiled.reset();
                 component->playing_ = false;
+                continue;
+            }
+            if (instance.handle < 0 && world_paused)
+            {
                 continue;
             }
             if (instance.handle < 0 && !start(instance, *component))
@@ -364,7 +372,8 @@ struct EffectSystem::State
             manager->SetMatrix(instance.handle, transform);
             manager->SetSpeed(instance.handle, component->settings().speed);
             manager->SetPaused(instance.handle,
-                               component->requested_ == EffectComponent::Playback::paused);
+                               world_paused ||
+                                   component->requested_ == EffectComponent::Playback::paused);
             active.emplace_back(component, &instance);
         }
         for (auto entry = instances.begin(); entry != instances.end();)
@@ -379,11 +388,12 @@ struct EffectSystem::State
                 ++entry;
             }
         }
+        if (!world_paused)
         {
             ENGINE_PROFILE_ZONE("Effects.managerUpdate");
             manager->Update(static_cast<float>(delta_time * 60.0));
+            time += static_cast<float>(delta_time);
         }
-        time += static_cast<float>(delta_time);
         bool restarted = false;
         for (const auto& [component, entry] : active)
         {
@@ -391,7 +401,7 @@ struct EffectSystem::State
             if (instance.handle >= 0 && !manager->Exists(instance.handle))
             {
                 instance.handle = -1;
-                if (component->requested_ == EffectComponent::Playback::playing &&
+                if (!world_paused && component->requested_ == EffectComponent::Playback::playing &&
                     component->settings().loop)
                 {
                     Effekseer::Matrix43 transform;
@@ -413,7 +423,7 @@ struct EffectSystem::State
             component->playing_ = instance.handle >= 0 && manager->Exists(instance.handle) &&
                                   component->requested_ == EffectComponent::Playback::playing;
         }
-        if (restarted)
+        if (restarted && !world_paused)
         {
             manager->Update(0.0F);
         }
@@ -467,11 +477,12 @@ bool EffectSystem::on_tick(double delta_time)
     {
         release_scene();
     }
-    pending_seconds_ += delta_time;
+    const bool paused = world_.paused();
+    pending_seconds_ = paused ? 0.0 : pending_seconds_ + delta_time;
     if (state_ && state_->manager)
     {
         const double elapsed = std::exchange(pending_seconds_, 0.0);
-        if (!state_->synchronize(*scene, elapsed))
+        if (!state_->synchronize(*scene, elapsed, paused))
         {
             last_error_ = state_->resources.error;
             return false;
@@ -498,9 +509,14 @@ bool EffectSystem::draw(const RenderContext& context)
     {
         state_ = std::make_unique<State>();
     }
+    const bool paused = world_.paused();
+    if (paused)
+    {
+        pending_seconds_ = 0.0;
+    }
     if (!state_->initialize(context) ||
-        (!state_->prepared &&
-         !state_->synchronize(*world_.scene(), std::exchange(pending_seconds_, 0.0))))
+        ((!state_->prepared || paused) &&
+         !state_->synchronize(*world_.scene(), std::exchange(pending_seconds_, 0.0), paused)))
     {
         last_error_ = state_->resources.error;
         return false;

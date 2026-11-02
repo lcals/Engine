@@ -65,6 +65,9 @@ export default class Game extends Gameplay {
     private barrage_start_ms = 0;
     private barrage_start_fired = 0;
     private barrage_last_shot_ms = 0;
+    private readonly pending_explosions: Vector3[] = [];
+    private explosion_active = false;
+    private explosion_generation = 0;
 
     override OnInitialize(): boolean {
         this.scene = Scene.Load("scenes/destruction-integration.scene");
@@ -167,8 +170,9 @@ export default class Game extends Gameplay {
                 if (!this.explode(hit)) Debug.LogWarning(this.model.status);
             }
             changed = hits.length > 0 || changed;
-            if (hits.length === 0 && action === null) changed = this.apply_impacts(impacts) || changed;
-            if (this.clock >= this.next_stress) {
+            if (!this.explosion_active && hits.length === 0 && action === null)
+                changed = this.apply_impacts(impacts) || changed;
+            if (!this.explosion_active && this.clock >= this.next_stress) {
                 this.next_stress = this.clock + tuning.stressInterval;
                 for (const item of this.specimens) {
                     const beam = item.name === "Stress beam";
@@ -187,6 +191,7 @@ export default class Game extends Gameplay {
                 this.next_navigation = this.clock + 0.25;
                 if (!this.navigation.Flush()) Debug.LogWarning(this.navigation.status);
             }
+            if (!this.explosion_active) this.start_explosion();
         }
         const velocity = this.motor?.GetVelocity();
         const speed = velocity ? Math.min(2, Math.hypot(velocity.x, velocity.z) / 3) : 0;
@@ -201,19 +206,20 @@ export default class Game extends Gameplay {
         changed = changed || statistics !== this.model.statistics || contacts !== this.model.impacts;
         this.model.statistics = statistics;
         this.model.impacts = contacts;
-        const combat = `${tuning.rates[this.rate_index]} shots/s requested / ${this.barrage_left} remaining\n${this.rockets.fired} fired / ${this.rockets.hits} hits / ${this.rockets.active} flying / ${this.rockets.missed} misses\nWall frame interval ${this.average_frame_ms.toFixed(1)} ms smoothed / ${this.maximum_frame_ms.toFixed(1)} ms max (includes frame cap)`;
+        const pending = this.pending_explosions.length + (this.explosion_active ? 1 : 0);
+        const combat = `${tuning.rates[this.rate_index]} shots/s requested / ${this.barrage_left} remaining\n${this.rockets.fired} fired / ${this.rockets.hits} hits / ${this.rockets.active} flying / ${this.rockets.missed} misses / ${pending} edits pending\nWall frame interval ${this.average_frame_ms.toFixed(1)} ms smoothed / ${this.maximum_frame_ms.toFixed(1)} ms max (includes frame cap)`;
         changed = changed || combat !== this.model.combat || this.navigation.status !== this.model.navigation;
         this.model.combat = combat;
         this.model.navigation = this.navigation.status;
         if (this.reporting && (wall_ms >= this.next_report_ms ||
-            (this.barrage_left === 0 && this.rockets.active === 0))) {
+            (this.barrage_left === 0 && this.rockets.active === 0 && pending === 0))) {
             const count = this.rockets.fired - this.barrage_start_fired;
             const seconds = (this.barrage_last_shot_ms - this.barrage_start_ms) / 1000;
-            const complete = this.barrage_left === 0 && this.rockets.active === 0;
+            const complete = this.barrage_left === 0 && this.rockets.active === 0 && pending === 0;
             Debug.Log(`Rocket range sample ${JSON.stringify({ complete,
                 requestedRate: tuning.rates[this.rate_index], fired: this.rockets.fired,
                 hits: this.rockets.hits, flying: this.rockets.active, missed: this.rockets.missed,
-                remaining: this.barrage_left, blocked: this.rockets.blocked,
+                remaining: this.barrage_left, blocked: this.rockets.blocked, pendingEdits: pending,
                 actualRate: seconds > 0 ? (count - 1) / seconds : 0,
                 groups, dynamic, soil: terrain.fragmentCount, stressBreaks: this.stress_broken,
                 wallFrameSmoothedMs: this.average_frame_ms, wallFrameMaxMs: this.maximum_frame_ms,
@@ -303,6 +309,7 @@ export default class Game extends Gameplay {
         if (!terrain) return false;
         switch (action) {
             case "dig":
+                if (this.explosion_active || this.pending_explosions.length > 0) return false;
                 if (!terrain.DigSphere(0, -1.5, -2, 6.6) || !this.refresh_support()) return false;
                 this.navigation.Dirty({x:0,y:-1.5,z:-2}, 8, false);
                 // Dust emerges near the visible rim of this excavation, outside the solid tower.
@@ -348,11 +355,15 @@ export default class Game extends Gameplay {
             case "route":
                 return this.navigation.Route();
             case "fill":
+                if (this.explosion_active || this.pending_explosions.length > 0) return false;
                 if (!terrain.FillSphere(3, -2, 5, 4) || !this.refresh_support()) return false;
                 this.navigation.Dirty({x:3,y:0,z:5}, 6, false);
                 this.model.status = "Soil filled. Broken building anchors remain disconnected; Reset all restores the initial structure.";
                 return true;
             case "reset":
+                ++this.explosion_generation;
+                this.pending_explosions.length = 0;
+                this.explosion_active = false;
                 this.barrage_left = 0;
                 this.reporting = false;
                 this.weak_stress = false;
@@ -404,32 +415,57 @@ export default class Game extends Gameplay {
     }
 
     private explode(point: Vector3): boolean {
-        const terrain = this.terrain;
-        if (!terrain) return false;
-        const {x,y,z} = point;
-        let ok = true;
-        for (const specimen of this.specimens) {
-            if (!specimen.component.DamageSphere(x,y,z,tuning.damageRadius,tuning.damage,tuning.impulse)) {
-                this.model.status = specimen.component.lastError || "Building damage failed";
-                ok = false;
-            }
-            specimen.next_impact = this.clock + 0.2;
-        }
-        const before = terrain.fragmentCount ?? 0;
-        if (!terrain.DigSphere(x,y,z,tuning.terrainRadius)) {
-            this.model.status = terrain.lastError || "Terrain blast failed";
+        if (this.pending_explosions.length >= tuning.rocketPool) {
+            this.model.status = "Explosion queue is full; this hit was not submitted.";
             return false;
         }
-        if (!terrain.CollapseDetached(tuning.minSoilSamples,tuning.maxSoilFragments,
-            tuning.soilFragmentCells,tuning.soilDensity)) {
-            this.model.status = terrain.lastError || "Soil fragment budget reached; detached soil retained";
-            ok = false;
+        this.pending_explosions.push(point);
+        return this.present(true, point.x, point.y, point.z) &&
+            this.present(false, point.x, point.y, point.z);
+    }
+
+    private start_explosion(): void {
+        const terrain = this.terrain;
+        const point = this.pending_explosions.shift();
+        if (!terrain || !point) return;
+        const {x,y,z} = point;
+        const generation = this.explosion_generation;
+        const before = terrain.fragmentCount ?? 0;
+        this.explosion_active = true;
+        let remaining = this.specimens.length + 1;
+        let ok = true;
+        let terrain_ready = false;
+        const completed = (success: boolean): void => {
+            if (generation !== this.explosion_generation || !this.scene?.IsValid()) return;
+            ok = success && ok;
+            if (--remaining !== 0) return;
+            // All workers have published before synchronous support or soil edits change revisions.
+            if (terrain_ready) {
+                if (!terrain.CollapseDetached(tuning.minSoilSamples, tuning.maxSoilFragments,
+                    tuning.soilFragmentCells, tuning.soilDensity)) ok = false;
+            }
+            if (!this.refresh_support()) ok = false;
+            if (terrain_ready)
+                this.navigation.Dirty(point, tuning.terrainRadius + 2,
+                    (terrain.fragmentCount ?? 0) !== before);
+            this.explosion_active = false;
+            this.next_stress = this.clock;
+            this.model.status = ok
+                ? `Rocket hit (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}). Background edits published; support and navigation refreshed.`
+                : terrain.lastError || this.specimens.find(item => item.component.lastError)?.component.lastError ||
+                    "An explosion edit was rejected or cancelled.";
+            if (!ok) Debug.LogWarning(this.model.status);
+            if (!this.controller?.Refresh()) throw new Error("Cannot refresh completed explosion");
+        };
+        for (const specimen of this.specimens) {
+            if (!specimen.component.DamageSphereAsync(x, y, z, tuning.damageRadius,
+                tuning.damage, tuning.impulse, completed)) completed(false);
+            specimen.next_impact = this.clock + 0.2;
         }
-        this.navigation.Dirty(point,tuning.terrainRadius+2,(terrain.fragmentCount ?? 0) !== before);
-        if (!this.refresh_support() || !this.present(true,x,y,z) || !this.present(false,x,y,z)) ok = false;
-        this.next_stress = this.clock;
-        if (ok) this.model.status = `Rocket hit (${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}). Ground, structures, support and route updated from real geometry.`;
-        return ok;
+        if (!terrain.DigSphereAsync(x, y, z, tuning.terrainRadius, success => {
+            terrain_ready = success;
+            completed(success);
+        })) completed(false);
     }
 
     private respawn(): boolean {
@@ -449,6 +485,9 @@ export default class Game extends Gameplay {
     }
 
     override OnShutdown(): void {
+        ++this.explosion_generation;
+        this.pending_explosions.length = 0;
+        this.explosion_active = false;
         this.input.Shutdown();
         this.barrage_left = 0;
         this.rockets.Shutdown();

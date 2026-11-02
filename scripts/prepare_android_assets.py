@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from artifact_output import plain_path, staged_output
+from runtime_settings import export_runtime_settings
 from resource_catalog import (
     copy_asset,
     copy_resource_snapshot,
@@ -127,6 +128,8 @@ def prepare(project, output, asset_builder=None, manifest=None, resource_root=No
                 copy_asset(path, preserved / relative)
         source = compile_catalog(project, asset_builder, manifest, resource_root)
         receipt = stage_assets(source, staging)
+        # APK assets 是平台容器；settings 与 catalog/gen/packs 并列，不进入资源清单。
+        export_runtime_settings(project, staging)
     return receipt
 
 

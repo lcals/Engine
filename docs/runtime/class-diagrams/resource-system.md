@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [目录](resource-catalog.md) · [已加载资源](resource.md) · [文件访问](virtual-file-system.md)
 
-资源核心提供元数据目录、单项同步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见根 [README](../../../README.md)。
+资源核心提供元数据目录、单项同步或异步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见根 [README](../../../README.md)。
 
 ## 核心接口
 
@@ -20,6 +20,11 @@ classDiagram
         +set_loader(ResourceLoader#42; loader) void
         +read_header(string_view guid, ResourceHeaderDataT& output) bool
         +load(string_view guid, ResourcePtr& output) bool
+        +configure_async(TaskSystem& tasks, const ResourceAsyncConfig& config) bool
+        +begin_load(string_view guid, unique_ptr~ResourceLoad~& output) bool
+        +poll_async() void
+        +shutdown_async() void
+        +async_enabled() bool
         +find(string_view guid) ResourcePtr
         +validate_dependencies(const Resource& resource, span~const ResourcePtr~ dependencies) bool
         +last_error() const string&
@@ -45,7 +50,8 @@ classDiagram
 - `validate_dependencies()` 为 const 方法，统一检查提供的资源引用、当前代际与目录身份，再委派对应 ResourceCodec 校验跨实体契约，不读取文件、不存储依赖。依赖插件在完成候选加载后调用。
 - `generation()` 为 const noexcept；成功加载的 Resource 记录其目录代际。旧引用保持有效，释放自己的 shared_ptr 即结束一次使用，不通过 GUID 强制销毁别人的对象。
 - `last_error()` 是最近失败上下文的借用，下一次操作可能改变文本；状态以返回值为准。
-- 目录更新、加载与引用释放在宿主协调线程执行。无异步、优先级、文件监测、打包或版本发现业务。
+- 目录更新、请求提交和结果发布在宿主协调线程执行。configure_async 借用已就绪 TaskSystem；请求固定目录快照和代际，文件传输由 SDL AsyncIO 执行，外置资源校验解码由任务域执行。poll_async 或系统 tick 只派发已完成文件事件，不等待。宿主先派发 TaskSystem 完成委托；shutdown_async 用于关闭边界，先使操作失效，再收尾 I/O 和任务后解除借用。借给运行宿主的资源系统必须在任务域关闭前调用它。目录换代或关闭使未完成操作失败，后台只持不可变输入和私有输出，不访问活动系统。
+- ResourceAsyncConfig 的 max_in_flight、max_in_flight_bytes 限制读取及解码中的候选；completion_budget 限制每次文件结果派发。无物理位置的内置定义在协调线程复制，避免访问活动全局注册表的线程竞争。load 保持明确同步模式。
 
 构造、析构与关闭钩子为 noexcept；钩子标注 override。状态和重要查询标注 nodiscard；catalog、generation、find、last_error 及依赖校验为 const，loader 返回可调用接口借用，为非 const noexcept。宿主先释放领域使用者再关闭资源系统；原 Basis Universal 初始化及依赖编译、链接职责保留。
 
@@ -161,3 +167,19 @@ classDiagram
 贴图由 TextureDataT 保存 CPU 缓存；register_texture/find_texture 服从相同的 builtin 注册与项目借用规则。Shader 默认贴图、材质覆盖贴图必须存在于直接依赖集合，类型、路径和 GUID 一致。缓存先校验 FlatBuffers、Basis 文件校验和、尺寸与 mip 元数据；渲染模块负责设备格式及实际转码，资源系统不创建 GPU 对象。
 
 `builtin_resource_payload(guid, output)` 是与 `builtin_resource_catalog()` 同级的自由函数：无需系统、窗口或 GPU 初始化，按固定 GUID 序列化引擎自带定义为对应 FlatBuffers 载荷；失败清空 `ByteBuffer`。它与启动备用定义共用构造，不读取活动项目的注册表。编辑器资源构建负责将 Shader 替换成目标平台字节码，再通过 `encode_resource()` 写出实体；该函数不承担平台选择、文件布局或打包策略。
+
+```mermaid
+classDiagram
+    class ResourceSystem
+    class TaskSystem
+    class ResourceAsyncConfig {
+        <<struct>>
+        +size_t max_in_flight = 4
+        +uint64_t max_in_flight_bytes = 67108864
+        +size_t completion_budget = 16
+    }
+    class ResourceLoad
+    ResourceSystem --> TaskSystem : 借用解码任务域
+    ResourceSystem ..> ResourceAsyncConfig : 预算输入
+    ResourceSystem ..> ResourceLoad : 单项异步操作
+```

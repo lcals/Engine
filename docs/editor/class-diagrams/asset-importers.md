@@ -1,6 +1,6 @@
 # 逐类型资源导入
 
-资源管线按显式登记选择实现。每种资源的识别、meta 默认值、依赖、类型指纹与转换保存在自己的文件；锁、GUID、SQLite、Taskflow 编排及原子发布留在 AssetPipelineSystem。
+资源管线按显式登记选择实现。每种资源的识别、meta 默认值、依赖、类型指纹与转换保存在自己的文件；锁、GUID、SQLite、oneTBB 编排及原子发布留在 AssetPipelineSystem。
 
 ```mermaid
 classDiagram

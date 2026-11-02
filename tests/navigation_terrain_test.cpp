@@ -1,6 +1,8 @@
 #include "plugins/runtime/terrain/terrain_volume.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/navigation/navigation_system.hpp"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 
 #include <algorithm>
 #include <array>
@@ -12,6 +14,8 @@
 
 namespace
 {
+
+engine::TaskSystem* navigation_tasks = nullptr;
 
 bool expect(bool condition, const char* message, const engine::NavigationSystem& navigation,
             std::string_view terrain_error)
@@ -49,7 +53,7 @@ bool terrain_destruction_and_recovery()
     engine::schema::TerrainAssetDataT baseline;
     engine::schema::MeshDataT mesh;
     std::string terrain_error;
-    engine::NavigationSystem navigation;
+    engine::NavigationSystem navigation(navigation_tasks);
     const std::array geometry{engine::NavigationGeometry{&mesh}};
     const engine::NavigationBounds bounds{{-12, -4, -4}, {12, 4, 4}};
     engine::NavigationSettings settings;
@@ -297,5 +301,18 @@ bool terrain_destruction_and_recovery()
 
 int main()
 {
-    return terrain_destruction_and_recovery() ? 0 : 1;
+    if (!terrain_destruction_and_recovery())
+    {
+        return 1;
+    }
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(threads, {.name = "Navigation terrain tests", .max_concurrency = 2});
+    if (!threads.initialize({}) || !tasks.initialize({}))
+    {
+        return 1;
+    }
+    navigation_tasks = &tasks;
+    const bool result = terrain_destruction_and_recovery();
+    navigation_tasks = nullptr;
+    return result && tasks.wait() ? 0 : 1;
 }

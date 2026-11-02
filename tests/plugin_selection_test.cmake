@@ -411,6 +411,93 @@ endif()
 ]=])
 
 run_case(
+    independent_json_importer
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS json_import CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/json_import" OR
+   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime")
+    message(FATAL_ERROR "JSON import alone must not add plugins or dependency features: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
+endif()
+]=])
+
+run_case(
+    json_importer_target_toggle
+    ""
+    [=[
+# 仅配置真实插件和宿主装配函数；基础目标使用接口桩，不查找或安装依赖。
+set(_source "${CASE_ROOT}/source")
+file(MAKE_DIRECTORY "${_source}/src/engine/plugins/editor/json_import")
+configure_file("${ROOT}/src/engine/plugins/editor/json_import/json_importer.cpp"
+    "${_source}/src/engine/plugins/editor/json_import/json_importer.cpp" COPYONLY)
+file(WRITE "${_source}/probe.cpp" "int main() { return 0; }\n")
+file(WRITE "${_source}/CMakeLists.txt"
+    "cmake_minimum_required(VERSION 3.25)\n"
+    "set(ROOT [==[${ROOT}]==])\n")
+file(APPEND "${_source}/CMakeLists.txt" [==[
+include("${ROOT}/cmake/plugins/selection.cmake")
+project(json_importer_selection_fixture LANGUAGES CXX)
+function(engine_apply_options target)
+endfunction()
+add_library(engine_asset_pipeline INTERFACE)
+add_library(engine::asset_pipeline ALIAS engine_asset_pipeline)
+add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED)
+engine_configure_selected_plugins()
+set(ENGINE_BUILD_APP OFF)
+include("${ROOT}/cmake/editor/hosts.cmake")
+add_executable(probe_host probe.cpp)
+engine_link_asset_importers(probe_host)
+get_target_property(_host_definitions probe_host COMPILE_DEFINITIONS)
+get_target_property(_host_links probe_host LINK_LIBRARIES)
+if("editor/json_import" IN_LIST ENGINE_SELECTED_PLUGINS)
+    if(NOT TARGET engine_json_import OR NOT TARGET engine::json_import)
+        message(FATAL_ERROR "Enabled JSON importer target or alias is missing")
+    endif()
+    get_target_property(_links engine_json_import LINK_LIBRARIES)
+    if(NOT "engine::asset_pipeline" IN_LIST _links OR
+       NOT "nlohmann_json::nlohmann_json" IN_LIST _links OR
+       NOT "engine::json_import" IN_LIST _host_links OR
+       NOT "ENGINE_HAS_JSON_IMPORTER=1" IN_LIST _host_definitions)
+        message(FATAL_ERROR "JSON importer target or host linkage differs")
+    endif()
+elseif(TARGET engine_json_import OR TARGET engine::json_import OR
+       "engine::json_import" IN_LIST _host_links OR
+       NOT "ENGINE_HAS_JSON_IMPORTER=0" IN_LIST _host_definitions)
+    message(FATAL_ERROR "Disabled JSON importer leaked a target or host linkage")
+endif()
+file(WRITE "${CMAKE_BINARY_DIR}/selection.txt"
+    "${ENGINE_SELECTED_PLUGINS}|${VCPKG_MANIFEST_FEATURES}")
+]==])
+foreach(_state enabled disabled)
+    if(_state STREQUAL "enabled")
+        set(_plugins json_import)
+    else()
+        set(_plugins "")
+    endif()
+    execute_process(COMMAND "${CMAKE_COMMAND}" -S "${_source}" -B "${CASE_ROOT}/build"
+        -DENGINE_ENABLE_RUNTIME_DEPS=ON -DENGINE_ENABLE_EDITOR_DEPS=ON
+        -DENGINE_ENABLE_ASSET_PIPELINE_DEPS=ON -DENGINE_ENABLE_SCRIPT_RUNTIME=OFF
+        -DENGINE_RUNTIME_PLUGINS= "-DENGINE_EDITOR_PLUGINS=${_plugins}"
+        -DVCPKG_MANIFEST_FEATURES=runtime
+        RESULT_VARIABLE _result OUTPUT_VARIABLE _out ERROR_VARIABLE _error)
+    if(NOT _result EQUAL 0)
+        message(FATAL_ERROR "JSON importer toggle configure failed: ${_out}${_error}")
+    endif()
+    file(READ "${CASE_ROOT}/build/selection.txt" _selection)
+    if(_plugins STREQUAL "json_import")
+        set(_expected "editor/json_import|runtime")
+    else()
+        set(_expected "|runtime")
+    endif()
+    if(NOT _selection STREQUAL _expected)
+        message(FATAL_ERROR "JSON importer toggle left stale selection/features: ${_selection}")
+    endif()
+endforeach()
+]=])
+
+run_case(
     disabled_v8_clears_icu
     ""
     [=[

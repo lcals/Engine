@@ -7,6 +7,8 @@
 #include <atomic>
 #include <cstdarg>
 #include <cstdint>
+#include <future>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -18,6 +20,14 @@ struct RenderSystem::RendererCallbacks final : bgfx::CallbackI
     std::atomic<ScreenshotStatus> status{ScreenshotStatus::idle};
     std::mutex mutex;
     std::string pending_path;
+    struct Capture;
+    std::shared_ptr<Capture> capture;
+    std::future<bool> writing;
+    bool readback_received = false;
+
+    // 以下两个方法只由主线程调用；bgfx 关闭后才可 finish。
+    void process(TaskSystem* tasks);
+    void finish() noexcept;
 
     void fatal(const char* file, std::uint16_t line, bgfx::Fatal::Enum code,
                const char* message) override;

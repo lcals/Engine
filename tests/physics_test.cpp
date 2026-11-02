@@ -7,6 +7,8 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/schema/mesh_generated.h"
+#include "runtime/task/task_system.hpp"
+#include "runtime/task/thread_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <array>
@@ -18,6 +20,8 @@
 
 namespace
 {
+
+engine::TaskSystem* physics_tasks = nullptr;
 
 bool expect(bool condition, const char* description)
 {
@@ -31,7 +35,7 @@ bool expect(bool condition, const char* description)
 struct Fixture
 {
     engine::WorldSystem world;
-    engine::PhysicsSystem physics{&world};
+    engine::PhysicsSystem physics{&world, physics_tasks};
 
     bool initialize()
     {
@@ -2097,19 +2101,114 @@ bool snapshot_reuse_lifecycle()
                   "reenabled and removed colliders follow the current frame membership");
 }
 
+bool world_pause_and_resume()
+{
+    engine::WorldSystem inactive;
+    Fixture paused;
+    Fixture reference;
+    if (!expect(!inactive.paused() && !inactive.set_paused(true) && paused.initialize() &&
+                    reference.initialize(),
+                "pause requires an initialized world with an active scene"))
+    {
+        return false;
+    }
+    auto* body = create(*paused.world.scene(), "Paused body", {0, 10, 0},
+                        engine::schema::ColliderShape::box, true);
+    auto* other = create(*reference.world.scene(), "Reference body", {0, 10, 0},
+                         engine::schema::ColliderShape::box, true);
+    if (!expect(body && other && paused.physics.tick(1.0 / 60.0) &&
+                    reference.physics.tick(1.0 / 60.0),
+                "prepare identical Jolt bodies"))
+    {
+        return false;
+    }
+    const auto before = body->get_component<engine::Transform>()->settings();
+    const auto velocity = body->get_component<engine::RigidBody>()->linear_velocity();
+    if (!expect(paused.world.set_paused(true) && paused.world.set_paused(true) &&
+                    paused.world.paused() && paused.world.tick(60) && paused.physics.tick(60) &&
+                    body->get_component<engine::Transform>()->settings() == before &&
+                    body->get_component<engine::RigidBody>()->linear_velocity() == velocity &&
+                    paused.physics.contacts().empty(),
+                "world pause preserves pose and velocity without new contacts"))
+    {
+        return false;
+    }
+    if (!expect(paused.world.set_paused(false) && paused.physics.tick(1.0 / 60.0) &&
+                    reference.physics.tick(1.0 / 60.0) &&
+                    std::abs(height(*body) - height(*other)) < 1.0e-6,
+                "resume consumes one new step without accumulating paused time"))
+    {
+        return false;
+    }
+    if (!paused.world.set_paused(true))
+    {
+        return false;
+    }
+    paused.world.destroy_scene();
+    if (!expect(!paused.world.paused() && !paused.world.set_paused(true) &&
+                    paused.world.create_scene("Replacement") && !paused.world.paused(),
+                "destroy and replacement reset transient world pause"))
+    {
+        return false;
+    }
+    paused.world.shutdown();
+    return expect(!paused.world.paused() && !paused.world.set_paused(true),
+                  "shutdown clears world pause");
+}
+
+bool run_suite()
+{
+    return world_pause_and_resume() && collision_and_lifecycle() && fixed_step_and_validation() &&
+           velocity_updates_at_capacity() && hierarchy_and_kinematic() &&
+           trigger_and_registration() && rotation_and_scale() && transient_mesh_collision() &&
+           segmented_mesh_collision() && segmented_mesh_seams() && segmented_mesh_transforms() &&
+           segmented_mesh_character_seams() && accumulated_shape_scale() && numeric_boundaries() &&
+           compound_box_geometry() && dynamic_pose_feedback() && compound_collision() &&
+           snapshot_reuse_lifecycle() && targeted_ray() && closest_queries() && query_filters() &&
+           query_lifecycle() && impact_snapshots();
+}
+
 } // namespace
 
 int main()
 {
-    return collision_and_lifecycle() && fixed_step_and_validation() &&
-                   velocity_updates_at_capacity() && hierarchy_and_kinematic() &&
-                   trigger_and_registration() && rotation_and_scale() &&
-                   transient_mesh_collision() && segmented_mesh_collision() &&
-                   segmented_mesh_seams() && segmented_mesh_transforms() &&
-                   segmented_mesh_character_seams() && accumulated_shape_scale() &&
-                   numeric_boundaries() && compound_box_geometry() && dynamic_pose_feedback() &&
-                   compound_collision() && snapshot_reuse_lifecycle() && targeted_ray() &&
-                   closest_queries() && query_filters() && query_lifecycle() && impact_snapshots()
+    if (!run_suite())
+    {
+        return 1;
+    }
+
+    engine::ThreadSystem threads({.worker_limit = 2});
+    engine::TaskSystem tasks(
+        threads,
+        {.name = "Physics tests", .max_concurrency = 2, .priority = engine::TaskPriority::high});
+    engine::PhysicsSystem invalid(nullptr, &tasks);
+    if (!expect(!invalid.initialize({}), "physics rejects an uninitialized borrowed task domain") ||
+        !expect(threads.initialize({}) && tasks.initialize({}), "initialize shared Jolt workers"))
+    {
+        return 1;
+    }
+    physics_tasks = &tasks;
+    const bool parallel_ok = run_suite();
+    physics_tasks = nullptr;
+    if (!parallel_ok || !expect(tasks.wait(), "all Jolt wrappers complete before teardown"))
+    {
+        return 1;
+    }
+    tasks.shutdown();
+
+    engine::TaskConfig limited_config;
+    limited_config.name = "Physics limited";
+    limited_config.max_concurrency = 1;
+    limited_config.max_pending = 1;
+    engine::TaskSystem limited(threads, limited_config);
+    if (!expect(limited.initialize({}), "initialize one-job physics task budget"))
+    {
+        return 1;
+    }
+    physics_tasks = &limited;
+    const bool limited_ok = collision_and_lifecycle() && impact_snapshots();
+    physics_tasks = nullptr;
+    return limited_ok && expect(limited.wait(), "saturated task domain never drops physics jobs")
                ? 0
                : 1;
 }
