@@ -193,12 +193,7 @@ ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget
     }
     if (scene_load_status_ == ResourceLoadStatus::loading)
     {
-        auto* resources = ResourceSystem::instance();
-        const auto* current = world_ != nullptr ? world_->scene() : nullptr;
-        if (resources != scene_load_resources_ || resources == nullptr ||
-            resources->generation() != scene_load_generation_ ||
-            &resources->loader() != scene_load_loader_ || world_ == nullptr ||
-            !world_->is_initialized() || (current != nullptr ? current->id() : 0) != scene_id_)
+        if (!scene_load_context_valid())
         {
             fail_scene_load("The scene loading directory or owning world changed");
         }
@@ -223,12 +218,7 @@ Scene* BindingContext::commit_scene_load()
     {
         return nullptr;
     }
-    auto* resources = ResourceSystem::instance();
-    const auto* current = world_ != nullptr ? world_->scene() : nullptr;
-    if (resources == nullptr || resources != scene_load_resources_ ||
-        resources->generation() != scene_load_generation_ ||
-        &resources->loader() != scene_load_loader_ || world_ == nullptr ||
-        !world_->is_initialized() || (current != nullptr ? current->id() : 0) != scene_id_)
+    if (!scene_load_context_valid())
     {
         fail_scene_load("Cannot commit scene after its directory or owning world changed");
         return nullptr;
@@ -265,6 +255,19 @@ void BindingContext::cancel_scene_load() noexcept
 std::string_view BindingContext::scene_load_error() const noexcept
 {
     return scene_load_error_;
+}
+
+bool BindingContext::scene_load_context_valid() const noexcept
+{
+    auto* resources = ResourceSystem::instance();
+    if (resources == nullptr || resources != scene_load_resources_ ||
+        resources->generation() != scene_load_generation_ ||
+        &resources->loader() != scene_load_loader_ || world_ == nullptr || !world_->is_initialized())
+    {
+        return false;
+    }
+    const auto* current = world_->scene();
+    return (current != nullptr ? current->id() : 0) == scene_id_;
 }
 
 void BindingContext::fail_scene_load(std::string_view error)

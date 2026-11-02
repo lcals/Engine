@@ -967,14 +967,12 @@ Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎�
 | Windows 输入与 KV | 2026-11-01 输入相关 Debug / Release 各 5 项，KV 与脚本相关各 2 项定向回归；SDK 与 showcase 类型检查 | 手柄使用 SDL 虚拟设备，触摸使用事件注入；符号链接用例受权限限制，未验证真实手柄或移动触控 |
 | Android ARM64 / Vulkan / QuickJS | 2026-11-01 两配置 APK 构建及静态校验：唯一 libmain.so、catalog 与资源实体、目标 Shader、签名及 ZIP / ELF 16 KiB 对齐；catalog-only 同步相关定向检查 | 路径升级后的 APK 未安装到设备；新增输入与 KV 尚无 Android 运行结果 |
 | macOS ARM64 / Metal / QuickJS | 2026-11-01 分支复核：受影响目标 Debug / Release 增量构建，输入、KV、脚本、UI、角色及资源管线/打包各 8 项 CTest 通过；另通过桌面/Android 打包脚本、架构边界与 showcase 导航回归。射击链路 Debug / Release 各 6 项定向回归通过，Metal 实窗验证菜单往返、移动、射线/球扫命中、墙体遮挡、计分与重置 | 本轮未重跑全套 CTest、应用导出或其他平台构建；射击未做其他平台实机验证，手柄和触摸使用虚拟设备或事件注入 |
-| macOS ARM64 / JSON 配置与项目 UI | 2026-11-01：JSON 扩展受影响目标 Debug / Release 构建，各 5 项定向 CTest（脚本运行、JSON 导入、资源解码、插件开关、架构边界）通过。项目 TS 检查及资源打包通过；真实 Metal 验证菜单、加载、关卡 HUD、图鉴、按键重绑定及保存、曝光应用与默认恢复、退出关卡后回到 2 节点菜单；独立原生 UI 探针覆盖 1280×720、1920×1080、1440×900、3440×1440 的 15 种页面状态及 Retina。桌面/Android 资源脚本 15/26 项通过；Mac 原生项目包导出 1716 项资源，独立启动使用打包版本与 JSON，600 帧运行正常退出 | 未运行全套 CTest、V8 或其他平台构建。Xbox 输入及断连使用模拟验证，未连接物理手柄；该次验证的显示、退出和加载空实现已由下一行补齐，语言仍保留项目空实现 |
-| macOS ARM64 / UI 原生控制与分步加载 | 2026-11-02：既有 WindowSystem 使用 SDL3 实现显示模式、逻辑/像素尺寸、鼠标模式和正常退出；RenderSystem 通过既有 bgfx reset 应用 VSync；WorldSystem 暂停同步到既有模拟系统，UI/输入持续更新。资源依赖图复用原加载算法，单线程按资源预算推进并提供真实计数。受影响宿主和测试目标 Debug / Release 构建通过，两配置各 13 项定向 CTest 通过；项目 TS 类型检查及显示/输入/UI 编排验证通过；Metal 实窗确认 1920×1080→1600×900 Retina 窗口、VSync 设置读回、真实分步计数、世界/镜头暂停和恢复、鼠标相对视角；最新 Mac 原生包导出 1716 项资源，独立启动使用打包 revision，菜单退出后完成清理且退出码为 0 | 未运行全套 CTest、V8 或其他平台构建；未验证物理 Xbox。百分比只表示已完成资源数，单项解码、场景恢复和首帧 GPU 准备仍同步，不代表无卡顿或异步加载；语言仍为空实现 |
+| macOS ARM64 / JSON、项目 UI 与运行控制 | 受影响目标 Debug / Release 构建与定向 CTest 通过，覆盖 JSON 导入/脚本读取、资源加载、暂停及插件边界；项目 TS 与桌面/Android 资源脚本检查通过。Metal 实窗验证菜单、重绑定、设置保存、Retina 分辨率切换、VSync 读回、相对鼠标、世界暂停/恢复及分步加载；Mac 原生包独立启动并从菜单正常退出 | 未运行全套 CTest、V8 或其他平台构建。Xbox 仅模拟输入和断连，未验证实体手柄；语言仍为空实现。加载为单线程分步推进，百分比只表示完成资源数；单项解码、场景恢复和首帧 GPU 准备仍同步，不保证无卡顿 |
 | macOS 多角色与可破坏地形导航 | Debug / Release 的导航、原生代理、脚本、编解码及装配边界共 10 项定向回归通过，范例 TS 编译与编排检查通过。Metal 实窗观察 16／64 角色移动、反转及启停；16 角色挖坑绕行全部到达，断沟后停止，恢复地面后原目标自动续行 | 未做其他平台运行、完整战斗联调或容量压测；同步重建与避让的性能尚无目标设备结论 |
 | macOS ARM64 / QuickJS 物理交互 | 物理查询、角色、范围与接触生命周期、脚本及导航运动学组合的定向 Debug 5 项、Release 7 项 CTest 均通过；新增订阅和 Trigger 类型切换后，受影响物理/脚本测试再次通过两配置回归。Metal 实窗验证角色与导航对象查询、两类范围、触发统计、启停和返回清理 | 未做其他平台构建或运行验证、容量或性能验收；不代表全套 CTest 通过 |
 | macOS InPlace 动画导入 | Debug / Release 的 FBX 管线、轴向处理与动画定向测试通过；范例 TS 与编排回归通过。实际 walk 缓存每周期前进位移从约 1.4253 米降到浮点误差范围，未选轴、旋转、缩放及其他骨骼不变；新资源同步与 Metal 场景启动通过，停止后零节点 | 尚未做其他平台实窗验证；未实现 RootMotion 驱动与运行时模式切换 |
 | Android ARM64 / API 34 软件 Vulkan 模拟器 | 路径升级前已有菜单与场景往返、角色/动画、音频状态、前后台恢复、完整资源同步和有限帧退出验证 | 不代表当前包或实体设备性能、扬声器、真实触屏与 16 KiB 页设备已验证 |
 | Linux / iOS | 保留平台配置与统一后端约束 | 尚无本分支的构建及端到端运行结果 |
-
 
 验证输出留在忽略目录：射击回归为 `build/shooting-range-tests-*.log`，窗口验收为 `build/shooting-range-final-report.json` 与项目 `cache/screenshots/shooting-range-final-*`；分支复核为 `build/branch-review-*`，资源布局与包体检查为 `build/resource-path-validation/`、`build/catalog-only-fix/`，KV 为 `build/kv-storage/`；旧 QuickJS 与交付证据为 `build/quickjs-validation/`、`build/windows-cross-platform-review/`。复跑入口维护在 Presets、`tests/` 和本文命令中，不提交日志、截图或构建产物。
 

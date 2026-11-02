@@ -142,33 +142,24 @@ classDiagram
 
 ## 暂停和单线程分步加载
 
-上图的 SetPaused/GetPaused、BeginLoad/StepLoad/CommitLoad/CancelLoad 已按评审契约实现；
-现有 Scene.Load 继续保留同步语义。实现仍归既有 SceneBinding，不增加项目专用原生系统。
+以下接口由 SceneBinding 实现，`Scene.Load` 保留同步语义。
 
 - `scene.SetPaused(value)` 与 `scene.GetPaused()` 只操作当前 Run 拥有的活动场景，逐次校验
   场景身份及活动回调。设置返回 bool，查询失败返回 null。暂停值由 WorldSystem 持有，
   不加入 Scene 持久模型；成功切场景或释放场景后复位。完整语义见[世界暂停](../world-pause.md)。
-- `Scene.BeginLoad(path)` 解析当前目录中的场景 GUID，向已注入 ResourceLoader 请求单线程操作；
-  成功后由当前 BindingContext 独占。每个 Run 同时最多一个，重复 begin 返回 false；缺少分步
-  加载实现、非法路径、错误资源类型或非活动回调也返回 false。它不读取实体、不替换旧场景。
-- `Scene.StepLoad(resourceBudget)` 要求预算为非负 uint32 整数；0 只查询，正数最多完成该数量的
-  唯一必要资源。无操作、非法参数或失效回调返回 null；操作存在时返回完整快照，status 为
-  loading/ready/failed，error 在失败时为非空。百分比由 completed/total 计算，只表示目录
-  声明的资源计数，不表示耗时，也不包含项目稍后动态创建的角色、武器或 UI 资源。
-- `Scene.CommitLoad()` 只在操作 ready 且目录代际未改变时同步调用既有 WorldSystem::load_scene；
-  始终持有 ready 根资源，复用同代缓存。成功后返回新场景并释放操作；失败返回 null，旧场景
-  及其暂停值保留。提交发生的代际/场景恢复错误由 BindingContext 保存，将场景请求置为 failed
-  并释放候选引用；随后 StepLoad(0) 仍返回最后计数和 failed/error，直到 CancelLoad 清理。
-  失败请求不能再次 commit；先 cancel 再 begin 才能重试。未 ready 时误调用 commit 仅返回 null，
-  不结束仍在进行的请求。场景节点/组件恢复本轮仍同步，不在中途发布部分 Scene。
-- `Scene.CancelLoad()` 仅释放当前 Run 的操作和候选引用，重复调用安全，不卸载其他使用者资源。
-  取消在两次 step 之间生效，不能中断正在解码的单项资源或已经开始的 CommitLoad。
+- `Scene.BeginLoad(path)` 请求当前目录中的场景，由 BindingContext 独占加载操作。每个 Run
+  最多一个；重复请求、非法路径、错误资源类型、缺少分步加载实现或非活动回调返回 false。
+  成功后旧场景继续有效。
+- `Scene.StepLoad(resourceBudget)` 要求预算为非负 uint32 整数。无操作、非法参数或失效回调
+  返回 null；否则返回 completed、total、status 和 error 快照。status 为 loading/ready/failed，
+  失败时 error 非空。预算及计数含义见[资源加载契约](resource-loader.md#单线程分步操作)。
+- `Scene.CommitLoad()` 成功返回新场景并释放操作；失败返回 null，保留旧场景及暂停值。
+  未 ready 时不结束请求；目录、加载器或所属场景变化以及恢复失败，将请求置为 failed。
+  错误和最后计数仍可由 StepLoad(0) 查询，重试须先 CancelLoad 再 BeginLoad。
+- `Scene.CancelLoad()` 释放当前 Run 的操作和候选引用，重复调用安全。
 - 成功使用其他入口更换或销毁活动场景，以及 Run 停止/重载时，清理该 Run 的待提交操作。
   候选预检不得启动操作，不得取消旧活动 Run 的操作或改变其世界暂停。
-- 项目在原有主循环每帧显式调用 StepLoad，不启用后台线程、不重入 tick/render。Commit 前
-  保留旧场景读取 UI；Commit 后旧控件失效，在新场景绑定同一 UI 文档。资源完成后显示
-  PREPARING SCENE / PREPARING GRAPHICS，等成功渲染新场景一帧后显示 READY，再进入 HUD。
-  单项大资源、场景恢复和 GPU 准备仍可能占用较长一帧，不能承诺全过程持续动画或毫秒预算。
+- Commit 后旧场景与控件句柄失效，项目须在新场景重新取得所需引用。
 
-资源操作的原生方法只在[资源加载契约](resource-loader.md)定义，依赖策略只在
-[资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)维护。
+加载、场景恢复、图形准备的完成依据与取消边界统一见[加载阶段与限制](resource-loader.md#加载阶段与限制)；
+依赖遍历和缓存发布见[资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)。

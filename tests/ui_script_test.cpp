@@ -695,6 +695,40 @@ bool native_mouse_capture_case(Systems& systems)
     {
         return false;
     }
+    engine::UiElementHandle action;
+    engine::UiEvent clicked;
+    if (!expect(systems.ui.find_element(systems.world.scene()->nodes().front()->id(), "action",
+                                       action) &&
+                    systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
+                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
+                "project-managed buttons retain mouse clicks without claiming the keyboard"))
+    {
+        return false;
+    }
+    for (const auto key : {SDLK_RETURN, SDLK_SPACE})
+    {
+        for (const auto type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP})
+        {
+            SDL_Event event{};
+            event.type = type;
+            event.key.windowID = window;
+            event.key.key = key;
+            event.key.down = type == SDL_EVENT_KEY_DOWN;
+            if (!expect(!systems.ui.process_event(event) && !systems.ui.keyboard_claimed() &&
+                            !systems.ui.poll_event(clicked),
+                        "Enter and Space remain unclaimed and do not click the old mouse target"))
+            {
+                return false;
+            }
+        }
+    }
+    if (!expect(click(systems) && systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                    clicked.element_id == "action" && !systems.ui.poll_event(clicked),
+                "mouse clicks still produce exactly one event after keyboard navigation"))
+    {
+        return false;
+    }
     systems.ui.release_scene();
     return true;
 }

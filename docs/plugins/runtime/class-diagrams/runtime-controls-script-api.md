@@ -2,10 +2,8 @@
 
 [类图索引](../../../class-diagrams/index.md) · [窗口系统](../../../runtime/class-diagrams/window-system.md) · [渲染接口](render-script-api.md) · [世界暂停](../../../runtime/class-diagrams/world-system.md)
 
-已按评审契约补齐 项目设置和菜单的原生调用，公开声明同步至
-`include/engine.d.ts`。继续使用当前工作分支，不新增窗口管理器、输入框架或第三方依赖。
-原生能力全部扩展现有 WindowSystem、RenderSystem、WorldSystem 和资源加载契约；下方 Window
-只是项目脚本入口，不是另一个 C++ 窗口系统。成熟库仅在这些系统内部使用，项目不直接调用 SDL/bgfx。
+Window 和 App 的脚本接口由既有原生系统提供，公开声明位于 `include/engine.d.ts`。
+项目通过脚本接口调用 WindowSystem 等系统，SDL/bgfx 的使用保留在原生实现中。
 
 ## TypeScript 门面
 
@@ -126,8 +124,8 @@ BindingContext 构造最后追加默认空的 `WindowSystem*`；查询 `window()
 nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结束玩法和鼠标请求，再关闭输入与窗口。
 核心只传抽象脚本工厂，不 include 或链接 WindowBinding。
 
-单线程加载复用现有 ResourceLoader/ResourceGraphSystem；ResourceLoad 只是调用方独占的进度操作，
-不继承 System、不自动执行，也不是另一套资源系统。其方法及所有权在对应资源类图维护。
+加载操作的接口与所有权见[资源加载契约](../../../runtime/class-diagrams/resource-loader.md)，
+脚本入口见[Scene 接口](../../../runtime/class-diagrams/gameplay.md#暂停和单线程分步加载)。
 
 ## 项目接入范围
 
@@ -138,8 +136,8 @@ nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结�
   游戏和编辑器使用同一公开接口，由调用方决定调用时机。
 - 进入战斗时启用 relative，暂停菜单/图鉴/设置/断连页恢复 normal，返回战斗再启用 relative。
 - 暂停由 Scene 实例控制；菜单继续响应 Gameplay.Update 和 UI 事件，项目只在 HUD 页面推进玩法。
-- 加载采用单线程依赖资源分步推进，百分比只表示已完成资源计数；场景恢复与首帧 GPU 准备
-  独立显示阶段。每次推进之间返回主循环，不增加线程池、Future 框架或重入式渲染。
+- 加载界面遵循[加载阶段与限制](../../../runtime/class-diagrams/resource-loader.md#加载阶段与限制)，
+  分别呈现资源进度、场景恢复和图形准备。
 
 ## 已选成熟实现
 
@@ -150,4 +148,3 @@ nodiscard，非活动回调返回空。窗口有效期覆盖全部 Run，先结�
 - VSync 直接使用 [bgfx reset](https://bkaradzic.github.io/bgfx/bgfx.html#reset) 的
   BGFX_RESET_VSYNC；不使用 bgfx 尚不支持的 FULLSCREEN 标志替代 SDL 全屏。
 - 暂停沿用 Flecs/Jolt/Effekseer 的既有更新入口与 SDL Audio 的暂停能力，不增加通用调度框架。
-  单线程资源操作只复用现有依赖遍历、解码与标准共享引用，不重写所选依赖的功能。

@@ -92,6 +92,7 @@ public:
     [[nodiscard]] static bool text(const Arguments& arguments, int index, std::string& output);
 
 private:
+    [[nodiscard]] bool scene_load_context_valid() const noexcept;
     void fail_scene_load(std::string_view error);
 
     WorldSystem* world_ = nullptr;

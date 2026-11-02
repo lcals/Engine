@@ -2,7 +2,7 @@
 
 [世界类图](class-diagrams/world-system.md) · [运行宿主](class-diagrams/runtime-host.md) · [脚本运行契约](class-diagrams/script-runtime.md)
 
-世界暂停已按批准的公开契约实现，并通过本轮 Debug / Release 定向测试。打开菜单、设置、图鉴或等待手柄重连时，调用方可以冻结世界，继续显示当前画面并接收 UI 事件；恢复后从冻结状态继续。当前提供暂停/恢复，不增加时间缩放或新的组件脚本框架；场景分步加载属于独立资源契约。
+世界暂停冻结自动模拟，保留画面和 UI 交互。调用方负责决定暂停与恢复时机；当前不提供时间缩放。
 
 ## 公开接口
 
@@ -10,78 +10,46 @@
 | --- | --- | --- |
 | `WorldSystem` | `set_paused(bool paused) -> bool` | 世界已初始化且有活动场景时成功；幂等，失败不改状态。 |
 | `WorldSystem` | `paused() const -> bool` | 查询临时暂停值；未初始化或无场景时为 `false`。 |
-| 现有 `SceneBinding` 的脚本实例 | `Scene.SetPaused(paused: boolean): boolean` | 仅活动回调且 Scene 属于当前 Run/活动世界时可修改；其他情况为 `false`。 |
-| 现有 `SceneBinding` 的脚本实例 | `Scene.GetPaused(): boolean \| null` | 相同身份与活动回调校验；失败为 `null`。 |
+| 脚本 `Scene` 实例 | `SetPaused(paused: boolean): boolean` | 仅活动回调且 Scene 属于当前 Run/活动世界时可修改；其他情况为 `false`。 |
+| 脚本 `Scene` 实例 | `GetPaused(): boolean \| null` | 相同身份与活动回调校验；失败为 `null`。 |
 
-WorldSystem 的两个方法为 `noexcept`、`[[nodiscard]]`，查询另为 `const`。不改变原生 `Scene` 的公开方法或场景 schema。Scene 的脚本外观只是已有绑定到 WorldSystem 的一次身份受检转发，不创建包装类。
+暂停值由 `WorldSystem` 持有，不写入场景资源。`SceneBinding` 校验场景身份后转发请求；原生接口见[世界类图](class-diagrams/world-system.md)，脚本声明见 [`include/engine.d.ts`](../../include/engine.d.ts)。
 
-世界不判断调用方为何暂停。项目显式调用 `scene.SetPaused(true)` 后显示菜单；Gameplay 继续处理菜单输入，根据已设置的暂停/页面状态决定是否调用自己的世界业务更新（也可查询 `scene.GetPaused()`）。菜单离开时显式恢复。现有 `CharacterControls.SetPaused()` 可继续处理输入清空和等待回中；暂停世界不代替设备上下文切换。
+项目打开菜单时调用 `scene.SetPaused(true)`，离开时显式恢复。`Gameplay.Update()` 和 UI 回调继续执行，`Time.deltaTime` 保持正常；项目须跳过自己的世界业务，并管理输入通道、清空输入和恢复前的等待回中。
 
 ## 调度与职责
 
-保留 `Engine::tick()` 与 `System::tick_tree()` 原样，不增加通用暂停字段、子系统枚举、类型判断或阶段调度器。WorldSystem 保存一个 `paused_`，实际模拟系统在各自既有更新入口读取。所有权和装配顺序保持现有契约。
-
-实现复用本仓库已选用的成熟库状态和现有引擎调用链，没有另写暂停模拟器或调度框架：
-
-| 已选库 | 复用方式 |
-| --- | --- |
-| Flecs | 暂停时不调用已有 `ecs_progress()`，保留 ECS 对象。 |
-| Jolt | 暂停时不进入已有物理固定步和 `PhysicsSystem::Update()` 调用，保留原生刚体/角色状态；不用销毁重建或逐刚体伪造静止。 |
-| Effekseer | 复用实例 `Manager::SetPaused()` 并与组件自身暂停状态合并；世界暂停时不调用 `Manager::Update()`，继续由现有 renderer 绘制实例。恢复只解除世界原因，保留组件自身原因。 |
-| DetourCrowd | 暂停时不调用现有 `dtCrowd::update()`，保留代理、路径与请求；不另写路径推进。 |
-| SDL3 Audio | 复用现有 `AudioSystem::set_paused()` 内的 `SDL_PauseAudioDevice()` / `SDL_ResumeAudioDevice()`。 |
-| RmlUi | 继续现有事件处理与 Context 更新/渲染，使菜单交互持续运行。 |
-
-Animator 保留引擎现有采样姿态与播放状态，略过时间推进和采样；不为暂停新增动画播放器。上述改动只在库调用边界执行显式暂停条件，不改变库内部实现，也不引入新的依赖。
+`Engine::tick()` 与 `System::tick_tree()` 保持原有调度。各模拟系统在自己的更新入口读取世界暂停值，复用既有库调用和状态。
 
 | 链路 | 暂停时行为 |
 | --- | --- |
 | `WorldSystem::on_tick()` | 不调用 `ecs_progress`；仍返回成功，让原有子系统链继续执行。 |
-| `WindowSystem` / `InputSystem` / `UiSystem` / `FontSystem` | 继续事件、输入发布、布局、焦点与字体工作。 |
-| `ScriptSystem` / `ScriptRuntime` | 继续绑定事件分发和 `Gameplay.Update()`；不整体停 VM，不改 Time.deltaTime 为零。项目显式跳过自己的世界业务。 |
-| `PhysicsSystem` | 维护必要的场景身份/资源释放后，不推进固定步、不写回模拟位姿、不产生新碰撞/触发事件，不把本帧时间放入累计器。已有速度与合法模拟状态保留。 |
-| `CharacterControllerSystem` | 不提交移动、转向、跳跃或相机切换；丢弃待消费的一次性输入，避免恢复后重放暂停期间的输入。项目仍负责进入菜单前清输入、禁用相应通道。 |
-| `NavigationCrowdSystem` | 不自动调用 `step_crowd()` 或写回代理移动；保留路径/代理状态，不累积暂停时间。 |
-| `NavigationSystem` | 保持现有同步查询/显式步进底层；它没有自动 `on_tick`，也不借用 WorldSystem，不为暂停新增世界依赖。项目不得在暂停分支显式步进世界导航。 |
-| `AnimationSystem` | 保留最后采样姿态，不推进播放时间、CrossFade、根运动或模拟驱动变形；不改每个 Animator 自己的播放/暂停状态。 |
-| `EffectSystem` | 保留已存在粒子并继续绘制，不推进粒子/发射器/特效时间，不积累 `pending_seconds_`；`draw()` 的回退同步同样读取世界暂停，暂停期间不启动新的或 play-on-awake 发射器。 |
-| `CharacterCameraSystem` / `TerrainSystem` / `DestructionSystem` | 暂停时略过自动相机跟随及地形/破坏同步，保留已有状态；显式关闭/场景释放仍走原有清理链。核心不枚举插件类型。 |
-| `RenderSystem` / 插件绘制 | 继续显示冻结世界和变化中的 UI；只准备绘制，不借机推进模拟。 |
-| `AudioSystem` / `RuntimeHost` | 复用已有设备暂停，合并 `!window.can_render() || world.paused()`；菜单恢复不能覆盖窗口仍不可绘制这一原因，窗口恢复也不能覆盖世界仍暂停这一原因。 |
+| 窗口、输入、UI、字体、脚本、渲染 | 继续事件、回调、布局和绘制。 |
+| `PhysicsSystem` | 不推进 Jolt 固定步、不写回位姿、不产生新接触事件；保留模拟状态，丢弃角色一次性输入。 |
+| `CharacterControllerSystem` | 丢弃输入，不提交移动、转向、跳跃或视角切换。 |
+| `NavigationCrowdSystem` | 不调用 `step_crowd()`，保留 DetourCrowd 代理、路径与请求，不写回移动。 |
+| `AnimationSystem` | 保留最后采样姿态，不推进播放时间、CrossFade 或采样。 |
+| `EffectSystem` | 合并组件暂停与世界暂停到 Effekseer `SetPaused()`，不调用 `Manager::Update()`；已有粒子继续绘制，新发射器等待恢复。绘制回退同步同样遵守暂停。 |
+| `CharacterCameraSystem` / `TerrainSystem` / `DestructionSystem` | 略过自动相机跟随及地形/破坏同步；显式关闭和场景释放仍走原有清理链。 |
+| `AudioSystem` / `RuntimeHost` | 用 SDL 音频设备暂停合并 `!window.can_render() || world.paused()`；两种原因都解除后才恢复输出。 |
 
-世界暂停可在 Gameplay 更新中设置。现有顺序为 UI/脚本在角色意图、物理、动画和大多数模拟插件之前，因此菜单请求可阻止本帧后续模拟。已经完成的工作不回滚，尤其 ECS 当前帧可能已经推进；不为追求回滚额外拆分 System 调度。
-
-音频是输出设备独立推进，给模拟系统传 `0` 秒无法暂停音频。`RuntimeHost::poll_events()` 与 `RuntimeHost::tick()` 在各自窗口处理、玩法更新后的现有入口同步上述合并结果，使本帧 Gameplay 改变的世界暂停及时反映到设备；保留 AudioSource 自己的 paused/stopped 状态，不把所有源改成 Play。首版使用现有统一音频输出，若将来要求菜单音乐继续而世界音效冻结，再独立评审音频分组。
+各组件自身的播放/暂停意图保持不变。暂停期间不累计模拟时间，恢复只推进新帧；物理允许保留暂停前不足一个固定步的余量。
 
 ## 生命周期与失败
 
-- 世界初始化、成功创建空场景、成功替换活动场景、销毁活动场景和关闭后，暂停值为 `false`。新场景需要暂停，由调用方在加载成功后明确设置。
-- 场景加载失败不替换活动 Scene，也不改变旧场景暂停值。
-- 候选 Run 的目录/模块预检不得改变活动世界。未激活的 BindingContext 不能设置暂停，候选销毁不得执行全局暂停复位。
-- 活动 Run 停止、初始化失败及场景释放依照现有场景身份清理；只有拥有当前场景的绑定可以销毁它，WorldSystem 在该场景真正释放时复位。不能仅因任意 `Run` 析构就解冻另一个 Run/宿主的场景。
-- 不改变目前热重载的事务保证：候选预检失败保留旧运行及其暂停值；进入已有激活流程并停止旧运行后的失败，按既有停止/场景释放语义结束，不承诺恢复已销毁的旧世界。
-- 暂停时不累计 delta_time。保留进入暂停前不足一个固定步的合法余量可以，但恢复后不得加上暂停期间的墙钟时间或补发过期的一次性输入。
-- 暂停不禁止调用方明确执行加载、查询、修改或销毁；这些接口仍按各自身份与失败契约工作。自动世界推进暂停，菜单业务的显式资源操作仍由调用方决定。
+- 初始化、成功创建或替换场景、销毁场景和关闭后，暂停值为 `false`；场景加载失败保留旧场景及其暂停值。
+- 候选 Run 预检不能修改世界；预检失败保留旧运行。活动 Run 停止或初始化失败时，绑定只清理自己拥有的场景，场景真正释放后才复位暂停。
+- 热重载进入激活流程并停止旧运行后，若激活失败，按既有停止/场景释放语义结束，不恢复已销毁的旧世界。
+- 显式加载、查询、修改与销毁仍可调用，继续遵守各自身份及失败契约。
 
-## 实现关系与目前限制
+## 限制
 
-- [WorldSystem](../../src/engine/runtime/world/world_system.cpp) 持有临时暂停值；原生 Scene、场景 schema、Engine/System 均未新增暂停字段或调度接口。
-- [SceneBinding](../../src/engine/plugins/runtime/script/bindings/scene_binding.cpp) 提供 `SetPaused` / `GetPaused`，类型声明位于 `include/engine.d.ts`。访问复用活动回调与当前 Run 场景身份检查；ScriptRuntime 没有新增方法。
-- [RuntimeHost](../../src/engine/runtime/app/runtime_host.cpp) 合并窗口和世界两种音频暂停原因，没有增加公开宿主暂停接口。采用拆分窗口事件与引擎更新的自定义宿主，仍须按相同合并条件维护输出状态。
-- 物理、动画、角色控制/相机、多人导航、特效、地形和破坏系统复用已有 WorldSystem 借用读取暂停值，不新增暂停包装类。特效绘制回退也受保护；暂停前已加载的粒子继续绘制，新的发射器等待恢复。
-- 全局暂停不更改各组件自己的 playing/paused/stopped 意图；当前音频输出统一暂停，尚不提供世界音效与菜单音乐分组。
-- Gameplay 仍会收到正常 `Time.deltaTime`，项目必须跳过自己的世界业务。显式加载、查询或修改不被全局禁用；NavigationSystem 的直接显式步进也由调用方决定，不等同于自动 crowd 更新。
-- 同帧已完成的 ECS/模拟工作不回滚；恢复只使用新帧时长。未承诺恢复被既有激活流程销毁的旧世界，候选预检失败仍保持原场景与暂停值。
+- 暂停只影响后续自动更新。同帧已经完成的工作不回滚，ECS 可能已在脚本请求暂停前推进。
+- `NavigationSystem` 的同步查询和显式步进没有世界依赖；项目须避免在暂停分支自行步进导航。
+- 音频统一暂停输出，尚无世界音效与菜单音乐分组。自定义宿主若拆开窗口事件和引擎更新，须像 `RuntimeHost` 一样在窗口处理及玩法更新后同步合并暂停条件。
 
-## 验证范围
+## 验证方式
 
-已增加世界/物理、动画、角色控制、多人导航、特效绘制回退及资源场景切换的定向测试；本轮 Debug 相关测试已通过。覆盖冻结、恢复不追帧、个别组件暂停保持、一次性输入不重放、加载失败保留状态与成功切换复位。实窗 UI 和音频交错状态仍结合宿主验证，不能仅以单元测试代替。
+通过根 [README](../../README.md) 的 Presets 运行受影响的 Debug / Release 定向测试。`physics_test`、`animation_test`、`character_controller_test`、`navigation_crowd_test`、`effects_runtime_test` 与 `script_runtime_test` 覆盖冻结与恢复、组件独立暂停、一次性输入、特效绘制回退和场景生命周期。
 
-原生与项目联调检查项：
-
-1. 运行中打开菜单，UI 导航/设置/返回仍可用；同一物体的位姿、速度、动画时间、特效时间和导航代理位置冻结。
-2. 暂停等待后恢复，只推进新帧；无物理/导航追赶、粒子喷发、跳跃/视角切换重放或重复碰撞回调。
-3. 单独暂停的 Animator/Effect/AudioSource 在世界恢复后仍保持自己的暂停状态。
-4. 世界暂停与窗口不可绘制交错进入/退出，音频只有两种原因都解除时恢复。
-5. 暂停中成功切场景/停止后恢复默认；失败加载、候选预检失败和旧句柄不能解冻或暂停他人的活动场景。
-6. 关闭脚本插件仍可由原生调用方设置世界暂停；关闭某个可选模拟插件不影响其他系统与 UI。
+实窗还需检查：菜单交互持续可用；等待后恢复无追帧、输入重放或重复接触回调；世界暂停与窗口不可绘制交错时音频只在两者都解除后恢复。插件开关按实际装配验证，关闭脚本后原生调用仍应可用。实际执行结果与平台限制维护在 README，不在此累积测试流水。

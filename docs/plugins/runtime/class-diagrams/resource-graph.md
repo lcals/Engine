@@ -48,7 +48,7 @@ classDiagram
 
 ## 单线程分步复用
 
-本节及上图的 `begin_load` 已实现；现有同步 `load`、缓存查询、Bundle 所有权与系统生命周期保持原契约。操作的公开方法只在[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#单线程分步操作)定义，此处不重复成员。
+`begin_load` 创建插件私有操作，公开方法、预算和终态契约见[核心加载接口](../../../runtime/class-diagrams/resource-loader.md#单线程分步操作)。
 
 ```mermaid
 classDiagram
@@ -67,16 +67,12 @@ classDiagram
     GraphResourceLoad o-- Resource : 本任务 retained 与 ready 根共享引用
 ```
 
-`GraphResourceLoad` 是 `engine::plugins::resource_graph` 内部的薄实现，不是新增系统或调度层。创建时复用既有迭代 DFS 确定唯一后序计划，step 保存当前完成位置与 retained 候选，复用既有目录、单项 `ResourceSystem::load`、`validate_dependencies`、同代弱缓存与私有 Bundle。同步 `load` 在缓存未命中时创建同一操作并一次推进完成，不维护第二套依赖遍历、加载或引用计数框架。
+`GraphResourceLoad` 位于 `engine::plugins::resource_graph`，由调用方独占并借用插件及资源核心。系统不保存任务队列；同步 `load` 缓存未命中时创建同一操作，一次推进完成。
 
-- `ResourceGraphSystem::begin_load` 为 `[[nodiscard]]` 的普通重写方法，失败清空调用者输出并通过现有 `last_error` 说明原因；成功创建后把操作所有权转交调用方，本系统只被操作借用，不保存自动推进队列。
-- 创建时从目录元数据确定该目标的必要闭包、固定 generation 和唯一 GUID 总数，不读取实体。相同父/子资源在同一闭包中只安排一次；已有存活对象仍可复用。其余无关目录资源不会进入本任务，不扫描源文件、不预加载整个项目。
-- step 每完成一个缓存命中或一个通过完整读取、解码和依赖校验的资源，才增加一次 completed；每次最多完成 budget 项。直接依赖先就绪，再组合父项 Bundle。所有新候选都由本任务 retained 强引用，跨帧不会因弱缓存失去必要依赖。
-- loading 时每次推进和发布前检查目录 generation、加载器及资源核心状态。目录换代后失败并释放本任务引用，不能把旧候选写入新代索引。ready 后是已完成的旧资源共享快照，保持状态但不得再发布；提交方单独核对创建时的 generation。错误属于本操作，不覆盖其他存活资源或依赖引用。
-- ready 前不发布本任务产生的任何弱索引；失败或析构取消只释放私有候选引用，不留下部分驻留条目。完整闭包成功后，才按现有同步 load 的规则统一发布弱索引并持有根 ResourcePtr；ready 根与其所有依赖继续用既有 Bundle 别名共享引用。
-- 同一闭包内的重复依赖及已发布的同代缓存继续复用完整共享对象；本轮不增加多个未完成任务的合并器或在途去重服务。发布前若同代完整缓存已由其他调用建立，则复用其完整对象，不用私有候选覆盖它。取消只撤销本任务所持引用；不得删除或强制释放其他使用者持有的缓存对象。ready 后销毁操作也只减少本任务引用，若场景已接管根引用，闭包继续存活。
-- 所有创建、step、缓存访问和销毁发生在宿主现有线程；调用方在每帧 Update 中显式推进，System 不增加自动 tick 调度、线程、线程池或跨线程队列。宿主停止、重载或关闭加载器前，须先销毁该 Run 持有的操作。
-- 提交阶段继续调用既有 WorldSystem::load_scene，并在返回前持有 ready 根引用，使正常 load 能复用已驻留闭包。成功后 Scene 接管根资源；恢复失败仍保留旧活动 Scene，调用方可丢弃任务。单活动场景及 UiSystem 随场景更换文档的生命周期不变。
-- 场景节点恢复和首次 GPU 准备本轮保留同步，不计入 completed/total。不得在它们的内部重入宿主循环来伪造可见进度，也不把候选 Scene 跨帧暴露给活动 ECS、物理或 UI。
+1. 创建时遍历目标的目录依赖，使用迭代 DFS 检查循环并生成唯一后序计划，固定 generation 和资源总数。只安排必要闭包，每个 GUID 一次。
+2. step 按计划先处理直接依赖。命中同代缓存时复用完整对象；否则调用 `ResourceSystem::load` 和 `validate_dependencies`，把实体及依赖放入私有 Bundle。retained 强引用保持跨帧候选存活。
+3. loading 时在推进和发布前检查目录 generation、加载器及资源核心状态；失败保存独立错误并释放候选。完整闭包就绪前不发布任何新弱索引，失败和取消不留下部分驻留条目。
+4. 完成后按后序统一发布。若其他调用已发布同代完整对象，优先复用它，并把尚未发布的父项接到最终共享依赖上；不覆盖仍存活的共享对象。不同未完成操作不合并在途候选。
+5. 发布完成后，操作保留根 ResourcePtr 并释放临时计划和 retained；根通过 Bundle 别名引用持有完整依赖。销毁操作仅减少自己的引用，其他使用者继续保活资源。
 
-本轮只拆分已有专用加载代码的执行边界，不引入依赖或通用执行框架。编辑器 Taskflow 保留在编辑器作用域；后续真正异步加载的执行后端再优先选择成熟开源方案并单独评审。
+`begin_load` 失败清空输出并填写插件的 `last_error`。宿主停止、重载或关闭加载器前，先销毁其借用的操作。场景提交与图形准备继续遵循[加载阶段与限制](../../../runtime/class-diagrams/resource-loader.md#加载阶段与限制)。
