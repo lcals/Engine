@@ -46,7 +46,9 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         release_scene();
         return true;
     }
-    if (scene_resources_ == nullptr &&
+    const bool capture_active = capture_status_ == SceneCaptureStatus::pending ||
+                                capture_status_ == SceneCaptureStatus::complete;
+    if (scene_resources_ == nullptr && !capture_active &&
         !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
     {
         return true;
@@ -60,10 +62,10 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                                                     node->template get_component<Light>();
                                                 return light != nullptr && light->enabled();
                                             });
-    if (lights > static_cast<std::ptrdiff_t>(render_detail::maximum_lights))
+    if (lights > static_cast<std::ptrdiff_t>(config_.maximum_lights))
     {
-        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Scene exceeds the limit of %zu active lights",
-                     render_detail::maximum_lights);
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Scene exceeds the limit of %u active lights",
+                     config_.maximum_lights);
         release_scene();
         return false;
     }
@@ -169,6 +171,19 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 release_scene();
                 return false;
             }
+            const auto lightmap = renderer->lightmap_resource();
+            if (lightmap && needed_textures.insert(lightmap.get()).second &&
+                std::none_of(textures.begin(), textures.end(),
+                             [&lightmap](const auto& item) { return item.resource == lightmap; }))
+            {
+                missing_textures.emplace_back();
+                if (!missing_textures.back().describe(lightmap, *bgfx::getCaps(),
+                                                      config_.texture_staging_bytes))
+                {
+                    release_scene();
+                    return false;
+                }
+            }
             std::set<std::size_t> slots;
             if (data->submeshes.empty())
             {
@@ -219,6 +234,10 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 }
                 for (const auto& sampler : shader->samplers)
                 {
+                    if (sampler->source != schema::ShaderTextureSource::resource)
+                    {
+                        continue;
+                    }
                     const auto& source = material->texture(sampler->name);
                     if (!source || source->texture() == nullptr)
                     {
@@ -340,7 +359,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             ++item;
         }
     }
-    if (!render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
+    if (!capture_active && !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
     {
         resources.shadow.release();
         resources.ambient_occlusion.release();
@@ -355,6 +374,13 @@ bool RenderSystem::prepare_scene(const Camera* camera)
 
 void RenderSystem::release_scene() noexcept
 {
+    if (capture_status_ == SceneCaptureStatus::pending ||
+        capture_status_ == SceneCaptureStatus::complete)
+    {
+        capture_status_ = SceneCaptureStatus::cancelled;
+    }
+    capture_request_ = {};
+    capture_snapshot_.clear();
     release_extensions_scene();
     if (ui_)
     {
@@ -369,6 +395,16 @@ void RenderSystem::release_scene() noexcept
 
 void RenderSystem::release_draw_resources() noexcept
 {
+    // Complete GPU readback while its destination and the renderer still exist.
+    // Keep the public frame counter in sync with these teardown submissions.
+    while (scene_resources_ && scene_resources_->capture_pending)
+    {
+        frame_number_ = bgfx::frame();
+        if (static_cast<std::int32_t>(frame_number_ - scene_resources_->capture_ready_frame) >= 0)
+        {
+            scene_resources_->capture_pending = false;
+        }
+    }
     scene_resources_.reset();
 }
 

@@ -1,4 +1,5 @@
 #include "editor/commands/editor_command_channel.hpp"
+#include "resource_fixture.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -9,6 +10,8 @@
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
@@ -128,7 +131,9 @@ bool scene_render_settings_tests()
                      {"bloomRadius", 2},        {"directionalShadows", false},
                      {"shadowCascades", 4},     {"shadowDistance", 240},
                      {"shadowSplitLambda", .5}, {"shadowCascadeBlend", .15},
-                     {"iblEnabled", true},      {"iblIntensity", .5}}) &&
+                     {"iblEnabled", true},      {"iblIntensity", .5},
+                     {"ssrEnabled", true}, {"ssrResolutionScale", .75}, {"ssrMaxSteps", 96},
+                     {"ssrMaxDistance", 50}, {"ssrThickness", .2}, {"ssrRoughnessCutoff", .6}}) &&
                 scene->nodes().size() == count + 1 &&
                 camera_node->get_component<engine::PostProcessComponent>() != nullptr &&
                 renderer.settings().ambient_intensity == .7F && renderer.settings().ibl_enabled &&
@@ -201,6 +206,13 @@ bool scene_render_settings_tests()
                       {{"aoPower", std::numeric_limits<double>::quiet_NaN()}},
                       {{"aoFadeStart", 160}, {"aoFadeEnd", 150}},
                       {{"aoFadeEnd", 100001}},
+                      {{"ssrEnabled", 1}},
+                      {{"ssrResolutionScale", .24}},
+                      {{"ssrMaxSteps", 7}},
+                      {{"ssrMaxSteps", 256.0}},
+                      {{"ssrMaxDistance", 0}},
+                      {{"ssrThickness", 0}},
+                      {{"ssrRoughnessCutoff", 1.1}},
                       {{"hdrEnabled", 1}},
                       {{"bloomEnabled", 1}},
                       {{"bloomEnabled", true}},
@@ -239,6 +251,211 @@ bool scene_render_settings_tests()
            expect(execute("undo", identity) && renderer.settings().hdr_enabled &&
                       renderer.settings().bloom_enabled,
                   "undo restores both post-process flags");
+}
+
+bool render_component_tests()
+{
+    using namespace engine;
+    ResourceSystem resources;
+    WorldSystem world;
+    WindowSystem windows;
+    RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    schema::MeshDataT geometry;
+    geometry.path = "lighting/test.mesh";
+    geometry.vertices = {{0, 0, 0, 0, 1, 0}, {1, 0, 0, 0, 1, 0}, {0, 0, 1, 0, 1, 0}};
+    geometry.indices = {0, 2, 1};
+    geometry.lightmap_texcoords = {{.1, .1}, {.9, .1}, {.1, .9}};
+    schema::TextureDataT lightmap;
+    lightmap.path = "lighting/test.texture";
+    lightmap.width = lightmap.height = 1;
+    lightmap.encoding = schema::TextureEncoding::rgba8;
+    lightmap.srgb = false;
+    lightmap.data = {128, 128, 128, 255};
+    schema::LightProbeDataT probes;
+    probes.path = "lighting/test.probes";
+    probes.bounds_min = Vec3(-1, -1, -1);
+    probes.bounds_max = Vec3(1, 1, 1);
+    probes.grid_x = probes.grid_y = probes.grid_z = 2;
+    probes.baked_transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    probes.coefficients.resize(72, Vec3(.1, .1, .1));
+    probes.valid.resize(8, 1);
+    probes.source_fingerprint = "lighting-command-test";
+    if (!resources.initialize({}) || !fixture.add(geometry) || !fixture.add(lightmap) ||
+        !fixture.add(probes) || !fixture.publish(resources) || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Lighting commands");
+    auto* node = scene ? scene->create_node("Receiver") : nullptr;
+    auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
+    auto* transform = node ? node->get_component<Transform>() : nullptr;
+    if (!mesh || !transform)
+    {
+        return false;
+    }
+    editor::EditorCommands commands([&]() { return world.scene() ? world.scene()->id() : 0; });
+    editor::RenderCommands module(renderer, world, {});
+    editor::SceneCommands scene_commands(world);
+    if (!module.register_commands(commands) || !scene_commands.register_commands(commands))
+    {
+        return false;
+    }
+    Json result;
+    std::string error;
+    const auto execute = [&](const char* name, const Json& arguments)
+    { return commands.execute(name, arguments, result, error); };
+    const auto set = [&](const char* name, const Json& fields)
+    {
+        auto arguments = target(*node);
+        arguments.update(fields);
+        return execute(name, arguments);
+    };
+    const Json identity = {{"sceneId", std::to_string(scene->id())}};
+    if (!expect(!execute("get_planar_reflection", target(*node)) &&
+                    !set("set_planar_reflection", Json::object()) &&
+                    !set("set_planar_reflection", {{"resolutionScale", .1}}) &&
+                    !node->get_component<PlanarReflectionComponent>(),
+                "missing queries and invalid reflection edits never create a component") ||
+        !expect(set("set_planar_reflection", {{"enabled", false}, {"resolutionScale", .5}, {"clipBias", .02}}) &&
+                    !node->get_component<PlanarReflectionComponent>()->enabled() &&
+                    execute("undo", identity) && !node->get_component<PlanarReflectionComponent>() &&
+                    execute("redo", identity) && execute("get_planar_reflection", target(*node)) &&
+                    result["resolutionScale"] == .5 && result["enabled"] == false,
+                "reflection creation, enabled state and settings share undo/redo"))
+    {
+        return false;
+    }
+    if (!expect(!set("set_light_probe_volume", {{"resource", lightmap.path}}) &&
+                    !node->get_component<LightProbeVolumeComponent>() &&
+                    set("set_light_probe_volume", {{"resource", probes.path}}) &&
+                    execute("get_light_probe_volume", target(*node)) && result["valid"] == true &&
+                    result["resource"] == probes.path,
+                "probe command validates the resource kind before adding a component"))
+    {
+        return false;
+    }
+    auto moved = transform->settings();
+    moved.position = Vec3(1, 0, 0);
+    if (!expect(transform->set_settings(moved) &&
+                    execute("get_light_probe_volume", target(*node)) && result["valid"] == false &&
+                    result["resource"] == probes.path && !result["resourceGuid"].get<std::string>().empty(),
+                "probe query preserves configured identity while the baked transform is invalid"))
+    {
+        return false;
+    }
+    moved.position = Vec3(0, 0, 0);
+    if (!transform->set_settings(moved))
+    {
+        return false;
+    }
+    if (!expect(set("set_light_probe_volume", {{"resource", ""}}) &&
+                    !node->get_component<LightProbeVolumeComponent>()->resource() &&
+                    execute("undo", identity) && node->get_component<LightProbeVolumeComponent>()->resource(),
+                "explicitly clearing a probe binding is reversible"))
+    {
+        return false;
+    }
+    if (!expect(set("set_light_probe_volume", {{"enabled", false}}), "disable the configured probe"))
+    {
+        return false;
+    }
+    auto catalog = fixture.catalog;
+    catalog.revision = "changed-probe-version";
+    for (auto& entry : catalog.entries)
+        if (entry->path == probes.path)
+        {
+            entry->content_hash = "0000000000000000";
+        }
+    if (!expect(resources.update_catalog(catalog, {{"content", fixture.root}}) &&
+                    !execute("undo", identity) && !node->get_component<LightProbeVolumeComponent>()->enabled() &&
+                    fixture.publish(resources) && execute("undo", identity),
+                "probe undo refuses changed resource versions and succeeds after restoring the catalog"))
+    {
+        return false;
+    }
+    if (!expect(!set("set_mesh_lighting", {{"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
+                    !mesh->bake_static() && mesh->data().payload.AsMeshRendererData()->lightmap_guid.empty(),
+                "missing UV2 rejects the lightmap and rolls back bakeStatic"))
+    {
+        return false;
+    }
+    if (!mesh->set_mesh(geometry.path) || !mesh->material().set_float("roughness", .37F))
+    {
+        return false;
+    }
+    const auto mesh_revision = mesh->mesh_revision();
+    if (!expect(set("set_mesh_lighting", {{"castShadows", false}, {"bakeStatic", true}, {"lightmap", lightmap.path}}) &&
+                    mesh->lightmap_resource() && execute("get_mesh_lighting", target(*node)) &&
+                    result["lightmap"] == lightmap.path && result["lightmapValid"] == true &&
+                    result["bakeStatic"] == true && result["castShadows"] == false &&
+                    execute("undo", identity) && !mesh->lightmap_resource() && mesh->cast_shadows() &&
+                    !mesh->bake_static() && execute("redo", identity),
+                "valid UV2 receiver supports binding, query, undo and redo"))
+    {
+        return false;
+    }
+    float roughness = 0;
+    if (!expect(mesh->mesh_revision() == mesh_revision && mesh->material().get_float("roughness", roughness) &&
+                    roughness == .37F &&
+                    !set("set_mesh_lighting", {{"lightmap", "builtin://textures/white-srgb"}}) &&
+                    mesh->lightmap_resource(),
+                "lighting edits preserve mesh identity, material overrides and old binding on failure"))
+    {
+        return false;
+    }
+    moved.position = Vec3(2, 0, 0);
+    if (!expect(transform->set_settings(moved) && execute("get_mesh_lighting", target(*node)) &&
+                    result["lightmap"] == lightmap.path && result["lightmapValid"] == false &&
+                    !set("set_mesh_lighting", {{"lightmap", ""}}) && !execute("undo", identity),
+                "stale lightmap identity remains inspectable and cannot be silently rebound by undo"))
+    {
+        return false;
+    }
+    moved.position = Vec3(0, 0, 0);
+    if (!transform->set_settings(moved) || !execute("undo", identity))
+    {
+        return false;
+    }
+    auto planar = target(*node);
+    planar["clipBias"] = .1;
+    auto invalid = target(*node);
+    invalid["lightmap"] = "builtin://textures/white-srgb";
+    const Json batch = {{"commands", Json::array({{{"command", "set_planar_reflection"}, {"arguments", planar}},
+                                                  {{"command", "set_mesh_lighting"}, {"arguments", invalid}}})}};
+    if (!expect(!execute("batch", batch) &&
+                    node->get_component<PlanarReflectionComponent>()->settings().clip_bias == .02F,
+                "a later mesh failure rolls back the earlier component edit in the batch"))
+    {
+        return false;
+    }
+    if (!execute("get_scene", Json::object()))
+    {
+        return false;
+    }
+    Json planar_result;
+    Json probe_result;
+    Json mesh_result;
+    for (const auto& component : result["scene"]["nodes"][0]["components"])
+    {
+        if (component["type"] == "planar_reflection")
+        {
+            planar_result = component;
+        }
+        if (component["type"] == "light_probe_volume")
+        {
+            probe_result = component;
+        }
+        if (component["type"] == "mesh_renderer")
+        {
+            mesh_result = component;
+        }
+    }
+    return expect(planar_result["enabled"] == false && planar_result["resolutionScale"] == .5 &&
+                      probe_result["resource"] == probes.path && probe_result["valid"] == true &&
+                      mesh_result["bakeStatic"] == false && mesh_result["lightmap"] == "" &&
+                      mesh_result["lightmapValid"] == false,
+                  "full scene query reports component settings and configured versus valid bindings");
 }
 
 bool render_command_tests()
@@ -282,9 +499,12 @@ bool render_command_tests()
         return false;
     }
     args = target(*node);
-    args.update({{"kind", "spot"}, {"range", 7}, {"innerAngle", 15}, {"outerAngle", 25}});
+    args.update({{"kind", "spot"}, {"range", 7}, {"innerAngle", 15}, {"outerAngle", 25},
+                 {"castShadows", true}, {"shadowResolution", 512}, {"shadowBias", .005}});
     if (!expect(execute("set_light", args) && light->settings().range == 7 &&
-                    light->settings().kind == engine::schema::LightKind::spot,
+                    light->settings().kind == engine::schema::LightKind::spot &&
+                    light->settings().cast_shadows && light->settings().shadow_resolution == 512 &&
+                    light->settings().shadow_bias == .005F,
                 "spotlight editing") ||
         !expect(execute("undo", identity) &&
                     light->settings().kind == engine::schema::LightKind::directional,
@@ -292,6 +512,27 @@ bool render_command_tests()
     {
         return false;
     }
+    for (const Json& invalid : {Json{{"castShadows", 1}}, Json{{"shadowResolution", 255}},
+                                Json{{"shadowBias", .2}}})
+    {
+        args = target(*node);
+        args.update(invalid);
+        const auto before = light->settings();
+        if (!expect(!execute("set_light", args) && light->settings() == before,
+                    "invalid local shadow values preserve the whole light"))
+        {
+            return false;
+        }
+    }
+    args = target(*node);
+    args.update({{"slot", 1}, {"mode", "alpha_blend"}});
+    if (!expect(execute("set_material_blend_mode", args) &&
+                    mesh->material(1)->blend_mode() == engine::schema::BlendMode::alpha_blend &&
+                    mesh->material().blend_mode() == engine::schema::BlendMode::opaque &&
+                    execute("undo", identity) &&
+                    mesh->material(1)->blend_mode() == engine::schema::BlendMode::opaque &&
+                    execute("redo", identity), "material blend mode selects a slot and supports undo/redo"))
+        return false;
     args = target(*node);
     args.update(
         {{"slot", 1}, {"name", "baseColorTexture"}, {"path", "builtin://textures/white-linear"}});
@@ -351,7 +592,8 @@ bool render_command_tests()
         return false;
     }
     return expect(execute("get_scene", Json::object()) &&
-                      result["scene"]["nodes"][0]["components"][3]["materials"].size() == 2,
+                      result["scene"]["nodes"][0]["components"][3]["materials"].size() == 2 &&
+                      result["scene"]["nodes"][0]["components"][3]["materials"][1]["blendMode"] == "alpha_blend",
                   "snapshot exposes all material slots");
 }
 
@@ -703,7 +945,7 @@ bool channel_tests(const fs::path& root)
 
 int main()
 {
-    if (!command_tests() || !render_command_tests() || !scene_render_settings_tests())
+    if (!command_tests() || !render_command_tests() || !scene_render_settings_tests() || !render_component_tests())
     {
         return 1;
     }

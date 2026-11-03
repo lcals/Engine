@@ -38,6 +38,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -331,6 +332,91 @@ bool run_cases(const fs::path& workspace)
     }
     script.stop_gameplay();
     script.stop_gameplay();
+    script.shutdown();
+    return true;
+}
+
+bool run_project_script_cases(const fs::path& workspace)
+{
+    engine::plugins::script::ScriptSystem script;
+    Fixture version;
+    Fixture invalid;
+    if (!script.initialize({}) ||
+        !fixture(workspace, "project-script",
+                 {{"scripts/game.js", R"JS(
+import {Gameplay,Time} from "engine";
+export default class Game extends Gameplay {
+    OnInitialize(){this.value=4; return true;}
+    Update(){}
+    OnShutdown(){}
+})JS"}}, version) ||
+        !fixture(workspace, "project-script-invalid",
+                 {{"scripts/game.js", "export default class { syntax error }"}}, invalid) ||
+        !apply(script, version))
+    {
+        return false;
+    }
+    const auto first_run = script.status().run_id;
+    std::string result;
+    std::string error;
+    const std::string source =
+        "const {Time}=require('engine'); exports.default=(args,game)=>"
+        "({value:game.value+=args,delta:Time.deltaTime});";
+    const auto execute = [&](std::uint64_t run, std::string_view code, std::string_view arguments)
+    {
+        return script.execute_project_script({run, "scripts/mcp-check.js", code, arguments},
+                                               result, error);
+    };
+    if (!expect(first_run != 0 && execute(first_run, source, "3") &&
+                    result == R"({"value":7,"delta":0})" && error.empty(),
+                "project script accesses active instance with zero deltaTime") ||
+        !expect(!execute(first_run + 1, source, "100") && result.empty() && !error.empty(),
+                "stale Run rejected before mutation") ||
+        !expect(!execute(first_run, "exports.default=()=>{throw Error('temporary');};", "null") &&
+                    script.status().running && script.status().run_id == first_run &&
+                    script.status().last_error.empty(),
+                "temporary script error preserves Run and gameplay status") ||
+        !expect(execute(first_run, source, "0") && result == R"({"value":7,"delta":0})",
+                "request following an error can continue") ||
+        !expect(!execute(first_run, source, "{") && result.empty() && script.status().running,
+                "invalid argument JSON rejected without stopping Run"))
+    {
+        return false;
+    }
+    bool worker_rejected = false;
+    std::thread worker([&] { worker_rejected = !execute(first_run, source, "5"); });
+    worker.join();
+    for (const auto path : {"../escape.js", "/absolute.js", "scripts/./check.js",
+                            "scripts/check.ts"})
+    {
+        if (!expect(!script.execute_project_script({first_run, path, source, "10"}, result, error) &&
+                        result.empty() && script.status().run_id == first_run,
+                    "invalid virtual paths are rejected before execution"))
+        {
+            return false;
+        }
+    }
+    if (!expect(worker_rejected && script.status().run_id == first_run,
+                "project code cannot run on a worker thread") ||
+        !expect(!script.prepare_gameplay(invalid.catalog, invalid.mounts) &&
+                    script.status().run_id == first_run && execute(first_run, source, "0"),
+                "candidate syntax failure keeps active Run callable"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    if (!expect(script.status().run_id == 0 && !execute(first_run, source, "0"),
+                "stop invalidates Run before further project calls") ||
+        !expect(apply(script, version) && script.status().run_id != 0 &&
+                    script.status().run_id != first_run,
+                "restarting identical content obtains a distinct Run") ||
+        !expect(!execute(first_run, source, "99") &&
+                    execute(script.status().run_id, source, "0") &&
+                    result == R"({"value":4,"delta":0})",
+                "old requests cannot mutate a restarted Gameplay instance"))
+    {
+        return false;
+    }
     script.shutdown();
     return true;
 }
@@ -791,7 +877,8 @@ export default class extends Gameplay {
     engine::plugins::script::ScriptSystem script(&world);
     Fixture initial;
     if (!world.initialize({}) || !script.initialize({}) ||
-        !fixture(workspace, "persistent-scene", {{"scripts/game.js", std::string(source)}}, initial) ||
+        !fixture(workspace, "persistent-scene", {{"scripts/game.js", std::string(source)}},
+                 initial) ||
         !expect(apply(script, initial), "initialize persistent script nodes"))
     {
         return false;
@@ -808,9 +895,10 @@ export default class extends Gameplay {
     }
     Fixture candidate;
     if (!fixture(workspace, "persistent-candidate",
-                 {{"scripts/game.js", "import {Gameplay,Scene} from 'engine';"
-                                      "const blocked=Scene.Create('forbidden')===null;"
-                                      "export default class extends Gameplay{OnInitialize(){return blocked;}}"}},
+                 {{"scripts/game.js",
+                   "import {Gameplay,Scene} from 'engine';"
+                   "const blocked=Scene.Create('forbidden')===null;"
+                   "export default class extends Gameplay{OnInitialize(){return blocked;}}"}},
                  candidate) ||
         !expect(script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
                     script.prepare_gameplay(candidate.catalog, candidate.mounts) &&
@@ -1679,7 +1767,8 @@ export default class extends Gameplay {
     engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
-        !fixture(workspace, "persistent-physics", {{"scripts/game.js", std::string(source)}}, input) ||
+        !fixture(workspace, "persistent-physics", {{"scripts/game.js", std::string(source)}},
+                 input) ||
         !expect(apply(script, input), "initialize persistent contact receiver"))
     {
         return false;
@@ -1853,8 +1942,8 @@ export default class extends Gameplay {
     const auto make_source = [&](int revision)
     {
         return "const expectedRevision = " + std::to_string(revision) +
-               "; const physicalJsonPath = " + Json(engine::PathUtils::to_utf8(physical_json)).dump() +
-               ";\n" + std::string(source);
+               "; const physicalJsonPath = " +
+               Json(engine::PathUtils::to_utf8(physical_json)).dump() + ";\n" + std::string(source);
     };
     Fixture first;
     Fixture next;
@@ -1888,8 +1977,7 @@ export default class extends Gameplay {
                     apply(script, first) && script.status().running,
                 "JSON resources load in initialization without a scene; top level and constructor "
                 "stay blocked; primitive, size, UTF-8, kind and parse contracts hold") ||
-        !expect(script.tick(.01) && script.status().running &&
-                    log_contains("json:update:1:1"),
+        !expect(script.tick(.01) && script.status().running && log_contains("json:update:1:1"),
                 "JSON reads work in Update while queued jobs outside callbacks return null") ||
         !expect(resources->update_catalog(next.catalog.data(), next.mounts) && script.tick(.01) &&
                     script.status().running && script.status().active_revision == "json-first" &&
@@ -1960,7 +2048,8 @@ export default class extends Gameplay {
 )js";
     Fixture input;
     if (!script.initialize({}) ||
-        !fixture(workspace, "runtime-controls", {{"scripts/game.js", std::string(source)}}, input) ||
+        !fixture(workspace, "runtime-controls", {{"scripts/game.js", std::string(source)}},
+                 input) ||
         !expect(apply(script, input) && world.paused() && !window.exit_requested(),
                 "window controls require active callbacks and pause does not request exit") ||
         !expect(script.tick(.5) && script.status().running && window.exit_requested(),
@@ -2055,13 +2144,18 @@ export default class extends Gameplay {
         {
             for (int frame = 0; frame < 16 && !log_contains(message); ++frame)
             {
-                if (!script.tick(.016) || !script.status().running) return false;
+                if (!script.tick(.016) || !script.status().running)
+                {
+                    return false;
+                }
             }
             return log_contains(message);
         };
         if (!script.initialize({}) ||
-            !fixture(workspace, "step-first", {{"scripts/game.js", std::string(source)}}, first, bytes) ||
-            !fixture(workspace, "step-next", {{"scripts/game.js", std::string(source)}}, next, bytes) ||
+            !fixture(workspace, "step-first", {{"scripts/game.js", std::string(source)}}, first,
+                     bytes) ||
+            !fixture(workspace, "step-next", {{"scripts/game.js", std::string(source)}}, next,
+                     bytes) ||
             !expect(apply(script, first) && world.paused() && advance_to("step-loading:0") &&
                         script.status().running,
                     "single-thread loading reaches ready without replacing the loading scene"))
@@ -2687,7 +2781,8 @@ bool run_scene_render_binding_cases(const fs::path& workspace)
     engine::plugins::script::ScriptSystem script(&world, &renderer);
     constexpr std::string_view source = R"js(
 import { Gameplay, Scene, Camera, Light, Render,
-         EnvironmentComponent, PostProcessComponent } from 'engine';
+         EnvironmentComponent, PostProcessComponent, PlanarReflectionComponent,
+         LightProbeVolumeComponent, MeshRenderer } from 'engine';
 export default class extends Gameplay {
     frame = 0;
     OnInitialize() {
@@ -2700,6 +2795,18 @@ export default class extends Gameplay {
         const cameraNode = this.scene.CreateNode('Camera');
         const camera = cameraNode.AddComponent(Camera);
         this.post = cameraNode.AddComponent(PostProcessComponent);
+        const surfaceNode = this.scene.CreateNode('Reflector');
+        const mesh = surfaceNode.AddComponent(MeshRenderer);
+        const planar = surfaceNode.AddComponent(PlanarReflectionComponent);
+        const probes = environmentNode.AddComponent(LightProbeVolumeComponent);
+        if (!mesh || !planar || !probes || !planar.SetSettings(.75, .03) ||
+            planar.SetSettings(.1, .03) || planar.SetSettings(.5, NaN) ||
+            !mesh.SetBakeStatic(true) || !mesh.bakeStatic || !mesh.SetLightmap('') ||
+            mesh.SetLightmap('missing.ktx') || !probes.SetResource('') ||
+            probes.SetResource('missing.probes') ||
+            !mesh.material.SetBlendMode('alpha_blend') ||
+            mesh.material.GetBlendMode() !== 'alpha_blend' ||
+            mesh.material.SetBlendMode('invalid')) return false;
         const light = this.scene.CreateNode('Sun').AddComponent(Light);
         this.light = light;
         if (!this.environment || !camera || !this.post || !light ||
@@ -2723,6 +2830,11 @@ export default class extends Gameplay {
             !this.post.SetHdr(1) && !this.post.SetBloom(1) &&
             !this.post.SetBloom(true, -1) && !this.post.SetBloom(true, NaN) &&
             !this.post.SetBloom(true, 1, 10.1) && !this.post.SetBloom(true, 1, .2, 4.1) &&
+            this.post.SetScreenSpaceReflections(true, .75, 96, 120, .2, .65) &&
+            !this.post.SetScreenSpaceReflections(true, .1) &&
+            !this.post.SetScreenSpaceReflections(true, .5, 64.5) &&
+            !this.post.SetScreenSpaceReflections(true, .5, 257) &&
+            !this.post.SetScreenSpaceReflections(true, .5, 64, NaN) &&
             this.post.SetAmbientOcclusion(true, 2, 1.2, 3, 20, 100) &&
             this.post.SetExposure(1.7) && this.post.SetFilmicTonemap(true) &&
             !this.post.SetAmbientOcclusion(1) && !this.post.SetAmbientOcclusion(true, 0) &&
@@ -2777,7 +2889,10 @@ export default class extends Gameplay {
                     settings.ao_power == 3 && settings.ao_fade_start == 20 &&
                     settings.ao_fade_end == 100 && settings.hdr_enabled && settings.bloom_enabled &&
                     settings.bloom_threshold == 1.2F && settings.bloom_intensity == .3F &&
-                    settings.bloom_radius == 2 && settings.directional_shadows &&
+                    settings.bloom_radius == 2 && settings.ssr_enabled &&
+                    settings.ssr_max_steps == 96 && settings.ssr_resolution_scale == .75F &&
+                    settings.ssr_max_distance == 120 && settings.ssr_thickness == .2F &&
+                    settings.ssr_roughness_cutoff == .65F && settings.directional_shadows &&
                     settings.shadow_resolution == 1024 && settings.shadow_bias == .002F &&
                     settings.shadow_cascades == 2 && settings.shadow_distance == 90.0F &&
                     settings.shadow_split_lambda == .8F && settings.shadow_cascade_blend == .15F,
@@ -2848,15 +2963,14 @@ int main(int argc, char** argv)
     }
     engine::ResourceSystem resources;
     const bool passed =
-        resources.initialize(config) && run_cases(workspace) &&
+        resources.initialize(config) && run_cases(workspace) && run_project_script_cases(workspace) &&
         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
-        run_persistent_scene_cases(workspace) &&
-        run_guid_cases(workspace) && run_physics_audio_binding_cases(workspace) &&
-        run_impact_binding_cases(workspace) && run_render_binding_cases(workspace) &&
-        run_scene_render_binding_cases(workspace) && run_frame_rate_binding_cases(workspace) &&
-        run_json_binding_cases(workspace) && run_storage_binding_cases(workspace) &&
-        run_input_binding_cases(workspace) &&
+        run_persistent_scene_cases(workspace) && run_guid_cases(workspace) &&
+        run_physics_audio_binding_cases(workspace) && run_impact_binding_cases(workspace) &&
+        run_render_binding_cases(workspace) && run_scene_render_binding_cases(workspace) &&
+        run_frame_rate_binding_cases(workspace) && run_json_binding_cases(workspace) &&
+        run_storage_binding_cases(workspace) && run_input_binding_cases(workspace) &&
         run_runtime_control_cases(workspace) && run_step_loading_cases(workspace) &&
         run_shooting_query_cases(workspace) && run_physics_interaction_binding_cases(workspace) &&
         run_physics_subscription_cases(workspace) &&

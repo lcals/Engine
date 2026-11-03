@@ -30,6 +30,7 @@
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
 #include "plugins/editor/character_controller/character_controller_commands.hpp"
 #endif
+#include "editor/commands/editor_commands.hpp"
 #include "editor/editor_environment.hpp"
 #include "editor/editor_system.hpp"
 #include "editor/project/project_system.hpp"
@@ -84,10 +85,11 @@
 #endif
 
 #if ENGINE_HAS_SCENE_BAKE
-#include "editor/commands/editor_commands.hpp"
 #include "plugins/editor/scene_bake/scene_bake_system.hpp"
 #include "runtime/scene/scene.hpp"
-#include <nlohmann/json.hpp>
+#endif
+#if ENGINE_HAS_UI_EDITOR
+#include "plugins/editor/ui/ui_editor_commands.hpp"
 #endif
 
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN
@@ -106,6 +108,7 @@
 
 #include <SDL3/SDL_main.h>
 #include <fmt/base.h>
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -165,6 +168,10 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
     std::unique_ptr<engine::editor::RenderCommands> render_commands;
     std::unique_ptr<engine::editor::ScenePreview> preview;
+#if ENGINE_HAS_UI_EDITOR
+    std::unique_ptr<engine::plugins::ui::UiEditorCommands> ui_editor;
+    std::uint64_t ui_run_id = 0;
+#endif
 #if ENGINE_HAS_SCENE_BAKE
     std::unique_ptr<engine::plugins::scene_bake::SceneBakeSystem> scene_bake;
 #endif
@@ -355,6 +362,19 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             LogSystem::write(LogLevel::error, "Cannot register scene preview commands");
             return 1;
         }
+#if ENGINE_HAS_UI_EDITOR
+        ui_editor = std::make_unique<engine::plugins::ui::UiEditorCommands>(
+            *runtime.world(), *runtime.ui(), *runtime.window(), *preview, tasks, project_root);
+        if (!ui_editor->register_commands(*editor->commands()))
+        {
+            LogSystem::write(LogLevel::error, "Cannot register UI editor commands");
+            return 1;
+        }
+        runtime.set_event_observer(
+            [](void* context, const SDL_Event& event)
+            { static_cast<engine::plugins::ui::UiEditorCommands*>(context)->observe_event(event); },
+            ui_editor.get());
+#endif
 #if ENGINE_HAS_CHARACTER_CONTROLLER_EDITOR
         if (!editor->scene_commands() || !editor->commands() ||
             !engine::plugins::character_controller::register_controller_commands(
@@ -441,7 +461,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #endif
 #if ENGINE_HAS_SCENE_BAKE
         scene_bake = std::make_unique<engine::plugins::scene_bake::SceneBakeSystem>(
-            resources, *runtime.renderer(), project_root,
+            resources, *runtime.renderer(), tasks, *runtime.world(), project_root,
             [&editor, &preview, &runtime](std::string_view path, std::uint64_t& scene_id,
                                           std::string& error)
             {
@@ -489,11 +509,25 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
             const double delta_time =
                 std::min(std::chrono::duration<double>(current_time - previous_time).count(), 0.1);
             previous_time = current_time;
+#if ENGINE_HAS_ASSET_PIPELINE
+            (void)tasks.dispatch_completions(parallel.completions_per_frame,
+                                             parallel.completion_budget_seconds);
+#endif
             if (!editor->tick(delta_time))
             {
                 LogSystem::write(LogLevel::error, "Editor control frame failed");
                 return 1;
             }
+#if ENGINE_HAS_UI_EDITOR
+            const auto* script_status = runtime.gameplay()->script_status();
+            const auto run_id = script_status == nullptr ? 0 : script_status->run_id;
+            if (run_id != ui_run_id)
+            {
+                ui_editor->cancel_pending_input();
+                ui_run_id = run_id;
+            }
+            ui_editor->tick(delta_time);
+#endif
 #if ENGINE_HAS_SCENE_BAKE
             if (!scene_bake->tick(delta_time))
             {
@@ -637,6 +671,13 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         return 0;
     }();
 
+    runtime.set_event_observer(nullptr, nullptr);
+#if ENGINE_HAS_UI_EDITOR
+    if (ui_editor != nullptr)
+    {
+        ui_editor->cancel_pending_input();
+    }
+#endif
     // 停止烘焙提交；在途 GPU 读回内存保留至渲染器彻底关闭。
 #if ENGINE_HAS_SCENE_BAKE
     if (scene_bake != nullptr)
@@ -658,6 +699,9 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
     persistence.reset();
 #endif
     render_commands.reset();
+#if ENGINE_HAS_UI_EDITOR
+    ui_editor.reset();
+#endif
     preview.reset();
 #if ENGINE_HAS_MODELING_PLUGIN
     modeling.reset();

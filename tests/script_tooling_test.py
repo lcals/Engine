@@ -199,6 +199,7 @@ def test(
     without_effects=False,
     without_terrain=False,
     without_destruction=False,
+    without_ui=False,
 ):
     # 空格及 shell 元字符必须作为普通 argv 路径传递，不能经 shell 执行。
     project = temporary / "project with spaces $literal 中文"
@@ -269,15 +270,24 @@ def test(
         "undo",
         "redo",
         "get_editor_receipt",
+        "execute_project_script",
+        "close_editor",
         "create_node",
         "set_active_camera",
         "set_material_type",
+        "set_material_blend_mode",
         "save_scene",
         "get_render_settings",
         "set_render_settings",
         "capture_frame",
         "get_frame_capture",
         "set_render_stats",
+        "get_planar_reflection",
+        "set_planar_reflection",
+        "get_light_probe_volume",
+        "set_light_probe_volume",
+        "get_mesh_lighting",
+        "set_mesh_lighting",
         "open_scene_preview",
         "close_scene_preview",
         "get_scene_preview",
@@ -342,6 +352,11 @@ def test(
         (without_effects, "effects", effects_tools),
         (without_terrain, "terrain", terrain_tools),
         (without_destruction, "destruction", destruction_tools),
+        (without_ui, "ui", {
+            "get_ui_documents", "set_ui_document", "get_ui_tree", "get_ui_element",
+            "set_ui_element", "get_ui_source", "save_ui_source", "ui_input",
+            "get_ui_input", "cancel_ui_input", "click_ui",
+        }),
     )
     for disabled, _, names in optional_tools:
         if not disabled:
@@ -536,6 +551,19 @@ def test(
         str(runtime),
         "call",
     ]
+    listed = subprocess.run(
+        client_prefix[:-1] + ["list"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=30,
+        check=False,
+    )
+    require(listed.returncode == 0, f"MCP client discovery failed: {listed.stderr}")
+    require(
+        json.loads(listed.stdout) == replies[0]["result"],
+        "MCP client must preserve the server tool list and input schemas",
+    )
     argument_file = temporary / "tool arguments.json"
     argument_file.write_text('{"enabled": false}', encoding="utf-8")
     for arguments, field, expected in (
@@ -678,6 +706,8 @@ if __name__ == "__main__":
         action="store_true",
         help="Validate that the optional destruction MCP adapter is absent",
     )
+    parser.add_argument("--without-ui", action="store_true",
+                        help="Validate that the optional UI editor MCP adapter is absent")
     arguments = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="engine-script-tooling-") as directory:
         test(
@@ -690,5 +720,6 @@ if __name__ == "__main__":
             without_effects=arguments.without_effects,
             without_terrain=arguments.without_terrain,
             without_destruction=arguments.without_destruction,
+            without_ui=arguments.without_ui,
         )
     print("TypeScript compile, atomic sync, MCP protocol and control tests passed")

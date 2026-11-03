@@ -22,9 +22,17 @@ def prepare_minimal_project(root, project):
         "scenes/main.scene",
         "shaders/pbr.frag.sc",
         "shaders/pbr.shader",
+        "shaders/pbr.surface.sc",
         "shaders/pbr.varying.sc",
         "shaders/pbr.vert.sc",
         "shaders/pbr_helpers.sh",
+        "shaders/pbr_surface.sh",
+        "shaders/pbr_lighting.sh",
+        "shaders/material_helpers.sh",
+        "shaders/shadow_helpers.sh",
+        "shaders/csm_helpers.sh",
+        "shaders/local_shadow_helpers.sh",
+        "shaders/cluster/lighting.sh",
         "textures/checker.png",
     )
     for resource in resources:

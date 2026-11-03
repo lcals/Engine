@@ -36,22 +36,22 @@ scrollbarvertical sliderarrowdec, scrollbarvertical sliderarrowinc { display: no
 <body id="launcher-root">
 <button id="back-menu">Back to scenes</button>
 <div id="launcher-page" class="page">
-    <div class="eyebrow">ENGINE / SCENE COLLECTION</div>
-    <h1>Choose your next scene.</h1>
-    <div class="lead">One project. Twelve technical demonstrations.</div>
+    <div class="eyebrow">ENGINE / FUNCTIONAL TESTS</div>
+    <h1>Choose a feature to test.</h1>
+    <div class="lead">Focused engine checks using shared public scenes.</div>
     <div class="cards">
-        <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2>PBR essentials</h2><div class="description">A rotating cube. Light, surface and reflection.</div><button id="scene-cube">Open PBR cube</button></div>
-        <div class="card"><div class="number">02 / INTERIOR</div><h2>Modern apartment</h2><div class="description">A furnished home with warm, layered lighting.</div><button id="scene-apartment">Open apartment</button></div>
-        <div class="card"><div class="number">03 / CHARACTER LAB</div><h2>Animation courtyard</h2><div class="description">Skinned animation, physical movement and space.</div><button id="scene-courtyard">Open courtyard</button></div>
-        <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2>Letters in space</h2><div class="description">The same vector font, rendered as 3D scene text.</div><button id="scene-gallery">Open font gallery</button></div>
-        <div class="card"><div class="number">05 / EFFECTS</div><h2>Effects laboratory</h2><div class="description">Laser sprites and animated arrow models, with HDR and bloom.</div><button id="scene-effects">Open effects laboratory</button></div>
-        <div class="card"><div class="number">06 / EDITABLE WORLD</div><h2>Terrain laboratory</h2><div class="description">Hills, caves and cross-chunk excavation. Walk, dig, fill and restore.</div><button id="scene-terrain">Open terrain laboratory</button></div>
-        <div class="card"><div class="number">07 / BREAKABLE STRUCTURES</div><h2>Destruction laboratory</h2><div class="description">Fracture a wall, break a column and release the tower supports.</div><button id="scene-destruction">Open destruction laboratory</button></div>
-        <div class="card"><div class="number">08 / EARTH &amp; STRUCTURE</div><h2>Combined destruction</h2><div class="description">Excavate foundations. Follow collapse, physical impacts, dust and sound.</div><button id="scene-integration">Open combined laboratory</button></div>
-        <div class="card"><div class="number">09 / AIM &amp; HIT</div><h2>Shooting range</h2><div class="description">Move, aim and clear three targets. Walls block shots; ray and sphere queries share the same range.</div><button id="scene-shooting">Open shooting range</button></div>
-        <div class="card"><div class="number">10 / MULTI-CHARACTER NAVIGATION</div><h2>Navigation laboratory</h2><div class="description">Animated groups cross paths and share a narrow doorway. Change goals, stop, resume and inspect their states.</div><button id="scene-navigation">Open navigation laboratory</button></div>
-        <div class="card"><div class="number">11 / PHYSICAL INTERACTIONS</div><h2>Physics interactions</h2><div class="description">Two physical characters and three navigation agents. Hit queries, region highlights and trigger lifecycle events.</div><button id="scene-interactions">Open physics interactions</button></div>
-        <div class="card"><div class="number">12 / SCENE LIFETIME</div><h2>Persistent UI</h2><div class="description">Keep one document and controller through loading, cancellation, failure and an empty world.</div><button id="scene-persistent-ui">Open persistent UI laboratory</button></div>
+        <div class="card"><div class="number">01 / MATERIAL STUDY</div><h2 id="scene-cube-title"></h2><div class="description" id="scene-cube-goal"></div><button id="scene-cube">Open test</button></div>
+        <div class="card"><div class="number">02 / INTERIOR</div><h2 id="scene-apartment-title"></h2><div class="description" id="scene-apartment-goal"></div><button id="scene-apartment">Open test</button></div>
+        <div class="card"><div class="number">03 / CHARACTER LAB</div><h2 id="scene-courtyard-title"></h2><div class="description" id="scene-courtyard-goal"></div><button id="scene-courtyard">Open test</button></div>
+        <div class="card"><div class="number">04 / TYPOGRAPHY</div><h2 id="scene-gallery-title"></h2><div class="description" id="scene-gallery-goal"></div><button id="scene-gallery">Open test</button></div>
+        <div class="card"><div class="number">05 / EFFECTS</div><h2 id="scene-effects-title"></h2><div class="description" id="scene-effects-goal"></div><button id="scene-effects">Open test</button></div>
+        <div class="card"><div class="number">06 / EDITABLE WORLD</div><h2 id="scene-terrain-title"></h2><div class="description" id="scene-terrain-goal"></div><button id="scene-terrain">Open test</button></div>
+        <div class="card"><div class="number">07 / BREAKABLE STRUCTURES</div><h2 id="scene-destruction-title"></h2><div class="description" id="scene-destruction-goal"></div><button id="scene-destruction">Open test</button></div>
+        <div class="card"><div class="number">08 / EARTH &amp; STRUCTURE</div><h2 id="scene-integration-title"></h2><div class="description" id="scene-integration-goal"></div><button id="scene-integration">Open test</button></div>
+        <div class="card"><div class="number">09 / AIM &amp; HIT</div><h2 id="scene-shooting-title"></h2><div class="description" id="scene-shooting-goal"></div><button id="scene-shooting">Open test</button></div>
+        <div class="card"><div class="number">10 / MULTI-CHARACTER NAVIGATION</div><h2 id="scene-navigation-title"></h2><div class="description" id="scene-navigation-goal"></div><button id="scene-navigation">Open test</button></div>
+        <div class="card"><div class="number">11 / PHYSICAL INTERACTIONS</div><h2 id="scene-interactions-title"></h2><div class="description" id="scene-interactions-goal"></div><button id="scene-interactions">Open test</button></div>
+        <div class="card"><div class="number">12 / SCENE LIFETIME</div><h2 id="scene-persistent-ui-title"></h2><div class="description" id="scene-persistent-ui-goal"></div><button id="scene-persistent-ui">Open test</button></div>
     </div>
     <div id="launcher-status" class="footer">Open a scene. Mouse, touch and keyboard share the same controller.</div>
 </div>

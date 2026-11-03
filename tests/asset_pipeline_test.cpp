@@ -87,6 +87,8 @@ std::string scene()
            "ao_fade_start = 40\nao_fade_end = 140\n"
            "hdr_enabled = true\nbloom_enabled = true\n"
            "bloom_threshold = 1.2\nbloom_intensity = 0.3\nbloom_radius = 2\n"
+           "ssr_enabled = true\nssr_resolution_scale = 0.5\nssr_max_steps = 48\n"
+           "ssr_max_distance = 60\nssr_thickness = 0.2\nssr_roughness_cutoff = 0.65\n"
            "[[nodes.components]]\ntype = \"environment\"\n"
            "ambient_color = [0.25, 0.5, 0.75]\nambient_intensity = 0.75\n"
            "ambient_tricolor = true\nambient_sky_color = [0.4, 0.6, 0.8, 1.0]\n"
@@ -301,26 +303,29 @@ bool scene_effects(engine::ResourceSystem& resources,
     const auto* post_process = camera_components[2]->payload.AsPostProcessData();
     const auto* environment = camera_components[3]->payload.AsEnvironmentData();
     const auto* light = loaded->scene()->nodes[1]->components[2]->payload.AsLightData();
-    if (!expect(environment != nullptr && post_process != nullptr && light != nullptr &&
-                    environment->ambient_color.a() == 1.0F &&
-                    environment->ambient_intensity == 0.75F && environment->ambient_tricolor &&
-                    environment->ambient_sky_color.g() == 0.6F &&
-                    environment->ambient_equator_color.r() == 0.3F &&
-                    environment->ambient_ground_color.b() == 0.3F &&
-                    environment->fog_mode == engine::schema::FogMode::exponential_squared &&
-                    environment->fog_start == 5.0F && environment->fog_end == 250.0F &&
-                    environment->fog_density == 0.025F && environment->clear_color == 0x123456ff &&
-                    post_process->exposure == 1.5F && post_process->filmic_tonemap &&
-                    post_process->ao_enabled && post_process->ao_radius == 1.4F &&
-                    post_process->ao_strength == .8F && post_process->ao_power == 2.0F &&
-                    post_process->ao_fade_start == 40.0F && post_process->ao_fade_end == 140.0F &&
-                    post_process->hdr_enabled && post_process->bloom_enabled &&
-                    post_process->bloom_threshold == 1.2F && post_process->bloom_intensity == .3F &&
-                    post_process->bloom_radius == 2.0F && light->cast_shadows &&
-                    light->shadow_resolution == 1024 && light->shadow_bias == 0.002F &&
-                    light->shadow_cascades == 2 && light->shadow_distance == 120.0F &&
-                    light->shadow_split_lambda == 0.7F && light->shadow_cascade_blend == 0.2F,
-                "import preserves ambient, fog, exposure and light shadow fields"))
+    if (!expect(
+            environment != nullptr && post_process != nullptr && light != nullptr &&
+                environment->ambient_color.a() == 1.0F && environment->ambient_intensity == 0.75F &&
+                environment->ambient_tricolor && environment->ambient_sky_color.g() == 0.6F &&
+                environment->ambient_equator_color.r() == 0.3F &&
+                environment->ambient_ground_color.b() == 0.3F &&
+                environment->fog_mode == engine::schema::FogMode::exponential_squared &&
+                environment->fog_start == 5.0F && environment->fog_end == 250.0F &&
+                environment->fog_density == 0.025F && environment->clear_color == 0x123456ff &&
+                post_process->exposure == 1.5F && post_process->filmic_tonemap &&
+                post_process->ao_enabled && post_process->ao_radius == 1.4F &&
+                post_process->ao_strength == .8F && post_process->ao_power == 2.0F &&
+                post_process->ao_fade_start == 40.0F && post_process->ao_fade_end == 140.0F &&
+                post_process->hdr_enabled && post_process->bloom_enabled &&
+                post_process->bloom_threshold == 1.2F && post_process->bloom_intensity == .3F &&
+                post_process->bloom_radius == 2.0F && post_process->ssr_enabled &&
+                post_process->ssr_resolution_scale == 0.5F && post_process->ssr_max_steps == 48 &&
+                post_process->ssr_max_distance == 60.0F && post_process->ssr_thickness == 0.2F &&
+                post_process->ssr_roughness_cutoff == 0.65F && light->cast_shadows &&
+                light->shadow_resolution == 1024 && light->shadow_bias == 0.002F &&
+                light->shadow_cascades == 2 && light->shadow_distance == 120.0F &&
+                light->shadow_split_lambda == 0.7F && light->shadow_cascade_blend == 0.2F,
+            "import preserves ambient, fog, exposure and light shadow fields"))
     {
         return false;
     }
@@ -352,6 +357,26 @@ bool scene_effects(engine::ResourceSystem& resources,
     {
         return false;
     }
+    invalid.nodes[0]->components.back()->payload.AsLightData()->kind =
+        engine::schema::LightKind::point;
+    auto planar = std::make_unique<engine::schema::ComponentDataT>();
+    engine::schema::PlanarReflectionDataT planar_settings;
+    planar_settings.resolution_scale = 0.75F;
+    planar_settings.clip_bias = 0.03F;
+    planar->payload.Set(planar_settings);
+    invalid.nodes[1]->components.push_back(std::move(planar));
+    auto probes = std::make_unique<engine::schema::ComponentDataT>();
+    probes->payload.Set(engine::schema::LightProbeVolumeDataT{});
+    invalid.nodes[1]->components.push_back(std::move(probes));
+    engine::schema::SceneDataT restored;
+    if (!expect(engine::editor::SceneImporter::write(invalid_path, invalid, error) &&
+                    engine::editor::SceneImporter::read(invalid_path, restored, error) &&
+                    restored == invalid,
+                "local shadows, planar reflection and empty probe volume round-trip in ordinary "
+                "scene TOML"))
+    {
+        return false;
+    }
     invalid = source;
     invalid.info->active_camera_node = 0;
     invalid.nodes[0]->components.erase(invalid.nodes[0]->components.begin() + 1);
@@ -360,7 +385,7 @@ bool scene_effects(engine::ResourceSystem& resources,
         return false;
     }
     for (const auto& [field, bad_value] :
-         std::array<std::pair<std::string_view, std::string_view>, 40>{
+         std::array<std::pair<std::string_view, std::string_view>, 47>{
              {{"ambient_intensity = 0.75", "ambient_intensity = inf"},
               {"fog_end = 250", "fog_end = 5"},
               {"fog_density = 0.025", "fog_density = -1"},
@@ -387,6 +412,13 @@ bool scene_effects(engine::ResourceSystem& resources,
               {"bloom_intensity = 0.3", "bloom_intensity = 10.1"},
               {"bloom_radius = 2", "bloom_radius = 0.24"},
               {"bloom_radius = 2", "bloom_radius = 4.1"},
+              {"ssr_enabled = true", "ssr_enabled = 1"},
+              {"ssr_resolution_scale = 0.5", "ssr_resolution_scale = 0.1"},
+              {"ssr_max_steps = 48", "ssr_max_steps = 48.0"},
+              {"ssr_max_steps = 48", "ssr_max_steps = 500"},
+              {"ssr_max_distance = 60", "ssr_max_distance = 0"},
+              {"ssr_thickness = 0.2", "ssr_thickness = nan"},
+              {"ssr_roughness_cutoff = 0.65", "ssr_roughness_cutoff = 1.1"},
               {"ambient_tricolor = true", "ambient_tricolor = 1"},
               {"cast_shadows = true", "cast_shadows = 1"},
               {"shadow_resolution = 1024", "shadow_resolution = 1024.0"},

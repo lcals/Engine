@@ -68,6 +68,9 @@
 #if ENGINE_HAS_SCENE_BAKE
 #include "plugins/editor/scene_bake/scene_bake_mcp_tools.hpp"
 #endif
+#if ENGINE_HAS_UI_EDITOR
+#include "plugins/editor/ui/ui_editor_mcp_tools.hpp"
+#endif
 
 #include <SDL3/SDL_main.h>
 
@@ -148,6 +151,9 @@ int main(int argc, char** argv)
 #endif
     engine::plugins::mcp::RenderMcpTools render_tools(editor_tools);
     engine::plugins::mcp::ScenePreviewMcpTools preview_tools(editor_tools);
+#if ENGINE_HAS_UI_EDITOR
+    engine::plugins::ui::UiEditorMcpTools ui_tools(editor_tools);
+#endif
 #if ENGINE_HAS_SCENE_BAKE
     engine::plugins::scene_bake::SceneBakeMcpTools scene_bake_tools(editor_tools);
 #endif
@@ -293,6 +299,9 @@ int main(int argc, char** argv)
         !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
         (!android && !render_tools.register_tools(mcp)) ||
         (!android && !preview_tools.register_tools(mcp)) ||
+#if ENGINE_HAS_UI_EDITOR
+        (!android && !ui_tools.register_tools(mcp)) ||
+#endif
 #if ENGINE_HAS_SCENE_BAKE
         (!android && !scene_bake_tools.register_tools(mcp)) ||
 #endif

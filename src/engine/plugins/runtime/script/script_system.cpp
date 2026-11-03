@@ -10,8 +10,13 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
+#include <nlohmann/json.hpp>
+
+#include <atomic>
 #include <filesystem>
+#include <limits>
 #include <map>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -21,6 +26,20 @@ namespace
 {
 namespace fs = std::filesystem;
 constexpr std::size_t maximum_text_size = vm::maximum_text_size;
+std::atomic<std::uint64_t> last_run_id{0};
+
+[[nodiscard]] std::uint64_t allocate_run_id()
+{
+    auto previous = last_run_id.load(std::memory_order_relaxed);
+    while (previous != std::numeric_limits<std::uint64_t>::max())
+    {
+        if (last_run_id.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed))
+        {
+            return previous + 1;
+        }
+    }
+    return 0;
+}
 
 [[nodiscard]] bool relative_path(std::string_view input, std::string& normalized)
 {
@@ -162,6 +181,8 @@ struct ScriptSystem::State
     InputSystem* input = nullptr;
     WindowSystem* window = nullptr;
     double delta_time = 0.0;
+    const std::thread::id owner_thread = std::this_thread::get_id();
+    bool calling = false;
     std::unique_ptr<Run> active;
     std::unique_ptr<Run> prepared;
 
@@ -209,23 +230,30 @@ struct ScriptSystem::State
     [[nodiscard]] bool call(Run& run, const char* name, bool initialize)
     {
         ENGINE_PROFILE_ZONE("Script.callGameplay");
+        calling = true;
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_gameplay(name, initialize);
         run.bindings.end_call();
-        return (called && run.machine->drain_jobs()) || fail(run.machine->last_error());
+        const bool success = called && run.machine->drain_jobs();
+        calling = false;
+        return success || fail(run.machine->last_error());
     }
 
     [[nodiscard]] bool call_binding(Run& run, const char* name)
     {
         ENGINE_PROFILE_ZONE("Script.callBinding");
+        calling = true;
         run.bindings.begin_call(delta_time);
         const bool called = run.machine->call_binding(name);
         run.bindings.end_call();
+        calling = false;
         return called || fail(run.machine->last_error());
     }
 
     void stop()
     {
+        status.run_id = 0;
+        status.running = false;
         if (active)
         {
             if (active->initialization_entered)
@@ -246,6 +274,11 @@ struct ScriptSystem::State
     {
         stop();
         status.last_error.clear();
+        const auto run_id = allocate_run_id();
+        if (run_id == 0)
+        {
+            return fail("Gameplay run identifiers are exhausted");
+        }
         if (candidate->snapshot.catalog != nullptr && !candidate->snapshot.active_catalog)
         {
             auto* system = ResourceSystem::instance();
@@ -290,6 +323,7 @@ struct ScriptSystem::State
             return false;
         }
         status.active_revision = active->snapshot.revision;
+        status.run_id = run_id;
         status.running = true;
         return true;
     }
@@ -397,6 +431,48 @@ void ScriptSystem::stop_gameplay() noexcept
 void ScriptSystem::set_hot_reload(bool enabled)
 {
     status_.hot_reload = enabled;
+}
+
+bool ScriptSystem::execute_project_script(const ProjectScriptRequest& request,
+                                          std::string& result_json, std::string& error)
+{
+    result_json.clear();
+    error.clear();
+    if (!is_initialized() || !state_ || state_->owner_thread != std::this_thread::get_id())
+    {
+        error = "Project scripts require the initialized script thread";
+        return false;
+    }
+    if (!status_.running || !state_->active || request.expected_run_id == 0 ||
+        request.expected_run_id != status_.run_id || state_->calling)
+    {
+        error = "Project script requires the matching active Run at a non-reentrant safe point";
+        return false;
+    }
+    std::string module_path;
+    if (request.module_path.size() > 1024 || !relative_path(request.module_path, module_path) ||
+        module_path != request.module_path || !module_path.ends_with(".js") ||
+        request.javascript.empty() || request.javascript.size() > vm::maximum_project_script_size ||
+        request.javascript.find('\0') != std::string_view::npos ||
+        request.arguments_json.empty() ||
+        request.arguments_json.size() > vm::maximum_project_script_size ||
+        nlohmann::json::parse(request.arguments_json, nullptr, false).is_discarded())
+    {
+        error = "Invalid project script path, source or JSON arguments (maximum 256 KiB each)";
+        return false;
+    }
+    auto& run = *state_->active;
+    state_->calling = true;
+    run.bindings.begin_call(0.0);
+    const bool success = run.machine->execute_script(request, result_json);
+    run.bindings.end_call();
+    state_->calling = false;
+    if (!success)
+    {
+        error = run.machine->last_error();
+        result_json.clear();
+    }
+    return success;
 }
 
 const ScriptStatus& ScriptSystem::status() const noexcept

@@ -27,3 +27,6 @@
 [submodule "third_party/blast"]
 	path = third_party/blast
 	url = https://github.com/NVIDIAGameWorks/Blast.git
+[submodule "third_party/lightmapper"]
+	path = third_party/lightmapper
+	url = https://github.com/ands/lightmapper.git

@@ -70,6 +70,11 @@ const schema::UiDocumentDataT* Resource::ui() const noexcept
     return ui_.get();
 }
 
+const schema::LightProbeDataT* Resource::light_probe() const noexcept
+{
+    return light_probe_.get();
+}
+
 ByteView Resource::bytes() const noexcept
 {
     return bytes_;

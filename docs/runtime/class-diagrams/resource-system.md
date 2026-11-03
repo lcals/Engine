@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [设计说明](../resource-loading.md) · [目录](resource-catalog.md) · [已加载资源](resource.md) · [文件访问](virtual-file-system.md)
 
-资源核心提供元数据目录、单项同步或异步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见根 [README](../../../README.md)。
+资源核心提供元数据目录、单项同步或异步读取与加载接口选择；逐类型解码和契约校验由[资源解码器](resource-codecs.md)负责；依赖树和共享缓存由[运行时资源依赖图插件](../../plugins/runtime/class-diagrams/resource-graph.md)实现。使用方式见[资源加载](../resource-loading.md)。
 
 ## 核心接口
 

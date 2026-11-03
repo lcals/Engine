@@ -2,6 +2,7 @@
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#include "runtime/resource/resource.hpp"
 #include "runtime/scene/component_registry.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
@@ -19,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace engine::editor::components
 {
@@ -34,7 +36,9 @@ class ComponentEdit final : public EditorEdit
 {
 public:
     ComponentEdit(WorldSystem& world, std::uint64_t scene, std::shared_ptr<std::uint64_t> node,
-                  std::optional<schema::ComponentDataT> before, schema::ComponentDataT after);
+                  std::optional<schema::ComponentDataT> before, schema::ComponentDataT after,
+                  std::vector<std::shared_ptr<const Resource>> resources = {},
+                  ComponentType required_component = ComponentType::NONE);
     [[nodiscard]] bool apply(std::string& error) override;
     [[nodiscard]] bool revert(std::string& error) override;
 
@@ -48,6 +52,8 @@ private:
     ComponentType type_;
     std::optional<schema::ComponentDataT> before_;
     schema::ComponentDataT after_;
+    std::vector<std::shared_ptr<const Resource>> resources_;
+    ComponentType required_component_;
 };
 
 // 每类文件提供读写函数；共用主线程事务和场景身份检查，不持有组件借用。

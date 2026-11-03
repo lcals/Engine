@@ -17,6 +17,8 @@ classDiagram
         +window() WindowSystem#42;
         +input() InputSystem#42;
         +renderer() RenderSystem#42;
+        +ui() UiSystem#42;
+        +set_event_observer(WindowEventHandler observer, void* context) void
         +request_exit() void
         +shutdown() void
     }
@@ -173,3 +175,5 @@ flowchart TD
 线程装配见[线程与任务系统](task-system.md)。initialize 的 threads 参数默认空：空时创建并初始化进程预算，非空须已初始化并在宿主之后关闭。宿主独占运行、后台、加载、物理、动画和导航任务域；tasks() 返回初始化期间运行域的可空借用。
 
 遵守 TaskSystem 的生命周期契约：完成委托内需要退出时调用 `request_exit()`，由宿主循环在回调返回的安全点执行 `shutdown()`；委托内不得直接关闭或销毁当前任务域、RuntimeHost 等正在派发该委托的拥有者。
+
+- `ui()` 和 `window()/input()/renderer()` 一样只在初始化成功至关闭之前返回借用，供宿主装配 UI 编辑器插件；不依赖子系统编号或 RTTI。`set_event_observer` 登记可空的 WindowEventHandler 与上下文，主线程在原生事件路由之前通知，回调不能消费或改写事件；关闭先清除此借用。

@@ -24,15 +24,6 @@ bool RenderSystem::SceneGpuResources::initialize()
     camera_position = bgfx::createUniform("u_camera_position", bgfx::UniformType::Vec4);
     light_direction = bgfx::createUniform("u_light_direction", bgfx::UniformType::Vec4);
     light_color = bgfx::createUniform("u_light_color", bgfx::UniformType::Vec4);
-    light_count = bgfx::createUniform("u_light_count", bgfx::UniformType::Vec4);
-    light_position_range = bgfx::createUniform("u_light_position_range", bgfx::UniformType::Vec4,
-                                               render_detail::maximum_lights);
-    light_direction_outer = bgfx::createUniform("u_light_direction_outer", bgfx::UniformType::Vec4,
-                                                render_detail::maximum_lights);
-    light_color_intensity = bgfx::createUniform("u_light_color_intensity", bgfx::UniformType::Vec4,
-                                                render_detail::maximum_lights);
-    light_kind_inner = bgfx::createUniform("u_light_kind_inner", bgfx::UniformType::Vec4,
-                                           render_detail::maximum_lights);
     ambient = bgfx::createUniform("u_ambient", bgfx::UniformType::Vec4);
     ambient_sky = bgfx::createUniform("u_ambient_sky", bgfx::UniformType::Vec4);
     ambient_equator = bgfx::createUniform("u_ambient_equator", bgfx::UniformType::Vec4);
@@ -40,6 +31,13 @@ bool RenderSystem::SceneGpuResources::initialize()
     fog_color = bgfx::createUniform("u_fog_color", bgfx::UniformType::Vec4);
     fog_range = bgfx::createUniform("u_fog_range", bgfx::UniformType::Vec4);
     tonemap = bgfx::createUniform("u_tonemap", bgfx::UniformType::Vec4);
+    frame_inputs = bgfx::createUniform("u_frame_inputs", bgfx::UniformType::Vec4);
+    frame_valid = bgfx::createUniform("u_frame_valid", bgfx::UniformType::Vec4);
+    planar_projection = bgfx::createUniform("u_planar_projection", bgfx::UniformType::Mat4);
+    lighting_params = bgfx::createUniform("u_lighting_params", bgfx::UniformType::Vec4);
+    probe_sh = bgfx::createUniform("u_probe_sh", bgfx::UniformType::Vec4, 9);
+    lightmap_sampler = bgfx::createUniform("s_lightmap", bgfx::UniformType::Sampler);
+    capture_mode = bgfx::createUniform("u_capture_mode", bgfx::UniformType::Vec4);
     surface = bgfx::createUniform("u_surface", bgfx::UniformType::Vec4);
     shadow_matrices = bgfx::createUniform("u_shadow_matrices", bgfx::UniformType::Mat4,
                                           render_detail::maximum_shadow_cascades);
@@ -60,13 +58,15 @@ bool RenderSystem::SceneGpuResources::initialize()
                          camera_position,
                          light_direction,
                          light_color,
-                         light_count,
-                         light_position_range,
-                         light_direction_outer,
-                         light_color_intensity,
-                         light_kind_inner,
                          ambient,
                          tonemap,
+                         frame_inputs,
+                         frame_valid,
+                         planar_projection,
+                         lighting_params,
+                         probe_sh,
+                         lightmap_sampler,
+                         capture_mode,
                          surface,
                          ambient_sky,
                          ambient_equator,
@@ -134,6 +134,17 @@ void RenderSystem::SceneGpuResources::release() noexcept
     {
         texture.release();
     }
+    release_capture();
+    for (auto& cluster : clusters)
+    {
+        cluster.release();
+    }
+    for (auto& reflection : planar)
+    {
+        reflection.release();
+    }
+    surface_pass.release();
+    reflections.release();
     shadow.release();
     ambient_occlusion.release();
     hdr_post_process.release();
@@ -152,13 +163,15 @@ void RenderSystem::SceneGpuResources::release() noexcept
                          camera_position,
                          light_direction,
                          light_color,
-                         light_count,
-                         light_position_range,
-                         light_direction_outer,
-                         light_color_intensity,
-                         light_kind_inner,
                          ambient,
                          tonemap,
+                         frame_inputs,
+                         frame_valid,
+                         planar_projection,
+                         lighting_params,
+                         probe_sh,
+                         lightmap_sampler,
+                         capture_mode,
                          surface,
                          ambient_sky,
                          ambient_equator,
@@ -189,11 +202,6 @@ void RenderSystem::SceneGpuResources::release() noexcept
     camera_position = BGFX_INVALID_HANDLE;
     light_direction = BGFX_INVALID_HANDLE;
     light_color = BGFX_INVALID_HANDLE;
-    light_count = BGFX_INVALID_HANDLE;
-    light_position_range = BGFX_INVALID_HANDLE;
-    light_direction_outer = BGFX_INVALID_HANDLE;
-    light_color_intensity = BGFX_INVALID_HANDLE;
-    light_kind_inner = BGFX_INVALID_HANDLE;
     ambient = BGFX_INVALID_HANDLE;
     ambient_sky = BGFX_INVALID_HANDLE;
     ambient_equator = BGFX_INVALID_HANDLE;
@@ -201,6 +209,13 @@ void RenderSystem::SceneGpuResources::release() noexcept
     fog_color = BGFX_INVALID_HANDLE;
     fog_range = BGFX_INVALID_HANDLE;
     tonemap = BGFX_INVALID_HANDLE;
+    frame_inputs = BGFX_INVALID_HANDLE;
+    frame_valid = BGFX_INVALID_HANDLE;
+    planar_projection = BGFX_INVALID_HANDLE;
+    lighting_params = BGFX_INVALID_HANDLE;
+    probe_sh = BGFX_INVALID_HANDLE;
+    lightmap_sampler = BGFX_INVALID_HANDLE;
+    capture_mode = BGFX_INVALID_HANDLE;
     surface = BGFX_INVALID_HANDLE;
     shadow_matrices = BGFX_INVALID_HANDLE;
     shadow_rects = BGFX_INVALID_HANDLE;
@@ -232,11 +247,6 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(camera_position)) +
                           static_cast<std::uint32_t>(bgfx::isValid(light_direction)) +
                           static_cast<std::uint32_t>(bgfx::isValid(light_color)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(light_count)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(light_position_range)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(light_direction_outer)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(light_color_intensity)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(light_kind_inner)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ambient)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ambient_sky)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ambient_equator)) +
@@ -244,6 +254,13 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(fog_color)) +
                           static_cast<std::uint32_t>(bgfx::isValid(fog_range)) +
                           static_cast<std::uint32_t>(bgfx::isValid(tonemap)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(frame_inputs)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(frame_valid)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(planar_projection)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(lighting_params)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(probe_sh)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(lightmap_sampler)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(capture_mode)) +
                           static_cast<std::uint32_t>(bgfx::isValid(surface)) +
                           static_cast<std::uint32_t>(bgfx::isValid(shadow_matrices)) +
                           static_cast<std::uint32_t>(bgfx::isValid(shadow_rects)) +
@@ -263,6 +280,34 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
                           static_cast<std::uint32_t>(bgfx::isValid(ao_sampler)) +
                           shadow.resource_count() + ambient_occlusion.resource_count() +
                           hdr_post_process.resource_count() + skinning.resource_count();
+    count += static_cast<std::uint32_t>(bgfx::isValid(capture_sky_program)) +
+             static_cast<std::uint32_t>(bgfx::isValid(capture_inverse)) +
+             static_cast<std::uint32_t>(bgfx::isValid(capture_fullscreen));
+    count += surface_pass.resource_count() + reflections.resource_count();
+    for (const auto& cluster : clusters)
+    {
+        count += cluster.resource_count();
+    }
+    for (const auto& reflection : planar)
+    {
+        count += reflection.resource_count();
+    }
+    count += static_cast<std::uint32_t>(bgfx::isValid(capture_framebuffer));
+    for (const auto handle : {capture_color, capture_specular, capture_depth, capture_readback})
+    {
+        count += static_cast<std::uint32_t>(bgfx::isValid(handle));
+    }
+    for (const auto handle : capture_lightmaps)
+    {
+        count += static_cast<std::uint32_t>(bgfx::isValid(handle));
+    }
+    for (const auto& mesh : capture_meshes)
+    {
+        if (mesh)
+        {
+            count += mesh->resource_count();
+        }
+    }
     for (const auto& texture : ibl_textures)
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(texture.handle));
@@ -294,7 +339,9 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
     {
         count += static_cast<std::uint32_t>(bgfx::isValid(program.vertex_shader)) +
                  static_cast<std::uint32_t>(bgfx::isValid(program.fragment_shader)) +
-                 static_cast<std::uint32_t>(bgfx::isValid(program.program));
+                 static_cast<std::uint32_t>(bgfx::isValid(program.program)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.surface_shader)) +
+                 static_cast<std::uint32_t>(bgfx::isValid(program.surface_program));
         for (const auto& uniform : program.uniforms)
         {
             count += static_cast<std::uint32_t>(bgfx::isValid(uniform.handle));

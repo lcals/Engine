@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(
-    process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
+    process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
 );
 const output = await mkdtemp(path.join(tmpdir(), "engine-physics-interactions-"));
 

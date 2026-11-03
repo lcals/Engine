@@ -11,8 +11,11 @@ export class LauncherController extends UiController<LauncherModel> {
         })) return false;
         for (const choice of this.model.choices) {
             const button = this.view.FindElement(choice.button);
+            const title = this.view.FindElement(`${choice.button}-title`);
+            const goal = this.view.FindElement(`${choice.button}-goal`);
             if (
-                !button ||
+                !button || !title?.SetText(choice.title) || !goal?.SetText(choice.goal) ||
+                !button.SetText(`Test ${choice.title}`) ||
                 !this.Listen(button, "click", () => {
                     if (this.model.pending !== null) return;
                     this.model.pending = choice;

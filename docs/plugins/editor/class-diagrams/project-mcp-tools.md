@@ -58,7 +58,7 @@ classDiagram
 - `set_hot_reload` 原子发布设备 `files/script-control.json`；`get_status` 直接读取设备状态和已发布清单，不以本机镜像代替设备事实。设备操作回执包含序列号和包名；目标探测成功后附持久目录。设备操作前的资产编译失败只报告编译错误。
 - 可用版本表示文件已同步；运行版本及运行状态来自引擎上次报告。重载始终由引擎决定，MCP 不执行脚本生命周期。
 
-资源同步以统一 catalog 及其 storage location 引用的文件发布完整设备快照；未指定 source 时先调用资产管线增量导入。MCP 不解析数据库，也不自行实现脚本重载。Android 使用相同清单和 adb 事务协议；APK 与设备运行验证范围见根 [README](../../../../README.md#验证范围与限制)。
+资源同步以统一 catalog 及其 storage location 引用的文件发布完整设备快照；未指定 source 时先调用资产管线增量导入。MCP 不解析数据库，也不自行实现脚本重载。Android 使用相同清单和 adb 事务协议；APK 与设备运行验证范围见[测试与范例](../../../testing.md)。
 
 `sync_assets` 同步全部 catalog 条目，包括编译脚本、场景、Mesh、材质、Shader，以及原始图片/二进制等通用资源；不按脚本扩展名筛选。项目 settings、源.meta、SQLite 和未引用gen产物不进入运行版本。availableRevision 是完整资源发布版本，activeRevision 是引擎已接受的运行版本；同步发布成功不代表项目已启动或版本已经生效。纯资源 catalog 也可同步，无需 scripts/game.js；entry 仅作为玩法启动提示。
 

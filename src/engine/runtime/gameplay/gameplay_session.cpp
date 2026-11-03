@@ -418,6 +418,7 @@ struct GameplaySession::State
             return;
         }
         const Json document = {{"running", status->running},
+                               {"runId", std::to_string(status->run_id)},
                                {"hotReload", status->hot_reload},
                                {"activeRevision", status->active_revision},
                                {"availableRevision", status->available_revision},
@@ -816,6 +817,19 @@ void GameplaySession::stop(std::string_view reason) noexcept
         state_->publish();
         state_->schedule_background();
     }
+}
+
+bool GameplaySession::execute_project_script(const ProjectScriptRequest& request,
+                                             std::string& result_json, std::string& error)
+{
+    result_json.clear();
+    error.clear();
+    if (script_ == nullptr)
+    {
+        error = "Project script execution requires the script plugin";
+        return false;
+    }
+    return script_->execute_project_script(request, result_json, error);
 }
 
 const ScriptStatus* GameplaySession::script_status() const noexcept

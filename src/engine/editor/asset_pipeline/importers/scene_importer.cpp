@@ -106,11 +106,26 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
                     return false;
                 }
             }
+            if (const auto* volume = component->payload.AsLightProbeVolumeData();
+                volume && !volume->probes_guid.empty())
+            {
+                if (!reference(volume->probes_guid, schema::AssetKind::light_probe, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
+                }
+            }
             if (const auto* mesh = component->payload.AsMeshRendererData())
             {
                 if (!reference(mesh->mesh_guid, schema::AssetKind::mesh, context,
                                asset.build_dependencies, error) ||
                     !reference(mesh->material_guid, schema::AssetKind::material, context,
+                               asset.build_dependencies, error))
+                {
+                    return false;
+                }
+                if (!mesh->lightmap_guid.empty() &&
+                    !reference(mesh->lightmap_guid, schema::AssetKind::texture, context,
                                asset.build_dependencies, error))
                 {
                     return false;

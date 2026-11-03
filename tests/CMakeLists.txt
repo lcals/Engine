@@ -99,7 +99,28 @@ if(TARGET engine_audio)
     set_tests_properties(engine.audio PROPERTIES TIMEOUT 60)
 endif()
 
+if(TARGET engine_ui_editor AND TARGET engine_font_import)
+    add_executable(engine_ui_editor_test ui_editor_test.cpp)
+    target_link_libraries(engine_ui_editor_test PRIVATE engine::ui_editor engine::font_import
+        engine::render engine::font engine::input engine::world engine::resource SDL3::SDL3)
+    target_include_directories(engine_ui_editor_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_ui_editor_test)
+    if(ENGINE_ENABLE_GPU_TESTS)
+        add_test(NAME editor.ui_editor COMMAND engine_ui_editor_test
+            "${PROJECT_SOURCE_DIR}/projects/showcase" "${CMAKE_CURRENT_BINARY_DIR}")
+        set_tests_properties(editor.ui_editor PROPERTIES TIMEOUT 120 RUN_SERIAL TRUE)
+    endif()
+endif()
+
 if(TARGET engine_script)
+    add_executable(engine_project_script_test project_script_test.cpp)
+    target_link_libraries(engine_project_script_test PRIVATE engine::script)
+    target_include_directories(engine_project_script_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_project_script_test)
+    engine_copy_script_data(engine_project_script_test)
+    add_test(NAME engine.project_script COMMAND engine_project_script_test)
+    set_tests_properties(engine.project_script PROPERTIES TIMEOUT 60)
+
     add_executable(engine_script_runtime_test script_runtime_test.cpp)
     target_link_libraries(
         engine_script_runtime_test
@@ -158,6 +179,9 @@ if(TARGET mcp_app)
     if(NOT TARGET engine_destruction_mcp_tools)
         list(APPEND _script_tooling_options --without-destruction)
     endif()
+    if(NOT TARGET engine_ui_editor_mcp_tools)
+        list(APPEND _script_tooling_options --without-ui)
+    endif()
     find_package(
         Python3
         COMPONENTS Interpreter
@@ -178,6 +202,10 @@ if(TARGET mcp_app)
         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/script_tooling_test.py" --mcp
                 "$<TARGET_FILE:mcp_app>" --root "${PROJECT_SOURCE_DIR}" ${_script_tooling_options})
     set_tests_properties(engine.script_tooling PROPERTIES TIMEOUT 120)
+    add_test(NAME editor.project_script_compile
+             COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/project_script_compile_test.py"
+                     --root "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(editor.project_script_compile PROPERTIES TIMEOUT 60)
 endif()
 
 if(TARGET engine_mcp)
@@ -362,6 +390,11 @@ if(TARGET editor_app)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
+    add_executable(engine_planar_reflection_test planar_reflection_test.cpp)
+    target_include_directories(engine_planar_reflection_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_planar_reflection_test PRIVATE engine::render bgfx::bx)
+    engine_apply_options(engine_planar_reflection_test)
+    add_test(NAME engine.planar_reflection COMMAND engine_planar_reflection_test)
     add_executable(engine_render_foundation_test render_foundation_test.cpp)
     target_link_libraries(engine_render_foundation_test PRIVATE engine::world engine::resource
                                                                 engine::render)
@@ -433,20 +466,33 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
             NAME editor.showcase_navigation
             COMMAND
                 "${ENGINE_NODE_EXECUTABLE}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_test.mjs" "${PROJECT_SOURCE_DIR}")
+                "${PROJECT_SOURCE_DIR}/projects/showcase/tests/launcher_test.mjs"
+                "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_navigation PROPERTIES TIMEOUT 60)
         add_test(
             NAME editor.showcase_navigation_crowd
             COMMAND "${ENGINE_NODE_EXECUTABLE}"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_navigation_crowd_test.mjs"
+                    "${PROJECT_SOURCE_DIR}/projects/showcase/tests/navigation_crowd_test.mjs"
                     "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_navigation_crowd PROPERTIES TIMEOUT 60)
         add_test(
             NAME editor.showcase_physics_interactions
             COMMAND "${ENGINE_NODE_EXECUTABLE}"
-                    "${CMAKE_CURRENT_SOURCE_DIR}/showcase_physics_interactions_test.mjs"
+                    "${PROJECT_SOURCE_DIR}/projects/showcase/tests/physics_interactions_test.mjs"
                     "${PROJECT_SOURCE_DIR}")
         set_tests_properties(editor.showcase_physics_interactions PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_contract
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${PROJECT_SOURCE_DIR}/projects/showcase/tests/case_contract_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_contract PROPERTIES TIMEOUT 60)
+        add_test(
+            NAME editor.showcase_persistent_ui
+            COMMAND "${ENGINE_NODE_EXECUTABLE}"
+                    "${PROJECT_SOURCE_DIR}/projects/showcase/tests/persistent_ui_test.mjs"
+                    "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(editor.showcase_persistent_ui PROPERTIES TIMEOUT 60)
         find_package(
             Python3
             COMPONENTS Interpreter
@@ -1018,4 +1064,32 @@ if(TARGET engine_script AND TARGET engine_terrain AND TARGET engine_destruction)
     engine_copy_script_data(engine_terrain_destruction_script_test)
     add_test(NAME engine.terrain_destruction_script COMMAND engine_terrain_destruction_script_test)
     set_tests_properties(engine.terrain_destruction_script PROPERTIES TIMEOUT 60)
+endif()
+
+if(TARGET lightmapper::lightmapper)
+    add_executable(engine_lighting_bake_math_test lighting_bake_math_test.cpp)
+    target_link_libraries(engine_lighting_bake_math_test PRIVATE lightmapper::lightmapper)
+    target_compile_features(engine_lighting_bake_math_test PRIVATE cxx_std_20)
+    engine_apply_options(engine_lighting_bake_math_test)
+    add_test(NAME editor.lighting_bake_math COMMAND engine_lighting_bake_math_test)
+endif()
+
+if(TARGET engine_asset_pipeline)
+    add_executable(engine_light_probe_resource_test light_probe_resource_test.cpp)
+    target_link_libraries(engine_light_probe_resource_test PRIVATE engine::asset_pipeline engine::resource)
+    target_include_directories(engine_light_probe_resource_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_light_probe_resource_test)
+    add_test(NAME resource.light_probe COMMAND engine_light_probe_resource_test)
+endif()
+
+if(TARGET engine_scene_bake)
+    add_executable(engine_scene_lighting_files_test scene_lighting_files_test.cpp
+        "${PROJECT_SOURCE_DIR}/src/engine/plugins/editor/scene_bake/scene_bake_files.cpp")
+    target_link_libraries(engine_scene_lighting_files_test PRIVATE engine::asset_pipeline engine::resource)
+    target_include_directories(engine_scene_lighting_files_test PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    get_target_property(_bake_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
+    target_include_directories(engine_scene_lighting_files_test SYSTEM PRIVATE ${_bake_toml_includes})
+    target_compile_definitions(engine_scene_lighting_files_test PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
+    engine_apply_options(engine_scene_lighting_files_test)
+    add_test(NAME editor.scene_lighting_files COMMAND engine_scene_lighting_files_test)
 endif()

@@ -4,6 +4,9 @@
 #include "editor/commands/scene_commands.hpp"
 #include "editor/project/project_system.hpp"
 #include "editor/scene/scene_persistence.hpp"
+#include "editor/render/render_commands.hpp"
+#include "runtime/render/render_system.hpp"
+#include "runtime/window/window_system.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
@@ -11,6 +14,9 @@
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -205,6 +211,9 @@ bool run(const fs::path& root)
     }
     engine::plugins::modeling::ModelingCommands modeling(world, root);
     engine::editor::SceneCommands scene_commands(world);
+    WindowSystem windows;
+    RenderSystem render(windows, &world);
+    engine::editor::RenderCommands render_commands(render, world, {});
     bool reject_export = false;
     std::size_t export_count = 0;
     std::size_t save_count = 0;
@@ -231,7 +240,7 @@ bool run(const fs::path& root)
     engine::editor::EditorCommands commands([&]()
                                             { return world.scene() ? world.scene()->id() : 0; });
     if (!modeling.register_commands(commands) || !scene_commands.register_commands(commands) ||
-        !persistence.register_commands(commands))
+        !persistence.register_commands(commands) || !render_commands.register_commands(commands))
     {
         return false;
     }
@@ -314,6 +323,28 @@ bool run(const fs::path& root)
         return false;
     }
     renderer->set_cast_shadows(false);
+    const Json receiver = {{"sceneId", id}, {"nodeId", std::to_string(first->id())}};
+    auto edit_receiver = receiver;
+    edit_receiver.update({{"enabled", false}, {"resolutionScale", .75}, {"clipBias", .04}});
+    auto edit_probe = receiver;
+    edit_probe.update({{"enabled", false}, {"resource", ""}});
+    auto edit_lighting = receiver;
+    edit_lighting["bakeStatic"] = true;
+    auto edit_blend = receiver;
+    edit_blend.update({{"slot", 1}, {"mode", "premultiplied"}});
+    if (!expect(execute("set_planar_reflection", edit_receiver) &&
+                    execute("set_light_probe_volume", edit_probe) &&
+                    execute("set_mesh_lighting", edit_lighting) &&
+                    execute("set_material_blend_mode", edit_blend) &&
+                    execute("set_render_settings", {{"ssrEnabled", true}, {"ssrMaxSteps", 96}}),
+                "edit rendering components and material through the normal commands", error))
+        return false;
+    auto local_shadow = Json{{"sceneId", id}, {"nodeId", std::to_string(light->node().id())},
+                             {"castShadows", true}, {"shadowResolution", 512}, {"shadowBias", .003}};
+    if (!expect(execute("set_light", local_shadow), "edit local light shadow settings", error))
+    {
+        return false;
+    }
     const Json material_type = {{"sceneId", id},
                                 {"nodeId", std::to_string(first->id())},
                                 {"slot", 1},
@@ -325,6 +356,7 @@ bool run(const fs::path& root)
         !expect(execute("undo", identity) &&
                     renderer->material(1)->type_path() == "builtin://materials/default-pbr" &&
                     renderer->material(1)->cull_mode() == schema::CullMode::none &&
+                    renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
                     renderer->material(1)->get_float("roughness", restored_roughness) &&
                     restored_roughness == 0.75F,
                 "undo material type restores previous overrides", error) ||
@@ -511,14 +543,27 @@ bool run(const fs::path& root)
     float cutoff = 0;
     if (!expect(second->parent() == first &&
                     first->get_component<Transform>()->settings().position.x() == 3 &&
-                    renderer->material_count() == 2 && !renderer->cast_shadows() &&
+                    renderer->material_count() == 2 && !renderer->cast_shadows() && renderer->bake_static() &&
+                    renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
+                    first->get_component<PlanarReflectionComponent>() &&
+                    !first->get_component<PlanarReflectionComponent>()->enabled() &&
+                    first->get_component<PlanarReflectionComponent>()->settings().resolution_scale == .75F &&
+                    first->get_component<PlanarReflectionComponent>()->settings().clip_bias == .04F &&
+                    first->get_component<LightProbeVolumeComponent>() &&
+                    !first->get_component<LightProbeVolumeComponent>()->enabled() &&
+                    scene->active_camera()->node().get_component<PostProcessComponent>() &&
+                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_enabled &&
+                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_max_steps == 96 &&
                     renderer->material(1)->cull_mode() == schema::CullMode::none &&
                     renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
                     renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&
                     renderer->material(1)->get_float("roughness", roughness) && roughness == 0.75F,
                 "reload hierarchy, transform and all material slot values") ||
         !expect(!named(*scene, "Lamp")->get_component<Light>()->enabled() &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().intensity == 7,
+                    named(*scene, "Lamp")->get_component<Light>()->settings().intensity == 7 &&
+                    named(*scene, "Lamp")->get_component<Light>()->settings().cast_shadows &&
+                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_resolution == 512 &&
+                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_bias == .003F,
                 "reload light values and disabled component"))
     {
         return false;

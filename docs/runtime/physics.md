@@ -21,7 +21,7 @@ mesh = "<独立 Mesh 资源的完整 GUID>"
 
 无需添加 RigidBody；如果显式添加，其 motion 必须为 `static_body`。MCP `set_collider` 的 `mesh` 参数与脚本 `Collider.SetMesh(path)` 接受 assets 相对路径或 `builtin://...` 逻辑路径，落盘仍保存 GUID。
 
-瞬态静态几何通过 `set_mesh_data` 或 `set_mesh_parts` 同步提交，先准备候选，失败保留原碰撞。分段输入使用稳定槽位与共享不可变网格，复用未变 Jolt 叶形状和复合树分组；一个 Collider 仍对应一个 Body，空槽、清空、禁用恢复与局部支撑唤醒见[分段碰撞契约](class-diagrams/mesh-collision-data.md)。这些接口不识别地形或项目，也不负责线程调度。既有单线程基线及后续并行采样集中维护在[性能采样](performance.md#最终可信基线)，旧基线不代表并行后的耗时。
+瞬态静态几何通过 `set_mesh_data` 或 `set_mesh_parts` 同步提交，先准备候选，失败保留原碰撞。分段输入使用稳定槽位与共享不可变网格，复用未变 Jolt 叶形状和复合树分组；一个 Collider 仍对应一个 Body，空槽、清空、禁用恢复与局部支撑唤醒见[分段碰撞契约](class-diagrams/mesh-collision-data.md)。这些接口不识别地形或项目，也不负责线程调度。既有单线程基线及后续并行采样集中维护在[性能采样](performance.md#历史单线程基线)，旧基线不代表并行后的耗时。
 
 每次更新先按场景和节点 ID 同步组件，再以固定 `1/60` 秒模拟，最后将运动物体的位置、旋转和速度写回组件。每帧最多执行 8 个固定步，过量时间丢弃，避免长帧无限追赶；零时间更新只同步配置，不推进模拟。冲量只作用于动态刚体，作为一次性瞬态请求消费，不写入场景数据。
 

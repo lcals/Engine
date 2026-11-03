@@ -21,6 +21,7 @@ classDiagram
         +animation() const AnimationDataT#42;
         +font() const FontDataT#42;
         +ui() const UiDocumentDataT#42;
+        +light_probe() const LightProbeDataT#42;
         +bytes() ByteView
     }
     class AssetEntryT
@@ -39,6 +40,7 @@ classDiagram
     class MaterialDataT
     class TextureDataT
     class AudioClipDataT
+    class LightProbeDataT
     Resource *-- SceneDataT : 场景类型时拥有
     Resource *-- MeshDataT : 网格类型时拥有
     Resource *-- ShaderDataT : Shader 类型时拥有
@@ -47,6 +49,7 @@ classDiagram
     Resource *-- AudioClipDataT : 音频类型时拥有
     Resource *-- FontDataT : 字体类型时拥有
     Resource *-- UiDocumentDataT : UI 文档类型时拥有
+    Resource *-- LightProbeDataT : 静态照明探针资源时拥有
 ```
 
 - `ResourcePtr = std::shared_ptr<const Resource>` 只是标准类型别名，不另建句柄或引用计数。ResourceSystem 创建对象，构造权限仅向该系统开放；对象禁止复制和移动。

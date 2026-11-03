@@ -61,6 +61,13 @@ public:
         ++control_calls;
         status_.hot_reload = enabled;
     }
+    bool execute_project_script(const ProjectScriptRequest&, std::string& result,
+                                std::string& error) override
+    {
+        result.clear();
+        error = "Test runtime has no project script VM";
+        return false;
+    }
     const ScriptStatus& status() const noexcept override
     {
         return status_;

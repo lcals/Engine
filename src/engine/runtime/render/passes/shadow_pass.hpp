@@ -6,12 +6,14 @@
 
 #include <bgfx/bgfx.h>
 
+#include <span>
 #include <vector>
 
 namespace engine
 {
 class WorldSystem;
 class Material;
+struct RenderConfig;
 } // namespace engine
 
 namespace engine::render_detail
@@ -31,7 +33,11 @@ public:
     [[nodiscard]] bool draw(const WorldSystem& world, const RenderSettings& settings,
                             ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
                             const std::vector<GpuTexture>& textures, bgfx::TextureHandle fallback,
-                            bgfx::UniformHandle depth_uniform);
+                            bgfx::UniformHandle depth_uniform, const RenderConfig& config,
+                            std::span<const LocalShadowLight> local_lights,
+                            std::span<ClusterLight> lights, const float* camera_world,
+                            bgfx::ViewId base_view,
+                            const std::span<const std::uint64_t>* caster_ids = nullptr);
     [[nodiscard]] bgfx::TextureHandle texture() const noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
     void release() noexcept;
@@ -51,6 +57,8 @@ private:
     bgfx::UniformHandle alpha_sampler_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle uv_transform_ = BGFX_INVALID_HANDLE;
     std::uint16_t resolution_ = 0;
+    std::vector<bgfx::ViewId> attached_views_;
+    std::uint32_t last_skipped_lights_ = 0;
 };
 
 } // namespace engine::render_detail

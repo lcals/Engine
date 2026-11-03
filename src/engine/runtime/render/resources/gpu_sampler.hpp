@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/schema/shader_generated.h"
 #include <bgfx/bgfx.h>
 
 #include <cstdint>
@@ -14,6 +15,7 @@ struct GpuSampler
     std::string name;
     std::string uniform_name;
     std::uint8_t stage = 0;
+    schema::ShaderTextureSource source = schema::ShaderTextureSource::resource;
     bgfx::UniformHandle handle = BGFX_INVALID_HANDLE;
 };
 

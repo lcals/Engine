@@ -4,6 +4,7 @@
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -453,9 +454,9 @@ bool incremental_scene_restore()
     auto* parent = active ? active->create_node("Parent") : nullptr;
     schema::SceneDataT data;
     if (!child || !parent || !child->set_parent(parent) ||
-        !active->set_active_camera(child->add_component<Camera>()) ||
-        !active->build_data(data) || !add_scene_resource(fixture, "staged.scene", data) ||
-        !fixture.publish(*resources) || !world.set_paused(true))
+        !active->set_active_camera(child->add_component<Camera>()) || !active->build_data(data) ||
+        !add_scene_resource(fixture, "staged.scene", data) || !fixture.publish(*resources) ||
+        !world.set_paused(true))
     {
         return false;
     }
@@ -547,15 +548,17 @@ bool persistent_nodes()
                     world.find_node(root_id) == root && world.find_node(child_id) == child &&
                     std::as_const(world).find_node(leaf_id) == leaf &&
                     !world.find_node(ordinary_id) && &root->scene() == scene &&
-                    root->info().id == root_local_id && root->get_component<Transform>() == transform &&
-                    child->parent() == root && leaf->parent() == child,
+                    root->info().id == root_local_id &&
+                    root->get_component<Transform>() == transform && child->parent() == root &&
+                    leaf->parent() == child,
                 "unload preserves original owners and identities, including child-before-parent"))
     {
         return false;
     }
     auto* next = world.create_scene("Next");
     auto* next_node = next ? next->create_node("Next root") : nullptr;
-    if (!next_node || !expect(!child->set_parent(next_node), "cross-scene parenting stays rejected") ||
+    if (!next_node ||
+        !expect(!child->set_parent(next_node), "cross-scene parenting stays rejected") ||
         !expect(child->set_parent(nullptr) && !child->persistent() && !leaf->persistent(),
                 "detached branch no longer inherits persistence"))
     {
@@ -571,7 +574,8 @@ bool persistent_nodes()
         return false;
     }
     world.unload_scene();
-    if (!expect(world.scenes().empty() && !world.find_node(root_id) && !world.destroy_scene(scene_id),
+    if (!expect(world.scenes().empty() && !world.find_node(root_id) &&
+                    !world.destroy_scene(scene_id),
                 "unmarked roots and their empty retained scene are reclaimed"))
     {
         return false;
@@ -627,7 +631,8 @@ bool persistent_scene_loading()
     auto* source = resources && world.initialize({}) ? world.create_scene("Source") : nullptr;
     auto* node = source ? source->create_node("Resource owner") : nullptr;
     schema::SceneDataT data;
-    if (!node || !source->build_data(data) || !add_scene_resource(fixture, "persistent.scene", data))
+    if (!node || !source->build_data(data) ||
+        !add_scene_resource(fixture, "persistent.scene", data))
     {
         return false;
     }
@@ -818,7 +823,11 @@ bool component_contracts()
     {
         return false;
     }
-    if (!expect(material.cull_mode() == engine::schema::CullMode::back &&
+    if (!expect(material.blend_mode() == engine::schema::BlendMode::opaque &&
+                    material.set_blend_mode(engine::schema::BlendMode::alpha_blend) &&
+                    !material.set_blend_mode(static_cast<engine::schema::BlendMode>(255)) &&
+                    material.blend_mode() == engine::schema::BlendMode::alpha_blend &&
+                    material.cull_mode() == engine::schema::CullMode::back &&
                     material.get_float("alphaCutoff", cutoff) && cutoff == 0.0F &&
                     material.set_cull_mode(engine::schema::CullMode::none) &&
                     !material.set_cull_mode(static_cast<engine::schema::CullMode>(255)) &&
@@ -827,9 +836,11 @@ bool component_contracts()
                     !material.set_float("alphaCutoff", 1.1F) &&
                     material.get_float("alphaCutoff", cutoff) && cutoff == 0.5F &&
                     material.set_shader("builtin://shaders/unlit") &&
+                    material.blend_mode() == engine::schema::BlendMode::alpha_blend &&
                     material.cull_mode() == engine::schema::CullMode::none &&
                     material.get_float("alphaCutoff", cutoff) && cutoff == 0.0F &&
                     material.set_type("builtin://materials/default-unlit") &&
+                    material.blend_mode() == engine::schema::BlendMode::opaque &&
                     material.cull_mode() == engine::schema::CullMode::back,
                 "coverage defaults, invalid states and shader/type changes preserve "
                 "their contracts"))
@@ -1264,6 +1275,83 @@ bool resource_namespaces()
                   "project removal preserves builtin identity");
 }
 
+bool baked_lighting_bindings()
+{
+    auto* resources = engine::ResourceSystem::instance();
+    engine::WorldSystem world;
+    test_support::ResourceFixture fixture;
+    engine::schema::MeshDataT mesh_data;
+    mesh_data.path = "lighting/test.mesh";
+    mesh_data.vertices = {{0, 0, 0, 0, 1, 0}, {1, 0, 0, 0, 1, 0}, {0, 0, 1, 0, 1, 0}};
+    mesh_data.indices = {0, 2, 1};
+    mesh_data.lightmap_texcoords = {{0.1, 0.1}, {0.9, 0.1}, {0.1, 0.9}};
+    engine::schema::TextureDataT texture;
+    texture.path = "lighting/test.texture";
+    texture.width = 1;
+    texture.height = 1;
+    texture.encoding = engine::schema::TextureEncoding::rgba8;
+    texture.srgb = false;
+    texture.data = {128, 128, 128, 255};
+    engine::schema::LightProbeDataT probes;
+    probes.path = "lighting/test.probes";
+    probes.bounds_min = engine::schema::Vec3(-1, -1, -1);
+    probes.bounds_max = engine::schema::Vec3(1, 1, 1);
+    probes.grid_x = probes.grid_y = probes.grid_z = 2;
+    probes.baked_transform = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    probes.coefficients.resize(72, engine::schema::Vec3(0.1, 0.1, 0.1));
+    probes.valid.resize(8, 1);
+    probes.source_fingerprint = "0123456789abcdef";
+    if (!expect(resources && fixture.add(mesh_data) && fixture.add(texture) &&
+                    fixture.add(probes) && fixture.publish(*resources) && world.initialize({}),
+                "publish actual UV2, linear lightmap and probe resources"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Baked lighting");
+    auto* node = scene ? scene->create_node("Baked mesh") : nullptr;
+    auto* mesh = node ? node->add_component<engine::MeshRenderer>() : nullptr;
+    auto* probe = node ? node->add_component<engine::LightProbeVolumeComponent>() : nullptr;
+    auto* transform = node ? node->get_component<engine::Transform>() : nullptr;
+    engine::LightProbeVolumeSettings probe_settings;
+    if (!expect(mesh && probe && transform && mesh->set_mesh(mesh_data.path) &&
+                    mesh->set_bake_static(true) && mesh->set_lightmap(texture.path) &&
+                    mesh->lightmap_resource() && mesh->lightmap_path() == texture.path &&
+                    engine::ResourceSystem::path_to_guid(probes.path, probe_settings.probes_guid) &&
+                    probe->set_settings(probe_settings) && probe->resource(),
+                "bind compiled baked resources through ordinary components"))
+    {
+        return false;
+    }
+    engine::schema::ComponentDataT saved;
+    if (!expect(mesh->build_data(saved) &&
+                    !saved.payload.AsMeshRendererData()->lightmap_mesh_hash.empty() &&
+                    saved.payload.AsMeshRendererData()->lightmap_transform.size() == 16 &&
+                    !mesh->set_lightmap("builtin://textures/white-srgb") &&
+                    mesh->lightmap_resource(),
+                "persist bake fingerprint; invalid replacement preserves existing lightmap"))
+    {
+        return false;
+    }
+    auto moved = transform->settings();
+    moved.position = {2, 0, 0};
+    if (!expect(transform->set_settings(moved) && !mesh->lightmap_resource() &&
+                    !probe->resource() && mesh->restore_data(saved) && !mesh->lightmap_resource(),
+                "moving geometry/probe invalidates bake and restoration cannot rebase fingerprint"))
+    {
+        return false;
+    }
+    moved.position = {0, 0, 0};
+    if (!expect(transform->set_settings(moved) && mesh->lightmap_resource() && probe->resource() &&
+                    mesh->set_mesh("builtin://meshes/cube") && !mesh->lightmap_resource() &&
+                    !mesh->set_lightmap(texture.path),
+                "matching baked pose restores validity; replacing geometry clears lightmap"))
+    {
+        return false;
+    }
+    return expect(probe->set_settings({}) && !probe->resource() && mesh->set_lightmap(""),
+                  "clearing baked resource bindings releases held resources");
+}
+
 } // namespace
 
 int main()
@@ -1273,7 +1361,8 @@ int main()
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
         !hierarchy_and_transforms() || !indexed_scene_restore() || !incremental_scene_restore() ||
         !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
-        !camera_rays() || !transient_nodes() || !material_contracts() || !resource_namespaces())
+        !camera_rays() || !transient_nodes() || !material_contracts() ||
+        !baked_lighting_bindings() || !resource_namespaces())
     {
         return 1;
     }

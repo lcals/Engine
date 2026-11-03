@@ -103,6 +103,9 @@ function(engine_embed_render_shaders target)
             set(_varying "${_source}/${_shader}_varying.def.sc")
         endif()
         foreach(_stage vs fs)
+            if(NOT EXISTS "${_source}/${_stage}_${_shader}.sc")
+                continue()
+            endif()
             if(_stage STREQUAL "vs")
                 set(_type vertex)
             else()
@@ -123,6 +126,10 @@ function(engine_embed_render_shaders target)
                         "${_source}/material_helpers.sh"
                         "${_source}/shadow_helpers.sh"
                         "${_source}/csm_helpers.sh"
+                        "${_source}/pbr_surface.sh"
+                        "${_source}/pbr_lighting.sh"
+                        "${_source}/local_shadow_helpers.sh"
+                        "${_source}/cluster/lighting.sh"
                         "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
                         "${ENGINE_SHADERC_EXECUTABLE}"
                 COMMENT "Compiling embedded ${_platform}/${_profile} ${_stage} ${_shader} shader"
@@ -171,22 +178,26 @@ function(engine_embed_hdr_shaders target)
     engine_render_shader_profile(_platform _profile)
     set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/hdr")
     set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
-    foreach(_name vs_hdr fs_hdr_bright fs_hdr_blur fs_hdr_resolve)
+    foreach(_name vs_hdr fs_hdr_bright fs_hdr_blur fs_hdr_resolve fs_capture_sky)
         if(_name STREQUAL "vs_hdr")
             set(_type vertex)
         else()
             set(_type fragment)
+        endif()
+        set(_shader_source "${_source}/${_name}.sc")
+        if(_name STREQUAL "fs_capture_sky")
+            set(_shader_source "${_source}/../fs_capture_sky.sc")
         endif()
         set(_header "${_output}/${_name}.bin.h")
         add_custom_command(
             OUTPUT "${_header}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
             COMMAND
-                "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/${_name}.sc" -o "${_header}"
+                "${ENGINE_SHADERC_EXECUTABLE}" -f "${_shader_source}" -o "${_header}"
                 --type "${_type}" --platform "${_platform}" --profile "${_profile}"
                 --varyingdef "${_source}/hdr_varying.def.sc"
                 -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c "${_name}"
-            DEPENDS "${_source}/${_name}.sc"
+            DEPENDS "${_shader_source}"
                     "${_source}/hdr_helpers.sh"
                     "${_source}/hdr_varying.def.sc"
                     "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh"
@@ -219,4 +230,44 @@ function(engine_embed_skinning_shader target)
         VERBATIM)
     target_sources(${target} PRIVATE "${_header}")
     target_include_directories(${target} PRIVATE "${_output}")
+endfunction()
+
+# Forward+ uses one compute pass; SSR shares the existing HDR full-screen vertex shader.
+function(engine_embed_clustered_shader target)
+    engine_render_shader_profile(_platform _profile)
+    set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders/cluster")
+    set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
+    set(_header "${_output}/cs_cluster_cull.bin.h")
+    add_custom_command(
+        OUTPUT "${_header}"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
+        COMMAND "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/cs_cluster_cull.sc"
+                -o "${_header}" --type compute --platform "${_platform}" --profile "${_profile}"
+                -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c cs_cluster_cull
+        DEPENDS "${_source}/cs_cluster_cull.sc" "${_source}/lighting.sh"
+                "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_compute.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+        COMMENT "Compiling embedded ${_platform}/${_profile} clustered lighting shader"
+        VERBATIM)
+    target_sources(${target} PRIVATE "${_header}")
+endfunction()
+
+function(engine_embed_ssr_shaders target)
+    engine_render_shader_profile(_platform _profile)
+    set(_source "${PROJECT_SOURCE_DIR}/src/engine/runtime/render/shaders")
+    set(_output "${CMAKE_CURRENT_BINARY_DIR}/generated/render")
+    foreach(_name fs_ssr_reduce fs_ssr_trace fs_ssr_composite)
+        set(_header "${_output}/${_name}.bin.h")
+        add_custom_command(
+            OUTPUT "${_header}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${_output}"
+            COMMAND "${ENGINE_SHADERC_EXECUTABLE}" -f "${_source}/ssr/${_name}.sc"
+                    -o "${_header}" --type fragment --platform "${_platform}" --profile "${_profile}"
+                    --varyingdef "${_source}/hdr/hdr_varying.def.sc"
+                    -i "${ENGINE_BGFX_SHADER_INCLUDE_DIR}" --bin2c "${_name}"
+            DEPENDS "${_source}/ssr/${_name}.sc" "${_source}/hdr/hdr_varying.def.sc"
+                    "${ENGINE_BGFX_SHADER_INCLUDE_DIR}/bgfx_shader.sh" "${ENGINE_SHADERC_EXECUTABLE}"
+            COMMENT "Compiling embedded ${_platform}/${_profile} ${_name} shader"
+            VERBATIM)
+        target_sources(${target} PRIVATE "${_header}")
+    endforeach()
 endfunction()

@@ -15,6 +15,7 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
         engine_editor
         PRIVATE src/engine/editor/project/runtime_settings_io.cpp
                 src/engine/editor/render/render_commands.cpp
+                src/engine/editor/render/render_component_commands.cpp
                 src/engine/editor/scene/scene_preview.cpp
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
@@ -82,6 +83,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/components/light_codec.cpp
                 src/engine/editor/asset_pipeline/components/environment_codec.cpp
                 src/engine/editor/asset_pipeline/components/post_process_codec.cpp
+                src/engine/editor/asset_pipeline/components/planar_reflection_codec.cpp
+                src/engine/editor/asset_pipeline/components/light_probe_volume_codec.cpp
                 src/engine/editor/asset_pipeline/components/mesh_renderer_codec.cpp
                 src/engine/editor/asset_pipeline/importers/mesh_importer.cpp
                 src/engine/editor/asset_pipeline/importers/shader_importer.cpp
@@ -89,6 +92,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/importers/scene_importer.cpp
                 src/engine/editor/asset_pipeline/importers/texture_importer.cpp
                 src/engine/editor/asset_pipeline/importers/ktx_texture_importer.cpp
+                src/engine/editor/asset_pipeline/importers/light_probe_importer.cpp
                 src/engine/editor/asset_pipeline/importers/audio_importer.cpp
                 src/engine/editor/asset_pipeline/importers/script_importer.cpp
                 src/engine/editor/asset_pipeline/importers/source_importer.cpp)

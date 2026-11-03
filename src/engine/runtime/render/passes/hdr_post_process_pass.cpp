@@ -29,7 +29,8 @@ bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t hei
     constexpr auto color_capabilities =
         BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER;
     if (width == 0 || height == 0 || width > caps.limits.maxTextureSize ||
-        height > caps.limits.maxTextureSize || caps.limits.maxTextureSamplers < 2)
+        height > caps.limits.maxTextureSize || caps.limits.maxTextureSamplers < 2 ||
+        caps.limits.maxFBAttachments < 3 || (caps.supported & BGFX_CAPS_TEXTURE_BLIT) == 0)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
                      "HDR target dimensions or sampler limits are invalid (%u x %u, max=%u)",
@@ -52,7 +53,7 @@ bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t hei
 
 bool valid_settings(const RenderSettings& settings)
 {
-    return settings.hdr_enabled && std::isfinite(settings.exposure) && settings.exposure > 0.0F &&
+    return std::isfinite(settings.exposure) && settings.exposure > 0.0F &&
            settings.exposure <= 100.0F && std::isfinite(settings.bloom_threshold) &&
            settings.bloom_threshold >= 0.0F && settings.bloom_threshold <= 100.0F &&
            std::isfinite(settings.bloom_intensity) && settings.bloom_intensity >= 0.0F &&
@@ -83,7 +84,7 @@ bool HdrPostProcessPass::initialize_resources()
     if (std::all_of(programs_.begin(), programs_.end(),
                     [](auto handle) { return bgfx::isValid(handle); }) &&
         bgfx::isValid(fullscreen_) && bgfx::isValid(black_) && bgfx::isValid(parameters_) &&
-        bgfx::isValid(texel_))
+        bgfx::isValid(texel_) && bgfx::isValid(output_))
     {
         return true;
     }
@@ -140,6 +141,7 @@ bool HdrPostProcessPass::initialize_resources()
     }
     parameters_ = bgfx::createUniform("u_hdr_params", bgfx::UniformType::Vec4);
     texel_ = bgfx::createUniform("u_hdr_texel", bgfx::UniformType::Vec4);
+    output_ = bgfx::createUniform("u_hdr_output", bgfx::UniformType::Vec4);
     struct Vertex
     {
         float x;
@@ -167,8 +169,8 @@ bool HdrPostProcessPass::initialize_resources()
     constexpr std::uint32_t black = 0;
     black_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8, linear_clamp,
                                    bgfx::copy(&black, sizeof(black)));
-    return bgfx::isValid(parameters_) && bgfx::isValid(texel_) && bgfx::isValid(fullscreen_) &&
-           bgfx::isValid(black_);
+    return bgfx::isValid(parameters_) && bgfx::isValid(texel_) && bgfx::isValid(output_) &&
+           bgfx::isValid(fullscreen_) && bgfx::isValid(black_);
 }
 
 bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled)
@@ -193,14 +195,21 @@ bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool
         height_ = height;
         color_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
                                        color_flags);
+        specular_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
+                                          color_flags);
+        final_color_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
+                                             color_flags | BGFX_TEXTURE_BLIT_DST);
         depth_ =
             bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D32F, depth_flags);
-        if (bgfx::isValid(color_) && bgfx::isValid(depth_))
+        if (bgfx::isValid(color_) && bgfx::isValid(depth_) && bgfx::isValid(specular_) &&
+            bgfx::isValid(final_color_))
         {
-            const std::array attachments = {color_, depth_};
-            framebuffer_ = bgfx::createFrameBuffer(2, attachments.data(), false);
+            const std::array attachments = {color_, specular_, depth_};
+            framebuffer_ = bgfx::createFrameBuffer(3, attachments.data(), false);
+            const std::array final_attachments = {final_color_, depth_};
+            final_framebuffer_ = bgfx::createFrameBuffer(2, final_attachments.data(), false);
         }
-        if (!bgfx::isValid(framebuffer_))
+        if (!bgfx::isValid(framebuffer_) || !bgfx::isValid(final_framebuffer_))
         {
             SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot allocate HDR scene target");
             release();
@@ -254,17 +263,34 @@ void HdrPostProcessPass::begin_scene(std::uint32_t clear_color)
             clear[index] = std::pow(clear[index], 2.2F);
         }
     }
+    clear[3] = 0.0F;
     bgfx::setPaletteColor(clear_palette, clear.data());
-    bgfx::setViewName(main_view, "HDR scene");
+    constexpr float black[] = {0, 0, 0, 0};
+    bgfx::setPaletteColor(1, black);
+    bgfx::setViewName(main_view, "Opaque scene and environment specular");
     bgfx::setViewFrameBuffer(main_view, framebuffer_);
     bgfx::setViewRect(main_view, 0, 0, width_, height_);
-    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 1.0F, 0, clear_palette);
+    bgfx::setViewClear(main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 1.0F, 0, clear_palette, 1);
     bgfx::touch(main_view);
 }
 
 bgfx::FrameBufferHandle HdrPostProcessPass::scene_framebuffer() const noexcept
 {
-    return framebuffer_;
+    return final_framebuffer_;
+}
+
+void HdrPostProcessPass::begin_transparency(bgfx::TextureHandle frozen_scene, const float* view,
+                                            const float* projection)
+{
+    bgfx::setViewName(scene_copy_view, "Freeze opaque scene for refraction");
+    bgfx::blit(scene_copy_view, final_color_, 0, 0, frozen_scene);
+    bgfx::setViewName(transparent_view, "Sorted transparent surfaces");
+    bgfx::setViewFrameBuffer(transparent_view, final_framebuffer_);
+    bgfx::setViewRect(transparent_view, 0, 0, width_, height_);
+    bgfx::setViewClear(transparent_view, BGFX_CLEAR_NONE);
+    bgfx::setViewTransform(transparent_view, view, projection);
+    bgfx::setViewMode(transparent_view, bgfx::ViewMode::Sequential);
+    bgfx::touch(transparent_view);
 }
 
 bool HdrPostProcessPass::resolve(const RenderSettings& settings)
@@ -285,6 +311,8 @@ bool HdrPostProcessPass::resolve(const RenderSettings& settings)
     const auto submit = [&](bgfx::ViewId view, std::size_t program, bgfx::TextureHandle source,
                             const std::array<float, 4>& texel)
     {
+        const float output[]{settings.hdr_enabled ? 1.0F : 0.0F, 0, 0, 0};
+        bgfx::setUniform(output_, output);
         bgfx::setUniform(parameters_, parameters);
         bgfx::setUniform(texel_, texel.data());
         bgfx::setTexture(0, samplers_[0], source, linear_clamp);
@@ -304,14 +332,14 @@ bool HdrPostProcessPass::resolve(const RenderSettings& settings)
                        settings.bloom_radius / bloom_heights_[1], 0.0F, 0.0F};
         set_post_view(hdr_bright_view, "Bloom bright extraction", bloom_framebuffers_[0],
                       bloom_widths_[0], bloom_heights_[0]);
-        submit(hdr_bright_view, 0, color_, {1.0F / width_, 1.0F / height_, 0.0F, 0.0F});
+        submit(hdr_bright_view, 0, final_color_, {1.0F / width_, 1.0F / height_, 0.0F, 0.0F});
         set_post_view(hdr_blur_view, "Bloom vertical blur", bloom_framebuffers_[1],
                       bloom_widths_[1], bloom_heights_[1]);
         submit(hdr_blur_view, 1, bloom_colors_[0], bloom_texel);
     }
     set_post_view(hdr_resolve_view, "HDR resolve and bloom horizontal blur", BGFX_INVALID_HANDLE,
                   width_, height_);
-    submit(hdr_resolve_view, 2, color_, bloom_texel);
+    submit(hdr_resolve_view, 2, final_color_, bloom_texel);
     return true;
 }
 
@@ -319,9 +347,13 @@ std::uint32_t HdrPostProcessPass::resource_count() const noexcept
 {
     std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(parameters_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(texel_)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(output_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(fullscreen_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(black_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(color_)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(specular_)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(final_color_)) +
+                          static_cast<std::uint32_t>(bgfx::isValid(final_framebuffer_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(depth_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(framebuffer_));
     for (auto handle : programs_)
@@ -375,7 +407,14 @@ void HdrPostProcessPass::release_targets() noexcept
         bgfx::destroy(framebuffer_);
         framebuffer_ = BGFX_INVALID_HANDLE;
     }
-    for (auto* handle : {&color_, &depth_})
+    if (bgfx::isValid(final_framebuffer_))
+    {
+        bgfx::setViewFrameBuffer(transparent_view, BGFX_INVALID_HANDLE);
+        bgfx::setViewFrameBuffer(extension_view, BGFX_INVALID_HANDLE);
+        bgfx::destroy(final_framebuffer_);
+        final_framebuffer_ = BGFX_INVALID_HANDLE;
+    }
+    for (auto* handle : {&color_, &specular_, &final_color_, &depth_})
     {
         if (bgfx::isValid(*handle))
         {
@@ -406,7 +445,7 @@ void HdrPostProcessPass::release() noexcept
             handle = BGFX_INVALID_HANDLE;
         }
     }
-    for (auto* handle : {&parameters_, &texel_})
+    for (auto* handle : {&parameters_, &texel_, &output_})
     {
         if (bgfx::isValid(*handle))
         {

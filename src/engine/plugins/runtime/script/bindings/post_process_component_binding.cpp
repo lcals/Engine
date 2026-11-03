@@ -24,6 +24,13 @@ export class PostProcessComponent extends Component {
         const h = handles.get(this);
         return native.PostProcessBloom(h.scene, h.node, enabled, threshold, intensity, radius);
     }
+    SetScreenSpaceReflections(enabled, resolutionScale = 0.5, maxSteps = 64,
+                              maxDistance = 80, thickness = 0.15, roughnessCutoff = 0.7) {
+        const h = handles.get(this);
+        return native.PostProcessScreenSpaceReflections(
+            h.scene, h.node, enabled, resolutionScale, maxSteps, maxDistance, thickness,
+            roughnessCutoff);
+    }
     SetAmbientOcclusion(enabled, radius = 1, strength = 1, power = 1.5,
                         fadeStart = 80, fadeEnd = 150) {
         const h = handles.get(this);
@@ -106,6 +113,28 @@ void bloom(const Arguments& arguments)
     }
 }
 
+void screen_space_reflections(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* node = BindingContext::node(arguments);
+    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 8 || !arguments.is_boolean(2) || !arguments.is_uint32(4) ||
+        arguments.unsigned_integer(4) > 256)
+    {
+        return;
+    }
+    auto settings = target->settings();
+    settings.ssr_enabled = arguments.boolean(2);
+    settings.ssr_max_steps = static_cast<std::uint16_t>(arguments.unsigned_integer(4));
+    if (BindingContext::scalar(arguments, 3, settings.ssr_resolution_scale) &&
+        BindingContext::scalar(arguments, 5, settings.ssr_max_distance) &&
+        BindingContext::scalar(arguments, 6, settings.ssr_thickness) &&
+        BindingContext::scalar(arguments, 7, settings.ssr_roughness_cutoff))
+    {
+        arguments.set_return(target->set_settings(settings));
+    }
+}
+
 void ambient_occlusion(const Arguments& arguments)
 {
     arguments.set_return(false);
@@ -144,6 +173,7 @@ bool PostProcessComponentBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("PostProcessAdd", add) && vm.function("PostProcessExposure", exposure) &&
            vm.function("PostProcessFilmicTonemap", filmic_tonemap) &&
            vm.function("PostProcessHdr", hdr) && vm.function("PostProcessBloom", bloom) &&
-           vm.function("PostProcessAmbientOcclusion", ambient_occlusion);
+           vm.function("PostProcessAmbientOcclusion", ambient_occlusion) &&
+           vm.function("PostProcessScreenSpaceReflections", screen_space_reflections);
 }
 } // namespace engine::plugins::script::bindings

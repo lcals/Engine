@@ -391,6 +391,8 @@ declare module "engine" {
         SetShader(path: string): boolean;
         SetCullMode(mode: "back" | "front" | "none"): boolean;
         GetCullMode(): "back" | "front" | "none" | null;
+        SetBlendMode(mode: "opaque" | "alpha_blend" | "premultiplied"): boolean;
+        GetBlendMode(): "opaque" | "alpha_blend" | "premultiplied" | null;
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
@@ -529,6 +531,10 @@ declare module "engine" {
             intensity?: number,
             radius?: number,
         ): boolean;
+        /** Scale [0.25,1], integer steps [8,256], distance (0,100000], thickness (0,10]. */
+        SetScreenSpaceReflections(enabled: boolean, resolutionScale?: number, maxSteps?: number,
+                                  maxDistance?: number, thickness?: number,
+                                  roughnessCutoff?: number): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         SetAmbientOcclusion(
@@ -540,12 +546,22 @@ declare module "engine" {
             fadeEnd?: number,
         ): boolean;
     }
+    /** Attach beside MeshRenderer; the node's local XZ plane defines the mirror. */
+    export class PlanarReflectionComponent extends Component {
+        private constructor();
+        SetSettings(resolutionScale?: number, clipBias?: number): boolean;
+    }
+    export class LightProbeVolumeComponent extends Component {
+        private constructor();
+        /** Empty path clears the resource; failure preserves the previous binding. */
+        SetResource(path: string): boolean;
+    }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
         SetDirectional(): boolean;
-        /** Directional lights only. Full atlas defaults to 2048, bias to 0.001; preserves cascades. */
+        /** Directional, point and spot shadows; resolution defaults to 2048, bias to 0.001. */
         SetShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
@@ -564,6 +580,11 @@ declare module "engine" {
         readonly material: Material;
         readonly materialCount: number;
         readonly castShadows: boolean;
+        readonly bakeStatic: boolean;
+        readonly lightmapPath: string | null;
+        SetBakeStatic(enabled: boolean): boolean;
+        /** Requires UV2 and a linear texture. Empty path clears the binding. */
+        SetLightmap(path: string): boolean;
         SetCastShadows(enabled: boolean): boolean;
         SetMesh(path: string): boolean;
         GetMaterial(slot: number): Material | null;

@@ -1,4 +1,8 @@
-# 开发与第三方依赖
+# 开发与维护
+
+[首页](../README.md) · [构建、测试与交付](building.md) · [验证范围与限制](testing.md) · [协作约定](../AGENTS.md)
+
+本页维护源码分层、第三方接入、CI 和格式约定。环境安装、根 Presets、依赖分组、交付目录及构建选项统一见[构建文档](building.md)。
 
 ## 源码与文档分层
 
@@ -8,23 +12,28 @@
 
 模块文档与独立类图分别归入 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/`、`docs/plugins/editor/`；统一入口是[类图索引](class-diagrams/index.md)，跨层关系见[完整引用关系](class-diagrams/references.md)。新增类型或移动职责时同步更新所属图及引用链接。
 
-## 跨平台构建
+## 目录
 
-根目录 `CMakePresets.json` 是 configure、build、test 的共同入口，推荐 `ninja-debug` / `ninja-release` workflow 将三步串联，环境安装与缓存说明统一见根 [README](../README.md#构建与测试)。`debug` / `release` 使用平台默认生成器。单配置生成器使用 `CMAKE_BUILD_TYPE`，多配置生成器由 build / test preset 的 `configuration` 选择同名配置。
+所有受版本管理的目录均使用小写；`CMakeLists.txt` 等标准文件名保持原样。
 
-平台专有的编译参数统一放在 `cmake/core/target_options.cmake`；只对本项目目标设置，不把警告参数传播给第三方依赖。公开的 C++20 要求通过目标依赖传递给使用方。
-
-如需显式选择编译器或生成器，在一个新的构建目录配置，避免复用不同工具链的 CMake 缓存，并将 vcpkg 工具链一并传入：
-
-```sh
-cmake -S . -B build/custom -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
-cmake --build build/custom
-ctest --test-dir build/custom --output-on-failure --no-tests=error
+```text
+.
+├── .github/workflows/  # Windows、Linux、macOS 的构建与测试 CI
+├── cmake/              # install/dependencies/plugins/core/editor/platforms 构建分工
+├── docs/               # 总说明及 runtime/editor/plugins/{runtime,editor} 文档与类图
+├── include/engine.d.ts  # 运行时虚拟 engine 模块的类型声明
+├── include/engine/     # runtime/editor/plugins/{runtime,editor} 公开头文件
+├── include/schemas/    # FlatBuffers 跨语言资源数据模型
+├── platforms/          # 桌面路径实现及 Android 入口、Gradle 与原生打包配置
+├── projects/showcase/  # 共用设置、缓存，内含方块、公寓与动画庭院场景
+├── references/         # 本地参考文件，内容不纳入 Git
+├── scripts/            # 宿主安装、TS 构建、MCP 客户端与 Android 打包工具
+├── src/engine/         # 与 include/engine 对应的基础与插件实现
+├── tests/              # C++ 与命令行测试
+└── third_party/        # Git 子模块、vcpkg overlay 与本地补丁
 ```
 
-此示例需要本机已有 Ninja 和 Clang；使用 MSVC + Ninja 时，从 Visual Studio Developer PowerShell 执行并改用 `cl`。机器专属设置可以写入未纳入版本管理的 `CMakeUserPresets.json`。
-
-GitHub CI 仅按用户明确要求手动触发，配置了 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试，并在 Debug 作业解析全部已选依赖的 vcpkg feature；可以在仓库 Actions 页面查看每次实际结果。
+`references/` 用于本地放置参考文件，内容不纳入 Git；文档不记录其中的私有内容。构建目录、IDE 缓存和机器专属 preset 已由 `.gitignore` 排除。私有项目、付费素材和私有参考按[协作约定](../AGENTS.md)保持本地隔离；公开上游依赖保留固定版本及许可。
 
 ## 插件与 CMake 分工
 
@@ -32,29 +41,11 @@ CMake 按 `install/`（环境、缓存和运行数据安装）、`dependencies/`
 
 每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖。`ENGINE_RUNTIME_PLUGINS` 与 `ENGINE_EDITOR_PLUGINS` 指定请求启用的插件，注册器解析依赖闭包；未选择且不在闭包中的插件不创建目标。宿主按实际目标装配，编辑器依赖不能由核心反向引入。插件类别与依赖关系见[插件说明](plugins/plugins.md)。这是构建期可选装配，不提供动态库热插拔。
 
-## 第三方依赖
+平台专有的编译参数统一放在 `cmake/core/target_options.cmake`；只对本项目目标设置，不把警告参数传播给第三方依赖。公开的 C++20 要求通过目标依赖传递给使用方。显式选择编译器或生成器时使用新的构建目录，命令见[自定义工具链](building.md#自定义工具链)。
 
-根目录 `vcpkg.json` 按用途划分可选 feature；`builtin-baseline` 和 `overrides` 固定 vcpkg 版本。默认 `debug` / `release` 构建窗口运行时及其系统依赖；`editor-deps` 增加编辑器与资源管线，`engine-debug` / `engine-release` 再增加默认 QuickJS 脚本插件。各系统通过真实 API 调用参与编译和链接，依赖集成测试实例化所有启用的系统；各领域功能的实际支持范围见所属模块文档。
+## 第三方依赖维护
 
-| 分组 | vcpkg feature | 依赖 |
-| --- | --- | --- |
-| 游戏运行时 | `runtime` | SDL3、bgfx、flecs、oneTBB、Jolt Physics、Recast Navigation、RmlUi、FlatBuffers、Basis Universal |
-| 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
-| 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
-| 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
-| 编辑器字体导入插件 | `font-import` | FreeType；仅选中 `font_import` 插件时加入 |
-| 脚本插件 QuickJS 后端 | `quickjs` | quickjs-ng；仅选中脚本插件且 `ENGINE_SCRIPT_BACKEND=quickjs` 时加入 |
-
-编辑器建模插件另使用固定 Git 子模块 xatlas；未选中该插件时不查找或编译建模第三方目标。
-
-RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已导入的曲线字体资源。FreeType 仅供离线字体导入插件使用，不进入运行时依赖和 Android 包。
-
-运行时还通过固定提交的 Git 子模块引入 ozz-animation 和可选 V8。ozz-animation 作为 CMake 子项目接入，关闭工具、示例与上游测试。脚本插件默认使用 vcpkg 的 quickjs-ng；`ENGINE_SCRIPT_BACKEND=v8` 才选择独立 GN 工作副本、准备和 `engine::v8` 导入目标，不再查找或链接 QuickJS。`ENGINE_ENABLE_V8` 保留给未装配脚本插件的独立 V8 验证。宿主脚本准备统一调用 `engine_script_prepare`，独立 V8 验证保留 `engine_v8_prepare`；命令与验证范围见根 [README](../README.md#脚本后端选择)。固定的 vcpkg baseline 中，V8 port 不支持 macOS 与 Linux，因此不能作为跨平台运行时依赖。
-
-桌面依赖 Preset 面向 Windows、macOS、Linux；Android 使用 `arm64-android-engine` overlay triplet 与独立安装目录。固定 baseline 的 `basisu` port 原本排除 Android / ARM，本仓库 overlay 增加 macOS ARM64 和 Android ARM64 支持；Android 关闭宿主工具但保留库。SDL3 在 Android 使用 PIC 静态库并安装同版 Java 入口，与所选 VM、NDK C++ 运行库及引擎一起合入唯一的 `libmain.so`。维护与验证说明见根 [README](../README.md#验证范围与限制)。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
-Basis Universal 通过同一 port 提供编码与转码库。编辑器图片导入器读取相邻 meta 的压缩、质量、色彩空间和 mip 参数生成 GUID 缓存，运行时按设备支持转码并创建纹理；参数与支持范围见根 README。
-
-需要验证依赖时先运行 `git submodule update --init`，再按需使用 `runtime-deps`、`asset-pipeline-deps` 或 `editor-deps` 的 configure / build / test Preset。编辑器 Preset 同时启用三个 feature；构建及 CTest 会验证相应系统与真实依赖的编译、链接和基本调用。
+依赖功能分组、共享安装与缓存策略见[依赖与缓存](building.md#依赖与缓存)。新增依赖必须进入实际使用目标的编译、链接和基本调用验证，不能仅登记或 `find_package` 成功。
 
 新增 vcpkg 依赖时，将其放入 `vcpkg.json` 对应 feature，并在 `cmake/dependencies/` 中查找包，再链接到实际使用的 CMake 目标。依赖的 CMake target 名称以该包的 vcpkg usage 输出为准。例如：
 
@@ -79,8 +70,34 @@ target_link_libraries(engine_resource PRIVATE example::example)
 
 新增补丁时记录其上游问题和移除条件；上游修复后删除本地覆盖并重新验证。
 
-## 测试与格式
+## CI
 
-`tests/` 使用 CTest 运行库单元测试和 CLI 测试。测试使用普通失败返回值，在 Release 中同样生效；新增业务通过正式接口验证。
+CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页面选择 `ci`，点击 Run workflow 并选择分支；提交、推送、创建或更新 PR、合并分支均不会自动运行 CI。助手只有在用户明确要求运行 CI 时才可手动触发。
 
-`.editorconfig` 统一文本编码与换行，`.clang-format`、`.cmake-format.json` 和 `pyproject.toml` 分别约束 C++、CMake 和 Python 格式。格式维护命令及适用范围统一见根 [README](../README.md#代码格式维护)。构建目录、IDE 缓存和机器专属 preset 已由 `.gitignore` 排除。
+工作流配置 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试，并在 Debug 作业解析全部已选依赖的 vcpkg feature。配置支持范围不等于运行结果；在 Actions 页面查看每次实际结果，本地验证记录见[验证范围与限制](testing.md)。
+
+## 测试约定
+
+`tests/` 使用 CTest 运行库单元测试和 CLI 测试。测试使用普通失败返回值，在 Release 中同样生效；新增业务通过正式接口验证，不为测试扩大正式接口可见性。按修改范围运行受影响的 Debug / Release 构建与 CTest，入口见[根目录 Presets](building.md#根目录-presets)。
+
+## 代码格式维护
+
+格式整理覆盖仓库自有代码、测试、工具、平台入口，以及 third_party 中的自有 CMake 接入与 triplet。上游 Git 子模块、overlay portfile、移植的上游覆盖文件、补丁内容和构建生成物保持各自格式，不纳入此范围。语言规则由根 `.clang-format`、`.editorconfig`、`.cmake-format.json` 和 `pyproject.toml` 统一维护；C++ 使用 Allman 大括号、4 空格缩进及 100 列，并为控制语句保留大括号。
+
+| 范围                                                                                      | 检查方式                                                                     |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `include/engine/`、`src/`、`tests/` 中的 C++ 与 `platforms/` 中自有 C++ / Java            | 将文件列表传给 `clang-format --dry-run --Werror`                             |
+| `scripts/`、`tests/` 中的 Python                                                          | `python3 -m black --check scripts tests`                                     |
+| 根 CMakeLists、`cmake/`、`tests/`、Android native_bundle、自有 third_party 接入与 triplet | 将这些自有 CMake 文件传给 `cmake-format --check`，排除 overlay、上游及生成物 |
+| TypeScript / JavaScript                                                                   | 使用下方 Prettier 命令                                                       |
+| 运行时和示例项目 Shader                                                                   | 按 `.editorconfig` 与现有 Shader 排版维护，并执行对应 Shader 编译            |
+| `include/schemas/` 中的 FlatBuffers schema                                                | 4 空格、UTF-8、LF；通过 flatc 生成验证语法                                   |
+| Android Gradle、Shell 与 PowerShell                                                       | 4 空格、UTF-8、LF、无行尾空白；保留各语言语法及现有行为                      |
+
+```sh
+prettier --check --tab-width 4 --print-width 100 include/engine.d.ts "projects/showcase/assets/scripts/**/*.ts" scripts/build_scripts.mjs tests/scene_schema_bridge.ts
+```
+
+Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎构建依赖；可在独立工具环境安装。格式检查不能替代命名、模块职责、返回值错误处理及资源释放顺序的代码审查，C++ 修改仍需 Debug / Release 构建和受影响的 CTest。
+
+项目采用 [MIT License](../LICENSE)。

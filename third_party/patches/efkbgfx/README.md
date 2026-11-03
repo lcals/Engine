@@ -21,6 +21,10 @@
   保持一致，均为 40 个实例；避免反射要求上传 40 项时读取旧版 20 项数组之外的数据。
 - Lit / Unlit 最终输出通过 `u_effects_output.x` 区分线性 HDR 与 gamma SDR；
   `SetOutputGamma` 逐次绘制设置该 uniform，作者参数与上游颜色计算保持原样。
+- 场景线性目标的 alpha 保存曝光权重，特效沿用原非 HDR 的不曝光贡献。
+  保持所有 RGB 混合：Opacity / Wireframe 的 alpha 以 ADD 和 ZERO/ZERO 清零；
+  Blend 使用 ZERO/INV_SRC_ALPHA 衰减已有权重；Add、Sub、Mul 使用 ZERO/ONE
+  保留目标权重，避免上游 ONE/ONE 累加污染权重。HDR 开启时最终映射忽略该权重。
 
 预定义 Sprite、Ribbon、Ring、Track 和 Model 渲染复用上游实现。
 Shader 使用子项目 `shaders/` 已生成的 bgfx 源码，由项目现有 shaderc 编译为

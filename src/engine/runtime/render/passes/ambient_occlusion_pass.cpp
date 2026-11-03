@@ -41,10 +41,12 @@ using AoUniforms = std::array<std::array<float, 4>, uniform_count>;
 
 bool make_uniforms(const CameraSettings& camera, const RenderSettings& settings,
                    const float* projection, std::uint16_t width, std::uint16_t height,
+                   std::uint16_t viewport_width, std::uint16_t viewport_height,
                    AoUniforms& uniforms)
 {
     uniforms = {};
-    if (projection == nullptr ||
+    if (width == 0 || height == 0 || viewport_width == 0 || viewport_height == 0 ||
+        projection == nullptr ||
         !std::all_of(projection, projection + 16,
                      [](float value) { return std::isfinite(value); }) ||
         !(projection[0] > 0.0F) || !(projection[5] > 0.0F) || !std::isfinite(camera.near_clip) ||
@@ -79,7 +81,10 @@ bool make_uniforms(const CameraSettings& camera, const RenderSettings& settings,
     const float projected_half_width = 1.0F / projection[0];
     const float projected_half_height = 1.0F / projection[5];
     const float y_direction = bgfx::getCaps()->originBottomLeft ? 1.0F : -1.0F;
-    uniforms[2] = {projected_half_width * 2.0F, projected_half_height * 2.0F * y_direction,
+    // Intermediate images are padded for the four depth mips. Pixel positions still belong
+    // to the original viewport; scale only the UV-to-view multiplier, never the projection.
+    uniforms[2] = {projected_half_width * 2.0F * width / viewport_width,
+                   projected_half_height * 2.0F * y_direction * height / viewport_height,
                    -projected_half_width, -projected_half_height * y_direction};
     uniforms[4] = {inverse_width * 2.0F, inverse_height * 2.0F, inverse_width * 0.5F,
                    inverse_height * 0.5F};
@@ -264,21 +269,17 @@ bool AmbientOcclusionPass::prepare(std::uint16_t width, std::uint16_t height)
         release();
         return false;
     }
-    if (width_ == aligned_width && height_ == aligned_height && bgfx::isValid(depth_framebuffer_))
+    if (viewport_width_ == width && viewport_height_ == height && bgfx::isValid(ao_))
     {
         return true;
     }
     release_textures();
+    viewport_width_ = width;
+    viewport_height_ = height;
     width_ = static_cast<std::uint16_t>(aligned_width);
     height_ = static_cast<std::uint16_t>(aligned_height);
     const auto half_width = static_cast<std::uint16_t>(width_ / 2);
     const auto half_height = static_cast<std::uint16_t>(height_ / 2);
-    depth_ = bgfx::createTexture2D(width_, height_, false, 1, bgfx::TextureFormat::D32F,
-                                   BGFX_TEXTURE_RT | point_clamp);
-    if (bgfx::isValid(depth_))
-    {
-        depth_framebuffer_ = bgfx::createFrameBuffer(1, &depth_, false);
-    }
     normals_ = bgfx::createTexture2D(width_, height_, false, 1, bgfx::TextureFormat::RGBA8,
                                      BGFX_TEXTURE_COMPUTE_WRITE);
     for (auto& handle : half_depths_)
@@ -295,10 +296,9 @@ bool AmbientOcclusionPass::prepare(std::uint16_t width, std::uint16_t height)
     final_results_ =
         bgfx::createTexture2D(half_width, half_height, false, 4, bgfx::TextureFormat::RG8,
                               BGFX_TEXTURE_COMPUTE_WRITE | linear_clamp);
-    ao_ = bgfx::createTexture2D(width_, height_, false, 1, bgfx::TextureFormat::R8,
-                                BGFX_TEXTURE_COMPUTE_WRITE | point_clamp);
-    if (!bgfx::isValid(depth_framebuffer_) || !bgfx::isValid(normals_) ||
-        !bgfx::isValid(final_results_) || !bgfx::isValid(ao_) ||
+    ao_ = bgfx::createTexture2D(viewport_width_, viewport_height_, false, 1,
+                                bgfx::TextureFormat::R8, BGFX_TEXTURE_COMPUTE_WRITE | point_clamp);
+    if (!bgfx::isValid(normals_) || !bgfx::isValid(final_results_) || !bgfx::isValid(ao_) ||
         !std::all_of(half_depths_.begin(), half_depths_.end(),
                      [](auto handle) { return bgfx::isValid(handle); }) ||
         !std::all_of(ping_pong_.begin(), ping_pong_.end(),
@@ -311,23 +311,14 @@ bool AmbientOcclusionPass::prepare(std::uint16_t width, std::uint16_t height)
     return true;
 }
 
-void AmbientOcclusionPass::begin_depth(const float* view, const float* projection)
-{
-    bgfx::setViewName(ambient_occlusion_depth_view, "ASSAO camera depth");
-    bgfx::setViewFrameBuffer(ambient_occlusion_depth_view, depth_framebuffer_);
-    bgfx::setViewRect(ambient_occlusion_depth_view, 0, 0, width_, height_);
-    bgfx::setViewClear(ambient_occlusion_depth_view, BGFX_CLEAR_DEPTH, 0, 1.0F, 0);
-    bgfx::setViewTransform(ambient_occlusion_depth_view, view, projection);
-    bgfx::touch(ambient_occlusion_depth_view);
-}
-
 bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSettings& settings,
-                                   const float* projection)
+                                   const float* projection, bgfx::TextureHandle source_depth)
 {
     ENGINE_PROFILE_ZONE("Render.aoComputeSubmit");
     AoUniforms uniforms;
-    if (width_ == 0 || height_ == 0 || !bgfx::isValid(ao_) ||
-        !make_uniforms(camera, settings, projection, width_, height_, uniforms))
+    if (width_ == 0 || height_ == 0 || !bgfx::isValid(ao_) || !bgfx::isValid(source_depth) ||
+        !make_uniforms(camera, settings, projection, width_, height_, viewport_width_,
+                       viewport_height_, uniforms))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "ASSAO projection or settings are invalid");
         return false;
@@ -342,7 +333,7 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
     bgfx::setViewFrameBuffer(ambient_occlusion_compute_view, BGFX_INVALID_HANDLE);
     bgfx::setViewMode(ambient_occlusion_compute_view, bgfx::ViewMode::Sequential);
     bgfx::setUniform(parameters_, uniforms.data(), uniform_count);
-    bgfx::setTexture(0, samplers_[depth_sampler], depth_, point_clamp);
+    bgfx::setTexture(0, samplers_[depth_sampler], source_depth, point_clamp);
     for (std::uint8_t index = 0; index < half_depths_.size(); ++index)
     {
         bgfx::setImage(static_cast<std::uint8_t>(index + 1), half_depths_[index], 0,
@@ -398,13 +389,14 @@ bool AmbientOcclusionPass::compute(const CameraSettings& camera, const RenderSet
                            half_groups_y);
         }
     }
-    const float full_rect[] = {0.0F, 0.0F, static_cast<float>(width_), static_cast<float>(height_)};
+    const float full_rect[] = {0.0F, 0.0F, static_cast<float>(viewport_width_),
+                               static_cast<float>(viewport_height_)};
     bgfx::setUniform(parameters_, uniforms.data(), uniform_count);
     bgfx::setUniform(rectangle_, full_rect);
     bgfx::setTexture(1, samplers_[final_sampler], final_results_, linear_clamp);
     bgfx::setImage(0, ao_, 0, bgfx::Access::Write, bgfx::TextureFormat::R8);
-    bgfx::dispatch(ambient_occlusion_compute_view, programs_[apply_program], (width_ + 7U) / 8U,
-                   (height_ + 7U) / 8U);
+    bgfx::dispatch(ambient_occlusion_compute_view, programs_[apply_program],
+                   (viewport_width_ + 7U) / 8U, (viewport_height_ + 7U) / 8U);
     return true;
 }
 
@@ -417,8 +409,6 @@ std::uint32_t AmbientOcclusionPass::resource_count() const noexcept
 {
     std::uint32_t count = static_cast<std::uint32_t>(bgfx::isValid(parameters_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(rectangle_)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(depth_framebuffer_)) +
-                          static_cast<std::uint32_t>(bgfx::isValid(depth_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(normals_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(final_results_)) +
                           static_cast<std::uint32_t>(bgfx::isValid(ao_));
@@ -443,13 +433,7 @@ std::uint32_t AmbientOcclusionPass::resource_count() const noexcept
 
 void AmbientOcclusionPass::release_textures() noexcept
 {
-    if (bgfx::isValid(depth_framebuffer_))
-    {
-        bgfx::setViewFrameBuffer(ambient_occlusion_depth_view, BGFX_INVALID_HANDLE);
-        bgfx::destroy(depth_framebuffer_);
-        depth_framebuffer_ = BGFX_INVALID_HANDLE;
-    }
-    for (auto* handle : {&depth_, &normals_, &final_results_, &ao_})
+    for (auto* handle : {&normals_, &final_results_, &ao_})
     {
         if (bgfx::isValid(*handle))
         {
@@ -475,6 +459,8 @@ void AmbientOcclusionPass::release_textures() noexcept
     }
     width_ = 0;
     height_ = 0;
+    viewport_width_ = 0;
+    viewport_height_ = 0;
 }
 
 void AmbientOcclusionPass::release() noexcept

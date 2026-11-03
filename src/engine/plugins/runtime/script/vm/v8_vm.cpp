@@ -715,6 +715,66 @@ public:
         return true;
     }
 
+    bool execute_script(const ProjectScriptRequest& request, std::string& result_json) override
+    {
+        result_json.clear();
+        error_.clear();
+        if (!ready() || gameplay_.IsEmpty() || script_executing_ ||
+            script_serial_ == std::numeric_limits<std::uint64_t>::max() ||
+            request.javascript.size() > maximum_project_script_size ||
+            request.arguments_json.size() > maximum_project_script_size)
+        {
+            return fail("Project script requires an active VM and bounded source/arguments");
+        }
+        v8::Isolate::Scope isolate_scope(isolate_);
+        v8::HandleScope handles(isolate_);
+        const auto context = context_.Get(isolate_);
+        v8::Context::Scope context_scope(context);
+        v8::TryCatch caught(isolate_);
+        v8::Local<v8::String> source;
+        v8::Local<v8::String> name;
+        v8::Local<v8::String> arguments;
+        if (!js_string(isolate_, project_script_wrapper(request.javascript)).ToLocal(&source) ||
+            !js_string(isolate_, request.module_path).ToLocal(&name) ||
+            !js_string(isolate_, request.arguments_json).ToLocal(&arguments))
+        {
+            return exception(caught, "Cannot prepare temporary project script source");
+        }
+        const v8::ScriptOrigin origin(name);
+        v8::ScriptCompiler::Source input(source, origin);
+        v8::Local<v8::Script> compiled;
+        v8::Local<v8::Value> function;
+        v8::Local<v8::Function> require;
+        if (!v8::ScriptCompiler::Compile(context, &input).ToLocal(&compiled) ||
+            !compiled->Run(context).ToLocal(&function) || !function->IsFunction() ||
+            !v8::Function::New(context, require_cached_module,
+                               v8::BigInt::NewFromUnsigned(isolate_, ++script_serial_))
+                 .ToLocal(&require))
+        {
+            return exception(caught, "Cannot compile temporary project script");
+        }
+        script_path_ = request.module_path;
+        script_executing_ = true;
+        v8::Local<v8::Value> values[] = {require, gameplay_.Get(isolate_), arguments};
+        v8::Local<v8::Value> result;
+        const bool success = function.As<v8::Function>()
+                                 ->Call(context, v8::Undefined(isolate_), 3, values)
+                                 .ToLocal(&result);
+        script_executing_ = false;
+        script_path_.clear();
+        if (!success || !result->IsString())
+        {
+            return exception(caught, "Project script execution failed");
+        }
+        auto text = value_text(isolate_, result);
+        if (text.empty() || text.size() > maximum_project_script_size)
+        {
+            return fail("Project script JSON result exceeds 256 KiB");
+        }
+        result_json = std::move(text);
+        return true;
+    }
+
     const std::string& last_error() const noexcept override
     {
         return error_;
@@ -726,6 +786,46 @@ public:
     }
 
 private:
+    static void require_cached_module(const v8::FunctionCallbackInfo<v8::Value>& arguments)
+    {
+        auto* isolate = arguments.GetIsolate();
+        auto* machine = static_cast<V8Vm*>(isolate->GetData(0));
+        bool lossless = false;
+        const auto serial = arguments.Data()->IsBigInt()
+                                ? arguments.Data().As<v8::BigInt>()->Uint64Value(&lossless)
+                                : 0;
+        const auto reject = [isolate](const std::string& error)
+        {
+            v8::Local<v8::String> message;
+            if (js_string(isolate, error).ToLocal(&message))
+            {
+                isolate->ThrowException(v8::Exception::TypeError(message));
+            }
+        };
+        if (machine == nullptr || !machine->script_executing_ || !lossless ||
+            serial != machine->script_serial_ || arguments.Length() != 1 ||
+            !arguments[0]->IsString())
+        {
+            reject("Temporary require is outside its execution window");
+            return;
+        }
+        const auto request = value_text(isolate, arguments[0]);
+        std::string path;
+        if (!resolve_module_path(machine->script_path_, request, path))
+        {
+            reject("Unsupported project script import: " + request);
+            return;
+        }
+        const auto found = machine->modules_.find(path);
+        if (found == machine->modules_.end() ||
+            found->second.Get(isolate)->GetStatus() != v8::Module::kEvaluated)
+        {
+            reject("Module is not loaded in the active Run: " + path);
+            return;
+        }
+        arguments.GetReturnValue().Set(found->second.Get(isolate)->GetModuleNamespace());
+    }
+
     struct Rejection
     {
         v8::Global<v8::Promise> promise;
@@ -913,7 +1013,7 @@ private:
     {
         auto* isolate = v8::Isolate::GetCurrent();
         auto* vm = static_cast<V8Vm*>(isolate->GetData(0));
-        if (vm != nullptr)
+        if (vm != nullptr && !vm->script_executing_)
         {
             vm->async_error_ = "Dynamic import is not supported";
         }
@@ -971,6 +1071,9 @@ private:
     std::string entry_;
     std::string error_;
     std::string async_error_;
+    std::string script_path_;
+    std::uint64_t script_serial_ = 0;
+    bool script_executing_ = false;
     bool sealed_ = false;
     bool prepared_ = false;
 };

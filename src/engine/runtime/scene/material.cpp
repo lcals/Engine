@@ -96,6 +96,10 @@ bool load_textures(const Resource& shader, const schema::MaterialDataT* material
     }
     for (const auto& sampler : shader.shader()->samplers)
     {
+        if (sampler->source != schema::ShaderTextureSource::resource)
+        {
+            continue;
+        }
         std::string path = sampler->default_texture;
         if (material && sampler->exposed)
         {
@@ -152,7 +156,7 @@ bool Material::has_overrides() const noexcept
     const auto* shader = shader_data();
     if (material == nullptr || shader == nullptr || data_.type_path != material->type_path ||
         data_.shader_path != material->shader_path || shader->path != material->shader_path ||
-        data_.cull_mode != material->cull_mode)
+        data_.cull_mode != material->cull_mode || data_.blend_mode != material->blend_mode)
     {
         return true;
     }
@@ -169,20 +173,23 @@ bool Material::has_overrides() const noexcept
             continue;
         }
         ++parameter_count;
-        const auto source = std::find_if(
-            material->parameters.begin(), material->parameters.end(),
-            [&definition](const auto& item) { return item && item->name == definition->name; });
-        const auto& expected = source == material->parameters.end() ? definition->default_value
-                                                                   : (*source)->value;
+        const auto source = std::find_if(material->parameters.begin(), material->parameters.end(),
+                                         [&definition](const auto& item)
+                                         { return item && item->name == definition->name; });
+        const auto& expected =
+            source == material->parameters.end() ? definition->default_value : (*source)->value;
         const auto* current = find_parameter(definition->name, expected.type);
         if (current == nullptr || expected.value == nullptr || current->value != expected)
         {
             return true;
         }
     }
+    const auto resource_sampler_count = static_cast<std::size_t>(std::count_if(
+        shader->samplers.begin(), shader->samplers.end(), [](const auto& sampler)
+        { return sampler && sampler->source == schema::ShaderTextureSource::resource; }));
     if (parameter_count != data_.parameters.size() ||
-        data_.textures.size() != shader->samplers.size() ||
-        textures_.size() != shader->samplers.size())
+        data_.textures.size() != resource_sampler_count ||
+        textures_.size() != resource_sampler_count)
     {
         return true;
     }
@@ -193,20 +200,24 @@ bool Material::has_overrides() const noexcept
         {
             return true;
         }
+        if (sampler->source != schema::ShaderTextureSource::resource)
+        {
+            continue;
+        }
         std::string_view expected = sampler->default_texture;
         if (sampler->exposed)
         {
-            const auto source = std::find_if(
-                material->textures.begin(), material->textures.end(),
-                [&sampler](const auto& item) { return item && item->name == sampler->name; });
+            const auto source = std::find_if(material->textures.begin(), material->textures.end(),
+                                             [&sampler](const auto& item)
+                                             { return item && item->name == sampler->name; });
             if (source != material->textures.end())
             {
                 expected = (*source)->texture_path;
             }
         }
-        const auto current = std::find_if(
-            data_.textures.begin(), data_.textures.end(),
-            [&sampler](const auto& item) { return item && item->name == sampler->name; });
+        const auto current =
+            std::find_if(data_.textures.begin(), data_.textures.end(), [&sampler](const auto& item)
+                         { return item && item->name == sampler->name; });
         const auto& resource = texture(sampler->name);
         if (current == data_.textures.end() || (*current)->texture_path != expected || !resource ||
             resource->info().path != expected)
@@ -240,6 +251,7 @@ bool Material::set_type(std::string_view path)
     }
     auto replacement = shader_defaults(definition->type_path, *shader);
     replacement.cull_mode = definition->cull_mode;
+    replacement.blend_mode = definition->blend_mode;
     for (const auto& parameter : definition->parameters)
     {
         const auto destination =
@@ -305,6 +317,7 @@ bool Material::set_shader(std::string_view path)
     }
     auto replacement = shader_defaults(data_.type_path, *shader);
     replacement.cull_mode = data_.cull_mode;
+    replacement.blend_mode = data_.blend_mode;
     std::map<std::string, ResourcePtr, std::less<>> textures;
     if (!load_textures(*shader, nullptr, replacement, textures))
     {
@@ -332,13 +345,29 @@ bool Material::set_cull_mode(schema::CullMode mode) noexcept
     return true;
 }
 
+schema::BlendMode Material::blend_mode() const noexcept
+{
+    return data_.blend_mode;
+}
+
+bool Material::set_blend_mode(schema::BlendMode mode) noexcept
+{
+    if (mode < schema::BlendMode::MIN || mode > schema::BlendMode::MAX)
+    {
+        return false;
+    }
+    data_.blend_mode = mode;
+    return true;
+}
+
 bool Material::set_texture(std::string_view name, std::string_view path)
 {
     const auto* sampler = find_sampler(shader_resource_, name);
     auto* resources = ResourceSystem::instance();
     Guid guid;
     ResourcePtr replacement;
-    if (!sampler || !sampler->exposed || !resources || !ResourceSystem::path_to_guid(path, guid) ||
+    if (!sampler || sampler->source != schema::ShaderTextureSource::resource || !sampler->exposed ||
+        !resources || !ResourceSystem::path_to_guid(path, guid) ||
         !resources->loader().load(guid, replacement) || !replacement->texture() ||
         replacement->texture()->cube_map)
     {

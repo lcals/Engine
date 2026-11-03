@@ -28,6 +28,16 @@ public:
     // clear_color 沿用显示空间 RGBA8 语义，解码为线性值后参与统一曝光和色调映射。
     void begin_scene(std::uint32_t clear_color);
     [[nodiscard]] bgfx::FrameBufferHandle scene_framebuffer() const noexcept;
+    [[nodiscard]] bgfx::TextureHandle opaque_color() const noexcept
+    {
+        return color_;
+    }
+    [[nodiscard]] bgfx::TextureHandle opaque_specular() const noexcept
+    {
+        return specular_;
+    }
+    void begin_transparency(bgfx::TextureHandle frozen_scene, const float* view,
+                            const float* projection);
     [[nodiscard]] bool resolve(const RenderSettings& settings);
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
     void release() noexcept;
@@ -42,9 +52,13 @@ private:
     std::array<bgfx::UniformHandle, 2> samplers_ = {{BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
     bgfx::UniformHandle parameters_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle texel_ = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle output_ = BGFX_INVALID_HANDLE;
     bgfx::VertexBufferHandle fullscreen_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle black_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle color_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle specular_ = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle final_color_ = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle final_framebuffer_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle framebuffer_ = BGFX_INVALID_HANDLE;
     std::array<bgfx::TextureHandle, 2> bloom_colors_ = {{BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};

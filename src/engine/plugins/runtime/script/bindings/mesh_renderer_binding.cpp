@@ -20,6 +20,18 @@ export class MeshRenderer extends Component {
     SetCastShadows(enabled) {
         const h = handles.get(this); return native.MeshRendererSetCastShadows(h.scene, h.node, enabled);
     }
+    get bakeStatic() {
+        const h = handles.get(this); return native.MeshRendererBakeStatic(h.scene, h.node);
+    }
+    SetBakeStatic(enabled) {
+        const h = handles.get(this); return native.MeshRendererSetBakeStatic(h.scene, h.node, enabled);
+    }
+    get lightmapPath() {
+        const h = handles.get(this); return native.MeshRendererLightmapPath(h.scene, h.node);
+    }
+    SetLightmap(path) {
+        const h = handles.get(this); return native.MeshRendererSetLightmap(h.scene, h.node, path);
+    }
     get materialCount() {
         const h = handles.get(this); return native.MeshRendererMaterialCount(h.scene, h.node);
     }
@@ -81,6 +93,41 @@ void set_cast_shadows(const Arguments& arguments)
     }
 }
 
+void bake_static(const Arguments& arguments)
+{
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    arguments.set_return(mesh && arguments.count() == 2 && mesh->bake_static());
+}
+
+void set_bake_static(const Arguments& arguments)
+{
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    arguments.set_return(mesh && arguments.count() == 3 && arguments.is_boolean(2) &&
+                         mesh->set_bake_static(arguments.boolean(2)));
+}
+
+void lightmap_path(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    if (mesh && arguments.count() == 2)
+    {
+        arguments.set_return(mesh->lightmap_path());
+    }
+}
+
+void set_lightmap(const Arguments& arguments)
+{
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    std::string path;
+    arguments.set_return(mesh && arguments.count() == 3 &&
+                         BindingContext::text(arguments, 2, path) && mesh->set_lightmap(path));
+}
+
 void set_material_count(const Arguments& arguments)
 {
     auto* node = BindingContext::node(arguments);
@@ -106,6 +153,10 @@ bool MeshRendererBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("MeshRendererAdd", add) && vm.function("MeshRendererMesh", mesh) &&
            vm.function("MeshRendererCastShadows", cast_shadows) &&
            vm.function("MeshRendererSetCastShadows", set_cast_shadows) &&
+           vm.function("MeshRendererBakeStatic", bake_static) &&
+           vm.function("MeshRendererSetBakeStatic", set_bake_static) &&
+           vm.function("MeshRendererLightmapPath", lightmap_path) &&
+           vm.function("MeshRendererSetLightmap", set_lightmap) &&
            vm.function("MeshRendererMaterialCount", material_count) &&
            vm.function("MeshRendererSetMaterialCount", set_material_count);
 }

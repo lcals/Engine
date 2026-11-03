@@ -25,6 +25,8 @@ bgfx::VertexLayout GpuGeometry::vertex_layout()
         .add(bgfx::Attrib::Tangent, 4, bgfx::AttribType::Float)
         .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
         .add(bgfx::Attrib::Color0, 4, bgfx::AttribType::Float)
+        .add(bgfx::Attrib::TexCoord1, 2, bgfx::AttribType::Float)
+        .skip(2 * sizeof(float))
         .end();
     return layout;
 }
@@ -48,6 +50,8 @@ bool GpuGeometry::pack_vertices(const schema::MeshDataT& data,
         const auto& source = positions[index];
         const auto& tangent = tangents[index];
         const auto uv = data.texcoords.empty() ? schema::Vec2{} : data.texcoords[index];
+        const auto lightmap_uv =
+            data.lightmap_texcoords.empty() ? schema::Vec2{} : data.lightmap_texcoords[index];
         const auto color = data.colors.empty() ? schema::Color{1, 1, 1, 1} : data.colors[index];
         const double normal_length =
             std::hypot(static_cast<double>(source.nx()), static_cast<double>(source.ny()),
@@ -78,7 +82,9 @@ bool GpuGeometry::pack_vertices(const schema::MeshDataT& data,
                           static_cast<float>(orthogonal[2] / tangent_length),
                           static_cast<float>(tangent.w())},
                          {static_cast<float>(uv.x()), static_cast<float>(uv.y())},
-                         {color.r(), color.g(), color.b(), color.a()}};
+                         {color.r(), color.g(), color.b(), color.a()},
+                         {static_cast<float>(lightmap_uv.x()), static_cast<float>(lightmap_uv.y())},
+                         {}};
         for (std::size_t axis = 0; axis < 3; ++axis)
         {
             minimum[axis] = std::min(minimum[axis], packed[index].position[axis]);

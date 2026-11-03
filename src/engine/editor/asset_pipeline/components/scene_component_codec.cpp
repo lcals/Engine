@@ -3,7 +3,9 @@
 #include "editor/asset_pipeline/components/camera_codec.hpp"
 #include "editor/asset_pipeline/components/environment_codec.hpp"
 #include "editor/asset_pipeline/components/light_codec.hpp"
+#include "editor/asset_pipeline/components/light_probe_volume_codec.hpp"
 #include "editor/asset_pipeline/components/mesh_renderer_codec.hpp"
+#include "editor/asset_pipeline/components/planar_reflection_codec.hpp"
 #include "editor/asset_pipeline/components/post_process_codec.hpp"
 #include "editor/asset_pipeline/components/transform_codec.hpp"
 
@@ -33,7 +35,7 @@ std::vector<std::unique_ptr<SceneComponentCodec>>& extensions()
     return entries;
 }
 
-const std::array<const SceneComponentCodec*, 14>& codecs()
+const std::array<const SceneComponentCodec*, 16>& codecs()
 {
     static const UiCodec ui;
     static const TextCodec text;
@@ -49,10 +51,25 @@ const std::array<const SceneComponentCodec*, 14>& codecs()
     static const AudioListenerCodec audio_listener;
     static const EnvironmentCodec environment;
     static const PostProcessCodec post_process;
+    static const PlanarReflectionCodec planar_reflection;
+    static const LightProbeVolumeCodec light_probe_volume;
 
-    static const std::array<const SceneComponentCodec*, 14> entries{
-        &ui,   &text,     &motor,      &animator,     &transform,      &camera,      &light,
-        &mesh, &collider, &rigid_body, &audio_source, &audio_listener, &environment, &post_process};
+    static const std::array<const SceneComponentCodec*, 16> entries{&ui,
+                                                                    &text,
+                                                                    &motor,
+                                                                    &animator,
+                                                                    &transform,
+                                                                    &camera,
+                                                                    &light,
+                                                                    &mesh,
+                                                                    &collider,
+                                                                    &rigid_body,
+                                                                    &audio_source,
+                                                                    &audio_listener,
+                                                                    &environment,
+                                                                    &post_process,
+                                                                    &planar_reflection,
+                                                                    &light_probe_volume};
     return entries;
 }
 

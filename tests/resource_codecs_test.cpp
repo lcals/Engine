@@ -235,20 +235,56 @@ bool codec_tests()
     }
 
     schema::ShaderDataT sampler_boundary(*builtin_shader);
-    sampler_boundary.samplers.front()->stage = 10;
+    sampler_boundary.samplers.resize(1);
+    sampler_boundary.samplers.front()->stage = 4;
     if (!expect(ShaderResourceCodec::validate(sampler_boundary),
-                "material sampler slot 10 remains available"))
+                "material sampler slot 4 remains available"))
     {
         return false;
     }
-    for (std::uint8_t stage = 11; stage < 16; ++stage)
+    for (std::uint8_t stage = 5; stage < 16; ++stage)
     {
         sampler_boundary.samplers.front()->stage = stage;
         if (!expect(!ShaderResourceCodec::validate(sampler_boundary),
-                    "material samplers cannot occupy AO, IBL or shadow slots"))
+                    "material samplers cannot occupy engine frame resource slots"))
         {
             return false;
         }
+    }
+
+    auto& dynamic_sampler = *sampler_boundary.samplers.front();
+    dynamic_sampler.source = schema::ShaderTextureSource::scene_color;
+    dynamic_sampler.stage = 9;
+    dynamic_sampler.default_texture.clear();
+    dynamic_sampler.exposed = false;
+    if (!expect(ShaderResourceCodec::validate(sampler_boundary),
+                "scene color uses its fixed slot without an asset dependency"))
+    {
+        return false;
+    }
+    dynamic_sampler.stage = 8;
+    if (!expect(!ShaderResourceCodec::validate(sampler_boundary),
+                "scene color cannot occupy the planar reflection slot"))
+    {
+        return false;
+    }
+    dynamic_sampler.source = schema::ShaderTextureSource::planar_reflection;
+    if (!expect(ShaderResourceCodec::validate(sampler_boundary), "planar reflection uses slot 8"))
+    {
+        return false;
+    }
+    dynamic_sampler.exposed = true;
+    if (!expect(!ShaderResourceCodec::validate(sampler_boundary),
+                "dynamic scene inputs cannot be overridden as resource textures"))
+    {
+        return false;
+    }
+    dynamic_sampler.exposed = false;
+    dynamic_sampler.default_texture = "builtin://textures/white";
+    if (!expect(!ShaderResourceCodec::validate(sampler_boundary),
+                "dynamic scene inputs cannot declare a fallback asset dependency"))
+    {
+        return false;
     }
 
     // Catalog 和信封有效，但各类型实体错误；加载不能发布部分候选。

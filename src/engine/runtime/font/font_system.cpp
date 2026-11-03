@@ -612,9 +612,11 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
                                   settings.linear_output ? 1.0F : 0.0F, 0.0F};
     bgfx::setUniform(gpu_->texture_info, texture_info);
     bgfx::setTexture(0, gpu_->sampler, texture->handle);
-    std::uint64_t state =
-        BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
-        BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
+    std::uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
+                          BGFX_STATE_BLEND_FUNC_SEPARATE(
+                              BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA,
+                              settings.linear_output ? BGFX_STATE_BLEND_ZERO : BGFX_STATE_BLEND_ONE,
+                              BGFX_STATE_BLEND_INV_SRC_ALPHA);
     if (settings.depth_test)
     {
         state |= BGFX_STATE_DEPTH_TEST_LEQUAL;

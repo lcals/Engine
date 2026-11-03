@@ -8,7 +8,9 @@
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/rigid_body.hpp"
 #include "runtime/scene/text_component.hpp"
@@ -36,7 +38,8 @@ bool register_scene_components(ComponentRegistry& registry)
            registry.add<AudioSource>() && registry.add<AudioListener>() &&
            registry.add<Animator>() && registry.add<CharacterMotor>() &&
            registry.add<UiComponent>() && registry.add<TextComponent>() &&
-           registry.add<EnvironmentComponent>() && registry.add<PostProcessComponent>();
+           registry.add<EnvironmentComponent>() && registry.add<PostProcessComponent>() &&
+           registry.add<PlanarReflectionComponent>() && registry.add<LightProbeVolumeComponent>();
 }
 
 } // namespace engine

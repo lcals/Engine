@@ -1,7 +1,8 @@
 #pragma once
 
-#include "runtime/frame_status.hpp"
 #include "runtime/app/runtime_parallel_config.hpp"
+#include "runtime/frame_status.hpp"
+#include "runtime/window/window_system.hpp"
 
 #include <memory>
 
@@ -65,12 +66,15 @@ public:
     [[nodiscard]] FrameStatus tick(double delta_time);
     // 单独处理事件并发布输入，供不推进世界的宿主流程使用；每帧与 tick 二选一。
     [[nodiscard]] FrameStatus poll_events(double delta_time);
+    // Borrowed, main-thread notification before normal native event routing. Cannot consume input.
+    void set_event_observer(WindowEventHandler observer, void* context) noexcept;
     // 返回借用；仅在本宿主初始化成功至关闭前有效，其他状态返回空。
     [[nodiscard]] GameplaySession* gameplay() noexcept;
     [[nodiscard]] WorldSystem* world() noexcept;
     [[nodiscard]] WindowSystem* window() noexcept;
     [[nodiscard]] InputSystem* input() noexcept;
     [[nodiscard]] RenderSystem* renderer() noexcept;
+    [[nodiscard]] UiSystem* ui() noexcept;
     // 返回本宿主独占任务域的借用，仅初始化成功至关闭前有效。
     [[nodiscard]] TaskSystem* tasks() noexcept;
     void request_exit() noexcept;
@@ -101,6 +105,8 @@ private:
     bool initialized_ = false;
     bool exit_requested_ = false;
     bool failed_ = false;
+    WindowEventHandler event_observer_ = nullptr;
+    void* event_observer_context_ = nullptr;
 };
 
 } // namespace engine

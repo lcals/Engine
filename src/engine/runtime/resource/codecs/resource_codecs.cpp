@@ -1,4 +1,5 @@
 #include "runtime/resource/codecs/font_resource_codec.hpp"
+#include "runtime/resource/codecs/light_probe_resource_codec.hpp"
 #include "runtime/resource/codecs/ui_resource_codec.hpp"
 #include "runtime/resource/resource_codec.hpp"
 
@@ -36,6 +37,7 @@ const ShaderResourceCodec shader;
 const TextureResourceCodec texture;
 const FontResourceCodec font;
 const UiResourceCodec ui;
+const LightProbeResourceCodec light_probe;
 
 struct CodecEntry
 {
@@ -61,6 +63,7 @@ const std::array registrations = {
     CodecEntry{schema::AssetKind::terrain, &binary},
     CodecEntry{schema::AssetKind::destruction, &binary},
     CodecEntry{schema::AssetKind::json, &binary},
+    CodecEntry{schema::AssetKind::light_probe, &light_probe},
 };
 
 } // namespace

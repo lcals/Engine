@@ -1,6 +1,8 @@
 #include "runtime/scene/mesh_renderer.hpp"
 
 #include "runtime/resource/resource_system.hpp"
+#include "runtime/scene/node.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <algorithm>
@@ -102,6 +104,90 @@ void MeshRenderer::set_cast_shadows(bool enabled) noexcept
     mutable_data().payload.AsMeshRendererData()->cast_shadows = enabled;
 }
 
+bool MeshRenderer::bake_static() const noexcept
+{
+    return data().payload.AsMeshRendererData()->bake_static;
+}
+
+bool MeshRenderer::set_bake_static(bool enabled) noexcept
+{
+    if (enabled &&
+        (skin_joint_count_ != 0 || !deformed_vertices_.empty() || !skinning_palette_.empty()))
+    {
+        return false;
+    }
+    mutable_data().payload.AsMeshRendererData()->bake_static = enabled;
+    return true;
+}
+
+std::shared_ptr<const Resource> MeshRenderer::lightmap_resource() const noexcept
+{
+    const auto& settings = *data().payload.AsMeshRendererData();
+    const auto* mesh = mesh_data();
+    const auto* transform = node().get_component<Transform>();
+    std::array<float, 16> matrix{};
+    if (!lightmap_resource_ || !mesh_resource_ || !mesh ||
+        mesh->lightmap_texcoords.size() != mesh->vertices.size() ||
+        settings.lightmap_mesh_hash != mesh_resource_->info().content_hash ||
+        settings.lightmap_transform.size() != matrix.size() || skin_joint_count_ != 0 ||
+        !deformed_vertices_.empty() || !skinning_palette_.empty() || !transform ||
+        !transform->world_matrix(matrix.data()))
+    {
+        return nullptr;
+    }
+    for (std::size_t index = 0; index < matrix.size(); ++index)
+    {
+        if (std::abs(matrix[index] - settings.lightmap_transform[index]) > 0.00001F)
+        {
+            return nullptr;
+        }
+    }
+    return lightmap_resource_;
+}
+
+std::string_view MeshRenderer::lightmap_path() const noexcept
+{
+    const auto resource = lightmap_resource();
+    return resource ? std::string_view(resource->info().path) : std::string_view{};
+}
+
+bool MeshRenderer::set_lightmap(std::string_view path)
+{
+    auto& settings = *mutable_data().payload.AsMeshRendererData();
+    if (path.empty())
+    {
+        lightmap_resource_.reset();
+        settings.lightmap_guid.clear();
+        settings.lightmap_mesh_hash.clear();
+        settings.lightmap_transform.clear();
+        return true;
+    }
+    const auto* mesh = mesh_data();
+    const auto* transform = node().get_component<Transform>();
+    auto* resources = ResourceSystem::instance();
+    ResourcePtr replacement;
+    Guid guid;
+    std::array<float, 16> matrix{};
+    if (!resources || !mesh_resource_ || !mesh || skin_joint_count_ != 0 ||
+        !deformed_vertices_.empty() || !skinning_palette_.empty() ||
+        mesh->lightmap_texcoords.size() != mesh->vertices.size() || !transform ||
+        !transform->world_matrix(matrix.data()) || !ResourceSystem::path_to_guid(path, guid) ||
+        !resources->loader().load(guid, replacement))
+    {
+        return false;
+    }
+    const auto* texture = replacement->texture();
+    if (!texture || texture->cube_map || texture->srgb)
+    {
+        return false;
+    }
+    settings.lightmap_guid = std::move(guid);
+    settings.lightmap_mesh_hash = mesh_resource_->info().content_hash;
+    settings.lightmap_transform.assign(matrix.begin(), matrix.end());
+    lightmap_resource_ = std::move(replacement);
+    return true;
+}
+
 bool MeshRenderer::initialize()
 {
     return mesh_instance_id_ != 0 && set_mesh("builtin://meshes/cube") &&
@@ -130,6 +216,11 @@ bool MeshRenderer::set_mesh(std::string_view path)
     }
     mutable_data().payload.AsMeshRendererData()->mesh_guid = std::move(guid);
     mesh_resource_ = std::move(replacement);
+    lightmap_resource_.reset();
+    auto& settings = *mutable_data().payload.AsMeshRendererData();
+    settings.lightmap_guid.clear();
+    settings.lightmap_mesh_hash.clear();
+    settings.lightmap_transform.clear();
     dynamic_mesh_.reset();
     skin_joint_count_ = joint_count;
     clear_deformation();
@@ -152,6 +243,11 @@ bool MeshRenderer::set_mesh_data(const schema::MeshDataT& data)
     }
     dynamic_mesh_ = std::move(replacement);
     mesh_resource_.reset();
+    lightmap_resource_.reset();
+    auto& settings = *mutable_data().payload.AsMeshRendererData();
+    settings.lightmap_guid.clear();
+    settings.lightmap_mesh_hash.clear();
+    settings.lightmap_transform.clear();
     skin_joint_count_ = joint_count;
     mutable_data().payload.AsMeshRendererData()->mesh_guid.clear();
     clear_deformation();
@@ -357,6 +453,12 @@ bool MeshRenderer::build_data(schema::ComponentDataT& output) const
     {
         return false;
     }
+    if (!lightmap_resource())
+    {
+        settings->lightmap_guid.clear();
+        settings->lightmap_mesh_hash.clear();
+        settings->lightmap_transform.clear();
+    }
     settings->additional_material_guids.clear();
     for (const auto& material : additional_materials_)
     {
@@ -397,9 +499,26 @@ bool MeshRenderer::restore_data(const schema::ComponentDataT& data)
             return false;
         }
     }
+    if (!settings->lightmap_guid.empty())
+    {
+        std::string lightmap_path;
+        if (!ResourceSystem::guid_to_path(settings->lightmap_guid, lightmap_path) ||
+            !replacement.set_lightmap(lightmap_path) || settings->lightmap_mesh_hash.empty() ||
+            settings->lightmap_transform.size() != 16 ||
+            !std::all_of(settings->lightmap_transform.begin(), settings->lightmap_transform.end(),
+                         [](float value) { return std::isfinite(value); }))
+        {
+            return false;
+        }
+    }
+    else if (!settings->lightmap_mesh_hash.empty() || !settings->lightmap_transform.empty())
+    {
+        return false;
+    }
     // 所有读取和校验成功后整体替换；旧资源由局部对象反序释放。
     mutable_data() = data;
     mesh_resource_.swap(replacement.mesh_resource_);
+    lightmap_resource_.swap(replacement.lightmap_resource_);
     dynamic_mesh_.swap(replacement.dynamic_mesh_);
     std::swap(skin_joint_count_, replacement.skin_joint_count_);
     material_.swap(replacement.material_);

@@ -18,6 +18,7 @@
 | 编辑器 FBX | `plugins/editor/fbx_import/` | 固定版本 ufbx，模型/骨架/动画多子资源转换 |
 | 编辑器 USD | `plugins/editor/usd_import/` | 独立 OpenUSD 依赖，自包含静态模型转换 |
 | 编辑器字体导入 | `plugins/editor/font_import/` | FreeType 读取 TTF 轮廓及度量，meta 控制字符集与转换参数 |
+| 编辑器 UI 操作 | `plugins/editor/ui/` | 文档绑定、控件查询、源码读写及正常输入模拟；可选 MCP 适配 |
 | 编辑器 UI 导入 | `plugins/editor/ui_import/` | RmlUi 文档及字体、图片依赖转换，生成独立 UI 资源 |
 | 编辑器 JSON 导入 | `plugins/editor/json_import/` | 严格校验 `.json` 后原字节发布；运行时复用字节资源和 JsonBinding |
 | 编辑器角色控制器 | `plugins/editor/character_controller/` | 组件 TOML、撤销编辑与 MCP 适配，依赖对应运行时插件 |
@@ -36,7 +37,7 @@
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
 - `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`json_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`，可显式设置为空。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`json_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`、`ui`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -58,6 +59,7 @@
 | `editor/fbx_import` | 非设备构建，资源管线依赖开启 | 无；固定版本 ufbx 子模块 |
 | `editor/usd_import` | 非设备构建，资源管线依赖开启 | 无；独立 `usd-import` vcpkg feature |
 | `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
+| `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/ui_import`；选中 MCP 时额外生成 UI 工具适配目标 |
 | `editor/ui_import` | 非设备构建，资源管线依赖开启 | 无；通过资源管线解析标准引用 |
 | `editor/json_import` | 非设备构建，资源管线依赖开启 | 无；依赖通用资源管线，nlohmann/json 私有于离线格式校验 |
 | `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | `runtime/resource_graph`；运行包不包含此插件 |
@@ -70,7 +72,7 @@
 
 Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前置配置或运行时插件反向依赖编辑器均在配置时失败。`modeling` 插件提供几何目标；编辑器基础存在时再提供建模命令目标，导入管线存在时接入源网格编译。MCP 与建模同时启用时建立建模工具适配目标；几何计算不因此依赖 MCP。
 
-这是构建期插件装配；不据此声明已提供 DLL 热插拔、C++ 模块热重载或状态迁移。插件 CMake 开关、虚拟机编译期选择与玩法热重载是不同机制。具体配置命令及实际验证范围见根 [README](../../README.md)。
+这是构建期插件装配；不据此声明已提供 DLL 热插拔、C++ 模块热重载或状态迁移。插件 CMake 开关、虚拟机编译期选择与玩法热重载是不同机制。配置命令见[插件选择](#插件选择)，实际验证范围见[测试与范例](../testing.md)。
 
 ## 核心与调用方
 
@@ -120,4 +122,33 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 `DestructionSystem` 作为世界子系统管理独立的 `DestructionComponent`，同步提交官方 Blast 拆分后的瞬态渲染/碰撞组；核心物理只提供通用凸包与 compound 形状。编辑器插件拥有离线 Authoring、导入器、组件 codec 和撤销命令。MCP 工具目标只在选择 MCP 时建立，不进入设备运行包；Boost、Authoring 和 PhysX 均不进入正式运行时。
 
-当前制作输入为最多 256 块的参数盒体；根节点须使用正等比缩放。showcase 第七入口验证墙、柱和塔的连接损伤，地形地基联动、应力、撞击再破坏和异步调度留到后续。Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；具体事实与其他平台范围见[步骤 2 验证记录](runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，不能由插件清单推断平台验收完成。
+当前制作输入为最多 256 块的参数盒体；根节点须使用正等比缩放。showcase 第七入口验证墙、柱和塔的连接损伤，地形地基联动、重力应力、撞击再破坏和有界异步损伤已接入，详见[破坏模块](runtime/destruction.md)。Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；具体事实与其他平台范围见[步骤 2 验证记录](runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)，不能由插件清单推断平台验收完成。
+
+## 插件选择
+
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和 FBX/USD 格式导入均属于编辑器插件。
+
+例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
+
+```sh
+cmake --preset ninja-debug -DENGINE_RUNTIME_PLUGINS= -DENGINE_EDITOR_PLUGINS=
+cmake --build --preset ninja-debug
+ctest --preset ninja-debug
+```
+
+如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，默认选择 QuickJS，显式传入 `-DENGINE_SCRIPT_BACKEND=v8` 才选择 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。
+
+已有构建目录会保留此前的插件选择。更新代码后若要采用当前默认清单，可在同一 Preset 的配置命令追加 `-U ENGINE_RUNTIME_PLUGINS -U ENGINE_EDITOR_PLUGINS`；自定义清单继续显式指定。
+
+脚本插件位于 `plugins/runtime/script/`，包含 `ScriptSystem`、编译期选定的虚拟机执行与共享逐类绑定。核心只保留 `ScriptRuntime` / `ScriptStatus` 契约，`RuntimeHost` 通过宿主提供的可空工厂装配；关闭插件不链接脚本虚拟机，仍可运行窗口、渲染、编辑器及资源导入，依赖脚本的项目启动会明确返回失败。`save_scene` 需要资源管线；保存已有资源引用不要求建模插件，只有动态网格导出需要建模写入回调。
+
+MCP 在电脑端经 adb 同步 Android 调试包，设备端不运行 MCP；正式游戏不链接建模、MCP 或编辑器构建/同步工具。仅开启运行时和脚本不会默认启用资源同步插件；默认同步插件还要求编辑器或资源管线能力。未来设备调试插件必须按构建用途区分正式运行与调试运行，不能仅靠程序中的运行开关隐藏调试接口。这些开关是构建期选择，不表示支持 C++ 插件热插拔。
+
+CMake 的其余职责分别位于 `install/`、`dependencies/`、`core/`、`editor/`、`platforms/`。新增插件在自己的声明文件维护源码，不向核心中央清单追加业务文件。
+
+## 使用指南
+
+- [脚本](runtime/scripting.md)、[角色控制](runtime/character-controller.md)、[群体导航](runtime/navigation-crowd.md)。
+- [特效](runtime/effects.md)、[体积地形](runtime/terrain.md)、[建筑破坏](runtime/destruction.md)。
+- [MCP 场景编辑](editor/mcp.md)、[模型导入](editor/model-import.md)、[光照烘焙](editor/scene-bake.md)。
+- [完整资源同步](editor/resource-sync.md)、[公开范例与验证](../testing.md)。

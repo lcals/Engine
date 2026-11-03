@@ -1,5 +1,5 @@
-$input a_position, a_normal, a_tangent, a_texcoord0, a_color0
-$output v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
+$input a_position, a_normal, a_tangent, a_texcoord0, a_color0, a_texcoord1
+$output v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0, v_lightmap_uv
 
 #include <bgfx_shader.sh>
 
@@ -21,4 +21,5 @@ void main()
                           a_tangent.w * handedness);
     v_texcoord0 = a_texcoord0;
     v_color0 = a_color0;
+    v_lightmap_uv = a_texcoord1;
 }

@@ -63,6 +63,10 @@ public:
         std::vector<std::string> dependencies;
         for (const auto& sampler : shader.samplers)
         {
+            if (sampler && sampler->source != engine::schema::ShaderTextureSource::resource)
+            {
+                continue;
+            }
             std::string guid;
             if (!sampler || !find_guid(sampler->default_texture, guid))
             {
@@ -90,6 +94,14 @@ public:
         engine::schema::FinishTextureDataBuffer(
             builder, engine::schema::TextureData::Pack(builder, &texture));
         return add_entity(texture.path, engine::schema::AssetKind::texture, builder, {});
+    }
+
+    bool add(const engine::schema::LightProbeDataT& probes)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishLightProbeDataBuffer(
+            builder, engine::schema::LightProbeData::Pack(builder, &probes));
+        return add_entity(probes.path, engine::schema::AssetKind::light_probe, builder, {});
     }
 
     bool add(const engine::schema::MaterialDataT& definition)

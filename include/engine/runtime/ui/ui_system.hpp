@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/system/system.hpp"
+#include "runtime/ui/ui_element_info.hpp"
 #include "runtime/ui/ui_event.hpp"
 #include <cstddef>
 #include <cstdint>
@@ -25,6 +26,16 @@ public:
     [[nodiscard]] bool synchronize();
     [[nodiscard]] bool find_element(std::uint64_t node, std::string_view id,
                                     UiElementHandle& output);
+    [[nodiscard]] bool document_root(std::uint64_t node, UiElementHandle& output);
+    [[nodiscard]] bool inspect_element(UiElementHandle handle, UiElementInfo& output);
+    [[nodiscard]] bool child_element(UiElementHandle parent, std::uint32_t index,
+                                     UiElementHandle& output);
+    [[nodiscard]] bool element_style(UiElementHandle handle, std::string_view name,
+                                     std::string& output);
+    // Logical window coordinates. Successful misses return an empty handle.
+    [[nodiscard]] bool hit_test(float x, float y, UiElementHandle& output);
+    [[nodiscard]] bool pointer_active() const noexcept;
+    [[nodiscard]] bool focus_element(UiElementHandle handle);
     [[nodiscard]] bool is_valid(UiElementHandle handle);
     [[nodiscard]] std::uint64_t document_id(std::uint64_t node);
     [[nodiscard]] bool document_visible(std::uint64_t node);
@@ -43,6 +54,8 @@ public:
     [[nodiscard]] bool set_image(UiElementHandle handle, std::string_view path);
     void release_scene() noexcept;
     [[nodiscard]] bool process_event(const SDL_Event& event);
+    // Explicit SDL modifier bits for caller-generated input; does not change OS input state.
+    [[nodiscard]] bool process_event(const SDL_Event& event, std::uint16_t modifiers);
     // 文档同步后查询持续占用；普通指针 capture 不表示全局独占。
     [[nodiscard]] bool keyboard_claimed() const noexcept;
     [[nodiscard]] bool pointer_claimed() const noexcept;

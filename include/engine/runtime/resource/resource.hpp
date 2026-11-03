@@ -4,6 +4,7 @@
 #include "runtime/schema/asset_catalog_generated.h"
 #include "runtime/schema/audio_generated.h"
 #include "runtime/schema/font_generated.h"
+#include "runtime/schema/light_probe_generated.h"
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/model_generated.h"
@@ -50,6 +51,7 @@ public:
     [[nodiscard]] const schema::AnimationDataT* animation() const noexcept;
     [[nodiscard]] const schema::FontDataT* font() const noexcept;
     [[nodiscard]] const schema::UiDocumentDataT* ui() const noexcept;
+    [[nodiscard]] const schema::LightProbeDataT* light_probe() const noexcept;
     [[nodiscard]] ByteView bytes() const noexcept;
 
 private:
@@ -70,6 +72,7 @@ private:
     std::unique_ptr<schema::AnimationDataT> animation_;
     std::unique_ptr<schema::FontDataT> font_;
     std::unique_ptr<schema::UiDocumentDataT> ui_;
+    std::unique_ptr<schema::LightProbeDataT> light_probe_;
     std::vector<std::byte> bytes_;
 };
 

@@ -69,6 +69,11 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::UiDocumentDa
     output.ui_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::LightProbeDataT> data) noexcept
+{
+    output.light_probe_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, ByteView data)
 {
     output.bytes_.assign(data.begin(), data.end());

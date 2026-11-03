@@ -6,6 +6,7 @@
 
 #include <bgfx/bgfx.h>
 
+#include <span>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,8 @@ struct GpuProgram
     // 调用前释放旧句柄；失败后的部分初始化由 release 或析构清理。
     [[nodiscard]] bool create(const schema::ShaderDataT& shader);
     [[nodiscard]] bool bind_material(const Material& material,
-                                     const std::vector<GpuTexture>& textures);
+                                     const std::vector<GpuTexture>& textures,
+                                     std::span<const bgfx::TextureHandle> frame_textures = {});
     void release() noexcept;
 
     std::string path;
@@ -40,6 +42,8 @@ struct GpuProgram
     bgfx::ShaderHandle vertex_shader = BGFX_INVALID_HANDLE;
     bgfx::ShaderHandle fragment_shader = BGFX_INVALID_HANDLE;
     bgfx::ProgramHandle program = BGFX_INVALID_HANDLE;
+    bgfx::ShaderHandle surface_shader = BGFX_INVALID_HANDLE;
+    bgfx::ProgramHandle surface_program = BGFX_INVALID_HANDLE;
     std::vector<GpuUniform> uniforms;
     std::vector<GpuSampler> samplers;
 };

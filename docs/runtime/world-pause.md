@@ -50,6 +50,6 @@
 
 ## 验证方式
 
-通过根 [README](../../README.md) 的 Presets 运行受影响的 Debug / Release 定向测试。`physics_test`、`animation_test`、`character_controller_test`、`navigation_crowd_test`、`effects_runtime_test` 与 `script_runtime_test` 覆盖冻结与恢复、组件独立暂停、一次性输入、特效绘制回退和场景生命周期。
+通过[构建指南](../building.md)的 Presets 运行受影响的 Debug / Release 定向测试。`physics_test`、`animation_test`、`character_controller_test`、`navigation_crowd_test`、`effects_runtime_test` 与 `script_runtime_test` 覆盖冻结与恢复、组件独立暂停、一次性输入、特效绘制回退和场景生命周期。
 
-实窗还需检查：菜单交互持续可用；等待后恢复无追帧、输入重放或重复接触回调；世界暂停与窗口不可绘制交错时音频只在两者都解除后恢复。插件开关按实际装配验证，关闭脚本后原生调用仍应可用。实际执行结果与平台限制维护在 README，不在此累积测试流水。
+实窗还需检查：菜单交互持续可用；等待后恢复无追帧、输入重放或重复接触回调；世界暂停与窗口不可绘制交错时音频只在两者都解除后恢复。插件开关按实际装配验证，关闭脚本后原生调用仍应可用。实际执行结果与平台限制维护在[测试与范例](../testing.md)，不在此累积测试流水。

@@ -18,6 +18,7 @@
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -36,6 +37,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <memory>
@@ -417,31 +419,44 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     const std::uint32_t idle_draws = bgfx::getStats()->numDraw;
     for (int cycle = 0; cycle < 3; ++cycle)
     {
+        const auto active_resources = [&]()
+        {
+            const auto active = gpu_counts();
+            // Forward+ also allocates a dynamic cluster index buffer; bgfx may count its
+            // backing allocation among static buffers. The stop check retains exact equality.
+            const bool valid = active.vertices > idle.vertices && active.indices > idle.indices &&
+                               active.dynamic_indices > idle.dynamic_indices &&
+                               active.programs > idle.programs;
+            if (!valid)
+            {
+                std::fprintf(stderr, "window/render resources: idle=%u/%u/%u active=%u/%u/%u\n",
+                             idle.vertices, idle.indices, idle.programs, active.vertices,
+                             active.indices, active.programs);
+            }
+            return valid;
+        };
         if (!create_cube_scene(world, cycle == 0) ||
             !expect(renderer.prepare_scene(), "prepare embedded cube resources") ||
             !expect(renderer.scene_prepared() && renderer.gpu_resource_count() > 0,
                     "prepared scene owns GPU handles") ||
             !expect(renderer.prepare_scene(), "preparing twice is idempotent") ||
             !render_frames(windows, renderer, 8) ||
-            !expect(bgfx::getStats()->numDraw == idle_draws + 1,
-                    "one mesh component adds one draw above blank baseline") ||
-            !expect(gpu_counts().vertices == idle.vertices + 1 &&
-                        gpu_counts().indices == idle.indices + 1 &&
-                        gpu_counts().programs == idle.programs + 1,
-                    "bgfx sees cube buffers and program") ||
+            !expect(bgfx::getStats()->numDraw > idle_draws,
+                    "mesh contributes real depth, surface and color draws above blank baseline") ||
+            !expect(active_resources(), "bgfx sees cube buffers and the active frame programs") ||
             !resize_window(windows, renderer))
         {
             return false;
         }
 
+        const auto scene_draws = bgfx::getStats()->numDraw;
         auto* mesh = world.scene()->nodes().front()->get_component<engine::MeshRenderer>();
         if (!expect(mesh->material().set_type(custom_material.type_path) &&
                         mesh->material().set_v4("tint", {0.2, 0.7, 0.3, 1.0}) &&
                         !mesh->material().set_v4("baseColor", {0.2, 0.7, 0.3, 1.0}),
                     "custom material resolves names from its shader") ||
             !render_frames(windows, renderer, 8) ||
-            !expect(renderer.gpu_resource_count() > 0 &&
-                        bgfx::getStats()->numDraw == idle_draws + 1,
+            !expect(renderer.gpu_resource_count() > 0 && bgfx::getStats()->numDraw == scene_draws,
                     "shader switching retires previous program and renders custom definition"))
         {
             return false;
@@ -477,8 +492,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         // 热重载替换场景时不提前通知渲染器，render 按存活节点增量准备资源。
         world.destroy_scene();
         if (!create_cube_scene(world, false) || !render_frames(windows, renderer, 8) ||
-            !expect(renderer.gpu_resource_count() > 0 &&
-                        bgfx::getStats()->numDraw == idle_draws + 1,
+            !expect(renderer.gpu_resource_count() > 0 && bgfx::getStats()->numDraw == scene_draws,
                     "scene replacement recreates one resource set"))
         {
             return false;
@@ -519,18 +533,24 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         return false;
     }
     const auto retained_counts = gpu_counts();
+    const auto retained_draws = bgfx::getStats()->numDraw;
     world.unload_scene();
-    if (!render_frames(windows, renderer, 8) ||
-        !expect(world.scene() == nullptr && gpu_counts() == retained_counts &&
-                    bgfx::getStats()->numDraw == idle_draws,
-                "camera-less interval retains mesh buffers without rendering the old camera") ||
+    if (!render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    const auto camera_less = gpu_counts();
+    if (!expect(world.scene() == nullptr && camera_less.vertices > idle.vertices &&
+                    camera_less.indices == retained_counts.indices &&
+                    camera_less.programs > idle.programs && bgfx::getStats()->numDraw == idle_draws,
+                "camera-less interval keeps mesh buffers and releases camera targets") ||
         !create_cube_scene(world, true) || !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 2,
+        !expect(bgfx::getStats()->numDraw == retained_draws + 3,
                 "new active camera renders both retained and current meshes") ||
         !expect(retained->scene().destroy_node(retained->id()),
                 "delete retained mesh explicitly") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 1,
+        !expect(bgfx::getStats()->numDraw == retained_draws,
                 "only surviving meshes remain in the GPU cache"))
     {
         return false;
@@ -646,6 +666,23 @@ bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
     // bgfx 的默认回调保存 TGA；读取实际 GPU 输出，不给正式接口添加测试入口。
     auto image_path = path;
     image_path += ".tga";
+    if (const char* artifacts = std::getenv("ENGINE_RENDER_TEST_ARTIFACTS");
+        artifacts != nullptr && *artifacts != '\0')
+    {
+        const auto destination = engine::PathUtils::from_utf8(artifacts);
+        std::error_code error;
+        std::filesystem::create_directories(destination, error);
+        if (!expect(!error, "create render review artifact directory"))
+        {
+            return false;
+        }
+        std::filesystem::copy_file(image_path, destination / image_path.filename(),
+                                   std::filesystem::copy_options::overwrite_existing, error);
+        if (!expect(!error, "preserve screenshot for render review"))
+        {
+            return false;
+        }
+    }
     return expect(read_screenshot(image_path, output), "read screenshot of real GPU output");
 }
 
@@ -937,7 +974,6 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
 #endif
     const auto idle = gpu_counts();
-    const auto idle_draws = bgfx::getStats()->numDraw;
     auto* scene = world.create_scene("Texture GPU test");
     auto* quad_node = scene ? scene->create_node("Quad") : nullptr;
     auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
@@ -994,6 +1030,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
 
     const auto single_mesh = gpu_counts();
+    const auto single_draws = bgfx::getStats()->numDraw;
     const auto single_resource_count = renderer.gpu_resource_count();
     const auto source_revision = mesh->mesh_revision();
     auto deformed = data.vertices;
@@ -1140,7 +1177,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
                 second->material().set_texture("baseColorTexture", "textures/gray-linear"),
             "add another mesh referencing the same texture path") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 2 &&
+        !expect(bgfx::getStats()->numDraw == single_draws + 3 &&
                     gpu_counts().textures == single_mesh.textures + texture_increment &&
                     gpu_counts().vertices == single_mesh.vertices + 1,
                 "GPU uploads follow entity ownership: distinct in core, shared through graph"))
@@ -1155,7 +1192,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
                     mesh->set_mesh_data(data),
                 "assign independent material slots to two submeshes") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 3 &&
+        !expect(bgfx::getStats()->numDraw == single_draws + 6 &&
                     gpu_counts().textures == single_mesh.textures + 2 * texture_increment,
                 "submesh material textures obey the selected resource loading policy"))
     {
@@ -1171,7 +1208,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     if (!expect(mesh->set_deformation(data.vertices, data.tangents),
                 "deformation supports multiple material slots") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 3 && mesh->material_count() == 2 &&
+        !expect(bgfx::getStats()->numDraw == single_draws + 6 && mesh->material_count() == 2 &&
                     gpu_counts().indices == multi_slot.indices,
                 "deformed submeshes retain material submissions and shared topology"))
     {
@@ -1228,7 +1265,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         !screenshot(windows, renderer, fixture.root, "all-lights", image) ||
         !expect(brightness(image.pixel(cx, cy)) > brightest_single + 5,
                 "multiple light contributions accumulate in the rendered pixel") ||
-        !expect(bgfx::getStats()->numDraw == idle_draws + 3,
+        !expect(bgfx::getStats()->numDraw == single_draws + 6,
                 "multiple lights preserve mesh draw count"))
     {
         return false;
@@ -1334,7 +1371,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, "with-ao", with_ao) ||
             !expect(renderer.gpu_resource_count() > unshadowed_resources,
-                    "AO owns its camera depth, compute programs and intermediate textures"))
+                    "AO reuses scene depth and owns compute programs and intermediate textures"))
         {
             return false;
         }
@@ -1402,8 +1439,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     if (!expect(renderer.set_settings(settings), "enable explicit directional shadow settings") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "with-shadow", shadowed) ||
-        !expect(renderer.gpu_resource_count() > unshadowed_resources,
-                "shadow pass owns additional GPU resources") ||
+        !expect(renderer.gpu_resource_count() >= unshadowed_resources,
+                "enabling directional shadows retains the shared atlas and frame resources") ||
         !expect(shadowed.width == unshadowed.width && shadowed.height == unshadowed.height,
                 "shadow comparison retains frame dimensions"))
     {
@@ -1640,6 +1677,384 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                   "capture and enhanced lighting retain no stopped-scene GPU resources");
 }
 
+bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!expect(resources.initialize(config) && world.initialize(config) &&
+                    windows.initialize(config) && renderer.initialize(config),
+                "initialize reflection and water GPU fixture") ||
+        !render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    if (!create_cube_scene(world, false))
+    {
+        return false;
+    }
+    auto* scene = world.scene();
+    auto* camera = scene->active_camera();
+    auto* cube_mesh = scene->nodes().front()->get_component<engine::MeshRenderer>();
+    auto* environment_node = scene->create_node("Environment");
+    auto* environment = environment_node->add_component<engine::EnvironmentComponent>();
+    auto* post = camera->node().add_component<engine::PostProcessComponent>();
+    auto* ground = scene->create_node("Opaque ground");
+    auto* ground_mesh = ground->add_component<engine::MeshRenderer>();
+    auto* water = scene->create_node("Transparent water");
+    auto* water_mesh = water->add_component<engine::MeshRenderer>();
+    auto* reflection = water->add_component<engine::PlanarReflectionComponent>();
+    engine::TransformSettings camera_transform;
+    camera_transform.position = {5, 5, 8};
+    camera_transform.rotation = {-28, 32, 0};
+    engine::TransformSettings ground_transform;
+    ground_transform.position = {0, -1.2, 0};
+    ground_transform.scale = {8, 0.1, 8};
+    engine::TransformSettings water_transform;
+    water_transform.position = {0, -1.02, 0};
+    water_transform.scale = {5, 1, 5};
+    engine::schema::MeshDataT plane;
+    plane.path = "meshes/test-water";
+    plane.vertices = {
+        {-1, 0, -1, 0, 1, 0}, {-1, 0, 1, 0, 1, 0}, {1, 0, 1, 0, 1, 0}, {1, 0, -1, 0, 1, 0}};
+    plane.indices = {0, 1, 2, 0, 2, 3};
+    plane.texcoords = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
+    if (!expect(
+            environment && post && ground_mesh && water_mesh && reflection &&
+                camera->node().get_component<engine::Transform>()->set_settings(camera_transform) &&
+                ground->get_component<engine::Transform>()->set_settings(ground_transform) &&
+                water->get_component<engine::Transform>()->set_settings(water_transform) &&
+                water_mesh->set_mesh_data(plane) &&
+                water_mesh->material().set_type("builtin://materials/default-water") &&
+                water_mesh->material().blend_mode() == engine::schema::BlendMode::alpha_blend &&
+                water_mesh->material().set_cull_mode(engine::schema::CullMode::none) &&
+                water_mesh->material().set_v2("waterFlow", {0, 0}) &&
+                water_mesh->material().set_float("normalScale", 0) &&
+                cube_mesh->material().set_v3("emissionColor", {3.0, 0.1, 0.03}) &&
+                ground_mesh->material().set_v4("baseColor", {0.18, 0.18, 0.18, 1}) &&
+                ground_mesh->material().set_float("roughness", 0.08F),
+            "ordinary nodes compose reflective water, opaque receiver and existing camera"))
+    {
+        return false;
+    }
+    auto environment_settings = environment->settings();
+    environment_settings.ambient_intensity = 0.2F;
+    auto post_settings = post->settings();
+    post_settings.ssr_enabled = false;
+    post_settings.ao_enabled = true;
+    post_settings.hdr_enabled = true;
+    if (!expect(environment->set_settings(environment_settings) &&
+                    post->set_settings(post_settings),
+                "isolate planar reflection from SSR while preserving AO and HDR"))
+    {
+        return false;
+    }
+    std::vector<engine::Light*> local_lights;
+    for (const auto kind : {engine::schema::LightKind::point, engine::schema::LightKind::spot})
+    {
+        auto* node = scene->create_node("Local shadow light");
+        auto* light = node->add_component<engine::Light>();
+        engine::LightSettings settings;
+        settings.kind = kind;
+        settings.range = 25;
+        settings.intensity = 25;
+        settings.cast_shadows = true;
+        settings.shadow_resolution = 512;
+        engine::TransformSettings transform;
+        transform.position = kind == engine::schema::LightKind::point ? engine::Vec3(3, 4, 3)
+                                                                      : engine::Vec3(-3, 4, 3);
+        transform.rotation = {-45, -35, 0};
+        if (!expect(light && light->set_settings(settings) &&
+                        node->get_component<engine::Transform>()->set_settings(transform),
+                    "point cube faces and projected spot shadows use the shared atlas"))
+        {
+            return false;
+        }
+        local_lights.push_back(light);
+    }
+    Screenshot reflected;
+    Screenshot fallback;
+    if (!render_frames(windows, renderer, 4) ||
+        !screenshot(windows, renderer, fixture.root, "planar-water", reflected))
+    {
+        return false;
+    }
+    reflection->set_enabled(false);
+    if (!render_frames(windows, renderer, 4) ||
+        !screenshot(windows, renderer, fixture.root, "water-without-planar", fallback))
+    {
+        return false;
+    }
+    std::size_t planar_pixels = 0;
+    // The reflected cube lies below the real cube, inside the middle third of the water.
+    // Flow and normal perturbation are frozen; SSR is off in both screenshots.
+    for (std::uint32_t y = reflected.height / 2; y < reflected.height * 5 / 6; ++y)
+    {
+        for (std::uint32_t x = reflected.width / 3; x < reflected.width * 2 / 3; ++x)
+        {
+            const auto first = reflected.pixel(x, y);
+            const auto second = fallback.pixel(x, y);
+            int difference = 0;
+            for (std::size_t channel = 0; channel < first.size(); ++channel)
+            {
+                difference +=
+                    std::abs(static_cast<int>(first[channel]) - static_cast<int>(second[channel]));
+            }
+            planar_pixels += difference > 6;
+        }
+    }
+    std::fprintf(stderr, "window/render planar reflected pixels: %zu\n", planar_pixels);
+    if (!expect(planar_pixels > 16,
+                "static water reflects real mirrored geometry with SSR disabled"))
+    {
+        return false;
+    }
+    Screenshot straight_alpha;
+    Screenshot premultiplied;
+    if (!expect(water_mesh->material().set_v4("baseColor", {0.2F, 0.45F, 0.5F, 0.55F}),
+                "set partial water coverage") ||
+        !screenshot(windows, renderer, fixture.root, "water-straight-alpha", straight_alpha) ||
+        !expect(water_mesh->material().set_blend_mode(engine::schema::BlendMode::premultiplied),
+                "select premultiplied water blending") ||
+        !screenshot(windows, renderer, fixture.root, "water-premultiplied", premultiplied))
+    {
+        return false;
+    }
+    int largest_alpha_difference = 0;
+    for (std::size_t pixel = 0; pixel < straight_alpha.pixels.size(); ++pixel)
+    {
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            largest_alpha_difference =
+                std::max(largest_alpha_difference,
+                         std::abs(static_cast<int>(straight_alpha.pixels[pixel][channel]) -
+                                  static_cast<int>(premultiplied.pixels[pixel][channel])));
+        }
+    }
+    if (!expect(largest_alpha_difference <= 2,
+                "straight and premultiplied blending preserve the same water coverage") ||
+        !water_mesh->material().set_blend_mode(engine::schema::BlendMode::alpha_blend))
+    {
+        return false;
+    }
+    Screenshot refracted;
+    Screenshot straight_transmission;
+    auto deep_water = water_transform;
+    deep_water.position = {0, 0.3, 0};
+    auto& water_material = water_mesh->material();
+    if (!expect(water->get_component<engine::Transform>()->set_settings(deep_water) &&
+                    water_material.set_float("reflectionStrength", 0) &&
+                    water_material.set_float("specularHighlights", 0) &&
+                    water_material.set_v3("absorptionColor", {1, 1, 1}) &&
+                    water_material.set_float("waterIor", 1),
+                "isolate water transmission from Fresnel, highlights and absorption") ||
+        !screenshot(windows, renderer, fixture.root, "water-ior-one", straight_transmission) ||
+        !water_material.set_float("waterIor", 1.5F) ||
+        !screenshot(windows, renderer, fixture.root, "water-refracted", refracted))
+    {
+        return false;
+    }
+    std::size_t refracted_pixels = 0;
+    for (std::size_t pixel = 0; pixel < refracted.pixels.size(); ++pixel)
+    {
+        int difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            difference += std::abs(static_cast<int>(refracted.pixels[pixel][channel]) -
+                                   static_cast<int>(straight_transmission.pixels[pixel][channel]));
+        }
+        refracted_pixels += difference > 6;
+    }
+    std::fprintf(stderr, "window/render refracted pixels: %zu\n", refracted_pixels);
+    if (!expect(refracted_pixels > 16, "IOR bends visible background geometry through water") ||
+        !water->get_component<engine::Transform>()->set_settings(water_transform) ||
+        !water_material.set_float("waterIor", 1.333F) ||
+        !water_material.set_float("reflectionStrength", 1) ||
+        !water_material.set_float("specularHighlights", 1) ||
+        !water_material.set_v3("absorptionColor", {0.45, 0.78, 0.85}))
+    {
+        return false;
+    }
+    water_mesh->set_enabled(false);
+    Screenshot with_ssr;
+    Screenshot without_ssr;
+    post_settings.ssr_enabled = true;
+    if (!post->set_settings(post_settings) ||
+        !screenshot(windows, renderer, fixture.root, "opaque-with-ssr", with_ssr))
+    {
+        return false;
+    }
+    post_settings.ssr_enabled = false;
+    if (!post->set_settings(post_settings) ||
+        !screenshot(windows, renderer, fixture.root, "opaque-without-ssr", without_ssr))
+    {
+        return false;
+    }
+    std::size_t reflection_pixels = 0;
+    for (std::size_t pixel = 0; pixel < with_ssr.pixels.size(); ++pixel)
+    {
+        int difference = 0;
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            difference += std::abs(static_cast<int>(with_ssr.pixels[pixel][channel]) -
+                                   static_cast<int>(without_ssr.pixels[pixel][channel]));
+        }
+        reflection_pixels += difference > 6;
+    }
+    std::fprintf(stderr, "window/render SSR changed pixels: %zu\n", reflection_pixels);
+    if (!expect(reflection_pixels > 16,
+                "SSR adds visible on-screen geometry reflections without an environment map"))
+    {
+        return false;
+    }
+    for (auto* light : local_lights)
+    {
+        auto settings = light->settings();
+        const auto name = settings.kind == engine::schema::LightKind::point ? "point" : "spot";
+        Screenshot unshadowed;
+        settings.cast_shadows = false;
+        if (!light->set_settings(settings) ||
+            !screenshot(windows, renderer, fixture.root,
+                        (std::string(name) + "-without-shadow").c_str(), unshadowed))
+        {
+            return false;
+        }
+        std::size_t shaded_pixels = 0;
+        for (std::size_t pixel = 0; pixel < unshadowed.pixels.size(); ++pixel)
+        {
+            int difference = 0;
+            for (std::size_t channel = 0; channel < 3; ++channel)
+            {
+                difference += static_cast<int>(unshadowed.pixels[pixel][channel]) -
+                              static_cast<int>(without_ssr.pixels[pixel][channel]);
+            }
+            shaded_pixels += difference > 6;
+        }
+        std::fprintf(stderr, "window/render %s shadow pixels: %zu\n", name, shaded_pixels);
+        settings.cast_shadows = true;
+        if (!expect(shaded_pixels > 16, "local light shadow darkens genuinely occluded pixels") ||
+            !light->set_settings(settings))
+        {
+            return false;
+        }
+    }
+    post_settings.ssr_enabled = true;
+    if (!post->set_settings(post_settings))
+    {
+        return false;
+    }
+    water_mesh->set_enabled(true);
+    reflection->set_enabled(true);
+    if (!expect(windows.set_size(643, 357), "resize combined effects to non-aligned dimensions") ||
+        !render_frames(windows, renderer, 8))
+    {
+        return false;
+    }
+    engine::Vec2 viewport;
+    int pixel_width = 0;
+    int pixel_height = 0;
+    if (!expect(
+            renderer.viewport_size(viewport) &&
+                SDL_GetWindowSizeInPixels(windows.native_window(), &pixel_width, &pixel_height) &&
+                viewport.x() == pixel_width && viewport.y() == pixel_height &&
+                (pixel_width % 16 != 0 || pixel_height % 16 != 0),
+            "combined depth/AO/SSR/refraction follow actual non-aligned drawable dimensions"))
+    {
+        return false;
+    }
+
+    engine::SceneCaptureRequest request;
+    request.width = 24;
+    request.height = 24;
+    request.view = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -6, 1};
+    const bool homogeneous = bgfx::getCaps()->homogeneousDepth;
+    constexpr float near_clip = 0.1F;
+    constexpr float far_clip = 100.0F;
+    request.projection[0] = request.projection[5] = 1;
+    request.projection[10] = -(far_clip + (homogeneous ? near_clip : 0)) / (far_clip - near_clip);
+    request.projection[11] = -1;
+    request.projection[14] =
+        -(homogeneous ? 2.0F : 1.0F) * near_clip * far_clip / (far_clip - near_clip);
+    engine::SceneCaptureImage image;
+    if (!expect(renderer.request_diffuse_capture(request) &&
+                    !renderer.request_diffuse_capture(request) &&
+                    !renderer.take_diffuse_capture(image),
+                "diffuse capture accepts one copied request and does not expose pending pixels"))
+    {
+        return false;
+    }
+    for (int frame = 0;
+         frame < 32 && renderer.diffuse_capture_status() == engine::SceneCaptureStatus::pending;
+         ++frame)
+    {
+        if (!render_frames(windows, renderer, 1))
+        {
+            return false;
+        }
+    }
+    if (!expect(renderer.diffuse_capture_status() == engine::SceneCaptureStatus::complete &&
+                    renderer.take_diffuse_capture(image) && image.width == 24 &&
+                    image.height == 24 && image.rgba.size() == 24 * 24 * 4 &&
+                    std::all_of(image.rgba.begin(), image.rgba.end(),
+                                [](float value) { return std::isfinite(value) && value >= 0; }) &&
+                    image.rgba[0] > 0 &&
+                    renderer.diffuse_capture_status() == engine::SceneCaptureStatus::idle,
+                "GPU diffuse capture returns finite nonzero linear radiance and retires receipt"))
+    {
+        return false;
+    }
+    if (!expect(scene->set_active_camera(nullptr) && renderer.request_diffuse_capture(request),
+                "queue diffuse capture without a gameplay camera"))
+    {
+        return false;
+    }
+    for (int frame = 0;
+         frame < 32 && renderer.diffuse_capture_status() == engine::SceneCaptureStatus::pending;
+         ++frame)
+    {
+        if (!render_frames(windows, renderer, 1))
+        {
+            return false;
+        }
+    }
+    if (!expect(renderer.diffuse_capture_status() == engine::SceneCaptureStatus::complete &&
+                    renderer.take_diffuse_capture(image) && image.width == 24 &&
+                    image.height == 24 && scene->set_active_camera(camera),
+                "bake capture completes from its own matrices with no active camera") ||
+        !expect(renderer.request_diffuse_capture(request), "queue capture for cancellation") ||
+        !render_frames(windows, renderer, 1))
+    {
+        return false;
+    }
+    renderer.cancel_diffuse_capture();
+    for (int frame = 0;
+         frame < 32 && renderer.diffuse_capture_status() == engine::SceneCaptureStatus::pending;
+         ++frame)
+    {
+        if (!render_frames(windows, renderer, 1))
+        {
+            return false;
+        }
+    }
+    if (!expect(renderer.diffuse_capture_status() == engine::SceneCaptureStatus::cancelled &&
+                    !renderer.take_diffuse_capture(image) && image.rgba.empty(),
+                "cancelled in-flight readback never publishes pixels") ||
+        !expect(renderer.request_diffuse_capture(request), "queue capture before scene retirement"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 4) &&
+           expect(renderer.diffuse_capture_status() != engine::SceneCaptureStatus::pending &&
+                      !renderer.take_diffuse_capture(image) && renderer.gpu_resource_count() == 0 &&
+                      gpu_counts() == idle,
+                  "scene retirement cancels capture and releases reflection/water/light resources");
+}
+
 bool test_async_capture(const engine::EngineConfig& config)
 {
     engine::ThreadSystem threads({.worker_limit = 1});
@@ -1752,8 +2167,8 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     Screenshot hdr;
     if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-no-bloom", hdr) ||
-        !expect(renderer.gpu_resource_count() > sdr_resources,
-                "HDR allocates a floating-point scene target and resolve programs"))
+        !expect(renderer.gpu_resource_count() == sdr_resources,
+                "HDR display settings reuse the always-linear scene target and resolve programs"))
     {
         return false;
     }
@@ -1812,8 +2227,9 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
         !SDL_SetWindowSize(windows.native_window(), config.width, config.height) ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-sdr-restored", restored) ||
-        !expect(renderer.gpu_resource_count() == sdr_resources && restored.pixels == sdr.pixels,
-                "disabling HDR restores exact SDR pixels and releases all post-process targets"))
+        !expect(
+            renderer.gpu_resource_count() == sdr_resources && restored.pixels == sdr.pixels,
+            "disabling HDR restores exact SDR pixels while retaining the shared linear targets"))
     {
         return false;
     }
@@ -1861,7 +2277,7 @@ public:
         view = context.view;
         projection = context.projection;
         hdr = context.hdr;
-        valid_context = context.view_id == 8 && context.width != 0 && context.height != 0;
+        valid_context = context.view_id == 134 && context.width != 0 && context.height != 0;
         if (!bgfx::isValid(texture_))
         {
             texture_ = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8);
@@ -1932,7 +2348,7 @@ bool test_render_extensions(const engine::EngineConfig& config)
                     "create camera-only scene without a core mesh or text component") ||
             !render_frames(windows, renderer, 1) ||
             !expect(extension.draws == 1 && extension.scene_id == scene->id() &&
-                        extension.valid_context && !extension.hdr,
+                        extension.valid_context && extension.hdr,
                     "registered extension draws in a camera-only scene"))
         {
             return false;
@@ -1981,9 +2397,9 @@ bool test_render_extensions(const engine::EngineConfig& config)
         if (!expect(next_camera && replacement->set_active_camera(next_camera),
                     "select new scene camera explicitly") ||
             !render_frames(windows, renderer, 1) ||
-            !expect(extension.scene_releases == retained_releases && !extension.hdr &&
+            !expect(extension.scene_releases == retained_releases && extension.hdr &&
                         extension.scene_id == replacement->id(),
-                    "new scene uses default postprocess and retains extension resources"))
+                    "new scene keeps the linear extension target and retains extension resources"))
         {
             return false;
         }
@@ -2234,6 +2650,14 @@ public:
         status_.hot_reload = enabled;
     }
 
+    [[nodiscard]] bool execute_project_script(const engine::ProjectScriptRequest&,
+                                              std::string& result, std::string& error) override
+    {
+        result.clear();
+        error = "Observed runtime has no project script VM";
+        return false;
+    }
+
     [[nodiscard]] const engine::ScriptStatus& status() const noexcept override
     {
         return status_;
@@ -2323,13 +2747,16 @@ int main(int, char**)
     const bool skinning_passed = textures_passed && test_gpu_skinning(config);
     const bool settings_passed =
         skinning_passed && test_render_settings_and_capture(config) && test_async_capture(config);
-    const bool hdr_passed = settings_passed && test_hdr_and_bloom(config);
+    const bool reflection_passed =
+        settings_passed && test_reflections_water_and_diffuse_capture(config);
+    const bool hdr_passed = reflection_passed && test_hdr_and_bloom(config);
     const bool extensions_passed = hdr_passed && test_render_extensions(config);
     const bool engine_passed = extensions_passed && test_engine(config);
     const bool borrowed_passed = engine_passed && test_borrowed_resource_host(config);
     const bool script_factory_passed = borrowed_passed && test_script_runtime_factory(config);
     if (!windows_passed || !scene_passed || !textures_passed || !settings_passed || !hdr_passed ||
-        !extensions_passed || !engine_passed || !borrowed_passed || !script_factory_passed)
+        !reflection_passed || !extensions_passed || !engine_passed || !borrowed_passed ||
+        !script_factory_passed)
     {
         return 1;
     }

@@ -3,7 +3,9 @@
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
@@ -138,6 +140,34 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     post_process_settings.bloom_threshold = 1.2F;
     post_process_settings.bloom_intensity = .3F;
     post_process_settings.bloom_radius = 2.0F;
+    post_process_settings.ssr_enabled = true;
+    post_process_settings.ssr_resolution_scale = .75F;
+    post_process_settings.ssr_max_steps = 96;
+    post_process_settings.ssr_max_distance = 120;
+    post_process_settings.ssr_thickness = .2F;
+    post_process_settings.ssr_roughness_cutoff = .65F;
+    auto* planar = cube_node->add_component<engine::PlanarReflectionComponent>();
+    auto* probes = root->add_component<engine::LightProbeVolumeComponent>();
+    if (!expect(planar && probes && mesh->set_bake_static(true) && probes->set_settings({}) &&
+                    !probes->resource(),
+                "reflection/probe components register and an empty probe volume is safe"))
+    {
+        return false;
+    }
+    engine::PlanarReflectionSettings planar_settings;
+    planar_settings.resolution_scale = .75F;
+    planar_settings.clip_bias = .03F;
+    if (!expect(planar->set_settings(planar_settings), "reflection settings apply"))
+    {
+        return false;
+    }
+    auto invalid_planar = planar_settings;
+    invalid_planar.resolution_scale = .1F;
+    if (!expect(!planar->set_settings(invalid_planar) && planar->settings() == planar_settings,
+                "invalid reflection scale preserves old settings"))
+    {
+        return false;
+    }
     auto& material = mesh->material();
     if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.shader_path() == "builtin://shaders/pbr",
@@ -158,7 +188,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     auto invalid_post_process = post_process_settings;
     invalid_post_process.exposure = 0.0F;
     auto invalid_light = light_settings;
-    invalid_light.kind = engine::schema::LightKind::point;
+    invalid_light.kind = static_cast<engine::schema::LightKind>(255);
     if (!expect(!environment->set_settings(invalid_environment) &&
                     environment->settings() == environment_settings &&
                     !post_process->set_settings(invalid_post_process) &&
@@ -177,6 +207,21 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     !post_process->set_settings(invalid_post_process) &&
                     !light->set_settings(invalid_light),
                 "fog range, exposure limit and non-power-of-two shadow size are rejected"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.ssr_max_steps = 7;
+    if (!expect(!post_process->set_settings(invalid_post_process) &&
+                    post_process->settings() == post_process_settings,
+                "invalid SSR iteration budget preserves all post-process fields"))
+    {
+        return false;
+    }
+    invalid_post_process = post_process_settings;
+    invalid_post_process.ssr_thickness = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!post_process->set_settings(invalid_post_process),
+                "nonfinite SSR thickness is rejected"))
     {
         return false;
     }
@@ -237,6 +282,21 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_light.shadow_cascade_blend = 0.31F;
     if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
                 "out-of-range cascade blend leaves the light unchanged"))
+    {
+        return false;
+    }
+    for (const auto kind : {engine::schema::LightKind::point, engine::schema::LightKind::spot})
+    {
+        auto local_light = light_settings;
+        local_light.kind = kind;
+        if (!expect(light->set_settings(local_light) && light->settings() == local_light,
+                    "point and spot lights accept the same atomic shadow settings"))
+        {
+            return false;
+        }
+    }
+    if (!expect(light->set_settings(light_settings),
+                "restore directional settings after local shadow checks"))
     {
         return false;
     }

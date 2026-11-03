@@ -234,20 +234,31 @@ bool transcode(const schema::TextureDataT& texture, bool red)
 bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fixture& fixture)
 {
     constexpr const char* shader_guid = "b0000000-0000-4000-8000-000000000010";
-    constexpr std::array sources = {"vs_cube.sc",     "fs_cube.sc",        "varying.def.sc",
-                                    "pbr_helpers.sh", "shadow_helpers.sh", "material_helpers.sh",
-                                    "csm_helpers.sh"};
+    constexpr std::array sources = {"vs_cube.sc",          "fs_cube.sc",
+                                    "varying.def.sc",      "pbr_helpers.sh",
+                                    "shadow_helpers.sh",   "material_helpers.sh",
+                                    "csm_helpers.sh",      "pbr_surface.sh",
+                                    "pbr_lighting.sh",     "local_shadow_helpers.sh",
+                                    "cluster/lighting.sh", "fs_surface.sc"};
     constexpr std::array identities = {
         "b0000000-0000-4000-8000-000000000011", "b0000000-0000-4000-8000-000000000012",
         "b0000000-0000-4000-8000-000000000013", "b0000000-0000-4000-8000-000000000014",
         "b0000000-0000-4000-8000-000000000015", "b0000000-0000-4000-8000-000000000016",
-        "b0000000-0000-4000-8000-000000000017"};
+        "b0000000-0000-4000-8000-000000000017", "b0000000-0000-4000-8000-000000000018",
+        "b0000000-0000-4000-8000-000000000019", "b0000000-0000-4000-8000-00000000001a",
+        "b0000000-0000-4000-8000-00000000001b", "b0000000-0000-4000-8000-00000000001c"};
     const auto upstream = std::filesystem::path(ENGINE_TEST_SOURCE_DIR).parent_path() /
                           "src/engine/runtime/render/shaders";
     for (std::size_t index = 0; index < sources.size(); ++index)
     {
         const auto content = read(upstream / sources[index]);
         auto target = fixture.root / "assets" / sources[index];
+        std::error_code directory_error;
+        std::filesystem::create_directories(target.parent_path(), directory_error);
+        if (directory_error)
+        {
+            return false;
+        }
         if (content.empty() || !write(target, content))
         {
             return false;
@@ -260,7 +271,7 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
     }
     const std::string descriptor =
         std::string("vertex=\"") + identities[0] + "\"\nfragment=\"" + identities[1] +
-        "\"\nvarying=\"" + identities[2] +
+        "\"\nvarying=\"" + identities[2] + "\"\nsurface_fragment=\"" + identities[11] +
         "\"\n[[samplers]]\nname=\"baseColorTexture\"\nuniform=\"s_base_color\"\nstage=0\n"
         "default_texture=\"builtin://textures/white-srgb\"\n"
         "[[samplers]]\nname=\"normalTexture\"\nuniform=\"s_normal\"\nstage=1\n"
@@ -290,10 +301,11 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
     {
         return false;
     }
-    const auto stable = read(fixture.root / "cache/catalog.bin");
+    auto stable = read(fixture.root / "cache/catalog.bin");
     for (const auto* uniform :
          {"u_ambient_occlusion", "s_ambient_occlusion", "u_assao_params", "u_assao_rect",
-          "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom"})
+          "u_hdr_params", "u_hdr_texel", "s_hdr_scene", "s_hdr_bloom", "u_cluster_grid",
+          "u_frame_inputs", "u_frame_valid", "u_planar_projection", "s_lightmap"})
     {
         const auto extra = std::string("[[samplers]]\nname=\"reserved\"\nuniform=\"") + uniform +
                            "\"\nstage=3\ndefault_texture=\"builtin://textures/white-linear\"\n";
@@ -313,6 +325,31 @@ bool shader_dependencies(engine::editor::AssetPipelineSystem& pipeline, const Fi
             "AO sampler slot 11 is reserved during import"))
     {
         return false;
+    }
+    const std::string scene_sampler =
+        "[[samplers]]\nname=\"sceneColor\"\nuniform=\"s_scene_color\"\nsource=\"scene_color\"\n";
+    if (!expect(write(path, descriptor + scene_sampler) && build(pipeline, fixture),
+                "frame texture source does not require a resource GUID or default texture"))
+    {
+        return false;
+    }
+    shader = entry(pipeline, "custom.shader");
+    if (!expect(shader && shader->dependencies.size() == 3,
+                "frame texture source does not enter the resource dependency graph"))
+    {
+        return false;
+    }
+    stable = read(fixture.root / "cache/catalog.bin");
+    for (const auto* invalid :
+         {"stage=8\n", "exposed=true\n", "default_texture=\"builtin://textures/white-linear\"\n"})
+    {
+        if (!expect(write(path, descriptor + scene_sampler + invalid) &&
+                        !pipeline.build_assets(fixture.root) &&
+                        read(fixture.root / "cache/catalog.bin") == stable,
+                    "frame source rejects wrong fixed stage and material override/default"))
+        {
+            return false;
+        }
     }
     return expect(write(path, descriptor +
                                   "[[samplers]]\nname=\"invalid\"\nuniform=\"s_extra\"\nstage=3\n"

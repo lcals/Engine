@@ -228,6 +228,7 @@ bool write_material(const Material& material, const fs::path& path, std::string&
     toml::table document;
     document.insert("shader", shader_guid);
     document.insert("cull", schema::EnumNameCullMode(material.cull_mode()));
+    document.insert("blend_mode", schema::EnumNameBlendMode(material.blend_mode()));
     toml::array parameters;
     for (const auto& parameter : shader->parameters)
     {

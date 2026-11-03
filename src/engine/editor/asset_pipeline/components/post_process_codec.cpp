@@ -93,6 +93,38 @@ bool PostProcessCodec::read(const toml::table& table, schema::ComponentDataT& co
         }
         settings.bloom_enabled = *enabled;
     }
+    if (table.contains("ssr_enabled"))
+    {
+        const auto enabled = table["ssr_enabled"].value_exact<bool>();
+        if (!enabled)
+        {
+            error = "post_process ssr_enabled must be boolean";
+            return false;
+        }
+        settings.ssr_enabled = *enabled;
+    }
+    if (table.contains("ssr_max_steps"))
+    {
+        const auto steps = table["ssr_max_steps"].value_exact<std::int64_t>();
+        if (!steps || *steps < 8 || *steps > 256)
+        {
+            error = "post_process ssr_max_steps must be an integer in [8, 256]";
+            return false;
+        }
+        settings.ssr_max_steps = static_cast<std::uint16_t>(*steps);
+    }
+    if ((table.contains("ssr_resolution_scale") &&
+         !float_number(table.get("ssr_resolution_scale"), settings.ssr_resolution_scale)) ||
+        (table.contains("ssr_max_distance") &&
+         !float_number(table.get("ssr_max_distance"), settings.ssr_max_distance)) ||
+        (table.contains("ssr_thickness") &&
+         !float_number(table.get("ssr_thickness"), settings.ssr_thickness)) ||
+        (table.contains("ssr_roughness_cutoff") &&
+         !float_number(table.get("ssr_roughness_cutoff"), settings.ssr_roughness_cutoff)))
+    {
+        error = "post_process SSR fields must be finite numbers";
+        return false;
+    }
     if (!scene_detail::valid_post_process(settings))
     {
         error = "post_process parameters are invalid or Bloom is enabled without HDR";
@@ -119,6 +151,12 @@ void PostProcessCodec::write(const schema::ComponentDataT& component, toml::tabl
     table.insert("bloom_threshold", settings.bloom_threshold);
     table.insert("bloom_intensity", settings.bloom_intensity);
     table.insert("bloom_radius", settings.bloom_radius);
+    table.insert("ssr_enabled", settings.ssr_enabled);
+    table.insert("ssr_resolution_scale", settings.ssr_resolution_scale);
+    table.insert("ssr_max_steps", settings.ssr_max_steps);
+    table.insert("ssr_max_distance", settings.ssr_max_distance);
+    table.insert("ssr_thickness", settings.ssr_thickness);
+    table.insert("ssr_roughness_cutoff", settings.ssr_roughness_cutoff);
 }
 
 } // namespace engine::editor::asset_pipeline

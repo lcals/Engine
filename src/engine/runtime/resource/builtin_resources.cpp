@@ -8,6 +8,8 @@
 
 #include "fs_cube.bin.h"
 #include "fs_font.bin.h"
+#include "fs_surface.bin.h"
+#include "fs_water.bin.h"
 #include "vs_cube.bin.h"
 #include "vs_font.bin.h"
 
@@ -30,7 +32,7 @@ const schema::AssetCatalogDataT& builtin_resource_catalog()
     {
         schema::AssetCatalogDataT result;
         result.schema_version = 2;
-        result.revision = "builtin-3";
+        result.revision = "builtin-4";
         const auto add = [&result](const char* guid, const char* path, schema::AssetKind kind,
                                    const char* dependency)
         {
@@ -66,6 +68,10 @@ const schema::AssetCatalogDataT& builtin_resource_catalog()
             schema::AssetKind::shader, nullptr);
         add("00000000-0000-4000-8000-00000000000b", "builtin://materials/default-blinn-phong",
             schema::AssetKind::material, "00000000-0000-4000-8000-00000000000a");
+        add("00000000-0000-4000-8000-00000000000c", "builtin://shaders/water",
+            schema::AssetKind::shader, nullptr);
+        add("00000000-0000-4000-8000-00000000000d", "builtin://materials/default-water",
+            schema::AssetKind::material, "00000000-0000-4000-8000-00000000000c");
         for (auto& entry : result.entries)
         {
             if (entry->kind == schema::AssetKind::shader && entry->path != "builtin://shaders/font")
@@ -120,6 +126,7 @@ schema::ShaderDataT surface_shader(const char* shader_path, float lighting_mode)
     shader.path = shader_path;
     shader.vertex_code.assign(std::begin(vs_cube), std::end(vs_cube));
     shader.fragment_code.assign(std::begin(fs_cube), std::end(fs_cube));
+    shader.surface_fragment_code.assign(std::begin(fs_surface), std::end(fs_surface));
     auto color = std::make_unique<schema::ShaderParameterT>();
     color->name = "baseColor";
     color->uniform_name = "u_base_color";
@@ -197,6 +204,77 @@ schema::ShaderDataT surface_shader(const char* shader_path, float lighting_mode)
     return shader;
 }
 
+schema::ShaderDataT water_shader()
+{
+    auto shader = surface_shader("builtin://shaders/water", 0.0F);
+    shader.fragment_code.assign(std::begin(fs_water), std::end(fs_water));
+    shader.surface_fragment_code.clear();
+    for (auto& parameter : shader.parameters)
+    {
+        if (parameter->name == "baseColor")
+        {
+            parameter->default_value.AsVec4Value()->value = schema::Vec4(0.025, 0.12, 0.16, 1.0);
+        }
+        else if (parameter->name == "roughness")
+        {
+            parameter->default_value.AsFloatValue()->value = 0.08;
+        }
+        else if (parameter->name == "specularColor")
+        {
+            parameter->default_value.AsVec3Value()->value = schema::Vec3(0.0204, 0.0204, 0.0204);
+        }
+    }
+    auto flow = std::make_unique<schema::ShaderParameterT>();
+    flow->name = "waterFlow";
+    flow->uniform_name = "u_water_flow";
+    schema::Vec2ValueT flow_value;
+    flow_value.value = schema::Vec2(0.025, 0.015);
+    flow->default_value.Set(std::move(flow_value));
+    shader.parameters.push_back(std::move(flow));
+    auto ior = scalar_parameter("waterIor", "u_water_flow", 2, 1.333F, true);
+    ior->minimum = 1.0;
+    ior->maximum = 2.5;
+    shader.parameters.push_back(std::move(ior));
+    shader.parameters.push_back(
+        scalar_parameter("refractionStrength", "u_water_parameters", 0, 1.0F, true));
+    auto absorption = scalar_parameter("absorptionDistance", "u_water_parameters", 1, 5.0F, true);
+    absorption->minimum = 0.001;
+    absorption->maximum = 10000.0;
+    shader.parameters.push_back(std::move(absorption));
+    auto shore = scalar_parameter("shoreFadeDistance", "u_water_parameters", 2, 0.15F, true);
+    shore->minimum = 0.001;
+    shore->maximum = 100.0;
+    shader.parameters.push_back(std::move(shore));
+    shader.parameters.push_back(
+        scalar_parameter("reflectionStrength", "u_water_parameters", 3, 1.0F, true));
+    auto absorption_color = std::make_unique<schema::ShaderParameterT>();
+    absorption_color->name = "absorptionColor";
+    absorption_color->uniform_name = "u_water_absorption";
+    absorption_color->bounded = true;
+    absorption_color->minimum = 0.0;
+    absorption_color->maximum = 1.0;
+    schema::Vec3ValueT absorption_value;
+    absorption_value.value = schema::Vec3(0.45, 0.78, 0.85);
+    absorption_color->default_value.Set(std::move(absorption_value));
+    shader.parameters.push_back(std::move(absorption_color));
+    const auto add_frame_sampler = [&shader](const char* name, const char* uniform,
+                                             std::uint8_t stage, schema::ShaderTextureSource source)
+    {
+        auto sampler = std::make_unique<schema::ShaderSamplerT>();
+        sampler->name = name;
+        sampler->uniform_name = uniform;
+        sampler->stage = stage;
+        sampler->source = source;
+        sampler->exposed = false;
+        shader.samplers.push_back(std::move(sampler));
+    };
+    add_frame_sampler("planarReflection", "s_planar_reflection", 8,
+                      schema::ShaderTextureSource::planar_reflection);
+    add_frame_sampler("sceneColor", "s_scene_color", 9, schema::ShaderTextureSource::scene_color);
+    add_frame_sampler("sceneDepth", "s_scene_depth", 10, schema::ShaderTextureSource::scene_depth);
+    return shader;
+}
+
 struct BuiltinDefinitions
 {
     std::vector<schema::ShaderDataT> shaders;
@@ -252,6 +330,7 @@ const BuiltinDefinitions& builtin_definitions()
         result.shaders.push_back(surface_shader("builtin://shaders/pbr", 0.0F));
         result.shaders.push_back(surface_shader("builtin://shaders/unlit", 1.0F));
         result.shaders.push_back(surface_shader("builtin://shaders/blinn-phong", 2.0F));
+        result.shaders.push_back(water_shader());
         for (const auto& entry : builtin_resource_catalog().entries)
         {
             if (entry->kind != schema::AssetKind::material)
@@ -262,6 +341,10 @@ const BuiltinDefinitions& builtin_definitions()
             material.type_path = entry->path;
             material.shader_guid = entry->dependencies.front();
             material.shader_path = builtin_resource_info(material.shader_guid)->path;
+            if (material.shader_path == "builtin://shaders/water")
+            {
+                material.blend_mode = schema::BlendMode::alpha_blend;
+            }
             result.materials.push_back(std::move(material));
         }
         return result;

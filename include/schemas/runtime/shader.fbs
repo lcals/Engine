@@ -12,12 +12,15 @@ table ShaderParameter {
     default_value:MaterialValue (required);
 }
 
+enum ShaderTextureSource:ubyte { resource, scene_color, scene_depth, planar_reflection }
+
 table ShaderSampler {
     name:string (required);
     uniform_name:string (required);
     stage:ubyte;
     default_texture:string (required);
     exposed:bool = true;
+    source:ShaderTextureSource = resource;
 }
 
 table ShaderData {
@@ -28,6 +31,7 @@ table ShaderData {
     fragment_code:[ubyte] (required);
     parameters:[ShaderParameter] (required);
     samplers:[ShaderSampler];
+    surface_fragment_code:[ubyte];
 }
 
 root_type ShaderData;

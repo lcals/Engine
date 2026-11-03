@@ -82,6 +82,27 @@ keep = []
 
 `build_resources(manifest?, items?, targetPlatform?)` 使用当前项目；省略 `manifest` 时读取固定 `settings/resource-build.toml`，缺失则全量。可选 `targetPlatform` 决定平台，省略时采用宿主；`items` 为可选构建项名称。MCP 调用 `AssetBuildSystem.build(project_root, manifest, items, target_platform)`，返回成功状态、构建统计或错误说明，不另建配置或算法。
 
-命令行使用 `asset_build_app --project <项目根目录> --package [--manifest settings/resource-build.toml] [--item game] [--target android]`；`--manifest` 本身也选择打包模式。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`，资源和包统计包含自动内置基线；错误写入标准错误。未指定 `--package` 和 `--manifest` 时执行独立的纯导入操作，`--target` 同样适用。完整构建与调用命令见 [README](../../../README.md)。
+命令行使用 `asset_build_app --project <项目根目录> --package [--manifest settings/resource-build.toml] [--item game] [--target android]`；`--manifest` 本身也选择打包模式。成功时标准输出为单行 JSON，包含 `output`、`targetPlatform`、`resourceCount`、`packageCount`、`reusedPackageCount` 和 `revision`，资源和包统计包含自动内置基线；错误写入标准错误。未指定 `--package` 和 `--manifest` 时执行独立的纯导入操作，`--target` 同样适用。原生构建见[构建指南](../../building.md)，资源命令见[运行包命令](#运行包命令)。
 
 真机同步消费这份运行清单及其引用的独立文件和包，不在同步工具中重新计算资源集合。
+
+## 运行包命令
+
+```sh
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --package
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --package --target android
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml
+# 可重复 --item；省略时选择清单的全部构建项。
+./build/ninja-engine-debug/asset_build_app --project projects/showcase --manifest settings/resource-build.toml --item game
+```
+
+MCP 提供 `build_resources`，接受可选 `manifest`、`items` 和 `targetPlatform`；省略 manifest 使用上述统一项目配置。`sync_assets` 可传 `source`（例如 `cache/build/windows`）同步已构建目录；省略时先导入并同步完整编辑器目录。同步成功只表示候选部署可用，是否激活由运行宿主与热重载开关决定。
+
+命令行客户端使用同一工具协议：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime build --manifest settings/resource-build.toml --item game
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/minimal-runtime sync --source cache/build/windows
+```
+
+编辑器直接使用 `cache/gen`，不要求打包。会覆盖该目录的导入或构建要求先 `stop_project`；运行中会返回明确错误。同步已有的独立运行包不覆盖该缓存，可以在关闭热重载时准备候选版本。`cache/gen` 同时只保存一个目标平台的产物，构建 Android 后要先重新导入宿主平台产物，再启动桌面项目。

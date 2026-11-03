@@ -49,6 +49,7 @@ def main():
         "--timeout", type=float, default=120, help="Whole operation timeout in seconds"
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("list", help="List registered tools and their input schemas")
     commands.add_parser("start", help="Start the project in the editor window")
     commands.add_parser("stop", help="Stop the project and restore the blank window")
     commands.add_parser("status", help="Show published and last reported runtime state")
@@ -157,11 +158,13 @@ def main():
             {
                 "jsonrpc": "2.0",
                 "id": 2,
-                "method": "tools/call",
-                "params": {"name": tool, "arguments": arguments},
+                "method": "tools/list" if args.command == "list" else "tools/call",
+                "params": {} if args.command == "list" else {"name": tool, "arguments": arguments},
             },
         )
         result = receive(process, 2)
+        if args.command == "list":
+            print(json.dumps(result, indent=2, ensure_ascii=False))
         for block in result.get("content", []):
             if not isinstance(block, dict) or block.get("type") != "text":
                 continue

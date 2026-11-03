@@ -1,6 +1,7 @@
 #pragma once
 
 #include "plugins/runtime/script/vm/arguments.hpp"
+#include "runtime/gameplay/project_script_request.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -34,6 +35,8 @@ public:
     [[nodiscard]] virtual bool start() = 0;
     [[nodiscard]] virtual bool call_gameplay(std::string_view name, bool require_true) = 0;
     [[nodiscard]] virtual bool call_binding(std::string_view name) = 0;
+    [[nodiscard]] virtual bool execute_script(const ProjectScriptRequest& request,
+                                              std::string& result_json) = 0;
     [[nodiscard]] virtual bool drain_jobs() = 0;
     [[nodiscard]] virtual const std::string& last_error() const noexcept = 0;
     [[nodiscard]] virtual const std::vector<std::string>& loaded_modules() const noexcept = 0;
@@ -46,5 +49,9 @@ public:
 
 inline constexpr std::size_t maximum_text_size = 4 * 1024 * 1024;
 inline constexpr std::size_t maximum_module_count = 256;
+inline constexpr std::size_t maximum_project_script_size = 256 * 1024;
+
+// 两个 VM 共用的同步 CommonJS 外观及严格 JSON 返回校验，不向项目注册导出。
+[[nodiscard]] std::string project_script_wrapper(std::string_view javascript);
 
 } // namespace engine::plugins::script::vm

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "runtime/gameplay/project_script_request.hpp"
 #include "runtime/gameplay/script_status.hpp"
 #include "runtime/system/system.hpp"
 
@@ -26,6 +27,10 @@ public:
     [[nodiscard]] virtual bool start_prepared_gameplay() = 0;
     virtual void stop_gameplay() noexcept = 0;
     virtual void set_hot_reload(bool enabled) = 0;
+    // 仅活动 Run 的主线程安全点；失败不停止玩法，也不回滚脚本已产生的副作用。
+    [[nodiscard]] virtual bool execute_project_script(const ProjectScriptRequest& request,
+                                                      std::string& result_json,
+                                                      std::string& error) = 0;
     // 借用实现拥有的状态，后续操作可能更新内容。
     [[nodiscard]] virtual const ScriptStatus& status() const noexcept = 0;
 };

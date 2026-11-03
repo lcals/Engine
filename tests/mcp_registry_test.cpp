@@ -79,7 +79,7 @@ bool exercise_render_tools()
     engine::plugins::mcp::McpSystem mcp;
     if (!check(tools.register_tools(mcp) && mcp.initialize({}),
                "render tools register schemas supported by the MCP protocol") ||
-        !check(mcp.list_tools()["tools"].size() == 5, "all render tools are discoverable"))
+        !check(mcp.list_tools()["tools"].size() == 11, "all render tools are discoverable"))
     {
         return false;
     }
@@ -113,7 +113,9 @@ bool exercise_render_tools()
             {"shadowCascadeBlend", .1}, {"aoEnabled", true},     {"aoRadius", 1.4},
             {"aoStrength", .8},         {"aoPower", 2},          {"aoFadeStart", 40},
             {"aoFadeEnd", 140},         {"hdrEnabled", true},    {"bloomEnabled", true},
-            {"bloomThreshold", 1.2},    {"bloomIntensity", .3},  {"bloomRadius", 2}};
+            {"bloomThreshold", 1.2},    {"bloomIntensity", .3},  {"bloomRadius", 2},
+            {"ssrEnabled", true}, {"ssrResolutionScale", .5}, {"ssrMaxSteps", 128},
+            {"ssrMaxDistance", 80}, {"ssrThickness", .1}, {"ssrRoughnessCutoff", .6}};
         if (!check(probe.call_tool("render.settings.schema", input, result) ==
                            McpCallStatus::success &&
                        result == input,
@@ -132,7 +134,12 @@ bool exercise_render_tools()
                                 Json{{"hdrEnabled", 1}},          Json{{"bloomEnabled", 1}},
                                 Json{{"bloomThreshold", -1}},     Json{{"bloomThreshold", 101}},
                                 Json{{"bloomIntensity", 10.1}},   Json{{"bloomRadius", .24}},
-                                Json{{"bloomRadius", 4.1}}})
+                                Json{{"bloomRadius", 4.1}},
+                                Json{{"ssrEnabled", 1}}, Json{{"ssrResolutionScale", .24}},
+                                Json{{"ssrResolutionScale", 1.01}}, Json{{"ssrMaxSteps", 7}},
+                                Json{{"ssrMaxSteps", 257}}, Json{{"ssrMaxSteps", 16.0}},
+                                Json{{"ssrMaxDistance", -1}}, Json{{"ssrThickness", 11}},
+                                Json{{"ssrRoughnessCutoff", 1.1}}})
     {
         if (!check(mcp.call_tool("set_render_settings", invalid, result) ==
                            McpCallStatus::invalid_arguments &&
@@ -141,6 +148,23 @@ bool exercise_render_tools()
         {
             return false;
         }
+    }
+    const Json identity = {{"sceneId", "1"}, {"nodeId", "2"}};
+    for (const auto& [name, fields] : {
+        std::pair{"set_planar_reflection", Json{{"resolutionScale", .24}}},
+        std::pair{"set_planar_reflection", Json{{"clipBias", 1.1}}},
+        std::pair{"set_planar_reflection", Json{{"enabled", 1}}},
+        std::pair{"set_light_probe_volume", Json{{"resource", 2}}},
+        std::pair{"set_mesh_lighting", Json{{"castShadows", 1}}},
+        std::pair{"set_mesh_lighting", Json{{"bakeStatic", 1}}},
+        std::pair{"set_mesh_lighting", Json{{"lightmap", false}}},
+        std::pair{"get_mesh_lighting", Json{{"bakeStatic", true}}}})
+    {
+        auto input = identity;
+        input.update(fields);
+        if (!check(mcp.call_tool(name, input, result) == McpCallStatus::invalid_arguments,
+                   "component tool schemas reject wrong types and bounds before transport"))
+            return false;
     }
 #endif
     return true;

@@ -6,9 +6,11 @@
 #include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/text_component.hpp"
+#include "runtime/scene/transform.hpp"
 #include "runtime/scene/ui_component.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
@@ -759,6 +761,65 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
         scene->active_camera()
             ? scene->active_camera()->node().add_component<engine::PostProcessComponent>()
             : nullptr;
+    engine::PostProcessSettings sdr;
+    sdr.exposure = 8;
+    sdr.filmic_tonemap = true;
+    engine::ByteBuffer font_before;
+    engine::ByteBuffer font_after;
+    if (!expect(post_process && post_process->set_settings(sdr),
+                "change exposure with HDR disabled") ||
+        !systems.frames() || !systems.screenshot(screenshots, "font-gallery-sdr-exposure.png") ||
+        !expect(engine::ResourceSystem::read_binary(screenshots / "font-gallery-custom-shader.png",
+                                                    font_before) &&
+                    engine::ResourceSystem::read_binary(
+                        screenshots / "font-gallery-sdr-exposure.png", font_after) &&
+                    font_before == font_after,
+                "HDR-disabled 3D font pixels remain exact across exposure and tone-map changes"))
+    {
+        return false;
+    }
+    auto* unlit_node = scene->create_node("Transparent unlit coverage");
+    auto* unlit = unlit_node ? unlit_node->add_component<engine::MeshRenderer>() : nullptr;
+    engine::TransformSettings unlit_transform;
+    unlit_transform.position = {0, -0.5, -1};
+    unlit_transform.scale = {2.5, 2.5, 0.05};
+    if (!expect(unlit && unlit->material().set_shader("builtin://shaders/unlit") &&
+                    unlit->material().set_v4("baseColor", {0.3, 0.7, 0.5, 0.5}) &&
+                    unlit_node->get_component<engine::Transform>()->set_settings(unlit_transform),
+                "place an ordinary transparent unlit surface behind the 3D text"))
+    {
+        return false;
+    }
+    for (const auto mode :
+         {engine::schema::BlendMode::alpha_blend, engine::schema::BlendMode::premultiplied})
+    {
+        const auto prefix =
+            mode == engine::schema::BlendMode::alpha_blend ? "unlit-alpha" : "unlit-premultiplied";
+        const auto before = std::string(prefix) + "-sdr.png";
+        const auto after = std::string(prefix) + "-exposure.png";
+        sdr.exposure = 1;
+        sdr.filmic_tonemap = false;
+        if (!unlit->material().set_blend_mode(mode) || !post_process->set_settings(sdr) ||
+            !systems.frames() || !systems.screenshot(screenshots, before.c_str()))
+        {
+            return false;
+        }
+        sdr.exposure = 8;
+        sdr.filmic_tonemap = true;
+        if (!post_process->set_settings(sdr) || !systems.frames() ||
+            !systems.screenshot(screenshots, after.c_str()) ||
+            !expect(engine::ResourceSystem::read_binary(screenshots / before, font_before) &&
+                        engine::ResourceSystem::read_binary(screenshots / after, font_after) &&
+                        font_before == font_after,
+                    "transparent unlit and font pixels remain exact with HDR disabled"))
+        {
+            return false;
+        }
+    }
+    if (!scene->destroy_node(unlit_node->id()) || !systems.frames())
+    {
+        return false;
+    }
     auto* ui_node = scene->create_node("HDR font gallery UI");
     auto* overlay = ui_node ? ui_node->add_component<engine::UiComponent>() : nullptr;
     engine::PostProcessSettings hdr;

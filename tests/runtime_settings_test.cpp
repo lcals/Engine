@@ -80,6 +80,15 @@ int main(int argc, char* argv[])
         R"({"version":1,"defaults":{"parallel":{"completion_budget_seconds":2}}})",
         R"({"version":1,"defaults":{"parallel":{"navigation_tile_threshold":1025}}})",
         R"({"version":1,"defaults":{"parallel":{"render":{"texture_batch_size":65}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"cluster_tile_size":15}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"cluster_depth_slices":65}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_lights":4097}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_cluster_lights":0}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"shadow_atlas_size":3000}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"local_shadow_tile_size":768}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"shadow_atlas_size":512,"local_shadow_tile_size":1024}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_local_shadow_faces":25}}}})",
+        R"({"version":1,"defaults":{"parallel":{"render":{"maximum_planar_reflections":3}}}})",
         R"({"version":1,"defaults":{"engine":{"width":0}}})",
         R"({"version":1,"defaults":{"engine":{"window_title":""}}})",
         R"({"version":1,"defaults":{"engine":{"target_frame_rate":0}}})",
@@ -115,6 +124,20 @@ int main(int argc, char* argv[])
         return 1;
     }
     settings.engine.window_title = "Host default";
+    if (!expect(
+            engine::decode_runtime_settings(
+                R"({"version":1,"defaults":{"parallel":{"render":{"maximum_lights":512,"maximum_cluster_lights":96,"shadow_atlas_size":8192,"local_shadow_tile_size":1024}}},"profiles":{"mobile":{"parallel":{"render":{"maximum_lights":128,"shadow_atlas_size":4096,"local_shadow_tile_size":256,"maximum_local_shadow_faces":0,"maximum_planar_reflections":0}}}}})",
+                "mobile", settings, error) &&
+                settings.parallel.render.maximum_lights == 128 &&
+                settings.parallel.render.maximum_cluster_lights == 96 &&
+                settings.parallel.render.shadow_atlas_size == 4096 &&
+                settings.parallel.render.local_shadow_tile_size == 256 &&
+                settings.parallel.render.maximum_local_shadow_faces == 0 &&
+                settings.parallel.render.maximum_planar_reflections == 0,
+            "mobile rendering overrides retain absent defaults and can disable optional captures"))
+    {
+        return 1;
+    }
     if (!expect(engine::decode_runtime_settings(R"({"version":1})", "desktop", settings, error) &&
                     settings.engine.window_title == "Host default",
                 "an empty versioned file preserves explicit caller defaults"))

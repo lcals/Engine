@@ -1,0 +1,12 @@
+include_guard(GLOBAL)
+find_package(Threads REQUIRED)
+if(NOT EXISTS "${PROJECT_SOURCE_DIR}/third_party/xatlas/source/xatlas/xatlas.cpp")
+    message(FATAL_ERROR "xatlas is missing; run git submodule update --init third_party/xatlas")
+endif()
+add_library(engine_xatlas STATIC "${PROJECT_SOURCE_DIR}/third_party/xatlas/source/xatlas/xatlas.cpp")
+add_library(xatlas::xatlas ALIAS engine_xatlas)
+target_include_directories(engine_xatlas SYSTEM PUBLIC
+    "${PROJECT_SOURCE_DIR}/third_party/xatlas/source/xatlas")
+target_compile_features(engine_xatlas PRIVATE cxx_std_11)
+target_link_libraries(engine_xatlas PRIVATE Threads::Threads)
+engine_apply_compiler_cache(engine_xatlas)

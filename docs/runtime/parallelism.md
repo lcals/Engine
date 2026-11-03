@@ -99,3 +99,7 @@ max_concurrency = 1
 GameplaySession 的正常 tick 只提交或消费一个部署候选。control、manifest、目录读取、文件摘要和状态写入使用后台域，结果携带请求代际。状态按最新文本合并并串行写出；worker 不访问活动场景、脚本 VM 或 App 全局状态。完整部署摘要目前使用限为一个后台任务的同步流式文件工具，仍占用该域一个 worker；显式启动和关闭收尾允许同步完成。
 
 Tracy 复用既有构建开关，观察 `Task.execute` 的域、任务名、优先级及排队时间，以及 `File.prepare`、`File.complete`、`Resource.decode`、`Gameplay.deployment`。`File.InFlight` 和 `File.InFlightBytes` 用于检查 I/O 限流是否生效。性能报告须区分主线程提交耗时、后台 CPU 工作、排队等待和整个场景就绪耗时，不把工作移走等同于总耗时下降。
+
+## 线程优先度与失败语义
+
+`ThreadPriority` 为独立 OS 策略：normal 保持基线，low/high 在函数执行期间临时设置并精确恢复；权限不足仍执行已接收函数并报告失败，不因调度提示失败丢失 Jolt job。返回失败不代表函数未执行，不能自动重跑有副作用的任务。Apple 使用 QoS，Windows 使用原生线程优先级，Linux/Android 使用可恢复的调度策略和 nice。所有档位均不保证实时响应。`ENGINE_ENABLE_TRACY` 控制任务执行、排队和关闭等待的观测，默认关闭。

@@ -213,6 +213,7 @@ struct UiSystem::State final : Rml::EventListener
     std::uint32_t pointer_buttons = 0;
     std::optional<std::pair<SDL_TouchID, SDL_FingerID>> touch_pointer;
     std::set<std::pair<SDL_TouchID, SDL_FingerID>> blocked_touches;
+    std::set<SDL_Keycode> keys_down;
     int logical_width = 0;
     int logical_height = 0;
     bool canceling_input = false;
@@ -636,6 +637,174 @@ bool UiSystem::find_element(std::uint64_t node, std::string_view id, UiElementHa
     output = state_->handle(*document, *element);
     return output.element_id != 0;
 }
+
+bool UiSystem::document_root(std::uint64_t node, UiElementHandle& output)
+{
+    output = {};
+    if (!synchronize())
+    {
+        return false;
+    }
+    auto* document = state_->find_document(node);
+    if (!document)
+    {
+        return false;
+    }
+    output = state_->handle(*document, *document->markup);
+    return output.element_id != 0;
+}
+
+bool UiSystem::inspect_element(UiElementHandle handle, UiElementInfo& output)
+{
+    output = {};
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(handle, &document) : nullptr;
+    if (!tracked)
+    {
+        return false;
+    }
+    auto& element = *tracked->reference.get();
+    output.handle = handle;
+    if (auto* parent = element.GetParentNode();
+        parent != nullptr && parent->GetOwnerDocument() == document->markup)
+    {
+        output.parent = state_->handle(*document, *parent);
+    }
+    output.tag = element.GetTagName();
+    output.id = element.GetId();
+    output.classes = element.GetClassNames();
+    append_text(element, output.text);
+    output.value = element_value(element);
+    if (element.GetTagName() == "input" &&
+        element.GetAttribute<Rml::String>("type", "") == "password")
+    {
+        output.value.assign(output.value.size(), '*');
+    }
+    output.child_count = static_cast<std::uint32_t>(element.GetNumChildren());
+    output.visible = document->visible && element.IsVisible(true);
+    output.enabled = element_enabled(element);
+    output.focused = state_->keyboard_context == document->context &&
+                     document->context->GetFocusElement() == &element;
+    Rml::Rectanglef bounds;
+    if (Rml::ElementUtilities::GetBoundingBox(bounds, &element, Rml::BoxArea::Border))
+    {
+        output.bounds = {bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
+    }
+    return true;
+}
+
+bool UiSystem::child_element(UiElementHandle parent, std::uint32_t index, UiElementHandle& output)
+{
+    output = {};
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(parent, &document) : nullptr;
+    if (!tracked || index >= static_cast<std::uint32_t>(tracked->reference->GetNumChildren()))
+    {
+        return false;
+    }
+    auto* child = tracked->reference->GetChild(static_cast<int>(index));
+    if (!child)
+    {
+        return false;
+    }
+    output = state_->handle(*document, *child);
+    return output.element_id != 0;
+}
+
+bool UiSystem::element_style(UiElementHandle handle, std::string_view name, std::string& output)
+{
+    output.clear();
+    if (name.empty() || !valid_string(name))
+    {
+        return false;
+    }
+    auto* tracked = synchronize() ? state_->resolve(handle) : nullptr;
+    const auto* property = tracked ? tracked->reference->GetProperty(std::string(name)) : nullptr;
+    if (!property)
+    {
+        return false;
+    }
+    output = property->ToString();
+    return true;
+}
+
+bool UiSystem::hit_test(float x, float y, UiElementHandle& output)
+{
+    output = {};
+    if (!valid_pointer(x, y) || !synchronize())
+    {
+        return false;
+    }
+    if (x < 0 || y < 0 || x >= state_->logical_width || y >= state_->logical_height)
+    {
+        return true;
+    }
+    for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+    {
+        auto* claimed = state_->hit_target(*it, x, y);
+        if (!claimed)
+        {
+            continue;
+        }
+        auto* target = it->context->GetElementAtPoint({x, y});
+        if (!target || target->GetOwnerDocument() != it->markup)
+        {
+            target = claimed;
+        }
+        output = state_->handle(*it, *target);
+        return output.element_id != 0;
+    }
+    return true;
+}
+
+bool UiSystem::pointer_active() const noexcept
+{
+    return state_->initialized && (state_->pointer_context != nullptr || state_->touch_pointer ||
+                                   !state_->blocked_touches.empty());
+}
+
+bool UiSystem::focus_element(UiElementHandle handle)
+{
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(handle, &document) : nullptr;
+    if (!tracked || !document->visible || !tracked->reference->IsVisible(true) ||
+        !element_enabled(*tracked->reference.get()) || !state_->activate(*document))
+    {
+        return false;
+    }
+    for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+    {
+        if (it->visible && it->markup->IsModal() && it->context != document->context)
+        {
+            return false;
+        }
+        if (it->context == document->context)
+        {
+            break;
+        }
+    }
+    if (!tracked->reference->Focus())
+    {
+        return false;
+    }
+    for (auto& other : state_->documents)
+    {
+        if (other.context != document->context)
+        {
+            if (auto* focused = other.context->GetFocusElement())
+            {
+                focused->Blur();
+            }
+        }
+    }
+    state_->keyboard_context = document->context;
+    const auto& tag = tracked->reference->GetTagName();
+    if ((tag == "input" || tag == "textarea") && !SDL_TextInputActive(window_.native_window()))
+    {
+        static_cast<void>(SDL_StartTextInput(window_.native_window()));
+    }
+    return true;
+}
 bool UiSystem::is_valid(UiElementHandle handle)
 {
     return synchronize() && state_->resolve(handle) != nullptr;
@@ -927,6 +1096,13 @@ void UiSystem::release_scene() noexcept
 }
 bool UiSystem::process_event(const SDL_Event& event)
 {
+    return process_event(event, event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP
+                                    ? event.key.mod
+                                    : SDL_GetModState());
+}
+
+bool UiSystem::process_event(const SDL_Event& event, std::uint16_t modifiers)
+{
     if (!state_->initialized)
     {
         return false;
@@ -973,7 +1149,7 @@ bool UiSystem::process_event(const SDL_Event& event)
             input.type == SDL_EVENT_MOUSE_BUTTON_UP || input.type == SDL_EVENT_MOUSE_MOTION ||
             input.type == SDL_EVENT_MOUSE_WHEEL;
         const bool consumed =
-            ui_detail::process_input(*document.context, window_.native_window(), input);
+            ui_detail::process_input(*document.context, window_.native_window(), input, modifiers);
         state_->input_event = false;
         return consumed;
     };
@@ -1115,6 +1291,14 @@ bool UiSystem::process_event(const SDL_Event& event)
         {
             if (document.context == state_->keyboard_context)
             {
+                if (event.type == SDL_EVENT_KEY_DOWN)
+                {
+                    state_->keys_down.insert(event.key.key);
+                }
+                else if (event.type == SDL_EVENT_KEY_UP)
+                {
+                    state_->keys_down.erase(event.key.key);
+                }
                 return process(document, event);
             }
         }
@@ -1259,13 +1443,25 @@ void UiSystem::cancel_input() noexcept
         return;
     }
     state_->cancel_pointer();
+    state_->canceling_input = true;
     for (auto& document : state_->documents)
     {
         if (auto* focused = document.context->GetFocusElement())
         {
             focused->Blur();
         }
+        for (const auto key : state_->keys_down)
+        {
+            SDL_Event release{};
+            release.type = SDL_EVENT_KEY_UP;
+            release.key.windowID = SDL_GetWindowID(window_.native_window());
+            release.key.key = key;
+            static_cast<void>(
+                ui_detail::process_input(*document.context, window_.native_window(), release, 0));
+        }
     }
+    state_->canceling_input = false;
+    state_->keys_down.clear();
     state_->keyboard_context = nullptr;
     if (SDL_TextInputActive(window_.native_window()))
     {

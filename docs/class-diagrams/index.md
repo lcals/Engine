@@ -2,11 +2,11 @@
 
 类图中的短类名按所在目录确定命名空间：核心为 `engine`，编辑器为 `engine::editor`，插件为 `engine::plugins::<插件名>`。核心不依赖编辑器或插件；编辑器库不依赖具体插件。插件通过底层接口提供扩展，由可执行宿主显式登记、装配；图中的借用接口不表示底层依赖其具体实现。
 
-类图是架构评审入口，维护类的职责、所有权、公开方法和完整引用关系。构建与平台验证范围见根 [README.md](../../README.md)。
+类图是架构评审入口，维护类的职责、所有权、公开方法和完整引用关系。构建与平台验证范围见[测试与范例](../testing.md)。
 
 统一评审原则：**业务、运行宿主和编辑器都驱动最小核心，核心不承载调用方流程。** 评审每个方法时区分“提供能力”和“决定何时使用能力”，后者归调用方。完整边界见[调用方驱动核心](../architecture.md#调用方驱动核心)。
 
-[统一输入模块](../runtime/input.md)由 TS 加载 / 覆盖 / 保存绑定并显式配对多手柄，原生采集设备、执行最终映射并处理虚拟触摸。接口入口为[输入系统](../runtime/class-diagrams/input-system.md)、[生成数据](../runtime/class-diagrams/input-data.md)、[输入脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)，脚本声明位于 `include/engine.d.ts`；平台验证范围以 README 为准。
+[统一输入模块](../runtime/input.md)由 TS 加载 / 覆盖 / 保存绑定并显式配对多手柄，原生采集设备、执行最终映射并处理虚拟触摸。接口入口为[输入系统](../runtime/class-diagrams/input-system.md)、[生成数据](../runtime/class-diagrams/input-data.md)、[输入脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)，脚本声明位于 `include/engine.d.ts`；平台验证范围见[测试与范例](../testing.md)。
 
 [角色与动画制作流程（规划）](../editor/character-production.md)记录 AI 离线加工、骨骼不匹配处理及引擎运行时动作复用的方向，并与[当前动画能力](../runtime/animation.md)区分。该规划尚未新增类或公开接口；后续骨架适配数据与重定向契约须先在所属类图及本索引中评审，不能把工具调研当成已实现契约。
 
@@ -75,6 +75,8 @@
 - [场景数据模型](../runtime/class-diagrams/scene-data.md)：FlatBuffers 定义、C++/TS 生成及组件数据所有权。
 - [编辑器环境](../editor/class-diagrams/editor-environment.md)：平台路径映射和编辑器目录提交。
 - [渲染](../runtime/class-diagrams/render-system.md)：同一窗口的空白/PBR 场景呈现和每次运行 GPU 资源。
+- [分簇前向、反射与间接光](../runtime/class-diagrams/forward-lighting-reflections.md)：已评审的公开契约、GPU 所有权与材质绑定，包含局部阴影、SSR、平面反射、透明折射及 GI 消费。
+- [场景间接光烘焙](../plugins/editor/class-diagrams/scene-lighting-bake.md)：已评审的 xatlas、lightmapper 适配、多轮反弹、探针与原子资源发布；[固定上游来源](../runtime/rendering-upstream-plan.md)。
 - [渲染扩展](../runtime/class-diagrams/render-extension.md)：插件场景透明绘制位置、借用登记与 GPU 生命周期。
 - [编辑器](../editor/class-diagrams/editor-system.md)：默认待机，主线程处理 MCP 启停，停止恢复空白。
 - [场景预览](../editor/class-diagrams/scene-preview.md)：独立隐藏镜头、自由飞行、增量导入及未保存编辑保护；不推进玩法系统。
@@ -118,6 +120,11 @@
 步骤 2 代码已接入，Mac 定向测试、MCP 预览和菜单/UI 玩法已通过；完整结果及剩余范围见[步骤 2 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-2-当前实现与验证范围)。步骤 3 已联通地基查询、物理撞击快照、二次损伤及特效/音频播放，见[步骤 3 验证记录](../plugins/runtime/terrain-destruction-feasibility.md#步骤-3-综合联动验证)。类图表达当前契约，不代表完整建筑力学或全部平台已经验收。
 
 ## MCP 与编辑器命令
+
+- [功能覆盖与缺口](../plugins/editor/mcp-coverage.md)：实际注册工具、尚缺参数、范例和验证边界。
+- [项目 TS 执行](../plugins/runtime/class-diagrams/project-script-execution.md)：MCP 直接提交 TS、编辑器编译、活动 Run 内执行及 JSON 结果，不要求项目逐项注册操作。
+- [UI 编辑器插件](../plugins/editor/class-diagrams/ui-editor.md)：源资源编辑、实际控件查询，以及指针、键盘、文字和拖动等正常输入模拟。
+- [渲染 MCP 补齐](../plugins/editor/class-diagrams/render-mcp-tools.md)：SSR、局部阴影、平面反射、透明混合与间接光资源绑定。
 
 - [建模职责边界](../plugins/editor/modeling.md)：独立 C++ 几何核心、编辑器业务与 MCP 适配。
 - [可编辑网格](../plugins/editor/class-diagrams/editable-mesh.md)：生成模型、稳定身份、校验与渲染网格编译。
@@ -194,7 +201,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 - `engine_app` 使用默认配置即可启动；`editor_app` 必须传入 `--project <path>`，先验证项目再启动窗口。编辑器默认空白待机，MCP 启动后项目占满同一窗口，停止后恢复空白；尚未绘制编辑器业务界面。
 - [资源管线系统](../editor/class-diagrams/asset-pipeline-system.md)：oneTBB、SQLite、efsw、meshoptimizer；由资源工具宿主单独管理。
 - shaderc、texturec、geometryc 是构建提供的宿主工具；fmt 用于基础格式化。它们不引入额外引擎包装类。
-- 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内置资源通过 SDL 文件流读取，平台验证范围见根 [README.md](../../README.md)。
+- 运行时不反向依赖编辑器、离线资源管线或具体游戏。Android 打包参考 SDL3 自带 Android 工程；APK 内置资源通过 SDL 文件流读取，平台验证范围见[测试与范例](../testing.md)。
 
 ## 维护约定
 

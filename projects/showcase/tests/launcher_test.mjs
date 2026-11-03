@@ -6,140 +6,14 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = path.resolve(
-    process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), ".."),
+    process.argv[2] ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "../../.."),
 );
 const output = await mkdtemp(path.join(tmpdir(), "engine-showcase-navigation-"));
 const launcherPath = "scenes/launcher.scene";
 const cubePath = "scenes/main.scene";
 
 // 仅替代 engine 模块的宿主边界；导航、Controller、Model 均来自实际项目编译结果。
-const engineStub = String.raw`
-export const fixture = {
-    scene: null,
-    failDocument: false,
-    ids: [],
-    reset() { this.scene = null; this.failDocument = false; },
-    click(id) {
-        const element = this.scene.view.FindElement(id);
-        if (!element || !element.enabled) throw new Error("Missing or disabled test control: " + id);
-        for (const subscription of [...element.listeners]) {
-            subscription.callback({ type: "click", target: element, currentTarget: element, value: "" });
-        }
-    }
-};
-class Element {
-    constructor(id) { this.id = id; this.text = ""; this.enabled = true; this.classes = new Set(); this.listeners = []; }
-    SetText(value) { this.text = value; return true; }
-    SetEnabled(value) { this.enabled = value; return true; }
-    SetClass(name, active) { active ? this.classes.add(name) : this.classes.delete(name); return true; }
-}
-export class UiComponent {
-    constructor(scene) {
-        this.scene = scene;
-        this.elements = new Map(fixture.ids.map(id => [id, new Element(id)]));
-    }
-    FindElement(id) { return this.elements.get(id) ?? null; }
-    SetDocument() { return !fixture.failDocument; }
-}
-class Node {
-    constructor(scene) { this.scene = scene; }
-    GetComponent(type) {
-        if (type === UiComponent) return this.scene.view;
-        if (type === Transform) return new Transform();
-        return null;
-    }
-    AddComponent(type) {
-        if (type !== UiComponent) return null;
-        this.scene.view = new UiComponent(this.scene);
-        return this.scene.view;
-    }
-}
-export class Scene {
-    constructor(path) { this.path = path; this.view = new UiComponent(this); }
-    static Load(path) { fixture.scene = new Scene(path); return fixture.scene; }
-    IsValid() { return fixture.scene === this; }
-    FindNode() { return new Node(this); }
-    CreateNode() { return new Node(this); }
-}
-export class UiController {
-    constructor(view, model) { this.view = view; this.model = model; this.bound = false; }
-    Bind() {
-        this.bound = true;
-        if (this.OnBind() === true && this.OnRefresh() === true) return true;
-        this.Unbind();
-        return false;
-    }
-    Refresh() { return this.OnRefresh(); }
-    Listen(element, type, callback) { element.listeners.push({ owner: this, type, callback }); return true; }
-    Unbind() {
-        if (!this.bound) return;
-        this.bound = false;
-        for (const element of this.view.elements.values()) {
-            element.listeners = element.listeners.filter(subscription => subscription.owner !== this);
-        }
-        this.OnUnbind();
-    }
-    OnBind() { return true; }
-    OnRefresh() { return true; }
-    OnUnbind() {}
-}
-export class Gameplay { OnInitialize() { return true; } Update() {} OnShutdown() {} }
-export class Transform { SetRotation() { return true; } }
-export class Animator {}
-export class MeshRenderer {}
-// 菜单会加载所有玩法模块；此处只提供未执行玩法所需的导出身份。
-export class Camera {}
-export class CharacterMotor {}
-export class NavigationAgent {}
-export class CharacterController {
-    constructor() { this.inputs = []; this.cancellations = 0; }
-    IsValid() { return true; }
-    SetInput(...input) { this.inputs.push(input); return true; }
-    ClearInput() { ++this.cancellations; return true; }
-}
-export const InputDeviceKind = { keyboard: 0, mouse: 1, gamepad: 2, touch: 4 };
-export const InputControlKind = { key: 0, mouse_button: 1, mouse_delta: 3, gamepad_button: 6, gamepad_axis: 7 };
-export const InputActionKind = { button: 0, axis1d: 1, axis2d: 2 };
-export const InputActivation = { wait_for_neutral: 0, use_current_state: 1 };
-export const InputVirtualKind = { button: 0, stick: 1, drag: 2 };
-export const InputValueMode = { state: 0, delta: 1 };
-export const inputFixture = {
-    devices: [], configurations: [], reject: false, destroyed: 0,
-    frame: { device_revision: 0n, cancel_revision: 0n },
-};
-export const Input = {
-    GetDevices() { return inputFixture.devices; },
-    GetFrameState() { return inputFixture.frame; },
-    CreateChannel() { return { slot: 0, generation: 1 }; },
-    ConfigureChannel(channel, data) {
-        if (inputFixture.reject) return false;
-        inputFixture.configurations.push(structuredClone(data));
-        return true;
-    },
-    ReadAction(channel, name) { return { value_x: name === "move" ? 0.5 : 0, value_y: 0 }; },
-    DestroyChannel() { ++inputFixture.destroyed; return true; },
-    lastError: "fixture rejection",
-};
-export const Storage = {
-    GetString() { return null; }, SetString() { return true; }, Save() { return true; },
-    lastError: "",
-};
-export class TerrainComponent {}
-export class DestructionComponent {}
-export class AudioListener {}
-export class AudioSource {}
-export class EffectComponent {}
-export class Collider {}
-export const Physics = {};
-export const Navigation = {};
-export const Time = { deltaTime: 1 / 60 };
-export const Debug = { Log() {}, LogError() {}, LogWarning() {} };
-export const Render = {
-    SetAmbient() { return true; }, SetExposure() { return true; },
-    SetFilmicTonemap() { return true; }, SetDirectionalShadows() { return true; },
-    SetClearColor() { return true; }
-};
-`;
+import { engineStub } from "./lifecycle_engine.mjs";
 
 try {
     const settings = path.join(root, "projects/showcase/settings");
@@ -214,18 +88,29 @@ try {
         }
     };
 
-    run("real menu/controller navigation returns to the menu", () => {
+    run("real menu preserves the original document and subscriptions across scene visits", () => {
         begin();
+        const originalView = fixture.scene.view;
+        const originalBack = originalView.FindElement("back-menu");
+        const originalSubscriptions = originalBack.listeners.length;
         openCube();
         assert.equal(fixture.scene.path, cubePath);
-        assert.equal(fixture.scene.view.FindElement("launcher-root").classes.has("in-world"), true);
+        assert.equal(fixture.element("launcher-root").classes.has("in-world"), true);
         fixture.click("back-menu");
         application.Update();
-        assert.equal(fixture.scene.path, launcherPath);
+        assert.equal(fixture.scene, null, "return leaves a usable persistent menu without a gameplay scene");
         assert.equal(shutdowns, 1);
+        assert.equal(fixture.element("back-menu"), originalBack);
+        assert.equal(originalBack.listeners.length, originalSubscriptions);
+        assert.equal(fixture.loads.filter(path => path === launcherPath).length, 1);
+        openCube();
+        fixture.click("back-menu");
+        application.Update();
+        assert.equal(originalBack.listeners.length, originalSubscriptions, "returning twice does not duplicate subscriptions");
         application.OnShutdown();
         application.OnShutdown();
-        assert.equal(shutdowns, 1, "returned gameplay is not closed twice");
+        assert.equal(shutdowns, 2, "each gameplay closes once");
+        assert.equal([...originalView.elements.values()].flatMap(element => element.listeners).length, 0);
     });
 
     run("throwing partial initialization is closed once by entry shutdown", () => {
@@ -247,19 +132,21 @@ try {
         };
         begin();
         openCube();
-        assert.equal(fixture.scene.path, launcherPath);
-        assert.match(fixture.scene.view.FindElement("launcher-status").text, /Cannot open/);
+        assert.equal(fixture.scene, null, "return leaves a usable persistent menu without a gameplay scene");
+        assert.match(fixture.element("launcher-status").text, /Cannot open/);
         assert.equal(shutdowns, 1);
         Minimal.prototype.OnInitialize = initialize;
-        fixture.failDocument = true;
+        Minimal.prototype.OnInitialize = function () {
+            const ready = initialize.call(this); fixture.failRefreshOnce = true; return ready;
+        };
         openCube();
-        assert.equal(fixture.scene.path, launcherPath);
+        assert.equal(fixture.scene, null, "return leaves a usable persistent menu without a gameplay scene");
         assert.match(
-            fixture.scene.view.FindElement("launcher-status").text,
+            fixture.element("launcher-status").text,
             /Cannot create navigation/,
         );
         assert.equal(shutdowns, 2);
-        fixture.failDocument = false;
+        Minimal.prototype.OnInitialize = initialize;
         openCube();
         assert.equal(fixture.scene.path, cubePath, "retry is no longer blocked by pending state");
     });
@@ -422,6 +309,7 @@ try {
     const rangePath = "scenes/shooting-range.scene";
     const rangeScene = {
         path: rangePath,
+        Destroy() { if (!this.IsValid()) return false; fixture.scene = null; return true; },
         IsValid() {
             return fixture.scene === this;
         },
@@ -525,6 +413,7 @@ try {
     rangeScene.CreateNode = (name) => makeNode(name);
     api.Scene.Load = (path) => {
         if (path !== rangePath) return originalLoad(path);
+        fixture.scene?.Destroy();
         fixture.scene = rangeScene;
         return rangeScene;
     };
@@ -604,7 +493,7 @@ try {
         click("range-fire");
         assert.match(score(), /0 \/ 3 targets.*1 shots/);
         click("back-menu");
-        assert.equal(fixture.scene.path, launcherPath);
+        assert.equal(fixture.scene, null, "return leaves a usable persistent menu without a gameplay scene");
         assert.equal(
             inputFixture.destroyed,
             destroyedBeforeRange + 2,
@@ -613,7 +502,7 @@ try {
         assert.equal(
             [...rangeScene.view.elements.values()].flatMap((element) => element.listeners).length,
             0,
-            "range and navigation subscriptions removed on return",
+            "range subscriptions removed while the launcher document remains alive",
         );
         application.OnShutdown();
         console.log(

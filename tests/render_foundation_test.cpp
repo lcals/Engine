@@ -168,6 +168,8 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     changed.bloom_threshold = 1.5F;
     changed.bloom_intensity = 0.4F;
     changed.bloom_radius = 1.2F;
+    changed.ssr_enabled = true;
+    changed.ssr_max_steps = 128;
     if (!expect(environment != nullptr && !renderer.set_settings(changed) &&
                     environment->settings().ambient_intensity == 0.0F,
                 "missing post-process rejects the entire update without changing environment"))
@@ -190,7 +192,8 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
                 renderer.settings().ao_fade_end == 120.0F && renderer.settings().hdr_enabled &&
                 renderer.settings().bloom_enabled && renderer.settings().bloom_threshold == 1.5F &&
                 renderer.settings().bloom_intensity == 0.4F &&
-                renderer.settings().bloom_radius == 1.2F,
+                renderer.settings().bloom_radius == 1.2F && renderer.settings().ssr_enabled &&
+                post_process->settings().ssr_max_steps == 128,
             "aggregate updates write the current scene's generated component data"))
     {
         return false;

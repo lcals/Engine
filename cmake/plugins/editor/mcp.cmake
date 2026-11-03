@@ -13,6 +13,7 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/project_lifecycle_tools.cpp
         src/engine/plugins/editor/mcp/android_sync.cpp
         src/engine/plugins/editor/mcp/editor_mcp_tools.cpp
+        src/engine/plugins/editor/mcp/project_script_mcp_tools.cpp
         src/engine/plugins/editor/mcp/physics_mcp_tools.cpp
         src/engine/plugins/editor/mcp/audio_mcp_tools.cpp
         src/engine/plugins/editor/mcp/animation_mcp_tools.cpp
@@ -21,6 +22,10 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/scene_preview_mcp_tools.cpp)
     add_library(engine::project_mcp_tools ALIAS engine_project_mcp_tools)
     target_include_directories(engine_project_mcp_tools PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_compile_definitions(
+        engine_project_mcp_tools
+        PRIVATE ENGINE_NODE_EXECUTABLE="${ENGINE_NODE_EXECUTABLE}"
+                ENGINE_SCRIPT_BUILDER="${PROJECT_SOURCE_DIR}/scripts/build_scripts.mjs")
     target_link_libraries(
         engine_project_mcp_tools
         PUBLIC engine::mcp

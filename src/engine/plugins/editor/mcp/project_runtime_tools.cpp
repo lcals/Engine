@@ -54,6 +54,7 @@ bool atomic_control(const fs::path& runtime, bool enabled)
 bool read_status(const fs::path& runtime, Json& response)
 {
     Json status = {{"running", false},
+                   {"runId", "0"},
                    {"state", "offline"},
                    {"activeRevision", ""},
                    {"availableRevision", ""}};
@@ -131,6 +132,7 @@ bool read_status(const fs::path& runtime, Json& response)
             status["lastReportedProjectState"] = status["projectState"];
             status["projectState"] = "offline";
             status["running"] = false;
+            status["runId"] = "0";
         }
     }
     else if (error)

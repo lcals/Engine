@@ -131,4 +131,4 @@ ThreadPriority 独立于 TaskPriority。worker_priority=normal 保持 worker 基
 
 文件、物理、导航、动画、纹理准备和地形/破坏已按各自契约接入，SDL 音频与 bgfx 复用其官方线程。活动 Scene/Node/Component、VM、GPU 提交保持原线程契约；并行计算、跨帧异步和同步回退的区别见[运行并行与项目预算](../parallelism.md)。资源代际校验、主线程应用预算归具体模块，不放进通用任务系统。
 
-依赖使用现有固定 oneTBB 版本和补丁；平台声明与实际测试分开记录于 README。Mac 动态库通过不代表 Android/iOS 或静态链接已验证。
+依赖使用现有固定 oneTBB 版本和补丁；平台声明与实际测试分开记录于[测试与范例](../../testing.md)。Mac 动态库通过不代表 Android/iOS 或静态链接已验证。

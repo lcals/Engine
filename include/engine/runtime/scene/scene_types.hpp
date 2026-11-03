@@ -14,6 +14,8 @@ using CameraSettings = schema::CameraDataT;
 using LightSettings = schema::LightDataT;
 using EnvironmentSettings = schema::EnvironmentDataT;
 using PostProcessSettings = schema::PostProcessDataT;
+using PlanarReflectionSettings = schema::PlanarReflectionDataT;
+using LightProbeVolumeSettings = schema::LightProbeVolumeDataT;
 using ComponentType = schema::ComponentPayload;
 
 } // namespace engine

@@ -13,6 +13,8 @@ namespace engine
 {
 class RenderSystem;
 class ResourceSystem;
+class TaskSystem;
+class WorldSystem;
 } // namespace engine
 namespace engine::editor
 {
@@ -28,9 +30,9 @@ public:
     using PublishCallback = std::function<bool(std::string&)>;
 
     // 主线程借用；宿主检查当前已保存预览，发布后执行通用导入/刷新。
-    SceneBakeSystem(ResourceSystem& resources, RenderSystem& renderer,
-                    std::filesystem::path project_root, ValidateCallback validate,
-                    PublishCallback publish);
+    SceneBakeSystem(ResourceSystem& resources, RenderSystem& renderer, TaskSystem& tasks,
+                    WorldSystem& world, std::filesystem::path project_root,
+                    ValidateCallback validate, PublishCallback publish);
     // 宿主先 shutdown 本系统，再关闭渲染器，最后销毁本对象，保留在途读回内存。
     ~SceneBakeSystem() noexcept override;
     [[nodiscard]] bool register_commands(editor::EditorCommands& commands);

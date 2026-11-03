@@ -22,6 +22,13 @@ classDiagram
         +render(uint32 width, uint32 height) bool
         +synchronize() bool
         +find_element(uint64 node, string_view id, UiElementHandle& output) bool
+        +document_root(uint64 node, UiElementHandle& output) bool
+        +inspect_element(UiElementHandle handle, UiElementInfo& output) bool
+        +child_element(UiElementHandle parent, uint32 index, UiElementHandle& output) bool
+        +element_style(UiElementHandle handle, string_view name, string& output) bool
+        +hit_test(float x, float y, UiElementHandle& output) bool
+        +pointer_active() const bool
+        +focus_element(UiElementHandle handle) bool
         +is_valid(UiElementHandle handle) bool
         +document_id(uint64 node) uint64
         +set_document_visible(uint64 node, bool visible) bool
@@ -38,6 +45,7 @@ classDiagram
         +set_image(UiElementHandle handle, string_view path) bool
         +release_scene() void
         +process_event(const SDL_Event& event) bool
+        +process_event(const SDL_Event& event, uint16 modifiers) bool
         +keyboard_claimed() bool
         +pointer_claimed() bool
         +owns_pointer(const SDL_Event& event) bool
@@ -62,6 +70,23 @@ classDiagram
         +uint64 document_id
         +uint64 element_id
     }
+    class UiElementInfo {
+        <<struct>>
+        +UiElementHandle handle
+        +UiElementHandle parent
+        +string tag
+        +string id
+        +string text
+        +string value
+        +string classes
+        +array~float_4~ bounds
+        +uint32 child_count
+        +bool visible
+        +bool enabled
+        +bool focused
+    }
+    UiSystem ..> UiElementInfo : 输出瞬时查询快照
+    UiElementInfo ..> UiElementHandle : 当前与父控件身份
     System <|-- UiSystem
     Component <|-- UiComponent
     Node "1" *-- "0..1" UiComponent : 普通组件
@@ -99,3 +124,6 @@ classDiagram
 原生触摸桥使用窗口逻辑坐标，以一个已认领触点驱动普通 UI，不重新注入 SDL。其他命中 UI 的手指只保留阻挡身份，不驱动第二个 RmlUi 鼠标；未命中 UI 的手指仍可并行操作游戏控件。可见背景 body / div 不默认占用全屏；标准交互控件、可滚动区域及显式 `data-input-capture` 区域参与命中，自定义可点容器应声明该属性。合成鼠标 / 触摸来源忽略，防止重复触发。
 
 触点取消、失焦、后台、窗口尺寸变化、文档隐藏 / 移除与 `cancel_input` 清理 capture；先移除 RmlUi hover 再释放鼠标按键，不产生普通 click。停止与关闭清理同一状态。控件运动与虚拟触摸识别不通过高频 TS 事件执行。
+
+- [UI 编辑器插件](../../plugins/editor/class-diagrams/ui-editor.md) 复用最小查询与输入增量。UiElementInfo 只读快照，bounds 为窗口逻辑坐标，密码值掩码；实际遮挡仍由 RmlUi 命中测试决定。句柄失效保持失败，不查找同名替代。
+- 显式 modifiers 重载仅影响本次输入，不改 SDL 全局修饰键状态。取消先清理指针捕获，再失焦并释放已记录按键，抑制取消引起的激活但不删除已排队合法事件。

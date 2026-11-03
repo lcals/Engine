@@ -1,6 +1,7 @@
 #pragma once
 
 #include "runtime/render/render_settings.hpp"
+#include "runtime/render/scene_capture.hpp"
 #include "runtime/scene/scene_types.hpp"
 #include "runtime/system/system.hpp"
 
@@ -38,6 +39,14 @@ struct RenderConfig
 {
     std::size_t texture_batch_size = 4;
     std::size_t texture_staging_bytes = 64 * 1024 * 1024;
+    std::uint16_t cluster_tile_size = 64;
+    std::uint16_t cluster_depth_slices = 24;
+    std::uint32_t maximum_lights = 256;
+    std::uint16_t maximum_cluster_lights = 64;
+    std::uint16_t shadow_atlas_size = 4096;
+    std::uint16_t local_shadow_tile_size = 512;
+    std::uint16_t maximum_local_shadow_faces = 24;
+    std::uint8_t maximum_planar_reflections = 2;
 };
 
 class RenderSystem final : public System
@@ -56,6 +65,10 @@ public:
 
     // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
     [[nodiscard]] bool prepare_scene(const Camera* camera = nullptr);
+    [[nodiscard]] bool request_diffuse_capture(const SceneCaptureRequest& request);
+    [[nodiscard]] SceneCaptureStatus diffuse_capture_status() const noexcept;
+    [[nodiscard]] bool take_diffuse_capture(SceneCaptureImage& output);
+    void cancel_diffuse_capture() noexcept;
     void release_scene() noexcept;
     [[nodiscard]] bool scene_prepared() const noexcept;
     [[nodiscard]] std::uint32_t gpu_resource_count() const noexcept;
@@ -92,6 +105,9 @@ private:
     [[nodiscard]] bool initialize_renderer();
     [[nodiscard]] bool resolve_settings(RenderSettings& settings) const noexcept;
     void shutdown_renderer() noexcept;
+    void poll_diffuse_capture();
+    [[nodiscard]] bool capture_unchanged() const;
+    [[nodiscard]] bool draw_diffuse_capture(const RenderSettings& settings);
     void release_draw_resources() noexcept;
     [[nodiscard]] bool draw_scene(const Camera* camera, const RenderSettings& settings);
 
@@ -111,6 +127,9 @@ private:
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;
     std::uint32_t frame_number_ = 0;
+    SceneCaptureStatus capture_status_ = SceneCaptureStatus::idle;
+    SceneCaptureRequest capture_request_;
+    std::vector<std::uint8_t> capture_snapshot_;
     bool renderer_initialized_ = false;
     bool stats_visible_ = false;
     bool vsync_enabled_ = true;

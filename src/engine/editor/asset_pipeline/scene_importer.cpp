@@ -72,7 +72,8 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
                 has_environment = true;
             }
             if (const auto* light = component->payload.AsLightData();
-                component->enabled && light != nullptr && light->cast_shadows)
+                component->enabled && light != nullptr &&
+                light->kind == schema::LightKind::directional && light->cast_shadows)
             {
                 if (has_shadow_light)
                 {
