@@ -2,6 +2,8 @@
 
 #include "runtime/scene/scene_types.hpp"
 
+#include <span>
+
 namespace engine
 {
 
@@ -35,6 +37,10 @@ public:
     // 快照失败输出为空；恢复失败保持原组件状态。
     [[nodiscard]] virtual bool build_data(schema::ComponentDataT& output) const;
     [[nodiscard]] virtual bool restore_data(const schema::ComponentDataT& data) = 0;
+    // 只改写候选快照中的节点引用；未映射的非零引用失败，原组件不变。
+    [[nodiscard]] virtual bool
+    remap_node_references(schema::ComponentDataT& data,
+                          std::span<const schema::NodeIdMappingT> mapping) const;
 
 protected:
     explicit Component(Node& node, schema::ComponentDataT data = {}) noexcept;

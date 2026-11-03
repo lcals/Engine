@@ -80,20 +80,28 @@ bool MeshRendererCodec::read(const toml::table& table, schema::ComponentDataT& c
     value.lightmap_mesh_hash = table["lightmap_mesh_hash"].value_or(std::string{});
     if (table.contains("lightmap_transform"))
     {
+        const auto* values = table["lightmap_transform"].as_array();
         std::array<double, 16> matrix{};
-        if (!numbers(table.get("lightmap_transform"), matrix))
+        if (values != nullptr && values->empty())
         {
-            error = "mesh renderer lightmap_transform requires 16 finite floats";
+            // 清空烘焙绑定时，空矩阵与空 GUID/hash 一起由 validate 校验。
+        }
+        else if (!numbers(table.get("lightmap_transform"), matrix))
+        {
+            error = "mesh renderer lightmap_transform requires an empty array or 16 finite floats";
             return false;
         }
-        for (double element : matrix)
+        else
         {
-            if (std::abs(element) > std::numeric_limits<float>::max())
+            for (double element : matrix)
             {
-                error = "mesh renderer lightmap_transform exceeds float range";
-                return false;
+                if (std::abs(element) > std::numeric_limits<float>::max())
+                {
+                    error = "mesh renderer lightmap_transform exceeds float range";
+                    return false;
+                }
+                value.lightmap_transform.push_back(static_cast<float>(element));
             }
-            value.lightmap_transform.push_back(static_cast<float>(element));
         }
     }
     if (table.contains("additional_materials"))
@@ -120,6 +128,13 @@ bool MeshRendererCodec::read(const toml::table& table, schema::ComponentDataT& c
     return true;
 }
 
+std::span<const std::string_view> MeshRendererCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"mesh", "material", "additional_materials",
+                                               "lightmap"};
+    return fields;
+}
+
 void MeshRendererCodec::write(const schema::ComponentDataT& component, toml::table& value) const
 {
 
@@ -129,26 +144,20 @@ void MeshRendererCodec::write(const schema::ComponentDataT& component, toml::tab
     value.insert("material", mesh->material_guid);
     value.insert("cast_shadows", mesh->cast_shadows);
     value.insert("bake_static", mesh->bake_static);
-    if (!mesh->lightmap_guid.empty())
+    value.insert("lightmap", mesh->lightmap_guid);
+    value.insert("lightmap_mesh_hash", mesh->lightmap_mesh_hash);
+    toml::array matrix;
+    for (float element : mesh->lightmap_transform)
     {
-        value.insert("lightmap", mesh->lightmap_guid);
-        value.insert("lightmap_mesh_hash", mesh->lightmap_mesh_hash);
-        toml::array matrix;
-        for (float element : mesh->lightmap_transform)
-        {
-            matrix.push_back(element);
-        }
-        value.insert("lightmap_transform", std::move(matrix));
+        matrix.push_back(element);
     }
-    if (!mesh->additional_material_guids.empty())
+    value.insert("lightmap_transform", std::move(matrix));
+    toml::array materials;
+    for (const auto& guid : mesh->additional_material_guids)
     {
-        toml::array materials;
-        for (const auto& guid : mesh->additional_material_guids)
-        {
-            materials.push_back(guid);
-        }
-        value.insert("additional_materials", std::move(materials));
+        materials.push_back(guid);
     }
+    value.insert("additional_materials", std::move(materials));
 }
 
 } // namespace engine::editor::asset_pipeline

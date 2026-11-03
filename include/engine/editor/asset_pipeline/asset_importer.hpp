@@ -25,6 +25,10 @@ public:
                                              std::string& error);
     [[nodiscard]] virtual bool scan_dependencies(ImportAsset& asset, const ImportContext& context,
                                                  std::string& error) const;
+    // 全批转换完成后从实际产物补齐运行依赖；不改变构建依赖或资源内容。
+    [[nodiscard]] virtual bool finalize_dependencies(ImportAsset& asset,
+                                                     const ImportContext& context,
+                                                     std::string& error) const;
     // 协调线程调用；可返回一个公共前置任务，error须存活到任务结束。
     [[nodiscard]] virtual bool prepare_batch(const ImportContext& context, TaskDescription& task,
                                              std::string& error) const;

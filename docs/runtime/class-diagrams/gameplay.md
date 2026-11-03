@@ -59,6 +59,8 @@ classDiagram
         +SetPaused(paused bool) bool
         +GetPaused() bool?
         +CreateNode(name string) Node?
+        +InstantiateModel(path string, name string) Node?
+        +InstantiatePrefab(path string, name string) Node?
         +SetActiveCamera(camera Camera?) bool
         +Destroy() bool
     }

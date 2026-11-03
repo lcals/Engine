@@ -30,7 +30,7 @@ roots = [
     "scenes/main.scene",
     "scenes/apartment.scene",
     "scenes/playground.scene",
-    "models/skeleton.fbx",
+    "prefabs/characters/player.prefab",
     "models/locomotions.fbx/animations/walk",
     "materials/character.material",
 ]

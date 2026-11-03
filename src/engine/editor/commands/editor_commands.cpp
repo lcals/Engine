@@ -94,6 +94,7 @@ struct EditorCommands::State
     };
 
     SceneIdProvider scene_id;
+    EditWrapper wrapper;
     std::uint64_t generation = 0;
     std::uint64_t mutation_revision = 0;
     std::map<std::string, Command, std::less<>> commands;
@@ -141,7 +142,7 @@ struct EditorCommands::State
             error = "Editor command returned an invalid undo record";
             return false;
         }
-        return true;
+        return !edit || !wrapper || wrapper(name, arguments, edit, error);
     }
 
     bool batch(const Json& arguments, Json& result, std::string& error)
@@ -187,6 +188,16 @@ struct EditorCommands::State
         return true;
     }
 };
+
+bool EditorCommands::set_edit_wrapper(EditWrapper wrapper)
+{
+    if (!wrapper || state_->wrapper)
+    {
+        return false;
+    }
+    state_->wrapper = std::move(wrapper);
+    return true;
+}
 
 EditorCommands::EditorCommands(SceneIdProvider scene_id)
     : state_(std::make_unique<State>(std::move(scene_id)))

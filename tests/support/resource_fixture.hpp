@@ -88,6 +88,22 @@ public:
         return add_entity(mesh.path, engine::schema::AssetKind::mesh, builder, {});
     }
 
+    bool add(std::string_view path, const engine::schema::PrefabDataT& prefab)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishPrefabDataBuffer(builder,
+                                               engine::schema::PrefabData::Pack(builder, &prefab));
+        return add_entity(path, engine::schema::AssetKind::prefab, builder, {});
+    }
+
+    bool add(std::string_view path, const engine::schema::SceneDataT& scene)
+    {
+        flatbuffers::FlatBufferBuilder builder;
+        engine::schema::FinishSceneDataBuffer(builder,
+                                              engine::schema::SceneData::Pack(builder, &scene));
+        return add_entity(path, engine::schema::AssetKind::scene, builder, {});
+    }
+
     bool add(const engine::schema::TextureDataT& texture)
     {
         flatbuffers::FlatBufferBuilder builder;

@@ -3,14 +3,17 @@
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#if ENGINE_HAS_ASSET_PIPELINE
+#include "editor/commands/prefab_commands.hpp"
+#endif
 #include "editor/render/render_component_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/scene/ui_component.hpp"
@@ -846,8 +849,9 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
                    std::unique_ptr<EditorEdit>& output, std::string& error)
 {
     Target target(world, &aliases);
-    if (!fields(arguments, {"sceneId", "nodeId", "color", "intensity", "kind", "range",
-                            "innerAngle", "outerAngle", "castShadows", "shadowResolution", "shadowBias"}) ||
+    if (!fields(arguments,
+                {"sceneId", "nodeId", "color", "intensity", "kind", "range", "innerAngle",
+                 "outerAngle", "castShadows", "shadowResolution", "shadowBias"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
     {
         if (error.empty())
@@ -1390,9 +1394,9 @@ bool restore_material(Material& material, const Json& saved)
     }
     const auto blend = saved.value("blendMode", std::string("opaque"));
     if ((blend != "opaque" && blend != "alpha_blend" && blend != "premultiplied") ||
-        !material.set_blend_mode(blend == "opaque" ? schema::BlendMode::opaque
-                                : blend == "alpha_blend" ? schema::BlendMode::alpha_blend
-                                                         : schema::BlendMode::premultiplied))
+        !material.set_blend_mode(blend == "opaque"        ? schema::BlendMode::opaque
+                                 : blend == "alpha_blend" ? schema::BlendMode::alpha_blend
+                                                          : schema::BlendMode::premultiplied))
     {
         return false;
     }
@@ -1587,12 +1591,13 @@ bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases, const Json
                             Json& result, std::unique_ptr<EditorEdit>& output, std::string& error)
 {
     Target target(world, &aliases);
-    if (!fields(arguments, {"sceneId", "nodeId", "slot", "mode"}) ||
-        !arguments.contains("mode") ||
+    if (!fields(arguments, {"sceneId", "nodeId", "slot", "mode"}) || !arguments.contains("mode") ||
         (arguments["mode"] != "opaque" && arguments["mode"] != "alpha_blend" &&
-         arguments["mode"] != "premultiplied") || !target.read(arguments, error))
+         arguments["mode"] != "premultiplied") ||
+        !target.read(arguments, error))
     {
-        error = "set_material_blend_mode requires a target and opaque, alpha_blend or premultiplied";
+        error =
+            "set_material_blend_mode requires a target and opaque, alpha_blend or premultiplied";
         return false;
     }
     auto record = std::make_unique<MaterialTypeEdit>(target);
@@ -1620,8 +1625,10 @@ bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases, const Json
             return false;
         }
     }
-    result = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["nodeId"]},
-              {"slot", record->slot}, {"mode", arguments["mode"]}};
+    result = {{"sceneId", arguments["sceneId"]},
+              {"nodeId", arguments["nodeId"]},
+              {"slot", record->slot},
+              {"mode", arguments["mode"]}};
     output = std::move(record);
     return true;
 }
@@ -1738,11 +1745,13 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 break;
             }
             case ComponentType::PlanarReflectionData:
-                data.update(planar_reflection_json(*node->get_component<PlanarReflectionComponent>()));
+                data.update(
+                    planar_reflection_json(*node->get_component<PlanarReflectionComponent>()));
                 data["type"] = "planar_reflection";
                 break;
             case ComponentType::LightProbeVolumeData:
-                data.update(light_probe_volume_json(*node->get_component<LightProbeVolumeComponent>()));
+                data.update(
+                    light_probe_volume_json(*node->get_component<LightProbeVolumeComponent>()));
                 data["type"] = "light_probe_volume";
                 break;
             case ComponentType::UiData:
@@ -1760,7 +1769,8 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             case ComponentType::PostProcessData:
             {
                 const auto& value = node->get_component<PostProcessComponent>()->settings();
-                data.update({{"type", "post_process"}, {"ssrEnabled", value.ssr_enabled},
+                data.update({{"type", "post_process"},
+                             {"ssrEnabled", value.ssr_enabled},
                              {"ssrResolutionScale", value.ssr_resolution_scale},
                              {"ssrMaxSteps", value.ssr_max_steps},
                              {"ssrMaxDistance", value.ssr_max_distance},
@@ -1796,6 +1806,16 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
 }
 } // namespace
 
+Json components::material_snapshot(const Material& material)
+{
+    return material_json(material);
+}
+
+bool components::restore_material_snapshot(Material& material, const Json& snapshot)
+{
+    return restore_material(material, snapshot);
+}
+
 SceneCommands::SceneCommands(WorldSystem& world) noexcept : world_(world)
 {
 }
@@ -1828,6 +1848,12 @@ std::shared_ptr<std::uint64_t> SceneCommands::node_identity(std::uint64_t id)
 
 bool SceneCommands::register_commands(EditorCommands& commands)
 {
+#if ENGINE_HAS_ASSET_PIPELINE
+    if (!register_prefab_commands(world_, *this, node_aliases_, commands))
+    {
+        return false;
+    }
+#endif
     return commands.register_command("instantiate_model", true,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>& edit, std::string& error)
@@ -1899,8 +1925,8 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                             std::unique_ptr<EditorEdit>& edit, std::string& error)
                                      {
                                          synchronize_aliases();
-                                         return prepare_material_blend(world_, node_aliases_, arguments,
-                                                                       result, edit, error);
+                                         return prepare_material_blend(
+                                             world_, node_aliases_, arguments, result, edit, error);
                                      }) &&
            commands.register_command("set_material_type", true,
                                      [this](const Json& arguments, Json& result,

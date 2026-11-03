@@ -7,11 +7,18 @@ classDiagram
     class SceneImporter {
         +read(const filesystem_path& source, SceneDataT& output, string& error)$ bool
         +write(const filesystem_path& destination, const SceneDataT& data, string& error)$ bool
+        +validate(const SceneDataT& data, string& error)$ bool
+        +read_nodes(const toml_array& nodes, vector~unique_ptr_NodeDataT~& output, string& error)$ bool
+        +write_nodes(const vector~unique_ptr_NodeDataT~& nodes, toml_array& output, string& error)$ bool
+        +read_component(const toml_table& table, ComponentDataT& output, string& error)$ bool
+        +write_component(const ComponentDataT& component, toml_table& output, string& error)$ bool
     }
     class SceneDataT
     class AssetPipelineSystem
     class SceneComponentCodec {
         <<interface>>
+        +resource_fields() span~const string_view~
+        +remap_node_references(ComponentDataT& component, span~const NodeIdMappingT~ mapping, string& error) bool
         +scan_dependencies(const ComponentDataT& component, const ImportContext& context, vector~Guid~& dependencies, string& error) bool
     }
     class ImportContext
@@ -27,3 +34,5 @@ classDiagram
 相机保存透视/正交投影及正交竖直半高；灯光保存方向/点/聚光类型、范围及内外半角。MeshRenderer 保存槽 0 的 `material` 和槽 1 起的 `additional_materials` GUID 数组，全部进入场景依赖。旧场景未写新增字段时采用生成数据模型的默认值。
 
 组件 Codec 可覆写 `scan_dependencies`，向给定依赖列表追加已经校验的 GUID；默认方法不追加。场景管线统一调用登记的 Codec，插件自己负责其组件引用的资源类型验证，编辑器不认识具体插件类型。现有内置组件引用收集保持原语义。
+
+源场景只保存普通节点、模板关联、稳定映射与显式覆盖；含模板关联时在合成后验证完整父链及组件节点引用。`write` 接收展开数据，自动省略属于模板映射的节点。`resource_fields` 由每个包含资源的组件 Codec 声明属性名，覆盖依赖扫描不推测文本内容；运行依赖仍按最终组件的类型规则验证。

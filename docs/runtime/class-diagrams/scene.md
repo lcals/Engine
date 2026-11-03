@@ -11,6 +11,10 @@ classDiagram
         +id() uint64_t
         +name() string_view
         +instantiate_model(string_view path, string_view name) Node#42;
+        +instantiate_prefab(string_view path, string_view name) Node#42;
+        +prefab_instances() const vector~unique_ptr~PrefabInstanceDataT~~&
+        +set_prefab_instance(const PrefabInstanceDataT& instance) bool
+        +remove_prefab_instance(uint64_t root_local_id) bool
         +create_node(string_view name) Node#42;
         +find_node(uint64_t id) Node#42;
         +find_node(uint64_t id) const Node#42;
@@ -35,6 +39,7 @@ classDiagram
     class ecs_world_t
     class ComponentRegistry
     class Component
+    class PrefabInstanceDataT
     class SceneInfoT {
         <<FlatBuffers生成>>
         +string name
@@ -61,6 +66,7 @@ classDiagram
     Scene ..> SceneDataT : 构造临时完整快照
     Scene ..> ComponentRegistry : 创建已登记组件
     Scene ..> Component : 调用统一保存和恢复接口
+    Scene *-- PrefabInstanceDataT : 来源与显式覆盖
     SceneDataT *-- SceneInfoT : 快照元数据
     SceneDataT *-- NodeDataT : 快照节点
 ```
@@ -86,5 +92,7 @@ classDiagram
 组件持久化行为由 [Component](component.md) 的 build_data/restore_data 契约承担，创建函数由[组件登记表](component-registry.md)选择；场景不再直接处理渲染组件的 GUID 或逐组件字段。Component 默认不是 transient；调用方可标记自己生成的派生组件，Scene 快照略过这些组件，由其拥有者保存源数据并重新生成。标记只影响场景快照，不改变组件本身的严格 build_data 校验，也不进入持久 schema。
 
 `instantiate_model(path, name)` 通过当前加载器获取模型资源及依赖，创建普通 Node/Transform/MeshRenderer 层级，返回本场景拥有的根节点借用。失败回滚本次候选节点而保留原场景；调用方另行添加 Animator 并指定动画。数据关系见[模型资源](model-resources.md)，编辑器撤销流程见[模型命令](../../editor/class-diagrams/model-commands.md)。
+
+`instantiate_prefab(path, name)` 创建独立节点树并登记来源与稳定节点映射；非空名称是实例根名称的显式覆盖。`prefab_instances()` 返回只读借用，`set_prefab_instance()` 校验已有实例节点后保存编辑器明确提交的来源与覆盖数据，不把运行时组件变化自动记录为覆盖。完整规则见[预制体](prefab.md)。
 
 `Node::transient()` 为真时，快照和编辑器场景保存跳过整个节点（含继承瞬态的后代），无需为其每个组件重复设置标记。活动相机若位于被排除子树，保存明确失败，避免写入悬空相机 ID；其他持久组件的引用继续遵守其编解码校验。瞬态节点仍存在于运行场景，拥有者销毁节点时按普通层级释放。

@@ -3,8 +3,8 @@
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
-#include "plugins/editor/mcp/project_tool_utils.hpp"
 #include "plugins/editor/mcp/project_script_mcp_tools.hpp"
+#include "plugins/editor/mcp/project_tool_utils.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -245,6 +245,7 @@ bool EditorMcpTools::register_tools(McpSystem& system)
            register_project_script_tools(system, *this, project_root_, target_) &&
            register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
            register_animation_tools(system, *this) && register_model_tools(system, *this) &&
+           register_prefab_tools(system, *this) &&
            register_command(
                "get_scene", "get_scene",
                "Read the active scene and its components. Optional offset/limit page nodes; "

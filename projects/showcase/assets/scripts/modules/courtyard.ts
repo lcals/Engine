@@ -12,7 +12,7 @@ export default class Game extends Gameplay {
         this.scene = Scene.Load("scenes/playground.scene");
         const scene = this.scene;
         if (!scene) return false;
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Avatar");
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", "Avatar");
         const player = scene.FindNode("Player");
         const body = scene.FindNode("GENERIC MAN new");
         if (!avatar || !player || !body || !avatar.SetParent(player)) return false;

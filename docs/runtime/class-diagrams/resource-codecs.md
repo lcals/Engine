@@ -14,6 +14,7 @@ classDiagram
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool*
         +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
         #store(Resource& output, unique_ptr~SceneDataT~ data) void$
+        #store(Resource& output, unique_ptr~PrefabDataT~ data) void$
         #store(Resource& output, unique_ptr~MeshDataT~ data) void$
         #store(Resource& output, unique_ptr~ShaderDataT~ data) void$
         #store(Resource& output, unique_ptr~MaterialDataT~ data) void$
@@ -50,6 +51,11 @@ classDiagram
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
     }
+    class PrefabResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
+        +validate(const PrefabDataT& data) bool$
+    }
     class MeshResourceCodec {
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
@@ -64,6 +70,8 @@ classDiagram
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate(const AudioClipDataT& data) bool$
     }
+    ResourceCodec <|-- PrefabResourceCodec
+    PrefabResourceCodec ..> SceneResourceCodec : 复用节点资源引用校验
     ResourceCodec <|-- SceneResourceCodec
     ResourceCodec <|-- MeshResourceCodec
     ResourceCodec <|-- TextureResourceCodec
@@ -154,3 +162,5 @@ classDiagram
 Model 仅接受版本 2，校验层级、变换和节点引用的 Mesh/Material GUID，目录中的直接依赖必须与这些引用一致；不聚合同源骨架或动画。Skeleton 校验有序父索引、关节名称、有限 TRS 与逆绑定矩阵；Animation 校验轨道、严格递增且不超出时长的关键帧，并验证关节索引属于声明骨架。Mesh 的蒙皮数组必须与顶点对应，权重归一、关节索引合法，mesh_to_skeleton 为有效仿射矩阵。所有解码与校验都属于核心单项能力，不调用 ufbx、USD 或离线管线。
 
 Animation 的直接依赖只能是其声明的一个 Skeleton；蒙皮 Mesh 同样只依赖自己的 Skeleton，静态 Mesh 不含依赖。多余的父 Model 或同源兄弟资源引用在单项解码时返回失败，不能借错误目录把未使用资源带入运行闭包。
+
+Prefab 校验单根树、非零稳定 ID、唯一组件与 Transform，并复用 SceneResourceCodec 的 `validate_nodes` / `validate_node_dependencies` 校验实际资源引用。来源 Model 与场景来源 Prefab 不属于运行时节点依赖。

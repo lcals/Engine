@@ -20,6 +20,7 @@ def prepare_minimal_project(root, project):
         "materials/cube.material",
         "meshes/cube.mesh",
         "scenes/main.scene",
+        "prefabs/scenes/main/environment.prefab",
         "shaders/pbr.frag.sc",
         "shaders/pbr.shader",
         "shaders/pbr.surface.sc",

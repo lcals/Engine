@@ -44,6 +44,11 @@ void ResourceCodec::store(Resource& output, std::unique_ptr<schema::AudioClipDat
     output.audio_ = std::move(data);
 }
 
+void ResourceCodec::store(Resource& output, std::unique_ptr<schema::PrefabDataT> data) noexcept
+{
+    output.prefab_ = std::move(data);
+}
+
 void ResourceCodec::store(Resource& output, std::unique_ptr<schema::ModelDataT> data) noexcept
 {
     output.model_ = std::move(data);

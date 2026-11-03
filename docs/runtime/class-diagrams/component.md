@@ -24,6 +24,7 @@ classDiagram
         +data() const ComponentDataT&
         +build_data(ComponentDataT& output) bool
         +restore_data(const ComponentDataT& data) bool
+        +remap_node_references(ComponentDataT& data, span~const NodeIdMappingT~ mapping) bool
         #initialize() bool
     }
     class Transform {
@@ -81,6 +82,8 @@ classDiagram
     class ComponentPayloadUnion {
         <<FlatBuffers生成>>
     }
+    class NodeIdMappingT
+    Component ..> NodeIdMappingT : 重映射候选快照内部节点引用
     class TransformDataT {
         <<FlatBuffers生成>>
         +Vec3 position

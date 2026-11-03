@@ -1,0 +1,322 @@
+root = "31"
+
+[[nodes]]
+id = "31"
+name = "shooting-range environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes]]
+id = 6
+name = "Range ground"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.3, -14]
+rotation = [0, 0, 0]
+scale = [14, 0.3, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "39a83443-bd97-47e8-bf5a-2ebdccdec22e"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 7
+name = "Left boundary"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [-13.8, 1, -14]
+rotation = [0, 0, 0]
+scale = [0.2, 1, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 8
+name = "Right boundary"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [13.8, 1, -14]
+rotation = [0, 0, 0]
+scale = [0.2, 1, 22]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 9
+name = "Backstop"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 3, -35.8]
+rotation = [0, 0, 0]
+scale = [14, 3, 0.2]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 10
+name = "Entrance barrier"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.55, 7.8]
+rotation = [0, 0, 0]
+scale = [14, 0.55, 0.2]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 14
+name = "Near target stand"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.4, -6]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 18
+name = "Far target stand"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [-5, 0.4, -25]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 22
+name = "Covered target stand"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [6, 0.4, -22]
+rotation = [0, 0, 0]
+scale = [0.12, 0.4, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "1f99d883-3a4f-4df4-95f4-ca19fe890747"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 23
+name = "Cover wall"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [6, 1.75, -14]
+rotation = [0, 0, 0]
+scale = [2.8, 1.75, 0.45]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "fd69729e-b45a-4554-8f7f-6f4d128d16ff"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 24
+name = "Distance stripe 1"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, 1]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 25
+name = "Distance stripe -9"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -9]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 26
+name = "Distance stripe -19"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -19]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 27
+name = "Distance stripe -29"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0.012, -29]
+rotation = [0, 0, 0]
+scale = [12, 0.012, 0.045]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 28
+name = "Lane stripe -2.5"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [-2.5, 0.015, -14]
+rotation = [0, 0, 0]
+scale = [0.035, 0.015, 20]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 29
+name = "Lane stripe 2.5"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [2.5, 0.015, -14]
+rotation = [0, 0, 0]
+scale = [0.035, 0.015, 20]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 30
+name = "Hit marker"
+parent = "31"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -10, 0]
+rotation = [0, 0, 0]
+scale = [0.065, 0.065, 0.065]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "225da99a-8bad-4f8c-bb24-3a1873c95fdf"

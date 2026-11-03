@@ -66,6 +66,33 @@ bool CharacterCamera::restore_data(const schema::ComponentDataT& value)
     return true;
 }
 
+bool CharacterCamera::remap_node_references(schema::ComponentDataT& data,
+                                            std::span<const schema::NodeIdMappingT> mapping) const
+{
+    auto* settings = data.payload.AsCharacterCameraData();
+    if (!settings)
+    {
+        return false;
+    }
+    if (settings->target_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& entry : mapping)
+    {
+        if (entry.source_id == settings->target_node_id)
+        {
+            if (entry.target_id == 0 || entry.retired)
+            {
+                return false;
+            }
+            settings->target_node_id = entry.target_id;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool CharacterCamera::synchronize_angles() noexcept
 {
     if (angles_initialized_)

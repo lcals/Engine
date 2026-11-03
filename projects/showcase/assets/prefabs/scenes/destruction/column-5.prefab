@@ -1,0 +1,20 @@
+root = "5"
+
+[[nodes]]
+id = 5
+name = "Column"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [11, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "1e31c754-780a-4025-9309-4ccadff62a43"
+material = "7160a450-f188-485d-9b2b-7fac47d5a93a"
+density = 80
+friction = 0.7
+restitution = 0.08

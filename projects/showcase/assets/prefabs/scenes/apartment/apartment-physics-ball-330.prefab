@@ -1,0 +1,40 @@
+root = "330"
+
+[[nodes]]
+id = '330'
+name = 'apartment_physics_ball'
+parent = '0'
+
+    [[nodes.components]]
+    type = "transform"
+    enabled = true
+    position = [0.1, 2.2, 2.4]
+    rotation = [0.0, 0.0, 0.0]
+    scale = [0.22, 0.22, 0.22]
+
+    [[nodes.components]]
+    enabled = true
+    material = "5bc73cdc-f1ea-49c2-8df0-b82f459ac34e"
+    mesh = "afbf65ad-2372-4621-9f32-756bf746acb6"
+    type = "mesh_renderer"
+
+    [[nodes.components]]
+    type = "collider"
+    enabled = true
+    shape = "sphere"
+    radius = 1.0
+    center = [0.0, 0.0, 0.0]
+    friction = 0.65
+    restitution = 0.48
+    is_trigger = false
+
+    [[nodes.components]]
+    type = "rigid_body"
+    enabled = true
+    motion = "dynamic"
+    mass = 0.35
+    gravity_factor = 1.0
+    linear_damping = 0.15
+    angular_damping = 0.25
+    linear_velocity = [0.0, 0.0, 0.0]
+    angular_velocity = [0.0, 0.0, 0.0]

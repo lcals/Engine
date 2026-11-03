@@ -1,0 +1,17 @@
+root = "1"
+
+[[nodes]]
+id = 1
+name = "Cube"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [18.0, 25.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "504f6b26-1f51-4fdd-bb97-8bbf0110bb75"

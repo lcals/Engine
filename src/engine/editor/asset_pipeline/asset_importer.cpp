@@ -25,6 +25,11 @@ bool AssetImporter::inspect_batch(const ImportContext&, std::string& fingerprint
     fingerprint.clear();
     return true;
 }
+bool AssetImporter::finalize_dependencies(ImportAsset&, const ImportContext&, std::string&) const
+{
+    return true;
+}
+
 bool AssetImporter::scan_dependencies(ImportAsset& asset, const ImportContext&, std::string&) const
 {
     asset.build_dependencies.clear();

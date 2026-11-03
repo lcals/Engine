@@ -100,6 +100,12 @@ bool EffectCodec::scan_dependencies(const schema::ComponentDataT& component,
                                                              context, dependencies, error);
 }
 
+std::span<const std::string_view> EffectCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"effect"};
+    return fields;
+}
+
 void EffectCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto& value = *component.payload.AsEffectData();

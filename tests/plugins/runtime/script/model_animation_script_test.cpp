@@ -4,10 +4,30 @@
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/schema/prefab_generated.h"
 
 namespace
 {
 using namespace test_support::animation;
+
+bool add_prefab(Fixture& fixture)
+{
+    engine::schema::PrefabDataT prefab;
+    prefab.root_id = 1;
+    auto node = std::make_unique<engine::schema::NodeDataT>();
+    node->info = std::make_unique<engine::schema::NodeInfoT>();
+    node->info->id = 1;
+    node->info->name = "Template";
+    auto transform = std::make_unique<engine::schema::ComponentDataT>();
+    transform->payload.Set(engine::schema::TransformDataT{});
+    node->components.push_back(std::move(transform));
+    prefab.nodes.push_back(std::move(node));
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishPrefabDataBuffer(builder,
+                                           engine::schema::PrefabData::Pack(builder, &prefab));
+    return add(fixture.files, "40000000-0000-4000-8000-000000000009", "prefabs/template.prefab",
+               engine::schema::AssetKind::prefab, builder);
+}
 
 bool script_bindings(Fixture& fixture)
 {
@@ -16,6 +36,14 @@ import { Gameplay, Scene, Component, Animator, MeshRenderer } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Create('Model and animation bindings');
+        const first = scene?.InstantiatePrefab('prefabs/template.prefab', 'First');
+        const second = scene?.InstantiatePrefab('prefabs/template.prefab', 'Second');
+        if (!first || !second || !first.SetEnabled(false) || !second.active ||
+            scene.FindNode('First')?.id !== first.id ||
+            scene.InstantiatePrefab('missing.prefab', 'Missing') !== null ||
+            scene.InstantiatePrefab('models/character.fbx', 'Wrong type') !== null ||
+            !first.Destroy() || first.IsValid() || !second.IsValid() || !second.Destroy())
+            return false;
         const root = scene?.InstantiateModel('models/character.fbx', 'Character');
         const otherRoot = scene?.InstantiateModel('models/character.fbx', 'Character');
         const body = root?.FindChild('Assembly/Body');
@@ -77,7 +105,7 @@ export default class extends Gameplay {
     }
 }
 )js";
-    if (!fixture.initialize() || !add_model(fixture.files) ||
+    if (!fixture.initialize() || !add_model(fixture.files) || !add_prefab(fixture) ||
         !add_bytes(fixture.files, "40000000-0000-4000-8000-000000000008", "scripts/game.js",
                    engine::schema::AssetKind::script,
                    {reinterpret_cast<const std::byte*>(source.data()), source.size()}))

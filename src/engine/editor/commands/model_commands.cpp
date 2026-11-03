@@ -41,9 +41,9 @@ class ModelInstantiationEdit final : public EditorEdit
 public:
     ModelInstantiationEdit(WorldSystem& world, NodeAliases& aliases, std::uint64_t scene,
                            std::string path, std::string name,
-                           std::vector<schema::AssetEntryT> versions)
+                           std::vector<schema::AssetEntryT> versions, bool prefab = false)
         : world_(world), aliases_(aliases), scene_(scene), path_(std::move(path)),
-          name_(std::move(name)), versions_(std::move(versions))
+          name_(std::move(name)), versions_(std::move(versions)), prefab_(prefab)
     {
     }
 
@@ -72,7 +72,8 @@ public:
             return false;
         }
         const auto previous_count = scene->nodes().size();
-        auto* root = scene->instantiate_model(path_, name_);
+        auto* root = prefab_ ? scene->instantiate_prefab(path_, name_)
+                             : scene->instantiate_model(path_, name_);
         if (!root)
         {
             error = "Cannot instantiate the model resource";
@@ -107,6 +108,20 @@ public:
             const auto id = scene->nodes()[previous_count + index]->id();
             *identities_[index] = id;
             aliases_[id] = identities_[index];
+            if (id == root->id())
+            {
+                root_index_ = index;
+            }
+        }
+        if (prefab_)
+        {
+            for (const auto& instance : scene->prefab_instances())
+            {
+                if (instance->root_id == root->info().id)
+                {
+                    prefab_snapshot_ = *instance;
+                }
+            }
         }
         snapshots_ = std::move(snapshots);
         return true;
@@ -121,6 +136,18 @@ public:
             return false;
         }
         std::set<std::uint64_t> members;
+        if (prefab_)
+        {
+            const auto found =
+                std::find_if(scene->prefab_instances().begin(), scene->prefab_instances().end(),
+                             [this](const auto& value)
+                             { return prefab_snapshot_ && *value == *prefab_snapshot_; });
+            if (found == scene->prefab_instances().end())
+            {
+                error = "Prefab association changed outside this edit";
+                return false;
+            }
+        }
         for (std::size_t index = 0; index < identities_.size(); ++index)
         {
             const auto* node = scene->find_node(*identities_[index]);
@@ -146,7 +173,7 @@ public:
                 return false;
             }
         }
-        if (!scene->destroy_node(*identities_.front()))
+        if (!scene->destroy_node(*identities_[root_index_]))
         {
             error = "Cannot remove model instance";
             return false;
@@ -167,6 +194,9 @@ private:
     std::vector<schema::AssetEntryT> versions_;
     std::vector<std::shared_ptr<std::uint64_t>> identities_;
     std::vector<schema::NodeDataT> snapshots_;
+    std::optional<schema::PrefabInstanceDataT> prefab_snapshot_;
+    std::size_t root_index_ = 0;
+    bool prefab_ = false;
 };
 
 bool versions(const ResourceCatalog& catalog, std::string_view root,
@@ -194,8 +224,9 @@ bool versions(const ResourceCatalog& catalog, std::string_view root,
 }
 } // namespace
 
-bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
-                   std::unique_ptr<EditorEdit>& edit, std::string& error)
+bool prepare_hierarchy(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                       Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error,
+                       bool prefab)
 {
     auto* scene = world.scene();
     if (!scene || !arguments.is_object() || arguments.size() != 3 ||
@@ -218,7 +249,8 @@ bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& argumen
     ResourcePtr model;
     std::vector<schema::AssetEntryT> retained;
     if (!resources || !ResourceSystem::path_to_guid(path, guid) ||
-        !resources->loader().load(guid, model) || !model->model() ||
+        !resources->loader().load(guid, model) || !model ||
+        (prefab ? !model->prefab() : !model->model()) ||
         !versions(resources->catalog(), guid, retained))
     {
         error = "Cannot resolve the model resource and its dependencies";
@@ -226,7 +258,18 @@ bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& argumen
     }
     result = {{"sceneId", arguments["sceneId"]}, {"name", name}, {"path", path}};
     edit = std::make_unique<ModelInstantiationEdit>(world, aliases, scene->id(), path, name,
-                                                    std::move(retained));
+                                                    std::move(retained), prefab);
     return true;
+}
+bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
+                   std::unique_ptr<EditorEdit>& edit, std::string& error)
+{
+    return prepare_hierarchy(world, aliases, arguments, result, edit, error, false);
+}
+
+bool prepare_prefab(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
+                    std::unique_ptr<EditorEdit>& edit, std::string& error)
+{
+    return prepare_hierarchy(world, aliases, arguments, result, edit, error, true);
 }
 } // namespace engine::editor::components

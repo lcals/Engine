@@ -10,6 +10,7 @@ classDiagram
         +EditorCommands(SceneIdProvider scene_id)
         +~EditorCommands()
         +register_command(string_view name, bool undoable, Handler handler) bool
+        +set_edit_wrapper(EditWrapper wrapper) bool
         +execute(string_view name, const Json& arguments, Json& result, string& error) bool
         +clear_history() void
         +undo_count() size_t
@@ -111,3 +112,5 @@ classDiagram
 模型实例化的事务与资源版本校验见[模型命令](model-commands.md)。
 
 `set_node_state(sceneId,nodeId,enabled?,visible?)` 和 `set_component_state(sceneId,nodeId,componentType,enabled?,visible?)` 至少修改一个布尔字段；组件类型使用 `get_scene` 的 `componentType`（生成枚举名称）。内部 StateEdit 复用共享节点身份，只检查和修改请求的局部标记，不恢复整个组件数据、不改后代的局部设置。支持批次、撤销和重做；外部改变相同字段时拒绝陈旧历史。查询对节点和组件同时返回局部 `enabled/visible` 与继承后 `active/visibleInHierarchy`；组件额外返回 `componentType` 与 `instanceId`，后者仅标识当前实例。
+
+Prefab 编辑登记一个 `EditWrapper = std::function<bool(std::string_view, const Json&, std::unique_ptr<EditorEdit>&, std::string&)>`；`set_edit_wrapper` 仅允许登记一次非空回调。命令先准备尚未应用的记录，再由包装器验证目标并把显式属性覆盖与原修改组成同一撤销记录。包装器只处理可撤销编辑，批次走相同入口；未知会影响 Prefab 的修改明确拒绝，不在保存时把任意运行变化推断成覆盖。回调借用 WorldSystem/SceneCommands 至命令服务释放。

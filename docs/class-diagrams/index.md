@@ -53,6 +53,8 @@
 
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占已发布场景及恢复候选，区分当前玩法场景与常驻容器；场景独占节点。
+- [预制体](../runtime/class-diagrams/prefab.md)：模板资源、稳定实例映射与显式属性覆盖；沿用 Node/Component，不改变 ECS 所有权。
+- [预制体编辑与导入](../editor/class-diagrams/prefab.md)：子树/模型模板制作、字段合成、依赖发布及场景关联保存。
 - [节点](../runtime/class-diagrams/node.md)：轻量身份、层级及无具体类型的组件列表；泛型添加和查询。
 - [常驻节点与场景切换](../runtime/class-diagrams/persistent-nodes.md)：根节点及子树跨场景存活、原 UI/Controller 复用，以及完整停止时的清理边界。
 - [组件创建登记](../runtime/class-diagrams/component-registry.md)：按生成类型登记工厂，节点泛型创建，组件自行恢复数据。

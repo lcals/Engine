@@ -28,8 +28,6 @@ CharacterController::CharacterController(Node& node) : Component(node, make_data
 {
 }
 
-
-
 bool CharacterController::valid_settings(const schema::CharacterControllerDataT& value) noexcept
 {
     return bounded(value.move_speed, 0.0F, 1000.0F) && bounded(value.jump_speed, 0.01F, 1000.0F) &&
@@ -93,6 +91,33 @@ bool CharacterController::restore_data(const schema::ComponentDataT& value)
     set_visible(value.visible);
     clear_input();
     return true;
+}
+
+bool CharacterController::remap_node_references(
+    schema::ComponentDataT& data, std::span<const schema::NodeIdMappingT> mapping) const
+{
+    auto* settings = data.payload.AsCharacterControllerData();
+    if (!settings)
+    {
+        return false;
+    }
+    if (settings->camera_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& entry : mapping)
+    {
+        if (entry.source_id == settings->camera_node_id)
+        {
+            if (entry.target_id == 0 || entry.retired)
+            {
+                return false;
+            }
+            settings->camera_node_id = entry.target_id;
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace engine::plugins::character_controller

@@ -53,32 +53,9 @@ bool load_shader(const Guid& guid, const ImportContext& context,
         return true;
     }
     std::vector<std::byte> bytes;
-    if (!read_bytes(context.output / guid, bytes, error))
+    if (!read_generated_payload(guid, context, bytes, error))
     {
         return false;
-    }
-    if (bytes.size() >= 4 && bytes[0] == std::byte{'E'} && bytes[1] == std::byte{'R'} &&
-        bytes[2] == std::byte{'S'} && bytes[3] == std::byte{'1'})
-    {
-        const schema::AssetEntryT* entry = nullptr;
-        if (context.previous_catalog != nullptr)
-        {
-            for (const auto& candidate : context.previous_catalog->entries)
-            {
-                if (candidate->guid == guid)
-                {
-                    entry = candidate.get();
-                    break;
-                }
-            }
-        }
-        std::vector<std::byte> payload;
-        if (entry == nullptr || !ResourceSystem::decode_resource(*entry, bytes, payload))
-        {
-            error = "reused shader entity is invalid: " + path;
-            return false;
-        }
-        bytes = std::move(payload);
     }
     flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(bytes.data()),
                                    bytes.size());

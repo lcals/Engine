@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/asset_metadata.hpp"
+#include "editor/asset_pipeline/prefab_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
@@ -17,6 +18,7 @@
 #include <nlohmann/json.hpp>
 #include <toml++/toml.hpp>
 
+#include <algorithm>
 #include <charconv>
 #include <fstream>
 #include <map>
@@ -50,14 +52,16 @@ bool no_symlinks(const fs::path& path)
     return true;
 }
 
-bool scene_path(const fs::path& root, const std::string& text, fs::path& output, std::string& error)
+bool scene_path(const fs::path& root, const std::string& text, fs::path& output, std::string& error,
+                bool prefab = false)
 {
     const auto relative = PathUtils::from_utf8(text);
     if (text.empty() || text.size() > 1024 || text.find('\0') != std::string::npos ||
         text.find_first_of("\\:") != std::string::npos || relative.is_absolute() ||
-        relative.has_root_name() || relative.extension() != ".scene")
+        relative.has_root_name() || relative.extension() != (prefab ? ".prefab" : ".scene"))
     {
-        error = "Scene path must be a relative assets path ending in .scene";
+        error = "Path must be an assets-relative " + std::string(prefab ? ".prefab" : ".scene") +
+                " path";
         return false;
     }
     for (const auto& part : relative)
@@ -364,7 +368,7 @@ struct ScenePersistence::State
                               std::string& error) const;
     bool save(WorldSystem& world, const fs::path& project_root, const MeshSourceWriter& writer,
               const Json& arguments, Json& result, std::vector<SceneSavedResource>& changes,
-              std::string& error);
+              std::string& error, bool prefab = false);
 };
 
 bool ScenePersistence::State::matches_saved_source(const fs::path& path, std::uint64_t scene_id,
@@ -396,12 +400,12 @@ bool ScenePersistence::State::matches_saved_source(const fs::path& path, std::ui
 bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_root,
                                    const MeshSourceWriter& writer, const Json& arguments,
                                    Json& result, std::vector<SceneSavedResource>& changes,
-                                   std::string& error)
+                                   std::string& error, bool prefab)
 {
     changes.clear();
-    if (!arguments.is_object() || arguments.size() != 2 || !arguments.contains("sceneId") ||
-        !arguments["sceneId"].is_string() || !arguments.contains("path") ||
-        !arguments["path"].is_string())
+    if (!arguments.is_object() || arguments.size() != (prefab ? 3 : 2) ||
+        !arguments.contains("sceneId") || !arguments["sceneId"].is_string() ||
+        !arguments.contains("path") || !arguments["path"].is_string())
     {
         error = "save_scene requires sceneId and path";
         return false;
@@ -417,17 +421,64 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         error = "save_scene requires the current sceneId";
         return false;
     }
+    const Node* subtree = nullptr;
+    if (prefab)
+    {
+        if (!arguments.contains("nodeId") || !arguments["nodeId"].is_string())
+        {
+            error = "create_prefab requires nodeId";
+            return false;
+        }
+        const auto text = arguments["nodeId"].get<std::string>();
+        std::uint64_t id = 0;
+        const auto parsed_node = std::from_chars(text.data(), text.data() + text.size(), id);
+        subtree = parsed_node.ec == std::errc{} && parsed_node.ptr == text.data() + text.size() &&
+                          text == std::to_string(id)
+                      ? scene->find_node(id)
+                      : nullptr;
+        if (!subtree || subtree->transient())
+        {
+            error = "Prefab source node is missing or transient";
+            return false;
+        }
+    }
+    const auto selected = [subtree](const Node& node)
+    {
+        if (!subtree)
+        {
+            return true;
+        }
+        for (const auto* candidate = &node; candidate; candidate = candidate->parent())
+        {
+            if (candidate == subtree)
+            {
+                return true;
+            }
+        }
+        return false;
+    };
     std::error_code ec;
     const auto root = fs::canonical(project_root, ec);
     fs::path destination;
     const auto relative = arguments["path"].get<std::string>();
-    if (ec || !scene_path(root, relative, destination, error) || !no_symlinks(root / "cache"))
+    if (ec || !scene_path(root, relative, destination, error, prefab) ||
+        !no_symlinks(root / "cache"))
     {
         if (error.empty())
         {
             error = "Cannot resolve project source and cache directories";
         }
         return false;
+    }
+    if (prefab)
+    {
+        auto meta = destination;
+        meta += ".meta";
+        if (fs::exists(destination, ec) || ec || fs::exists(meta, ec) || ec)
+        {
+            error = "create_prefab requires a new source and meta destination";
+            return false;
+        }
     }
     if (!matches_saved_source(destination, scene_id, error))
     {
@@ -606,22 +657,150 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
         return rollback();
     }
     data.info->active_camera_node =
-        scene->active_camera() ? scene->active_camera()->node().info().id : 0;
+        !prefab && scene->active_camera() ? scene->active_camera()->node().info().id : 0;
+    std::set<std::uint64_t> omitted_prefab_roots;
+    std::vector<schema::NodeIdMappingT> subtree_ids;
+    if (prefab)
+    {
+        for (const auto& node : scene->nodes())
+        {
+            if (selected(*node) && !node->transient())
+            {
+                schema::NodeIdMappingT mapping;
+                mapping.source_id = node->info().id;
+                mapping.target_id = node->info().id;
+                subtree_ids.push_back(std::move(mapping));
+            }
+        }
+    }
+    if (!prefab)
+    {
+        for (const auto& instance : scene->prefab_instances())
+        {
+            const auto find_local = [scene](std::uint64_t id) -> const Node*
+            {
+                for (const auto& candidate : scene->nodes())
+                {
+                    if (candidate->info().id == id)
+                    {
+                        return candidate.get();
+                    }
+                }
+                return nullptr;
+            };
+            const auto* instance_root = find_local(instance->root_id);
+            if (!instance_root)
+            {
+                error = "Prefab instance root is missing";
+                return rollback();
+            }
+            if (instance_root->transient())
+            {
+                omitted_prefab_roots.insert(instance->root_id);
+                continue;
+            }
+            for (const auto& mapping : instance->node_mappings)
+            {
+                const auto* member = find_local(mapping->target_id);
+                const bool removed =
+                    std::any_of(instance->overrides.begin(), instance->overrides.end(),
+                                [&mapping](const auto& value)
+                                { return value->node_id == mapping->source_id && value->removed; });
+                if (!member && (mapping->retired || removed))
+                {
+                    continue;
+                }
+                bool descendant = false;
+                for (const auto* parent = member; parent; parent = parent->parent())
+                {
+                    if (parent == instance_root)
+                    {
+                        descendant = true;
+                    }
+                }
+                if (!member || member->transient() || !descendant || mapping->retired || removed)
+                {
+                    error = "Prefab source members changed structurally; unlink before saving";
+                    return rollback();
+                }
+            }
+            data.prefab_instances.push_back(
+                std::make_unique<schema::PrefabInstanceDataT>(*instance));
+        }
+    }
     for (const auto& node : scene->nodes())
     {
-        if (node->transient())
+        bool omitted_prefab = false;
+        for (const auto* parent = node.get(); parent; parent = parent->parent())
+        {
+            if (omitted_prefab_roots.contains(parent->info().id))
+            {
+                omitted_prefab = true;
+            }
+        }
+        if (node->transient() || !selected(*node) || omitted_prefab)
         {
             continue;
         }
+        bool prefab_member = false;
+        schema::PrefabNodeOverrideT* node_override = nullptr;
+        for (const auto& instance : data.prefab_instances)
+        {
+            for (const auto& mapping : instance->node_mappings)
+            {
+                if (mapping->target_id != node->info().id)
+                {
+                    continue;
+                }
+                prefab_member = true;
+                for (const auto& override_data : instance->overrides)
+                {
+                    if (override_data->node_id == mapping->source_id)
+                    {
+                        node_override = override_data.get();
+                    }
+                }
+            }
+        }
         auto saved = std::make_unique<schema::NodeDataT>();
         saved->info = std::make_unique<schema::NodeInfoT>(node->info());
+        if (subtree == node.get())
+        {
+            saved->info->parent_id = 0;
+        }
         for (const auto& component : node->components())
         {
             if (component->transient())
             {
                 continue;
             }
+            schema::PrefabComponentOverrideT* component_override = nullptr;
+            if (node_override)
+            {
+                for (const auto& candidate : node_override->components)
+                {
+                    if (candidate->component &&
+                        candidate->component->payload.type == component->type())
+                    {
+                        component_override = candidate.get();
+                    }
+                }
+            }
+            const auto overridden = [component_override](std::string_view field)
+            {
+                return component_override && std::find(component_override->fields.begin(),
+                                                       component_override->fields.end(),
+                                                       field) != component_override->fields.end();
+            };
             auto value = std::make_unique<schema::ComponentDataT>(component->data());
+            if (prefab_member &&
+                (!component_override || component->type() != ComponentType::MeshRendererData ||
+                 (!overridden("mesh") && !overridden("material") &&
+                  !overridden("additional_materials"))))
+            {
+                saved->components.push_back(std::move(value));
+                continue;
+            }
             if (component->type() != ComponentType::MeshRendererData &&
                 !component->build_data(*value))
             {
@@ -735,6 +914,28 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                     }
                 }
             }
+            if (component_override && component->type() == ComponentType::MeshRendererData)
+            {
+                auto* persisted = component_override->component->payload.AsMeshRendererData();
+                const auto* exported = value->payload.AsMeshRendererData();
+                if (overridden("mesh"))
+                {
+                    persisted->mesh_guid = exported->mesh_guid;
+                }
+                if (overridden("material"))
+                {
+                    persisted->material_guid = exported->material_guid;
+                }
+                if (overridden("additional_materials"))
+                {
+                    persisted->additional_material_guids = exported->additional_material_guids;
+                }
+            }
+            if (prefab && !component->remap_node_references(*value, subtree_ids))
+            {
+                error = "Prefab subtree contains a component reference outside its saved nodes";
+                return rollback();
+            }
             saved->components.push_back(std::move(value));
         }
         data.nodes.push_back(std::move(saved));
@@ -742,12 +943,30 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
     const auto staged_scene = transaction.staging / "saved.scene";
     Guid guid;
     bool scene_changed = false;
-    if (!SceneImporter::write(staged_scene, data, error) ||
-        !publish(staged_scene, destination, "scene", guid, scene_changed))
+    bool written = false;
+    if (prefab)
+    {
+        schema::PrefabDataT prefab_data;
+        prefab_data.root_id = subtree->info().id;
+        for (const auto& node : data.nodes)
+        {
+            prefab_data.nodes.push_back(std::make_unique<schema::NodeDataT>(*node));
+        }
+        written = PrefabImporter::write(staged_scene, prefab_data, error);
+    }
+    else
+    {
+        written = SceneImporter::write(staged_scene, data, error);
+    }
+    if (!written ||
+        !publish(staged_scene, destination, prefab ? "prefab" : "scene", guid, scene_changed))
     {
         return rollback();
     }
-    meshes = std::move(saved_meshes);
+    for (auto& [path, snapshot] : saved_meshes)
+    {
+        meshes.insert_or_assign(path, std::move(snapshot));
+    }
     if (saved_scene_id != scene_id)
     {
         sources.clear();
@@ -771,6 +990,89 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
     return true;
 }
 
+namespace
+{
+bool create_model_prefab(const fs::path& project_root, const Json& arguments, Json& result,
+                         std::string& error)
+{
+    if (!arguments.is_object() || arguments.size() != 2 || !arguments.contains("model") ||
+        !arguments["model"].is_string() || !arguments.contains("path") ||
+        !arguments["path"].is_string())
+    {
+        error = "create_prefab_from_model requires model and path resource paths";
+        return false;
+    }
+    auto* resources = ResourceSystem::instance();
+    Guid model_guid;
+    ResourcePtr resource;
+    if (!resources ||
+        !ResourceSystem::path_to_guid(arguments["model"].get<std::string>(), model_guid) ||
+        !resources->loader().load(model_guid, resource) || !resource || !resource->model())
+    {
+        error = "Cannot load the imported Model resource";
+        return false;
+    }
+    schema::PrefabDataT data;
+    data.model_guid = model_guid;
+    Guid default_material;
+    (void)ResourceSystem::path_to_guid("builtin://materials/default-pbr", default_material);
+    if (!PrefabImporter::from_model(*resource->model(), default_material, data, error))
+    {
+        return false;
+    }
+    std::error_code code;
+    const auto root = fs::canonical(project_root, code);
+    fs::path destination;
+    const auto relative = arguments["path"].get<std::string>();
+    if (code || !scene_path(root, relative, destination, error, true))
+    {
+        return false;
+    }
+    auto meta = destination;
+    meta += ".meta";
+    if (fs::exists(destination, code) || code || fs::exists(meta, code) || code)
+    {
+        error = "create_prefab_from_model requires a new source and meta destination";
+        return false;
+    }
+    fs::create_directories(destination.parent_path(), code);
+    if (code)
+    {
+        error = "Cannot prepare prefab source directory";
+        return false;
+    }
+    SourceTransaction transaction;
+    transaction.staging =
+        destination.parent_path() / (".prefab-create-" + asset_pipeline::new_guid());
+    if (!fs::create_directory(transaction.staging, code) || code)
+    {
+        error = "Cannot prepare prefab staging directory";
+        return false;
+    }
+    const auto staged = transaction.staging / "created.prefab";
+    Guid guid;
+    bool changed = false;
+    if (!PrefabImporter::write(staged, data, error) ||
+        !transaction.publish(staged, destination, changed, error) ||
+        !transaction.remember(meta, error) ||
+        !asset_pipeline::ensure_asset_guid(root, destination, "prefab", guid, error))
+    {
+        if (!transaction.rollback())
+        {
+            transaction.preserve_staging = true;
+            error += "; failed to restore prefab source";
+        }
+        return false;
+    }
+    result = {{"path", relative},
+              {"guid", guid},
+              {"modelGuid", model_guid},
+              {"nodeCount", data.nodes.size()},
+              {"importRequired", true}};
+    return true;
+}
+} // namespace
+
 ScenePersistence::ScenePersistence(WorldSystem& world, fs::path project_root,
                                    MeshSourceWriter writer, SavedCallback saved)
     : state_(std::make_unique<State>()), world_(world), project_root_(std::move(project_root)),
@@ -782,6 +1084,25 @@ ScenePersistence::~ScenePersistence() noexcept = default;
 
 bool ScenePersistence::register_commands(EditorCommands& commands)
 {
+    if (!commands.register_command(
+            "create_prefab_from_model", false,
+            [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
+                   std::string& error)
+            { return create_model_prefab(project_root_, arguments, result, error); }))
+    {
+        return false;
+    }
+    if (!commands.register_command("create_prefab", false,
+                                   [this](const Json& arguments, Json& result,
+                                          std::unique_ptr<EditorEdit>&, std::string& error)
+                                   {
+                                       std::vector<SceneSavedResource> changes;
+                                       return state_->save(world_, project_root_, writer_,
+                                                           arguments, result, changes, error, true);
+                                   }))
+    {
+        return false;
+    }
     return commands.register_command(
         "save_scene", false,
         [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,

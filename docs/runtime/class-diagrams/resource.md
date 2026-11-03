@@ -11,6 +11,7 @@ classDiagram
         +info() const AssetEntryT&
         +generation() uint64_t
         +scene() const SceneDataT#42;
+        +prefab() const PrefabDataT#42;
         +mesh() const MeshDataT#42;
         +shader() const ShaderDataT#42;
         +material() const MaterialDataT#42;
@@ -35,6 +36,7 @@ classDiagram
     direction TB
     class Resource
     class SceneDataT
+    class PrefabDataT
     class MeshDataT
     class ShaderDataT
     class MaterialDataT
@@ -42,6 +44,7 @@ classDiagram
     class AudioClipDataT
     class LightProbeDataT
     Resource *-- SceneDataT : 场景类型时拥有
+    Resource *-- PrefabDataT : 预制体类型时拥有
     Resource *-- MeshDataT : 网格类型时拥有
     Resource *-- ShaderDataT : Shader 类型时拥有
     Resource *-- MaterialDataT : 材质类型时拥有

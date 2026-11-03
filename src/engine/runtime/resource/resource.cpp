@@ -45,6 +45,11 @@ const schema::AudioClipDataT* Resource::audio() const noexcept
     return audio_.get();
 }
 
+const schema::PrefabDataT* Resource::prefab() const noexcept
+{
+    return prefab_.get();
+}
+
 const schema::ModelDataT* Resource::model() const noexcept
 {
     return model_.get();

@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/components/scene_component_codec.hpp"
+#include "editor/asset_pipeline/prefab_source.hpp"
 #include "editor/asset_pipeline/toml_helpers.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
@@ -25,7 +26,7 @@ namespace engine::editor
 namespace
 {
 
-bool validate(const schema::SceneDataT& scene, std::string& error)
+bool validate_scene(const schema::SceneDataT& scene, std::string& error)
 {
     if (scene.schema_version != 1 || scene.info == nullptr || scene.info->name.empty())
     {
@@ -110,6 +111,26 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
             parent = iterator->second->info->parent_id;
         }
     }
+    std::vector<schema::NodeIdMappingT> references;
+    for (const auto& [id, node] : nodes)
+    {
+        schema::NodeIdMappingT mapping;
+        mapping.source_id = id;
+        mapping.target_id = id;
+        references.push_back(mapping);
+    }
+    for (const auto& [id, node] : nodes)
+    {
+        for (const auto& component : node->components)
+        {
+            const auto* codec = asset_pipeline::find_scene_component_codec(component->payload.type);
+            schema::ComponentDataT candidate(*component);
+            if (!codec->remap_node_references(candidate, references, error))
+            {
+                return false;
+            }
+        }
+    }
     if (scene.info->active_camera_node != 0)
     {
         const auto camera = nodes.find(scene.info->active_camera_node);
@@ -128,7 +149,8 @@ bool validate(const schema::SceneDataT& scene, std::string& error)
     return true;
 }
 
-bool read_component(const toml::table& table, schema::ComponentDataT& component, std::string& error)
+bool parse_component(const toml::table& table, schema::ComponentDataT& component,
+                     std::string& error)
 {
     using namespace asset_pipeline;
     component.enabled = table["enabled"].value_or(true);
@@ -151,40 +173,41 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
 
 } // namespace
 
-bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT& output,
-                         std::string& error)
+bool SceneImporter::validate(const schema::SceneDataT& data, std::string& error)
 {
-    output = {};
-    error.clear();
-    std::string text;
-    if (!ResourceSystem::read_text(source, text))
+    return validate_scene(data, error);
+}
+
+bool SceneImporter::read_component(const toml::table& table, schema::ComponentDataT& output,
+                                   std::string& error)
+{
+    return parse_component(table, output, error);
+}
+
+bool SceneImporter::write_component(const schema::ComponentDataT& component, toml::table& output,
+                                    std::string& error)
+{
+    const auto* codec = asset_pipeline::find_scene_component_codec(component.payload.type);
+    if (!codec || !codec->validate(component, error))
     {
-        error = "cannot read scene: " + PathUtils::to_utf8(source);
+        if (error.empty())
+        {
+            error = "Unknown or invalid component";
+        }
         return false;
     }
-    auto parsed = toml::parse(text);
-    if (!parsed)
-    {
-        error = "invalid scene TOML: " + std::string(parsed.error().description());
-        return false;
-    }
-    const auto& table = parsed.table();
-    schema::SceneDataT data;
-    data.info = std::make_unique<schema::SceneInfoT>();
-    data.info->name = table["name"].value_or(std::string{});
-    if (table.contains("active_camera") &&
-        !asset_pipeline::identifier(table.get("active_camera"), data.info->active_camera_node))
-    {
-        error = "active_camera must be an unsigned decimal ID";
-        return false;
-    }
-    const auto* nodes = table["nodes"].as_array();
-    if (nodes == nullptr)
-    {
-        error = "scene requires nodes array";
-        return false;
-    }
-    for (const auto& item : *nodes)
+    output = toml::table{{"enabled", component.enabled}, {"visible", component.visible}};
+    codec->write(component, output);
+    return true;
+}
+
+bool SceneImporter::read_nodes(const toml::array& nodes,
+                               std::vector<std::unique_ptr<schema::NodeDataT>>& output,
+                               std::string& error)
+{
+    output.clear();
+    std::vector<std::unique_ptr<schema::NodeDataT>> candidate;
+    for (const auto& item : nodes)
     {
         const auto* node_table = item.as_table();
         auto node = std::make_unique<schema::NodeDataT>();
@@ -226,9 +249,84 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
             }
             node->components.push_back(std::move(component));
         }
-        data.nodes.push_back(std::move(node));
+        candidate.push_back(std::move(node));
     }
-    if (!validate(data, error))
+    output = std::move(candidate);
+    return true;
+}
+
+bool SceneImporter::write_nodes(const std::vector<std::unique_ptr<schema::NodeDataT>>& input,
+                                toml::array& output, std::string& error)
+{
+    output.clear();
+    for (const auto& node : input)
+    {
+        toml::table table{{"id", std::to_string(node->info->id)},
+                          {"name", node->info->name},
+                          {"parent", std::to_string(node->info->parent_id)}};
+        if (!node->info->enabled)
+        {
+            table.insert("enabled", false);
+        }
+        if (!node->info->visible)
+        {
+            table.insert("visible", false);
+        }
+        toml::array components;
+        for (const auto& component : node->components)
+        {
+            toml::table value;
+            if (!component || !write_component(*component, value, error))
+            {
+                return false;
+            }
+            components.push_back(std::move(value));
+        }
+        table.insert("components", std::move(components));
+        output.push_back(std::move(table));
+    }
+    return true;
+}
+
+bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT& output,
+                         std::string& error)
+{
+    output = {};
+    error.clear();
+    std::string text;
+    if (!ResourceSystem::read_text(source, text))
+    {
+        error = "cannot read scene: " + PathUtils::to_utf8(source);
+        return false;
+    }
+    auto parsed = toml::parse(text);
+    if (!parsed)
+    {
+        error = "invalid scene TOML: " + std::string(parsed.error().description());
+        return false;
+    }
+    const auto& table = parsed.table();
+    schema::SceneDataT data;
+    data.info = std::make_unique<schema::SceneInfoT>();
+    data.info->name = table["name"].value_or(std::string{});
+    if (table.contains("active_camera") &&
+        !asset_pipeline::identifier(table.get("active_camera"), data.info->active_camera_node))
+    {
+        error = "active_camera must be an unsigned decimal ID";
+        return false;
+    }
+    const auto* nodes = table["nodes"].as_array();
+    if (nodes == nullptr)
+    {
+        error = "scene requires nodes array";
+        return false;
+    }
+    if (!read_nodes(*nodes, data.nodes, error) ||
+        !prefab_detail::read_instances(table, data.prefab_instances, error))
+    {
+        return false;
+    }
+    if (data.prefab_instances.empty() && !validate(data, error))
     {
         return false;
     }
@@ -247,74 +345,32 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
     toml::table document{{"name", data.info->name},
                          {"active_camera", std::to_string(data.info->active_camera_node)}};
     toml::array nodes;
+    std::vector<std::unique_ptr<schema::NodeDataT>> ordinary;
+    std::set<std::uint64_t> mapped;
+    for (const auto& instance : data.prefab_instances)
+    {
+        for (const auto& mapping : instance->node_mappings)
+        {
+            if (mapping)
+            {
+                mapped.insert(mapping->target_id);
+            }
+        }
+    }
     for (const auto& node : data.nodes)
     {
-        toml::table table{{"id", std::to_string(node->info->id)},
-                          {"name", node->info->name},
-                          {"parent", std::to_string(node->info->parent_id)}};
-        if (!node->info->enabled)
+        if (node && node->info && !mapped.contains(node->info->id))
         {
-            table.insert("enabled", false);
+            ordinary.push_back(std::make_unique<schema::NodeDataT>(*node));
         }
-        if (!node->info->visible)
-        {
-            table.insert("visible", false);
-        }
-        toml::array components;
-        for (const auto& component : node->components)
-        {
-            toml::table value{{"enabled", component->enabled}};
-            if (!component->visible)
-            {
-                value.insert("visible", false);
-            }
-            const auto* codec = asset_pipeline::find_scene_component_codec(component->payload.type);
-            if (codec == nullptr)
-            {
-                error = "unknown scene component type";
-                return false;
-            }
-            codec->write(*component, value);
-            components.push_back(std::move(value));
-        }
-        table.insert("components", std::move(components));
-        nodes.push_back(std::move(table));
+    }
+    if (!write_nodes(ordinary, nodes, error) ||
+        !prefab_detail::write_instances(data.prefab_instances, document, error))
+    {
+        return false;
     }
     document.insert("nodes", std::move(nodes));
-    std::ostringstream stream;
-    stream << document;
-    auto temporary = destination;
-    temporary += ".saving-" + asset_pipeline::new_guid();
-    if (!asset_pipeline::write_text(temporary, stream.str(), error))
-    {
-        return false;
-    }
-    std::error_code filesystem_error;
-    // POSIX rename 替换已有目标；Windows 以同目录备份保护旧内容。
-    auto backup = temporary;
-    backup += ".previous";
-    const bool existed = std::filesystem::exists(destination, filesystem_error);
-    if (!filesystem_error && existed)
-    {
-        std::filesystem::rename(destination, backup, filesystem_error);
-    }
-    if (!filesystem_error)
-    {
-        std::filesystem::rename(temporary, destination, filesystem_error);
-    }
-    if (filesystem_error)
-    {
-        error = "cannot publish scene: " + filesystem_error.message();
-        std::error_code cleanup_error;
-        if (std::filesystem::exists(backup, cleanup_error))
-        {
-            std::filesystem::rename(backup, destination, cleanup_error);
-        }
-        std::filesystem::remove(temporary, cleanup_error);
-        return false;
-    }
-    std::filesystem::remove(backup, filesystem_error);
-    return true;
+    return prefab_detail::write_document(destination, document, error);
 }
 
 } // namespace engine::editor

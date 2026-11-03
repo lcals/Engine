@@ -368,6 +368,8 @@ declare module "engine" {
         CreateNode(name: string): Node | null;
         /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
         InstantiateModel(path: string, name: string): Node | null;
+        /** 创建独立的预制体实例；非空 name 覆盖根名称，失败不留下部分节点。 */
+        InstantiatePrefab(path: string, name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;
         /** Unloads this active scene, preserving persistent subtrees until gameplay stops. */
         Destroy(): boolean;

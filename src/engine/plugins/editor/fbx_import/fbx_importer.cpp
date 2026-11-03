@@ -189,6 +189,7 @@ bool append_model_node(const FbxDocument& document, const ufbx_node& node, std::
     auto result = std::make_unique<schema::ModelNodeDataT>();
     const auto& path = document.node_paths.at(&node);
     result->name = path.substr(path.find_last_of('/') + 1);
+    result->source_key = path;
     result->parent = parent;
     const auto& transform = node.local_transform;
     const auto euler = ufbx_quat_to_euler(transform.rotation, UFBX_ROTATION_ORDER_XYZ);

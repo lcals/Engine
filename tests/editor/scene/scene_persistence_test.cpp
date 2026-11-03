@@ -3,26 +3,26 @@
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/project/project_system.hpp"
-#include "editor/scene/scene_persistence.hpp"
 #include "editor/render/render_commands.hpp"
-#include "runtime/render/render_system.hpp"
-#include "runtime/window/window_system.hpp"
+#include "editor/scene/scene_persistence.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
@@ -343,9 +343,14 @@ bool run(const fs::path& root)
                     execute("set_material_blend_mode", edit_blend) &&
                     execute("set_render_settings", {{"ssrEnabled", true}, {"ssrMaxSteps", 96}}),
                 "edit rendering components and material through the normal commands", error))
+    {
         return false;
-    auto local_shadow = Json{{"sceneId", id}, {"nodeId", std::to_string(light->node().id())},
-                             {"castShadows", true}, {"shadowResolution", 512}, {"shadowBias", .003}};
+    }
+    auto local_shadow = Json{{"sceneId", id},
+                             {"nodeId", std::to_string(light->node().id())},
+                             {"castShadows", true},
+                             {"shadowResolution", 512},
+                             {"shadowBias", .003}};
     if (!expect(execute("set_light", local_shadow), "edit local light shadow settings", error))
     {
         return false;
@@ -546,28 +551,40 @@ bool run(const fs::path& root)
     Vec4 color;
     float roughness = 0;
     float cutoff = 0;
-    if (!expect(second->parent() == first &&
-                    first->get_component<Transform>()->settings().position.x() == 3 &&
-                    renderer->material_count() == 2 && !renderer->cast_shadows() && renderer->bake_static() &&
-                    renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
-                    first->get_component<PlanarReflectionComponent>() &&
-                    !first->get_component<PlanarReflectionComponent>()->enabled() &&
-                    first->get_component<PlanarReflectionComponent>()->settings().resolution_scale == .75F &&
-                    first->get_component<PlanarReflectionComponent>()->settings().clip_bias == .04F &&
-                    first->get_component<LightProbeVolumeComponent>() &&
-                    !first->get_component<LightProbeVolumeComponent>()->enabled() &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>() &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_enabled &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_max_steps == 96 &&
-                    renderer->material(1)->cull_mode() == schema::CullMode::none &&
-                    renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
-                    renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&
-                    renderer->material(1)->get_float("roughness", roughness) && roughness == 0.75F,
-                "reload hierarchy, transform and all material slot values") ||
+    if (!expect(
+            second->parent() == first &&
+                first->get_component<Transform>()->settings().position.x() == 3 &&
+                renderer->material_count() == 2 && !renderer->cast_shadows() &&
+                renderer->bake_static() &&
+                renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
+                first->get_component<PlanarReflectionComponent>() &&
+                !first->get_component<PlanarReflectionComponent>()->enabled() &&
+                first->get_component<PlanarReflectionComponent>()->settings().resolution_scale ==
+                    .75F &&
+                first->get_component<PlanarReflectionComponent>()->settings().clip_bias == .04F &&
+                first->get_component<LightProbeVolumeComponent>() &&
+                !first->get_component<LightProbeVolumeComponent>()->enabled() &&
+                scene->active_camera()->node().get_component<PostProcessComponent>() &&
+                scene->active_camera()
+                    ->node()
+                    .get_component<PostProcessComponent>()
+                    ->settings()
+                    .ssr_enabled &&
+                scene->active_camera()
+                        ->node()
+                        .get_component<PostProcessComponent>()
+                        ->settings()
+                        .ssr_max_steps == 96 &&
+                renderer->material(1)->cull_mode() == schema::CullMode::none &&
+                renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
+                renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&
+                renderer->material(1)->get_float("roughness", roughness) && roughness == 0.75F,
+            "reload hierarchy, transform and all material slot values") ||
         !expect(!named(*scene, "Lamp")->get_component<Light>()->enabled() &&
                     named(*scene, "Lamp")->get_component<Light>()->settings().intensity == 7 &&
                     named(*scene, "Lamp")->get_component<Light>()->settings().cast_shadows &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_resolution == 512 &&
+                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_resolution ==
+                        512 &&
                     named(*scene, "Lamp")->get_component<Light>()->settings().shadow_bias == .003F,
                 "reload light values and disabled component"))
     {
@@ -740,6 +757,93 @@ bool run(const fs::path& root)
                     snapshot_sources(root / "assets", current_sources) &&
                     unchanged_sources(initial_sources, current_sources, path),
                 "lighting and environment edits do not export referenced assets", error))
+    {
+        return false;
+    }
+    auto* shared_renderer = shared->get_component<MeshRenderer>();
+    if (!shared_renderer->set_material_count(2) ||
+        !shared_renderer->material(1)->set_type(original_material_path))
+    {
+        return false;
+    }
+    const Json prefab_create = {{"sceneId", std::to_string(scene->id())},
+                                {"nodeId", std::to_string(shared->id())},
+                                {"path", "prefabs/material.prefab"}};
+    if (!expect(execute("create_prefab", prefab_create) && pipeline.build_assets(root) &&
+                    resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
+                    execute("instantiate_prefab", {{"sceneId", std::to_string(scene->id())},
+                                                   {"path", "prefabs/material.prefab"},
+                                                   {"name", "Prefab copy"}}),
+                "subtree prefab enters the standard import and instantiate path", error))
+    {
+        return false;
+    }
+    auto* prefab_node = named(*scene, "Prefab copy");
+    auto* prefab_renderer = prefab_node ? prefab_node->get_component<MeshRenderer>() : nullptr;
+    if (!prefab_renderer)
+    {
+        return false;
+    }
+    auto prefab_material = current;
+    prefab_material.update({{"nodeId", std::to_string(prefab_node->id())},
+                            {"slot", 0},
+                            {"name", "roughness"},
+                            {"type", "float"},
+                            {"value", 0.29}});
+    if (!expect(execute("set_material_parameter", prefab_material),
+                "prefab primary material edit becomes a binding override", error))
+    {
+        return false;
+    }
+    prefab_material["slot"] = 1;
+    prefab_material["value"] = 0.37;
+    float primary = 0, additional = 0;
+    const Json restore_binding = {{"sceneId", std::to_string(scene->id())},
+                                  {"nodeId", std::to_string(prefab_node->id())},
+                                  {"componentType", "MeshRendererData"},
+                                  {"fields", {"material"}}};
+    if (!expect(execute("set_material_parameter", prefab_material) &&
+                    execute("revert_prefab_override", restore_binding) &&
+                    prefab_renderer->material().get_float("roughness", primary) &&
+                    prefab_renderer->material(1)->get_float("roughness", additional) &&
+                    primary == 0.75F && additional == 0.37F && execute("undo", current) &&
+                    prefab_renderer->material().get_float("roughness", primary) &&
+                    prefab_renderer->material(1)->get_float("roughness", additional) &&
+                    primary == 0.29F && additional == 0.37F,
+                "material restore preserves other slots and undo restores complete parameters",
+                error))
+    {
+        return false;
+    }
+    const Json prefab_save = {{"sceneId", std::to_string(scene->id())},
+                              {"path", "scenes/prefab.scene"}};
+    schema::SceneDataT prefab_saved;
+    if (!expect(execute("save_scene", prefab_save) &&
+                    engine::editor::SceneImporter::read(root / "assets/scenes/prefab.scene",
+                                                        prefab_saved, error) &&
+                    prefab_saved.prefab_instances.size() == 1,
+                "save preserves prefab association with independent material exports", error))
+    {
+        return false;
+    }
+    const schema::MeshRendererDataT* material_override = nullptr;
+    for (const auto& node_override : prefab_saved.prefab_instances.front()->overrides)
+    {
+        for (const auto& component_override : node_override->components)
+        {
+            if (const auto* mesh = component_override->component->payload.AsMeshRendererData())
+            {
+                material_override = mesh;
+            }
+        }
+    }
+    if (!expect(material_override && material_override->material_guid != shared_material_guid &&
+                    material_override->additional_material_guids.size() == 1 &&
+                    material_override->additional_material_guids.front() != shared_material_guid &&
+                    ResourceSystem::read_text(original_material_source, restored) &&
+                    restored == original_material,
+                "prefab overrides export full material resources without changing the template",
+                error))
     {
         return false;
     }

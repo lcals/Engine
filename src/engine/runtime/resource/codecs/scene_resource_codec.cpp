@@ -31,9 +31,21 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
     {
         return false;
     }
+    if (!validate_nodes(catalog, output, data->nodes))
+    {
+        return false;
+    }
+    store(output, std::move(data));
+    return true;
+}
+
+bool SceneResourceCodec::validate_nodes(
+    const ResourceCatalog& catalog, const Resource& resource,
+    const std::vector<std::unique_ptr<schema::NodeDataT>>& nodes)
+{
     bool has_environment = false;
     bool has_shadow_light = false;
-    for (const auto& node : data->nodes)
+    for (const auto& node : nodes)
     {
         if (!node || !node->info)
         {
@@ -60,7 +72,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                       &environment->ibl_lut_guid})
                 {
                     if (!guid->empty() &&
-                        !declares(catalog, output, *guid, schema::AssetKind::texture))
+                        !declares(catalog, resource, *guid, schema::AssetKind::texture))
                     {
                         return false;
                     }
@@ -81,7 +93,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             }
             if (const auto* volume = component->payload.AsLightProbeVolumeData();
                 volume && !volume->probes_guid.empty() &&
-                !declares(catalog, output, volume->probes_guid, schema::AssetKind::light_probe))
+                !declares(catalog, resource, volume->probes_guid, schema::AssetKind::light_probe))
             {
                 return false;
             }
@@ -89,10 +101,10 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* terrain = component->payload.AsTerrainData())
             {
                 if ((!terrain->terrain_guid.empty() &&
-                     !declares(catalog, output, terrain->terrain_guid,
+                     !declares(catalog, resource, terrain->terrain_guid,
                                schema::AssetKind::terrain)) ||
                     (!terrain->material_guid.empty() &&
-                     !declares(catalog, output, terrain->material_guid,
+                     !declares(catalog, resource, terrain->material_guid,
                                schema::AssetKind::material)))
                 {
                     return false;
@@ -101,10 +113,10 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* destruction = component->payload.AsDestructionData())
             {
                 if ((!destruction->destruction_guid.empty() &&
-                     !declares(catalog, output, destruction->destruction_guid,
+                     !declares(catalog, resource, destruction->destruction_guid,
                                schema::AssetKind::destruction)) ||
                     (!destruction->material_guid.empty() &&
-                     !declares(catalog, output, destruction->material_guid,
+                     !declares(catalog, resource, destruction->material_guid,
                                schema::AssetKind::material)))
                 {
                     return false;
@@ -125,14 +137,14 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* effect = component->payload.AsEffectData();
                 effect && !effect->effect_guid.empty())
             {
-                if (!declares(catalog, output, effect->effect_guid, schema::AssetKind::effect))
+                if (!declares(catalog, resource, effect->effect_guid, schema::AssetKind::effect))
                 {
                     return false;
                 }
             }
             if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
             {
-                if (!declares(catalog, output, ui->document_guid, schema::AssetKind::ui))
+                if (!declares(catalog, resource, ui->document_guid, schema::AssetKind::ui))
                 {
                     return false;
                 }
@@ -144,8 +156,8 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 const auto path =
                     text->shader_path.empty() ? "builtin://shaders/font" : text->shader_path;
                 if (!catalog.identities().path_to_guid(path, shader) ||
-                    !declares(catalog, output, shader, schema::AssetKind::shader) ||
-                    !declares(catalog, output, text->font_guid, schema::AssetKind::font))
+                    !declares(catalog, resource, shader, schema::AssetKind::shader) ||
+                    !declares(catalog, resource, text->font_guid, schema::AssetKind::font))
                 {
                     return false;
                 }
@@ -153,7 +165,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* animator = component->payload.AsAnimatorData();
                 animator != nullptr && !animator->animation_guid.empty())
             {
-                if (!declares(catalog, output, animator->animation_guid,
+                if (!declares(catalog, resource, animator->animation_guid,
                               schema::AssetKind::animation))
                 {
                     return false;
@@ -162,15 +174,15 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* audio = component->payload.AsAudioSourceData();
                 audio != nullptr && !audio->clip_guid.empty())
             {
-                if (!declares(catalog, output, audio->clip_guid, schema::AssetKind::audio))
+                if (!declares(catalog, resource, audio->clip_guid, schema::AssetKind::audio))
                 {
                     return false;
                 }
             }
             if (const auto* renderer = component->payload.AsMeshRendererData())
             {
-                if (!declares(catalog, output, renderer->mesh_guid, schema::AssetKind::mesh) ||
-                    !declares(catalog, output, renderer->material_guid,
+                if (!declares(catalog, resource, renderer->mesh_guid, schema::AssetKind::mesh) ||
+                    !declares(catalog, resource, renderer->material_guid,
                               schema::AssetKind::material))
                 {
                     return false;
@@ -178,7 +190,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 if (renderer->lightmap_guid.empty()
                         ? (!renderer->lightmap_mesh_hash.empty() ||
                            !renderer->lightmap_transform.empty())
-                        : (!declares(catalog, output, renderer->lightmap_guid,
+                        : (!declares(catalog, resource, renderer->lightmap_guid,
                                      schema::AssetKind::texture) ||
                            renderer->lightmap_mesh_hash.empty() ||
                            renderer->lightmap_transform.size() != 16 ||
@@ -190,7 +202,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 }
                 for (const auto& guid : renderer->additional_material_guids)
                 {
-                    if (!declares(catalog, output, guid, schema::AssetKind::material))
+                    if (!declares(catalog, resource, guid, schema::AssetKind::material))
                     {
                         return false;
                     }
@@ -199,7 +211,7 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* collider = component->payload.AsColliderData();
                 collider != nullptr && collider->shape == schema::ColliderShape::mesh)
             {
-                if (!declares(catalog, output, collider->mesh_guid, schema::AssetKind::mesh))
+                if (!declares(catalog, resource, collider->mesh_guid, schema::AssetKind::mesh))
                 {
                     return false;
                 }
@@ -210,7 +222,6 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             return false;
         }
     }
-    store(output, std::move(data));
     return true;
 }
 
@@ -223,7 +234,14 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
     {
         return false;
     }
-    for (const auto& node : scene->nodes)
+    return validate_node_dependencies(catalog, scene->nodes, dependencies);
+}
+
+bool SceneResourceCodec::validate_node_dependencies(
+    const ResourceCatalog& catalog, const std::vector<std::unique_ptr<schema::NodeDataT>>& nodes,
+    std::span<const ResourcePtr> dependencies)
+{
+    for (const auto& node : nodes)
     {
         for (const auto& component : node->components)
         {

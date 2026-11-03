@@ -15,6 +15,7 @@ classDiagram
         +module_path(const Path& relative) string
         +inspect_batch(const ImportContext& context, string& fingerprint, string& error) bool
         +scan_dependencies(ImportAsset& asset, const ImportContext& context, string& error) bool
+        +finalize_dependencies(ImportAsset& asset, const ImportContext& context, string& error) bool
         +prepare_batch(const ImportContext& context, TaskDescription& task, string& error) bool
         +convert(const ImportAsset& asset, const ImportContext& context, string& error) bool*
     }
@@ -32,6 +33,7 @@ classDiagram
     class ShaderImporter
     class MaterialImporter
     class SceneAssetImporter
+    class PrefabAssetImporter
     class TextureImporter
     class AudioImporter
     class ScriptImporter
@@ -39,6 +41,7 @@ classDiagram
     AssetImporter <|-- MeshImporter
     AssetImporter <|-- ShaderImporter
     AssetImporter <|-- MaterialImporter
+    AssetImporter <|-- PrefabAssetImporter
     AssetImporter <|-- SceneAssetImporter
     AssetImporter <|-- TextureImporter
     AssetImporter <|-- AudioImporter
@@ -62,3 +65,5 @@ classDiagram
 - `discover` 在协调线程枚举源的子资源，只返回稳定 key 和产物 kind。管线维护源 meta 的 `[[subresources]] key/kind/guid`，保存已消失子资源身份以便重新出现时复用，拒绝所有 GUID 冲突。
 - `ImportAsset` 保存 importer_id、subresource_key、parent_guid。每个子资源都有独立目录条目和 `cache/gen/GUID`；逻辑路径为源路径加子资源 key。转换批次及工具指纹按 importer id 调度，实体头按输出 kind 编码。
 - 新 id 通过 `AssetPipelineSystem::add_importer` 装配；已有 id 才能 `set_importer`。两者仅在已初始化且空闲时接受修改。编辑器基础库只包含扩展接口，格式解析及第三方库位于各自编辑器插件。
+
+- `finalize_dependencies` 在全批转换成功后、资源信封封装前执行，包含复用产物；Scene/Prefab 从最终节点收集精确运行引用，模板和 Model 保留为构建依赖。源码覆盖中未采用的旧材质不会因来源关系进入运行包。

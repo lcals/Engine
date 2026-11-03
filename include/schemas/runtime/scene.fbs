@@ -269,10 +269,42 @@ table SceneInfo {
     active_camera_node:ulong;
 }
 
+// Template-local identity maps to a persistent scene-local identity, never an ECS handle.
+table NodeIdMapping {
+    source_id:ulong;
+    target_id:ulong;
+    // Editor composition marks identities deleted by a newer template; IDs remain reserved.
+    retired:bool = false;
+}
+
+// Only explicitly named codec fields participate in an override, including false/zero.
+// Component node references in overrides already use scene-local identities.
+table PrefabComponentOverride {
+    component:ComponentData (required);
+    fields:[string];
+    removed:bool = false;
+}
+
+table PrefabNodeOverride {
+    node_id:ulong;
+    info:NodeInfo;
+    fields:[string];
+    components:[PrefabComponentOverride];
+    removed:bool = false;
+}
+
+table PrefabInstanceData {
+    prefab_guid:string (required);
+    root_id:ulong;
+    node_mappings:[NodeIdMapping];
+    overrides:[PrefabNodeOverride];
+}
+
 table SceneData {
     schema_version:uint = 1;
     info:SceneInfo (required);
     nodes:[NodeData];
+    prefab_instances:[PrefabInstanceData];
 }
 
 root_type SceneData;

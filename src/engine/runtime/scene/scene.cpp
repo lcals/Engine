@@ -142,6 +142,8 @@ bool Scene::destroy_node(std::uint64_t id)
     {
         info_.active_camera_node = 0;
     }
+    std::erase_if(prefab_instances_, [this, &should_remove](const auto& instance)
+                  { return should_remove(find_local_node(instance->root_id)); });
     std::erase_if(nodes_, [&should_remove](const auto& node) { return should_remove(node.get()); });
     return true;
 }
@@ -163,6 +165,8 @@ void Scene::retain_persistent()
         }
     }
     info_.active_camera_node = 0;
+    std::erase_if(prefab_instances_, [this, &retained](const auto& instance)
+                  { return !retained.contains(find_local_node(instance->root_id)); });
     std::erase_if(nodes_, [&retained](const auto& node) { return !retained.contains(node.get()); });
     resource_.reset();
 }
@@ -223,6 +227,28 @@ bool Scene::build_data(schema::SceneDataT& output) const
         }
         snapshot.nodes.push_back(std::move(node_data));
     }
+    for (const auto& instance : prefab_instances_)
+    {
+        const auto* root = find_local_node(instance->root_id);
+        if (root && root->transient())
+        {
+            continue;
+        }
+        if (!valid_prefab_instance(*instance))
+        {
+            return false;
+        }
+        for (const auto& mapping : instance->node_mappings)
+        {
+            const auto* node = find_local_node(mapping->target_id);
+            if (node && node->transient())
+            {
+                return false;
+            }
+        }
+        snapshot.prefab_instances.push_back(
+            std::make_unique<schema::PrefabInstanceDataT>(*instance));
+    }
     output = std::move(snapshot);
     return true;
 }
@@ -263,7 +289,8 @@ bool Scene::restore_data(const schema::SceneDataT& data)
     return finish_restore(data);
 }
 
-bool Scene::restore_node(const schema::NodeDataT& source)
+bool Scene::restore_node(const schema::NodeDataT& source,
+                         std::span<const schema::NodeIdMappingT> mapping)
 {
     if (!source.info || source.info->id == 0 || find_local_node(source.info->id))
     {
@@ -289,11 +316,23 @@ bool Scene::restore_node(const schema::NodeDataT& source)
         {
             restored = components_.create(component->payload.type, *node);
         }
-        if (!restored || !restored->restore_data(*component))
+        bool success = restored != nullptr;
+        if (success && !mapping.empty())
+        {
+            auto candidate = *component;
+            success = restored->remap_node_references(candidate, mapping) &&
+                      restored->restore_data(candidate);
+        }
+        else if (success)
+        {
+            success = restored->restore_data(*component);
+        }
+        if (!success)
         {
             LogSystem::write(LogLevel::error, "Cannot restore component " +
-                std::string(schema::EnumNameComponentPayload(component->payload.type)) +
-                " on scene node: " + source.info->name);
+                                                  std::string(schema::EnumNameComponentPayload(
+                                                      component->payload.type)) +
+                                                  " on scene node: " + source.info->name);
             return false;
         }
     }
@@ -310,6 +349,14 @@ bool Scene::restore_parent(const schema::NodeDataT& source)
 
 bool Scene::finish_restore(const schema::SceneDataT& data)
 {
+    std::unordered_set<std::uint64_t> roots;
+    for (const auto& instance : data.prefab_instances)
+    {
+        if (!instance || !roots.insert(instance->root_id).second || !set_prefab_instance(*instance))
+        {
+            return false;
+        }
+    }
     Camera* camera = nullptr;
     if (data.info->active_camera_node != 0)
     {

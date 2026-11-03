@@ -46,6 +46,11 @@ export class Scene {
         const node = native.SceneInstantiateModel(scene, path, name);
         return node === null ? null : new Node(key, scene, node);
     }
+    InstantiatePrefab(path, name) {
+        const scene = handles.get(this).scene;
+        const node = native.SceneInstantiatePrefab(scene, path, name);
+        return node === null ? null : new Node(key, scene, node);
+    }
     SetActiveCamera(camera) {
         const scene = handles.get(this).scene;
         if (camera === null) return native.ActiveCamera(scene, 0n);
@@ -132,9 +137,9 @@ void step_load(const Arguments& arguments)
         name = "failed";
     }
     arguments.set_return(vm::NativeValue::Object{{"completed", progress.completed},
-                                                {"total", progress.total},
-                                                {"status", name},
-                                                {"error", binding->scene_load_error()}});
+                                                 {"total", progress.total},
+                                                 {"status", name},
+                                                 {"error", binding->scene_load_error()}});
 }
 
 void commit_load(const Arguments& arguments)
@@ -200,8 +205,7 @@ void get_paused(const Arguments& arguments)
 {
     arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
-    if (arguments.count() == 1 && binding != nullptr &&
-        BindingContext::scene(arguments) != nullptr)
+    if (arguments.count() == 1 && binding != nullptr && BindingContext::scene(arguments) != nullptr)
     {
         arguments.set_return(binding->world()->paused());
     }
@@ -219,6 +223,23 @@ void instantiate_model(const Arguments& arguments)
         return;
     }
     if (const auto* root = scene->instantiate_model(path, name))
+    {
+        arguments.set_return(root->id());
+    }
+}
+
+void instantiate_prefab(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* scene = BindingContext::scene(arguments);
+    std::string path;
+    std::string name;
+    if (scene == nullptr || arguments.count() != 3 || !BindingContext::text(arguments, 1, path) ||
+        !BindingContext::text(arguments, 2, name))
+    {
+        return;
+    }
+    if (const auto* root = scene->instantiate_prefab(path, name); root != nullptr)
     {
         arguments.set_return(root->id());
     }
@@ -271,10 +292,10 @@ bool SceneBinding::register_functions(vm::ScriptVm& vm) const
     return vm.function("SceneCreate", create) && vm.function("SceneLoad", load) &&
            vm.function("SceneBeginLoad", begin_load) && vm.function("SceneStepLoad", step_load) &&
            vm.function("SceneCommitLoad", commit_load) &&
-           vm.function("SceneCancelLoad", cancel_load) &&
-           vm.function("SceneFindNode", find_node) &&
+           vm.function("SceneCancelLoad", cancel_load) && vm.function("SceneFindNode", find_node) &&
            vm.function("SceneSetPaused", set_paused) && vm.function("SceneGetPaused", get_paused) &&
            vm.function("SceneInstantiateModel", instantiate_model) &&
+           vm.function("SceneInstantiatePrefab", instantiate_prefab) &&
            vm.function("SceneValid", valid) && vm.function("SceneDestroy", destroy) &&
            vm.function("ActiveCamera", active_camera);
 }

@@ -102,6 +102,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/resource_codecs.cpp
                 src/engine/runtime/resource/codecs/binary_resource_codec.cpp
                 src/engine/runtime/resource/codecs/scene_resource_codec.cpp
+                src/engine/runtime/resource/codecs/prefab_resource_codec.cpp
                 src/engine/runtime/resource/codecs/mesh_resource_codec.cpp
                 src/engine/runtime/resource/codecs/shader_resource_codec.cpp
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
@@ -139,6 +140,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/ui_component.cpp
                 src/engine/runtime/scene/text_component.cpp
                 src/engine/runtime/scene/model_instantiation.cpp
+                src/engine/runtime/scene/prefab_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
                 src/engine/runtime/scene/camera_math.cpp

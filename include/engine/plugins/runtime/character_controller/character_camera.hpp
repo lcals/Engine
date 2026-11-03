@@ -13,6 +13,9 @@ public:
     [[nodiscard]] const schema::CharacterCameraDataT& settings() const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterCameraDataT& settings) noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
+    [[nodiscard]] bool
+    remap_node_references(schema::ComponentDataT& data,
+                          std::span<const schema::NodeIdMappingT> mapping) const override;
     // 首次从本相机 Transform 读取角度；随后由调用方显式设置。
     [[nodiscard]] bool synchronize_angles() noexcept;
     [[nodiscard]] bool set_angles(double yaw, double pitch) noexcept;

@@ -5,6 +5,7 @@
 #include "editor/asset_pipeline/importers/light_probe_importer.hpp"
 #include "editor/asset_pipeline/importers/material_importer.hpp"
 #include "editor/asset_pipeline/importers/mesh_importer.hpp"
+#include "editor/asset_pipeline/importers/prefab_importer.hpp"
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
 #include "editor/asset_pipeline/importers/script_importer.hpp"
 #include "editor/asset_pipeline/importers/shader_importer.hpp"
@@ -22,9 +23,9 @@ bool AssetImporterRegistry::initialize()
         return false;
     }
     if (!add<MeshImporter>() || !add<ShaderImporter>() || !add<MaterialImporter>() ||
-        !add<SceneAssetImporter>() || !add<TextureImporter>() || !add<KtxTextureImporter>() ||
-        !add<AudioImporter>() || !add<LightProbeImporter>() || !add<ScriptImporter>() ||
-        !add<SourceImporter>(true))
+        !add<PrefabAssetImporter>() || !add<SceneAssetImporter>() || !add<TextureImporter>() ||
+        !add<KtxTextureImporter>() || !add<AudioImporter>() || !add<LightProbeImporter>() ||
+        !add<ScriptImporter>() || !add<SourceImporter>(true))
     {
         clear();
         return false;

@@ -112,6 +112,12 @@ bool Component::build_data(schema::ComponentDataT& output) const
     return true;
 }
 
+bool Component::remap_node_references(schema::ComponentDataT& data,
+                                      std::span<const schema::NodeIdMappingT>) const
+{
+    return data.payload.type == type() && data.payload.value != nullptr;
+}
+
 schema::ComponentDataT& Component::mutable_data() noexcept
 {
     return data_;

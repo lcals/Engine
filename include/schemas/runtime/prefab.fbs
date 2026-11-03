@@ -1,0 +1,21 @@
+include "scene.fbs";
+namespace engine.schema;
+
+// Retained in the editable template so FBX sibling order cannot change instance identities.
+table PrefabModelNodeMapping {
+    source_key:string (required);
+    id:ulong;
+}
+
+table PrefabData {
+    schema_version:uint = 1;
+    root_id:ulong;
+    nodes:[NodeData] (required);
+    model_guid:string;
+    model_nodes:[PrefabModelNodeMapping];
+    model_overrides:[PrefabNodeOverride];
+}
+
+root_type PrefabData;
+file_identifier "EPFB";
+file_extension "prefab";

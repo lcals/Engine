@@ -1,0 +1,82 @@
+root = "17"
+
+[[nodes]]
+id = "17"
+name = "terrain environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes]]
+id = 12
+name = "Foundation platform"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -12.5, 0]
+rotation = [0, 0, 0]
+scale = [40, 0.3, 40]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.7
+
+[[nodes]]
+id = 14
+name = "West seam marker"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [-12, 0, 0]
+rotation = [0, 0, 0]
+scale = [0.08, 5, 0.08]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"
+
+[[nodes]]
+id = 15
+name = "East seam marker"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [4, 0, 0]
+rotation = [0, 0, 0]
+scale = [0.08, 5, 0.08]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"
+
+[[nodes]]
+id = 16
+name = "Crater seam marker"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [22, 0, 0]
+rotation = [0, 0, 0]
+scale = [0.08, 5, 0.08]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "adf89965-c8d0-4593-96e7-349384f8191d"

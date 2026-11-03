@@ -22,10 +22,17 @@
 #include <utility>
 #include <vector>
 
+namespace engine
+{
+class Material;
+}
+
 namespace engine::editor::components
 {
 using Json = nlohmann::json;
 using NodeAliases = std::map<std::uint64_t, std::shared_ptr<std::uint64_t>>;
+[[nodiscard]] Json material_snapshot(const Material& material);
+[[nodiscard]] bool restore_material_snapshot(Material& material, const Json& snapshot);
 [[nodiscard]] Node* target(WorldSystem& world, const Json& arguments, std::string& error);
 [[nodiscard]] bool fields(const Json& arguments, std::initializer_list<std::string_view> names,
                           std::string& error);
@@ -160,4 +167,7 @@ template <typename T, typename Data, typename Read, typename Write>
 [[nodiscard]] bool prepare_model(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
                                  Json& result, std::unique_ptr<EditorEdit>& edit,
                                  std::string& error);
+[[nodiscard]] bool prepare_prefab(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                                  Json& result, std::unique_ptr<EditorEdit>& edit,
+                                  std::string& error);
 } // namespace engine::editor::components

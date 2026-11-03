@@ -13,6 +13,8 @@ public:
                                      std::string& error) override;
     [[nodiscard]] bool scan_dependencies(ImportAsset& asset, const ImportContext& context,
                                          std::string& error) const override;
+    [[nodiscard]] bool finalize_dependencies(ImportAsset& asset, const ImportContext& context,
+                                             std::string& error) const override;
     [[nodiscard]] bool convert(const ImportAsset& asset, const ImportContext& context,
                                std::string& error) const override;
 };

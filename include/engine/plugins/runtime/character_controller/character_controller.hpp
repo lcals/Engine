@@ -21,6 +21,9 @@ public:
     // 完整取消自身意图及最近实际驱动的同实例 Motor 主动输入；保留外力。
     void clear_input() noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
+    [[nodiscard]] bool
+    remap_node_references(schema::ComponentDataT& data,
+                          std::span<const schema::NodeIdMappingT> mapping) const override;
 
 private:
     friend class engine::Node;

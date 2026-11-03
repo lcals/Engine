@@ -1,0 +1,156 @@
+root = "17"
+
+[[nodes]]
+id = "17"
+name = "navigation environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes]]
+id = 8
+name = "Sector divider"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.2, 0]
+rotation = [0, 0, 0]
+scale = [0.15, 1.2, 16]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "9261910f-18c9-44dc-a0d2-aad030213465"
+
+[[nodes]]
+id = 9
+name = "Gate west"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [5.475, 1.2, 0]
+rotation = [0, 0, 0]
+scale = [5.325, 1.2, 0.35]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "9261910f-18c9-44dc-a0d2-aad030213465"
+
+[[nodes]]
+id = 10
+name = "Gate east"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [18.6, 1.2, 0]
+rotation = [0, 0, 0]
+scale = [5.4, 1.2, 0.35]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "9261910f-18c9-44dc-a0d2-aad030213465"
+
+[[nodes]]
+id = 11
+name = "Crossing west pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [-21.7, 0.012, 0]
+rotation = [0, 0, 0]
+scale = [2, 0.012, 2.6]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "da118a34-a384-4863-b1ab-5d6dea5fdb82"
+
+[[nodes]]
+id = 12
+name = "Crossing east pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [-4.4, 0.012, 0]
+rotation = [0, 0, 0]
+scale = [0.4, 0.012, 2.6]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+
+[[nodes]]
+id = 13
+name = "Crossing north pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [-12, 0.012, -10.8]
+rotation = [0, 0, 0]
+scale = [2.6, 0.012, 2.6]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "a998204f-8aff-4071-a874-b4495ea9a031"
+
+[[nodes]]
+id = 14
+name = "Crossing south pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [-12, 0.012, 10.8]
+rotation = [0, 0, 0]
+scale = [2.6, 0.012, 2.6]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "b1c1a877-ada8-4ac4-b9cd-f4b078f70f99"
+
+[[nodes]]
+id = 15
+name = "Doorway north pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [12, 0.012, -9.2]
+rotation = [0, 0, 0]
+scale = [2.6, 0.012, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "da118a34-a384-4863-b1ab-5d6dea5fdb82"
+
+[[nodes]]
+id = 16
+name = "Doorway south pad"
+parent = "17"
+
+[[nodes.components]]
+type = "transform"
+position = [12, 0.012, 9.2]
+rotation = [0, 0, 0]
+scale = [2.6, 0.012, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
