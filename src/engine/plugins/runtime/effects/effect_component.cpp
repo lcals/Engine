@@ -1,5 +1,7 @@
 #include "plugins/runtime/effects/effect_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "plugins/runtime/effects/effect_resource_path.hpp"
 #include "plugins/runtime/effects/effect_validation.hpp"
 #include "runtime/core/guid_map.hpp"
@@ -12,11 +14,15 @@
 namespace engine::plugins::effects
 {
 
-EffectComponent::EffectComponent(Node& node) : Component(node)
+bool EffectComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::EffectDataT{});
+    return register_component_storage<EffectComponent, Data, Runtime>(registry);
 }
 
+EffectComponent::Runtime* EffectComponent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
 
 bool EffectComponent::valid_settings(const schema::EffectDataT& settings) noexcept
 {
@@ -24,25 +30,38 @@ bool EffectComponent::valid_settings(const schema::EffectDataT& settings) noexce
            std::isfinite(settings.speed) && settings.speed >= 0.0F && settings.speed <= 16.0F;
 }
 
-const schema::EffectDataT& EffectComponent::settings() const noexcept
+schema::EffectDataT EffectComponent::settings() const noexcept
 {
-    return *data().payload.AsEffectData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool EffectComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool EffectComponent::set_settings(const schema::EffectDataT& settings)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(settings))
     {
         return false;
     }
     auto* resources = ResourceSystem::instance();
     const bool identity_changed = settings.effect_guid != this->settings().effect_guid;
-    const bool changed = identity_changed ||
-                         (effect_ && resources && effect_->generation() != resources->generation());
-    auto replacement = effect_;
+    const bool changed =
+        identity_changed || (runtime()->effect_ && resources &&
+                             runtime()->effect_->generation() != resources->generation());
+    auto replacement = runtime()->effect_;
     if (changed)
     {
-        if (revision_ == std::numeric_limits<std::uint64_t>::max())
+        if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
@@ -62,39 +81,54 @@ bool EffectComponent::set_settings(const schema::EffectDataT& settings)
             }
         }
     }
-    *mutable_data().payload.AsEffectData() = settings;
-    effect_ = std::move(replacement);
+    *write_data<Data>() = settings;
+    modified();
+    runtime()->effect_ = std::move(replacement);
     if (changed)
     {
-        ++revision_;
-        playing_ = false;
+        ++runtime()->revision_;
+        runtime()->playing_ = false;
         if (identity_changed)
         {
-            requested_ = Playback::stopped;
-            awake_pending_ = settings.play_on_awake;
+            runtime()->requested_ = Playback::stopped;
+            runtime()->awake_pending_ = settings.play_on_awake;
         }
     }
     if (!settings.play_on_awake)
     {
-        awake_pending_ = false;
+        runtime()->awake_pending_ = false;
     }
     return true;
 }
 
 bool EffectComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsEffectData();
     if (!settings || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 
 bool EffectComponent::set_effect(std::string_view path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto value = settings();
     if (path.empty())
     {
@@ -109,48 +143,69 @@ bool EffectComponent::set_effect(std::string_view path)
 
 std::string_view EffectComponent::effect_path() const noexcept
 {
-    return effect_ ? std::string_view(effect_->info().path) : std::string_view{};
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->effect_ ? std::string_view(runtime()->effect_->info().path)
+                              : std::string_view{};
 }
-
 
 bool EffectComponent::play() noexcept
 {
-    if (!active() || !effect_ || revision_ == std::numeric_limits<std::uint64_t>::max())
+    if (!writable())
     {
         return false;
     }
-    if (requested_ == Playback::stopped)
+    if (!active() || !runtime()->effect_ ||
+        runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
     {
-        ++revision_;
+        return false;
     }
-    requested_ = Playback::playing;
-    awake_pending_ = false;
+    if (runtime()->requested_ == Playback::stopped)
+    {
+        ++runtime()->revision_;
+    }
+    runtime()->requested_ = Playback::playing;
+    runtime()->awake_pending_ = false;
     return true;
 }
 
 bool EffectComponent::pause() noexcept
 {
-    if (requested_ != Playback::playing)
+    if (!writable())
     {
         return false;
     }
-    requested_ = Playback::paused;
-    playing_ = false;
-    awake_pending_ = false;
+    if (runtime()->requested_ != Playback::playing)
+    {
+        return false;
+    }
+    runtime()->requested_ = Playback::paused;
+    runtime()->playing_ = false;
+    runtime()->awake_pending_ = false;
     return true;
 }
 
 bool EffectComponent::stop() noexcept
 {
-    requested_ = Playback::stopped;
-    playing_ = false;
-    awake_pending_ = false;
+    if (!writable())
+    {
+        return false;
+    }
+    runtime()->requested_ = Playback::stopped;
+    runtime()->playing_ = false;
+    runtime()->awake_pending_ = false;
     return true;
 }
 
 bool EffectComponent::playing() const noexcept
 {
-    return active() && playing_;
+    if (!valid())
+    {
+        return false;
+    }
+    return active() && runtime()->playing_;
 }
 
 } // namespace engine::plugins::effects

@@ -154,9 +154,11 @@ classDiagram
     System <|-- UiSystem
     Component <|-- TextComponent
     Component <|-- UiComponent
-    Node *-- Component : 独占普通组件列表
-    UiComponent o-- Resource : 共享 UI 文档实体
-    TextComponent o-- Resource : 共享字体与 Shader 实体
+    Node ..> Component : 按类型返回值句柄
+    class UiComponentRuntime
+    UiComponentRuntime o-- Resource : ECS运行列共享UI资源
+    class TextComponentRuntime
+    TextComponentRuntime o-- Resource : ECS运行列共享字体与Shader
     UiSystem --> FontSystem : 借用字形与绘制能力
     UiSystem --> WorldSystem : 借用已发布节点，保留常驻文档
     UiSystem --> WindowSystem : 借用事件与窗口
@@ -213,11 +215,11 @@ classDiagram
     class RenderSystem
     WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
     WorldSystem --> Scene : 可空当前玩法场景
-    Scene "1" *-- "0..*" Node : 独占全部场景对象
-    Node "1" *-- "0..*" Component : 独占功能组件
+    Scene ..> Node : 管理实体生命周期并返回值句柄
+    Node ..> Component : 按类型返回值句柄
     Node --> Scene : 所属场景借用
-    Node --> Node : 可空父节点借用
-    Component --> Node : 所属节点借用
+    Node ..> Node : 可空父节点值句柄
+    Component *-- Node : 只复制身份
     Component <|-- Transform
     Component <|-- Camera
     Component <|-- Light
@@ -238,11 +240,11 @@ classDiagram
     RenderSystem ..> MeshRenderer : 网格与材质参数
 ```
 
-场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表；本地 enabled/visible 随场景保存，有效激活/可见沿父链计算。组件统一拥有不复用的 instance_id，重建不复活旧句柄。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
+场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node/Component 为身份值句柄，节点属性和具体生成组件 Data 唯一存于 WorldSystem 的 Flecs world。Flecs ChildOf 是唯一父子关系；局部 enabled/visible 随场景保存，有效状态和世界矩阵是安全点更新缓存。组件附加实例身份不复用，删除重加不复活旧句柄。完整 NodeInfo/ComponentData union 仅在保存、加载和撤销边界组装；原生系统查询有类型列与 Published 标记，候选不参与。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
 EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件只读快照，场景参数只经组件修改和校验；渲染器仅保存无场景清屏色。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
-领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRendererRuntime 与其 MaterialState 槽持有实际资源共享引用，MeshRenderer/Material 句柄按身份重新访问这些 ECS 运行列，材质参数按 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## 物理与音频引用
 
@@ -273,7 +275,7 @@ classDiagram
     AudioSource o-- Resource : 共享音频实体
 ```
 
-四个组件由 Node 独占；系统按场景/节点身份重新查询，不跨帧保存组件指针。持久设置使用生成数据，冲量请求、音频游标与播放状态属于运行时瞬态。音源通过 ResourceLoader 加载 clip；Resource 持有 AudioClipDataT，不持有输出设备。
+四种组件数据唯一存于 ECS；Node 按类型返回值句柄，系统按具体列与 Published 标记查询，不跨帧保存列地址。持久设置使用生成数据，冲量请求、音频游标与播放状态属于运行时瞬态。音源通过 ResourceLoader 加载 clip；Resource 持有 AudioClipDataT，不持有输出设备。
 
 | 所有者或调用方 | 对象 | 关系与边界 |
 | --- | --- | --- |
@@ -685,13 +687,13 @@ classDiagram
     class SceneComponentCodec
     class ComponentDataT
     class WorldSystem
-    WorldSystem *-- ComponentRegistry : 独占创建登记
+    WorldSystem *-- ComponentRegistry : 独占类型操作登记
     WorldSystem --> ComponentRegistry : 宿主登记时借用
-    Scene ..> ComponentRegistry : 查询创建函数
+    Scene ..> ComponentRegistry : 分派创建保存恢复操作
     ComponentRegistry ..> Node : 调用泛型组件创建
-    Node *-- Component : 独占实例
+    Node ..> Component : 按类型返回值句柄
     Scene ..> Component : 调用统一保存恢复契约
-    Component *-- ComponentDataT : 生成模型
+    Component ..> ComponentDataT : 保存恢复独立快照
     SceneImporter ..> SceneComponentCodec : 描述类型读写分派
     SceneComponentCodec ..> ComponentDataT : 编辑器描述与生成模型转换
 ```
@@ -925,7 +927,7 @@ classDiagram
     ResourceGraphSystem ..> ResourceBundle : 创建共享所有权组
 ```
 
-Scene、Material、MeshRenderer 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据及代际。合法更新原子切换目录；新请求使用新代际，旧 ResourcePtr 和旧依赖闭包保留至引用释放。插件输出 ResourcePtr 以别名构造保活 Bundle，最后引用释放时先销毁本项再反向释放依赖。RenderSystem 继续独立管理 GPU 生命周期。
+Scene、MaterialState、MeshRendererRuntime 与脚本运行持有实际使用对象的共享引用，关系见[领域使用者](../runtime/class-diagrams/resource-system.md#领域使用者)。资源清单借用仅在下次更新前有效，已加载对象独立保存元数据及代际。合法更新原子切换目录；新请求使用新代际，旧 ResourcePtr 和旧依赖闭包保留至引用释放。插件输出 ResourcePtr 以别名构造保活 Bundle，最后引用释放时先销毁本项再反向释放依赖。RenderSystem 继续独立管理 GPU 生命周期。
 
 ## 贴图与渲染基础
 
@@ -947,8 +949,11 @@ classDiagram
     Resource *-- TextureDataT : 贴图载荷独占
     ResourceSystem ..> MeshUtils : 几何验证
     MeshRenderer ..> MeshUtils : 动态几何验证
-    MeshRenderer *-- Material : 独占多个材质槽
-    Material o-- Resource : 当前具名纹理共享引用
+    MeshRenderer ..> Material : 按槽返回身份句柄
+    class MeshRendererRuntime
+    class MaterialState
+    MeshRendererRuntime *-- MaterialState : ECS运行列中的材质槽
+    MaterialState o-- Resource : 当前具名纹理共享引用
     RenderSystem o-- Resource : GPU纹理生命周期保活
     RenderSystem ..> MeshUtils : 切线生成
 ```
@@ -1086,9 +1091,9 @@ classDiagram
     ResourceCodec <|-- AnimationResourceCodec
     ResourceCodec ..> Resource : 保存并校验统一生成载荷
     Scene ..> ResourceLoader : 请求模型根与依赖
-    Scene *-- Node : 拥有实例化层级
-    Node *-- MeshRenderer : 普通渲染组件
-    Node *-- Animator : 可选动画组件
+    Scene ..> Node : 管理实体生命周期并返回值句柄
+    Node ..> MeshRenderer : 按类型返回值句柄
+    Node ..> Animator : 可选组件值句柄
     MeshRenderer o-- Resource : 直接共享持有 Mesh 资源
     Animator o-- Resource : 持有当前及过渡动画、目标骨架引用
     AnimationSystem ..> Animator : 读取请求与推进状态
@@ -1117,7 +1122,7 @@ classDiagram
     class EditorCommands
     CharacterControllerSystem ..> ComponentRegistry : 初始化时登记可选组件
     RuntimeSetup ..> WorldSystem : 宿主附属可选子系统
-    WorldSystem *-- ComponentRegistry : 通用工厂表
+    WorldSystem *-- ComponentRegistry : 通用类型操作表
     WorldSystem *-- CharacterControllerSystem : 装配后统一生命周期
     CharacterControllerSystem ..> CharacterController : 逐节点读取策略设置
     CharacterControllerSystem ..> CharacterMotor : 提交运动请求

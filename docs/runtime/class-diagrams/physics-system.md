@@ -13,11 +13,11 @@ classDiagram
         +clear() void
         +body_count() size_t
         +character_count() size_t
-        +set_collider_data(Collider& collider, const ColliderDataT& settings) bool
-        +set_mesh_data(Collider& collider, const MeshDataT& mesh) bool
-        +set_mesh_parts(Collider& collider, const MeshCollisionData& data) bool
+        +set_collider_data(Collider collider, const ColliderDataT& settings) bool
+        +set_mesh_data(Collider collider, const MeshDataT& mesh) bool
+        +set_mesh_parts(Collider collider, const MeshCollisionData& data) bool
         +cast_sphere(const Vec3& origin, const Vec3& displacement, float radius, float& fraction) bool
-        +cast_ray(const Collider& collider, const Vec3& origin, const Vec3& displacement, float& fraction) bool
+        +cast_ray(Collider collider, const Vec3& origin, const Vec3& displacement, float& fraction) bool
         +query_ray(const Vec3& origin, const Vec3& displacement, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
         +query_sphere(const Vec3& origin, const Vec3& displacement, float radius, const PhysicsQueryFilter& filter, PhysicsQueryHit& hit) bool
         +overlap_sphere(const Vec3& center, float radius, const PhysicsQueryFilter& filter, vector~PhysicsObject~& objects) bool

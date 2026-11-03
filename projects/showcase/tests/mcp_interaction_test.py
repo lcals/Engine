@@ -136,7 +136,11 @@ def lifecycle(session, command, expected):
         session.validate_identity(command, receipt)
         require(not result.get("isError") and receipt.get("activation") == "completed",
                 f"{command} 未完成：{receipt}")
-        status = receipt
+        # Completed editor receipts carry operation state under result; status owns the
+        # current run/session fields. Read it instead of treating the receipt as status.
+        require(receipt.get("success", receipt.get("lastRequestSucceeded")) is True,
+                f"{command} 返回失败回执：{receipt}")
+        status = get_status(session)
     require(status.get("lastRequestSucceeded") is True and
             status.get("projectState") == expected,
             f"{command} 没有进入 {expected}：{status}")

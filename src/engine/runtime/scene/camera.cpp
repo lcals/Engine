@@ -1,5 +1,7 @@
 #include "runtime/scene/camera.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/scene/camera_math.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
@@ -11,18 +13,35 @@
 namespace engine
 {
 
-Camera::Camera(Node& node) : Component(node)
+bool Camera::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(CameraSettings{});
+    return register_component_storage<Camera, Data, Runtime>(registry);
 }
 
-const CameraSettings& Camera::settings() const noexcept
+Camera::Runtime* Camera::runtime() const noexcept
 {
-    return *data().payload.AsCameraData();
+    return runtime_state<Runtime>();
+}
+
+CameraSettings Camera::settings() const noexcept
+{
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool Camera::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool Camera::set_settings(const CameraSettings& settings) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!std::isfinite(settings.fov_degrees) || settings.fov_degrees <= 0.0F ||
         settings.fov_degrees >= 180.0F || !std::isfinite(settings.near_clip) ||
         settings.near_clip <= 0.0F || !std::isfinite(settings.far_clip) ||
@@ -33,12 +52,17 @@ bool Camera::set_settings(const CameraSettings& settings) noexcept
     {
         return false;
     }
-    *mutable_data().payload.AsCameraData() = settings;
+    *write_data<Data>() = settings;
+    modified();
     return true;
 }
 
 bool Camera::set_hidden_meshes(std::span<const std::uint64_t> mesh_instance_ids)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (std::find(mesh_instance_ids.begin(), mesh_instance_ids.end(), 0) != mesh_instance_ids.end())
     {
         return false;
@@ -46,7 +70,7 @@ bool Camera::set_hidden_meshes(std::span<const std::uint64_t> mesh_instance_ids)
     std::vector<std::uint64_t> candidate(mesh_instance_ids.begin(), mesh_instance_ids.end());
     std::sort(candidate.begin(), candidate.end());
     candidate.erase(std::unique(candidate.begin(), candidate.end()), candidate.end());
-    hidden_meshes_.swap(candidate);
+    runtime()->hidden_meshes_.swap(candidate);
     return true;
 }
 
@@ -55,6 +79,10 @@ bool Camera::screen_point_to_ray(const Vec2& point, const Vec2& viewport_size, V
 {
     origin = {};
     direction = {};
+    if (!valid())
+    {
+        return false;
+    }
     if (!std::isfinite(viewport_size.x()) || !std::isfinite(viewport_size.y()) ||
         viewport_size.x() <= 0.0 || viewport_size.y() <= 0.0)
     {
@@ -69,15 +97,19 @@ bool Camera::viewport_point_to_ray(const Vec2& point, double aspect, Vec3& origi
 {
     origin = {};
     direction = {};
+    if (!valid())
+    {
+        return false;
+    }
     if (!std::isfinite(point.x()) || !std::isfinite(point.y()))
     {
         return false;
     }
-    const auto* transform = node().get_component<Transform>();
+    auto transform = node().get_component<Transform>();
     float world[16]{};
     float view[16]{};
     float projection[16]{};
-    if (transform == nullptr || !transform->world_matrix(world) ||
+    if (!transform.valid() || !transform.world_matrix(world) ||
         !camera_detail::view_matrix(world, view) ||
         !camera_detail::projection_matrix(settings(), aspect, false, projection))
     {
@@ -121,24 +153,43 @@ bool Camera::viewport_point_to_ray(const Vec2& point, double aspect, Vec3& origi
 
 void Camera::clear_hidden_meshes() noexcept
 {
-    hidden_meshes_.clear();
+    if (!writable())
+    {
+        return;
+    }
+    runtime()->hidden_meshes_.clear();
 }
 
 bool Camera::mesh_visible(std::uint64_t mesh_instance_id) const noexcept
 {
+    if (!valid())
+    {
+        return false;
+    }
     return mesh_instance_id != 0 &&
-           !std::binary_search(hidden_meshes_.begin(), hidden_meshes_.end(), mesh_instance_id);
+           !std::binary_search(runtime()->hidden_meshes_.begin(), runtime()->hidden_meshes_.end(),
+                               mesh_instance_id);
 }
 
 bool Camera::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsCameraData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     clear_hidden_meshes();
     return true;
 }

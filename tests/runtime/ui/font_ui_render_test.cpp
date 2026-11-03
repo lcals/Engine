@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "plugins/editor/font_import/font_importer.hpp"
 #include "plugins/editor/ui_import/ui_importer.hpp"
@@ -69,16 +71,16 @@ bool expect(bool condition, std::string_view message)
     return condition;
 }
 
-engine::UiComponent* single_ui_component(engine::Scene& scene)
+engine::UiComponent single_ui_component(engine::Scene& scene)
 {
-    engine::UiComponent* result = nullptr;
-    for (const auto& node : scene.nodes())
+    engine::UiComponent result = {};
+    for (const auto& node : test_support::scene_nodes(scene))
     {
-        if (auto* component = node->get_component<engine::UiComponent>())
+        if (auto component = node.get_component<engine::UiComponent>())
         {
             if (result)
             {
-                return nullptr;
+                return {};
             }
             result = component;
         }
@@ -483,45 +485,58 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     {
         return false;
     }
-    auto* original = single_ui_component(*scene);
-    auto* stable_node = scene->create_node("Stable view");
-    auto* stable = stable_node ? stable_node->add_component<engine::UiComponent>() : nullptr;
+    auto original = single_ui_component(*scene);
+    auto stable_node = scene->create_node("Stable view");
+    auto stable =
+        stable_node ? stable_node.add_component<engine::UiComponent>() : engine::UiComponent{};
     engine::UiElementHandle stable_button;
-    if (!expect(original && stable && stable->set_document("ui/launcher.rml"),
+    if (!expect(original && stable && stable.set_document("ui/launcher.rml"),
                 "two independent views share a document generation") ||
         !systems.frames() ||
-        !expect(systems.ui.find_element(stable_node->id(), "scene-cube", stable_button) &&
+        !expect(systems.ui.find_element(stable_node.id(), "scene-cube", stable_button) &&
                     systems.ui.set_text(stable_button, "Persistent View"),
                 "store independent state and a handle in the unchanged view"))
     {
         return false;
     }
-    const auto document_id = systems.ui.document_id(stable_node->id());
-    stable_node->set_visible(false);
-    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node->id()) &&
-                    systems.ui.document_id(stable_node->id()) == document_id &&
+    const auto document_id = systems.ui.document_id(stable_node.id());
+    if (!stable_node.set_visible(false))
+    {
+        std::abort();
+    }
+    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node.id()) &&
+                    systems.ui.document_id(stable_node.id()) == document_id &&
                     systems.ui.set_text(stable_button, "Hidden but retained"),
                 "hiding a UI node retains the document, controller state and control handle"))
     {
         return false;
     }
-    stable_node->set_visible(true);
-    stable_node->set_enabled(false);
-    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node->id()) &&
-                    systems.ui.document_id(stable_node->id()) == document_id,
+    if (!stable_node.set_visible(true))
+    {
+        std::abort();
+    }
+    if (!stable_node.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node.id()) &&
+                    systems.ui.document_id(stable_node.id()) == document_id,
                 "inactive UI nodes keep their document without drawing or accepting input"))
     {
         return false;
     }
-    stable_node->set_enabled(true);
-    if (!expect(systems.ui.synchronize() && systems.ui.document_visible(stable_node->id()) &&
+    if (!stable_node.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!expect(systems.ui.synchronize() && systems.ui.document_visible(stable_node.id()) &&
                     systems.ui.set_text(stable_button, "Persistent View"),
                 "reactivation restores the same live document and control handle"))
     {
         return false;
     }
     const auto old_generation = systems.resources.generation();
-    const auto font_guid = original->document()->ui()->fonts.front()->font_guid;
+    const auto font_guid = original.document()->ui()->fonts.front()->font_guid;
     const auto before = gpu_counts();
     if (!expect(tracked.live(red_texture_guid, old_generation) > 0 &&
                     tracked.live(font_guid, old_generation) > 0,
@@ -554,7 +569,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
         !expect(systems.resources.update_catalog(systems.pipeline.catalog(),
                                                  {{"content", project / "cache"}}),
                 systems.resources.last_error()) ||
-        !expect(original->set_document("") && original->set_document("ui/launcher.rml"),
+        !expect(original.set_document("") && original.set_document("ui/launcher.rml"),
                 "replace one view with the newly published document generation") ||
         !systems.frames())
     {
@@ -564,8 +579,8 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     const auto after = gpu_counts();
     const auto new_generation = systems.resources.generation();
     if (!expect(new_generation != old_generation &&
-                    original->document()->generation() == new_generation &&
-                    stable->document()->generation() == old_generation &&
+                    original.document()->generation() == new_generation &&
+                    stable.document()->generation() == old_generation &&
                     systems.ui.is_valid(stable_button) && systems.ui.text(stable_button, text) &&
                     text == "Persistent View",
                 "the unchanged view retains its old document, handle and edited text") ||
@@ -579,8 +594,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     {
         return false;
     }
-    if (!expect(scene->destroy_node(stable_node->id()),
-                "remove the last view of the old version") ||
+    if (!expect(scene->destroy_node(stable_node.id()), "remove the last view of the old version") ||
         !systems.frames() ||
         !expect(!systems.ui.is_valid(stable_button) &&
                     tracked.live(red_texture_guid, old_generation) == 0 &&
@@ -591,7 +605,7 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     {
         return false;
     }
-    if (!expect(original->node().remove_component(engine::UiComponent::component_type),
+    if (!expect(original.node().remove_component(engine::UiComponent::component_type),
                 "remove the last document owner") ||
         !systems.frames() ||
         !expect(systems.ui.document_count() == 0 &&
@@ -736,13 +750,13 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    auto* component = single_ui_component(*scene);
-    if (!expect(component && component->document() && component->document()->ui(),
+    auto component = single_ui_component(*scene);
+    if (!expect(component && component.document() && component.document()->ui(),
                 "launcher has one UI component with an imported document"))
     {
         return false;
     }
-    const auto& bindings = component->document()->ui()->fonts;
+    const auto& bindings = component.document()->ui()->fonts;
     if (!expect(bindings.size() == 3 && bindings[0]->family == "body" &&
                     bindings[1]->family == "heading" && bindings[2]->family == "accent" &&
                     bindings[0]->font_guid == bindings[2]->font_guid &&
@@ -764,13 +778,13 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    for (const auto& node : scene->nodes())
+    for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (auto* component = node->get_component<engine::TextComponent>())
+        if (auto component = node.get_component<engine::TextComponent>())
         {
-            auto settings = component->settings();
+            auto settings = component.settings();
             settings.shader_path = custom_shader;
-            if (!expect(component->set_settings(settings), "3D text accepts a project font shader"))
+            if (!expect(component.set_settings(settings), "3D text accepts a project font shader"))
             {
                 return false;
             }
@@ -782,16 +796,16 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     }
     const auto sdr_resources = systems.renderer.gpu_resource_count();
     const auto text_draws = bgfx::getStats()->numDraw;
-    auto* post_process =
+    auto post_process =
         scene->active_camera()
-            ? scene->active_camera()->node().add_component<engine::PostProcessComponent>()
-            : nullptr;
+            ? scene->active_camera().node().add_component<engine::PostProcessComponent>()
+            : engine::PostProcessComponent{};
     engine::PostProcessSettings sdr;
     sdr.exposure = 8;
     sdr.filmic_tonemap = true;
     engine::ByteBuffer font_before;
     engine::ByteBuffer font_after;
-    if (!expect(post_process && post_process->set_settings(sdr),
+    if (!expect(post_process && post_process.set_settings(sdr),
                 "change exposure with HDR disabled") ||
         !systems.frames() || !systems.screenshot(screenshots, "font-gallery-sdr-exposure.png") ||
         !expect(engine::ResourceSystem::read_binary(screenshots / "font-gallery-custom-shader.png",
@@ -803,14 +817,15 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     {
         return false;
     }
-    auto* unlit_node = scene->create_node("Transparent unlit coverage");
-    auto* unlit = unlit_node ? unlit_node->add_component<engine::MeshRenderer>() : nullptr;
+    auto unlit_node = scene->create_node("Transparent unlit coverage");
+    auto unlit =
+        unlit_node ? unlit_node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
     engine::TransformSettings unlit_transform;
     unlit_transform.position = {0, -0.5, -1};
     unlit_transform.scale = {2.5, 2.5, 0.05};
-    if (!expect(unlit && unlit->material().set_shader("builtin://shaders/unlit") &&
-                    unlit->material().set_v4("baseColor", {0.3, 0.7, 0.5, 0.5}) &&
-                    unlit_node->get_component<engine::Transform>()->set_settings(unlit_transform),
+    if (!expect(unlit && unlit.material().set_shader("builtin://shaders/unlit") &&
+                    unlit.material().set_v4("baseColor", {0.3, 0.7, 0.5, 0.5}) &&
+                    unlit_node.get_component<engine::Transform>().set_settings(unlit_transform),
                 "place an ordinary transparent unlit surface behind the 3D text"))
     {
         return false;
@@ -824,14 +839,14 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
         const auto after = std::string(prefix) + "-exposure.png";
         sdr.exposure = 1;
         sdr.filmic_tonemap = false;
-        if (!unlit->material().set_blend_mode(mode) || !post_process->set_settings(sdr) ||
+        if (!unlit.material().set_blend_mode(mode) || !post_process.set_settings(sdr) ||
             !systems.frames() || !systems.screenshot(screenshots, before.c_str()))
         {
             return false;
         }
         sdr.exposure = 8;
         sdr.filmic_tonemap = true;
-        if (!post_process->set_settings(sdr) || !systems.frames() ||
+        if (!post_process.set_settings(sdr) || !systems.frames() ||
             !systems.screenshot(screenshots, after.c_str()) ||
             !expect(engine::ResourceSystem::read_binary(screenshots / before, font_before) &&
                         engine::ResourceSystem::read_binary(screenshots / after, font_after) &&
@@ -841,12 +856,12 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
             return false;
         }
     }
-    if (!scene->destroy_node(unlit_node->id()) || !systems.frames())
+    if (!scene->destroy_node(unlit_node.id()) || !systems.frames())
     {
         return false;
     }
-    auto* ui_node = scene->create_node("HDR font gallery UI");
-    auto* overlay = ui_node ? ui_node->add_component<engine::UiComponent>() : nullptr;
+    auto ui_node = scene->create_node("HDR font gallery UI");
+    auto overlay = ui_node ? ui_node.add_component<engine::UiComponent>() : engine::UiComponent{};
     engine::PostProcessSettings hdr;
     hdr.hdr_enabled = true;
     hdr.bloom_enabled = true;
@@ -854,15 +869,15 @@ bool custom_shader_scenes(Systems& systems, const fs::path& project, const fs::p
     hdr.bloom_threshold = 0.1F;
     hdr.bloom_intensity = 0.25F;
     engine::UiElementHandle input;
-    if (!expect(post_process && post_process->set_settings(hdr) && overlay &&
-                    overlay->set_document("ui/lower.rml"),
+    if (!expect(post_process && post_process.set_settings(hdr) && overlay &&
+                    overlay.set_document("ui/lower.rml"),
                 "enable HDR and Bloom on the active camera with a small overlay document") ||
         !systems.frames() ||
         !expect(systems.ui.document_count() == 1 && systems.fonts.gpu_resource_count() > 0 &&
                     systems.renderer.gpu_resource_count() > sdr_resources &&
                     bgfx::getStats()->numDraw > text_draws + 3,
                 "custom 3D fonts, three HDR passes and built-in UI fonts draw in one frame") ||
-        !expect(systems.ui.find_element(ui_node->id(), "lower-input", input) &&
+        !expect(systems.ui.find_element(ui_node.id(), "lower-input", input) &&
                     systems.ui.set_value(input, "UI after HDR and Bloom"),
                 "the overlay remains independently editable after HDR scene composition") ||
         !systems.frames() || !systems.screenshot(screenshots, "font-gallery-hdr-ui.png"))
@@ -972,26 +987,35 @@ bool retain_pointer_capture(Systems& systems, std::uint64_t node_id)
 bool multiple_documents(Systems& systems, const fs::path& screenshots, const GpuCounts& idle)
 {
     auto* scene = systems.world.load_scene("scenes/multiple-documents.scene");
-    if (!expect(scene != nullptr && scene->nodes().size() == 2,
+    if (!expect(scene != nullptr && test_support::scene_nodes(*scene).size() == 2,
                 "two independent documents belong to two ordinary nodes") ||
         !systems.frames() ||
         !expect(systems.ui.document_count() == 2, "both UI components create documents"))
     {
         return false;
     }
-    const auto& lower =
-        scene->nodes()[0]->get_component<engine::UiComponent>()->document()->ui()->fonts.front();
-    const auto& upper =
-        scene->nodes()[1]->get_component<engine::UiComponent>()->document()->ui()->fonts.front();
+    const auto& lower = test_support::scene_nodes(*scene)[0]
+                            .get_component<engine::UiComponent>()
+                            .document()
+                            ->ui()
+                            ->fonts.front();
+    const auto& upper = test_support::scene_nodes(*scene)[1]
+                            .get_component<engine::UiComponent>()
+                            .document()
+                            ->ui()
+                            ->fonts.front();
     if (!expect(lower->family == upper->family && lower->font_guid != upper->font_guid &&
                     lower->shader_path != upper->shader_path,
                 "the same family alias has separate font and shader bindings per document") ||
         !click_at(systems, 600.0f, 180.0f) ||
-        !type_in_document(systems, "Upper", scene->nodes()[1]->id(), "upper-input") ||
+        !type_in_document(systems, "Upper", test_support::scene_nodes(*scene)[1].id(),
+                          "upper-input") ||
         !click_at(systems, 100.0f, 180.0f) ||
-        !type_in_document(systems, "Lower", scene->nodes()[0]->id(), "lower-input") ||
+        !type_in_document(systems, "Lower", test_support::scene_nodes(*scene)[0].id(),
+                          "lower-input") ||
         !systems.frames() || !systems.screenshot(screenshots, "multiple-documents.png") ||
-        !retain_pointer_capture(systems, scene->nodes()[0]->id()) || !systems.frames())
+        !retain_pointer_capture(systems, test_support::scene_nodes(*scene)[0].id()) ||
+        !systems.frames())
     {
         return false;
     }
@@ -1005,13 +1029,13 @@ bool multiple_documents(Systems& systems, const fs::path& screenshots, const Gpu
 bool persistent_font_resources(Systems& systems, const GpuCounts& idle)
 {
     auto* scene = systems.world.load_scene("scenes/launcher.scene");
-    auto* component = scene ? single_ui_component(*scene) : nullptr;
-    if (!expect(component && component->node().set_persistent(true), "retain a UI root") ||
+    auto component = scene ? single_ui_component(*scene) : engine::UiComponent{};
+    if (!expect(component && component.node().set_persistent(true), "retain a UI root") ||
         !systems.frames())
     {
         return false;
     }
-    auto& node = component->node();
+    auto node = component.node();
     const auto retained_fonts = systems.fonts.gpu_resource_count();
     const auto retained_gpu = gpu_counts();
     systems.world.unload_scene();
@@ -1024,7 +1048,7 @@ bool persistent_font_resources(Systems& systems, const GpuCounts& idle)
         !systems.frames() ||
         !expect(systems.fonts.gpu_resource_count() == retained_fonts,
                 "new gameplay scene reuses retained font GPU resources") ||
-        !expect(node.scene().destroy_node(node.id()), "delete retained UI") || !systems.frames() ||
+        !expect(node.scene()->destroy_node(node.id()), "delete retained UI") || !systems.frames() ||
         !expect(systems.ui.document_count() == 0 &&
                     systems.fonts.gpu_resource_count() < retained_fonts,
                 "deleted retained document releases unused font textures incrementally"))
@@ -1059,16 +1083,17 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
     for (int cycle = 0; cycle < 3; ++cycle)
     {
         auto* scene = systems.world.load_scene("scenes/launcher.scene");
-        auto* component = scene ? single_ui_component(*scene) : nullptr;
-        if (!expect(component != nullptr,
+        auto component = scene ? single_ui_component(*scene) : engine::UiComponent{};
+        if (!expect(component.valid(),
                     "launcher has exactly one ordinary Node with a UI component") ||
-            !expect(scene->active_camera() == nullptr, "UI-only scene needs no hidden camera"))
+            !expect(scene->active_camera().valid() == false,
+                    "UI-only scene needs no hidden camera"))
         {
             return false;
         }
-        const auto node_count = scene->nodes().size();
-        const auto ui_node_id = component->node().id();
-        if (!expect(component->document() != nullptr,
+        const auto node_count = test_support::scene_nodes(*scene).size();
+        const auto ui_node_id = component.node().id();
+        if (!expect(component.document() != nullptr,
                     "normal Node owns UiComponent and a generated UI resource") ||
             !systems.frames() ||
             !expect(systems.ui.document_count() == 1 && systems.fonts.gpu_resource_count() > 0,
@@ -1077,7 +1102,8 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
                     "UI submits actual background, control and text GPU draws") ||
             (cycle == 0 && !keyboard_launcher(systems, ui_node_id)) ||
             !click_launcher(systems, ui_node_id) ||
-            !expect(systems.world.scene() == scene && scene->nodes().size() == node_count,
+            !expect(systems.world.scene() == scene &&
+                        test_support::scene_nodes(*scene).size() == node_count,
                     "UI events neither navigate scenes nor add controls as scene nodes"))
         {
             return false;
@@ -1087,14 +1113,20 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
             return false;
         }
         const auto original_document = systems.ui.document_id(ui_node_id);
-        component->set_enabled(false);
+        if (!component.set_enabled(false))
+        {
+            std::abort();
+        }
         if (!systems.frames() ||
             !expect(systems.ui.document_count() == 1 && !systems.ui.document_visible(ui_node_id),
                     "disabled UI component suspends its retained document"))
         {
             return false;
         }
-        component->set_enabled(true);
+        if (!component.set_enabled(true))
+        {
+            std::abort();
+        }
         if (!systems.frames() ||
             !expect(systems.ui.document_count() == 1 &&
                         systems.ui.document_id(ui_node_id) == original_document,
@@ -1124,15 +1156,15 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
             return false;
         }
         scene = systems.world.load_scene("scenes/font-gallery.scene");
-        if (!expect(scene != nullptr && scene->active_camera() != nullptr &&
-                        std::count_if(
-                            scene->nodes().begin(), scene->nodes().end(),
-                            [](const auto& node)
-                            {
-                                return node->template get_component<engine::TextComponent>() !=
-                                       nullptr;
-                            }) == 4,
-                    "3D gallery contains a camera and four ordinary text nodes") ||
+        const auto gallery_nodes =
+            scene ? test_support::scene_nodes(*scene) : std::vector<engine::Node>{};
+        if (!expect(
+                scene != nullptr && scene->active_camera().valid() &&
+                    std::count_if(
+                        gallery_nodes.begin(), gallery_nodes.end(), [](const auto& node)
+                        { return node.template get_component<engine::TextComponent>().valid(); }) ==
+                        4,
+                "3D gallery contains a camera and four ordinary text nodes") ||
             !systems.frames() ||
             !expect(systems.ui.document_count() == 0 && systems.fonts.gpu_resource_count() > 0,
                     "3D text uses FontSystem without a RmlUi document") ||

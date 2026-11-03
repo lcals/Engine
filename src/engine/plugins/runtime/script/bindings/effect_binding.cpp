@@ -27,34 +27,34 @@ Object.freeze(EffectComponent.prototype);
 Object.freeze(EffectComponent);
 )js";
 
-effects::EffectComponent* component(const Arguments& arguments, int count)
+effects::EffectComponent component(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node && arguments.count() == count ? node->get_component<effects::EffectComponent>()
-                                              : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node && arguments.count() == count ? node.get_component<effects::EffectComponent>()
+                                              : effects::EffectComponent{};
 }
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node &&
-                         node->add_component<effects::EffectComponent>() != nullptr);
+                         node.add_component<effects::EffectComponent>().valid());
 }
 void resource(const Arguments& arguments)
 {
-    auto* value = component(arguments, 3);
+    auto value = component(arguments, 3);
     std::string path;
     if (value && BindingContext::text(arguments, 2, path))
     {
-        arguments.set_return(value->set_effect(path));
+        arguments.set_return(value.set_effect(path));
     }
 }
 void boolean_setting(const Arguments& arguments)
 {
-    auto* value = component(arguments, 3);
+    auto value = component(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         if (arguments.data() == 0)
         {
             settings.loop = arguments.boolean(2);
@@ -63,23 +63,23 @@ void boolean_setting(const Arguments& arguments)
         {
             settings.play_on_awake = arguments.boolean(2);
         }
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 void speed(const Arguments& arguments)
 {
-    auto* value = component(arguments, 3);
+    auto value = component(arguments, 3);
     float speed = 0;
     if (value && BindingContext::scalar(arguments, 2, speed))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.speed = speed;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 void playback(const Arguments& arguments)
 {
-    auto* value = component(arguments, 2);
+    auto value = component(arguments, 2);
     if (!value)
     {
         return;
@@ -87,16 +87,16 @@ void playback(const Arguments& arguments)
     switch (arguments.data())
     {
     case 0:
-        arguments.set_return(value->play());
+        arguments.set_return(value.play());
         break;
     case 1:
-        arguments.set_return(value->pause());
+        arguments.set_return(value.pause());
         break;
     case 2:
-        arguments.set_return(value->stop());
+        arguments.set_return(value.stop());
         break;
     case 3:
-        arguments.set_return(value->playing());
+        arguments.set_return(value.playing());
         break;
     }
 }

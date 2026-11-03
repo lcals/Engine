@@ -65,61 +65,61 @@ Object.freeze(Animator.prototype);
 Object.freeze(Animator);
 )js";
 
-Animator* animator(const Arguments& arguments, int count)
+Animator animator(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node && arguments.count() == count ? node->get_component<Animator>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node && arguments.count() == count ? node.get_component<Animator>() : Animator{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node && node->add_component<Animator>());
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node && node.add_component<Animator>());
 }
 
 void animation(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 3);
+    auto value = animator(arguments, 3);
     std::string path;
     if (value && BindingContext::text(arguments, 2, path))
     {
-        arguments.set_return(value->set_animation(path));
+        arguments.set_return(value.set_animation(path));
     }
 }
 
 void cross_fade(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 4);
+    auto value = animator(arguments, 4);
     std::string path;
     double seconds = 0.0;
-    if (value != nullptr && BindingContext::text(arguments, 2, path) &&
+    if (value.valid() && BindingContext::text(arguments, 2, path) &&
         BindingContext::number(arguments, 3, seconds))
     {
-        arguments.set_return(value->cross_fade(path, seconds));
+        arguments.set_return(value.cross_fade(path, seconds));
     }
 }
 
 void speed(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 3);
+    auto value = animator(arguments, 3);
     float number = 0;
     if (value && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.speed = number;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void set_boolean(const Arguments& arguments, bool schema::AnimatorDataT::* field)
 {
-    auto* value = animator(arguments, 3);
+    auto value = animator(arguments, 3);
     if (value && arguments.is_boolean(2))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.*field = arguments.boolean(2);
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
@@ -135,48 +135,48 @@ void awake(const Arguments& arguments)
 
 void play(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 2);
-    arguments.set_return(value && value->play());
+    auto value = animator(arguments, 2);
+    arguments.set_return(value && value.play());
 }
 
 void pause(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 2);
-    arguments.set_return(value && value->pause());
+    auto value = animator(arguments, 2);
+    arguments.set_return(value && value.pause());
 }
 
 void stop(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 2);
-    arguments.set_return(value && value->stop());
+    auto value = animator(arguments, 2);
+    arguments.set_return(value && value.stop());
 }
 
 void seek(const Arguments& arguments)
 {
-    auto* value = animator(arguments, 3);
+    auto value = animator(arguments, 3);
     double seconds = 0;
     if (value && BindingContext::number(arguments, 2, seconds))
     {
-        arguments.set_return(value->seek(seconds));
+        arguments.set_return(value.seek(seconds));
     }
 }
 
 void playing(const Arguments& arguments)
 {
-    const auto* value = animator(arguments, 2);
-    arguments.set_return(value && value->playback() == AnimationPlayback::playing);
+    const auto value = animator(arguments, 2);
+    arguments.set_return(value && value.playback() == AnimationPlayback::playing);
 }
 
 void playback(const Arguments& arguments)
 {
-    const auto* value = animator(arguments, 2);
+    const auto value = animator(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
         return;
     }
     const char* state = nullptr;
-    switch (value->playback())
+    switch (value.playback())
     {
     case AnimationPlayback::stopped:
         state = "stopped";
@@ -196,11 +196,11 @@ void playback(const Arguments& arguments)
 
 void time(const Arguments& arguments)
 {
-    const auto* value = animator(arguments, 2);
+    const auto value = animator(arguments, 2);
     arguments.set_return({});
     if (value)
     {
-        arguments.set_return(value->time());
+        arguments.set_return(value.time());
     }
 }
 } // namespace

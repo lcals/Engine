@@ -108,9 +108,9 @@ bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases
                 {
                     return false;
                 }
-                auto* node = target(world, arguments, error);
-                auto* value = node ? node->get_component<Animator>() : nullptr;
-                if (!value || (operation && !(value->*operation)()))
+                auto node = target(world, arguments, error);
+                auto value = node ? node.get_component<Animator>() : Animator{};
+                if (!value || (operation && !(value.*operation)()))
                 {
                     if (error.empty())
                     {
@@ -118,7 +118,7 @@ bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases
                     }
                     return false;
                 }
-                result = state(*value);
+                result = state(value);
                 return true;
             });
     };
@@ -139,9 +139,9 @@ bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases
                        }
                        return false;
                    }
-                   auto* node = target(world, arguments, error);
-                   auto* value = node ? node->get_component<Animator>() : nullptr;
-                   if (!value || !value->seek(arguments["seconds"].get<double>()))
+                   auto node = target(world, arguments, error);
+                   auto value = node ? node.get_component<Animator>() : Animator{};
+                   if (!value || !value.seek(arguments["seconds"].get<double>()))
                    {
                        if (error.empty())
                        {
@@ -149,7 +149,7 @@ bool register_animator(WorldSystem& world, EditorCommands& commands, NodeAliases
                        }
                        return false;
                    }
-                   result = state(*value);
+                   result = state(value);
                    return true;
                });
 }

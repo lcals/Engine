@@ -19,22 +19,39 @@ classDiagram
         +vector~unique_ptr~ComponentDataT~~ components
     }
     class ComponentDataT {
-        +bool enabled
+        +unique_ptr~ComponentFlagsT~ flags
         +ComponentPayloadUnion payload
     }
     class SceneInfoT
-    class NodeInfoT
+    class NodeInfoT {
+        +unique_ptr~NodePropertiesT~ properties
+        +uint64_t parent_id
+    }
+    class NodePropertiesT {
+        +uint64_t id
+        +string name
+        +bool enabled
+        +bool visible
+    }
+    class ComponentFlagsT {
+        +bool enabled
+        +bool visible
+    }
     class ComponentPayloadUnion
     class MeshRendererDataT
     SceneDataT *-- SceneInfoT : 独占场景信息
     SceneDataT *-- NodeDataT : 独占节点集合
-    NodeDataT *-- NodeInfoT : 独占节点信息
+    NodeDataT *-- NodeInfoT : 独立快照
+    NodeInfoT *-- NodePropertiesT : 快照属性
+    ComponentDataT *-- ComponentFlagsT : 快照标志
     NodeDataT *-- ComponentDataT : 独占组件集合
     ComponentDataT *-- ComponentPayloadUnion : 类型与载荷
     ComponentPayloadUnion *-- MeshRendererDataT : 可选载荷之一
 ```
 
 `SceneInfoT`、`NodeInfoT` 与各组件载荷分别见[场景](scene.md)、[节点](node.md)、[渲染基础组件](component.md)、[物理组件](physics-components.md)和[音频组件](audio-components.md)。`scene.fbs` 只含场景、节点、组件及资源引用；数值类型来自 `common.fbs`。`MeshRendererDataT` 的 GUID 引用下方网格与材质定义，`AudioSourceDataT::clip_guid` 引用独立音频实体，不复制资源内容。组件 union 增加独立载荷，不在 Node 中保存具体类型字段。
+
+上图 SceneDataT/NodeDataT/ComponentDataT 为保存、加载和撤销快照。运行时 NodePropertiesT、ComponentFlagsT 与各具体 Data 唯一存于 ECS；运行层级为 Flecs ChildOf，快照按需组装 parent_id，不维护两份权威层级。
 
 场景节点 ID 为稳定局部 ID。加载时映射到运行实体 ID，恢复父子关系和活动相机；保存时反向映射，不将 flecs ID 落盘。TypeScript 节点 ID 使用 bigint。
 
@@ -110,7 +127,7 @@ classDiagram
     MaterialDataT ..> ShaderDataT : shader_guid引用
 ```
 
-场景引用独立材质资源，不嵌入 Shader 字节码或整个材质定义。MeshRenderer 独占 Material 行为对象，Material 自己持有生成的 `MaterialDataT` 运行实例，支持命名参数修改。
+场景引用独立材质资源，不嵌入 Shader 字节码或整个材质定义。MeshRendererRuntime 的 ECS 运行列独占 MaterialState 槽数据，Material 为带槽代次的值句柄；MaterialState 直接使用生成的 MaterialDataT，支持命名参数修改。
 
 ## Shader
 

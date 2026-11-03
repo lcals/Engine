@@ -3,6 +3,7 @@
 #include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
 #include "runtime/render/render_extension.hpp"
+#include "runtime/render/render_sampling.hpp"
 #include "runtime/render/render_surface.hpp"
 #include "runtime/render/renderer_callbacks.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
@@ -173,7 +174,8 @@ bool RenderSystem::on_initialize(const EngineConfig&)
         config_.local_shadow_tile_size < 64 || config_.local_shadow_tile_size > 2048 ||
         (config_.local_shadow_tile_size & (config_.local_shadow_tile_size - 1)) != 0 ||
         config_.local_shadow_tile_size > config_.shadow_atlas_size ||
-        config_.maximum_local_shadow_faces > 24 || config_.maximum_planar_reflections > 2)
+        config_.maximum_local_shadow_faces > 24 || config_.maximum_planar_reflections > 2 ||
+        !render_detail::valid_msaa_samples(config_.msaa_samples))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Renderer lighting/reflection budgets are invalid");
         return false;
@@ -222,8 +224,9 @@ bool RenderSystem::initialize_renderer()
     }
     width_ = init.resolution.width;
     height_ = init.resolution.height;
-    init.resolution.reset =
-        render_detail::reset_flags | (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE);
+    init.resolution.reset = render_detail::reset_flags |
+                            (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
+                            (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE);
     if (callbacks_ == nullptr)
     {
         callbacks_.reset(new (std::nothrow) RendererCallbacks{});
@@ -240,12 +243,21 @@ bool RenderSystem::initialize_renderer()
     }
     renderer_initialized_ = true;
     vsync_applied_ = vsync_enabled_;
+    max_anisotropy_applied_ = config_.max_anisotropy;
     active_renderer = this;
     if (bgfx::getRendererType() != init.type)
     {
         SDL_LogError(
             SDL_LOG_CATEGORY_RENDER, "Required renderer %s is unavailable; bgfx selected %s",
             bgfx::getRendererName(init.type), bgfx::getRendererName(bgfx::getRendererType()));
+        return false;
+    }
+    if (!supports_msaa_samples(config_.msaa_samples) ||
+        (config_.max_anisotropy && !supports_max_anisotropy()))
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                     "Requested scene sampling is unsupported (MSAA=%u anisotropy=%d)",
+                     config_.msaa_samples, config_.max_anisotropy);
         return false;
     }
 
@@ -309,14 +321,81 @@ bool RenderSystem::vsync() const noexcept
     return vsync_enabled_;
 }
 
+bool RenderSystem::set_msaa_samples(std::uint8_t samples)
+{
+    if (!is_initialized() || !supports_msaa_samples(samples))
+    {
+        return false;
+    }
+    config_.msaa_samples = samples;
+    return true;
+}
+
+std::uint8_t RenderSystem::msaa_samples() const noexcept
+{
+    return config_.msaa_samples;
+}
+
+bool RenderSystem::supports_msaa_samples(std::uint8_t samples) const noexcept
+{
+    if (!renderer_initialized_ || !render_detail::valid_msaa_samples(samples))
+    {
+        return false;
+    }
+    const auto* caps = bgfx::getCaps();
+    if (caps == nullptr)
+    {
+        return false;
+    }
+    if (samples == 1)
+    {
+        return true;
+    }
+    constexpr auto required = BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA;
+    for (const auto format : {bgfx::TextureFormat::RGBA16F, bgfx::TextureFormat::D32F})
+    {
+        if ((caps->formats[format] & required) == 0 ||
+            (caps->framebufferSampleCounts[format] & samples) == 0)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool RenderSystem::set_max_anisotropy(bool enabled)
+{
+    if (!is_initialized() || !renderer_initialized_ || (enabled && !supports_max_anisotropy()))
+    {
+        return false;
+    }
+    config_.max_anisotropy = enabled;
+    return true;
+}
+
+bool RenderSystem::max_anisotropy() const noexcept
+{
+    return config_.max_anisotropy;
+}
+
+bool RenderSystem::supports_max_anisotropy() const noexcept
+{
+    const auto* caps = renderer_initialized_ ? bgfx::getCaps() : nullptr;
+    return caps != nullptr && caps->maxAnisotropy > 1;
+}
+
 bool RenderSystem::stats_visible() const noexcept
 {
     return stats_visible_;
 }
 
-bool RenderSystem::render(const Camera* camera)
+bool RenderSystem::render(Camera camera)
 {
     ENGINE_PROFILE_ZONE("Render.frame");
+    if (camera.instance_id() != 0 && !camera)
+    {
+        return false;
+    }
     if (callbacks_ != nullptr)
     {
         callbacks_->process(tasks_);
@@ -359,12 +438,15 @@ bool RenderSystem::render(const Camera* camera)
     {
         bgfx::setPlatformData(data);
     }
-    if (surface_changed || width != width_ || height != height_ || vsync_enabled_ != vsync_applied_)
+    if (surface_changed || width != width_ || height != height_ ||
+        vsync_enabled_ != vsync_applied_ || config_.max_anisotropy != max_anisotropy_applied_)
     {
         bgfx::reset(width, height,
                     render_detail::reset_flags |
-                        (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE));
+                        (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
+                        (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE));
         vsync_applied_ = vsync_enabled_;
+        max_anisotropy_applied_ = config_.max_anisotropy;
         width_ = width;
         height_ = height;
     }

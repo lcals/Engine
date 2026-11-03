@@ -19,9 +19,9 @@ bool commands()
     }
     engine::editor::SceneCommands module(fixture.world);
     engine::editor::EditorCommands editor([&fixture]() { return fixture.world.scene()->id(); });
-    auto* node = fixture.world.scene()->create_node("Command animation");
-    auto* renderer = node ? node->add_component<engine::MeshRenderer>() : nullptr;
-    if (!expect(renderer && renderer->set_mesh_data(mesh()) && module.register_commands(editor),
+    auto node = fixture.world.scene()->create_node("Command animation");
+    auto renderer = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+    if (!expect(renderer && renderer.set_mesh_data(mesh()) && module.register_commands(editor),
                 "register animation typed commands"))
     {
         return false;
@@ -30,9 +30,9 @@ bool commands()
     std::string error;
     const auto run = [&editor, &result, &error](const char* name, const Json& arguments)
     { return editor.execute(name, arguments, result, error); };
-    const Json target = {{"sceneId", std::to_string(node->scene().id())},
-                         {"nodeId", std::to_string(node->id())}};
-    const Json scene = {{"sceneId", std::to_string(node->scene().id())}};
+    const Json target = {{"sceneId", std::to_string(node.scene()->id())},
+                         {"nodeId", std::to_string(node.id())}};
+    const Json scene = {{"sceneId", std::to_string(node.scene()->id())}};
     auto settings = target;
     settings.update(
         {{"animation", clip_path}, {"loop", false}, {"speed", 2}, {"playOnAwake", false}});
@@ -40,14 +40,13 @@ bool commands()
                     result["animation"] == clip_path && result["speed"] == 2 &&
                     result["playOnAwake"] == false,
                 "set/get Animator uses public resource path and generated settings") ||
-        !expect(run("undo", scene) && !node->get_component<engine::Animator>() &&
-                    run("redo", scene),
+        !expect(run("undo", scene) && !node.get_component<engine::Animator>() && run("redo", scene),
                 "component addition is undoable and redo restores persisted data"))
     {
         return false;
     }
-    auto* animator = node->get_component<engine::Animator>();
-    const auto before = animator->data();
+    auto animator = node.get_component<engine::Animator>();
+    const auto before = animator.data();
     const auto undo_count = editor.undo_count();
     for (const Json& invalid :
          {Json{{"speed", -1}}, Json{{"speed", 17}}, Json{{"speed", "fast"}}, Json{{"loop", 1}},
@@ -57,7 +56,7 @@ bool commands()
         auto request = target;
         request.update(invalid);
         if (!expect(!run("set_animator", request) && result.is_null() && !error.empty() &&
-                        animator->data() == before && editor.undo_count() == undo_count,
+                        animator.data() == before && editor.undo_count() == undo_count,
                     "invalid edits preserve settings, identity and history"))
         {
             return false;
@@ -68,7 +67,7 @@ bool commands()
                     close(result["time"].get<double>(), 0.5),
                 "play and query report sampled action time") ||
         !expect(run("pause_animation", target) && fixture.animation.tick(1) &&
-                    close(animator->time(), 0.5),
+                    close(animator.time(), 0.5),
                 "pause command preserves sampled pose"))
     {
         return false;
@@ -76,14 +75,14 @@ bool commands()
     auto seek = target;
     seek["seconds"] = 0.75;
     if (!expect(run("seek_animation", seek) && fixture.animation.tick(0) &&
-                    close(sampled_vertex(*renderer).x(), 3) && editor.undo_count() == undo_count,
+                    close(sampled_vertex(renderer).x(), 3) && editor.undo_count() == undo_count,
                 "seek affects transient playback without polluting undo history"))
     {
         return false;
     }
     seek["seconds"] = 2;
-    if (!expect(!run("seek_animation", seek) && close(animator->time(), 0.75) &&
-                    run("stop_animation", target) && renderer->skinning_palette().empty(),
+    if (!expect(!run("seek_animation", seek) && close(animator.time(), 0.75) &&
+                    run("stop_animation", target) && renderer.skinning_palette().empty(),
                 "invalid seek preserves pose and stop immediately restores bind mesh"))
     {
         return false;
@@ -91,7 +90,7 @@ bool commands()
     auto stale = target;
     stale["sceneId"] = "0";
     return expect(!run("play_animation", stale) && !run("get_animator", stale) &&
-                      fixture.world.scene()->destroy_node(node->id()) &&
+                      fixture.world.scene()->destroy_node(node.id()) &&
                       !run("get_animation_state", target),
                   "stale scene and destroyed node identities cannot control animation");
 }

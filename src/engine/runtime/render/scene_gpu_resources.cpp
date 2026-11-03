@@ -1,4 +1,6 @@
 #include "runtime/render/scene_gpu_resources.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/render/render_constants.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -356,18 +358,30 @@ std::uint32_t RenderSystem::SceneGpuResources::resource_count() const noexcept
 
 bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_t staging_bytes)
 {
+    EnvironmentSettings snapshot;
     const EnvironmentSettings* environment = nullptr;
-    if (scene != nullptr)
+    if (scene)
     {
-        for (const auto& node : scene->nodes())
+        if (!scene->world().refresh_scene_state())
         {
-            const auto* component = node->get_component<EnvironmentComponent>();
-            if (component != nullptr && component->active() && component->visible_in_hierarchy())
-            {
-                environment = &component->settings();
-                break;
-            }
+            return false;
         }
+        auto query =
+            flecs::world(scene->world().native_world())
+                .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
+                               const ecs_detail::NodeRuntime>()
+                .with<ecs_detail::Published>()
+                .build();
+        query.each(
+            [&](const auto& stored, const ecs_detail::NodeRuntime& state)
+            {
+                if (state.scene == scene && state.active && state.visible_in_hierarchy &&
+                    stored.state.flags.enabled && stored.state.flags.visible)
+                {
+                    snapshot = stored.data;
+                    environment = &snapshot;
+                }
+            });
     }
     if (environment == nullptr || environment->ibl_irradiance_guid.empty())
     {

@@ -1,4 +1,5 @@
 #include "animation_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/resource/codecs/animation_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
@@ -153,31 +154,35 @@ bool loading_and_instantiation()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* existing = scene.create_node("Existing");
-    auto* root = scene.instantiate_model(model_path, "Character");
-    if (!expect(
-            existing && root && scene.nodes().size() == 4 && scene.nodes()[2]->parent() == root &&
-                scene.nodes()[3]->parent() == scene.nodes()[2].get() &&
-                scene.nodes()[3]->get_component<engine::Transform>()->settings().position.y() == 2,
-            "model expands hierarchy and local transforms beneath an ordinary root"))
+    auto existing = scene.create_node("Existing");
+    auto root = scene.instantiate_model(model_path, "Character");
+    if (!expect(existing && root && test_support::scene_nodes(scene).size() == 4 &&
+                    test_support::scene_nodes(scene)[2].parent() == root &&
+                    test_support::scene_nodes(scene)[3].parent() ==
+                        test_support::scene_nodes(scene)[2] &&
+                    test_support::scene_nodes(scene)[3]
+                            .get_component<engine::Transform>()
+                            .settings()
+                            .position.y() == 2,
+                "model expands hierarchy and local transforms beneath an ordinary root"))
     {
         return false;
     }
-    auto* renderer = scene.nodes()[3]->get_component<engine::MeshRenderer>();
-    auto* animator = scene.nodes()[3]->add_component<engine::Animator>();
-    if (!expect(renderer && renderer->mesh_path() == "meshes/skinned.mesh" && animator &&
-                    animator->set_animation(clip_path) && fixture.animation.tick(0.5) &&
-                    renderer->deformed_vertices().empty() &&
-                    renderer->skinning_palette().size() == 4 &&
-                    close(sampled_vertex(*renderer).x(), 2),
+    auto renderer = test_support::scene_nodes(scene)[3].get_component<engine::MeshRenderer>();
+    auto animator = test_support::scene_nodes(scene)[3].add_component<engine::Animator>();
+    if (!expect(renderer && renderer.mesh_path() == "meshes/skinned.mesh" && animator &&
+                    animator.set_animation(clip_path) && fixture.animation.tick(0.5) &&
+                    renderer.deformed_vertices().empty() &&
+                    renderer.skinning_palette().size() == 4 &&
+                    close(sampled_vertex(renderer).x(), 2),
                 "instantiated target mesh plays an action from a different source skeleton"))
     {
         return false;
     }
-    const auto count = scene.nodes().size();
+    const auto count = test_support::scene_nodes(scene).size();
     if (!expect(!scene.instantiate_model("builtin://meshes/cube", "Wrong type") &&
                     !scene.instantiate_model("missing.fbx", "Missing") &&
-                    scene.nodes().size() == count,
+                    test_support::scene_nodes(scene).size() == count,
                 "wrong resource types never mutate the existing scene"))
     {
         return false;
@@ -187,7 +192,8 @@ bool loading_and_instantiation()
     corrupt << "corrupted mesh";
     corrupt.close();
     return expect(!scene.instantiate_model(model_path, "Failed candidate") &&
-                      scene.nodes().size() == count && scene.find_node(existing->id()) == existing,
+                      test_support::scene_nodes(scene).size() == count &&
+                      scene.find_node(existing.id()) == existing,
                   "mid-instantiation resource failure rolls back the whole candidate hierarchy");
 }
 

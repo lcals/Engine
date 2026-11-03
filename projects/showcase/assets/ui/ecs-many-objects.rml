@@ -1,0 +1,18 @@
+<rml>
+<head><title>ECS many objects</title><style>
+body { margin: 0; width: 100%; height: 100%; pointer-events: none; font-family: body; color: #eef3fa; font-size: 16px; }
+div, h1, p { display: block; }
+.panel { position: absolute; left: 24px; top: 90px; width: 540px; max-width: 90%; padding: 20px; box-sizing: border-box; background: #17263bf0; pointer-events: auto; }
+h1 { font-family: heading; font-size: 26px; margin: 0 0 12px; }
+p { margin: 10px 0; }
+button { display: inline-block; margin: 6px 4px 0 0; padding: 9px 12px; background: #263b53; color: #eef3fa; border-width: 0; tab-index: auto; font-family: body; }
+button:hover, button:focus { background: #375973; }
+.note { color: #b4c7da; font-size: 14px; }
+</style></head>
+<body><div class="panel">
+<h1>Many objects, one ECS world</h1>
+<p>Real entities with independent transforms and shared geometry. Actions check identity and hierarchy without a benchmark loop.</p>
+<div><button id="ecs-1000">1,000 objects</button><button id="ecs-10000">10,000 objects</button><button id="ecs-50000">50,000 objects</button></div>
+<div><button id="ecs-visibility">Toggle group visibility</button><button id="ecs-activation">Toggle group active</button><button id="ecs-move">Move group</button><button id="ecs-reparent">Reparent one object</button><button id="ecs-recreate">Delete + recreate one</button><button id="ecs-verify">Check all entities</button></div>
+<p id="ecs-status"></p><p id="ecs-counts"></p><p id="ecs-state"></p><p id="ecs-handles" class="note"></p>
+</div></body></rml>

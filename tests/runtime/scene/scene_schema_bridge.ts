@@ -1,19 +1,12 @@
 import * as flatbuffers from "flatbuffers";
-import {
-    CameraDataT,
-    ComponentDataT,
-    ComponentPayload,
-    FloatValueT,
-    LightDataT,
-    MaterialValue,
-    MeshRendererDataT,
-    NodeDataT,
-    SceneData,
-    TransformDataT,
-    Vec2ValueT,
-    Vec3ValueT,
-    Vec4ValueT,
-} from "./engine/schema";
+import { CameraDataT } from "./engine/schema/camera-data";
+import { ComponentDataT } from "./engine/schema/component-data";
+import { ComponentPayload } from "./engine/schema/component-payload";
+import { LightDataT } from "./engine/schema/light-data";
+import { MeshRendererDataT } from "./engine/schema/mesh-renderer-data";
+import { NodeDataT } from "./engine/schema/node-data";
+import { SceneData } from "./engine/schema/scene-data";
+import { TransformDataT } from "./engine/schema/transform-data";
 
 declare function require(name: string): {
     readFileSync(path: string): Uint8Array;
@@ -35,7 +28,7 @@ expect(scene.info && scene.info.name === "Shared scene model", "read C++ scene m
 expect(scene.nodes.length === 4, "read all four runtime-created nodes");
 
 function node(name: string): NodeDataT {
-    const found = scene.nodes.find((value) => value.info?.name === name);
+    const found = scene.nodes.find((value) => value.info?.properties?.name === name);
     expect(found && found.info, `find node ${name}`);
     return found;
 }
@@ -54,19 +47,19 @@ expect(root.info && camera.info && light.info && cube.info, "node metadata is pr
 const originalIds = scene.nodes.map((value) => {
     expect(value.info, "each node has metadata");
     expect(
-        typeof value.info.id === "bigint" && value.info.id > 9007199254740991n,
+        typeof value.info.properties!.id === "bigint" && value.info.properties!.id > 9007199254740991n,
         "ulong identity uses bigint beyond JavaScript Number precision",
     );
-    return { id: value.info.id, parent: value.info.parentId };
+    return { id: value.info.properties!.id, parent: value.info.parentId };
 });
 expect(root.info.parentId === 0n, "root has no parent");
 expect(
-    camera.info.parentId === root.info.id &&
-        light.info.parentId === root.info.id &&
-        cube.info.parentId === root.info.id,
+    camera.info.parentId === root.info.properties!.id &&
+        light.info.parentId === root.info.properties!.id &&
+        cube.info.parentId === root.info.properties!.id,
     "read parent relationships without narrowing integers",
 );
-expect(scene.info.activeCameraNode === camera.info.id, "read active camera bigint reference");
+expect(scene.info.activeCameraNode === camera.info.properties!.id, "read active camera bigint reference");
 
 const rootTransform = component(root, ComponentPayload.TransformData).payload;
 const transform = component(cube, ComponentPayload.TransformData).payload;
@@ -115,7 +108,7 @@ expect(
 );
 expect(
     mesh instanceof MeshRendererDataT &&
-        !meshComponent.enabled &&
+        !meshComponent.flags!.enabled &&
         mesh.meshGuid === "00000000-0000-4000-8000-000000000005" &&
         mesh.materialGuid === "00000000-0000-4000-8000-000000000003",
     "read external resource GUID references without embedding material definitions",
@@ -125,7 +118,7 @@ scene.info.name = "TypeScript 场景";
 transform.position.x = 42.5;
 cameraData.fovDegrees = 55;
 lightData.intensity = 7.5;
-meshComponent.enabled = true;
+meshComponent.flags!.enabled = true;
 mesh.materialGuid = "00000000-0000-4000-8000-000000000004";
 
 const builder = new flatbuffers.Builder();
@@ -136,7 +129,7 @@ expect(reread.info?.name === "TypeScript 场景", "generated pack preserves UTF8
 reread.nodes.forEach((value, index) => {
     expect(
         value.info &&
-            value.info.id === originalIds[index].id &&
+            value.info.properties!.id === originalIds[index].id &&
             value.info.parentId === originalIds[index].parent,
         "generated TypeScript pack preserves bigint identities exactly",
     );

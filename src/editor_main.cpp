@@ -571,14 +571,17 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                                      "Scene preview terrain synchronization failed");
                     if (const auto* scene = runtime.world()->scene())
                     {
-                        for (const auto& node : scene->nodes())
+                        std::vector<engine::Node> nodes;
+                        if (!scene->collect_nodes(nodes))
+                            return 1;
+                        for (const auto node : nodes)
                         {
-                            const auto* terrain =
-                                node->get_component<engine::plugins::terrain::TerrainComponent>();
-                            if (terrain != nullptr && !terrain->last_error().empty())
+                            const auto terrain =
+                                node.get_component<engine::plugins::terrain::TerrainComponent>();
+                            if (terrain && !terrain.last_error().empty())
                             {
-                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
-                                                                      terrain->last_error());
+                                LogSystem::write(LogLevel::error,
+                                                 node.name() + ": " + terrain.last_error());
                             }
                         }
                     }
@@ -598,14 +601,17 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                                      "Scene preview destruction synchronization failed");
                     if (const auto* scene = runtime.world()->scene())
                     {
-                        for (const auto& node : scene->nodes())
+                        std::vector<engine::Node> nodes;
+                        if (!scene->collect_nodes(nodes))
+                            return 1;
+                        for (const auto node : nodes)
                         {
-                            const auto* destruction = node->get_component<
+                            const auto destruction = node.get_component<
                                 engine::plugins::destruction::DestructionComponent>();
-                            if (destruction != nullptr && !destruction->last_error().empty())
+                            if (destruction && !destruction.last_error().empty())
                             {
-                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
-                                                                      destruction->last_error());
+                                LogSystem::write(LogLevel::error,
+                                                 node.name() + ": " + destruction.last_error());
                             }
                         }
                     }

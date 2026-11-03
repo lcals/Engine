@@ -33,28 +33,28 @@ public:
     [[nodiscard]] static DestructionSystem* instance() noexcept;
     [[nodiscard]] bool synchronize();
     // Synchronize only this owner, including cleanup after its component was removed.
-    [[nodiscard]] bool synchronize(Node& node);
-    [[nodiscard]] bool rebuild(DestructionComponent& component, DestructionGraph candidate,
+    [[nodiscard]] bool synchronize(Node node);
+    [[nodiscard]] bool rebuild(DestructionComponent component, DestructionGraph candidate,
                                bool preserve);
-    [[nodiscard]] bool damage(DestructionComponent& component, const schema::Vec3& center,
+    [[nodiscard]] bool damage(DestructionComponent component, const schema::Vec3& center,
                               float radius, float damage, float impulse);
     // true 仅表示排队；完成或取消委托由主线程 synchronize/tick 派发，关闭丢弃委托。
-    [[nodiscard]] bool request_damage(DestructionComponent& component, const schema::Vec3& center,
+    [[nodiscard]] bool request_damage(DestructionComponent component, const schema::Vec3& center,
                                       float radius, float damage, float impulse,
                                       std::function<void(bool)> completed);
-    [[nodiscard]] bool refresh_support(DestructionComponent& component, const Collider& support,
+    [[nodiscard]] bool refresh_support(DestructionComponent component, Collider support,
                                        float max_gap, float min_coverage);
-    [[nodiscard]] bool apply_stress(DestructionComponent& component, const schema::Vec3& gravity,
-                                     float elastic_limit, float fatal_limit,
-                                     std::uint32_t iterations, std::uint32_t& broken_bonds);
-    [[nodiscard]] bool owns_fragment(const DestructionComponent& component,
+    [[nodiscard]] bool apply_stress(DestructionComponent component, const schema::Vec3& gravity,
+                                    float elastic_limit, float fatal_limit,
+                                    std::uint32_t iterations, std::uint32_t& broken_bonds);
+    [[nodiscard]] bool owns_fragment(DestructionComponent component,
                                      std::uint64_t node_id) const noexcept;
-    [[nodiscard]] bool retire_fragments(DestructionComponent& component, std::uint32_t max_count,
-                                         double max_age_seconds, std::uint32_t& retired_count);
-    [[nodiscard]] bool reset(DestructionComponent& component);
-    [[nodiscard]] bool snapshot(const DestructionComponent& component,
+    [[nodiscard]] bool retire_fragments(DestructionComponent component, std::uint32_t max_count,
+                                        double max_age_seconds, std::uint32_t& retired_count);
+    [[nodiscard]] bool reset(DestructionComponent component);
+    [[nodiscard]] bool snapshot(DestructionComponent component,
                                 schema::DestructionStateDataT& output) const;
-    [[nodiscard]] bool restore(DestructionComponent& component,
+    [[nodiscard]] bool restore(DestructionComponent component,
                                const schema::DestructionStateDataT& state);
 
 protected:
@@ -64,10 +64,10 @@ protected:
 
 private:
     struct PreparedGroup;
-    [[nodiscard]] bool prepare_groups(DestructionComponent& component,
+    [[nodiscard]] bool prepare_groups(DestructionComponent component,
                                       const DestructionGraph& candidate, bool preserve,
                                       std::vector<schema::DestructionGroupStateT>& states);
-    [[nodiscard]] bool publish(DestructionComponent& component, DestructionGraph candidate,
+    [[nodiscard]] bool publish(DestructionComponent component, DestructionGraph candidate,
                                const std::vector<schema::DestructionGroupStateT>& groups,
                                bool reuse_groups,
                                const std::vector<PreparedGroup>* prepared = nullptr);

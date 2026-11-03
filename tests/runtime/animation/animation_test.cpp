@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "animation_fixture.hpp"
 
 #include "runtime/task/task_system.hpp"
@@ -14,20 +16,20 @@ bool sampling_and_controls()
     {
         return false;
     }
-    auto* node = fixture.create();
-    if (!expect(node != nullptr, "attach renderer and animator to an ordinary node"))
+    auto node = fixture.create();
+    if (!expect(node.valid(), "attach renderer and animator to an ordinary node"))
     {
         return false;
     }
-    auto& animator = *node->get_component<engine::Animator>();
-    auto& renderer = *node->get_component<engine::MeshRenderer>();
-    const auto bind = *renderer.mesh_data();
+    auto animator = node.get_component<engine::Animator>();
+    auto renderer = node.get_component<engine::MeshRenderer>();
+    const auto bind = renderer.mesh_data();
     engine::schema::ComponentDataT saved;
     if (!expect(animator.build_data(saved) && fixture.animation.tick(0.25), "auto-play samples") ||
         !expect(animator.playback() == engine::AnimationPlayback::playing &&
                     close(animator.time(), 0.25) && close(sampled_vertex(renderer).x(), 1),
                 "source indices map to target hierarchy and ozz DFS order") ||
-        !expect(*renderer.mesh_data() == bind && animator.data() == saved,
+        !expect(renderer.mesh_data() == bind && animator.data() == saved,
                 "sampling does not mutate persisted component or bind mesh") ||
         !expect(animator.pause() && fixture.animation.tick(0.25) && close(animator.time(), 0.25) &&
                     close(sampled_vertex(renderer).x(), 1),
@@ -85,35 +87,35 @@ bool persistent_animation()
     {
         return false;
     }
-    auto* node = fixture.create();
-    auto* ordinary = fixture.create();
-    if (!expect(node && ordinary && node->set_persistent(true) && fixture.animation.tick(0.25),
+    auto node = fixture.create();
+    auto ordinary = fixture.create();
+    if (!expect(node && ordinary && node.set_persistent(true) && fixture.animation.tick(0.25),
                 "prepare retained and ordinary animated nodes"))
     {
         return false;
     }
-    const auto ordinary_id = ordinary->id();
-    auto* animator = node->get_component<engine::Animator>();
-    auto* renderer = node->get_component<engine::MeshRenderer>();
-    const auto revision = renderer->deformation_revision();
-    if (!expect(animator->pause(), "pause retained pose before unloading"))
+    const auto ordinary_id = ordinary.id();
+    auto animator = node.get_component<engine::Animator>();
+    auto renderer = node.get_component<engine::MeshRenderer>();
+    const auto revision = renderer.deformation_revision();
+    if (!expect(animator.pause(), "pause retained pose before unloading"))
     {
         return false;
     }
     fixture.world.unload_scene();
-    if (!expect(fixture.world.scene() == nullptr && fixture.world.find_node(node->id()) == node &&
-                    fixture.world.find_node(ordinary_id) == nullptr &&
-                    fixture.animation.tick(0.25) && close(animator->time(), 0.25) &&
-                    renderer->deformation_revision() == revision,
+    if (!expect(fixture.world.scene() == nullptr && fixture.world.find_node(node.id()) == node &&
+                    fixture.world.find_node(ordinary_id).valid() == false &&
+                    fixture.animation.tick(0.25) && close(animator.time(), 0.25) &&
+                    renderer.deformation_revision() == revision,
                 "unload preserves the paused palette without rebuilding it"))
     {
         return false;
     }
     if (!expect(fixture.world.create_scene("Next animation scene") && fixture.create() &&
-                    animator->play() && fixture.animation.tick(0.25) &&
-                    close(animator->time(), 0.5) && close(sampled_vertex(*renderer).x(), 2),
+                    animator.play() && fixture.animation.tick(0.25) &&
+                    close(animator.time(), 0.5) && close(sampled_vertex(renderer).x(), 2),
                 "retained animator and new scene both advance") ||
-        !expect(node->scene().destroy_node(node->id()) && fixture.animation.tick(0),
+        !expect(node.scene()->destroy_node(node.id()) && fixture.animation.tick(0),
                 "explicit retained node deletion retires its animation state"))
     {
         return false;
@@ -129,76 +131,88 @@ bool skinning_and_lifecycle()
     {
         return false;
     }
-    auto* node = fixture.create(false);
+    auto node = fixture.create(false);
     if (!node)
     {
         return false;
     }
-    auto* animator = node->get_component<engine::Animator>();
-    auto* renderer = node->get_component<engine::MeshRenderer>();
-    if (!expect(fixture.animation.tick(0) && renderer->skinning_palette().empty(),
+    auto animator = node.get_component<engine::Animator>();
+    auto renderer = node.get_component<engine::MeshRenderer>();
+    if (!expect(fixture.animation.tick(0) && renderer.skinning_palette().empty(),
                 "auto-play disabled leaves original vertices") ||
-        !expect(animator->set_animation(scale_path) && animator->seek(0.5) &&
+        !expect(animator.set_animation(scale_path) && animator.seek(0.5) &&
                     fixture.animation.tick(0),
                 "prepare independent scale action"))
     {
         return false;
     }
-    const auto& normal = sampled_vertex(*renderer);
-    const auto& tangent = sampled_tangent(*renderer);
+    const auto& normal = sampled_vertex(renderer);
+    const auto& tangent = sampled_tangent(renderer);
     if (!expect(close(normal.nx(), 1.0 / std::sqrt(5.0)) &&
                     close(normal.ny(), 2.0 / std::sqrt(5.0)) &&
                     close(tangent.x(), 2.0 / std::sqrt(5.0)) &&
                     close(tangent.y(), -1.0 / std::sqrt(5.0)) && close(normal.x(), -1),
                 "mesh bind transform, normal inverse transpose and tangent linear transform") ||
-        !expect(animator->set_animation(reflected_path) && animator->seek(0.5) &&
-                    fixture.animation.tick(0) && sampled_tangent(*renderer).w() == -1,
+        !expect(animator.set_animation(reflected_path) && animator.seek(0.5) &&
+                    fixture.animation.tick(0) && sampled_tangent(renderer).w() == -1,
                 "mirrored skin preserves the correct tangent handedness") ||
-        !expect(animator->set_animation(clip_path) && renderer->set_mesh_data(mesh(3)) &&
-                    animator->seek(0.5) && fixture.animation.tick(0) &&
-                    close(sampled_vertex(*renderer).x(), 0) &&
-                    close(sampled_vertex(*renderer).y(), 2),
+        !expect(animator.set_animation(clip_path) && renderer.set_mesh_data(mesh(3)) &&
+                    animator.seek(0.5) && fixture.animation.tick(0) &&
+                    close(sampled_vertex(renderer).x(), 0) &&
+                    close(sampled_vertex(renderer).y(), 2),
                 "child track and missing parent track use the target bind pose"))
     {
         return false;
     }
-    animator->set_enabled(false);
-    if (!expect(fixture.animation.tick(0) && renderer->skinning_palette().empty(),
+    if (!animator.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(fixture.animation.tick(0) && renderer.skinning_palette().empty(),
                 "disabled animator clears GPU skinning palette"))
     {
         return false;
     }
-    animator->set_enabled(true);
-    if (!expect(fixture.animation.tick(0) && close(sampled_vertex(*renderer).y(), 2),
+    if (!animator.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!expect(fixture.animation.tick(0) && close(sampled_vertex(renderer).y(), 2),
                 "re-enabled paused animator rebuilds and restores its pose"))
     {
         return false;
     }
-    auto* transform = node->get_component<engine::Transform>();
-    transform->set_enabled(false);
-    if (!expect(fixture.animation.tick(0) && renderer->skinning_palette().empty(),
+    auto transform = node.get_component<engine::Transform>();
+    if (!transform.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(fixture.animation.tick(0) && renderer.skinning_palette().empty(),
                 "disabled transform suppresses skinning"))
     {
         return false;
     }
-    transform->set_enabled(true);
+    if (!transform.set_enabled(true))
+    {
+        std::abort();
+    }
     fixture.animation.clear();
     fixture.animation.clear();
-    if (!expect(fixture.animation.tick(0) && !renderer->skinning_palette().empty(),
+    if (!expect(fixture.animation.tick(0) && !renderer.skinning_palette().empty(),
                 "idempotent clear releases cache and reconstructs active pose") ||
-        !expect(node->remove_component(engine::MeshRenderer::component_type), "remove renderer"))
+        !expect(node.remove_component(engine::MeshRenderer::component_type), "remove renderer"))
     {
         return false;
     }
-    renderer = node->add_component<engine::MeshRenderer>();
-    if (!expect(renderer && renderer->set_mesh_data(mesh()) && fixture.animation.tick(0) &&
-                    close(sampled_vertex(*renderer).x(), 2) &&
-                    close(sampled_vertex(*renderer).y(), 0),
+    renderer = node.add_component<engine::MeshRenderer>();
+    if (!expect(renderer && renderer.set_mesh_data(mesh()) && fixture.animation.tick(0) &&
+                    close(sampled_vertex(renderer).x(), 2) &&
+                    close(sampled_vertex(renderer).y(), 0),
                 "replacement renderer never reuses old skin weights") ||
-        !expect(node->remove_component(engine::Animator::component_type) &&
-                    fixture.animation.tick(0) && renderer->skinning_palette().empty(),
+        !expect(node.remove_component(engine::Animator::component_type) &&
+                    fixture.animation.tick(0) && renderer.skinning_palette().empty(),
                 "removed animator restores unmodified source mesh") ||
-        !expect(fixture.world.scene()->destroy_node(node->id()) && fixture.animation.tick(0),
+        !expect(fixture.world.scene()->destroy_node(node.id()) && fixture.animation.tick(0),
                 "deleted node has no retained native pointer"))
     {
         return false;
@@ -212,10 +226,9 @@ bool skinning_and_lifecycle()
     }
     fixture.animation.shutdown();
     fixture.animation.shutdown();
-    return expect(fixture.world.scene()
-                      ->nodes()[0]
-                      ->get_component<engine::MeshRenderer>()
-                      ->deformed_vertices()
+    return expect(test_support::scene_nodes(*fixture.world.scene())[0]
+                      .get_component<engine::MeshRenderer>()
+                      .deformed_vertices()
                       .empty(),
                   "shutdown clears skinning streams");
 }
@@ -227,16 +240,16 @@ bool blending_and_instances()
     {
         return false;
     }
-    auto* first = fixture.create(false);
-    auto* second = fixture.create(false);
-    if (first == nullptr || second == nullptr)
+    auto first = fixture.create(false);
+    auto second = fixture.create(false);
+    if (!first.valid() || !second.valid())
     {
         return false;
     }
-    auto& animator = *first->get_component<engine::Animator>();
-    auto& other = *second->get_component<engine::Animator>();
-    auto& renderer = *first->get_component<engine::MeshRenderer>();
-    auto& other_renderer = *second->get_component<engine::MeshRenderer>();
+    auto animator = first.get_component<engine::Animator>();
+    auto other = second.get_component<engine::Animator>();
+    auto renderer = first.get_component<engine::MeshRenderer>();
+    auto other_renderer = second.get_component<engine::MeshRenderer>();
     if (!expect(animator.seek(0.5) && other.seek(0.25) && fixture.animation.tick(0) &&
                     renderer.skinning_palette().size() == 4 &&
                     renderer.deformed_vertices().empty() &&
@@ -257,13 +270,19 @@ bool blending_and_instances()
     {
         return false;
     }
-    animator.set_enabled(false);
+    if (!animator.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.animation.tick(0) && renderer.skinning_palette().empty(),
                 "disabled transition releases its GPU output"))
     {
         return false;
     }
-    animator.set_enabled(true);
+    if (!animator.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(animator.pause() && fixture.animation.tick(0) &&
                     close(sampled_vertex(renderer).x(), 1.625),
                 "reenabling an interrupted fade retains its frozen source pose") ||
@@ -319,29 +338,29 @@ bool world_pause_preserves_individual_playback()
     {
         return false;
     }
-    auto* playing = fixture.create();
-    auto* paused = fixture.create();
+    auto playing = fixture.create();
+    auto paused = fixture.create();
     if (!playing || !paused || !fixture.animation.tick(0.25))
     {
         return false;
     }
-    auto* active = playing->get_component<engine::Animator>();
-    auto* individual = paused->get_component<engine::Animator>();
-    auto* renderer = playing->get_component<engine::MeshRenderer>();
-    const auto pose = sampled_vertex(*renderer);
-    if (!expect(individual->pause() && fixture.world.set_paused(true) &&
-                    fixture.animation.tick(120) && close(active->time(), 0.25) &&
-                    close(individual->time(), 0.25) &&
-                    close(sampled_vertex(*renderer).x(), pose.x()) &&
-                    active->playback() == engine::AnimationPlayback::playing,
+    auto active = playing.get_component<engine::Animator>();
+    auto individual = paused.get_component<engine::Animator>();
+    auto renderer = playing.get_component<engine::MeshRenderer>();
+    const auto pose = sampled_vertex(renderer);
+    if (!expect(individual.pause() && fixture.world.set_paused(true) &&
+                    fixture.animation.tick(120) && close(active.time(), 0.25) &&
+                    close(individual.time(), 0.25) &&
+                    close(sampled_vertex(renderer).x(), pose.x()) &&
+                    active.playback() == engine::AnimationPlayback::playing,
                 "world pause retains sampled pose without rewriting individual playback"))
     {
         return false;
     }
     return expect(
         fixture.world.set_paused(false) && fixture.animation.tick(0.25) &&
-            close(active->time(), 0.5) && close(individual->time(), 0.25) &&
-            individual->playback() == engine::AnimationPlayback::paused,
+            close(active.time(), 0.5) && close(individual.time(), 0.25) &&
+            individual.playback() == engine::AnimationPlayback::paused,
         "world resume advances only fresh time and preserves an individually paused action");
 }
 
@@ -355,13 +374,13 @@ bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
     {
         return false;
     }
-    std::vector<engine::Node*> nodes;
+    std::vector<engine::Node> nodes;
     for (std::size_t index = 0; index < 19; ++index)
     {
-        auto* node = fixture.create(false);
-        auto* animator = node != nullptr ? node->get_component<engine::Animator>() : nullptr;
-        if (!expect(animator != nullptr && animator->seek(static_cast<double>(index) / 20.0) &&
-                        (index % 3 == 0 || animator->play()),
+        auto node = fixture.create(false);
+        auto animator = node.valid() ? node.get_component<engine::Animator>() : engine::Animator{};
+        if (!expect(animator.valid() && animator.seek(static_cast<double>(index) / 20.0) &&
+                        (index % 3 == 0 || animator.play()),
                     "configure independent comparison animation"))
         {
             return false;
@@ -374,9 +393,9 @@ bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
         {
             for (std::size_t index = 0; index < nodes.size(); ++index)
             {
-                auto* animator = nodes[index]->get_component<engine::Animator>();
+                auto animator = nodes[index].get_component<engine::Animator>();
                 if (index % 2 == 0 &&
-                    !expect(animator->cross_fade(scale_path, 0.5), "start comparison blend"))
+                    !expect(animator.cross_fade(scale_path, 0.5), "start comparison blend"))
                 {
                     return false;
                 }
@@ -386,18 +405,18 @@ bool collect_sampling_results(engine::TaskSystem* tasks, Palettes& palettes)
         {
             return false;
         }
-        for (auto* node : nodes)
+        for (auto node : nodes)
         {
-            const auto* renderer = node->get_component<engine::MeshRenderer>();
-            palettes.emplace_back(renderer->skinning_palette().begin(),
-                                  renderer->skinning_palette().end());
-            palettes.emplace_back(renderer->skinning_normal_palette().begin(),
-                                  renderer->skinning_normal_palette().end());
+            auto renderer = node.get_component<engine::MeshRenderer>();
+            palettes.emplace_back(renderer.skinning_palette().begin(),
+                                  renderer.skinning_palette().end());
+            palettes.emplace_back(renderer.skinning_normal_palette().begin(),
+                                  renderer.skinning_normal_palette().end());
         }
     }
     // 已经 join 的批次不能保留旧场景节点或条目。
     fixture.world.destroy_scene();
-    return expect(fixture.world.create_scene("Replacement") && fixture.create() != nullptr &&
+    return expect(fixture.world.create_scene("Replacement") && fixture.create().valid() &&
                       fixture.animation.tick(0.25),
                   "replace comparison scene after joined animation tasks");
 }

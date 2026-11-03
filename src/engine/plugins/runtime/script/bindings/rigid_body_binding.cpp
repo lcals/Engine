@@ -37,30 +37,30 @@ Object.freeze(RigidBody.prototype);
 Object.freeze(RigidBody);
 )js";
 
-RigidBody* body(const Arguments& arguments, int count)
+RigidBody body(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count ? node->get_component<RigidBody>()
-                                                         : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count ? node.get_component<RigidBody>()
+                                                      : RigidBody{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<RigidBody>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<RigidBody>().valid());
 }
 
 void motion(const Arguments& arguments)
 {
-    auto* value = body(arguments, 3);
+    auto value = body(arguments, 3);
     std::string name;
-    if (value == nullptr || !BindingContext::text(arguments, 2, name))
+    if (!value || !BindingContext::text(arguments, 2, name))
     {
         return;
     }
-    auto settings = value->settings();
+    auto settings = value.settings();
     if (name == "static")
     {
         settings.motion = schema::BodyMotion::static_body;
@@ -77,33 +77,33 @@ void motion(const Arguments& arguments)
     {
         return;
     }
-    arguments.set_return(value->set_settings(settings));
+    arguments.set_return(value.set_settings(settings));
 }
 
 void mass(const Arguments& arguments)
 {
-    auto* value = body(arguments, 3);
+    auto value = body(arguments, 3);
     float number = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, number))
+    if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.mass = number;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void set_vector(const Arguments& arguments, bool impulse)
 {
-    auto* value = body(arguments, 5);
+    auto value = body(arguments, 5);
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+    if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
         const Vec3 vector(x, y, z);
-        arguments.set_return(impulse ? value->add_impulse(vector)
-                                     : value->set_linear_velocity(vector));
+        arguments.set_return(impulse ? value.add_impulse(vector)
+                                     : value.set_linear_velocity(vector));
     }
 }
 
@@ -119,13 +119,13 @@ void impulse(const Arguments& arguments)
 
 void get_velocity(const Arguments& arguments)
 {
-    const auto* value = body(arguments, 2);
+    const auto value = body(arguments, 2);
     arguments.set_return({});
-    if (value == nullptr)
+    if (!value)
     {
         return;
     }
-    const auto& vector = value->linear_velocity();
+    const auto& vector = value.linear_velocity();
     arguments.set_return(
         vm::NativeValue::Object{{"x", vector.x()}, {"y", vector.y()}, {"z", vector.z()}});
 }

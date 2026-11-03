@@ -225,24 +225,24 @@ std::size_t clicks(engine::UiSystem& ui, std::string_view id)
 bool test(Fixture& f)
 {
     auto* scene = f.world.create_scene("UI editor fixture");
-    auto* node = scene ? scene->create_node("UI") : nullptr;
-    auto* component = node ? node->add_component<engine::UiComponent>() : nullptr;
-    if (!component || !component->set_document("ui/fixture.rml") || !f.ui.synchronize())
+    auto node = scene ? scene->create_node("UI") : engine::Node{};
+    auto component = node ? node.add_component<engine::UiComponent>() : engine::UiComponent{};
+    if (!component || !component.set_document("ui/fixture.rml") || !f.ui.synchronize())
     {
         return false;
     }
     engine::UiElementHandle button, field, password, cover, scroll;
-    if (!f.ui.find_element(node->id(), "button", button) ||
-        !f.ui.find_element(node->id(), "field", field) ||
-        !f.ui.find_element(node->id(), "password", password) ||
-        !f.ui.find_element(node->id(), "cover", cover) ||
-        !f.ui.find_element(node->id(), "scroll", scroll))
+    if (!f.ui.find_element(node.id(), "button", button) ||
+        !f.ui.find_element(node.id(), "field", field) ||
+        !f.ui.find_element(node.id(), "password", password) ||
+        !f.ui.find_element(node.id(), "cover", cover) ||
+        !f.ui.find_element(node.id(), "scroll", scroll))
     {
         return false;
     }
     Json reply;
     if (!expect(f.call("get_ui_tree",
-                       {{"nodeId", std::to_string(node->id())},
+                       {{"nodeId", std::to_string(node.id())},
                         {"documentId", std::to_string(button.document_id)},
                         {"limit", 2}},
                        reply) &&
@@ -358,17 +358,17 @@ bool test(Fixture& f)
         return false;
     }
     const auto old = field;
-    if (!component->set_document("ui/fixture.rml"))
+    if (!component.set_document("ui/fixture.rml"))
     {
         return false;
     }
     // Destroy/recreate the component at the same node: old document handles must stay invalid.
-    if (!node->remove_component(engine::UiComponent::component_type))
+    if (!node.remove_component(engine::UiComponent::component_type))
     {
         return false;
     }
-    component = node->add_component<engine::UiComponent>();
-    if (!expect(component && component->set_document("ui/fixture.rml") && !f.ui.is_valid(old),
+    component = node.add_component<engine::UiComponent>();
+    if (!expect(component && component.set_document("ui/fixture.rml") && !f.ui.is_valid(old),
                 "component recreation invalidates prior document handles"))
     {
         return false;

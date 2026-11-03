@@ -135,6 +135,10 @@ if(TARGET engine_script)
                 engine::render
                 nlohmann_json::nlohmann_json)
     target_compile_definitions(engine_script_runtime_test PRIVATE JSON_NOEXCEPTION=1)
+    if(TARGET engine_effects)
+        target_link_libraries(engine_script_runtime_test PRIVATE engine::effects)
+        target_compile_definitions(engine_script_runtime_test PRIVATE ENGINE_TEST_EFFECTS_PLUGIN=1)
+    endif()
     engine_apply_options(engine_script_runtime_test)
     engine_copy_script_data(engine_script_runtime_test)
     if(TARGET engine_resource_graph)
@@ -417,7 +421,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 engine::world
                 engine::resource
                 SDL3::SDL3
-                bgfx::bgfx)
+                bgfx::bgfx
+                basisu::basisu_encoder)
     engine_apply_options(engine_window_render_test)
     if(TARGET engine_resource_graph)
         target_link_libraries(engine_window_render_test PRIVATE engine::resource_graph)
@@ -587,6 +592,12 @@ if(TARGET engine_world)
     engine_apply_options(engine_scene_test)
     add_test(NAME engine.scene COMMAND engine_scene_test)
     set_tests_properties(engine.scene PROPERTIES TIMEOUT 30)
+    add_executable(engine_ecs_scene_test runtime/scene/ecs_scene_test.cpp)
+    target_link_libraries(engine_ecs_scene_test PRIVATE engine::world engine::scene_ecs)
+    engine_apply_options(engine_ecs_scene_test)
+    add_test(NAME engine.ecs_scene COMMAND engine_ecs_scene_test)
+    set_tests_properties(engine.ecs_scene PROPERTIES TIMEOUT 30)
+
     add_executable(engine_prefab_test runtime/scene/prefab_test.cpp)
     target_link_libraries(engine_prefab_test PRIVATE engine::world engine::resource)
     if(TARGET engine_character_controller)
@@ -701,7 +712,7 @@ add_test(NAME engine.architecture_rules
 
 if(TARGET engine_world)
     add_executable(engine_component_registry_test runtime/scene/component_registry_test.cpp)
-    target_link_libraries(engine_component_registry_test PRIVATE engine::world engine::resource)
+    target_link_libraries(engine_component_registry_test PRIVATE engine::world engine::resource engine::scene_ecs)
     engine_apply_options(engine_component_registry_test)
     add_test(NAME engine.component_registry COMMAND engine_component_registry_test)
 endif()

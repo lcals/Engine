@@ -41,48 +41,47 @@ Object.freeze(Component);
 
 void valid(const Arguments& arguments)
 {
-    arguments.set_return(arguments.count() == 3 && BindingContext::component(arguments) != nullptr);
+    arguments.set_return(arguments.count() == 3 && BindingContext::component(arguments).valid());
 }
 
 void identity(const Arguments& arguments)
 {
-    const auto* component = BindingContext::component(arguments);
-    arguments.set_return(arguments.count() == 3 && component != nullptr ? component->instance_id()
-                                                                        : std::uint64_t{0});
+    const auto component = BindingContext::component(arguments);
+    arguments.set_return(arguments.count() == 3 && component.valid() ? component.instance_id()
+                                                                     : std::uint64_t{0});
 }
 
 void enabled(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* component = BindingContext::component(arguments);
-    if (component != nullptr && arguments.count() == 4 && arguments.is_boolean(3))
+    auto component = BindingContext::component(arguments);
+    if (component.valid() && arguments.count() == 4 && arguments.is_boolean(3))
     {
-        component->set_enabled(arguments.boolean(3));
-        arguments.set_return(true);
+        arguments.set_return(component.set_enabled(arguments.boolean(3)));
     }
 }
 
 void state(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* target = BindingContext::component(arguments);
-    if (target == nullptr || arguments.count() != 3)
+    const auto target = BindingContext::component(arguments);
+    if (!target || arguments.count() != 3)
     {
         return;
     }
     switch (arguments.data())
     {
     case 0:
-        arguments.set_return(target->enabled());
+        arguments.set_return(target.enabled());
         break;
     case 1:
-        arguments.set_return(target->active());
+        arguments.set_return(target.active());
         break;
     case 2:
-        arguments.set_return(target->visible());
+        arguments.set_return(target.visible());
         break;
     case 3:
-        arguments.set_return(target->visible_in_hierarchy());
+        arguments.set_return(target.visible_in_hierarchy());
         break;
     }
 }
@@ -90,11 +89,10 @@ void state(const Arguments& arguments)
 void set_visible(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* target = BindingContext::component(arguments);
-    if (target != nullptr && arguments.count() == 4 && arguments.is_boolean(3))
+    auto target = BindingContext::component(arguments);
+    if (target.valid() && arguments.count() == 4 && arguments.is_boolean(3))
     {
-        target->set_visible(arguments.boolean(3));
-        arguments.set_return(true);
+        arguments.set_return(target.set_visible(arguments.boolean(3)));
     }
 }
 

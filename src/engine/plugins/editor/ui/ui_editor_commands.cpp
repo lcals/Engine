@@ -198,11 +198,16 @@ bool UiEditorCommands::State::document(std::uint64_t id, std::uint64_t& node, Ui
     }
     for (const auto& scene : world.scenes())
     {
-        for (const auto& item : scene->nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (item->get_component<UiComponent>() && ui.document_id(item->id()) == id)
+            return false;
+        }
+        for (const auto& item : nodes)
+        {
+            if (item.get_component<UiComponent>() && ui.document_id(item.id()) == id)
             {
-                node = item->id();
+                node = item.id();
                 return ui.document_root(node, root);
             }
         }
@@ -272,23 +277,29 @@ bool UiEditorCommands::State::query(std::string_view name, const Json& args, Jso
                     {"available", has_size}}}};
         for (const auto& scene : world.scenes())
         {
-            for (const auto& node : scene->nodes())
+            std::vector<Node> nodes;
+            if (!scene->collect_nodes(nodes))
             {
-                if (const auto* component = node->get_component<UiComponent>())
+                error = "Cannot collect scene entities";
+                return false;
+            }
+            for (const auto& node : nodes)
+            {
+                if (const auto component = node.get_component<UiComponent>())
                 {
                     std::string path;
-                    (void)ResourceSystem::guid_to_path(component->settings().document_guid, path);
-                    const auto id = ui.document_id(node->id());
-                    const auto& resource = component->document();
+                    (void)ResourceSystem::guid_to_path(component.settings().document_guid, path);
+                    const auto id = ui.document_id(node.id());
+                    const auto& resource = component.document();
                     Json entry{{"sceneId", std::to_string(scene->id())},
-                               {"nodeId", std::to_string(node->id())},
+                               {"nodeId", std::to_string(node.id())},
                                {"documentId", id ? Json(std::to_string(id)) : Json(nullptr)},
                                {"document", path},
-                               {"guid", component->settings().document_guid},
-                               {"enabled", component->enabled()},
-                               {"visible", ui.document_visible(node->id())},
-                               {"persistent", node->persistent()},
-                               {"revision", std::to_string(component->document_revision())},
+                               {"guid", component.settings().document_guid},
+                               {"enabled", component.enabled()},
+                               {"visible", ui.document_visible(node.id())},
+                               {"persistent", node.persistent()},
+                               {"revision", std::to_string(component.document_revision())},
                                {"resourceGeneration",
                                 resource ? std::to_string(resource->generation()) : "0"}};
                     if (!id)
@@ -511,7 +522,7 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
     {
         return false;
     }
-    auto* node = editor::components::target(world, args, error);
+    auto node = editor::components::target(world, args, error);
     std::string path;
     Guid guid;
     if (!node || !args.contains("document") || !bounded_text(args["document"], path, 4096) ||
@@ -530,12 +541,12 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
         error = "Cannot load UI resource";
         return false;
     }
-    auto* component = node->get_component<UiComponent>();
+    auto component = node.get_component<UiComponent>();
     std::optional<schema::ComponentDataT> before;
     if (component)
     {
         before.emplace();
-        if (!component->build_data(*before))
+        if (!component.build_data(*before))
         {
             error = "Cannot snapshot UiComponent";
             return false;
@@ -544,9 +555,10 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
     schema::UiDataT data;
     data.document_guid = guid;
     schema::ComponentDataT after;
+    after.flags = std::make_unique<schema::ComponentFlagsT>();
     after.payload.Set(data);
-    after.enabled = !component || component->enabled();
-    after.visible = !component || component->visible();
+    after.flags->enabled = !component || component.enabled();
+    after.flags->visible = !component || component.visible();
     if (args.contains("enabled"))
     {
         if (!args["enabled"].is_boolean())
@@ -554,18 +566,18 @@ bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_command
             error = "enabled must be boolean";
             return false;
         }
-        after.enabled = args["enabled"].get<bool>();
+        after.flags->enabled = args["enabled"].get<bool>();
     }
     std::vector<schema::AssetEntryT> versions{resource->info()};
-    if (component && component->document())
+    if (component && component.document())
     {
-        versions.push_back(component->document()->info());
+        versions.push_back(component.document()->info());
     }
     edit = std::make_unique<editor::components::ComponentEdit>(
-        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
+        world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),
         std::move(after), std::move(versions));
-    result = {{"sceneId", std::to_string(node->scene().id())},
-              {"nodeId", std::to_string(node->id())},
+    result = {{"sceneId", std::to_string(node.scene()->id())},
+              {"nodeId", std::to_string(node.id())},
               {"document", path},
               {"guid", guid}};
     return true;

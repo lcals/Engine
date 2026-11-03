@@ -1,5 +1,7 @@
 #include "plugins/runtime/character_controller/character_controller.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/node.hpp"
 
@@ -10,13 +12,6 @@ namespace engine::plugins::character_controller
 namespace
 {
 
-schema::ComponentDataT make_data()
-{
-    schema::ComponentDataT data;
-    data.payload.Set(schema::CharacterControllerDataT{});
-    return data;
-}
-
 bool bounded(float value, float minimum, float maximum) noexcept
 {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -24,8 +19,14 @@ bool bounded(float value, float minimum, float maximum) noexcept
 
 } // namespace
 
-CharacterController::CharacterController(Node& node) : Component(node, make_data())
+bool CharacterController::register_type(ComponentRegistry& registry)
 {
+    return register_component_storage<CharacterController, Data, Runtime>(registry);
+}
+
+CharacterController::Runtime* CharacterController::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
 }
 
 bool CharacterController::valid_settings(const schema::CharacterControllerDataT& value) noexcept
@@ -34,23 +35,40 @@ bool CharacterController::valid_settings(const schema::CharacterControllerDataT&
            bounded(value.look_sensitivity, 0.0F, 100.0F);
 }
 
-const schema::CharacterControllerDataT& CharacterController::settings() const noexcept
+schema::CharacterControllerDataT CharacterController::settings() const noexcept
 {
-    return *data().payload.AsCharacterControllerData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool CharacterController::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool CharacterController::set_settings(const schema::CharacterControllerDataT& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    *mutable_data().payload.AsCharacterControllerData() = value;
+    *write_data<Data>() = value;
+    modified();
     return true;
 }
 
 bool CharacterController::set_input(const CharacterInput& input) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     const auto valid = [](const Vec2& value)
     {
         return std::isfinite(value.x()) && std::isfinite(value.y()) &&
@@ -65,30 +83,44 @@ bool CharacterController::set_input(const CharacterInput& input) noexcept
     {
         return false;
     }
-    input_ = input;
+    runtime()->input_ = input;
     return true;
 }
 
 void CharacterController::clear_input() noexcept
 {
-    input_ = {};
-    auto* motor = node().get_component<CharacterMotor>();
-    if (motor != nullptr && motor->instance_id() == driven_motor_)
+    if (!writable())
     {
-        motor->clear_input();
+        return;
     }
-    driven_motor_ = 0;
+    runtime()->input_ = {};
+    auto motor = node().get_component<CharacterMotor>();
+    if (motor.valid() && motor.instance_id() == runtime()->driven_motor_)
+    {
+        motor.clear_input();
+    }
+    runtime()->driven_motor_ = 0;
 }
 
 bool CharacterController::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsCharacterControllerData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(value.enabled);
-    set_visible(value.visible);
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     clear_input();
     return true;
 }

@@ -1,13 +1,15 @@
 #include "runtime/scene/audio_listener.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include <cmath>
 
 namespace engine
 {
 
-AudioListener::AudioListener(Node& node) : Component(node)
+bool AudioListener::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::AudioListenerDataT{});
+    return register_component_storage<AudioListener, Data>(registry);
 }
 
 bool AudioListener::valid_settings(const schema::AudioListenerDataT& settings) noexcept
@@ -15,30 +17,53 @@ bool AudioListener::valid_settings(const schema::AudioListenerDataT& settings) n
     return std::isfinite(settings.volume) && settings.volume >= 0.0F && settings.volume <= 1.0F;
 }
 
-const schema::AudioListenerDataT& AudioListener::settings() const noexcept
+schema::AudioListenerDataT AudioListener::settings() const noexcept
 {
-    return *data().payload.AsAudioListenerData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool AudioListener::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool AudioListener::set_settings(const schema::AudioListenerDataT& settings) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(settings))
     {
         return false;
     }
-    *mutable_data().payload.AsAudioListenerData() = settings;
+    *write_data<Data>() = settings;
+    modified();
     return true;
 }
 
 bool AudioListener::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsAudioListenerData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 

@@ -59,23 +59,23 @@ Object.freeze(DestructionComponent.prototype);
 Object.freeze(DestructionComponent);
 )js";
 
-destruction::DestructionComponent* component(const Arguments& arguments, int count)
+destruction::DestructionComponent component(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     return node && arguments.count() == count
-               ? node->get_component<destruction::DestructionComponent>()
-               : nullptr;
+               ? node.get_component<destruction::DestructionComponent>()
+               : destruction::DestructionComponent{};
 }
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node &&
-                         node->add_component<destruction::DestructionComponent>() != nullptr);
+                         node.add_component<destruction::DestructionComponent>().valid());
 }
 void damage(const Arguments& arguments)
 {
-    auto* value = component(arguments, 8);
+    auto value = component(arguments, 8);
     double x = 0;
     double y = 0;
     double z = 0;
@@ -88,12 +88,12 @@ void damage(const Arguments& arguments)
         BindingContext::scalar(arguments, 6, amount) &&
         BindingContext::scalar(arguments, 7, impulse))
     {
-        arguments.set_return(value->damage_sphere({x, y, z}, radius, amount, impulse));
+        arguments.set_return(value.damage_sphere({x, y, z}, radius, amount, impulse));
     }
 }
 void damage_async(const Arguments& arguments)
 {
-    auto* value = component(arguments, 8);
+    auto value = component(arguments, 8);
     auto* context = BindingContext::current(arguments);
     auto* system = destruction::DestructionSystem::instance();
     double x = 0;
@@ -109,16 +109,16 @@ void damage_async(const Arguments& arguments)
         BindingContext::scalar(arguments, 7, impulse))
     {
         arguments.set_return(context->submit_async(
-            [=](std::function<void(bool)> completed)
+            [=](std::function<void(bool)> completed) mutable
             {
-                return system->request_damage(*value, {x, y, z}, radius, amount, impulse,
+                return system->request_damage(value, {x, y, z}, radius, amount, impulse,
                                               std::move(completed));
             }));
     }
 }
 void support(const Arguments& arguments)
 {
-    auto* value = component(arguments, 6);
+    auto value = component(arguments, 6);
     auto* context = BindingContext::current(arguments);
     std::uint64_t scene_id = 0;
     std::uint64_t node_id = 0;
@@ -131,26 +131,26 @@ void support(const Arguments& arguments)
     {
         return;
     }
-    auto* node = context->find_node(scene_id, node_id);
-    const auto* collider = node ? node->get_component<Collider>() : nullptr;
-    arguments.set_return(collider && value->refresh_support(*collider, max_gap, min_coverage));
+    auto node = context->find_node(scene_id, node_id);
+    const auto collider = node ? node.get_component<Collider>() : Collider{};
+    arguments.set_return(collider && value.refresh_support(collider, max_gap, min_coverage));
 }
 void owns_fragment(const Arguments& arguments)
 {
-    const auto* value = component(arguments, 3);
+    const auto value = component(arguments, 3);
     std::uint64_t node_id = 0;
     arguments.set_return(value && BindingContext::identifier(arguments, 2, node_id) &&
-                         value->owns_fragment(node_id));
+                         value.owns_fragment(node_id));
 }
 void reset(const Arguments& arguments)
 {
-    auto* value = component(arguments, 2);
-    arguments.set_return(value && value->reset());
+    auto value = component(arguments, 2);
+    arguments.set_return(value && value.reset());
 }
 
 void retire_fragments(const Arguments& arguments)
 {
-    auto* value = component(arguments, 4);
+    auto value = component(arguments, 4);
     arguments.set_return({});
     double max_age = 0;
     if (!value || !arguments.is_uint32(2) || !BindingContext::number(arguments, 3, max_age))
@@ -158,7 +158,7 @@ void retire_fragments(const Arguments& arguments)
         return;
     }
     std::uint32_t retired = 0;
-    if (value->retire_fragments(arguments.unsigned_integer(2), max_age, retired))
+    if (value.retire_fragments(arguments.unsigned_integer(2), max_age, retired))
     {
         arguments.set_return(retired);
     }
@@ -166,7 +166,7 @@ void retire_fragments(const Arguments& arguments)
 
 void stress(const Arguments& arguments)
 {
-    auto* value = component(arguments, 8);
+    auto value = component(arguments, 8);
     arguments.set_return({});
     double x = 0;
     double y = 0;
@@ -181,14 +181,14 @@ void stress(const Arguments& arguments)
         return;
     }
     std::uint32_t broken = 0;
-    if (value->apply_stress({x, y, z}, elastic, fatal, arguments.unsigned_integer(7), broken))
+    if (value.apply_stress({x, y, z}, elastic, fatal, arguments.unsigned_integer(7), broken))
     {
         arguments.set_return(broken);
     }
 }
 void statistic(const Arguments& arguments)
 {
-    const auto* value = component(arguments, 2);
+    const auto value = component(arguments, 2);
     arguments.set_return({});
     if (!value)
     {
@@ -197,22 +197,22 @@ void statistic(const Arguments& arguments)
     switch (arguments.data())
     {
     case 0:
-        arguments.set_return(value->ready());
+        arguments.set_return(value.ready());
         break;
     case 1:
-        arguments.set_return(value->revision());
+        arguments.set_return(value.revision());
         break;
     case 2:
-        arguments.set_return(static_cast<double>(value->chunk_count()));
+        arguments.set_return(static_cast<double>(value.chunk_count()));
         break;
     case 3:
-        arguments.set_return(static_cast<double>(value->group_count()));
+        arguments.set_return(static_cast<double>(value.group_count()));
         break;
     case 4:
-        arguments.set_return(static_cast<double>(value->dynamic_groups()));
+        arguments.set_return(static_cast<double>(value.dynamic_groups()));
         break;
     case 5:
-        arguments.set_return(value->last_error());
+        arguments.set_return(value.last_error());
         break;
     }
 }

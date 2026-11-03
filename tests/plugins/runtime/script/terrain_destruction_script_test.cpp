@@ -12,6 +12,7 @@
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 #include "script_fixture.hpp"
 
 #include <chrono>
@@ -253,32 +254,32 @@ bool add_fixtures(test_support::ResourceFixture& files)
 bool prepare_components(WorldSystem& world, TerrainSystem& terrain, DestructionSystem& destruction)
 {
     auto* scene = world.scene();
-    Node* ground = nullptr;
-    Node* building = nullptr;
+    Node ground = {};
+    Node building = {};
     if (scene)
     {
-        for (const auto& node : scene->nodes())
+        for (const auto& node : test_support::scene_nodes(*scene))
         {
-            if (node->name() == "Terrain")
+            if (node.name() == "Terrain")
             {
-                ground = node.get();
+                ground = node;
             }
-            if (node->name() == "Building")
+            if (node.name() == "Building")
             {
-                building = node.get();
+                building = node;
             }
         }
     }
-    auto* terrain_component = ground ? ground->get_component<TerrainComponent>() : nullptr;
-    auto* destruction_component =
-        building ? building->get_component<DestructionComponent>() : nullptr;
+    auto terrain_component = ground ? ground.get_component<TerrainComponent>() : TerrainComponent{};
+    auto destruction_component =
+        building ? building.get_component<DestructionComponent>() : DestructionComponent{};
     schema::TerrainDataT terrain_settings;
     terrain_settings.terrain_guid = terrain_guid;
     schema::DestructionDataT destruction_settings;
     destruction_settings.destruction_guid = destruction_guid;
     return terrain_component && destruction_component &&
-           terrain_component->set_settings(terrain_settings) &&
-           destruction_component->set_settings(destruction_settings) && terrain.synchronize() &&
+           terrain_component.set_settings(terrain_settings) &&
+           destruction_component.set_settings(destruction_settings) && terrain.synchronize() &&
            destruction.synchronize();
 }
 
@@ -311,8 +312,7 @@ bool run(test_support::ResourceFixture& files)
     {
         return false;
     }
-    if (!expect(prepare_components(world, terrain, destruction),
-                "prepare native assets"))
+    if (!expect(prepare_components(world, terrain, destruction), "prepare native assets"))
     {
         return false;
     }
@@ -357,10 +357,9 @@ bool run(test_support::ResourceFixture& files)
         {
             return false;
         }
-        if (replace &&
-            !expect(terrain.synchronize() && destruction.synchronize() && tasks.wait() &&
-                        terrain.synchronize() && destruction.synchronize(),
-                    "prepare completed results without dispatching script delegates"))
+        if (replace && !expect(terrain.synchronize() && destruction.synchronize() && tasks.wait() &&
+                                   terrain.synchronize() && destruction.synchronize(),
+                               "prepare completed results without dispatching script delegates"))
         {
             return false;
         }

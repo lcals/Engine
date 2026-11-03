@@ -17,7 +17,13 @@ class DestructionGraph
 class DestructionDataT
 class DestructionStateDataT
 class DestructionComponent {
+        <<value handle>>
+        +DestructionComponent()
+        +DestructionComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() DestructionComponentRuntime#42;
 +settings() DestructionDataT
++get_settings(DestructionDataT& output) bool
 +set_settings(DestructionDataT value) bool
 +restore_data(ComponentDataT data) bool
 +damage_sphere(Vec3 center, float radius, float damage, float impulse) bool
@@ -42,11 +48,11 @@ class DestructionSystem {
 +synchronize(Node node) bool
 +rebuild(DestructionComponent component, DestructionGraph candidate, bool preserve) bool
 +damage(DestructionComponent component, Vec3 center, float radius, float damage, float impulse) bool
-+request_damage(DestructionComponent& component, const Vec3& center, float radius, float damage, float impulse, function~void(bool)~ completed) bool
++request_damage(DestructionComponent component, const Vec3& center, float radius, float damage, float impulse, function~void(bool)~ completed) bool
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
 +apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
-+retire_fragments(DestructionComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
++retire_fragments(DestructionComponent component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset(DestructionComponent component) bool
 +snapshot(DestructionComponent component, DestructionStateDataT output) bool
 +restore(DestructionComponent component, DestructionStateDataT state) bool
@@ -56,8 +62,8 @@ class DestructionSystem {
 }
 System <|-- DestructionSystem
 Component <|-- DestructionComponent
-DestructionComponent *-- DestructionGraph : independent damage state
-DestructionComponent --> Resource : shared immutable source
+DestructionComponentRuntime *-- DestructionGraph : independent damage state
+DestructionComponentRuntime --> Resource : shared immutable source
 DestructionComponent ..> DestructionDataT : generated settings
 DestructionComponent ..> DestructionStateDataT : portable snapshot
 DestructionComponent ..> Collider : explicit support query target
@@ -67,6 +73,15 @@ DestructionSystem --> TaskSystem : optional borrowed
 DestructionSystem ..> Collider : borrowed for the current refresh call
 DestructionSystem ..> DestructionComponent : prepares and publishes
 DestructionSystem ..> DestructionGraph : candidate clone
+    class ComponentRegistry
+    class ecs_world_t
+    class DestructionComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- DestructionComponentRuntime : 实例运行数据
+    DestructionComponent ..> DestructionComponentRuntime : 校验身份后短期借用
+    DestructionComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 `request_damage` 是独立的非阻塞请求入口，保留同步 `damage` 契约。构造可借用已初始化任务域，默认最多 64 个未完成请求、每次同步最多发布 1 个候选；无任务域、空委托或预算满时拒绝请求。每个建筑串行排队，不同建筑可并行，候选数量受域并发上限限制。完成委托只在主线程全局 `synchronize`/tick 执行；关闭丢弃委托，worker 仅保留独占数据。
@@ -100,7 +115,7 @@ Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建�
 系统在物理前由父系统驱动；编辑器预览调用 synchronize，不直接 tick 子系统。
 承重应力使用下述显式步骤 4 接口；异步 damage 完成后，调用方按依赖顺序刷新支撑与导航。
 
-编辑器单对象事务调用 `synchronize(Node&)`，只发布或回收该节点的输出；
+编辑器单对象事务调用 `synchronize(Node)`，只发布或回收该节点的输出；
 每帧全局同步仍负责扫描和调度，不在编辑某一个对象时顺带发布其他待处理对象。
 
 ## 显式地基刷新
@@ -155,3 +170,5 @@ Pa 阈值与项目损伤计数解耦。
 该方法只计算重力承载，不含接触应力、外力、疲劳时间模型或非等比形变。
 
 常驻源节点与组节点各自遵守普通 Node 生命周期，独立生成根节点不自动继承源常驻标记。源和相关组均存活时，切场景保留图、姿态与在途损伤候选；发布仍按原 Scene、Node、生命周期和 revision 检查。源常驻而普通组被卸载时，系统回收残余生成记录，置 `ready=false`、`pending=false` 并保留图/损伤与一次明确错误；后续同步返回成功，不停止宿主或反复重建。调用方可显式 Reset 重建初始组。该边界不引入通用派生节点所有权层。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

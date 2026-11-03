@@ -14,7 +14,7 @@ public:
     ~PlanarReflectionPass() noexcept;
     PlanarReflectionPass(const PlanarReflectionPass&) = delete;
     PlanarReflectionPass& operator=(const PlanarReflectionPass&) = delete;
-    [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height);
+    [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height, std::uint8_t samples);
     [[nodiscard]] bool mirror(const float* plane_world, const float* camera_world,
                               const float* camera_projection, float clip_bias);
     void begin(bgfx::ViewId view_id, std::uint32_t clear_color);
@@ -34,5 +34,6 @@ private:
     bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
     bgfx::FrameBufferHandle framebuffer_ = BGFX_INVALID_HANDLE;
     bgfx::ViewId attached_view_ = UINT16_MAX;
+    std::uint8_t samples_ = 1;
 };
 } // namespace engine::render_detail

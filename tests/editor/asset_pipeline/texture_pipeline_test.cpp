@@ -13,8 +13,8 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
 
-#include <basisu/transcoder/basisu_transcoder.h>
 #include <basisu/encoder/basisu_enc.h>
+#include <basisu/transcoder/basisu_transcoder.h>
 #include <flatbuffers/verifier.h>
 
 #include <algorithm>
@@ -22,9 +22,9 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <cstring>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <memory>
@@ -599,9 +599,8 @@ bool additional_source_tests()
     {
         tga.append("\0\0\xff\xff", 4);
     }
-    const unsigned char qoi[] = {
-        'q', 'o', 'i', 'f', 0, 0, 0, 4, 0, 0, 0, 4, 4, 0,
-        0xff, 0xff, 0, 0, 0xff, 0xce, 0, 0, 0, 0, 0, 0, 0, 1};
+    const unsigned char qoi[] = {'q',  'o',  'i', 'f', 0,    0,    0, 4, 0, 0, 0, 4, 4, 0,
+                                 0xff, 0xff, 0,   0,   0xff, 0xce, 0, 0, 0, 0, 0, 0, 0, 1};
     std::string hdr = "#?RADIANCE\nFORMAT=32-bit_rle_rgbe\n\n-Y 4 +X 4\n";
     for (int i = 0; i < 16; ++i)
     {
@@ -614,13 +613,13 @@ bool additional_source_tests()
     }
     const auto exr_path = fixture.root / "assets/linear.exr";
     const auto exr_filename = PathUtils::to_utf8(exr_path);
-    if (!expect(write(fixture.root / "assets/color.TGA", tga) &&
-                    write_image(fixture.root / "assets/color.qoi", qoi) &&
-                    write(fixture.root / "assets/radiance.hdr", hdr) &&
-                    basisu::write_exr(exr_filename.c_str(), exr, 4,
-                                      basisu::WRITE_EXR_NO_COMPRESSION) &&
-                    build(pipeline, fixture),
-                "TGA/QOI/HDR/EXR all import through the same BasisU pipeline") ||
+    if (!expect(
+            write(fixture.root / "assets/color.TGA", tga) &&
+                write_image(fixture.root / "assets/color.qoi", qoi) &&
+                write(fixture.root / "assets/radiance.hdr", hdr) &&
+                basisu::write_exr(exr_filename.c_str(), exr, 4, basisu::WRITE_EXR_NO_COMPRESSION) &&
+                build(pipeline, fixture),
+            "TGA/QOI/HDR/EXR all import through the same BasisU pipeline") ||
         !expect(resources.update_catalog(pipeline.catalog(), {{"content", fixture.root / "cache"}}),
                 "publish expanded texture sources to the runtime catalog"))
     {
@@ -660,8 +659,7 @@ bool additional_source_tests()
         render_detail::PreparedTexture prepared;
         if (!expect(prepared.describe(loaded, caps, 168) && prepared.prepare() &&
                         prepared.format == bgfx::TextureFormat::RGBA16F && prepared.bytes == 168 &&
-                        prepared.levels.size() == 3 &&
-                        (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
+                        prepared.levels.size() == 3 && (prepared.flags & BGFX_TEXTURE_SRGB) == 0,
                     "render preparation budgets and decodes every HDR mip as RGBA16F"))
         {
             return false;
@@ -711,8 +709,8 @@ bool additional_source_tests()
     const auto stable = read(fixture.root / "cache/catalog.bin");
     const auto hdr_meta = fixture.root / "assets/radiance.hdr.meta";
     const auto original = read(hdr_meta);
-    for (const auto* invalid : {"srgb=true", "format=\"rgba8\"", "compression=\"etc1s\"",
-                                "rdo_quality_scalar=0.5"})
+    for (const auto* invalid :
+         {"srgb=true", "format=\"rgba8\"", "compression=\"etc1s\"", "rdo_quality_scalar=0.5"})
     {
         if (!expect(write(hdr_meta, meta(hdr_guid, "texture") + "[texture]\n" + invalid + "\n") &&
                         !pipeline.build_assets(fixture.root) &&
@@ -726,16 +724,16 @@ bool additional_source_tests()
     {
         return false;
     }
-    for (const auto& value : {std::array{4.0F, 0.5F}, std::array{-1.0F, 1.0F},
-                              std::array{65504.0F, 1.0F}})
+    for (const auto& value :
+         {std::array{4.0F, 0.5F}, std::array{-1.0F, 1.0F}, std::array{65504.0F, 1.0F}})
     {
         exr.get_ptr()[0][3] = value[1];
         exr.get_ptr()[0][0] = value[0];
-        if (!expect(basisu::write_exr(exr_filename.c_str(), exr, 4,
-                                      basisu::WRITE_EXR_NO_COMPRESSION) &&
-                        !pipeline.build_assets(fixture.root) &&
-                        read(fixture.root / "cache/catalog.bin") == stable,
-                    "Basis encoding must reject alpha and out-of-range radiance"))
+        if (!expect(
+                basisu::write_exr(exr_filename.c_str(), exr, 4, basisu::WRITE_EXR_NO_COMPRESSION) &&
+                    !pipeline.build_assets(fixture.root) &&
+                    read(fixture.root / "cache/catalog.bin") == stable,
+                "Basis encoding must reject alpha and out-of-range radiance"))
         {
             return false;
         }
@@ -808,13 +806,13 @@ bool ktx_tests()
         return false;
     }
     auto* scene = world.create_scene("Texture dimensions");
-    auto* node = scene ? scene->create_node("Mesh") : nullptr;
-    auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
-    if (!expect(mesh != nullptr, "create material through ordinary MeshRenderer component"))
+    auto node = scene ? scene->create_node("Mesh") : engine::Node{};
+    auto mesh = node ? node.add_component<MeshRenderer>() : MeshRenderer{};
+    if (!expect(mesh.valid(), "create material through ordinary MeshRenderer component"))
     {
         return false;
     }
-    auto& material = mesh->material();
+    auto material = mesh.material();
     std::string_view bound;
     if (!expect(material.get_texture("baseColorTexture", bound), "read default 2D binding"))
     {

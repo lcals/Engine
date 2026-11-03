@@ -243,12 +243,12 @@ bool compose_scene(schema::SceneDataT& scene, const ImportContext& context, std:
     std::set<std::uint64_t> reserved;
     for (const auto& node : candidate.nodes)
     {
-        if (!node || !node->info || !reserved.insert(node->info->id).second)
+        if (!node || !node->info || !reserved.insert(node->info->properties->id).second)
         {
             error = "Scene contains invalid or duplicate ordinary nodes";
             return false;
         }
-        maximum = std::max(maximum, node->info->id);
+        maximum = std::max(maximum, node->info->properties->id);
     }
     for (const auto& instance : candidate.prefab_instances)
     {

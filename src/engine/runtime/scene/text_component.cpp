@@ -1,5 +1,7 @@
 #include "runtime/scene/text_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -9,11 +11,30 @@
 namespace engine
 {
 
-TextComponent::TextComponent(Node& node) : Component(node)
+bool TextComponent::register_type(ComponentRegistry& registry)
 {
-    schema::TextDataT settings;
-    settings.shader_path = "builtin://shaders/font";
-    mutable_data().payload.Set(std::move(settings));
+    return register_component_storage<TextComponent, Data, Runtime>(registry);
+}
+
+TextComponent::Runtime* TextComponent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
+
+bool TextComponent::initialize()
+{
+    if (!writable())
+    {
+        return false;
+    }
+    auto* value = write_data<Data>();
+    if (!value)
+    {
+        return false;
+    }
+    value->shader_path = "builtin://shaders/font";
+    modified();
+    return true;
 }
 
 bool TextComponent::valid_settings(const schema::TextDataT& settings) noexcept
@@ -27,19 +48,31 @@ bool TextComponent::valid_settings(const schema::TextDataT& settings) noexcept
            valid_color(color.g()) && valid_color(color.b()) && valid_color(color.a());
 }
 
-const schema::TextDataT& TextComponent::settings() const noexcept
+schema::TextDataT TextComponent::settings() const noexcept
 {
-    return *data().payload.AsTextData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool TextComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool TextComponent::set_settings(const schema::TextDataT& settings)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(settings))
     {
         return false;
     }
-    ResourcePtr font = font_;
-    ResourcePtr shader = shader_;
+    ResourcePtr font = runtime()->font_;
+    ResourcePtr shader = runtime()->shader_;
     auto normalized = settings;
     if (normalized.shader_path.empty())
     {
@@ -67,14 +100,19 @@ bool TextComponent::set_settings(const schema::TextDataT& settings)
             return false;
         }
     }
-    *mutable_data().payload.AsTextData() = std::move(normalized);
-    font_ = std::move(font);
-    shader_ = std::move(shader);
+    *write_data<Data>() = std::move(normalized);
+    modified();
+    runtime()->font_ = std::move(font);
+    runtime()->shader_ = std::move(shader);
     return true;
 }
 
 bool TextComponent::set_font(std::string_view path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto replacement = settings();
     if (path.empty())
     {
@@ -87,25 +125,43 @@ bool TextComponent::set_font(std::string_view path)
     return set_settings(replacement);
 }
 
-const std::shared_ptr<const Resource>& TextComponent::font() const noexcept
+std::shared_ptr<const Resource> TextComponent::font() const noexcept
 {
-    return font_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->font_;
 }
 
-const std::shared_ptr<const Resource>& TextComponent::shader() const noexcept
+std::shared_ptr<const Resource> TextComponent::shader() const noexcept
 {
-    return shader_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->shader_;
 }
 
 bool TextComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsTextData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 

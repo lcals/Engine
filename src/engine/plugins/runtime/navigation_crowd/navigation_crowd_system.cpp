@@ -1,4 +1,6 @@
 #include "plugins/runtime/navigation_crowd/navigation_crowd_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 #include "runtime/navigation/navigation_system.hpp"
@@ -24,25 +26,24 @@ bool same_position(const Vec3& left, const Vec3& right) noexcept
     return left.x() == right.x() && left.y() == right.y() && left.z() == right.z();
 }
 
-bool can_drive(const Node& node, const Transform* transform) noexcept
+bool can_drive(const Node& node, Transform transform) noexcept
 {
-    if (node.parent() != nullptr || transform == nullptr || !transform->active())
+    if (node.parent().valid() || !transform || !transform.active())
     {
         return false;
     }
-    const auto& scale = transform->settings().scale;
-    const auto* motor = node.get_component<CharacterMotor>();
-    const auto* collider = node.get_component<Collider>();
-    const auto* body = node.get_component<RigidBody>();
-    const bool collider_enabled = collider != nullptr && collider->active();
-    const bool body_enabled = body != nullptr && body->active();
+    const auto& scale = transform.settings().scale;
+    const auto motor = node.get_component<CharacterMotor>();
+    const auto collider = node.get_component<Collider>();
+    const auto body = node.get_component<RigidBody>();
+    const bool collider_enabled = static_cast<bool>(collider) && collider.active();
+    const bool body_enabled = static_cast<bool>(body) && body.active();
     const bool physics_mirror = collider_enabled && body_enabled &&
-                                body->settings().motion == schema::BodyMotion::kinematic &&
-                                same_position(body->settings().linear_velocity, Vec3{}) &&
-                                same_position(body->settings().angular_velocity, Vec3{});
+                                body.settings().motion == schema::BodyMotion::kinematic &&
+                                same_position(body.settings().linear_velocity, Vec3{}) &&
+                                same_position(body.settings().angular_velocity, Vec3{});
     return scale.x() == 1.0 && scale.y() == 1.0 && scale.z() == 1.0 &&
-           (motor == nullptr || !motor->active()) &&
-           ((!collider_enabled && !body_enabled) || physics_mirror);
+           (!motor || !motor.active()) && ((!collider_enabled && !body_enabled) || physics_mirror);
 }
 
 NavigationAgentSettings agent_settings(const schema::NavigationAgentDataT& value) noexcept
@@ -69,7 +70,7 @@ struct NavigationCrowdSystem::State
         std::uint64_t settings_revision = 0;
         std::uint64_t request_revision = 0;
         // 只在当前主线程 tick 内借用；下一次 tick 先清除，绝不解引用旧场景对象。
-        NavigationAgent* component = nullptr;
+        NavigationAgent component = {};
         bool requested_target = false;
         bool attempted = false;
     };
@@ -124,6 +125,10 @@ void NavigationCrowdSystem::release_agents() noexcept
 
 bool NavigationCrowdSystem::on_tick(double delta_time)
 {
+    if (!world_.refresh_scene_state())
+    {
+        return false;
+    }
     ENGINE_PROFILE_ZONE("NavigationCrowd.Sync");
     if (world_.paused())
     {
@@ -131,40 +136,62 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
     }
     for (auto& [id, entry] : state_->agents)
     {
-        entry.component = nullptr;
+        entry.component = {};
     }
     const bool available = navigation_.ready() && navigation_.configure_crowd(capacity_);
-    for (const auto& scene : world_.scenes())
     {
-        for (const auto& node : scene->nodes())
+        const auto process =
+            [&](Node node,
+                const ecs_detail::ComponentStorage<NavigationAgent::Data>& stored) -> bool
         {
-            auto* component = node->get_component<NavigationAgent>();
-            if (component == nullptr)
+            const auto* scene = node.scene();
+            (void)scene;
+            (void)stored;
+
+            auto component = node.get_component<NavigationAgent>();
+            if (!component)
             {
-                continue;
+                return true;
             }
-            if (!component->active())
+            if (!component.active())
             {
-                component->stop();
-                continue;
+                component.stop();
+                return true;
             }
-            auto* transform = node->get_component<Transform>();
-            if (!available || !can_drive(*node, transform))
+            auto transform = node.get_component<Transform>();
+            if (!available || !can_drive(node, transform))
             {
-                component->state_ = NavigationAgentStatus::invalid;
-                component->velocity_ = {};
-                continue;
+                component.runtime()->state_ = NavigationAgentStatus::invalid;
+                component.runtime()->velocity_ = {};
+                return true;
             }
-            auto& entry = state_->agents[component->instance_id()];
+            auto& entry = state_->agents[component.instance_id()];
             entry.component = component;
-        }
+
+            return true;
+        };
+        auto query = flecs::world(world_.native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<NavigationAgent::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<NavigationAgent::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_.find_node(entity.id()), stored);
+                }
+            });
+        (void)query_success;
     }
     // 先释放旧实例再分配，满容量下同帧替换也能使用刚释放的槽位。
     bool retry = state_->retry_failed_agents;
     state_->retry_failed_agents = false;
     for (auto iterator = state_->agents.begin(); iterator != state_->agents.end();)
     {
-        if (iterator->second.component == nullptr)
+        if (!iterator->second.component)
         {
             if (navigation_.remove_agent(iterator->second.handle))
             {
@@ -183,15 +210,15 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
     }
     for (auto& [id, entry] : state_->agents)
     {
-        auto* component = entry.component;
-        auto* transform = component->node().get_component<Transform>();
-        const Vec3 position = transform->settings().position;
+        auto component = entry.component;
+        auto transform = component.node().get_component<Transform>();
+        const Vec3 position = transform.settings().position;
         NavigationAgentState snapshot;
         bool live = navigation_.agent_state(entry.handle, snapshot);
         const bool moved = !same_position(position, entry.last_position);
-        const bool changed = entry.settings_revision != component->settings_revision_;
-        const bool requested = entry.request_revision != component->request_revision_ ||
-                               entry.requested_target != component->has_target_;
+        const bool changed = entry.settings_revision != component.runtime()->settings_revision_;
+        const bool requested = entry.request_revision != component.runtime()->request_revision_ ||
+                               entry.requested_target != component.runtime()->has_target_;
         const bool revised = entry.navigation_revision != navigation_.revision();
         if (live && moved)
         {
@@ -207,13 +234,13 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
         if (!live && (!entry.attempted || moved || changed || requested || revised || retry))
         {
             entry.attempted = true;
-            created = navigation_.create_agent(position, agent_settings(component->settings()),
+            created = navigation_.create_agent(position, agent_settings(component.settings()),
                                                entry.handle);
             live = created;
         }
         else if (live && changed &&
                  !navigation_.set_agent_settings(entry.handle,
-                                                 agent_settings(component->settings())))
+                                                 agent_settings(component.settings())))
         {
             if (navigation_.remove_agent(entry.handle))
             {
@@ -223,26 +250,26 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
             live = false;
         }
         entry.last_position = position;
-        entry.settings_revision = component->settings_revision_;
+        entry.settings_revision = component.runtime()->settings_revision_;
         entry.navigation_revision = navigation_.revision();
-        entry.request_revision = component->request_revision_;
-        entry.requested_target = component->has_target_;
+        entry.request_revision = component.runtime()->request_revision_;
+        entry.requested_target = component.runtime()->has_target_;
         if (!live)
         {
-            component->state_ = NavigationAgentStatus::invalid;
-            component->velocity_ = {};
+            component.runtime()->state_ = NavigationAgentStatus::invalid;
+            component.runtime()->velocity_ = {};
             continue;
         }
         if (created || requested)
         {
             const bool accepted =
-                component->has_target_
-                    ? navigation_.set_agent_target(entry.handle, component->target_)
+                component.runtime()->has_target_
+                    ? navigation_.set_agent_target(entry.handle, component.runtime()->target_)
                     : navigation_.stop_agent(entry.handle);
             if (!accepted)
             {
-                component->state_ = NavigationAgentStatus::unreachable;
-                component->velocity_ = {};
+                component.runtime()->state_ = NavigationAgentStatus::unreachable;
+                component.runtime()->velocity_ = {};
             }
         }
     }
@@ -252,20 +279,20 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
     }
     for (auto& [id, entry] : state_->agents)
     {
-        auto& component = *entry.component;
+        auto component = entry.component;
         NavigationAgentState snapshot;
         if (!navigation_.agent_state(entry.handle, snapshot))
         {
             continue;
         }
-        component.state_ = snapshot.status;
-        component.velocity_ = snapshot.velocity;
+        component.runtime()->state_ = snapshot.status;
+        component.runtime()->velocity_ = snapshot.velocity;
         if (snapshot.status == NavigationAgentStatus::invalid)
         {
             continue;
         }
-        auto* transform = component.node().get_component<Transform>();
-        auto settings = transform->settings();
+        auto transform = component.node().get_component<Transform>();
+        auto settings = transform.settings();
         settings.position = snapshot.position;
         if (component.settings().face_velocity &&
             std::hypot(snapshot.velocity.x(), snapshot.velocity.z()) > 0.01)
@@ -275,10 +302,10 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
                                      180.0 / std::numbers::pi,
                                  settings.rotation.z()};
         }
-        if (!transform->set_settings(settings))
+        if (!transform.set_settings(settings))
         {
-            component.state_ = NavigationAgentStatus::invalid;
-            component.velocity_ = {};
+            component.runtime()->state_ = NavigationAgentStatus::invalid;
+            component.runtime()->velocity_ = {};
             if (navigation_.remove_agent(entry.handle))
             {
                 state_->retry_failed_agents = true;

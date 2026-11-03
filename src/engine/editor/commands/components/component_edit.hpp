@@ -32,8 +32,8 @@ namespace engine::editor::components
 using Json = nlohmann::json;
 using NodeAliases = std::map<std::uint64_t, std::shared_ptr<std::uint64_t>>;
 [[nodiscard]] Json material_snapshot(const Material& material);
-[[nodiscard]] bool restore_material_snapshot(Material& material, const Json& snapshot);
-[[nodiscard]] Node* target(WorldSystem& world, const Json& arguments, std::string& error);
+[[nodiscard]] bool restore_material_snapshot(Material material, const Json& snapshot);
+[[nodiscard]] Node target(WorldSystem& world, const Json& arguments, std::string& error);
 [[nodiscard]] bool fields(const Json& arguments, std::initializer_list<std::string_view> names,
                           std::string& error);
 [[nodiscard]] bool number(const Json& input, float& value);
@@ -75,23 +75,23 @@ template <typename T, typename Data, typename Read, typename Write>
                                                std::unique_ptr<EditorEdit>& edit,
                                                std::string& error)
                {
-                   auto* node = target(world, arguments, error);
-                   if (node == nullptr)
+                   auto node = target(world, arguments, error);
+                   if (!node)
                    {
                        return false;
                    }
-                   auto* component = node->get_component<T>();
+                   auto component = node.get_component<T>();
                    std::optional<schema::ComponentDataT> before;
-                   if (component != nullptr)
+                   if (component.valid())
                    {
                        before.emplace();
-                       if (!component->build_data(*before))
+                       if (!component.build_data(*before))
                        {
                            error = "Cannot snapshot component";
                            return false;
                        }
                    }
-                   Data data = component != nullptr ? component->settings() : Data{};
+                   Data data = component.valid() ? component.settings() : Data{};
                    if (!read(arguments, data, error) || !T::valid_settings(data))
                    {
                        if (error.empty())
@@ -101,9 +101,10 @@ template <typename T, typename Data, typename Read, typename Write>
                        return false;
                    }
                    schema::ComponentDataT after;
+                   after.flags = std::make_unique<schema::ComponentFlagsT>();
                    after.payload.Set(data);
-                   after.enabled = component == nullptr || component->enabled();
-                   after.visible = component == nullptr || component->visible();
+                   after.flags->enabled = !component || component.enabled();
+                   after.flags->visible = !component || component.visible();
                    if (arguments.contains("enabled"))
                    {
                        if (!arguments["enabled"].is_boolean())
@@ -111,17 +112,17 @@ template <typename T, typename Data, typename Read, typename Write>
                            error = "enabled must be boolean";
                            return false;
                        }
-                       after.enabled = arguments["enabled"].get<bool>();
+                       after.flags->enabled = arguments["enabled"].get<bool>();
                    }
                    result = write(data);
-                   result["enabled"] = after.enabled;
-                   result["sceneId"] = std::to_string(node->scene().id());
-                   result["nodeId"] = std::to_string(node->id());
-                   const auto alias = aliases.find(node->id());
-                   auto identity = alias != aliases.end() && *alias->second == node->id()
+                   result["enabled"] = after.flags->enabled;
+                   result["sceneId"] = std::to_string(node.scene()->id());
+                   result["nodeId"] = std::to_string(node.id());
+                   const auto alias = aliases.find(node.id());
+                   auto identity = alias != aliases.end() && *alias->second == node.id()
                                        ? alias->second
-                                       : std::make_shared<std::uint64_t>(node->id());
-                   edit = std::make_unique<ComponentEdit>(world, node->scene().id(),
+                                       : std::make_shared<std::uint64_t>(node.id());
+                   edit = std::make_unique<ComponentEdit>(world, node.scene()->id(),
                                                           std::move(identity), std::move(before),
                                                           std::move(after));
                    return true;
@@ -135,9 +136,9 @@ template <typename T, typename Data, typename Read, typename Write>
                    {
                        return false;
                    }
-                   const auto* node = target(world, arguments, error);
-                   const auto* component = node == nullptr ? nullptr : node->get_component<T>();
-                   if (component == nullptr)
+                   const auto node = target(world, arguments, error);
+                   const auto component = !node ? T{} : node.get_component<T>();
+                   if (!component)
                    {
                        if (error.empty())
                        {
@@ -145,10 +146,10 @@ template <typename T, typename Data, typename Read, typename Write>
                        }
                        return false;
                    }
-                   result = write(component->settings());
-                   result["enabled"] = component->enabled();
-                   result["sceneId"] = std::to_string(node->scene().id());
-                   result["nodeId"] = std::to_string(node->id());
+                   result = write(component.settings());
+                   result["enabled"] = component.enabled();
+                   result["sceneId"] = std::to_string(node.scene()->id());
+                   result["nodeId"] = std::to_string(node.id());
                    return true;
                });
 }

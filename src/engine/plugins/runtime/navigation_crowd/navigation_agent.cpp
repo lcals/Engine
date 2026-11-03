@@ -1,5 +1,7 @@
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include <cmath>
 #include <limits>
 
@@ -8,13 +10,6 @@ namespace engine::plugins::navigation_crowd
 namespace
 {
 
-schema::ComponentDataT make_data()
-{
-    schema::ComponentDataT data;
-    data.payload.Set(schema::NavigationAgentDataT{});
-    return data;
-}
-
 bool bounded(float value, float minimum, float maximum) noexcept
 {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -22,10 +17,15 @@ bool bounded(float value, float minimum, float maximum) noexcept
 
 } // namespace
 
-NavigationAgent::NavigationAgent(Node& node) : Component(node, make_data())
+bool NavigationAgent::register_type(ComponentRegistry& registry)
 {
+    return register_component_storage<NavigationAgent, Data, Runtime>(registry);
 }
 
+NavigationAgent::Runtime* NavigationAgent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
 
 bool NavigationAgent::valid_settings(const schema::NavigationAgentDataT& value) noexcept
 {
@@ -36,71 +36,110 @@ bool NavigationAgent::valid_settings(const schema::NavigationAgentDataT& value) 
            bounded(value.arrival_distance, 0.01F, 10.0F);
 }
 
-const schema::NavigationAgentDataT& NavigationAgent::settings() const noexcept
+schema::NavigationAgentDataT NavigationAgent::settings() const noexcept
 {
-    return *data().payload.AsNavigationAgentData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool NavigationAgent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool NavigationAgent::set_settings(const schema::NavigationAgentDataT& value) noexcept
 {
-    if (!valid_settings(value) || settings_revision_ == std::numeric_limits<std::uint64_t>::max())
+    if (!writable())
     {
         return false;
     }
-    *mutable_data().payload.AsNavigationAgentData() = value;
-    ++settings_revision_;
+    if (!valid_settings(value) ||
+        runtime()->settings_revision_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    *write_data<Data>() = value;
+    modified();
+    ++runtime()->settings_revision_;
     return true;
 }
 
 bool NavigationAgent::move_to(const Vec3& target) noexcept
 {
-    if (!active() || !std::isfinite(target.x()) || !std::isfinite(target.y()) ||
-        !std::isfinite(target.z()) || std::abs(target.x()) > 1000000.0 ||
-        std::abs(target.y()) > 1000000.0 || std::abs(target.z()) > 1000000.0 ||
-        request_revision_ == std::numeric_limits<std::uint64_t>::max())
+    if (!writable())
     {
         return false;
     }
-    target_ = target;
-    has_target_ = true;
-    state_ = NavigationAgentStatus::pending;
-    ++request_revision_;
+    if (!active() || !std::isfinite(target.x()) || !std::isfinite(target.y()) ||
+        !std::isfinite(target.z()) || std::abs(target.x()) > 1000000.0 ||
+        std::abs(target.y()) > 1000000.0 || std::abs(target.z()) > 1000000.0 ||
+        runtime()->request_revision_ == std::numeric_limits<std::uint64_t>::max())
+    {
+        return false;
+    }
+    runtime()->target_ = target;
+    runtime()->has_target_ = true;
+    runtime()->state_ = NavigationAgentStatus::pending;
+    ++runtime()->request_revision_;
     return true;
 }
 
 void NavigationAgent::stop() noexcept
 {
-    has_target_ = false;
-    target_ = {};
-    velocity_ = {};
-    state_ = NavigationAgentStatus::idle;
-    // Stop 仍须可取消请求，即使极端情况下请求计数已耗尽。
-    if (request_revision_ != std::numeric_limits<std::uint64_t>::max())
+    if (!writable())
     {
-        ++request_revision_;
+        return;
+    }
+    runtime()->has_target_ = false;
+    runtime()->target_ = {};
+    runtime()->velocity_ = {};
+    runtime()->state_ = NavigationAgentStatus::idle;
+    // Stop 仍须可取消请求，即使极端情况下请求计数已耗尽。
+    if (runtime()->request_revision_ != std::numeric_limits<std::uint64_t>::max())
+    {
+        ++runtime()->request_revision_;
     }
 }
 
 NavigationAgentStatus NavigationAgent::state() const noexcept
 {
-    return state_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->state_;
 }
 
 Vec3 NavigationAgent::velocity() const noexcept
 {
-    return velocity_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->velocity_;
 }
-
 
 bool NavigationAgent::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsNavigationAgentData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(value.enabled);
-    set_visible(value.visible);
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     stop();
     return true;
 }

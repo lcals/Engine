@@ -2,7 +2,7 @@
 
 插件命名空间 `engine::plugins::terrain`；`System`、`Component`、世界、任务与物理只跨图引用，核心不引用地形插件。
 
-`TerrainVolume` 独占 FlatBuffers 体积和按块网格缓存，只做计算。`TerrainComponent` 保持初始资源引用、修改副本与状态；保存绑定初始 GUID 和内容指纹。`TerrainSystem` 借用世界和物理，先准备候选、同步提交，失败保留旧结果。生命周期由宿主放在物理前驱动；正常 `on_tick()` 与编辑器预览均调用显式 `synchronize()`，预览不直接调用子系统的生命周期入口。
+`TerrainVolume` 独占 FlatBuffers 体积和按块网格缓存，只做计算。`TerrainComponentRuntime` 在 ECS 列保持初始资源引用、修改副本与状态；保存绑定初始 GUID 和内容指纹。`TerrainSystem` 借用世界和物理，先准备候选、同步提交，失败保留旧结果。生命周期由宿主放在物理前驱动；正常 `on_tick()` 与编辑器预览均调用显式 `synchronize()`，预览不直接调用子系统的生命周期入口。
 
 ```mermaid
 classDiagram
@@ -33,7 +33,13 @@ class TerrainVolume {
 +rebuilt_chunks() size_t
 }
 class TerrainComponent {
+        <<value handle>>
+        +TerrainComponent()
+        +TerrainComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() TerrainComponentRuntime#42;
 +settings() TerrainDataT
++get_settings(TerrainDataT& output) bool
 +set_settings(TerrainDataT settings) bool
 +restore_data(ComponentDataT data) bool
 +apply_sphere(Vec3 center, float radius, bool fill) bool
@@ -56,9 +62,9 @@ class TerrainSystem {
 +TerrainSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks, size_t max_pending_requests, size_t max_commits_per_tick)
 +instance() TerrainSystem*
 +commit(TerrainComponent component, TerrainVolume candidate) bool
-+request_apply_sphere(TerrainComponent& component, const Vec3& center, float radius, bool fill, function~void(bool)~ completed) bool
++request_apply_sphere(TerrainComponent component, const Vec3& center, float radius, bool fill, function~void(bool)~ completed) bool
 +collapse_detached(TerrainComponent component, uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
-+retire_fragments(TerrainComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
++retire_fragments(TerrainComponent component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +clear_fragments(TerrainComponent component) void
 +fragment_count(TerrainComponent component) size_t
 +synchronize() bool
@@ -68,7 +74,7 @@ class TerrainSystem {
 }
 System <|-- TerrainSystem
 Component <|-- TerrainComponent
-TerrainComponent *-- TerrainVolume : owns
+TerrainComponentRuntime *-- TerrainVolume : owns
 TerrainVolume *-- TerrainAssetDataT : sampled volume
 TerrainVolume ..> TerrainGeneratorDataT : input
 TerrainVolume ..> MeshDataT : output
@@ -86,6 +92,15 @@ TerrainSystem --> WorldSystem : borrowed
 TerrainSystem --> PhysicsSystem : borrowed
 TerrainSystem --> TaskSystem : optional borrowed
 TerrainSystem ..> TerrainComponent : prepares and commits
+    class ComponentRegistry
+    class ecs_world_t
+    class TerrainComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- TerrainComponentRuntime : 实例运行数据
+    TerrainComponent ..> TerrainComponentRuntime : 校验身份后短期借用
+    TerrainComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 `request_apply_sphere` 是独立异步入口，原有同步修改与存档契约保留。需要已初始化的任务域与非空完成委托；返回 true 只表示请求进入有界队列，默认最多 64 个未完成请求，每 tick 最多提交 1 个候选，可由宿主配置。每个地形按请求顺序执行，轮到时才复制当前体积；不同地形可并行准备。worker 只访问独占候选、设置值快照和输出网格，不保存组件、场景、物理或脚本借用。完成委托只在主线程 `synchronize`/tick 发布或取消后执行。
@@ -121,3 +136,5 @@ TerrainSystem ..> TerrainComponent : prepares and commits
 算法依据：[Godot Voxel Tools island_finder](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/util/island_finder.h) 及 [floating_chunks](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/edition/floating_chunks.cpp)，固定版本 MIT。复用其“六邻域标记→排除边界连接→隔离密度→生成动态体”思路，按本引擎现有 schema、Transvoxel、Jolt 接口实现；未引入 Godot 类或运行框架。当前没有颗粒堆积求解、土壤应力、异步塌方和 LOD；球形编辑已有上述异步入口。
 
 常驻地形保留原 Scene 中的源组件、体积、revision、瞬态 MeshRenderer/Collider 与在途候选；发布仍校验原 Scene、Node、组件生命周期与 revision。独立根土块不自动继承源节点常驻标记：未被调用方单独保留的土块在卸载时删除，插件清理其记录，源体积与显示/碰撞继续有效。发生过塌方的存档限制保持不变。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

@@ -1,5 +1,8 @@
 #include "plugins/runtime/destruction/destruction_component.hpp"
 
+#include "runtime/scene/collider.hpp"
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "plugins/runtime/destruction/destruction_system.hpp"
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -14,9 +17,14 @@
 namespace engine::plugins::destruction
 {
 
-DestructionComponent::DestructionComponent(Node& node) : Component(node)
+bool DestructionComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::DestructionDataT{});
+    return register_component_storage<DestructionComponent, Data, Runtime>(registry);
+}
+
+DestructionComponent::Runtime* DestructionComponent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
 }
 
 bool DestructionComponent::valid_settings(const schema::DestructionDataT& value) noexcept
@@ -28,16 +36,28 @@ bool DestructionComponent::valid_settings(const schema::DestructionDataT& value)
            std::isfinite(value.restitution) && value.restitution >= 0 && value.restitution <= 1;
 }
 
-const schema::DestructionDataT& DestructionComponent::settings() const noexcept
+schema::DestructionDataT DestructionComponent::settings() const noexcept
 {
-    return *data().payload.AsDestructionData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool DestructionComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
-        last_error_ = "Invalid destruction component settings";
+        runtime()->last_error_ = "Invalid destruction component settings";
         return false;
     }
     auto* resources = ResourceSystem::instance();
@@ -48,7 +68,7 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
         if (!resources || !resources->loader().load(value.destruction_guid, replacement) ||
             !replacement || replacement->info().kind != schema::AssetKind::destruction)
         {
-            last_error_ = "Cannot load destruction resource";
+            runtime()->last_error_ = "Cannot load destruction resource";
             return false;
         }
         const auto bytes = replacement->bytes();
@@ -56,9 +76,10 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
         flatbuffers::Verifier verifier(data, bytes.size());
         if (bytes.size() > 64U * 1024U * 1024U ||
             !schema::VerifyDestructionAssetDataBuffer(verifier) ||
-            !candidate.initialize(*schema::UnPackDestructionAssetData(data), last_error_))
+            !candidate.initialize(*schema::UnPackDestructionAssetData(data),
+                                  runtime()->last_error_))
         {
-            last_error_ = "Invalid destruction asset: " + last_error_;
+            runtime()->last_error_ = "Invalid destruction asset: " + runtime()->last_error_;
             return false;
         }
         if (!value.material_guid.empty())
@@ -67,61 +88,78 @@ bool DestructionComponent::set_settings(const schema::DestructionDataT& value)
             if (!resources->loader().load(value.material_guid, material) || !material ||
                 !material->material())
             {
-                last_error_ = "Cannot load destruction material";
+                runtime()->last_error_ = "Cannot load destruction material";
                 return false;
             }
         }
     }
-    const bool retain = resource_ && replacement &&
-                        resource_->info().guid == replacement->info().guid &&
-                        resource_->info().content_hash == replacement->info().content_hash;
-    if (retain && !graph_.clone(candidate, last_error_))
+    const bool retain =
+        runtime()->resource_ && replacement &&
+        runtime()->resource_->info().guid == replacement->info().guid &&
+        runtime()->resource_->info().content_hash == replacement->info().content_hash;
+    if (retain && !runtime()->graph_.clone(candidate, runtime()->last_error_))
     {
         return false;
     }
     const auto previous_settings = settings();
-    auto previous_resource = resource_;
-    *mutable_data().payload.AsDestructionData() = value;
-    resource_ = std::move(replacement);
-    if (ready_ && resource_)
+    auto previous_resource = runtime()->resource_;
+    *write_data<Data>() = value;
+    modified();
+    runtime()->resource_ = std::move(replacement);
+    if (runtime()->ready_ && runtime()->resource_)
     {
         auto* system = DestructionSystem::instance();
         if (!system || !system->rebuild(*this, std::move(candidate), retain))
         {
-            *mutable_data().payload.AsDestructionData() = previous_settings;
-            resource_ = std::move(previous_resource);
+            *write_data<Data>() = previous_settings;
+            modified();
+            runtime()->resource_ = std::move(previous_resource);
             return false;
         }
     }
     else
     {
-        graph_ = std::move(candidate);
-        ready_ = false;
-        pending_ = resource_ != nullptr;
+        runtime()->graph_ = std::move(candidate);
+        runtime()->ready_ = false;
+        runtime()->pending_ = runtime()->resource_ != nullptr;
     }
-    last_error_.clear();
+    runtime()->last_error_.clear();
     return true;
 }
 
 bool DestructionComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* value = data.payload.AsDestructionData();
     if (!value || !set_settings(*value))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 
 bool DestructionComponent::damage_sphere(const Vec3& center, float radius, float damage,
                                          float impulse)
 {
-    auto* system = DestructionSystem::instance();
-    if (!system || !ready_ || !active())
+    if (!writable())
     {
-        last_error_ = "Destruction component is not ready";
+        return false;
+    }
+    auto* system = DestructionSystem::instance();
+    if (!system || !runtime()->ready_ || !active())
+    {
+        runtime()->last_error_ = "Destruction component is not ready";
         return false;
     }
     return system->damage(*this, center, radius, damage, impulse);
@@ -129,30 +167,42 @@ bool DestructionComponent::damage_sphere(const Vec3& center, float radius, float
 
 bool DestructionComponent::reset()
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
-    return system && resource_ && system->reset(*this);
+    return system && runtime()->resource_ && system->reset(*this);
 }
 
 bool DestructionComponent::refresh_support(const Collider& support, float max_gap,
                                            float min_coverage)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     if (!system)
     {
-        last_error_ = "Destruction system is not ready";
+        runtime()->last_error_ = "Destruction system is not ready";
         return false;
     }
     return system->refresh_support(*this, support, max_gap, min_coverage);
 }
 
 bool DestructionComponent::apply_stress(const Vec3& gravity, float elastic_limit, float fatal_limit,
-                                         std::uint32_t iterations, std::uint32_t& broken_bonds)
+                                        std::uint32_t iterations, std::uint32_t& broken_bonds)
 {
     broken_bonds = 0;
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     if (!system)
     {
-        last_error_ = "Destruction system is not ready";
+        runtime()->last_error_ = "Destruction system is not ready";
         return false;
     }
     return system->apply_stress(*this, gravity, elastic_limit, fatal_limit, iterations,
@@ -161,6 +211,10 @@ bool DestructionComponent::apply_stress(const Vec3& gravity, float elastic_limit
 
 bool DestructionComponent::owns_fragment(std::uint64_t node_id) const noexcept
 {
+    if (!valid())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     return system && system->owns_fragment(*this, node_id);
 }
@@ -169,10 +223,14 @@ bool DestructionComponent::retire_fragments(std::uint32_t max_count, double max_
                                             std::uint32_t& retired_count)
 {
     retired_count = 0;
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     if (!system)
     {
-        last_error_ = "Destruction system is not ready";
+        runtime()->last_error_ = "Destruction system is not ready";
         return false;
     }
     return system->retire_fragments(*this, max_count, max_age_seconds, retired_count);
@@ -181,6 +239,10 @@ bool DestructionComponent::retire_fragments(std::uint32_t max_count, double max_
 bool DestructionComponent::snapshot(ByteBuffer& output) const
 {
     output.clear();
+    if (!valid())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     schema::DestructionStateDataT state;
     if (!system || !system->snapshot(*this, state))
@@ -197,13 +259,17 @@ bool DestructionComponent::snapshot(ByteBuffer& output) const
 
 bool DestructionComponent::restore(ByteView bytes)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = DestructionSystem::instance();
     const auto* data = reinterpret_cast<const std::uint8_t*>(bytes.data());
     flatbuffers::Verifier verifier(data, bytes.size());
-    if (!system || !resource_ || bytes.size() > 4U * 1024U * 1024U ||
+    if (!system || !runtime()->resource_ || bytes.size() > 4U * 1024U * 1024U ||
         !schema::VerifyDestructionStateDataBuffer(verifier))
     {
-        last_error_ = "Invalid destruction state";
+        runtime()->last_error_ = "Invalid destruction state";
         return false;
     }
     return system->restore(*this, *schema::UnPackDestructionStateData(data));
@@ -211,29 +277,53 @@ bool DestructionComponent::restore(ByteView bytes)
 
 bool DestructionComponent::ready() const noexcept
 {
-    return ready_;
+    if (!valid())
+    {
+        return false;
+    }
+    return runtime()->ready_;
 }
 std::uint64_t DestructionComponent::revision() const noexcept
 {
-    return revision_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->revision_;
 }
 std::size_t DestructionComponent::chunk_count() const noexcept
 {
-    return graph_.data().chunks.size();
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->graph_.data().chunks.size();
 }
 std::size_t DestructionComponent::group_count() const noexcept
 {
-    return graph_.groups().size();
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->graph_.groups().size();
 }
 std::size_t DestructionComponent::dynamic_groups() const noexcept
 {
-    return static_cast<std::size_t>(std::count_if(graph_.groups().begin(), graph_.groups().end(),
-                                                  [](const auto& group)
-                                                  { return !group.anchored; }));
+    if (!valid())
+    {
+        return {};
+    }
+    return static_cast<std::size_t>(
+        std::count_if(runtime()->graph_.groups().begin(), runtime()->graph_.groups().end(),
+                      [](const auto& group) { return !group.anchored; }));
 }
-const std::string& DestructionComponent::last_error() const noexcept
+std::string DestructionComponent::last_error() const noexcept
 {
-    return last_error_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->last_error_;
 }
 
 } // namespace engine::plugins::destruction

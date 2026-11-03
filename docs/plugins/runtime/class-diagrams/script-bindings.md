@@ -67,7 +67,7 @@ classDiagram
         +storage_error() const string&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
-        +find_node(uint64_t scene_id, uint64_t node_id) Node#42;
+        +find_node(uint64_t scene_id, uint64_t node_id) Node
         +delta_time() double
     }
     class ScriptVm
@@ -134,8 +134,8 @@ classDiagram
     class BindingContext {
         +current(Arguments arguments, bool require_callable) BindingContext#42;$
         +scene(Arguments arguments) Scene#42;$
-        +node(Arguments arguments) Node#42;$
-        +component(Arguments arguments) Component#42;$
+        +node(Arguments arguments) Node$
+        +component(Arguments arguments) Component$
         +identifier(Arguments arguments, int index, uint64_t& output) bool$
         +number(Arguments arguments, int index, double& output) bool$
         +scalar(Arguments arguments, int index, float& output) bool$

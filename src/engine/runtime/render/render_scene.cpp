@@ -10,6 +10,8 @@
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/camera_math.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
@@ -26,7 +28,7 @@
 
 namespace engine
 {
-bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& rendering)
+bool RenderSystem::draw_scene(Camera view_camera, const RenderSettings& rendering)
 {
     ENGINE_PROFILE_ZONE("Render.drawScene");
     if (capture_status_ == SceneCaptureStatus::pending && !capture_unchanged())
@@ -43,12 +45,12 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     {
         return true;
     }
-    const Camera& camera = view_camera ? *view_camera : *scene->active_camera();
+    const Camera camera = view_camera ? view_camera : scene->active_camera();
     float camera_world[16]{}, view[16]{}, projection[16]{};
-    const auto* camera_transform = camera.node().get_component<Transform>();
+    const auto camera_transform = camera.node().get_component<Transform>();
     const auto& settings = camera.settings();
     const float aspect = static_cast<float>(width_) / static_cast<float>(height_);
-    if (!camera_transform || !camera_transform->world_matrix(camera_world) ||
+    if (!camera_transform || !camera_transform.world_matrix(camera_world) ||
         !camera_detail::view_matrix(camera_world, view) ||
         !camera_detail::projection_matrix(settings, aspect, bgfx::getCaps()->homogeneousDepth,
                                           projection))
@@ -60,35 +62,55 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     auto& resources = *scene_resources_;
     struct Plane
     {
-        const Node* node = nullptr;
+        Node node = {};
         float distance = 0;
     };
     std::vector<Plane> planes;
-    for (const auto& owner : world_->scenes())
     {
-        for (const auto& node : owner->nodes())
+        const auto process =
+            [&](Node node,
+                const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>& stored) -> bool
         {
-            const auto* reflection = node->get_component<PlanarReflectionComponent>();
-            const auto* mesh = node->get_component<MeshRenderer>();
-            const auto* transform = node->get_component<Transform>();
+            const auto* owner = node.scene();
+            (void)owner;
+            (void)stored;
+
+            const auto reflection = node.get_component<PlanarReflectionComponent>();
+            const auto mesh = node.get_component<MeshRenderer>();
+            const auto transform = node.get_component<Transform>();
             std::array<float, 16> matrix{};
-            if (reflection && reflection->active() && reflection->visible_in_hierarchy() && mesh &&
-                mesh->active() && mesh->visible_in_hierarchy() &&
-                camera.mesh_visible(mesh->instance_id()) && transform &&
-                transform->world_matrix(matrix.data()))
+            if (reflection && reflection.active() && reflection.visible_in_hierarchy() && mesh &&
+                mesh.active() && mesh.visible_in_hierarchy() &&
+                camera.mesh_visible(mesh.instance_id()) && transform &&
+                transform.world_matrix(matrix.data()))
             {
-                planes.push_back({node.get(), std::hypot(matrix[12] - camera_world[12],
-                                                         matrix[13] - camera_world[13],
-                                                         matrix[14] - camera_world[14])});
+                planes.push_back(
+                    {node, std::hypot(matrix[12] - camera_world[12], matrix[13] - camera_world[13],
+                                      matrix[14] - camera_world[14])});
             }
-        }
+
+            return true;
+        };
+        auto query = flecs::world(world_->native_world())
+                         .query_builder<
+                             const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<PlanarReflectionComponent::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_->find_node(entity.id()), stored);
+                }
+            });
+        (void)query_success;
     }
-    std::sort(planes.begin(), planes.end(),
-              [](const Plane& a, const Plane& b)
-              {
-                  return a.distance == b.distance ? a.node->id() < b.node->id()
-                                                  : a.distance < b.distance;
-              });
+    std::sort(
+        planes.begin(), planes.end(), [](const Plane& a, const Plane& b)
+        { return a.distance == b.distance ? a.node.id() < b.node.id() : a.distance < b.distance; });
     const auto plane_count =
         std::min<std::size_t>(config_.maximum_planar_reflections, planes.size());
     for (std::size_t index = 0; index < resources.planar.size(); ++index)
@@ -100,10 +122,10 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
             resources.clusters[index].release();
             continue;
         }
-        const auto& node = *planes[index].node;
-        const auto& options = node.get_component<PlanarReflectionComponent>()->settings();
+        const auto node = planes[index].node;
+        const auto& options = node.get_component<PlanarReflectionComponent>().settings();
         float matrix[16]{};
-        if (!node.get_component<Transform>()->world_matrix(matrix))
+        if (!node.get_component<Transform>().world_matrix(matrix))
         {
             return false;
         }
@@ -111,7 +133,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
                 static_cast<std::uint16_t>(std::max(
                     1.0F, std::ceil(static_cast<float>(width_) * options.resolution_scale))),
                 static_cast<std::uint16_t>(std::max(
-                    1.0F, std::ceil(static_cast<float>(height_) * options.resolution_scale)))))
+                    1.0F, std::ceil(static_cast<float>(height_) * options.resolution_scale))),
+                config_.msaa_samples))
         {
             return false;
         }
@@ -131,6 +154,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         draw.view = target.view.data();
         draw.projection = target.projection.data();
         draw.reflection = true;
+        draw.multisampling = config_.msaa_samples > 1;
+        draw.max_anisotropy = config_.max_anisotropy;
         render_detail::ShadowFrame shadow;
         if (!resources.prepare_lighting(*world_, rendering, config_, draw, settings, shadow, index,
                                         base, nullptr))
@@ -149,7 +174,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
     draw.world = camera_world;
     draw.view = view;
     draw.projection = projection;
-    draw.visibility = &camera;
+    draw.visibility = camera;
+    draw.max_anisotropy = config_.max_anisotropy;
     render_detail::ShadowFrame shadow;
     if (!resources.prepare_lighting(*world_, rendering, config_, draw, settings, shadow, 2,
                                     render_detail::shadow_view, nullptr))
@@ -157,7 +183,8 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         return false;
     }
     if (!resources.surface_pass.prepare(draw.width, draw.height) ||
-        !resources.hdr_post_process.prepare(draw.width, draw.height, rendering.bloom_enabled))
+        !resources.hdr_post_process.prepare(draw.width, draw.height, rendering.bloom_enabled,
+                                            config_.msaa_samples))
     {
         return false;
     }
@@ -190,6 +217,7 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
         return false;
     }
     draw.id = render_detail::main_view;
+    draw.multisampling = config_.msaa_samples > 1;
     draw.ambient_occlusion = rendering.ao_enabled;
     bgfx::setViewTransform(draw.id, view, projection);
     resources.hdr_post_process.begin_scene(rendering.clear_color);

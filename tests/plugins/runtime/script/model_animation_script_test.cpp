@@ -1,4 +1,5 @@
 #include "animation_fixture.hpp"
+#include "scene_snapshot.hpp"
 #include "script_fixture.hpp"
 
 #include "plugins/runtime/script/script_system.hpp"
@@ -15,10 +16,10 @@ bool add_prefab(Fixture& fixture)
     engine::schema::PrefabDataT prefab;
     prefab.root_id = 1;
     auto node = std::make_unique<engine::schema::NodeDataT>();
-    node->info = std::make_unique<engine::schema::NodeInfoT>();
-    node->info->id = 1;
-    node->info->name = "Template";
-    auto transform = std::make_unique<engine::schema::ComponentDataT>();
+    node->info = test_support::node_info();
+    node->info->properties->id = 1;
+    node->info->properties->name = "Template";
+    auto transform = test_support::component_data();
     transform->payload.Set(engine::schema::TransformDataT{});
     node->components.push_back(std::move(transform));
     prefab.nodes.push_back(std::move(node));
@@ -129,13 +130,16 @@ export default class extends Gameplay {
         return false;
     }
     const auto* scene = fixture.world.scene();
-    if (!expect(
-            scene && scene->nodes().size() == 6 &&
-                close(sampled_vertex(*scene->nodes()[2]->get_component<engine::MeshRenderer>()).x(),
-                      2) &&
-                close(sampled_vertex(*scene->nodes()[5]->get_component<engine::MeshRenderer>()).x(),
-                      1),
-            "relative lookup configures two identical model instances independently"))
+    if (!expect(scene && test_support::scene_nodes(*scene).size() == 6 &&
+                    close(sampled_vertex(test_support::scene_nodes(*scene)[2]
+                                             .get_component<engine::MeshRenderer>())
+                              .x(),
+                          2) &&
+                    close(sampled_vertex(test_support::scene_nodes(*scene)[5]
+                                             .get_component<engine::MeshRenderer>())
+                              .x(),
+                          1),
+                "relative lookup configures two identical model instances independently"))
     {
         return false;
     }

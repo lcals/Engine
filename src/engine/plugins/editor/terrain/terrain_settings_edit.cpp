@@ -37,63 +37,64 @@ bool TerrainSettingsEdit::replace(const std::optional<schema::ComponentDataT>& e
                                   const ByteBuffer& replacement_state, std::string& error)
 {
     auto* scene = world_.scene();
-    auto* node = scene != nullptr && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
-    if (node == nullptr)
+    auto node = scene != nullptr && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+    if (!node)
     {
         error = "Terrain settings target a stale scene or node";
         return false;
     }
-    auto* component = node->get_component<TerrainComponent>();
+    auto component = node.get_component<TerrainComponent>();
     schema::ComponentDataT current;
+    current.flags = std::make_unique<schema::ComponentFlagsT>();
     ByteBuffer current_state;
-    if (static_cast<bool>(expected) != (component != nullptr) ||
-        (component != nullptr && (!component->build_data(current) || current != *expected)) ||
+    if (static_cast<bool>(expected) != (component.valid()) ||
+        (component.valid() && (!component.build_data(current) || current != *expected)) ||
         (!expected_state.empty() &&
-         (!component->snapshot(current_state) || current_state != expected_state)))
+         (!component.snapshot(current_state) || current_state != expected_state)))
     {
         error = "Terrain settings or volume changed since the edit";
         return false;
     }
     if (!replacement)
     {
-        if (!node->remove_component(TerrainComponent::component_type))
+        if (!node.remove_component(TerrainComponent::component_type))
         {
             error = "Cannot remove terrain component";
             return false;
         }
         return true;
     }
-    const bool created = component == nullptr;
+    const bool created = !component;
     if (created)
     {
-        component = node->add_component<TerrainComponent>();
+        component = node.add_component<TerrainComponent>();
     }
-    if (component == nullptr)
+    if (!component)
     {
         error = "Cannot create terrain component";
         return false;
     }
-    if (!component->restore_data(*replacement))
+    if (!component.restore_data(*replacement))
     {
-        error = component->last_error();
-        if (created && !node->remove_component(TerrainComponent::component_type))
+        error = component.last_error();
+        if (created && !node.remove_component(TerrainComponent::component_type))
         {
             error += "; cannot remove the incomplete terrain component";
         }
         return false;
     }
-    if (!replacement_state.empty() && !component->restore(replacement_state))
+    if (!replacement_state.empty() && !component.restore(replacement_state))
     {
-        error = component->last_error();
+        error = component.last_error();
         if (created)
         {
-            if (!node->remove_component(TerrainComponent::component_type))
+            if (!node.remove_component(TerrainComponent::component_type))
             {
                 error += "; cannot remove the incomplete terrain component";
             }
         }
-        else if (!component->restore_data(*expected) ||
-                 (!expected_state.empty() && !component->restore(expected_state)))
+        else if (!component.restore_data(*expected) ||
+                 (!expected_state.empty() && !component.restore(expected_state)))
         {
             error += "; failed to restore the previous terrain state";
         }

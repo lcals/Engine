@@ -6,7 +6,7 @@
 
 namespace engine::editor::components
 {
-Node* target(WorldSystem& world, const Json& arguments, std::string& error)
+Node target(WorldSystem& world, const Json& arguments, std::string& error)
 {
     auto* scene = world.scene();
     std::uint64_t node_id = 0;
@@ -15,7 +15,7 @@ Node* target(WorldSystem& world, const Json& arguments, std::string& error)
         !arguments["nodeId"].is_string())
     {
         error = "Scene or node identity is missing or stale";
-        return nullptr;
+        return {};
     }
     const auto& text = arguments["nodeId"].get_ref<const std::string&>();
     const auto parsed = std::from_chars(text.data(), text.data() + text.size(), node_id);
@@ -23,9 +23,9 @@ Node* target(WorldSystem& world, const Json& arguments, std::string& error)
         text != std::to_string(node_id))
     {
         error = "Invalid node identity";
-        return nullptr;
+        return {};
     }
-    auto* node = scene->find_node(node_id);
+    auto node = scene->find_node(node_id);
     if (!node)
     {
         error = "Node not found";
@@ -110,7 +110,7 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
                             const std::optional<schema::ComponentDataT>& value, std::string& error)
 {
     auto* scene = world_.scene();
-    auto* node = scene && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
+    auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
     if (!node)
     {
         error = "Component edit targets a stale scene or node";
@@ -126,33 +126,34 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
             return false;
         }
     }
-    auto* current = node->get_component(type_);
+    auto current = node.get_component(type_);
     schema::ComponentDataT snapshot;
-    if (bool(expected) != (current != nullptr) ||
-        (current && (!current->build_data(snapshot) || snapshot != *expected)))
+    snapshot.flags = std::make_unique<schema::ComponentFlagsT>();
+    if (bool(expected) != (current.valid()) ||
+        (current && (!current.build_data(snapshot) || snapshot != *expected)))
     {
         error = "Component changed since the edit";
         return false;
     }
     if (!value)
     {
-        return node->remove_component(type_);
+        return node.remove_component(type_);
     }
-    if (required_component_ != ComponentType::NONE && !node->get_component(required_component_))
+    if (required_component_ != ComponentType::NONE && !node.get_component(required_component_))
     {
         error = "The edited component requires another component on the same node";
         return false;
     }
-    const bool created = current == nullptr;
+    const bool created = !current;
     if (created)
     {
-        current = world_.component_registry().create(type_, *node);
+        current = world_.component_registry().create(type_, node);
     }
-    if (!current || !current->restore_data(*value))
+    if (!current || !current.restore_data(*value))
     {
         if (created && current)
         {
-            (void)node->remove_component(type_);
+            (void)node.remove_component(type_);
         }
         error = "Cannot apply component settings or resolve its resources";
         return false;

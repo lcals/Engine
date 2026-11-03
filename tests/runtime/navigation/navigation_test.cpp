@@ -391,12 +391,11 @@ bool crowd_lifecycle()
         return false;
     }
     navigation.shutdown();
-    return expect(navigation.initialize({}) && navigation.build(sources, bounds, {}) &&
-                      navigation.configure_crowd(1) &&
-                      navigation.create_agent({4, 0, 8}, settings, second) &&
-                      second.generation != first.generation &&
-                      !navigation.agent_state(first, state),
-                  "shutdown and reinitialize also invalidate all previous identities", navigation);
+    return expect(
+        navigation.initialize({}) && navigation.build(sources, bounds, {}) &&
+            navigation.configure_crowd(1) && navigation.create_agent({4, 0, 8}, settings, second) &&
+            second.generation != first.generation && !navigation.agent_state(first, state),
+        "shutdown and reinitialize also invalidate all previous identities", navigation);
 }
 
 bool crowd_crossing()

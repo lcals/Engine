@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/physics/physics_system.hpp"
@@ -49,29 +51,29 @@ struct Fixture
     }
 };
 
-engine::Node* create(engine::Scene& scene, const char* name, const engine::Vec3& position,
-                     engine::schema::ColliderShape shape, bool dynamic)
+engine::Node create(engine::Scene& scene, const char* name, const engine::Vec3& position,
+                    engine::schema::ColliderShape shape, bool dynamic)
 {
-    auto* node = scene.create_node(name);
-    if (node == nullptr)
+    auto node = scene.create_node(name);
+    if (!node.valid())
     {
-        return nullptr;
+        return {};
     }
-    auto* transform = node->get_component<engine::Transform>();
-    auto settings = transform->settings();
+    auto transform = node.get_component<engine::Transform>();
+    auto settings = transform.settings();
     settings.position = position;
-    auto* collider = node->add_component<engine::Collider>();
-    if (collider == nullptr || !transform->set_settings(settings))
+    auto collider = node.add_component<engine::Collider>();
+    if (!collider.valid() || !transform.set_settings(settings))
     {
-        return nullptr;
+        return {};
     }
-    auto collision = collider->settings();
+    auto collision = collider.settings();
     collision.shape = shape;
     collision.restitution = 0.0F;
-    if (!collider->set_settings(collision) ||
-        (dynamic && node->add_component<engine::RigidBody>() == nullptr))
+    if (!collider.set_settings(collision) ||
+        (dynamic && node.add_component<engine::RigidBody>().valid() == false))
     {
-        return nullptr;
+        return {};
     }
     return node;
 }
@@ -88,9 +90,9 @@ bool advance(engine::PhysicsSystem& physics, unsigned int frames)
     return true;
 }
 
-double height(const engine::Node& node)
+double height(engine::Node node)
 {
-    return node.get_component<engine::Transform>()->settings().position.y();
+    return node.get_component<engine::Transform>().settings().position.y();
 }
 
 bool collision_and_lifecycle()
@@ -101,59 +103,68 @@ bool collision_and_lifecycle()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
-    auto* box = create(scene, "Box", {-2, 4, 0}, engine::schema::ColliderShape::box, true);
-    auto* sphere = create(scene, "Sphere", {0, 4, 0}, engine::schema::ColliderShape::sphere, true);
-    auto* capsule =
+    auto floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
+    auto box = create(scene, "Box", {-2, 4, 0}, engine::schema::ColliderShape::box, true);
+    auto sphere = create(scene, "Sphere", {0, 4, 0}, engine::schema::ColliderShape::sphere, true);
+    auto capsule =
         create(scene, "Capsule", {2, 4, 0}, engine::schema::ColliderShape::capsule, true);
     if (!expect(floor && box && sphere && capsule, "create schema-backed physical nodes"))
     {
         return false;
     }
-    auto floor_settings = floor->get_component<engine::Collider>()->settings();
+    auto floor_settings = floor.get_component<engine::Collider>().settings();
     floor_settings.half_extents = {8, 0.5, 8};
-    if (!expect(floor->get_component<engine::Collider>()->set_settings(floor_settings),
+    if (!expect(floor.get_component<engine::Collider>().set_settings(floor_settings),
                 "configure floor") ||
         !expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 4,
                 "zero delta creates physical bodies without advancing") ||
-        !expect(height(*box) == 4.0, "no implicit simulation during synchronization") ||
+        !expect(height(box) == 4.0, "no implicit simulation during synchronization") ||
         !expect(advance(fixture.physics, 240), "simulate falling shapes") ||
-        !expect(std::abs(height(*box) - 0.5) < 0.08, "box rests on actual floor collision") ||
-        !expect(std::abs(height(*sphere) - 0.5) < 0.08, "sphere rests on floor") ||
-        !expect(std::abs(height(*capsule) - 1.0) < 0.1, "capsule rests on floor") ||
-        !expect(height(*floor) == -0.5, "collider without rigid body stays static"))
+        !expect(std::abs(height(box) - 0.5) < 0.08, "box rests on actual floor collision") ||
+        !expect(std::abs(height(sphere) - 0.5) < 0.08, "sphere rests on floor") ||
+        !expect(std::abs(height(capsule) - 1.0) < 0.1, "capsule rests on floor") ||
+        !expect(height(floor) == -0.5, "collider without rigid body stays static"))
     {
         return false;
     }
-    auto* rigid = box->get_component<engine::RigidBody>();
-    auto body_settings = rigid->settings();
+    auto rigid = box.get_component<engine::RigidBody>();
+    auto body_settings = rigid.settings();
     body_settings.mass = 2.0F;
     body_settings.linear_velocity = {};
     body_settings.angular_velocity = {};
     engine::schema::ComponentDataT before;
     engine::schema::ComponentDataT after;
-    if (!expect(rigid->set_settings(body_settings) && rigid->build_data(before) &&
-                    rigid->add_impulse({0, 4, 0}) && rigid->build_data(after) && before == after,
+    if (!expect(rigid.set_settings(body_settings) && rigid.build_data(before) &&
+                    rigid.add_impulse({0, 4, 0}) && rigid.build_data(after) && before == after,
                 "pending impulse is transient and mass remains schema data") ||
-        !expect(fixture.physics.tick(0.0) && std::abs(rigid->linear_velocity().y() - 2.0) < 0.01,
+        !expect(fixture.physics.tick(0.0) && std::abs(rigid.linear_velocity().y() - 2.0) < 0.01,
                 "impulse changes real body velocity according to mass") ||
-        !expect(fixture.physics.tick(0.0) && std::abs(rigid->linear_velocity().y() - 2.0) < 0.01,
+        !expect(fixture.physics.tick(0.0) && std::abs(rigid.linear_velocity().y() - 2.0) < 0.01,
                 "impulse is consumed exactly once") ||
-        !expect(advance(fixture.physics, 5) && height(*box) > 0.6, "impulse lifts the box"))
+        !expect(advance(fixture.physics, 5) && height(box) > 0.6, "impulse lifts the box"))
     {
         return false;
     }
-    rigid->set_enabled(false);
+    if (!rigid.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 3,
                 "disabled rigid body is removed"))
     {
         return false;
     }
-    rigid->set_enabled(true);
-    sphere->get_component<engine::Collider>()->set_enabled(false);
+    if (!rigid.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!sphere.get_component<engine::Collider>().set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 3,
                 "enable rigid body and disable collider update the body set") ||
-        !expect(scene.destroy_node(capsule->id()) && fixture.physics.tick(0.0) &&
+        !expect(scene.destroy_node(capsule.id()) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 2,
                 "deleted node removes its body without retaining Node pointers"))
     {
@@ -193,47 +204,47 @@ bool fixed_step_and_validation()
     {
         return false;
     }
-    auto* node = create(*fixture.world.scene(), "Falling", {0, 4, 0},
-                        engine::schema::ColliderShape::box, true);
+    auto node = create(*fixture.world.scene(), "Falling", {0, 4, 0},
+                       engine::schema::ColliderShape::box, true);
     if (!node)
     {
         return false;
     }
-    auto* collider = node->get_component<engine::Collider>();
-    auto collision = collider->settings();
+    auto collider = node.get_component<engine::Collider>();
+    auto collision = collider.settings();
     collision.radius = std::numeric_limits<float>::quiet_NaN();
-    auto* rigid = node->get_component<engine::RigidBody>();
-    auto invalid = rigid->settings();
+    auto rigid = node.get_component<engine::RigidBody>();
+    auto invalid = rigid.settings();
     invalid.mass = 0;
-    if (!expect(!engine::Collider::valid_settings(collision) &&
-                    !collider->set_settings(collision) && collider->settings().radius == 0.5F,
+    if (!expect(!engine::Collider::valid_settings(collision) && !collider.set_settings(collision) &&
+                    collider.settings().radius == 0.5F,
                 "invalid collider settings preserve existing state") ||
-        !expect(!engine::RigidBody::valid_settings(invalid) && !rigid->set_settings(invalid) &&
-                    rigid->settings().mass == 1.0F,
+        !expect(!engine::RigidBody::valid_settings(invalid) && !rigid.set_settings(invalid) &&
+                    rigid.settings().mass == 1.0F,
                 "invalid body settings preserve existing state") ||
-        !expect(!rigid->add_impulse({std::numeric_limits<double>::infinity(), 0, 0}),
+        !expect(!rigid.add_impulse({std::numeric_limits<double>::infinity(), 0, 0}),
                 "nonfinite impulse is rejected") ||
-        !expect(fixture.physics.tick(1.0 / 120.0) && height(*node) == 4,
+        !expect(fixture.physics.tick(1.0 / 120.0) && height(node) == 4,
                 "partial fixed step does not move") ||
-        !expect(fixture.physics.tick(1.0 / 120.0) && height(*node) < 4,
+        !expect(fixture.physics.tick(1.0 / 120.0) && height(node) < 4,
                 "two half steps produce one physical update") ||
-        !expect(fixture.physics.tick(1000) && height(*node) > 3.5,
+        !expect(fixture.physics.tick(1000) && height(node) > 3.5,
                 "long frame is bounded to eight physical substeps"))
     {
         return false;
     }
-    auto settings = rigid->settings();
+    auto settings = rigid.settings();
     settings.motion = engine::schema::BodyMotion::static_body;
     settings.linear_velocity = {};
     settings.angular_velocity = {};
-    if (!expect(rigid->set_settings(settings) && !rigid->add_impulse({0, 1, 0}) &&
-                    !rigid->set_linear_velocity({0, 1, 0}),
+    if (!expect(rigid.set_settings(settings) && !rigid.add_impulse({0, 1, 0}) &&
+                    !rigid.set_linear_velocity({0, 1, 0}),
                 "static bodies reject motion requests"))
     {
         return false;
     }
-    const double previous = height(*node);
-    return expect(advance(fixture.physics, 20) && height(*node) == previous,
+    const double previous = height(node);
+    return expect(advance(fixture.physics, 20) && height(node) == previous,
                   "explicit static body remains stationary");
 }
 
@@ -245,19 +256,19 @@ bool velocity_updates_at_capacity()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    engine::RigidBody* moving = nullptr;
-    engine::RigidBody* kinematic = nullptr;
+    engine::RigidBody moving = {};
+    engine::RigidBody kinematic = {};
     // The configured body pool is full: velocity-only changes must not allocate a replacement.
     constexpr unsigned int capacity = 4096;
     for (unsigned int index = 0; index < capacity; ++index)
     {
-        auto* node = create(scene, "Velocity capacity", {4.0 * (index % 64), 4, 4.0 * (index / 64)},
-                            engine::schema::ColliderShape::box, true);
+        auto node = create(scene, "Velocity capacity", {4.0 * (index % 64), 4, 4.0 * (index / 64)},
+                           engine::schema::ColliderShape::box, true);
         if (!node)
         {
             return false;
         }
-        auto* body = node->get_component<engine::RigidBody>();
+        auto body = node.get_component<engine::RigidBody>();
         if (index == 0)
         {
             moving = body;
@@ -265,9 +276,9 @@ bool velocity_updates_at_capacity()
         else if (index == 1)
         {
             kinematic = body;
-            auto settings = body->settings();
+            auto settings = body.settings();
             settings.motion = engine::schema::BodyMotion::kinematic;
-            if (!body->set_settings(settings))
+            if (!body.set_settings(settings))
             {
                 return false;
             }
@@ -279,31 +290,30 @@ bool velocity_updates_at_capacity()
     {
         return false;
     }
-    auto settings = moving->settings();
+    auto settings = moving.settings();
     settings.linear_velocity = {2, 0, 0};
     settings.angular_velocity = {0, 1, 0};
-    auto kinematic_settings = kinematic->settings();
+    auto kinematic_settings = kinematic.settings();
     kinematic_settings.linear_velocity = {0, 0, 3};
     kinematic_settings.angular_velocity = {0, 0, 1};
-    if (!expect(moving->set_settings(settings) && moving->add_impulse({1, 0, 0}) &&
-                    kinematic->set_settings(kinematic_settings) && fixture.physics.tick(0.0) &&
+    if (!expect(moving.set_settings(settings) && moving.add_impulse({1, 0, 0}) &&
+                    kinematic.set_settings(kinematic_settings) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == capacity,
                 "velocity-only sync succeeds at capacity and retains queued impulse") ||
-        !expect(std::abs(moving->linear_velocity().x() - 3.0) < 0.001 &&
-                    std::abs(moving->settings().angular_velocity.y() - 1.0) < 0.001 &&
-                    kinematic->settings() == kinematic_settings,
+        !expect(std::abs(moving.linear_velocity().x() - 3.0) < 0.001 &&
+                    std::abs(moving.settings().angular_velocity.y() - 1.0) < 0.001 &&
+                    kinematic.settings() == kinematic_settings,
                 "dynamic and kinematic linear/angular velocities reach actual physical bodies") ||
-        !expect(fixture.physics.tick(0.0) &&
-                    std::abs(moving->linear_velocity().x() - 3.0) < 0.001,
+        !expect(fixture.physics.tick(0.0) && std::abs(moving.linear_velocity().x() - 3.0) < 0.001,
                 "repeated synchronization does not consume the impulse twice"))
     {
         return false;
     }
-    settings = moving->settings();
+    settings = moving.settings();
     settings.linear_velocity = {};
     settings.angular_velocity = {};
-    return expect(moving->set_settings(settings) && fixture.physics.tick(0.0) &&
-                      moving->settings() == settings && fixture.physics.body_count() == capacity,
+    return expect(moving.set_settings(settings) && fixture.physics.tick(0.0) &&
+                      moving.settings() == settings && fixture.physics.body_count() == capacity,
                   "setting velocity to zero updates in place at full capacity");
 }
 
@@ -315,41 +325,43 @@ bool hierarchy_and_kinematic()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* parent = scene.create_node("Parent");
-    auto* platform =
-        create(scene, "Platform", {0, 1, 0}, engine::schema::ColliderShape::box, false);
-    auto* ball = create(scene, "Ball", {5, 5, 0}, engine::schema::ColliderShape::sphere, true);
+    auto parent = scene.create_node("Parent");
+    auto platform = create(scene, "Platform", {0, 1, 0}, engine::schema::ColliderShape::box, false);
+    auto ball = create(scene, "Ball", {5, 5, 0}, engine::schema::ColliderShape::sphere, true);
     if (!parent || !platform || !ball)
     {
         return false;
     }
-    auto parent_settings = parent->get_component<engine::Transform>()->settings();
+    auto parent_settings = parent.get_component<engine::Transform>().settings();
     parent_settings.position = {5, 0, 0};
     parent_settings.rotation = {0, 90, 0};
     parent_settings.scale = {2, 2, 2};
-    if (!parent->get_component<engine::Transform>()->set_settings(parent_settings) ||
-        !platform->set_parent(parent) || !advance(fixture.physics, 240) ||
-        !expect(std::abs(height(*ball) - 3.5) < 0.1,
+    if (!parent.get_component<engine::Transform>().set_settings(parent_settings) ||
+        !platform.set_parent(parent) || !advance(fixture.physics, 240) ||
+        !expect(std::abs(height(ball) - 3.5) < 0.1,
                 "static collision uses complete parent translation rotation and scale"))
     {
         return false;
     }
-    ball->get_component<engine::Collider>()->set_enabled(false);
-    auto* mover = create(scene, "Kinematic", {0, 3, 0}, engine::schema::ColliderShape::box, true);
-    if (!mover || !mover->set_parent(parent))
+    if (!ball.get_component<engine::Collider>().set_enabled(false))
+    {
+        std::abort();
+    }
+    auto mover = create(scene, "Kinematic", {0, 3, 0}, engine::schema::ColliderShape::box, true);
+    if (!mover || !mover.set_parent(parent))
     {
         return false;
     }
-    auto motion = mover->get_component<engine::RigidBody>()->settings();
+    auto motion = mover.get_component<engine::RigidBody>().settings();
     motion.motion = engine::schema::BodyMotion::kinematic;
     motion.linear_velocity = {1, 0, 0};
     motion.linear_damping = 0;
     std::array<float, 16> start{};
     std::array<float, 16> end{};
-    if (!mover->get_component<engine::RigidBody>()->set_settings(motion) ||
-        !mover->get_component<engine::Transform>()->world_matrix(start.data()) ||
+    if (!mover.get_component<engine::RigidBody>().set_settings(motion) ||
+        !mover.get_component<engine::Transform>().world_matrix(start.data()) ||
         !advance(fixture.physics, 60) ||
-        !mover->get_component<engine::Transform>()->world_matrix(end.data()) ||
+        !mover.get_component<engine::Transform>().world_matrix(end.data()) ||
         !expect(std::abs((end[12] - start[12]) - 1.0F) < 0.05F &&
                     std::abs(end[13] - start[13]) < 0.01F,
                 "kinematic world velocity writes correct local pose through parent"))
@@ -357,18 +369,21 @@ bool hierarchy_and_kinematic()
         return false;
     }
     motion.motion = engine::schema::BodyMotion::dynamic;
-    if (!mover->get_component<engine::RigidBody>()->set_settings(motion) ||
+    if (!mover.get_component<engine::RigidBody>().set_settings(motion) ||
         !expect(!fixture.physics.tick(0.0) && fixture.physics.body_count() == 0,
                 "unsupported dynamic parent fails explicitly and clears bodies"))
     {
         return false;
     }
-    mover->get_component<engine::RigidBody>()->set_enabled(false);
+    if (!mover.get_component<engine::RigidBody>().set_enabled(false))
+    {
+        std::abort();
+    }
     parent_settings.scale = {2, 1, 1};
-    auto platform_settings = platform->get_component<engine::Transform>()->settings();
+    auto platform_settings = platform.get_component<engine::Transform>().settings();
     platform_settings.rotation = {0, 45, 0};
-    return parent->get_component<engine::Transform>()->set_settings(parent_settings) &&
-           platform->get_component<engine::Transform>()->set_settings(platform_settings) &&
+    return parent.get_component<engine::Transform>().set_settings(parent_settings) &&
+           platform.get_component<engine::Transform>().set_settings(platform_settings) &&
            expect(!fixture.physics.tick(0.0), "sheared world transform fails explicitly");
 }
 
@@ -383,15 +398,15 @@ bool trigger_and_registration()
     }
     first.physics.shutdown();
     auto& scene = *second.world.scene();
-    auto* trigger = create(scene, "Trigger", {0, 0, 0}, engine::schema::ColliderShape::box, false);
-    auto* ball = create(scene, "Ball", {0, 2, 0}, engine::schema::ColliderShape::sphere, true);
+    auto trigger = create(scene, "Trigger", {0, 0, 0}, engine::schema::ColliderShape::box, false);
+    auto ball = create(scene, "Ball", {0, 2, 0}, engine::schema::ColliderShape::sphere, true);
     if (!trigger || !ball)
     {
         return false;
     }
-    auto settings = trigger->get_component<engine::Collider>()->settings();
+    auto settings = trigger.get_component<engine::Collider>().settings();
     settings.is_trigger = true;
-    if (!trigger->get_component<engine::Collider>()->set_settings(settings))
+    if (!trigger.get_component<engine::Collider>().set_settings(settings))
     {
         return false;
     }
@@ -403,7 +418,7 @@ bool trigger_and_registration()
             return false;
         }
     }
-    return expect(height(*ball) < -1.0,
+    return expect(height(ball) < -1.0,
                   "trigger has no physical response and another system shutdown preserves Jolt");
 }
 
@@ -416,15 +431,15 @@ bool targeted_ray()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* target = create(scene, "Target", {}, engine::schema::ColliderShape::box, false);
-    auto* blocker = create(scene, "Blocker", {0, 2, 0}, engine::schema::ColliderShape::box, false);
-    auto* foreign =
+    auto target = create(scene, "Target", {}, engine::schema::ColliderShape::box, false);
+    auto blocker = create(scene, "Blocker", {0, 2, 0}, engine::schema::ColliderShape::box, false);
+    auto foreign =
         create(*other.world.scene(), "Foreign", {}, engine::schema::ColliderShape::box, false);
     if (!target || !blocker || !foreign)
     {
         return false;
     }
-    auto& collider = *target->get_component<engine::Collider>();
+    auto collider = target.get_component<engine::Collider>();
     float fraction = 0;
     if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
                     fraction == 1 && fixture.physics.tick(0),
@@ -438,29 +453,41 @@ bool targeted_ray()
     {
         return false;
     }
-    collider.set_enabled(false);
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
                     fraction == 1,
                 "disabled target is ignored before the next physics synchronization"))
     {
         return false;
     }
-    collider.set_enabled(true);
-    target->get_component<engine::Transform>()->set_enabled(false);
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!target.get_component<engine::Transform>().set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
                     fraction == 1,
                 "disabled target transform is ignored before synchronization"))
     {
         return false;
     }
-    target->get_component<engine::Transform>()->set_enabled(true);
+    if (!target.get_component<engine::Transform>().set_enabled(true))
+    {
+        std::abort();
+    }
     auto sensor = collider.settings();
     sensor.is_trigger = true;
     if (!expect(collider.set_settings(sensor) &&
                     fixture.physics.cast_ray(collider, {0, 4, 0}, {0, -8, 0}, fraction) &&
                     fraction == 1,
                 "target sensor never supplies solid support") ||
-        !expect(!fixture.physics.cast_ray(*foreign->get_component<engine::Collider>(), {0, 4, 0},
+        !expect(!fixture.physics.cast_ray(foreign.get_component<engine::Collider>(), {0, 4, 0},
                                           {0, -8, 0}, fraction) &&
                     fraction == 0,
                 "foreign collider is an error and resets fraction") ||
@@ -477,9 +504,9 @@ bool targeted_ray()
 
 bool empty_hit(const engine::PhysicsQueryHit& hit)
 {
-    return !hit.hit && hit.object.scene_id == 0 && hit.object.node_id == 0 && hit.object.instance_id == 0 &&
-           hit.point == engine::Vec3{} && hit.normal == engine::Vec3{} && hit.distance == 0 &&
-           hit.fraction == 0;
+    return !hit.hit && hit.object.scene_id == 0 && hit.object.node_id == 0 &&
+           hit.object.instance_id == 0 && hit.point == engine::Vec3{} &&
+           hit.normal == engine::Vec3{} && hit.distance == 0 && hit.fraction == 0;
 }
 
 bool closest_queries()
@@ -496,22 +523,22 @@ bool closest_queries()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
-    auto* near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, false);
+    auto far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
+    auto near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, false);
     if (!far || !near || !fixture.physics.tick(0))
     {
         return false;
     }
-    if (!expect(fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
-                    hit.object.scene_id == scene.id() && hit.object.node_id == near->id() &&
-                    hit.object.instance_id == near->get_component<engine::Collider>()->instance_id() &&
-                    std::abs(hit.fraction - 0.1875F) < 0.001F &&
-                    std::abs(hit.distance - 1.5F) < 0.001F &&
-                    std::abs(hit.point.y() - 2.5) < 0.001 && hit.normal.y() > 0.99 &&
-                    fixture.physics.is_hit_valid(hit),
-                "nearest ray returns collider identity, surface point, normal and distance") ||
+    if (!expect(
+            fixture.physics.query_ray({0, 4, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
+                hit.object.scene_id == scene.id() && hit.object.node_id == near.id() &&
+                hit.object.instance_id == near.get_component<engine::Collider>().instance_id() &&
+                std::abs(hit.fraction - 0.1875F) < 0.001F &&
+                std::abs(hit.distance - 1.5F) < 0.001F && std::abs(hit.point.y() - 2.5) < 0.001 &&
+                hit.normal.y() > 0.99 && fixture.physics.is_hit_valid(hit),
+            "nearest ray returns collider identity, surface point, normal and distance") ||
         !expect(fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
-                    hit.object.node_id == near->id() && std::abs(hit.fraction - 0.15625F) < 0.001F &&
+                    hit.object.node_id == near.id() && std::abs(hit.fraction - 0.15625F) < 0.001F &&
                     std::abs(hit.distance - 1.25F) < 0.01F &&
                     std::abs(hit.point.y() - 2.5) < 0.01 && hit.normal.y() > 0.99,
                 "sphere result distinguishes target surface point from sphere center travel") ||
@@ -519,11 +546,11 @@ bool closest_queries()
                     std::abs(hit.fraction - 1.0F) < 0.001F,
                 "nearest ray includes its end point") ||
         !expect(fixture.physics.query_ray({0, 2, 0}, {0, -8, 0}, {}, hit) && hit.hit &&
-                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.object.node_id == near.id() && hit.fraction == 0 && hit.distance == 0 &&
                     hit.point == engine::Vec3(0, 2, 0) && hit.normal == engine::Vec3(0, 1, 0),
                 "ray starting inside a convex collider returns a stable retreat direction") ||
         !expect(fixture.physics.query_sphere({0, 2.4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
-                    hit.object.node_id == near->id() && hit.fraction == 0 && hit.distance == 0 &&
+                    hit.object.node_id == near.id() && hit.fraction == 0 && hit.distance == 0 &&
                     hit.normal.y() > 0.99 && std::abs(hit.point.y() - 2.5) < 0.01,
                 "initial sphere overlap returns the target surface and outward contact normal") ||
         !expect(fixture.physics.query_ray({3, 4, 0}, {0, -8, 0}, {}, hit) && empty_hit(hit) &&
@@ -535,7 +562,7 @@ bool closest_queries()
         return false;
     }
     hit.hit = true;
-    hit.object.node_id = near->id();
+    hit.object.node_id = near.id();
     if (!expect(!fixture.physics.query_ray({}, {}, {}, hit) && empty_hit(hit) &&
                     !fixture.physics.query_sphere({}, {}, 0.25F, {}, hit) && empty_hit(hit) &&
                     !fixture.physics.query_sphere({}, {0, -8, 0}, 0, {}, hit) && empty_hit(hit) &&
@@ -559,22 +586,22 @@ bool query_filters()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* parent = scene.create_node("Ignored hierarchy");
-    auto* sensor = create(scene, "Sensor", {0, 5, 0}, engine::schema::ColliderShape::box, false);
-    auto* solid = create(scene, "Static", {0, 3, 0}, engine::schema::ColliderShape::box, false);
-    auto* kinematic =
+    auto parent = scene.create_node("Ignored hierarchy");
+    auto sensor = create(scene, "Sensor", {0, 5, 0}, engine::schema::ColliderShape::box, false);
+    auto solid = create(scene, "Static", {0, 3, 0}, engine::schema::ColliderShape::box, false);
+    auto kinematic =
         create(scene, "Kinematic", {0, 1, 0}, engine::schema::ColliderShape::box, true);
-    auto* dynamic = create(scene, "Dynamic", {0, -1, 0}, engine::schema::ColliderShape::box, true);
-    if (!parent || !sensor || !solid || !kinematic || !dynamic || !solid->set_parent(parent))
+    auto dynamic = create(scene, "Dynamic", {0, -1, 0}, engine::schema::ColliderShape::box, true);
+    if (!parent || !sensor || !solid || !kinematic || !dynamic || !solid.set_parent(parent))
     {
         return false;
     }
-    auto settings = sensor->get_component<engine::Collider>()->settings();
+    auto settings = sensor.get_component<engine::Collider>().settings();
     settings.is_trigger = true;
-    auto motion = kinematic->get_component<engine::RigidBody>()->settings();
+    auto motion = kinematic.get_component<engine::RigidBody>().settings();
     motion.motion = engine::schema::BodyMotion::kinematic;
-    if (!sensor->get_component<engine::Collider>()->set_settings(settings) ||
-        !kinematic->get_component<engine::RigidBody>()->set_settings(motion) ||
+    if (!sensor.get_component<engine::Collider>().set_settings(settings) ||
+        !kinematic.get_component<engine::RigidBody>().set_settings(motion) ||
         !fixture.physics.tick(0))
     {
         return false;
@@ -588,22 +615,22 @@ bool query_filters()
                fixture.physics.query_sphere({0, 7, 0}, {0, -10, 0}, 0.2F, filter, hit) &&
                hit.object.node_id == expected && hit.hit == (expected != 0);
     };
-    if (!expect(query(solid->id()), "default filters include all solid motion categories"))
+    if (!expect(query(solid.id()), "default filters include all solid motion categories"))
     {
         return false;
     }
     filter.include_sensors = true;
-    if (!expect(query(sensor->id()), "sensor inclusion applies to ray and sphere queries"))
+    if (!expect(query(sensor.id()), "sensor inclusion applies to ray and sphere queries"))
     {
         return false;
     }
     filter.include_static = false;
-    if (!expect(query(kinematic->id()), "sensor still obeys its motion category filter"))
+    if (!expect(query(kinematic.id()), "sensor still obeys its motion category filter"))
     {
         return false;
     }
     filter.include_kinematic = false;
-    if (!expect(query(dynamic->id()),
+    if (!expect(query(dynamic.id()),
                 "dynamic-only query ignores closer static and kinematic bodies"))
     {
         return false;
@@ -615,18 +642,18 @@ bool query_filters()
         return false;
     }
     filter = {};
-    filter.ignore_node_id = parent->id();
-    if (!expect(query(kinematic->id()), "self filter can ignore a complete collider subtree"))
+    filter.ignore_node_id = parent.id();
+    if (!expect(query(kinematic.id()), "self filter can ignore a complete collider subtree"))
     {
         return false;
     }
     filter.ignore_descendants = false;
-    if (!expect(query(solid->id()), "node-only self filter preserves descendant colliders"))
+    if (!expect(query(solid.id()), "node-only self filter preserves descendant colliders"))
     {
         return false;
     }
-    filter.ignore_node_id = solid->id();
-    if (!expect(query(kinematic->id()), "self filter ignores the selected collider node"))
+    filter.ignore_node_id = solid.id();
+    if (!expect(query(kinematic.id()), "self filter ignores the selected collider node"))
     {
         return false;
     }
@@ -646,9 +673,9 @@ bool query_lifecycle()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
-    auto* near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, true);
-    auto* parent = scene.create_node("Parent");
+    auto far = create(scene, "Far", {}, engine::schema::ColliderShape::box, false);
+    auto near = create(scene, "Near", {0, 2, 0}, engine::schema::ColliderShape::box, true);
+    auto parent = scene.create_node("Parent");
     if (!far || !near || !parent || !fixture.physics.tick(0))
     {
         return false;
@@ -661,71 +688,89 @@ bool query_lifecycle()
                fixture.physics.query_sphere({0, 4, 0}, {0, -8, 0}, 0.25F, {}, hit) && hit.hit &&
                hit.object.node_id == expected;
     };
-    if (!query(near->id()))
+    if (!query(near.id()))
     {
         return false;
     }
     const auto saved = hit;
-    auto* collider = near->get_component<engine::Collider>();
-    collider->set_enabled(false);
-    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+    auto collider = near.get_component<engine::Collider>();
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far.id()),
                 "disabled collider cannot obscure a live object before synchronization"))
     {
         return false;
     }
-    collider->set_enabled(true);
-    auto* rigid = near->get_component<engine::RigidBody>();
-    rigid->set_enabled(false);
-    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
+    auto rigid = near.get_component<engine::RigidBody>();
+    if (!rigid.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far.id()),
                 "disabled rigid body invalidates hits before synchronization"))
     {
         return false;
     }
-    rigid->set_enabled(true);
-    if (!near->set_parent(parent))
+    if (!rigid.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!near.set_parent(parent))
     {
         return false;
     }
-    parent->get_component<engine::Transform>()->set_enabled(false);
-    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far->id()),
+    if (!parent.get_component<engine::Transform>().set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(!fixture.physics.is_hit_valid(saved) && query(far.id()),
                 "disabled ancestor transform filters its descendant's old body"))
     {
         return false;
     }
-    parent->get_component<engine::Transform>()->set_enabled(true);
-    if (!near->set_parent(nullptr))
+    if (!parent.get_component<engine::Transform>().set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!near.set_parent({}))
     {
         return false;
     }
-    auto* transform = near->get_component<engine::Transform>();
-    auto pose = transform->settings();
+    auto transform = near.get_component<engine::Transform>();
+    auto pose = transform.settings();
     pose.position = {3, pose.position.y(), pose.position.z()};
-    if (!expect(transform->set_settings(pose) && fixture.physics.is_hit_valid(saved) &&
-                    fixture.physics.tick(0) && query(far->id()) &&
+    if (!expect(transform.set_settings(pose) && fixture.physics.is_hit_valid(saved) &&
+                    fixture.physics.tick(0) && query(far.id()) &&
                     fixture.physics.is_hit_valid(saved),
                 "moving a collider changes new queries but preserves historical object identity"))
     {
         return false;
     }
     pose.position = {0, pose.position.y(), pose.position.z()};
-    if (!transform->set_settings(pose) || !fixture.physics.tick(0) ||
-        !near->remove_component(engine::Collider::component_type))
+    if (!transform.set_settings(pose) || !fixture.physics.tick(0) ||
+        !near.remove_component(engine::Collider::component_type))
     {
         return false;
     }
-    collider = near->add_component<engine::Collider>();
-    if (!expect(collider != nullptr && collider->instance_id() != saved.object.instance_id &&
-                    !fixture.physics.is_hit_valid(saved) && query(far->id()) &&
-                    fixture.physics.tick(0) && query(near->id()) &&
-                    hit.object.instance_id == collider->instance_id() &&
+    collider = near.add_component<engine::Collider>();
+    if (!expect(collider.valid() && collider.instance_id() != saved.object.instance_id &&
+                    !fixture.physics.is_hit_valid(saved) && query(far.id()) &&
+                    fixture.physics.tick(0) && query(near.id()) &&
+                    hit.object.instance_id == collider.instance_id() &&
                     !fixture.physics.is_hit_valid(saved),
                 "same-node collider replacement cannot resurrect an old body or hit identity"))
     {
         return false;
     }
     const auto replacement = hit;
-    if (!expect(scene.destroy_node(near->id()) && !fixture.physics.is_hit_valid(replacement) &&
-                    query(far->id()),
+    if (!expect(scene.destroy_node(near.id()) && !fixture.physics.is_hit_valid(replacement) &&
+                    query(far.id()),
                 "a deleted foreground node never blocks a still-live background collider"))
     {
         return false;
@@ -755,28 +800,27 @@ bool impact_snapshots()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
-    auto* sphere =
-        create(scene, "Sphere", {0, 0.6, 0}, engine::schema::ColliderShape::sphere, true);
+    auto floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
+    auto sphere = create(scene, "Sphere", {0, 0.6, 0}, engine::schema::ColliderShape::sphere, true);
     if (!floor || !sphere)
     {
         return false;
     }
     const auto strike = [&](engine::PhysicsImpact& output)
     {
-        auto* transform = sphere->get_component<engine::Transform>();
-        auto pose = transform->settings();
+        auto transform = sphere.get_component<engine::Transform>();
+        auto pose = transform.settings();
         pose.position = {0, 0.6, 0};
         pose.rotation = {};
-        auto* rigid = sphere->get_component<engine::RigidBody>();
-        auto motion = rigid->settings();
+        auto rigid = sphere.get_component<engine::RigidBody>();
+        auto motion = rigid.settings();
         motion.mass = 2;
         motion.gravity_factor = 0;
         motion.linear_damping = 0;
         motion.angular_damping = 0;
         motion.linear_velocity = {0, -6, 0};
         motion.angular_velocity = {};
-        if (!transform->set_settings(pose) || !rigid->set_settings(motion))
+        if (!transform.set_settings(pose) || !rigid.set_settings(motion))
         {
             return false;
         }
@@ -801,8 +845,8 @@ bool impact_snapshots()
     };
     engine::PhysicsImpact first;
     if (!expect(strike(first) && first.frame > 0 && first.a.scene_id == scene.id() &&
-                    first.b.scene_id == scene.id() && first.a.node_id == floor->id() &&
-                    first.b.node_id == sphere->id() && first.normal.y() > 0.99 &&
+                    first.b.scene_id == scene.id() && first.a.node_id == floor.id() &&
+                    first.b.node_id == sphere.id() && first.normal.y() > 0.99 &&
                     std::abs(first.point.y()) < 0.1 && first.closing_speed > 5.5F &&
                     first.closing_speed < 6.5F && first.estimated_impulse > 10 &&
                     first.estimated_impulse < 14,
@@ -823,53 +867,71 @@ bool impact_snapshots()
     {
         return false;
     }
-    sphere->get_component<engine::Collider>()->set_enabled(false);
+    if (!sphere.get_component<engine::Collider>().set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.impacts().empty(), "disabled collider invalidates stale impacts"))
     {
         return false;
     }
-    sphere->get_component<engine::Collider>()->set_enabled(true);
+    if (!sphere.get_component<engine::Collider>().set_enabled(true))
+    {
+        std::abort();
+    }
     if (!strike(next))
     {
         return false;
     }
-    sphere->get_component<engine::RigidBody>()->set_enabled(false);
+    if (!sphere.get_component<engine::RigidBody>().set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.impacts().empty(), "disabled rigid body invalidates stale impacts"))
     {
         return false;
     }
-    sphere->get_component<engine::RigidBody>()->set_enabled(true);
+    if (!sphere.get_component<engine::RigidBody>().set_enabled(true))
+    {
+        std::abort();
+    }
     if (!strike(next))
     {
         return false;
     }
-    sphere->get_component<engine::Transform>()->set_enabled(false);
+    if (!sphere.get_component<engine::Transform>().set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.impacts().empty(), "disabled transform invalidates stale impacts"))
     {
         return false;
     }
-    sphere->get_component<engine::Transform>()->set_enabled(true);
+    if (!sphere.get_component<engine::Transform>().set_enabled(true))
+    {
+        std::abort();
+    }
     if (!strike(next))
     {
         return false;
     }
     const auto old_object = next.b;
-    if (!sphere->remove_component(engine::Collider::component_type))
+    if (!sphere.remove_component(engine::Collider::component_type))
     {
         return false;
     }
-    auto* replacement_collider = sphere->add_component<engine::Collider>();
-    if (!expect(replacement_collider != nullptr &&
-                    replacement_collider->instance_id() != old_object.instance_id &&
+    auto replacement_collider = sphere.add_component<engine::Collider>();
+    if (!expect(replacement_collider.valid() &&
+                    replacement_collider.instance_id() != old_object.instance_id &&
                     fixture.physics.impacts().empty() &&
                     !fixture.physics.is_object_valid(old_object),
                 "replacing a collider on the same node invalidates its previous impact"))
     {
         return false;
     }
-    auto replacement_settings = replacement_collider->settings();
+    auto replacement_settings = replacement_collider.settings();
     replacement_settings.shape = engine::schema::ColliderShape::sphere;
-    if (!replacement_collider->set_settings(replacement_settings) || !strike(next))
+    if (!replacement_collider.set_settings(replacement_settings) || !strike(next))
     {
         return false;
     }
@@ -877,7 +939,7 @@ bool impact_snapshots()
     fixture.physics.clear();
     if (!expect(fixture.physics.impacts().empty() && strike(next) && next.frame > prior_frame,
                 "clear removes snapshots without recycling the physics frame identity") ||
-        !expect(scene.destroy_node(sphere->id()) && fixture.physics.impacts().empty(),
+        !expect(scene.destroy_node(sphere.id()) && fixture.physics.impacts().empty(),
                 "deleting a node invalidates stale impacts without retaining its pointer"))
     {
         return false;
@@ -901,15 +963,15 @@ bool rotation_and_scale()
     {
         return false;
     }
-    auto* node = create(*fixture.world.scene(), "Rotating", {0, 4, 0},
-                        engine::schema::ColliderShape::box, true);
+    auto node = create(*fixture.world.scene(), "Rotating", {0, 4, 0},
+                       engine::schema::ColliderShape::box, true);
     if (!node)
     {
         return false;
     }
-    auto* transform = node->get_component<engine::Transform>();
-    auto* rigid = node->get_component<engine::RigidBody>();
-    auto motion = rigid->settings();
+    auto transform = node.get_component<engine::Transform>();
+    auto rigid = node.get_component<engine::RigidBody>();
+    auto motion = rigid.settings();
     motion.gravity_factor = 0;
     const std::array rotations{engine::Vec3(30, 90, 0),        engine::Vec3(30, 90, 20),
                                engine::Vec3(-7, -90, 0),       engine::Vec3(45, 89.999, 20),
@@ -918,20 +980,20 @@ bool rotation_and_scale()
          {engine::schema::BodyMotion::dynamic, engine::schema::BodyMotion::kinematic})
     {
         motion.motion = mode;
-        if (!rigid->set_settings(motion))
+        if (!rigid.set_settings(motion))
         {
             return false;
         }
         for (const auto& rotation : rotations)
         {
             fixture.physics.clear();
-            auto pose = transform->settings();
+            auto pose = transform.settings();
             pose.rotation = rotation;
             pose.scale = {1, 2, 0.5};
             std::array<float, 16> before{};
             std::array<float, 16> after{};
-            if (!transform->set_settings(pose) || !transform->world_matrix(before.data()) ||
-                !advance(fixture.physics, 20) || !transform->world_matrix(after.data()))
+            if (!transform.set_settings(pose) || !transform.world_matrix(before.data()) ||
+                !advance(fixture.physics, 20) || !transform.world_matrix(after.data()))
             {
                 return false;
             }
@@ -945,21 +1007,21 @@ bool rotation_and_scale()
             }
         }
     }
-    auto pose = transform->settings();
+    auto pose = transform.settings();
     pose.rotation = {};
     pose.scale = {-1, -1, 1};
-    if (!expect(transform->set_settings(pose) && !fixture.physics.tick(0.0) &&
+    if (!expect(transform.set_settings(pose) && !fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 0,
                 "negative local scales are rejected even when world determinant is positive"))
     {
         return false;
     }
-    auto* collider = node->get_component<engine::Collider>();
-    auto collision = collider->settings();
+    auto collider = node.get_component<engine::Collider>();
+    auto collision = collider.settings();
     collision.shape = engine::schema::ColliderShape::sphere;
     collision.radius = 1000;
     pose.scale = {0.0001, 0.00019, 0.0001};
-    if (!expect(collider->set_settings(collision) && transform->set_settings(pose) &&
+    if (!expect(collider.set_settings(collision) && transform.set_settings(pose) &&
                     !fixture.physics.tick(0.0),
                 "small nonuniform sphere scale cannot pass an absolute tolerance"))
     {
@@ -968,14 +1030,14 @@ bool rotation_and_scale()
     collision.shape = engine::schema::ColliderShape::capsule;
     collision.half_height = 1000;
     pose.scale = {0.0001, 0.0001, 0.00019};
-    if (!expect(collider->set_settings(collision) && transform->set_settings(pose) &&
+    if (!expect(collider.set_settings(collision) && transform.set_settings(pose) &&
                     !fixture.physics.tick(0.0),
                 "small unequal capsule transverse scales are rejected"))
     {
         return false;
     }
     pose.scale = {0.0001, 0.0001, 0.0001};
-    return expect(transform->set_settings(pose) && fixture.physics.tick(0.0) &&
+    return expect(transform.set_settings(pose) && fixture.physics.tick(0.0) &&
                       fixture.physics.body_count() == 1,
                   "small uniform scales still synchronize valid shapes after a rejected update");
 }
@@ -1013,13 +1075,13 @@ bool transient_mesh_collision()
     {
         return false;
     }
-    auto* floor =
+    auto floor =
         create(*fixture.world.scene(), "Generated", {}, engine::schema::ColliderShape::box, false);
-    if (floor == nullptr)
+    if (!floor.valid())
     {
         return false;
     }
-    auto* collider = floor->get_component<engine::Collider>();
+    auto collider = floor.get_component<engine::Collider>();
     auto mesh = collision_grid(false);
     auto cast = [&](double x, bool should_hit)
     {
@@ -1027,7 +1089,7 @@ bool transient_mesh_collision()
         return fixture.physics.cast_sphere({x, 3, 0.25}, {0, -6, 0}, 0.1F, fraction) &&
                (should_hit ? fraction > 0.4F && fraction < 0.6F : fraction == 1.0F);
     };
-    if (!expect(fixture.physics.set_mesh_data(*collider, mesh) &&
+    if (!expect(fixture.physics.set_mesh_data(collider, mesh) &&
                     fixture.physics.body_count() == 1 && cast(0.25, true),
                 "transient mesh commits immediately without resource system or extra tick"))
     {
@@ -1035,17 +1097,16 @@ bool transient_mesh_collision()
     }
     float ray_fraction = 0;
     engine::PhysicsQueryHit hit;
-    if (!expect(
-            fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
-                std::abs(ray_fraction - 0.5F) < 0.001F &&
-                fixture.physics.cast_ray(*collider, {0.25, -3, 0.25}, {0, 6, 0}, ray_fraction) &&
-                std::abs(ray_fraction - 0.5F) < 0.001F,
-            "target mesh ray uses actual triangles from either side"))
+    if (!expect(fixture.physics.cast_ray(collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                    std::abs(ray_fraction - 0.5F) < 0.001F &&
+                    fixture.physics.cast_ray(collider, {0.25, -3, 0.25}, {0, 6, 0}, ray_fraction) &&
+                    std::abs(ray_fraction - 0.5F) < 0.001F,
+                "target mesh ray uses actual triangles from either side"))
     {
         return false;
     }
     if (!expect(fixture.physics.query_ray({0.25, 3, 0.25}, {0, -6, 0}, {}, hit) && hit.hit &&
-                    hit.object.node_id == floor->id() && std::abs(hit.distance - 3.0F) < 0.001F &&
+                    hit.object.node_id == floor.id() && std::abs(hit.distance - 3.0F) < 0.001F &&
                     std::abs(hit.point.y()) < 0.001 && hit.normal.y() > 0.99 &&
                     fixture.physics.query_ray({0.25, -3, 0.25}, {0, 6, 0}, {}, hit) && hit.hit &&
                     std::abs(hit.distance - 3.0F) < 0.001F && hit.normal.y() > 0.99 &&
@@ -1056,58 +1117,58 @@ bool transient_mesh_collision()
     {
         return false;
     }
-    const auto* previous = collider->mesh_data();
+    const auto* previous = collider.mesh_data();
     mesh.vertices.clear();
     if (!expect(previous != nullptr && previous->vertices.size() == 25 &&
-                    collider->mesh_path().empty() && collider->settings().mesh_guid.empty(),
+                    collider.mesh_path().empty() && collider.settings().mesh_guid.empty(),
                 "transient collision owns an immutable copy and has no fabricated resource GUID") ||
-        !expect(!fixture.physics.set_mesh_data(*collider, mesh) &&
-                    collider->mesh_data() == previous && cast(0.25, true),
+        !expect(!fixture.physics.set_mesh_data(collider, mesh) &&
+                    collider.mesh_data() == previous && cast(0.25, true),
                 "invalid replacement preserves component and live collision"))
     {
         return false;
     }
     auto invalid = collision_grid(false);
     invalid.indices[0] = 1000;
-    if (!expect(!fixture.physics.set_mesh_data(*collider, invalid) && cast(0.25, true),
+    if (!expect(!fixture.physics.set_mesh_data(collider, invalid) && cast(0.25, true),
                 "out of range triangle preserves old shape"))
     {
         return false;
     }
     invalid = collision_grid(false);
     invalid.indices.assign({0, 0, 0});
-    if (!expect(!fixture.physics.set_mesh_data(*collider, invalid) && cast(0.25, true),
+    if (!expect(!fixture.physics.set_mesh_data(collider, invalid) && cast(0.25, true),
                 "Jolt rejected degenerate mesh leaves original shape intact"))
     {
         return false;
     }
     engine::schema::ComponentDataT serialized;
     serialized.payload.Set(engine::schema::ColliderDataT{});
-    const auto original_data = collider->data();
-    if (!expect(!collider->build_data(serialized) && serialized.payload.value == nullptr &&
-                    !collider->restore_data(original_data) && collider->mesh_data() == previous,
+    const auto original_data = collider.data();
+    if (!expect(!collider.build_data(serialized) && serialized.payload.value == nullptr &&
+                    !collider.restore_data(original_data) && collider.mesh_data() == previous,
                 "transient geometry cannot silently serialize or restore without a GUID") ||
-        !expect(!fixture.physics.set_mesh_data(*collider, invalid) && fixture.physics.tick(0.0),
+        !expect(!fixture.physics.set_mesh_data(collider, invalid) && fixture.physics.tick(0.0),
                 "failed mesh preparation does not poison subsequent physics ticks"))
     {
         return false;
     }
-    auto* rigid = floor->add_component<engine::RigidBody>();
-    if (rigid == nullptr)
+    auto rigid = floor.add_component<engine::RigidBody>();
+    if (!rigid.valid())
     {
         return false;
     }
-    auto moving = rigid->settings();
-    if (!expect(!rigid->set_settings(moving), "mesh cannot switch to dynamic motion"))
+    auto moving = rigid.settings();
+    if (!expect(!rigid.set_settings(moving), "mesh cannot switch to dynamic motion"))
     {
         return false;
     }
     moving.motion = engine::schema::BodyMotion::static_body;
-    if (!rigid->set_settings(moving) ||
+    if (!rigid.set_settings(moving) ||
         !expect(
-            fixture.physics.set_mesh_data(*collider, collision_grid(true)) && cast(0.25, false) &&
+            fixture.physics.set_mesh_data(collider, collision_grid(true)) && cast(0.25, false) &&
                 cast(1.5, true) && fixture.physics.tick(0.0) && cast(0.25, false) &&
-                fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                fixture.physics.cast_ray(collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
                 ray_fraction == 1 &&
                 fixture.physics.query_ray({0.25, 3, 0.25}, {0, -6, 0}, {}, hit) && empty_hit(hit) &&
                 fixture.physics.query_sphere({0.25, 3, 0.25}, {0, -6, 0}, 0.1F, {}, hit) &&
@@ -1116,36 +1177,41 @@ bool transient_mesh_collision()
     {
         return false;
     }
-    collider->set_enabled(false);
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 &&
-                    fixture.physics.set_mesh_data(*collider, collision_grid(false)) &&
+                    fixture.physics.set_mesh_data(collider, collision_grid(false)) &&
                     fixture.physics.body_count() == 0 && cast(0.25, false),
                 "disabled collider accepts geometry without creating a body"))
     {
         return false;
     }
-    collider->set_enabled(true);
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && cast(0.25, true),
                 "reenabling collider restores its prepared geometry"))
     {
         return false;
     }
-    auto* box = create(*fixture.world.scene(), "Supported", {1.5, 3, 0},
-                       engine::schema::ColliderShape::box, true);
+    auto box = create(*fixture.world.scene(), "Supported", {1.5, 3, 0},
+                      engine::schema::ColliderShape::box, true);
     if (!box || !advance(fixture.physics, 240) ||
-        !expect(std::abs(height(*box) - 0.5) < 0.08, "dynamic body rests on generated mesh") ||
-        !expect(
-            fixture.physics.set_mesh_data(*collider, {}) && fixture.physics.body_count() == 1 &&
-                advance(fixture.physics, 60) && height(*box) < -1.0 && cast(0.25, false) &&
-                fixture.physics.cast_ray(*collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
-                ray_fraction == 1,
-            "empty mesh removes support, wakes resting bodies and never creates a box"))
+        !expect(std::abs(height(box) - 0.5) < 0.08, "dynamic body rests on generated mesh") ||
+        !expect(fixture.physics.set_mesh_data(collider, {}) && fixture.physics.body_count() == 1 &&
+                    advance(fixture.physics, 60) && height(box) < -1.0 && cast(0.25, false) &&
+                    fixture.physics.cast_ray(collider, {0.25, 3, 0.25}, {0, -6, 0}, ray_fraction) &&
+                    ray_fraction == 1,
+                "empty mesh removes support, wakes resting bodies and never creates a box"))
     {
         return false;
     }
-    if (!expect(fixture.physics.set_mesh_data(*collider, collision_grid(false)) && cast(0.25, true),
+    if (!expect(fixture.physics.set_mesh_data(collider, collision_grid(false)) && cast(0.25, true),
                 "nonempty replacement restores an emptied collider") ||
-        !expect(floor->remove_component(engine::Collider::component_type) &&
+        !expect(floor.remove_component(engine::Collider::component_type) &&
                     fixture.physics.tick(0.0) && fixture.physics.body_count() == 1 &&
                     cast(0.25, false),
                 "removed collider releases its live collision"))
@@ -1174,25 +1240,25 @@ bool segmented_mesh_collision()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Segmented", {}, engine::schema::ColliderShape::box, false);
-    if (floor == nullptr)
+    auto floor = create(scene, "Segmented", {}, engine::schema::ColliderShape::box, false);
+    if (!floor.valid())
     {
         return false;
     }
-    auto* collider = floor->get_component<engine::Collider>();
+    auto collider = floor.get_component<engine::Collider>();
     auto cast = [&](double x, bool hit, float y = 0)
     {
         float fraction = 0;
-        return fixture.physics.cast_ray(*collider, {x, 4, 0.25}, {0, -8, 0}, fraction) &&
+        return fixture.physics.cast_ray(collider, {x, 4, 0.25}, {0, -8, 0}, fraction) &&
                (hit ? std::abs(fraction - (4 - y) / 8) < 0.001F : fraction == 1);
     };
     engine::MeshCollisionData parts;
     parts.parts = {collision_part(-4), collision_part(0), collision_part(4)};
-    if (!expect(fixture.physics.set_mesh_parts(*collider, parts) &&
-                    fixture.physics.body_count() == 1 && scene.nodes().size() == 1 &&
-                    collider->mesh_data() == nullptr && cast(-4, true) && cast(0, true) &&
-                    cast(4, true),
-                "mesh parts publish immediately as one collider and one physical body"))
+    if (!expect(
+            fixture.physics.set_mesh_parts(collider, parts) && fixture.physics.body_count() == 1 &&
+                test_support::scene_nodes(scene).size() == 1 && collider.mesh_data() == nullptr &&
+                cast(-4, true) && cast(0, true) && cast(4, true),
+            "mesh parts publish immediately as one collider and one physical body"))
     {
         return false;
     }
@@ -1204,34 +1270,34 @@ bool segmented_mesh_collision()
         return false;
     }
     updated.parts[0] = collision_part(-4, 1);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, updated) && cast(-4, true, 1) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, updated) && cast(-4, true, 1) &&
                     cast(0, true) && cast(4, true) && fixture.physics.body_count() == 1,
                 "replacing one immutable part preserves the other parts"))
     {
         return false;
     }
     updated.parts[1].reset();
-    if (!expect(fixture.physics.set_mesh_parts(*collider, updated) && cast(0, false) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, updated) && cast(0, false) &&
                     cast(-4, true, 1) && cast(4, true),
                 "an empty middle slot removes only its collision"))
     {
         return false;
     }
     updated.parts[2] = collision_part(4, 2);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, updated) && cast(4, true, 2) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, updated) && cast(4, true, 2) &&
                     cast(-4, true, 1) && cast(0, false),
                 "part indices remain stable after removing a middle slot"))
     {
         return false;
     }
-    const auto settings = collider->settings();
+    const auto settings = collider.settings();
     auto invalid = updated;
     invalid.parts[0] = collision_part(-4, -2);
     auto invalid_mesh = collision_grid(false);
     invalid_mesh.indices[0] = static_cast<std::uint32_t>(invalid_mesh.vertices.size());
     invalid.parts[2] = std::make_shared<const engine::schema::MeshDataT>(std::move(invalid_mesh));
-    if (!expect(!fixture.physics.set_mesh_parts(*collider, invalid) &&
-                    collider->settings() == settings && cast(-4, true, 1) && cast(4, true, 2) &&
+    if (!expect(!fixture.physics.set_mesh_parts(collider, invalid) &&
+                    collider.settings() == settings && cast(-4, true, 1) && cast(4, true, 2) &&
                     cast(0, false) && fixture.physics.tick(0) && cast(-4, true, 1) &&
                     fixture.physics.body_count() == 1,
                 "failure after a valid changed part preserves the whole live batch and next tick"))
@@ -1240,20 +1306,20 @@ bool segmented_mesh_collision()
     }
     engine::schema::ComponentDataT serialized;
     serialized.payload.Set(engine::schema::ColliderDataT{});
-    const auto transient = collider->data();
-    if (!expect(!collider->build_data(serialized) && serialized.payload.value == nullptr &&
-                    !collider->restore_data(transient) && cast(-4, true, 1) && cast(4, true, 2),
+    const auto transient = collider.data();
+    if (!expect(!collider.build_data(serialized) && serialized.payload.value == nullptr &&
+                    !collider.restore_data(transient) && cast(-4, true, 1) && cast(4, true, 2),
                 "failed serialization and restore preserve transient segmented collision"))
     {
         return false;
     }
     engine::MeshCollisionData empty;
     empty.parts.resize(3);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, empty) &&
-                    fixture.physics.body_count() == 0 && collider->enabled() &&
-                    cast(-4, false) && cast(0, false) && cast(4, false) &&
-                    fixture.physics.tick(0) && fixture.physics.body_count() == 0 &&
-                    fixture.physics.set_mesh_parts(*collider, updated) && cast(-4, true, 1) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, empty) &&
+                    fixture.physics.body_count() == 0 && collider.enabled() && cast(-4, false) &&
+                    cast(0, false) && cast(4, false) && fixture.physics.tick(0) &&
+                    fixture.physics.body_count() == 0 &&
+                    fixture.physics.set_mesh_parts(collider, updated) && cast(-4, true, 1) &&
                     cast(4, true, 2) && fixture.physics.body_count() == 1,
                 "all-empty slots remove the body and a nonempty batch restores it"))
     {
@@ -1266,15 +1332,21 @@ bool segmented_mesh_collision()
     {
         return false;
     }
-    collider->set_enabled(false);
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
     updated.parts[0] = collision_part(-4, -1);
-    if (!expect(fixture.physics.tick(0) && fixture.physics.set_mesh_parts(*collider, updated) &&
+    if (!expect(fixture.physics.tick(0) && fixture.physics.set_mesh_parts(collider, updated) &&
                     fixture.physics.body_count() == 0 && cast(-4, false),
                 "disabled segmented collider retains updates without creating a body"))
     {
         return false;
     }
-    collider->set_enabled(true);
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0) && cast(-4, true, -1) && cast(4, true, 2) &&
                     fixture.physics.body_count() == 1,
                 "reenabling reconstructs the latest immutable part snapshot"))
@@ -1282,17 +1354,17 @@ bool segmented_mesh_collision()
         return false;
     }
     engine::schema::ColliderDataT box;
-    if (!expect(fixture.physics.set_collider_data(*collider, box) && cast(0, true, 0.5F) &&
+    if (!expect(fixture.physics.set_collider_data(collider, box) && cast(0, true, 0.5F) &&
                     cast(-4, false) && cast(4, false) && fixture.physics.tick(0) &&
-                    fixture.physics.set_mesh_parts(*collider, updated) && cast(0, false) &&
+                    fixture.physics.set_mesh_parts(collider, updated) && cast(0, false) &&
                     cast(-4, true, -1) && cast(4, true, 2),
                 "segmented geometry can switch to a normal box and back without stale parts") ||
-        !expect(fixture.physics.set_mesh_data(*collider, collision_grid(false)) &&
-                    collider->mesh_data() != nullptr && cast(0, true) && cast(-4, false) &&
-                    cast(4, false) && !fixture.physics.set_mesh_parts(*collider, invalid) &&
-                    collider->mesh_data() != nullptr && cast(0, true) &&
-                    fixture.physics.tick(0) && fixture.physics.set_mesh_parts(*collider, updated) &&
-                    collider->mesh_data() == nullptr && cast(0, false) && cast(-4, true, -1) &&
+        !expect(fixture.physics.set_mesh_data(collider, collision_grid(false)) &&
+                    collider.mesh_data() != nullptr && cast(0, true) && cast(-4, false) &&
+                    cast(4, false) && !fixture.physics.set_mesh_parts(collider, invalid) &&
+                    collider.mesh_data() != nullptr && cast(0, true) && fixture.physics.tick(0) &&
+                    fixture.physics.set_mesh_parts(collider, updated) &&
+                    collider.mesh_data() == nullptr && cast(0, false) && cast(-4, true, -1) &&
                     cast(4, true, 2),
                 "single-mesh and segmented sources switch atomically without stale geometry"))
     {
@@ -1302,7 +1374,7 @@ bool segmented_mesh_collision()
     degenerate.indices.assign({0, 0, 0});
     auto cleaned = updated;
     cleaned.parts[1] = std::make_shared<const engine::schema::MeshDataT>(std::move(degenerate));
-    if (!expect(fixture.physics.set_mesh_parts(*collider, cleaned) && cast(0, false) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, cleaned) && cast(0, false) &&
                     cast(-4, true, -1) && cast(4, true, 2) && fixture.physics.tick(0),
                 "Jolt may sanitize a whole leaf without discarding valid neighboring geometry"))
     {
@@ -1312,7 +1384,7 @@ bool segmented_mesh_collision()
     grouped.parts.resize(130);
     grouped.parts[64] = collision_part(8);
     grouped.parts[129] = collision_part(12);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, grouped) && cast(8, true) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, grouped) && cast(8, true) &&
                     cast(12, true) && cast(-4, true, -1),
                 "nested mesh groups keep all leaves in collider-local coordinates"))
     {
@@ -1320,23 +1392,23 @@ bool segmented_mesh_collision()
     }
     grouped.parts.resize(65);
     grouped.parts[64] = collision_part(8, 1);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, grouped) && cast(8, true, 1) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, grouped) && cast(8, true, 1) &&
                     cast(12, false) && cast(-4, true, -1),
                 "shrinking a partial group drops removed leaves and rebuilds changed groups"))
     {
         return false;
     }
     grouped.parts.resize(64);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, grouped) && cast(8, false) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, grouped) && cast(8, false) &&
                     cast(-4, true, -1) && fixture.physics.tick(0),
                 "removing a final group preserves the first group's geometry"))
     {
         return false;
     }
-    return expect(fixture.physics.set_mesh_parts(*collider, {}) &&
+    return expect(fixture.physics.set_mesh_parts(collider, {}) &&
                       fixture.physics.body_count() == 0 && fixture.physics.tick(0) &&
                       fixture.physics.body_count() == 0 &&
-                      fixture.physics.set_mesh_parts(*collider, updated) && cast(4, true, 2),
+                      fixture.physics.set_mesh_parts(collider, updated) && cast(4, true, 2),
                   "an empty part list removes collision and later restores the same collider");
 }
 
@@ -1348,29 +1420,28 @@ bool segmented_mesh_seams()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Segment seams", {}, engine::schema::ColliderShape::box, false);
-    auto* slider = create(scene, "Sliding box", {-4.5, 0.52, 0.25},
-                          engine::schema::ColliderShape::box, true);
-    if (floor == nullptr || slider == nullptr)
+    auto floor = create(scene, "Segment seams", {}, engine::schema::ColliderShape::box, false);
+    auto slider =
+        create(scene, "Sliding box", {-4.5, 0.52, 0.25}, engine::schema::ColliderShape::box, true);
+    if (!floor.valid() || !slider.valid())
     {
         return false;
     }
-    auto* collider = floor->get_component<engine::Collider>();
-    auto ground = collider->settings();
+    auto collider = floor.get_component<engine::Collider>();
+    auto ground = collider.settings();
     ground.friction = 0;
-    auto* sliding_collider = slider->get_component<engine::Collider>();
-    auto collision = sliding_collider->settings();
+    auto sliding_collider = slider.get_component<engine::Collider>();
+    auto collision = sliding_collider.settings();
     collision.friction = 0;
-    auto* rigid = slider->get_component<engine::RigidBody>();
-    auto motion = rigid->settings();
+    auto rigid = slider.get_component<engine::RigidBody>();
+    auto motion = rigid.settings();
     motion.linear_velocity = {3, 0, 0};
     motion.linear_damping = 0;
     motion.angular_damping = 0;
     engine::MeshCollisionData parts;
     parts.parts = {collision_part(-4), collision_part(0), collision_part(4)};
-    if (!expect(collider->set_settings(ground) && sliding_collider->set_settings(collision) &&
-                    rigid->set_settings(motion) &&
-                    fixture.physics.set_mesh_parts(*collider, parts),
+    if (!expect(collider.set_settings(ground) && sliding_collider.set_settings(collision) &&
+                    rigid.set_settings(motion) && fixture.physics.set_mesh_parts(collider, parts),
                 "prepare a frictionless body moving over two independent mesh seams"))
     {
         return false;
@@ -1380,39 +1451,37 @@ bool segmented_mesh_seams()
         if (frame == 75)
         {
             parts.parts[1] = collision_part(0);
-            if (!expect(fixture.physics.set_mesh_parts(*collider, parts),
+            if (!expect(fixture.physics.set_mesh_parts(collider, parts),
                         "refresh a part while a body is traversing its surface"))
             {
                 return false;
             }
         }
-        if (!expect(fixture.physics.tick(1.0 / 60.0) && height(*slider) > 0.42 &&
-                        height(*slider) < 0.62,
+        if (!expect(fixture.physics.tick(1.0 / 60.0) && height(slider) > 0.42 &&
+                        height(slider) < 0.62,
                     "crossing a mesh-part seam keeps the body supported without a vertical hop"))
         {
             return false;
         }
     }
-    const auto& position = slider->get_component<engine::Transform>()->settings().position;
-    if (!expect(position.x() > 4.2 && position.x() < 4.8 &&
-                    std::abs(position.z() - 0.25) < 0.08 && rigid->linear_velocity().x() > 2.8 &&
-                    fixture.physics.body_count() == 2,
+    auto position = slider.get_component<engine::Transform>().settings().position;
+    if (!expect(position.x() > 4.2 && position.x() < 4.8 && std::abs(position.z() - 0.25) < 0.08 &&
+                    rigid.linear_velocity().x() > 2.8 && fixture.physics.body_count() == 2,
                 "the sliding body crosses both seams without snagging or sideways deflection") ||
-        !expect(rigid->set_linear_velocity({}) && advance(fixture.physics, 120) &&
-                    std::abs(height(*slider) - 0.5) < 0.08,
+        !expect(rigid.set_linear_velocity({}) && advance(fixture.physics, 120) &&
+                    std::abs(height(slider) - 0.5) < 0.08,
                 "the sliding body comes to rest on the final part"))
     {
         return false;
     }
     parts.parts[2].reset();
     float remaining_fraction = 0;
-    return expect(fixture.physics.set_mesh_parts(*collider, parts) &&
-                      advance(fixture.physics, 60) && height(*slider) < -1 &&
-                      fixture.physics.body_count() == 2 &&
-                      fixture.physics.cast_ray(*collider, {-4, 4, 0.25}, {0, -8, 0},
-                                               remaining_fraction) &&
-                      std::abs(remaining_fraction - 0.5F) < 0.001F,
-                  "removing one supporting part wakes the resting body and keeps distant support");
+    return expect(
+        fixture.physics.set_mesh_parts(collider, parts) && advance(fixture.physics, 60) &&
+            height(slider) < -1 && fixture.physics.body_count() == 2 &&
+            fixture.physics.cast_ray(collider, {-4, 4, 0.25}, {0, -8, 0}, remaining_fraction) &&
+            std::abs(remaining_fraction - 0.5F) < 0.001F,
+        "removing one supporting part wakes the resting body and keeps distant support");
 }
 
 bool segmented_mesh_transforms()
@@ -1423,37 +1492,37 @@ bool segmented_mesh_transforms()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* parent = scene.create_node("Segment parent");
-    auto* floor = create(scene, "Transformed segments", {},
-                          engine::schema::ColliderShape::box, false);
-    if (parent == nullptr || floor == nullptr)
+    auto parent = scene.create_node("Segment parent");
+    auto floor =
+        create(scene, "Transformed segments", {}, engine::schema::ColliderShape::box, false);
+    if (!parent.valid() || !floor.valid())
     {
         return false;
     }
-    auto* collider = floor->get_component<engine::Collider>();
+    auto collider = floor.get_component<engine::Collider>();
     engine::MeshCollisionData parts;
     parts.parts = {collision_part(-4), collision_part(4)};
-    if (!fixture.physics.set_mesh_parts(*collider, parts))
+    if (!fixture.physics.set_mesh_parts(collider, parts))
     {
         return false;
     }
-    auto* transform = floor->get_component<engine::Transform>();
-    auto pose = transform->settings();
+    auto transform = floor.get_component<engine::Transform>();
+    auto pose = transform.settings();
     pose.position = {2, 1, 0};
     pose.rotation = {0, 90, 0};
     pose.scale = {2, 1.5, 0.75};
-    auto* parent_transform = parent->get_component<engine::Transform>();
-    auto parent_pose = parent_transform->settings();
+    auto parent_transform = parent.get_component<engine::Transform>();
+    auto parent_pose = parent_transform.settings();
     parent_pose.position = {10, 2, -7};
     parent_pose.rotation = {0, 45, 0};
     parent_pose.scale = {1.5, 1.5, 1.5};
-    auto collision = collider->settings();
+    auto collision = collider.settings();
     collision.center = {1, 0.5, -0.75};
     std::array<float, 16> matrix{};
-    if (!expect(parent_transform->set_settings(parent_pose) && floor->set_parent(parent) &&
-                    transform->set_settings(pose) && collider->set_settings(collision) &&
-                    fixture.physics.set_mesh_parts(*collider, parts) &&
-                    transform->world_matrix(matrix.data()),
+    if (!expect(parent_transform.set_settings(parent_pose) && floor.set_parent(parent) &&
+                    transform.set_settings(pose) && collider.set_settings(collision) &&
+                    fixture.physics.set_mesh_parts(collider, parts) &&
+                    transform.world_matrix(matrix.data()),
                 "unchanged part pointers rebuild under a changed center, scale and parent pose"))
     {
         return false;
@@ -1471,36 +1540,36 @@ bool segmented_mesh_transforms()
     {
         const auto surface = point(x, y);
         float fraction = 0;
-        return fixture.physics.cast_ray(
-                   *collider, {surface.x(), surface.y() + 4, surface.z()}, {0, -8, 0}, fraction) &&
+        return fixture.physics.cast_ray(collider, {surface.x(), surface.y() + 4, surface.z()},
+                                        {0, -8, 0}, fraction) &&
                (hit ? std::abs(fraction - 0.5F) < 0.001F : fraction == 1);
     };
     // Sample triangle interiors: a rotated ray exactly on a shared edge is numerically ambiguous.
     constexpr double left_x = -3.875;
     constexpr double right_x = 4.125;
     const auto surface = point(left_x, 0);
-    auto* supported = create(scene, "Offset support", {surface.x(), surface.y() + 0.52, surface.z()},
-                              engine::schema::ColliderShape::box, true);
+    auto supported = create(scene, "Offset support", {surface.x(), surface.y() + 0.52, surface.z()},
+                            engine::schema::ColliderShape::box, true);
     if (!expect(supported && cast(left_x, 0, true) && cast(right_x, 0, true) &&
                     advance(fixture.physics, 120) &&
-                    std::abs(height(*supported) - surface.y() - 0.5) < 0.08,
+                    std::abs(height(supported) - surface.y() - 0.5) < 0.08,
                 "transformed segments support a resting body at their world-space surface"))
     {
         return false;
     }
     parts.parts[0] = collision_part(-4, -1);
     const auto lowered = point(left_x, -1);
-    if (!expect(fixture.physics.set_mesh_parts(*collider, parts) && cast(left_x, -1, true) &&
+    if (!expect(fixture.physics.set_mesh_parts(collider, parts) && cast(left_x, -1, true) &&
                     cast(right_x, 0, true) && advance(fixture.physics, 180) &&
-                    std::abs(height(*supported) - lowered.y() - 0.5) < 0.08,
+                    std::abs(height(supported) - lowered.y() - 0.5) < 0.08,
                 "lowering one transformed part wakes its old support region and preserves others"))
     {
         return false;
     }
     parts.parts[0].reset();
-    return expect(fixture.physics.set_mesh_parts(*collider, parts) && cast(left_x, -1, false) &&
+    return expect(fixture.physics.set_mesh_parts(collider, parts) && cast(left_x, -1, false) &&
                       cast(right_x, 0, true) && advance(fixture.physics, 60) &&
-                      height(*supported) < lowered.y() - 1 && fixture.physics.body_count() == 2,
+                      height(supported) < lowered.y() - 1 && fixture.physics.body_count() == 2,
                   "removing transformed support wakes the sleeping body at the correct COM bounds");
 }
 
@@ -1512,24 +1581,24 @@ bool segmented_mesh_character_seams()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Character segment seams", {},
-                          engine::schema::ColliderShape::box, false);
-    auto* player = scene.create_node("Segment walker");
-    if (floor == nullptr || player == nullptr)
+    auto floor =
+        create(scene, "Character segment seams", {}, engine::schema::ColliderShape::box, false);
+    auto player = scene.create_node("Segment walker");
+    if (!floor.valid() || !player.valid())
     {
         return false;
     }
-    auto* motor = player->add_component<engine::CharacterMotor>();
-    auto* transform = player->get_component<engine::Transform>();
-    auto pose = transform->settings();
+    auto motor = player.add_component<engine::CharacterMotor>();
+    auto transform = player.get_component<engine::Transform>();
+    auto pose = transform.settings();
     pose.position = {-4.5, 0.02, 0.25};
-    auto* collider = floor->get_component<engine::Collider>();
+    auto collider = floor.get_component<engine::Collider>();
     engine::MeshCollisionData parts;
     parts.parts = {collision_part(-4), collision_part(0), collision_part(4)};
-    if (!expect(motor && transform->set_settings(pose) &&
-                    fixture.physics.set_mesh_parts(*collider, parts) &&
-                    advance(fixture.physics, 20) && motor->grounded() &&
-                    motor->set_velocity({3, 0, 0}),
+    if (!expect(motor && transform.set_settings(pose) &&
+                    fixture.physics.set_mesh_parts(collider, parts) &&
+                    advance(fixture.physics, 20) && motor.grounded() &&
+                    motor.set_velocity({3, 0, 0}),
                 "prepare a grounded CharacterVirtual on the first mesh segment"))
     {
         return false;
@@ -1539,23 +1608,24 @@ bool segmented_mesh_character_seams()
         if (frame == 75)
         {
             parts.parts[1] = collision_part(0);
-            if (!fixture.physics.set_mesh_parts(*collider, parts))
+            if (!fixture.physics.set_mesh_parts(collider, parts))
             {
                 return false;
             }
         }
-        if (!expect(fixture.physics.tick(1.0 / 60.0) && motor->grounded() &&
-                        height(*player) > -0.06 && height(*player) < 0.08,
+        if (!expect(fixture.physics.tick(1.0 / 60.0) && motor.grounded() &&
+                        height(player) > -0.06 && height(player) < 0.08,
                     "CharacterVirtual crosses mesh seams without losing ground or hopping"))
         {
             return false;
         }
     }
-    const auto& position = transform->settings().position;
-    return expect(position.x() > 4.2 && position.x() < 4.8 &&
-                      std::abs(position.z() - 0.25) < 0.08 && motor->velocity().x() > 2.8 &&
-                      fixture.physics.character_count() == 1 && fixture.physics.body_count() == 1,
-                  "the character crosses both mesh seams at the requested speed without deflection");
+    const auto& position = transform.settings().position;
+    return expect(
+        position.x() > 4.2 && position.x() < 4.8 && std::abs(position.z() - 0.25) < 0.08 &&
+            motor.velocity().x() > 2.8 && fixture.physics.character_count() == 1 &&
+            fixture.physics.body_count() == 1,
+        "the character crosses both mesh seams at the requested speed without deflection");
 }
 
 bool accumulated_shape_scale()
@@ -1568,29 +1638,29 @@ bool accumulated_shape_scale()
         {
             return false;
         }
-        auto* node = create(*fixture.world.scene(), "Gradually scaled collision", {},
-                             engine::schema::ColliderShape::box, false);
-        if (node == nullptr)
+        auto node = create(*fixture.world.scene(), "Gradually scaled collision", {},
+                           engine::schema::ColliderShape::box, false);
+        if (!node.valid())
         {
             return false;
         }
-        auto* collider = node->get_component<engine::Collider>();
-        auto* transform = node->get_component<engine::Transform>();
-        auto pose = transform->settings();
+        auto collider = node.get_component<engine::Collider>();
+        auto transform = node.get_component<engine::Transform>();
+        auto pose = transform.settings();
         pose.scale = {1, 2, 1};
-        auto settings = collider->settings();
+        auto settings = collider.settings();
         settings.center = {0, 2, 0};
         settings.half_extents = {6, 10, 2};
         engine::MeshCollisionData parts;
         parts.parts = {collision_part(-4, 10), collision_part(4, 10)};
-        if (!transform->set_settings(pose) || !collider->set_settings(settings))
+        if (!transform.set_settings(pose) || !collider.set_settings(settings))
         {
             return false;
         }
-        const bool published =
-            mode == 0   ? fixture.physics.set_collider_data(*collider, settings)
-            : mode == 1 ? fixture.physics.set_mesh_data(*collider, *collision_part(0, 10))
-                        : fixture.physics.set_mesh_parts(*collider, parts);
+        const bool published = mode == 0 ? fixture.physics.set_collider_data(collider, settings)
+                               : mode == 1
+                                   ? fixture.physics.set_mesh_data(collider, *collision_part(0, 10))
+                                   : fixture.physics.set_mesh_parts(collider, parts);
         if (!published)
         {
             return false;
@@ -1599,9 +1669,8 @@ bool accumulated_shape_scale()
         {
             const double top = 12 * pose.scale.y();
             float fraction = 0;
-            return fixture.physics.cast_ray(*collider,
-                                             {mode == 2 ? -3.875 : 0.125, top + 2, 0.25},
-                                             {0, -4, 0}, fraction) &&
+            return fixture.physics.cast_ray(collider, {mode == 2 ? -3.875 : 0.125, top + 2, 0.25},
+                                            {0, -4, 0}, fraction) &&
                    std::abs(fraction - 0.5F) < 0.0005F;
         };
         if (!expect(surface_matches(), "initial nonunit shape scale reaches the collider"))
@@ -1616,9 +1685,8 @@ bool accumulated_shape_scale()
             {
                 parts.parts[1] = collision_part(4, 10);
             }
-            if (!transform->set_settings(pose) ||
-                (mode == 2 && step % 2 != 0 &&
-                 !fixture.physics.set_mesh_parts(*collider, parts)) ||
+            if (!transform.set_settings(pose) ||
+                (mode == 2 && step % 2 != 0 && !fixture.physics.set_mesh_parts(collider, parts)) ||
                 !fixture.physics.tick(0))
             {
                 return false;
@@ -1689,37 +1757,37 @@ bool compound_box_geometry()
     {
         return false;
     }
-    auto* node = create(*fixture.world.scene(), "Box hull geometry", {3, 4, -2},
-                        engine::schema::ColliderShape::box, false);
-    if (node == nullptr)
+    auto node = create(*fixture.world.scene(), "Box hull geometry", {3, 4, -2},
+                       engine::schema::ColliderShape::box, false);
+    if (!node.valid())
     {
         return false;
     }
-    auto* transform = node->get_component<engine::Transform>();
-    auto pose = transform->settings();
+    auto transform = node.get_component<engine::Transform>();
+    auto pose = transform.settings();
     pose.scale = {2, 2, 2};
-    auto* collider = node->get_component<engine::Collider>();
-    auto compound = collider->settings();
+    auto collider = node.get_component<engine::Collider>();
+    auto compound = collider.settings();
     compound.shape = engine::schema::ColliderShape::compound;
     compound.center = {1, 0.5, -0.25};
     compound.hulls.push_back(cube_hull(2));
     float fraction = 0;
-    if (!expect(transform->set_settings(pose) &&
-                    fixture.physics.set_collider_data(*collider, compound) &&
-                    fixture.physics.cast_ray(*collider, {9, 9, -2.5}, {0, -8, 0}, fraction) &&
+    if (!expect(transform.set_settings(pose) &&
+                    fixture.physics.set_collider_data(collider, compound) &&
+                    fixture.physics.cast_ray(collider, {9, 9, -2.5}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F,
                 "single box hull retains its offset, collider center and uniform scale"))
     {
         return false;
     }
     compound.hulls.push_back(cube_hull(-2));
-    if (!expect(fixture.physics.set_collider_data(*collider, compound) &&
+    if (!expect(fixture.physics.set_collider_data(collider, compound) &&
                     fixture.physics.body_count() == 1 &&
-                    fixture.physics.cast_ray(*collider, {1, 9, -2.5}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {1, 9, -2.5}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F &&
-                    fixture.physics.cast_ray(*collider, {9, 9, -2.5}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {9, 9, -2.5}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F &&
-                    fixture.physics.cast_ray(*collider, {5, 9, -2.5}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {5, 9, -2.5}, {0, -8, 0}, fraction) &&
                     fraction == 1,
                 "multiple box hulls preserve both transformed surfaces and the gap"))
     {
@@ -1732,9 +1800,9 @@ bool compound_box_geometry()
     compound.hulls.push_back(cube_hull(0));
     // 缺少 (+,+,+) 角后，真实凸包在此射线处的斜切面为 y = -0.3。
     compound.hulls.front()->vertices.pop_back();
-    if (!expect(transform->set_settings(pose) &&
-                    fixture.physics.set_collider_data(*collider, compound) &&
-                    fixture.physics.cast_ray(*collider, {0.4, 2, 0.4}, {0, -4, 0}, fraction) &&
+    if (!expect(transform.set_settings(pose) &&
+                    fixture.physics.set_collider_data(collider, compound) &&
+                    fixture.physics.cast_ray(collider, {0.4, 2, 0.4}, {0, -4, 0}, fraction) &&
                     std::abs(fraction - 0.575F) < 0.00001F,
                 "missing box corner retains the diagonal hull face instead of an AABB"))
     {
@@ -1749,8 +1817,8 @@ bool compound_box_geometry()
         }
     }
     // 顶面轻微倾斜，中心高度为 0.4995；其 AABB 顶面仍是 0.5。
-    return expect(fixture.physics.set_collider_data(*collider, compound) &&
-                      fixture.physics.cast_ray(*collider, {0, 2, 0}, {0, -4, 0}, fraction) &&
+    return expect(fixture.physics.set_collider_data(collider, compound) &&
+                      fixture.physics.cast_ray(collider, {0, 2, 0}, {0, -4, 0}, fraction) &&
                       std::abs(fraction - 0.375125F) < 0.00001F,
                   "near-box sloped top retains its actual hull surface");
 }
@@ -1762,29 +1830,29 @@ bool dynamic_pose_feedback()
     {
         return false;
     }
-    auto* node = create(*fixture.world.scene(), "Spinning compound", {0, 4, 0},
-                        engine::schema::ColliderShape::box, true);
-    if (node == nullptr)
+    auto node = create(*fixture.world.scene(), "Spinning compound", {0, 4, 0},
+                       engine::schema::ColliderShape::box, true);
+    if (!node.valid())
     {
         return false;
     }
-    auto* transform = node->get_component<engine::Transform>();
-    auto* collider = node->get_component<engine::Collider>();
-    auto* rigid = node->get_component<engine::RigidBody>();
-    auto pose = transform->settings();
+    auto transform = node.get_component<engine::Transform>();
+    auto collider = node.get_component<engine::Collider>();
+    auto rigid = node.get_component<engine::RigidBody>();
+    auto pose = transform.settings();
     pose.rotation = {30, 89.999, 20};
-    auto collision = collider->settings();
+    auto collision = collider.settings();
     collision.shape = engine::schema::ColliderShape::compound;
     collision.center = {1, 0.5, -0.25};
     collision.hulls.push_back(cube_hull(1));
     collision.hulls.push_back(cube_hull(3));
-    auto motion = rigid->settings();
+    auto motion = rigid.settings();
     motion.gravity_factor = 0;
     motion.linear_damping = 0;
     motion.angular_damping = 0;
     motion.angular_velocity = {40, 100, 30};
-    if (!expect(transform->set_settings(pose) && collider->set_settings(collision) &&
-                    rigid->set_settings(motion),
+    if (!expect(transform.set_settings(pose) && collider.set_settings(collision) &&
+                    rigid.set_settings(motion),
                 "configure fast rotating compound with a nonzero center of mass"))
     {
         return false;
@@ -1792,7 +1860,7 @@ bool dynamic_pose_feedback()
     auto world_point = [&](double x, engine::Vec3& output)
     {
         std::array<float, 16> matrix{};
-        if (!transform->world_matrix(matrix.data()))
+        if (!transform.world_matrix(matrix.data()))
         {
             return false;
         }
@@ -1818,70 +1886,69 @@ bool dynamic_pose_feedback()
         {
             return false;
         }
-        const auto& angular = rigid->settings().angular_velocity;
-        const auto saved_pose = transform->settings();
+        const auto& angular = rigid.settings().angular_velocity;
+        const auto saved_pose = transform.settings();
         const engine::Vec3 origin(hull_center.x(), hull_center.y() + 3, hull_center.z());
         float before = 0;
         float after = 0;
         if (!expect(std::hypot(center.x() - initial_center.x(), center.y() - initial_center.y(),
                                center.z() - initial_center.z()) < 0.00005 &&
                         std::abs(angular.x() - 40) < 0.0001 &&
-                        std::abs(angular.y() - 100) < 0.0001 &&
-                        std::abs(angular.z() - 30) < 0.0001,
+                        std::abs(angular.y() - 100) < 0.0001 && std::abs(angular.z() - 30) < 0.0001,
                     "free spinning compound preserves its center of mass and angular velocity") ||
-            !expect(fixture.physics.cast_ray(*collider, origin, {0, -6, 0}, before) &&
-                        before > 0 && before < 1 && fixture.physics.tick(0) &&
-                        fixture.physics.cast_ray(*collider, origin, {0, -6, 0}, after) &&
-                        before == after && transform->settings() == saved_pose,
+            !expect(fixture.physics.cast_ray(collider, origin, {0, -6, 0}, before) && before > 0 &&
+                        before < 1 && fixture.physics.tick(0) &&
+                        fixture.physics.cast_ray(collider, origin, {0, -6, 0}, after) &&
+                        before == after && transform.settings() == saved_pose,
                     "zero-step synchronization leaves the current rotating collision unchanged"))
         {
             return false;
         }
     }
-    motion = rigid->settings();
+    motion = rigid.settings();
     motion.angular_velocity = {};
-    pose = transform->settings();
+    pose = transform.settings();
     pose.position = {10, 4, -2};
     pose.rotation = {0, 90, 0};
     pose.scale = {2, 2, 2};
     float fraction = 0;
-    if (!expect(rigid->set_settings(motion) && transform->set_settings(pose) &&
+    if (!expect(rigid.set_settings(motion) && transform.set_settings(pose) &&
                     fixture.physics.tick(0) &&
-                    fixture.physics.cast_ray(*collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F &&
-                    fixture.physics.cast_ray(*collider, {9.5, 9, -8}, {0, -8, 0}, fraction) &&
-                    fraction == 1 && rigid->settings().angular_velocity == engine::Vec3{},
+                    fixture.physics.cast_ray(collider, {9.5, 9, -8}, {0, -8, 0}, fraction) &&
+                    fraction == 1 && rigid.settings().angular_velocity == engine::Vec3{},
                 "caller pose, scale and stop requests replace the last simulated pose"))
     {
         return false;
     }
-    if (!expect(node->remove_component(engine::ComponentType::RigidBodyData) &&
-                    node->remove_component(engine::ComponentType::ColliderData),
+    if (!expect(node.remove_component(engine::ComponentType::RigidBodyData) &&
+                    node.remove_component(engine::ComponentType::ColliderData),
                 "replace body components between physical synchronization points"))
     {
         return false;
     }
-    collider = node->add_component<engine::Collider>();
-    rigid = node->add_component<engine::RigidBody>();
-    if (collider == nullptr || rigid == nullptr)
+    collider = node.add_component<engine::Collider>();
+    rigid = node.add_component<engine::RigidBody>();
+    if (!collider.valid() || !rigid.valid())
     {
         return false;
     }
-    collision = collider->settings();
+    collision = collider.settings();
     collision.center = {-2, 0, 0};
-    motion = rigid->settings();
+    motion = rigid.settings();
     motion.gravity_factor = 0;
     motion.linear_damping = 0;
     motion.angular_damping = 0;
     motion.linear_velocity = {0, 2, 0};
-    if (!expect(collider->set_settings(collision) && rigid->set_settings(motion) &&
+    if (!expect(collider.set_settings(collision) && rigid.set_settings(motion) &&
                     fixture.physics.tick(0) && fixture.physics.body_count() == 1 &&
-                    fixture.physics.cast_ray(*collider, {10, 8, 2}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {10, 8, 2}, {0, -8, 0}, fraction) &&
                     std::abs(fraction - 0.375F) < 0.00001F &&
-                    fixture.physics.cast_ray(*collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
+                    fixture.physics.cast_ray(collider, {9.5, 9, -6}, {0, -8, 0}, fraction) &&
                     fraction == 1 && fixture.physics.tick(1.0 / 60.0) &&
-                    std::abs(height(*node) - (4 + 2.0 / 60.0)) < 0.00001 &&
-                    rigid->settings().angular_velocity == engine::Vec3{},
+                    std::abs(height(node) - (4 + 2.0 / 60.0)) < 0.00001 &&
+                    rigid.settings().angular_velocity == engine::Vec3{},
                 "replacement components use their new shape and motion without stale spin"))
     {
         return false;
@@ -1897,16 +1964,16 @@ bool compound_collision()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
-    auto* island = create(scene, "Island", {0, 4, 0}, engine::schema::ColliderShape::box, true);
-    if (floor == nullptr || island == nullptr)
+    auto floor = create(scene, "Floor", {0, -0.5, 0}, engine::schema::ColliderShape::box, false);
+    auto island = create(scene, "Island", {0, 4, 0}, engine::schema::ColliderShape::box, true);
+    if (!floor.valid() || !island.valid())
     {
         return false;
     }
-    auto floor_data = floor->get_component<engine::Collider>()->settings();
+    auto floor_data = floor.get_component<engine::Collider>().settings();
     floor_data.half_extents = {10, 0.5, 10};
-    auto* collider = island->get_component<engine::Collider>();
-    auto compound = collider->settings();
+    auto collider = island.get_component<engine::Collider>();
+    auto compound = collider.settings();
     compound.shape = engine::schema::ColliderShape::compound;
     compound.hulls.push_back(cube_hull(-1));
     compound.hulls.push_back(cube_hull(1));
@@ -1916,9 +1983,9 @@ bool compound_collision()
         return fixture.physics.cast_sphere({x, 8, 0}, {0, -6, 0}, 0.1F, fraction) &&
                (hit ? fraction > 0.4F && fraction < 0.7F : fraction == 1.0F);
     };
-    if (!expect(fixture.physics.set_collider_data(*floor->get_component<engine::Collider>(),
+    if (!expect(fixture.physics.set_collider_data(floor.get_component<engine::Collider>(),
                                                   floor_data) &&
-                    fixture.physics.set_collider_data(*collider, compound) &&
+                    fixture.physics.set_collider_data(collider, compound) &&
                     fixture.physics.body_count() == 2 && cast(-1, true) && cast(1, true) &&
                     cast(0, false),
                 "two convex parts publish as one dynamic body with a real gap"))
@@ -1927,7 +1994,8 @@ bool compound_collision()
     }
     engine::PhysicsQueryHit hit;
     if (!expect(fixture.physics.query_ray({1, 8, 0}, {0, -6, 0}, {}, hit) && hit.hit &&
-                    hit.object.node_id == island->id() && hit.object.instance_id == collider->instance_id() &&
+                    hit.object.node_id == island.id() &&
+                    hit.object.instance_id == collider.instance_id() &&
                     std::abs(hit.point.y() - 4.5) < 0.01 && hit.normal.y() > 0.99 &&
                     fixture.physics.query_ray({0, 8, 0}, {0, -6, 0}, {}, hit) && empty_hit(hit) &&
                     fixture.physics.query_sphere({0, 8, 0}, {0, -6, 0}, 0.1F, {}, hit) &&
@@ -1936,11 +2004,11 @@ bool compound_collision()
     {
         return false;
     }
-    const auto original = collider->settings();
+    const auto original = collider.settings();
     auto invalid = compound;
     invalid.hulls.front()->vertices.assign(4, engine::Vec3{});
-    if (!expect(!fixture.physics.set_collider_data(*collider, invalid) &&
-                    collider->settings() == original && fixture.physics.body_count() == 2 &&
+    if (!expect(!fixture.physics.set_collider_data(collider, invalid) &&
+                    collider.settings() == original && fixture.physics.body_count() == 2 &&
                     cast(-1, true) && cast(1, true),
                 "degenerate hull preparation leaves live compound and settings unchanged"))
     {
@@ -1948,7 +2016,7 @@ bool compound_collision()
     }
     invalid = compound;
     invalid.hulls.front()->vertices.front().mutate_x(std::numeric_limits<double>::infinity());
-    if (!expect(!fixture.physics.set_collider_data(*collider, invalid) &&
+    if (!expect(!fixture.physics.set_collider_data(collider, invalid) &&
                     !engine::Collider::valid_settings(invalid),
                 "nonfinite convex hull input is rejected"))
     {
@@ -1972,12 +2040,12 @@ bool compound_collision()
     {
         return false;
     }
-    auto* transform = island->get_component<engine::Transform>();
-    auto pose = transform->settings();
+    auto transform = island.get_component<engine::Transform>();
+    auto pose = transform.settings();
     pose.scale = {2, 1, 1};
-    if (!expect(transform->set_settings(pose) &&
-                    !fixture.physics.set_collider_data(*collider, compound) &&
-                    collider->settings() == original && cast(-1, true),
+    if (!expect(transform.set_settings(pose) &&
+                    !fixture.physics.set_collider_data(collider, compound) &&
+                    collider.settings() == original && cast(-1, true),
                 "nonuniform compound scale fails without replacing collision"))
     {
         return false;
@@ -1985,53 +2053,59 @@ bool compound_collision()
     pose.scale = {1, 1, 1};
     auto uniform = pose;
     uniform.scale = {2, 2, 2};
-    if (!expect(transform->set_settings(uniform) &&
-                    fixture.physics.set_collider_data(*collider, compound) && cast(2, true) &&
-                    cast(0, false) && transform->set_settings(pose) &&
-                    fixture.physics.set_collider_data(*collider, compound),
+    if (!expect(transform.set_settings(uniform) &&
+                    fixture.physics.set_collider_data(collider, compound) && cast(2, true) &&
+                    cast(0, false) && transform.set_settings(pose) &&
+                    fixture.physics.set_collider_data(collider, compound),
                 "positive uniform scale transforms every hull consistently"))
     {
         return false;
     }
     engine::schema::ComponentDataT saved;
-    if (!expect(transform->set_settings(pose) && collider->build_data(saved) &&
-                    collider->restore_data(saved) && fixture.physics.tick(0.0) &&
+    if (!expect(transform.set_settings(pose) && collider.build_data(saved) &&
+                    collider.restore_data(saved) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 2 && advance(fixture.physics, 240) &&
-                    std::abs(height(*island) - 0.5) < 0.08,
+                    std::abs(height(island) - 0.5) < 0.08,
                 "schema compound round trip retains one rigid body and falls onto floor"))
     {
         return false;
     }
     compound.hulls.clear();
     compound.hulls.push_back(cube_hull(2));
-    pose = transform->settings();
+    pose = transform.settings();
     pose.position = {0, 4, 0};
     pose.rotation = {};
-    if (!expect(transform->set_settings(pose) &&
-                    fixture.physics.set_collider_data(*collider, compound) && cast(2, true) &&
+    if (!expect(transform.set_settings(pose) &&
+                    fixture.physics.set_collider_data(collider, compound) && cast(2, true) &&
                     cast(0, false) && fixture.physics.body_count() == 2 &&
-                    advance(fixture.physics, 240) && std::abs(height(*island) - 0.5) < 0.08 &&
-                    std::abs(transform->settings().position.x()) < 0.05,
+                    advance(fixture.physics, 240) && std::abs(height(island) - 0.5) < 0.08 &&
+                    std::abs(transform.settings().position.x()) < 0.05,
                 "single off-center hull keeps node origin while Jolt computes center of mass"))
     {
         return false;
     }
-    collider->set_enabled(false);
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
     invalid = compound;
     invalid.hulls.front()->vertices.assign(4, engine::Vec3{});
-    if (!expect(fixture.physics.set_collider_data(*collider, invalid) &&
-                    fixture.physics.set_collider_data(*collider, compound) &&
+    if (!expect(fixture.physics.set_collider_data(collider, invalid) &&
+                    fixture.physics.set_collider_data(collider, compound) &&
                     fixture.physics.body_count() == 1,
                 "disabled compound removes its body immediately without cooking candidate hulls"))
     {
         return false;
     }
-    collider->set_enabled(true);
-    auto ordinary = collider->settings();
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
+    auto ordinary = collider.settings();
     ordinary.shape = engine::schema::ColliderShape::box;
     ordinary.hulls.clear();
-    return expect(fixture.physics.set_collider_data(*collider, ordinary) &&
-                      fixture.physics.body_count() == 2 && scene.destroy_node(island->id()) &&
+    return expect(fixture.physics.set_collider_data(collider, ordinary) &&
+                      fixture.physics.body_count() == 2 && scene.destroy_node(island.id()) &&
                       fixture.physics.tick(0.0) && fixture.physics.body_count() == 1,
                   "compound can return to a basic shape and releases through node lifecycle");
 }
@@ -2044,13 +2118,13 @@ bool snapshot_reuse_lifecycle()
         return false;
     }
     auto& scene = *fixture.world.scene();
-    auto* node = create(scene, "Compound", {}, engine::schema::ColliderShape::box, false);
-    if (node == nullptr)
+    auto node = create(scene, "Compound", {}, engine::schema::ColliderShape::box, false);
+    if (!node.valid())
     {
         return false;
     }
-    auto* collider = node->get_component<engine::Collider>();
-    auto compound = collider->settings();
+    auto collider = node.get_component<engine::Collider>();
+    auto compound = collider.settings();
     compound.shape = engine::schema::ColliderShape::compound;
     compound.hulls.push_back(cube_hull(-1));
     compound.hulls.push_back(cube_hull(1));
@@ -2060,7 +2134,7 @@ bool snapshot_reuse_lifecycle()
         return fixture.physics.cast_sphere({x, 4, 0}, {0, -8, 0}, 0.1F, fraction) &&
                (hit ? fraction > 0.0F && fraction < 1.0F : fraction == 1.0F);
     };
-    if (!expect(collider->set_settings(compound) && fixture.physics.tick(0.0) &&
+    if (!expect(collider.set_settings(compound) && fixture.physics.tick(0.0) &&
                     fixture.physics.tick(0.0) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 1 && cast(-1, true) && cast(1, true) &&
                     cast(0, false),
@@ -2068,82 +2142,99 @@ bool snapshot_reuse_lifecycle()
     {
         return false;
     }
-    // 嵌套 unique_ptr 的对象可经 const 描述修改；缓存必须比较值而不是组件地址。
-    for (auto& vertex : collider->settings().hulls.front()->vertices)
+    // settings 返回独立快照；嵌套数据也只能经校验后的 setter 提交。
+    auto edited = collider.settings();
+    for (auto& vertex : edited.hulls.front()->vertices)
     {
         vertex.mutate_x(vertex.x() - 2.0);
     }
-    if (!expect(fixture.physics.tick(0.0) && cast(-3, true) && cast(-1, false) && cast(1, true),
-                "nested hull edits invalidate the reused description and rebuild collision"))
+    if (!expect(fixture.physics.tick(0.0) && cast(-1, true) && cast(-3, false) &&
+                    collider.set_settings(edited) && fixture.physics.tick(0.0) && cast(-3, true) &&
+                    cast(-1, false) && cast(1, true),
+                "nested snapshot edits stay isolated until their explicit collision commit"))
     {
         return false;
     }
-    collider->settings().hulls.front()->vertices.front().mutate_x(
-        std::numeric_limits<double>::infinity());
-    if (!expect(!fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 &&
-                    collider->set_settings(compound) && fixture.physics.tick(0.0) &&
-                    cast(-1, true),
-                "invalid nested edits are revalidated and clearing releases stale snapshots"))
+    edited.hulls.front()->vertices.front().mutate_x(std::numeric_limits<double>::infinity());
+    if (!expect(!collider.set_settings(edited) && fixture.physics.tick(0.0) &&
+                    fixture.physics.body_count() == 1 && cast(-3, true) &&
+                    collider.set_settings(compound) && fixture.physics.tick(0.0) && cast(-1, true),
+                "invalid nested snapshot edits preserve the last valid collision state"))
     {
         return false;
     }
     compound.hulls.front() = cube_hull(-3);
-    if (!expect(fixture.physics.set_collider_data(*collider, compound) &&
+    if (!expect(fixture.physics.set_collider_data(collider, compound) &&
                     fixture.physics.tick(0.0) && cast(-3, true) && cast(-1, false),
                 "explicit collider publication remains visible after snapshot reuse"))
     {
         return false;
     }
-    if (!node->remove_component(engine::Collider::component_type))
+    if (!node.remove_component(engine::Collider::component_type))
     {
         return false;
     }
-    collider = node->add_component<engine::Collider>();
-    if (collider == nullptr)
+    collider = node.add_component<engine::Collider>();
+    if (!collider.valid())
     {
         return false;
     }
-    auto replacement = collider->settings();
+    auto replacement = collider.settings();
     replacement.center = {3, 0, 0};
-    if (!expect(collider->set_settings(replacement) && fixture.physics.tick(0.0) &&
+    if (!expect(collider.set_settings(replacement) && fixture.physics.tick(0.0) &&
                     fixture.physics.body_count() == 1 && cast(3, true) && cast(-3, false) &&
                     cast(1, false),
                 "a replacement component on the same node cannot inherit old hull geometry"))
     {
         return false;
     }
-    auto* parent = scene.create_node("Collision activation parent");
-    if (!expect(parent && node->set_parent(parent), "parent a static collision node"))
+    auto parent = scene.create_node("Collision activation parent");
+    if (!expect(parent && node.set_parent(parent), "parent a static collision node"))
     {
         return false;
     }
-    parent->set_visible(false);
+    if (!parent.set_visible(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && cast(3, true), "hidden geometry retains collision"))
     {
         return false;
     }
-    parent->set_enabled(false);
+    if (!parent.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 && cast(3, false) &&
-                    collider->enabled(),
+                    collider.enabled(),
                 "inactive parent suspends child collision without overwriting local enabled"))
     {
         return false;
     }
-    parent->set_enabled(true);
+    if (!parent.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && cast(3, true),
                 "reactivating parent restores collision even while hidden"))
     {
         return false;
     }
-    collider->set_enabled(false);
+    if (!collider.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 && cast(3, false),
                 "disabled entries are removed despite retained snapshot array capacity"))
     {
         return false;
     }
-    collider->set_enabled(true);
+    if (!collider.set_enabled(true))
+    {
+        std::abort();
+    }
     return expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 1 && cast(3, true) &&
-                      node->remove_component(engine::Collider::component_type) &&
+                      node.remove_component(engine::Collider::component_type) &&
                       fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 &&
                       cast(3, false),
                   "reenabled and removed colliders follow the current frame membership");
@@ -2160,22 +2251,22 @@ bool world_pause_and_resume()
     {
         return false;
     }
-    auto* body = create(*paused.world.scene(), "Paused body", {0, 10, 0},
+    auto body = create(*paused.world.scene(), "Paused body", {0, 10, 0},
+                       engine::schema::ColliderShape::box, true);
+    auto other = create(*reference.world.scene(), "Reference body", {0, 10, 0},
                         engine::schema::ColliderShape::box, true);
-    auto* other = create(*reference.world.scene(), "Reference body", {0, 10, 0},
-                         engine::schema::ColliderShape::box, true);
     if (!expect(body && other && paused.physics.tick(1.0 / 60.0) &&
                     reference.physics.tick(1.0 / 60.0),
                 "prepare identical Jolt bodies"))
     {
         return false;
     }
-    const auto before = body->get_component<engine::Transform>()->settings();
-    const auto velocity = body->get_component<engine::RigidBody>()->linear_velocity();
+    const auto before = body.get_component<engine::Transform>().settings();
+    const auto velocity = body.get_component<engine::RigidBody>().linear_velocity();
     if (!expect(paused.world.set_paused(true) && paused.world.set_paused(true) &&
                     paused.world.paused() && paused.world.tick(60) && paused.physics.tick(60) &&
-                    body->get_component<engine::Transform>()->settings() == before &&
-                    body->get_component<engine::RigidBody>()->linear_velocity() == velocity &&
+                    body.get_component<engine::Transform>().settings() == before &&
+                    body.get_component<engine::RigidBody>().linear_velocity() == velocity &&
                     paused.physics.contacts().empty(),
                 "world pause preserves pose and velocity without new contacts"))
     {
@@ -2183,7 +2274,7 @@ bool world_pause_and_resume()
     }
     if (!expect(paused.world.set_paused(false) && paused.physics.tick(1.0 / 60.0) &&
                     reference.physics.tick(1.0 / 60.0) &&
-                    std::abs(height(*body) - height(*other)) < 1.0e-6,
+                    std::abs(height(body) - height(other)) < 1.0e-6,
                 "resume consumes one new step without accumulating paused time"))
     {
         return false;
@@ -2231,22 +2322,22 @@ bool occupied_workers(engine::ThreadSystem& threads, bool reject_submissions)
     {
         return false;
     }
-    auto* body = create(*world.scene(), "Falling body", {0, 1000, 0},
-                        engine::schema::ColliderShape::box, true);
-    if (!expect(body != nullptr, "create body for queued-wrapper regression"))
+    auto body = create(*world.scene(), "Falling body", {0, 1000, 0},
+                       engine::schema::ColliderShape::box, true);
+    if (!expect(body.valid(), "create body for queued-wrapper regression"))
     {
         return false;
     }
 
     std::binary_semaphore started{0};
     std::binary_semaphore release_worker{0};
-    auto blocker = tasks.submit(
-        "Occupy physics worker", [&]
-        {
-            started.release();
-            release_worker.acquire();
-            return true;
-        });
+    auto blocker = tasks.submit("Occupy physics worker",
+                                [&]
+                                {
+                                    started.release();
+                                    release_worker.acquire();
+                                    return true;
+                                });
     if (!expect(blocker.valid(), "accept the worker gate"))
     {
         return false;
@@ -2279,8 +2370,8 @@ bool occupied_workers(engine::ThreadSystem& threads, bool reject_submissions)
         });
     // Enough updates to exhaust the job free-list if stale wrapper references are unbounded.
     const bool advanced = advance(physics, 512);
-    const bool published = height(*body) < 900 &&
-                           body->get_component<engine::RigidBody>()->linear_velocity().y() < -50;
+    const bool published =
+        height(body) < 900 && body.get_component<engine::RigidBody>().linear_velocity().y() < -50;
     stepped.release();
     physics.clear();
     cleared.release();

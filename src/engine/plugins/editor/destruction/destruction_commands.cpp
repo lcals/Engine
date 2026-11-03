@@ -22,16 +22,16 @@ using Json = nlohmann::json;
 using RevisionMap = std::map<std::pair<std::uint64_t, std::uint64_t>, std::weak_ptr<std::uint64_t>>;
 
 std::shared_ptr<std::uint64_t> edit_revision(RevisionMap& revisions, const Node& node,
-                                             const DestructionComponent* component)
+                                             const DestructionComponent component)
 {
     // A new external mutation starts a new history chain; older chains remain invalidated.
     for (auto entry = revisions.begin(); entry != revisions.end();)
     {
         entry = entry->second.expired() ? revisions.erase(entry) : std::next(entry);
     }
-    auto& entry = revisions[{node.scene().id(), node.id()}];
+    auto& entry = revisions[{node.scene()->id(), node.id()}];
     auto value = entry.lock();
-    const auto current = component ? component->revision() : 0;
+    const auto current = component ? component.revision() : 0;
     if (!value || *value != current)
     {
         value = std::make_shared<std::uint64_t>(current);
@@ -130,15 +130,15 @@ Json component_json(const DestructionComponent& component)
     result["groups"] = component.group_count();
     result["dynamicGroups"] = component.dynamic_groups();
     result["lastError"] = component.last_error();
-    result["sceneId"] = std::to_string(component.node().scene().id());
+    result["sceneId"] = std::to_string(component.node().scene()->id());
     result["nodeId"] = std::to_string(component.node().id());
     return result;
 }
 
-DestructionComponent* target(WorldSystem& world, const Json& arguments, std::string& error)
+DestructionComponent target(WorldSystem& world, const Json& arguments, std::string& error)
 {
-    auto* node = editor::components::target(world, arguments, error);
-    auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
+    auto node = editor::components::target(world, arguments, error);
+    auto component = node ? node.get_component<DestructionComponent>() : DestructionComponent{};
     if (!component && error.empty())
     {
         error = "Node has no destruction component";
@@ -160,32 +160,33 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                                                  std::unique_ptr<editor::EditorEdit>& edit,
                                                  std::string& error)
             {
-                auto* node = editor::components::target(world, arguments, error);
+                auto node = editor::components::target(world, arguments, error);
                 if (!node)
                 {
                     return false;
                 }
-                const auto* component = node->get_component<DestructionComponent>();
+                const auto component = node.get_component<DestructionComponent>();
                 std::optional<schema::ComponentDataT> before;
                 ByteBuffer before_state;
                 if (component)
                 {
                     before.emplace();
-                    if (!component->build_data(*before) ||
-                        (component->ready() && !component->snapshot(before_state)))
+                    if (!component.build_data(*before) ||
+                        (component.ready() && !component.snapshot(before_state)))
                     {
                         error = "Cannot snapshot destruction settings and state";
                         return false;
                     }
                 }
-                auto value = component ? component->settings() : schema::DestructionDataT{};
+                auto value = component ? component.settings() : schema::DestructionDataT{};
                 if (!read_settings(arguments, value, error))
                 {
                     return false;
                 }
                 schema::ComponentDataT after;
-                after.enabled = !component || component->enabled();
-                after.visible = component == nullptr || component->visible();
+                after.flags = std::make_unique<schema::ComponentFlagsT>();
+                after.flags->enabled = !component || component.enabled();
+                after.flags->visible = !component || component.visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())
@@ -193,23 +194,23 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                         error = "Destruction enabled must be boolean";
                         return false;
                     }
-                    after.enabled = arguments["enabled"].get<bool>();
+                    after.flags->enabled = arguments["enabled"].get<bool>();
                 }
-                auto identity = scene_commands.node_identity(node->id());
+                auto identity = scene_commands.node_identity(node.id());
                 if (!identity)
                 {
                     error = "Cannot resolve stable destruction node identity";
                     return false;
                 }
                 result = settings_json(value);
-                result["enabled"] = after.enabled;
-                result["sceneId"] = std::to_string(node->scene().id());
-                result["nodeId"] = std::to_string(node->id());
+                result["enabled"] = after.flags->enabled;
+                result["sceneId"] = std::to_string(node.scene()->id());
+                result["nodeId"] = std::to_string(node.id());
                 after.payload.Set(std::move(value));
                 edit = std::make_unique<DestructionSettingsEdit>(
-                    world, node->scene().id(), std::move(identity),
-                    edit_revision(*revisions, *node, component), std::move(before),
-                    std::move(after), std::move(before_state));
+                    world, node.scene()->id(), std::move(identity),
+                    edit_revision(*revisions, node, component), std::move(before), std::move(after),
+                    std::move(before_state));
                 return true;
             }) ||
         !commands.register_command("get_destruction", false,
@@ -221,12 +222,12 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                                        {
                                            return false;
                                        }
-                                       const auto* component = target(world, arguments, error);
+                                       const auto component = target(world, arguments, error);
                                        if (!component)
                                        {
                                            return false;
                                        }
-                                       result = component_json(*component);
+                                       result = component_json(component);
                                        return true;
                                    }))
     {
@@ -243,10 +244,10 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                 {
                     return false;
                 }
-                auto* component = target(world, arguments, error);
+                auto component = target(world, arguments, error);
                 float max_gap = 0;
                 float min_coverage = 0;
-                if (!component || !component->ready() || !arguments.contains("supportNodeId") ||
+                if (!component || !component.ready() || !arguments.contains("supportNodeId") ||
                     !arguments.contains("maxGap") || !arguments.contains("minCoverage") ||
                     !editor::components::number(arguments["maxGap"], max_gap) || max_gap <= 0 ||
                     max_gap > 1000 ||
@@ -262,8 +263,8 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                 }
                 Json support_target = {{"sceneId", arguments["sceneId"]},
                                        {"nodeId", arguments["supportNodeId"]}};
-                auto* support = editor::components::target(world, support_target, error);
-                if (!support || !support->get_component<Collider>())
+                auto support = editor::components::target(world, support_target, error);
+                if (!support || !support.get_component<Collider>())
                 {
                     if (error.empty())
                     {
@@ -271,24 +272,25 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                     }
                     return false;
                 }
-                auto identity = scene_commands.node_identity(component->node().id());
-                auto support_identity = scene_commands.node_identity(support->id());
+                auto identity = scene_commands.node_identity(component.node().id());
+                auto support_identity = scene_commands.node_identity(support.id());
                 ByteBuffer before;
                 schema::ComponentDataT settings;
-                if (!identity || !support_identity || !component->snapshot(before) ||
-                    !component->build_data(settings))
+                settings.flags = std::make_unique<schema::ComponentFlagsT>();
+                if (!identity || !support_identity || !component.snapshot(before) ||
+                    !component.build_data(settings))
                 {
                     error = "Cannot snapshot foundation support state";
                     return false;
                 }
-                result = {{"sceneId", std::to_string(component->node().scene().id())},
-                          {"nodeId", std::to_string(component->node().id())},
-                          {"supportNodeId", std::to_string(support->id())},
+                result = {{"sceneId", std::to_string(component.node().scene()->id())},
+                          {"nodeId", std::to_string(component.node().id())},
+                          {"supportNodeId", std::to_string(support.id())},
                           {"operation", "refresh_support"},
                           {"undoable", true}};
                 edit = std::make_unique<DestructionStateEdit>(
-                    world, component->node().scene().id(), std::move(identity),
-                    edit_revision(*revisions, component->node(), component), std::move(settings),
+                    world, component.node().scene()->id(), std::move(identity),
+                    edit_revision(*revisions, component.node(), component), std::move(settings),
                     std::move(before), std::move(support_identity), max_gap, min_coverage);
                 return true;
             }))
@@ -306,19 +308,19 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                 {
                     return false;
                 }
-                auto* component = target(world, arguments, error);
+                auto component = target(world, arguments, error);
                 Vec3 gravity;
                 float elastic_limit = 0;
                 float fatal_limit = 0;
-                if (!component || !component->ready() || !arguments.contains("gravity") ||
+                if (!component || !component.ready() || !arguments.contains("gravity") ||
                     !editor::components::vector(arguments["gravity"], gravity) ||
                     !arguments.contains("elasticLimit") ||
                     !editor::components::number(arguments["elasticLimit"], elastic_limit) ||
                     elastic_limit <= 0 || !arguments.contains("fatalLimit") ||
                     !editor::components::number(arguments["fatalLimit"], fatal_limit) ||
                     fatal_limit < elastic_limit || !arguments.contains("iterations") ||
-                    !arguments["iterations"].is_number_integer() ||
-                    arguments["iterations"] < 1 || arguments["iterations"] > 1000)
+                    !arguments["iterations"].is_number_integer() || arguments["iterations"] < 1 ||
+                    arguments["iterations"] > 1000)
                 {
                     if (error.empty())
                     {
@@ -327,21 +329,22 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                     }
                     return false;
                 }
-                auto identity = scene_commands.node_identity(component->node().id());
+                auto identity = scene_commands.node_identity(component.node().id());
                 ByteBuffer before;
                 schema::ComponentDataT settings;
-                if (!identity || !component->snapshot(before) || !component->build_data(settings))
+                settings.flags = std::make_unique<schema::ComponentFlagsT>();
+                if (!identity || !component.snapshot(before) || !component.build_data(settings))
                 {
                     error = "Cannot snapshot destruction stress state";
                     return false;
                 }
-                result = {{"sceneId", std::to_string(component->node().scene().id())},
-                          {"nodeId", std::to_string(component->node().id())},
+                result = {{"sceneId", std::to_string(component.node().scene()->id())},
+                          {"nodeId", std::to_string(component.node().id())},
                           {"operation", "apply_stress"},
                           {"undoable", true}};
                 edit = std::make_unique<DestructionStateEdit>(
-                    world, component->node().scene().id(), std::move(identity),
-                    edit_revision(*revisions, component->node(), component), std::move(settings),
+                    world, component.node().scene()->id(), std::move(identity),
+                    edit_revision(*revisions, component.node(), component), std::move(settings),
                     std::move(before), gravity, elastic_limit, fatal_limit,
                     arguments["iterations"].get<std::uint32_t>());
                 return true;
@@ -363,11 +366,12 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                     {
                         return false;
                     }
-                    auto* component = target(world, arguments, error);
+                    auto component = target(world, arguments, error);
                     ByteBuffer before;
                     schema::ComponentDataT settings;
-                    if (!component || !component->ready() || !component->snapshot(before) ||
-                        !component->build_data(settings))
+                    settings.flags = std::make_unique<schema::ComponentFlagsT>();
+                    if (!component || !component.ready() || !component.snapshot(before) ||
+                        !component.build_data(settings))
                     {
                         if (error.empty())
                         {
@@ -394,21 +398,20 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                                 "nonnegative damage and impulse";
                         return false;
                     }
-                    auto identity = scene_commands.node_identity(component->node().id());
+                    auto identity = scene_commands.node_identity(component.node().id());
                     if (!identity)
                     {
                         error = "Cannot resolve stable destruction node identity";
                         return false;
                     }
-                    result = {{"sceneId", std::to_string(component->node().scene().id())},
-                              {"nodeId", std::to_string(component->node().id())},
+                    result = {{"sceneId", std::to_string(component.node().scene()->id())},
+                              {"nodeId", std::to_string(component.node().id())},
                               {"operation", reset ? "reset" : "damage"},
                               {"undoable", true}};
                     edit = std::make_unique<DestructionStateEdit>(
-                        world, component->node().scene().id(), std::move(identity),
-                        edit_revision(*revisions, component->node(), component),
-                        std::move(settings), std::move(before), reset, center, radius, damage,
-                        impulse);
+                        world, component.node().scene()->id(), std::move(identity),
+                        edit_revision(*revisions, component.node(), component), std::move(settings),
+                        std::move(before), reset, center, radius, damage, impulse);
                     return true;
                 }))
         {

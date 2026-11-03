@@ -19,15 +19,15 @@ bool PrefabResourceCodec::validate(const schema::PrefabDataT& data)
     std::map<std::uint64_t, const schema::NodeDataT*> nodes;
     for (const auto& node : data.nodes)
     {
-        if (!node || !node->info || node->info->id == 0 ||
-            !nodes.emplace(node->info->id, node.get()).second)
+        if (!node || !node->info || !node->info->properties || node->info->properties->id == 0 ||
+            !nodes.emplace(node->info->properties->id, node.get()).second)
         {
             return false;
         }
         std::set<schema::ComponentPayload> types;
         for (const auto& component : node->components)
         {
-            if (!component || !component->payload.value ||
+            if (!component || !component->flags || !component->payload.value ||
                 !types.insert(component->payload.type).second)
             {
                 return false;

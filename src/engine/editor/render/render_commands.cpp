@@ -350,9 +350,9 @@ public:
         }
         for (auto& record : records_)
         {
-            const auto* node = scene->find_node(*record.node_id);
-            const auto* component = node == nullptr ? nullptr : node->get_component(record.type);
-            if (component == nullptr || !component->build_data(record.after))
+            const auto node = scene->find_node(*record.node_id);
+            const auto component = !node ? Component{} : node.get_component(record.type);
+            if (!component || !component.build_data(record.after))
             {
                 error = "Cannot snapshot the edited scene component";
                 if (!restore_records(*scene))
@@ -385,16 +385,16 @@ public:
         }
         for (const auto& record : records_)
         {
-            const auto* node = scene->find_node(*record.node_id);
-            const auto* component = node == nullptr ? nullptr : node->get_component(record.type);
+            const auto node = scene->find_node(*record.node_id);
+            const auto component = !node ? Component{} : node.get_component(record.type);
             schema::ComponentDataT snapshot;
-            if (component == nullptr || !component->build_data(snapshot) ||
-                snapshot != record.after)
+            snapshot.flags = std::make_unique<schema::ComponentFlagsT>();
+            if (!component || !component.build_data(snapshot) || snapshot != record.after)
             {
                 error = "Scene render component changed outside this edit";
                 return false;
             }
-            if (record.created_node && !can_remove_environment(*scene, *node))
+            if (record.created_node && !can_remove_environment(*scene, node))
             {
                 error = "The automatically created environment node has other edits";
                 return false;
@@ -420,20 +420,26 @@ private:
 
     static bool can_remove_environment(const Scene& scene, const Node& node)
     {
-        if (node.parent() != nullptr || node.components().size() != 2 || !node.enabled() ||
-            !node.visible())
+        std::vector<Component> components;
+        if (!node.collect_components(components) || node.parent() || components.size() != 2 ||
+            !node.enabled() || !node.visible())
         {
             return false;
         }
-        const auto* transform = node.get_component<Transform>();
-        if (transform == nullptr || !transform->enabled() || !transform->visible() ||
-            transform->settings() != TransformSettings{})
+        const auto transform = node.get_component<Transform>();
+        if (!transform || !transform.enabled() || !transform.visible() ||
+            transform.settings() != TransformSettings{})
         {
             return false;
         }
-        for (const auto& candidate : scene.nodes())
+        std::vector<Node> nodes;
+        if (!scene.collect_nodes(nodes))
         {
-            if (candidate->parent() == &node)
+            return false;
+        }
+        for (const auto& candidate : nodes)
+        {
+            if (candidate.parent() == node)
             {
                 return false;
             }
@@ -441,7 +447,7 @@ private:
         return true;
     }
 
-    bool record(Component& component, bool created_component, bool created_node, std::string& error)
+    bool record(Component component, bool created_component, bool created_node, std::string& error)
     {
         Record value;
         value.node_id = scenes_.node_identity(component.node().id());
@@ -467,16 +473,21 @@ private:
 
     bool apply_components(Scene& scene, std::string& error)
     {
+        std::vector<Node> nodes;
+        if (!scene.collect_nodes(nodes))
+        {
+            error = "Cannot collect scene entities";
+            return false;
+        }
         if (environment_)
         {
-            EnvironmentComponent* environment = nullptr;
-            for (const auto& node : scene.nodes())
+            EnvironmentComponent environment = {};
+            for (const auto& node : nodes)
             {
-                auto* candidate = node->get_component<EnvironmentComponent>();
-                if (candidate != nullptr && candidate->active() &&
-                    candidate->visible_in_hierarchy())
+                auto candidate = node.get_component<EnvironmentComponent>();
+                if (candidate.valid() && candidate.active() && candidate.visible_in_hierarchy())
                 {
-                    if (environment != nullptr)
+                    if (environment.valid())
                     {
                         error = "The scene has more than one enabled environment component";
                         return false;
@@ -485,19 +496,19 @@ private:
                 }
             }
             bool created = false;
-            if (environment == nullptr)
+            if (!environment)
             {
-                auto* node = scene.create_node("Environment");
-                if (node == nullptr)
+                auto node = scene.create_node("Environment");
+                if (!node)
                 {
                     error = "Cannot create the scene environment node";
                     return false;
                 }
-                environment = node->add_component<EnvironmentComponent>();
-                if (environment == nullptr)
+                environment = node.add_component<EnvironmentComponent>();
+                if (!environment)
                 {
                     error = "Cannot create the scene environment component";
-                    if (!scene.destroy_node(node->id()))
+                    if (!scene.destroy_node(node.id()))
                     {
                         error += "; cannot remove the incomplete node";
                     }
@@ -505,11 +516,11 @@ private:
                 }
                 created = true;
             }
-            if (!record(*environment, created, created, error))
+            if (!record(environment, created, created, error))
             {
                 return false;
             }
-            auto settings = environment->settings();
+            auto settings = environment.settings();
             const auto color = [](const std::array<float, 3>& value, const Color& previous)
             { return Color{value[0], value[1], value[2], previous.a()}; };
             settings.ambient_color = color(after_.ambient_color, settings.ambient_color);
@@ -529,7 +540,7 @@ private:
             settings.clear_color = after_.clear_color;
             settings.ibl_enabled = after_.ibl_enabled;
             settings.ibl_intensity = after_.ibl_intensity;
-            if (!environment->set_settings(settings))
+            if (!environment.set_settings(settings))
             {
                 error = "Invalid environment component settings";
                 return false;
@@ -537,28 +548,28 @@ private:
         }
         if (post_process_)
         {
-            auto* camera = scene.active_camera();
-            if (camera == nullptr || !camera->active() || !camera->visible_in_hierarchy())
+            auto camera = scene.active_camera();
+            if (!camera || !camera.active() || !camera.visible_in_hierarchy())
             {
                 error = "Post-processing requires an active, visible scene camera";
                 return false;
             }
-            auto* component = camera->node().get_component<PostProcessComponent>();
-            const bool created = component == nullptr;
+            auto component = camera.node().get_component<PostProcessComponent>();
+            const bool created = !component;
             if (created)
             {
-                component = camera->node().add_component<PostProcessComponent>();
+                component = camera.node().add_component<PostProcessComponent>();
             }
-            if (component == nullptr || !component->active() || !component->visible_in_hierarchy())
+            if (!component || !component.active() || !component.visible_in_hierarchy())
             {
                 error = "The active camera needs an enabled post-process component";
                 return false;
             }
-            if (!record(*component, created, false, error))
+            if (!record(component, created, false, error))
             {
                 return false;
             }
-            auto settings = component->settings();
+            auto settings = component.settings();
             settings.exposure = after_.exposure;
             settings.filmic_tonemap = after_.filmic_tonemap;
             settings.hdr_enabled = after_.hdr_enabled;
@@ -578,7 +589,7 @@ private:
             settings.ao_power = after_.ao_power;
             settings.ao_fade_start = after_.ao_fade_start;
             settings.ao_fade_end = after_.ao_fade_end;
-            if (!component->set_settings(settings))
+            if (!component.set_settings(settings))
             {
                 error = "Invalid post-process component settings";
                 return false;
@@ -586,23 +597,23 @@ private:
         }
         if (shadows_)
         {
-            Light* first = nullptr;
-            Light* caster = nullptr;
-            for (const auto& node : scene.nodes())
+            Light first = {};
+            Light caster = {};
+            for (const auto& node : nodes)
             {
-                auto* light = node->get_component<Light>();
-                if (light == nullptr || !light->active() || !light->visible_in_hierarchy() ||
-                    light->settings().kind != schema::LightKind::directional)
+                auto light = node.get_component<Light>();
+                if (!light || !light.active() || !light.visible_in_hierarchy() ||
+                    light.settings().kind != schema::LightKind::directional)
                 {
                     continue;
                 }
-                if (first == nullptr)
+                if (!first)
                 {
                     first = light;
                 }
-                if (light->settings().cast_shadows)
+                if (light.settings().cast_shadows)
                 {
-                    if (caster != nullptr)
+                    if (caster.valid())
                     {
                         error = "Only one directional shadow caster is supported";
                         return false;
@@ -610,8 +621,8 @@ private:
                     caster = light;
                 }
             }
-            auto* light = caster != nullptr ? caster : first;
-            if (light == nullptr)
+            auto light = caster.valid() ? caster : first;
+            if (!light)
             {
                 if (!after_.directional_shadows &&
                     after_.shadow_resolution == before_.shadow_resolution &&
@@ -626,11 +637,11 @@ private:
                 error = "Shadow settings require an enabled directional light in the scene";
                 return false;
             }
-            if (!record(*light, false, false, error))
+            if (!record(light, false, false, error))
             {
                 return false;
             }
-            auto settings = light->settings();
+            auto settings = light.settings();
             settings.cast_shadows = after_.directional_shadows;
             settings.shadow_resolution = after_.shadow_resolution;
             settings.shadow_bias = after_.shadow_bias;
@@ -638,7 +649,7 @@ private:
             settings.shadow_distance = after_.shadow_distance;
             settings.shadow_split_lambda = after_.shadow_split_lambda;
             settings.shadow_cascade_blend = after_.shadow_cascade_blend;
-            if (!light->set_settings(settings))
+            if (!light.set_settings(settings))
             {
                 error = "Invalid light component settings";
                 return false;
@@ -652,9 +663,9 @@ private:
         bool restored = true;
         for (auto item = records_.rbegin(); item != records_.rend(); ++item)
         {
-            auto* node = scene.find_node(*item->node_id);
-            auto* component = node == nullptr ? nullptr : node->get_component(item->type);
-            if (node == nullptr || component == nullptr)
+            auto node = scene.find_node(*item->node_id);
+            auto component = !node ? Component{} : node.get_component(item->type);
+            if (!node || !component)
             {
                 restored = false;
             }
@@ -664,11 +675,11 @@ private:
             }
             else if (!item->before)
             {
-                restored = node->remove_component(item->type) && restored;
+                restored = node.remove_component(item->type) && restored;
             }
             else
             {
-                restored = component->restore_data(*item->before) && restored;
+                restored = component.restore_data(*item->before) && restored;
             }
         }
         return restored;
@@ -751,26 +762,31 @@ bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& 
                    if (world_.scene() != nullptr && before.directional_shadows &&
                        !after.directional_shadows)
                    {
-                       for (const auto& node : world_.scene()->nodes())
+                       std::vector<Node> nodes;
+                       if (!world_.scene()->collect_nodes(nodes))
                        {
-                           const auto* light = node->get_component<Light>();
-                           if (light == nullptr || !light->active() ||
-                               !light->visible_in_hierarchy() ||
-                               light->settings().kind != schema::LightKind::directional)
+                           error = "Cannot collect scene entities";
+                           return false;
+                       }
+                       for (const auto& node : nodes)
+                       {
+                           const auto light = node.get_component<Light>();
+                           if (!light || !light.active() || !light.visible_in_hierarchy() ||
+                               light.settings().kind != schema::LightKind::directional)
                            {
                                continue;
                            }
-                           if (!light->settings().cast_shadows)
+                           if (!light.settings().cast_shadows)
                            {
                                resolved_after.shadow_resolution =
-                                   light->settings().shadow_resolution;
-                               resolved_after.shadow_bias = light->settings().shadow_bias;
-                               resolved_after.shadow_cascades = light->settings().shadow_cascades;
-                               resolved_after.shadow_distance = light->settings().shadow_distance;
+                                   light.settings().shadow_resolution;
+                               resolved_after.shadow_bias = light.settings().shadow_bias;
+                               resolved_after.shadow_cascades = light.settings().shadow_cascades;
+                               resolved_after.shadow_distance = light.settings().shadow_distance;
                                resolved_after.shadow_split_lambda =
-                                   light->settings().shadow_split_lambda;
+                                   light.settings().shadow_split_lambda;
                                resolved_after.shadow_cascade_blend =
-                                   light->settings().shadow_cascade_blend;
+                                   light.settings().shadow_cascade_blend;
                            }
                            break;
                        }

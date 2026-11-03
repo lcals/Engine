@@ -158,7 +158,9 @@ const handles = {
         const handle = handleRecords.get(object);
         if (handle === undefined || handle.kind <= 0) return handle;
         if (handle.instance !== 0n &&
-            native.ComponentIdentity(handle.scene, handle.node, handle.kind) === handle.instance)
+            native.ComponentIdentity(handle.scene, handle.node, handle.kind) === handle.instance &&
+            (handle.material === undefined || (handle.material !== 0n &&
+             native.MaterialIdentity(handle.scene, handle.node, handle.slot) === handle.material)))
             return handle;
         return { ...handle, scene: 0n, node: 0n };
     }

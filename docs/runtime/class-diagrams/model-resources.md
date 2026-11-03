@@ -36,8 +36,8 @@ classDiagram
     class MeshRenderer
     class ResourceLoader
     Scene ..> ResourceLoader : 加载模型根及依赖
-    Scene *-- Node : 成功创建的模型实例层级
-    Node *-- MeshRenderer : 含网格的模型节点
+    Scene ..> Node : 管理实体生命周期并返回值句柄
+    Node ..> MeshRenderer : 按类型返回值句柄
 ```
 
 `instantiate_model` 返回本场景拥有的根节点借用；失败删除本次候选节点，保留场景原对象。实例化后使用 Node、Transform 与 MeshRenderer 表达模型；动画由调用方添加 Animator 并选择片段。

@@ -1,5 +1,7 @@
 #include "runtime/scene/audio_source.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -10,11 +12,15 @@
 namespace engine
 {
 
-AudioSource::AudioSource(Node& node) : Component(node)
+bool AudioSource::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::AudioSourceDataT{});
+    return register_component_storage<AudioSource, Data, Runtime>(registry);
 }
 
+AudioSource::Runtime* AudioSource::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
 
 bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexcept
 {
@@ -25,22 +31,34 @@ bool AudioSource::valid_settings(const schema::AudioSourceDataT& settings) noexc
            std::isfinite(settings.max_distance) && settings.max_distance > settings.min_distance;
 }
 
-const schema::AudioSourceDataT& AudioSource::settings() const noexcept
+schema::AudioSourceDataT AudioSource::settings() const noexcept
 {
-    return *data().payload.AsAudioSourceData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool AudioSource::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(settings))
     {
         return false;
     }
     const bool changed_clip = settings.clip_guid != this->settings().clip_guid;
-    ResourcePtr replacement = clip_;
+    ResourcePtr replacement = runtime()->clip_;
     if (changed_clip)
     {
-        if (revision_ == std::numeric_limits<std::uint64_t>::max())
+        if (runtime()->revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
@@ -56,30 +74,45 @@ bool AudioSource::set_settings(const schema::AudioSourceDataT& settings)
             }
         }
     }
-    *mutable_data().payload.AsAudioSourceData() = settings;
-    clip_ = std::move(replacement);
+    *write_data<Data>() = settings;
+    modified();
+    runtime()->clip_ = std::move(replacement);
     if (changed_clip)
     {
-        ++revision_;
-        playback_ = AudioPlayback::stopped;
+        ++runtime()->revision_;
+        runtime()->playback_ = AudioPlayback::stopped;
     }
     return true;
 }
 
 bool AudioSource::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsAudioSourceData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 
 bool AudioSource::set_clip(std::string_view path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     schema::AudioSourceDataT replacement(settings());
     if (path.empty())
     {
@@ -94,58 +127,87 @@ bool AudioSource::set_clip(std::string_view path)
 
 std::string_view AudioSource::clip_path() const noexcept
 {
-    return clip_ ? std::string_view(clip_->info().path) : std::string_view{};
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->clip_ ? std::string_view(runtime()->clip_->info().path) : std::string_view{};
 }
 
 const schema::AudioClipDataT* AudioSource::clip_data() const noexcept
 {
-    return clip_ ? clip_->audio() : nullptr;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->clip_ ? runtime()->clip_->audio() : nullptr;
 }
 
 bool AudioSource::play() noexcept
 {
-    if (!active() || !clip_ ||
-        (playback_ != AudioPlayback::paused &&
-         revision_ == std::numeric_limits<std::uint64_t>::max()))
+    if (!writable())
     {
         return false;
     }
-    if (playback_ != AudioPlayback::paused)
+    if (!active() || !runtime()->clip_ ||
+        (runtime()->playback_ != AudioPlayback::paused &&
+         runtime()->revision_ == std::numeric_limits<std::uint64_t>::max()))
     {
-        ++revision_;
+        return false;
     }
-    awake_pending_ = false;
-    playback_ = AudioPlayback::pending;
+    if (runtime()->playback_ != AudioPlayback::paused)
+    {
+        ++runtime()->revision_;
+    }
+    runtime()->awake_pending_ = false;
+    runtime()->playback_ = AudioPlayback::pending;
     return true;
 }
 
 bool AudioSource::pause() noexcept
 {
-    if (playback_ != AudioPlayback::pending && playback_ != AudioPlayback::playing &&
-        playback_ != AudioPlayback::paused)
+    if (!writable())
     {
         return false;
     }
-    awake_pending_ = false;
-    playback_ = AudioPlayback::paused;
+    if (runtime()->playback_ != AudioPlayback::pending &&
+        runtime()->playback_ != AudioPlayback::playing &&
+        runtime()->playback_ != AudioPlayback::paused)
+    {
+        return false;
+    }
+    runtime()->awake_pending_ = false;
+    runtime()->playback_ = AudioPlayback::paused;
     return true;
 }
 
 bool AudioSource::stop() noexcept
 {
-    awake_pending_ = false;
-    playback_ = AudioPlayback::stopped;
+    if (!writable())
+    {
+        return false;
+    }
+    runtime()->awake_pending_ = false;
+    runtime()->playback_ = AudioPlayback::stopped;
     return true;
 }
 
 bool AudioSource::playing() const noexcept
 {
-    return active() && playback_ == AudioPlayback::playing;
+    if (!valid())
+    {
+        return false;
+    }
+    return active() && runtime()->playback_ == AudioPlayback::playing;
 }
 
 AudioPlayback AudioSource::playback() const noexcept
 {
-    return playback_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->playback_;
 }
 
 } // namespace engine

@@ -860,10 +860,6 @@
         {
           "type": "build",
           "name": "editor-deps"
-        },
-        {
-          "type": "test",
-          "name": "editor-deps"
         }
       ]
     },
@@ -893,10 +889,6 @@
         },
         {
           "type": "build",
-          "name": "debug"
-        },
-        {
-          "type": "test",
           "name": "debug"
         }
       ]
@@ -931,10 +923,6 @@
         },
         {
           "type": "build",
-          "name": "v8-debug"
-        },
-        {
-          "type": "test",
           "name": "v8-debug"
         }
       ]
@@ -974,10 +962,6 @@
         {
           "type": "build",
           "name": "engine-debug"
-        },
-        {
-          "type": "test",
-          "name": "engine-debug"
         }
       ]
     },
@@ -1012,10 +996,6 @@
         {
           "type": "build",
           "name": "runtime-deps"
-        },
-        {
-          "type": "test",
-          "name": "runtime-deps"
         }
       ]
     },
@@ -1029,10 +1009,6 @@
         {
           "type": "build",
           "name": "asset-pipeline-deps"
-        },
-        {
-          "type": "test",
-          "name": "asset-pipeline-deps"
         }
       ]
     },
@@ -1045,10 +1021,6 @@
         },
         {
           "type": "build",
-          "name": "ninja-debug"
-        },
-        {
-          "type": "test",
           "name": "ninja-debug"
         }
       ]
@@ -1083,10 +1055,6 @@
         },
         {
           "type": "build",
-          "name": "ninja-engine-debug"
-        },
-        {
-          "type": "test",
           "name": "ninja-engine-debug"
         }
       ]

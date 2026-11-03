@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
@@ -27,7 +28,7 @@ bool check(bool value, const char* message, const std::string& error = {})
 
 template <class T> void component(schema::NodeDataT& node, T data)
 {
-    auto c = std::make_unique<schema::ComponentDataT>();
+    auto c = test_support::component_data();
     c->payload.Set(std::move(data));
     node.components.push_back(std::move(c));
 }
@@ -61,9 +62,9 @@ bool exercise()
     scene.info = std::make_unique<schema::SceneInfoT>();
     scene.info->name = "Lighting test";
     auto node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = 1;
-    node->info->name = "Fixed mesh";
+    node->info = test_support::node_info();
+    node->info->properties->id = 1;
+    node->info->properties->name = "Fixed mesh";
     component(*node, schema::TransformDataT{});
     schema::MeshRendererDataT renderer;
     renderer.mesh_guid = mesh_guid;
@@ -72,9 +73,9 @@ bool exercise()
     component(*node, renderer);
     scene.nodes.push_back(std::move(node));
     node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = 2;
-    node->info->name = "Probes";
+    node->info = test_support::node_info();
+    node->info->properties->id = 2;
+    node->info->properties->name = "Probes";
     component(*node, schema::TransformDataT{});
     component(*node, schema::LightProbeVolumeDataT{});
     scene.nodes.push_back(std::move(node));

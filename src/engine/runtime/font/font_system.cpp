@@ -1,4 +1,6 @@
 #include "runtime/font/font_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -629,39 +631,43 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
 
 bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id, bool linear_output)
 {
-    for (const auto& node : scene.nodes())
+    auto& world = scene.world();
+    if (!world.refresh_scene_state())
     {
-        const auto* text = node->get_component<TextComponent>();
-        if (text == nullptr || !text->active() || !text->visible_in_hierarchy() ||
-            text->settings().text.empty())
+        return false;
+    }
+    const auto process =
+        [&](Node node, const ecs_detail::ComponentStorage<TextComponent::Data>& stored) -> bool
+    {
+        const auto text = node.get_component<TextComponent>();
+        if (!text || !text.active() || !text.visible_in_hierarchy() || stored.data.text.empty())
         {
-            continue;
+            return true;
         }
-        const auto* transform = node->get_component<Transform>();
+        const auto transform = node.get_component<Transform>();
         FontDraw draw_settings;
         draw_settings.view_id = view_id;
         draw_settings.depth_test = true;
         draw_settings.linear_output = linear_output;
-        draw_settings.shader = text->shader();
-        if (transform == nullptr || !transform->world_matrix(draw_settings.transform.data()))
+        draw_settings.shader = text.shader();
+        if (!transform || !transform.world_matrix(draw_settings.transform.data()))
         {
             last_error_ = "Invalid text node transform";
             return false;
         }
-        const auto& color = text->settings().color;
+        const auto& color = stored.data.color;
         const auto channel = [](float value)
         { return static_cast<std::uint32_t>(std::clamp(value, 0.0F, 1.0F) * 255.0F + 0.5F); };
         FontLayout layout_settings;
-        layout_settings.size = text->settings().size;
-        layout_settings.letter_spacing = text->settings().letter_spacing;
+        layout_settings.size = stored.data.size;
+        layout_settings.letter_spacing = stored.data.letter_spacing;
         layout_settings.color = channel(color.r() * color.a()) |
                                 (channel(color.g() * color.a()) << 8) |
                                 (channel(color.b() * color.a()) << 16) | (channel(color.a()) << 24);
         layout_settings.y_down = false;
         FontGeometry geometry;
-        if (!text->font() ||
-            !layout(*text->font(), text->settings().text, layout_settings, geometry) ||
-            !draw(text->font(), geometry, draw_settings))
+        if (!text.font() || !layout(*text.font(), stored.data.text, layout_settings, geometry) ||
+            !draw(text.font(), geometry, draw_settings))
         {
             if (last_error_.empty())
             {
@@ -669,8 +675,24 @@ bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id, bool li
             }
             return false;
         }
-    }
-    return true;
+
+        return true;
+    };
+    bool success = true;
+    auto query = flecs::world(world.native_world())
+                     .query_builder<const ecs_detail::ComponentStorage<TextComponent::Data>,
+                                    const ecs_detail::NodeRuntime>()
+                     .with<ecs_detail::Published>()
+                     .build();
+    query.each(
+        [&](flecs::entity entity, const auto& stored, const ecs_detail::NodeRuntime& state)
+        {
+            if (success && state.scene == &scene)
+            {
+                success = process(world.find_node(entity.id()), stored);
+            }
+        });
+    return success;
 }
 
 void FontSystem::release_scene() noexcept

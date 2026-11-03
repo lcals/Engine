@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "runtime_plugins.hpp"
 
 #include "plugins/runtime/character_controller/character_camera.hpp"
@@ -39,8 +41,8 @@ bool expect(bool value, const char* description)
 
 struct InstalledPlugins
 {
-    CharacterControllerSystem* controller = nullptr;
-    CharacterCameraSystem* camera = nullptr;
+    CharacterControllerSystem* controller = {};
+    CharacterCameraSystem* camera = {};
     engine::PhysicsSystem* physics = nullptr;
     std::array<engine::RuntimeStage, 2> stages{};
     std::size_t calls = 0;
@@ -66,7 +68,8 @@ bool install_plugins(engine::RuntimeStage stage, engine::WorldSystem& world,
         return false;
     }
     const auto index = world.subsystem_count();
-    if (!configure_runtime_plugins(stage, world, window, physics, navigation, renderer, background_tasks) ||
+    if (!configure_runtime_plugins(stage, world, window, physics, navigation, renderer,
+                                   background_tasks) ||
         world.subsystem_count() != index + 1)
     {
         return false;
@@ -103,9 +106,9 @@ bool tick_one(engine::RuntimeHost& host)
     return false;
 }
 
-engine::Vec3 position(const engine::Node& node)
+engine::Vec3 position(engine::Node node)
 {
-    return node.get_component<engine::Transform>()->settings().position;
+    return node.get_component<engine::Transform>().settings().position;
 }
 
 bool same_horizontal_position(const engine::Vec3& first, const engine::Vec3& second)
@@ -151,50 +154,50 @@ bool host_input_physics_camera_order()
     {
         return false;
     }
-    auto* floor = scene->create_node("Floor");
-    auto* player = scene->create_node("Player");
-    auto* camera_node = scene->create_node("Camera");
-    if (floor == nullptr || player == nullptr || camera_node == nullptr)
+    auto floor = scene->create_node("Floor");
+    auto player = scene->create_node("Player");
+    auto camera_node = scene->create_node("Camera");
+    if (!floor.valid() || !player.valid() || !camera_node.valid())
     {
         return false;
     }
-    auto floor_pose = floor->get_component<engine::Transform>()->settings();
+    auto floor_pose = floor.get_component<engine::Transform>().settings();
     floor_pose.position = {0, -0.5, 0};
-    auto* collider = floor->add_component<engine::Collider>();
-    auto* motor = player->add_component<engine::CharacterMotor>();
-    auto* controller = player->add_component<CharacterController>();
-    auto* camera = camera_node->add_component<engine::Camera>();
-    auto* follow = camera_node->add_component<CharacterCamera>();
-    if (collider == nullptr || motor == nullptr || controller == nullptr || camera == nullptr ||
-        follow == nullptr || !floor->get_component<engine::Transform>()->set_settings(floor_pose))
+    auto collider = floor.add_component<engine::Collider>();
+    auto motor = player.add_component<engine::CharacterMotor>();
+    auto controller = player.add_component<CharacterController>();
+    auto camera = camera_node.add_component<engine::Camera>();
+    auto follow = camera_node.add_component<CharacterCamera>();
+    if (!collider.valid() || !motor.valid() || !controller.valid() || !camera.valid() ||
+        !follow.valid() || !floor.get_component<engine::Transform>().set_settings(floor_pose))
     {
         return false;
     }
-    auto collision = collider->settings();
+    auto collision = collider.settings();
     collision.half_extents = {20, 0.5, 20};
-    auto control = controller->settings();
-    control.camera_node_id = camera_node->info().id;
-    auto camera_settings = follow->settings();
-    camera_settings.target_node_id = player->info().id;
+    auto control = controller.settings();
+    control.camera_node_id = camera_node.info().properties->id;
+    auto camera_settings = follow.settings();
+    camera_settings.target_node_id = player.info().properties->id;
     camera_settings.mode = engine::schema::CharacterView::third_person;
     camera_settings.eye_height = 1.6F;
     camera_settings.camera_distance = 4.0F;
-    if (!collider->set_settings(collision) || !controller->set_settings(control) ||
-        !follow->set_settings(camera_settings) || !scene->set_active_camera(camera) ||
+    if (!collider.set_settings(collision) || !controller.set_settings(control) ||
+        !follow.set_settings(camera_settings) || !scene->set_active_camera(camera) ||
         !plugins.controller->set_player(player) || !tick_one(host) || !tick_one(host))
     {
         return false;
     }
 
-    const auto before = position(*player);
+    const auto before = position(player);
     CharacterInput forward;
     forward.move = {0, 1};
     if (!plugins.controller->set_input(forward) || !tick_one(host))
     {
         return false;
     }
-    const auto moved = position(*player);
-    const auto camera_position = position(*camera_node);
+    const auto moved = position(player);
+    const auto camera_position = position(camera_node);
     if (!expect(std::abs(moved.z() - before.z() + control.move_speed * delta_time) < 0.01,
                 "one host tick consumes player intent in the same physics step") ||
         !expect(std::abs(camera_position.z() - moved.z() - camera_settings.camera_distance) <
@@ -205,25 +208,31 @@ bool host_input_physics_camera_order()
         return false;
     }
 
-    controller->set_enabled(false);
+    if (!controller.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!plugins.controller->set_input(forward) || !tick_one(host) ||
-        !expect(same_horizontal_position(moved, position(*player)),
+        !expect(same_horizontal_position(moved, position(player)),
                 "disabling the selected controller clears movement before physics"))
     {
         return false;
     }
-    controller->set_enabled(true);
+    if (!controller.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!plugins.controller->set_player(player) || !plugins.controller->set_input(forward) ||
         !tick_one(host) ||
-        !expect(position(*player).z() < moved.z() - 0.02,
+        !expect(position(player).z() < moved.z() - 0.02,
                 "reenabled explicit player selection can move again"))
     {
         return false;
     }
-    const auto before_removal = position(*player);
-    if (!player->remove_component(CharacterController::component_type) ||
+    const auto before_removal = position(player);
+    if (!player.remove_component(CharacterController::component_type) ||
         !plugins.controller->set_input(forward) || !tick_one(host) ||
-        !expect(same_horizontal_position(before_removal, position(*player)),
+        !expect(same_horizontal_position(before_removal, position(player)),
                 "removing the controller cannot leave its prior velocity active") ||
         !expect(plugins.calls == 2, "setup callbacks are not part of frame ticking"))
     {

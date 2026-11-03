@@ -1,12 +1,12 @@
 # Engine
 
-C++20 跨平台游戏引擎，使用 CMake、vcpkg 和成熟开源库。运行时、编辑器与插件分层；场景使用 `Node + Component`，项目玩法使用 TypeScript，通用引擎能力由 C++ 提供。
+C++20 跨平台游戏引擎，使用 CMake、vcpkg 和成熟开源库。运行时、编辑器与插件分层；场景数据存入 Flecs ECS，`Node / Component` 提供轻量访问句柄；项目玩法使用 TypeScript，通用引擎能力由 C++ 提供。
 
 ## 功能与模块
 
 | 模块 | 当前能力与文档 |
 | --- | --- |
-| 核心与场景 | 系统生命周期、组件、场景加载、预制体与实例覆盖、常驻节点、世界暂停。[运行时](docs/runtime/runtime.md) · [场景](docs/runtime/scene.md) · [预制体](docs/editor/prefabs.md) |
+| 核心与场景 | 系统生命周期、ECS 场景、组件值句柄、场景加载、预制体与实例覆盖、常驻节点、世界暂停。[运行时](docs/runtime/runtime.md) · [场景](docs/runtime/scene.md) · [预制体](docs/editor/prefabs.md) |
 | 渲染 | bgfx、PBR、Clustered Forward+、方向/点/聚光阴影、SSR、平面反射、透明水与折射、AO、HDR/Bloom。[渲染模块](docs/runtime/rendering.md) |
 | 光照烘焙 | 环境 IBL、多反弹 Lightmap、动态对象 SH9 光照探针。[场景烘焙](docs/plugins/editor/scene-bake.md) |
 | 资源 | GUID、独立资源、增量导入、依赖加载、异步读取、运行包与完整版本同步。[加载](docs/runtime/resource-loading.md) · [导入](docs/editor/asset-pipeline.md) · [打包](docs/plugins/editor/resource-build.md) |

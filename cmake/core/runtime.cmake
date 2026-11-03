@@ -128,6 +128,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_enable_profiling(engine_world)
     include(${PROJECT_SOURCE_DIR}/cmake/core/scene_schema.cmake)
     engine_add_scene_schema()
+    add_library(engine_scene_ecs INTERFACE)
+    add_library(engine::scene_ecs ALIAS engine_scene_ecs)
+    target_link_libraries(engine_scene_ecs INTERFACE engine::scene_data flecs::flecs_static)
     target_sources(
         engine_world
         PRIVATE src/engine/runtime/scene/component.cpp
@@ -157,7 +160,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE flecs::flecs_static engine::resource engine::log bgfx::bx)
+        PRIVATE engine::scene_ecs engine::resource engine::log bgfx::bx)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
@@ -215,6 +218,10 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 bgfx::bx
                 basisu::basisu_encoder)
     engine_embed_render_shaders(engine_ui ui)
+
+    foreach(_ecs_target engine_render engine_physics engine_audio engine_animation engine_font engine_ui)
+        target_link_libraries(${_ecs_target} PRIVATE engine::scene_ecs)
+    endforeach()
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
         engine::task

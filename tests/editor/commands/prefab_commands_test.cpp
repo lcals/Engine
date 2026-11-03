@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "editor/asset_pipeline/prefab_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
@@ -37,11 +38,11 @@ bool expect(bool condition, const char* text, const std::string& error = {})
 std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t parent)
 {
     auto node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = id;
+    node->info = test_support::node_info();
+    node->info->properties->id = id;
     node->info->parent_id = parent;
-    node->info->name = parent == 0 ? "Template" : "Lamp";
-    auto transform = std::make_unique<schema::ComponentDataT>();
+    node->info->properties->name = parent == 0 ? "Template" : "Lamp";
+    auto transform = test_support::component_data();
     transform->payload.Set(schema::TransformDataT{});
     node->components.push_back(std::move(transform));
     return node;
@@ -69,7 +70,7 @@ bool run()
     source.root_id = 9;
     // 根不要求排在源数组首项；撤销必须删除实际实例根。
     source.nodes.push_back(node_data(20, 9));
-    auto light = std::make_unique<schema::ComponentDataT>();
+    auto light = test_support::component_data();
     light->payload.Set(schema::LightDataT{});
     source.nodes.front()->components.push_back(std::move(light));
     source.nodes.push_back(node_data(9, 0));
@@ -96,15 +97,16 @@ bool run()
     const Json identity{{"sceneId", std::to_string(scene->id())}};
     auto request = identity;
     request.update({{"path", "unit.prefab"}, {"name", "First"}});
-    if (!expect(execute("instantiate_prefab", request) && scene->nodes().size() == 2,
+    if (!expect(execute("instantiate_prefab", request) &&
+                    test_support::scene_nodes(*scene).size() == 2,
                 "instantiate through editor", error))
     {
         return false;
     }
-    auto* child = scene->nodes().front().get();
-    auto* root = scene->nodes().back().get();
-    const auto child_identity = module.node_identity(child->id());
-    const auto root_identity = module.node_identity(root->id());
+    auto child = test_support::scene_nodes(*scene).front();
+    auto root = test_support::scene_nodes(*scene).back();
+    const auto child_identity = module.node_identity(child.id());
+    const auto root_identity = module.node_identity(root.id());
     const auto target = [&]()
     {
         Json value = identity;
@@ -142,9 +144,8 @@ bool run()
     }
     edit = target();
     edit.update({{"componentType", "LightData"}, {"fields", {"enabled"}}});
-    if (!expect(execute("revert_prefab_override", edit) &&
-                    child->get_component<Light>()->enabled() &&
-                    !child->get_component<Light>()->visible(),
+    if (!expect(execute("revert_prefab_override", edit) && child.get_component<Light>().enabled() &&
+                    !child.get_component<Light>().visible(),
                 "restore selected field preserves independent false override", error))
     {
         return false;
@@ -157,7 +158,8 @@ bool run()
             return false;
         }
     }
-    if (!expect(scene->nodes().empty() && scene->prefab_instances().empty(),
+    if (!expect(test_support::scene_nodes(*scene).empty() &&
+                    test_support::prefab_instances(*scene).empty(),
                 "undo removes child-before-root prefab completely", error))
     {
         return false;
@@ -172,8 +174,8 @@ bool run()
     }
     child = scene->find_node(*child_identity);
     root = scene->find_node(*root_identity);
-    if (!expect(child && root && !child->enabled() && child->get_component<Light>()->enabled() &&
-                    !child->get_component<Light>()->visible(),
+    if (!expect(child && root && !child.enabled() && child.get_component<Light>().enabled() &&
+                    !child.get_component<Light>().visible(),
                 "redo preserves selected state", error))
     {
         return false;
@@ -205,34 +207,35 @@ bool run()
         return false;
     }
     const auto expanded =
-        std::find_if(saved.nodes.begin(), saved.nodes.end(),
-                     [child](const auto& value) { return value->info->id == child->info().id; });
-    if (!expect(expanded != saved.nodes.end() && !(*expanded)->info->enabled &&
+        std::find_if(saved.nodes.begin(), saved.nodes.end(), [child](const auto& value)
+                     { return value->info->properties->id == child.info().properties->id; });
+    if (!expect(expanded != saved.nodes.end() && !(*expanded)->info->properties->enabled &&
                     (*expanded)->components.front()->payload.AsTransformData()->position.x() == 0 &&
                     (*expanded)->components.front()->payload.AsTransformData()->scale.x() == 1 &&
                     (*expanded)->components.front()->payload.AsTransformData()->rotation.y() ==
                         60 &&
                     (*expanded)->components.back()->payload.AsLightData()->intensity == 5 &&
-                    !(*expanded)->components.back()->visible,
+                    !(*expanded)->components.back()->flags->visible,
                 "only explicit fields survive source updates", error))
     {
         return false;
     }
     auto create = identity;
-    create.update({{"nodeId", std::to_string(root->id())}, {"path", "copy.prefab"}});
+    create.update({{"nodeId", std::to_string(root.id())}, {"path", "copy.prefab"}});
     schema::PrefabDataT copied;
     if (!expect(
             execute("create_prefab", create) &&
                 editor::PrefabImporter::read(files.root / "assets/copy.prefab", copied, error) &&
-                copied.nodes.size() == 2 && scene->prefab_instances().size() == 1,
+                copied.nodes.size() == 2 && test_support::prefab_instances(*scene).size() == 1,
             "subtree export creates a distinct template without replacing source link", error))
     {
         return false;
     }
     auto root_target = identity;
-    root_target["nodeId"] = std::to_string(root->id());
-    if (!expect(execute("unlink_prefab", root_target) && scene->prefab_instances().empty() &&
-                    execute("undo", identity) && scene->prefab_instances().size() == 1,
+    root_target["nodeId"] = std::to_string(root.id());
+    if (!expect(execute("unlink_prefab", root_target) &&
+                    test_support::prefab_instances(*scene).empty() && execute("undo", identity) &&
+                    test_support::prefab_instances(*scene).size() == 1,
                 "unlink is independently undoable", error))
     {
         return false;
@@ -242,31 +245,47 @@ bool run()
     {
         return false;
     }
-    child->set_enabled(true);
+    if (!child.set_enabled(true))
+    {
+        return false;
+    }
     auto link = root_target;
     link["path"] = "copy.prefab";
-    if (!expect(execute("link_prefab", link) && scene->prefab_instances().size() == 1 &&
+    if (!expect(execute("link_prefab", link) &&
+                    test_support::prefab_instances(*scene).size() == 1 &&
                     execute("get_prefab_instance", target()) && result["overrides"].size() == 1 &&
                     result["overrides"][0]["fields"] == Json::array({"enabled"}) &&
-                    execute("undo", identity) && scene->prefab_instances().empty(),
+                    execute("undo", identity) && test_support::prefab_instances(*scene).empty(),
                 "explicit link preserves changed values as overrides", error))
     {
         return false;
     }
-    child->set_enabled(false);
-    if (!expect(execute("undo", identity) && scene->prefab_instances().size() == 1,
+    if (!child.set_enabled(false))
+    {
+        return false;
+    }
+    if (!expect(execute("undo", identity) && test_support::prefab_instances(*scene).size() == 1,
                 "undo unlink restores the previous source association", error))
     {
         return false;
     }
-    child->set_transient(true);
+    if (!child.set_transient(true))
+    {
+        return false;
+    }
     if (!expect(!execute("save_scene", save), "partial transient prefab cannot silently resurrect",
                 error))
     {
         return false;
     }
-    child->set_transient(false);
-    root->set_transient(true);
+    if (!child.set_transient(false))
+    {
+        return false;
+    }
+    if (!root.set_transient(true))
+    {
+        return false;
+    }
     save["path"] = "transient.scene";
     schema::SceneDataT transient;
     if (!expect(execute("save_scene", save) &&
@@ -277,8 +296,11 @@ bool run()
     {
         return false;
     }
-    root->set_transient(false);
-    if (!expect(scene->destroy_node(child->id()) && !execute("save_scene", save),
+    if (!root.set_transient(false))
+    {
+        return false;
+    }
+    if (!expect(scene->destroy_node(child.id()) && !execute("save_scene", save),
                 "implicit deletion is rejected before source members can resurrect", error))
     {
         return false;
@@ -288,7 +310,8 @@ bool run()
         return false;
     }
     auto* loaded = world.load_scene("compiled.scene");
-    return expect(loaded && loaded->prefab_instances().size() == 1 && loaded->nodes().size() == 2,
+    return expect(loaded && test_support::prefab_instances(*loaded).size() == 1 &&
+                      test_support::scene_nodes(*loaded).size() == 2,
                   "compiled saved source loads with association and selective overrides", error);
 }
 } // namespace

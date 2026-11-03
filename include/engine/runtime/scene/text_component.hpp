@@ -10,24 +10,33 @@ namespace engine
 
 class Resource;
 
+struct TextComponentRuntime
+{
+    std::shared_ptr<const Resource> font_;
+    std::shared_ptr<const Resource> shader_;
+};
+
 class TextComponent final : public Component
 {
 public:
+    using Data = schema::TextDataT;
+    TextComponent() noexcept = default;
+    explicit TextComponent(Component component) noexcept : Component(component, component_type)
+    {
+    }
+    [[nodiscard]] static bool register_type(ComponentRegistry& registry);
+    [[nodiscard]] bool initialize();
+    using Runtime = TextComponentRuntime;
+    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::TextData;
     [[nodiscard]] static bool valid_settings(const schema::TextDataT& settings) noexcept;
-    [[nodiscard]] const schema::TextDataT& settings() const noexcept;
+    [[nodiscard]] schema::TextDataT settings() const noexcept;
+    [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::TextDataT& settings);
     [[nodiscard]] bool set_font(std::string_view path);
-    [[nodiscard]] const std::shared_ptr<const Resource>& font() const noexcept;
-    [[nodiscard]] const std::shared_ptr<const Resource>& shader() const noexcept;
-    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
-
-private:
-    friend class Node;
-    explicit TextComponent(Node& node);
-
-    std::shared_ptr<const Resource> font_;
-    std::shared_ptr<const Resource> shader_;
+    [[nodiscard]] std::shared_ptr<const Resource> font() const noexcept;
+    [[nodiscard]] std::shared_ptr<const Resource> shader() const noexcept;
+    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
 };
 
 } // namespace engine

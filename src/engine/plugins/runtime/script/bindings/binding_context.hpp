@@ -40,8 +40,8 @@ class BindingContext final
 public:
     explicit BindingContext(WorldSystem* world, RenderSystem* renderer = nullptr,
                             UiSystem* ui = nullptr, PhysicsSystem* physics = nullptr,
-                            NavigationSystem* navigation = nullptr,
-                            InputSystem* input = nullptr, WindowSystem* window = nullptr) noexcept;
+                            NavigationSystem* navigation = nullptr, InputSystem* input = nullptr,
+                            WindowSystem* window = nullptr) noexcept;
     ~BindingContext() noexcept;
     BindingContext(const BindingContext&) = delete;
     BindingContext& operator=(const BindingContext&) = delete;
@@ -62,12 +62,12 @@ public:
     [[nodiscard]] bool set_mouse_mode(MouseMode mode);
     [[nodiscard]] bool begin_scene_load(std::string_view path);
     [[nodiscard]] ResourceLoadStatus step_scene_load(std::uint32_t resource_budget,
-                                                    ResourceLoadProgress& output);
+                                                     ResourceLoadProgress& output);
     [[nodiscard]] Scene* commit_scene_load();
     void cancel_scene_load() noexcept;
     [[nodiscard]] std::string_view scene_load_error() const noexcept;
-    [[nodiscard]] std::uint64_t submit_async(
-        const std::function<bool(std::function<void(bool)>)>& start);
+    [[nodiscard]] std::uint64_t
+    submit_async(const std::function<bool(std::function<void(bool)>)>& start);
     // -2 失效、-1 未完成、0 失败、1 成功；已完成结果领取后删除。
     [[nodiscard]] int take_async(std::uint64_t request);
     void remember_input_channel(schema::InputChannelHandle channel);
@@ -80,7 +80,7 @@ public:
     [[nodiscard]] const std::string& input_error() const noexcept;
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
-    [[nodiscard]] Node* find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept;
+    [[nodiscard]] Node find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept;
     [[nodiscard]] double delta_time() const noexcept;
     [[nodiscard]] KeyValueStore& storage();
     void set_storage_error(std::string_view error);
@@ -90,8 +90,8 @@ public:
     [[nodiscard]] static BindingContext* current(const Arguments& arguments,
                                                  bool require_callable = true);
     [[nodiscard]] static Scene* scene(const Arguments& arguments);
-    [[nodiscard]] static Node* node(const Arguments& arguments);
-    [[nodiscard]] static Component* component(const Arguments& arguments);
+    [[nodiscard]] static Node node(const Arguments& arguments);
+    [[nodiscard]] static Component component(const Arguments& arguments);
     [[nodiscard]] static bool identifier(const Arguments& arguments, int index,
                                          std::uint64_t& output);
     [[nodiscard]] static bool number(const Arguments& arguments, int index, double& output);

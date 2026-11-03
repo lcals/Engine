@@ -22,6 +22,7 @@ bool expect(bool condition, const char* message)
 template <class T> schema::ComponentDataT component(const T& settings)
 {
     schema::ComponentDataT value;
+    value.flags = std::make_unique<schema::ComponentFlagsT>();
     value.payload.Set(T(settings));
     return value;
 }
@@ -79,8 +80,8 @@ bool mesh_optional_fields()
         return false;
     }
     auto hidden = base;
-    hidden.enabled = false;
-    hidden.visible = false;
+    hidden.flags->enabled = false;
+    hidden.flags->visible = false;
     hidden.payload.AsMeshRendererData()->cast_shadows = false;
     return expect(apply(base, hidden, {"enabled", "visible", "cast_shadows"}) && base == hidden,
                   "false-valued overrides remain explicit rather than restoring defaults");

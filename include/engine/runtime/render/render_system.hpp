@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/scene/camera.hpp"
 
 #include "runtime/render/render_settings.hpp"
 #include "runtime/render/scene_capture.hpp"
@@ -47,6 +48,9 @@ struct RenderConfig
     std::uint16_t local_shadow_tile_size = 512;
     std::uint16_t maximum_local_shadow_faces = 24;
     std::uint8_t maximum_planar_reflections = 2;
+    // 1 关闭 MSAA；只接受 1、2、4、8。设备不支持时初始化明确失败。
+    std::uint8_t msaa_samples = 1;
+    bool max_anisotropy = false;
 };
 
 class RenderSystem final : public System
@@ -64,7 +68,7 @@ public:
     [[nodiscard]] bool remove_extension(RenderExtension& extension) noexcept;
 
     // camera 仅在本次调用借用，可属于调用方独立场景；空值采用世界的活动镜头。
-    [[nodiscard]] bool prepare_scene(const Camera* camera = nullptr);
+    [[nodiscard]] bool prepare_scene(Camera camera = {});
     [[nodiscard]] bool request_diffuse_capture(const SceneCaptureRequest& request);
     [[nodiscard]] SceneCaptureStatus diffuse_capture_status() const noexcept;
     [[nodiscard]] bool take_diffuse_capture(SceneCaptureImage& output);
@@ -80,6 +84,13 @@ public:
     // 接受呈现配置请求；下次可提交的 render 应用，GPU 临时关闭期间保留。
     [[nodiscard]] bool set_vsync(bool enabled);
     [[nodiscard]] bool vsync() const noexcept;
+    // 主线程提交设备画质请求；失败保持旧值，下一次可绘制帧应用。
+    [[nodiscard]] bool set_msaa_samples(std::uint8_t samples);
+    [[nodiscard]] std::uint8_t msaa_samples() const noexcept;
+    [[nodiscard]] bool supports_msaa_samples(std::uint8_t samples) const noexcept;
+    [[nodiscard]] bool set_max_anisotropy(bool enabled);
+    [[nodiscard]] bool max_anisotropy() const noexcept;
+    [[nodiscard]] bool supports_max_anisotropy() const noexcept;
     // 只设置无活动场景时的清屏色；场景环境与后处理由对应组件管理。
     void set_idle_clear_color(std::uint32_t rgba) noexcept;
     [[nodiscard]] std::uint32_t idle_clear_color() const noexcept;
@@ -91,7 +102,7 @@ public:
     // 主线程传入绝对 PNG 路径；true 仅表示排队，须继续提交帧并查询状态。
     [[nodiscard]] bool request_screenshot(std::string_view utf8_png_path);
     [[nodiscard]] ScreenshotStatus screenshot_status() const noexcept;
-    [[nodiscard]] bool render(const Camera* camera = nullptr);
+    [[nodiscard]] bool render(Camera camera = {});
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
@@ -109,7 +120,7 @@ private:
     [[nodiscard]] bool capture_unchanged() const;
     [[nodiscard]] bool draw_diffuse_capture(const RenderSettings& settings);
     void release_draw_resources() noexcept;
-    [[nodiscard]] bool draw_scene(const Camera* camera, const RenderSettings& settings);
+    [[nodiscard]] bool draw_scene(Camera camera, const RenderSettings& settings);
 
     struct SceneGpuResources;
     struct RendererCallbacks;
@@ -134,6 +145,7 @@ private:
     bool stats_visible_ = false;
     bool vsync_enabled_ = true;
     bool vsync_applied_ = true;
+    bool max_anisotropy_applied_ = false;
     std::vector<RenderExtension*> extensions_;
     bool invoking_extensions_ = false;
 };

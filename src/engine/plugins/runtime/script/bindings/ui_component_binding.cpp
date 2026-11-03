@@ -36,15 +36,15 @@ Object.freeze(UiComponent.prototype);
 Object.freeze(UiComponent);
 )js";
 
-UiComponent* view(const Arguments& arguments)
+UiComponent view(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* component = node == nullptr ? nullptr : node->get_component<UiComponent>();
+    auto node = BindingContext::node(arguments);
+    auto component = !node ? UiComponent{} : node.get_component<UiComponent>();
     std::uint64_t id = 0;
-    return component != nullptr && BindingContext::identifier(arguments, 2, id) &&
-                   component->instance_id() == id
+    return component.valid() && BindingContext::identifier(arguments, 2, id) &&
+                   component.instance_id() == id
                ? component
-               : nullptr;
+               : UiComponent{};
 }
 
 UiSystem* system(const Arguments& arguments)
@@ -56,32 +56,32 @@ UiSystem* system(const Arguments& arguments)
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<UiComponent>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<UiComponent>().valid());
 }
 
 void set_document(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* component = view(arguments);
+    auto component = view(arguments);
     std::string path;
-    if (arguments.count() == 4 && component != nullptr && BindingContext::text(arguments, 3, path))
+    if (arguments.count() == 4 && component.valid() && BindingContext::text(arguments, 3, path))
     {
-        arguments.set_return(component->set_document(path));
+        arguments.set_return(component.set_document(path));
     }
 }
 
 void find_element(const Arguments& arguments)
 {
     arguments.set_return({});
-    auto* component = view(arguments);
+    auto component = view(arguments);
     auto* ui = system(arguments);
     std::string id;
     UiElementHandle handle;
-    if (arguments.count() != 4 || component == nullptr || ui == nullptr ||
+    if (arguments.count() != 4 || !component || ui == nullptr ||
         !BindingContext::text(arguments, 3, id) ||
-        !ui->find_element(component->node().id(), id, handle))
+        !ui->find_element(component.node().id(), id, handle))
     {
         return;
     }
@@ -91,10 +91,10 @@ void find_element(const Arguments& arguments)
 
 void document_identifier(const Arguments& arguments)
 {
-    auto* component = view(arguments);
+    auto component = view(arguments);
     auto* ui = system(arguments);
-    const auto id = arguments.count() == 3 && component != nullptr && ui != nullptr
-                        ? ui->document_id(component->node().id())
+    const auto id = arguments.count() == 3 && component.valid() && ui != nullptr
+                        ? ui->document_id(component.node().id())
                         : 0;
     arguments.set_return(id);
 }

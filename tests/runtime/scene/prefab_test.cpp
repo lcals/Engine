@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/scene/camera.hpp"
@@ -98,7 +99,7 @@ bool add_scene(test_support::ResourceFixture& files, std::string_view path,
 
 template <class T> void add_component(schema::NodeDataT& node, const T& settings)
 {
-    auto component = std::make_unique<schema::ComponentDataT>();
+    auto component = test_support::component_data();
     component->payload.Set(T(settings));
     node.components.push_back(std::move(component));
 }
@@ -107,10 +108,10 @@ std::unique_ptr<schema::NodeDataT> node_data(std::uint64_t id, std::uint64_t par
                                              std::string_view name)
 {
     auto node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = id;
+    node->info = test_support::node_info();
+    node->info->properties->id = id;
     node->info->parent_id = parent;
-    node->info->name = name;
+    node->info->properties->name = name;
     add_component(*node, schema::TransformDataT{});
     return node;
 }
@@ -128,20 +129,24 @@ schema::PrefabDataT template_data()
     schema::LightDataT settings;
     settings.intensity = 8;
     add_component(*light, settings);
-    light->components.back()->visible = false;
+    light->components.back()->flags->visible = false;
     data.nodes.push_back(std::move(light));
     return data;
 }
 
-Node* local_node(Scene& scene, std::uint64_t id)
+Node local_node(Scene& scene, std::uint64_t id)
 {
-    const auto found = std::find_if(scene.nodes().begin(), scene.nodes().end(),
-                                    [id](const auto& node) { return node->info().id == id; });
-    return found == scene.nodes().end() ? nullptr : found->get();
+    for (const auto node : test_support::scene_nodes(scene))
+    {
+        if (node.info().properties->id == id)
+        {
+            return node;
+        }
+    }
+    return {};
 }
 
-Node* mapped_node(Scene& scene, const schema::PrefabInstanceDataT& instance,
-                  std::uint64_t source_id)
+Node mapped_node(Scene& scene, const schema::PrefabInstanceDataT& instance, std::uint64_t source_id)
 {
     for (const auto& mapping : instance.node_mappings)
     {
@@ -150,7 +155,7 @@ Node* mapped_node(Scene& scene, const schema::PrefabInstanceDataT& instance,
             return local_node(scene, mapping->target_id);
         }
     }
-    return nullptr;
+    return {};
 }
 
 struct Fixture
@@ -176,29 +181,30 @@ bool round_trip_and_lifecycle()
         return false;
     }
     auto* scene = fixture.world.scene();
-    auto* existing = scene->create_node("Existing");
-    auto* original_camera = existing ? existing->add_component<Camera>() : nullptr;
+    auto existing = scene->create_node("Existing");
+    auto original_camera = existing ? existing.add_component<Camera>() : Camera{};
     if (!original_camera || !scene->set_active_camera(original_camera))
     {
         return false;
     }
-    auto* first = scene->instantiate_prefab("unit.prefab", "First");
-    auto* second = scene->instantiate_prefab("unit.prefab", "");
-    if (!expect(first && second && first != second && scene->nodes().size() == 7 &&
-                    scene->prefab_instances().size() == 2 && first->name() == "First" &&
-                    second->name() == "Template" && scene->active_camera() == original_camera,
+    auto first = scene->instantiate_prefab("unit.prefab", "First");
+    auto second = scene->instantiate_prefab("unit.prefab", "");
+    if (!expect(first && second && first != second &&
+                    test_support::scene_nodes(*scene).size() == 7 &&
+                    test_support::prefab_instances(*scene).size() == 2 && first.name() == "First" &&
+                    second.name() == "Template" && scene->active_camera() == original_camera,
                 "two instances preserve caller camera and independent ordinary node trees"))
     {
         return false;
     }
-    const auto first_link = *scene->prefab_instances()[0];
-    const auto second_link = *scene->prefab_instances()[1];
-    auto* camera_node = mapped_node(*scene, first_link, 20);
-    auto* light_node = mapped_node(*scene, first_link, 7);
-    if (!expect(camera_node && light_node && camera_node->parent() == first &&
-                    light_node->parent() == first &&
-                    light_node->get_component<Light>()->settings().intensity == 8 &&
-                    !light_node->get_component<Light>()->visible() &&
+    const auto first_link = test_support::prefab_instances(*scene)[0];
+    const auto second_link = test_support::prefab_instances(*scene)[1];
+    auto camera_node = mapped_node(*scene, first_link, 20);
+    auto light_node = mapped_node(*scene, first_link, 7);
+    if (!expect(camera_node && light_node && camera_node.parent() == first &&
+                    light_node.parent() == first &&
+                    light_node.get_component<Light>().settings().intensity == 8 &&
+                    !light_node.get_component<Light>().visible() &&
                     first_link.overrides.size() == 1 &&
                     first_link.overrides[0]->fields == std::vector<std::string>{"name"} &&
                     second_link.overrides.empty(),
@@ -207,24 +213,23 @@ bool round_trip_and_lifecycle()
         return false;
     }
     auto invalid = first_link;
-    invalid.node_mappings.back()->target_id = second->info().id;
-    if (!expect(!scene->set_prefab_instance(invalid) && *scene->prefab_instances()[0] == first_link,
+    invalid.node_mappings.back()->target_id = second.info().properties->id;
+    if (!expect(!scene->set_prefab_instance(invalid) &&
+                    test_support::prefab_instances(*scene)[0] == first_link,
                 "foreign subtree mapping is rejected without replacing existing metadata") ||
-        !expect(scene->remove_prefab_instance(first->info().id) &&
-                    scene->find_node(first->id()) == first &&
-                    scene->set_prefab_instance(first_link),
+        !expect(scene->remove_prefab_instance(first.info().properties->id) &&
+                    scene->find_node(first.id()) == first && scene->set_prefab_instance(first_link),
                 "unlinking and relinking only changes source metadata"))
     {
         return false;
     }
-    if (!scene->set_active_camera(camera_node->get_component<Camera>()))
+    if (!scene->set_active_camera(camera_node.get_component<Camera>()))
     {
         return false;
     }
-    const auto camera_local_id = camera_node->info().id;
+    const auto camera_local_id = camera_node.info().properties->id;
     schema::SceneDataT snapshot;
-    if (!expect(second->set_parent(first) && !scene->build_data(snapshot) &&
-                    second->set_parent(nullptr),
+    if (!expect(second.set_parent(first) && !scene->build_data(snapshot) && second.set_parent({}),
                 "nested source links cannot silently enter a saved scene"))
     {
         return false;
@@ -244,31 +249,33 @@ bool round_trip_and_lifecycle()
     }
     scene = fixture.world.load_scene("saved.scene");
     if (!expect(scene && scene->active_camera() &&
-                    scene->active_camera()->node().info().id == camera_local_id &&
-                    scene->prefab_instances().size() == 2 &&
-                    scene->prefab_instances()[1]->root_id == first_link.root_id &&
-                    *scene->prefab_instances()[1] == first_link,
+                    scene->active_camera().node().info().properties->id == camera_local_id &&
+                    test_support::prefab_instances(*scene).size() == 2 &&
+                    test_support::prefab_instances(*scene)[1].root_id == first_link.root_id &&
+                    test_support::prefab_instances(*scene)[1] == first_link,
                 "scene restore needs no template and keeps local IDs, camera and exact overrides"))
     {
         return false;
     }
     first = local_node(*scene, first_link.root_id);
     second = local_node(*scene, second_link.root_id);
-    if (!expect(first && second && first->set_persistent(true), "make one instance persistent"))
+    if (!expect(first && second && first.set_persistent(true), "make one instance persistent"))
     {
         return false;
     }
-    const auto first_runtime_id = first->id();
+    const auto first_runtime_id = first.id();
     fixture.world.unload_scene();
     if (!expect(fixture.world.find_node(first_runtime_id) == first &&
-                    fixture.world.scenes().size() == 1 && scene->prefab_instances().size() == 1 &&
-                    scene->prefab_instances()[0]->root_id == first_link.root_id,
+                    fixture.world.scenes().size() == 1 &&
+                    test_support::prefab_instances(*scene).size() == 1 &&
+                    test_support::prefab_instances(*scene)[0].root_id == first_link.root_id,
                 "scene unload retains the persistent instance and releases unrelated links"))
     {
         return false;
     }
-    return expect(scene->destroy_node(first_runtime_id) && scene->prefab_instances().empty() &&
-                      scene->nodes().empty(),
+    return expect(scene->destroy_node(first_runtime_id) &&
+                      test_support::prefab_instances(*scene).empty() &&
+                      test_support::scene_nodes(*scene).empty(),
                   "destroying an instance root removes its source record and full subtree");
 }
 
@@ -281,16 +288,16 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     auto* scene = fixture.world.scene();
-    auto* root = scene->instantiate_prefab("unit.prefab", "");
+    auto root = scene->instantiate_prefab("unit.prefab", "");
     if (!root)
     {
         return false;
     }
-    auto link = *scene->prefab_instances()[0];
-    auto* child = mapped_node(*scene, link, 20);
+    auto link = test_support::prefab_instances(*scene)[0];
+    auto child = mapped_node(*scene, link, 20);
     schema::SceneDataT snapshot;
-    if (!expect(child && scene->destroy_node(child->id()) && !scene->build_data(snapshot) &&
-                    snapshot.nodes.empty() && scene->prefab_instances().size() == 1,
+    if (!expect(child && scene->destroy_node(child.id()) && !scene->build_data(snapshot) &&
+                    snapshot.nodes.empty() && test_support::prefab_instances(*scene).size() == 1,
                 "runtime removal never silently becomes an editor override"))
     {
         return false;
@@ -316,26 +323,32 @@ bool explicit_removal_and_reserved_identities()
         return false;
     }
     scene = fixture.world.load_scene("removed.scene");
-    root = scene ? local_node(*scene, link.root_id) : nullptr;
-    if (!expect(root && scene->prefab_instances().size() == 1,
+    root = scene ? local_node(*scene, link.root_id) : Node{};
+    if (!expect(root && test_support::prefab_instances(*scene).size() == 1,
                 "scene restore preserves explicit removals and retired identities"))
     {
         return false;
     }
-    auto* fresh = scene->create_node("Fresh");
-    if (!expect(fresh && fresh->info().id > 9000,
+    auto fresh = scene->create_node("Fresh");
+    if (!expect(fresh && fresh.info().properties->id > 9000,
                 "new nodes cannot reuse deleted template mapping identities"))
     {
         return false;
     }
-    auto* light = mapped_node(*scene, link, 7);
-    light->set_transient(true);
+    auto light = mapped_node(*scene, link, 7);
+    if (!light.set_transient(true))
+    {
+        return false;
+    }
     if (!expect(!scene->build_data(snapshot),
                 "a transient mapped child cannot silently disappear from a saved instance"))
     {
         return false;
     }
-    root->set_transient(true);
+    if (!root.set_transient(true))
+    {
+        return false;
+    }
     return expect(scene->build_data(snapshot) && snapshot.prefab_instances.empty() &&
                       snapshot.nodes.size() == 1,
                   "a fully transient instance is omitted with its source record");
@@ -363,8 +376,8 @@ bool rollback_and_plugin_references()
         return false;
     }
     auto* scene = fixture.world.scene();
-    auto* existing = scene->create_node("Existing");
-    auto* active_camera = existing ? existing->add_component<Camera>() : nullptr;
+    auto existing = scene->create_node("Existing");
+    auto active_camera = existing ? existing.add_component<Camera>() : Camera{};
     if (!active_camera || !scene->set_active_camera(active_camera))
     {
         return false;
@@ -372,7 +385,8 @@ bool rollback_and_plugin_references()
     if (!expect(!scene->instantiate_prefab("missing.prefab", "Missing") &&
                     !scene->instantiate_prefab("builtin://meshes/cube", "Wrong kind") &&
                     !scene->instantiate_prefab("missing-plugin.prefab", "Missing plugin") &&
-                    scene->nodes().size() == 1 && scene->prefab_instances().empty() &&
+                    test_support::scene_nodes(*scene).size() == 1 &&
+                    test_support::prefab_instances(*scene).empty() &&
                     scene->active_camera() == active_camera,
                 "missing resources or plugins roll back even unattached candidate nodes"))
     {
@@ -386,43 +400,44 @@ bool rollback_and_plugin_references()
     {
         return false;
     }
-    auto* first = scene->instantiate_prefab("character.prefab", "First");
-    auto* second = scene->instantiate_prefab("character.prefab", "Second");
-    if (!expect(first && second && scene->prefab_instances().size() == 2,
+    auto first = scene->instantiate_prefab("character.prefab", "First");
+    auto second = scene->instantiate_prefab("character.prefab", "Second");
+    if (!expect(first && second && test_support::prefab_instances(*scene).size() == 2,
                 "plugins register their ordinary component factories"))
     {
         return false;
     }
-    for (const auto& link : scene->prefab_instances())
+    for (const auto& link : test_support::prefab_instances(*scene))
     {
-        const auto* player = mapped_node(*scene, *link, 9);
-        const auto* view = mapped_node(*scene, *link, 20);
+        const auto player = mapped_node(*scene, link, 9);
+        const auto view = mapped_node(*scene, link, 20);
         if (!expect(player && view &&
-                        player->get_component<CharacterController>()->settings().camera_node_id ==
-                            view->info().id &&
-                        view->get_component<CharacterCamera>()->settings().target_node_id ==
-                            player->info().id,
+                        player.get_component<CharacterController>().settings().camera_node_id ==
+                            view.info().properties->id &&
+                        view.get_component<CharacterCamera>().settings().target_node_id ==
+                            player.info().properties->id,
                     "each instance remaps both directions of the plugin-owned camera binding"))
         {
             return false;
         }
         std::array<schema::NodeIdMappingT, 1> retired;
         retired[0].source_id = 9;
-        retired[0].target_id = player->info().id;
+        retired[0].target_id = player.info().properties->id;
         retired[0].retired = true;
         auto reference = *character.nodes[0]->components.back();
         const auto before = reference;
-        if (!expect(!view->get_component<CharacterCamera>()->remap_node_references(reference,
-                                                                                   retired) &&
-                        reference == before,
-                    "retired template identities cannot revive a camera target reference"))
+        if (!expect(
+                !view.get_component<CharacterCamera>().remap_node_references(reference, retired) &&
+                    reference == before,
+                "retired template identities cannot revive a camera target reference"))
         {
             return false;
         }
     }
-    const auto count = scene->nodes().size();
+    const auto count = test_support::scene_nodes(*scene).size();
     if (!expect(!scene->instantiate_prefab("external.prefab", "External reference") &&
-                    scene->nodes().size() == count && scene->prefab_instances().size() == 2 &&
+                    test_support::scene_nodes(*scene).size() == count &&
+                    test_support::prefab_instances(*scene).size() == 2 &&
                     scene->active_camera() == active_camera,
                 "unbound external template references fail without affecting live instances"))
     {

@@ -1,21 +1,12 @@
 #include "plugins/runtime/character_controller/character_visual.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 namespace engine::plugins::character_controller
 {
-namespace
+bool CharacterVisual::register_type(ComponentRegistry& registry)
 {
-
-schema::ComponentDataT make_data()
-{
-    schema::ComponentDataT data;
-    data.payload.Set(schema::CharacterVisualDataT{});
-    return data;
-}
-
-} // namespace
-
-CharacterVisual::CharacterVisual(Node& node) : Component(node, make_data())
-{
+    return register_component_storage<CharacterVisual, Data>(registry);
 }
 
 bool CharacterVisual::valid_settings(const schema::CharacterVisualDataT& value) noexcept
@@ -24,30 +15,53 @@ bool CharacterVisual::valid_settings(const schema::CharacterVisualDataT& value) 
            value.kind <= schema::CharacterVisualKind::MAX;
 }
 
-const schema::CharacterVisualDataT& CharacterVisual::settings() const noexcept
+schema::CharacterVisualDataT CharacterVisual::settings() const noexcept
 {
-    return *data().payload.AsCharacterVisualData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool CharacterVisual::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool CharacterVisual::set_settings(const schema::CharacterVisualDataT& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    *mutable_data().payload.AsCharacterVisualData() = value;
+    *write_data<Data>() = value;
+    modified();
     return true;
 }
 
 bool CharacterVisual::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsCharacterVisualData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(value.enabled);
-    set_visible(value.visible);
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
 }
 

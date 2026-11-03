@@ -1,39 +1,64 @@
 #include "runtime/scene/planar_reflection_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/scene/scene_settings_validation.hpp"
 
 namespace engine
 {
 
-PlanarReflectionComponent::PlanarReflectionComponent(Node& node) : Component(node)
+bool PlanarReflectionComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(PlanarReflectionSettings{});
+    return register_component_storage<PlanarReflectionComponent, Data>(registry);
 }
 
-const PlanarReflectionSettings& PlanarReflectionComponent::settings() const noexcept
+PlanarReflectionSettings PlanarReflectionComponent::settings() const noexcept
 {
-    return *data().payload.AsPlanarReflectionData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool PlanarReflectionComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool PlanarReflectionComponent::set_settings(const PlanarReflectionSettings& settings) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!scene_detail::valid_planar_reflection(settings))
     {
         return false;
     }
-    *mutable_data().payload.AsPlanarReflectionData() = settings;
+    *write_data<Data>() = settings;
+    modified();
     return true;
 }
 
 bool PlanarReflectionComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsPlanarReflectionData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 

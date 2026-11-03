@@ -60,13 +60,13 @@ classDiagram
 classDiagram
     class PrefabTrackedEdit {
         <<internal final>>
-        +PrefabTrackedEdit(WorldSystem& world, SceneCommands& scenes, Node& node, ComponentType type, Fields fields, unique_ptr~EditorEdit~ edit)
+        +PrefabTrackedEdit(WorldSystem& world, SceneCommands& scenes, Node node, ComponentType type, Fields fields, unique_ptr~EditorEdit~ edit)
         +apply(string& error) bool
         +revert(string& error) bool
     }
     class PrefabMetadataEdit {
         <<internal final>>
-        +PrefabMetadataEdit(WorldSystem& world, SceneCommands& scenes, Node& node, optional~PrefabInstanceDataT~ before, optional~PrefabInstanceDataT~ after, unique_ptr~EditorEdit~ edit)
+        +PrefabMetadataEdit(WorldSystem& world, SceneCommands& scenes, Node node, optional~PrefabInstanceDataT~ before, optional~PrefabInstanceDataT~ after, unique_ptr~EditorEdit~ edit)
         +apply(string& error) bool
         +revert(string& error) bool
     }
@@ -100,7 +100,7 @@ classDiagram
 classDiagram
     class PrefabComponentRestoreEdit {
         <<internal final>>
-        +PrefabComponentRestoreEdit(WorldSystem& world, SceneCommands& scenes, Node& node, ComponentDataT before, ComponentDataT after, Fields fields)
+        +PrefabComponentRestoreEdit(WorldSystem& world, SceneCommands& scenes, Node node, ComponentDataT before, ComponentDataT after, Fields fields)
         +apply(string& error) bool
         +revert(string& error) bool
     }

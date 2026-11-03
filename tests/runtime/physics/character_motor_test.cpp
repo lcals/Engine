@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/scene/character_motor.hpp"
@@ -34,22 +36,22 @@ struct Fixture
 {
     engine::WorldSystem world;
     engine::PhysicsSystem physics{&world};
-    engine::Node* player = nullptr;
+    engine::Node player = {};
 
-    engine::Node* box(const char* name, const engine::Vec3& position, const engine::Vec3& extents)
+    engine::Node box(const char* name, const engine::Vec3& position, const engine::Vec3& extents)
     {
-        auto* node = world.scene()->create_node(name);
-        auto* collider = node ? node->add_component<engine::Collider>() : nullptr;
-        if (collider == nullptr)
+        auto node = world.scene()->create_node(name);
+        auto collider = node ? node.add_component<engine::Collider>() : engine::Collider{};
+        if (!collider.valid())
         {
-            return nullptr;
+            return {};
         }
-        auto* transform = node->get_component<engine::Transform>();
-        auto pose = transform->settings();
+        auto transform = node.get_component<engine::Transform>();
+        auto pose = transform.settings();
         pose.position = position;
-        auto shape = collider->settings();
+        auto shape = collider.settings();
         shape.half_extents = extents;
-        return transform->set_settings(pose) && collider->set_settings(shape) ? node : nullptr;
+        return transform.set_settings(pose) && collider.set_settings(shape) ? node : engine::Node{};
     }
 
     bool initialize(bool airborne = false)
@@ -57,36 +59,36 @@ struct Fixture
         const engine::EngineConfig config;
         if (!world.initialize(config) || !physics.initialize(config) ||
             world.create_scene("Character motor") == nullptr ||
-            box("Floor", {0, -0.5, 0}, {30, 0.5, 30}) == nullptr)
+            box("Floor", {0, -0.5, 0}, {30, 0.5, 30}).valid() == false)
         {
             return false;
         }
         player = world.scene()->create_node("Player");
-        if (player == nullptr || player->add_component<engine::CharacterMotor>() == nullptr)
+        if (!player.valid() || player.add_component<engine::CharacterMotor>().valid() == false)
         {
             return false;
         }
         if (airborne)
         {
-            auto* transform = player->get_component<engine::Transform>();
-            auto pose = transform->settings();
+            auto transform = player.get_component<engine::Transform>();
+            auto pose = transform.settings();
             pose.position = {0, 3, 0};
             auto settings = motor().settings();
             settings.gravity_factor = 0;
             settings.external_damping = 0;
-            return transform->set_settings(pose) && motor().set_settings(settings);
+            return transform.set_settings(pose) && motor().set_settings(settings);
         }
         return advance(4) && motor().grounded();
     }
 
-    engine::CharacterMotor& motor()
+    engine::CharacterMotor motor()
     {
-        return *player->get_component<engine::CharacterMotor>();
+        return player.get_component<engine::CharacterMotor>();
     }
 
     engine::Vec3 position() const
     {
-        return player->get_component<engine::Transform>()->settings().position;
+        return player.get_component<engine::Transform>().settings().position;
     }
 
     bool advance(unsigned int count)
@@ -109,7 +111,7 @@ bool queued_velocity_and_fixed_steps()
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     engine::schema::ComponentDataT before;
     engine::schema::ComponentDataT after;
     if (!expect(motor.build_data(before) && motor.add_velocity({2, 0, 1}) &&
@@ -146,7 +148,7 @@ bool input_and_damping()
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     if (!expect(close(motor.settings().external_damping, 6) && motor.jump(5) &&
                     motor.set_velocity({0, 0, 3}) && motor.add_velocity({6, 0, 0}),
                 "queue active movement, jump and independent knockback"))
@@ -193,11 +195,11 @@ bool input_and_damping()
 bool knockback_collisions()
 {
     Fixture fixture;
-    if (!fixture.initialize() || fixture.box("Wall", {0, 3, -3}, {10, 3, 0.25}) == nullptr)
+    if (!fixture.initialize() || fixture.box("Wall", {0, 3, -3}, {10, 3, 0.25}).valid() == false)
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     auto settings = motor.settings();
     settings.external_damping = 0;
     const double ground = fixture.position().y();
@@ -224,7 +226,7 @@ bool live_settings_keep_velocity()
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     auto settings = motor.settings();
     settings.external_damping = 6;
     settings.gravity_factor = 2;
@@ -246,11 +248,11 @@ bool live_settings_keep_velocity()
 bool ceiling_contact()
 {
     Fixture fixture;
-    if (!fixture.initialize() || fixture.box("Ceiling", {0, 2.5, 0}, {3, 0.1, 3}) == nullptr)
+    if (!fixture.initialize() || fixture.box("Ceiling", {0, 2.5, 0}, {3, 0.1, 3}).valid() == false)
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     if (!motor.add_velocity({0, 8, 0}))
     {
         return false;
@@ -276,7 +278,7 @@ bool restore_disable_and_rebuild()
     {
         return false;
     }
-    auto& motor = fixture.motor();
+    auto motor = fixture.motor();
     const auto first_id = motor.instance_id();
     engine::schema::ComponentDataT saved;
     if (!expect(first_id != 0 && motor.build_data(saved) && motor.add_velocity({4, 3, 0}) &&
@@ -306,38 +308,44 @@ bool restore_disable_and_rebuild()
     {
         return false;
     }
-    motor.set_enabled(false);
+    if (!motor.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(!motor.add_velocity({1, 0, 0}) && fixture.physics.tick(0) &&
                     fixture.physics.character_count() == 0,
                 "disabled motor rejects input and discards its Jolt state"))
     {
         return false;
     }
-    motor.set_enabled(true);
+    if (!motor.set_enabled(true))
+    {
+        std::abort();
+    }
     const auto disabled = fixture.position();
     if (!expect(fixture.advance(2) && fixture.position() == disabled &&
                     motor.instance_id() == first_id,
                 "reenabling the same component cannot restore old velocity") ||
         !expect(motor.add_velocity({5, 0, 0}) && fixture.advance(1),
                 "restart motion before replacing the component") ||
-        !expect(fixture.player->remove_component(engine::CharacterMotor::component_type),
+        !expect(fixture.player.remove_component(engine::CharacterMotor::component_type),
                 "remove the moving component"))
     {
         return false;
     }
-    auto* replacement = fixture.player->add_component<engine::CharacterMotor>();
-    if (!expect(replacement != nullptr && replacement->instance_id() != first_id &&
-                    replacement->set_settings(*saved.payload.AsCharacterMotorData()) &&
-                    replacement->add_velocity({2, 0, 0}) && fixture.advance(1) &&
-                    close(replacement->velocity().x(), 2),
+    auto replacement = fixture.player.add_component<engine::CharacterMotor>();
+    if (!expect(replacement.valid() && replacement.instance_id() != first_id &&
+                    replacement.set_settings(*saved.payload.AsCharacterMotorData()) &&
+                    replacement.add_velocity({2, 0, 0}) && fixture.advance(1) &&
+                    close(replacement.velocity().x(), 2),
                 "new instance uses only its own pending delta even on the same node"))
     {
         return false;
     }
-    auto shape = replacement->settings();
+    auto shape = replacement.settings();
     shape.radius = 0.35F;
     const auto before_rebuild = fixture.position();
-    if (!expect(replacement->set_settings(shape) && fixture.advance(1) &&
+    if (!expect(replacement.set_settings(shape) && fixture.advance(1) &&
                     fixture.position() == before_rebuild,
                 "rebuilding the physical capsule discards external velocity"))
     {

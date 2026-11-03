@@ -1,4 +1,8 @@
 #include "plugins/runtime/script/script_system.hpp"
+#include "scene_snapshot.hpp"
+#if defined(ENGINE_TEST_EFFECTS_PLUGIN)
+#include "plugins/runtime/effects/effect_component.hpp"
+#endif
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
 #include "plugins/runtime/resource_graph/resource_graph_system.hpp"
 #endif
@@ -377,14 +381,14 @@ bool run_project_script_cases(const fs::path& workspace)
     Fixture version;
     Fixture invalid;
     if (!script.initialize({}) ||
-        !fixture(workspace, "project-script",
-                 {{"scripts/game.js", R"JS(
+        !fixture(workspace, "project-script", {{"scripts/game.js", R"JS(
 import {Gameplay,Time} from "engine";
 export default class Game extends Gameplay {
     OnInitialize(){this.value=4; return true;}
     Update(){}
     OnShutdown(){}
-})JS"}}, version) ||
+})JS"}},
+                 version) ||
         !fixture(workspace, "project-script-invalid",
                  {{"scripts/game.js", "export default class { syntax error }"}}, invalid) ||
         !apply(script, version))
@@ -394,13 +398,12 @@ export default class Game extends Gameplay {
     const auto first_run = script.status().run_id;
     std::string result;
     std::string error;
-    const std::string source =
-        "const {Time}=require('engine'); exports.default=(args,game)=>"
-        "({value:game.value+=args,delta:Time.deltaTime});";
+    const std::string source = "const {Time}=require('engine'); exports.default=(args,game)=>"
+                               "({value:game.value+=args,delta:Time.deltaTime});";
     const auto execute = [&](std::uint64_t run, std::string_view code, std::string_view arguments)
     {
-        return script.execute_project_script({run, "scripts/mcp-check.js", code, arguments},
-                                               result, error);
+        return script.execute_project_script({run, "scripts/mcp-check.js", code, arguments}, result,
+                                             error);
     };
     if (!expect(first_run != 0 && execute(first_run, source, "3") &&
                     result == R"({"value":7,"delta":0})" && error.empty(),
@@ -421,12 +424,13 @@ export default class Game extends Gameplay {
     bool worker_rejected = false;
     std::thread worker([&] { worker_rejected = !execute(first_run, source, "5"); });
     worker.join();
-    for (const auto path : {"../escape.js", "/absolute.js", "scripts/./check.js",
-                            "scripts/check.ts"})
+    for (const auto path :
+         {"../escape.js", "/absolute.js", "scripts/./check.js", "scripts/check.ts"})
     {
-        if (!expect(!script.execute_project_script({first_run, path, source, "10"}, result, error) &&
-                        result.empty() && script.status().run_id == first_run,
-                    "invalid virtual paths are rejected before execution"))
+        if (!expect(
+                !script.execute_project_script({first_run, path, source, "10"}, result, error) &&
+                    result.empty() && script.status().run_id == first_run,
+                "invalid virtual paths are rejected before execution"))
         {
             return false;
         }
@@ -445,8 +449,7 @@ export default class Game extends Gameplay {
         !expect(apply(script, version) && script.status().run_id != 0 &&
                     script.status().run_id != first_run,
                 "restarting identical content obtains a distinct Run") ||
-        !expect(!execute(first_run, source, "99") &&
-                    execute(script.status().run_id, source, "0") &&
+        !expect(!execute(first_run, source, "99") && execute(script.status().run_id, source, "0") &&
                     result == R"({"value":4,"delta":0})",
                 "old requests cannot mutate a restarted Gameplay instance"))
     {
@@ -661,9 +664,9 @@ export default class extends Gameplay {
     constexpr char scene_name[] = "boundary\0scene";
     constexpr char node_name[] = "node\0suffix";
     const auto* scene = world.scene();
-    if (!expect(scene != nullptr && scene->nodes().size() == 1 &&
+    if (!expect(scene != nullptr && test_support::scene_nodes(*scene).size() == 1 &&
                     scene->name() == std::string_view(scene_name, sizeof(scene_name) - 1) &&
-                    scene->nodes().front()->name() ==
+                    test_support::scene_nodes(*scene).front().name() ==
                         std::string_view(node_name, sizeof(node_name) - 1),
                 "embedded NUL survives JavaScript conversion and native name lookup"))
     {
@@ -734,6 +737,8 @@ export default class Game extends Gameplay {
             slot.SetTexture('baseColorTexture', 'builtin://meshes/cube') ||
             !mesh.SetMaterialCount(1) || slot.IsValid() || slot.SetFloat('roughness', .4) ||
             slot.GetTexture('baseColorTexture') !== null || mesh.materialCount !== 1 ||
+            !mesh.SetMaterialCount(2) || slot.IsValid() || slot.SetV4('baseColor', 1, 0, 0, 1) ||
+            !mesh.GetMaterial(1)?.IsValid() || !mesh.SetMaterialCount(1) ||
             !mesh.SetMesh('builtin://meshes/cube') || mesh.SetMesh('missing') ||
             !mesh.material.SetTexture('baseColorTexture', 'builtin://textures/white-srgb')) return false;
         if (!cube.GetComponent(Transform).SetPosition(1, 2, 3) || !cube.GetComponent(Transform).SetScale(2, 2, 2) ||
@@ -842,15 +847,15 @@ export default class extends Gameplay {
     {
         return false;
     }
-    auto* node = world.scene()->nodes().back().get();
-    if (!expect(node->remove_component(engine::Transform::component_type) &&
-                    node->remove_component(engine::Camera::component_type) &&
-                    node->remove_component(engine::Collider::component_type) &&
-                    node->remove_component(engine::MeshRenderer::component_type) &&
-                    node->add_component<engine::Transform>() != nullptr &&
-                    node->add_component<engine::Camera>() != nullptr &&
-                    node->add_component<engine::Collider>() != nullptr &&
-                    node->add_component<engine::MeshRenderer>() != nullptr,
+    auto node = test_support::scene_nodes(*world.scene()).back();
+    if (!expect(node.remove_component(engine::Transform::component_type) &&
+                    node.remove_component(engine::Camera::component_type) &&
+                    node.remove_component(engine::Collider::component_type) &&
+                    node.remove_component(engine::MeshRenderer::component_type) &&
+                    node.add_component<engine::Transform>().valid() &&
+                    node.add_component<engine::Camera>().valid() &&
+                    node.add_component<engine::Collider>().valid() &&
+                    node.add_component<engine::MeshRenderer>().valid(),
                 "replace four component types without replacing their node") ||
         !expect(script.tick(.01) && script.status().running,
                 "old component and material handles reject replacements while new handles work"))
@@ -870,19 +875,18 @@ bool run_scene_cases(const fs::path& workspace)
                 "initialize native scene bindings") ||
         !fixture(workspace, "scene-first", {{"scripts/game.js", scene_source}}, original) ||
         !expect(apply(script, original) && world.scene() != nullptr &&
-                    world.scene()->nodes().size() == 3,
+                    test_support::scene_nodes(*world.scene()).size() == 3,
                 "scene, generic node components and typed materials execute"))
     {
         return false;
     }
-    const auto* cube = world.scene()->nodes().front().get();
+    const auto cube = test_support::scene_nodes(*world.scene()).front();
     float metallic = 0;
-    if (!expect(cube->get_component<engine::MeshRenderer>()->material().get_float("metallic",
-                                                                                  metallic) &&
-                    metallic == .7F && world.scene()->active_camera() != nullptr &&
-                    script.tick(.25) &&
-                    cube->get_component<engine::Transform>()->settings().rotation.y() == 2.5,
-                "component settings and Time.deltaTime reach the native scene"))
+    if (!expect(
+            cube.get_component<engine::MeshRenderer>().material().get_float("metallic", metallic) &&
+                metallic == .7F && world.scene()->active_camera().valid() && script.tick(.25) &&
+                cube.get_component<engine::Transform>().settings().rotation.y() == 2.5,
+            "component settings and Time.deltaTime reach the native scene"))
     {
         return false;
     }
@@ -1005,10 +1009,10 @@ export default class extends Gameplay {
     {
         return false;
     }
-    auto* root = world.scene()->nodes()[0].get();
-    auto* child = world.scene()->nodes()[1].get();
-    const auto root_id = root->id();
-    const auto child_id = child->id();
+    auto root = test_support::scene_nodes(*world.scene())[0];
+    auto child = test_support::scene_nodes(*world.scene())[1];
+    const auto root_id = root.id();
+    const auto child_id = child.id();
     if (!expect(script.tick(.016) && script.status().running && world.scenes().size() == 2 &&
                     world.find_node(root_id) == root && world.find_node(child_id) == child,
                 "persistent script handles preserve exact native objects"))
@@ -1031,8 +1035,8 @@ export default class extends Gameplay {
     }
     world.unload_scene();
     auto* foreign = world.create_scene("foreign-persistent-owner");
-    auto* native = foreign ? foreign->create_node("foreign-root") : nullptr;
-    if (!expect(native && native->set_persistent(true) && script.tick(.016) &&
+    auto native = foreign ? foreign->create_node("foreign-root") : engine::Node{};
+    if (!expect(native && native.set_persistent(true) && script.tick(.016) &&
                     script.status().running && world.find_node(child_id) == child,
                 "old Run can detach its own child without acquiring the foreign scene"))
     {
@@ -1042,7 +1046,7 @@ export default class extends Gameplay {
     script.shutdown();
     return expect(!world.find_node(root_id) && !world.find_node(child_id) &&
                       world.scene() == foreign && world.scenes().size() == 1 &&
-                      foreign->nodes().front().get() == native,
+                      test_support::scene_nodes(*foreign).front() == native,
                   "Run shutdown clears every owned container and leaves native ownership intact");
 }
 
@@ -1206,24 +1210,26 @@ export default class extends Gameplay {
         return false;
     }
     const auto* scene = world.scene();
-    if (!expect(scene != nullptr && scene->nodes().size() == 2, "binding scene retains two nodes"))
+    if (!expect(scene != nullptr && test_support::scene_nodes(*scene).size() == 2,
+                "binding scene retains two nodes"))
     {
         return false;
     }
-    const auto* emitter = scene->nodes().front().get();
-    const auto* collider = emitter->get_component<engine::Collider>();
-    const auto* body = emitter->get_component<engine::RigidBody>();
-    const auto* source_component = emitter->get_component<engine::AudioSource>();
-    const auto* listener = scene->nodes().back()->get_component<engine::AudioListener>();
-    const auto* motor = scene->nodes().back()->get_component<engine::CharacterMotor>();
-    if (!expect(collider != nullptr && body != nullptr && source_component != nullptr &&
-                    listener != nullptr && motor != nullptr && motor->settings().radius == .4F &&
-                    motor->settings().external_damping == 3.5F &&
-                    collider->settings().shape == engine::schema::ColliderShape::box &&
-                    body->settings().mass == 2 && body->linear_velocity().z() == 3 &&
-                    source_component->clip_data() != nullptr && source_component->settings().loop &&
-                    source_component->settings().volume == .5F &&
-                    listener->settings().volume == .75F,
+    const auto emitter = test_support::scene_nodes(*scene).front();
+    const auto collider = emitter.get_component<engine::Collider>();
+    const auto body = emitter.get_component<engine::RigidBody>();
+    const auto source_component = emitter.get_component<engine::AudioSource>();
+    const auto listener =
+        test_support::scene_nodes(*scene).back().get_component<engine::AudioListener>();
+    const auto motor =
+        test_support::scene_nodes(*scene).back().get_component<engine::CharacterMotor>();
+    if (!expect(collider.valid() && body.valid() && source_component.valid() && listener.valid() &&
+                    motor.valid() && motor.settings().radius == .4F &&
+                    motor.settings().external_damping == 3.5F &&
+                    collider.settings().shape == engine::schema::ColliderShape::box &&
+                    body.settings().mass == 2 && body.linear_velocity().z() == 3 &&
+                    source_component.clip_data() != nullptr && source_component.settings().loop &&
+                    source_component.settings().volume == .5F && listener.settings().volume == .75F,
                 "script settings reach native physics and audio components"))
     {
         return false;
@@ -1234,6 +1240,30 @@ export default class extends Gameplay {
     world.shutdown();
     return expect(cleared, "script shutdown releases component resource references with its scene");
 }
+
+#if defined(ENGINE_TEST_EFFECTS_PLUGIN)
+bool register_optional_effect_component(engine::WorldSystem& world)
+{
+    using engine::plugins::effects::EffectComponent;
+    auto& registry = world.component_registry();
+    auto* scene = world.create_scene("Optional plugin registration");
+    auto node = scene ? scene->create_node("Effect probe") : engine::Node{};
+    std::vector<engine::Component> before;
+    std::vector<engine::Component> after;
+    if (!expect(node && !registry.contains(EffectComponent::component_type) &&
+                    node.collect_components(before) && !node.add_component<EffectComponent>() &&
+                    !node.get_component<EffectComponent>() && node.collect_components(after) &&
+                    before == after,
+                "an unregistered optional component cannot create partial ECS state") ||
+        !expect(registry.add<EffectComponent>() && node.add_component<EffectComponent>(),
+                "the host registers effect data without starting a renderer or effect system"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    return true;
+}
+#endif
 
 bool run_impact_binding_cases(const fs::path& workspace)
 {
@@ -1256,7 +1286,8 @@ export default class extends Gameplay {
         if (api.EffectComponent) {
             const node = scene.CreateNode('effect-handle');
             const effect = node?.AddComponent(api.EffectComponent);
-            if (!effect || !(effect instanceof api.Component) || effect.Play() ||
+            if (!effect) throw new Error('The host did not register the optional effect component');
+            if (!(effect instanceof api.Component) || effect.Play() ||
                 effect.SetSpeed(NaN) || effect.SetSpeed(-1) || effect.SetSpeed(17) ||
                 effect.SetLoop('true') || effect.SetPlayOnAwake(1) ||
                 !effect.SetSpeed(.5) || !effect.SetLoop(false) ||
@@ -1291,6 +1322,9 @@ export default class extends Gameplay {
     engine::plugins::script::ScriptSystem script(&world, nullptr, nullptr, &physics);
     Fixture input;
     if (!world.initialize({}) || !physics.initialize({}) || !script.initialize({}) ||
+#if defined(ENGINE_TEST_EFFECTS_PLUGIN)
+        !register_optional_effect_component(world) ||
+#endif
         !fixture(workspace, "impact-bindings", {{"scripts/game.js", std::string(source)}}, input) ||
         !expect(apply(script, input), "initialize impact and optional effect bindings"))
     {
@@ -1411,16 +1445,16 @@ export default class extends Gameplay {
     {
         return false;
     }
-    engine::Node* target = nullptr;
-    for (const auto& node : world.scene()->nodes())
+    engine::Node target = {};
+    for (const auto& node : test_support::scene_nodes(*world.scene()))
     {
-        if (node->name() == "target")
+        if (node.name() == "target")
         {
-            target = node.get();
+            target = node;
         }
     }
-    if (!expect(target && target->remove_component(engine::Collider::component_type) &&
-                    target->add_component<engine::Collider>() && script.tick(.016) &&
+    if (!expect(target && target.remove_component(engine::Collider::component_type) &&
+                    target.add_component<engine::Collider>() && script.tick(.016) &&
                     physics.tick(0) && script.tick(.016),
                 "query bindings reject replaced collider and expired scene identities"))
     {
@@ -1716,26 +1750,26 @@ export default class extends Gameplay {
     {
         if (phase == 7)
         {
-            engine::Node* actor = nullptr;
-            for (const auto& node : world.scene()->nodes())
+            engine::Node actor = {};
+            for (const auto& node : test_support::scene_nodes(*world.scene()))
             {
-                if (node->name() == "subscribed-character")
+                if (node.name() == "subscribed-character")
                 {
-                    actor = node.get();
+                    actor = node;
                 }
             }
-            if (!actor || !actor->remove_component(engine::CharacterMotor::component_type))
+            if (!actor || !actor.remove_component(engine::CharacterMotor::component_type))
             {
                 return false;
             }
-            auto* motor = actor->add_component<engine::CharacterMotor>();
+            auto motor = actor.add_component<engine::CharacterMotor>();
             if (!motor)
             {
                 return false;
             }
-            auto settings = motor->settings();
+            auto settings = motor.settings();
             settings.gravity_factor = 0;
-            if (!motor->set_settings(settings))
+            if (!motor.set_settings(settings))
             {
                 return false;
             }
@@ -2735,12 +2769,21 @@ bool run_render_binding_cases(const fs::path& workspace)
     constexpr std::string_view source = R"js(
 import { Gameplay, Render } from 'engine';
 const blocked = !Render.SetVSync(false) && Render.GetVSync() === null &&
-    Render.GetViewportSize() === null;
+    Render.GetViewportSize() === null && !Render.SetMsaaSamples(4) &&
+    Render.GetMsaaSamples() === null && !Render.SupportsMsaaSamples(4) &&
+    !Render.SetMaxAnisotropy(true) && Render.GetMaxAnisotropy() === null &&
+    !Render.SupportsMaxAnisotropy();
 export default class extends Gameplay {
     OnInitialize() {
         return blocked && Object.isFrozen(Render) &&
             Render.GetViewportSize() === null && Render.GetVSync() === null &&
             !Render.SetVSync(true) && !Render.SetVSync(1) &&
+            !Render.SetMsaaSamples(4) && Render.GetMsaaSamples() === null &&
+            !Render.SupportsMsaaSamples(1) && !Render.SupportsMsaaSamples(4) &&
+            !Render.SetMsaaSamples('4') && !Render.SetMsaaSamples(2.5) &&
+            !Render.SetMsaaSamples(0) && !Render.SetMsaaSamples(16) &&
+            !Render.SetMaxAnisotropy(true) && !Render.SetMaxAnisotropy(1) &&
+            Render.GetMaxAnisotropy() === null && !Render.SupportsMaxAnisotropy() &&
             typeof Render.SetAmbient === 'undefined' &&
             typeof Render.SetExposure === 'undefined' &&
             typeof Render.SetDirectionalShadows === 'undefined';

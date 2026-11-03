@@ -2,12 +2,14 @@
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/render/render_constants.hpp"
+#include "runtime/render/render_sampling.hpp"
 #include "runtime/render/render_settings.hpp"
 
 #include <SDL3/SDL.h>
 
 #include "fs_hdr_blur.bin.h"
 #include "fs_hdr_bright.bin.h"
+#include "fs_hdr_copy.bin.h"
 #include "fs_hdr_resolve.bin.h"
 #include "vs_hdr.bin.h"
 
@@ -22,15 +24,16 @@ namespace
 constexpr std::uint8_t clear_palette = 0;
 constexpr std::uint32_t linear_clamp = BGFX_SAMPLER_UVW_CLAMP;
 constexpr std::uint64_t color_flags = BGFX_TEXTURE_RT | linear_clamp;
-constexpr std::uint64_t depth_flags = BGFX_TEXTURE_RT | BGFX_TEXTURE_RT_WRITE_ONLY;
 
-bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t height)
+bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t height,
+                  std::uint8_t samples)
 {
     constexpr auto color_capabilities =
         BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER;
-    if (width == 0 || height == 0 || width > caps.limits.maxTextureSize ||
-        height > caps.limits.maxTextureSize || caps.limits.maxTextureSamplers < 2 ||
-        caps.limits.maxFBAttachments < 3 || (caps.supported & BGFX_CAPS_TEXTURE_BLIT) == 0)
+    if (!valid_msaa_samples(samples) || width == 0 || height == 0 ||
+        width > caps.limits.maxTextureSize || height > caps.limits.maxTextureSize ||
+        caps.limits.maxTextureSamplers < 2 || caps.limits.maxFBAttachments < 3 ||
+        (caps.supported & BGFX_CAPS_TEXTURE_BLIT) == 0)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
                      "HDR target dimensions or sampler limits are invalid (%u x %u, max=%u)",
@@ -39,8 +42,10 @@ bool supports_hdr(const bgfx::Caps& caps, std::uint16_t width, std::uint16_t hei
         return false;
     }
     if ((caps.formats[bgfx::TextureFormat::RGBA16F] & color_capabilities) != color_capabilities ||
-        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, color_flags) ||
-        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D32F, depth_flags))
+        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F,
+                              render_target_flags(samples) | linear_clamp) ||
+        !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::D32F,
+                              render_target_flags(samples) | BGFX_TEXTURE_RT_WRITE_ONLY))
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
                      "HDR requires sampled RGBA16F and D32F render targets (color=0x%x depth=0x%x)",
@@ -100,7 +105,8 @@ bool HdrPostProcessPass::initialize_resources()
     const std::array fragments = {
         Bytecode{fs_hdr_bright, static_cast<std::uint32_t>(sizeof(fs_hdr_bright))},
         Bytecode{fs_hdr_blur, static_cast<std::uint32_t>(sizeof(fs_hdr_blur))},
-        Bytecode{fs_hdr_resolve, static_cast<std::uint32_t>(sizeof(fs_hdr_resolve))}};
+        Bytecode{fs_hdr_resolve, static_cast<std::uint32_t>(sizeof(fs_hdr_resolve))},
+        Bytecode{fs_hdr_copy, static_cast<std::uint32_t>(sizeof(fs_hdr_copy))}};
     const auto vertex =
         bgfx::createShader(bgfx::copy(vs_hdr, static_cast<std::uint32_t>(sizeof(vs_hdr))));
     if (!bgfx::isValid(vertex))
@@ -173,11 +179,12 @@ bool HdrPostProcessPass::initialize_resources()
            bgfx::isValid(fullscreen_) && bgfx::isValid(black_);
 }
 
-bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled)
+bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled,
+                                 std::uint8_t samples)
 {
     ENGINE_PROFILE_ZONE("Render.hdrPrepare");
     const auto* caps = bgfx::getCaps();
-    if (caps == nullptr || !supports_hdr(*caps, width, height))
+    if (caps == nullptr || !supports_hdr(*caps, width, height, samples))
     {
         release();
         return false;
@@ -188,19 +195,22 @@ bool HdrPostProcessPass::prepare(std::uint16_t width, std::uint16_t height, bool
         release();
         return false;
     }
-    if (width_ != width || height_ != height || !bgfx::isValid(framebuffer_))
+    if (width_ != width || height_ != height || samples_ != samples || !bgfx::isValid(framebuffer_))
     {
         release_targets();
         width_ = width;
         height_ = height;
+        samples_ = samples;
+        const auto scene_color_flags = render_target_flags(samples) | linear_clamp;
         color_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
-                                       color_flags);
+                                       scene_color_flags);
         specular_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
-                                          color_flags);
-        final_color_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
-                                             color_flags | BGFX_TEXTURE_BLIT_DST);
-        depth_ =
-            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D32F, depth_flags);
+                                          scene_color_flags);
+        final_color_ =
+            bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::RGBA16F,
+                                  scene_color_flags | (samples == 1 ? BGFX_TEXTURE_BLIT_DST : 0));
+        depth_ = bgfx::createTexture2D(width, height, false, 1, bgfx::TextureFormat::D32F,
+                                       render_target_flags(samples) | BGFX_TEXTURE_RT_WRITE_ONLY);
         if (bgfx::isValid(color_) && bgfx::isValid(depth_) && bgfx::isValid(specular_) &&
             bgfx::isValid(final_color_))
         {
@@ -283,7 +293,23 @@ void HdrPostProcessPass::begin_transparency(bgfx::TextureHandle frozen_scene, co
                                             const float* projection)
 {
     bgfx::setViewName(scene_copy_view, "Freeze opaque scene for refraction");
-    bgfx::blit(scene_copy_view, final_color_, 0, 0, frozen_scene);
+    if (samples_ == 1)
+    {
+        // A previous multisampled frame may have attached this view to its old target.
+        bgfx::setViewFrameBuffer(scene_copy_view, BGFX_INVALID_HANDLE);
+        bgfx::blit(scene_copy_view, final_color_, 0, 0, frozen_scene);
+    }
+    else
+    {
+        // A blit only writes a texture's resolved image, not its multisample attachment.
+        // Populate every color sample through a draw, preserving the opaque MSAA depth.
+        set_post_view(scene_copy_view, "Initialize transparent MSAA scene", final_framebuffer_,
+                      width_, height_);
+        bgfx::setTexture(0, samplers_[0], frozen_scene, linear_clamp);
+        bgfx::setVertexBuffer(0, fullscreen_);
+        bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA);
+        bgfx::submit(scene_copy_view, programs_[3]);
+    }
     bgfx::setViewName(transparent_view, "Sorted transparent surfaces");
     bgfx::setViewFrameBuffer(transparent_view, final_framebuffer_);
     bgfx::setViewRect(transparent_view, 0, 0, width_, height_);
@@ -409,6 +435,7 @@ void HdrPostProcessPass::release_targets() noexcept
     }
     if (bgfx::isValid(final_framebuffer_))
     {
+        bgfx::setViewFrameBuffer(scene_copy_view, BGFX_INVALID_HANDLE);
         bgfx::setViewFrameBuffer(transparent_view, BGFX_INVALID_HANDLE);
         bgfx::setViewFrameBuffer(extension_view, BGFX_INVALID_HANDLE);
         bgfx::destroy(final_framebuffer_);
@@ -424,6 +451,7 @@ void HdrPostProcessPass::release_targets() noexcept
     }
     width_ = 0;
     height_ = 0;
+    samples_ = 1;
 }
 
 void HdrPostProcessPass::release() noexcept

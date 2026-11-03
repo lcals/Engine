@@ -43,7 +43,7 @@ bool fixed_node(const schema::SceneDataT& scene, std::uint64_t id)
             return false;
         }
         const auto node = std::find_if(scene.nodes.begin(), scene.nodes.end(), [id](const auto& n)
-                                       { return n && n->info && n->info->id == id; });
+                                       { return n && n->info && n->info->properties->id == id; });
         if (node == scene.nodes.end())
         {
             return false;
@@ -59,7 +59,7 @@ bool fixed_node(const schema::SceneDataT& scene, std::uint64_t id)
             {
                 t = c->payload.AsTransformData();
             }
-            if (!c->enabled)
+            if (!c->flags->enabled)
             {
                 continue;
             }
@@ -270,17 +270,23 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         error = "Invalid lighting bake state, resolution, bounce count, or fingerprint";
         return false;
     }
-    for (const auto& node : active_scene.nodes())
+    std::vector<Node> active_nodes;
+    if (!active_scene.collect_nodes(active_nodes))
     {
-        s.runtime_ids.emplace(node->info().id, node->id());
+        error = "Cannot collect scene entities";
+        return false;
+    }
+    for (const auto& node : active_nodes)
+    {
+        s.runtime_ids.emplace(node.info().properties->id, node.id());
     }
     for (const auto& node : scene.nodes)
     {
-        const auto found =
-            node && node->info ? s.runtime_ids.find(node->info->id) : s.runtime_ids.end();
-        const auto* active =
-            found == s.runtime_ids.end() ? nullptr : active_scene.find_node(found->second);
-        if (!active || active->info().parent_id != node->info->parent_id)
+        const auto found = node && node->info ? s.runtime_ids.find(node->info->properties->id)
+                                              : s.runtime_ids.end();
+        const auto active =
+            found == s.runtime_ids.end() ? Node{} : active_scene.find_node(found->second);
+        if (!active || active.info().parent_id != node->info->parent_id)
         {
             error = "Saved scene identities no longer match the active preview";
             return false;
@@ -289,10 +295,10 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
     const auto world_matrix = [&](std::uint64_t id, Matrix& transform)
     {
         const auto found = s.runtime_ids.find(id);
-        const auto* node =
-            found == s.runtime_ids.end() ? nullptr : active_scene.find_node(found->second);
-        const auto* t = node ? node->get_component<Transform>() : nullptr;
-        return fixed_node(scene, id) && t && t->world_matrix(transform.data());
+        const auto node =
+            found == s.runtime_ids.end() ? Node{} : active_scene.find_node(found->second);
+        const auto t = node ? node.get_component<Transform>() : Transform{};
+        return fixed_node(scene, id) && t && t.world_matrix(transform.data());
     };
     s.settings = settings;
     s.preparation = std::make_shared<State::Preparation>();
@@ -313,7 +319,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         bool dynamic = false, light = false;
         for (const auto& c : node->components)
         {
-            if (!c || !c->enabled)
+            if (!c || !c->flags->enabled)
             {
                 continue;
             }
@@ -329,14 +335,14 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
                 dynamic = dynamic || body->motion != schema::BodyMotion::static_body;
             }
         }
-        if (lights.contains(node->info->id))
+        if (lights.contains(node->info->properties->id))
         {
-            if (!light || dynamic || !fixed_node(scene, node->info->id))
+            if (!light || dynamic || !fixed_node(scene, node->info->properties->id))
             {
                 error = "Bake lights must identify enabled fixed lights";
                 return false;
             }
-            lights.erase(node->info->id);
+            lights.erase(node->info->properties->id);
         }
         if (!mesh)
         {
@@ -344,7 +350,7 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
         }
         ResourcePtr resource;
         BakedMeshLighting item;
-        item.node_id = node->info->id;
+        item.node_id = node->info->properties->id;
         if (dynamic || !s.resources.loader().load(mesh->mesh_guid, resource) || !resource ||
             !resource->mesh() || !resource->mesh()->skin.empty() ||
             !world_matrix(item.node_id, item.transform))
@@ -381,8 +387,9 @@ bool LightingBakeJob::start(const schema::SceneDataT& scene, const Scene& active
     std::set<std::uint64_t> targets;
     for (const auto& target : settings.probes)
     {
-        const auto node = std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const auto& n)
-                                       { return n && n->info && n->info->id == target.node_id; });
+        const auto node =
+            std::find_if(scene.nodes.begin(), scene.nodes.end(), [&](const auto& n)
+                         { return n && n->info && n->info->properties->id == target.node_id; });
         if (node == scene.nodes.end() ||
             !std::any_of((*node)->components.begin(), (*node)->components.end(),
                          [](const auto& c) { return c && c->payload.AsLightProbeVolumeData(); }))

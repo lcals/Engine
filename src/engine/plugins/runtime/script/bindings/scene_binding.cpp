@@ -174,11 +174,16 @@ void find_node(const Arguments& arguments)
     {
         return;
     }
-    for (const auto& node : scene->nodes())
+    std::vector<Node> nodes;
+    if (!scene->collect_nodes(nodes))
     {
-        if (node->name() == name)
+        return;
+    }
+    for (const auto& node : nodes)
+    {
+        if (node.name() == name)
         {
-            arguments.set_return(node->id());
+            arguments.set_return(node.id());
             return;
         }
     }
@@ -222,9 +227,9 @@ void instantiate_model(const Arguments& arguments)
     {
         return;
     }
-    if (const auto* root = scene->instantiate_model(path, name))
+    if (const auto root = scene->instantiate_model(path, name))
     {
-        arguments.set_return(root->id());
+        arguments.set_return(root.id());
     }
 }
 
@@ -239,9 +244,9 @@ void instantiate_prefab(const Arguments& arguments)
     {
         return;
     }
-    if (const auto* root = scene->instantiate_prefab(path, name); root != nullptr)
+    if (const auto root = scene->instantiate_prefab(path, name); root.valid())
     {
-        arguments.set_return(root->id());
+        arguments.set_return(root.id());
     }
 }
 
@@ -268,12 +273,12 @@ void active_camera(const Arguments& arguments)
     }
     if (id == 0)
     {
-        arguments.set_return(scene->set_active_camera(nullptr));
+        arguments.set_return(scene->set_active_camera({}));
         return;
     }
-    auto* node = scene->find_node(id);
-    auto* camera = node == nullptr ? nullptr : node->get_component<Camera>();
-    arguments.set_return(camera != nullptr && scene->set_active_camera(camera));
+    auto node = scene->find_node(id);
+    auto camera = !node ? Camera{} : node.get_component<Camera>();
+    arguments.set_return(camera.valid() && scene->set_active_camera(camera));
 }
 } // namespace
 

@@ -51,6 +51,7 @@
 
 ## 场景与项目运行
 
+- [ECS 场景与虚拟节点](../runtime/class-diagrams/ecs-scene.md)：Node/组件值句柄、Flecs 唯一运行数据、直接查询，以及预制体/脚本/撤销迁移边界；当前实现与分模块类图的统一入口。
 - 场景中的全部对象必须通过 Node + Component 表达，包含相机与灯光；场景通过 GUID 组装独立 Mesh、材质与 Shader 资源。
 - [场景](../runtime/class-diagrams/scene.md)：世界独占已发布场景及恢复候选，区分当前玩法场景与常驻容器；场景独占节点。
 - [预制体](../runtime/class-diagrams/prefab.md)：模板资源、稳定实例映射与显式属性覆盖；沿用 Node/Component，不改变 ECS 所有权。

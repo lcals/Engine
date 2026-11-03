@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
@@ -38,7 +39,7 @@ bool expect(bool condition, const char* message)
 
 Json target(const engine::Node& node)
 {
-    return {{"sceneId", std::to_string(node.scene().id())}, {"nodeId", std::to_string(node.id())}};
+    return {{"sceneId", std::to_string(node.scene()->id())}, {"nodeId", std::to_string(node.id())}};
 }
 
 bool add_clip(test_support::ResourceFixture& fixture)
@@ -133,7 +134,7 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
     {
         return false;
     }
-    auto* component = node.get_component<T>();
+    auto component = node.get_component<T>();
     if (!expect(component && fixture.execute(get_name, identity), "getter reads created component"))
     {
         return false;
@@ -148,7 +149,7 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
         }
     }
     engine::schema::ComponentDataT saved;
-    if (!expect(component->build_data(saved), "capture persisted component") ||
+    if (!expect(component.build_data(saved), "capture persisted component") ||
         !expect(fixture.execute("undo", fixture.scene_identity()) && !node.get_component<T>(),
                 "undo removes only the newly added component") ||
         !expect(fixture.execute("redo", fixture.scene_identity()), "redo recreates component"))
@@ -156,7 +157,7 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
         return false;
     }
     component = node.get_component<T>();
-    if (!expect(component && component->data() == saved, "redo restores complete generated data"))
+    if (!expect(component && component.data() == saved, "redo restores complete generated data"))
     {
         return false;
     }
@@ -167,7 +168,7 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
         arguments.update(fields);
         if (!expect(!fixture.execute(set_name, arguments) && fixture.result.is_null() &&
                         !fixture.error.empty() && node.get_component<T>() == component &&
-                        component->data() == saved && fixture.commands.undo_count() == history,
+                        component.data() == saved && fixture.commands.undo_count() == history,
                     "invalid edit preserves component identity, data and history"))
         {
             return false;
@@ -175,26 +176,32 @@ bool component_roundtrip(Fixture& fixture, engine::Node& node, std::string_view 
     }
     arguments = identity;
     arguments["enabled"] = false;
-    if (!expect(fixture.execute(set_name, arguments) && !component->enabled(),
+    if (!expect(fixture.execute(set_name, arguments) && !component.enabled(),
                 "enabled flag is editable") ||
         !expect(fixture.execute("undo", fixture.scene_identity()) &&
-                    node.get_component<T>() == component && component->data() == saved,
+                    node.get_component<T>() == component && component.data() == saved,
                 "undo updates existing component without replacing it") ||
-        !expect(fixture.execute("redo", fixture.scene_identity()) && !component->enabled(),
+        !expect(fixture.execute("redo", fixture.scene_identity()) && !component.enabled(),
                 "redo applies enabled flag") ||
         !expect(fixture.execute("undo", fixture.scene_identity()), "restore enabled component"))
     {
         return false;
     }
-    component->set_enabled(false);
+    if (!component.set_enabled(false))
+    {
+        return false;
+    }
     if (!expect(!fixture.execute("undo", fixture.scene_identity()) &&
-                    node.get_component<T>() == component && !component->enabled() &&
+                    node.get_component<T>() == component && !component.enabled() &&
                     fixture.commands.undo_count() == history,
                 "stale undo never overwrites changes made outside the command"))
     {
         return false;
     }
-    component->set_enabled(saved.enabled);
+    if (!component.set_enabled(saved.flags->enabled))
+    {
+        return false;
+    }
     fixture.commands.clear_history();
     return true;
 }
@@ -206,13 +213,13 @@ bool settings_and_history()
     {
         return false;
     }
-    auto* node = fixture.world.scene()->create_node("Components");
-    if (!expect(node != nullptr, "create component owner"))
+    auto node = fixture.world.scene()->create_node("Components");
+    if (!expect(node.valid(), "create component owner"))
     {
         return false;
     }
     const double infinity = std::numeric_limits<double>::infinity();
-    if (!component_roundtrip<engine::Collider>(fixture, *node, "collider",
+    if (!component_roundtrip<engine::Collider>(fixture, node, "collider",
                                                {{"shape", "capsule"},
                                                 {"halfExtents", {1, 2, 3}},
                                                 {"radius", 0.75},
@@ -232,7 +239,7 @@ bool settings_and_history()
                                                 {{"isTrigger", 1}},
                                                 {{"enabled", "false"}},
                                                 {{"unknown", 1}}}) ||
-        !component_roundtrip<engine::RigidBody>(fixture, *node, "rigid_body",
+        !component_roundtrip<engine::RigidBody>(fixture, node, "rigid_body",
                                                 {{"motion", "dynamic"},
                                                  {"mass", 2},
                                                  {"gravityFactor", 0.5},
@@ -250,7 +257,7 @@ bool settings_and_history()
                                                  {{"motion", "static_body"}},
                                                  {{"enabled", nullptr}}}) ||
         !component_roundtrip<engine::AudioSource>(
-            fixture, *node, "audio_source",
+            fixture, node, "audio_source",
             {{"clip", "audio/commands.wav"},
              {"volume", 0.5},
              {"pitch", 1.5},
@@ -271,13 +278,13 @@ bool settings_and_history()
              {{"clip", "builtin://textures/white-srgb"}, {"volume", 0.25}},
              {{"pitch", infinity}}}) ||
         !component_roundtrip<engine::AudioListener>(
-            fixture, *node, "audio_listener", {{"volume", 0.75}},
+            fixture, node, "audio_listener", {{"volume", 0.75}},
             {{{"volume", -1}}, {{"volume", 2}}, {{"volume", infinity}}, {{"enabled", 1}}}))
     {
         return false;
     }
-    auto invalid = target(*node);
-    invalid["nodeId"] = node->id();
+    auto invalid = target(node);
+    invalid["nodeId"] = node.id();
     if (!expect(!fixture.execute("get_collider", invalid), "numeric node identity is rejected"))
     {
         return false;
@@ -287,7 +294,7 @@ bool settings_and_history()
     {
         return false;
     }
-    invalid = target(*node);
+    invalid = target(node);
     invalid["mass"] = 1;
     return expect(!fixture.execute("get_rigid_body", invalid), "getter rejects setter arguments");
 }
@@ -306,9 +313,9 @@ bool created_node_aliases()
         return false;
     }
     auto* scene = fixture.world.scene();
-    auto* node = scene->nodes().front().get();
-    const auto old_id = node->id();
-    const auto old_target = target(*node);
+    auto node = test_support::scene_nodes(*scene).front();
+    const auto old_id = node.id();
+    const auto old_target = target(node);
     constexpr std::array<std::string_view, 4> names{"collider", "rigid_body", "audio_source",
                                                     "audio_listener"};
     for (const auto name : names)
@@ -327,9 +334,10 @@ bool created_node_aliases()
             return false;
         }
     }
-    if (!expect(scene->find_node(old_id) == nullptr && scene->nodes().empty(),
+    if (!expect(scene->find_node(old_id).valid() == false &&
+                    test_support::scene_nodes(*scene).empty(),
                 "owner and attached components are removed") ||
-        !expect(scene->create_node("Unrelated") != nullptr, "create intervening node"))
+        !expect(scene->create_node("Unrelated").valid(), "create intervening node"))
     {
         return false;
     }
@@ -341,12 +349,12 @@ bool created_node_aliases()
             return false;
         }
     }
-    node = scene->nodes().back().get();
-    if (!expect(node->id() != old_id && node->name() == "Created by command" &&
-                    node->get_component<engine::Collider>() &&
-                    node->get_component<engine::RigidBody>() &&
-                    node->get_component<engine::AudioSource>() &&
-                    node->get_component<engine::AudioListener>(),
+    node = test_support::scene_nodes(*scene).back();
+    if (!expect(node.id() != old_id && node.name() == "Created by command" &&
+                    node.get_component<engine::Collider>() &&
+                    node.get_component<engine::RigidBody>() &&
+                    node.get_component<engine::AudioSource>() &&
+                    node.get_component<engine::AudioListener>(),
                 "all four component edits resolve the replacement node") ||
         !expect(!fixture.execute("get_collider", old_target),
                 "clients must use current identities rather than old aliases"))
@@ -355,7 +363,7 @@ bool created_node_aliases()
     }
     for (const auto name : names)
     {
-        if (!expect(fixture.execute("get_" + std::string(name), target(*node)),
+        if (!expect(fixture.execute("get_" + std::string(name), target(node)),
                     "get reads the recreated component using current node id"))
         {
             return false;
@@ -390,12 +398,12 @@ bool transactions_and_impulses()
     {
         return false;
     }
-    auto* node = fixture.world.scene()->create_node("Batch owner");
-    if (!expect(node != nullptr, "create transaction owner"))
+    auto node = fixture.world.scene()->create_node("Batch owner");
+    if (!expect(node.valid(), "create transaction owner"))
     {
         return false;
     }
-    const auto identity = target(*node);
+    const auto identity = target(node);
     auto collision = identity;
     collision["friction"] = 0.75;
     auto rigid = identity;
@@ -403,8 +411,8 @@ bool transactions_and_impulses()
     Json batch = {
         {"commands", Json::array({{{"command", "set_collider"}, {"arguments", collision}},
                                   {{"command", "set_rigid_body"}, {"arguments", rigid}}})}};
-    if (!expect(!fixture.execute("batch", batch) && !node->get_component<engine::Collider>() &&
-                    !node->get_component<engine::RigidBody>() && fixture.commands.undo_count() == 0,
+    if (!expect(!fixture.execute("batch", batch) && !node.get_component<engine::Collider>() &&
+                    !node.get_component<engine::RigidBody>() && fixture.commands.undo_count() == 0,
                 "invalid later batch item rolls back earlier component creation"))
     {
         return false;
@@ -430,33 +438,33 @@ bool transactions_and_impulses()
     std::array<engine::schema::ComponentDataT, 4> snapshots;
     for (std::size_t index = 0; index < types.size(); ++index)
     {
-        const auto* component = node->get_component(types[index]);
-        if (!expect(component && component->build_data(snapshots[index]),
+        const auto component = node.get_component(types[index]);
+        if (!expect(component && component.build_data(snapshots[index]),
                     "snapshot complete transaction state"))
         {
             return false;
         }
     }
-    auto* collider = node->get_component<engine::Collider>();
-    auto changed = collider->settings();
+    auto collider = node.get_component<engine::Collider>();
+    auto changed = collider.settings();
     changed.friction = 0.25F;
-    if (!expect(collider->set_settings(changed) &&
+    if (!expect(collider.set_settings(changed) &&
                     !fixture.execute("undo", fixture.scene_identity()) &&
-                    collider->settings().friction == 0.25F && fixture.commands.undo_count() == 1,
+                    collider.settings().friction == 0.25F && fixture.commands.undo_count() == 1,
                 "stale first edit blocks batch undo without overwriting external change"))
     {
         return false;
     }
     for (std::size_t index = 1; index < types.size(); ++index)
     {
-        const auto* component = node->get_component(types[index]);
-        if (!expect(component && component->data() == snapshots[index],
+        const auto component = node.get_component(types[index]);
+        if (!expect(component && component.data() == snapshots[index],
                     "failed undo restores members already reverted in reverse order"))
         {
             return false;
         }
     }
-    if (!expect(collider->restore_data(snapshots[0]) &&
+    if (!expect(collider.restore_data(snapshots[0]) &&
                     fixture.execute("undo", fixture.scene_identity()),
                 "transaction undo succeeds after expected state is restored"))
     {
@@ -464,7 +472,7 @@ bool transactions_and_impulses()
     }
     for (const auto type : types)
     {
-        if (!expect(!node->get_component(type), "successful batch undo removes every attachment"))
+        if (!expect(!node.get_component(type), "successful batch undo removes every attachment"))
         {
             return false;
         }
@@ -473,21 +481,27 @@ bool transactions_and_impulses()
     {
         return false;
     }
-    auto* body = node->get_component<engine::RigidBody>();
+    auto body = node.get_component<engine::RigidBody>();
     auto impulse = identity;
     impulse["impulse"] = {0, 4, 0};
     if (!expect(body && fixture.execute("add_impulse", impulse) && fixture.result["accepted"] &&
-                    body->data() == snapshots[1] && fixture.commands.undo_count() == 1,
+                    body.data() == snapshots[1] && fixture.commands.undo_count() == 1,
                 "impulse is a transient request, not a persisted property or undo record"))
     {
         return false;
     }
-    body->set_enabled(false);
+    if (!body.set_enabled(false))
+    {
+        return false;
+    }
     if (!expect(!fixture.execute("add_impulse", impulse), "disabled body rejects impulse"))
     {
         return false;
     }
-    body->set_enabled(true);
+    if (!body.set_enabled(true))
+    {
+        return false;
+    }
     auto static_body = identity;
     static_body["motion"] = "static_body";
     if (!expect(fixture.execute("set_rigid_body", static_body) &&
@@ -498,7 +512,7 @@ bool transactions_and_impulses()
         return false;
     }
     impulse["impulse"] = {0, 10000000, 0};
-    if (!expect(!fixture.execute("add_impulse", impulse) && body->data() == snapshots[1],
+    if (!expect(!fixture.execute("add_impulse", impulse) && body.data() == snapshots[1],
                 "oversized impulse cannot change persisted state"))
     {
         return false;
@@ -508,7 +522,7 @@ bool transactions_and_impulses()
     batch = {{"commands", Json::array({{{"command", "set_audio_listener"}, {"arguments", listener}},
                                        {{"command", "add_impulse"}, {"arguments", impulse}}})}};
     return expect(!fixture.execute("batch", batch) &&
-                      node->get_component<engine::AudioListener>()->data() == snapshots[3] &&
+                      node.get_component<engine::AudioListener>().data() == snapshots[3] &&
                       fixture.commands.undo_count() == 1,
                   "batch rejects irreversible impulse and reverts preceding edits");
 }
@@ -520,36 +534,36 @@ bool audio_controls()
     {
         return false;
     }
-    auto* node = fixture.world.scene()->create_node("Speaker");
-    if (!expect(node != nullptr, "create speaker"))
+    auto node = fixture.world.scene()->create_node("Speaker");
+    if (!expect(node.valid(), "create speaker"))
     {
         return false;
     }
-    const auto identity = target(*node);
+    const auto identity = target(node);
     auto arguments = identity;
     arguments.update({{"clip", "audio/commands.wav"}, {"playOnAwake", false}});
     if (!expect(fixture.execute("set_audio_source", arguments), "assign an actual audio resource"))
     {
         return false;
     }
-    auto* source = node->get_component<engine::AudioSource>();
+    auto source = node.get_component<engine::AudioSource>();
     const auto history = fixture.commands.undo_count();
-    if (!expect(source && source->clip_data() && fixture.execute("get_audio_state", identity) &&
+    if (!expect(source && source.clip_data() && fixture.execute("get_audio_state", identity) &&
                     !fixture.result["playing"].get<bool>() &&
                     fixture.result["playback"] == static_cast<int>(engine::AudioPlayback::stopped),
                 "new audio source is stopped") ||
         !expect(fixture.execute("play_audio", identity) &&
-                    source->playback() == engine::AudioPlayback::pending &&
+                    source.playback() == engine::AudioPlayback::pending &&
                     !fixture.result["playing"].get<bool>(),
                 "play accepts a request without falsely reporting device playback") ||
         !expect(fixture.execute("pause_audio", identity) &&
-                    source->playback() == engine::AudioPlayback::paused,
+                    source.playback() == engine::AudioPlayback::paused,
                 "pause controls accepted playback") ||
         !expect(fixture.execute("play_audio", identity) &&
-                    source->playback() == engine::AudioPlayback::pending,
+                    source.playback() == engine::AudioPlayback::pending,
                 "play resumes a paused source") ||
         !expect(fixture.execute("stop_audio", identity) &&
-                    source->playback() == engine::AudioPlayback::stopped &&
+                    source.playback() == engine::AudioPlayback::stopped &&
                     fixture.execute("stop_audio", identity) &&
                     !fixture.execute("pause_audio", identity) &&
                     fixture.commands.undo_count() == history,
@@ -561,7 +575,7 @@ bool audio_controls()
     arguments["enabled"] = false;
     if (!expect(fixture.execute("set_audio_source", arguments) &&
                     !fixture.execute("play_audio", identity) &&
-                    source->playback() == engine::AudioPlayback::stopped,
+                    source.playback() == engine::AudioPlayback::stopped,
                 "disabled source rejects playback") ||
         !expect(fixture.execute("undo", fixture.scene_identity()) &&
                     fixture.execute("play_audio", identity),
@@ -574,7 +588,7 @@ bool audio_controls()
     const Json batch = {
         {"commands", Json::array({{{"command", "stop_audio"}, {"arguments", identity}}})}};
     if (!expect(!fixture.execute("stop_audio", arguments) && !fixture.execute("batch", batch) &&
-                    source->playback() == engine::AudioPlayback::pending &&
+                    source.playback() == engine::AudioPlayback::pending &&
                     fixture.commands.undo_count() == history,
                 "invalid controls and undo batches never partly apply playback changes"))
     {
@@ -582,24 +596,24 @@ bool audio_controls()
     }
     arguments = identity;
     arguments["clip"] = "";
-    if (!expect(fixture.execute("set_audio_source", arguments) && !source->clip_data() &&
+    if (!expect(fixture.execute("set_audio_source", arguments) && !source.clip_data() &&
                     !fixture.execute("play_audio", identity),
                 "clearing clip releases audio and rejects play") ||
-        !expect(fixture.execute("undo", fixture.scene_identity()) && source->clip_data() &&
-                    source->clip_path() == "audio/commands.wav",
+        !expect(fixture.execute("undo", fixture.scene_identity()) && source.clip_data() &&
+                    source.clip_path() == "audio/commands.wav",
                 "undo restores audio resource ownership"))
     {
         return false;
     }
-    auto* empty = fixture.world.scene()->create_node("Invalid source");
-    if (!expect(empty != nullptr, "create invalid source owner"))
+    auto empty = fixture.world.scene()->create_node("Invalid source");
+    if (!expect(empty.valid(), "create invalid source owner"))
     {
         return false;
     }
-    arguments = target(*empty);
+    arguments = target(empty);
     arguments["clip"] = "builtin://textures/white-srgb";
     return expect(!fixture.execute("set_audio_source", arguments) &&
-                      !empty->get_component<engine::AudioSource>() &&
+                      !empty.get_component<engine::AudioSource>() &&
                       fixture.commands.undo_count() == history,
                   "resource type failure removes a newly created partial audio component");
 }

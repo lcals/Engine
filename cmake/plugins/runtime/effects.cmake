@@ -10,7 +10,7 @@ function(engine_configure_effects_plugin)
                 src/engine/plugins/runtime/effects/effect_model_loader.cpp)
     target_include_directories(engine_effects PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_effects PUBLIC engine::world engine::render engine::resource
-                         PRIVATE engine::effects_backend)
+                         PRIVATE engine::effects_backend engine::scene_ecs)
     engine_embed_effects_shaders(engine_effects)
     engine_enable_profiling(engine_effects)
 endfunction()

@@ -788,7 +788,7 @@ Json capture_material(const Material& material)
             {"values", std::move(values)}};
 }
 
-bool restore_material(Material& material, const Json& snapshot)
+bool restore_material(Material material, const Json& snapshot)
 {
     if (!material.set_type(snapshot["type"].get<std::string>()) ||
         !material.set_shader(snapshot["shader"].get<std::string>()))
@@ -832,61 +832,60 @@ bool restore_material(Material& material, const Json& snapshot)
 
 Json visual_snapshot(const Node& node)
 {
-    const auto* transform = node.get_component<Transform>();
-    const auto* renderer = node.get_component<MeshRenderer>();
+    const auto transform = node.get_component<Transform>();
+    const auto renderer = node.get_component<MeshRenderer>();
     if (!transform || !renderer)
     {
         return nullptr;
     }
-    const auto& settings = transform->settings();
+    const auto& settings = transform.settings();
     Json materials = Json::array();
-    for (std::size_t slot = 0; slot < renderer->material_count(); ++slot)
+    for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
     {
-        materials.push_back(capture_material(*renderer->material(slot)));
+        materials.push_back(capture_material(renderer.material(slot)));
     }
     return {{"position", {settings.position.x(), settings.position.y(), settings.position.z()}},
             {"rotation", {settings.rotation.x(), settings.rotation.y(), settings.rotation.z()}},
             {"scale", {settings.scale.x(), settings.scale.y(), settings.scale.z()}},
             {"materials", std::move(materials)},
-            {"enabled", renderer->enabled()},
-            {"transformEnabled", transform->enabled()}};
+            {"enabled", renderer.enabled()},
+            {"transformEnabled", transform.enabled()}};
 }
 
-bool restore_visual(Node& node, const Json& snapshot)
+bool restore_visual(Node node, const Json& snapshot)
 {
     if (snapshot.is_null())
     {
         return true;
     }
-    auto* transform = node.get_component<Transform>();
-    auto* renderer = node.get_component<MeshRenderer>();
-    auto settings = transform->settings();
+    auto transform = node.get_component<Transform>();
+    auto renderer = node.get_component<MeshRenderer>();
+    auto settings = transform.settings();
     if (!vec3_field(snapshot, "position", settings.position) ||
         !vec3_field(snapshot, "rotation", settings.rotation) ||
-        !vec3_field(snapshot, "scale", settings.scale) || !transform->set_settings(settings) ||
-        !renderer->set_material_count(snapshot["materials"].size()))
+        !vec3_field(snapshot, "scale", settings.scale) || !transform.set_settings(settings) ||
+        !renderer.set_material_count(snapshot["materials"].size()))
     {
         return false;
     }
     for (std::size_t slot = 0; slot < snapshot["materials"].size(); ++slot)
     {
-        if (!restore_material(*renderer->material(slot), snapshot["materials"][slot]))
+        if (!restore_material(renderer.material(slot), snapshot["materials"][slot]))
         {
             return false;
         }
     }
-    renderer->set_enabled(snapshot["enabled"].get<bool>());
-    transform->set_enabled(snapshot["transformEnabled"].get<bool>());
-    return true;
+    return renderer.set_enabled(snapshot["enabled"].get<bool>()) &&
+           transform.set_enabled(snapshot["transformEnabled"].get<bool>());
 }
 
 bool relative_matrix(const Node& destination, const Node& source, std::array<double, 16>& output)
 {
     std::array<float, 16> a{};
     std::array<float, 16> b{};
-    const auto* first = destination.get_component<Transform>();
-    const auto* second = source.get_component<Transform>();
-    if (!first || !second || !first->world_matrix(a.data()) || !second->world_matrix(b.data()))
+    const auto first = destination.get_component<Transform>();
+    const auto second = source.get_component<Transform>();
+    if (!first || !second || !first.world_matrix(a.data()) || !second.world_matrix(b.data()))
     {
         return false;
     }
@@ -1383,28 +1382,33 @@ struct ModelingCommands::State
             {
                 return;
             }
-            for (const auto& node : active->nodes())
+            std::vector<Node> nodes;
+            if (!active->collect_nodes(nodes))
             {
-                const auto* renderer = node->get_component<MeshRenderer>();
-                if (!renderer || !renderer->mesh_data() ||
-                    renderer->mesh_path().find(':') != std::string::npos)
+                return;
+            }
+            for (const auto& node : nodes)
+            {
+                const auto renderer = node.get_component<MeshRenderer>();
+                if (!renderer || !renderer.mesh_data() ||
+                    renderer.mesh_path().find(':') != std::string::npos)
                 {
                     continue;
                 }
                 fs::path path;
                 std::string error;
                 ModelRecord record;
-                if (!safe_asset_path(project_root, renderer->mesh_path(), path, error) ||
+                if (!safe_asset_path(project_root, renderer.mesh_path(), path, error) ||
                     !load_source(path, record.source, error) ||
                     !EditableMesh::serialize(record.source, record.bytes, error))
                 {
                     continue;
                 }
                 record.model_id = next_model_id++;
-                record.node_id = node->id();
-                record.mesh_revision = renderer->mesh_revision();
-                record.name = node->name();
-                record.compiled = *renderer->mesh_data();
+                record.node_id = node.id();
+                record.mesh_revision = renderer.mesh_revision();
+                record.name = node.name();
+                record.compiled = *renderer.mesh_data();
                 records.emplace(record.model_id, std::move(record));
             }
         }
@@ -1423,15 +1427,15 @@ struct ModelingCommands::State
         return true;
     }
 
-    Node* node(ModelRecord& record, std::string& error)
+    Node node(ModelRecord& record, std::string& error)
     {
         auto* active = scene(error);
-        auto* value = active ? active->find_node(record.node_id) : nullptr;
-        auto* renderer = value ? value->get_component<MeshRenderer>() : nullptr;
-        if (!renderer || renderer->mesh_revision() != record.mesh_revision)
+        auto value = active ? active->find_node(record.node_id) : Node{};
+        auto renderer = value ? value.get_component<MeshRenderer>() : MeshRenderer{};
+        if (!renderer || renderer.mesh_revision() != record.mesh_revision)
         {
             error = "Model node or mesh changed outside modeling commands";
-            return nullptr;
+            return {};
         }
         return value;
     }
@@ -1464,31 +1468,38 @@ struct ModelingCommands::State
 
     std::unique_ptr<ModelRecord> snapshot(ModelRecord& record, std::string& error)
     {
-        auto* value = node(record, error);
+        auto value = node(record, error);
         if (!value)
         {
             return nullptr;
         }
         auto result = std::make_unique<ModelRecord>(record);
-        result->visual = visual_snapshot(*value);
+        result->visual = visual_snapshot(value);
         return result;
     }
 
     bool removable(ModelRecord& record, std::string& error)
     {
-        auto* value = node(record, error);
+        auto value = node(record, error);
         if (!value)
         {
             return false;
         }
-        if (value->parent() || value->components().size() != 2)
+        std::vector<Component> components;
+        if (!value.collect_components(components) || value.parent() || components.size() != 2)
         {
             error = "Detach parenting and extra components before deleting a modeling object";
             return false;
         }
-        for (const auto& other : value->scene().nodes())
+        std::vector<Node> nodes;
+        if (!value.scene()->collect_nodes(nodes))
         {
-            if (other->parent() == value)
+            error = "Cannot collect scene entities";
+            return false;
+        }
+        for (const auto& other : nodes)
+        {
+            if (other.parent() == value)
             {
                 error = "Modeling deletion cannot discard child nodes";
                 return false;
@@ -1519,7 +1530,7 @@ struct ModelingCommands::State
             return false;
         }
         if (removing && (!removable(found->second, error) ||
-                         visual_snapshot(*node(found->second, error)) != expected->visual))
+                         visual_snapshot(node(found->second, error)) != expected->visual))
         {
             if (error.empty())
             {
@@ -1550,8 +1561,8 @@ struct ModelingCommands::State
         }
         if (found != records.end())
         {
-            auto* value = node(found->second, error);
-            auto* renderer = value ? value->get_component<MeshRenderer>() : nullptr;
+            auto value = node(found->second, error);
+            auto renderer = value ? value.get_component<MeshRenderer>() : MeshRenderer{};
             if (!renderer)
             {
                 error = "Cannot update model render mesh";
@@ -1561,9 +1572,15 @@ struct ModelingCommands::State
                                  mirror_json(found->second) != mirror_json(*replacement);
             if (changed)
             {
-                const auto old_mesh = *renderer->mesh_data();
-                const auto old_visual = visual_snapshot(*value);
-                const auto old_count = renderer->material_count();
+                const auto* current_mesh = renderer.mesh_data();
+                if (!current_mesh)
+                {
+                    error = "Model mesh is unavailable";
+                    return false;
+                }
+                const auto old_mesh = *current_mesh;
+                const auto old_visual = visual_snapshot(value);
+                const auto old_count = renderer.material_count();
                 std::size_t desired = replacement->visual.is_null()
                                           ? old_count
                                           : replacement->visual["materials"].size();
@@ -1572,41 +1589,41 @@ struct ModelingCommands::State
                     desired =
                         std::max(desired, static_cast<std::size_t>(submesh.material_slot()) + 1);
                 }
-                bool success = renderer->set_mesh_data(replacement->compiled) &&
-                               renderer->set_material_count(desired);
+                bool success = renderer.set_mesh_data(replacement->compiled) &&
+                               renderer.set_material_count(desired);
                 if (success && !replacement->visual.is_null())
                 {
                     for (std::size_t slot = old_count;
                          slot < replacement->visual["materials"].size() && success; ++slot)
                     {
-                        success = restore_material(*renderer->material(slot),
+                        success = restore_material(renderer.material(slot),
                                                    replacement->visual["materials"][slot]);
                     }
                 }
                 if (!success)
                 {
                     const bool restored =
-                        renderer->set_mesh_data(old_mesh) && restore_visual(*value, old_visual);
-                    found->second.mesh_revision = renderer->mesh_revision();
+                        renderer.set_mesh_data(old_mesh) && restore_visual(value, old_visual);
+                    found->second.mesh_revision = renderer.mesh_revision();
                     error = restored ? "Cannot update model render mesh or material slots"
                                      : "Cannot roll back model render mesh or material slots";
                     return false;
                 }
             }
             auto updated = *replacement;
-            updated.node_id = value->id();
-            updated.mesh_revision = renderer->mesh_revision();
+            updated.node_id = value.id();
+            updated.mesh_revision = renderer.mesh_revision();
             found->second = std::move(updated);
             return true;
         }
-        auto* value = active->create_node(replacement->name);
-        auto* renderer = value ? value->add_component<MeshRenderer>() : nullptr;
-        if (!renderer || !renderer->set_mesh_data(replacement->compiled) ||
-            !restore_visual(*value, replacement->visual))
+        auto value = active->create_node(replacement->name);
+        auto renderer = value ? value.add_component<MeshRenderer>() : MeshRenderer{};
+        if (!renderer || !renderer.set_mesh_data(replacement->compiled) ||
+            !restore_visual(value, replacement->visual))
         {
             if (value)
             {
-                const bool removed = active->destroy_node(value->id());
+                const bool removed = active->destroy_node(value.id());
                 if (!removed)
                 {
                     error = "Cannot roll back failed model creation";
@@ -1617,8 +1634,8 @@ struct ModelingCommands::State
             return false;
         }
         auto updated = *replacement;
-        updated.node_id = value->id();
-        updated.mesh_revision = renderer->mesh_revision();
+        updated.node_id = value.id();
+        updated.mesh_revision = renderer.mesh_revision();
         records.emplace(model_id, std::move(updated));
         return true;
     }
@@ -1688,7 +1705,7 @@ struct ModelingCommands::State
                 if (after)
                 {
                     auto& current = owner.records.at(item.model_id);
-                    after->visual = visual_snapshot(*owner.node(current, error));
+                    after->visual = visual_snapshot(owner.node(current, error));
                 }
             }
             return true;
@@ -2011,7 +2028,7 @@ struct ModelingCommands::State
                 }
                 after->mirror_enabled = false;
                 std::array<double, 16> relative{};
-                if (!relative_matrix(*node(*record, error), *node(other->second, error), relative))
+                if (!relative_matrix(node(*record, error), node(other->second, error), relative))
                 {
                     error = "Boolean operands require finite invertible scene transforms";
                     return false;
@@ -2022,7 +2039,7 @@ struct ModelingCommands::State
                 {
                     return false;
                 }
-                const auto other_visual = visual_snapshot(*node(other->second, error));
+                const auto other_visual = visual_snapshot(node(other->second, error));
                 const auto slot_offset =
                     static_cast<std::uint32_t>(after->visual["materials"].size());
                 if (slot_offset + other_visual["materials"].size() > 16)
@@ -2171,16 +2188,16 @@ struct ModelingCommands::State
             edit->changes.push_back({original->model_id, std::move(before), std::move(after)});
         }
         copy->selection = {};
-        auto* original_node = node(*original, error);
+        auto original_node = node(*original, error);
         if (!original_node)
         {
             return false;
         }
-        if (original_node->parent())
+        if (original_node.parent())
         {
             std::array<float, 16> world_matrix{};
             std::array<double, 16> matrix{};
-            if (!original_node->get_component<Transform>()->world_matrix(world_matrix.data()) ||
+            if (!original_node.get_component<Transform>().world_matrix(world_matrix.data()) ||
                 (copy->mirror_enabled && !MeshGeometry::mirror(copy->source, copy->mirror, error)))
             {
                 error = "Cannot bake parented model transform";
@@ -2232,7 +2249,7 @@ struct ModelingCommands::State
         for (const auto model_id : model_ids)
         {
             const auto found = records.find(model_id);
-            auto* value = found == records.end() ? nullptr : node(found->second, error);
+            auto value = found == records.end() ? Node{} : node(found->second, error);
             if (!value)
             {
                 error = "Combine operand no longer exists";
@@ -2246,7 +2263,7 @@ struct ModelingCommands::State
             }
             std::array<float, 16> world_matrix{};
             std::array<double, 16> matrix{};
-            if (!value->get_component<Transform>()->world_matrix(world_matrix.data()))
+            if (!value.get_component<Transform>().world_matrix(world_matrix.data()))
             {
                 error = "Cannot evaluate combine operand transform";
                 return false;
@@ -2258,7 +2275,7 @@ struct ModelingCommands::State
             {
                 return false;
             }
-            const auto visual = visual_snapshot(*value);
+            const auto visual = visual_snapshot(value);
             const auto offset = static_cast<std::uint32_t>(materials.size());
             if (materials.size() + visual["materials"].size() > 16)
             {
@@ -2378,13 +2395,13 @@ void ModelingCommands::synchronize_scene() noexcept
 bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::string& error)
 {
     state_->synchronize_scene();
-    if (!state_->world.scene() || &node.scene() != state_->world.scene())
+    if (!state_->world.scene() || node.scene() != state_->world.scene())
     {
         error = "Mesh export requires a node in the active scene";
         return false;
     }
-    const auto* renderer = node.get_component<MeshRenderer>();
-    if (!renderer || !renderer->mesh_data())
+    const auto renderer = node.get_component<MeshRenderer>();
+    if (!renderer || !renderer.mesh_data())
     {
         error = "Node has no mesh data to save";
         return false;
@@ -2397,7 +2414,7 @@ bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::
         {
             continue;
         }
-        if (record.mesh_revision != renderer->mesh_revision())
+        if (record.mesh_revision != renderer.mesh_revision())
         {
             error = "Model mesh changed outside modeling commands";
             return false;
@@ -2410,11 +2427,11 @@ bool ModelingCommands::export_mesh(const Node& node, const fs::path& path, std::
         found = true;
         break;
     }
-    if (!found && !EditableMesh::from_mesh(*renderer->mesh_data(), source, error))
+    if (!found && !EditableMesh::from_mesh(*renderer.mesh_data(), source, error))
     {
         return false;
     }
-    return save_source(path, source, *renderer->mesh_data(), error);
+    return save_source(path, source, *renderer.mesh_data(), error);
 }
 
 bool ModelingCommands::register_commands(engine::editor::EditorCommands& commands)

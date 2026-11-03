@@ -47,91 +47,90 @@ Object.freeze(Collider.prototype);
 Object.freeze(Collider);
 )js";
 
-Collider* collider(const Arguments& arguments, int count)
+Collider collider(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count ? node->get_component<Collider>()
-                                                         : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count ? node.get_component<Collider>() : Collider{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<Collider>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<Collider>().valid());
 }
 
 void box(const Arguments& arguments)
 {
-    auto* value = collider(arguments, 5);
+    auto value = collider(arguments, 5);
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+    if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.shape = schema::ColliderShape::box;
         settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.half_extents = Vec3(x, y, z);
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void sphere(const Arguments& arguments)
 {
-    auto* value = collider(arguments, 3);
+    auto value = collider(arguments, 3);
     float radius = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, radius))
+    if (value.valid() && BindingContext::scalar(arguments, 2, radius))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.shape = schema::ColliderShape::sphere;
         settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.radius = radius;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void capsule(const Arguments& arguments)
 {
-    auto* value = collider(arguments, 4);
+    auto value = collider(arguments, 4);
     float radius = 0.0F;
     float half_height = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, radius) &&
+    if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.shape = schema::ColliderShape::capsule;
         settings.hulls.clear();
         settings.mesh_guid.clear();
         settings.radius = radius;
         settings.half_height = half_height;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void mesh(const Arguments& arguments)
 {
-    auto* value = collider(arguments, 3);
+    auto value = collider(arguments, 3);
     std::string path;
-    if (value != nullptr && BindingContext::text(arguments, 2, path))
+    if (value.valid() && BindingContext::text(arguments, 2, path))
     {
-        arguments.set_return(value->set_mesh(path));
+        arguments.set_return(value.set_mesh(path));
     }
 }
 
 void set_scalar(const Arguments& arguments, float schema::ColliderDataT::* field)
 {
-    auto* value = collider(arguments, 3);
+    auto value = collider(arguments, 3);
     float number = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, number))
+    if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.*field = number;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
@@ -147,12 +146,12 @@ void restitution(const Arguments& arguments)
 
 void trigger(const Arguments& arguments)
 {
-    auto* value = collider(arguments, 3);
-    if (value != nullptr && arguments.is_boolean(2))
+    auto value = collider(arguments, 3);
+    if (value.valid() && arguments.is_boolean(2))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.is_trigger = arguments.boolean(2);
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 } // namespace

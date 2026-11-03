@@ -51,6 +51,7 @@ toml::array field_array(const std::vector<std::string>& input)
 
 bool read_info(const toml::table& table, schema::NodeInfoT& output, std::string& error)
 {
+    output.properties = std::make_unique<schema::NodePropertiesT>();
     if ((table.contains("parent") &&
          !asset_pipeline::identifier(table.get("parent"), output.parent_id)) ||
         (table.contains("enabled") && !table["enabled"].is_boolean()) ||
@@ -60,9 +61,9 @@ bool read_info(const toml::table& table, schema::NodeInfoT& output, std::string&
         error = "Invalid prefab node override fields";
         return false;
     }
-    output.name = table["name"].value_or(std::string{});
-    output.enabled = table["enabled"].value_or(true);
-    output.visible = table["visible"].value_or(true);
+    output.properties->name = table["name"].value_or(std::string{});
+    output.properties->enabled = table["enabled"].value_or(true);
+    output.properties->visible = table["visible"].value_or(true);
     return true;
 }
 } // namespace
@@ -92,6 +93,7 @@ bool read_overrides(const toml::array& input,
         if (const auto* info = (*table)["info"].as_table())
         {
             value->info = std::make_unique<schema::NodeInfoT>();
+            value->info->properties = std::make_unique<schema::NodePropertiesT>();
             if (!read_info(*info, *value->info, error))
             {
                 return false;
@@ -110,6 +112,7 @@ bool read_overrides(const toml::array& input,
                 const auto* override_table = entry.as_table();
                 auto component = std::make_unique<schema::PrefabComponentOverrideT>();
                 component->component = std::make_unique<schema::ComponentDataT>();
+                component->component->flags = std::make_unique<schema::ComponentFlagsT>();
                 const auto* data =
                     override_table ? (*override_table)["component"].as_table() : nullptr;
                 if (!data || !SceneImporter::read_component(*data, *component->component, error) ||
@@ -154,10 +157,10 @@ bool write_overrides(const std::vector<std::unique_ptr<schema::PrefabNodeOverrid
                           {"removed", value->removed}};
         if (value->info)
         {
-            table.insert("info", toml::table{{"name", value->info->name},
+            table.insert("info", toml::table{{"name", value->info->properties->name},
                                              {"parent", std::to_string(value->info->parent_id)},
-                                             {"enabled", value->info->enabled},
-                                             {"visible", value->info->visible}});
+                                             {"enabled", value->info->properties->enabled},
+                                             {"visible", value->info->properties->visible}});
         }
         toml::array components;
         for (const auto& component : value->components)

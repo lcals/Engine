@@ -149,9 +149,9 @@ bool camera_arguments(const Json& arguments, TransformSettings& pose, double& sp
 
 bool copy_camera(const Camera& source, TransformSettings& pose)
 {
-    const auto* transform = source.node().get_component<Transform>();
+    const auto transform = source.node().get_component<Transform>();
     float matrix[16]{};
-    if (!transform || !transform->world_matrix(matrix))
+    if (!transform || !transform.world_matrix(matrix))
     {
         return false;
     }
@@ -194,7 +194,7 @@ struct ScenePreview::State
     ImportCallback import;
     WorldSystem camera_world;
     EditorCommands* commands = nullptr;
-    Camera* camera = nullptr;
+    Camera camera{};
 #if ENGINE_HAS_ASSET_PIPELINE
     std::unique_ptr<SourceWatcher> watcher;
 #endif
@@ -240,7 +240,7 @@ struct ScenePreview::State
 
     bool active() const noexcept
     {
-        return camera != nullptr && !path.empty();
+        return camera.valid() && !path.empty();
     }
 
     bool modified() const noexcept
@@ -269,7 +269,7 @@ struct ScenePreview::State
                 commands->clear_history();
             }
         }
-        camera = nullptr;
+        camera = {};
         camera_world.destroy_scene();
         path.clear();
         resource_revision.clear();
@@ -285,7 +285,7 @@ struct ScenePreview::State
         Json view = nullptr;
         if (camera)
         {
-            const auto& pose = camera->node().get_component<Transform>()->settings();
+            const auto& pose = camera.node().get_component<Transform>().settings();
             view = {{"position", vector(pose.position)},
                     {"rotation", vector(pose.rotation)},
                     {"speed", speed}};
@@ -376,10 +376,10 @@ struct ScenePreview::State
             return fail("Cannot load preview scene: " + std::string(requested));
         }
         CameraSettings projection;
-        if (const auto* source = scene->active_camera())
+        if (const auto source = scene->active_camera())
         {
-            projection = source->settings();
-            if (!copy_camera(*source, pose))
+            projection = source.settings();
+            if (!copy_camera(source, pose))
             {
                 gameplay.stop();
                 return fail("Cannot read the scene camera world transform");
@@ -391,10 +391,10 @@ struct ScenePreview::State
             return fail("Invalid preview camera settings");
         }
         auto* view_scene = camera_world.create_scene("Editor Preview Camera");
-        auto* node = view_scene ? view_scene->create_node("Preview Camera") : nullptr;
-        auto* view = node ? node->add_component<Camera>() : nullptr;
-        if (!view || !node->get_component<Transform>()->set_settings(pose) ||
-            !view->set_settings(projection))
+        auto node = view_scene ? view_scene->create_node("Preview Camera") : Node{};
+        auto view = node ? node.add_component<Camera>() : Camera{};
+        if (!view || !node.get_component<Transform>().set_settings(pose) ||
+            !view.set_settings(projection))
         {
             gameplay.stop();
             camera_world.destroy_scene();
@@ -537,14 +537,14 @@ struct ScenePreview::State
         {
             return true;
         }
-        auto* transform = camera->node().get_component<Transform>();
-        auto pose = transform->settings();
+        auto transform = camera.node().get_component<Transform>();
+        auto pose = transform.settings();
         schema::InputActionState delta;
         (void)input.read_action(input_channel, "look", delta);
         pose.rotation = {std::clamp(pose.rotation.x() - delta.value_y() * 0.12, -89.5, 89.5),
                          std::remainder(pose.rotation.y() - delta.value_x() * 0.12, 360.0),
                          pose.rotation.z()};
-        if (!transform->set_settings(pose))
+        if (!transform.set_settings(pose))
         {
             return fail("Cannot update preview camera orientation");
         }
@@ -564,14 +564,14 @@ struct ScenePreview::State
         forward *= distance;
         up *= distance;
         float matrix[16]{};
-        if (!transform->world_matrix(matrix))
+        if (!transform.world_matrix(matrix))
         {
             return fail("Cannot read preview camera basis");
         }
         pose.position = {pose.position.x() + matrix[0] * right - matrix[8] * forward,
                          pose.position.y() + matrix[1] * right - matrix[9] * forward + up,
                          pose.position.z() + matrix[2] * right - matrix[10] * forward};
-        return transform->set_settings(pose) || fail("Cannot move preview camera");
+        return transform.set_settings(pose) || fail("Cannot move preview camera");
     }
 
     bool matches_saved_catalog(const ResourceCatalog& catalog) const
@@ -818,11 +818,11 @@ bool ScenePreview::register_commands(EditorCommands& commands)
                        error = "No scene preview is active";
                        return false;
                    }
-                   auto* transform = state.camera->node().get_component<Transform>();
-                   auto pose = transform->settings();
+                   auto transform = state.camera.node().get_component<Transform>();
+                   auto pose = transform.settings();
                    double speed = state.speed;
                    if (arguments.empty() || !camera_arguments(arguments, pose, speed) ||
-                       !transform->set_settings(pose))
+                       !transform.set_settings(pose))
                    {
                        error = "Camera requires position, rotation or speed in [0.01,1000]";
                        return false;
@@ -879,7 +879,7 @@ bool ScenePreview::active() const noexcept
     return state_->active();
 }
 
-const Camera* ScenePreview::camera() const noexcept
+const Camera ScenePreview::camera() const noexcept
 {
     return state_->camera;
 }

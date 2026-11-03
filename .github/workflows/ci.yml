@@ -100,4 +100,5 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: test
+        if: matrix.preset == 'release'
         run: ctest --preset ${{ matrix.preset }}

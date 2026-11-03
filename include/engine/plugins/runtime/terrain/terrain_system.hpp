@@ -36,20 +36,20 @@ public:
                   std::size_t max_commits_per_tick = 1) noexcept;
     ~TerrainSystem() noexcept override;
     [[nodiscard]] static TerrainSystem* instance() noexcept;
-    [[nodiscard]] bool commit(TerrainComponent& component, TerrainVolume candidate);
+    [[nodiscard]] bool commit(TerrainComponent component, TerrainVolume candidate);
     // true 仅表示排队；完成委托由 synchronize/tick 在主线程调用，取消结果为 false。
     // 不接受无任务域或空委托；关闭丢弃委托，后台候选不借用场景/组件。
-    [[nodiscard]] bool request_apply_sphere(TerrainComponent& component, const schema::Vec3& center,
+    [[nodiscard]] bool request_apply_sphere(TerrainComponent component, const schema::Vec3& center,
                                             float radius, bool fill,
                                             std::function<void(bool)> completed);
-    [[nodiscard]] bool collapse_detached(TerrainComponent& component, std::uint32_t min_samples,
+    [[nodiscard]] bool collapse_detached(TerrainComponent component, std::uint32_t min_samples,
                                          std::uint32_t max_fragments, std::uint32_t fragment_cells,
                                          float density);
     // 主线程物理安全点；失败输出清零，保留全部碎块和源密度。
-    [[nodiscard]] bool retire_fragments(TerrainComponent& component, std::uint32_t max_count,
+    [[nodiscard]] bool retire_fragments(TerrainComponent component, std::uint32_t max_count,
                                         double max_age_seconds, std::uint32_t& retired_count);
-    void clear_fragments(TerrainComponent& component) noexcept;
-    [[nodiscard]] std::size_t fragment_count(const TerrainComponent& component) const noexcept;
+    void clear_fragments(TerrainComponent component) noexcept;
+    [[nodiscard]] std::size_t fragment_count(TerrainComponent component) const noexcept;
     [[nodiscard]] bool synchronize();
 
 protected:
@@ -58,7 +58,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
-    [[nodiscard]] bool commit_prepared(TerrainComponent& component, TerrainVolume candidate,
+    [[nodiscard]] bool commit_prepared(TerrainComponent component, TerrainVolume candidate,
                                        schema::MeshDataT mesh);
     void process_requests();
     struct AsyncState;

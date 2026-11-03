@@ -319,6 +319,17 @@ declare module "engine" {
         static SetVSync(enabled: boolean): boolean;
         /** Last accepted request, not a measurement of presentation timing. */
         static GetVSync(): boolean | null;
+        /** Geometry MSAA sample count. 1 disables MSAA; unsupported requests preserve old settings. */
+        static SetMsaaSamples(samples: number): boolean;
+        /** Last accepted sample count; null without an initialized renderer. */
+        static GetMsaaSamples(): number | null;
+        /** True only for 1/2/4/8 supported by the current device and offscreen render targets. */
+        static SupportsMsaaSamples(samples: number): boolean;
+        /** Maximum anisotropic filtering for material textures; applied at the next drawable frame. */
+        static SetMaxAnisotropy(enabled: boolean): boolean;
+        static GetMaxAnisotropy(): boolean | null;
+        /** False while the graphics device is unavailable. */
+        static SupportsMaxAnisotropy(): boolean;
     }
 
     /** Resource paths are relative to assets, or use builtin://. Parameters match the shader. */
@@ -375,6 +386,7 @@ declare module "engine" {
         Destroy(): boolean;
     }
 
+    /** Lightweight identity handle; scene instance data lives only in the ECS world. */
     export class Node {
         private constructor();
         /** Stable lifetime identities; use IsValid() before accessing a deleted node. */
@@ -406,6 +418,7 @@ declare module "engine" {
         readonly prototype: T;
     }
 
+    /** Access handle, not an owned native object. Archetype moves preserve it; removal invalidates it. */
     export class Component {
         protected constructor();
         readonly node: Node;

@@ -1,0 +1,259 @@
+#include "resource_fixture.hpp"
+
+#include "runtime/engine_config.hpp"
+#include "runtime/scene/ecs_storage.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/scene.hpp"
+#include "runtime/scene/transform.hpp"
+#include "runtime/world/world_system.hpp"
+
+#include <array>
+#include <cstdio>
+#include <type_traits>
+#include <vector>
+
+namespace
+{
+using namespace engine;
+
+static_assert(std::is_trivially_copyable_v<Node>);
+static_assert(std::is_trivially_copyable_v<Transform>);
+static_assert(!std::is_polymorphic_v<Component>);
+static_assert(sizeof(Node) <= sizeof(void*) + 2 * sizeof(std::uint64_t));
+
+bool expect(bool value, const char* message)
+{
+    if (!value)
+    {
+        std::fprintf(stderr, "ecs scene: %s\n", message);
+    }
+    return value;
+}
+
+bool scene_lifetime_phases()
+{
+    ResourceSystem resources;
+    WorldSystem world;
+    test_support::ResourceFixture fixture;
+    if (!resources.initialize({}) || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* active = world.create_scene("Active");
+    auto node = active ? active->create_node("Retained until safe point") : Node{};
+    schema::SceneDataT snapshot;
+    ResourcePtr resource;
+    if (!node || !active->build_data(snapshot) || !fixture.add("phases.scene", snapshot) ||
+        !fixture.publish(resources) || !fixture.load("phases.scene", resource))
+    {
+        return false;
+    }
+    for (bool readonly : {true, false})
+    {
+        const auto request = world.begin_restore_scene(resource);
+        if (!request || world.step_restore_scene(request, 64) != SceneRestoreStatus::ready)
+        {
+            return false;
+        }
+        if (readonly)
+        {
+            ecs_readonly_begin(world.native_world(), true);
+        }
+        else
+        {
+            ecs_defer_begin(world.native_world());
+        }
+        const bool rejected = !world.destroy_scene(active->id()) &&
+                              !world.load_scene("phases.scene") &&
+                              world.step_restore_scene(request, 64) == SceneRestoreStatus::failed &&
+                              !world.commit_restore_scene(request);
+        world.cancel_restore_scene(request);
+        world.unload_scene();
+        world.destroy_scene();
+        const bool owners_retained = world.scene() == active && node.valid();
+        if (readonly)
+        {
+            ecs_readonly_end(world.native_world());
+        }
+        else
+        {
+            ecs_defer_end(world.native_world());
+        }
+        if (!expect(rejected && owners_retained && world.scene() == active && node &&
+                        world.step_restore_scene(request, 0) == SceneRestoreStatus::ready,
+                    "non-writable phases preserve scene owners and pending candidate entities"))
+        {
+            return false;
+        }
+        world.cancel_restore_scene(request);
+        if (world.step_restore_scene(request, 0) != SceneRestoreStatus::failed)
+        {
+            return false;
+        }
+    }
+    world.destroy_scene();
+    return expect(!node && world.scene() == nullptr,
+                  "scene destruction runs after all ECS borrows have ended");
+}
+
+bool check()
+{
+    WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("ECS many objects");
+    if (!scene)
+    {
+        return false;
+    }
+    auto root = scene->create_node("Root");
+    std::vector<Node> nodes;
+    std::vector<Transform> transforms;
+    constexpr std::size_t count = 10000;
+    nodes.reserve(count);
+    transforms.reserve(count);
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        auto node = scene->create_node("Object");
+        auto transform = node.get_component<Transform>();
+        TransformSettings value;
+        value.position = {static_cast<double>(i), 0, 0};
+        if (!node || !node.set_parent(root) || !transform.set_settings(value))
+        {
+            return false;
+        }
+        nodes.push_back(node);
+        transforms.push_back(transform);
+    }
+    const auto original = transforms.front();
+    for (std::size_t i = 0; i < count; i += 2)
+    {
+        // Add/remove forces archetype moves; the captured handles keep attachment identity.
+        auto light = nodes[i].add_component<Light>();
+        if (!light || !nodes[i].remove_component(Light::component_type) || light.valid() ||
+            !transforms[i].valid())
+        {
+            return false;
+        }
+    }
+    if (!expect(original == nodes.front().get_component<Transform>(),
+                "moving ECS tables preserves component identity") ||
+        !world.refresh_scene_state())
+    {
+        return false;
+    }
+    {
+        flecs::world native(world.native_world());
+        auto query = native
+                         .query_builder<const ecs_detail::ComponentStorage<Transform::Data>,
+                                        const ecs_detail::WorldTransform>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        std::size_t matched = 0;
+        bool correct = true;
+        query.each(
+            [&](const auto& stored, const ecs_detail::WorldTransform& cached)
+            {
+                ++matched;
+                correct = correct && cached.valid &&
+                          cached.matrix[12] == static_cast<float>(stored.data.position.x());
+            });
+        if (!expect(correct && matched == count + 1,
+                    "typed ECS query reads all authoritative data"))
+        {
+            return false;
+        }
+    }
+    ecs_readonly_begin(world.native_world(), true);
+    const bool readonly_safe = original.valid() && original.settings().position.x() == 0 &&
+                               !root.set_enabled(false) && !scene->create_node("Rejected") &&
+                               !nodes.front().remove_component(Transform::component_type);
+    ecs_readonly_end(world.native_world());
+    if (!expect(readonly_safe && root.enabled() && original.valid(),
+                "read-only ECS phase allows reads and rejects facade mutations"))
+    {
+        return false;
+    }
+    ecs_defer_begin(world.native_world());
+    const bool deferred_safe = !nodes.front().set_parent({});
+    ecs_defer_end(world.native_world());
+    if (!expect(deferred_safe && nodes.front().parent() == root,
+                "facade never reports deferred structural mutation as immediately committed"))
+    {
+        return false;
+    }
+    if (!root.set_enabled(false) || !root.set_visible(false))
+    {
+        return false;
+    }
+    for (const auto node : nodes)
+    {
+        if (node.active() || node.visible_in_hierarchy() || !node.enabled() || !node.visible())
+        {
+            return false;
+        }
+    }
+    if (!root.set_enabled(true) || !root.set_visible(true))
+    {
+        return false;
+    }
+    if (!expect(nodes.back().active() && nodes.back().visible_in_hierarchy(),
+                "parent state changes are immediately visible"))
+    {
+        return false;
+    }
+    auto old_transform = transforms.back();
+    if (!nodes.back().remove_component(Transform::component_type))
+    {
+        return false;
+    }
+    auto replacement = nodes.back().add_component<Transform>();
+    if (!expect(replacement && !old_transform && replacement != old_transform,
+                "removed and reattached component never revives an old handle"))
+    {
+        return false;
+    }
+    const auto dead_parent = scene->create_node("Deleted parent");
+    if (!scene->destroy_node(dead_parent.id()) || nodes[0].set_parent(dead_parent) ||
+        nodes[0].parent() != root)
+    {
+        return false;
+    }
+    const auto stale_node = nodes.front();
+    if (!scene->destroy_node(root.id()))
+    {
+        return false;
+    }
+    std::vector<Node> remaining;
+    if (!expect(!root && !stale_node && !original && scene->collect_nodes(remaining) &&
+                    remaining.empty(),
+                "parent deletion removes all 10000 descendants and their component data"))
+    {
+        return false;
+    }
+    auto old_epoch = scene->create_node("Before shutdown");
+    world.shutdown();
+    if (!expect(!old_epoch && world.initialize({}) && !old_epoch,
+                "world reinitialization rejects handles from the previous epoch"))
+    {
+        return false;
+    }
+    scene = world.create_scene("Restart");
+    auto fresh = scene ? scene->create_node("Fresh") : Node{};
+    return expect(fresh && fresh != old_epoch && !old_epoch,
+                  "restart creates independent entities");
+}
+} // namespace
+
+int main()
+{
+    if (!check() || !scene_lifetime_phases())
+    {
+        return 1;
+    }
+    std::puts(
+        "ECS 10000 objects: typed data, table moves, hierarchy, deletion and epoch checks passed.");
+    return 0;
+}

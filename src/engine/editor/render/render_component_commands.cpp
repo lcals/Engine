@@ -60,7 +60,7 @@ bool read_enabled(const Json& arguments, schema::ComponentDataT& data, std::stri
         error = "enabled must be boolean";
         return false;
     }
-    data.enabled = arguments["enabled"].get<bool>();
+    data.flags->enabled = arguments["enabled"].get<bool>();
     return true;
 }
 
@@ -73,8 +73,8 @@ bool prepare_planar(WorldSystem& world, SceneCommands& scene_commands, const Jso
         error = "set_planar_reflection requires at least one reflection field";
         return false;
     }
-    auto* node = components::target(world, arguments, error);
-    if (!node || !node->get_component<MeshRenderer>())
+    auto node = components::target(world, arguments, error);
+    if (!node || !node.get_component<MeshRenderer>())
     {
         if (error.empty())
         {
@@ -82,13 +82,14 @@ bool prepare_planar(WorldSystem& world, SceneCommands& scene_commands, const Jso
         }
         return false;
     }
-    const auto* component = node->get_component<PlanarReflectionComponent>();
+    const auto component = node.get_component<PlanarReflectionComponent>();
     std::optional<schema::ComponentDataT> before;
     schema::ComponentDataT after;
+    after.flags = std::make_unique<schema::ComponentFlagsT>();
     after.payload.Set(PlanarReflectionSettings{});
     if (component)
     {
-        before = component->data();
+        before = component.data();
         after = *before;
     }
     auto& settings = *after.payload.AsPlanarReflectionData();
@@ -104,10 +105,10 @@ bool prepare_planar(WorldSystem& world, SceneCommands& scene_commands, const Jso
         }
         return false;
     }
-    result = {{"sceneId", std::to_string(node->scene().id())},
-              {"nodeId", std::to_string(node->id())}};
+    result = {{"sceneId", std::to_string(node.scene()->id())},
+              {"nodeId", std::to_string(node.id())}};
     edit = std::make_unique<components::ComponentEdit>(
-        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
+        world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),
         std::move(after), std::vector<schema::AssetEntryT>{}, ComponentType::MeshRendererData);
     return true;
 }
@@ -120,21 +121,22 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
         error = "set_light_probe_volume requires at least one probe field";
         return false;
     }
-    auto* node = components::target(world, arguments, error);
+    auto node = components::target(world, arguments, error);
     if (!node)
     {
         return false;
     }
-    const auto* component = node->get_component<LightProbeVolumeComponent>();
+    const auto component = node.get_component<LightProbeVolumeComponent>();
     std::optional<schema::ComponentDataT> before;
     schema::ComponentDataT after;
+    after.flags = std::make_unique<schema::ComponentFlagsT>();
     after.payload.Set(LightProbeVolumeSettings{});
     std::vector<schema::AssetEntryT> versions;
     if (component)
     {
-        before = component->data();
+        before = component.data();
         after = *before;
-        if (!retain_resource(component->settings().probes_guid, versions, error))
+        if (!retain_resource(component.settings().probes_guid, versions, error))
         {
             return false;
         }
@@ -161,10 +163,10 @@ bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json
             return false;
         }
     }
-    result = {{"sceneId", std::to_string(node->scene().id())},
-              {"nodeId", std::to_string(node->id())}};
+    result = {{"sceneId", std::to_string(node.scene()->id())},
+              {"nodeId", std::to_string(node.id())}};
     edit = std::make_unique<components::ComponentEdit>(
-        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
+        world, node.scene()->id(), scene_commands.node_identity(node.id()), std::move(before),
         std::move(after), std::move(versions));
     return true;
 }
@@ -175,7 +177,7 @@ class MeshLightingEdit final : public EditorEdit
 public:
     MeshLightingEdit(WorldSystem& world, std::shared_ptr<std::uint64_t> identity,
                      const MeshRenderer& mesh, Json arguments)
-        : world_(world), identity_(std::move(identity)), scene_id_(mesh.node().scene().id()),
+        : world_(world), identity_(std::move(identity)), scene_id_(mesh.node().scene()->id()),
           node_id_(mesh.node().id()), instance_(mesh.instance_id()),
           revision_(mesh.mesh_revision()), before_(mesh.data()), after_(before_),
           arguments_(std::move(arguments))
@@ -220,8 +222,8 @@ public:
                     "before an undoable replacement";
             return false;
         }
-        const auto* transform = mesh.node().get_component<Transform>();
-        if (!transform || !transform->world_matrix(transform_.data()))
+        const auto transform = mesh.node().get_component<Transform>();
+        if (!transform || !transform.world_matrix(transform_.data()))
         {
             error = "Mesh lightmap editing requires a valid Transform";
             return false;
@@ -257,22 +259,22 @@ private:
                 const std::string& path, bool applying, std::string& error)
     {
         auto* scene = world_.scene();
-        auto* node = scene && scene->id() == scene_id_ ? scene->find_node(*identity_) : nullptr;
-        auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
-        const bool recreated = node && node->id() != node_id_;
+        auto node = scene && scene->id() == scene_id_ ? scene->find_node(*identity_) : Node{};
+        auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        const bool recreated = node && node.id() != node_id_;
         if (!mesh ||
             (!recreated &&
-             (mesh->instance_id() != instance_ || mesh->mesh_revision() != revision_)) ||
-            mesh->data() != expected)
+             (mesh.instance_id() != instance_ || mesh.mesh_revision() != revision_)) ||
+            mesh.data() != expected)
         {
             error = "Mesh or lighting settings changed outside this edit";
             return false;
         }
         if (arguments_.contains("lightmap"))
         {
-            const auto* transform = node->get_component<Transform>();
+            const auto transform = node.get_component<Transform>();
             std::array<float, 16> matrix{};
-            if (!transform || !transform->world_matrix(matrix.data()) || matrix != transform_)
+            if (!transform || !transform.world_matrix(matrix.data()) || matrix != transform_)
             {
                 error = "The lightmap mesh transform changed outside this edit";
                 return false;
@@ -290,32 +292,31 @@ private:
             }
         }
         const auto* desired = replacement.payload.AsMeshRendererData();
-        const bool previous_static = mesh->bake_static();
-        if (arguments_.contains("bakeStatic") && !mesh->set_bake_static(desired->bake_static))
+        const bool previous_static = mesh.bake_static();
+        if (arguments_.contains("bakeStatic") && !mesh.set_bake_static(desired->bake_static))
         {
             error = "A skinned or deformed mesh cannot be marked bakeStatic";
             return false;
         }
-        if (arguments_.contains("lightmap") && !mesh->set_lightmap(path))
+        if (arguments_.contains("lightmap") && !mesh.set_lightmap(path))
         {
-            const bool restored = mesh->set_bake_static(previous_static);
-            error = restored
-                        ? "Lightmap requires a resource mesh with UV2, no deformation, "
-                          "and a linear 2D texture"
-                        : "Cannot restore the original bakeStatic flag";
+            const bool restored = mesh.set_bake_static(previous_static);
+            error = restored ? "Lightmap requires a resource mesh with UV2, no deformation, "
+                               "and a linear 2D texture"
+                             : "Cannot restore the original bakeStatic flag";
             return false;
         }
         if (arguments_.contains("castShadows"))
         {
-            mesh->set_cast_shadows(desired->cast_shadows);
+            mesh.set_cast_shadows(desired->cast_shadows);
         }
         if (applying)
         {
-            replacement = mesh->data();
+            replacement = mesh.data();
         }
-        node_id_ = node->id();
-        instance_ = mesh->instance_id();
-        revision_ = mesh->mesh_revision();
+        node_id_ = node.id();
+        instance_ = mesh.instance_id();
+        revision_ = mesh.mesh_revision();
         return true;
     }
 
@@ -343,8 +344,8 @@ bool prepare_mesh(WorldSystem& world, SceneCommands& scene_commands, const Json&
         error = "set_mesh_lighting requires at least one mesh lighting field";
         return false;
     }
-    auto* node = components::target(world, arguments, error);
-    const auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    auto node = components::target(world, arguments, error);
+    const auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
     if (!mesh)
     {
         if (error.empty())
@@ -354,13 +355,13 @@ bool prepare_mesh(WorldSystem& world, SceneCommands& scene_commands, const Json&
         return false;
     }
     auto pending = std::make_unique<MeshLightingEdit>(
-        world, scene_commands.node_identity(node->id()), *mesh, arguments);
-    if (!pending->prepare(*mesh, error))
+        world, scene_commands.node_identity(node.id()), mesh, arguments);
+    if (!pending->prepare(mesh, error))
     {
         return false;
     }
-    result = {{"sceneId", std::to_string(node->scene().id())},
-              {"nodeId", std::to_string(node->id())}};
+    result = {{"sceneId", std::to_string(node.scene()->id())},
+              {"nodeId", std::to_string(node.id())}};
     edit = std::move(pending);
     return true;
 }
@@ -383,11 +384,16 @@ nlohmann::json light_probe_volume_json(const LightProbeVolumeComponent& componen
 
 nlohmann::json mesh_lighting_json(const MeshRenderer& component)
 {
-    const auto& settings = *component.data().payload.AsMeshRendererData();
+    const auto snapshot = component.data();
+    const auto* settings = snapshot.payload.AsMeshRendererData();
+    if (!settings)
+    {
+        return {};
+    }
     return {{"castShadows", component.cast_shadows()},
             {"bakeStatic", component.bake_static()},
-            {"lightmap", configured_path(settings.lightmap_guid)},
-            {"lightmapGuid", settings.lightmap_guid},
+            {"lightmap", configured_path(settings->lightmap_guid)},
+            {"lightmapGuid", settings->lightmap_guid},
             {"lightmapValid", bool(component.lightmap_resource())}};
 }
 
@@ -396,7 +402,8 @@ bool register_render_component_commands(WorldSystem& world, SceneCommands& scene
 {
     const auto add_get = [&world, &commands]<typename T>(const char* name, auto write)
     {
-        return commands.register_command(name, false,
+        return commands.register_command(
+            name, false,
             [&world, write](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>&,
                             std::string& error)
             {
@@ -404,8 +411,8 @@ bool register_render_component_commands(WorldSystem& world, SceneCommands& scene
                 {
                     return false;
                 }
-                const auto* node = components::target(world, arguments, error);
-                const auto* component = node ? node->get_component<T>() : nullptr;
+                const auto node = components::target(world, arguments, error);
+                const auto component = node ? node.get_component<T>() : T{};
                 if (!component)
                 {
                     if (error.empty())
@@ -414,9 +421,9 @@ bool register_render_component_commands(WorldSystem& world, SceneCommands& scene
                     }
                     return false;
                 }
-                result = write(*component);
-                result["sceneId"] = std::to_string(node->scene().id());
-                result["nodeId"] = std::to_string(node->id());
+                result = write(component);
+                result["sceneId"] = std::to_string(node.scene()->id());
+                result["nodeId"] = std::to_string(node.id());
                 return true;
             });
     };

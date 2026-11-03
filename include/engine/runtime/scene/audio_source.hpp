@@ -26,14 +26,31 @@ enum class AudioPlayback
     failed
 };
 
+struct AudioSourceRuntime
+{
+    std::shared_ptr<const Resource> clip_;
+    std::uint64_t revision_ = 0;
+    AudioPlayback playback_ = AudioPlayback::stopped;
+    bool awake_pending_ = true;
+};
+
 class AudioSource final : public Component
 {
 public:
+    using Data = schema::AudioSourceDataT;
+    AudioSource() noexcept = default;
+    explicit AudioSource(Component component) noexcept : Component(component, component_type)
+    {
+    }
+    [[nodiscard]] static bool register_type(ComponentRegistry& registry);
+    using Runtime = AudioSourceRuntime;
+    [[nodiscard]] Runtime* runtime() const noexcept;
     static constexpr ComponentType component_type = ComponentType::AudioSourceData;
     [[nodiscard]] static bool valid_settings(const schema::AudioSourceDataT& settings) noexcept;
-    [[nodiscard]] const schema::AudioSourceDataT& settings() const noexcept;
+    [[nodiscard]] schema::AudioSourceDataT settings() const noexcept;
+    [[nodiscard]] bool get_settings(Data& output) const noexcept;
     [[nodiscard]] bool set_settings(const schema::AudioSourceDataT& settings);
-    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
+    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
     [[nodiscard]] bool set_clip(std::string_view path);
     [[nodiscard]] std::string_view clip_path() const noexcept;
     [[nodiscard]] const schema::AudioClipDataT* clip_data() const noexcept;
@@ -43,16 +60,6 @@ public:
     [[nodiscard]] bool stop() noexcept;
     [[nodiscard]] bool playing() const noexcept;
     [[nodiscard]] AudioPlayback playback() const noexcept;
-
-private:
-    friend class Node;
-    friend class AudioSystem;
-    explicit AudioSource(Node& node);
-
-    std::shared_ptr<const Resource> clip_;
-    std::uint64_t revision_ = 0;
-    AudioPlayback playback_ = AudioPlayback::stopped;
-    bool awake_pending_ = true;
 };
 
 } // namespace engine

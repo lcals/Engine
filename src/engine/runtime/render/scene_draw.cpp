@@ -3,6 +3,8 @@
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/resource/resource.hpp"
 #include "runtime/scene/camera.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -54,20 +56,25 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
     double selected_volume = std::numeric_limits<double>::max();
     std::uint64_t selected_id = UINT64_MAX;
     bool found = false;
-    for (const auto& owner : world.scenes())
     {
-        for (const auto& node : owner->nodes())
+        const auto process =
+            [&](Node node,
+                const ecs_detail::ComponentStorage<LightProbeVolumeComponent::Data>& stored) -> bool
         {
-            const auto* volume = node->get_component<LightProbeVolumeComponent>();
-            if (!volume || !volume->active() || !volume->visible_in_hierarchy())
+            const auto* owner = node.scene();
+            (void)owner;
+            (void)stored;
+
+            const auto volume = node.get_component<LightProbeVolumeComponent>();
+            if (!volume || !volume.active() || !volume.visible_in_hierarchy())
             {
-                continue;
+                return true;
             }
-            const auto resource = volume->resource();
+            const auto resource = volume.resource();
             const auto* data = resource ? resource->light_probe() : nullptr;
             if (!data)
             {
-                continue;
+                return true;
             }
             float inverse[16];
             bx::mtxInverse(inverse, data->baked_transform.data());
@@ -83,9 +90,9 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
                 size *= high[axis] - low[axis];
             }
             if (!inside || size > selected_volume ||
-                (size == selected_volume && node->id() >= selected_id))
+                (size == selected_volume && node.id() >= selected_id))
             {
-                continue;
+                return true;
             }
             std::array<std::uint32_t, 3> cell{};
             std::array<float, 3> fraction{};
@@ -127,7 +134,7 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
             }
             if (total <= 0)
             {
-                continue;
+                return true;
             }
             for (auto& coefficient : candidate)
             {
@@ -138,9 +145,27 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
             }
             output = candidate;
             found = true;
-            selected_id = node->id();
+            selected_id = node.id();
             selected_volume = size;
-        }
+
+            return true;
+        };
+        auto query = flecs::world(world.native_world())
+                         .query_builder<
+                             const ecs_detail::ComponentStorage<LightProbeVolumeComponent::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<LightProbeVolumeComponent::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world.find_node(entity.id()), stored);
+                }
+            });
+        (void)query_success;
     }
     return found;
 }
@@ -157,27 +182,31 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
     std::uint32_t shadow_light = UINT32_MAX;
     auto light_settings = rendering;
     light_settings.directional_shadows = false;
-    for (const auto& owner : world.scenes())
     {
-        for (const auto& node : owner->nodes())
+        const auto process = [&](Node node,
+                                 const ecs_detail::ComponentStorage<Light::Data>& stored) -> bool
         {
-            const auto* light = node->get_component<Light>();
-            if (!light || !light->active() || !light->visible_in_hierarchy())
+            const auto* owner = node.scene();
+            (void)owner;
+            (void)stored;
+
+            const auto light = node.get_component<Light>();
+            if (!light || !light.active() || !light.visible_in_hierarchy())
             {
-                continue;
+                return true;
             }
             if (capture && std::find(capture->light_node_ids.begin(), capture->light_node_ids.end(),
-                                     node->id()) == capture->light_node_ids.end())
+                                     node.id()) == capture->light_node_ids.end())
             {
-                continue;
+                return true;
             }
             if (lights.size() >= config.maximum_lights)
             {
                 return false;
             }
             std::array<float, 16> matrix{};
-            const auto* transform = node->get_component<Transform>();
-            if (!transform || !transform->world_matrix(matrix.data()))
+            const auto transform = node.get_component<Transform>();
+            if (!transform || !transform.world_matrix(matrix.data()))
             {
                 return false;
             }
@@ -186,7 +215,7 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
             {
                 return false;
             }
-            const auto& lighting = light->settings();
+            const auto& lighting = stored.data;
             constexpr float radians = 0.01745329251994329577F;
             const auto index = static_cast<std::uint32_t>(lights.size());
             render_detail::ClusterLight packed;
@@ -219,9 +248,28 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
                 }
                 else
                 {
-                    local_lights.push_back({node->id(), index, lighting, matrix});
+                    local_lights.push_back({node.id(), index, lighting, matrix});
                 }
             }
+
+            return true;
+        };
+        auto query = flecs::world(world.native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<Light::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity, const ecs_detail::ComponentStorage<Light::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world.find_node(entity.id()), stored);
+                }
+            });
+        if (!query_success)
+        {
+            return false;
         }
     }
     for (auto& matrix : frame.matrices)
@@ -238,10 +286,10 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
         {
             const auto mesh = std::find_if(meshes.begin(), meshes.end(),
                                            [id](const auto& value) { return value.node_id == id; });
-            const auto* node = world.find_node(id);
-            const auto* transform = node ? node->get_component<Transform>() : nullptr;
+            const auto node = world.find_node(id);
+            const auto transform = node ? node.get_component<Transform>() : Transform{};
             std::array<float, 16> model{};
-            if (mesh == meshes.end() || !transform || !transform->world_matrix(model.data()))
+            if (mesh == meshes.end() || !transform || !transform.world_matrix(model.data()))
             {
                 return false;
             }
@@ -336,10 +384,10 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                               bgfx::getCaps()->originBottomLeft ? 1.0F : 0.0F};
     struct Item
     {
-        const MeshRenderer* renderer = nullptr;
+        MeshRenderer renderer = {};
         const render_detail::GpuMesh* mesh = nullptr;
         const render_detail::GpuGeometry* geometry = nullptr;
-        const Material* material = nullptr;
+        Material material = {};
         std::uint32_t first = 0, count = 0;
         std::array<float, 16> model{}, normal{};
         std::array<float, 3> center{};
@@ -347,38 +395,42 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         std::size_t capture_index = SIZE_MAX;
     };
     std::vector<Item> items;
-    for (const auto& owner : world.scenes())
     {
-        for (const auto& node : owner->nodes())
+        const auto process =
+            [&](Node node, const ecs_detail::ComponentStorage<MeshRenderer::Data>& stored) -> bool
         {
-            const auto* renderer = node->get_component<MeshRenderer>();
-            if (!renderer || !renderer->active() || !renderer->visible_in_hierarchy() ||
-                (draw.visibility && !draw.visibility->mesh_visible(renderer->instance_id())))
+            const auto* owner = node.scene();
+            (void)owner;
+            (void)stored;
+
+            const auto renderer = node.get_component<MeshRenderer>();
+            if (!renderer || !renderer.active() || !renderer.visible_in_hierarchy() ||
+                (draw.visibility && !draw.visibility.mesh_visible(renderer.instance_id())))
             {
-                continue;
+                return true;
             }
             if (draw.capture &&
                 std::find(draw.capture->node_ids.begin(), draw.capture->node_ids.end(),
-                          node->id()) == draw.capture->node_ids.end())
+                          node.id()) == draw.capture->node_ids.end())
             {
-                continue;
+                return true;
             }
             if (draw.reflection)
             {
-                const auto* plane = node->get_component<PlanarReflectionComponent>();
-                if (plane && plane->active() && plane->visible_in_hierarchy())
+                const auto plane = node.get_component<PlanarReflectionComponent>();
+                if (plane && plane.active() && plane.visible_in_hierarchy())
                 {
-                    continue;
+                    return true;
                 }
             }
             const auto mesh = std::find_if(meshes.begin(), meshes.end(), [&node](const auto& entry)
-                                           { return entry.node_id == node->id(); });
-            const auto* transform = node->get_component<Transform>();
-            const auto* data = renderer->mesh_data();
+                                           { return entry.node_id == node.id(); });
+            const auto transform = node.get_component<Transform>();
+            const auto* data = renderer.mesh_data();
             Item item;
             item.renderer = renderer;
             if (mesh == meshes.end() || !transform || !data ||
-                !transform->world_matrix(item.model.data()) ||
+                !transform.world_matrix(item.model.data()) ||
                 !render_detail::normal_matrix(item.model.data(), item.normal.data()))
             {
                 return false;
@@ -389,7 +441,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             {
                 for (std::size_t index = 0; index < draw.capture->indirect.size(); ++index)
                 {
-                    if (draw.capture->indirect[index].node_id == node->id())
+                    if (draw.capture->indirect[index].node_id == node.id())
                     {
                         item.capture_index = index;
                         if (capture_meshes[index])
@@ -403,20 +455,20 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             }
             const auto collect = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
             {
-                const auto* material = renderer->material(slot);
+                const auto material = renderer.material(slot);
                 if (!material)
                 {
                     return false;
                 }
-                const bool blended = material->blend_mode() != schema::BlendMode::opaque;
+                const bool blended = material.blend_mode() != schema::BlendMode::opaque;
                 if (blended != transparent)
                 {
                     return true;
                 }
                 if (draw.reflection &&
                     std::any_of(
-                        material->shader_data()->samplers.begin(),
-                        material->shader_data()->samplers.end(), [](const auto& sampler)
+                        material.shader_data()->samplers.begin(),
+                        material.shader_data()->samplers.end(), [](const auto& sampler)
                         { return sampler->source != schema::ShaderTextureSource::resource; }))
                 {
                     return true;
@@ -467,6 +519,26 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                     }
                 }
             }
+
+            return true;
+        };
+        auto query = flecs::world(world.native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<MeshRenderer::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world.find_node(entity.id()), stored);
+                }
+            });
+        if (!query_success)
+        {
+            return false;
         }
     }
     if (transparent)
@@ -476,7 +548,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
     }
     for (const auto& item : items)
     {
-        const auto& material = *item.material;
+        const auto material = item.material;
         auto program = std::find_if(programs.begin(), programs.end(), [&material](const auto& entry)
                                     { return entry.path == material.shader_path(); });
         if (program == programs.end())
@@ -512,7 +584,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                 }
             }
         }
-        if (!program->bind_material(material, textures, frame_textures))
+        if (!program->bind_material(material, textures, frame_textures, draw.max_anisotropy))
         {
             return false;
         }
@@ -565,7 +637,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         }
         else if (!capture)
         {
-            const auto source = item.renderer->lightmap_resource();
+            const auto source = item.renderer.lightmap_resource();
             if (source)
             {
                 const auto texture =
@@ -584,7 +656,11 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         const float lighting[]{has_lightmap ? 1.0F : 0.0F, has_probe ? 1.0F : 0.0F, 0, 0};
         bgfx::setUniform(lighting_params, lighting);
         bgfx::setUniform(probe_sh, coefficients.data(), 9);
-        bgfx::setTexture(6, lightmap_sampler, lightmap);
+        bgfx::setTexture(6, lightmap_sampler, lightmap,
+                         draw.max_anisotropy
+                             ? BGFX_SAMPLER_UVW_CLAMP | BGFX_SAMPLER_MIN_ANISOTROPIC |
+                                   BGFX_SAMPLER_MAG_ANISOTROPIC
+                             : UINT32_MAX);
         draw.cluster->bind();
         bgfx::setTransform(item.model.data());
         if (item.geometry == item.mesh->geometry.get())
@@ -636,6 +712,10 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
                     : BGFX_STATE_BLEND_FUNC_SEPARATE(BGFX_STATE_BLEND_SRC_ALPHA,
                                                      BGFX_STATE_BLEND_INV_SRC_ALPHA, alpha_source,
                                                      BGFX_STATE_BLEND_INV_SRC_ALPHA);
+        }
+        if (draw.multisampling)
+        {
+            state |= BGFX_STATE_MSAA;
         }
         bgfx::setState(state);
         bgfx::submit(draw.id,

@@ -1,182 +1,265 @@
 #include "runtime/scene/node.hpp"
 
+#include "runtime/scene/component_registry.hpp"
+#include "runtime/scene/ecs_scene.hpp"
 #include "runtime/scene/scene.hpp"
+#include "runtime/world/world_system.hpp"
 
-#include <algorithm>
-#include <utility>
+#include <flecs.h>
 
 namespace engine
 {
-
-Node::Node(Scene& scene, std::uint64_t id, std::uint64_t local_id, std::string_view name)
-    : scene_(scene), entity_id_(id)
+Node::Node(WorldSystem& world, std::uint64_t epoch, std::uint64_t entity) noexcept
+    : world_(&world), world_epoch_(epoch), entity_id_(entity)
 {
-    info_.id = local_id;
-    info_.name = name;
 }
 
-Node::~Node() noexcept
+bool Node::valid() const noexcept
 {
-    components_.clear();
-    scene_.destroy_entity(entity_id_, info_.id);
-}
-
-bool Node::enabled() const noexcept
-{
-    return info_.enabled;
-}
-
-void Node::set_enabled(bool enabled) noexcept
-{
-    info_.enabled = enabled;
-}
-
-bool Node::active() const noexcept
-{
-    for (const Node* current = this; current != nullptr; current = current->parent())
+    if (!world_ || entity_id_ == 0 || world_epoch_ != world_->epoch() ||
+        world_->native_world() == nullptr || !ecs_is_alive(world_->native_world(), entity_id_))
     {
-        if (!current->enabled())
-        {
-            return false;
-        }
+        return false;
     }
-    return true;
+    flecs::world current(world_->native_world());
+    return current.entity(entity_id_).has<ecs_detail::NodeRuntime>();
 }
-
-bool Node::visible() const noexcept
-{
-    return info_.visible;
-}
-
-void Node::set_visible(bool visible) noexcept
-{
-    info_.visible = visible;
-}
-
-bool Node::visible_in_hierarchy() const noexcept
-{
-    for (const Node* current = this; current != nullptr; current = current->parent())
-    {
-        if (!current->visible())
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 std::uint64_t Node::id() const noexcept
 {
     return entity_id_;
 }
-
-std::string_view Node::name() const noexcept
+WorldSystem* Node::world() const noexcept
 {
-    return info_.name;
+    return world_ && world_->epoch() == world_epoch_ && world_->native_world() ? world_ : nullptr;
 }
-
-const schema::NodeInfoT& Node::info() const noexcept
+Scene* Node::scene() const noexcept
 {
-    return info_;
+    if (!valid())
+    {
+        return nullptr;
+    }
+    flecs::world current(world_->native_world());
+    const auto* state = current.entity(entity_id_).try_get<ecs_detail::NodeRuntime>();
+    return state ? state->scene : nullptr;
 }
-
-Scene& Node::scene() noexcept
+std::string Node::name() const
 {
-    return scene_;
+    if (!valid())
+    {
+        return {};
+    }
+    flecs::world current(world_->native_world());
+    const auto* info = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
+    return info ? info->name : std::string{};
 }
-
-const Scene& Node::scene() const noexcept
+schema::NodeInfoT Node::info() const
 {
-    return scene_;
+    schema::NodeInfoT result;
+    (void)build_info(result);
+    return result;
 }
-
-Node* Node::parent() noexcept
+bool Node::build_info(schema::NodeInfoT& output) const
 {
-    return info_.parent_id == 0 ? nullptr : scene_.find_local_node(info_.parent_id);
-}
-
-const Node* Node::parent() const noexcept
-{
-    return info_.parent_id == 0 ? nullptr : std::as_const(scene_).find_local_node(info_.parent_id);
-}
-
-bool Node::set_parent(Node* parent) noexcept
-{
-    if (parent != nullptr && (persistent_ || &parent->scene() != &scene_))
+    output = {};
+    if (!valid())
     {
         return false;
     }
-    for (const Node* ancestor = parent; ancestor != nullptr; ancestor = ancestor->parent())
+    flecs::world current(world_->native_world());
+    const auto* info = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
+    if (!info)
     {
-        if (ancestor == this)
+        return false;
+    }
+    output.properties = std::make_unique<schema::NodePropertiesT>(*info);
+    const auto parent_entity = current.entity(entity_id_).parent();
+    if (parent_entity)
+    {
+        const auto* parent_info = parent_entity.try_get<schema::NodePropertiesT>();
+        if (!parent_info)
+        {
+            output = {};
+            return false;
+        }
+        output.parent_id = parent_info->id;
+    }
+    return true;
+}
+bool Node::enabled() const noexcept
+{
+    if (!valid())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    const auto* info = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
+    return info && info->enabled;
+}
+bool Node::set_enabled(bool value) noexcept
+{
+    if (!valid() || !world_->can_modify())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    auto* info = current.entity(entity_id_).try_get_mut<schema::NodePropertiesT>();
+    if (!info)
+    {
+        return false;
+    }
+    info->enabled = value;
+    world_->invalidate_scene_state();
+    return true;
+}
+bool Node::active() const noexcept
+{
+    if (!valid() || !world_->refresh_scene_state())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    return current.entity(entity_id_).try_get<ecs_detail::NodeRuntime>()->active;
+}
+bool Node::visible() const noexcept
+{
+    if (!valid())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    const auto* info = current.entity(entity_id_).try_get<schema::NodePropertiesT>();
+    return info && info->visible;
+}
+bool Node::set_visible(bool value) noexcept
+{
+    if (!valid() || !world_->can_modify())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    auto* info = current.entity(entity_id_).try_get_mut<schema::NodePropertiesT>();
+    if (!info)
+    {
+        return false;
+    }
+    info->visible = value;
+    world_->invalidate_scene_state();
+    return true;
+}
+bool Node::visible_in_hierarchy() const noexcept
+{
+    if (!valid() || !world_->refresh_scene_state())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    return current.entity(entity_id_).try_get<ecs_detail::NodeRuntime>()->visible_in_hierarchy;
+}
+Node Node::parent() const noexcept
+{
+    if (!valid())
+    {
+        return {};
+    }
+    flecs::world current(world_->native_world());
+    const auto parent_entity = current.entity(entity_id_).parent();
+    return parent_entity ? Node(*world_, world_epoch_, parent_entity.id()) : Node{};
+}
+bool Node::set_parent(Node parent) noexcept
+{
+    if (!valid() || !world_->can_modify())
+    {
+        return false;
+    }
+    if (parent.entity_id_ != 0 &&
+        (!parent.valid() || parent.world_ != world_ || parent.world_epoch_ != world_epoch_ ||
+         parent.scene() != scene()))
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    auto entity = current.entity(entity_id_);
+    if (parent && entity.try_get<ecs_detail::NodeRuntime>()->persistent)
+    {
+        return false;
+    }
+    for (auto ancestor = parent; ancestor; ancestor = ancestor.parent())
+    {
+        if (ancestor == *this)
         {
             return false;
         }
     }
-    info_.parent_id = parent == nullptr ? 0 : parent->info_.id;
+    if (parent)
+    {
+        entity.add(flecs::ChildOf, parent.id());
+    }
+    else
+    {
+        entity.remove(flecs::ChildOf, flecs::Wildcard);
+    }
+    world_->invalidate_scene_state();
     return true;
 }
-
-bool Node::remove_component(ComponentType type) noexcept
-{
-    return std::erase_if(components_,
-                         [type](const auto& value) { return value->type() == type; }) != 0;
-}
-
 bool Node::transient() const noexcept
 {
-    for (const Node* current = this; current != nullptr; current = current->parent())
+    for (auto ancestor = *this; ancestor; ancestor = ancestor.parent())
     {
-        if (current->transient_)
+        flecs::world current(ancestor.world_->native_world());
+        if (current.entity(ancestor.id()).try_get<ecs_detail::NodeRuntime>()->transient)
         {
             return true;
         }
     }
     return false;
 }
-
-void Node::set_transient(bool transient) noexcept
+bool Node::set_transient(bool value) noexcept
 {
-    transient_ = transient;
-}
-
-bool Node::set_persistent(bool value) noexcept
-{
-    if (parent() != nullptr)
+    if (!valid() || !world_->can_modify())
     {
         return false;
     }
-    persistent_ = value;
+    flecs::world current(world_->native_world());
+    current.entity(entity_id_).try_get_mut<ecs_detail::NodeRuntime>()->transient = value;
     return true;
 }
-
 bool Node::persistent() const noexcept
 {
-    for (const Node* current = this; current != nullptr; current = current->parent())
+    for (auto ancestor = *this; ancestor; ancestor = ancestor.parent())
     {
-        if (current->persistent_)
+        flecs::world current(ancestor.world_->native_world());
+        if (current.entity(ancestor.id()).try_get<ecs_detail::NodeRuntime>()->persistent)
         {
             return true;
         }
     }
     return false;
 }
-
-Component* Node::get_component(ComponentType type) noexcept
+bool Node::set_persistent(bool value) noexcept
 {
-    return const_cast<Component*>(std::as_const(*this).get_component(type));
+    if (!valid() || !world_->can_modify() || parent())
+    {
+        return false;
+    }
+    flecs::world current(world_->native_world());
+    current.entity(entity_id_).try_get_mut<ecs_detail::NodeRuntime>()->persistent = value;
+    return true;
 }
-
-const Component* Node::get_component(ComponentType type) const noexcept
+Component Node::add_component(ComponentType type)
 {
-    const auto iterator = std::find_if(components_.begin(), components_.end(),
-                                       [type](const auto& item) { return item->type() == type; });
-    return iterator == components_.end() ? nullptr : iterator->get();
+    return valid() ? world_->component_registry().create(type, *this) : Component{};
 }
-
-const std::vector<std::unique_ptr<Component>>& Node::components() const noexcept
+Component Node::get_component(ComponentType type) const noexcept
 {
-    return components_;
+    return valid() ? world_->component_registry().find(type, *this) : Component{};
 }
-
+bool Node::remove_component(ComponentType type)
+{
+    return valid() && world_->component_registry().remove(type, *this);
+}
+bool Node::collect_components(std::vector<Component>& output) const
+{
+    output.clear();
+    return valid() && world_->component_registry().collect(*this, output);
+}
 } // namespace engine

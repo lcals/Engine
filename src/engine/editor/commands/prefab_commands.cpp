@@ -27,9 +27,14 @@ using NodeIdentities = std::map<std::uint64_t, std::shared_ptr<std::uint64_t>>;
 NodeIdentities retain_identities(SceneCommands& commands, const Scene& scene)
 {
     NodeIdentities result;
-    for (const auto& node : scene.nodes())
+    std::vector<Node> nodes;
+    if (!scene.collect_nodes(nodes))
     {
-        result.emplace(node->info().id, commands.node_identity(node->id()));
+        return {};
+    }
+    for (const auto& node : nodes)
+    {
+        result.emplace(node.info().properties->id, commands.node_identity(node.id()));
     }
     return result;
 }
@@ -39,11 +44,11 @@ std::vector<schema::NodeIdMappingT> current_ids(const Scene& scene, const NodeId
     std::vector<schema::NodeIdMappingT> result;
     for (const auto& [local, runtime] : ids)
     {
-        if (const auto* node = scene.find_node(*runtime))
+        if (const auto node = scene.find_node(*runtime))
         {
             schema::NodeIdMappingT mapping;
             mapping.source_id = local;
-            mapping.target_id = node->info().id;
+            mapping.target_id = node.info().properties->id;
             result.push_back(mapping);
         }
     }
@@ -77,7 +82,7 @@ bool rebase_instance(std::optional<Instance>& instance, std::span<const schema::
     {
         if (node->info)
         {
-            remap(node->info->id);
+            remap(node->info->properties->id);
             remap(node->info->parent_id);
         }
         for (auto& component : node->components)
@@ -101,32 +106,42 @@ bool rebase_instance(std::optional<Instance>& instance, std::span<const schema::
     return true;
 }
 
-Node* local_node(Scene& scene, std::uint64_t id)
+Node local_node(Scene& scene, std::uint64_t id)
 {
-    for (const auto& node : scene.nodes())
+    std::vector<Node> nodes;
+    if (!scene.collect_nodes(nodes))
     {
-        if (node->info().id == id)
+        return {};
+    }
+    for (const auto& node : nodes)
+    {
+        if (node.info().properties->id == id)
         {
-            return node.get();
+            return node;
         }
     }
-    return nullptr;
+    return {};
 }
-const Instance* instance_for(const Scene& scene, std::uint64_t local, std::uint64_t& source)
+std::optional<Instance> instance_for(const Scene& scene, std::uint64_t local, std::uint64_t& source)
 {
     source = 0;
-    for (const auto& instance : scene.prefab_instances())
+    std::vector<Instance> instances;
+    if (!scene.collect_prefab_instances(instances))
     {
-        for (const auto& mapping : instance->node_mappings)
+        return {};
+    }
+    for (const auto& instance : instances)
+    {
+        for (const auto& mapping : instance.node_mappings)
         {
             if (mapping->target_id == local)
             {
                 source = mapping->source_id;
-                return instance.get();
+                return instance;
             }
         }
     }
-    return nullptr;
+    return {};
 }
 schema::PrefabNodeOverrideT& node_override(Instance& instance, std::uint64_t source)
 {
@@ -172,22 +187,27 @@ bool read_fields(const Json& arguments, Fields& fields, std::string& error)
     }
     return true;
 }
-Component* component_argument(Node& node, const Json& arguments, std::string& error)
+Component component_argument(Node node, const Json& arguments, std::string& error)
 {
     if (!arguments["componentType"].is_string())
     {
         error = "componentType must use the get_scene componentType name";
-        return nullptr;
+        return {};
     }
-    for (const auto& component : node.components())
+    std::vector<Component> components;
+    if (!node.collect_components(components))
     {
-        if (arguments["componentType"] == schema::EnumNameComponentPayload(component->type()))
+        return {};
+    }
+    for (const auto& component : components)
+    {
+        if (arguments["componentType"] == schema::EnumNameComponentPayload(component.type()))
         {
-            return component.get();
+            return component;
         }
     }
     error = "Prefab component does not exist";
-    return nullptr;
+    return {};
 }
 std::string property_name(std::string_view name)
 {
@@ -206,7 +226,7 @@ std::string property_name(std::string_view name)
     }
     return output;
 }
-bool capture(Instance& instance, std::uint64_t source, const Node& node, ComponentType type,
+bool capture(Instance& instance, std::uint64_t source, Node node, ComponentType type,
              const Fields& fields, std::string& error)
 {
     auto& entry = node_override(instance, source);
@@ -220,11 +240,11 @@ bool capture(Instance& instance, std::uint64_t source, const Node& node, Compone
         {
             if (field == "enabled")
             {
-                entry.info->enabled = node.enabled();
+                entry.info->properties->enabled = node.enabled();
             }
             else if (field == "visible")
             {
-                entry.info->visible = node.visible();
+                entry.info->properties->visible = node.visible();
             }
             else
             {
@@ -235,23 +255,23 @@ bool capture(Instance& instance, std::uint64_t source, const Node& node, Compone
         merge_fields(entry.fields, fields);
         return true;
     }
-    const auto* component = node.get_component(type);
+    const auto component = node.get_component(type);
     if (!component)
     {
         error = "Edited prefab component is missing";
         return false;
     }
     schema::PrefabComponentOverrideT current;
-    current.component = std::make_unique<schema::ComponentDataT>(component->data());
+    current.component = std::make_unique<schema::ComponentDataT>(component.data());
     // Dynamic meshes are exported by ScenePersistence; ordinary renderers retain current bindings.
-    if (!component->build_data(*current.component))
+    if (!component.build_data(*current.component))
     {
         if (type != ComponentType::MeshRendererData)
         {
             error = "Cannot snapshot prefab component";
             return false;
         }
-        *current.component = component->data();
+        *current.component = component.data();
         auto* mesh = current.component->payload.AsMeshRendererData();
         for (const auto& previous : entry.components)
         {
@@ -260,17 +280,17 @@ bool capture(Instance& instance, std::uint64_t source, const Node& node, Compone
                 mesh->mesh_guid = saved->mesh_guid;
             }
         }
-        const auto* renderer = node.get_component<MeshRenderer>();
-        if (!ResourceSystem::path_to_guid(renderer->material().type_path(), mesh->material_guid))
+        const auto renderer = node.get_component<MeshRenderer>();
+        if (!ResourceSystem::path_to_guid(renderer.material().type_path(), mesh->material_guid))
         {
             error = "Cannot resolve prefab material identity";
             return false;
         }
         mesh->additional_material_guids.clear();
-        for (std::size_t slot = 1; slot < renderer->material_count(); ++slot)
+        for (std::size_t slot = 1; slot < renderer.material_count(); ++slot)
         {
             Guid material;
-            if (!ResourceSystem::path_to_guid(renderer->material(slot)->type_path(), material))
+            if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(), material))
             {
                 error = "Cannot resolve prefab material identity";
                 return false;
@@ -354,25 +374,26 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
     }
     for (const auto& source : prefab.nodes)
     {
-        const auto mapping = std::find_if(ids.begin(), ids.end(), [&source](const auto& value)
-                                          { return value.source_id == source->info->id; });
-        auto* node = mapping != ids.end() ? local_node(scene, mapping->target_id) : nullptr;
-        if (!node || node->transient())
+        const auto mapping =
+            std::find_if(ids.begin(), ids.end(), [&source](const auto& value)
+                         { return value.source_id == source->info->properties->id; });
+        auto node = mapping != ids.end() ? local_node(scene, mapping->target_id) : Node{};
+        if (!node || node.transient())
         {
             error = "Prefab association has a transient or missing node";
             return false;
         }
-        auto& entry = node_override(instance, source->info->id);
-        entry.info = std::make_unique<schema::NodeInfoT>(node->info());
-        if (node->name() != source->info->name)
+        auto& entry = node_override(instance, source->info->properties->id);
+        entry.info = std::make_unique<schema::NodeInfoT>(node.info());
+        if (node.name() != source->info->properties->name)
         {
             entry.fields.emplace_back("name");
         }
-        if (node->enabled() != source->info->enabled)
+        if (node.enabled() != source->info->properties->enabled)
         {
             entry.fields.emplace_back("enabled");
         }
-        if (node->visible() != source->info->visible)
+        if (node.visible() != source->info->properties->visible)
         {
             entry.fields.emplace_back("visible");
         }
@@ -384,13 +405,13 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                 parent = id.target_id;
             }
         }
-        if (node->info().parent_id != parent)
+        if (node.info().parent_id != parent)
         {
             entry.fields.emplace_back("parent");
         }
         for (const auto& original : source->components)
         {
-            if (node->get_component(original->payload.type))
+            if (node.get_component(original->payload.type))
             {
                 continue;
             }
@@ -399,41 +420,46 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
             removed->removed = true;
             entry.components.push_back(std::move(removed));
         }
-        for (const auto& component : node->components())
+        std::vector<Component> components;
+        if (!node.collect_components(components))
         {
-            if (component->transient())
+            return false;
+        }
+        for (const auto& component : components)
+        {
+            if (component.transient())
             {
                 error = "Prefab association requires persistent components";
                 return false;
             }
-            const auto original =
-                std::find_if(source->components.begin(), source->components.end(),
-                             [&component](const auto& value)
-                             { return value->payload.type == component->type(); });
+            const auto original = std::find_if(source->components.begin(), source->components.end(),
+                                               [&component](const auto& value)
+                                               { return value->payload.type == component.type(); });
             schema::ComponentDataT current;
+            current.flags = std::make_unique<schema::ComponentFlagsT>();
             Fields forced;
-            if (!component->build_data(current))
+            if (!component.build_data(current))
             {
-                if (component->type() != ComponentType::MeshRendererData ||
+                if (component.type() != ComponentType::MeshRendererData ||
                     original == source->components.end())
                 {
                     error = "Cannot snapshot component for prefab association";
                     return false;
                 }
-                current = component->data();
+                current = component.data();
                 current.payload.AsMeshRendererData()->mesh_guid =
                     (*original)->payload.AsMeshRendererData()->mesh_guid;
                 forced.emplace_back("mesh");
             }
-            if (component->type() == ComponentType::MeshRendererData)
+            if (component.type() == ComponentType::MeshRendererData)
             {
-                const auto* renderer = node->get_component<MeshRenderer>();
+                const auto renderer = node.get_component<MeshRenderer>();
                 auto* mesh = current.payload.AsMeshRendererData();
                 mesh->additional_material_guids.clear();
-                for (std::size_t slot = 0; slot < renderer->material_count(); ++slot)
+                for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
                 {
                     Guid material;
-                    if (!ResourceSystem::path_to_guid(renderer->material(slot)->type_path(),
+                    if (!ResourceSystem::path_to_guid(renderer.material(slot).type_path(),
                                                       material))
                     {
                         error = "Cannot resolve associated material";
@@ -447,7 +473,7 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
                     {
                         mesh->additional_material_guids.push_back(material);
                     }
-                    if (renderer->material(slot)->has_overrides())
+                    if (renderer.material(slot).has_overrides())
                     {
                         merge_fields(forced, slot == 0 ? Fields{"material"}
                                                        : Fields{"additional_materials"});
@@ -462,7 +488,7 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
             if (original != source->components.end())
             {
                 auto data = **original;
-                if (!component->remap_node_references(data, ids) ||
+                if (!component.remap_node_references(data, ids) ||
                     !SceneImporter::write_component(data, baseline, error))
                 {
                     return false;
@@ -514,17 +540,18 @@ bool capture_link(Instance& instance, Scene& scene, const schema::PrefabDataT& p
 class PrefabTrackedEdit final : public EditorEdit
 {
 public:
-    PrefabTrackedEdit(WorldSystem& world, SceneCommands& scenes, Node& node, ComponentType type,
+    PrefabTrackedEdit(WorldSystem& world, SceneCommands& scenes, Node node, ComponentType type,
                       Fields fields, std::unique_ptr<EditorEdit> edit)
-        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene().id()),
+        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene()->id()),
           type_(type), fields_(std::move(fields)), edit_(std::move(edit))
     {
     }
     bool apply(std::string& error) override
     {
-        auto* node = resolve(error);
+        auto node = resolve(error);
         std::uint64_t source = 0;
-        const auto* current = node ? instance_for(node->scene(), node->info().id, source) : nullptr;
+        const auto current =
+            node ? instance_for(*node.scene(), node.info().properties->id, source) : std::nullopt;
         if (!current)
         {
             error = "Prefab association changed before editing";
@@ -536,8 +563,8 @@ public:
             return false;
         }
         Instance after(before);
-        if (!capture(after, source, *node, type_, fields_, error) ||
-            !node->scene().set_prefab_instance(after))
+        if (!capture(after, source, node, type_, fields_, error) ||
+            !node.scene()->set_prefab_instance(after))
         {
             std::string rollback;
             if (!edit_->revert(rollback))
@@ -552,9 +579,10 @@ public:
     }
     bool revert(std::string& error) override
     {
-        auto* node = resolve(error);
+        auto node = resolve(error);
         std::uint64_t source = 0;
-        const auto* current = node ? instance_for(node->scene(), node->info().id, source) : nullptr;
+        const auto current =
+            node ? instance_for(*node.scene(), node.info().properties->id, source) : std::nullopt;
         if (!current || *current != after_)
         {
             error = "Prefab overrides changed outside this edit";
@@ -564,7 +592,7 @@ public:
         {
             return false;
         }
-        if (!node->scene().set_prefab_instance(before_))
+        if (!node.scene()->set_prefab_instance(before_))
         {
             std::string rollback;
             if (!edit_->apply(rollback))
@@ -578,10 +606,10 @@ public:
     }
 
 private:
-    Node* resolve(std::string& error) const
+    Node resolve(std::string& error) const
     {
         auto* scene = world_.scene();
-        auto* node = scene && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
+        auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
         if (!node)
         {
             error = "Prefab edit targets a stale scene or node";
@@ -600,12 +628,12 @@ private:
 class PrefabMetadataEdit final : public EditorEdit
 {
 public:
-    PrefabMetadataEdit(WorldSystem& world, SceneCommands& scenes, Node& node,
+    PrefabMetadataEdit(WorldSystem& world, SceneCommands& scenes, Node node,
                        std::optional<Instance> before, std::optional<Instance> after,
                        std::unique_ptr<EditorEdit> edit = {})
-        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene().id()),
+        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene()->id()),
           before_(std::move(before)), after_(std::move(after)), edit_(std::move(edit)),
-          identities_(retain_identities(scenes, node.scene()))
+          identities_(retain_identities(scenes, *node.scene()))
     {
     }
     bool apply(std::string& error) override
@@ -622,7 +650,7 @@ private:
                 bool apply, std::string& error)
     {
         auto* scene = world_.scene();
-        auto* node = scene && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
+        auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
         if (!node)
         {
             error = "Prefab source metadata targets a stale node";
@@ -637,7 +665,7 @@ private:
             return false;
         }
         std::uint64_t source = 0;
-        const auto* current = instance_for(*scene, node->info().id, source);
+        const auto current = instance_for(*scene, node.info().properties->id, source);
         if (bool(current) != bool(current_expected) || (current && *current != *current_expected))
         {
             error = "Prefab source metadata changed outside this edit";
@@ -673,16 +701,16 @@ private:
 class PrefabComponentRestoreEdit final : public EditorEdit
 {
 public:
-    PrefabComponentRestoreEdit(WorldSystem& world, SceneCommands& scenes, Node& node,
+    PrefabComponentRestoreEdit(WorldSystem& world, SceneCommands& scenes, Node node,
                                schema::ComponentDataT before, schema::ComponentDataT after,
                                Fields fields)
-        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene().id()),
+        : world_(world), node_(scenes.node_identity(node.id())), scene_(node.scene()->id()),
           before_(std::move(before)), after_(std::move(after)),
-          identities_(retain_identities(scenes, node.scene())), fields_(std::move(fields))
+          identities_(retain_identities(scenes, *node.scene())), fields_(std::move(fields))
     {
         if (before_.payload.type == ComponentType::MeshRendererData)
         {
-            before_materials_ = materials(*node.get_component<MeshRenderer>());
+            before_materials_ = materials(node.get_component<MeshRenderer>());
         }
     }
     bool apply(std::string& error) override
@@ -700,11 +728,11 @@ private:
         std::vector<Json> result;
         for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
         {
-            result.push_back(components::material_snapshot(*renderer.material(slot)));
+            result.push_back(components::material_snapshot(renderer.material(slot)));
         }
         return result;
     }
-    static bool restore_materials(MeshRenderer& renderer, const std::vector<Json>& snapshots)
+    static bool restore_materials(MeshRenderer renderer, const std::vector<Json>& snapshots)
     {
         if (renderer.material_count() != snapshots.size())
         {
@@ -712,7 +740,7 @@ private:
         }
         for (std::size_t slot = 0; slot < snapshots.size(); ++slot)
         {
-            if (!components::restore_material_snapshot(*renderer.material(slot), snapshots[slot]))
+            if (!components::restore_material_snapshot(renderer.material(slot), snapshots[slot]))
             {
                 return false;
             }
@@ -735,12 +763,12 @@ private:
         {
             return false;
         }
-        auto* node = scene->find_node(*node_);
-        auto* renderer = node && expected.payload.type == ComponentType::MeshRendererData
-                             ? node->get_component<MeshRenderer>()
-                             : nullptr;
+        auto node = scene->find_node(*node_);
+        auto renderer = node && expected.payload.type == ComponentType::MeshRendererData
+                            ? node.get_component<MeshRenderer>()
+                            : MeshRenderer{};
         const auto& expected_materials = forward ? before_materials_ : after_materials_;
-        if (renderer && materials(*renderer) != expected_materials)
+        if (renderer && materials(renderer) != expected_materials)
         {
             error = "Prefab material values changed outside this restore";
             return false;
@@ -759,7 +787,7 @@ private:
         auto wanted = forward ? after_materials_ : before_materials_;
         if (forward && wanted.empty())
         {
-            wanted = materials(*renderer);
+            wanted = materials(renderer);
             for (std::size_t slot = 0; slot < wanted.size(); ++slot)
             {
                 const auto field = slot == 0 ? "material" : "additional_materials";
@@ -770,11 +798,11 @@ private:
                 }
             }
         }
-        if (!restore_materials(*renderer, wanted))
+        if (!restore_materials(renderer, wanted))
         {
             std::string rollback;
-            const bool restored = renderer->restore_data(original) &&
-                                  restore_materials(*renderer, expected_materials);
+            const bool restored =
+                renderer.restore_data(original) && restore_materials(renderer, expected_materials);
             error = restored ? "Cannot restore prefab material values"
                              : "Cannot roll back prefab material restore: " + rollback;
             return false;
@@ -816,15 +844,15 @@ private:
                 std::string& error)
     {
         auto* scene = world_.scene();
-        auto* node = scene && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
-        if (!node || node->enabled() != expected.enabled || node->visible() != expected.visible)
+        auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+        if (!node || node.enabled() != expected.properties->enabled ||
+            node.visible() != expected.properties->visible)
         {
             error = "Prefab node flags changed outside this edit";
             return false;
         }
-        node->set_enabled(value.enabled);
-        node->set_visible(value.visible);
-        return true;
+        return node.set_enabled(value.properties->enabled) &&
+               node.set_visible(value.properties->visible);
     }
     WorldSystem& world_;
     std::shared_ptr<std::uint64_t> node_;
@@ -840,29 +868,29 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
     {
         return false;
     }
-    auto* node = components::target(world, arguments, error);
+    auto node = components::target(world, arguments, error);
     Fields fields;
     if (!node || !read_fields(arguments, fields, error))
     {
         return false;
     }
     std::uint64_t source = 0;
-    const auto* current = instance_for(node->scene(), node->info().id, source);
+    const auto current = instance_for(*node.scene(), node.info().properties->id, source);
     if (!current)
     {
         error = "Node is not a prefab source member";
         return false;
     }
-    Component* component = nullptr;
+    Component component = {};
     if (arguments.contains("componentType"))
     {
-        component = component_argument(*node, arguments, error);
+        component = component_argument(node, arguments, error);
         if (!component)
         {
             return false;
         }
     }
-    const auto type = component ? component->type() : ComponentType::NONE;
+    const auto type = component ? component.type() : ComponentType::NONE;
     Instance after(*current);
     std::unique_ptr<EditorEdit> property;
     if (revert)
@@ -878,7 +906,7 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
         const schema::NodeDataT* baseline = nullptr;
         for (const auto& candidate : resource->prefab()->nodes)
         {
-            if (candidate->info->id == source)
+            if (candidate->info->properties->id == source)
             {
                 baseline = candidate.get();
             }
@@ -911,13 +939,14 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
             {
                 mapping.push_back(*value);
             }
-            if (!component->remap_node_references(*restore.component, mapping))
+            if (!component.remap_node_references(*restore.component, mapping))
             {
                 error = "Prefab baseline references a missing node";
                 return false;
             }
             schema::ComponentDataT before;
-            if (!component->build_data(before))
+            before.flags = std::make_unique<schema::ComponentFlagsT>();
+            if (!component.build_data(before))
             {
                 error = "Cannot snapshot component before reverting";
                 return false;
@@ -928,20 +957,20 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
                 return false;
             }
             property = std::make_unique<PrefabComponentRestoreEdit>(
-                world, scenes, *node, std::move(before), std::move(replacement), fields);
+                world, scenes, node, std::move(before), std::move(replacement), fields);
         }
         else
         {
-            auto replacement = node->info();
+            auto replacement = node.info();
             for (const auto& field : fields)
             {
                 if (field == "enabled")
                 {
-                    replacement.enabled = baseline->info->enabled;
+                    replacement.properties->enabled = baseline->info->properties->enabled;
                 }
                 else if (field == "visible")
                 {
-                    replacement.visible = baseline->info->visible;
+                    replacement.properties->visible = baseline->info->properties->visible;
                 }
                 else
                 {
@@ -949,17 +978,17 @@ bool override_command(WorldSystem& world, SceneCommands& scenes, const Json& arg
                     return false;
                 }
             }
-            property = std::make_unique<PrefabNodeFlagsEdit>(
-                world, scenes.node_identity(node->id()), node->scene().id(), node->info(),
-                replacement);
+            property =
+                std::make_unique<PrefabNodeFlagsEdit>(world, scenes.node_identity(node.id()),
+                                                      node.scene()->id(), node.info(), replacement);
         }
         remove_fields(after, source, type, fields);
     }
-    else if (!capture(after, source, *node, type, fields, error))
+    else if (!capture(after, source, node, type, fields, error))
     {
         return false;
     }
-    edit = std::make_unique<PrefabMetadataEdit>(world, scenes, *node, *current, std::move(after),
+    edit = std::make_unique<PrefabMetadataEdit>(world, scenes, node, *current, std::move(after),
                                                 std::move(property));
     result = {{"nodeId", arguments["nodeId"]},
               {"sourceNodeId", std::to_string(source)},
@@ -972,10 +1001,12 @@ bool wrap_edit(WorldSystem& world, SceneCommands& scenes, std::string_view comma
                const Json& arguments, std::unique_ptr<EditorEdit>& edit, std::string& error)
 {
     auto* scene = world.scene();
-    if (!scene || scene->prefab_instances().empty() || command == "instantiate_prefab" ||
-        command == "set_prefab_override" || command == "revert_prefab_override" ||
-        command == "link_prefab" || command == "unlink_prefab" || command == "create_node" ||
-        command == "instantiate_model" || command == "set_active_camera")
+    std::vector<Instance> instances;
+    if (!scene || !scene->collect_prefab_instances(instances) || instances.empty() ||
+        command == "instantiate_prefab" || command == "set_prefab_override" ||
+        command == "revert_prefab_override" || command == "link_prefab" ||
+        command == "unlink_prefab" || command == "create_node" || command == "instantiate_model" ||
+        command == "set_active_camera")
     {
         return true;
     }
@@ -988,13 +1019,13 @@ bool wrap_edit(WorldSystem& world, SceneCommands& scenes, std::string_view comma
         error = "This edit cannot target a prefab implicitly; use an explicit node command";
         return false;
     }
-    auto* node = components::target(world, arguments, error);
+    auto node = components::target(world, arguments, error);
     if (!node)
     {
         return false;
     }
     std::uint64_t source = 0;
-    if (!instance_for(*scene, node->info().id, source))
+    if (!instance_for(*scene, node.info().properties->id, source))
     {
         return true;
     }
@@ -1012,12 +1043,12 @@ bool wrap_edit(WorldSystem& world, SceneCommands& scenes, std::string_view comma
     }
     else if (command == "set_component_state")
     {
-        auto* component = component_argument(*node, arguments, error);
+        auto component = component_argument(node, arguments, error);
         if (!component)
         {
             return false;
         }
-        type = component->type();
+        type = component.type();
         for (const auto* field : {"enabled", "visible"})
         {
             if (arguments.contains(field))
@@ -1074,7 +1105,7 @@ bool wrap_edit(WorldSystem& world, SceneCommands& scenes, std::string_view comma
         error = "Prefab edit did not identify explicit fields";
         return false;
     }
-    edit = std::make_unique<PrefabTrackedEdit>(world, scenes, *node, type, std::move(fields),
+    edit = std::make_unique<PrefabTrackedEdit>(world, scenes, node, type, std::move(fields),
                                                std::move(edit));
     return true;
 }
@@ -1117,13 +1148,14 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     return false;
                 }
-                const auto* node = components::target(world, arguments, error);
+                const auto node = components::target(world, arguments, error);
                 if (!node)
                 {
                     return false;
                 }
                 std::uint64_t source = 0;
-                const auto* instance = instance_for(node->scene(), node->info().id, source);
+                const auto instance =
+                    instance_for(*node.scene(), node.info().properties->id, source);
                 if (!instance)
                 {
                     result = {{"prefab", nullptr}};
@@ -1167,19 +1199,20 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     return false;
                 }
-                auto* node = components::target(world, arguments, error);
+                auto node = components::target(world, arguments, error);
                 if (!node)
                 {
                     return false;
                 }
                 std::uint64_t source = 0;
-                const auto* instance = instance_for(node->scene(), node->info().id, source);
-                if (!instance || instance->root_id != node->info().id)
+                const auto instance =
+                    instance_for(*node.scene(), node.info().properties->id, source);
+                if (!instance || instance->root_id != node.info().properties->id)
                 {
                     error = "unlink_prefab requires the instance root";
                     return false;
                 }
-                edit = std::make_unique<PrefabMetadataEdit>(world, scenes, *node, *instance,
+                edit = std::make_unique<PrefabMetadataEdit>(world, scenes, node, *instance,
                                                             std::nullopt);
                 result = {{"nodeId", arguments["nodeId"]}, {"linked", false}};
                 return true;
@@ -1197,7 +1230,7 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                 {
                     return false;
                 }
-                auto* node = components::target(world, arguments, error);
+                auto node = components::target(world, arguments, error);
                 if (!node)
                 {
                     return false;
@@ -1213,21 +1246,21 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                     return false;
                 }
                 std::uint64_t source = 0;
-                if (instance_for(node->scene(), node->info().id, source))
+                if (instance_for(*node.scene(), node.info().properties->id, source))
                 {
                     error = "Node already belongs to a prefab";
                     return false;
                 }
                 Instance instance;
                 instance.prefab_guid = guid;
-                instance.root_id = node->info().id;
+                instance.root_id = node.info().properties->id;
                 for (const auto& member : resource->prefab()->nodes)
                 {
-                    auto* target = member->info->id == resource->prefab()->root_id
-                                       ? node
-                                       : local_node(node->scene(), member->info->id);
+                    auto target = member->info->properties->id == resource->prefab()->root_id
+                                      ? node
+                                      : local_node(*node.scene(), member->info->properties->id);
                     bool descendant = false;
-                    for (auto* parent = target; parent; parent = parent->parent())
+                    for (auto parent = target; parent; parent = parent.parent())
                     {
                         if (parent == node)
                         {
@@ -1240,15 +1273,15 @@ bool register_prefab_commands(WorldSystem& world, SceneCommands& scenes,
                         return false;
                     }
                     auto mapping = std::make_unique<schema::NodeIdMappingT>();
-                    mapping->source_id = member->info->id;
-                    mapping->target_id = target->info().id;
+                    mapping->source_id = member->info->properties->id;
+                    mapping->target_id = target.info().properties->id;
                     instance.node_mappings.push_back(std::move(mapping));
                 }
-                if (!capture_link(instance, node->scene(), *resource->prefab(), error))
+                if (!capture_link(instance, *node.scene(), *resource->prefab(), error))
                 {
                     return false;
                 }
-                edit = std::make_unique<PrefabMetadataEdit>(world, scenes, *node, std::nullopt,
+                edit = std::make_unique<PrefabMetadataEdit>(world, scenes, node, std::nullopt,
                                                             std::move(instance));
                 result = {{"nodeId", arguments["nodeId"]}, {"linked", true}, {"prefabGuid", guid}};
                 return true;

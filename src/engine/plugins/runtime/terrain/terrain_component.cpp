@@ -1,8 +1,10 @@
 #include "plugins/runtime/terrain/terrain_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "plugins/runtime/terrain/terrain_system.hpp"
-#include "runtime/performance/profiling.hpp"
 #include "runtime/core/guid_map.hpp"
+#include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/schema/terrain_state_generated.h"
 #include "runtime/utils/path_utils.hpp"
@@ -53,9 +55,14 @@ bool same_dimensions(const schema::TerrainAssetDataT& a, const schema::TerrainAs
 }
 } // namespace
 
-TerrainComponent::TerrainComponent(Node& node) : Component(node)
+bool TerrainComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::TerrainDataT{});
+    return register_component_storage<TerrainComponent, Data, Runtime>(registry);
+}
+
+TerrainComponent::Runtime* TerrainComponent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
 }
 
 bool TerrainComponent::valid_settings(const schema::TerrainDataT& settings) noexcept
@@ -66,16 +73,28 @@ bool TerrainComponent::valid_settings(const schema::TerrainDataT& settings) noex
            std::isfinite(settings.uv_scale) && settings.uv_scale > 0 && settings.uv_scale <= 100;
 }
 
-const schema::TerrainDataT& TerrainComponent::settings() const noexcept
+schema::TerrainDataT TerrainComponent::settings() const noexcept
 {
-    return *data().payload.AsTerrainData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool TerrainComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
-        last_error_ = "Invalid terrain component settings";
+        runtime()->last_error_ = "Invalid terrain component settings";
         return false;
     }
     auto* resources = ResourceSystem::instance();
@@ -86,10 +105,10 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         schema::TerrainAssetDataT asset;
         if (!resources || !resources->loader().load(value.terrain_guid, replacement) ||
             !replacement || replacement->info().kind != schema::AssetKind::terrain ||
-            !read_volume(replacement->bytes(), asset, last_error_) ||
-            !candidate.initialize(asset, last_error_))
+            !read_volume(replacement->bytes(), asset, runtime()->last_error_) ||
+            !candidate.initialize(asset, runtime()->last_error_))
         {
-            last_error_ = "Cannot load terrain resource";
+            runtime()->last_error_ = "Cannot load terrain resource";
             return false;
         }
         if (!value.material_guid.empty())
@@ -98,43 +117,47 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
             if (!resources->loader().load(value.material_guid, material) || !material ||
                 !material->material())
             {
-                last_error_ = "Cannot load terrain material";
+                runtime()->last_error_ = "Cannot load terrain material";
                 return false;
             }
         }
     }
-    const bool retain = resource_ && replacement &&
-                        resource_->info().guid == replacement->info().guid &&
-                        resource_->info().content_hash == replacement->info().content_hash;
+    const bool retain =
+        runtime()->resource_ && replacement &&
+        runtime()->resource_->info().guid == replacement->info().guid &&
+        runtime()->resource_->info().content_hash == replacement->info().content_hash;
     if (retain)
     {
-        if (detached_ && value != settings())
+        if (runtime()->detached_ && value != settings())
         {
-            last_error_ = "Reset terrain fragments before changing their material or settings";
+            runtime()->last_error_ =
+                "Reset terrain fragments before changing their material or settings";
             return false;
         }
-        candidate = volume_;
+        candidate = runtime()->volume_;
     }
     const auto previous_settings = settings();
-    auto previous_resource = resource_;
-    *mutable_data().payload.AsTerrainData() = value;
-    resource_ = std::move(replacement);
-    if (ready_ && resource_)
+    auto previous_resource = runtime()->resource_;
+    *write_data<Data>() = value;
+    modified();
+    runtime()->resource_ = std::move(replacement);
+    if (runtime()->ready_ && runtime()->resource_)
     {
         auto* system = TerrainSystem::instance();
         if (!system || !system->commit(*this, std::move(candidate)))
         {
-            *mutable_data().payload.AsTerrainData() = previous_settings;
-            resource_ = std::move(previous_resource);
+            *write_data<Data>() = previous_settings;
+            modified();
+            runtime()->resource_ = std::move(previous_resource);
             return false;
         }
     }
     else
     {
-        volume_ = std::move(candidate);
-        triangles_ = 0;
-        ready_ = false;
-        pending_ = resource_ != nullptr;
+        runtime()->volume_ = std::move(candidate);
+        runtime()->triangles_ = 0;
+        runtime()->ready_ = false;
+        runtime()->pending_ = runtime()->resource_ != nullptr;
     }
     if (!retain)
     {
@@ -142,46 +165,64 @@ bool TerrainComponent::set_settings(const schema::TerrainDataT& value)
         {
             system->clear_fragments(*this);
         }
-        detached_ = false;
+        runtime()->detached_ = false;
     }
-    last_error_.clear();
+    runtime()->last_error_.clear();
     return true;
 }
 
 bool TerrainComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* value = data.payload.AsTerrainData();
     if (!value || !set_settings(*value))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 
 bool TerrainComponent::apply_sphere(const Vec3& center, float radius, bool fill)
 {
-    ENGINE_PROFILE_ZONE("Terrain.brush");
-    auto* system = TerrainSystem::instance();
-    if (!ready_ || !system || !active())
+    if (!writable())
     {
-        last_error_ = "Terrain is not ready";
         return false;
     }
-    auto candidate = volume_;
-    return candidate.apply_sphere(center, radius, fill, last_error_) &&
+    ENGINE_PROFILE_ZONE("Terrain.brush");
+    auto* system = TerrainSystem::instance();
+    if (!runtime()->ready_ || !system || !active())
+    {
+        runtime()->last_error_ = "Terrain is not ready";
+        return false;
+    }
+    auto candidate = runtime()->volume_;
+    return candidate.apply_sphere(center, radius, fill, runtime()->last_error_) &&
            system->commit(*this, std::move(candidate));
 }
 
 bool TerrainComponent::retire_fragments(std::uint32_t max_count, double max_age_seconds,
-                                       std::uint32_t& retired_count)
+                                        std::uint32_t& retired_count)
 {
     retired_count = 0;
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = TerrainSystem::instance();
     if (!system)
     {
-        last_error_ = "Terrain system is not ready";
+        runtime()->last_error_ = "Terrain system is not ready";
         return false;
     }
     return system->retire_fragments(*this, max_count, max_age_seconds, retired_count);
@@ -189,11 +230,16 @@ bool TerrainComponent::retire_fragments(std::uint32_t max_count, double max_age_
 
 bool TerrainComponent::reset()
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = TerrainSystem::instance();
     schema::TerrainAssetDataT data;
     TerrainVolume candidate;
-    if (!resource_ || !system || !read_volume(resource_->bytes(), data, last_error_) ||
-        !candidate.initialize(data, last_error_))
+    if (!runtime()->resource_ || !system ||
+        !read_volume(runtime()->resource_->bytes(), data, runtime()->last_error_) ||
+        !candidate.initialize(data, runtime()->last_error_))
     {
         return false;
     }
@@ -202,17 +248,21 @@ bool TerrainComponent::reset()
         return false;
     }
     system->clear_fragments(*this);
-    detached_ = false;
+    runtime()->detached_ = false;
     return true;
 }
 
 bool TerrainComponent::collapse_detached(std::uint32_t min_samples, std::uint32_t max_fragments,
                                          std::uint32_t fragment_cells, float density)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto* system = TerrainSystem::instance();
     if (!system)
     {
-        last_error_ = "Terrain system is not available";
+        runtime()->last_error_ = "Terrain system is not available";
         return false;
     }
     return system->collapse_detached(*this, min_samples, max_fragments, fragment_cells, density);
@@ -220,6 +270,10 @@ bool TerrainComponent::collapse_detached(std::uint32_t min_samples, std::uint32_
 
 std::size_t TerrainComponent::fragment_count() const noexcept
 {
+    if (!valid())
+    {
+        return {};
+    }
     const auto* system = TerrainSystem::instance();
     return system ? system->fragment_count(*this) : 0;
 }
@@ -227,14 +281,18 @@ std::size_t TerrainComponent::fragment_count() const noexcept
 bool TerrainComponent::snapshot(ByteBuffer& output) const
 {
     output.clear();
-    if (!ready_ || !resource_ || detached_)
+    if (!valid())
+    {
+        return false;
+    }
+    if (!runtime()->ready_ || !runtime()->resource_ || runtime()->detached_)
     {
         return false;
     }
     schema::TerrainStateDataT state;
-    state.base_guid = resource_->info().guid;
-    state.base_hash = resource_->info().content_hash;
-    state.volume = std::make_unique<schema::TerrainAssetDataT>(volume_.data());
+    state.base_guid = runtime()->resource_->info().guid;
+    state.base_hash = runtime()->resource_->info().content_hash;
+    state.volume = std::make_unique<schema::TerrainAssetDataT>(runtime()->volume_.data());
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishTerrainStateDataBuffer(builder, schema::TerrainStateData::Pack(builder, &state));
     const auto* begin = reinterpret_cast<const std::byte*>(builder.GetBufferPointer());
@@ -244,35 +302,44 @@ bool TerrainComponent::snapshot(ByteBuffer& output) const
 
 bool TerrainComponent::restore(ByteView bytes)
 {
-    if (detached_)
+    if (!writable())
     {
-        last_error_ = "Terrain state cannot restore dynamic fragments; reset them explicitly first";
+        return false;
+    }
+    if (runtime()->detached_)
+    {
+        runtime()->last_error_ =
+            "Terrain state cannot restore dynamic fragments; reset them explicitly first";
         return false;
     }
     auto* system = TerrainSystem::instance();
     const auto* source = reinterpret_cast<const std::uint8_t*>(bytes.data());
     flatbuffers::Verifier verifier(source, bytes.size());
-    if (!resource_ || !system || bytes.size() > 32U * 1024U * 1024U ||
+    if (!runtime()->resource_ || !system || bytes.size() > 32U * 1024U * 1024U ||
         !schema::VerifyTerrainStateDataBuffer(verifier))
     {
-        last_error_ = "Invalid terrain state";
+        runtime()->last_error_ = "Invalid terrain state";
         return false;
     }
     const auto state = schema::UnPackTerrainStateData(source);
     TerrainVolume candidate;
-    if (state->schema_version != 1 || state->base_guid != resource_->info().guid ||
-        state->base_hash != resource_->info().content_hash || !state->volume ||
-        !same_dimensions(*state->volume, volume_.data()))
+    if (state->schema_version != 1 || state->base_guid != runtime()->resource_->info().guid ||
+        state->base_hash != runtime()->resource_->info().content_hash || !state->volume ||
+        !same_dimensions(*state->volume, runtime()->volume_.data()))
     {
-        last_error_ = "Terrain state does not match its base resource";
+        runtime()->last_error_ = "Terrain state does not match its base resource";
         return false;
     }
-    return candidate.initialize(*state->volume, last_error_) &&
+    return candidate.initialize(*state->volume, runtime()->last_error_) &&
            system->commit(*this, std::move(candidate));
 }
 
 bool TerrainComponent::save_state(const std::filesystem::path& path) const
 {
+    if (!valid())
+    {
+        return false;
+    }
     ByteBuffer bytes;
     if (path.empty() || !snapshot(bytes))
     {
@@ -318,12 +385,16 @@ bool TerrainComponent::save_state(const std::filesystem::path& path) const
 
 bool TerrainComponent::load_state(const std::filesystem::path& path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     ByteBuffer bytes;
     std::error_code ec;
     const auto size = std::filesystem::file_size(path, ec);
     if (ec || size > 32U * 1024U * 1024U || !ResourceSystem::read_binary(path, bytes))
     {
-        last_error_ = "Cannot read terrain state";
+        runtime()->last_error_ = "Cannot read terrain state";
         return false;
     }
     return restore(bytes);
@@ -331,27 +402,51 @@ bool TerrainComponent::load_state(const std::filesystem::path& path)
 
 bool TerrainComponent::ready() const noexcept
 {
-    return ready_;
+    if (!valid())
+    {
+        return false;
+    }
+    return runtime()->ready_;
 }
 std::uint64_t TerrainComponent::revision() const noexcept
 {
-    return revision_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->revision_;
 }
 std::size_t TerrainComponent::chunk_count() const noexcept
 {
-    return volume_.chunk_count();
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->volume_.chunk_count();
 }
 std::size_t TerrainComponent::rebuilt_chunks() const noexcept
 {
-    return volume_.rebuilt_chunks();
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->volume_.rebuilt_chunks();
 }
 std::size_t TerrainComponent::triangle_count() const noexcept
 {
-    return triangles_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->triangles_;
 }
-const std::string& TerrainComponent::last_error() const noexcept
+std::string TerrainComponent::last_error() const noexcept
 {
-    return last_error_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->last_error_;
 }
 
 } // namespace engine::plugins::terrain

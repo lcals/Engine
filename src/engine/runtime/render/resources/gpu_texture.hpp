@@ -47,6 +47,7 @@ struct GpuTexture
 
     std::shared_ptr<const Resource> resource;
     bgfx::TextureHandle handle = BGFX_INVALID_HANDLE;
+    std::uint32_t sampler_flags = 0;
 };
 
 } // namespace engine::render_detail

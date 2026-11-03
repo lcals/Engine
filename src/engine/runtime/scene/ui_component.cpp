@@ -1,5 +1,7 @@
 #include "runtime/scene/ui_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
@@ -7,32 +9,54 @@
 
 namespace engine
 {
-UiComponent::UiComponent(Node& node) : Component(node)
+bool UiComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::UiDataT{});
+    return register_component_storage<UiComponent, Data, Runtime>(registry);
 }
+
+UiComponent::Runtime* UiComponent::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
+
 std::uint64_t UiComponent::document_revision() const noexcept
 {
-    return document_revision_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->document_revision_;
 }
 bool UiComponent::valid_settings(const schema::UiDataT& settings) noexcept
 {
     return settings.document_guid.empty() || GuidMap::valid_guid(settings.document_guid);
 }
-const schema::UiDataT& UiComponent::settings() const noexcept
+schema::UiDataT UiComponent::settings() const noexcept
 {
-    return *data().payload.AsUiData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool UiComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 bool UiComponent::set_settings(const schema::UiDataT& value)
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    ResourcePtr next = document_;
+    ResourcePtr next = runtime()->document_;
     if (value.document_guid != settings().document_guid)
     {
-        if (document_revision_ == std::numeric_limits<std::uint64_t>::max())
+        if (runtime()->document_revision_ == std::numeric_limits<std::uint64_t>::max())
         {
             return false;
         }
@@ -46,14 +70,19 @@ bool UiComponent::set_settings(const schema::UiDataT& value)
                 return false;
             }
         }
-        ++document_revision_;
+        ++runtime()->document_revision_;
     }
-    *mutable_data().payload.AsUiData() = value;
-    document_ = std::move(next);
+    *write_data<Data>() = value;
+    modified();
+    runtime()->document_ = std::move(next);
     return true;
 }
 bool UiComponent::set_document(std::string_view path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     schema::UiDataT value;
     if (!path.empty() && !ResourceSystem::path_to_guid(path, value.document_guid))
     {
@@ -61,19 +90,33 @@ bool UiComponent::set_document(std::string_view path)
     }
     return set_settings(value);
 }
-const ResourcePtr& UiComponent::document() const noexcept
+ResourcePtr UiComponent::document() const noexcept
 {
-    return document_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->document_;
 }
 bool UiComponent::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsUiData();
     if (!settings || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(value.enabled);
-    set_visible(value.visible);
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
 }
 } // namespace engine

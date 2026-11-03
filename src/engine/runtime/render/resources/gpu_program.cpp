@@ -270,7 +270,8 @@ void GpuProgram::release() noexcept
 }
 
 bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTexture>& textures,
-                               std::span<const bgfx::TextureHandle> frame_textures)
+                               std::span<const bgfx::TextureHandle> frame_textures,
+                               bool max_anisotropy)
 {
     const auto* shader = &definition;
     for (auto& uniform : uniforms)
@@ -367,7 +368,10 @@ bool GpuProgram::bind_material(const Material& material, const std::vector<GpuTe
         {
             return false;
         }
-        bgfx::setTexture(sampler.stage, sampler.handle, texture->handle);
+        bgfx::setTexture(sampler.stage, sampler.handle, texture->handle,
+                         max_anisotropy ? texture->sampler_flags | BGFX_SAMPLER_MIN_ANISOTROPIC |
+                                              BGFX_SAMPLER_MAG_ANISOTROPIC
+                                        : UINT32_MAX);
     }
     return true;
 }

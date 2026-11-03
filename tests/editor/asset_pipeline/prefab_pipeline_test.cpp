@@ -4,11 +4,14 @@
 #include "editor/asset_pipeline/prefab_importer.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
 #include "runtime/resource/resource_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <flatbuffers/verifier.h>
 #include <fstream>
+#include <limits>
 #include <map>
 
 namespace
@@ -34,11 +37,11 @@ bool expect(bool result, const char* message, const std::string& error = {})
 std::unique_ptr<schema::NodeDataT> node(std::uint64_t id, std::uint64_t parent = 0)
 {
     auto result = std::make_unique<schema::NodeDataT>();
-    result->info = std::make_unique<schema::NodeInfoT>();
-    result->info->id = id;
+    result->info = test_support::node_info();
+    result->info->properties->id = id;
     result->info->parent_id = parent;
-    result->info->name = "Template";
-    auto transform = std::make_unique<schema::ComponentDataT>();
+    result->info->properties->name = "Template";
+    auto transform = test_support::component_data();
     transform->payload.Set(schema::TransformDataT{});
     result->components.push_back(std::move(transform));
     return result;
@@ -67,11 +70,11 @@ bool composition(const std::filesystem::path& directory)
     auto first = instance(10);
     auto override = std::make_unique<schema::PrefabNodeOverrideT>();
     override->node_id = 1;
-    override->info = std::make_unique<schema::NodeInfoT>();
-    override->info->enabled = false;
+    override->info = test_support::node_info();
+    override->info->properties->enabled = false;
     override->fields = {"enabled"};
     auto transform = std::make_unique<schema::PrefabComponentOverrideT>();
-    transform->component = std::make_unique<schema::ComponentDataT>();
+    transform->component = test_support::component_data();
     schema::TransformDataT settings;
     settings.position = {0, 0, 0};
     transform->component->payload.Set(settings);
@@ -84,12 +87,13 @@ bool composition(const std::filesystem::path& directory)
     {
         return false;
     }
-    prefab.nodes[0]->info->name = "Changed template";
+    prefab.nodes[0]->info->properties->name = "Changed template";
     prefab.nodes[0]->components[0]->payload.AsTransformData()->position = {8, 0, 0};
     prefab.nodes[0]->components[0]->payload.AsTransformData()->scale = {2, 2, 2};
     if (!expect(PrefabImporter::expand_instance(prefab, first, 20, expanded, error),
                 "refresh first instance", error) ||
-        !expect(!expanded[0]->info->enabled && expanded[0]->info->name == "Changed template" &&
+        !expect(!expanded[0]->info->properties->enabled &&
+                    expanded[0]->info->properties->name == "Changed template" &&
                     expanded[0]->components[0]->payload.AsTransformData()->position.x() == 0 &&
                     expanded[0]->components[0]->payload.AsTransformData()->scale.x() == 2,
                 "false/zero persist while unselected fields inherit"))
@@ -104,7 +108,7 @@ bool composition(const std::filesystem::path& directory)
     auto second = instance(30);
     if (!expect(PrefabImporter::expand_instance(prefab, second, 31, expanded, error),
                 "expand independent second instance", error) ||
-        !expect(expanded[0]->info->enabled &&
+        !expect(expanded[0]->info->properties->enabled &&
                     expanded[0]->components[0]->payload.AsTransformData()->position.x() == 8,
                 "instances do not share mutable state"))
     {
@@ -151,7 +155,7 @@ bool composition(const std::filesystem::path& directory)
     prefab.nodes.push_back(node(2, 1));
     if (!expect(PrefabImporter::expand_instance(prefab, second, 50, expanded, error),
                 "template restores stable node", error) ||
-        !expect(!second.node_mappings[1]->retired && expanded[1]->info->id == 31,
+        !expect(!second.node_mappings[1]->retired && expanded[1]->info->properties->id == 31,
                 "restored node reuses its own identity"))
     {
         return false;
@@ -182,11 +186,11 @@ bool model_identity()
     {
         return false;
     }
-    const auto left = prefab.nodes[1]->info->id;
+    const auto left = prefab.nodes[1]->info->properties->id;
     std::swap(model.nodes[0], model.nodes[1]);
     return expect(PrefabImporter::from_model(model, material_a, prefab, error),
                   "reordered Model rebuild", error) &&
-           expect(prefab.nodes[2]->info->id == left &&
+           expect(prefab.nodes[2]->info->properties->id == left &&
                       prefab.nodes[2]->components[1]->payload.AsMeshRendererData()->material_guid ==
                           material_a,
                   "source keys preserve identity across sibling reorder");
@@ -217,7 +221,7 @@ bool dependencies(const std::filesystem::path& directory)
     schema::MeshRendererDataT mesh;
     mesh.mesh_guid = mesh_guid;
     mesh.material_guid = material_a;
-    auto component = std::make_unique<schema::ComponentDataT>();
+    auto component = test_support::component_data();
     component->payload.Set(mesh);
     prefab.nodes[0]->components.push_back(std::move(component));
     ImportAsset template_asset;
@@ -237,13 +241,13 @@ bool dependencies(const std::filesystem::path& directory)
     auto override = std::make_unique<schema::PrefabNodeOverrideT>();
     override->node_id = 1;
     auto material = std::make_unique<schema::PrefabComponentOverrideT>();
-    material->component = std::make_unique<schema::ComponentDataT>();
+    material->component = test_support::component_data();
     mesh.material_guid = material_b;
     material->component->payload.Set(mesh);
     material->fields = {"material"};
     override->components.push_back(std::move(material));
     auto text = std::make_unique<schema::PrefabComponentOverrideT>();
-    text->component = std::make_unique<schema::ComponentDataT>();
+    text->component = test_support::component_data();
     schema::TextDataT text_data;
     text_data.text = scene_guid;
     text_data.shader_path = "builtin://shaders/font";
@@ -290,12 +294,43 @@ bool dependencies(const std::filesystem::path& directory)
         return false;
     }
     schema::AssetCatalogDataT previous;
-    const auto publish_scene = [&]()
+    const auto publish_scene = [&](bool legacy_node_layout = false)
     {
         std::vector<std::byte> payload, entity;
         if (!ResourceSystem::read_binary(directory / scene_guid, payload))
         {
             return false;
+        }
+        if (legacy_node_layout)
+        {
+            const auto snapshot = schema::UnPackSceneData(payload.data());
+            flatbuffers::FlatBufferBuilder builder;
+            std::vector<flatbuffers::Offset<schema::PrefabInstanceData>> instances;
+            for (const auto& value : snapshot->prefab_instances)
+            {
+                instances.push_back(schema::PrefabInstanceData::Pack(builder, value.get()));
+            }
+            const auto legacy_name = builder.CreateString("Pre-ECS cached node");
+            const auto start = builder.StartTable();
+            // Before ECS, NodeInfo stored id/name/parent directly at these field slots.
+            // Current import must preserve identities without interpreting this old payload.
+            builder.AddElement<std::uint64_t>(4, 10, 0);
+            builder.AddOffset(6, legacy_name);
+            const auto legacy_info = flatbuffers::Offset<schema::NodeInfo>(builder.EndTable(start));
+            const auto legacy_node = schema::CreateNodeData(builder, legacy_info);
+            const auto nodes = builder.CreateVector(std::vector{legacy_node});
+            const auto mappings = builder.CreateVector(instances);
+            const auto info = schema::SceneInfo::Pack(builder, snapshot->info.get());
+            schema::FinishSceneDataBuffer(
+                builder, schema::CreateSceneData(builder, 1, info, nodes, mappings));
+            flatbuffers::Verifier verifier(builder.GetBufferPointer(), builder.GetSize());
+            if (!expect(!schema::VerifySceneDataBuffer(verifier),
+                        "fixture uses incompatible cached node layout"))
+            {
+                return false;
+            }
+            const auto* bytes = reinterpret_cast<const std::byte*>(builder.GetBufferPointer());
+            payload.assign(bytes, bytes + builder.GetSize());
         }
         auto entry = std::make_unique<schema::AssetEntryT>();
         entry->guid = scene_guid;
@@ -322,7 +357,7 @@ bool dependencies(const std::filesystem::path& directory)
     prefab.nodes.push_back(node(2, 1));
     if (!PrefabImporter::write(template_asset.source, prefab, error) ||
         !prefab_importer.convert(template_asset, context, error) ||
-        !scene_importer.convert(scene_asset, context, error) || !publish_scene())
+        !scene_importer.convert(scene_asset, context, error) || !publish_scene(true))
     {
         return false;
     }
@@ -344,7 +379,8 @@ bool dependencies(const std::filesystem::path& directory)
                                      [](const auto& value) { return value->source_id == 2; });
     if (!expect(stable != rebuilt_scene->prefab_instances[0]->node_mappings.end() &&
                     (*stable)->target_id == 11,
-                "template additions keep generated IDs without saving scene source"))
+                "cache schema upgrade and template additions preserve generated IDs without saving "
+                "scene source"))
     {
         return false;
     }
@@ -369,8 +405,40 @@ bool dependencies(const std::filesystem::path& directory)
     stream.close();
     previous.entries.push_back(std::move(entry));
     context.previous_catalog = &previous;
-    return expect(scene_importer.convert(scene_asset, context, error),
-                  "compose against reused wrapped prefab", error);
+    if (!expect(scene_importer.convert(scene_asset, context, error),
+                "compose against reused wrapped prefab", error) ||
+        !publish_scene())
+    {
+        return false;
+    }
+    if (!ResourceSystem::read_binary(directory / scene_guid, payload))
+    {
+        return false;
+    }
+    auto* corrupted_scene = schema::GetMutableSceneData(payload.data());
+    auto* mappings =
+        corrupted_scene->mutable_prefab_instances()->GetMutableObject(0)->mutable_node_mappings();
+    // The resource wrapper is valid; the cached identity vector itself exceeds its payload.
+    flatbuffers::WriteScalar<flatbuffers::uoffset_t>(
+        reinterpret_cast<std::uint8_t*>(mappings),
+        std::numeric_limits<flatbuffers::uoffset_t>::max());
+    auto& scene_entry = **std::find_if(previous.entries.begin(), previous.entries.end(),
+                                       [](const auto& value) { return value->guid == scene_guid; });
+    if (!ResourceSystem::encode_resource(scene_guid, schema::AssetKind::scene, payload, entity,
+                                         scene_entry.header_size))
+    {
+        return false;
+    }
+    scene_entry.content_size = entity.size();
+    scene_entry.content_hash = hash_bytes(entity);
+    if (!write_bytes(directory / "cache" / "gen" / scene_guid, entity, error))
+    {
+        return false;
+    }
+    error.clear();
+    return expect(!scene_importer.convert(scene_asset, context, error) &&
+                      error == "Invalid previous scene instance identities",
+                  "malformed cached identity vector is rejected", error);
 }
 } // namespace
 

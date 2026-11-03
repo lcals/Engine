@@ -169,8 +169,8 @@ bool BindingContext::begin_scene_load(std::string_view path)
     std::unique_ptr<ResourceLoad> operation;
     if (!loader.begin_load(guid, operation) || !operation)
     {
-        scene_load_error_ = loader.last_error().empty() ? "Scene step loading is unavailable"
-                                                       : loader.last_error();
+        scene_load_error_ =
+            loader.last_error().empty() ? "Scene step loading is unavailable" : loader.last_error();
         return false;
     }
     ResourceLoadProgress progress;
@@ -178,7 +178,7 @@ bool BindingContext::begin_scene_load(std::string_view path)
     if (status == ResourceLoadStatus::failed || progress.total == 0)
     {
         scene_load_error_ = operation->last_error().empty() ? "Cannot prepare scene resources"
-                                                          : operation->last_error();
+                                                            : operation->last_error();
         return false;
     }
     scene_load_ = std::move(operation);
@@ -192,7 +192,7 @@ bool BindingContext::begin_scene_load(std::string_view path)
 }
 
 ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget,
-                                                  ResourceLoadProgress& output)
+                                                   ResourceLoadProgress& output)
 {
     output = {};
     if (!active_ || !callable_ || scene_load_path_.empty())
@@ -211,7 +211,7 @@ ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget
             if (resources_status == ResourceLoadStatus::failed)
             {
                 fail_scene_load(scene_load_->last_error().empty() ? "Cannot load scene resources"
-                                                                : scene_load_->last_error());
+                                                                  : scene_load_->last_error());
             }
             else if (resources_status == ResourceLoadStatus::ready && resource_budget != 0)
             {
@@ -219,7 +219,8 @@ ResourceLoadStatus BindingContext::step_scene_load(std::uint32_t resource_budget
                 {
                     scene_restore_request_ = world_->begin_restore_scene(scene_load_->resource());
                 }
-                const auto restored = world_->step_restore_scene(scene_restore_request_, resource_budget);
+                const auto restored =
+                    world_->step_restore_scene(scene_restore_request_, resource_budget);
                 if (restored == SceneRestoreStatus::failed)
                 {
                     fail_scene_load("Cannot restore scene candidate: " + scene_load_path_);
@@ -291,7 +292,8 @@ bool BindingContext::scene_load_context_valid() const noexcept
     auto* resources = ResourceSystem::instance();
     if (resources == nullptr || resources != scene_load_resources_ ||
         resources->generation() != scene_load_generation_ ||
-        &resources->loader() != scene_load_loader_ || world_ == nullptr || !world_->is_initialized())
+        &resources->loader() != scene_load_loader_ || world_ == nullptr ||
+        !world_->is_initialized())
     {
         return false;
     }
@@ -311,8 +313,8 @@ void BindingContext::fail_scene_load(std::string_view error)
     scene_load_.reset();
 }
 
-std::uint64_t BindingContext::submit_async(
-    const std::function<bool(std::function<void(bool)>)>& start)
+std::uint64_t
+BindingContext::submit_async(const std::function<bool(std::function<void(bool)>)>& start)
 {
     if (!active_ || !callable_ || !start || async_results_.size() >= 128 ||
         async_sequence_ == std::numeric_limits<std::uint64_t>::max())
@@ -320,14 +322,15 @@ std::uint64_t BindingContext::submit_async(
         return 0;
     }
     auto result = std::make_shared<AsyncResult>();
-    if (!start([weak = std::weak_ptr<AsyncResult>(result)](bool success)
-               {
-                   if (auto target = weak.lock())
-                   {
-                       target->success = success;
-                       target->ready = true;
-                   }
-               }))
+    if (!start(
+            [weak = std::weak_ptr<AsyncResult>(result)](bool success)
+            {
+                if (auto target = weak.lock())
+                {
+                    target->success = success;
+                    target->ready = true;
+                }
+            }))
     {
         return 0;
     }
@@ -434,10 +437,12 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
     scene_id_ = value;
     if (world_)
     {
-        std::erase_if(owned_scene_ids_, [this](std::uint64_t id)
+        std::erase_if(owned_scene_ids_,
+                      [this](std::uint64_t id)
                       {
                           return std::none_of(world_->scenes().begin(), world_->scenes().end(),
-                                              [id](const auto& scene) { return scene->id() == id; });
+                                              [id](const auto& scene)
+                                              { return scene->id() == id; });
                       });
         if (value != 0 && world_->scene() && world_->scene()->id() == value &&
             std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), value) ==
@@ -448,16 +453,16 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
     }
 }
 
-Node* BindingContext::find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept
+Node BindingContext::find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept
 {
     if (!active_ || !callable_ || !world_ || !world_->is_initialized() ||
         std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), scene_id) ==
             owned_scene_ids_.end())
     {
-        return nullptr;
+        return {};
     }
-    auto* node = world_->find_node(node_id);
-    return node && node->scene().id() == scene_id ? node : nullptr;
+    auto node = world_->find_node(node_id);
+    return node && node.scene()->id() == scene_id ? node : Node{};
 }
 
 double BindingContext::delta_time() const noexcept
@@ -513,29 +518,29 @@ Scene* BindingContext::scene(const Arguments& arguments)
     return value != nullptr && value->id() == id ? value : nullptr;
 }
 
-Node* BindingContext::node(const Arguments& arguments)
+Node BindingContext::node(const Arguments& arguments)
 {
     auto* binding = current(arguments);
     std::uint64_t scene_id = 0;
     std::uint64_t node_id = 0;
     return binding && identifier(arguments, 0, scene_id) && identifier(arguments, 1, node_id)
                ? binding->find_node(scene_id, node_id)
-               : nullptr;
+               : Node{};
 }
 
-Component* BindingContext::component(const Arguments& arguments)
+Component BindingContext::component(const Arguments& arguments)
 {
-    auto* value = node(arguments);
-    if (value == nullptr || arguments.count() < 3 || !arguments.is_int32(2))
+    auto value = node(arguments);
+    if (!value || arguments.count() < 3 || !arguments.is_int32(2))
     {
-        return nullptr;
+        return {};
     }
     const auto kind = arguments.integer(2);
     if (kind <= 0 || kind > std::numeric_limits<std::uint8_t>::max())
     {
-        return nullptr;
+        return {};
     }
-    return value->get_component(static_cast<ComponentType>(kind));
+    return value.get_component(static_cast<ComponentType>(kind));
 }
 
 bool BindingContext::identifier(const Arguments& arguments, int index, std::uint64_t& output)

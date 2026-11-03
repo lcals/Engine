@@ -44,8 +44,8 @@ bool read(WorldSystem& world, Node&, const Json& arguments, schema::CharacterCon
     else if (arguments.contains("cameraNodeId"))
     {
         Json target = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["cameraNodeId"]}};
-        auto* camera = editor::components::target(world, target, error);
-        if (camera == nullptr || camera->get_component<Camera>() == nullptr)
+        auto camera = editor::components::target(world, target, error);
+        if (!camera || !camera.get_component<Camera>())
         {
             if (error.empty())
             {
@@ -53,7 +53,7 @@ bool read(WorldSystem& world, Node&, const Json& arguments, schema::CharacterCon
             }
             return false;
         }
-        value.camera_node_id = camera->info().id;
+        value.camera_node_id = camera.info().properties->id;
     }
     if (!CharacterController::valid_settings(value))
     {
@@ -68,11 +68,16 @@ Json write(const WorldSystem& world, const schema::CharacterControllerDataT& val
     Json camera_id = nullptr;
     if (const auto* scene = world.scene())
     {
-        for (const auto& node : scene->nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (node->info().id == value.camera_node_id)
+            return {};
+        }
+        for (const auto& node : nodes)
+        {
+            if (node.info().properties->id == value.camera_node_id)
             {
-                camera_id = std::to_string(node->id());
+                camera_id = std::to_string(node.id());
                 break;
             }
         }

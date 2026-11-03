@@ -5,8 +5,12 @@
 ```mermaid
 classDiagram
     class Material {
-        +type_path() string_view
-        +shader_path() string_view
+        <<value handle>>
+        +Material()
+        +valid() bool
+        +instance_id() uint64_t
+        +type_path() string
+        +shader_path() string
         +shader_data() const ShaderDataT#42;
         +has_overrides() bool
         +set_type(string_view path) bool
@@ -19,13 +23,17 @@ classDiagram
         +set_v4(string_view name, const Vec4& value) bool
         +set_texture(string_view name, string_view path) bool
         +get_texture(string_view name, string_view& output) bool
-        +texture(string_view name) const ResourcePtr&
+        +texture(string_view name) ResourcePtr
         +get_float(string_view name, float& output) bool
         +get_v2(string_view name, Vec2& output) bool
         +get_v3(string_view name, Vec3& output) bool
         +get_v4(string_view name, Vec4& output) bool
     }
     class MeshRenderer
+    class Component
+    class MaterialState
+    class MeshRendererRuntime
+    class ecs_world_t
     class ResourceSystem
     class ResourceLoader
     class Resource
@@ -41,12 +49,16 @@ classDiagram
     class Vec2
     class Vec3
     class Vec4
-    MeshRenderer "1" *-- "1..*" Material : 参数行为
-    Material *-- MaterialDataT : 独占生成的实例数据
+    MeshRenderer ..> Material : 按槽返回值句柄
+    Material *-- Component : 所属网格实例身份
+    Material ..> MaterialState : 校验组件及槽身份后访问
+    ecs_world_t *-- MeshRendererRuntime : ECS运行列
+    MeshRendererRuntime *-- MaterialState : 独占槽数据
+    MaterialState *-- MaterialDataT : 唯一生成实例数据
     Material ..> CullMode : 通用面剔除状态
     Material ..> ResourceSystem : 路径与GUID查询
     Material ..> ResourceLoader : 取得所选实现的资源引用
-    Material o-- Resource : 材质与当前Shader共享引用
+    MaterialState o-- Resource : 材质与当前Shader共享引用
     Material ..> ShaderDataT : 查询声明的参数
     Material ..> ShaderParameterT : 名称类型范围匹配
     Material ..> Vec2 : 参数和输出类型
@@ -65,14 +77,16 @@ classDiagram
 - 内置 PBR 的 `specularWorkflow`（float，默认 0）选择保留原有 metallic/roughness 流程或采用 `specularColor`（v3）乘 `specularTexture.rgb` 的反射色，光滑度为 `smoothness * specularTexture.a`。`normalScale`（float，默认 1）调节法线 XY；`uvTransform`（v4，默认 1,1,0,0）对基础 UV 先缩放后平移，主绘制与阴影一致。这些均为 Shader 声明，Material 不增加专用字段或 setter。
 - `emissionColor`（v3，非负 HDR，默认 0）乘 `emissionTexture.rgb`，在线性照明中叠加发光；此参数不创建 Light，也不表示 Bloom。`fogInfluence`（float，0..1，默认 1）控制材质受全局雾影响程度；天空材质可设 0。
 - `get_*()` 读取同一实例数据，失败输出零值。隐藏参数由渲染器读取 Shader 定义中的默认值，不允许通过材质接口覆盖。
-- Material 由 MeshRenderer 独占，持有生成 `MaterialDataT` 的唯一运行时实例。字符串返回值和组件引用均为借用，切换材质或删除节点后不能继续使用旧借用。
+- Material 是按需返回的值句柄；MeshRendererRuntime 的 MaterialState 槽保存唯一生成实例与资源引用。字符串路径按值返回，纹理共享引用按值返回；资源数据视图只在当前稳定阶段借用。
 - 默认 MeshRenderer 初始化选择 `builtin://materials/default-pbr`；资源定义不存在时通过组件初始化返回 false，Node 不发布半初始化组件。ResourceSystem 必须先于使用材质的场景初始化、晚于场景和 GPU 资源关闭。
 
 - 项目材质定义可引用内置或项目 Shader；内置材质定义不能引用项目 Shader。材质持有定义与当前 Shader 的共享引用；换型失败保留旧引用。最后一个使用者释放后项目资源自动回收；`builtin://` 定义保留至资源系统关闭。
 
-- Shader 通过具名 sampler 声明贴图槽和内置默认资源；Material 按名称覆盖贴图路径，持有 ResourcePtr。切换材质或 Shader 时先加载完整候选集合，失败保留旧值。get_texture 失败输出空视图，texture 返回借用的共享引用（未知名称为空），借用在材质修改前有效。
+- Shader 通过具名 sampler 声明贴图槽和内置默认资源；Material 按名称覆盖贴图路径，持有 ResourcePtr。切换材质或 Shader 时先加载完整候选集合，失败保留旧值。get_texture 失败输出空值，texture 按值返回共享引用（未知名称为空），调用方持有该引用期间资源保持有效。
 - 当前材质 sampler 的契约为二维贴图，可使用 LDR 或线性 HDR KTX；立方体贴图由环境 IBL 使用，不能赋给普通材质槽。资源依赖校验、材质换型和 `set_texture()` 都检查维度，失败保留原材质引用。
 
 - `shader_data()` 为 const noexcept，只读借用当前材质持有的 Shader 资源数据；不经过可选插件缓存查询。材质换型、Shader 切换或实例销毁后旧借用失效，目录换代不使已有材质转向其他版本。
 
 - `builtin://shaders/blinn-phong` 与 `builtin://materials/default-blinn-phong` 提供通用 Lambert 漫反射与 Blinn–Phong 高光，以资源路径选择。`smoothnessSource` 为 0 时使用 `smoothness * specularTexture.a`，为 1 时使用 `baseColorTexture.a * baseColor.a`；平滑度映射为指数 `2^(10*s+1)`。`specularHighlights`（默认 1）在 PBR 与 Blinn–Phong 中控制直接高光。Blinn–Phong 不执行 PBR 的能量扣减，环境光仍为 albedo 乘环境照明。Material 类不增加算法枚举或专用 API。
+
+Material 句柄只保留所属 Component、槽索引与槽实例 ID；真实 MaterialState 存于 MeshRendererRuntime ECS 列。复制句柄不会复制材质；移除网格组件或删除后重建材质槽使旧句柄失效。`texture()` 返回共享引用值，`type_path()`/`shader_path()` 返回字符串副本；其他借用须在当前结构稳定阶段使用，结构变化后重新查询。

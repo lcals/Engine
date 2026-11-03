@@ -1,4 +1,5 @@
 #pragma once
+#include "runtime/scene/node.hpp"
 
 #include "plugins/runtime/character_controller/character_input.hpp"
 #include "runtime/system/system.hpp"
@@ -21,7 +22,7 @@ public:
     explicit CharacterControllerSystem(WorldSystem& world) noexcept;
     ~CharacterControllerSystem() noexcept override;
     // 选中已发布世界中的玩家；空指针解除选择，不自动接管其他玩家。
-    [[nodiscard]] bool set_player(Node* node) noexcept;
+    [[nodiscard]] bool set_player(Node node) noexcept;
     // 覆盖下一帧输入，消费一次；不持续保留上一次按键。
     [[nodiscard]] bool set_input(const CharacterInput& input) noexcept;
 

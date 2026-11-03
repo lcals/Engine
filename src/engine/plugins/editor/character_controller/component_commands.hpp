@@ -20,24 +20,24 @@ template <typename T, typename Data, typename Read, typename Write>
                                                       std::unique_ptr<editor::EditorEdit>& edit,
                                                       std::string& error)
                {
-                   auto* node = editor::components::target(world, arguments, error);
-                   if (node == nullptr)
+                   auto node = editor::components::target(world, arguments, error);
+                   if (!node)
                    {
                        return false;
                    }
-                   const auto* component = node->get_component<T>();
+                   const auto component = node.get_component<T>();
                    std::optional<schema::ComponentDataT> before;
-                   if (component != nullptr)
+                   if (component.valid())
                    {
                        before.emplace();
-                       if (!component->build_data(*before))
+                       if (!component.build_data(*before))
                        {
                            error = "Cannot snapshot character component";
                            return false;
                        }
                    }
-                   Data value = component != nullptr ? component->settings() : Data{};
-                   if (!read(world, *node, arguments, value, error) || !T::valid_settings(value))
+                   Data value = component.valid() ? component.settings() : Data{};
+                   if (!read(world, node, arguments, value, error) || !T::valid_settings(value))
                    {
                        if (error.empty())
                        {
@@ -46,9 +46,10 @@ template <typename T, typename Data, typename Read, typename Write>
                        return false;
                    }
                    schema::ComponentDataT after;
+                   after.flags = std::make_unique<schema::ComponentFlagsT>();
                    after.payload.Set(value);
-                   after.enabled = component == nullptr || component->enabled();
-                   after.visible = component == nullptr || component->visible();
+                   after.flags->enabled = !component || component.enabled();
+                   after.flags->visible = !component || component.visible();
                    if (arguments.contains("enabled"))
                    {
                        if (!arguments["enabled"].is_boolean())
@@ -56,20 +57,20 @@ template <typename T, typename Data, typename Read, typename Write>
                            error = "enabled must be boolean";
                            return false;
                        }
-                       after.enabled = arguments["enabled"].get<bool>();
+                       after.flags->enabled = arguments["enabled"].get<bool>();
                    }
-                   auto identity = scene_commands.node_identity(node->id());
+                   auto identity = scene_commands.node_identity(node.id());
                    if (!identity)
                    {
                        error = "Cannot resolve stable node identity";
                        return false;
                    }
                    result = write(world, value);
-                   result["enabled"] = after.enabled;
-                   result["sceneId"] = std::to_string(node->scene().id());
-                   result["nodeId"] = std::to_string(node->id());
+                   result["enabled"] = after.flags->enabled;
+                   result["sceneId"] = std::to_string(node.scene()->id());
+                   result["nodeId"] = std::to_string(node.id());
                    edit = std::make_unique<editor::components::ComponentEdit>(
-                       world, node->scene().id(), std::move(identity), std::move(before),
+                       world, node.scene()->id(), std::move(identity), std::move(before),
                        std::move(after));
                    return true;
                }) &&
@@ -82,9 +83,9 @@ template <typename T, typename Data, typename Read, typename Write>
                    {
                        return false;
                    }
-                   const auto* node = editor::components::target(world, arguments, error);
-                   const auto* component = node != nullptr ? node->get_component<T>() : nullptr;
-                   if (component == nullptr)
+                   const auto node = editor::components::target(world, arguments, error);
+                   const auto component = node.valid() ? node.get_component<T>() : T{};
+                   if (!component)
                    {
                        if (error.empty())
                        {
@@ -92,10 +93,10 @@ template <typename T, typename Data, typename Read, typename Write>
                        }
                        return false;
                    }
-                   result = write(world, component->settings());
-                   result["enabled"] = component->enabled();
-                   result["sceneId"] = std::to_string(node->scene().id());
-                   result["nodeId"] = std::to_string(node->id());
+                   result = write(world, component.settings());
+                   result["enabled"] = component.enabled();
+                   result["sceneId"] = std::to_string(node.scene()->id());
+                   result["nodeId"] = std::to_string(node.id());
                    return true;
                });
 }

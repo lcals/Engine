@@ -16,6 +16,7 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 #include "script_fixture.hpp"
 
 #include <SDL3/SDL.h>
@@ -699,10 +700,11 @@ struct Systems
         const auto* scene = world.scene();
         engine::UiElementHandle label;
         std::string value;
-        return expect(scene != nullptr && !scene->nodes().empty() &&
-                          ui.find_element(scene->nodes().front()->id(), "label", label) &&
-                          ui.text(label, value) && value == expected,
-                      "native view text matches the script model: " + std::string(expected));
+        return expect(
+            scene != nullptr && !test_support::scene_nodes(*scene).empty() &&
+                ui.find_element(test_support::scene_nodes(*scene).front().id(), "label", label) &&
+                ui.text(label, value) && value == expected,
+            "native view text matches the script model: " + std::string(expected));
     }
 };
 
@@ -786,12 +788,13 @@ bool native_mouse_capture_case(Systems& systems)
     }
     engine::UiElementHandle action;
     engine::UiEvent clicked;
-    if (!expect(systems.ui.find_element(systems.world.scene()->nodes().front()->id(), "action",
-                                       action) &&
-                    systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
-                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
-                    clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
-                "project-managed buttons retain mouse clicks without claiming the keyboard"))
+    if (!expect(
+            systems.ui.find_element(test_support::scene_nodes(*systems.world.scene()).front().id(),
+                                    "action", action) &&
+                systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
+                systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
+            "project-managed buttons retain mouse clicks without claiming the keyboard"))
     {
         return false;
     }
@@ -981,8 +984,8 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     {
         return false;
     }
-    auto* root = systems.world.scene()->nodes().front().get();
-    const auto node_id = root->id();
+    auto root = test_support::scene_nodes(*systems.world.scene()).front();
+    const auto node_id = root.id();
     engine::UiElementHandle original;
     if (!expect(systems.ui.find_element(node_id, "action", original),
                 "record original persistent element identity"))
@@ -998,13 +1001,14 @@ bool persistent_documents(Systems& systems, const fs::path& project)
         if (phase < 4)
         {
             engine::UiElementHandle current;
-            if (!expect(systems.world.find_node(node_id) == root &&
-                            systems.ui.find_element(node_id, "action", current) &&
-                            current.document_id == original.document_id &&
-                            current.element_id == original.element_id &&
-                            systems.ui.is_valid(original) &&
-                            (phase != 2 || systems.world.scene() == nullptr),
-                        "same native node, document and element survive scene changes and empty world"))
+            if (!expect(
+                    systems.world.find_node(node_id) == root &&
+                        systems.ui.find_element(node_id, "action", current) &&
+                        current.document_id == original.document_id &&
+                        current.element_id == original.element_id &&
+                        systems.ui.is_valid(original) &&
+                        (phase != 2 || systems.world.scene() == nullptr),
+                    "same native node, document and element survive scene changes and empty world"))
             {
                 return false;
             }
@@ -1025,7 +1029,7 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     {
         return false;
     }
-    const auto old_node = systems.world.scenes().front()->nodes().front()->id();
+    const auto old_node = test_support::scene_nodes(*systems.world.scenes().front()).front().id();
     engine::UiElementHandle old_element;
     if (!systems.ui.find_element(old_node, "action", old_element))
     {
@@ -1055,14 +1059,14 @@ bool lifetime_cases(Systems& systems)
         }
         if (std::string_view(operation) == "component")
         {
-            auto* node = systems.world.scene()->nodes().front().get();
-            if (!expect(node->remove_component(engine::UiComponent::component_type),
+            auto node = test_support::scene_nodes(*systems.world.scene()).front();
+            if (!expect(node.remove_component(engine::UiComponent::component_type),
                         "remove component while its input is queued"))
             {
                 return false;
             }
-            auto* replacement = node->add_component<engine::UiComponent>();
-            if (!expect(replacement != nullptr && replacement->set_document(main_document) &&
+            auto replacement = node.add_component<engine::UiComponent>();
+            if (!expect(replacement.valid() && replacement.set_document(main_document) &&
                             systems.ui.synchronize(),
                         "same node and document produce a new component identity"))
             {
@@ -1118,41 +1122,44 @@ bool independent_documents(Systems& systems)
     auto* scene = systems.world.load_scene(main_scene);
     engine::UiElementHandle original;
     if (!expect(scene != nullptr &&
-                    systems.ui.find_element(scene->nodes().front()->id(), "label", original),
+                    systems.ui.find_element(test_support::scene_nodes(*scene).front().id(), "label",
+                                            original),
                 "prepare first document without rendering"))
     {
         return false;
     }
-    auto* second = scene->create_node("Second View");
-    auto* component = second == nullptr ? nullptr : second->add_component<engine::UiComponent>();
-    if (!expect(component != nullptr && component->set_document(main_document) &&
+    auto second = scene->create_node("Second View");
+    auto component = !second ? engine::UiComponent{} : second.add_component<engine::UiComponent>();
+    if (!expect(component.valid() && component.set_document(main_document) &&
                     systems.ui.synchronize() && systems.ui.document_count() == 2 &&
                     systems.ui.is_valid(original) && systems.ui.set_text(original, "preserved"),
                 "adding another document retains the original View identity") ||
-        !expect(scene->destroy_node(second->id()) && systems.ui.synchronize() &&
+        !expect(scene->destroy_node(second.id()) && systems.ui.synchronize() &&
                     systems.ui.document_count() == 1 && systems.ui.is_valid(original),
                 "removing another document retains the original View identity"))
     {
         return false;
     }
-    auto* original_component = scene->nodes().front()->get_component<engine::UiComponent>();
-    const auto revision = original_component->document_revision();
-    if (!expect(original_component->set_document("ui/alternate.rml") &&
-                    original_component->document_revision() == revision + 1 &&
-                    original_component->set_document(main_document) &&
-                    original_component->document_revision() == revision + 2 &&
+    auto original_component =
+        test_support::scene_nodes(*scene).front().get_component<engine::UiComponent>();
+    const auto revision = original_component.document_revision();
+    if (!expect(original_component.set_document("ui/alternate.rml") &&
+                    original_component.document_revision() == revision + 1 &&
+                    original_component.set_document(main_document) &&
+                    original_component.document_revision() == revision + 2 &&
                     !systems.ui.is_valid(original),
                 "A to B to A increments the document revision and invalidates the original View"))
     {
         return false;
     }
     engine::UiElementHandle replacement;
-    if (!expect(systems.ui.find_element(scene->nodes().front()->id(), "label", replacement) &&
+    if (!expect(systems.ui.find_element(test_support::scene_nodes(*scene).front().id(), "label",
+                                        replacement) &&
                     systems.ui.is_valid(replacement) &&
                     replacement.document_id != original.document_id,
                 "returning to A creates a fresh document identity") ||
-        !expect(original_component->set_document(main_document) &&
-                    original_component->document_revision() == revision + 2 &&
+        !expect(original_component.set_document(main_document) &&
+                    original_component.document_revision() == revision + 2 &&
                     systems.ui.is_valid(replacement),
                 "assigning the current document preserves its revision and live handles"))
     {
@@ -1225,8 +1232,8 @@ int main(int argc, char** argv)
                         "integration requires a real GPU backend") &&
                  native_mouse_capture_case(systems) && native_touch_case(systems) &&
                  mvc_case(systems, project.root) && persistent_documents(systems, project.root) &&
-                 lifetime_cases(systems) &&
-                 bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
+                 lifetime_cases(systems) && bubbling_cases(systems) &&
+                 independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);
     }
     engine::LogSystem::instance().shutdown();

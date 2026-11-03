@@ -47,7 +47,7 @@ bool SceneResourceCodec::validate_nodes(
     bool has_shadow_light = false;
     for (const auto& node : nodes)
     {
-        if (!node || !node->info)
+        if (!node || !node->info || !node->info->properties)
         {
             return false;
         }
@@ -55,18 +55,18 @@ bool SceneResourceCodec::validate_nodes(
         bool has_post_process = false;
         for (const auto& component : node->components)
         {
-            if (!component || !component->payload.value)
+            if (!component || !component->flags || !component->payload.value)
             {
                 return false;
             }
             if (const auto* environment = component->payload.AsEnvironmentData())
             {
                 if (!scene_detail::valid_environment(*environment) ||
-                    (component->enabled && has_environment))
+                    (component->flags->enabled && has_environment))
                 {
                     return false;
                 }
-                has_environment = has_environment || component->enabled;
+                has_environment = has_environment || component->flags->enabled;
                 for (const auto* guid :
                      {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
                       &environment->ibl_lut_guid})
@@ -125,13 +125,13 @@ bool SceneResourceCodec::validate_nodes(
             if (const auto* light = component->payload.AsLightData())
             {
                 if (!scene_detail::valid_light(*light) ||
-                    (component->enabled && light->cast_shadows &&
+                    (component->flags->enabled && light->cast_shadows &&
                      light->kind == schema::LightKind::directional && has_shadow_light))
                 {
                     return false;
                 }
                 has_shadow_light =
-                    has_shadow_light || (component->enabled && light->cast_shadows &&
+                    has_shadow_light || (component->flags->enabled && light->cast_shadows &&
                                          light->kind == schema::LightKind::directional);
             }
             if (const auto* effect = component->payload.AsEffectData();

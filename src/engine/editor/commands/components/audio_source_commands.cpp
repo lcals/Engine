@@ -120,9 +120,9 @@ bool register_audio_source(WorldSystem& world, EditorCommands& commands, NodeAli
                 {
                     return false;
                 }
-                auto* node = target(world, arguments, error);
-                auto* source = node ? node->get_component<AudioSource>() : nullptr;
-                if (!source || (operation && !(source->*operation)()))
+                auto node = target(world, arguments, error);
+                auto source = node ? node.get_component<AudioSource>() : AudioSource{};
+                if (!source || (operation && !(source.*operation)()))
                 {
                     if (error.empty())
                     {
@@ -130,8 +130,8 @@ bool register_audio_source(WorldSystem& world, EditorCommands& commands, NodeAli
                     }
                     return false;
                 }
-                result = {{"playback", static_cast<int>(source->playback())},
-                          {"playing", source->playing()}};
+                result = {{"playback", static_cast<int>(source.playback())},
+                          {"playing", source.playing()}};
                 return true;
             });
     };

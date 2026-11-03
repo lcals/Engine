@@ -19,14 +19,20 @@ bool snapshot(const Node& node, schema::NodeDataT& output)
         return false;
     }
     output.info = std::make_unique<schema::NodeInfoT>(node.info());
-    for (const auto& component : node.components())
+    std::vector<Component> components;
+    if (!node.collect_components(components))
     {
-        if (component->transient())
+        return false;
+    }
+    for (const auto& component : components)
+    {
+        if (component.transient())
         {
             continue;
         }
         auto data = std::make_unique<schema::ComponentDataT>();
-        if (!component->build_data(*data))
+        data->flags = std::make_unique<schema::ComponentFlagsT>();
+        if (!component.build_data(*data))
         {
             output = {};
             return false;
@@ -65,33 +71,39 @@ public:
                 return false;
             }
         }
-        if (std::any_of(scene->nodes().begin(), scene->nodes().end(),
-                        [this](const auto& node) { return node->name() == name_; }))
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
+        {
+            error = "Cannot collect scene entities";
+            return false;
+        }
+        if (std::any_of(nodes.begin(), nodes.end(),
+                        [this](const auto& node) { return node.name() == name_; }))
         {
             error = "A node with this name already exists";
             return false;
         }
-        const auto previous_count = scene->nodes().size();
-        auto* root = prefab_ ? scene->instantiate_prefab(path_, name_)
-                             : scene->instantiate_model(path_, name_);
+        std::vector<Node> created;
+        auto root = prefab_ ? scene->instantiate_prefab(path_, name_, &created)
+                            : scene->instantiate_model(path_, name_, &created);
         if (!root)
         {
             error = "Cannot instantiate the model resource";
             return false;
         }
-        const auto count = scene->nodes().size() - previous_count;
+        const auto count = created.size();
         std::vector<schema::NodeDataT> snapshots(count);
         if (!identities_.empty() && count != identities_.size())
         {
-            (void)scene->destroy_node(root->id());
+            (void)scene->destroy_node(root.id());
             error = "Model hierarchy changed since the edit";
             return false;
         }
         for (std::size_t index = 0; index < count; ++index)
         {
-            if (!snapshot(*scene->nodes()[previous_count + index], snapshots[index]))
+            if (!snapshot(created[index], snapshots[index]))
             {
-                (void)scene->destroy_node(root->id());
+                (void)scene->destroy_node(root.id());
                 error = "Cannot retain the instantiated model snapshot";
                 return false;
             }
@@ -105,21 +117,28 @@ public:
         }
         for (std::size_t index = 0; index < count; ++index)
         {
-            const auto id = scene->nodes()[previous_count + index]->id();
+            const auto id = created[index].id();
             *identities_[index] = id;
             aliases_[id] = identities_[index];
-            if (id == root->id())
+            if (id == root.id())
             {
                 root_index_ = index;
             }
         }
         if (prefab_)
         {
-            for (const auto& instance : scene->prefab_instances())
+            std::vector<schema::PrefabInstanceDataT> instances;
+            if (!scene->collect_prefab_instances(instances))
             {
-                if (instance->root_id == root->info().id)
+                (void)scene->destroy_node(root.id());
+                error = "Cannot retain prefab metadata";
+                return false;
+            }
+            for (const auto& instance : instances)
+            {
+                if (instance.root_id == root.info().properties->id)
                 {
-                    prefab_snapshot_ = *instance;
+                    prefab_snapshot_ = instance;
                 }
             }
         }
@@ -138,11 +157,16 @@ public:
         std::set<std::uint64_t> members;
         if (prefab_)
         {
+            std::vector<schema::PrefabInstanceDataT> instances;
+            if (!scene->collect_prefab_instances(instances))
+            {
+                error = "Cannot read prefab metadata";
+                return false;
+            }
             const auto found =
-                std::find_if(scene->prefab_instances().begin(), scene->prefab_instances().end(),
-                             [this](const auto& value)
-                             { return prefab_snapshot_ && *value == *prefab_snapshot_; });
-            if (found == scene->prefab_instances().end())
+                std::find_if(instances.begin(), instances.end(), [this](const auto& value)
+                             { return prefab_snapshot_ && value == *prefab_snapshot_; });
+            if (found == instances.end())
             {
                 error = "Prefab association changed outside this edit";
                 return false;
@@ -150,24 +174,30 @@ public:
         }
         for (std::size_t index = 0; index < identities_.size(); ++index)
         {
-            const auto* node = scene->find_node(*identities_[index]);
+            const auto node = scene->find_node(*identities_[index]);
             schema::NodeDataT current;
-            if (!node || !snapshot(*node, current) || current != snapshots_[index])
+            if (!node || !snapshot(node, current) || current != snapshots_[index])
             {
                 error = "Model nodes changed outside this edit; undo is stale";
                 return false;
             }
-            members.insert(node->id());
+            members.insert(node.id());
         }
-        if (scene->active_camera() && members.contains(scene->active_camera()->node().id()))
+        if (scene->active_camera() && members.contains(scene->active_camera().node().id()))
         {
             error = "Model hierarchy contains the active camera";
             return false;
         }
-        for (const auto& node : scene->nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (node->parent() && members.contains(node->parent()->id()) &&
-                !members.contains(node->id()))
+            error = "Cannot collect scene entities";
+            return false;
+        }
+        for (const auto& node : nodes)
+        {
+            if (node.parent() && members.contains(node.parent().id()) &&
+                !members.contains(node.id()))
             {
                 error = "Model has unrelated children; undo would remove them";
                 return false;

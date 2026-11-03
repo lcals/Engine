@@ -2,17 +2,23 @@
 
 [类图索引](../../class-diagrams/index.md) · [字体系统](font-system.md)
 
-普通 Node 持有 UiComponent，组件引用导入后的 UI 资源。RmlUi 文档中的控件不成为场景节点。
+普通节点通过 UiComponent 值句柄访问 ECS 中的 UI 设置，组件引用导入后的 UI 资源。RmlUi 文档中的控件不成为场景节点。
 系统负责文档呈现与事件输出，项目业务通过调用方接入。
 
 ```mermaid
 classDiagram
     class UiComponent {
+        <<value handle>>
+        +UiComponent()
+        +UiComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() UiComponentRuntime#42;
         +valid_settings(const UiDataT& settings)$ bool
-        +settings() const UiDataT&
+        +settings() UiDataT
+        +get_settings(UiDataT& output) bool
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
-        +document() const ResourcePtr&
+        +document() ResourcePtr
         +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }
@@ -88,8 +94,8 @@ classDiagram
     UiElementInfo ..> UiElementHandle : 当前与父控件身份
     System <|-- UiSystem
     Component <|-- UiComponent
-    Node "1" *-- "0..1" UiComponent : 普通组件
-    UiComponent o-- Resource : 共享 UI 资源
+    Node ..> UiComponent : 按类型返回值句柄
+    UiComponentRuntime o-- Resource : 共享 UI 资源
     UiSystem --> WorldSystem : 借用所有已发布场景与存活节点
     UiSystem --> WindowSystem : 借用输入与尺寸
     UiSystem --> FontSystem : 借用字体能力
@@ -99,6 +105,15 @@ classDiagram
     UiEvent ..> UiElementHandle : 保存事件目标身份
     RenderSystem --> UiSystem : 绘制 UI 通道
     RuntimeHost ..> UiSystem : 装配与释放顺序
+    class ComponentRegistry
+    class ecs_world_t
+    class UiComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- UiComponentRuntime : 实例运行数据
+    UiComponent ..> UiComponentRuntime : 校验身份后短期借用
+    UiComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 - 核心 UI 系统只加载明确挂载的文档，更新布局、转发输入并输出事件，不选择项目场景。
@@ -128,3 +143,5 @@ classDiagram
 - 显式 modifiers 重载仅影响本次输入，不改 SDL 全局修饰键状态。取消先清理指针捕获，再失焦并释放已记录按键，抑制取消引起的激活但不删除已排队合法事件。
 
 隐藏或停用节点/UiComponent 保留 Rml 文档与控件身份。隐藏清除输入捕获及排队事件，停用还暂停 Context 更新；恢复后使用同一文档。`set_document_visible` 只写组件本地 visible，`document_visible` 返回有效激活及可见结果，不另存可写文档状态。删除组件、替换文档或卸载所属场景才释放文档。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

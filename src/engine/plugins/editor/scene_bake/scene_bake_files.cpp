@@ -326,11 +326,11 @@ bool SceneBakeFiles::stage(const std::array<std::vector<std::uint8_t>, 3>& image
     std::uint64_t maximum = 0;
     for (const auto& node : scene.nodes)
     {
-        maximum = std::max(maximum, node->info->id);
+        maximum = std::max(maximum, node->info->properties->id);
         for (const auto& component : node->components)
         {
             auto* candidate = component->payload.AsEnvironmentData();
-            if (candidate != nullptr && component->enabled)
+            if (candidate != nullptr && component->flags->enabled)
             {
                 if (environment != nullptr)
                 {
@@ -364,12 +364,15 @@ bool SceneBakeFiles::stage(const std::array<std::vector<std::uint8_t>, 3>& image
         }
         auto node = std::make_unique<schema::NodeDataT>();
         node->info = std::make_unique<schema::NodeInfoT>();
-        node->info->id = maximum + 1;
-        node->info->name = "Environment";
+        node->info->properties = std::make_unique<schema::NodePropertiesT>();
+        node->info->properties->id = maximum + 1;
+        node->info->properties->name = "Environment";
         auto transform = std::make_unique<schema::ComponentDataT>();
+        transform->flags = std::make_unique<schema::ComponentFlagsT>();
         transform->payload.Set(schema::TransformDataT{});
         node->components.push_back(std::move(transform));
         auto component = std::make_unique<schema::ComponentDataT>();
+        component->flags = std::make_unique<schema::ComponentFlagsT>();
         component->payload.Set(schema::EnvironmentDataT{});
         environment = component->payload.AsEnvironmentData();
         node->components.push_back(std::move(component));
@@ -482,9 +485,9 @@ bool SceneBakeFiles::initialize_lighting(const fs::path& root, std::string_view 
         for (const auto& component : node->components)
         {
             if (const auto* mesh = component->payload.AsMeshRendererData();
-                component->enabled && mesh && mesh->bake_static)
+                component->flags->enabled && mesh && mesh->bake_static)
             {
-                const auto stem = "lighting-" + std::to_string(node->info->id);
+                const auto stem = "lighting-" + std::to_string(node->info->properties->id);
                 if (!add_output(stem + ".mesh", "mesh", resources, error) ||
                     !add_output(stem + ".ktx", "texture_ktx", resources, error))
                 {
@@ -617,7 +620,7 @@ bool SceneBakeFiles::stage_lighting(const LightingBakeOutputs& output, std::stri
         schema::MeshRendererDataT* renderer = nullptr;
         for (const auto& node : scene.nodes)
         {
-            if (node->info->id == item.node_id)
+            if (node->info->properties->id == item.node_id)
             {
                 for (const auto& c : node->components)
                 {
@@ -738,7 +741,7 @@ bool SceneBakeFiles::stage_lighting(const LightingBakeOutputs& output, std::stri
         schema::LightProbeVolumeDataT* component = nullptr;
         for (const auto& node : scene.nodes)
         {
-            if (node->info->id == item.node_id)
+            if (node->info->properties->id == item.node_id)
             {
                 for (const auto& c : node->components)
                 {

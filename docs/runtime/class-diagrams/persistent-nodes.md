@@ -20,10 +20,10 @@ classDiagram
     WorldSystem "1" *-- "0..1" Scene : 未发布恢复候选
     WorldSystem --> Scene : scene 返回当前玩法场景
     WorldSystem ..> Node : 按运行时ID查询借用
-    Scene "1" *-- "0..*" Node : 独占节点
+    Scene ..> Node : 管理实体生命周期并返回值句柄
     Node --> Scene : 借用原所属场景
     Node --> Node : 父子关系
-    Node "1" *-- "0..*" Component : 独占组件
+    Node ..> Component : 按类型返回值句柄
 ```
 
 - `set_persistent(bool)` 只允许根节点设置；非根节点返回 false，状态不变，重复设置幂等。`persistent()` 返回包含祖先标记的有效状态，默认 false。
@@ -59,7 +59,7 @@ classDiagram
     class BindingContext
     class WorldSystem
     Component <|-- UiComponent
-    Node "1" *-- "0..*" Component : 原生对象所有权
+    Node ..> Component : 按类型返回值句柄
     UiComponent ..> UiElement : 保留原文档控件身份
     Gameplay *-- UiController : 项目明确持有
     UiController --> UiComponent : 借用原View
@@ -117,3 +117,5 @@ classDiagram
 - [Godot Autoload](https://docs.godotengine.org/en/stable/tutorials/scripting/singletons_autoload.html)：常驻节点生命周期独立于当前玩法场景。
 - [Unreal FGameViewportWidgetSlot](https://dev.epicgames.com/documentation/en-us/unreal-engine/API/Runtime/UMG/FGameViewportWidgetSlot)：Viewport 控件可选择 World 移除时是否自动移除。
 - [RmlUi Contexts](https://mikke89.github.io/RmlUiDoc/pages/cpp_manual/contexts.html)：Context 独立拥有文档，显式更新、输入、绘制和释放；本方案复用既有能力。
+
+ECS 迁移后常驻保留的是原实体与列数据。Node/Component 的值句柄保持身份，Scene 不再独占节点对象；Published 查询跨所有已发布场景消费常驻实体，候选不参与。UI 的明确层级顺序使用节点创建顺序，不依赖 Flecs archetype 行顺序。

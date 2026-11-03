@@ -15,6 +15,64 @@ namespace engine::editor::asset_pipeline
 {
 namespace
 {
+// Cached nodes and overrides are rebuilt from TOML. Their layout may change while the
+// prefab identity fields remain stable; verify only the schema-defined fields consumed here.
+bool verify_cached_identities(std::span<const std::byte> payload, const schema::SceneData*& scene)
+{
+    scene = nullptr;
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+    if (payload.size() < 2 * sizeof(flatbuffers::uoffset_t) ||
+        !flatbuffers::BufferHasIdentifier(bytes, schema::SceneDataIdentifier()))
+    {
+        return false;
+    }
+    flatbuffers::Verifier verifier(bytes, payload.size());
+    const auto root_offset = verifier.VerifyOffset<flatbuffers::uoffset_t>(0);
+    if (!root_offset)
+    {
+        return false;
+    }
+    const auto* root = reinterpret_cast<const schema::SceneData*>(bytes + root_offset);
+    const auto* root_table = reinterpret_cast<const flatbuffers::Table*>(root);
+    if (!root_table->VerifyTableStart(verifier) ||
+        !root_table->VerifyOffset(verifier, schema::SceneData::VT_PREFAB_INSTANCES) ||
+        !verifier.VerifyVector(root->prefab_instances()))
+    {
+        return false;
+    }
+    if (const auto* instances = root->prefab_instances())
+    {
+        for (flatbuffers::uoffset_t index = 0; index < instances->size(); ++index)
+        {
+            const auto* offset = instances->Data() + index * sizeof(flatbuffers::uoffset_t);
+            if (!verifier.VerifyOffset(offset, 0))
+            {
+                return false;
+            }
+            const auto* instance = instances->Get(index);
+            const auto* table = reinterpret_cast<const flatbuffers::Table*>(instance);
+            if (!table->VerifyTableStart(verifier) ||
+                !table->VerifyOffsetRequired(verifier,
+                                             schema::PrefabInstanceData::VT_PREFAB_GUID) ||
+                !verifier.VerifyString(instance->prefab_guid()) ||
+                !table->VerifyField<std::uint64_t>(verifier, schema::PrefabInstanceData::VT_ROOT_ID,
+                                                   sizeof(std::uint64_t)) ||
+                !table->VerifyOffset(verifier, schema::PrefabInstanceData::VT_NODE_MAPPINGS) ||
+                !verifier.VerifyVector(instance->node_mappings()) ||
+                !verifier.VerifyVectorOfTables(instance->node_mappings()) || !verifier.EndTable())
+            {
+                return false;
+            }
+        }
+    }
+    if (!verifier.EndTable())
+    {
+        return false;
+    }
+    scene = root;
+    return true;
+}
+
 bool retain_generated_mappings(const ImportAsset& asset, const ImportContext& context,
                                schema::SceneDataT& scene, std::string& error)
 {
@@ -42,36 +100,38 @@ bool retain_generated_mappings(const ImportAsset& asset, const ImportContext& co
         error = "Cannot preserve previous scene instance identities: " + asset.guid;
         return false;
     }
-    flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(payload.data()),
-                                   payload.size());
-    if (!schema::VerifySceneDataBuffer(verifier))
+    const schema::SceneData* previous = nullptr;
+    if (!verify_cached_identities(payload, previous))
     {
-        error = "Invalid previous scene instance data";
+        error = "Invalid previous scene instance identities";
         return false;
     }
-    const auto previous = schema::UnPackSceneData(payload.data());
+    const auto* previous_instances = previous->prefab_instances();
+    if (!previous_instances)
+    {
+        return true;
+    }
     for (auto& instance : scene.prefab_instances)
     {
         const auto old =
-            std::find_if(previous->prefab_instances.begin(), previous->prefab_instances.end(),
-                         [&](const auto& item)
+            std::find_if(previous_instances->begin(), previous_instances->end(),
+                         [&](const auto* item)
                          {
-                             return item->prefab_guid == instance->prefab_guid &&
-                                    item->root_id == instance->root_id;
+                             return item->prefab_guid()->string_view() == instance->prefab_guid &&
+                                    item->root_id() == instance->root_id;
                          });
-        if (old == previous->prefab_instances.end())
+        if (old == previous_instances->end() || !(*old)->node_mappings())
         {
             continue;
         }
-        for (const auto& mapping : (*old)->node_mappings)
+        for (const auto* mapping : *(*old)->node_mappings())
         {
             const auto explicit_mapping = std::find_if(
                 instance->node_mappings.begin(), instance->node_mappings.end(),
-                [&](const auto& item) { return item->source_id == mapping->source_id; });
+                [&](const auto& item) { return item->source_id == mapping->source_id(); });
             if (explicit_mapping == instance->node_mappings.end())
             {
-                instance->node_mappings.push_back(
-                    std::make_unique<schema::NodeIdMappingT>(*mapping));
+                instance->node_mappings.emplace_back(mapping->UnPack());
             }
         }
     }

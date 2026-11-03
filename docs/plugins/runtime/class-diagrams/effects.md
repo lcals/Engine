@@ -10,8 +10,14 @@ classDiagram
     class System
     class RenderExtension
     class EffectComponent {
+        <<value handle>>
+        +EffectComponent()
+        +EffectComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() EffectComponentRuntime#42;
         +valid_settings(const EffectDataT& settings) bool
-        +settings() const EffectDataT&
+        +settings() EffectDataT
+        +get_settings(EffectDataT& output) bool
         +set_settings(const EffectDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +set_effect(string_view path) bool
@@ -41,13 +47,22 @@ classDiagram
     Component <|-- EffectComponent
     System <|-- EffectSystem
     RenderExtension <|-- EffectSystem
-    EffectComponent *-- EffectDataT : 生成的持久设置
-    EffectComponent o-- Resource : 共享当前编译特效资源
+    EffectComponent ..> EffectDataT : 读取和修改ECS生成设置
+    EffectComponentRuntime o-- Resource : 共享当前编译特效资源
     EffectSystem --> WorldSystem : 生命周期内借用
     EffectSystem ..> RenderSystem : 初始化时登记，随后不保留借用
     EffectSystem ..> RenderContext : 单帧只读借用
     EffectSystem *-- State : 私有SDK状态
     State ..> EffectComponent : 每次同步按节点与实例身份查找
+    class ComponentRegistry
+    class ecs_world_t
+    class EffectComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- EffectComponentRuntime : 实例运行数据
+    EffectComponent ..> EffectComponentRuntime : 校验身份后短期借用
+    EffectComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 - `EffectDataT` 仅保存 `effect_guid`、`speed`、`loop`、`play_on_awake`。速度为有限 `[0,16]`，资源 GUID 可空。读取失败保持原配置及播放状态，显式播放必须有已加载的有效特效资源。schema 和资源头继续由引擎提供；`EFCT` 资源只封装未经修改的官方 `.efkefc` 字节与每效果依赖路径/GUID/种类映射，不重新定义特效算法或参数格式。
@@ -83,3 +98,5 @@ classDiagram
 ```
 
 这些类型只在插件实现中使用，公开头不出现 SDK 或 bgfx 类型。所有状态返回值为 `[[nodiscard]]`；释放支持重复调用和部分初始化。类图仅引用其他图定义的核心类型，不重新声明其方法。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

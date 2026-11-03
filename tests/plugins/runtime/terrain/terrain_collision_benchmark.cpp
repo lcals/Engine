@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "plugins/runtime/terrain/terrain_volume.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
@@ -114,7 +116,7 @@ double milliseconds(Clock::time_point start)
     return std::chrono::duration<double, std::milli>(Clock::now() - start).count();
 }
 
-bool submit(engine::PhysicsSystem& physics, engine::Collider& collider, const TerrainVolume& volume,
+bool submit(engine::PhysicsSystem& physics, engine::Collider collider, const TerrainVolume& volume,
             const engine::schema::MeshDataT& mesh, engine::MeshCollisionData& previous,
             const Options& options, Sample& sample)
 {
@@ -138,7 +140,7 @@ bool submit(engine::PhysicsSystem& physics, engine::Collider& collider, const Te
     previous.parts.clear();
     const auto start = Clock::now();
     const bool submitted = options.legacy ? physics.set_mesh_data(collider, mesh)
-                                         : physics.set_mesh_parts(collider, current);
+                                          : physics.set_mesh_parts(collider, current);
     sample.submit_ms = milliseconds(start);
     if (!submitted)
     {
@@ -260,16 +262,16 @@ int main(int argc, char** argv)
         return 1;
     }
     auto* scene = world.create_scene("Terrain collision benchmark");
-    auto* node = scene != nullptr ? scene->create_node("Foundation") : nullptr;
-    auto* collider = node != nullptr ? node->add_component<engine::Collider>() : nullptr;
-    if (collider == nullptr)
+    auto node = scene != nullptr ? scene->create_node("Foundation") : engine::Node{};
+    auto collider = node.valid() ? node.add_component<engine::Collider>() : engine::Collider{};
+    if (!collider.valid())
     {
         std::fputs("terrain collision benchmark: collider creation failed\n", stderr);
         return 1;
     }
     engine::MeshCollisionData previous;
     Sample initial;
-    if (!submit(physics, *collider, volume, mesh, previous, options, initial))
+    if (!submit(physics, collider, volume, mesh, previous, options, initial))
     {
         return 1;
     }
@@ -280,9 +282,9 @@ int main(int argc, char** argv)
     }
 
     // Interior and boundary sites are fixed so separate process runs use identical edits.
-    const std::array<engine::Vec3, 4> centers = {
-        engine::Vec3{-24, -1, -24}, engine::Vec3{-16, -1, -16}, engine::Vec3{0, -1, 0},
-        engine::Vec3{11, -1, 9}};
+    const std::array<engine::Vec3, 4> centers = {engine::Vec3{-24, -1, -24},
+                                                 engine::Vec3{-16, -1, -16}, engine::Vec3{0, -1, 0},
+                                                 engine::Vec3{11, -1, 9}};
     const std::array<const char*, 4> actions = {"dig", "repeat_dig", "fill", "repeat_fill"};
     std::vector<Sample> samples;
     samples.reserve(static_cast<std::size_t>(options.repeats) * centers.size() * actions.size());
@@ -302,7 +304,7 @@ int main(int argc, char** argv)
                 sample.round = round;
                 sample.site = site;
                 sample.action = actions[action];
-                if (!submit(physics, *collider, volume, mesh, previous, options, sample))
+                if (!submit(physics, collider, volume, mesh, previous, options, sample))
                 {
                     return 1;
                 }

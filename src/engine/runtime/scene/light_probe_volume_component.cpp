@@ -1,5 +1,7 @@
 #include "runtime/scene/light_probe_volume_component.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
@@ -10,18 +12,35 @@
 
 namespace engine
 {
-LightProbeVolumeComponent::LightProbeVolumeComponent(Node& node) : Component(node)
+bool LightProbeVolumeComponent::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(LightProbeVolumeSettings{});
+    return register_component_storage<LightProbeVolumeComponent, Data, Runtime>(registry);
 }
 
-const LightProbeVolumeSettings& LightProbeVolumeComponent::settings() const noexcept
+LightProbeVolumeComponent::Runtime* LightProbeVolumeComponent::runtime() const noexcept
 {
-    return *data().payload.AsLightProbeVolumeData();
+    return runtime_state<Runtime>();
+}
+
+LightProbeVolumeSettings LightProbeVolumeComponent::settings() const noexcept
+{
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool LightProbeVolumeComponent::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool LightProbeVolumeComponent::set_settings(const LightProbeVolumeSettings& settings)
 {
+    if (!writable())
+    {
+        return false;
+    }
     ResourcePtr replacement;
     if (!settings.probes_guid.empty())
     {
@@ -33,18 +52,23 @@ bool LightProbeVolumeComponent::set_settings(const LightProbeVolumeSettings& set
             return false;
         }
     }
-    *mutable_data().payload.AsLightProbeVolumeData() = settings;
-    resource_ = std::move(replacement);
+    *write_data<Data>() = settings;
+    modified();
+    runtime()->resource_ = std::move(replacement);
     return true;
 }
 
 std::shared_ptr<const Resource> LightProbeVolumeComponent::resource() const noexcept
 {
-    const auto* probes = resource_ ? resource_->light_probe() : nullptr;
-    const auto* transform = node().get_component<Transform>();
+    if (!valid())
+    {
+        return {};
+    }
+    const auto* probes = runtime()->resource_ ? runtime()->resource_->light_probe() : nullptr;
+    auto transform = node().get_component<Transform>();
     std::array<float, 16> matrix{};
     if (!probes || probes->baked_transform.size() != matrix.size() || !transform ||
-        !transform->world_matrix(matrix.data()))
+        !transform.world_matrix(matrix.data()))
     {
         return {};
     }
@@ -55,18 +79,28 @@ std::shared_ptr<const Resource> LightProbeVolumeComponent::resource() const noex
             return {};
         }
     }
-    return resource_;
+    return runtime()->resource_;
 }
 
 bool LightProbeVolumeComponent::restore_data(const schema::ComponentDataT& data)
 {
+    if (!data.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = data.payload.AsLightProbeVolumeData();
     if (!settings || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(data.enabled);
-    set_visible(data.visible);
+    if (!restore_flags(data))
+    {
+        return false;
+    }
     return true;
 }
 } // namespace engine

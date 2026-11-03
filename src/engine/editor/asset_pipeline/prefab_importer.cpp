@@ -44,8 +44,8 @@ bool apply_nodes(Nodes& nodes,
             return false;
         }
         const auto id = mapping.at(value->node_id);
-        const auto found = std::find_if(nodes.begin(), nodes.end(),
-                                        [id](const auto& node) { return node->info->id == id; });
+        const auto found = std::find_if(nodes.begin(), nodes.end(), [id](const auto& node)
+                                        { return node->info->properties->id == id; });
         if (found == nodes.end())
         {
             if (value->removed)
@@ -70,7 +70,7 @@ bool apply_nodes(Nodes& nodes,
             }
             if (field == "name")
             {
-                node.info->name = value->info->name;
+                node.info->properties->name = value->info->properties->name;
             }
             else if (field == "parent")
             {
@@ -78,11 +78,11 @@ bool apply_nodes(Nodes& nodes,
             }
             else if (field == "enabled")
             {
-                node.info->enabled = value->info->enabled;
+                node.info->properties->enabled = value->info->properties->enabled;
             }
             else if (field == "visible")
             {
-                node.info->visible = value->info->visible;
+                node.info->properties->visible = value->info->properties->visible;
             }
             else
             {
@@ -132,13 +132,15 @@ bool apply_nodes(Nodes& nodes,
         changed = false;
         for (const auto& node : nodes)
         {
-            if (removed.contains(node->info->parent_id) && removed.insert(node->info->id).second)
+            if (removed.contains(node->info->parent_id) &&
+                removed.insert(node->info->properties->id).second)
             {
                 changed = true;
             }
         }
     }
-    std::erase_if(nodes, [&removed](const auto& node) { return removed.contains(node->info->id); });
+    std::erase_if(nodes, [&removed](const auto& node)
+                  { return removed.contains(node->info->properties->id); });
     return true;
 }
 } // namespace
@@ -315,6 +317,7 @@ bool PrefabImporter::apply_component_override(schema::ComponentDataT& in_out,
         base.insert_or_assign(field, *values.get(field));
     }
     schema::ComponentDataT result;
+    result.flags = std::make_unique<schema::ComponentFlagsT>();
     if (!SceneImporter::read_component(base, result, error))
     {
         return false;
@@ -357,9 +360,11 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
     }
     auto root = std::make_unique<schema::NodeDataT>();
     root->info = std::make_unique<schema::NodeInfoT>();
-    root->info->id = result.root_id;
-    root->info->name = "Prefab";
+    root->info->properties = std::make_unique<schema::NodePropertiesT>();
+    root->info->properties->id = result.root_id;
+    root->info->properties->name = "Prefab";
     auto transform = std::make_unique<schema::ComponentDataT>();
+    transform->flags = std::make_unique<schema::ComponentFlagsT>();
     transform->payload.Set(schema::TransformDataT{});
     root->components.push_back(std::move(transform));
     result.nodes.push_back(std::move(root));
@@ -398,8 +403,9 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
         }
         auto node = std::make_unique<schema::NodeDataT>();
         node->info = std::make_unique<schema::NodeInfoT>();
-        node->info->id = found->second;
-        node->info->name = source->name;
+        node->info->properties = std::make_unique<schema::NodePropertiesT>();
+        node->info->properties->id = found->second;
+        node->info->properties->name = source->name;
         node->info->parent_id = source->parent < 0 ? result.root_id : ids[source->parent];
         ids.push_back(found->second);
         schema::TransformDataT settings;
@@ -407,6 +413,7 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
         settings.rotation = source->rotation;
         settings.scale = source->scale;
         auto component = std::make_unique<schema::ComponentDataT>();
+        component->flags = std::make_unique<schema::ComponentFlagsT>();
         component->payload.Set(settings);
         node->components.push_back(std::move(component));
         if (!source->mesh_guid.empty())
@@ -429,6 +436,7 @@ bool PrefabImporter::from_model(const schema::ModelDataT& model,
                                                       source->material_guids.end());
             }
             auto renderer = std::make_unique<schema::ComponentDataT>();
+            renderer->flags = std::make_unique<schema::ComponentFlagsT>();
             renderer->payload.Set(std::move(mesh));
             node->components.push_back(std::move(renderer));
         }
@@ -473,7 +481,7 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
     std::set<std::uint64_t> source_ids;
     for (const auto& source : prefab.nodes)
     {
-        source_ids.insert(source->info->id);
+        source_ids.insert(source->info->properties->id);
     }
     for (auto& pair : candidate.node_mappings)
     {
@@ -487,7 +495,7 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
     }
     for (const auto& source : prefab.nodes)
     {
-        if (mapping.contains(source->info->id))
+        if (mapping.contains(source->info->properties->id))
         {
             continue;
         }
@@ -501,7 +509,7 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
             return false;
         }
         auto pair = std::make_unique<schema::NodeIdMappingT>();
-        pair->source_id = source->info->id;
+        pair->source_id = source->info->properties->id;
         pair->target_id = first_free_id++;
         targets.insert(pair->target_id);
         mapping.emplace(pair->source_id, pair->target_id);
@@ -519,7 +527,7 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
     for (const auto& source : prefab.nodes)
     {
         auto node = std::make_unique<schema::NodeDataT>(*source);
-        node->info->id = mapping.at(source->info->id);
+        node->info->properties->id = mapping.at(source->info->properties->id);
         node->info->parent_id =
             source->info->parent_id == 0 ? 0 : mapping.at(source->info->parent_id);
         for (auto& component : node->components)
@@ -536,8 +544,8 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
     {
         return false;
     }
-    if (std::none_of(expanded.begin(), expanded.end(),
-                     [&](const auto& node) { return node->info->id == candidate.root_id; }))
+    if (std::none_of(expanded.begin(), expanded.end(), [&](const auto& node)
+                     { return node->info->properties->id == candidate.root_id; }))
     {
         error = "Prefab instance root cannot be removed by an override";
         return false;
@@ -547,7 +555,7 @@ bool PrefabImporter::expand_instance(const schema::PrefabDataT& prefab,
     for (const auto& pair : candidate.node_mappings)
     {
         if (pair->retired || std::any_of(expanded.begin(), expanded.end(), [&](const auto& node)
-                                         { return node->info->id == pair->target_id; }))
+                                         { return node->info->properties->id == pair->target_id; }))
         {
             continue;
         }

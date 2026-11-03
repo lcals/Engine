@@ -38,8 +38,9 @@ bool validate_scene(const schema::SceneDataT& scene, std::string& error)
     bool has_shadow_light = false;
     for (const auto& node : scene.nodes)
     {
-        if (node == nullptr || node->info == nullptr || node->info->id == 0 ||
-            !nodes.emplace(node->info->id, node.get()).second)
+        if (node == nullptr || node->info == nullptr || !node->info->properties ||
+            node->info->properties->id == 0 ||
+            !nodes.emplace(node->info->properties->id, node.get()).second)
         {
             error = "scene node IDs must be unique and nonzero";
             return false;
@@ -47,7 +48,8 @@ bool validate_scene(const schema::SceneDataT& scene, std::string& error)
         std::set<schema::ComponentPayload> components;
         for (const auto& component : node->components)
         {
-            if (component == nullptr || !components.insert(component->payload.type).second)
+            if (component == nullptr || !component->flags ||
+                !components.insert(component->payload.type).second)
             {
                 error = "scene node components must be unique";
                 return false;
@@ -62,7 +64,7 @@ bool validate_scene(const schema::SceneDataT& scene, std::string& error)
             {
                 return false;
             }
-            if (component->enabled &&
+            if (component->flags->enabled &&
                 component->payload.type == schema::ComponentPayload::EnvironmentData)
             {
                 if (has_environment)
@@ -73,7 +75,7 @@ bool validate_scene(const schema::SceneDataT& scene, std::string& error)
                 has_environment = true;
             }
             if (const auto* light = component->payload.AsLightData();
-                component->enabled && light != nullptr &&
+                component->flags->enabled && light != nullptr &&
                 light->kind == schema::LightKind::directional && light->cast_shadows)
             {
                 if (has_shadow_light)
@@ -138,7 +140,7 @@ bool validate_scene(const schema::SceneDataT& scene, std::string& error)
             std::none_of(camera->second->components.begin(), camera->second->components.end(),
                          [](const auto& component)
                          {
-                             return component->enabled &&
+                             return component->flags->enabled &&
                                     component->payload.type == schema::ComponentPayload::CameraData;
                          }))
         {
@@ -153,8 +155,9 @@ bool parse_component(const toml::table& table, schema::ComponentDataT& component
                      std::string& error)
 {
     using namespace asset_pipeline;
-    component.enabled = table["enabled"].value_or(true);
-    component.visible = table["visible"].value_or(true);
+    component.flags = std::make_unique<schema::ComponentFlagsT>();
+    component.flags->enabled = table["enabled"].value_or(true);
+    component.flags->visible = table["visible"].value_or(true);
     if ((table.contains("enabled") && !table["enabled"].is_boolean()) ||
         (table.contains("visible") && !table["visible"].is_boolean()))
     {
@@ -188,7 +191,7 @@ bool SceneImporter::write_component(const schema::ComponentDataT& component, tom
                                     std::string& error)
 {
     const auto* codec = asset_pipeline::find_scene_component_codec(component.payload.type);
-    if (!codec || !codec->validate(component, error))
+    if (!component.flags || !codec || !codec->validate(component, error))
     {
         if (error.empty())
         {
@@ -196,7 +199,8 @@ bool SceneImporter::write_component(const schema::ComponentDataT& component, tom
         }
         return false;
     }
-    output = toml::table{{"enabled", component.enabled}, {"visible", component.visible}};
+    output =
+        toml::table{{"enabled", component.flags->enabled}, {"visible", component.flags->visible}};
     codec->write(component, output);
     return true;
 }
@@ -212,23 +216,24 @@ bool SceneImporter::read_nodes(const toml::array& nodes,
         const auto* node_table = item.as_table();
         auto node = std::make_unique<schema::NodeDataT>();
         node->info = std::make_unique<schema::NodeInfoT>();
+        node->info->properties = std::make_unique<schema::NodePropertiesT>();
         if (node_table == nullptr ||
-            !asset_pipeline::identifier(node_table->get("id"), node->info->id) ||
+            !asset_pipeline::identifier(node_table->get("id"), node->info->properties->id) ||
             (node_table->contains("parent") &&
              !asset_pipeline::identifier(node_table->get("parent"), node->info->parent_id)))
         {
             error = "node id/parent must be unsigned decimal IDs";
             return false;
         }
-        node->info->name = (*node_table)["name"].value_or(std::string{});
+        node->info->properties->name = (*node_table)["name"].value_or(std::string{});
         if ((node_table->contains("enabled") && !(*node_table)["enabled"].is_boolean()) ||
             (node_table->contains("visible") && !(*node_table)["visible"].is_boolean()))
         {
             error = "node enabled/visible must be boolean";
             return false;
         }
-        node->info->enabled = (*node_table)["enabled"].value_or(true);
-        node->info->visible = (*node_table)["visible"].value_or(true);
+        node->info->properties->enabled = (*node_table)["enabled"].value_or(true);
+        node->info->properties->visible = (*node_table)["visible"].value_or(true);
         const auto* components = (*node_table)["components"].as_array();
         if (components == nullptr)
         {
@@ -239,6 +244,7 @@ bool SceneImporter::read_nodes(const toml::array& nodes,
         {
             const auto* component_table = item_component.as_table();
             auto component = std::make_unique<schema::ComponentDataT>();
+            component->flags = std::make_unique<schema::ComponentFlagsT>();
             if (component_table == nullptr || !read_component(*component_table, *component, error))
             {
                 if (error.empty())
@@ -261,14 +267,14 @@ bool SceneImporter::write_nodes(const std::vector<std::unique_ptr<schema::NodeDa
     output.clear();
     for (const auto& node : input)
     {
-        toml::table table{{"id", std::to_string(node->info->id)},
-                          {"name", node->info->name},
+        toml::table table{{"id", std::to_string(node->info->properties->id)},
+                          {"name", node->info->properties->name},
                           {"parent", std::to_string(node->info->parent_id)}};
-        if (!node->info->enabled)
+        if (!node->info->properties->enabled)
         {
             table.insert("enabled", false);
         }
-        if (!node->info->visible)
+        if (!node->info->properties->visible)
         {
             table.insert("visible", false);
         }
@@ -359,7 +365,7 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
     }
     for (const auto& node : data.nodes)
     {
-        if (node && node->info && !mapped.contains(node->info->id))
+        if (node && node->info && !mapped.contains(node->info->properties->id))
         {
             ordinary.push_back(std::make_unique<schema::NodeDataT>(*node));
         }

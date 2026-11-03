@@ -20,6 +20,7 @@
 | `navigation-terrain` | 交叉与窄门、反转、停止、挖穿、恢复和失败重试；保留代理目标和身份 | 项目导航编排与失败恢复；`engine.navigation`、`engine.navigation_terrain`。真实避让与拥堵需实窗检查，见[导航说明](../../projects/showcase/navigation.md) |
 | `physics-interactions` | 射线／球扫角色、切球／盒范围、观察 Enter／Stay／Exit，暂停／恢复路线 | 项目查询参数、反馈、订阅及失败回滚；`engine.physics_interaction`。原生接触与可见高亮需实窗检查，见[物理交互说明](../../projects/showcase/physics-interactions.md) |
 | `persistent-ui` | 输入文字、加载 A/B、加载中编辑、取消、失败、卸载、销毁 UI | 项目实际 input/click 回调、原控件身份、文本与订阅保留；`engine.scene`、`engine.ui_script`。真实输入焦点、键盘和文档布局需实窗验证 |
+| `ecs-many-objects` | 默认 10,000，可选 1,000／50,000；逐实体检查组件表迁移后的身份、父级隐藏／激活、换父级、删除重建及整组回收 | 项目入口契约和 TS 检查；[真实 MCP 功能脚本](../../projects/showcase/tests/ecs_many_objects_test.py) 通过 UI 操作并读取原生场景计数，[macOS Release 实测记录](../testing.md#ecs-大量对象) |
 
 以上原生测试名表示相关验证入口，不表示每一行都已在本轮重新执行。菜单中的数字及角色数量档位用于选择功能，不是性能结论。
 
@@ -73,7 +74,7 @@ python3 projects/showcase/tests/mcp_interaction_test.py \
 
 每次运行使用独立的 `projects/showcase/cache/mcp-interaction/<运行标识>/`，保存 `receipts.jsonl` 和 `result.json`。待处理请求只查询原回执，不重复提交；失败保留记录，不自动重开或强制结束编辑器。临时 TS 不写入 `assets/`，结果目录不进入 Git。该脚本不注册为普通 CTest，避免无窗口环境运行或意外关闭已有编辑器。
 
-这组交互覆盖菜单点击、滚轮、文字输入、焦点及指定生命周期，不代表全部 12 个范例已实窗验收，也不证明 PBR 高光、阴影、反射的视觉质量、物理求解、声音或其他平台表现正确。拖动、手柄与触摸仍需独立实测。
+这组交互覆盖菜单点击、滚轮、文字输入、焦点及指定生命周期，不代表全部 13 个范例已实窗验收，也不证明 PBR 高光、阴影、反射的视觉质量、物理求解、声音或其他平台表现正确。拖动、手柄与触摸仍需独立实测。
 
 ## 尚未覆盖的功能
 
@@ -87,3 +88,7 @@ python3 projects/showcase/tests/mcp_interaction_test.py \
 2026-11-03，Debug／Release 的 `editor.showcase_*` 各 5/5 通过，覆盖 12 个入口契约、7 组菜单／输入／射击行为、常驻 UI 的 5 组生命周期行为及导航、物理项目编排。项目 TS 类型检查通过。真实 MCP 协议工具测试 `engine.script_tooling` 两种配置各 1/1 通过。
 
 `mcp_interaction_test.py` 已在 macOS Metal 的 Release 编辑器实际通过：同 Gameplay/Model/模块实例、脚本错误隔离、停止重开拒绝旧 Run、真实点击进入并退出 PBR 范例、滚轮及 Unicode 输入触发 Model.events、跨场景保留原控件与文字、完成回执后正常关闭，宿主退出码 0。结果与逐条回执保存在本地 `projects/showcase/cache/mcp-interaction/20261103T092455Z-74b19422/`，不进入版本管理。首轮在编辑器导入尚未完成时启动的检查因缺少会话而结束，未提交玩法操作；资源导入就绪后才执行本次成功流程。
+
+ECS 用例于 2026-11-03 在 macOS Metal Release 编辑器完成 10,000 对象全流程，通过逐项身份、世界坐标、层级状态、旧句柄拒绝、原生实体总数与二次进入检查；这是实际引擎与 UI 结果，不是脚本替身。回执及截图位置见[测试记录](../testing.md#ecs-大量对象)。
+
+50,000 可选档位本轮在 600 秒上限时仍创建到 38,912，未完成逐项验收；不延长本轮功能工作为持续压力测试，限制和回执见同一测试记录。

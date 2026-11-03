@@ -58,9 +58,9 @@ CMake 分为安装、依赖、插件、核心、编辑器与平台六类目录�
 
 运行时启动不要求项目目录。编辑器通过独立 `ProjectSystem` 校验项目，再由 `EditorEnvironment` 准备路径及资源；运行时消费部署后的 catalog 与 GUID 二进制。Android 宿主读取包内或持久版本，不依赖编辑器项目结构。
 
-场景对象统一为 Node 与 Component，Node 只管理身份、层级和组件集合。场景、组件及资源数据由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite 与转换；构建和同步插件组织发布。资源核心读取单项并解析，依赖图插件加载必要依赖并维持共享使用关系。
+场景真实数据唯一存于 WorldSystem 的 Flecs world：生成的节点属性与具体组件按 ECS 列存放，ChildOf 是唯一层级；有效激活/可见性和世界矩阵是安全点刷新缓存。Node、Component 与 Material 是可复制身份值句柄，Scene 管理发布、卸载、资源与局部 ID 索引，不拥有节点或组件行为对象。各 System 直接查询 Published 实体的相关列；保存、撤销和编辑枚举才组装独立快照。组件/资源模型继续由 FlatBuffers schema 定义；GUID 与逻辑路径的双向映射位于核心模块，桌面与设备共用。资源管线负责源文件、meta、SQLite 与转换；构建和同步插件组织发布。资源核心读取单项并解析，依赖图插件加载必要依赖并维持共享使用关系。
 
-物理与音频同样分层：`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 以及 `PhysicsSystem`、`AudioSystem` 属于运行时核心。Jolt 物体、SDL 输出设备与流由对应系统管理，公开组件只暴露生成设置和普通 C++ 请求。WAV/meta 转 PCM、场景 TOML 读写、组件快照与撤销属于编辑器。MCP 插件只注册工具并转发编辑器命令；脚本插件逐类绑定核心接口。两类插件都不复制模拟或播放逻辑，核心也不读取 JSON 命令与编辑器设置。
+物理与音频同样分层：`Collider`、`RigidBody`、`AudioSource`、`AudioListener` 以及 `PhysicsSystem`、`AudioSystem` 属于运行时核心。Jolt 物体、SDL 输出设备与流由对应系统管理，公开组件值句柄暴露生成设置快照和普通 C++ 请求，真实设置/意图存于 ECS 列。WAV/meta 转 PCM、场景 TOML 读写、组件快照与撤销属于编辑器。MCP 插件只注册工具并转发编辑器命令；脚本插件逐类绑定核心接口。两类插件都不复制模拟或播放逻辑，核心也不读取 JSON 命令与编辑器设置。
 
 MCP 协议层只登记、校验并调用工具。项目工具和场景工具各自注册；场景操作通过命令通道交给编辑器主线程，编辑器命令模块组织批量执行、回滚与撤销，场景模块调用普通组件接口。组件和 Engine 不知道 MCP、命令历史或编辑器项目。新业务模块分别登记需要暴露的工具和执行函数，所有权与线程边界保持显式。
 

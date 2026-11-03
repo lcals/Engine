@@ -1,5 +1,7 @@
 #include "runtime/scene/character_motor.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include <cmath>
 #include <utility>
 
@@ -7,13 +9,6 @@ namespace engine
 {
 namespace
 {
-
-schema::ComponentDataT make_data()
-{
-    schema::ComponentDataT data;
-    data.payload.Set(schema::CharacterMotorDataT{});
-    return data;
-}
 
 bool bounded(float value, float minimum, float maximum) noexcept
 {
@@ -29,10 +24,15 @@ bool valid_velocity(const Vec3& value) noexcept
 
 } // namespace
 
-CharacterMotor::CharacterMotor(Node& node) : Component(node, make_data())
+bool CharacterMotor::register_type(ComponentRegistry& registry)
 {
+    return register_component_storage<CharacterMotor, Data, Runtime>(registry);
 }
 
+CharacterMotor::Runtime* CharacterMotor::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
+}
 
 bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) noexcept
 {
@@ -44,90 +44,138 @@ bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) no
            bounded(value.external_damping, 0.0F, 1000.0F);
 }
 
-const schema::CharacterMotorDataT& CharacterMotor::settings() const noexcept
+schema::CharacterMotorDataT CharacterMotor::settings() const noexcept
 {
-    return *data().payload.AsCharacterMotorData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool CharacterMotor::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool CharacterMotor::set_settings(const schema::CharacterMotorDataT& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    *mutable_data().payload.AsCharacterMotorData() = value;
+    *write_data<Data>() = value;
+    modified();
     return true;
 }
 
 bool CharacterMotor::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsCharacterMotorData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    desired_velocity_ = {};
-    velocity_ = {};
-    pending_velocity_ = {};
-    pending_jump_ = 0.0F;
-    grounded_ = false;
-    reset_pending_ = true;
-    set_enabled(value.enabled);
-    set_visible(value.visible);
+    runtime()->desired_velocity_ = {};
+    runtime()->velocity_ = {};
+    runtime()->pending_velocity_ = {};
+    runtime()->pending_jump_ = 0.0F;
+    runtime()->grounded_ = false;
+    runtime()->reset_pending_ = true;
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
 }
 
-
 bool CharacterMotor::set_velocity(const Vec3& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!active() || value.y() != 0.0 || !valid_velocity(value))
     {
         return false;
     }
-    desired_velocity_ = value;
+    runtime()->desired_velocity_ = value;
     return true;
 }
 
 void CharacterMotor::clear_input() noexcept
 {
-    desired_velocity_ = {};
-    pending_jump_ = 0.0F;
+    if (!writable())
+    {
+        return;
+    }
+    runtime()->desired_velocity_ = {};
+    runtime()->pending_jump_ = 0.0F;
 }
 
 bool CharacterMotor::add_velocity(const Vec3& delta) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!active() || !valid_velocity(delta))
     {
         return false;
     }
-    const Vec3 sum(pending_velocity_.x() + delta.x(), pending_velocity_.y() + delta.y(),
-                   pending_velocity_.z() + delta.z());
+    const Vec3 sum(runtime()->pending_velocity_.x() + delta.x(),
+                   runtime()->pending_velocity_.y() + delta.y(),
+                   runtime()->pending_velocity_.z() + delta.z());
     if (!valid_velocity(sum))
     {
         return false;
     }
-    pending_velocity_ = sum;
+    runtime()->pending_velocity_ = sum;
     return true;
 }
 
-const Vec3& CharacterMotor::velocity() const noexcept
+Vec3 CharacterMotor::velocity() const noexcept
 {
-    return velocity_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->velocity_;
 }
 
 bool CharacterMotor::jump(float speed) noexcept
 {
-    if (!active() || !grounded_ || pending_jump_ != 0.0F || !bounded(speed, 0.01F, 1000.0F))
+    if (!writable())
     {
         return false;
     }
-    pending_jump_ = speed;
+    if (!active() || !runtime()->grounded_ || runtime()->pending_jump_ != 0.0F ||
+        !bounded(speed, 0.01F, 1000.0F))
+    {
+        return false;
+    }
+    runtime()->pending_jump_ = speed;
     return true;
 }
 
 bool CharacterMotor::grounded() const noexcept
 {
-    return active() && grounded_;
+    if (!valid())
+    {
+        return false;
+    }
+    return active() && runtime()->grounded_;
 }
 
 } // namespace engine

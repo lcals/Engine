@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "animation_fixture.hpp"
 #include "resource_fixture.hpp"
 
@@ -31,6 +33,7 @@
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
+#include <basisu/encoder/basisu_comp.h>
 #include <bgfx/bgfx.h>
 
 #include <algorithm>
@@ -67,7 +70,7 @@ bool push_application_event(SDL_EventType type)
 }
 
 bool render_frames(engine::WindowSystem& windows, engine::RenderSystem& renderer, int count,
-                   const engine::Camera* camera = nullptr)
+                   engine::Camera camera = {})
 {
     int submitted = 0;
     for (int attempt = 0; attempt < max_frame_attempts && submitted < count; ++attempt)
@@ -328,10 +331,10 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
     {
         return false;
     }
-    engine::Node* cube = scene->create_node("Cube");
-    engine::Node* camera_node = scene->create_node("Camera");
-    engine::Node* light_node = scene->create_node("Light");
-    if (!expect(cube != nullptr && camera_node != nullptr && light_node != nullptr,
+    engine::Node cube = scene->create_node("Cube");
+    engine::Node camera_node = scene->create_node("Camera");
+    engine::Node light_node = scene->create_node("Light");
+    if (!expect(cube.valid() && camera_node.valid() && light_node.valid(),
                 "all scene objects must be nodes"))
     {
         return false;
@@ -344,24 +347,24 @@ bool create_cube_scene(engine::WorldSystem& world, bool unlit)
     camera_transform.scale = {2.0, 0.5, 3.0};
     engine::TransformSettings light_transform;
     light_transform.rotation = {-20.0, 30.0, 0.0};
-    if (!expect(cube->get_component<engine::Transform>()->set_settings(cube_transform),
+    if (!expect(cube.get_component<engine::Transform>().set_settings(cube_transform),
                 "set nonuniform cube transform") ||
-        !expect(camera_node->get_component<engine::Transform>()->set_settings(camera_transform),
+        !expect(camera_node.get_component<engine::Transform>().set_settings(camera_transform),
                 "place camera node") ||
-        !expect(light_node->get_component<engine::Transform>()->set_settings(light_transform),
+        !expect(light_node.get_component<engine::Transform>().set_settings(light_transform),
                 "aim light node"))
     {
         return false;
     }
-    engine::MeshRenderer* mesh = cube->add_component<engine::MeshRenderer>();
-    engine::Camera* camera = camera_node->add_component<engine::Camera>();
-    engine::Light* light = light_node->add_component<engine::Light>();
-    if (!expect(mesh != nullptr && camera != nullptr && light != nullptr,
+    engine::MeshRenderer mesh = cube.add_component<engine::MeshRenderer>();
+    engine::Camera camera = camera_node.add_component<engine::Camera>();
+    engine::Light light = light_node.add_component<engine::Light>();
+    if (!expect(mesh.valid() && camera.valid() && light.valid(),
                 "attach mesh, camera, and light components"))
     {
         return false;
     }
-    auto& material = mesh->material();
+    auto material = mesh.material();
     return expect(material.set_type(unlit ? "builtin://materials/default-unlit"
                                           : "builtin://materials/default-pbr"),
                   "select material type") &&
@@ -450,10 +453,11 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         }
 
         const auto scene_draws = bgfx::getStats()->numDraw;
-        auto* mesh = world.scene()->nodes().front()->get_component<engine::MeshRenderer>();
-        if (!expect(mesh->material().set_type(custom_material.type_path) &&
-                        mesh->material().set_v4("tint", {0.2, 0.7, 0.3, 1.0}) &&
-                        !mesh->material().set_v4("baseColor", {0.2, 0.7, 0.3, 1.0}),
+        auto mesh =
+            test_support::scene_nodes(*world.scene()).front().get_component<engine::MeshRenderer>();
+        if (!expect(mesh.material().set_type(custom_material.type_path) &&
+                        mesh.material().set_v4("tint", {0.2, 0.7, 0.3, 1.0}) &&
+                        !mesh.material().set_v4("baseColor", {0.2, 0.7, 0.3, 1.0}),
                     "custom material resolves names from its shader") ||
             !render_frames(windows, renderer, 8) ||
             !expect(renderer.gpu_resource_count() > 0 && bgfx::getStats()->numDraw == scene_draws,
@@ -464,11 +468,11 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         for (const auto* invalid_path :
              {"shaders/tests/incomplete", "shaders/tests/unknown-uniform"})
         {
-            if (!expect(mesh->material().set_shader(invalid_path), "select schema-valid shader") ||
+            if (!expect(mesh.material().set_shader(invalid_path), "select schema-valid shader") ||
                 !expect(
                     !renderer.prepare_scene() && renderer.gpu_resource_count() == 0,
                     "shader reflection rejects missing and unknown uniforms with full cleanup") ||
-                !expect(mesh->material().set_shader(custom.path), "restore valid shader") ||
+                !expect(mesh.material().set_shader(custom.path), "restore valid shader") ||
                 !render_frames(windows, renderer, 8) ||
                 !expect(renderer.gpu_resource_count() > 0,
                         "renderer recovers without retaining failed program handles"))
@@ -476,14 +480,20 @@ bool test_scene_renderer(const engine::EngineConfig& config)
                 return false;
             }
         }
-        mesh->set_enabled(false);
+        if (!mesh.set_enabled(false))
+        {
+            std::abort();
+        }
         if (!render_frames(windows, renderer, 8) ||
             !expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
                     "disabling the last drawable mesh releases all scene GPU resources"))
         {
             return false;
         }
-        mesh->set_enabled(true);
+        if (!mesh.set_enabled(true))
+        {
+            std::abort();
+        }
         if (!render_frames(windows, renderer, 8))
         {
             return false;
@@ -526,8 +536,8 @@ bool test_scene_renderer(const engine::EngineConfig& config)
     {
         return false;
     }
-    auto* retained = world.scene()->nodes().front().get();
-    if (!expect(retained->set_persistent(true), "retain a rendered mesh") ||
+    auto retained = test_support::scene_nodes(*world.scene()).front();
+    if (!expect(retained.set_persistent(true), "retain a rendered mesh") ||
         !render_frames(windows, renderer, 8))
     {
         return false;
@@ -547,8 +557,7 @@ bool test_scene_renderer(const engine::EngineConfig& config)
         !create_cube_scene(world, true) || !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == retained_draws + 3,
                 "new active camera renders both retained and current meshes") ||
-        !expect(retained->scene().destroy_node(retained->id()),
-                "delete retained mesh explicitly") ||
+        !expect(retained.scene()->destroy_node(retained.id()), "delete retained mesh explicitly") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == retained_draws,
                 "only surviving meshes remain in the GPU cache"))
@@ -640,7 +649,7 @@ bool read_screenshot(const std::filesystem::path& path, Screenshot& output)
 
 bool screenshot(engine::WindowSystem& windows, engine::RenderSystem& renderer,
                 const std::filesystem::path& root, const char* name, Screenshot& output,
-                const engine::Camera* camera = nullptr)
+                engine::Camera camera = {})
 {
     const auto path = root / name;
     const auto native_path = engine::PathUtils::to_utf8(path);
@@ -737,6 +746,194 @@ bool near_color(const std::array<std::uint8_t, 3>& color, int r, int g, int b)
     return matched;
 }
 
+bool test_scene_sampling(const engine::EngineConfig& config)
+{
+    engine::ResourceSystem resources;
+    engine::WorldSystem world;
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows, &world);
+    test_support::ResourceFixture fixture;
+    if (!expect(!renderer.set_msaa_samples(4) && !renderer.supports_msaa_samples(1) &&
+                    !renderer.set_max_anisotropy(true) && !renderer.supports_max_anisotropy(),
+                "sampling controls reject an unavailable GPU") ||
+        !resources.initialize(config) || !world.initialize(config) || !windows.initialize(config) ||
+        !renderer.initialize(config) || !render_frames(windows, renderer, 4))
+    {
+        return false;
+    }
+    const auto idle = gpu_counts();
+    if (!expect(renderer.msaa_samples() == 1 && !renderer.max_anisotropy() &&
+                    renderer.supports_msaa_samples(1) && !renderer.supports_msaa_samples(0) &&
+                    !renderer.supports_msaa_samples(3) && !renderer.supports_msaa_samples(16) &&
+                    !renderer.set_msaa_samples(0) && !renderer.set_msaa_samples(16),
+                "sampling defaults and exact supported sample counts are explicit") ||
+        !create_cube_scene(world, true))
+    {
+        return false;
+    }
+    auto* scene = world.scene();
+    auto mesh = test_support::scene_nodes(*scene).front().get_component<engine::MeshRenderer>();
+    auto environment =
+        scene->create_node("Sampling background").add_component<engine::EnvironmentComponent>();
+    auto background = environment.settings();
+    background.clear_color = 0x000000ff;
+    Screenshot baseline;
+    if (!mesh || !environment || !environment.set_settings(background) ||
+        !mesh.material().set_v4("baseColor", {1, 1, 1, 1}) ||
+        !screenshot(windows, renderer, fixture.root, "msaa-off", baseline))
+    {
+        return false;
+    }
+    const auto partial_edges = [](const Screenshot& image)
+    {
+        return std::count_if(image.pixels.begin(), image.pixels.end(),
+                             [](const auto& pixel) { return pixel[0] > 8 && pixel[0] < 245; });
+    };
+    const auto baseline_edges = partial_edges(baseline);
+    const auto prepared_resources = renderer.gpu_resource_count();
+    std::uint8_t supported_samples = 1;
+    for (const std::uint8_t samples : {2, 4, 8})
+    {
+        if (!renderer.supports_msaa_samples(samples))
+        {
+            if (!expect(!renderer.set_msaa_samples(samples) &&
+                            renderer.msaa_samples() == supported_samples,
+                        "unsupported device sample counts reject without silent downgrade"))
+            {
+                return false;
+            }
+            continue;
+        }
+        supported_samples = samples;
+        Screenshot multisampled;
+        const auto name = "msaa-" + std::to_string(samples);
+        if (!expect(renderer.set_msaa_samples(samples) && renderer.msaa_samples() == samples,
+                    "accepted sample count is immediately queryable") ||
+            !screenshot(windows, renderer, fixture.root, name.c_str(), multisampled) ||
+            !expect(
+                partial_edges(multisampled) > baseline_edges + 20,
+                "MSAA resolves real geometry coverage through offscreen HDR and transparency") ||
+            !expect(renderer.set_msaa_samples(samples) && render_frames(windows, renderer, 2) &&
+                        renderer.gpu_resource_count() == prepared_resources,
+                    "repeating a sample count retains the current target allocation"))
+        {
+            return false;
+        }
+        std::fprintf(stderr, "scene sampling: MSAA %u partial edges %td -> %td\n", samples,
+                     baseline_edges, partial_edges(multisampled));
+    }
+    if (!resize_window(windows, renderer) ||
+        !SDL_SetWindowSize(windows.native_window(), config.width, config.height) ||
+        !renderer.set_msaa_samples(1))
+    {
+        return false;
+    }
+    Screenshot restored;
+    if (!screenshot(windows, renderer, fixture.root, "msaa-restored", restored) ||
+        !expect(restored.pixels == baseline.pixels && renderer.msaa_samples() == 1,
+                "resize and MSAA disable restore exact original single-sample pixels"))
+    {
+        return false;
+    }
+    engine::schema::TextureDataT checker;
+    checker.path = "textures/sampling-checker";
+    checker.width = checker.height = 256;
+    checker.mip_count = 9;
+    checker.srgb = false;
+    checker.encoding = engine::schema::TextureEncoding::basis;
+    checker.format = engine::schema::TextureFormat::rgba8;
+    std::vector<std::uint8_t> checker_pixels;
+    for (std::uint32_t y = 0; y < checker.height; ++y)
+    {
+        for (std::uint32_t x = 0; x < checker.width; ++x)
+        {
+            const auto value = static_cast<std::uint8_t>(((x / 32) % 2) ? 255 : 0);
+            checker_pixels.insert(checker_pixels.end(), {value, value, value, 255});
+        }
+    }
+    if (!expect(basisu::basisu_encoder_init(), "initialize Basis encoder for real mip fixture"))
+    {
+        return false;
+    }
+    std::size_t basis_size = 0;
+    void* basis = basisu::basis_compress(basist::basis_tex_format::cUASTC_LDR_4x4,
+                                         checker_pixels.data(), checker.width, checker.height,
+                                         checker.width, basisu::cFlagGenMipsWrap, 0, &basis_size);
+    if (!expect(basis != nullptr && basis_size != 0, "encode full mip chain through Basis"))
+    {
+        return false;
+    }
+    const auto* basis_bytes = static_cast<const std::uint8_t*>(basis);
+    checker.data.assign(basis_bytes, basis_bytes + basis_size);
+    basisu::basis_free_data(basis);
+    auto plane = textured_quad();
+    for (auto& uv : plane.texcoords)
+    {
+        uv.mutate_x(uv.x() * 16);
+        uv.mutate_y(uv.y() * 16);
+    }
+    auto transform = mesh.node().get_component<engine::Transform>();
+    engine::TransformSettings pose;
+    pose.rotation = {80, 0, 0};
+    auto camera = scene->active_camera();
+    auto lens = camera.settings();
+    lens.projection = engine::schema::Projection::orthographic;
+    lens.orthographic_size = 2;
+    engine::TransformSettings camera_pose;
+    camera_pose.position = {0, 0, 3};
+    if (!expect(fixture.add(checker) && fixture.publish(resources),
+                "publish mipmapped sampler fixture") ||
+        !mesh.set_mesh_data(plane) ||
+        !mesh.material().set_type("builtin://materials/default-unlit") ||
+        !mesh.material().set_v4("baseColor", {1, 1, 1, 1}) ||
+        !mesh.material().set_cull_mode(engine::schema::CullMode::none) ||
+        !mesh.material().set_texture("baseColorTexture", checker.path) ||
+        !transform.set_settings(pose) || !camera.set_settings(lens) ||
+        !camera.node().get_component<engine::Transform>().set_settings(camera_pose))
+    {
+        return false;
+    }
+    Screenshot linear, anisotropic, linear_restored;
+    if (!screenshot(windows, renderer, fixture.root, "anisotropy-off", linear))
+    {
+        return false;
+    }
+    if (renderer.supports_max_anisotropy())
+    {
+        if (!renderer.set_max_anisotropy(true) || !renderer.max_anisotropy() ||
+            !screenshot(windows, renderer, fixture.root, "anisotropy-on", anisotropic))
+        {
+            return false;
+        }
+        std::size_t changed = 0;
+        for (std::size_t index = 0; index < linear.pixels.size(); ++index)
+        {
+            changed += std::abs(static_cast<int>(linear.pixels[index][0]) -
+                                anisotropic.pixels[index][0]) > 8;
+        }
+        std::fprintf(stderr, "scene sampling: anisotropy changed pixels %zu\n", changed);
+        if (!expect(changed > 100,
+                    "anisotropic material sampler changes oblique mipmapped texture pixels") ||
+            !renderer.set_max_anisotropy(false) || renderer.max_anisotropy() ||
+            !screenshot(windows, renderer, fixture.root, "anisotropy-restored", linear_restored) ||
+            !expect(linear_restored.pixels == linear.pixels,
+                    "disabling anisotropy restores linear filtering without stale sampler cache"))
+        {
+            return false;
+        }
+    }
+    else if (!expect(!renderer.set_max_anisotropy(true) && !renderer.max_anisotropy(),
+                     "unsupported anisotropy never reports accepted"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    renderer.release_scene();
+    return render_frames(windows, renderer, 8) &&
+           expect(renderer.gpu_resource_count() == 0 && gpu_counts() == idle,
+                  "sampling changes and resize leave no retired scene GPU resources");
+}
+
 bool test_gpu_skinning(const engine::EngineConfig& config)
 {
     engine::ResourceSystem resources;
@@ -796,21 +993,21 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     }
     const auto idle = gpu_counts();
     auto* scene = world.create_scene("Independent GPU poses");
-    auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
-    auto* camera = camera_node ? camera_node->add_component<engine::Camera>() : nullptr;
-    auto* light_node = scene ? scene->create_node("Light") : nullptr;
-    auto* light = light_node ? light_node->add_component<engine::Light>() : nullptr;
+    auto camera_node = scene ? scene->create_node("Camera") : engine::Node{};
+    auto camera = camera_node ? camera_node.add_component<engine::Camera>() : engine::Camera{};
+    auto light_node = scene ? scene->create_node("Light") : engine::Node{};
+    auto light = light_node ? light_node.add_component<engine::Light>() : engine::Light{};
     if (!camera || !light)
     {
         return false;
     }
-    auto camera_settings = camera->settings();
+    auto camera_settings = camera.settings();
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 2;
-    auto pose = camera_node->get_component<engine::Transform>()->settings();
+    auto pose = camera_node.get_component<engine::Transform>().settings();
     pose.position = {0, 0, 3};
-    if (!camera->set_settings(camera_settings) ||
-        !camera_node->get_component<engine::Transform>()->set_settings(pose) ||
+    if (!camera.set_settings(camera_settings) ||
+        !camera_node.get_component<engine::Transform>().set_settings(pose) ||
         !scene->set_active_camera(camera))
     {
         return false;
@@ -825,19 +1022,19 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     second_normal[0] = -2;
     const auto make_renderer = [&](const char* name, const auto& transform, const auto& normal)
     {
-        auto* node = scene->create_node(name);
-        auto* result = node ? node->add_component<engine::MeshRenderer>() : nullptr;
-        if (!result || !result->set_mesh(mesh.path) ||
-            !result->material().set_cull_mode(engine::schema::CullMode::none) ||
-            !result->material().set_v4("baseColor", {0.7, 0.4, 0.2, 1}) ||
-            !result->set_skinning_palette({&transform, 1}, {&normal, 1}))
+        auto node = scene->create_node(name);
+        auto result = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+        if (!result || !result.set_mesh(mesh.path) ||
+            !result.material().set_cull_mode(engine::schema::CullMode::none) ||
+            !result.material().set_v4("baseColor", {0.7, 0.4, 0.2, 1}) ||
+            !result.set_skinning_palette({&transform, 1}, {&normal, 1}))
         {
-            return static_cast<engine::MeshRenderer*>(nullptr);
+            return engine::MeshRenderer{};
         }
         return result;
     };
-    auto* first = make_renderer("First", first_matrix, first_normal);
-    if (!expect(first != nullptr, "submit first GPU pose") || !render_frames(windows, renderer, 4))
+    auto first = make_renderer("First", first_matrix, first_normal);
+    if (!expect(first.valid(), "submit first GPU pose") || !render_frames(windows, renderer, 4))
     {
         return false;
     }
@@ -845,8 +1042,8 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     const auto single_resource_count = renderer.gpu_resource_count();
 #endif
-    auto* second = make_renderer("Second", second_matrix, second_normal);
-    if (!expect(second != nullptr, "submit an independent mirrored GPU pose") ||
+    auto second = make_renderer("Second", second_matrix, second_normal);
+    if (!expect(second.valid(), "submit an independent mirrored GPU pose") ||
         !render_frames(windows, renderer, 4) ||
         !expect(gpu_counts().dynamic_vertices == single.dynamic_vertices + 2,
                 "each character owns one palette buffer and one output vertex buffer"))
@@ -855,7 +1052,7 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
     }
 #if defined(ENGINE_TEST_RESOURCE_GRAPH)
     // bgfx 的 numVertexBuffers 同时计入每个 compute dynamic buffer 的底层存储。
-    if (!expect(first->mesh_resource() == second->mesh_resource() &&
+    if (!expect(first.mesh_resource() == second.mesh_resource() &&
                     gpu_counts().vertices == single.vertices + 2 &&
                     gpu_counts().indices == single.indices &&
                     renderer.gpu_resource_count() == single_resource_count + 2,
@@ -871,7 +1068,7 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
         return false;
     }
     const auto reference =
-        [&](engine::MeshRenderer& target, const auto& transform, const auto& normal)
+        [&](engine::MeshRenderer target, const auto& transform, const auto& normal)
     {
         auto vertices = mesh.vertices;
         auto tangents = mesh.tangents;
@@ -905,8 +1102,8 @@ bool test_gpu_skinning(const engine::EngineConfig& config)
         }
         return target.set_deformation(vertices, tangents);
     };
-    if (!reference(*first, first_matrix, first_normal) ||
-        !reference(*second, second_matrix, second_normal) || !render_frames(windows, renderer, 4) ||
+    if (!reference(first, first_matrix, first_normal) ||
+        !reference(second, second_matrix, second_normal) || !render_frames(windows, renderer, 4) ||
         !screenshot(windows, renderer, fixture.root, "cpu-skinning-reference", cpu_reference) ||
         gpu_pose.pixels.size() != cpu_reference.pixels.size())
     {
@@ -975,24 +1172,24 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
 #endif
     const auto idle = gpu_counts();
     auto* scene = world.create_scene("Texture GPU test");
-    auto* quad_node = scene ? scene->create_node("Quad") : nullptr;
-    auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
-    auto* mesh = quad_node ? quad_node->add_component<engine::MeshRenderer>() : nullptr;
-    auto* camera = camera_node ? camera_node->add_component<engine::Camera>() : nullptr;
+    auto quad_node = scene ? scene->create_node("Quad") : engine::Node{};
+    auto camera_node = scene ? scene->create_node("Camera") : engine::Node{};
+    auto mesh =
+        quad_node ? quad_node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+    auto camera = camera_node ? camera_node.add_component<engine::Camera>() : engine::Camera{};
     engine::TransformSettings camera_transform;
     camera_transform.position = {0, 0, 3};
     engine::CameraSettings camera_settings;
     camera_settings.projection = engine::schema::Projection::orthographic;
     camera_settings.orthographic_size = 2;
     auto data = textured_quad();
-    if (!expect(
-            mesh && camera && camera->set_settings(camera_settings) &&
-                camera_node->get_component<engine::Transform>()->set_settings(camera_transform) &&
-                scene->set_active_camera(camera) && mesh->set_mesh_data(data) &&
-                mesh->material().set_type("builtin://materials/default-unlit") &&
-                mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
-                mesh->material().set_texture("baseColorTexture", "textures/blocks"),
-            "assemble orthographic textured quad") ||
+    if (!expect(mesh && camera && camera.set_settings(camera_settings) &&
+                    camera_node.get_component<engine::Transform>().set_settings(camera_transform) &&
+                    scene->set_active_camera(camera) && mesh.set_mesh_data(data) &&
+                    mesh.material().set_type("builtin://materials/default-unlit") &&
+                    mesh.material().set_v4("baseColor", {1, 1, 1, 1}) &&
+                    mesh.material().set_texture("baseColorTexture", "textures/blocks"),
+                "assemble orthographic textured quad") ||
         !render_frames(windows, renderer, 8))
     {
         return false;
@@ -1013,13 +1210,13 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    if (!expect(mesh->material().set_texture("baseColorTexture", "textures/gray-srgb"),
+    if (!expect(mesh.material().set_texture("baseColorTexture", "textures/gray-srgb"),
                 "select sRGB gray texture") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "gray-srgb", image) ||
         !expect(near_color(image.pixel(cx, cy), 128, 128, 128),
                 "sRGB sampling and display encoding preserve middle gray") ||
-        !expect(mesh->material().set_texture("baseColorTexture", "textures/gray-linear"),
+        !expect(mesh.material().set_texture("baseColorTexture", "textures/gray-linear"),
                 "select linear gray texture") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "gray-linear", image) ||
@@ -1032,26 +1229,25 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     const auto single_mesh = gpu_counts();
     const auto single_draws = bgfx::getStats()->numDraw;
     const auto single_resource_count = renderer.gpu_resource_count();
-    const auto source_revision = mesh->mesh_revision();
+    const auto source_revision = mesh.mesh_revision();
     auto deformed = data.vertices;
     for (auto& vertex : deformed)
     {
         vertex.mutate_x(vertex.x() + 5);
     }
-    if (!expect(mesh->set_deformation(deformed, data.tangents), "submit transient deformed pose") ||
+    if (!expect(mesh.set_deformation(deformed, data.tangents), "submit transient deformed pose") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "deformed-vertices", image) ||
         !expect(image.pixel(cx, cy)[0] < 80 && gpu_counts().indices == single_mesh.indices &&
                     gpu_counts().dynamic_vertices == single_mesh.dynamic_vertices + 1 &&
                     renderer.gpu_resource_count() == single_resource_count + 1 &&
-                    mesh->mesh_revision() == source_revision,
+                    mesh.mesh_revision() == source_revision,
                 "pose changes GPU pixels with one dynamic VB and unchanged source topology"))
     {
         return false;
     }
     const auto active_pose = gpu_counts();
-    if (!expect(mesh->set_deformation(data.vertices, data.tangents),
-                "update existing dynamic VB") ||
+    if (!expect(mesh.set_deformation(data.vertices, data.tangents), "update existing dynamic VB") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "deformed-rest-pose", image) ||
         !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == active_pose,
@@ -1059,7 +1255,7 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    mesh->clear_deformation();
+    mesh.clear_deformation();
     if (!render_frames(windows, renderer, 8) ||
         !expect(gpu_counts() == single_mesh &&
                     renderer.gpu_resource_count() == single_resource_count,
@@ -1067,15 +1263,21 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    mesh->set_visible(false);
+    if (!mesh.set_visible(false))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hidden-mesh", image) ||
-        !expect(image.pixel(cx, cy)[0] < 80 && mesh->enabled(),
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh.enabled(),
                 "transient visibility removes GPU draw without disabling the component"))
     {
         return false;
     }
-    mesh->set_visible(true);
+    if (!mesh.set_visible(true))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "visible-mesh-restored", image) ||
         !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
@@ -1083,31 +1285,43 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    auto* visibility_parent = scene->create_node("Visibility parent");
-    if (!expect(visibility_parent != nullptr && quad_node->set_parent(visibility_parent),
+    auto visibility_parent = scene->create_node("Visibility parent");
+    if (!expect(visibility_parent.valid() && quad_node.set_parent(visibility_parent),
                 "group the mesh under a parent without changing its transform"))
     {
         return false;
     }
-    visibility_parent->set_visible(false);
+    if (!visibility_parent.set_visible(false))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hidden-parent", image) ||
-        !expect(image.pixel(cx, cy)[0] < 80 && mesh->active() && mesh->visible() &&
-                    !mesh->visible_in_hierarchy(),
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh.active() && mesh.visible() &&
+                    !mesh.visible_in_hierarchy(),
                 "a hidden ancestor suppresses mesh pixels while preserving local active state"))
     {
         return false;
     }
-    visibility_parent->set_visible(true);
-    visibility_parent->set_enabled(false);
+    if (!visibility_parent.set_visible(true))
+    {
+        std::abort();
+    }
+    if (!visibility_parent.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "disabled-parent", image) ||
-        !expect(image.pixel(cx, cy)[0] < 80 && mesh->enabled() && !mesh->active(),
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh.enabled() && !mesh.active(),
                 "a disabled ancestor suppresses mesh rendering without changing local enabled"))
     {
         return false;
     }
-    visibility_parent->set_enabled(true);
+    if (!visibility_parent.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "parent-restored", image) ||
         !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
@@ -1117,30 +1331,31 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
     if (!shared)
     {
-        auto* observer_node = scene->create_node("Observer camera");
-        auto* observer = observer_node ? observer_node->add_component<engine::Camera>() : nullptr;
-        const std::array hidden = {mesh->instance_id(), mesh->instance_id()};
-        const std::array invalid_hidden = {mesh->instance_id(), std::uint64_t{0}};
+        auto observer_node = scene->create_node("Observer camera");
+        auto observer =
+            observer_node ? observer_node.add_component<engine::Camera>() : engine::Camera{};
+        const std::array hidden = {mesh.instance_id(), mesh.instance_id()};
+        const std::array invalid_hidden = {mesh.instance_id(), std::uint64_t{0}};
         engine::schema::ComponentDataT saved_camera;
-        if (!expect(observer != nullptr && observer->set_settings(camera_settings) &&
-                        observer_node->get_component<engine::Transform>()->set_settings(
+        if (!expect(observer.valid() && observer.set_settings(camera_settings) &&
+                        observer_node.get_component<engine::Transform>().set_settings(
                             camera_transform) &&
-                        camera->set_hidden_meshes(hidden) &&
-                        !camera->set_hidden_meshes(invalid_hidden) &&
-                        !camera->mesh_visible(hidden.front()) && !camera->mesh_visible(0) &&
-                        observer->mesh_visible(hidden.front()) && camera->build_data(saved_camera),
+                        camera.set_hidden_meshes(hidden) &&
+                        !camera.set_hidden_meshes(invalid_hidden) &&
+                        !camera.mesh_visible(hidden.front()) && !camera.mesh_visible(0) &&
+                        observer.mesh_visible(hidden.front()) && camera.build_data(saved_camera),
                     "camera filter is independent, accepts duplicate IDs and rejects zero "
                     "without replacing the prior list") ||
             !render_frames(windows, renderer, 8, camera) ||
             !screenshot(windows, renderer, fixture.root, "camera-hidden", image, camera) ||
-            !expect(image.pixel(cx, cy)[0] < 80 && mesh->visible() && mesh->enabled() &&
+            !expect(image.pixel(cx, cy)[0] < 80 && mesh.visible() && mesh.enabled() &&
                         gpu_counts() == single_mesh &&
                         renderer.gpu_resource_count() == single_resource_count,
                     "camera hides the only mesh while preserving global state and GPU resources") ||
             !render_frames(windows, renderer, 8, observer) ||
             !screenshot(windows, renderer, fixture.root, "camera-observer", image, observer) ||
             !expect(near_color(image.pixel(cx, cy), 188, 188, 188) &&
-                        scene->active_camera() == camera && !camera->mesh_visible(hidden.front()) &&
+                        scene->active_camera() == camera && !camera.mesh_visible(hidden.front()) &&
                         gpu_counts() == single_mesh,
                     "explicit observer sees a mesh hidden from the active camera without "
                     "changing either view"))
@@ -1149,35 +1364,35 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
         }
         auto invalid_camera = saved_camera;
         invalid_camera.payload.AsCameraData()->fov_degrees = 0.0F;
-        if (!expect(!camera->restore_data(invalid_camera) && !camera->mesh_visible(hidden.front()),
+        if (!expect(!camera.restore_data(invalid_camera) && !camera.mesh_visible(hidden.front()),
                     "failed camera restore preserves its hidden list"))
         {
             return false;
         }
-        camera->clear_hidden_meshes();
+        camera.clear_hidden_meshes();
         if (!render_frames(windows, renderer, 8, camera) ||
             !screenshot(windows, renderer, fixture.root, "camera-filter-cleared", image, camera) ||
             !expect(near_color(image.pixel(cx, cy), 188, 188, 188),
                     "clearing the camera filter restores its mesh pixels") ||
-            !expect(camera->set_hidden_meshes(hidden) &&
-                        quad_node->remove_component(engine::MeshRenderer::component_type),
+            !expect(camera.set_hidden_meshes(hidden) &&
+                        quad_node.remove_component(engine::MeshRenderer::component_type),
                     "remove the hidden mesh component while retaining the camera filter"))
         {
             return false;
         }
-        mesh = quad_node->add_component<engine::MeshRenderer>();
-        if (!expect(mesh != nullptr && mesh->instance_id() != hidden.front() &&
-                        camera->mesh_visible(mesh->instance_id()) &&
-                        !camera->mesh_visible(hidden.front()) && mesh->set_mesh_data(data) &&
-                        mesh->material().set_type("builtin://materials/default-unlit") &&
-                        mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
-                        mesh->material().set_texture("baseColorTexture", "textures/gray-linear"),
+        mesh = quad_node.add_component<engine::MeshRenderer>();
+        if (!expect(mesh.valid() && mesh.instance_id() != hidden.front() &&
+                        camera.mesh_visible(mesh.instance_id()) &&
+                        !camera.mesh_visible(hidden.front()) && mesh.set_mesh_data(data) &&
+                        mesh.material().set_type("builtin://materials/default-unlit") &&
+                        mesh.material().set_v4("baseColor", {1, 1, 1, 1}) &&
+                        mesh.material().set_texture("baseColorTexture", "textures/gray-linear"),
                     "rebuilt component has a new identity outside the old filter") ||
             !render_frames(windows, renderer, 8, camera) ||
             !screenshot(windows, renderer, fixture.root, "camera-rebuilt-mesh", image, camera) ||
             !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
                     "camera renders the replacement component and releases old GPU buffers") ||
-            !expect(camera->restore_data(saved_camera) && camera->mesh_visible(hidden.front()),
+            !expect(camera.restore_data(saved_camera) && camera.mesh_visible(hidden.front()),
                     "restoring persistent camera data clears transient hidden IDs"))
         {
             return false;
@@ -1187,27 +1402,27 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         vertex.mutate_x(vertex.x() + 5);
     }
-    if (!expect(mesh->set_mesh_data(data), "submit changed vertex positions") ||
+    if (!expect(mesh.set_mesh_data(data), "submit changed vertex positions") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "moved-vertices", image) ||
         !expect(image.pixel(cx, cy)[0] < 80 && gpu_counts() == single_mesh,
                 "dynamic geometry changes pixels and retires replaced GPU buffers") ||
-        !expect(mesh->set_mesh_data(textured_quad()), "restore quad geometry"))
+        !expect(mesh.set_mesh_data(textured_quad()), "restore quad geometry"))
     {
         return false;
     }
 
-    const auto texture_increment = shared ? 0 : mesh->material().shader_data()->samplers.size();
-    auto* second_node = scene->create_node("Second texture quad");
-    auto* second = second_node ? second_node->add_component<engine::MeshRenderer>() : nullptr;
+    const auto texture_increment = shared ? 0 : mesh.material().shader_data()->samplers.size();
+    auto second_node = scene->create_node("Second texture quad");
+    auto second =
+        second_node ? second_node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
     engine::TransformSettings second_transform;
     second_transform.position = {2, 0, -0.1};
-    if (!expect(
-            second && second->set_mesh_data(textured_quad()) &&
-                second_node->get_component<engine::Transform>()->set_settings(second_transform) &&
-                second->material().set_type("builtin://materials/default-unlit") &&
-                second->material().set_texture("baseColorTexture", "textures/gray-linear"),
-            "add another mesh referencing the same texture path") ||
+    if (!expect(second && second.set_mesh_data(textured_quad()) &&
+                    second_node.get_component<engine::Transform>().set_settings(second_transform) &&
+                    second.material().set_type("builtin://materials/default-unlit") &&
+                    second.material().set_texture("baseColorTexture", "textures/gray-linear"),
+                "add another mesh referencing the same texture path") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == single_draws + 3 &&
                     gpu_counts().textures == single_mesh.textures + texture_increment &&
@@ -1218,10 +1433,10 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     }
     data = textured_quad();
     data.submeshes = {{0, 3, 0}, {3, 3, 1}};
-    if (!expect(mesh->set_material_count(2) && mesh->material(1) &&
-                    mesh->material(1)->set_type("builtin://materials/default-unlit") &&
-                    mesh->material(1)->set_texture("baseColorTexture", "textures/gray-linear") &&
-                    mesh->set_mesh_data(data),
+    if (!expect(mesh.set_material_count(2) && mesh.material(1) &&
+                    mesh.material(1).set_type("builtin://materials/default-unlit") &&
+                    mesh.material(1).set_texture("baseColorTexture", "textures/gray-linear") &&
+                    mesh.set_mesh_data(data),
                 "assign independent material slots to two submeshes") ||
         !render_frames(windows, renderer, 8) ||
         !expect(bgfx::getStats()->numDraw == single_draws + 6 &&
@@ -1230,40 +1445,43 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
-    if (!expect(mesh->material().set_type("builtin://materials/default-pbr") &&
-                    mesh->material(1)->set_type("builtin://materials/default-pbr"),
+    if (!expect(mesh.material().set_type("builtin://materials/default-pbr") &&
+                    mesh.material(1).set_type("builtin://materials/default-pbr"),
                 "enable PBR on both submesh materials"))
     {
         return false;
     }
     const auto multi_slot = gpu_counts();
-    if (!expect(mesh->set_deformation(data.vertices, data.tangents),
+    if (!expect(mesh.set_deformation(data.vertices, data.tangents),
                 "deformation supports multiple material slots") ||
         !render_frames(windows, renderer, 8) ||
-        !expect(bgfx::getStats()->numDraw == single_draws + 6 && mesh->material_count() == 2 &&
+        !expect(bgfx::getStats()->numDraw == single_draws + 6 && mesh.material_count() == 2 &&
                     gpu_counts().indices == multi_slot.indices,
                 "deformed submeshes retain material submissions and shared topology"))
     {
         return false;
     }
-    mesh->clear_deformation();
-    std::vector<engine::Light*> lights;
+    mesh.clear_deformation();
+    std::vector<engine::Light> lights;
     for (const auto kind : {engine::schema::LightKind::directional,
                             engine::schema::LightKind::point, engine::schema::LightKind::spot})
     {
-        auto* node = scene->create_node("Light");
-        auto* light = node ? node->add_component<engine::Light>() : nullptr;
+        auto node = scene->create_node("Light");
+        auto light = node ? node.add_component<engine::Light>() : engine::Light{};
         engine::LightSettings settings;
         settings.kind = kind;
         engine::TransformSettings transform;
         transform.position = {0, 0, 2};
-        if (!expect(light && light->set_settings(settings) &&
-                        node->get_component<engine::Transform>()->set_settings(transform),
+        if (!expect(light && light.set_settings(settings) &&
+                        node.get_component<engine::Transform>().set_settings(transform),
                     "create directional, point and spot lights"))
         {
             return false;
         }
-        light->set_enabled(false);
+        if (!light.set_enabled(false))
+        {
+            std::abort();
+        }
         lights.push_back(light);
     }
     const auto brightness = [](const std::array<std::uint8_t, 3>& color)
@@ -1277,7 +1495,10 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     int brightest_single = dark;
     for (std::size_t index = 0; index < lights.size(); ++index)
     {
-        lights[index]->set_enabled(true);
+        if (!lights[index].set_enabled(true))
+        {
+            std::abort();
+        }
         const auto name = "light-" + std::to_string(index);
         if (!render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, name.c_str(), image) ||
@@ -1287,11 +1508,17 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
             return false;
         }
         brightest_single = std::max(brightest_single, brightness(image.pixel(cx, cy)));
-        lights[index]->set_enabled(false);
+        if (!lights[index].set_enabled(false))
+        {
+            std::abort();
+        }
     }
-    for (auto* light : lights)
+    for (auto light : lights)
     {
-        light->set_enabled(true);
+        if (!light.set_enabled(true))
+        {
+            std::abort();
+        }
     }
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "all-lights", image) ||
@@ -1340,64 +1567,65 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     auto* scene = world.scene();
-    auto* environment_node = scene->create_node("Environment");
-    if (!expect(environment_node != nullptr &&
-                    environment_node->add_component<engine::EnvironmentComponent>() != nullptr &&
-                    scene->active_camera()->node().add_component<engine::PostProcessComponent>() !=
-                        nullptr,
-                "scene render settings are owned by environment and camera components"))
+    auto environment_node = scene->create_node("Environment");
+    if (!expect(
+            environment_node.valid() &&
+                environment_node.add_component<engine::EnvironmentComponent>().valid() &&
+                scene->active_camera().node().add_component<engine::PostProcessComponent>().valid(),
+            "scene render settings are owned by environment and camera components"))
     {
         return false;
     }
-    auto* environment = environment_node->get_component<engine::EnvironmentComponent>();
-    auto* post_process =
-        scene->active_camera()->node().get_component<engine::PostProcessComponent>();
-    engine::Light* light = nullptr;
-    for (const auto& node : scene->nodes())
+    auto environment = environment_node.get_component<engine::EnvironmentComponent>();
+    auto post_process = scene->active_camera().node().get_component<engine::PostProcessComponent>();
+    engine::Light light = {};
+    for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (auto* candidate = node->get_component<engine::Light>())
+        if (auto candidate = node.get_component<engine::Light>())
         {
             light = candidate;
             break;
         }
     }
-    if (!expect(light != nullptr, "find the scene's directional light"))
+    if (!expect(light.valid(), "find the scene's directional light"))
     {
         return false;
     }
-    auto invalid = post_process->settings();
+    auto invalid = post_process.settings();
     invalid.exposure = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!post_process->set_settings(invalid) && renderer.settings().exposure == 1.0F,
+    if (!expect(!post_process.set_settings(invalid) && renderer.settings().exposure == 1.0F,
                 "invalid post-process settings preserve the previous configuration"))
     {
         return false;
     }
-    auto* floor = scene->create_node("Shadow receiver");
-    auto* floor_transform = floor != nullptr ? floor->get_component<engine::Transform>() : nullptr;
-    auto* floor_mesh = floor != nullptr ? floor->add_component<engine::MeshRenderer>() : nullptr;
+    auto floor = scene->create_node("Shadow receiver");
+    auto floor_transform =
+        floor.valid() ? floor.get_component<engine::Transform>() : engine::Transform{};
+    auto floor_mesh =
+        floor.valid() ? floor.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
     engine::TransformSettings floor_settings;
     floor_settings.position = {0.0, -1.0, 0.0};
     floor_settings.scale = {8.0, 0.1, 8.0};
     engine::TransformSettings camera_settings;
     camera_settings.position = {5.0, 6.0, 8.0};
     camera_settings.rotation = {-32.0, 32.0, 0.0};
-    if (!expect(floor_transform != nullptr && floor_mesh != nullptr &&
-                    floor_transform->set_settings(floor_settings) &&
-                    floor_mesh->material().set_type("builtin://materials/default-pbr") &&
-                    floor_mesh->material().set_v4("baseColor", {0.8, 0.8, 0.8, 1.0}) &&
-                    scene->active_camera()->node().get_component<engine::Transform>()->set_settings(
+    if (!expect(floor_transform.valid() && floor_mesh.valid() &&
+                    floor_transform.set_settings(floor_settings) &&
+                    floor_mesh.material().set_type("builtin://materials/default-pbr") &&
+                    floor_mesh.material().set_v4("baseColor", {0.8, 0.8, 0.8, 1.0}) &&
+                    scene->active_camera().node().get_component<engine::Transform>().set_settings(
                         camera_settings),
                 "create receiver and oblique scene camera"))
     {
         return false;
     }
-    auto environment_settings = environment->settings();
-    auto post_settings = post_process->settings();
-    auto light_settings = light->settings();
+    auto environment_settings = environment.settings();
+    auto post_settings = post_process.settings();
+    auto light_settings = light.settings();
     const auto apply_settings = [&]()
     {
-        return environment->set_settings(environment_settings) &&
-               post_process->set_settings(post_settings) && light->set_settings(light_settings);
+        return environment.set_settings(environment_settings) &&
+               post_process.set_settings(post_settings) && light.set_settings(light_settings);
     };
     environment_settings.ambient_intensity = 0.12F;
     Screenshot unshadowed;
@@ -1412,14 +1640,14 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     for (const auto projection :
          {engine::schema::Projection::perspective, engine::schema::Projection::orthographic})
     {
-        auto camera_projection = scene->active_camera()->settings();
+        auto camera_projection = scene->active_camera().settings();
         camera_projection.projection = projection;
         camera_projection.orthographic_size = 6.0F;
         post_settings.ao_enabled = false;
         Screenshot without_ao;
         Screenshot with_ao;
         Screenshot restored_ao;
-        if (!scene->active_camera()->set_settings(camera_projection) || !apply_settings() ||
+        if (!scene->active_camera().set_settings(camera_projection) || !apply_settings() ||
             !render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, "without-ao", without_ao))
         {
@@ -1455,12 +1683,12 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             return false;
         }
     }
-    auto perspective = scene->active_camera()->settings();
+    auto perspective = scene->active_camera().settings();
     perspective.projection = engine::schema::Projection::perspective;
     environment_settings.ambient_intensity = 0.0F;
     Screenshot direct_only;
     Screenshot direct_with_ao;
-    if (!scene->active_camera()->set_settings(perspective) || !apply_settings() ||
+    if (!scene->active_camera().set_settings(perspective) || !apply_settings() ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "direct-only", direct_only))
     {
@@ -1531,26 +1759,26 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             return false;
         }
     }
-    const auto cube_node = std::find_if(scene->nodes().begin(), scene->nodes().end(),
-                                        [](const auto& node) { return node->name() == "Cube"; });
-    auto* cube_mesh = cube_node != scene->nodes().end()
-                          ? (*cube_node)->get_component<engine::MeshRenderer>()
-                          : nullptr;
-    if (!expect(cube_mesh != nullptr, "find shadow caster for deformation"))
+    const auto nodes = test_support::scene_nodes(*scene);
+    const auto cube_node = std::find_if(nodes.begin(), nodes.end(),
+                                        [](const auto& node) { return node.name() == "Cube"; });
+    auto cube_mesh = cube_node != nodes.end() ? cube_node->get_component<engine::MeshRenderer>()
+                                              : engine::MeshRenderer{};
+    if (!expect(cube_mesh.valid(), "find shadow caster for deformation"))
     {
         return false;
     }
-    const std::array hidden_caster = {cube_mesh->instance_id()};
+    const std::array hidden_caster = {cube_mesh.instance_id()};
     Screenshot hidden_with_shadow;
     Screenshot hidden_without_shadow;
-    if (!expect(scene->active_camera()->set_hidden_meshes(hidden_caster),
+    if (!expect(scene->active_camera().set_hidden_meshes(hidden_caster),
                 "hide the caster from the observing camera") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hidden-caster-shadow", hidden_with_shadow))
     {
         return false;
     }
-    cube_mesh->set_cast_shadows(false);
+    cube_mesh.set_cast_shadows(false);
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hidden-caster-no-shadow",
                     hidden_without_shadow))
@@ -1568,13 +1796,13 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         }
         hidden_shadow_pixels += difference > 30;
     }
-    if (!expect(hidden_shadow_pixels > 100 && cube_mesh->visible() && cube_mesh->enabled() &&
+    if (!expect(hidden_shadow_pixels > 100 && cube_mesh.visible() && cube_mesh.enabled() &&
                     renderer.gpu_resource_count() == shadow_resources,
                 "a mesh hidden from the camera still casts a visible shadow and retains resources"))
     {
         return false;
     }
-    cube_mesh->set_cast_shadows(true);
+    cube_mesh.set_cast_shadows(true);
     const auto shadow_environment = environment_settings;
     const auto shadow_post = post_settings;
     const auto shadow_light = light_settings;
@@ -1595,8 +1823,11 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    cube_mesh->set_visible(false);
-    scene->active_camera()->clear_hidden_meshes();
+    if (!cube_mesh.set_visible(false))
+    {
+        std::abort();
+    }
+    scene->active_camera().clear_hidden_meshes();
     if (!render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "globally-hidden-ao", globally_hidden_ao) ||
         !expect(camera_hidden_ao.pixels == globally_hidden_ao.pixels,
@@ -1604,12 +1835,15 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    cube_mesh->set_visible(true);
+    if (!cube_mesh.set_visible(true))
+    {
+        std::abort();
+    }
     if (!restore_shadow_settings() || !render_frames(windows, renderer, 8))
     {
         return false;
     }
-    auto posed = *cube_mesh->mesh_data();
+    auto posed = *cube_mesh.mesh_data();
     if (!expect(engine::MeshUtils::build_tangents(posed, posed.tangents),
                 "prepare shadow caster tangent frame"))
     {
@@ -1643,16 +1877,16 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     skin_normal[13] = 0;
     post_settings.ao_enabled = true;
     if (!apply_settings() ||
-        !expect(cube_mesh->set_deformation(posed.vertices, posed.tangents),
+        !expect(cube_mesh.set_deformation(posed.vertices, posed.tangents),
                 "deform shadow caster without changing source mesh") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "deformed-shadow", deformed_shadow) ||
-        !expect(cube_mesh->set_mesh_data(skin_source) &&
-                    cube_mesh->set_skinning_palette({&skin_transform, 1}, {&skin_normal, 1}),
+        !expect(cube_mesh.set_mesh_data(skin_source) &&
+                    cube_mesh.set_skinning_palette({&skin_transform, 1}, {&skin_normal, 1}),
                 "submit the same pose through compute skinning") ||
         !render_frames(windows, renderer, 4) ||
         !screenshot(windows, renderer, fixture.root, "gpu-skinned-shadow", gpu_shadow) ||
-        !expect(cube_mesh->set_mesh_data(posed), "publish equivalent static reference geometry") ||
+        !expect(cube_mesh.set_mesh_data(posed), "publish equivalent static reference geometry") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "reference-shadow", reference_shadow) ||
         !expect(deformed_shadow.width == reference_shadow.width &&
@@ -1688,7 +1922,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                     gpu_mismatches < reference_shadow.pixels.size() / 1000 + 1,
                 "deformed positions, normals, tangents, shadow bounds and shadow pass match "
                 "equivalent static geometry") ||
-        !expect(cube_mesh->set_mesh("builtin://meshes/cube"), "restore original shadow caster") ||
+        !expect(cube_mesh.set_mesh("builtin://meshes/cube"), "restore original shadow caster") ||
         !restore_shadow_settings() || !render_frames(windows, renderer, 8))
     {
         return false;
@@ -1756,22 +1990,27 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
+    if (renderer.supports_msaa_samples(4) && !renderer.set_msaa_samples(4))
+    {
+        return false;
+    }
     const auto idle = gpu_counts();
     if (!create_cube_scene(world, false))
     {
         return false;
     }
     auto* scene = world.scene();
-    auto* camera = scene->active_camera();
-    auto* cube_mesh = scene->nodes().front()->get_component<engine::MeshRenderer>();
-    auto* environment_node = scene->create_node("Environment");
-    auto* environment = environment_node->add_component<engine::EnvironmentComponent>();
-    auto* post = camera->node().add_component<engine::PostProcessComponent>();
-    auto* ground = scene->create_node("Opaque ground");
-    auto* ground_mesh = ground->add_component<engine::MeshRenderer>();
-    auto* water = scene->create_node("Transparent water");
-    auto* water_mesh = water->add_component<engine::MeshRenderer>();
-    auto* reflection = water->add_component<engine::PlanarReflectionComponent>();
+    auto camera = scene->active_camera();
+    auto cube_mesh =
+        test_support::scene_nodes(*scene).front().get_component<engine::MeshRenderer>();
+    auto environment_node = scene->create_node("Environment");
+    auto environment = environment_node.add_component<engine::EnvironmentComponent>();
+    auto post = camera.node().add_component<engine::PostProcessComponent>();
+    auto ground = scene->create_node("Opaque ground");
+    auto ground_mesh = ground.add_component<engine::MeshRenderer>();
+    auto water = scene->create_node("Transparent water");
+    auto water_mesh = water.add_component<engine::MeshRenderer>();
+    auto reflection = water.add_component<engine::PlanarReflectionComponent>();
     engine::TransformSettings camera_transform;
     camera_transform.position = {5, 5, 8};
     camera_transform.rotation = {-28, 32, 0};
@@ -1789,39 +2028,38 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     plane.texcoords = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
     if (!expect(
             environment && post && ground_mesh && water_mesh && reflection &&
-                camera->node().get_component<engine::Transform>()->set_settings(camera_transform) &&
-                ground->get_component<engine::Transform>()->set_settings(ground_transform) &&
-                water->get_component<engine::Transform>()->set_settings(water_transform) &&
-                water_mesh->set_mesh_data(plane) &&
-                water_mesh->material().set_type("builtin://materials/default-water") &&
-                water_mesh->material().blend_mode() == engine::schema::BlendMode::alpha_blend &&
-                water_mesh->material().set_cull_mode(engine::schema::CullMode::none) &&
-                water_mesh->material().set_v2("waterFlow", {0, 0}) &&
-                water_mesh->material().set_float("normalScale", 0) &&
-                cube_mesh->material().set_v3("emissionColor", {3.0, 0.1, 0.03}) &&
-                ground_mesh->material().set_v4("baseColor", {0.18, 0.18, 0.18, 1}) &&
-                ground_mesh->material().set_float("roughness", 0.08F),
+                camera.node().get_component<engine::Transform>().set_settings(camera_transform) &&
+                ground.get_component<engine::Transform>().set_settings(ground_transform) &&
+                water.get_component<engine::Transform>().set_settings(water_transform) &&
+                water_mesh.set_mesh_data(plane) &&
+                water_mesh.material().set_type("builtin://materials/default-water") &&
+                water_mesh.material().blend_mode() == engine::schema::BlendMode::alpha_blend &&
+                water_mesh.material().set_cull_mode(engine::schema::CullMode::none) &&
+                water_mesh.material().set_v2("waterFlow", {0, 0}) &&
+                water_mesh.material().set_float("normalScale", 0) &&
+                cube_mesh.material().set_v3("emissionColor", {3.0, 0.1, 0.03}) &&
+                ground_mesh.material().set_v4("baseColor", {0.18, 0.18, 0.18, 1}) &&
+                ground_mesh.material().set_float("roughness", 0.08F),
             "ordinary nodes compose reflective water, opaque receiver and existing camera"))
     {
         return false;
     }
-    auto environment_settings = environment->settings();
+    auto environment_settings = environment.settings();
     environment_settings.ambient_intensity = 0.2F;
-    auto post_settings = post->settings();
+    auto post_settings = post.settings();
     post_settings.ssr_enabled = false;
     post_settings.ao_enabled = true;
     post_settings.hdr_enabled = true;
-    if (!expect(environment->set_settings(environment_settings) &&
-                    post->set_settings(post_settings),
+    if (!expect(environment.set_settings(environment_settings) && post.set_settings(post_settings),
                 "isolate planar reflection from SSR while preserving AO and HDR"))
     {
         return false;
     }
-    std::vector<engine::Light*> local_lights;
+    std::vector<engine::Light> local_lights;
     for (const auto kind : {engine::schema::LightKind::point, engine::schema::LightKind::spot})
     {
-        auto* node = scene->create_node("Local shadow light");
-        auto* light = node->add_component<engine::Light>();
+        auto node = scene->create_node("Local shadow light");
+        auto light = node.add_component<engine::Light>();
         engine::LightSettings settings;
         settings.kind = kind;
         settings.range = 25;
@@ -1832,8 +2070,8 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
         transform.position = kind == engine::schema::LightKind::point ? engine::Vec3(3, 4, 3)
                                                                       : engine::Vec3(-3, 4, 3);
         transform.rotation = {-45, -35, 0};
-        if (!expect(light && light->set_settings(settings) &&
-                        node->get_component<engine::Transform>()->set_settings(transform),
+        if (!expect(light && light.set_settings(settings) &&
+                        node.get_component<engine::Transform>().set_settings(transform),
                     "point cube faces and projected spot shadows use the shared atlas"))
         {
             return false;
@@ -1847,7 +2085,10 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    reflection->set_enabled(false);
+    if (!reflection.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!render_frames(windows, renderer, 4) ||
         !screenshot(windows, renderer, fixture.root, "water-without-planar", fallback))
     {
@@ -1879,10 +2120,10 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     }
     Screenshot straight_alpha;
     Screenshot premultiplied;
-    if (!expect(water_mesh->material().set_v4("baseColor", {0.2F, 0.45F, 0.5F, 0.55F}),
+    if (!expect(water_mesh.material().set_v4("baseColor", {0.2F, 0.45F, 0.5F, 0.55F}),
                 "set partial water coverage") ||
         !screenshot(windows, renderer, fixture.root, "water-straight-alpha", straight_alpha) ||
-        !expect(water_mesh->material().set_blend_mode(engine::schema::BlendMode::premultiplied),
+        !expect(water_mesh.material().set_blend_mode(engine::schema::BlendMode::premultiplied),
                 "select premultiplied water blending") ||
         !screenshot(windows, renderer, fixture.root, "water-premultiplied", premultiplied))
     {
@@ -1901,7 +2142,7 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     }
     if (!expect(largest_alpha_difference <= 2,
                 "straight and premultiplied blending preserve the same water coverage") ||
-        !water_mesh->material().set_blend_mode(engine::schema::BlendMode::alpha_blend))
+        !water_mesh.material().set_blend_mode(engine::schema::BlendMode::alpha_blend))
     {
         return false;
     }
@@ -1909,8 +2150,8 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     Screenshot straight_transmission;
     auto deep_water = water_transform;
     deep_water.position = {0, 0.3, 0};
-    auto& water_material = water_mesh->material();
-    if (!expect(water->get_component<engine::Transform>()->set_settings(deep_water) &&
+    auto water_material = water_mesh.material();
+    if (!expect(water.get_component<engine::Transform>().set_settings(deep_water) &&
                     water_material.set_float("reflectionStrength", 0) &&
                     water_material.set_float("specularHighlights", 0) &&
                     water_material.set_v3("absorptionColor", {1, 1, 1}) &&
@@ -1935,7 +2176,7 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     }
     std::fprintf(stderr, "window/render refracted pixels: %zu\n", refracted_pixels);
     if (!expect(refracted_pixels > 16, "IOR bends visible background geometry through water") ||
-        !water->get_component<engine::Transform>()->set_settings(water_transform) ||
+        !water.get_component<engine::Transform>().set_settings(water_transform) ||
         !water_material.set_float("waterIor", 1.333F) ||
         !water_material.set_float("reflectionStrength", 1) ||
         !water_material.set_float("specularHighlights", 1) ||
@@ -1943,17 +2184,20 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    water_mesh->set_enabled(false);
+    if (!water_mesh.set_enabled(false))
+    {
+        std::abort();
+    }
     Screenshot with_ssr;
     Screenshot without_ssr;
     post_settings.ssr_enabled = true;
-    if (!post->set_settings(post_settings) ||
+    if (!post.set_settings(post_settings) ||
         !screenshot(windows, renderer, fixture.root, "opaque-with-ssr", with_ssr))
     {
         return false;
     }
     post_settings.ssr_enabled = false;
-    if (!post->set_settings(post_settings) ||
+    if (!post.set_settings(post_settings) ||
         !screenshot(windows, renderer, fixture.root, "opaque-without-ssr", without_ssr))
     {
         return false;
@@ -1975,13 +2219,13 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    for (auto* light : local_lights)
+    for (auto light : local_lights)
     {
-        auto settings = light->settings();
+        auto settings = light.settings();
         const auto name = settings.kind == engine::schema::LightKind::point ? "point" : "spot";
         Screenshot unshadowed;
         settings.cast_shadows = false;
-        if (!light->set_settings(settings) ||
+        if (!light.set_settings(settings) ||
             !screenshot(windows, renderer, fixture.root,
                         (std::string(name) + "-without-shadow").c_str(), unshadowed))
         {
@@ -2001,18 +2245,24 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
         std::fprintf(stderr, "window/render %s shadow pixels: %zu\n", name, shaded_pixels);
         settings.cast_shadows = true;
         if (!expect(shaded_pixels > 16, "local light shadow darkens genuinely occluded pixels") ||
-            !light->set_settings(settings))
+            !light.set_settings(settings))
         {
             return false;
         }
     }
     post_settings.ssr_enabled = true;
-    if (!post->set_settings(post_settings))
+    if (!post.set_settings(post_settings))
     {
         return false;
     }
-    water_mesh->set_enabled(true);
-    reflection->set_enabled(true);
+    if (!water_mesh.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!reflection.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(windows.set_size(643, 357), "resize combined effects to non-aligned dimensions") ||
         !render_frames(windows, renderer, 8))
     {
@@ -2071,7 +2321,7 @@ bool test_reflections_water_and_diffuse_capture(const engine::EngineConfig& conf
     {
         return false;
     }
-    if (!expect(scene->set_active_camera(nullptr) && renderer.request_diffuse_capture(request),
+    if (!expect(scene->set_active_camera({}) && renderer.request_diffuse_capture(request),
                 "queue diffuse capture without a gameplay camera"))
     {
         return false;
@@ -2190,47 +2440,54 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     {
         return false;
     }
+    if (renderer.supports_msaa_samples(4) && !renderer.set_msaa_samples(4))
+    {
+        return false;
+    }
     const auto idle = gpu_counts();
     if (!create_cube_scene(world, false))
     {
         return false;
     }
     auto* scene = world.scene();
-    auto* environment = scene->create_node("Environment");
-    if (environment == nullptr ||
-        environment->add_component<engine::EnvironmentComponent>() == nullptr ||
-        scene->active_camera()->node().add_component<engine::PostProcessComponent>() == nullptr)
+    auto environment = scene->create_node("Environment");
+    if (!environment.valid() ||
+        environment.add_component<engine::EnvironmentComponent>().valid() == false ||
+        scene->active_camera().node().add_component<engine::PostProcessComponent>().valid() ==
+            false)
     {
         return false;
     }
-    for (const auto& node : scene->nodes())
+    for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (auto* mesh = node->get_component<engine::MeshRenderer>())
+        if (auto mesh = node.get_component<engine::MeshRenderer>())
         {
-            if (!mesh->material().set_v4("baseColor", {0, 0, 0, 1}) ||
-                !mesh->material().set_v3("emissionColor", {12, 4, 1}))
+            if (!mesh.material().set_v4("baseColor", {0, 0, 0, 1}) ||
+                !mesh.material().set_v3("emissionColor", {12, 4, 1}))
             {
                 return false;
             }
         }
-        if (auto* light = node->get_component<engine::Light>())
+        if (auto light = node.get_component<engine::Light>())
         {
-            light->set_enabled(false);
+            if (!light.set_enabled(false))
+            {
+                std::abort();
+            }
         }
     }
-    auto* environment_component = environment->get_component<engine::EnvironmentComponent>();
-    auto* post_process =
-        scene->active_camera()->node().get_component<engine::PostProcessComponent>();
-    auto environment_settings = environment_component->settings();
+    auto environment_component = environment.get_component<engine::EnvironmentComponent>();
+    auto post_process = scene->active_camera().node().get_component<engine::PostProcessComponent>();
+    auto environment_settings = environment_component.settings();
     environment_settings.clear_color = 0x000000ff;
-    if (!environment_component->set_settings(environment_settings))
+    if (!environment_component.set_settings(environment_settings))
     {
         return false;
     }
-    auto settings = post_process->settings();
+    auto settings = post_process.settings();
     settings.filmic_tonemap = true;
     Screenshot sdr;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-sdr-baseline", sdr))
     {
         return false;
@@ -2238,7 +2495,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     const auto sdr_resources = renderer.gpu_resource_count();
     settings.hdr_enabled = true;
     Screenshot hdr;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-no-bloom", hdr) ||
         !expect(renderer.gpu_resource_count() == sdr_resources,
                 "HDR display settings reuse the always-linear scene target and resolve programs"))
@@ -2249,7 +2506,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     settings.bloom_enabled = true;
     settings.bloom_intensity = 0.7F;
     Screenshot bloom;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom", bloom) ||
         !expect(renderer.gpu_resource_count() > hdr_resources,
                 "Bloom owns separate bright and blur targets"))
@@ -2268,7 +2525,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     Screenshot zero_bloom;
     settings.bloom_intensity = 0.0F;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom-zero", zero_bloom) ||
         !expect(zero_bloom.pixels == hdr.pixels,
                 "zero Bloom strength preserves HDR output without applying tone mapping twice"))
@@ -2278,7 +2535,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     settings.bloom_intensity = 0.7F;
     settings.bloom_threshold = 100.0F;
     Screenshot threshold;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom-threshold", threshold) ||
         !expect(threshold.pixels == hdr.pixels,
                 "linear threshold above scene radiance excludes the complete Bloom contribution") ||
@@ -2288,7 +2545,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
         return false;
     }
     settings.bloom_enabled = false;
-    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process.set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !expect(renderer.gpu_resource_count() == hdr_resources,
                 "disabling Bloom after resize releases its intermediate targets"))
     {
@@ -2296,7 +2553,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     settings.hdr_enabled = false;
     Screenshot restored;
-    if (!post_process->set_settings(settings) ||
+    if (!post_process.set_settings(settings) ||
         !SDL_SetWindowSize(windows.native_window(), config.width, config.height) ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-sdr-restored", restored) ||
@@ -2411,12 +2668,11 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         auto* scene = world.create_scene("Extension-only scene");
-        auto* camera_node = scene != nullptr ? scene->create_node("Camera") : nullptr;
-        auto* camera =
-            camera_node != nullptr ? camera_node->add_component<engine::Camera>() : nullptr;
-        auto* post = camera_node != nullptr
-                         ? camera_node->add_component<engine::PostProcessComponent>()
-                         : nullptr;
+        auto camera_node = scene != nullptr ? scene->create_node("Camera") : engine::Node{};
+        auto camera =
+            camera_node.valid() ? camera_node.add_component<engine::Camera>() : engine::Camera{};
+        auto post = camera_node.valid() ? camera_node.add_component<engine::PostProcessComponent>()
+                                        : engine::PostProcessComponent{};
         if (!expect(scene && camera && post && scene->set_active_camera(camera),
                     "create camera-only scene without a core mesh or text component") ||
             !render_frames(windows, renderer, 1) ||
@@ -2427,18 +2683,18 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         const auto game_view = extension.view;
-        auto* preview_node = scene->create_node("Preview camera");
-        auto* preview =
-            preview_node != nullptr ? preview_node->add_component<engine::Camera>() : nullptr;
+        auto preview_node = scene->create_node("Preview camera");
+        auto preview =
+            preview_node.valid() ? preview_node.add_component<engine::Camera>() : engine::Camera{};
         engine::TransformSettings preview_transform;
         preview_transform.position = {3, 2, 5};
-        auto post_settings = post->settings();
+        auto post_settings = post.settings();
         post_settings.hdr_enabled = true;
         post_settings.bloom_enabled = true;
         if (!expect(preview &&
-                        preview_node->get_component<engine::Transform>()->set_settings(
+                        preview_node.get_component<engine::Transform>().set_settings(
                             preview_transform) &&
-                        post->set_settings(post_settings),
+                        post.set_settings(post_settings),
                     "configure preview camera and scene HDR") ||
             !render_frames(windows, renderer, 1, preview) ||
             !expect(extension.draws == 2 && extension.view != game_view && extension.hdr,
@@ -2453,7 +2709,7 @@ bool test_render_extensions(const engine::EngineConfig& config)
         }
         extension.accept_draw = true;
         const auto retained_releases = extension.scene_releases;
-        if (!expect(camera_node->set_persistent(true), "retain a camera and its HDR settings"))
+        if (!expect(camera_node.set_persistent(true), "retain a camera and its HDR settings"))
         {
             return false;
         }
@@ -2465,8 +2721,8 @@ bool test_render_extensions(const engine::EngineConfig& config)
             return false;
         }
         auto* replacement = world.create_scene("New active camera");
-        auto* next_node = replacement ? replacement->create_node("Camera") : nullptr;
-        auto* next_camera = next_node ? next_node->add_component<engine::Camera>() : nullptr;
+        auto next_node = replacement ? replacement->create_node("Camera") : engine::Node{};
+        auto next_camera = next_node ? next_node.add_component<engine::Camera>() : engine::Camera{};
         if (!expect(next_camera && replacement->set_active_camera(next_camera),
                     "select new scene camera explicitly") ||
             !render_frames(windows, renderer, 1) ||
@@ -2812,7 +3068,8 @@ int main(int, char**)
     const bool scene_passed = windows_passed && test_scene_renderer(config);
     bool textures_passed = scene_passed && test_textured_renderer(config, false);
     textures_passed = textures_passed && test_textured_renderer(config, true);
-    const bool skinning_passed = textures_passed && test_gpu_skinning(config);
+    const bool sampling_passed = textures_passed && test_scene_sampling(config);
+    const bool skinning_passed = sampling_passed && test_gpu_skinning(config);
     const bool settings_passed =
         skinning_passed && test_render_settings_and_capture(config) && test_async_capture(config);
     const bool reflection_passed =

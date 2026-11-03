@@ -245,18 +245,26 @@ union ComponentPayload {
     NavigationAgentData, PlanarReflectionData, LightProbeVolumeData
 }
 
-table ComponentData {
+table ComponentFlags {
     enabled:bool = true;
+    visible:bool = true;
+}
+
+table ComponentData {
+    flags:ComponentFlags (required);
     payload:ComponentPayload (required);
+}
+
+table NodeProperties {
+    id:ulong;
+    name:string;
+    enabled:bool = true;
     visible:bool = true;
 }
 
 table NodeInfo {
-    id:ulong;
-    name:string;
+    properties:NodeProperties (required);
     parent_id:ulong;
-    enabled:bool = true;
-    visible:bool = true;
 }
 
 table NodeData {

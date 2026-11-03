@@ -1,4 +1,6 @@
 #include "runtime/animation/animation_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/animation/animation_clip.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -32,10 +34,10 @@ namespace
 
 bool active(const Node& node)
 {
-    for (const Node* current = &node; current != nullptr; current = current->parent())
+    for (Node current = node; static_cast<bool>(current); current = current.parent())
     {
-        const auto* transform = current->get_component<Transform>();
-        if (transform == nullptr || !transform->active())
+        const auto transform = current.get_component<Transform>();
+        if (!transform || !transform.active())
         {
             return false;
         }
@@ -330,17 +332,18 @@ void AnimationSystem::clear() noexcept
         for (const auto& [id, entry] : state_->entries)
         {
             (void)entry;
-            auto* node = world_->find_node(id);
-            auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-            auto* animator = node != nullptr ? node->get_component<Animator>() : nullptr;
-            if (renderer != nullptr)
+            auto node = world_->find_node(id);
+            auto renderer =
+                static_cast<bool>(node) ? node.get_component<MeshRenderer>() : MeshRenderer{};
+            auto animator = static_cast<bool>(node) ? node.get_component<Animator>() : Animator{};
+            if (static_cast<bool>(renderer))
             {
-                renderer->clear_deformation();
+                renderer.clear_deformation();
             }
-            if (animator != nullptr)
+            if (static_cast<bool>(animator))
             {
-                animator->prepared_revision_ = 0;
-                animator->target_skeleton_.reset();
+                animator.runtime()->prepared_revision_ = 0;
+                animator.runtime()->target_skeleton_.reset();
             }
         }
     }
@@ -365,8 +368,12 @@ bool AnimationSystem::on_tick(double delta_time)
         clear();
         return true;
     }
+    if (!world_->refresh_scene_state())
+    {
+        return false;
+    }
     std::erase_if(state_->entries,
-                  [this](const auto& item) { return world_->find_node(item.first) == nullptr; });
+                  [this](const auto& item) { return !world_->find_node(item.first); });
     std::erase_if(state_->clips, [](const auto& item) { return item.second.use_count() == 1; });
     std::erase_if(state_->skeletons, [](const auto& item) { return item.second.use_count() == 1; });
     if (world_->paused())
@@ -376,30 +383,34 @@ bool AnimationSystem::on_tick(double delta_time)
     auto& samples = state_->samples;
     samples.clear();
     std::set<std::uint64_t> retained;
-    for (const auto& scene : world_->scenes())
     {
-        for (const auto& node : scene->nodes())
+        const auto process = [&](Node node,
+                                 const ecs_detail::ComponentStorage<Animator::Data>& stored) -> bool
         {
-            auto* animator = node->get_component<Animator>();
-            auto* renderer = node->get_component<MeshRenderer>();
-            if (animator == nullptr || renderer == nullptr || !animator->active() ||
-                !renderer->active() || !active(*node) || animator->animation_ == nullptr)
+            const auto* scene = node.scene();
+            (void)scene;
+            (void)stored;
+
+            auto animator = node.get_component<Animator>();
+            auto renderer = node.get_component<MeshRenderer>();
+            if (!animator || !renderer || !animator.active() || !renderer.active() ||
+                !active(node) || animator.runtime()->animation_ == nullptr)
             {
-                if (renderer != nullptr && state_->entries.contains(node->id()))
+                if (static_cast<bool>(renderer) && state_->entries.contains(node.id()))
                 {
-                    renderer->clear_deformation();
+                    renderer.clear_deformation();
                 }
-                if (animator != nullptr)
+                if (static_cast<bool>(animator))
                 {
-                    animator->prepared_revision_ = 0;
-                    animator->target_skeleton_.reset();
+                    animator.runtime()->prepared_revision_ = 0;
+                    animator.runtime()->target_skeleton_.reset();
                 }
-                continue;
+                return true;
             }
-            retained.insert(node->id());
-            const auto* mesh = renderer->mesh_data();
-            const auto* clip = animator->animation_->animation();
-            auto found = state_->entries.find(node->id());
+            retained.insert(node.id());
+            const auto* mesh = renderer.mesh_data();
+            const auto* clip = animator.runtime()->animation_->animation();
+            auto found = state_->entries.find(node.id());
             if (mesh == nullptr || mesh->skeleton_guid.empty() || mesh->skin.empty() ||
                 clip == nullptr)
             {
@@ -409,36 +420,38 @@ bool AnimationSystem::on_tick(double delta_time)
                 return false;
             }
             if (found == state_->entries.end() ||
-                animator->prepared_revision_ != animator->revision_ ||
-                found->second->mesh_revision != renderer->mesh_revision() ||
-                found->second->mesh_instance != renderer->instance_id())
+                animator.runtime()->prepared_revision_ != animator.runtime()->revision_ ||
+                found->second->mesh_revision != renderer.mesh_revision() ||
+                found->second->mesh_instance != renderer.instance_id())
             {
                 std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
                 auto candidate = std::make_unique<AnimationEntry>();
-                if (!state_->compile(animator->animation_, *mesh, compiled) ||
-                    !candidate->prepare(*mesh, renderer->mesh_revision(), renderer->instance_id(),
+                if (!state_->compile(animator.runtime()->animation_, *mesh, compiled) ||
+                    !candidate->prepare(*mesh, renderer.mesh_revision(), renderer.instance_id(),
                                         compiled))
                 {
                     std::fputs("Cannot prepare animation: resource or skeleton mismatch\n", stderr);
                     return false;
                 }
-                if (animator->fade_seconds_ > 0.0 && animator->previous_animation_ != nullptr)
+                if (animator.runtime()->fade_seconds_ > 0.0 &&
+                    animator.runtime()->previous_animation_ != nullptr)
                 {
                     const auto* previous =
                         found != state_->entries.end() ? found->second.get() : nullptr;
                     const bool same_mesh = previous != nullptr && previous->sampled &&
-                                           previous->mesh_instance == renderer->instance_id() &&
-                                           previous->mesh_revision == renderer->mesh_revision();
-                    if (animator->frozen_pose_ != nullptr &&
-                        animation_detail::identity(*animator->frozen_pose_->target) ==
+                                           previous->mesh_instance == renderer.instance_id() &&
+                                           previous->mesh_revision == renderer.mesh_revision();
+                    if (animator.runtime()->frozen_pose_ != nullptr &&
+                        animation_detail::identity(*animator.runtime()->frozen_pose_->target) ==
                             animation_detail::identity(*compiled->target->resource))
                     {
-                        candidate->frozen = animator->frozen_pose_;
+                        candidate->frozen = animator.runtime()->frozen_pose_;
                     }
                     else if (same_mesh &&
                              (previous->blended ||
                               animation_detail::identity(*previous->current.clip->resource) !=
-                                  animation_detail::identity(*animator->previous_animation_)))
+                                  animation_detail::identity(
+                                      *animator.runtime()->previous_animation_)))
                     {
                         // 打断过渡只冻结已显示的混合局部姿态，不积累更多采样层。
                         auto pose = std::make_shared<animation_detail::AnimationPose>();
@@ -449,63 +462,89 @@ bool AnimationSystem::on_tick(double delta_time)
                     else
                     {
                         std::shared_ptr<const animation_detail::CompiledAnimation> source;
-                        if (!state_->compile(animator->previous_animation_, *mesh, source))
+                        if (!state_->compile(animator.runtime()->previous_animation_, *mesh,
+                                             source))
                         {
                             return false;
                         }
                         candidate->previous.prepare(std::move(source));
                     }
                 }
-                animator->target_skeleton_ = compiled->target->resource;
-                animator->frozen_pose_ = candidate->frozen;
-                animator->prepared_revision_ = animator->revision_;
-                state_->entries[node->id()] = std::move(candidate);
-                found = state_->entries.find(node->id());
-                animator->pose_dirty_ =
-                    animator->playback_ != AnimationPlayback::stopped || animator->pose_dirty_;
+                animator.runtime()->target_skeleton_ = compiled->target->resource;
+                animator.runtime()->frozen_pose_ = candidate->frozen;
+                animator.runtime()->prepared_revision_ = animator.runtime()->revision_;
+                state_->entries[node.id()] = std::move(candidate);
+                found = state_->entries.find(node.id());
+                animator.runtime()->pose_dirty_ =
+                    animator.runtime()->playback_ != AnimationPlayback::stopped ||
+                    animator.runtime()->pose_dirty_;
             }
             auto& entry = *found->second;
-            if (animator->awake_pending_)
+            if (animator.runtime()->awake_pending_)
             {
-                animator->awake_pending_ = false;
-                if (animator->settings().play_on_awake && !animator->play())
+                animator.runtime()->awake_pending_ = false;
+                if (stored.data.play_on_awake && !animator.play())
                 {
                     return false;
                 }
             }
-            const bool running = animator->playback_ == AnimationPlayback::playing;
+            const bool running = animator.runtime()->playback_ == AnimationPlayback::playing;
             if (running)
             {
-                const bool playing = advance(delta_time, clip->duration, animator->settings().speed,
-                                             animator->settings().loop, animator->time_);
-                if (animator->fade_seconds_ > 0.0)
+                const bool playing = advance(delta_time, clip->duration, stored.data.speed,
+                                             stored.data.loop, animator.runtime()->time_);
+                if (animator.runtime()->fade_seconds_ > 0.0)
                 {
-                    animator->fade_elapsed_ +=
-                        std::min(delta_time, animator->fade_seconds_ - animator->fade_elapsed_);
-                    if (animator->previous_advancing_ && animator->previous_animation_ != nullptr)
+                    animator.runtime()->fade_elapsed_ +=
+                        std::min(delta_time, animator.runtime()->fade_seconds_ -
+                                                 animator.runtime()->fade_elapsed_);
+                    if (animator.runtime()->previous_advancing_ &&
+                        animator.runtime()->previous_animation_ != nullptr)
                     {
-                        (void)advance(delta_time,
-                                      animator->previous_animation_->animation()->duration,
-                                      animator->previous_speed_, animator->previous_loop_,
-                                      animator->previous_time_);
+                        (void)advance(
+                            delta_time,
+                            animator.runtime()->previous_animation_->animation()->duration,
+                            animator.runtime()->previous_speed_, animator.runtime()->previous_loop_,
+                            animator.runtime()->previous_time_);
                     }
                 }
                 // 短动作的末帧继续参与尚未完成的过渡，避免提前暂停在半混合姿态。
-                if (!playing && animator->fade_elapsed_ >= animator->fade_seconds_)
+                if (!playing &&
+                    animator.runtime()->fade_elapsed_ >= animator.runtime()->fade_seconds_)
                 {
-                    animator->playback_ = AnimationPlayback::paused;
+                    animator.runtime()->playback_ = AnimationPlayback::paused;
                 }
             }
-            if (running || animator->pose_dirty_ ||
-                (animator->playback_ == AnimationPlayback::paused &&
-                 entry.deformation_revision != renderer->deformation_revision()))
+            if (running || animator.runtime()->pose_dirty_ ||
+                (animator.runtime()->playback_ == AnimationPlayback::paused &&
+                 entry.deformation_revision != renderer.deformation_revision()))
             {
-                const double blend = animator->fade_seconds_ > 0.0
-                                         ? animator->fade_elapsed_ / animator->fade_seconds_
-                                         : 1.0;
-                samples.push_back(
-                    {&entry, node->id(), animator->time_, animator->previous_time_, blend});
+                const double blend =
+                    animator.runtime()->fade_seconds_ > 0.0
+                        ? animator.runtime()->fade_elapsed_ / animator.runtime()->fade_seconds_
+                        : 1.0;
+                samples.push_back({&entry, node.id(), animator.runtime()->time_,
+                                   animator.runtime()->previous_time_, blend});
             }
+
+            return true;
+        };
+        auto query = flecs::world(world_->native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<Animator::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity, const ecs_detail::ComponentStorage<Animator::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_->find_node(entity.id()), stored);
+                }
+            });
+        if (!query_success)
+        {
+            return false;
         }
     }
     std::future<bool> sampling;
@@ -538,30 +577,40 @@ bool AnimationSystem::on_tick(double delta_time)
         ENGINE_PROFILE_ZONE("Animation.publish");
         for (const auto& sample : samples)
         {
-            auto* node = world_->find_node(sample.node_id);
-            auto* animator = node != nullptr ? node->get_component<Animator>() : nullptr;
-            auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-            if (animator == nullptr || renderer == nullptr ||
-                !renderer->set_skinning_palette(sample.entry->palette,
-                                                sample.entry->normal_palette))
+            auto node = world_->find_node(sample.node_id);
+            auto animator = static_cast<bool>(node) ? node.get_component<Animator>() : Animator{};
+            auto renderer =
+                static_cast<bool>(node) ? node.get_component<MeshRenderer>() : MeshRenderer{};
+            if (!animator || !renderer ||
+                !renderer.set_skinning_palette(sample.entry->palette, sample.entry->normal_palette))
             {
                 std::fputs("Animation palette submission failed\n", stderr);
                 return false;
             }
-            animator->pose_dirty_ = false;
-            sample.entry->deformation_revision = renderer->deformation_revision();
+            animator.runtime()->pose_dirty_ = false;
+            sample.entry->deformation_revision = renderer.deformation_revision();
             if (sample.blend >= 1.0)
             {
-                animator->previous_animation_.reset();
-                animator->frozen_pose_.reset();
-                animator->fade_seconds_ = 0.0;
-                animator->fade_elapsed_ = 0.0;
+                animator.runtime()->previous_animation_.reset();
+                animator.runtime()->frozen_pose_.reset();
+                animator.runtime()->fade_seconds_ = 0.0;
+                animator.runtime()->fade_elapsed_ = 0.0;
             }
         }
     }
     for (auto it = state_->entries.begin(); it != state_->entries.end();)
     {
-        it = retained.contains(it->first) ? std::next(it) : state_->entries.erase(it);
+        if (retained.contains(it->first))
+        {
+            ++it;
+            continue;
+        }
+        auto renderer = world_->find_node(it->first).get_component<MeshRenderer>();
+        if (renderer)
+        {
+            renderer.clear_deformation();
+        }
+        it = state_->entries.erase(it);
     }
     return true;
 }

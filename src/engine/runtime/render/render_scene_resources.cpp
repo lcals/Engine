@@ -1,4 +1,6 @@
 #include "runtime/render/render_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -24,10 +26,10 @@
 namespace engine
 {
 
-bool RenderSystem::prepare_scene(const Camera* camera)
+bool RenderSystem::prepare_scene(Camera camera)
 {
     ENGINE_PROFILE_ZONE("Render.prepareSceneResources");
-    if (!is_initialized())
+    if (!is_initialized() || (camera.instance_id() != 0 && !camera))
     {
         return false;
     }
@@ -53,17 +55,22 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     {
         return true;
     }
-    const auto lights = scene == nullptr
-                            ? 0
-                            : std::count_if(scene->nodes().begin(), scene->nodes().end(),
-                                            [](const auto& node)
-                                            {
-                                                const auto* light =
-                                                    node->template get_component<Light>();
-                                                return light != nullptr && light->active() &&
-                                                       light->visible_in_hierarchy();
-                                            });
-    if (lights > static_cast<std::ptrdiff_t>(config_.maximum_lights))
+    std::size_t lights = 0;
+    auto light_query = flecs::world(world_->native_world())
+                           .query_builder<const ecs_detail::ComponentStorage<Light::Data>,
+                                          const ecs_detail::NodeRuntime>()
+                           .with<ecs_detail::Published>()
+                           .build();
+    light_query.each(
+        [&](const auto& stored, const ecs_detail::NodeRuntime& state)
+        {
+            if (state.active && state.visible_in_hierarchy && stored.state.flags.enabled &&
+                stored.state.flags.visible)
+            {
+                ++lights;
+            }
+        });
+    if (lights > config_.maximum_lights)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Scene exceeds the limit of %u active lights",
                      config_.maximum_lights);
@@ -102,23 +109,27 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     std::set<const Resource*> needed_textures;
     std::vector<render_detail::PreparedTexture> missing_textures;
     bool needs_skinning = false;
-    for (const auto& owner : world_->scenes())
     {
-        for (const auto& node : owner->nodes())
+        const auto process =
+            [&](Node node, const ecs_detail::ComponentStorage<MeshRenderer::Data>& stored) -> bool
         {
-            const auto* renderer = node->get_component<MeshRenderer>();
-            if (renderer == nullptr || !renderer->active() || !renderer->visible_in_hierarchy())
+            const auto* owner = node.scene();
+            (void)owner;
+            (void)stored;
+
+            const auto renderer = node.get_component<MeshRenderer>();
+            if (!renderer || !renderer.active() || !renderer.visible_in_hierarchy())
             {
-                continue;
+                return true;
             }
-            const auto* data = renderer->mesh_data();
+            const auto* data = renderer.mesh_data();
             if (data == nullptr)
             {
                 release_scene();
                 return false;
             }
-            needed_meshes.insert(node->id());
-            if (!renderer->skinning_palette().empty())
+            needed_meshes.insert(node.id());
+            if (!renderer.skinning_palette().empty())
             {
                 needs_skinning = true;
                 if (!resources.skinning.prepare())
@@ -128,17 +139,17 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 }
             }
             auto mesh = std::find_if(meshes.begin(), meshes.end(), [&node](const auto& item)
-                                     { return item.node_id == node->id(); });
+                                     { return item.node_id == node.id(); });
             if (mesh == meshes.end())
             {
                 meshes.emplace_back();
                 mesh = std::prev(meshes.end());
             }
-            if (mesh->instance_id != renderer->instance_id() ||
-                mesh->revision != renderer->mesh_revision())
+            if (mesh->instance_id != renderer.instance_id() ||
+                mesh->revision != renderer.mesh_revision())
             {
                 ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
-                const auto source = renderer->mesh_resource();
+                const auto source = renderer.mesh_resource();
                 std::shared_ptr<render_detail::GpuGeometry> geometry;
                 if (source)
                 {
@@ -151,7 +162,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 if (!geometry)
                 {
                     geometry = std::make_shared<render_detail::GpuGeometry>();
-                    if (!geometry->create(*renderer))
+                    if (!geometry->create(renderer))
                     {
                         release_scene();
                         return false;
@@ -161,18 +172,18 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                         resources.geometries[source.get()] = geometry;
                     }
                 }
-                if (!mesh->create(*renderer, std::move(geometry)))
+                if (!mesh->create(renderer, std::move(geometry)))
                 {
                     release_scene();
                     return false;
                 }
             }
-            if (!mesh->update_deformation(*renderer, resources.skinning))
+            if (!mesh->update_deformation(renderer, resources.skinning))
             {
                 release_scene();
                 return false;
             }
-            const auto lightmap = renderer->lightmap_resource();
+            const auto lightmap = renderer.lightmap_resource();
             if (lightmap && needed_textures.insert(lightmap.get()).second &&
                 std::none_of(textures.begin(), textures.end(),
                              [&lightmap](const auto& item) { return item.resource == lightmap; }))
@@ -196,14 +207,14 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             }
             for (auto slot : slots)
             {
-                const auto* material = renderer->material(slot);
-                if (material == nullptr)
+                const auto material = renderer.material(slot);
+                if (!material)
                 {
                     release_scene();
                     return false;
                 }
-                const std::string path(material->shader_path());
-                const auto* shader = material->shader_data();
+                const std::string path(material.shader_path());
+                const auto* shader = material.shader_data();
                 if (shader == nullptr)
                 {
                     SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Unknown shader resource: %s",
@@ -239,7 +250,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                     {
                         continue;
                     }
-                    const auto& source = material->texture(sampler->name);
+                    const auto& source = material.texture(sampler->name);
                     if (!source || source->texture() == nullptr)
                     {
                         release_scene();
@@ -262,6 +273,26 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                     }
                 }
             }
+
+            return true;
+        };
+        auto query = flecs::world(world_->native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<MeshRenderer::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<MeshRenderer::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_->find_node(entity.id()), stored);
+                }
+            });
+        if (!query_success)
+        {
+            return false;
         }
     }
     for (std::size_t begin = 0; begin < missing_textures.size();)

@@ -6,9 +6,15 @@
 classDiagram
     direction TB
     class AudioSource {
+        <<value handle>>
+        +AudioSource()
+        +AudioSource(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() AudioSourceRuntime#42;
         <<final>>
         +valid_settings(settings AudioSourceDataT)$ bool
-        +settings() const AudioSourceDataT&
+        +settings() AudioSourceDataT
+        +get_settings(AudioSourceDataT& output) bool
         +set_settings(const AudioSourceDataT& settings) bool
         +set_clip(path string_view) bool
         +clip_path() string_view
@@ -21,9 +27,14 @@ classDiagram
         +restore_data(const ComponentDataT& data) bool
     }
     class AudioListener {
+        <<value handle>>
+        +AudioListener()
+        +AudioListener(Component component)
+        +register_type(ComponentRegistry& registry) bool$
         <<final>>
         +valid_settings(settings AudioListenerDataT)$ bool
-        +settings() const AudioListenerDataT&
+        +settings() AudioListenerDataT
+        +get_settings(AudioListenerDataT& output) bool
         +set_settings(const AudioListenerDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
     }
@@ -55,8 +66,8 @@ classDiagram
     }
     Component <|-- AudioSource
     Component <|-- AudioListener
-    Node *-- "0..1" AudioSource : 独占组件
-    Node *-- "0..1" AudioListener : 独占组件
+    Node ..> AudioSource : 按类型返回值句柄
+    Node ..> AudioListener : 按类型返回值句柄
     AudioSource o-- "0..1" Resource : 共享音频所有权
     AudioSource ..> ResourceSystem : 通过加载契约读取clip
     AudioSource ..> AudioSourceDataT : 设置参数和只读返回
@@ -65,10 +76,22 @@ classDiagram
     AudioSource ..> ComponentDataT : 恢复参数
     AudioListener ..> AudioListenerDataT : 设置参数和只读返回
     AudioListener ..> ComponentDataT : 恢复参数
+    class ComponentRegistry
+    class ecs_world_t
+    class AudioSourceRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- AudioSourceRuntime : 实例运行数据
+    AudioSource ..> AudioSourceRuntime : 校验身份后短期借用
+    AudioSource ..> ComponentRegistry : 静态登记类型操作
+    AudioListener ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
-两个组件由 `Node::add_component<T>()` 创建，命名空间为 `engine`。`settings()` 返回 `const` 引用，`clip_data()` 返回借用的 `const` 指针，修改失败保留旧状态。`valid_settings()` 只检查有限数值、范围和可选 GUID 格式，不要求资源目录存在。播放进度和状态不进入 FlatBuffers 持久模型。
+两个组件由 `Node::add_component<T>()` 创建，命名空间为 `engine`。`settings()` 返回独立值，`clip_data()` 返回借用的 `const` 指针，修改失败保留旧状态。`valid_settings()` 只检查有限数值、范围和可选 GUID 格式，不要求资源目录存在。播放进度和状态不进入 FlatBuffers 持久模型。
 
 `restore_data()` 与 `set_settings()` 共用校验和资源切换；相同 clip 的音量、音调等修改保留播放或暂停状态，改变 clip 才停止旧播放。恢复启用状态为 false 后，音频系统在下一次更新释放流。
 
 组件目标不包含或链接 SDL。`play()` 表示提交播放请求，真实成功由音频系统将 `pending` 改为 `playing`；失败可观察为 `failed`。详见[音频行为约定](../audio.md)。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。
