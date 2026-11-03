@@ -102,7 +102,7 @@ TaskSystem 借用已初始化的 ThreadSystem，各自拥有 arena、入口图�
 
 生命周期、提交、配置及 last_error 查询由所属协调线程调用。回调不得调用 System 生命周期、同步等待同池 future；依赖用批次表达。run/wait/configure_concurrency 在回调内拒绝。提交拥有函数和数据的副本；闭包借用由调用方保证活到 future 完成。关闭停止接收、等待已接收工作、释放图和 arena；不强制打断正在写文件的函数。支持重复关闭、部分初始化与重新初始化。
 
-编辑器入口拥有 ThreadSystem 和低优先 TaskSystem，向 AssetPipelineSystem 注入已初始化 TaskSystem&；管线不再自建池。import_threads 默认 4，当前在空闲时配置编辑器域，有在途任务时不能改变额度。整批导入仍由协调线程同步组织，仅转换阶段在 worker 执行。
+编辑器入口拥有 ThreadSystem 和低优先 TaskSystem，向 AssetPipelineSystem 注入已初始化 TaskSystem&；管线不再自建池。import_threads 默认 8，当前在空闲时配置编辑器域，有在途任务时不能改变额度。整批导入仍由协调线程同步组织，仅转换阶段在 worker 执行。
 
 RuntimeHost 通过可空参数借用已有 ThreadSystem；独立运行时自行创建。宿主独占运行、后台、加载、物理、动画和导航任务域，tasks() 返回运行域的可空借用；额度与优先级由 RuntimeParallelConfig 配置。关闭先停止玩法和资源异步服务，再销毁各领域系统并等待其已接受工作，最后关闭任务域与自有线程预算，不能先关域再等 Jolt barrier。
 

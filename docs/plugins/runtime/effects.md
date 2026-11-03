@@ -18,7 +18,7 @@ path = "Texture/Particle01.png"
 resource = "effects/laser/textures/particle01.png"
 ```
 
-颜色贴图要求 `srgb = true`，法线和扭曲贴图要求线性空间；依赖缺失、路径越界、冲突映射或色彩空间冲突明确报错，失败不替换已发布资源。每个效果独立映射，不能因不同效果使用相同原始文件名而串用依赖。
+LDR 颜色贴图要求 `srgb = true`，HDR/EXR 颜色贴图及法线、扭曲贴图要求线性空间；依赖缺失、路径越界、冲突映射或色彩空间冲突明确报错，失败不替换已发布资源。每个效果独立映射，不能因不同效果使用相同原始文件名而串用依赖。
 
 当前范围为官方预定义材质和普通 sprite、ribbon、ring、track、model 效果。自定义材质、背景扭曲、软粒子深度采样、GPU 粒子、音频和外部曲线尚未接入，导入时明确拒绝。复用上游不代表全部 Effekseer 功能已经完成。架构见[特效系统与组件](class-diagrams/effects.md)和[特效导入](../editor/class-diagrams/effect-importer.md)。
 

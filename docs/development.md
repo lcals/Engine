@@ -78,7 +78,7 @@ CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页
 
 ## 测试约定
 
-`tests/` 使用 CTest 运行库单元测试和 CLI 测试。测试使用普通失败返回值，在 Release 中同样生效；新增业务通过正式接口验证，不为测试扩大正式接口可见性。按修改范围运行受影响的 Debug / Release 构建与 CTest，入口见[根目录 Presets](building.md#根目录-presets)。
+`tests/` 按运行时、编辑器及插件的所属模块归档，构建规则检查放 `tests/build/`，共用夹具放 `tests/support/`，项目行为测试留在项目内。完整目录说明见[测试目录](testing.md#测试目录)。CTest 运行库单元测试和 CLI 测试；测试使用普通失败返回值，在 Release 中同样生效，新增业务通过正式接口验证，不为测试扩大正式接口可见性。按修改范围运行受影响的 Debug / Release 构建与 CTest，入口见[根目录 Presets](building.md#根目录-presets)。
 
 ## 代码格式维护
 
@@ -95,7 +95,7 @@ CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页
 | Android Gradle、Shell 与 PowerShell                                                       | 4 空格、UTF-8、LF、无行尾空白；保留各语言语法及现有行为                      |
 
 ```sh
-prettier --check --tab-width 4 --print-width 100 include/engine.d.ts "projects/showcase/assets/scripts/**/*.ts" scripts/build_scripts.mjs tests/scene_schema_bridge.ts
+prettier --check --tab-width 4 --print-width 100 include/engine.d.ts "projects/showcase/assets/scripts/**/*.ts" scripts/build_scripts.mjs tests/runtime/scene/scene_schema_bridge.ts
 ```
 
 Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎构建依赖；可在独立工具环境安装。格式检查不能替代命名、模块职责、返回值错误处理及资源释放顺序的代码审查，C++ 修改仍需 Debug / Release 构建和受影响的 CTest。

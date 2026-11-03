@@ -6,6 +6,22 @@
 
 ## 执行方式
 
+### 测试目录
+
+引擎测试按被测模块归档；跨模块用例放在主测职责所属目录，目标名、CTest 名称及构建输出目录保持不变。
+
+| 目录 | 内容 |
+| --- | --- |
+| `tests/runtime/<module>/` | 核心、资源、场景、渲染、物理、导航等运行时模块 |
+| `tests/editor/<module>/` | 编辑器宿主、项目、命令、场景保存及资源管线 |
+| `tests/plugins/runtime/<plugin>/` | 脚本、资源图、角色、群体、地形、破坏和特效插件 |
+| `tests/plugins/editor/<plugin>/` | MCP、建模、各类导入、烘焙、UI 和构建同步插件 |
+| `tests/build/` | 架构规则、依赖与插件选择、安装环境和平台交付检查 |
+| `tests/support/`、`tests/fixtures/` | 共用代码夹具及源资源夹具 |
+| `projects/showcase/tests/` | 公开范例的项目行为与真实 MCP 交互 |
+
+`tests/CMakeLists.txt` 统一登记测试；共享头只作为测试目标的私有包含目录。Python 测试支持从仓库根直接执行，模块间复用通过明确导入连接。
+
 ### 构建、CTest 与脚本检查
 
 准备好构建指南要求的宿主工具及依赖后，完整引擎使用根目录 Presets：
@@ -187,11 +203,11 @@ macOS 阶段验收和 Android 探针的区别见[步骤 2 验证记录](plugins/
 
 ## 独立 GPU 照明验证
 
-公开脚本 [scene_lighting_gpu_test.py](../tests/scene_lighting_gpu_test.py) 要求 Python 3.11+，只使用自造几何及内置材质。默认仅准备资源，`--run` 才启动编辑器并验证一／二次反弹、探针、稳定 GUID、取消和重开：
+公开脚本 [scene_lighting_gpu_test.py](../tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py) 要求 Python 3.11+，只使用自造几何及内置材质。默认仅准备资源，`--run` 才启动编辑器并验证一／二次反弹、探针、稳定 GUID、取消和重开：
 
 ```sh
 cmake --build --preset ninja-engine-debug --target editor_app mcp_app
-python3 tests/scene_lighting_gpu_test.py --run \
+python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
   --binary-dir build/ninja-engine-debug \
   --work-dir build/scene-lighting-gpu-test
 ```
@@ -199,6 +215,16 @@ python3 tests/scene_lighting_gpu_test.py --run \
 `--binary-dir` 应与实际 Preset 输出一致。生成项目、截图、MCP 回执和 `report.json` 留在工作目录下的 `project/cache/verification/`；默认目录位于忽略的 `build/`。脚本只关闭自己启动的编辑器进程。它验证小型场景的功能，不替代大场景容量或跨平台验证。烘焙公开参数与资源契约见[照明烘焙类图](plugins/editor/class-diagrams/scene-lighting-bake.md)。
 
 ## 有日期的验证记录
+
+### 2026-11-03：Basis Universal 2.50 与测试目录整理，macOS ARM64
+
+BasisU 2.50 的 Debug／Release 库已实际构建安装，两配置引擎全目标构建通过。各通过 15 项定向 CTest：贴图与资源导入、HDR 半浮点转码和预算、资源编解码、UI 导入、特效导入与运行、光照资源、渲染基础、脚本编译、架构规则及桌面／Android 资源打包；另各通过 `engine.window_render` 和 `engine.font_ui_render` 两项真实 Metal 测试。
+
+贴图回归覆盖 PNG/JPEG、TGA/QOI、HDR/EXR、完整 mip、增量缓存、无效设置不发布，以及保留 KTX cube／LUT。HDR 检查大于 1 的亮度、65216 上限、透明通道和设备能力；不把有损 HDR 编码当作任意浮点数据存储。默认导入并发为 8，并验证项目配置仍能覆盖它。
+
+114 个测试与辅助文件按模块迁移，CTest 名称及目标名保持不变；18 个 Python 文件的新位置编译／导入通过。迁移回归发现资源目录解析器漏接受 `light_probe=17`，修复后 Android 资源打包 28 项、桌面导出 16 项 Python 检查均通过。证据保存于忽略目录 `build/basisu-upgrade/`。
+
+上述为定向功能回归，不是全仓测试或性能验收；没有新增 Windows、Android、iOS 实机结论。移动端关闭 BasisU CLI 的配置已保留。
 
 ### 2026-11-03：渲染升级，macOS Metal
 

@@ -25,7 +25,7 @@
 
 ## 项目宿主替身回归
 
-项目测试位于 [projects/showcase/tests/](../../projects/showcase/tests/)。下表中的 `.mjs` 测试编译真实项目 TS，再仅替代 `engine` 宿主边界；临时编译结果测试后删除。项目专属测试不再放在根 `tests/`，核心、编辑器和协议测试继续保留在那里。
+项目测试位于 [projects/showcase/tests/](../../projects/showcase/tests/)。下表中的 `.mjs` 测试编译真实项目 TS，再仅替代 `engine` 宿主边界；临时编译结果测试后删除。项目专属测试不放在根 `tests/`；核心、编辑器和协议测试按[所属模块](../testing.md#测试目录)归档。
 
 | CTest 名称 | 脚本 | 实际检查 |
 | --- | --- | --- |

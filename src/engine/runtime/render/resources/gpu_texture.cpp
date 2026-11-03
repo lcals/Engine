@@ -109,9 +109,10 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
         const auto target = format == Format::BC7       ? Transcode::cTFBC7_RGBA
                             : format == Format::ASTC4x4 ? Transcode::cTFASTC_4x4_RGBA
                             : format == Format::ETC2A   ? Transcode::cTFETC2_RGBA
+                            : format == Format::RGBA16F ? Transcode::cTFRGBA_HALF
                                                        : Transcode::cTFRGBA32;
-        return basist::basis_is_format_supported(target,
-                                                 decoder.get_tex_format(data->data.data(), size));
+        return basist::basis_is_format_supported(
+            target, decoder.get_basis_tex_format(data->data.data(), size));
     };
     auto requested = data->format;
     if (data->encoding == schema::TextureEncoding::rgba8)
@@ -143,6 +144,13 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
         break;
     case schema::TextureFormat::rgba8:
         break;
+    case schema::TextureFormat::rgba16f:
+        if (data->srgb)
+        {
+            return false;
+        }
+        candidate.format = Format::RGBA16F;
+        break;
     default:
         return false;
     }
@@ -156,11 +164,12 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
     std::uint64_t total_bytes = 0;
     for (std::uint32_t mip = 0; mip < data->mip_count; ++mip)
     {
-        const bool raw = candidate.format == Format::RGBA8;
+        const bool raw = candidate.format == Format::RGBA8 || candidate.format == Format::RGBA16F;
         const std::uint64_t units =
             raw ? static_cast<std::uint64_t>(width) * height
                 : static_cast<std::uint64_t>((width + 3) / 4) * ((height + 3) / 4);
-        const std::uint64_t level_bytes = units * (raw ? 4 : 16);
+        const std::uint64_t level_bytes =
+            units * (candidate.format == Format::RGBA16F ? 8 : raw ? 4 : 16);
         total_bytes += level_bytes;
         if (level_bytes > std::numeric_limits<std::uint32_t>::max() || total_bytes > max_bytes)
         {
@@ -202,6 +211,7 @@ bool PreparedTexture::prepare()
     const auto transcode = format == bgfx::TextureFormat::BC7       ? Transcode::cTFBC7_RGBA
                            : format == bgfx::TextureFormat::ASTC4x4 ? Transcode::cTFASTC_4x4_RGBA
                            : format == bgfx::TextureFormat::ETC2A   ? Transcode::cTFETC2_RGBA
+                           : format == bgfx::TextureFormat::RGBA16F ? Transcode::cTFRGBA_HALF
                                                                    : Transcode::cTFRGBA32;
     std::vector<std::vector<std::uint8_t>> candidate;
     std::uint32_t width = data->width;
@@ -209,11 +219,12 @@ bool PreparedTexture::prepare()
     std::size_t raw_offset = 0;
     for (std::uint32_t mip = 0; mip < data->mip_count; ++mip)
     {
-        const bool raw = format == bgfx::TextureFormat::RGBA8;
+        const bool raw = format == bgfx::TextureFormat::RGBA8 ||
+                         format == bgfx::TextureFormat::RGBA16F;
         const std::size_t units =
             raw ? static_cast<std::size_t>(width) * height
                 : static_cast<std::size_t>((width + 3) / 4) * ((height + 3) / 4);
-        candidate.emplace_back(units * (raw ? 4 : 16));
+        candidate.emplace_back(units * (format == bgfx::TextureFormat::RGBA16F ? 8 : raw ? 4 : 16));
         auto& output = candidate.back();
         if (data->encoding == schema::TextureEncoding::basis)
         {

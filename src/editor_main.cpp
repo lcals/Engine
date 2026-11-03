@@ -144,7 +144,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 {
     engine::ThreadSystem threads(parallel.threads);
 #if ENGINE_HAS_ASSET_PIPELINE
-    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::TaskSystem tasks(threads, {"Editor", 8, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
 #endif
 #if ENGINE_HAS_RESOURCE_GRAPH_PLUGIN

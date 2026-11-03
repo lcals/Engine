@@ -98,8 +98,8 @@ RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已�
 
 运行时通过固定提交的 Git 子模块引入 ozz-animation，作为 CMake 子项目接入，关闭工具、示例与上游测试。脚本依赖选择、准备入口与后端限制见[脚本后端选择](plugins/runtime/scripting.md#脚本后端选择)和[V8 依赖](plugins/runtime/scripting.md#v8-依赖)。
 
-桌面依赖 Preset 面向 Windows、macOS、Linux；Android 使用 `arm64-android-engine` overlay triplet 与独立安装目录。固定 baseline 的 `basisu` port 原本排除 Android / ARM，本仓库 overlay 增加 macOS ARM64 和 Android ARM64 支持；Android 关闭宿主工具但保留库。SDL3 在 Android 使用 PIC 静态库并安装同版 Java 入口，与所选 VM、NDK C++ 运行库及引擎一起合入唯一的 `libmain.so`。维护与验证说明见[验证范围与限制](testing.md)。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
-Basis Universal 通过同一 port 提供编码与转码库。编辑器图片导入器读取相邻 meta 的压缩、质量、色彩空间和 mip 参数生成 GUID 缓存，运行时按设备支持转码并创建纹理；参数与支持范围见[资源管线](editor/asset-pipeline.md)。
+桌面依赖 Preset 面向 Windows、macOS、Linux；Android 使用 `arm64-android-engine` overlay triplet 与独立安装目录。`basisu` 使用 2.50 的本地 overlay，桌面保留宿主工具，Android ARM64 与 iOS 关闭工具但保留库。SDL3 在 Android 使用 PIC 静态库并安装同版 Java 入口，与所选 VM、NDK C++ 运行库及引擎一起合入唯一的 `libmain.so`。维护与验证说明见[验证范围与限制](testing.md)。OpenUSD 仅在桌面资源管线中使用，不进入游戏运行时。
+Basis Universal 固定到官方稳定版 [`v2_50`](https://github.com/BinomialLLC/basis_universal/releases/tag/v2_50)（提交 `9bebe16726b3a61c8c213eeee3b7cffb462ef34e`），基于 vcpkg 2.50#1 port 更新现有 overlay；无需升级整个 vcpkg baseline。编码与转码共用同一 port，KTX2 的 Zstandard 使用 vcpkg `zstd`。编辑器图片导入器读取相邻 meta 的压缩、质量、色彩空间和 mip 参数生成 GUID 缓存，运行时按设备支持转码并创建纹理；参数与支持范围见[资源管线](editor/asset-pipeline.md)。
 
 需要验证依赖时先运行 `git submodule update --init`，再按需使用 `runtime-deps`、`asset-pipeline-deps` 或 `editor-deps` 的 configure / build / test Preset。编辑器 Preset 同时启用运行时、编辑器和资源管线 feature；构建及 CTest 验证相应系统与真实依赖的编译、链接和基本调用。
 
@@ -119,7 +119,7 @@ ozz 的源码副本仅在固定提交、覆盖文件或准备脚本变化，以�
 
 依赖维护需保留以下兼容约束：
 
-- `basisu` overlay 补充 macOS ARM64 与 Android 支持，Android 保留编码 / 转码库并关闭宿主工具；上游 port 提供等效支持后才能移除覆盖。
+- `basisu` 2.50 overlay 保留 Android ARM64 与 iOS 的纯库构建，以 `Threads::Threads` 表达线程依赖；普通编码状态尊重 `m_status_output`，额外诊断进入 stderr。官方 vcpkg port 仍排除 Android，提供等效支持后才能移除覆盖。
 - Android SDL3 静态合入 `libmain.so` 并安装同版本 Java 入口，bgfx overlay 传递所需 Android 系统库，避免 Java / JNI 或链接依赖不一致。
 - bgfx Metal overlay 在绑定 uniform 前按需分段预留空间，并检查每次写入边界；旧段等待 GPU 完成后释放，避免大型场景超过固定 8 MiB 缓冲时越界。macOS / iOS 使用该补丁；上游提供等效修复后再移除，详见[overlay 说明](../third_party/overlay-ports/README.md)。
 - macOS TBB 使用共享库，防止 USD 动态库重复嵌入独立调度器；任务内存释放补丁回补 oneTBB 提交 `132268ddd04d74e8b2e21e431a7e770761def49f`。升级包含该修复的版本后可移除补丁，共享链接策略须单独保留或验证替代方案。

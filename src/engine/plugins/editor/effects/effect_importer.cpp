@@ -189,7 +189,10 @@ bool texture_colorspace(const std::filesystem::path& source, bool srgb, std::str
         error = "effect texture meta requires a [texture] table";
         return false;
     }
-    bool actual = true;
+    const auto extension = editor::asset_pipeline::source_extension(source);
+    const bool hdr = extension == ".hdr" || extension == ".exr";
+    srgb = srgb && !hdr;
+    bool actual = !hdr;
     if (settings != nullptr && settings->contains("srgb"))
     {
         const auto value = (*settings)["srgb"].value_exact<bool>();

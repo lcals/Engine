@@ -28,7 +28,7 @@
 
 Showcase 由项目脚本提交 Terrain 产生的静态网格，在一次爆炸处理完地形后合并范围并局部重建。移动碎块不自动加入导航，群体代理由独立运行时导航群体插件连接普通 Node 与 NavigationSystem，显式步进后由 Crowd 唯一写入 Transform。同节点不能同时启用 CharacterMotor；可选 `Collider + kinematic RigidBody` 组合要求刚体线/角速度均为零，Physics 只同步该形体供查询及接触使用。单独启用 Collider 或 RigidBody、非运动学刚体及非零速度组合会被拒绝；该组合不提供重力或击退位移。离线导航资源、成本区域、跳跃连接及 TileCache 尚未实现。
 
-回归测试位于 `tests/navigation_test.cpp`，覆盖跨 tile 寻路、挖洞绕路、完全断路、填补恢复、失败时局部失效、空几何删除、变换及参数边界。[脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)由 `tests/navigation_script_test.cpp` 验证真实后端、显式输入及场景生命周期。实际构建与测试结果以本次交付记录为准。依赖方向见[运行时模块](runtime.md)。
+回归测试位于 `tests/runtime/navigation/navigation_test.cpp`，覆盖跨 tile 寻路、挖洞绕路、完全断路、填补恢复、失败时局部失效、空几何删除、变换及参数边界。[脚本接口](../plugins/runtime/class-diagrams/navigation-script-api.md)由 `tests/plugins/runtime/script/navigation_script_test.cpp` 验证真实后端、显式输入及场景生命周期。实际构建与测试结果以本次交付记录为准。依赖方向见[运行时模块](runtime.md)。
 
 ## 群体移动
 
@@ -40,6 +40,6 @@ Showcase 由项目脚本提交 Terrain 产生的静态网格，在一次爆炸�
 
 完整 build、clear 和 shutdown 清除全部代理、配置及旧目标；组件恢复是调用方的显式策略。局部 replace 在修改 tile 前清除旧群体队列和路径，随后保留世代句柄和原始目标，从当前位置重新投影并恢复代理。在 `query_half_extents` 内找不到剩余导航面时立即报告 invalid；邻近或下层仍有表面时可能投影到该表面，此过程不是物理下落。目标投影失败立即 unreachable，投影成功但断路由后续队列步进报告 unreachable，不沿旧路径继续。容量支持 1..4096，同容量配置幂等，有活动代理时拒绝更换容量。
 
-群体路径限制为 256 个走廊多边形，不接受部分路径；请求只进行端点投影，不重复同步完整寻路；队列及近邻遵守 DetourCrowd 1.6.0 的固定预算，每次 update 最多推进 100 次路径搜索迭代。独立 find_path 保留同步完整查询契约。中等避让配置参考官方 CrowdTool，未增加自制寻路或通用管理层。此能力支持多人技术范例，不包含项目玩法策略。核心回归测试追加于 `tests/navigation_test.cpp`，包括交叉避让、绕障、持续移动目标、停止/移除、句柄复用、目标失败、净空与局部重建生命周期。
+群体路径限制为 256 个走廊多边形，不接受部分路径；请求只进行端点投影，不重复同步完整寻路；队列及近邻遵守 DetourCrowd 1.6.0 的固定预算，每次 update 最多推进 100 次路径搜索迭代。独立 find_path 保留同步完整查询契约。中等避让配置参考官方 CrowdTool，未增加自制寻路或通用管理层。此能力支持多人技术范例，不包含项目玩法策略。核心回归测试追加于 `tests/runtime/navigation/navigation_test.cpp`，包括交叉避让、绕障、持续移动目标、停止/移除、句柄复用、目标失败、净空与局部重建生命周期。
 
-`tests/navigation_terrain_test.cpp` 在测试宿主组合真实 `TerrainVolume` 与导航：生成 24×8 米、0.5 米采样的窄条地形并让四个代理移动，第五个代理停在预定断沟中心，使用球形笔刷挖出贯穿断沟后提交生成网格与局部 dirty 范围。测试检查原有句柄和目标保留、断路代理停止且不跨越缺口；中心代理因脚下表面超出投影范围而保持 invalid、零速度且不移动。恢复原始采样数据并替换同一区域后，五个原目标无需重发即可重新到达，中心代理沿用原句柄恢复。该测试只在测试目标链接地形插件，不改变导航公开契约，也不向导航核心加入 Terrain 依赖。
+`tests/runtime/navigation/navigation_terrain_test.cpp` 在测试宿主组合真实 `TerrainVolume` 与导航：生成 24×8 米、0.5 米采样的窄条地形并让四个代理移动，第五个代理停在预定断沟中心，使用球形笔刷挖出贯穿断沟后提交生成网格与局部 dirty 范围。测试检查原有句柄和目标保留、断路代理停止且不跨越缺口；中心代理因脚下表面超出投影范围而保持 invalid、零速度且不移动。恢复原始采样数据并替换同一区域后，五个原目标无需重发即可重新到达，中心代理沿用原句柄恢复。该测试只在测试目标链接地形插件，不改变导航公开契约，也不向导航核心加入 Terrain 依赖。

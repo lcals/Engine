@@ -26,7 +26,8 @@ constexpr auto sampler_flags = BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP;
 bool supported_texture(const Resource& resource)
 {
     const auto* data = resource.texture();
-    if (data && !data->cube_map &&
+    if (data && !data->cube_map && data->format != schema::TextureFormat::rgba16f &&
+        data->format != schema::TextureFormat::rg16f &&
         (data->encoding == schema::TextureEncoding::rgba8 ||
          data->encoding == schema::TextureEncoding::basis))
     {

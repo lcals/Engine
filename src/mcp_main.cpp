@@ -140,7 +140,7 @@ int main(int argc, char** argv)
     }
     const engine::EngineConfig config{};
     engine::ThreadSystem threads;
-    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::TaskSystem tasks(threads, {"Editor", 8, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
     engine::plugins::asset_build::AssetBuildSystem builder(pipeline);
     engine::plugins::asset_sync::AssetSyncSystem sync;

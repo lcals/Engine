@@ -103,8 +103,10 @@ bool UiResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
             return false;
         }
         const auto& data = *texture->texture();
-        if (data.cube_map || (data.encoding != schema::TextureEncoding::rgba8 &&
-                              data.encoding != schema::TextureEncoding::basis))
+        if (data.cube_map || data.format == schema::TextureFormat::rgba16f ||
+            data.format == schema::TextureFormat::rg16f ||
+            (data.encoding != schema::TextureEncoding::rgba8 &&
+             data.encoding != schema::TextureEncoding::basis))
         {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "UI requires 2D LDR rgba8/Basis textures: %s",
