@@ -35,7 +35,7 @@ Replace 仍提交完整当前几何，dirty 只决定重建哪些 tile；失败�
 FindPath 仅返回完整可达的世界坐标路径，失败 null，不把部分路径当作成功。
 切场景/停止当前 Run 清理导航；无导航借用时查询返回 false/null。
 
-回归入口为 `tests/navigation_script_test.cpp`：使用实际脚本后端和正式资源目录，覆盖显式几何、父子世界变换、局部替换、参数拒绝与场景清理，不启动窗口。
+回归入口为 `tests/plugins/runtime/script/navigation_script_test.cpp`：使用实际脚本后端和正式资源目录，覆盖显式几何、父子世界变换、局部替换、参数拒绝与场景清理，不启动窗口。
 
 ## 可选多人导航组件
 

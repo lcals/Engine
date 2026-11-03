@@ -22,6 +22,13 @@ classDiagram
         +render(uint32 width, uint32 height) bool
         +synchronize() bool
         +find_element(uint64 node, string_view id, UiElementHandle& output) bool
+        +document_root(uint64 node, UiElementHandle& output) bool
+        +inspect_element(UiElementHandle handle, UiElementInfo& output) bool
+        +child_element(UiElementHandle parent, uint32 index, UiElementHandle& output) bool
+        +element_style(UiElementHandle handle, string_view name, string& output) bool
+        +hit_test(float x, float y, UiElementHandle& output) bool
+        +pointer_active() const bool
+        +focus_element(UiElementHandle handle) bool
         +is_valid(UiElementHandle handle) bool
         +document_id(uint64 node) uint64
         +set_document_visible(uint64 node, bool visible) bool
@@ -38,6 +45,7 @@ classDiagram
         +set_image(UiElementHandle handle, string_view path) bool
         +release_scene() void
         +process_event(const SDL_Event& event) bool
+        +process_event(const SDL_Event& event, uint16 modifiers) bool
         +keyboard_claimed() bool
         +pointer_claimed() bool
         +owns_pointer(const SDL_Event& event) bool
@@ -62,11 +70,28 @@ classDiagram
         +uint64 document_id
         +uint64 element_id
     }
+    class UiElementInfo {
+        <<struct>>
+        +UiElementHandle handle
+        +UiElementHandle parent
+        +string tag
+        +string id
+        +string text
+        +string value
+        +string classes
+        +array~float_4~ bounds
+        +uint32 child_count
+        +bool visible
+        +bool enabled
+        +bool focused
+    }
+    UiSystem ..> UiElementInfo : 输出瞬时查询快照
+    UiElementInfo ..> UiElementHandle : 当前与父控件身份
     System <|-- UiSystem
     Component <|-- UiComponent
     Node "1" *-- "0..1" UiComponent : 普通组件
     UiComponent o-- Resource : 共享 UI 资源
-    UiSystem --> WorldSystem : 借用场景
+    UiSystem --> WorldSystem : 借用所有已发布场景与存活节点
     UiSystem --> WindowSystem : 借用输入与尺寸
     UiSystem --> FontSystem : 借用字体能力
     UiSystem *-- RmlContext : 独占文档及控件
@@ -83,8 +108,10 @@ classDiagram
 - RmlUi 的渲染与字体接口在 UI 模块内部实现；提交顺序、预乘透明度、裁剪和变换保留在 UI 绘制阶段。
 - 文档先销毁，再释放字体和 GPU 对象，最后关闭渲染设备。反复启停及平台 Surface 重建使用同样顺序。
 - C++ 返回失败状态；公开接口不暴露 RmlUi 类型。SDL 事件借用仅在调用期间有效。
-- synchronize 准备当前场景文档，不提交绘制；允许玩法初始化中查询和修改 View。文档身份跨重建不复用，控件使用内部弱观察引用校验存活；UiComponent 的 view_id 区分同节点上先移除再添加的组件。
+- synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 的 view_id 区分同节点上先移除再添加的组件。
 - 文档按节点独立同步，其他文档的增加或移除不会清空未变更的 View。失效事件不返回给调用方。
+- 普通常驻标记通过 Node 生效，文档中的控件仍不成为节点。常驻文档在普通关卡文档之后绘制、优先命中输入；同组保留场景和节点顺序。UiEvent.scene_id 记录目标文档的实际所属场景，不用活动关卡 ID 替代。
+- release_scene 是整个会话的完整清理入口，停止与重载时释放全部文档；普通场景切换依靠同步裁剪已删除节点，不调用全量释放。
 - document_revision 在成功替换文档时递增；同一次调用中 A → B → A 也使旧 View 失效，不依赖共享缓存是否复用了相同资源地址。
 - 控件事件保存从最近有 ID 的目标到有 ID 祖先的身份路径；脚本可按冒泡顺序分发，不能在分发时按名字重新查找新控件。
 - UI 内部图片与字体纹理定位包含文档资源代际；独立文档更新不会复用同路径旧版本纹理，释放按仍存活的文档集合进行。
@@ -97,3 +124,6 @@ classDiagram
 原生触摸桥使用窗口逻辑坐标，以一个已认领触点驱动普通 UI，不重新注入 SDL。其他命中 UI 的手指只保留阻挡身份，不驱动第二个 RmlUi 鼠标；未命中 UI 的手指仍可并行操作游戏控件。可见背景 body / div 不默认占用全屏；标准交互控件、可滚动区域及显式 `data-input-capture` 区域参与命中，自定义可点容器应声明该属性。合成鼠标 / 触摸来源忽略，防止重复触发。
 
 触点取消、失焦、后台、窗口尺寸变化、文档隐藏 / 移除与 `cancel_input` 清理 capture；先移除 RmlUi hover 再释放鼠标按键，不产生普通 click。停止与关闭清理同一状态。控件运动与虚拟触摸识别不通过高频 TS 事件执行。
+
+- [UI 编辑器插件](../../plugins/editor/class-diagrams/ui-editor.md) 复用最小查询与输入增量。UiElementInfo 只读快照，bounds 为窗口逻辑坐标，密码值掩码；实际遮挡仍由 RmlUi 命中测试决定。句柄失效保持失败，不查找同名替代。
+- 显式 modifiers 重载仅影响本次输入，不改 SDL 全局修饰键状态。取消先清理指针捕获，再失焦并释放已记录按键，抑制取消引起的激活但不删除已排队合法事件。

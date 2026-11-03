@@ -45,14 +45,27 @@ namespace engine::scene_detail
            settings.ao_strength <= 2.0F && std::isfinite(settings.ao_power) &&
            settings.ao_power >= 0.1F && settings.ao_power <= 8.0F &&
            std::isfinite(settings.ao_fade_start) && settings.ao_fade_start >= 0.0F &&
-           std::isfinite(settings.ao_fade_end) &&
-           settings.ao_fade_end > settings.ao_fade_start && settings.ao_fade_end <= 100000.0F &&
-           (!settings.bloom_enabled || settings.hdr_enabled) &&
+           std::isfinite(settings.ao_fade_end) && settings.ao_fade_end > settings.ao_fade_start &&
+           settings.ao_fade_end <= 100000.0F && (!settings.bloom_enabled || settings.hdr_enabled) &&
            std::isfinite(settings.bloom_threshold) && settings.bloom_threshold >= 0.0F &&
            settings.bloom_threshold <= 100.0F && std::isfinite(settings.bloom_intensity) &&
            settings.bloom_intensity >= 0.0F && settings.bloom_intensity <= 10.0F &&
            std::isfinite(settings.bloom_radius) && settings.bloom_radius >= 0.25F &&
-           settings.bloom_radius <= 4.0F;
+           settings.bloom_radius <= 4.0F && std::isfinite(settings.ssr_resolution_scale) &&
+           settings.ssr_resolution_scale >= 0.25F && settings.ssr_resolution_scale <= 1.0F &&
+           settings.ssr_max_steps >= 8 && settings.ssr_max_steps <= 256 &&
+           std::isfinite(settings.ssr_max_distance) && settings.ssr_max_distance > 0.0F &&
+           settings.ssr_max_distance <= 100000.0F && std::isfinite(settings.ssr_thickness) &&
+           settings.ssr_thickness > 0.0F && settings.ssr_thickness <= 10.0F &&
+           std::isfinite(settings.ssr_roughness_cutoff) && settings.ssr_roughness_cutoff >= 0.0F &&
+           settings.ssr_roughness_cutoff <= 1.0F;
+}
+
+[[nodiscard]] inline bool valid_planar_reflection(const PlanarReflectionSettings& settings) noexcept
+{
+    return std::isfinite(settings.resolution_scale) && settings.resolution_scale >= 0.25F &&
+           settings.resolution_scale <= 1.0F && std::isfinite(settings.clip_bias) &&
+           settings.clip_bias >= 0.0F && settings.clip_bias <= 1.0F;
 }
 
 [[nodiscard]] inline bool valid_light(const LightSettings& settings) noexcept
@@ -63,7 +76,6 @@ namespace engine::scene_detail
            settings.range > 0.0F && std::isfinite(settings.inner_angle) &&
            std::isfinite(settings.outer_angle) && settings.inner_angle >= 0.0F &&
            settings.inner_angle < settings.outer_angle && settings.outer_angle < 90.0F &&
-           (!settings.cast_shadows || settings.kind == schema::LightKind::directional) &&
            settings.shadow_resolution >= 128 && settings.shadow_resolution <= 8192 &&
            (settings.shadow_resolution & (settings.shadow_resolution - 1)) == 0 &&
            std::isfinite(settings.shadow_bias) && settings.shadow_bias >= 0.0F &&

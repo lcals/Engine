@@ -47,7 +47,7 @@
 
 ## 采集与对比
 
-先按根 README 启动编辑器及目标场景预览，再执行：
+先按[编辑器指南](editor.md#编辑器场景预览)启动编辑器及目标场景预览，再执行：
 
 ```sh
 python3 scripts/preview_visual_review.py \

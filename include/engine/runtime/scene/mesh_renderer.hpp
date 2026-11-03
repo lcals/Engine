@@ -38,6 +38,12 @@ public:
     void set_visible(bool visible) noexcept;
     [[nodiscard]] bool cast_shadows() const noexcept;
     void set_cast_shadows(bool enabled) noexcept;
+    [[nodiscard]] bool bake_static() const noexcept;
+    [[nodiscard]] bool set_bake_static(bool enabled) noexcept;
+    [[nodiscard]] std::string_view lightmap_path() const noexcept;
+    [[nodiscard]] bool set_lightmap(std::string_view path);
+    // 借用已校验姿态和网格版本的线性照明资源；绑定失效或不存在时为空。
+    [[nodiscard]] std::shared_ptr<const Resource> lightmap_resource() const noexcept;
     // 瞬态顶点覆写，保留源资源身份、拓扑和材质；失败不改变已有变形。
     [[nodiscard]] bool set_deformation(std::span<const schema::MeshVertex> vertices,
                                        std::span<const Vec4> tangents);
@@ -65,6 +71,7 @@ private:
     [[nodiscard]] bool initialize() override;
 
     std::shared_ptr<const Resource> mesh_resource_;
+    std::shared_ptr<const Resource> lightmap_resource_;
     Material material_;
     std::vector<std::unique_ptr<Material>> additional_materials_;
     std::unique_ptr<schema::MeshDataT> dynamic_mesh_;

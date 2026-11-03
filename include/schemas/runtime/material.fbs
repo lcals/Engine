@@ -2,6 +2,7 @@ include "common.fbs";
 namespace engine.schema;
 
 enum CullMode:ubyte { back, front, none }
+enum BlendMode:ubyte { opaque, alpha_blend, premultiplied }
 
 table MaterialParameter {
     name:string (required);
@@ -25,6 +26,7 @@ table MaterialData {
     textures:[MaterialTexture];
     // Geometric face selection, shared by color and shadow passes.
     cull_mode:CullMode = back;
+    blend_mode:BlendMode = opaque;
 }
 
 root_type MaterialData;

@@ -247,7 +247,6 @@ struct AnimationSystem::State
         clips;
     std::map<std::uint64_t, std::unique_ptr<AnimationEntry>> entries;
     std::vector<AnimationSample> samples;
-    std::uint64_t scene_id = 0;
 
     bool compile(const ResourcePtr& clip, const schema::MeshDataT& mesh,
                  std::shared_ptr<const animation_detail::CompiledAnimation>& output)
@@ -326,13 +325,12 @@ bool AnimationSystem::on_initialize(const EngineConfig&)
 
 void AnimationSystem::clear() noexcept
 {
-    auto* scene = world_ != nullptr ? world_->scene() : nullptr;
-    if (state_ != nullptr && scene != nullptr && state_->scene_id == scene->id())
+    if (state_ != nullptr && world_ != nullptr)
     {
         for (const auto& [id, entry] : state_->entries)
         {
             (void)entry;
-            auto* node = scene->find_node(id);
+            auto* node = world_->find_node(id);
             auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
             auto* animator = node != nullptr ? node->get_component<Animator>() : nullptr;
             if (renderer != nullptr)
@@ -352,7 +350,6 @@ void AnimationSystem::clear() noexcept
         state_->entries.clear();
         state_->clips.clear();
         state_->skeletons.clear();
-        state_->scene_id = 0;
     }
 }
 
@@ -363,148 +360,153 @@ bool AnimationSystem::on_tick(double delta_time)
     {
         return false;
     }
-    auto* scene = world_ != nullptr ? world_->scene() : nullptr;
-    if (scene == nullptr)
+    if (world_ == nullptr || world_->scenes().empty())
     {
         clear();
         return true;
     }
-    if (state_->scene_id != scene->id())
-    {
-        clear();
-        state_->scene_id = scene->id();
-    }
-    if (world_ != nullptr && world_->paused())
+    std::erase_if(state_->entries,
+                  [this](const auto& item) { return world_->find_node(item.first) == nullptr; });
+    std::erase_if(state_->clips, [](const auto& item) { return item.second.use_count() == 1; });
+    std::erase_if(state_->skeletons, [](const auto& item) { return item.second.use_count() == 1; });
+    if (world_->paused())
     {
         return true;
     }
     auto& samples = state_->samples;
     samples.clear();
     std::set<std::uint64_t> retained;
-    for (const auto& node : scene->nodes())
+    for (const auto& scene : world_->scenes())
     {
-        auto* animator = node->get_component<Animator>();
-        auto* renderer = node->get_component<MeshRenderer>();
-        if (animator == nullptr || renderer == nullptr || !animator->enabled() ||
-            !renderer->enabled() || !active(*node) || animator->animation_ == nullptr)
+        for (const auto& node : scene->nodes())
         {
-            if (renderer != nullptr && state_->entries.contains(node->id()))
+            auto* animator = node->get_component<Animator>();
+            auto* renderer = node->get_component<MeshRenderer>();
+            if (animator == nullptr || renderer == nullptr || !animator->enabled() ||
+                !renderer->enabled() || !active(*node) || animator->animation_ == nullptr)
             {
-                renderer->clear_deformation();
+                if (renderer != nullptr && state_->entries.contains(node->id()))
+                {
+                    renderer->clear_deformation();
+                }
+                if (animator != nullptr)
+                {
+                    animator->prepared_revision_ = 0;
+                    animator->target_skeleton_.reset();
+                }
+                continue;
             }
-            if (animator != nullptr)
+            retained.insert(node->id());
+            const auto* mesh = renderer->mesh_data();
+            const auto* clip = animator->animation_->animation();
+            auto found = state_->entries.find(node->id());
+            if (mesh == nullptr || mesh->skeleton_guid.empty() || mesh->skin.empty() ||
+                clip == nullptr)
             {
-                animator->prepared_revision_ = 0;
-                animator->target_skeleton_.reset();
-            }
-            continue;
-        }
-        retained.insert(node->id());
-        const auto* mesh = renderer->mesh_data();
-        const auto* clip = animator->animation_->animation();
-        auto found = state_->entries.find(node->id());
-        if (mesh == nullptr || mesh->skeleton_guid.empty() || mesh->skin.empty() || clip == nullptr)
-        {
-            std::fputs("Animation requires a skinned MeshRenderer and an animation resource\n",
-                       stderr);
-            clear();
-            return false;
-        }
-        if (found == state_->entries.end() || animator->prepared_revision_ != animator->revision_ ||
-            found->second->mesh_revision != renderer->mesh_revision() ||
-            found->second->mesh_instance != renderer->mesh_instance_id())
-        {
-            std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
-            auto candidate = std::make_unique<AnimationEntry>();
-            if (!state_->compile(animator->animation_, *mesh, compiled) ||
-                !candidate->prepare(*mesh, renderer->mesh_revision(), renderer->mesh_instance_id(),
-                                    compiled))
-            {
-                std::fputs("Cannot prepare animation: resource or skeleton mismatch\n", stderr);
+                std::fputs("Animation requires a skinned MeshRenderer and an animation resource\n",
+                           stderr);
+                clear();
                 return false;
             }
-            if (animator->fade_seconds_ > 0.0 && animator->previous_animation_ != nullptr)
+            if (found == state_->entries.end() ||
+                animator->prepared_revision_ != animator->revision_ ||
+                found->second->mesh_revision != renderer->mesh_revision() ||
+                found->second->mesh_instance != renderer->mesh_instance_id())
             {
-                const auto* previous =
-                    found != state_->entries.end() ? found->second.get() : nullptr;
-                const bool same_mesh = previous != nullptr && previous->sampled &&
-                                       previous->mesh_instance == renderer->mesh_instance_id() &&
-                                       previous->mesh_revision == renderer->mesh_revision();
-                if (animator->frozen_pose_ != nullptr &&
-                    animation_detail::identity(*animator->frozen_pose_->target) ==
-                        animation_detail::identity(*compiled->target->resource))
+                std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
+                auto candidate = std::make_unique<AnimationEntry>();
+                if (!state_->compile(animator->animation_, *mesh, compiled) ||
+                    !candidate->prepare(*mesh, renderer->mesh_revision(),
+                                        renderer->mesh_instance_id(), compiled))
                 {
-                    candidate->frozen = animator->frozen_pose_;
+                    std::fputs("Cannot prepare animation: resource or skeleton mismatch\n", stderr);
+                    return false;
                 }
-                else if (same_mesh &&
-                         (previous->blended ||
-                          animation_detail::identity(*previous->current.clip->resource) !=
-                              animation_detail::identity(*animator->previous_animation_)))
+                if (animator->fade_seconds_ > 0.0 && animator->previous_animation_ != nullptr)
                 {
-                    // 打断过渡只冻结已显示的混合局部姿态，不积累更多采样层。
-                    auto pose = std::make_shared<animation_detail::AnimationPose>();
-                    pose->target = previous->current.clip->target->resource;
-                    pose->locals = previous->locals;
-                    candidate->frozen = std::move(pose);
-                }
-                else
-                {
-                    std::shared_ptr<const animation_detail::CompiledAnimation> source;
-                    if (!state_->compile(animator->previous_animation_, *mesh, source))
+                    const auto* previous =
+                        found != state_->entries.end() ? found->second.get() : nullptr;
+                    const bool same_mesh =
+                        previous != nullptr && previous->sampled &&
+                        previous->mesh_instance == renderer->mesh_instance_id() &&
+                        previous->mesh_revision == renderer->mesh_revision();
+                    if (animator->frozen_pose_ != nullptr &&
+                        animation_detail::identity(*animator->frozen_pose_->target) ==
+                            animation_detail::identity(*compiled->target->resource))
                     {
-                        return false;
+                        candidate->frozen = animator->frozen_pose_;
                     }
-                    candidate->previous.prepare(std::move(source));
+                    else if (same_mesh &&
+                             (previous->blended ||
+                              animation_detail::identity(*previous->current.clip->resource) !=
+                                  animation_detail::identity(*animator->previous_animation_)))
+                    {
+                        // 打断过渡只冻结已显示的混合局部姿态，不积累更多采样层。
+                        auto pose = std::make_shared<animation_detail::AnimationPose>();
+                        pose->target = previous->current.clip->target->resource;
+                        pose->locals = previous->locals;
+                        candidate->frozen = std::move(pose);
+                    }
+                    else
+                    {
+                        std::shared_ptr<const animation_detail::CompiledAnimation> source;
+                        if (!state_->compile(animator->previous_animation_, *mesh, source))
+                        {
+                            return false;
+                        }
+                        candidate->previous.prepare(std::move(source));
+                    }
                 }
+                animator->target_skeleton_ = compiled->target->resource;
+                animator->frozen_pose_ = candidate->frozen;
+                animator->prepared_revision_ = animator->revision_;
+                state_->entries[node->id()] = std::move(candidate);
+                found = state_->entries.find(node->id());
+                animator->pose_dirty_ =
+                    animator->playback_ != AnimationPlayback::stopped || animator->pose_dirty_;
             }
-            animator->target_skeleton_ = compiled->target->resource;
-            animator->frozen_pose_ = candidate->frozen;
-            animator->prepared_revision_ = animator->revision_;
-            state_->entries[node->id()] = std::move(candidate);
-            found = state_->entries.find(node->id());
-            animator->pose_dirty_ =
-                animator->playback_ != AnimationPlayback::stopped || animator->pose_dirty_;
-        }
-        auto& entry = *found->second;
-        if (animator->awake_pending_)
-        {
-            animator->awake_pending_ = false;
-            if (animator->settings().play_on_awake && !animator->play())
+            auto& entry = *found->second;
+            if (animator->awake_pending_)
             {
-                return false;
-            }
-        }
-        const bool running = animator->playback_ == AnimationPlayback::playing;
-        if (running)
-        {
-            const bool playing = advance(delta_time, clip->duration, animator->settings().speed,
-                                         animator->settings().loop, animator->time_);
-            if (animator->fade_seconds_ > 0.0)
-            {
-                animator->fade_elapsed_ +=
-                    std::min(delta_time, animator->fade_seconds_ - animator->fade_elapsed_);
-                if (animator->previous_advancing_ && animator->previous_animation_ != nullptr)
+                animator->awake_pending_ = false;
+                if (animator->settings().play_on_awake && !animator->play())
                 {
-                    (void)advance(delta_time, animator->previous_animation_->animation()->duration,
-                                  animator->previous_speed_, animator->previous_loop_,
-                                  animator->previous_time_);
+                    return false;
                 }
             }
-            // 短动作的末帧继续参与尚未完成的过渡，避免提前暂停在半混合姿态。
-            if (!playing && animator->fade_elapsed_ >= animator->fade_seconds_)
+            const bool running = animator->playback_ == AnimationPlayback::playing;
+            if (running)
             {
-                animator->playback_ = AnimationPlayback::paused;
+                const bool playing = advance(delta_time, clip->duration, animator->settings().speed,
+                                             animator->settings().loop, animator->time_);
+                if (animator->fade_seconds_ > 0.0)
+                {
+                    animator->fade_elapsed_ +=
+                        std::min(delta_time, animator->fade_seconds_ - animator->fade_elapsed_);
+                    if (animator->previous_advancing_ && animator->previous_animation_ != nullptr)
+                    {
+                        (void)advance(delta_time,
+                                      animator->previous_animation_->animation()->duration,
+                                      animator->previous_speed_, animator->previous_loop_,
+                                      animator->previous_time_);
+                    }
+                }
+                // 短动作的末帧继续参与尚未完成的过渡，避免提前暂停在半混合姿态。
+                if (!playing && animator->fade_elapsed_ >= animator->fade_seconds_)
+                {
+                    animator->playback_ = AnimationPlayback::paused;
+                }
             }
-        }
-        if (running || animator->pose_dirty_ ||
-            (animator->playback_ == AnimationPlayback::paused &&
-             entry.deformation_revision != renderer->deformation_revision()))
-        {
-            const double blend = animator->fade_seconds_ > 0.0
-                                     ? animator->fade_elapsed_ / animator->fade_seconds_
-                                     : 1.0;
-            samples.push_back(
-                {&entry, node->id(), animator->time_, animator->previous_time_, blend});
+            if (running || animator->pose_dirty_ ||
+                (animator->playback_ == AnimationPlayback::paused &&
+                 entry.deformation_revision != renderer->deformation_revision()))
+            {
+                const double blend = animator->fade_seconds_ > 0.0
+                                         ? animator->fade_elapsed_ / animator->fade_seconds_
+                                         : 1.0;
+                samples.push_back(
+                    {&entry, node->id(), animator->time_, animator->previous_time_, blend});
+            }
         }
     }
     std::future<bool> sampling;
@@ -537,12 +539,12 @@ bool AnimationSystem::on_tick(double delta_time)
         ENGINE_PROFILE_ZONE("Animation.publish");
         for (const auto& sample : samples)
         {
-            auto* node = scene->find_node(sample.node_id);
+            auto* node = world_->find_node(sample.node_id);
             auto* animator = node != nullptr ? node->get_component<Animator>() : nullptr;
             auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
             if (animator == nullptr || renderer == nullptr ||
                 !renderer->set_skinning_palette(sample.entry->palette,
-                                               sample.entry->normal_palette))
+                                                sample.entry->normal_palette))
             {
                 std::fputs("Animation palette submission failed\n", stderr);
                 return false;

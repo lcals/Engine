@@ -39,6 +39,10 @@ table MeshRendererData {
     material_guid:string (required);
     additional_material_guids:[string];
     cast_shadows:bool = true;
+    bake_static:bool = false;
+    lightmap_guid:string;
+    lightmap_mesh_hash:string;
+    lightmap_transform:[float];
 }
 
 enum ColliderShape:ubyte { box, sphere, capsule, mesh, compound }
@@ -182,6 +186,21 @@ table PostProcessData {
     bloom_threshold:float = 1;
     bloom_intensity:float = 0.15;
     bloom_radius:float = 1;
+    ssr_enabled:bool = false;
+    ssr_resolution_scale:float = 0.5;
+    ssr_max_steps:ushort = 64;
+    ssr_max_distance:float = 80;
+    ssr_thickness:float = 0.15;
+    ssr_roughness_cutoff:float = 0.7;
+}
+
+table PlanarReflectionData {
+    resolution_scale:float = 0.5;
+    clip_bias:float = 0.02;
+}
+
+table LightProbeVolumeData {
+    probes_guid:string;
 }
 
 table EffectData {
@@ -223,7 +242,7 @@ union ComponentPayload {
     ColliderData, RigidBodyData, AudioSourceData, AudioListenerData, AnimatorData, CharacterMotorData,
     CharacterControllerData, UiData, TextData, EnvironmentData, PostProcessData,
     CharacterCameraData, CharacterVisualData, EffectData, TerrainData, DestructionData,
-    NavigationAgentData
+    NavigationAgentData, PlanarReflectionData, LightProbeVolumeData
 }
 
 table ComponentData {

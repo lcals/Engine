@@ -190,6 +190,10 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         [](void* context, const SDL_Event& event)
         {
             auto& host = *static_cast<RuntimeHost*>(context);
+            if (host.event_observer_ != nullptr)
+            {
+                host.event_observer_(host.event_observer_context_, event);
+            }
             const bool owned = host.input_->owns_pointer(event);
             const bool claimed = !owned && host.ui_->process_event(event);
             schema::InputRoutingDataT routing;
@@ -237,7 +241,7 @@ FrameStatus RuntimeHost::tick(double delta_time)
         {
             return FrameStatus::paused;
         }
-        if (world_->scene() != nullptr)
+        if (!world_->scenes().empty())
         {
             gameplay_->stop("Project rendering failed; the project was stopped");
             if (renderer_->render())
@@ -304,6 +308,12 @@ FrameStatus RuntimeHost::poll_events(double delta_time)
     return window_->can_render() ? FrameStatus::running : FrameStatus::paused;
 }
 
+void RuntimeHost::set_event_observer(WindowEventHandler observer, void* context) noexcept
+{
+    event_observer_ = observer;
+    event_observer_context_ = observer == nullptr ? nullptr : context;
+}
+
 GameplaySession* RuntimeHost::gameplay() noexcept
 {
     return gameplay_.get();
@@ -329,6 +339,11 @@ RenderSystem* RuntimeHost::renderer() noexcept
     return initialized_ ? renderer_ : nullptr;
 }
 
+UiSystem* RuntimeHost::ui() noexcept
+{
+    return initialized_ ? ui_ : nullptr;
+}
+
 void RuntimeHost::request_exit() noexcept
 {
     exit_requested_ = true;
@@ -341,6 +356,7 @@ TaskSystem* RuntimeHost::tasks() noexcept
 
 void RuntimeHost::shutdown() noexcept
 {
+    set_event_observer(nullptr, nullptr);
     // 先结束项目回调，再关闭其借用的系统，窗口最后销毁。
     if (window_)
     {

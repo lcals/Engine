@@ -230,7 +230,7 @@ void destroy(const Arguments& arguments)
     if (arguments.count() == 1 && BindingContext::scene(arguments) != nullptr)
     {
         auto* binding = BindingContext::current(arguments);
-        binding->world()->destroy_scene();
+        binding->world()->unload_scene();
         binding->set_scene_id(0);
         arguments.set_return(true);
     }

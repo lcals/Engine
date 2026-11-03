@@ -1,6 +1,6 @@
 # 物理交互技术范例
 
-主菜单第十一项 **Physics interactions** 打开独立场景，不修改既有射击或导航场景。资源沿用公开 ozz 角色与 walk 动作，只有接口验证与可见反馈，不包含伤害、敌我或战斗业务。
+主菜单第十一项 **Physics queries and contact events** 打开独立场景，不修改既有射击或导航场景。资源沿用公开 ozz 角色与 walk 动作，只有接口验证与可见反馈，不包含伤害、敌我或战斗业务。
 
 - 外侧两条路线使用真正的 `CharacterMotor` 胶囊、原生重力与贴地。脚本只提交水平速度意图，达到端点后反向。
 - 内侧三条路线使用 `NavigationAgent + Collider + kinematic RigidBody`。线/角速度为零，Crowd 写入位置，Physics 镜像查询形体；Collider 设为 sensor，不添加另一套碰撞位移求解。胶囊中心在角色脚点上方 0.9 米。
@@ -18,4 +18,4 @@ walk、jog、run 在 `locomotions.fbx.meta` 中显式提取 `root/Hips` 的前�
 
 **Pause routes / Resume routes** 只改变原生移动意图或目标，重力与事件观察继续；实际水平速度降至零后动画倍率归零，移动恢复后继续原有播放进度。**Reverse routes** 保留当前位置，反转各自目标。退出会取消意图、清除导航、释放模型、物理与 UI 订阅。
 
-核心 C++ 验证覆盖真实命中、重叠与接触，绑定回归验证原生订阅的生命周期；`tests/showcase_physics_interactions_test.mjs` 只替代原生宿主边界，检查查询参数、身份校验、颜色反馈、Enter/Stay/Exit 回调登记和解除，以及两类角色的步速换算、倍率上限、暂停恢复不重启动画。不模拟 Jolt、Detour、原生动画采样或事件去重算法。macOS Metal 实窗已确认导航 Collider 射线命中、CharacterMotor 球扫命中、球/盒范围高亮、触发统计、暂停/恢复、反转及菜单往返。停止后节点归零；未进行其他平台或容量验证。回归与操作证据位置统一记录在根 README 的验证表。
+核心 C++ 验证覆盖真实命中、重叠与接触，绑定回归验证原生订阅的生命周期；[tests/physics_interactions_test.mjs](tests/physics_interactions_test.mjs) 只替代原生宿主边界，检查查询参数、身份校验、颜色反馈、Enter/Stay/Exit 回调登记和解除，以及两类角色的步速换算、倍率上限、暂停恢复不重启动画。不模拟 Jolt、Detour、原生动画采样或事件去重算法。macOS Metal 实窗已确认导航 Collider 射线命中、CharacterMotor 球扫命中、球/盒范围高亮、触发统计、暂停/恢复、反转及菜单往返。停止后节点归零；未进行其他平台或容量验证。回归与操作证据位置统一记录在[测试与验证](../../docs/testing.md)。

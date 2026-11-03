@@ -183,11 +183,35 @@ bool apply_parallel(const Json& value, RuntimeParallelConfig& output, std::strin
     if (const auto found = value.find("render"); found != value.end())
     {
         auto& config = output.render;
-        if (!keys(*found, {"texture_batch_size", "texture_staging_bytes"}, error) ||
+        if (!keys(*found,
+                  {"texture_batch_size", "texture_staging_bytes", "cluster_tile_size",
+                   "cluster_depth_slices", "maximum_lights", "maximum_cluster_lights",
+                   "shadow_atlas_size", "local_shadow_tile_size", "maximum_local_shadow_faces",
+                   "maximum_planar_reflections"},
+                  error) ||
             !integer(*found, "texture_batch_size", config.texture_batch_size, 1, 64, error) ||
             !integer(*found, "texture_staging_bytes", config.texture_staging_bytes, 1,
-                     maximum_bytes, error))
+                     maximum_bytes, error) ||
+            !integer(*found, "cluster_tile_size", config.cluster_tile_size, 16, 256, error) ||
+            !integer(*found, "cluster_depth_slices", config.cluster_depth_slices, 1, 64, error) ||
+            !integer(*found, "maximum_lights", config.maximum_lights, 1, 4096, error) ||
+            !integer(*found, "maximum_cluster_lights", config.maximum_cluster_lights, 1, 256,
+                     error) ||
+            !integer(*found, "shadow_atlas_size", config.shadow_atlas_size, 512, 8192, error) ||
+            !integer(*found, "local_shadow_tile_size", config.local_shadow_tile_size, 64, 2048,
+                     error) ||
+            !integer(*found, "maximum_local_shadow_faces", config.maximum_local_shadow_faces, 0, 24,
+                     error) ||
+            !integer(*found, "maximum_planar_reflections", config.maximum_planar_reflections, 0, 2,
+                     error))
         {
+            return false;
+        }
+        if ((config.shadow_atlas_size & (config.shadow_atlas_size - 1)) != 0 ||
+            (config.local_shadow_tile_size & (config.local_shadow_tile_size - 1)) != 0 ||
+            config.local_shadow_tile_size > config.shadow_atlas_size)
+        {
+            error = "Shadow dimensions must be powers of two and tiles must fit the atlas";
             return false;
         }
     }

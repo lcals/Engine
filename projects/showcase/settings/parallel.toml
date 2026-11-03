@@ -57,6 +57,14 @@ max_seconds = 0.001
 [defaults.render]
 texture_batch_size = 4
 texture_staging_bytes = 67108864
+cluster_tile_size = 64
+cluster_depth_slices = 24
+maximum_lights = 256
+maximum_cluster_lights = 64
+shadow_atlas_size = 4096
+local_shadow_tile_size = 512
+maximum_local_shadow_faces = 24
+maximum_planar_reflections = 2
 
 [profiles]
 
@@ -117,5 +125,12 @@ max_seconds = 0.001
 
 [profiles.mobile.render]
 texture_batch_size = 2
+cluster_tile_size = 96
+cluster_depth_slices = 16
+maximum_lights = 128
+maximum_cluster_lights = 32
+local_shadow_tile_size = 256
+maximum_local_shadow_faces = 12
+maximum_planar_reflections = 1
 
 [overrides]

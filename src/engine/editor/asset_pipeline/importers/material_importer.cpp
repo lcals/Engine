@@ -128,6 +128,18 @@ bool MaterialImporter::convert(const ImportAsset& asset, const ImportContext& co
                              : *cull == "front" ? schema::CullMode::front
                                                 : schema::CullMode::none;
     }
+    if (table.contains("blend_mode"))
+    {
+        const auto blend = table["blend_mode"].value_exact<std::string>();
+        if (!blend || (*blend != "opaque" && *blend != "alpha_blend" && *blend != "premultiplied"))
+        {
+            error = "material blend_mode must be opaque, alpha_blend or premultiplied";
+            return false;
+        }
+        material.blend_mode = *blend == "opaque"        ? schema::BlendMode::opaque
+                              : *blend == "alpha_blend" ? schema::BlendMode::alpha_blend
+                                                        : schema::BlendMode::premultiplied;
+    }
     material.shader_guid = table["shader"].value_or(std::string{});
     if (!context.identities.guid_to_path(material.shader_guid, material.shader_path))
     {
@@ -201,6 +213,7 @@ bool MaterialImporter::convert(const ImportAsset& asset, const ImportContext& co
             std::vector<Guid> dependencies;
             if (!names.insert(texture->name).second || definition == shader->samplers.end() ||
                 !(*definition)->exposed ||
+                (*definition)->source != schema::ShaderTextureSource::resource ||
                 !reference(texture->texture_guid, schema::AssetKind::texture, context, dependencies,
                            error) ||
                 !context.identities.guid_to_path(texture->texture_guid, texture->texture_path))

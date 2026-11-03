@@ -29,6 +29,12 @@ export class Material {
     GetCullMode() {
         const h = handles.get(this); return native.MaterialGetCullMode(h.scene, h.node, h.slot);
     }
+    SetBlendMode(mode) {
+        const h = handles.get(this); return native.MaterialBlendMode(h.scene, h.node, h.slot, mode);
+    }
+    GetBlendMode() {
+        const h = handles.get(this); return native.MaterialGetBlendMode(h.scene, h.node, h.slot);
+    }
     SetFloat(name, value) {
         const h = handles.get(this); return native.MaterialFloat(h.scene, h.node, h.slot, name, value);
     }
@@ -135,6 +141,34 @@ void get_cull_mode(const Arguments& arguments)
     }
 }
 
+void set_blend_mode(const Arguments& arguments)
+{
+    std::string mode;
+    auto* value = material(arguments, 4, mode);
+    if (!value || (mode != "opaque" && mode != "alpha_blend" && mode != "premultiplied"))
+    {
+        return;
+    }
+    const auto blend = mode == "opaque"        ? schema::BlendMode::opaque
+                       : mode == "alpha_blend" ? schema::BlendMode::alpha_blend
+                                               : schema::BlendMode::premultiplied;
+    arguments.set_return(value->set_blend_mode(blend));
+}
+
+void get_blend_mode(const Arguments& arguments)
+{
+    arguments.set_return({});
+    auto* node = BindingContext::node(arguments);
+    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    if (mesh && arguments.count() == 3 && arguments.is_uint32(2))
+    {
+        if (const auto* value = mesh->material(arguments.unsigned_integer(2)))
+        {
+            arguments.set_return(std::string_view(schema::EnumNameBlendMode(value->blend_mode())));
+        }
+    }
+}
+
 void set_float(const Arguments& arguments)
 {
     std::string name;
@@ -200,6 +234,8 @@ bool MaterialBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("MaterialShader", shader) && vm.function("MaterialFloat", set_float) &&
            vm.function("MaterialCullMode", set_cull_mode) &&
            vm.function("MaterialGetCullMode", get_cull_mode) &&
+           vm.function("MaterialBlendMode", set_blend_mode) &&
+           vm.function("MaterialGetBlendMode", get_blend_mode) &&
            vm.function("MaterialV2", set_v2) && vm.function("MaterialV3", set_v3) &&
            vm.function("MaterialV4", set_v4);
 }

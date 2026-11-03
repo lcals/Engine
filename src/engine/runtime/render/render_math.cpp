@@ -1,12 +1,82 @@
 #include "runtime/render/render_math.hpp"
 
 #include <bgfx/bgfx.h>
+#include <bx/math.h>
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <numbers>
 
 namespace engine::render_detail
 {
+
+bool projection_camera_settings(const float* projection, float aspect, bool homogeneous,
+                                CameraSettings& output)
+{
+    output = {};
+    if (!projection || !finite_matrix(projection) || !std::isfinite(aspect) || aspect <= 0)
+    {
+        return false;
+    }
+    const bool orthographic = std::abs(projection[11]) < 0.000001F && projection[15] > 0;
+    const bool perspective = projection[11] < 0 && std::abs(projection[15]) < 0.000001F;
+    if (!orthographic && !perspective)
+    {
+        return false;
+    }
+    float inverse[16];
+    bx::mtxInverse(inverse, projection);
+    if (!finite_matrix(inverse))
+    {
+        return false;
+    }
+    double near_clip = std::numeric_limits<double>::max();
+    double far_clip = 0, half_height = 0, slope = 0;
+    for (unsigned corner = 0; corner < 8; ++corner)
+    {
+        const std::array<double, 4> clip{(corner & 1) ? 1.0 : -1.0, (corner & 2) ? 1.0 : -1.0,
+                                         (corner & 4)  ? 1.0
+                                         : homogeneous ? -1.0
+                                                       : 0.0,
+                                         1.0};
+        std::array<double, 4> point{};
+        for (std::size_t row = 0; row < 4; ++row)
+        {
+            for (std::size_t column = 0; column < 4; ++column)
+            {
+                point[row] += inverse[column * 4 + row] * clip[column];
+            }
+        }
+        if (!(point[3] > 0))
+        {
+            return false;
+        }
+        const double depth = -point[2] / point[3];
+        const double extent = std::max(std::abs(point[0] / aspect), std::abs(point[1])) / point[3];
+        if (!std::isfinite(depth) || !std::isfinite(extent) || depth <= 0)
+        {
+            return false;
+        }
+        near_clip = std::min(near_clip, depth);
+        far_clip = std::max(far_clip, depth);
+        half_height = std::max(half_height, extent);
+        slope = std::max(slope, extent / depth);
+    }
+    if (!(far_clip > near_clip) || far_clip > std::numeric_limits<float>::max() ||
+        half_height > std::numeric_limits<float>::max())
+    {
+        return false;
+    }
+    output.projection =
+        orthographic ? schema::Projection::orthographic : schema::Projection::perspective;
+    output.near_clip = static_cast<float>(near_clip);
+    output.far_clip = static_cast<float>(far_clip);
+    output.orthographic_size = static_cast<float>(half_height);
+    output.fov_degrees = static_cast<float>(std::atan(slope) * 360.0 / std::numbers::pi);
+    return output.near_clip > 0 && output.far_clip > output.near_clip && output.fov_degrees > 0 &&
+           output.fov_degrees < 180;
+}
 
 bool finite_matrix(const float* matrix)
 {

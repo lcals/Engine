@@ -481,6 +481,54 @@ public:
         }
         return rejections_.empty() || fail(rejections_.front().second);
     }
+    [[nodiscard]] bool execute_script(const ProjectScriptRequest& request,
+                                      std::string& result_json) override
+    {
+        result_json.clear();
+        error_.clear();
+        if (context_ == nullptr || !evaluated_ || !JS_IsObject(gameplay_) || script_executing_ ||
+            script_serial_ == std::numeric_limits<std::uint64_t>::max() ||
+            request.javascript.size() > maximum_project_script_size ||
+            request.arguments_json.size() > maximum_project_script_size)
+        {
+            return fail("Project script requires an active VM and bounded source/arguments");
+        }
+        const auto source = project_script_wrapper(request.javascript);
+        const std::string name(request.module_path);
+        Value function(context_, JS_Eval(context_, source.c_str(), source.size(), name.c_str(),
+                                          JS_EVAL_TYPE_GLOBAL | JS_EVAL_FLAG_STRICT));
+        if (JS_IsException(function.get()) || !JS_IsFunction(context_, function.get()))
+        {
+            return exception("Cannot compile temporary project script");
+        }
+        Value serial(context_, JS_NewBigUint64(context_, ++script_serial_));
+        auto serial_value = serial.get();
+        Value require(context_, JS_NewCFunctionData(context_, require_cached_module, 1, 0, 1,
+                                                     &serial_value));
+        Value arguments(context_, JS_NewStringLen(context_, request.arguments_json.data(),
+                                                   request.arguments_json.size()));
+        if (JS_IsException(require.get()) || JS_IsException(arguments.get()))
+        {
+            return exception("Cannot prepare temporary project script arguments");
+        }
+        script_path_ = request.module_path;
+        script_executing_ = true;
+        JSValue values[] = {require.get(), gameplay_, arguments.get()};
+        Value result(context_, JS_Call(context_, function.get(), JS_UNDEFINED, 3, values));
+        script_executing_ = false;
+        script_path_.clear();
+        if (JS_IsException(result.get()) || !JS_IsString(result.get()))
+        {
+            return exception("Project script execution failed");
+        }
+        auto text = value_text(context_, result.get());
+        if (text.empty() || text.size() > maximum_project_script_size)
+        {
+            return fail("Project script JSON result exceeds 256 KiB");
+        }
+        result_json = std::move(text);
+        return true;
+    }
     [[nodiscard]] const std::string& last_error() const noexcept override
     {
         return error_;
@@ -491,6 +539,33 @@ public:
     }
 
 private:
+    static JSValue require_cached_module(JSContext* context, JSValueConst, int count,
+                                          JSValueConst* values, int, JSValue* data)
+    {
+        auto* machine = static_cast<QuickJsVm*>(JS_GetContextOpaque(context));
+        std::uint64_t serial = 0;
+        if (machine == nullptr || !machine->script_executing_ || count != 1 ||
+            !JS_IsString(values[0]) || JS_ToBigUint64(context, &serial, data[0]) < 0 ||
+            serial != machine->script_serial_)
+        {
+            return JS_ThrowTypeError(context, "Temporary require is outside its execution window");
+        }
+        const auto request = value_text(context, values[0]);
+        std::string path;
+        if (!resolve_module_path(machine->script_path_, request, path))
+        {
+            return JS_ThrowTypeError(context, "Unsupported project script import: %s",
+                                      request.c_str());
+        }
+        const auto found = machine->modules_.find(path);
+        if (found == machine->modules_.end())
+        {
+            return JS_ThrowReferenceError(context, "Module is not loaded in the active Run: %s",
+                                           path.c_str());
+        }
+        return machine->module_namespace(found->second);
+    }
+
     [[nodiscard]] bool can_register() const noexcept
     {
         return context_ != nullptr && !sealed_ && !JS_IsException(native_);
@@ -637,7 +712,10 @@ private:
         auto& machine = *static_cast<QuickJsVm*>(opaque);
         if (!machine.preparing_)
         {
-            machine.async_error_ = "Dynamic import is not supported";
+            if (!machine.script_executing_)
+            {
+                machine.async_error_ = "Dynamic import is not supported";
+            }
             (void)JS_ThrowTypeError(context, "Dynamic import is not supported");
             return nullptr;
         }
@@ -692,6 +770,9 @@ private:
     std::string error_;
     std::string async_error_;
     std::vector<std::pair<JSValue, std::string>> rejections_;
+    std::string script_path_;
+    std::uint64_t script_serial_ = 0;
+    bool script_executing_ = false;
     bool sealed_ = false;
     bool preparing_ = false;
     bool evaluated_ = false;

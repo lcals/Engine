@@ -164,6 +164,19 @@ bool DestructionComponent::owns_fragment(std::uint64_t node_id) const noexcept
     return system && system->owns_fragment(*this, node_id);
 }
 
+bool DestructionComponent::retire_fragments(std::uint32_t max_count, double max_age_seconds,
+                                            std::uint32_t& retired_count)
+{
+    retired_count = 0;
+    auto* system = DestructionSystem::instance();
+    if (!system)
+    {
+        last_error_ = "Destruction system is not ready";
+        return false;
+    }
+    return system->retire_fragments(*this, max_count, max_age_seconds, retired_count);
+}
+
 bool DestructionComponent::snapshot(ByteBuffer& output) const
 {
     output.clear();

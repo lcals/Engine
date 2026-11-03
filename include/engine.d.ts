@@ -391,6 +391,8 @@ declare module "engine" {
         SetShader(path: string): boolean;
         SetCullMode(mode: "back" | "front" | "none"): boolean;
         GetCullMode(): "back" | "front" | "none" | null;
+        SetBlendMode(mode: "opaque" | "alpha_blend" | "premultiplied"): boolean;
+        GetBlendMode(): "opaque" | "alpha_blend" | "premultiplied" | null;
         SetFloat(name: string, value: number): boolean;
         SetV2(name: string, x: number, y: number): boolean;
         SetV3(name: string, x: number, y: number, z: number): boolean;
@@ -429,6 +431,7 @@ declare module "engine" {
         /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
         InstantiateModel(path: string, name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;
+        /** Unloads this active scene, preserving persistent subtrees until gameplay stops. */
         Destroy(): boolean;
     }
 
@@ -439,6 +442,10 @@ declare module "engine" {
         readonly sceneId: bigint;
         IsValid(): boolean;
         Destroy(): boolean;
+        /** Root nodes only. Retains the subtree across scene unloads within this gameplay Run. */
+        SetPersistent(value: boolean): boolean;
+        /** True when this node or one of its ancestors is marked persistent. */
+        IsPersistent(): boolean;
         SetParent(parent: Node | null): boolean;
         /** Relative child path, e.g. "Assembly/Body". Invalid, missing or ambiguous paths return null. */
         FindChild(path: string): Node | null;
@@ -524,6 +531,10 @@ declare module "engine" {
             intensity?: number,
             radius?: number,
         ): boolean;
+        /** Scale [0.25,1], integer steps [8,256], distance (0,100000], thickness (0,10]. */
+        SetScreenSpaceReflections(enabled: boolean, resolutionScale?: number, maxSteps?: number,
+                                  maxDistance?: number, thickness?: number,
+                                  roughnessCutoff?: number): boolean;
         /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
         /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
         SetAmbientOcclusion(
@@ -535,12 +546,22 @@ declare module "engine" {
             fadeEnd?: number,
         ): boolean;
     }
+    /** Attach beside MeshRenderer; the node's local XZ plane defines the mirror. */
+    export class PlanarReflectionComponent extends Component {
+        private constructor();
+        SetSettings(resolutionScale?: number, clipBias?: number): boolean;
+    }
+    export class LightProbeVolumeComponent extends Component {
+        private constructor();
+        /** Empty path clears the resource; failure preserves the previous binding. */
+        SetResource(path: string): boolean;
+    }
     export class Light extends Component {
         private constructor();
         SetColor(r: number, g: number, b: number): boolean;
         SetIntensity(intensity: number): boolean;
         SetDirectional(): boolean;
-        /** Directional lights only. Full atlas defaults to 2048, bias to 0.001; preserves cascades. */
+        /** Directional, point and spot shadows; resolution defaults to 2048, bias to 0.001. */
         SetShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
         /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
         /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
@@ -559,6 +580,11 @@ declare module "engine" {
         readonly material: Material;
         readonly materialCount: number;
         readonly castShadows: boolean;
+        readonly bakeStatic: boolean;
+        readonly lightmapPath: string | null;
+        SetBakeStatic(enabled: boolean): boolean;
+        /** Requires UV2 and a linear texture. Empty path clears the binding. */
+        SetLightmap(path: string): boolean;
         SetCastShadows(enabled: boolean): boolean;
         SetMesh(path: string): boolean;
         GetMaterial(slot: number): Material | null;
@@ -610,6 +636,9 @@ declare module "engine" {
             density?: number,
         ): boolean;
         readonly fragmentCount: number | null;
+        /** Keep at most maxCount dynamic fragments; zero retires all. A zero age disables expiry.
+         * Explicit main-thread request; returns retired count, or null for invalid/busy owners. */
+        RetireFragments(maxCount: number, maxAgeSeconds: number): number | null;
         Reset(): boolean;
         /** Slot: 1..48 ASCII letters, digits, underscore or hyphen; no filesystem paths. */
         Save(slot: string): boolean;
@@ -635,9 +664,8 @@ declare module "engine" {
     }
     export interface PhysicsImpact {
         readonly frame: bigint;
-        readonly sceneId: bigint;
-        readonly nodeA: bigint;
-        readonly nodeB: bigint;
+        readonly a: PhysicsObject;
+        readonly b: PhysicsObject;
         readonly point: { readonly x: number; readonly y: number; readonly z: number };
         /** World normal from A to B. */
         readonly normal: { readonly x: number; readonly y: number; readonly z: number };
@@ -673,14 +701,15 @@ declare module "engine" {
     }
     export class Physics {
         private constructor();
-        /** Current scene's last physics tick. Read-only snapshot; deduplicate by frame. */
+        /** Last physics tick for this Run's live objects, including persistent nodes. */
         static GetImpacts(): PhysicsImpact[];
         /** Last physics tick, ordered by fixed step; read once per frame, not per event. */
         static GetContacts(): readonly PhysicsContactEvent[];
         /**
          * Subscribe to future contacts of this node's active Collider or CharacterMotor instance.
          * Returns an ID, or 0 on failure. Callbacks must be synchronous; Off cancels immediately.
-         * Disable/removal/replacement of the receiver, scene changes and run shutdown cancel it.
+         * Disable/removal/replacement of the receiver and run shutdown cancel it.
+         * Persistent receivers keep subscriptions across scene changes.
          * Subscriptions added inside callbacks start with the next physics batch.
          */
         static OnCollisionEnter(node: Node, callback: (contact: PhysicsContact) => void): number;
@@ -844,6 +873,9 @@ declare module "engine" {
         /** Multi-sample foundation coverage against one current-scene static collider. */
         RefreshSupport(support: Collider, maxGap: number, minCoverage: number): boolean;
         OwnsFragment(nodeId: bigint): boolean;
+        /** Keep at most maxCount dynamic groups; static support is preserved. Zero retires all.
+         * A zero age disables expiry. Returns retired count, or null for invalid/busy owners. */
+        RetireFragments(maxCount: number, maxAgeSeconds: number): number | null;
         /** Official Blast stress; limits in Pa. Broken bonds on success, null on failure. */
         ApplyStress(
             x: number,

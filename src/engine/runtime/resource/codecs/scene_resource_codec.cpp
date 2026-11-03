@@ -6,6 +6,8 @@
 
 #include <flatbuffers/verifier.h>
 
+#include <algorithm>
+
 #include <utility>
 
 namespace engine
@@ -72,6 +74,17 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 }
                 has_post_process = true;
             }
+            if (const auto* planar = component->payload.AsPlanarReflectionData();
+                planar && !scene_detail::valid_planar_reflection(*planar))
+            {
+                return false;
+            }
+            if (const auto* volume = component->payload.AsLightProbeVolumeData();
+                volume && !volume->probes_guid.empty() &&
+                !declares(catalog, output, volume->probes_guid, schema::AssetKind::light_probe))
+            {
+                return false;
+            }
             has_camera = has_camera || component->payload.AsCameraData() != nullptr;
             if (const auto* terrain = component->payload.AsTerrainData())
             {
@@ -100,11 +113,14 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
             if (const auto* light = component->payload.AsLightData())
             {
                 if (!scene_detail::valid_light(*light) ||
-                    (component->enabled && light->cast_shadows && has_shadow_light))
+                    (component->enabled && light->cast_shadows &&
+                     light->kind == schema::LightKind::directional && has_shadow_light))
                 {
                     return false;
                 }
-                has_shadow_light = has_shadow_light || (component->enabled && light->cast_shadows);
+                has_shadow_light =
+                    has_shadow_light || (component->enabled && light->cast_shadows &&
+                                         light->kind == schema::LightKind::directional);
             }
             if (const auto* effect = component->payload.AsEffectData();
                 effect && !effect->effect_guid.empty())
@@ -156,6 +172,19 @@ bool SceneResourceCodec::decode(const ResourceCatalog& catalog, ByteView payload
                 if (!declares(catalog, output, renderer->mesh_guid, schema::AssetKind::mesh) ||
                     !declares(catalog, output, renderer->material_guid,
                               schema::AssetKind::material))
+                {
+                    return false;
+                }
+                if (renderer->lightmap_guid.empty()
+                        ? (!renderer->lightmap_mesh_hash.empty() ||
+                           !renderer->lightmap_transform.empty())
+                        : (!declares(catalog, output, renderer->lightmap_guid,
+                                     schema::AssetKind::texture) ||
+                           renderer->lightmap_mesh_hash.empty() ||
+                           renderer->lightmap_transform.size() != 16 ||
+                           !std::all_of(renderer->lightmap_transform.begin(),
+                                        renderer->lightmap_transform.end(),
+                                        [](float value) { return std::isfinite(value); })))
                 {
                     return false;
                 }
@@ -269,6 +298,15 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                     return false;
                 }
             }
+            if (const auto* volume = component->payload.AsLightProbeVolumeData();
+                volume && !volume->probes_guid.empty())
+            {
+                const auto* probes = dependency(dependencies, volume->probes_guid);
+                if (!probes || !probes->light_probe())
+                {
+                    return false;
+                }
+            }
             if (const auto* renderer = component->payload.AsMeshRendererData())
             {
                 const auto* mesh = dependency(dependencies, renderer->mesh_guid);
@@ -276,6 +314,16 @@ bool SceneResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
                 if (!mesh || !mesh->mesh() || !material || !material->material())
                 {
                     return false;
+                }
+                if (!renderer->lightmap_guid.empty())
+                {
+                    const auto* lightmap = dependency(dependencies, renderer->lightmap_guid);
+                    if (!lightmap || !lightmap->texture() || lightmap->texture()->srgb ||
+                        lightmap->texture()->cube_map ||
+                        mesh->mesh()->lightmap_texcoords.size() != mesh->mesh()->vertices.size())
+                    {
+                        return false;
+                    }
                 }
                 for (const auto& guid : renderer->additional_material_guids)
                 {

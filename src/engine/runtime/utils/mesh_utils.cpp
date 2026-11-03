@@ -18,7 +18,7 @@ bool float_value(double value) noexcept
     return std::isfinite(value) && std::abs(value) <= std::numeric_limits<float>::max();
 }
 
-bool unit_value(float value) noexcept
+bool unit_value(double value) noexcept
 {
     return std::isfinite(value) && value >= 0.0F && value <= 1.0F;
 }
@@ -66,6 +66,7 @@ bool MeshUtils::validate(const schema::MeshDataT& data) noexcept
         data.indices.empty() || data.indices.size() % 3 != 0 ||
         data.indices.size() > std::numeric_limits<std::uint32_t>::max() / sizeof(std::uint32_t) ||
         (!data.texcoords.empty() && data.texcoords.size() != count) ||
+        (!data.lightmap_texcoords.empty() && data.lightmap_texcoords.size() != count) ||
         (!data.tangents.empty() && data.tangents.size() != count) ||
         (!data.colors.empty() && data.colors.size() != count))
     {
@@ -91,6 +92,13 @@ bool MeshUtils::validate(const schema::MeshDataT& data) noexcept
     for (const auto& uv : data.texcoords)
     {
         if (!float_value(uv.x()) || !float_value(uv.y()))
+        {
+            return false;
+        }
+    }
+    for (const auto& uv : data.lightmap_texcoords)
+    {
+        if (!unit_value(uv.x()) || !unit_value(uv.y()))
         {
             return false;
         }

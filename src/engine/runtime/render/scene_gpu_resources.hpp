@@ -1,13 +1,18 @@
 #pragma once
 
 #include "runtime/render/passes/ambient_occlusion_pass.hpp"
+#include "runtime/render/passes/clustered_lighting_pass.hpp"
 #include "runtime/render/passes/hdr_post_process_pass.hpp"
+#include "runtime/render/passes/planar_reflection_pass.hpp"
+#include "runtime/render/passes/screen_space_reflection_pass.hpp"
 #include "runtime/render/passes/shadow_pass.hpp"
 #include "runtime/render/passes/skinning_pass.hpp"
+#include "runtime/render/passes/surface_pass.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/render/resources/gpu_mesh.hpp"
 #include "runtime/render/resources/gpu_program.hpp"
 #include "runtime/render/resources/gpu_texture.hpp"
+#include "runtime/render/scene_draw.hpp"
 
 #include <array>
 #include <map>
@@ -31,11 +36,6 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle camera_position = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_direction = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle light_color = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle light_count = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle light_position_range = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle light_direction_outer = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle light_color_intensity = BGFX_INVALID_HANDLE;
-    bgfx::UniformHandle light_kind_inner = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ambient = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ambient_sky = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle ambient_equator = BGFX_INVALID_HANDLE;
@@ -43,6 +43,13 @@ struct RenderSystem::SceneGpuResources
     bgfx::UniformHandle fog_color = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle fog_range = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle tonemap = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle frame_inputs = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle frame_valid = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle planar_projection = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle lighting_params = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle probe_sh = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle lightmap_sampler = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle capture_mode = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle surface = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_matrices = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle shadow_rects = BGFX_INVALID_HANDLE;
@@ -61,6 +68,26 @@ struct RenderSystem::SceneGpuResources
     std::array<render_detail::GpuTexture, 3> ibl_textures;
     std::uint64_t ibl_generation = 0;
     render_detail::ShadowPass shadow;
+    std::array<render_detail::ClusteredLightingPass, 4> clusters;
+    std::array<render_detail::PlanarReflectionPass, 2> planar;
+    render_detail::SurfacePass surface_pass;
+    render_detail::ScreenSpaceReflectionPass reflections;
+    bgfx::ProgramHandle capture_sky_program = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle capture_inverse = BGFX_INVALID_HANDLE;
+    bgfx::VertexBufferHandle capture_fullscreen = BGFX_INVALID_HANDLE;
+    std::vector<SceneCaptureLightmap> capture_sources;
+    bgfx::TextureHandle capture_color = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle capture_specular = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle capture_depth = BGFX_INVALID_HANDLE;
+    bgfx::TextureHandle capture_readback = BGFX_INVALID_HANDLE;
+    bgfx::FrameBufferHandle capture_framebuffer = BGFX_INVALID_HANDLE;
+    std::vector<bgfx::TextureHandle> capture_lightmaps;
+    std::vector<std::unique_ptr<render_detail::GpuGeometry>> capture_meshes;
+    std::vector<float> capture_pixels;
+    std::uint32_t capture_ready_frame = 0;
+    std::uint16_t capture_width = 0, capture_height = 0;
+    bool capture_pending = false;
+    bool capture_cancelled = false;
     render_detail::AmbientOcclusionPass ambient_occlusion;
     render_detail::HdrPostProcessPass hdr_post_process;
     bgfx::UniformHandle ao_settings = BGFX_INVALID_HANDLE;
@@ -75,9 +102,23 @@ struct RenderSystem::SceneGpuResources
     SceneGpuResources& operator=(SceneGpuResources&&) = delete;
 
     [[nodiscard]] bool initialize();
+    [[nodiscard]] bool prepare_lighting(const WorldSystem& world, const RenderSettings& settings,
+                                        const RenderConfig& config,
+                                        render_detail::SceneDrawView& draw,
+                                        const CameraSettings& lens,
+                                        render_detail::ShadowFrame& frame,
+                                        std::size_t cluster_index, bgfx::ViewId base,
+                                        const SceneCaptureRequest* capture);
+    [[nodiscard]] bool draw_meshes(const WorldSystem& world, const RenderSettings& settings,
+                                   const render_detail::SceneDrawView& view,
+                                   render_detail::SceneDrawMode mode);
+    [[nodiscard]] bool prepare_capture(const SceneCaptureRequest& request);
+    void release_capture() noexcept;
+    [[nodiscard]] bool draw_capture_sky(const SceneCaptureRequest& request,
+                                        const RenderSettings& settings);
     void release() noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
-    [[nodiscard]] bool prepare_ibl(const Scene& scene, std::size_t staging_bytes);
+    [[nodiscard]] bool prepare_ibl(const Scene* scene, std::size_t staging_bytes);
 };
 
 } // namespace engine

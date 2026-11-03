@@ -7,6 +7,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -136,7 +137,15 @@ bindingEventHooks.push(dispatchPhysicsEvents);
 bindingCleanupHooks.push(clearPhysicsSubscriptions);
 export class Physics {
     constructor() { throw new TypeError('Physics is static'); }
-    static GetImpacts() { return native.PhysicsGetImpacts(); }
+    static GetImpacts() {
+        return native.PhysicsGetImpacts().map(impact => {
+            physicsObject(impact.a);
+            physicsObject(impact.b);
+            Object.freeze(impact.point);
+            Object.freeze(impact.normal);
+            return Object.freeze(impact);
+        });
+    }
     static GetContacts() {
         return Object.freeze(native.PhysicsGetContacts().map(event => {
             physicsObject(event.a);
@@ -185,26 +194,52 @@ vm::NativeValue vector(const Vec3& value)
     return vm::NativeValue::Object{{"x", value.x()}, {"y", value.y()}, {"z", value.z()}};
 }
 
+vm::NativeValue::Object object_value(const PhysicsObject& object)
+{
+    return {{"sceneId", object.scene_id},
+            {"nodeId", object.node_id},
+            {"kind", object.kind == PhysicsObjectKind::character ? "character" : "collider"},
+            {"instanceId", object.instance_id}};
+}
+
+bool query_allowed(const BindingContext& binding)
+{
+    const auto* world = binding.world();
+    if (!world || !world->is_initialized())
+    {
+        return false;
+    }
+    if (world->scene() && world->scene()->id() == binding.scene_id())
+    {
+        return true;
+    }
+    return std::any_of(world->scenes().begin(), world->scenes().end(),
+                       [&](const auto& scene)
+                       {
+                           return !scene->nodes().empty() &&
+                                  binding.find_node(scene->id(), scene->nodes().front()->id());
+                       });
+}
+
 void impacts(const Arguments& arguments)
 {
     vm::NativeValue::Array output;
     auto* binding = BindingContext::current(arguments);
     auto* physics = binding ? binding->physics() : nullptr;
-    auto* world = binding ? binding->world() : nullptr;
-    const auto* scene = world && world->is_initialized() ? world->scene() : nullptr;
-    if (arguments.count() == 0 && physics && scene && scene->id() == binding->scene_id())
+    if (arguments.count() == 0 && physics)
     {
         for (const auto& value : physics->impacts())
         {
-            if (value.scene_id != scene->id())
+            if (!binding->find_node(value.a.scene_id, value.a.node_id) ||
+                !binding->find_node(value.b.scene_id, value.b.node_id) ||
+                !physics->is_object_valid(value.a) || !physics->is_object_valid(value.b))
             {
                 continue;
             }
             output.emplace_back(
                 vm::NativeValue::Object{{"frame", value.frame},
-                                        {"sceneId", value.scene_id},
-                                        {"nodeA", value.node_a},
-                                        {"nodeB", value.node_b},
+                                        {"a", object_value(value.a)},
+                                        {"b", object_value(value.b)},
                                         {"point", vector(value.point)},
                                         {"normal", vector(value.normal)},
                                         {"closingSpeed", value.closing_speed},
@@ -219,11 +254,9 @@ void cast_sphere(const Arguments& arguments)
     arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
     auto* physics = binding ? binding->physics() : nullptr;
-    const auto* world = binding ? binding->world() : nullptr;
-    const auto* scene = world ? world->scene() : nullptr;
     double value[6]{};
     float radius = 0;
-    if (!physics || !scene || scene->id() != binding->scene_id() || arguments.count() != 7 ||
+    if (!physics || !query_allowed(*binding) || arguments.count() != 7 ||
         !BindingContext::scalar(arguments, 6, radius))
     {
         return;
@@ -241,14 +274,6 @@ void cast_sphere(const Arguments& arguments)
     {
         arguments.set_return(static_cast<double>(fraction));
     }
-}
-
-vm::NativeValue::Object object_value(const PhysicsObject& object)
-{
-    return {{"sceneId", object.scene_id},
-            {"nodeId", object.node_id},
-            {"kind", object.kind == PhysicsObjectKind::character ? "character" : "collider"},
-            {"instanceId", object.instance_id}};
 }
 
 void contact_target(const Arguments& arguments)
@@ -269,7 +294,7 @@ void contact_target(const Arguments& arguments)
     {
         return;
     }
-    const PhysicsObject object{binding->scene_id(), node->id(),
+    const PhysicsObject object{node->scene().id(), node->id(),
                                has_motor ? PhysicsObjectKind::character
                                          : PhysicsObjectKind::collider,
                                has_motor ? motor->instance_id() : collider->instance_id()};
@@ -288,14 +313,13 @@ bool query_context(const Arguments& arguments, int filter_offset, PhysicsSystem*
 {
     auto* binding = BindingContext::current(arguments);
     physics = binding ? binding->physics() : nullptr;
-    const auto* world = binding ? binding->world() : nullptr;
-    const auto* scene = world ? world->scene() : nullptr;
     std::uint64_t ignored_scene = 0;
-    if (!physics || !scene || scene->id() != binding->scene_id() ||
+    if (!physics || !query_allowed(*binding) ||
         arguments.count() != filter_offset + 8 ||
         !BindingContext::identifier(arguments, filter_offset, ignored_scene) ||
         !BindingContext::identifier(arguments, filter_offset + 1, filter.ignore_node_id) ||
-        (filter.ignore_node_id != 0 && ignored_scene != scene->id()))
+        (filter.ignore_node_id != 0 &&
+         !binding->find_node(ignored_scene, filter.ignore_node_id)))
     {
         return false;
     }
@@ -403,7 +427,8 @@ void object_valid(const Arguments& arguments)
         !BindingContext::identifier(arguments, 1, object.node_id) ||
         !BindingContext::text(arguments, 2, kind) ||
         !BindingContext::identifier(arguments, 3, object.instance_id) ||
-        object.scene_id != binding->scene_id() || (kind != "collider" && kind != "character"))
+        !binding->find_node(object.scene_id, object.node_id) ||
+        (kind != "collider" && kind != "character"))
     {
         return;
     }
@@ -416,13 +441,13 @@ void contacts(const Arguments& arguments)
     vm::NativeValue::Array output;
     auto* binding = BindingContext::current(arguments);
     auto* physics = binding ? binding->physics() : nullptr;
-    const auto* world = binding ? binding->world() : nullptr;
-    const auto* scene = world ? world->scene() : nullptr;
-    if (arguments.count() == 0 && physics && scene && scene->id() == binding->scene_id())
+    if (arguments.count() == 0 && physics)
     {
         for (const auto& event : physics->contacts())
         {
-            if (event.a.scene_id != scene->id() || event.b.scene_id != scene->id())
+            // Exit 可携带已删除对象的身份；只要仍有本 Run 的接收者就保留。
+            if (!binding->find_node(event.a.scene_id, event.a.node_id) &&
+                !binding->find_node(event.b.scene_id, event.b.node_id))
             {
                 continue;
             }

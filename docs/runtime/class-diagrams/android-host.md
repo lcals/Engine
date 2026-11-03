@@ -107,4 +107,4 @@ classDiagram
 - 初始化前收到暂停请求时暂缓 GPU 创建；已有初始化开始后才收到请求，则完成初始化或失败清理后再确认关闭。关闭与退出的确认以平台内部渲染登记已清除为准。
 - 窗口可绘制性同时检查宿主暂停标志。渲染期间到达的暂停请求使本帧返回 `paused`，不进入不可恢复的 `failed` 状态；Surface 再次就绪后按需重新创建场景所需的渲染资源。
 - SDLActivity 管理 Activity / Surface 回调和 SDL 原生线程；所有引擎系统与 bgfx API 仍由 `SDL_main` 所在线程调用，不从 Java UI 线程调用。
-- 平台辅助函数不增加引擎架构类或公开系统方法。图只定义 Android 宿主类；运行时装配与调度见 [RuntimeHost](runtime-host.md)，抽象系统生命周期见[引擎总图](engine-system.md)。实际 APK、模拟器与真机验证范围见根 [README](../../../README.md#验证范围与限制)。
+- 平台辅助函数不增加引擎架构类或公开系统方法。图只定义 Android 宿主类；运行时装配与调度见 [RuntimeHost](runtime-host.md)，抽象系统生命周期见[引擎总图](engine-system.md)。实际 APK、模拟器与真机验证范围见[测试与范例](../../testing.md)。

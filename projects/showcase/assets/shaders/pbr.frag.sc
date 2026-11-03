@@ -1,87 +1,168 @@
-$input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0
+$input v_world_position, v_world_normal, v_world_tangent, v_texcoord0, v_color0, v_lightmap_uv
+
+/*
+ * Lambert/Blinn-Phong adapted from bgfx examples/18-ibl/fs_ibl_mesh.sc:
+ * Copyright 2014-2016 Dario Manesku. BSD-2-Clause.
+ * Exponential fog adapted from examples/16-shadowmaps/fs_shadowmaps_color_lighting_main.sh.
+ * Copyright 2013-2014 Dario Manesku. BSD-2-Clause.
+ * License and attribution: third_party/notices/bgfx.txt.
+ * Changes: empirical unnormalized highlight, exponent bias 1, named texture parameters;
+ * fog uses configurable density, forward camera depth, linear color and a negative exponent.
+ * Image-based lighting adapts Ant's pbr/ibl.sh split-sum sampling and bgfx 18-ibl
+ * environment-map combination. Ant copyright 2017-2024 lingxigames.com, MIT.
+ * Linear HDR maps, explicit resource slots and the existing material workflow are retained.
+ * See third_party/notices/ant.txt for the Ant license.
+ */
 
 #include <bgfx_shader.sh>
 #include "pbr_helpers.sh"
+#include "material_helpers.sh"
+#include "shadow_helpers.sh"
+#include "csm_helpers.sh"
 
-SAMPLER2D(s_base_color, 0);
-SAMPLER2D(s_normal, 1);
-SAMPLER2D(s_orm, 2);
-uniform vec4 u_base_color;
-// x: metallic, y: roughness, z: unlit, w: unused.
-uniform vec4 u_material;
+#include "pbr_surface.sh"
+#include "cluster/lighting.sh"
+#include "local_shadow_helpers.sh"
+SAMPLER2D(s_lightmap, 6);
+SAMPLER2D(s_ambient_occlusion, 11);
+SAMPLERCUBE(s_ibl_irradiance, 12);
+SAMPLERCUBE(s_ibl_prefilter, 13);
+SAMPLER2D(s_ibl_lut, 14);
+uniform vec4 u_ibl_params;
+uniform vec4 u_ambient_occlusion;
+uniform vec4 u_lighting_params;
+uniform vec4 u_probe_sh[9];
+uniform vec4 u_capture_mode;
 uniform vec4 u_camera_position;
-uniform vec4 u_light_count;
-uniform vec4 u_light_position_range[64];
-uniform vec4 u_light_direction_outer[64];
-uniform vec4 u_light_color_intensity[64];
-uniform vec4 u_light_kind_inner[64];
+uniform vec4 u_ambient;
+uniform vec4 u_ambient_sky;
+uniform vec4 u_ambient_equator;
+uniform vec4 u_ambient_ground;
+uniform vec4 u_fog_color;
+// x: linear start, y: linear end, z: exponential density, w: camera near plane.
+uniform vec4 u_fog_range;
+// Exposure, ACES enabled, linear HDR output enabled, reserved.
+uniform vec4 u_tonemap;
 
-vec3 direct_light(int index, vec3 world_position, vec3 normal, vec3 view_dir, vec3 base_color,
-                  float metallic, float roughness)
+// SH9 irradiance, real basis ordered exactly as the CPU probe resource.
+vec3 probe_irradiance(vec3 n)
 {
-    vec3 light_dir = -u_light_direction_outer[index].xyz;
-    float attenuation = 1.0;
-    float kind = u_light_kind_inner[index].x;
-    if (kind > 0.5)
-    {
-        vec3 offset = u_light_position_range[index].xyz - world_position;
-        float distance_squared = dot(offset, offset);
-        float distance = sqrt(distance_squared);
-        light_dir = offset / max(distance, 0.0001);
-        float fade = saturate(1.0 - distance / u_light_position_range[index].w);
-        attenuation = fade * fade / max(distance_squared, 0.01);
-        if (kind > 1.5)
-        {
-            float angle = dot(-light_dir, u_light_direction_outer[index].xyz);
-            attenuation *= smoothstep(u_light_direction_outer[index].w,
-                                       u_light_kind_inner[index].y, angle);
-        }
-    }
-    float n_dot_l = saturate(dot(normal, light_dir));
-    float n_dot_v = max(dot(normal, view_dir), 0.0001);
-    vec3 halfway_sum = view_dir + light_dir;
-    vec3 halfway = halfway_sum / max(length(halfway_sum), 0.0001);
-    float n_dot_h = saturate(dot(normal, halfway));
-    float v_dot_h = saturate(dot(view_dir, halfway));
-    vec3 specular_color = mix(vec3_splat(0.04), base_color, metallic);
-    vec3 specular = pbr_specular(roughness, specular_color, n_dot_l, n_dot_v, n_dot_h, v_dot_h);
-    vec3 diffuse = (vec3_splat(1.0) - specular_color) * (1.0 - metallic) * base_color / 3.14159265;
-    vec3 radiance = u_light_color_intensity[index].rgb * u_light_color_intensity[index].w;
-    return (diffuse + specular) * radiance * n_dot_l * attenuation;
+    return max(vec3_splat(0.0), u_probe_sh[0].rgb * (0.2820947918 * 3.1415926536)
+        + u_probe_sh[1].rgb * 2.0943951024 * (0.4886025119 * n.y)
+        + u_probe_sh[2].rgb * 2.0943951024 * (0.4886025119 * n.z)
+        + u_probe_sh[3].rgb * 2.0943951024 * (0.4886025119 * n.x)
+        + u_probe_sh[4].rgb * 0.7853981634 * (1.0925484306 * n.x * n.y)
+        + u_probe_sh[5].rgb * 0.7853981634 * (1.0925484306 * n.y * n.z)
+        + u_probe_sh[6].rgb * 0.7853981634 * (0.3153915653 * (3.0 * n.z * n.z - 1.0))
+        + u_probe_sh[7].rgb * 0.7853981634 * (1.0925484306 * n.x * n.z)
+        + u_probe_sh[8].rgb * 0.7853981634 * (0.5462742153 * (n.x * n.x - n.y * n.y)));
 }
+
+#include "pbr_lighting.sh"
 
 void main()
 {
-    // sRGB decode happens in the texture sampler; normal and ORM are linear data.
-    vec4 base_color = texture2D(s_base_color, v_texcoord0) * u_base_color * v_color0;
-    vec3 normal = normalize(v_world_normal);
-    vec3 tangent = normalize(v_world_tangent.xyz - normal * dot(normal, v_world_tangent.xyz));
-    vec3 bitangent = cross(normal, tangent) * v_world_tangent.w;
-    // Tangent-space sampling follows bgfx 06-bump; use full XYZ normal maps.
-    vec3 sampled_normal = texture2D(s_normal, v_texcoord0).xyz * 2.0 - 1.0;
-    float normal_length = length(sampled_normal);
-    sampled_normal = normal_length > 0.0001 ? sampled_normal / normal_length : vec3(0.0, 0.0, 1.0);
-    normal = normalize(tangent * sampled_normal.x + bitangent * sampled_normal.y + normal * sampled_normal.z);
-    vec3 orm = texture2D(s_orm, v_texcoord0).rgb;
-    float metallic = saturate(u_material.x * orm.b);
-    float roughness = max(u_material.y * orm.g, 0.045);
-    vec3 color = base_color.rgb;
-    if (u_material.z < 0.5)
+    vec3 view_offset = u_camera_position.xyz - v_world_position;
+    vec3 view_dir = view_offset / max(length(view_offset), 0.0001);
+    PbrSurface surface = sample_pbr_surface(v_texcoord0, v_color0, v_world_normal,
+                                          v_world_tangent, view_dir);
+    vec3 color = surface.base_color.rgb;
+    vec3 environment_specular = vec3_splat(0.0);
+    float reflection_attenuation = 0.0;
+    bool unlit = u_material.z > 0.5 && u_material.z < 1.5;
+    if (!unlit)
     {
-        vec3 view_offset = u_camera_position.xyz - v_world_position;
-        vec3 view_dir = view_offset / max(length(view_offset), 0.0001);
-        color = vec3_splat(0.0);
-        for (int index = 0; index < 64; ++index)
+        vec3 ambient_color = u_ambient.rgb;
+        if (u_ambient_sky.w > 0.5)
         {
-            if (float(index) < u_light_count.x)
+            float height = clamp(surface.normal.y, -1.0, 1.0);
+            ambient_color = u_ambient_sky.rgb * max(height, 0.0)
+                          + u_ambient_ground.rgb * max(-height, 0.0)
+                          + u_ambient_equator.rgb * (1.0 - abs(height));
+        }
+        vec3 diffuse_irradiance = ambient_color * u_ambient.w;
+        if (u_ibl_params.x > 0.5 && u_capture_mode.x < 0.5)
+        {
+            diffuse_irradiance += textureCube(s_ibl_irradiance, surface.normal).rgb * u_ibl_params.y;
+            vec3 reflection = reflect(-view_dir, surface.normal);
+            vec3 prefiltered = textureCubeLod(s_ibl_prefilter, reflection,
+                                              surface.roughness * u_ibl_params.z).rgb;
+            vec2 lut = texture2D(s_ibl_lut, vec2(saturate(dot(surface.normal, view_dir)),
+                                               surface.roughness)).rg;
+            environment_specular = prefiltered * (surface.specular_color * lut.x + vec3_splat(lut.y))
+                                   * u_ibl_params.y;
+        }
+        if (u_lighting_params.x > 0.5)
+        {
+            diffuse_irradiance = texture2D(s_lightmap, v_lightmap_uv).rgb / 3.14159265;
+        }
+        else if (u_lighting_params.y > 0.5)
+        {
+            diffuse_irradiance = probe_irradiance(surface.normal) / 3.14159265;
+        }
+        color = surface.base_color.rgb * surface.diffuse_weight * diffuse_irradiance;
+        float ambient_occlusion = 1.0;
+        if (u_ambient_occlusion.z > 0.5)
+        {
+            ambient_occlusion = texture2D(s_ambient_occlusion,
+                                           gl_FragCoord.xy * u_ambient_occlusion.xy).r;
+        }
+        color = (color + environment_specular) * ambient_occlusion;
+        environment_specular *= ambient_occlusion;
+        reflection_attenuation = ambient_occlusion;
+        float view_depth = max(-mul(u_view, vec4(v_world_position, 1.0)).z, 0.0);
+        // Directional lights are global; the cluster list only stores bounded local lights.
+        for (uint index = 0u; index < uint(u_cluster_counts.x); ++index)
+        {
+            if (load_cluster_light(index).kind_inner.x < 0.5)
             {
-                color += direct_light(index, v_world_position, normal, view_dir, base_color.rgb, metallic, roughness);
+                color += direct_light(index, v_world_position, surface.normal, view_dir,
+                                      surface.base_color.rgb, surface.metallic, surface.roughness,
+                                      surface.specular_color, surface.smoothness);
             }
         }
-        color *= orm.r;
-        color = color / (vec3_splat(1.0) + color);
+        uint offset; uint count; bool overflow;
+        cluster_range(gl_FragCoord.xy, view_depth, offset, count, overflow);
+        for (uint item = 0u; item < count; ++item)
+        {
+            uint index = cluster_light_index(offset, item, overflow);
+            if (load_cluster_light(index).kind_inner.x > 0.5)
+            {
+                color += direct_light(index, v_world_position, surface.normal, view_dir,
+                                      surface.base_color.rgb, surface.metallic, surface.roughness,
+                                      surface.specular_color, surface.smoothness);
+            }
+        }
+        color *= surface.occlusion;
+        environment_specular *= surface.occlusion;
+        reflection_attenuation *= surface.occlusion;
     }
-    // Linear scene values to the current SDR, non-sRGB swapchain.
-    color = pow(max(color, vec3_splat(0.0)), vec3_splat(1.0 / 2.2));
-    gl_FragColor = vec4(color, 1.0);
+    color += surface.emission;
+    if (u_capture_mode.x > 0.5)
+    {
+        float valid = dot(v_world_normal, view_dir) > 0.0 ? 1.0 : 0.0;
+        gl_FragData[0] = vec4(clamp(color, vec3_splat(0.0), vec3_splat(65504.0)), valid);
+        gl_FragData[1] = vec4_splat(0.0);
+        return;
+    }
+    if (u_fog_color.w > 0.5)
+    {
+        float fog = saturate((length(view_offset) - u_fog_range.x)
+                             / max(u_fog_range.y - u_fog_range.x, 0.0001));
+        if (u_fog_color.w > 1.5)
+        {
+            float depth = max(-mul(u_view, vec4(v_world_position, 1.0)).z - u_fog_range.w, 0.0);
+            float optical_depth = min(u_fog_range.z * depth, 80.0);
+            float exponent = u_fog_color.w > 2.5 ? optical_depth * optical_depth : optical_depth;
+            fog = 1.0 - exp2(-exponent * 1.4426950408889634);
+        }
+        float transmission = 1.0 - fog * u_surface_parameters.z;
+        color = mix(u_fog_color.rgb, color, transmission);
+        environment_specular *= transmission;
+        reflection_attenuation *= transmission;
+    }
+    float output_alpha = u_surface.y > 0.5 ? surface.base_color.a : (unlit ? 0.0 : 1.0);
+    if (u_surface.y > 1.5) color *= output_alpha;
+    gl_FragData[0] = vec4(clamp(color, vec3_splat(0.0), vec3_splat(65504.0)), output_alpha);
+    gl_FragData[1] = vec4(environment_specular, reflection_attenuation);
 }

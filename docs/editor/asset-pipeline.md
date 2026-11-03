@@ -26,7 +26,7 @@
 
 `cache/assets.sqlite` 使用版本 2，记录源、工具、配置和生成指纹；`dependencies` 表用于构建失效和任务排序，`runtime_dependencies` 表用于打包闭包。数据库与目录索引位于 cache 根，不进入 gen。实体哈希用于校验和增量判断，不改变 GUID 身份。
 
-场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。PNG/JPG/JPEG 通过 [TextureImporter](class-diagrams/texture-importer.md) 生成包含 BasisU 数据的纹理载荷，格式、压缩、颜色空间和 mip 设置取自相邻 `.meta`。没有专用导入器的文件保留原始字节作为载荷。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
+场景、网格、材质和 Shader 描述转换为各自的 FlatBuffers 载荷；TypeScript 编译为 JavaScript，Shader 源码由宿主 shaderc 编译为目标平台程序。PNG/JPG/JPEG/TGA/QOI/HDR/EXR 通过 [TextureImporter](class-diagrams/texture-importer.md) 生成包含 BasisU 数据的纹理载荷，格式、压缩、颜色空间和 mip 设置取自相邻 `.meta`。没有专用导入器的文件保留原始字节作为载荷。转换结束后统一调用核心实体编码接口封装，不能把 `gen/<GUID>` 直接当作裸 JS 或裸 FlatBuffer 读取。
 
 建模插件的 [ModelingMeshImporter](../plugins/editor/class-diagrams/modeling-mesh-importer.md) 由编辑器、构建 CLI 和 MCP 宿主显式注入。它从 `.mesh` 的 `[modeling]` 权威数据编译普通运行 Mesh；基础 MeshImporter 仍处理普通网格。未注入插件时，权威源导入明确失败，不使用冗余渲染数组。导入器身份和 Schema 参与增量指纹，移除插件不能绕过检查复用旧缓存。
 
@@ -36,7 +36,7 @@
 
 导入使用项目锁、暂存输出及回滚记录。转换结束后调用核心 `ResourceCatalog.assign()` 校验完整目录；缺失运行依赖、运行依赖环、非法实体元数据等都在发布前失败。全部成功后发布目录，失败保留上一版；无变化时不改写正式文件或版本。
 
-`AssetPipelineSystem.catalog()` 返回最近成功导入的完整内存目录，只包含元数据；下一次成功导入更新内容，失败保留旧目录，关闭时清空。编辑器协调层使用该数据及 `content` 挂载直接调用核心 `update_catalog()`。运行中的编辑器项目会阻止覆盖同一 `cache/gen/`；调用方必须先停止，导入工具不自动停启。管线也提供 `asset_build_app` 离线入口，命令见根 [README](../../README.md#资源导入与-guid)。
+`AssetPipelineSystem.catalog()` 返回最近成功导入的完整内存目录，只包含元数据；下一次成功导入更新内容，失败保留旧目录，关闭时清空。编辑器协调层使用该数据及 `content` 挂载直接调用核心 `update_catalog()`。运行中的编辑器项目会阻止覆盖同一 `cache/gen/`；调用方必须先停止，导入工具不自动停启。管线也提供 `asset_build_app` 离线入口，命令见[离线导入](#离线导入)。
 
 ## 格式插件与子资源
 
@@ -60,6 +60,42 @@ FBX 生成层级、几何、骨架和采样动画；USD 当前只生成自包含
 
 由 AI 执行的角色准备、自动绑骨/蒙皮、公共动作整理和显式骨架适配配置生成见[角色与动画制作流程](character-production.md)。这些属于离线制作与编辑器扩展规划，复用本管线的主/子 GUID、指纹、依赖与失败不发布契约；当前没有接入云端绑骨服务或本地推理工具。FBX 的外部 `skeleton` 引用不是跨骨架语义重定向；引擎运行时重定向是独立目标，不能以逐角色离线烘焙代替。
 
-文件监听自动导入、完整 USD 场景语义和 Mesh 优化导入尚未接入。基础管线保留 efsw/meshoptimizer 依赖验证，OpenUSD 已转入独立格式插件；Basis Universal 的编辑器压缩与运行时转码已接入贴图流程。
+编辑器文件监听与增量预览刷新见[编辑器](editor.md#编辑器场景预览)；完整 USD 场景语义和 Mesh 优化导入尚未接入。基础管线保留 efsw/meshoptimizer 依赖验证，OpenUSD 已转入独立格式插件；Basis Universal 的编辑器压缩与运行时转码已接入贴图流程。
 
 DCC 集成采用 USD 交换场景，专有材质与数据由 DCC 适配插件转换；贴图采用 Basis Universal 作为跨平台格式，渲染器按设备能力选择目标格式。这些扩展须通过资源管线的 GUID、依赖和完整版本契约接入。
+
+## 离线导入
+
+```sh
+./build/ninja-engine-debug/asset_build_app --project projects/showcase
+```
+
+模型格式与配置见[FBX / USD 导入](../plugins/editor/model-import.md)，材质参数与 Shader 绑定见[渲染模块](../runtime/rendering.md)。
+
+## 图片与半浮点纹理
+
+普通图片支持 PNG/JPG/JPEG/TGA/QOI，线性 HDR 图片支持 Radiance HDR 与单部件 EXR。新图片的 `.meta` 自动生成贴图导入设置，示例：
+
+```toml
+guid = "<完整 GUID>"
+importer = "texture"
+meta_version = 1
+
+[texture]
+format = "auto"
+compression = "uastc"
+compression_level = 2
+mipmaps = true
+```
+
+- `format`：LDR 的 `auto` 按 GPU 与转码器能力选择，或明确 `rgba8` / `bc7` / `astc4x4` / `etc2`；HDR 只允许 `auto` / `rgba16f`，运行时保持 RGBA16F。显式格式不支持时返回失败。
+- `compression`：默认 UASTC；LDR 可选 ETC1S。UASTC LDR 可显式使用 `rdo_quality_scalar`（0.001..50，默认1，越小失真越少），ETC1S 使用 `quality`（1..255，默认128）。HDR 使用 UASTC HDR 4×4，不接受 LDR RDO 或 ETC1S 选项。
+- `compression_level`：UASTC LDR/HDR 0..4，ETC1S 0..6；`srgb` 省略时 LDR 默认 true、HDR 默认 false。法线、ORM 等 LDR 数据贴图显式设为 false；HDR 不允许 true。`mipmaps` 决定是否生成完整 mip 链。
+- 设置、源图片、Schema 和编码器版本均参与增量键。输出为 `cache/gen/<完整GUID>` 中的 TextureData/BasisU 资源；Shader sampler 默认纹理和材质纹理引用进入统一依赖树、打包和同步。
+- 旧图片若使用 `importer = "source"`，修改为 `texture` 时保留原 GUID；不自动改变已有原始二进制的用途。单边最大8192、总像素最多16M，解码前检查图片头。
+
+BasisU 使用已有依赖的 C++ 编码接口，整体并行度由项目 `import_threads` 控制（默认 8），每任务编码器使用单线程。`third_party/overlay-ports/basisu/quiet-library-output.patch` 将上游 HDR 输入诊断写到 stderr，确保 MCP stdout 只承载协议。
+
+KTX 使用独立 `texture_ktx` 导入器，支持线性 RGBA16F / RG16F 的 KTX1 二维或 cube 纹理，单层 mip 或完整 mip 链；不重新压缩或生成 mip。`.meta` 使用 `compression = "none"`、`srgb = false`，`format` 为 `auto` 或与容器一致的半浮点格式；若指定 `mipmaps`，须与源文件一致。生成的 TextureData 保留 KTX 数据，经统一目录加载后由 bgfx 创建纹理。当前不支持 KTX2、纹理数组或体纹理。
+
+HDR 导入保持大于 1 的线性辐亮度，并在渲染和 IBL 输入中转码为半浮点；UI 只接受 LDR。BasisU HDR 当前不保留 alpha、负 RGB 或超过 65216 的辐亮度，导入会明确失败；这些数据继续使用已有线性半浮点 KTX 管线。预过滤 IBL 的 cube/粗糙度 mip、RG16F BRDF LUT 和烘焙 lightmap 保留原 KTX，不进行有损重压缩。模型外部贴图与特效纹理继续引用这套通用贴图 GUID 资源，不额外建立导入链。BMP/DDS 等没有对应导入器的文件仍是原始 source 资源，不能视作已可渲染的纹理。

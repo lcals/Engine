@@ -30,13 +30,19 @@ namespace engine::plugins::effects
 namespace
 {
 
-bool has_effect_resources(const Scene& scene)
+bool has_effect_resources(const WorldSystem& world)
 {
-    return std::any_of(scene.nodes().begin(), scene.nodes().end(),
-                       [](const auto& node)
+    return std::any_of(world.scenes().begin(), world.scenes().end(),
+                       [](const auto& scene)
                        {
-                           const auto* effect = node->template get_component<EffectComponent>();
-                           return effect != nullptr && !effect->effect_path().empty();
+                           return std::any_of(
+                               scene->nodes().begin(), scene->nodes().end(),
+                               [](const auto& node)
+                               {
+                                   const auto* effect =
+                                       node->template get_component<EffectComponent>();
+                                   return effect != nullptr && !effect->effect_path().empty();
+                               });
                        });
 }
 
@@ -113,7 +119,6 @@ struct EffectSystem::State
     Effekseer::ManagerRef manager;
     std::map<std::pair<std::string, std::uint64_t>, std::weak_ptr<CompiledEffect>> effects;
     std::map<std::uint64_t, Instance> instances;
-    std::uint64_t scene_id = 0;
     float time = 0.0F;
     bool prepared = false;
 
@@ -128,7 +133,6 @@ struct EffectSystem::State
         instances.clear();
         effects.clear();
         resources.release_textures();
-        scene_id = 0;
         time = 0.0F;
         prepared = false;
     }
@@ -290,91 +294,93 @@ struct EffectSystem::State
         return true;
     }
 
-    bool synchronize(Scene& scene, double delta_time, bool world_paused)
+    bool synchronize(WorldSystem& world, double delta_time, bool world_paused)
     {
         ENGINE_PROFILE_ZONE("Effects.synchronize");
         resources.error.clear();
-        scene_id = scene.id();
         std::set<std::uint64_t> alive;
         // 仅借用到本次同步返回；避免对每个实例线性查找整棵场景。
         std::vector<std::pair<EffectComponent*, Instance*>> active;
-        for (const auto& node : scene.nodes())
+        for (const auto& scene : world.scenes())
         {
-            auto* component = node->get_component<EffectComponent>();
-            if (!component || !component->effect_)
+            for (const auto& node : scene->nodes())
             {
-                continue;
-            }
-            auto* source = ResourceSystem::instance();
-            if (source && component->effect_->generation() != source->generation())
-            {
-                const auto settings = component->settings();
-                if (!component->set_settings(settings))
-                {
-                    resources.error =
-                        "Cannot refresh effect resource: " + std::string(component->effect_path());
-                    return false;
-                }
-            }
-            const auto id = component->instance_id();
-            alive.insert(id);
-            auto& instance = instances[id];
-            if (!component->enabled())
-            {
-                stop(instance);
-                instance.compiled.reset();
-                if (!instance.disabled)
-                {
-                    component->requested_ = EffectComponent::Playback::stopped;
-                    component->awake_pending_ = component->settings().play_on_awake;
-                }
-                instance.disabled = true;
-                component->playing_ = false;
-                continue;
-            }
-            instance.disabled = false;
-            if (instance.revision != component->revision_)
-            {
-                stop(instance);
-                instance.compiled.reset();
-                instance.revision = component->revision_;
-            }
-            if (component->awake_pending_)
-            {
-                if (world_paused)
+                auto* component = node->get_component<EffectComponent>();
+                if (!component || !component->effect_)
                 {
                     continue;
                 }
-                component->requested_ = EffectComponent::Playback::playing;
-                component->awake_pending_ = false;
+                auto* source = ResourceSystem::instance();
+                if (source && component->effect_->generation() != source->generation())
+                {
+                    const auto settings = component->settings();
+                    if (!component->set_settings(settings))
+                    {
+                        resources.error = "Cannot refresh effect resource: " +
+                                          std::string(component->effect_path());
+                        return false;
+                    }
+                }
+                const auto id = component->instance_id();
+                alive.insert(id);
+                auto& instance = instances[id];
+                if (!component->enabled())
+                {
+                    stop(instance);
+                    instance.compiled.reset();
+                    if (!instance.disabled)
+                    {
+                        component->requested_ = EffectComponent::Playback::stopped;
+                        component->awake_pending_ = component->settings().play_on_awake;
+                    }
+                    instance.disabled = true;
+                    component->playing_ = false;
+                    continue;
+                }
+                instance.disabled = false;
+                if (instance.revision != component->revision_)
+                {
+                    stop(instance);
+                    instance.compiled.reset();
+                    instance.revision = component->revision_;
+                }
+                if (component->awake_pending_)
+                {
+                    if (world_paused)
+                    {
+                        continue;
+                    }
+                    component->requested_ = EffectComponent::Playback::playing;
+                    component->awake_pending_ = false;
+                }
+                if (component->requested_ == EffectComponent::Playback::stopped)
+                {
+                    stop(instance);
+                    instance.compiled.reset();
+                    component->playing_ = false;
+                    continue;
+                }
+                if (instance.handle < 0 && world_paused)
+                {
+                    continue;
+                }
+                if (instance.handle < 0 && !start(instance, *component))
+                {
+                    return false;
+                }
+                Effekseer::Matrix43 transform;
+                if (!effect_transform(*node, transform))
+                {
+                    resources.error = "Invalid effect emitter world transform";
+                    return false;
+                }
+                manager->SetMatrix(instance.handle, transform);
+                manager->SetSpeed(instance.handle, component->settings().speed);
+                manager->SetPaused(instance.handle,
+                                   world_paused ||
+                                       component->requested_ == EffectComponent::Playback::paused);
+                active.emplace_back(component, &instance);
             }
-            if (component->requested_ == EffectComponent::Playback::stopped)
-            {
-                stop(instance);
-                instance.compiled.reset();
-                component->playing_ = false;
-                continue;
-            }
-            if (instance.handle < 0 && world_paused)
-            {
-                continue;
-            }
-            if (instance.handle < 0 && !start(instance, *component))
-            {
-                return false;
-            }
-            Effekseer::Matrix43 transform;
-            if (!effect_transform(*node, transform))
-            {
-                resources.error = "Invalid effect emitter world transform";
-                return false;
-            }
-            manager->SetMatrix(instance.handle, transform);
-            manager->SetSpeed(instance.handle, component->settings().speed);
-            manager->SetPaused(instance.handle,
-                               world_paused ||
-                                   component->requested_ == EffectComponent::Playback::paused);
-            active.emplace_back(component, &instance);
         }
         for (auto entry = instances.begin(); entry != instances.end();)
         {
@@ -467,22 +473,17 @@ bool EffectSystem::on_tick(double delta_time)
         last_error_ = "Invalid effect tick duration";
         return false;
     }
-    auto* scene = world_.scene();
-    if (!scene || !has_effect_resources(*scene))
+    if (!has_effect_resources(world_))
     {
         release_scene();
         return true;
-    }
-    if (state_ && state_->scene_id != 0 && state_->scene_id != scene->id())
-    {
-        release_scene();
     }
     const bool paused = world_.paused();
     pending_seconds_ = paused ? 0.0 : pending_seconds_ + delta_time;
     if (state_ && state_->manager)
     {
         const double elapsed = std::exchange(pending_seconds_, 0.0);
-        if (!state_->synchronize(*scene, elapsed, paused))
+        if (!state_->synchronize(world_, elapsed, paused))
         {
             last_error_ = state_->resources.error;
             return false;
@@ -499,7 +500,7 @@ bool EffectSystem::draw(const RenderContext& context)
         last_error_ = "Effect renderer requires its current world scene";
         return false;
     }
-    if (!has_effect_resources(context.scene))
+    if (!has_effect_resources(world_))
     {
         release_scene();
         last_error_.clear();
@@ -516,7 +517,7 @@ bool EffectSystem::draw(const RenderContext& context)
     }
     if (!state_->initialize(context) ||
         ((!state_->prepared || paused) &&
-         !state_->synchronize(*world_.scene(), std::exchange(pending_seconds_, 0.0), paused)))
+         !state_->synchronize(world_, std::exchange(pending_seconds_, 0.0), paused)))
     {
         last_error_ = state_->resources.error;
         return false;
@@ -563,7 +564,7 @@ bool EffectSystem::draw(const RenderContext& context)
 void EffectSystem::release_scene() noexcept
 {
     // 只查询世界当前仍存活的节点；从不保存跨帧的组件指针。
-    if (auto* scene = world_.scene())
+    for (const auto& scene : world_.scenes())
     {
         for (const auto& node : scene->nodes())
         {

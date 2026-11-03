@@ -1,4 +1,5 @@
 #include "editor/commands/components/component_edit.hpp"
+#include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -89,9 +90,12 @@ bool vector(const Json& input, Vec3& value)
 ComponentEdit::ComponentEdit(WorldSystem& world, std::uint64_t scene,
                              std::shared_ptr<std::uint64_t> node,
                              std::optional<schema::ComponentDataT> before,
-                             schema::ComponentDataT after)
+                             schema::ComponentDataT after,
+                             std::vector<std::shared_ptr<const Resource>> resources,
+                             ComponentType required_component)
     : world_(world), scene_(scene), node_(std::move(node)), type_(after.payload.type),
-      before_(std::move(before)), after_(std::move(after))
+      before_(std::move(before)), after_(std::move(after)), resources_(std::move(resources)),
+      required_component_(required_component)
 {
 }
 bool ComponentEdit::apply(std::string& error)
@@ -112,6 +116,16 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         error = "Component edit targets a stale scene or node";
         return false;
     }
+    const auto* resources = ResourceSystem::instance();
+    for (const auto& resource : resources_)
+    {
+        const auto* available = resources ? resources->catalog().find(resource->info().guid) : nullptr;
+        if (!available || *available != resource->info())
+        {
+            error = "Component resource version changed since the edit";
+            return false;
+        }
+    }
     auto* current = node->get_component(type_);
     schema::ComponentDataT snapshot;
     if (bool(expected) != (current != nullptr) ||
@@ -123,6 +137,11 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
     if (!value)
     {
         return node->remove_component(type_);
+    }
+    if (required_component_ != ComponentType::NONE && !node->get_component(required_component_))
+    {
+        error = "The edited component requires another component on the same node";
+        return false;
     }
     const bool created = current == nullptr;
     if (created)

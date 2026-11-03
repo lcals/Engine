@@ -35,9 +35,10 @@ try {
     const args = process.argv.slice(2);
     const inputsOnly = args.length === 3 && args[2] === "--inputs";
     const outputMode = args.length === 4 && args[2] === "--output";
-    if (args[0] !== "--project" || (!inputsOnly && !outputMode)) {
+    const snippetMode = args.length === 4 && args[2] === "--snippet";
+    if (args[0] !== "--project" || (!inputsOnly && !outputMode && !snippetMode)) {
         throw new Error(
-            "Usage: node build_scripts.mjs --project <project-directory> (--inputs | --output <staging-directory>)",
+            "Usage: node build_scripts.mjs --project <project-directory> (--inputs | --output <staging-directory> | --snippet <request.json>)",
         );
     }
     const project = path.resolve(args[1]);
@@ -64,12 +65,37 @@ try {
             );
     }
     const ts = compilerRequire("typescript");
+    let snippet;
+    if (snippetMode) {
+        const request = JSON.parse(fs.readFileSync(args[3], "utf8"));
+        if (!request || typeof request !== "object" || Array.isArray(request) ||
+            Object.keys(request).some((name) => name !== "sourcePath" && name !== "source") ||
+            typeof request.sourcePath !== "string" || typeof request.source !== "string")
+            throw new Error("Snippet request requires sourcePath and source strings");
+        const name = request.sourcePath;
+        if (!name.endsWith(".ts") || name.endsWith(".d.ts") || name.includes("\\") ||
+            name.includes(":") || name.includes("\0") ||
+            name.split("/").some((part) => !part || part === "." || part === ".."))
+            throw new Error("Snippet sourcePath must be an assets-relative .ts path");
+        if (Buffer.byteLength(request.source, "utf8") > 256 * 1024)
+            throw new Error("Snippet source exceeds 256 KiB");
+        snippet = { filename: path.join(project, "assets", name), ...request };
+        const syntax = ts.createSourceFile(snippet.filename, snippet.source,
+            ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+        function check(node) {
+            if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword)
+                throw new Error("Dynamic import is not supported in a project snippet");
+            ts.forEachChild(node, check);
+        }
+        check(syntax);
+    }
     const inputHashes = new Map();
     function record(filename) {
         const absolute = path.resolve(filename);
         inputHashes.set(absolute.split(path.sep).join("/"), hashBytes(fs.readFileSync(absolute)));
     }
     function readFile(filename) {
+        if (snippet && path.resolve(filename) === snippet.filename) return snippet.source;
         const contents = ts.sys.readFile(filename);
         if (contents !== undefined) record(filename);
         return contents;
@@ -131,10 +157,31 @@ try {
         mapRoot: undefined,
         allowJs: false,
     };
+    if (snippet) {
+        Object.assign(options, {
+            module: ts.ModuleKind.CommonJS,
+            moduleResolution: ts.ModuleResolutionKind.Node10,
+            esModuleInterop: false,
+            allowSyntheticDefaultImports: false,
+            verbatimModuleSyntax: false,
+            resolvePackageJsonExports: false,
+            resolvePackageJsonImports: false,
+            customConditions: undefined,
+            noEmitOnError: true,
+            inlineSourceMap: false,
+            inlineSources: false,
+        });
+    }
     const host = ts.createCompilerHost(options);
     host.readFile = readFile;
+    if (snippet) {
+        const exists = host.fileExists;
+        host.fileExists = (filename) => path.resolve(filename) === snippet.filename || exists(filename);
+    }
     const program = ts.createProgram({
-        rootNames: parsed.fileNames,
+        rootNames: snippet
+            ? [...parsed.fileNames.filter((filename) => filename.endsWith(".d.ts")), snippet.filename]
+            : parsed.fileNames,
         options,
         host,
         projectReferences: parsed.projectReferences,
@@ -153,115 +200,157 @@ try {
     if (diagnostics.length !== 0)
         throw new Error(ts.formatDiagnostics(diagnostics, diagnosticHost));
     const compiledOutputs = [];
-    const emitted = program.emit(undefined, (filename, text, bom, onError, sources) => {
+    const emitted = program.emit(snippet ? program.getSourceFile(snippet.filename) : undefined,
+        (filename, text, bom, onError, sources) => {
         compiledOutputs.push({ filename, text, sources: sources ?? [] });
     });
     if (emitted.emitSkipped || emitted.diagnostics.length !== 0)
         throw new Error(
             ts.formatDiagnostics(emitted.diagnostics, diagnosticHost) || "TypeScript emit failed",
         );
-    const modules = [];
-    for (const { filename, text, sources } of compiledOutputs) {
-        const syntax = ts.createSourceFile(
-            filename,
-            text,
-            ts.ScriptTarget.ES2022,
-            true,
-            ts.ScriptKind.JS,
-        );
-        const imports = new Set();
-        function visit(node) {
-            let specifier;
-            if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
-                specifier = node.moduleSpecifier;
-            else if (
-                ts.isCallExpression(node) &&
-                node.expression.kind === ts.SyntaxKind.ImportKeyword
-            )
-                specifier = node.arguments[0];
-            if (specifier && ts.isStringLiteralLike(specifier)) imports.add(specifier.text);
-            ts.forEachChild(node, visit);
-        }
-        visit(syntax);
-        for (const source of sources) {
-            const dependencies = new Set();
-            for (const specifier of imports) {
-                if (specifier === "engine") continue;
-                if (!specifier.startsWith("./") && !specifier.startsWith("../"))
-                    throw new Error(`Unsupported runtime module import: ${specifier}`);
-                const resolved = ts.resolveModuleName(
-                    specifier,
-                    source.fileName,
-                    options,
-                    host,
-                ).resolvedModule;
-                if (!resolved || resolved.resolvedFileName.endsWith(".d.ts"))
-                    throw new Error(`Runtime module has no emitted source: ${specifier}`);
-                const relative = path.relative(
-                    path.join(project, "assets"),
-                    resolved.resolvedFileName,
-                );
-                if (relative.startsWith("..") || path.isAbsolute(relative))
-                    throw new Error(`Runtime module is outside project assets: ${specifier}`);
-                dependencies.add(relative.split(path.sep).join("/"));
+    if (snippet) {
+        if (compiledOutputs.length !== 1 || !compiledOutputs[0].filename.endsWith(".js"))
+            throw new Error("Snippet must emit exactly one JavaScript module");
+        const javascript = compiledOutputs[0].text;
+        if (Buffer.byteLength(javascript, "utf8") > 256 * 1024)
+            throw new Error("Compiled snippet exceeds 256 KiB");
+        const syntax = ts.createSourceFile(snippet.filename + ".js", javascript,
+            ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+        function checkImports(node) {
+            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) &&
+                node.expression.text === "require") {
+                const specifier = node.arguments[0];
+                if (node.arguments.length !== 1 || !specifier || !ts.isStringLiteralLike(specifier))
+                    throw new Error("Snippet imports require a static module path");
+                if (specifier.text !== "engine") {
+                    if (!specifier.text.startsWith("./") && !specifier.text.startsWith("../"))
+                        throw new Error(`Unsupported runtime module import: ${specifier.text}`);
+                    if (!specifier.text.endsWith(".js"))
+                        throw new Error(`Runtime imports must use an explicit .js path: ${specifier.text}`);
+                    const resolved = ts.resolveModuleName(specifier.text, snippet.filename,
+                        options, host).resolvedModule;
+                    if (!resolved || !resolved.resolvedFileName.endsWith(".ts") ||
+                        resolved.resolvedFileName.endsWith(".d.ts"))
+                        throw new Error(`Runtime module has no emitted source: ${specifier.text}`);
+                    const relative = path.relative(path.join(project, "assets"), resolved.resolvedFileName);
+                    if (relative.startsWith("..") || path.isAbsolute(relative))
+                        throw new Error(`Runtime module is outside project assets: ${specifier.text}`);
+                    const requestedPath = path.resolve(path.dirname(snippet.filename), specifier.text);
+                    const emittedPath = path.resolve(resolved.resolvedFileName.slice(0, -3) + ".js");
+                    if (requestedPath !== emittedPath)
+                        throw new Error(`Runtime import does not match its emitted module path: ${specifier.text}`);
+                }
             }
-            modules.push({
-                source: path
-                    .relative(path.join(project, "assets"), source.fileName)
-                    .split(path.sep)
-                    .join("/"),
-                dependencies: [...dependencies].sort(),
-            });
+            ts.forEachChild(node, checkImports);
         }
-    }
-    modules.sort((left, right) => left.source.localeCompare(right.source));
-    const inputs = [...inputHashes]
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-        .map(([filename, hash]) => ({ path: filename, hash }));
-    if (inputsOnly) {
-        process.stdout.write(JSON.stringify({ inputs, modules }) + "\n");
+        checkImports(syntax);
+        process.stdout.write(JSON.stringify({
+            modulePath: snippet.sourcePath.slice(0, -3) + ".js", javascript,
+        }) + "\n");
     } else {
-        // 调用方资源管线持有可自动释放的操作系统锁。
-        if (fs.existsSync(output)) {
-            requireDirectory(output);
-            if (fs.readdirSync(output).length !== 0)
-                throw new Error("Script staging output must be empty");
-        } else {
-            fs.mkdirSync(output, { recursive: true });
-        }
-        staging = fs.mkdtempSync(path.join(cache, ".script-build-"));
-        const outputs = [];
+        const modules = [];
         for (const { filename, text, sources } of compiledOutputs) {
-            const relative = path.relative(output, filename);
-            if (
-                relative.startsWith("..") ||
-                path.isAbsolute(relative) ||
-                !filename.endsWith(".js")
-            ) {
-                throw new Error(`Unsupported script output: ${filename}`);
+            const syntax = ts.createSourceFile(
+                filename,
+                text,
+                ts.ScriptTarget.ES2022,
+                true,
+                ts.ScriptKind.JS,
+            );
+            const imports = new Set();
+            function visit(node) {
+                let specifier;
+                if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node))
+                    specifier = node.moduleSpecifier;
+                else if (
+                    ts.isCallExpression(node) &&
+                    node.expression.kind === ts.SyntaxKind.ImportKeyword
+                )
+                    specifier = node.arguments[0];
+                if (specifier && ts.isStringLiteralLike(specifier)) imports.add(specifier.text);
+                ts.forEachChild(node, visit);
             }
-            const target = path.join(staging, relative);
-            fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, text, "utf8");
-            for (const source of sources ?? []) {
-                outputs.push({
+            visit(syntax);
+            for (const source of sources) {
+                const dependencies = new Set();
+                for (const specifier of imports) {
+                    if (specifier === "engine") continue;
+                    if (!specifier.startsWith("./") && !specifier.startsWith("../"))
+                        throw new Error(`Unsupported runtime module import: ${specifier}`);
+                    const resolved = ts.resolveModuleName(
+                        specifier,
+                        source.fileName,
+                        options,
+                        host,
+                    ).resolvedModule;
+                    if (!resolved || resolved.resolvedFileName.endsWith(".d.ts"))
+                        throw new Error(`Runtime module has no emitted source: ${specifier}`);
+                    const relative = path.relative(
+                        path.join(project, "assets"),
+                        resolved.resolvedFileName,
+                    );
+                    if (relative.startsWith("..") || path.isAbsolute(relative))
+                        throw new Error(`Runtime module is outside project assets: ${specifier}`);
+                    dependencies.add(relative.split(path.sep).join("/"));
+                }
+                modules.push({
                     source: path
                         .relative(path.join(project, "assets"), source.fileName)
                         .split(path.sep)
                         .join("/"),
-                    output: relative.split(path.sep).join("/"),
+                    dependencies: [...dependencies].sort(),
                 });
             }
         }
-        fs.writeFileSync(
-            path.join(staging, ".script-build.json"),
-            JSON.stringify({ outputs, inputs, modules }, null, 2) + "\n",
-        );
-        for (const item of fs.readdirSync(staging))
-            fs.renameSync(path.join(staging, item), path.join(output, item));
-        fs.rmdirSync(staging);
-        staging = undefined;
-        console.error("TypeScript staging build completed");
+        modules.sort((left, right) => left.source.localeCompare(right.source));
+        const inputs = [...inputHashes]
+            .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+            .map(([filename, hash]) => ({ path: filename, hash }));
+        if (inputsOnly) {
+            process.stdout.write(JSON.stringify({ inputs, modules }) + "\n");
+        } else {
+            // 调用方资源管线持有可自动释放的操作系统锁。
+            if (fs.existsSync(output)) {
+                requireDirectory(output);
+                if (fs.readdirSync(output).length !== 0)
+                    throw new Error("Script staging output must be empty");
+            } else {
+                fs.mkdirSync(output, { recursive: true });
+            }
+            staging = fs.mkdtempSync(path.join(cache, ".script-build-"));
+            const outputs = [];
+            for (const { filename, text, sources } of compiledOutputs) {
+                const relative = path.relative(output, filename);
+                if (
+                    relative.startsWith("..") ||
+                    path.isAbsolute(relative) ||
+                    !filename.endsWith(".js")
+                ) {
+                    throw new Error(`Unsupported script output: ${filename}`);
+                }
+                const target = path.join(staging, relative);
+                fs.mkdirSync(path.dirname(target), { recursive: true });
+                fs.writeFileSync(target, text, "utf8");
+                for (const source of sources ?? []) {
+                    outputs.push({
+                        source: path
+                            .relative(path.join(project, "assets"), source.fileName)
+                            .split(path.sep)
+                            .join("/"),
+                        output: relative.split(path.sep).join("/"),
+                    });
+                }
+            }
+            fs.writeFileSync(
+                path.join(staging, ".script-build.json"),
+                JSON.stringify({ outputs, inputs, modules }, null, 2) + "\n",
+            );
+            for (const item of fs.readdirSync(staging))
+                fs.renameSync(path.join(staging, item), path.join(output, item));
+            fs.rmdirSync(staging);
+            staging = undefined;
+            console.error("TypeScript staging build completed");
+        }
     }
 } catch (error) {
     console.error(`Script build failed: ${error.message}`);

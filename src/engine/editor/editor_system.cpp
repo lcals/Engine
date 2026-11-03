@@ -12,6 +12,7 @@
 #include "runtime/app/app.hpp"
 #include "runtime/engine.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
+#include "runtime/gameplay/project_script_request.hpp"
 #include "runtime/gameplay/script_status.hpp"
 #include "runtime/log/log_system.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -24,6 +25,7 @@
 #include <nlohmann/json.hpp>
 #include <toml++/toml.hpp>
 
+#include <charconv>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -85,15 +87,15 @@ bool read_frame_rate(const fs::path& project_root, std::int32_t& target)
     std::string source;
     if (!ResourceSystem::read_text(path, source))
     {
-        LogSystem::write(LogLevel::error, "Cannot read editor settings: " +
-                                              PathUtils::to_utf8(path));
+        LogSystem::write(LogLevel::error,
+                         "Cannot read editor settings: " + PathUtils::to_utf8(path));
         return false;
     }
     const auto document = toml::parse(source);
     if (!document)
     {
-        LogSystem::write(LogLevel::error, "Invalid editor settings: " +
-                                              std::string(document.error().description()));
+        LogSystem::write(LogLevel::error,
+                         "Invalid editor settings: " + std::string(document.error().description()));
         return false;
     }
     const auto editor = document["editor"];
@@ -146,10 +148,71 @@ struct EditorSystem::State
     std::unique_ptr<EditorCommandChannel> command_channel;
     std::string channel_error;
     std::optional<std::int32_t> editor_frame_rate;
+    std::optional<std::uint32_t> close_delay_ms;
+    std::optional<std::chrono::steady_clock::time_point> close_at;
 
-    State(GameplaySession& session, EditorEnvironment& editor_environment, ScenePreview* scene_preview)
+    State(GameplaySession& session, EditorEnvironment& editor_environment,
+          ScenePreview* scene_preview)
         : gameplay(session), environment(editor_environment), preview(scene_preview)
     {
+    }
+
+    bool schedule_close(const Json& arguments, Json& reply, std::string& error)
+    {
+        if (!arguments.is_object() || arguments.size() > 1 ||
+            (!arguments.empty() && !arguments.contains("delayMs")))
+        {
+            error = "close_editor accepts only delayMs";
+            return false;
+        }
+        std::uint32_t delay = 500;
+        if (arguments.contains("delayMs"))
+        {
+            const auto& value = arguments["delayMs"];
+            if (!value.is_number_integer() || value < 100 || value > 10000)
+            {
+                error = "delayMs must be an integer within 100..10000";
+                return false;
+            }
+            delay = value.get<std::uint32_t>();
+        }
+        if (!close_delay_ms)
+        {
+            close_delay_ms = delay;
+        }
+        const auto remaining = close_at ? std::chrono::duration_cast<std::chrono::milliseconds>(
+                                              *close_at - std::chrono::steady_clock::now())
+                                              .count()
+                                        : static_cast<std::int64_t>(*close_delay_ms);
+        reply = {{"scheduled", true}, {"delayMs", remaining > 0 ? remaining : 0}};
+        return true;
+    }
+
+    void close_after_receipt()
+    {
+        if (!close_delay_ms)
+        {
+            return;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (!close_at)
+        {
+            close_at = now + std::chrono::milliseconds(*close_delay_ms);
+        }
+        if (now >= *close_at)
+        {
+            SDL_Event event{};
+            event.type = SDL_EVENT_QUIT;
+            if (SDL_PushEvent(&event))
+            {
+                close_delay_ms.reset();
+            }
+            else
+            {
+                LogSystem::write(LogLevel::error,
+                                 "Cannot request editor exit; retrying next frame");
+            }
+        }
     }
 
     void restore_frame_rate() noexcept
@@ -171,6 +234,48 @@ struct EditorSystem::State
         {
             restore_frame_rate();
         }
+    }
+
+    bool execute_script(const Json& arguments, Json& result, std::string& error)
+    {
+        result = Json::object();
+        if (!arguments.is_object() || arguments.size() != 5 || !arguments.contains("session") ||
+            arguments["session"] != session || closed || !transition.empty() ||
+            (preview != nullptr && preview->active()) || !arguments.contains("runId") ||
+            !arguments["runId"].is_string() || !arguments.contains("modulePath") ||
+            !arguments["modulePath"].is_string() || !arguments.contains("javascript") ||
+            !arguments["javascript"].is_string() || !arguments.contains("arguments"))
+        {
+            error = "Project script requires the current running editor session";
+            return false;
+        }
+        const auto& run_text = arguments["runId"].get_ref<const std::string&>();
+        std::uint64_t run = 0;
+        const auto parsed =
+            std::from_chars(run_text.data(), run_text.data() + run_text.size(), run);
+        if (parsed.ec != std::errc{} || parsed.ptr != run_text.data() + run_text.size() || run == 0)
+        {
+            error = "Project script runId must be a nonzero uint64 decimal string";
+            return false;
+        }
+        const auto values =
+            arguments["arguments"].dump(-1, ' ', false, Json::error_handler_t::replace);
+        const ProjectScriptRequest request{
+            run, arguments["modulePath"].get_ref<const std::string&>(),
+            arguments["javascript"].get_ref<const std::string&>(), values};
+        std::string output;
+        if (!gameplay.execute_project_script(request, output, error))
+        {
+            return false;
+        }
+        auto value = Json::parse(output, nullptr, false);
+        if (value.is_discarded())
+        {
+            error = "Project script returned invalid JSON";
+            return false;
+        }
+        result = {{"runId", run_text}, {"value", std::move(value)}};
+        return true;
     }
 
     bool start_gameplay()
@@ -217,9 +322,11 @@ struct EditorSystem::State
                        {"projectRoot", project_root},
                        {"projectState", closed               ? "closed"
                                         : transition.empty() ? (previewing ? "preview"
-                                                               : running ? "running" : "idle")
+                                                                : running  ? "running"
+                                                                           : "idle")
                                                              : transition},
                        {"running", running},
+                       {"runId", std::to_string(running ? script->run_id : 0)},
                        {"targetFrameRate", Engine::instance().target_frame_rate()},
                        {"lastRequestId", last_request},
                        {"lastCommand", last_command},
@@ -437,7 +544,17 @@ bool EditorSystem::on_initialize(const EngineConfig&)
             state_->commands = std::make_unique<EditorCommands>(
                 [world = world_]()
                 { return world->scene() == nullptr ? 0 : world->scene()->id(); });
-            if (!state_->scene_commands->register_commands(*state_->commands))
+            if (!state_->scene_commands->register_commands(*state_->commands) ||
+                !state_->commands->register_command(
+                    "execute_project_script", false,
+                    [state = state_.get()](const Json& arguments, Json& result,
+                                           std::unique_ptr<EditorEdit>&, std::string& error)
+                    { return state->execute_script(arguments, result, error); }) ||
+                !state_->commands->register_command(
+                    "close_editor", false,
+                    [state = state_.get()](const Json& arguments, Json& result,
+                                           std::unique_ptr<EditorEdit>&, std::string& error)
+                    { return state->schedule_close(arguments, result, error); }))
             {
                 return false;
             }
@@ -472,6 +589,8 @@ bool EditorSystem::on_tick(double)
         else
         {
             state_->channel_error.clear();
+            // 只有持久回执已成功发布才启动延时，发布失败时保留请求并重试。
+            state_->close_after_receipt();
         }
         // 预览命令可能结束玩法；恢复发生在其停止回调之后。
         state_->restore_frame_rate_if_stopped();

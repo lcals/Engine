@@ -45,6 +45,55 @@ bool builtin_texture(std::string_view path, const ImportContext& context,
     return reference(guid, schema::AssetKind::texture, context, dependencies, error);
 }
 
+bool read_sampler(const toml::table& table, schema::ShaderSamplerT& sampler, std::string& error)
+{
+    sampler.name = table["name"].value_or(std::string{});
+    sampler.uniform_name = table["uniform"].value_or(std::string{});
+    sampler.default_texture = table["default_texture"].value_or(std::string{});
+    const auto source = table["source"].value_or(std::string("resource"));
+    if (source == "resource")
+    {
+        sampler.source = schema::ShaderTextureSource::resource;
+    }
+    else if (source == "scene_color")
+    {
+        sampler.source = schema::ShaderTextureSource::scene_color;
+    }
+    else if (source == "scene_depth")
+    {
+        sampler.source = schema::ShaderTextureSource::scene_depth;
+    }
+    else if (source == "planar_reflection")
+    {
+        sampler.source = schema::ShaderTextureSource::planar_reflection;
+    }
+    else
+    {
+        error = "unknown shader sampler source: " + source;
+        return false;
+    }
+    const bool resource = sampler.source == schema::ShaderTextureSource::resource;
+    sampler.exposed = table["exposed"].value_or(resource);
+    const auto stage = table["stage"].value_exact<std::int64_t>();
+    const std::int64_t fixed_stage =
+        sampler.source == schema::ShaderTextureSource::planar_reflection ? 8
+        : sampler.source == schema::ShaderTextureSource::scene_color     ? 9
+                                                                         : 10;
+    if ((table.contains("source") && !table["source"].is_string()) ||
+        (table.contains("default_texture") && !table["default_texture"].is_string()) ||
+        (table.contains("exposed") && !table["exposed"].is_boolean()) ||
+        (resource ? (!stage || *stage < 0 || *stage > 4)
+                  : ((table.contains("stage") && (!stage || *stage != fixed_stage)) ||
+                     !sampler.default_texture.empty() || sampler.exposed)))
+    {
+        error = "resource sampler stages must be 0..4; scene sources use fixed stages 8/9/10 and "
+                "no asset texture";
+        return false;
+    }
+    sampler.stage = static_cast<std::uint8_t>(resource ? *stage : fixed_stage);
+    return true;
+}
+
 bool uniform_name(std::string_view name)
 {
     const auto letter = [](char value)
@@ -82,6 +131,7 @@ bool reserved_uniform(std::string_view name)
                                      "u_assao_rect",
                                      "u_hdr_params",
                                      "u_hdr_texel",
+                                     "u_hdr_output",
                                      "s_hdr_scene",
                                      "s_hdr_bloom",
                                      "s_ibl_irradiance",
@@ -95,6 +145,17 @@ bool reserved_uniform(std::string_view name)
                                      "u_light_direction_outer",
                                      "u_light_color_intensity",
                                      "u_light_kind_inner",
+                                     "u_cluster_grid",
+                                     "u_cluster_camera",
+                                     "u_cluster_counts",
+                                     "u_cluster_viewport",
+                                     "u_frame_inputs",
+                                     "u_frame_valid",
+                                     "u_planar_projection",
+                                     "u_lighting_params",
+                                     "u_probe_sh",
+                                     "u_capture_mode",
+                                     "s_lightmap",
                                      "u_viewRect",
                                      "u_viewTexel",
                                      "u_view",
@@ -235,20 +296,18 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                 return false;
             }
             auto sampler = std::make_unique<schema::ShaderSamplerT>();
-            sampler->name = (*sampler_table)["name"].value_or(std::string{});
-            sampler->uniform_name = (*sampler_table)["uniform"].value_or(std::string{});
-            sampler->default_texture = (*sampler_table)["default_texture"].value_or(std::string{});
-            sampler->exposed = (*sampler_table)["exposed"].value_or(true);
-            const auto stage = (*sampler_table)["stage"].value<std::int64_t>();
+            if (!read_sampler(*sampler_table, *sampler, error))
+            {
+                return false;
+            }
             std::vector<Guid> dependencies;
             if (sampler->name.empty() || !names.insert(sampler->name).second ||
                 !uniform_name(sampler->uniform_name) || slots.contains(sampler->uniform_name) ||
                 reserved_uniform(sampler->uniform_name) ||
                 !uniforms.insert(sampler->uniform_name).second ||
-                !(*sampler_table)["stage"].is_integer() || !stage || *stage < 0 || *stage >= 11 ||
-                !stages.insert(*stage).second ||
-                (sampler_table->contains("exposed") && !(*sampler_table)["exposed"].is_boolean()) ||
-                !builtin_texture(sampler->default_texture, context, dependencies, error))
+                !stages.insert(sampler->stage).second ||
+                (sampler->source == schema::ShaderTextureSource::resource &&
+                 !builtin_texture(sampler->default_texture, context, dependencies, error)))
             {
                 if (error.empty())
                 {
@@ -256,7 +315,6 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                 }
                 return false;
             }
-            sampler->stage = static_cast<std::uint8_t>(*stage);
             shader.samplers.push_back(std::move(sampler));
         }
     }
@@ -281,8 +339,13 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
     {
         return false;
     }
-    for (const auto stage : {std::string_view("vertex"), std::string_view("fragment")})
+    for (const auto stage : {std::string_view("vertex"), std::string_view("fragment"),
+                             std::string_view("surface_fragment")})
     {
+        if (stage == "surface_fragment" && !table.contains(stage))
+        {
+            continue;
+        }
         std::string source_path;
         if (!context.identities.guid_to_path(table[stage].value_or(std::string{}), source_path))
         {
@@ -297,7 +360,7 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
                                                  "-o",
                                                  PathUtils::to_utf8(compiled),
                                                  "--type",
-                                                 std::string(stage),
+                                                 stage == "vertex" ? "vertex" : "fragment",
                                                  "--platform",
                                                  shader_platform,
                                                  "--profile",
@@ -317,7 +380,9 @@ bool ShaderImporter::convert(const ImportAsset& asset, const ImportContext& cont
         {
             return false;
         }
-        auto& destination = stage == "vertex" ? shader.vertex_code : shader.fragment_code;
+        auto& destination = stage == "vertex"     ? shader.vertex_code
+                            : stage == "fragment" ? shader.fragment_code
+                                                  : shader.surface_fragment_code;
         destination.resize(bytes.size());
         std::transform(bytes.begin(), bytes.end(), destination.begin(),
                        [](std::byte value) { return std::to_integer<std::uint8_t>(value); });
@@ -378,9 +443,11 @@ bool ShaderImporter::scan_dependencies(ImportAsset& asset, const ImportContext& 
         for (const auto& item : *samplers)
         {
             const auto* sampler = item.as_table();
-            if (sampler == nullptr ||
-                !builtin_texture((*sampler)["default_texture"].value_or(std::string{}), context,
-                                 asset.runtime_dependencies, error))
+            schema::ShaderSamplerT definition;
+            if (sampler == nullptr || !read_sampler(*sampler, definition, error) ||
+                (definition.source == schema::ShaderTextureSource::resource &&
+                 !builtin_texture(definition.default_texture, context, asset.runtime_dependencies,
+                                  error)))
             {
                 if (error.empty())
                 {
@@ -391,8 +458,12 @@ bool ShaderImporter::scan_dependencies(ImportAsset& asset, const ImportContext& 
         }
     }
     asset.build_dependencies = asset.runtime_dependencies;
-    for (const auto field : {"vertex", "fragment", "varying"})
+    for (const auto field : {"vertex", "fragment", "varying", "surface_fragment"})
     {
+        if (std::string_view(field) == "surface_fragment" && !table.contains(field))
+        {
+            continue;
+        }
         if (!reference(table[field].value_or(std::string{}), schema::AssetKind::source, context,
                        asset.build_dependencies, error))
         {

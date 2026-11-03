@@ -1,7 +1,7 @@
 // bgfx 24-nbody compute-buffer dispatch; Ant cs_skinning.sc buffer/palette organization.
 // bgfx: BSD-2-Clause, third_party/notices/bgfx.txt.
 // Ant: Copyright (c) 2017-2024 lingxigames.com, MIT, third_party/notices/ant.txt.
-// Engine adaptation: fixed 64-byte GpuVertex, independent inverse-transpose normals,
+// Engine adaptation: fixed 80-byte GpuVertex, independent inverse-transpose normals,
 // tangent-frame handedness and per-instance output reused by color/AO/shadow passes.
 #include <bgfx_compute.sh>
 
@@ -36,7 +36,7 @@ void main()
     {
         return;
     }
-    uint offset = vertex * 4u;
+    uint offset = vertex * 5u;
     vec4 source0 = b_skinning_source[offset];
     vec4 source1 = b_skinning_source[offset + 1u];
     vec4 source2 = b_skinning_source[offset + 2u];
@@ -67,4 +67,5 @@ void main()
     b_skinning_output[offset + 1u] = vec4(normal.yz, tangent.xy);
     b_skinning_output[offset + 2u] = vec4(tangent.z, handedness, source2.zw);
     b_skinning_output[offset + 3u] = source3;
+    b_skinning_output[offset + 4u] = b_skinning_source[offset + 4u];
 }

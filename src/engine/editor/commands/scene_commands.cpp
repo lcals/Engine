@@ -3,12 +3,17 @@
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#include "editor/render/render_component_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
+#include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/planar_reflection_component.hpp"
+#include "runtime/scene/post_process_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
+#include "runtime/scene/ui_component.hpp"
 #include "runtime/world/world_system.hpp"
 
 #include <nlohmann/json.hpp>
@@ -431,6 +436,9 @@ public:
     bool range = false;
     bool inner_angle = false;
     bool outer_angle = false;
+    bool cast_shadows = false;
+    bool shadow_resolution = false;
+    bool shadow_bias = false;
 
     explicit LightEdit(Target value) : target(value)
     {
@@ -461,7 +469,10 @@ private:
             (intensity && current.intensity != expected.intensity) ||
             (kind && current.kind != expected.kind) || (range && current.range != expected.range) ||
             (inner_angle && current.inner_angle != expected.inner_angle) ||
-            (outer_angle && current.outer_angle != expected.outer_angle))
+            (outer_angle && current.outer_angle != expected.outer_angle) ||
+            (cast_shadows && current.cast_shadows != expected.cast_shadows) ||
+            (shadow_resolution && current.shadow_resolution != expected.shadow_resolution) ||
+            (shadow_bias && current.shadow_bias != expected.shadow_bias))
         {
             error = "Light changed outside this edit; undo or redo is stale";
             return false;
@@ -489,6 +500,18 @@ private:
         if (outer_angle)
         {
             current.outer_angle = replacement.outer_angle;
+        }
+        if (cast_shadows)
+        {
+            current.cast_shadows = replacement.cast_shadows;
+        }
+        if (shadow_resolution)
+        {
+            current.shadow_resolution = replacement.shadow_resolution;
+        }
+        if (shadow_bias)
+        {
+            current.shadow_bias = replacement.shadow_bias;
         }
         if (!component->set_settings(current))
         {
@@ -684,7 +707,7 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
 {
     Target target(world, &aliases);
     if (!fields(arguments, {"sceneId", "nodeId", "color", "intensity", "kind", "range",
-                            "innerAngle", "outerAngle"}) ||
+                            "innerAngle", "outerAngle", "castShadows", "shadowResolution", "shadowBias"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
     {
         if (error.empty())
@@ -754,6 +777,38 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
             return false;
         }
         edit->kind = true;
+    }
+    if (arguments.contains("castShadows"))
+    {
+        if (!arguments["castShadows"].is_boolean())
+        {
+            error = "castShadows must be boolean";
+            return false;
+        }
+        edit->cast_shadows = true;
+        edit->after.cast_shadows = arguments["castShadows"].get<bool>();
+    }
+    if (arguments.contains("shadowResolution"))
+    {
+        const auto& value = arguments["shadowResolution"];
+        if (!value.is_number_integer() || value < 128 || value > 8192)
+        {
+            error = "shadowResolution must be an integer in 128..8192";
+            return false;
+        }
+        edit->shadow_resolution = true;
+        edit->after.shadow_resolution = value.get<std::uint16_t>();
+    }
+    if (arguments.contains("shadowBias"))
+    {
+        double value = 0;
+        if (!scalar(arguments["shadowBias"], value) || value < 0 || value > .1)
+        {
+            error = "shadowBias must be a finite value in 0..0.1";
+            return false;
+        }
+        edit->shadow_bias = true;
+        edit->after.shadow_bias = static_cast<float>(value);
     }
     for (const char* name : {"range", "innerAngle", "outerAngle"})
     {
@@ -1174,6 +1229,7 @@ Json material_json(const Material& material)
             {"typePath", material.type_path()},
             {"shaderPath", material.shader_path()},
             {"cullMode", schema::EnumNameCullMode(material.cull_mode())},
+            {"blendMode", schema::EnumNameBlendMode(material.blend_mode())},
             {"parameters", std::move(parameters)}};
 }
 
@@ -1189,6 +1245,14 @@ bool restore_material(Material& material, const Json& saved)
         !material.set_cull_mode(cull == "back"    ? schema::CullMode::back
                                 : cull == "front" ? schema::CullMode::front
                                                   : schema::CullMode::none))
+    {
+        return false;
+    }
+    const auto blend = saved.value("blendMode", std::string("opaque"));
+    if ((blend != "opaque" && blend != "alpha_blend" && blend != "premultiplied") ||
+        !material.set_blend_mode(blend == "opaque" ? schema::BlendMode::opaque
+                                : blend == "alpha_blend" ? schema::BlendMode::alpha_blend
+                                                         : schema::BlendMode::premultiplied))
     {
         return false;
     }
@@ -1379,6 +1443,49 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
     return true;
 }
 
+bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases, const Json& arguments,
+                            Json& result, std::unique_ptr<EditorEdit>& output, std::string& error)
+{
+    Target target(world, &aliases);
+    if (!fields(arguments, {"sceneId", "nodeId", "slot", "mode"}) ||
+        !arguments.contains("mode") ||
+        (arguments["mode"] != "opaque" && arguments["mode"] != "alpha_blend" &&
+         arguments["mode"] != "premultiplied") || !target.read(arguments, error))
+    {
+        error = "set_material_blend_mode requires a target and opaque, alpha_blend or premultiplied";
+        return false;
+    }
+    auto record = std::make_unique<MaterialTypeEdit>(target);
+    const auto* renderer = target.node(error)->get_component<MeshRenderer>();
+    if (!renderer || !read_slot(arguments, record->slot) || !renderer->material(record->slot))
+    {
+        error = "Invalid material slot";
+        return false;
+    }
+    const auto& material = *renderer->material(record->slot);
+    record->before = material_json(material);
+    record->after = record->before;
+    record->after["blendMode"] = arguments["mode"];
+    if (!record->retain_version(material.type_path()) ||
+        !record->retain_version(material.shader_path()))
+    {
+        error = "Cannot retain the material and shader resource versions";
+        return false;
+    }
+    for (const auto& texture : record->before["textures"])
+    {
+        if (!record->retain_version(texture["path"].get<std::string>()))
+        {
+            error = "Cannot retain material texture versions";
+            return false;
+        }
+    }
+    result = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["nodeId"]},
+              {"slot", record->slot}, {"mode", arguments["mode"]}};
+    output = std::move(record);
+    return true;
+}
+
 bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::string& error)
 {
     if (!fields(arguments, {"offset", "limit"}))
@@ -1463,7 +1570,10 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                              {"kind", schema::EnumNameLightKind(value.kind)},
                              {"range", value.range},
                              {"innerAngle", value.inner_angle},
-                             {"outerAngle", value.outer_angle}});
+                             {"outerAngle", value.outer_angle},
+                             {"castShadows", value.cast_shadows},
+                             {"shadowResolution", value.shadow_resolution},
+                             {"shadowBias", value.shadow_bias}});
                 break;
             }
             case ComponentType::MeshRendererData:
@@ -1475,10 +1585,42 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                     materials.push_back(material_json(*value.material(slot)));
                 }
                 data["materials"] = std::move(materials);
+                data.update(mesh_lighting_json(value));
                 data.update({{"type", "mesh_renderer"},
                              {"meshPath", value.mesh_path()},
                              {"castShadows", value.cast_shadows()},
                              {"material", material_json(value.material())}});
+                break;
+            }
+            case ComponentType::PlanarReflectionData:
+                data.update(planar_reflection_json(*node->get_component<PlanarReflectionComponent>()));
+                data["type"] = "planar_reflection";
+                break;
+            case ComponentType::LightProbeVolumeData:
+                data.update(light_probe_volume_json(*node->get_component<LightProbeVolumeComponent>()));
+                data["type"] = "light_probe_volume";
+                break;
+            case ComponentType::UiData:
+            {
+                const auto& value = *node->get_component<UiComponent>();
+                const auto& guid = value.settings().document_guid;
+                std::string path;
+                if (!guid.empty() && !ResourceSystem::guid_to_path(guid, path))
+                {
+                    path.clear();
+                }
+                data.update({{"type", "ui"}, {"document", path}, {"documentGuid", guid}});
+                break;
+            }
+            case ComponentType::PostProcessData:
+            {
+                const auto& value = node->get_component<PostProcessComponent>()->settings();
+                data.update({{"type", "post_process"}, {"ssrEnabled", value.ssr_enabled},
+                             {"ssrResolutionScale", value.ssr_resolution_scale},
+                             {"ssrMaxSteps", value.ssr_max_steps},
+                             {"ssrMaxDistance", value.ssr_max_distance},
+                             {"ssrThickness", value.ssr_thickness},
+                             {"ssrRoughnessCutoff", value.ssr_roughness_cutoff}});
                 break;
             }
             default:
@@ -1586,6 +1728,14 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                          synchronize_aliases();
                                          return prepare_light(world_, node_aliases_, arguments,
                                                               result, edit, error);
+                                     }) &&
+           commands.register_command("set_material_blend_mode", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_material_blend(world_, node_aliases_, arguments,
+                                                                       result, edit, error);
                                      }) &&
            commands.register_command("set_material_type", true,
                                      [this](const Json& arguments, Json& result,

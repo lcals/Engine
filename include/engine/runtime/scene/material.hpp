@@ -39,6 +39,8 @@ public:
     [[nodiscard]] bool set_shader(std::string_view path);
     [[nodiscard]] schema::CullMode cull_mode() const noexcept;
     [[nodiscard]] bool set_cull_mode(schema::CullMode mode) noexcept;
+    [[nodiscard]] schema::BlendMode blend_mode() const noexcept;
+    [[nodiscard]] bool set_blend_mode(schema::BlendMode mode) noexcept;
     [[nodiscard]] bool set_float(std::string_view name, float value) noexcept;
     [[nodiscard]] bool set_v2(std::string_view name, const Vec2& value) noexcept;
     [[nodiscard]] bool set_v3(std::string_view name, const Vec3& value) noexcept;

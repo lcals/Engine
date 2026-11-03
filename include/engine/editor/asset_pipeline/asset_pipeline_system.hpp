@@ -25,7 +25,7 @@ struct AssetBuildStats
     std::size_t imported = 0;
     std::size_t reused = 0;
     std::size_t removed = 0;
-    std::size_t import_threads = 4;
+    std::size_t import_threads = 8;
     std::string revision;
 };
 

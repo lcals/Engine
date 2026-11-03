@@ -17,6 +17,7 @@ bool MaterialResourceCodec::valid_shape(const schema::MaterialDataT& data)
     if (!valid_path(data.type_path) || !valid_path(data.shader_path) || data.schema_version != 1 ||
         (data.cull_mode != schema::CullMode::back && data.cull_mode != schema::CullMode::front &&
          data.cull_mode != schema::CullMode::none) ||
+        (data.blend_mode < schema::BlendMode::MIN || data.blend_mode > schema::BlendMode::MAX) ||
         (data.type_path.starts_with("builtin://") && !data.shader_path.starts_with("builtin://")))
     {
         return false;
@@ -73,9 +74,13 @@ bool MaterialResourceCodec::validate(const schema::MaterialDataT& data,
     }
     for (const auto& texture : data.textures)
     {
-        const auto sampler = std::find_if(
-            shader->samplers.begin(), shader->samplers.end(), [&texture](const auto& item)
-            { return item && item->name == texture->name && item->exposed; });
+        const auto sampler =
+            std::find_if(shader->samplers.begin(), shader->samplers.end(),
+                         [&texture](const auto& item)
+                         {
+                             return item && item->name == texture->name && item->exposed &&
+                                    item->source == schema::ShaderTextureSource::resource;
+                         });
         if (sampler == shader->samplers.end())
         {
             return false;

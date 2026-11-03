@@ -29,11 +29,17 @@ export class DestructionComponent extends Component {
     }
     RefreshSupport(support, maxGap, minCoverage) {
         const h = handles.get(this), other = handles.get(support);
-        if (!other || other.kind !== native.ColliderKind || other.scene !== h.scene) return false;
-        return native.DestructionSupport(h.scene, h.node, other.node, maxGap, minCoverage);
+        if (!other || other.kind !== native.ColliderKind) return false;
+        return native.DestructionSupport(h.scene, h.node, other.scene, other.node,
+                                         maxGap, minCoverage);
     }
     OwnsFragment(nodeId) {
         const h = handles.get(this); return native.DestructionOwns(h.scene, h.node, nodeId);
+    }
+    RetireFragments(maxCount, maxAgeSeconds) {
+        if (arguments.length !== 2) return null;
+        const h = handles.get(this);
+        return native.DestructionRetire(h.scene, h.node, maxCount, maxAgeSeconds);
     }
     ApplyStress(x, y, z, elasticLimit, fatalLimit, iterations) {
         const h = handles.get(this);
@@ -112,17 +118,20 @@ void damage_async(const Arguments& arguments)
 }
 void support(const Arguments& arguments)
 {
-    auto* value = component(arguments, 5);
+    auto* value = component(arguments, 6);
+    auto* context = BindingContext::current(arguments);
+    std::uint64_t scene_id = 0;
     std::uint64_t node_id = 0;
     float max_gap = 0;
     float min_coverage = 0;
-    if (!value || !BindingContext::identifier(arguments, 2, node_id) ||
-        !BindingContext::scalar(arguments, 3, max_gap) ||
-        !BindingContext::scalar(arguments, 4, min_coverage))
+    if (!value || !context || !BindingContext::identifier(arguments, 2, scene_id) ||
+        !BindingContext::identifier(arguments, 3, node_id) ||
+        !BindingContext::scalar(arguments, 4, max_gap) ||
+        !BindingContext::scalar(arguments, 5, min_coverage))
     {
         return;
     }
-    auto* node = value->node().scene().find_node(node_id);
+    auto* node = context->find_node(scene_id, node_id);
     const auto* collider = node ? node->get_component<Collider>() : nullptr;
     arguments.set_return(collider && value->refresh_support(*collider, max_gap, min_coverage));
 }
@@ -137,6 +146,22 @@ void reset(const Arguments& arguments)
 {
     auto* value = component(arguments, 2);
     arguments.set_return(value && value->reset());
+}
+
+void retire_fragments(const Arguments& arguments)
+{
+    auto* value = component(arguments, 4);
+    arguments.set_return({});
+    double max_age = 0;
+    if (!value || !arguments.is_uint32(2) || !BindingContext::number(arguments, 3, max_age))
+    {
+        return;
+    }
+    std::uint32_t retired = 0;
+    if (value->retire_fragments(arguments.unsigned_integer(2), max_age, retired))
+    {
+        arguments.set_return(retired);
+    }
 }
 
 void stress(const Arguments& arguments)
@@ -209,6 +234,7 @@ bool DestructionBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("DestructionDamageAsync", damage_async) &&
            vm.function("DestructionSupport", support) &&
            vm.function("DestructionOwns", owns_fragment) &&
+           vm.function("DestructionRetire", retire_fragments) &&
            vm.function("DestructionStress", stress) && vm.function("DestructionReset", reset) &&
            vm.function("DestructionReady", statistic, 0) &&
            vm.function("DestructionRevision", statistic, 1) &&

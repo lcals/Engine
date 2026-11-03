@@ -40,6 +40,12 @@ struct RenderSettings
     float bloom_threshold = 1.0F;
     float bloom_intensity = 0.15F;
     float bloom_radius = 1.0F;
+    bool ssr_enabled = false;
+    float ssr_resolution_scale = 0.5F;
+    std::uint16_t ssr_max_steps = 64;
+    float ssr_max_distance = 80.0F;
+    float ssr_thickness = 0.15F;
+    float ssr_roughness_cutoff = 0.7F;
     bool ibl_enabled = false;
     float ibl_intensity = 1.0F;
     bool directional_shadows = false;

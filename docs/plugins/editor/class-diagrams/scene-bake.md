@@ -1,9 +1,11 @@
 # 场景 GPU 烘焙
 
+静态间接光和探针的拟扩展见[待评审增量类图](scene-lighting-bake.md)；本文仍描述当前已实现的 IBL 烘焙。
+
 ```mermaid
 classDiagram
     class SceneBakeSystem {
-        +SceneBakeSystem(ResourceSystem& resources, RenderSystem& renderer, Path project_root, ValidateCallback validate, PublishCallback publish)
+        +SceneBakeSystem(ResourceSystem& resources, RenderSystem& renderer, TaskSystem& tasks, WorldSystem& world, Path project_root, ValidateCallback validate, PublishCallback publish)
         +register_commands(EditorCommands& commands) bool
         +busy() bool
         #on_initialize(EngineConfig& config) bool
@@ -19,6 +21,8 @@ classDiagram
     class System
     class RenderSystem
     class ResourceSystem
+    class TaskSystem
+    class WorldSystem
     class EditorCommands
     class EditorMcpTools
     class McpSystem
@@ -26,6 +30,8 @@ classDiagram
     SceneBakeSystem *-- IblBakeJob : State 独占 GPU 任务及读回缓冲
     SceneBakeSystem *-- SceneBakeFiles : State 按值拥有文件发布事务
     SceneBakeSystem --> RenderSystem : 借用 GPU 就绪和已提交帧号
+    SceneBakeSystem --> WorldSystem : 借用当前预览场景并解析持久节点身份
+    SceneBakeSystem --> TaskSystem : 借用编辑器任务域准备照明数据
     SceneBakeSystem --> ResourceSystem : 加载源纹理及校验输入版本
     SceneBakeSystem ..> EditorCommands : 注册启动查询取消命令
     SceneBakeMcpTools --> EditorMcpTools : 转发编辑器命令
@@ -44,7 +50,7 @@ classDiagram
         +shutdown() void
         +completed() uint32
         +total() uint32
-        +outputs() std_array
+        +outputs() vector~BakeOutput~
     }
     class BakeProgress {
         <<enumeration>>
@@ -64,10 +70,12 @@ classDiagram
 classDiagram
     class SceneBakeFiles {
         +initialize(Path& root, string_view scene, string_view input, string_view job, ResourceSystem& resources, string& error) bool
+        +initialize_lighting(Path& root, string_view scene, string_view job, ResourceSystem& resources, LightingBakeSettings& settings, string& error) bool
+        +stage_lighting(LightingBakeOutputs& output, string& error) bool
         +unchanged(ResourceSystem& resources, string& error) bool
         +stage(KtxBytes& images, string& error) bool
         +publish(RefreshCallback& refresh, string& error) bool
-        +outputs() std_array
+        +outputs() vector~BakeOutput~
         +cleanup() void
     }
     class BakeOutput {
@@ -76,16 +84,20 @@ classDiagram
     }
     class ResourceSystem
     class SceneImporter
+    class LightingBakeSettings
+    class LightingBakeOutputs
     class SceneDataT
     class ProjectLock
-    SceneBakeFiles *-- BakeOutput : 三项输出路径与稳定 GUID
+    SceneBakeFiles *-- BakeOutput : 本次 IBL 或场景照明输出路径与稳定 GUID
+    SceneBakeFiles ..> LightingBakeSettings : 输入与版本指纹
+    SceneBakeFiles ..> LightingBakeOutputs : 未发布照明资源
     SceneBakeFiles ..> ResourceSystem : 校验目录版本和读取源文件
     SceneBakeFiles ..> SceneImporter : 解码及保存源场景
     SceneBakeFiles ..> SceneDataT : 修改生成模型的 IBL 引用
     SceneBakeFiles ..> ProjectLock : 发布与回滚时持有项目锁
 ```
 
-图中 `KtxBytes` 表示 `const std::array<std::vector<std::uint8_t>, 3>`，`RefreshCallback` 表示 `const std::function<bool(std::string&)>`，仅缩短类图展示，不新增代码类型。`outputs()` 返回 `const std::array<BakeOutput, 3>&`；`unchanged()` 为 const，`outputs()` 为 const、noexcept，`cleanup()` 为 noexcept。SceneBakeFiles 不拥有资源系统，临时文件、旧文件备份及回滚状态由它管理；导入刷新前先释放项目锁，刷新失败时恢复旧源文件并再次刷新旧目录。失败回滚尚未收回的备份保留以供恢复。
+图中 `KtxBytes` 表示 `const std::array<std::vector<std::uint8_t>, 3>`，`RefreshCallback` 表示 `const std::function<bool(std::string&)>`，仅缩短类图展示，不新增代码类型。`outputs()` 返回 `const std::vector<BakeOutput>&`；`unchanged()` 为 const，`outputs()` 为 const、noexcept，`cleanup()` 为 noexcept。SceneBakeFiles 不拥有资源系统，临时文件、旧文件备份及回滚状态由它管理；导入刷新前先释放项目锁，刷新失败时恢复旧源文件并再次刷新旧目录。失败回滚尚未收回的备份保留以供恢复。
 
 插件属于 `plugins/editor/scene_bake`，运行时核心不包含或链接它。第一类烘焙是 IBL；计算沿用 Ant 的余弦重要性采样、GGX 预过滤和 split-sum BRDF LUT，并保留来源与许可。GPU 调度仅在主线程进行，每帧推进有限计算和读取，不创建后台 bgfx 线程，不自行调用 bgfx::frame。
 

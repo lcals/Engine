@@ -38,6 +38,7 @@ class TerrainComponent {
 +restore_data(ComponentDataT data) bool
 +apply_sphere(Vec3 center, float radius, bool fill) bool
 +collapse_detached(uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
++retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +fragment_count() size_t
 +reset() bool
 +snapshot(ByteBuffer output) bool
@@ -57,6 +58,7 @@ class TerrainSystem {
 +commit(TerrainComponent component, TerrainVolume candidate) bool
 +request_apply_sphere(TerrainComponent& component, const Vec3& center, float radius, bool fill, function~void(bool)~ completed) bool
 +collapse_detached(TerrainComponent component, uint32 min_samples, uint32 max_fragments, uint32 fragment_cells, float density) bool
++retire_fragments(TerrainComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +clear_fragments(TerrainComponent component) void
 +fragment_count(TerrainComponent component) size_t
 +synchronize() bool
@@ -88,7 +90,7 @@ TerrainSystem ..> TerrainComponent : prepares and commits
 
 `request_apply_sphere` 是独立异步入口，原有同步修改与存档契约保留。需要已初始化的任务域与非空完成委托；返回 true 只表示请求进入有界队列，默认最多 64 个未完成请求，每 tick 最多提交 1 个候选，可由宿主配置。每个地形按请求顺序执行，轮到时才复制当前体积；不同地形可并行准备。worker 只访问独占候选、设置值快照和输出网格，不保存组件、场景、物理或脚本借用。完成委托只在主线程 `synchronize`/tick 发布或取消后执行。
 
-异步请求记录场景身份、节点身份、组件独立生命周期 token 和当前 revision。组件删除重建、切场景、禁用或同步 Reset/Restore/修改使旧候选与尚未执行的同批请求失效，完成委托收到 false；插件关闭直接丢弃委托，worker 只释放其候选。自身成功提交推进该地形队列的 revision，连续挖填不会从同一旧体积覆盖彼此。后台槽位受任务域并发与总队列限制，域满时请求保留到后续帧重试，不在主线程执行重建或等待 future。暂停世界时保持请求，不发布地形修改。
+异步请求记录场景身份、节点身份、组件独立生命周期 token 和当前 revision。组件删除重建、普通节点卸载、禁用或同步 Reset/Restore/修改使旧候选与尚未执行的同批请求失效，完成委托收到 false；插件关闭直接丢弃委托，worker 只释放其候选。自身成功提交推进该地形队列的 revision，连续挖填不会从同一旧体积覆盖彼此。后台槽位受任务域并发与总队列限制，域满时请求保留到后续帧重试，不在主线程执行重建或等待 future。暂停世界时保持请求，不发布地形修改。
 
 网格生成与顶点颜色/UV在后台准备，主线程只调用既有 MeshRenderer/Jolt 发布和回退链路。单次发布仍是原子工作，`max_commits_per_tick` 限制提交次数而不是对单次发布做时间抢占。塌方 `extract_detached` 当前仍由同步入口执行，未把同步函数改成提前返回的假异步。
 
@@ -112,6 +114,10 @@ TerrainSystem ..> TerrainComponent : prepares and commits
 
 同步入口限制每次及每个地形至多 128 个活动碎块；超出调用预算或任一候选无效时整次保留原地形和旧碎块。候选网格、刚体与碰撞全部准备后，才从静态体积去掉已经转换的样本。碎块质量为近似样本体积乘调用方密度，并考虑正等比缩放；第一版只接受根节点、正等比缩放。`fragment_cells`、密度及最小岛大小由项目选择；不是引擎里的项目特判。
 
-碎块跟随真实刚体模拟。继续挖/填只修改剩余静态体积，不吞掉已有碎块；禁用地形同时隐藏/禁用碎块，重新启用保留其姿态。Reset 成功后恢复源体积并清理所有碎块；清资源、移除组件、删除源节点、切场景、关闭系统均清理生成物。普通场景保存排除瞬态节点。当前 `TerrainStateData` 只支持静态密度，发生过塌方后直到显式 Reset/更换基础资源，`snapshot`、`save_state`、`restore`、`load_state` 明确失败（即便外部删除碎块节点也不放行）；不得保存一份丢失动态土石的“成功”快照。综合运行存档留待独立 schema 扩展。
+碎块跟随真实刚体模拟。继续挖/填只修改剩余静态体积，不吞掉已有碎块；禁用地形同时隐藏/禁用碎块，重新启用保留其姿态。Reset 成功后恢复源体积并清理所有碎块；清资源、移除组件、删除源节点、普通源节点卸载、关闭系统均清理生成物。普通场景保存排除瞬态节点。当前 `TerrainStateData` 只支持静态密度，发生过塌方后直到显式 Reset/更换基础资源，`snapshot`、`save_state`、`restore`、`load_state` 明确失败（即便外部删除碎块节点也不放行）；不得保存一份丢失动态土石的“成功”快照。综合运行存档留待独立 schema 扩展。
+
+调用方通过 `retire_fragments(max_count, max_age_seconds, retired_count)` 显式回收本组件的动态土块；脚本对应 `RetireFragments(maxCount, maxAgeSeconds)`，成功返回实际退休数量，失败返回 null。先删除达到模拟寿命的土块，再按发布时间和稳定节点 ID 从旧到新裁到数量预算；数量 0 删除全部，年龄 0 不按年龄筛选。年龄只在未暂停的 `tick` 累计，`synchronize()` 不推进年龄。缺失或替换生成组件、非法参数、同 owner 仍有排队/在途/未派发完成项时整次拒绝；最后一项完成委托内可调用。退休不重建静态网格、不填回密度、不改变剩余土块的节点、姿态和速度，仅实际删除时推进 revision。全部退休仍保留上述塌方存档限制；Reset 才恢复源体积。完整契约见[动态碎片退休](fragment-retirement.md)。
 
 算法依据：[Godot Voxel Tools island_finder](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/util/island_finder.h) 及 [floating_chunks](https://github.com/Zylann/godot_voxel/blob/045ff9326a32fd10ac6fdac6357b5a098aaf2093/edition/floating_chunks.cpp)，固定版本 MIT。复用其“六邻域标记→排除边界连接→隔离密度→生成动态体”思路，按本引擎现有 schema、Transvoxel、Jolt 接口实现；未引入 Godot 类或运行框架。当前没有颗粒堆积求解、土壤应力、异步塌方和 LOD；球形编辑已有上述异步入口。
+
+常驻地形保留原 Scene 中的源组件、体积、revision、瞬态 MeshRenderer/Collider 与在途候选；发布仍校验原 Scene、Node、组件生命周期与 revision。独立根土块不自动继承源节点常驻标记：未被调用方单独保留的土块在卸载时删除，插件清理其记录，源体积与显示/碰撞继续有效。发生过塌方的存档限制保持不变。

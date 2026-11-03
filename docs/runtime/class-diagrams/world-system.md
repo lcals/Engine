@@ -20,7 +20,12 @@ classDiagram
         +step_restore_scene(uint64_t request, size_t node_budget) SceneRestoreStatus
         +commit_restore_scene(uint64_t request) Scene#42;
         +cancel_restore_scene(uint64_t request) void
+        +unload_scene() void
         +destroy_scene() void
+        +destroy_scene(uint64_t id) bool
+        +scenes() const vector~unique_ptr~Scene~~&
+        +find_node(uint64_t id) Node#42;
+        +find_node(uint64_t id) const Node#42;
         +scene() Scene#42;
         +scene() const Scene#42;
         +set_paused(bool paused) bool
@@ -68,7 +73,10 @@ classDiagram
     WorldSystem "1" *-- "0..1" Scene : 独占未发布候选
     WorldSystem ..> ResourceSystem : 查询目录与加载接口
     WorldSystem ..> ResourceLoader : 加载场景根资源
-    WorldSystem "1" *-- "0..1" Scene : 独占活动场景
+    WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
+    WorldSystem --> Scene : scene 返回可空当前玩法场景
+    class Node
+    WorldSystem ..> Node : 按完整实体ID返回借用
     WorldSystem ..> Scene : 创建和查询返回借用
     class PhysicsSystem
     WorldSystem "1" *-- "0..1" PhysicsSystem : 独占子系统
@@ -93,7 +101,7 @@ classDiagram
 
 C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受保护钩子标注 `override`，返回状态的钩子标注 `[[nodiscard]]`。
 
-`load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景，失败保留当前场景。
+`load_scene(string_view path)` 从当前 ResourceCatalog 读取场景，建立候选 Scene 并校验全部节点/组件/父子和资源引用；成功替换活动场景并保留旧场景常驻子树，失败保留当前场景。
 
 `begin_restore_scene` 只接受已加载的场景资源并返回非零请求身份；每个世界最多一个候选。`step_restore_scene` 在主线程按节点数和时间预算创建节点/组件、恢复父子，预算默认每步最多 64 项、1 ms；单个组件恢复不可抢占。资源读取和解码已在前一阶段完成，候选不作为活动场景更新。ready 后由调用方显式 commit；失败/取消保持旧场景。代际、请求身份和世界生命周期均在提交时重新校验。新场景创建/切换及世界关闭取消候选，过期请求不能取消新请求。同步 load_scene 保留原语义。脚本既有 BeginLoadScene/StepSceneLoad/CommitSceneLoad 共用此链路，玩法无需管理线程。
 
@@ -108,3 +116,11 @@ C++ 限定符：构造、析构及 `on_shutdown()` 为 `noexcept`；析构和受
 - 成功创建或替换活动场景、销毁场景及世界关闭时恢复 `false`；加载失败保留旧场景及其暂停状态。仅预检而未激活的候选 Run 不能设置或复位活动世界的暂停状态。Run 停止时由现有会话/绑定的场景释放链清理其拥有的场景，不能借候选 Run 析构清理另一 Run 的状态。
 - 脚本通过现有 `SceneBinding` 提供实例 `SetPaused(bool): boolean` 与 `GetPaused(): boolean | null`；只允许活动回调通过当前 Run 所拥有的活动 Scene 身份访问 WorldSystem。旧句柄/不活动回调设置失败、查询为空；不新增原生 `Scene` 持久字段或引擎项目策略。
 - 各模拟系统继续只依赖核心 `WorldSystem` 查询；WorldSystem 不反向 include、链接或扫描具体插件。音频仍由 RuntimeHost 合并窗口不可绘制与世界暂停两项原因，复用已有 `AudioSystem::set_paused()`，不把项目菜单逻辑加入音频或世界核心。
+
+## 常驻节点与精确清理
+
+- `unload_scene()` 取消恢复候选、复位暂停并卸载普通节点；保留常驻根及其子树的原 Scene 容器，释放旧场景根资源，`scene()` 为空。切换场景采用相同保留规则，只在候选完成后发布新场景。
+- `scenes()` 返回全部已发布容器的只读拥有者列表借用，不包含恢复候选；只有 `scene()` 指向当前玩法场景。各系统按存活节点增量同步，迭代器不能跨场景变更持有。
+- `find_node(id)` 在已发布容器中查找完整运行时 ID，返回可空借用；提供可写/只读重载，不查询恢复候选。
+- 无参 `destroy_scene()` 完整清理活动、常驻及恢复候选，保留停止/关闭语义。带 ID 重载无条件释放指定的已发布容器及其节点，不存在返回 false；仅删除当前场景时复位暂停，不取消其他恢复候选。脚本用后者精确清理所属场景，宿主结束整个会话用前者。
+- 上述查询及清理均为 `noexcept`，返回值标记 `[[nodiscard]]`；列表查询为 `const`。详见[常驻节点与场景切换](persistent-nodes.md)。

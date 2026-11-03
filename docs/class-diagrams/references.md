@@ -161,7 +161,7 @@ classDiagram
     UiComponent o-- Resource : 共享 UI 文档实体
     TextComponent o-- Resource : 共享字体与 Shader 实体
     UiSystem --> FontSystem : 借用字形与绘制能力
-    UiSystem --> WorldSystem : 借用活动场景
+    UiSystem --> WorldSystem : 借用已发布节点，保留常驻文档
     UiSystem --> WindowSystem : 借用事件与窗口
     UiSystem ..> UiEvent : 输出节点和控件事件
     UiSystem *-- RmlContext : 独占控件文档
@@ -214,7 +214,8 @@ classDiagram
     class MeshRenderer
     class ScriptSystem
     class RenderSystem
-    WorldSystem "1" *-- "0..1" Scene : 独占活动场景
+    WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
+    WorldSystem --> Scene : 可空当前玩法场景
     Scene "1" *-- "0..*" Node : 独占全部场景对象
     Node "1" *-- "0..*" Component : 独占功能组件
     Node --> Scene : 所属场景借用
@@ -244,7 +245,7 @@ classDiagram
 
 EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件快照，渲染器不另存一份场景覆盖值。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
-领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景、停止运行或图形设备重建时配对释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
+领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
 ## 物理与音频引用
 

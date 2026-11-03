@@ -2,9 +2,7 @@
 
 #include "plugins/runtime/script/bindings/binding_context.hpp"
 #include "runtime/scene/node.hpp"
-#include "runtime/scene/scene.hpp"
 #include "runtime/ui/ui_system.hpp"
-#include "runtime/world/world_system.hpp"
 
 #include <limits>
 #include <utility>
@@ -219,17 +217,14 @@ void poll_event(const Arguments& arguments)
     arguments.set_return({});
     auto* binding = BindingContext::current(arguments);
     auto* ui = binding == nullptr ? nullptr : binding->ui();
-    auto* world = binding == nullptr ? nullptr : binding->world();
-    const auto* scene = world == nullptr ? nullptr : world->scene();
-    if (arguments.count() != 0 || ui == nullptr || !ui->is_initialized() || scene == nullptr ||
-        binding->scene_id() != scene->id())
+    if (arguments.count() != 0 || ui == nullptr || !ui->is_initialized())
     {
         return;
     }
     UiEvent event;
     while (ui->poll_event(event))
     {
-        if (event.scene_id != binding->scene_id() ||
+        if (!binding->find_node(event.scene_id, event.node_id) ||
             ui->document_id(event.node_id) != event.target.document_id ||
             !ui->is_valid(event.target))
         {

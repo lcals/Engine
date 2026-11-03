@@ -2,6 +2,7 @@
 
 #include "editor/asset_pipeline/importers/audio_importer.hpp"
 #include "editor/asset_pipeline/importers/ktx_texture_importer.hpp"
+#include "editor/asset_pipeline/importers/light_probe_importer.hpp"
 #include "editor/asset_pipeline/importers/material_importer.hpp"
 #include "editor/asset_pipeline/importers/mesh_importer.hpp"
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
@@ -22,7 +23,8 @@ bool AssetImporterRegistry::initialize()
     }
     if (!add<MeshImporter>() || !add<ShaderImporter>() || !add<MaterialImporter>() ||
         !add<SceneAssetImporter>() || !add<TextureImporter>() || !add<KtxTextureImporter>() ||
-        !add<AudioImporter>() || !add<ScriptImporter>() || !add<SourceImporter>(true))
+        !add<AudioImporter>() || !add<LightProbeImporter>() || !add<ScriptImporter>() ||
+        !add<SourceImporter>(true))
     {
         clear();
         return false;

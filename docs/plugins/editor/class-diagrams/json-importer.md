@@ -61,4 +61,4 @@ classDiagram
 - 宿主按启用状态登记：`src/editor_main.cpp`、`src/asset_build_main.cpp`、`src/mcp_main.cpp`。
 - 验证合法/非法 JSON、UTF-8、BOM、4 MiB 边界、原字节保留、空依赖、旧版本保留，以及插件开启/关闭的目标和装配。脚本读取的实现与测试见[JSON 脚本接口](../../runtime/class-diagrams/json-script-api.md)。
 
-定向测试位于 `tests/json_importer_test.cpp`，目标 `engine_json_importer_test`，CTest 名称 `editor.json_importer`；覆盖上述格式、字节边界、空依赖、GUID/meta、增量复用及失败保留旧版本。`resource.codecs` 另覆盖 json 类型的标准信封和原字节读取。实际运行的构建、测试和平台限制统一记录在根 README，不从测试源码存在推断已经验证。
+定向测试位于 `tests/plugins/editor/json_import/json_importer_test.cpp`，目标 `engine_json_importer_test`，CTest 名称 `editor.json_importer`；覆盖上述格式、字节边界、空依赖、GUID/meta、增量复用及失败保留旧版本。`resource.codecs` 另覆盖 json 类型的标准信封和原字节读取。实际运行的构建、测试和平台限制统一记录在[测试与范例](../../../testing.md)，不从测试源码存在推断已经验证。

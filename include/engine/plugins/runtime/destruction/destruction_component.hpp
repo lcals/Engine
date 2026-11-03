@@ -37,6 +37,9 @@ public:
     [[nodiscard]] bool apply_stress(const Vec3& gravity, float elastic_limit, float fatal_limit,
                                      std::uint32_t iterations, std::uint32_t& broken_bonds);
     [[nodiscard]] bool owns_fragment(std::uint64_t node_id) const noexcept;
+    // Explicit owner budget; zero age disables expiry, zero count retires all dynamic groups.
+    [[nodiscard]] bool retire_fragments(std::uint32_t max_count, double max_age_seconds,
+                                         std::uint32_t& retired_count);
     [[nodiscard]] bool reset();
     [[nodiscard]] bool snapshot(ByteBuffer& output) const;
     [[nodiscard]] bool restore(ByteView bytes);

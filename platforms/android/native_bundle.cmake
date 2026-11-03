@@ -39,9 +39,9 @@ if(TARGET engine_script)
 endif()
 if(TARGET engine_script AND ENGINE_SCRIPT_BACKEND STREQUAL "v8")
     target_sources(
-        engine_app PRIVATE "${PROJECT_SOURCE_DIR}/tests/v8_smoke.cpp"
+        engine_app PRIVATE "${PROJECT_SOURCE_DIR}/tests/plugins/runtime/script/v8_smoke.cpp"
                            "${PROJECT_SOURCE_DIR}/platforms/android/native/android_v8_smoke.cpp")
-    target_include_directories(engine_app PRIVATE "${PROJECT_SOURCE_DIR}/tests")
+    target_include_directories(engine_app PRIVATE "${PROJECT_SOURCE_DIR}/tests/plugins/runtime/script")
     target_link_libraries(engine_app PRIVATE engine::v8 log)
     if(ENGINE_V8_ICU_DATA)
         set(_engine_android_has_icu true)

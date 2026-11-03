@@ -125,8 +125,7 @@ struct AudioSystem::Impl
             }
         }
 
-        static void SDLCALL feed(void* userdata, SDL_AudioStream* stream, int additional_bytes,
-                                 int)
+        static void SDLCALL feed(void* userdata, SDL_AudioStream* stream, int additional_bytes, int)
         {
             ENGINE_PROFILE_ZONE("Audio.feed");
             auto& voice = *static_cast<Voice*>(userdata);
@@ -173,7 +172,7 @@ struct AudioSystem::Impl
                     }
                 }
                 if (!SDL_PutAudioStreamData(stream, block.data(),
-                                           static_cast<int>(count * frame_bytes)))
+                                            static_cast<int>(count * frame_bytes)))
                 {
                     voice.feed_failed = true;
                     return;
@@ -190,6 +189,7 @@ struct AudioSystem::Impl
 
         SDL_AudioStream* stream = nullptr;
         ResourcePtr clip;
+        std::uint64_t instance_id = 0;
         std::uint64_t revision = 0;
         std::uint64_t frame = 0;
         float left_gain = 1.0F;
@@ -302,7 +302,6 @@ struct AudioSystem::Impl
     }
 
     std::map<std::uint64_t, std::unique_ptr<Voice>> voices;
-    std::uint64_t scene_id = 0;
     SDL_AudioDeviceID device = 0;
     bool audio_initialized = false;
     bool paused = false;
@@ -331,23 +330,19 @@ bool AudioSystem::on_tick(double)
     {
         return false;
     }
-    auto* scene = world_ ? world_->scene() : nullptr;
-    if (!scene || scene->id() != impl_->scene_id)
+    if (world_ == nullptr || world_->scenes().empty())
     {
         impl_->close_device();
-        impl_->scene_id = scene ? scene->id() : 0;
-    }
-    if (!scene)
-    {
         return true;
     }
     for (auto iterator = impl_->voices.begin(); iterator != impl_->voices.end();)
     {
-        auto* node = scene->find_node(iterator->first);
+        auto* node = world_->find_node(iterator->first);
         auto* source = node ? node->get_component<AudioSource>() : nullptr;
         if (!source || !source->enabled() || source->playback_ == AudioPlayback::stopped ||
             source->playback_ == AudioPlayback::failed ||
-            source->revision_ != iterator->second->revision)
+            source->revision_ != iterator->second->revision ||
+            source->instance_id_ != iterator->second->instance_id)
         {
             if (source && !source->enabled())
             {
@@ -361,105 +356,120 @@ bool AudioSystem::on_tick(double)
             ++iterator;
         }
     }
-    const Listener listener = find_listener(*scene);
-    bool success = true;
-    for (const auto& node : scene->nodes())
+    Listener listener;
+    if (const auto* scene = world_->scene())
     {
-        auto* source = node->get_component<AudioSource>();
-        if (!source)
+        listener = find_listener(*scene);
+    }
+    for (const auto& scene : world_->scenes())
+    {
+        if (!listener.available)
         {
-            continue;
+            listener = find_listener(*scene);
         }
-        if (!source->enabled())
+    }
+    bool success = true;
+    for (const auto& scene : world_->scenes())
+    {
+        for (const auto& node : scene->nodes())
         {
-            source->playback_ = AudioPlayback::stopped;
-            continue;
-        }
-        if (source->awake_pending_)
-        {
-            source->awake_pending_ = false;
-            if (source->settings().play_on_awake && source->clip_data() && !source->play())
+            auto* source = node->get_component<AudioSource>();
+            if (!source)
             {
-                impl_->error = "Cannot request play-on-awake audio";
+                continue;
+            }
+            if (!source->enabled())
+            {
+                source->playback_ = AudioPlayback::stopped;
+                continue;
+            }
+            if (source->awake_pending_)
+            {
+                source->awake_pending_ = false;
+                if (source->settings().play_on_awake && source->clip_data() && !source->play())
+                {
+                    impl_->error = "Cannot request play-on-awake audio";
+                    source->playback_ = AudioPlayback::failed;
+                    success = false;
+                }
+            }
+            auto found = impl_->voices.find(node->id());
+            if (source->playback_ == AudioPlayback::paused)
+            {
+                if (found != impl_->voices.end() && found->second->bound)
+                {
+                    SDL_UnbindAudioStream(found->second->stream);
+                    found->second->bound = false;
+                }
+                continue;
+            }
+            if (source->playback_ != AudioPlayback::pending &&
+                source->playback_ != AudioPlayback::playing)
+            {
+                continue;
+            }
+            const auto fail_source = [&]()
+            {
+                impl_->voices.erase(node->id());
                 source->playback_ = AudioPlayback::failed;
                 success = false;
-            }
-        }
-        auto found = impl_->voices.find(node->id());
-        if (source->playback_ == AudioPlayback::paused)
-        {
-            if (found != impl_->voices.end() && found->second->bound)
+            };
+            const auto* clip = source->clip_data();
+            if (!clip || !valid_clip(*clip))
             {
-                SDL_UnbindAudioStream(found->second->stream);
-                found->second->bound = false;
-            }
-            continue;
-        }
-        if (source->playback_ != AudioPlayback::pending &&
-            source->playback_ != AudioPlayback::playing)
-        {
-            continue;
-        }
-        const auto fail_source = [&]()
-        {
-            impl_->voices.erase(node->id());
-            source->playback_ = AudioPlayback::failed;
-            success = false;
-        };
-        const auto* clip = source->clip_data();
-        if (!clip || !valid_clip(*clip))
-        {
-            impl_->error = "Audio source has no valid PCM clip";
-            fail_source();
-            continue;
-        }
-        if (!impl_->open_device())
-        {
-            fail_source();
-            continue;
-        }
-        if (found == impl_->voices.end())
-        {
-            auto voice = std::make_unique<Impl::Voice>();
-            const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
-            const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
-            voice->stream = SDL_CreateAudioStream(&input, &output);
-            voice->clip = source->clip_;
-            voice->revision = source->revision_;
-            if (!voice->stream ||
-                !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))
-            {
-                static_cast<void>(impl_->fail("Cannot create audio stream"));
+                impl_->error = "Audio source has no valid PCM clip";
                 fail_source();
                 continue;
             }
-            found = impl_->voices.emplace(node->id(), std::move(voice)).first;
-        }
-        auto& voice = *found->second;
-        bool finished = false;
-        if (!impl_->publish(voice, *source, listener, finished))
-        {
-            fail_source();
-            continue;
-        }
-        if (!finished && !voice.bound)
-        {
-            if (!SDL_BindAudioStream(impl_->device, voice.stream))
+            if (!impl_->open_device())
             {
-                static_cast<void>(impl_->fail("Cannot bind audio stream"));
                 fail_source();
                 continue;
             }
-            voice.bound = true;
-        }
-        if (finished)
-        {
-            source->playback_ = AudioPlayback::stopped;
-            impl_->voices.erase(found);
-        }
-        else
-        {
-            source->playback_ = AudioPlayback::playing;
+            if (found == impl_->voices.end())
+            {
+                auto voice = std::make_unique<Impl::Voice>();
+                const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
+                const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
+                voice->stream = SDL_CreateAudioStream(&input, &output);
+                voice->clip = source->clip_;
+                voice->instance_id = source->instance_id_;
+                voice->revision = source->revision_;
+                if (!voice->stream ||
+                    !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))
+                {
+                    static_cast<void>(impl_->fail("Cannot create audio stream"));
+                    fail_source();
+                    continue;
+                }
+                found = impl_->voices.emplace(node->id(), std::move(voice)).first;
+            }
+            auto& voice = *found->second;
+            bool finished = false;
+            if (!impl_->publish(voice, *source, listener, finished))
+            {
+                fail_source();
+                continue;
+            }
+            if (!finished && !voice.bound)
+            {
+                if (!SDL_BindAudioStream(impl_->device, voice.stream))
+                {
+                    static_cast<void>(impl_->fail("Cannot bind audio stream"));
+                    fail_source();
+                    continue;
+                }
+                voice.bound = true;
+            }
+            if (finished)
+            {
+                source->playback_ = AudioPlayback::stopped;
+                impl_->voices.erase(found);
+            }
+            else
+            {
+                source->playback_ = AudioPlayback::playing;
+            }
         }
     }
     if (success)
@@ -475,19 +485,21 @@ void AudioSystem::clear() noexcept
     {
         return;
     }
-    if (auto* scene = world_ ? world_->scene() : nullptr)
+    if (world_ != nullptr)
     {
-        for (const auto& node : scene->nodes())
+        for (const auto& scene : world_->scenes())
         {
-            if (auto* source = node->get_component<AudioSource>())
+            for (const auto& node : scene->nodes())
             {
-                source->playback_ = AudioPlayback::stopped;
-                source->awake_pending_ = false;
+                if (auto* source = node->get_component<AudioSource>())
+                {
+                    source->playback_ = AudioPlayback::stopped;
+                    source->awake_pending_ = false;
+                }
             }
         }
     }
     impl_->close_device();
-    impl_->scene_id = 0;
     impl_->error.clear();
 }
 

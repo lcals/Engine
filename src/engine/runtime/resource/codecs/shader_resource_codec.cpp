@@ -56,6 +56,7 @@ bool reserved_uniform(std::string_view name)
                                   std::string_view("u_assao_rect"),
                                   std::string_view("u_hdr_params"),
                                   std::string_view("u_hdr_texel"),
+                                  std::string_view("u_hdr_output"),
                                   std::string_view("s_hdr_scene"),
                                   std::string_view("s_hdr_bloom"),
                                   std::string_view("s_ibl_irradiance"),
@@ -69,6 +70,17 @@ bool reserved_uniform(std::string_view name)
                                   std::string_view("u_light_direction_outer"),
                                   std::string_view("u_light_color_intensity"),
                                   std::string_view("u_light_kind_inner"),
+                                  std::string_view("u_cluster_grid"),
+                                  std::string_view("u_cluster_camera"),
+                                  std::string_view("u_cluster_counts"),
+                                  std::string_view("u_cluster_viewport"),
+                                  std::string_view("u_frame_inputs"),
+                                  std::string_view("u_frame_valid"),
+                                  std::string_view("u_planar_projection"),
+                                  std::string_view("u_lighting_params"),
+                                  std::string_view("u_probe_sh"),
+                                  std::string_view("u_capture_mode"),
+                                  std::string_view("s_lightmap"),
                                   std::string_view("u_viewRect"),
                                   std::string_view("u_viewTexel"),
                                   std::string_view("u_view"),
@@ -129,10 +141,22 @@ bool ShaderResourceCodec::validate(const schema::ShaderDataT& data)
             !names.insert(sampler->name).second || !valid_uniform_name(sampler->uniform_name) ||
             reserved_uniform(sampler->uniform_name) ||
             uniform_slots.contains(sampler->uniform_name) ||
-            !sampler_uniforms.insert(sampler->uniform_name).second || sampler->stage >= 11 ||
+            !sampler_uniforms.insert(sampler->uniform_name).second ||
             !stages.insert(sampler->stage).second ||
-            !sampler->default_texture.starts_with("builtin://") ||
-            !valid_path(sampler->default_texture))
+            sampler->source < schema::ShaderTextureSource::MIN ||
+            sampler->source > schema::ShaderTextureSource::MAX)
+        {
+            return false;
+        }
+        const bool resource = sampler->source == schema::ShaderTextureSource::resource;
+        const std::uint8_t dynamic_stage =
+            sampler->source == schema::ShaderTextureSource::planar_reflection ? 8
+            : sampler->source == schema::ShaderTextureSource::scene_color     ? 9
+                                                                              : 10;
+        if (resource ? (sampler->stage > 4 || !sampler->default_texture.starts_with("builtin://") ||
+                        !valid_path(sampler->default_texture))
+                     : (sampler->stage != dynamic_stage || !sampler->default_texture.empty() ||
+                        sampler->exposed))
         {
             return false;
         }
@@ -170,6 +194,10 @@ bool ShaderResourceCodec::decode(const ResourceCatalog& catalog, ByteView payloa
     }
     for (const auto& sampler : data->samplers)
     {
+        if (sampler->source != schema::ShaderTextureSource::resource)
+        {
+            continue;
+        }
         Guid guid;
         if (!catalog.identities().path_to_guid(sampler->default_texture, guid) ||
             !declares(catalog, output, guid, schema::AssetKind::texture))
@@ -192,6 +220,10 @@ bool ShaderResourceCodec::validate_dependencies(const ResourceCatalog& catalog,
     }
     for (const auto& sampler : shader->samplers)
     {
+        if (sampler->source != schema::ShaderTextureSource::resource)
+        {
+            continue;
+        }
         Guid guid;
         if (!catalog.identities().path_to_guid(sampler->default_texture, guid))
         {

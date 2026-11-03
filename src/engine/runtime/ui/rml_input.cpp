@@ -52,6 +52,46 @@ Rml::Input::KeyIdentifier key(SDL_Keycode code)
         return KI_NEXT;
     case SDLK_INSERT:
         return KI_INSERT;
+    case SDLK_LSHIFT:
+        return KI_LSHIFT;
+    case SDLK_RSHIFT:
+        return KI_RSHIFT;
+    case SDLK_LCTRL:
+        return KI_LCONTROL;
+    case SDLK_RCTRL:
+        return KI_RCONTROL;
+    case SDLK_LALT:
+        return KI_LMENU;
+    case SDLK_RALT:
+        return KI_RMENU;
+    case SDLK_LGUI:
+        return KI_LWIN;
+    case SDLK_RGUI:
+        return KI_RWIN;
+    case SDLK_F1:
+        return KI_F1;
+    case SDLK_F2:
+        return KI_F2;
+    case SDLK_F3:
+        return KI_F3;
+    case SDLK_F4:
+        return KI_F4;
+    case SDLK_F5:
+        return KI_F5;
+    case SDLK_F6:
+        return KI_F6;
+    case SDLK_F7:
+        return KI_F7;
+    case SDLK_F8:
+        return KI_F8;
+    case SDLK_F9:
+        return KI_F9;
+    case SDLK_F10:
+        return KI_F10;
+    case SDLK_F11:
+        return KI_F11;
+    case SDLK_F12:
+        return KI_F12;
     default:
         return KI_UNKNOWN;
     }
@@ -98,15 +138,14 @@ int button(std::uint8_t value)
     return -1;
 }
 } // namespace
-bool process_input(Rml::Context& context, SDL_Window* window, const SDL_Event& event)
+bool process_input(Rml::Context& context, SDL_Window* window, const SDL_Event& event,
+                   std::uint16_t modifier_state)
 {
     if (SDL_GetWindowFromEvent(&event) != window)
     {
         return false;
     }
-    const auto mods = modifiers(event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP
-                                    ? event.key.mod
-                                    : SDL_GetModState());
+    const auto mods = modifiers(modifier_state);
     bool consumed = false;
     switch (event.type)
     {

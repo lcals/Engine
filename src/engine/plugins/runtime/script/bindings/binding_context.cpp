@@ -69,14 +69,21 @@ void BindingContext::shutdown() noexcept
     input_channels_.clear();
     input_captures_.clear();
     input_error_.clear();
-    if (world_ != nullptr && world_->scene() != nullptr && world_->scene()->id() == scene_id_)
+    if (world_ != nullptr && world_->is_initialized())
     {
-        if (navigation_)
+        const auto* current = world_->scene();
+        if (navigation_ && current &&
+            std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), current->id()) !=
+                owned_scene_ids_.end())
         {
             navigation_->clear();
         }
-        world_->destroy_scene();
+        for (const auto id : owned_scene_ids_)
+        {
+            (void)world_->destroy_scene(id);
+        }
     }
+    owned_scene_ids_.clear();
     scene_id_ = 0;
 }
 
@@ -425,6 +432,32 @@ void BindingContext::set_scene_id(std::uint64_t value) noexcept
         navigation_->clear();
     }
     scene_id_ = value;
+    if (world_)
+    {
+        std::erase_if(owned_scene_ids_, [this](std::uint64_t id)
+                      {
+                          return std::none_of(world_->scenes().begin(), world_->scenes().end(),
+                                              [id](const auto& scene) { return scene->id() == id; });
+                      });
+        if (value != 0 && world_->scene() && world_->scene()->id() == value &&
+            std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), value) ==
+                owned_scene_ids_.end())
+        {
+            owned_scene_ids_.push_back(value);
+        }
+    }
+}
+
+Node* BindingContext::find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept
+{
+    if (!active_ || !callable_ || !world_ || !world_->is_initialized() ||
+        std::find(owned_scene_ids_.begin(), owned_scene_ids_.end(), scene_id) ==
+            owned_scene_ids_.end())
+    {
+        return nullptr;
+    }
+    auto* node = world_->find_node(node_id);
+    return node && node->scene().id() == scene_id ? node : nullptr;
 }
 
 double BindingContext::delta_time() const noexcept
@@ -482,9 +515,12 @@ Scene* BindingContext::scene(const Arguments& arguments)
 
 Node* BindingContext::node(const Arguments& arguments)
 {
-    auto* value = scene(arguments);
-    std::uint64_t id = 0;
-    return value != nullptr && identifier(arguments, 1, id) ? value->find_node(id) : nullptr;
+    auto* binding = current(arguments);
+    std::uint64_t scene_id = 0;
+    std::uint64_t node_id = 0;
+    return binding && identifier(arguments, 0, scene_id) && identifier(arguments, 1, node_id)
+               ? binding->find_node(scene_id, node_id)
+               : nullptr;
 }
 
 Component* BindingContext::component(const Arguments& arguments)

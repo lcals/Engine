@@ -14,10 +14,11 @@ SAMPLER2D(s_hdr_bloom, 1);
 
 void main()
 {
-    vec3 color = texture2D(s_hdr_scene, v_texcoord0).rgb;
+    vec4 scene = texture2D(s_hdr_scene, v_texcoord0);
+    vec3 color = scene.rgb;
     if (u_hdr_params.z > 0.0)
     {
         color += hdr_blur9(s_hdr_bloom, v_texcoord0, vec2(u_hdr_texel.x, 0.0)) * u_hdr_params.z;
     }
-    gl_FragColor = vec4(hdr_display_color(color), 1.0);
+    gl_FragColor = vec4(hdr_display_color(color, scene.a), 1.0);
 }

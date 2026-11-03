@@ -50,6 +50,13 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/render/render_settings.cpp
                 src/engine/runtime/render/renderer_callbacks.cpp
                 src/engine/runtime/render/render_scene.cpp
+                src/engine/runtime/render/scene_draw.cpp
+                src/engine/runtime/render/scene_capture.cpp
+                src/engine/runtime/render/passes/clustered_lighting_pass.cpp
+                src/engine/runtime/render/passes/surface_pass.cpp
+                src/engine/runtime/render/passes/screen_space_reflection_pass.cpp
+                src/engine/runtime/render/passes/planar_reflection_pass.cpp
+                src/engine/runtime/render/passes/planar_reflection_math.cpp
                 src/engine/runtime/render/render_scene_resources.cpp
                 src/engine/runtime/render/scene_gpu_resources.cpp
                 src/engine/runtime/render/scene_render_query.cpp
@@ -82,6 +89,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_embed_assao_shaders(engine_render)
     engine_embed_skinning_shader(engine_render)
     engine_embed_hdr_shaders(engine_render)
+    engine_embed_clustered_shader(engine_render)
+    engine_embed_ssr_shaders(engine_render)
     engine_configure_platform_graphics()
 
     engine_add_system(runtime resource)
@@ -102,6 +111,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/ktx_texture.cpp
                 src/engine/runtime/resource/codecs/audio_resource_codec.cpp
                 src/engine/runtime/resource/codecs/font_resource_codec.cpp
+                src/engine/runtime/resource/codecs/light_probe_resource_codec.cpp
                 src/engine/runtime/resource/codecs/ui_resource_codec.cpp
                 src/engine/runtime/resource/codecs/model_resource_codec.cpp
                 src/engine/runtime/resource/codecs/skeleton_resource_codec.cpp
@@ -109,7 +119,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/resource_catalog.cpp
                 src/engine/runtime/resource/virtual_file_system.cpp)
     target_include_directories(engine_resource PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    engine_embed_render_shaders(engine_resource cube font)
+    engine_embed_render_shaders(engine_resource cube font surface water)
     target_link_libraries(
         engine_resource
         PUBLIC engine::scene_data
@@ -137,6 +147,8 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/light.cpp
                 src/engine/runtime/scene/environment_component.cpp
                 src/engine/runtime/scene/post_process_component.cpp
+                src/engine/runtime/scene/planar_reflection_component.cpp
+                src/engine/runtime/scene/light_probe_volume_component.cpp
                 src/engine/runtime/scene/mesh_renderer.cpp
                 src/engine/runtime/scene/material.cpp
                 src/engine/runtime/scene/node.cpp

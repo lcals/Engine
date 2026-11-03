@@ -1,12 +1,11 @@
 {
   "name": "basisu",
-  "version": "1.50.0",
+  "version": "2.50",
   "description": "Basis Universal is a supercompressed GPU texture and video compression format that outputs a highly compressed intermediate file format (.basis) that can be quickly transcoded to a wide variety of GPU texture compression formats.",
   "homepage": "https://github.com/BinomialLLC/basis_universal",
-  "license": "Apache-2.0",
-  "supports": "(android & arm64) | (!android & (!arm | (arm64 & osx)))",
+  "license": "Apache-2.0 AND BSD-3-Clause AND MIT",
+  "supports": "(android & arm64) | !android",
   "dependencies": [
-    "lodepng",
     {
       "name": "vcpkg-cmake",
       "host": true
@@ -14,7 +13,8 @@
     {
       "name": "vcpkg-cmake-config",
       "host": true
-    }
+    },
+    "zstd"
   ],
-  "port-version": 1
+  "port-version": 2
 }

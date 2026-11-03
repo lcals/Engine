@@ -139,6 +139,12 @@ RenderSettings render_settings(const SceneRenderComponents& components)
         settings.bloom_threshold = components.post_process->settings().bloom_threshold;
         settings.bloom_intensity = components.post_process->settings().bloom_intensity;
         settings.bloom_radius = components.post_process->settings().bloom_radius;
+        settings.ssr_enabled = components.post_process->settings().ssr_enabled;
+        settings.ssr_resolution_scale = components.post_process->settings().ssr_resolution_scale;
+        settings.ssr_max_steps = components.post_process->settings().ssr_max_steps;
+        settings.ssr_max_distance = components.post_process->settings().ssr_max_distance;
+        settings.ssr_thickness = components.post_process->settings().ssr_thickness;
+        settings.ssr_roughness_cutoff = components.post_process->settings().ssr_roughness_cutoff;
         settings.ao_enabled = components.post_process->settings().ao_enabled;
         settings.ao_radius = components.post_process->settings().ao_radius;
         settings.ao_strength = components.post_process->settings().ao_strength;
@@ -186,7 +192,14 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
         settings.bloom_threshold > 100.0F || !std::isfinite(settings.bloom_intensity) ||
         settings.bloom_intensity < 0.0F || settings.bloom_intensity > 10.0F ||
         !std::isfinite(settings.bloom_radius) || settings.bloom_radius < 0.25F ||
-        settings.bloom_radius > 4.0F || !std::isfinite(settings.ao_radius) ||
+        settings.bloom_radius > 4.0F || !std::isfinite(settings.ssr_resolution_scale) ||
+        settings.ssr_resolution_scale < 0.25F || settings.ssr_resolution_scale > 1.0F ||
+        settings.ssr_max_steps < 8 || settings.ssr_max_steps > 256 ||
+        !std::isfinite(settings.ssr_max_distance) || settings.ssr_max_distance <= 0.0F ||
+        settings.ssr_max_distance > 100000.0F || !std::isfinite(settings.ssr_thickness) ||
+        settings.ssr_thickness <= 0.0F || settings.ssr_thickness > 10.0F ||
+        !std::isfinite(settings.ssr_roughness_cutoff) || settings.ssr_roughness_cutoff < 0.0F ||
+        settings.ssr_roughness_cutoff > 1.0F || !std::isfinite(settings.ao_radius) ||
         settings.ao_radius <= 0.0F || settings.ao_radius > 100.0F ||
         !std::isfinite(settings.ao_strength) || settings.ao_strength < 0.0F ||
         settings.ao_strength > 2.0F || !std::isfinite(settings.ao_power) ||
@@ -239,6 +252,12 @@ bool RenderSystem::set_settings(const RenderSettings& settings)
     after_post_process.bloom_threshold = settings.bloom_threshold;
     after_post_process.bloom_intensity = settings.bloom_intensity;
     after_post_process.bloom_radius = settings.bloom_radius;
+    after_post_process.ssr_enabled = settings.ssr_enabled;
+    after_post_process.ssr_resolution_scale = settings.ssr_resolution_scale;
+    after_post_process.ssr_max_steps = settings.ssr_max_steps;
+    after_post_process.ssr_max_distance = settings.ssr_max_distance;
+    after_post_process.ssr_thickness = settings.ssr_thickness;
+    after_post_process.ssr_roughness_cutoff = settings.ssr_roughness_cutoff;
     after_post_process.ao_enabled = settings.ao_enabled;
     after_post_process.ao_radius = settings.ao_radius;
     after_post_process.ao_strength = settings.ao_strength;

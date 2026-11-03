@@ -164,6 +164,20 @@ void RenderSystem::release_extensions_scene() noexcept
 
 bool RenderSystem::on_initialize(const EngineConfig&)
 {
+    if (config_.cluster_tile_size < 16 || config_.cluster_tile_size > 256 ||
+        config_.cluster_depth_slices == 0 || config_.cluster_depth_slices > 64 ||
+        config_.maximum_lights == 0 || config_.maximum_lights > 4096 ||
+        config_.maximum_cluster_lights == 0 || config_.maximum_cluster_lights > 256 ||
+        config_.shadow_atlas_size < 512 || config_.shadow_atlas_size > 8192 ||
+        (config_.shadow_atlas_size & (config_.shadow_atlas_size - 1)) != 0 ||
+        config_.local_shadow_tile_size < 64 || config_.local_shadow_tile_size > 2048 ||
+        (config_.local_shadow_tile_size & (config_.local_shadow_tile_size - 1)) != 0 ||
+        config_.local_shadow_tile_size > config_.shadow_atlas_size ||
+        config_.maximum_local_shadow_faces > 24 || config_.maximum_planar_reflections > 2)
+    {
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Renderer lighting/reflection budgets are invalid");
+        return false;
+    }
     if (!windows_.is_initialized() || windows_.native_window() == nullptr ||
         (tasks_ != nullptr && !tasks_->is_initialized()) || config_.texture_batch_size == 0 ||
         config_.texture_batch_size > 64 || config_.texture_staging_bytes == 0)
@@ -208,8 +222,8 @@ bool RenderSystem::initialize_renderer()
     }
     width_ = init.resolution.width;
     height_ = init.resolution.height;
-    init.resolution.reset = render_detail::reset_flags |
-                            (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE);
+    init.resolution.reset =
+        render_detail::reset_flags | (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE);
     if (callbacks_ == nullptr)
     {
         callbacks_.reset(new (std::nothrow) RendererCallbacks{});
@@ -345,11 +359,11 @@ bool RenderSystem::render(const Camera* camera)
     {
         bgfx::setPlatformData(data);
     }
-    if (surface_changed || width != width_ || height != height_ ||
-        vsync_enabled_ != vsync_applied_)
+    if (surface_changed || width != width_ || height != height_ || vsync_enabled_ != vsync_applied_)
     {
-        bgfx::reset(width, height, render_detail::reset_flags |
-                                       (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE));
+        bgfx::reset(width, height,
+                    render_detail::reset_flags |
+                        (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE));
         vsync_applied_ = vsync_enabled_;
         width_ = width;
         height_ = height;
@@ -366,12 +380,14 @@ bool RenderSystem::render(const Camera* camera)
     bgfx::setViewRect(render_detail::main_view, 0, 0, static_cast<std::uint16_t>(width_),
                       static_cast<std::uint16_t>(height_));
     bgfx::touch(render_detail::main_view);
-    const bool drawn =
-        draw_scene(camera, current_settings) && (ui_ == nullptr || ui_->render(width_, height_));
+    const bool drawn = draw_scene(camera, current_settings) &&
+                       draw_diffuse_capture(current_settings) &&
+                       (ui_ == nullptr || ui_->render(width_, height_));
     {
         ENGINE_PROFILE_ZONE("Render.frameSubmit");
         frame_number_ = bgfx::frame();
     }
+    poll_diffuse_capture();
     ENGINE_PROFILE_FRAME();
 #if defined(ENGINE_ENABLE_TRACY)
     profile_renderer_stats();

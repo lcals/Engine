@@ -38,6 +38,9 @@ public:
     [[nodiscard]] bool start_gameplay(std::string_view entry = {});
     void stop_gameplay() noexcept override;
     void set_hot_reload(bool enabled) override;
+    [[nodiscard]] bool execute_project_script(const ProjectScriptRequest& request,
+                                              std::string& result_json,
+                                              std::string& error) override;
     [[nodiscard]] const ScriptStatus& status() const noexcept override;
 
 protected:

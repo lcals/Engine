@@ -12,6 +12,7 @@
 #include <new>
 #include <set>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 namespace engine
@@ -148,6 +149,22 @@ bool Scene::destroy_node(std::uint64_t id)
 const std::vector<std::unique_ptr<Node>>& Scene::nodes() const noexcept
 {
     return nodes_;
+}
+
+void Scene::retain_persistent()
+{
+    // 在销毁任何父节点前确定完整保留集合，节点创建顺序不要求父节点在前。
+    std::unordered_set<const Node*> retained;
+    for (const auto& node : nodes_)
+    {
+        if (node->persistent())
+        {
+            retained.insert(node.get());
+        }
+    }
+    info_.active_camera_node = 0;
+    std::erase_if(nodes_, [&retained](const auto& node) { return !retained.contains(node.get()); });
+    resource_.reset();
 }
 
 Camera* Scene::active_camera() noexcept

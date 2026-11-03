@@ -27,9 +27,8 @@ public:
     AmbientOcclusionPass& operator=(AmbientOcclusionPass&&) = delete;
 
     [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height);
-    void begin_depth(const float* view, const float* projection);
     [[nodiscard]] bool compute(const CameraSettings& camera, const RenderSettings& settings,
-                               const float* projection);
+                               const float* projection, bgfx::TextureHandle source_depth);
     [[nodiscard]] bgfx::TextureHandle texture() const noexcept;
     [[nodiscard]] std::uint32_t resource_count() const noexcept;
     void release() noexcept;
@@ -46,8 +45,6 @@ private:
                                                      BGFX_INVALID_HANDLE}};
     bgfx::UniformHandle parameters_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle rectangle_ = BGFX_INVALID_HANDLE;
-    bgfx::FrameBufferHandle depth_framebuffer_ = BGFX_INVALID_HANDLE;
-    bgfx::TextureHandle depth_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle normals_ = BGFX_INVALID_HANDLE;
     std::array<bgfx::TextureHandle, 4> half_depths_ = {
         {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
@@ -56,6 +53,8 @@ private:
     bgfx::TextureHandle ao_ = BGFX_INVALID_HANDLE;
     std::uint16_t width_ = 0;
     std::uint16_t height_ = 0;
+    std::uint16_t viewport_width_ = 0;
+    std::uint16_t viewport_height_ = 0;
 };
 
 } // namespace engine::render_detail

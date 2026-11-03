@@ -50,7 +50,6 @@ bool TextureResourceCodec::validate(const schema::TextureDataT& data)
                info.format == data.format;
     }
     if (data.encoding != schema::TextureEncoding::basis || data.cube_map ||
-        data.format == schema::TextureFormat::rgba16f ||
         data.format == schema::TextureFormat::rg16f)
     {
         return false;
@@ -62,6 +61,13 @@ bool TextureResourceCodec::validate(const schema::TextureDataT& data)
         decoder.get_total_images(data.data.data(), size) != 1 ||
         decoder.get_texture_type(data.data.data(), size) != basist::cBASISTexType2D ||
         !decoder.get_image_info(data.data.data(), size, info, 0))
+    {
+        return false;
+    }
+    const bool hdr =
+        basist::basis_tex_format_is_hdr(decoder.get_basis_tex_format(data.data.data(), size));
+    if ((hdr && (data.srgb || data.format != schema::TextureFormat::rgba16f)) ||
+        (!hdr && data.format == schema::TextureFormat::rgba16f))
     {
         return false;
     }

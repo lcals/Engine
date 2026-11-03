@@ -1,4 +1,5 @@
 #include "editor/render/render_commands.hpp"
+#include "editor/render/render_component_commands.hpp"
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
@@ -80,6 +81,12 @@ Json settings_json(const RenderSettings& value)
             {"bloomThreshold", value.bloom_threshold},
             {"bloomIntensity", value.bloom_intensity},
             {"bloomRadius", value.bloom_radius},
+            {"ssrEnabled", value.ssr_enabled},
+            {"ssrResolutionScale", value.ssr_resolution_scale},
+            {"ssrMaxSteps", value.ssr_max_steps},
+            {"ssrMaxDistance", value.ssr_max_distance},
+            {"ssrThickness", value.ssr_thickness},
+            {"ssrRoughnessCutoff", value.ssr_roughness_cutoff},
             {"directionalShadows", value.directional_shadows},
             {"shadowResolution", value.shadow_resolution},
             {"shadowBias", value.shadow_bias},
@@ -189,7 +196,7 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
         else if (item.key() == "filmicTonemap" || item.key() == "directionalShadows" ||
                  item.key() == "ambientTricolor" || item.key() == "iblEnabled" ||
                  item.key() == "aoEnabled" || item.key() == "hdrEnabled" ||
-                 item.key() == "bloomEnabled")
+                 item.key() == "bloomEnabled" || item.key() == "ssrEnabled")
         {
             if (!item->is_boolean())
             {
@@ -202,8 +209,18 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                           : item.key() == "aoEnabled"       ? settings.ao_enabled
                           : item.key() == "hdrEnabled"      ? settings.hdr_enabled
                           : item.key() == "bloomEnabled"    ? settings.bloom_enabled
+                          : item.key() == "ssrEnabled"      ? settings.ssr_enabled
                                                             : settings.directional_shadows;
             value = item->get<bool>();
+        }
+        else if (item.key() == "ssrMaxSteps")
+        {
+            if (!item->is_number_integer() || *item < 8 || *item > 256)
+            {
+                error = "ssrMaxSteps must be an integer in 8..256";
+                return false;
+            }
+            settings.ssr_max_steps = item->get<std::uint16_t>();
         }
         else if (item.key() == "shadowResolution")
         {
@@ -243,6 +260,10 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
                            : item.key() == "bloomThreshold"     ? settings.bloom_threshold
                            : item.key() == "bloomIntensity"     ? settings.bloom_intensity
                            : item.key() == "bloomRadius"        ? settings.bloom_radius
+                           : item.key() == "ssrResolutionScale" ? settings.ssr_resolution_scale
+                           : item.key() == "ssrMaxDistance"     ? settings.ssr_max_distance
+                           : item.key() == "ssrThickness"       ? settings.ssr_thickness
+                           : item.key() == "ssrRoughnessCutoff" ? settings.ssr_roughness_cutoff
                            : item.key() == "fogStart"           ? settings.fog_start
                            : item.key() == "fogEnd"             ? settings.fog_end
                            : item.key() == "fogDensity"         ? settings.fog_density
@@ -278,7 +299,10 @@ public:
                 item.key() == "aoFadeStart" || item.key() == "aoFadeEnd" ||
                 item.key() == "hdrEnabled" || item.key() == "bloomEnabled" ||
                 item.key() == "bloomThreshold" || item.key() == "bloomIntensity" ||
-                item.key() == "bloomRadius")
+                item.key() == "bloomRadius" || item.key() == "ssrEnabled" ||
+                item.key() == "ssrResolutionScale" || item.key() == "ssrMaxSteps" ||
+                item.key() == "ssrMaxDistance" || item.key() == "ssrThickness" ||
+                item.key() == "ssrRoughnessCutoff")
             {
                 post_process_ = true;
             }
@@ -619,7 +643,8 @@ RenderCommands::RenderCommands(RenderSystem& renderer, WorldSystem& world, fs::p
 
 bool RenderCommands::register_commands(EditorCommands& commands)
 {
-    return commands.register_command("get_render_settings", false,
+    return register_render_component_commands(world_, commands) &&
+           commands.register_command("get_render_settings", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)
                                      {

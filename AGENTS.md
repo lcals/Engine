@@ -14,12 +14,14 @@
 - 引擎自有头文件从所属层级开始包含，例如 `#include "runtime/system/system.hpp"`、`#include "editor/editor_system.hpp"`、`#include "plugins/editor/mcp/mcp_system.hpp"`；不再使用纯文件名、`engine/` 前缀或 `../` 相对目录。CMake 目标统一传递 `include/engine/` 搜索根；第三方头文件保留其标准包含路径。
 - 不为测试修改正式接口可见性，不提交构建产物、密钥和本机路径。
 - 付费资源、商业或私有参考的源码、片段、派生实现及购买清单不得进入 Git；开源参考可按其许可引入，保留来源、固定版本和必要版权声明。本地参考与采样产物继续留在忽略目录。
-- 构建与测试使用根目录的 CMake Presets，具体命令以 [README.md](README.md) 为准。
+- 私有项目整个目录不得进入版本管理，包括自行编写的脚本、UI、配置、文档、meta 和工具生成资源；不以原创内容为例外，不使用强制添加绕过忽略规则。只有明确公开的范例项目与不包含私有业务的通用引擎增强可以提交。发现历史误收录时先保护本地文件，再按用户授权清理受影响的历史和远端引用。
+- 构建与测试使用根目录的 CMake Presets，具体命令见[构建指南](docs/building.md)，测试项目与验证记录见[测试文档](docs/testing.md)。
 - 宿主环境安装统一检查和准备 Ninja 与编译缓存：Windows 默认 sccache，Linux / macOS 默认 ccache；跨平台 Ninja 缓存预设要求工具存在且可执行，不能默默退化为无缓存构建。保留 vcpkg 二进制缓存与上游增量产物，不在普通构建中反复清理、同步或触摸未改变的依赖。
 - C++ 改动运行受影响的 Debug / Release 构建与 CTest。
+- 测试代码按所属模块放入 `tests/runtime/`、`tests/editor/`、`tests/plugins/runtime/` 或 `tests/plugins/editor/` 的模块目录；构建规则检查归 `tests/build/`，共用夹具归 `tests/support/`，项目专属测试留在各项目的 `tests/`，不把测试源码堆在根 `tests/`。
 - 新增依赖需有明确用途；新增 CI Action 使用完整提交 SHA，由 Dependabot 维护更新。
 - 有可用跨平台 port 的第三方库在 `vcpkg.json` 声明，并在 `cmake/dependencies/` 按运行时、编辑器与资源管线分类查找；其余依赖使用固定版本的 Git 子项目。上游问题的补丁放在 `third_party/`，构建前应用，不直接修改上游检出目录。
-- 快速开始和维护说明统一写入根 `README.md`；如实说明实际运行的验证及限制。
+- 根 `README.md` 只保留引擎简介、核心功能与模块清单、简要快速开始和文档入口。构建交付归 `docs/building.md`，维护归 `docs/development.md`，详细用法与参数归所属模块；公开测试项目、验证操作、实际结果及限制集中在 `docs/testing.md`，避免重新堆入首页。
 
 ## 架构评审
 
@@ -57,7 +59,7 @@
 - UI 业务使用 MVC：Model 是项目脚本数据，View 由 UiComponent 与文档控件提供，Controller 在脚本层组织事件、数据变更和显式刷新。核心不持有项目 Model 或脚本控制器；事件订阅随控制器、文档和脚本上下文生命周期清理。控件句柄必须校验文档与控件身份，重建后的同名控件不能复活旧引用。
 - UI 资源通过多项字体绑定分别指定族别名、字体资源与 Shader，并显式引用多张纹理；资源依赖进入统一目录。族别名在文档内唯一、跨文档隔离，不在 UI 系统写死单字体、单 Shader 或单图片。
 - 组件生成数据的保存和恢复由 Component 的统一契约及具体组件实现，Scene 只组织节点与层级；编辑器 TOML 编解码按组件类型拆分，不能进入运行时组件。
-- ThreadSystem 在运行时统一管理 oneTBB 进程并行预算，TaskSystem 提供独立任务域；编辑器和运行时共享 worker，分别配置域优先度与并发额度，不自建线程池。项目 settings/import.toml 的 import_threads 默认 4；资源管线借用编辑器任务域，仍负责 meta、SQLite、依赖和发布，运行时不反向依赖它们。
+- ThreadSystem 在运行时统一管理 oneTBB 进程并行预算，TaskSystem 提供独立任务域；编辑器和运行时共享 worker，分别配置域优先度与并发额度，不自建线程池。项目 settings/import.toml 的 import_threads 默认 8；资源管线借用编辑器任务域，仍负责 meta、SQLite、依赖和发布，运行时不反向依赖它们。
 - MCP 同步完整运行资源版本，覆盖场景、Mesh、材质、Shader、脚本及其他资源；以 catalog 及其中定位的散文件或合并包为共同契约，不能限制为脚本同步。散文件保持 gen/GUID 命名，整批校验后发布，SQLite、源 meta 与项目设置留在编辑器端。
 - 场景环境参数由普通节点的 `EnvironmentComponent` 保存，相机画面参数由同节点的 `PostProcessComponent` 保存，阴影由 `Light` 保存；Scene 不堆叠渲染字段。渲染每帧读取当前场景组件，预览隐藏镜头只提供观察视角，后处理仍取场景活动相机。缺少或禁用组件使用固定默认值，切场景不继承前一场景参数；新效果随实际渲染实现扩展，不添加无效开关。
 - 场景烘焙归编辑器插件，MCP 启动作业并查询进度/取消，GPU 按帧提交和回读；运行时只加载预计算结果。生成源贴图及唯一 meta 放在场景同名资源子目录，进入标准 GUID 缓存与依赖清单；成功发布后刷新场景，已开启的效果立即使用新资源，关闭状态不自动改变。

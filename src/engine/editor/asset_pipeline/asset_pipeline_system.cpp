@@ -206,7 +206,7 @@ bool project_idle(const std::filesystem::path& root, std::string& error)
 
 bool import_threads(const std::filesystem::path& settings, std::size_t& count, std::string& error)
 {
-    count = 4;
+    count = 8;
     const auto path = settings / "import.toml";
     std::error_code code;
     const bool exists = std::filesystem::exists(path, code);

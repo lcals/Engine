@@ -57,6 +57,7 @@ private:
     [[nodiscard]] bool restore_node(const schema::NodeDataT& data);
     [[nodiscard]] bool restore_parent(const schema::NodeDataT& data);
     [[nodiscard]] bool finish_restore(const schema::SceneDataT& data);
+    void retain_persistent();
     void destroy_entity(std::uint64_t id, std::uint64_t local_id) noexcept;
 
     ecs_world_t& world_;

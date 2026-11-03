@@ -10,6 +10,7 @@ class DestructionGraph {
   +clone(DestructionGraph, string) bool
   +damage_sphere(uint32, Vec3, float, float, string) bool
   +release_anchors(span~uint32~, string) bool
+  +retire_groups(span~const uint32_t~ group_ids, string& error) bool
   +apply_stress(uint32 group_id, Vec3 gravity, float density, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds, string error) bool
   +restore_health(span~float~, string) bool
   +healths() vector~float~
@@ -38,6 +39,12 @@ DestructionGraph *-- DestructionGroup : 输出当前连通组
 `NvBlastActorApplyFracture` 与 `NvBlastActorSplit`；内部连接与其他锚点的血量保持不变。
 请求先整体校验；重复 ID、没有锚点或已经断开的合法 chunk 不重复施加损伤。
 图只处理连接，地基覆盖判断归调用方，不引用物理、地形或场景。
+
+`retire_groups` 整体校验当前非锚定组及重复 ID，在克隆候选上调用官方
+`NvBlastActorDeactivate`；任何失败保留原 family。已退休 chunk 集合随 clone、
+restore_health 和 ExtStress 的临时 family 重建保留；不得通过恢复 health 把退休
+chunk 接回存活组。全部 actor 退休后图允许为空，仍保存完整稳定顺序的 bond
+health；重新 initialize 才恢复源资产。节点及物理回收仍归 DestructionSystem。
 
 
 步骤 4 增加官方 ExtStress 计算桥接。图方法接受资产坐标系加速度及密度，

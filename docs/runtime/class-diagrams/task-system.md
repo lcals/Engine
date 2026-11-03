@@ -102,7 +102,7 @@ TaskSystem 借用已初始化的 ThreadSystem，各自拥有 arena、入口图�
 
 生命周期、提交、配置及 last_error 查询由所属协调线程调用。回调不得调用 System 生命周期、同步等待同池 future；依赖用批次表达。run/wait/configure_concurrency 在回调内拒绝。提交拥有函数和数据的副本；闭包借用由调用方保证活到 future 完成。关闭停止接收、等待已接收工作、释放图和 arena；不强制打断正在写文件的函数。支持重复关闭、部分初始化与重新初始化。
 
-编辑器入口拥有 ThreadSystem 和低优先 TaskSystem，向 AssetPipelineSystem 注入已初始化 TaskSystem&；管线不再自建池。import_threads 默认 4，当前在空闲时配置编辑器域，有在途任务时不能改变额度。整批导入仍由协调线程同步组织，仅转换阶段在 worker 执行。
+编辑器入口拥有 ThreadSystem 和低优先 TaskSystem，向 AssetPipelineSystem 注入已初始化 TaskSystem&；管线不再自建池。import_threads 默认 8，当前在空闲时配置编辑器域，有在途任务时不能改变额度。整批导入仍由协调线程同步组织，仅转换阶段在 worker 执行。
 
 RuntimeHost 通过可空参数借用已有 ThreadSystem；独立运行时自行创建。宿主独占运行、后台、加载、物理、动画和导航任务域，tasks() 返回运行域的可空借用；额度与优先级由 RuntimeParallelConfig 配置。关闭先停止玩法和资源异步服务，再销毁各领域系统并等待其已接受工作，最后关闭任务域与自有线程预算，不能先关域再等 Jolt barrier。
 
@@ -131,4 +131,4 @@ ThreadPriority 独立于 TaskPriority。worker_priority=normal 保持 worker 基
 
 文件、物理、导航、动画、纹理准备和地形/破坏已按各自契约接入，SDL 音频与 bgfx 复用其官方线程。活动 Scene/Node/Component、VM、GPU 提交保持原线程契约；并行计算、跨帧异步和同步回退的区别见[运行并行与项目预算](../parallelism.md)。资源代际校验、主线程应用预算归具体模块，不放进通用任务系统。
 
-依赖使用现有固定 oneTBB 版本和补丁；平台声明与实际测试分开记录于 README。Mac 动态库通过不代表 Android/iOS 或静态链接已验证。
+依赖使用现有固定 oneTBB 版本和补丁；平台声明与实际测试分开记录于[测试与范例](../../testing.md)。Mac 动态库通过不代表 Android/iOS 或静态链接已验证。

@@ -84,6 +84,12 @@ classDiagram
         +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
         +validate_dependencies(const ResourceCatalog& catalog, const Resource& resource, span~const ResourcePtr~ dependencies) bool
     }
+    class LightProbeResourceCodec {
+        +decode(const ResourceCatalog& catalog, ByteView payload, Resource& output) bool
+        +validate(const LightProbeDataT& data) bool$
+    }
+    ResourceCodec <|-- LightProbeResourceCodec
+    LightProbeResourceCodec ..> LightProbeDataT : 校验网格边界、变换、SH9和有效标记
     ResourceCodec <|-- FontResourceCodec
     ResourceCodec <|-- UiResourceCodec
     FontResourceCodec ..> FontDataT : 验证归一化度量与曲线区间

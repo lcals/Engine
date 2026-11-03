@@ -58,7 +58,7 @@ const Node* Node::parent() const noexcept
 
 bool Node::set_parent(Node* parent) noexcept
 {
-    if (parent != nullptr && &parent->scene() != &scene_)
+    if (parent != nullptr && (persistent_ || &parent->scene() != &scene_))
     {
         return false;
     }
@@ -94,6 +94,28 @@ bool Node::transient() const noexcept
 void Node::set_transient(bool transient) noexcept
 {
     transient_ = transient;
+}
+
+bool Node::set_persistent(bool value) noexcept
+{
+    if (parent() != nullptr)
+    {
+        return false;
+    }
+    persistent_ = value;
+    return true;
+}
+
+bool Node::persistent() const noexcept
+{
+    for (const Node* current = this; current != nullptr; current = current->parent())
+    {
+        if (current->persistent_)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 Component* Node::get_component(ComponentType type) noexcept

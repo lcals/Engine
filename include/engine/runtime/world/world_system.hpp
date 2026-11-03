@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 struct ecs_world_t;
 
@@ -14,6 +15,7 @@ namespace engine
 {
 
 class Scene;
+class Node;
 class Resource;
 
 enum class SceneRestoreStatus
@@ -47,9 +49,17 @@ public:
                                                         std::size_t node_budget);
     [[nodiscard]] Scene* commit_restore_scene(std::uint64_t request);
     void cancel_restore_scene(std::uint64_t request) noexcept;
+    // 卸载玩法并取消恢复候选；保留常驻子树，释放旧场景根资源。
+    void unload_scene() noexcept;
+    // 完整清理世界；带 ID 重载只完整清理指定的已发布场景。
     void destroy_scene() noexcept;
+    [[nodiscard]] bool destroy_scene(std::uint64_t id) noexcept;
     [[nodiscard]] Scene* scene() noexcept;
     [[nodiscard]] const Scene* scene() const noexcept;
+    // 包含活动场景及常驻节点的原容器，不含恢复候选；迭代器不能跨场景变更持有。
+    [[nodiscard]] const std::vector<std::unique_ptr<Scene>>& scenes() const noexcept;
+    [[nodiscard]] Node* find_node(std::uint64_t id) noexcept;
+    [[nodiscard]] const Node* find_node(std::uint64_t id) const noexcept;
     // 临时世界模拟状态；菜单、输入和绘制仍由原有系统链更新。
     [[nodiscard]] bool set_paused(bool paused) noexcept;
     [[nodiscard]] bool paused() const noexcept;
@@ -60,6 +70,7 @@ protected:
     void on_shutdown() noexcept override;
 
 private:
+    void retain_persistent();
     SceneRestoreConfig restore_config_;
     std::unique_ptr<Scene> restoring_;
     std::size_t restore_nodes_ = 0;
@@ -67,7 +78,8 @@ private:
     bool restore_ready_ = false;
     ComponentRegistry components_;
     ecs_world_t* world_ = nullptr;
-    std::unique_ptr<Scene> scene_;
+    std::vector<std::unique_ptr<Scene>> scenes_;
+    Scene* scene_ = nullptr; // 借用 scenes_ 中当前玩法场景。
     std::uint64_t scene_sequence_ = 0;
     bool paused_ = false;
 };

@@ -173,6 +173,19 @@ bool TerrainComponent::apply_sphere(const Vec3& center, float radius, bool fill)
            system->commit(*this, std::move(candidate));
 }
 
+bool TerrainComponent::retire_fragments(std::uint32_t max_count, double max_age_seconds,
+                                       std::uint32_t& retired_count)
+{
+    retired_count = 0;
+    auto* system = TerrainSystem::instance();
+    if (!system)
+    {
+        last_error_ = "Terrain system is not ready";
+        return false;
+    }
+    return system->retire_fragments(*this, max_count, max_age_seconds, retired_count);
+}
+
 bool TerrainComponent::reset()
 {
     auto* system = TerrainSystem::instance();

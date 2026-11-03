@@ -20,31 +20,34 @@ uniform vec4 u_shadow_params;
 // Depth bias, reciprocal atlas size, directional light index, enabled.
 uniform vec4 u_shadow_settings;
 
-float shadow_cascade_visibility(int cascade, vec3 world_position)
+// Receiver-plane depth gradients adapt Microsoft's CascadedShadowMaps11,
+// CalculateRightAndUpTexelDepthDeltas. See third_party/notices/directx-shadow-bias.md.
+float shadow_cascade_visibility(int cascade, vec3 world_position, vec3 world_dx, vec3 world_dy)
 {
     // Static array indices also work on backends with restricted uniform indexing.
-    vec4 coordinate;
+    mat4 projection;
     vec4 rectangle;
     if (cascade == 0)
     {
-        coordinate = mul(u_shadow_matrices[0], vec4(world_position, 1.0));
+        projection = u_shadow_matrices[0];
         rectangle = u_shadow_rects[0];
     }
     else if (cascade == 1)
     {
-        coordinate = mul(u_shadow_matrices[1], vec4(world_position, 1.0));
+        projection = u_shadow_matrices[1];
         rectangle = u_shadow_rects[1];
     }
     else if (cascade == 2)
     {
-        coordinate = mul(u_shadow_matrices[2], vec4(world_position, 1.0));
+        projection = u_shadow_matrices[2];
         rectangle = u_shadow_rects[2];
     }
     else
     {
-        coordinate = mul(u_shadow_matrices[3], vec4(world_position, 1.0));
+        projection = u_shadow_matrices[3];
         rectangle = u_shadow_rects[3];
     }
+    vec4 coordinate = mul(projection, vec4(world_position, 1.0));
     if (!(coordinate.w > 0.0))
     {
         return 1.0;
@@ -56,6 +59,16 @@ float shadow_cascade_visibility(int cascade, vec3 world_position)
         return 1.0;
     }
 
+    vec3 dx = mul(projection, vec4(world_dx, 0.0)).xyz;
+    vec3 dy = mul(projection, vec4(world_dy, 0.0)).xyz;
+    float determinant = dx.x * dy.y - dx.y * dy.x;
+    float determinant_scale = abs(dx.x * dy.y) + abs(dx.y * dy.x);
+    vec2 depth_gradient = vec2_splat(0.0);
+    if (abs(determinant) > determinant_scale * 0.000001)
+    {
+        depth_gradient = vec2(dy.y * dx.z - dx.y * dy.z,
+                              dx.x * dy.z - dy.x * dx.z) / determinant;
+    }
     vec2 uv = rectangle.xy + projected.xy * rectangle.zw;
     vec2 half_texel = vec2_splat(u_shadow_settings.y * 0.5);
     vec2 minimum_uv = rectangle.xy + half_texel;
@@ -67,8 +80,13 @@ float shadow_cascade_visibility(int cascade, vec3 world_position)
         {
             vec2 offset = (vec2(float(x), float(y)) - 1.5) * u_shadow_settings.y;
             vec2 sample_uv = clamp(uv + offset, minimum_uv, maximum_uv);
+            // Packed-depth textures use POINT sampling. Compare against the receiver
+            // plane at the actual texel centre, including the subtexel displacement.
+            sample_uv = (floor(sample_uv / u_shadow_settings.y) + 0.5) * u_shadow_settings.y;
             float depth = unpack_shadow_depth(texture2D(s_shadow_map, sample_uv));
-            visible += step(projected.z - u_shadow_settings.x, depth);
+            float receiver_depth = projected.z +
+                dot(depth_gradient, (sample_uv - uv) / rectangle.zw);
+            visible += step(receiver_depth - u_shadow_settings.x, depth);
         }
     }
     return visible / 16.0;
@@ -76,6 +94,9 @@ float shadow_cascade_visibility(int cascade, vec3 world_position)
 
 float shadow_visibility(vec3 world_position)
 {
+    // Take screen derivatives before cascade selection and its divergent branches.
+    vec3 world_dx = dFdx(world_position);
+    vec3 world_dy = dFdy(world_position);
     if (u_shadow_settings.w < 0.5 || u_shadow_params.x < 0.5)
     {
         return 1.0;
@@ -108,7 +129,7 @@ float shadow_visibility(vec3 world_position)
         split_far = u_shadow_splits.w;
     }
 
-    float visible = shadow_cascade_visibility(cascade, world_position);
+    float visible = shadow_cascade_visibility(cascade, world_position, world_dx, world_dy);
     float blend_width = (split_far - split_near) * u_shadow_params.y;
     float blend_start = split_far - blend_width;
     if (blend_width > 0.0 && camera_depth > blend_start)
@@ -116,7 +137,7 @@ float shadow_visibility(vec3 world_position)
         float next_visible = 1.0;
         if (float(cascade + 1) < u_shadow_params.x)
         {
-            next_visible = shadow_cascade_visibility(cascade + 1, world_position);
+            next_visible = shadow_cascade_visibility(cascade + 1, world_position, world_dx, world_dy);
         }
         // The final cascade blends with the unshadowed result beyond shadow far.
         float weight = smoothstep(blend_start, split_far, camera_depth);

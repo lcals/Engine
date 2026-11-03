@@ -1,2 +1,2 @@
 # 导入资源的 oneTBB 任务域并发上限。
-import_threads = 4
+import_threads = 8

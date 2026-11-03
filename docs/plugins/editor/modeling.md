@@ -77,3 +77,28 @@
 - [xatlas](https://github.com/jpcy/xatlas)：UV图表生成与打包，MIT。源码由固定 Git 子模块提供，保留上游许可，不修改其检出目录。
 
 基础拓扑与接口实现为本项目 C++ 代码，Unity ProBuilder/UModeler 作为功能与行为参考。
+
+## C++ 建模与 MCP 操作
+
+建模由三个独立目标组成：`engine::modeling` 提供纯数据几何计算，`engine::modeling_editor` 管理场景对象、选择、撤销与项目文件，`engine::modeling_mcp_tools` 只注册和转发工具。宿主负责装配；Engine、Node 和运行时渲染器不依赖建模编辑器。边界、数据所有权和类图见[建模插件](modeling.md)。
+
+编辑器启动项目后，可通过 MCP 完成模型创建与编辑，无需从 DCC 导入基本几何：
+
+```sh
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call modeling_help
+python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
+```
+
+取得实际 `sceneId` 后，调用 `modeling_create`（`shape` 与 `parameters`）获得稳定 `modelId`；`modeling_get` 返回当前节点身份、分页顶点/面、选择及镜像状态。`modeling_help` 提供各操作参数示例，`modeling_select` 设置或拓展选择，`modeling_edit` 调用核心操作。复制、组合、分离、删除分别使用 `modeling_duplicate`、`modeling_combine`、`modeling_separate`、`modeling_delete`。编辑和选择共用已有 `undo`、`redo`、`execute_batch`。撤销删除会重新创建节点，因此 `modelId` 保持、运行时 `nodeId` 更新，查询后再调用节点组件工具。
+
+`modeling_save` 将源模型保存到 assets 内的 `.mesh`；`modeling_load` 恢复可编辑几何。保存属于文件操作，不混入可撤销几何批次。源文件中 `[modeling]` 以 FlatBuffers 十六进制存储唯一编辑数据模型，渲染数组供兼容读取；资源导入器以编辑数据重新编译，避免过期渲染数组被发布。保存后先 `stop_project`，再 `sync_assets` 导入和同步；导入管线为新源文件生成唯一邻接 meta，并按现有规则生成 `cache/gen/<GUID>`。启用持续镜像时保存其已生成的完整几何，不保存编辑器会话开关。
+
+完整场景使用 `save_scene({"sceneId":"当前ID","path":"scenes/room.scene"})`。编辑器 `ScenePersistence` 保存节点层级、组件数据、启用状态及活动相机；已加载的网格和没有实例覆盖的材质直接保留原 GUID。仅动态网格和覆盖材质写入相邻 `room-resources/meshes/`、`room-resources/materials/`，覆盖材质使用独立节点槽资源，避免改写共享源。动态网格通过宿主注入的建模回调保留可编辑多边形数据；当前组件修订与磁盘内容未变时复用上次成功导出。所有候选文件比较内容后才替换，不变文件及 meta 保持时间戳，已有 GUID 保留。
+
+回执 `resourceCount` 是实际变化的资源数，包含场景；`meshCount`、`materialCount` 分别统计变化的导出网格和材质，`sceneChanged` 表示场景是否变化，`reusedMeshCount`、`reusedMaterialCount` 表示复用次数。原样重复保存返回 `resourceCount=0`、`importRequired=false`。外部修改与成功保存记录冲突时拒绝覆盖；发布失败恢复本批已写入的源文件、meta 和原时间戳，回滚失败则保留暂存备份并报告位置。
+
+启用资源管线即可注册 `save_scene`；保存已有资源引用不要求建模插件，只有导出动态网格需要网格写入回调。保存本身不加入撤销栈，也不清除编辑历史；可按“编辑 → 保存 → 撤销/重做 → 再保存”只写入差异。在场景预览中，自身保存后的增量导入保留场景与历史；运行项目需要重新部署时使用 `save_scene → stop_project → sync_assets → start_project`，Gameplay 应加载该 `.scene` 路径。保存不自动切换 Gameplay 入口；显式重载后运行时仍消费正常 GUID 资源，编辑器根据 mesh 源路径恢复可编辑数据，选择和撤销历史不落盘。单独 `modeling_save` 只保存一个网格，不保存场景引用和材质覆盖。
+
+Earcut 负责凹面与孔洞三角化，Manifold 负责闭合实体布尔和封口裁切，xatlas 负责 UV 图集展开。前两者及 Clipper2 由 vcpkg 固定版本；xatlas 为固定 Git 子模块，首次构建前执行 `git submodule update --init third_party/xatlas`。不将 Unity 包中的专有实现复制进引擎。
+
+几何验证覆盖体积、封闭性、绕序、孔洞、UV、材质与失败不改变源模型。`modeling.commands` 验证命令事务和身份，`modeling.pipeline` 验证 GUID/meta、权威源编译和增量缓存，`editor.scene_persistence` 覆盖增量保存、共享引用保留、撤销/重做后再保存、外部冲突、失败回滚与重新加载，`modeling.mcp` 在开启 GPU 测试时运行真实编辑器和 MCP。完整能力边界按[功能说明](modeling.md)评审，不以工具数量替代 ProBuilder/UModeler 的逐项等价验证。

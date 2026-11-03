@@ -45,6 +45,9 @@ public:
     [[nodiscard]] bool collapse_detached(TerrainComponent& component, std::uint32_t min_samples,
                                          std::uint32_t max_fragments, std::uint32_t fragment_cells,
                                          float density);
+    // 主线程物理安全点；失败输出清零，保留全部碎块和源密度。
+    [[nodiscard]] bool retire_fragments(TerrainComponent& component, std::uint32_t max_count,
+                                        double max_age_seconds, std::uint32_t& retired_count);
     void clear_fragments(TerrainComponent& component) noexcept;
     [[nodiscard]] std::size_t fragment_count(const TerrainComponent& component) const noexcept;
     [[nodiscard]] bool synchronize();
@@ -59,15 +62,26 @@ private:
                                        schema::MeshDataT mesh);
     void process_requests();
     struct AsyncState;
+    struct Fragment
+    {
+        std::uint64_t node = 0;
+        std::uint64_t collider_instance = 0;
+        double published_at = 0;
+    };
+    struct Fragments
+    {
+        std::weak_ptr<const std::uint8_t> owner;
+        std::vector<Fragment> items;
+    };
     WorldSystem& world_;
     PhysicsSystem& physics_;
     TaskSystem* tasks_ = nullptr;
     std::size_t max_pending_requests_ = 64;
     std::size_t max_commits_per_tick_ = 1;
     std::unique_ptr<AsyncState> async_;
-    std::uint64_t scene_id_ = 0;
     std::set<std::uint64_t> generated_;
-    std::map<std::uint64_t, std::vector<std::uint64_t>> fragments_;
+    std::map<std::uint64_t, Fragments> fragments_;
+    double simulation_time_ = 0;
 };
 
 } // namespace engine::plugins::terrain

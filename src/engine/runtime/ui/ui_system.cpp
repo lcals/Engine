@@ -182,6 +182,7 @@ struct UiSystem::State final : Rml::EventListener
     };
     struct Document
     {
+        std::uint64_t scene = 0;
         std::uint64_t node = 0;
         std::uint64_t view = 0;
         std::uint64_t revision = 0;
@@ -192,6 +193,8 @@ struct UiSystem::State final : Rml::EventListener
         Rml::ElementDocument* markup = nullptr;
         std::map<std::uint64_t, Element> elements;
         std::uint64_t element_sequence = 0;
+        std::size_t order = 0;
+        bool persistent = false;
         bool visible = true;
     };
     explicit State(FontSystem& fonts) : font_engine(fonts), renderer(fonts, font_engine)
@@ -203,7 +206,6 @@ struct UiSystem::State final : Rml::EventListener
     ui_detail::RmlRender renderer;
     std::vector<Document> documents;
     std::deque<UiEvent> events;
-    std::uint64_t scene_id = 0;
     bool initialized = false;
     Rml::Context* keyboard_context = nullptr;
     Rml::Context* pointer_context = nullptr;
@@ -211,6 +213,7 @@ struct UiSystem::State final : Rml::EventListener
     std::uint32_t pointer_buttons = 0;
     std::optional<std::pair<SDL_TouchID, SDL_FingerID>> touch_pointer;
     std::set<std::pair<SDL_TouchID, SDL_FingerID>> blocked_touches;
+    std::set<SDL_Keycode> keys_down;
     int logical_width = 0;
     int logical_height = 0;
     bool canceling_input = false;
@@ -394,7 +397,7 @@ struct UiSystem::State final : Rml::EventListener
                 output.node_id = document.node;
                 output.element_id = target->GetId();
                 output.type = event.GetType();
-                output.scene_id = scene_id;
+                output.scene_id = document.scene;
                 output.target = identity;
                 for (auto* current = target;
                      current && current->GetOwnerDocument() == document.markup;
@@ -451,10 +454,9 @@ bool UiSystem::synchronize()
     {
         return false;
     }
-    const auto* scene = world_.scene();
-    if (!scene)
+    if (world_.scenes().empty())
     {
-        if (state_->scene_id != 0 || !state_->documents.empty())
+        if (!state_->documents.empty())
         {
             release_scene();
         }
@@ -474,16 +476,12 @@ bool UiSystem::synchronize()
     }
     state_->logical_width = logical_width;
     state_->logical_height = logical_height;
-    if (state_->scene_id != scene->id())
-    {
-        release_scene();
-        state_->scene_id = scene->id();
-    }
     const auto wanted = [&](const State::Document& document)
     {
-        const auto* node = scene->find_node(document.node);
+        const auto* node = world_.find_node(document.node);
         const auto* ui = node ? node->get_component<UiComponent>() : nullptr;
-        return ui && ui->enabled() && ui->view_id() == document.view &&
+        return ui && node->scene().id() == document.scene && ui->enabled() &&
+               ui->view_id() == document.view &&
                ui->document_revision() == document.revision && ui->document() == document.resource;
     };
     bool changed = false;
@@ -498,61 +496,73 @@ bool UiSystem::synchronize()
                       changed = true;
                       return true;
                   });
-    for (const auto& node : scene->nodes())
+    std::size_t order = 0;
+    for (const auto& scene : world_.scenes())
     {
-        const auto* ui = node->get_component<UiComponent>();
-        if (!ui || !ui->enabled() || !ui->document() || state_->find_document(node->id()))
+        for (const auto& node : scene->nodes())
         {
-            continue;
+            const auto* ui = node->get_component<UiComponent>();
+            if (!ui || !ui->enabled() || !ui->document())
+            {
+                continue;
+            }
+            if (auto* document = state_->find_document(node->id()))
+            {
+                document->order = order++;
+                document->persistent = node->persistent();
+                continue;
+            }
+            State::Document candidate;
+            candidate.scene = scene->id();
+            candidate.node = node->id();
+            candidate.view = ui->view_id();
+            candidate.revision = ui->document_revision();
+            candidate.id = next_document_id();
+            candidate.order = order++;
+            candidate.persistent = node->persistent();
+            candidate.resource = ui->document();
+            candidate.key = candidate.resource->info().guid + "-" +
+                            std::to_string(candidate.resource->generation());
+            if (candidate.id == 0 || !state_->activate(candidate))
+            {
+                state_->prune();
+                return false;
+            }
+            const auto name = "scene-ui-" + std::to_string(candidate.id);
+            candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
+            if (!candidate.context)
+            {
+                state_->prune();
+                return false;
+            }
+            candidate.markup = candidate.context->LoadDocumentFromMemory(
+                candidate.resource->ui()->markup,
+                "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
+            if (!candidate.markup)
+            {
+                state_->close(candidate);
+                state_->prune();
+                return false;
+            }
+            candidate.markup->AddEventListener("click", state_.get());
+            candidate.markup->AddEventListener("change", state_.get());
+            candidate.markup->AddEventListener("input", state_.get());
+            candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            state_->documents.push_back(std::move(candidate));
+            changed = true;
         }
-        State::Document candidate;
-        candidate.node = node->id();
-        candidate.view = ui->view_id();
-        candidate.revision = ui->document_revision();
-        candidate.id = next_document_id();
-        candidate.resource = ui->document();
-        candidate.key = candidate.resource->info().guid + "-" +
-                        std::to_string(candidate.resource->generation());
-        if (candidate.id == 0 || !state_->activate(candidate))
-        {
-            state_->prune();
-            return false;
-        }
-        const auto name = "scene-ui-" + std::to_string(candidate.id);
-        candidate.context = Rml::CreateContext(name, {logical_width, logical_height});
-        if (!candidate.context)
-        {
-            state_->prune();
-            return false;
-        }
-        candidate.markup = candidate.context->LoadDocumentFromMemory(
-            candidate.resource->ui()->markup,
-            "engine-ui/" + candidate.key + "/" + candidate.resource->info().path);
-        if (!candidate.markup)
-        {
-            state_->close(candidate);
-            state_->prune();
-            return false;
-        }
-        candidate.markup->AddEventListener("click", state_.get());
-        candidate.markup->AddEventListener("change", state_.get());
-        candidate.markup->AddEventListener("input", state_.get());
-        candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
-        state_->documents.push_back(std::move(candidate));
-        changed = true;
     }
     if (changed)
     {
         state_->prune();
     }
-    const auto order = [&](std::uint64_t id)
-    {
-        return std::find_if(scene->nodes().begin(), scene->nodes().end(),
-                            [id](const auto& node) { return node->id() == id; });
-    };
     std::stable_sort(state_->documents.begin(), state_->documents.end(),
-                     [&](const auto& left, const auto& right)
-                     { return order(left.node) < order(right.node); });
+                     [](const auto& left, const auto& right)
+                     {
+                         return left.persistent != right.persistent
+                                    ? !left.persistent
+                                    : left.order < right.order;
+                     });
     for (auto& document : state_->documents)
     {
         document.context->SetDimensions({logical_width, logical_height});
@@ -626,6 +636,174 @@ bool UiSystem::find_element(std::uint64_t node, std::string_view id, UiElementHa
     }
     output = state_->handle(*document, *element);
     return output.element_id != 0;
+}
+
+bool UiSystem::document_root(std::uint64_t node, UiElementHandle& output)
+{
+    output = {};
+    if (!synchronize())
+    {
+        return false;
+    }
+    auto* document = state_->find_document(node);
+    if (!document)
+    {
+        return false;
+    }
+    output = state_->handle(*document, *document->markup);
+    return output.element_id != 0;
+}
+
+bool UiSystem::inspect_element(UiElementHandle handle, UiElementInfo& output)
+{
+    output = {};
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(handle, &document) : nullptr;
+    if (!tracked)
+    {
+        return false;
+    }
+    auto& element = *tracked->reference.get();
+    output.handle = handle;
+    if (auto* parent = element.GetParentNode();
+        parent != nullptr && parent->GetOwnerDocument() == document->markup)
+    {
+        output.parent = state_->handle(*document, *parent);
+    }
+    output.tag = element.GetTagName();
+    output.id = element.GetId();
+    output.classes = element.GetClassNames();
+    append_text(element, output.text);
+    output.value = element_value(element);
+    if (element.GetTagName() == "input" &&
+        element.GetAttribute<Rml::String>("type", "") == "password")
+    {
+        output.value.assign(output.value.size(), '*');
+    }
+    output.child_count = static_cast<std::uint32_t>(element.GetNumChildren());
+    output.visible = document->visible && element.IsVisible(true);
+    output.enabled = element_enabled(element);
+    output.focused = state_->keyboard_context == document->context &&
+                     document->context->GetFocusElement() == &element;
+    Rml::Rectanglef bounds;
+    if (Rml::ElementUtilities::GetBoundingBox(bounds, &element, Rml::BoxArea::Border))
+    {
+        output.bounds = {bounds.Left(), bounds.Top(), bounds.Width(), bounds.Height()};
+    }
+    return true;
+}
+
+bool UiSystem::child_element(UiElementHandle parent, std::uint32_t index, UiElementHandle& output)
+{
+    output = {};
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(parent, &document) : nullptr;
+    if (!tracked || index >= static_cast<std::uint32_t>(tracked->reference->GetNumChildren()))
+    {
+        return false;
+    }
+    auto* child = tracked->reference->GetChild(static_cast<int>(index));
+    if (!child)
+    {
+        return false;
+    }
+    output = state_->handle(*document, *child);
+    return output.element_id != 0;
+}
+
+bool UiSystem::element_style(UiElementHandle handle, std::string_view name, std::string& output)
+{
+    output.clear();
+    if (name.empty() || !valid_string(name))
+    {
+        return false;
+    }
+    auto* tracked = synchronize() ? state_->resolve(handle) : nullptr;
+    const auto* property = tracked ? tracked->reference->GetProperty(std::string(name)) : nullptr;
+    if (!property)
+    {
+        return false;
+    }
+    output = property->ToString();
+    return true;
+}
+
+bool UiSystem::hit_test(float x, float y, UiElementHandle& output)
+{
+    output = {};
+    if (!valid_pointer(x, y) || !synchronize())
+    {
+        return false;
+    }
+    if (x < 0 || y < 0 || x >= state_->logical_width || y >= state_->logical_height)
+    {
+        return true;
+    }
+    for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+    {
+        auto* claimed = state_->hit_target(*it, x, y);
+        if (!claimed)
+        {
+            continue;
+        }
+        auto* target = it->context->GetElementAtPoint({x, y});
+        if (!target || target->GetOwnerDocument() != it->markup)
+        {
+            target = claimed;
+        }
+        output = state_->handle(*it, *target);
+        return output.element_id != 0;
+    }
+    return true;
+}
+
+bool UiSystem::pointer_active() const noexcept
+{
+    return state_->initialized && (state_->pointer_context != nullptr || state_->touch_pointer ||
+                                   !state_->blocked_touches.empty());
+}
+
+bool UiSystem::focus_element(UiElementHandle handle)
+{
+    State::Document* document = nullptr;
+    auto* tracked = synchronize() ? state_->resolve(handle, &document) : nullptr;
+    if (!tracked || !document->visible || !tracked->reference->IsVisible(true) ||
+        !element_enabled(*tracked->reference.get()) || !state_->activate(*document))
+    {
+        return false;
+    }
+    for (auto it = state_->documents.rbegin(); it != state_->documents.rend(); ++it)
+    {
+        if (it->visible && it->markup->IsModal() && it->context != document->context)
+        {
+            return false;
+        }
+        if (it->context == document->context)
+        {
+            break;
+        }
+    }
+    if (!tracked->reference->Focus())
+    {
+        return false;
+    }
+    for (auto& other : state_->documents)
+    {
+        if (other.context != document->context)
+        {
+            if (auto* focused = other.context->GetFocusElement())
+            {
+                focused->Blur();
+            }
+        }
+    }
+    state_->keyboard_context = document->context;
+    const auto& tag = tracked->reference->GetTagName();
+    if ((tag == "input" || tag == "textarea") && !SDL_TextInputActive(window_.native_window()))
+    {
+        static_cast<void>(SDL_StartTextInput(window_.native_window()));
+    }
+    return true;
 }
 bool UiSystem::is_valid(UiElementHandle handle)
 {
@@ -908,7 +1086,6 @@ void UiSystem::release_scene() noexcept
     state_->blocked_touches.clear();
     state_->documents.clear();
     state_->events.clear();
-    state_->scene_id = 0;
     Rml::ReleaseRenderManagers();
     Rml::ReleaseFontResources();
     state_->renderer.release();
@@ -918,6 +1095,13 @@ void UiSystem::release_scene() noexcept
     }
 }
 bool UiSystem::process_event(const SDL_Event& event)
+{
+    return process_event(event, event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP
+                                    ? event.key.mod
+                                    : SDL_GetModState());
+}
+
+bool UiSystem::process_event(const SDL_Event& event, std::uint16_t modifiers)
 {
     if (!state_->initialized)
     {
@@ -965,7 +1149,7 @@ bool UiSystem::process_event(const SDL_Event& event)
             input.type == SDL_EVENT_MOUSE_BUTTON_UP || input.type == SDL_EVENT_MOUSE_MOTION ||
             input.type == SDL_EVENT_MOUSE_WHEEL;
         const bool consumed =
-            ui_detail::process_input(*document.context, window_.native_window(), input);
+            ui_detail::process_input(*document.context, window_.native_window(), input, modifiers);
         state_->input_event = false;
         return consumed;
     };
@@ -1107,6 +1291,14 @@ bool UiSystem::process_event(const SDL_Event& event)
         {
             if (document.context == state_->keyboard_context)
             {
+                if (event.type == SDL_EVENT_KEY_DOWN)
+                {
+                    state_->keys_down.insert(event.key.key);
+                }
+                else if (event.type == SDL_EVENT_KEY_UP)
+                {
+                    state_->keys_down.erase(event.key.key);
+                }
                 return process(document, event);
             }
         }
@@ -1251,13 +1443,25 @@ void UiSystem::cancel_input() noexcept
         return;
     }
     state_->cancel_pointer();
+    state_->canceling_input = true;
     for (auto& document : state_->documents)
     {
         if (auto* focused = document.context->GetFocusElement())
         {
             focused->Blur();
         }
+        for (const auto key : state_->keys_down)
+        {
+            SDL_Event release{};
+            release.type = SDL_EVENT_KEY_UP;
+            release.key.windowID = SDL_GetWindowID(window_.native_window());
+            release.key.key = key;
+            static_cast<void>(
+                ui_detail::process_input(*document.context, window_.native_window(), release, 0));
+        }
     }
+    state_->canceling_input = false;
+    state_->keys_down.clear();
     state_->keyboard_context = nullptr;
     if (SDL_TextInputActive(window_.native_window()))
     {
@@ -1281,7 +1485,7 @@ bool UiSystem::poll_event(UiEvent& output)
         state_->events.pop_front();
         State::Document* document = nullptr;
         const auto* element = state_->resolve(event.target, &document);
-        if (event.scene_id != state_->scene_id || !element || !document->visible ||
+        if (!element || event.scene_id != document->scene || !document->visible ||
             document->node != event.node_id || !element->reference->IsVisible() ||
             !element_enabled(*element->reference.get()))
         {

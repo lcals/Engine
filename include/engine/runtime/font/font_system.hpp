@@ -88,6 +88,7 @@ public:
 
 protected:
     [[nodiscard]] bool on_initialize(const EngineConfig& config) override;
+    [[nodiscard]] bool on_tick(double delta_time) override;
     void on_shutdown() noexcept override;
 
 private:

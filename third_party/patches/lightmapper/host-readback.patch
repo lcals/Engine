@@ -1,0 +1,694 @@
+--- a/lightmapper.h
++++ b/lightmapper.h
+@@ -34,10 +34,10 @@
+ 
+ typedef int lm_type;
+ #define LM_NONE           0
+-#define LM_UNSIGNED_BYTE  GL_UNSIGNED_BYTE
+-#define LM_UNSIGNED_SHORT GL_UNSIGNED_SHORT
+-#define LM_UNSIGNED_INT   GL_UNSIGNED_INT
+-#define LM_FLOAT          GL_FLOAT
++#define LM_UNSIGNED_BYTE  1
++#define LM_UNSIGNED_SHORT 2
++#define LM_UNSIGNED_INT   3
++#define LM_FLOAT          4
+ 
+ typedef struct lm_context lm_context;
+ 
+@@ -83,6 +83,8 @@
+ float lmProgress(lm_context *ctx);                                                                     // should only be called between lmBegin/lmEnd!
+                                                                                                        // provides the light mapping progress as a value increasing from 0.0 to 1.0.
+ 
++// Supply one top-left-origin linear RGBA face after asynchronous host readback.
++void lmSubmitPixels(lm_context *ctx, const float *rgba, int width, int height);
+ void lmEnd(lm_context *ctx);
+ 
+ // destroys the lightmapper instance. should be called to free resources.
+@@ -113,6 +115,7 @@
+ #include <stdlib.h>
+ #include <stdio.h>
+ #include <math.h>
++#include <string.h>
+ #include <float.h>
+ #include <assert.h>
+ #include <limits.h>
+@@ -336,31 +339,34 @@
+ 		unsigned int fbHemiCountY;
+ 		unsigned int fbHemiIndex;
+ 		lm_ivec2 *fbHemiToLightmapLocation;
+-		GLuint fbTexture[2];
+-		GLuint fb[2];
+-		GLuint fbDepth;
+-		GLuint vao;
++		unsigned int fbTexture[2];
++		unsigned int fb[2];
++		unsigned int fbDepth;
++		unsigned int vao;
+ 		struct
+ 		{
+-			GLuint programID;
+-			GLuint hemispheresTextureID;
+-			GLuint weightsTextureID;
+-			GLuint weightsTexture;
++			unsigned int programID;
++			unsigned int hemispheresTextureID;
++			unsigned int weightsTextureID;
++			unsigned int weightsTexture;
+ 		} firstPass;
+ 		struct
+ 		{
+-			GLuint programID;
+-			GLuint hemispheresTextureID;
++			unsigned int programID;
++			unsigned int hemispheresTextureID;
+ 		} downsamplePass;
+ 		struct
+ 		{
+-			GLuint texture;
++			unsigned int texture;
+ 			lm_ivec2 writePosition;
+ 			lm_ivec2 *toLightmapLocation;
+ 		} storage;
+ 	} hemisphere;
+ 
+ 	float interpolationThreshold;
++	float *cpuWeights;
++	double cpuSum[4];
++	int cpuViewport[4];
+ };
+ 
+ // pass order of one 4x4 interpolation patch for two interpolation steps (and the next neighbors right of/below it)
+@@ -372,7 +378,7 @@
+ 
+ static unsigned int lm_passStepSize(lm_context *ctx)
+ {
+-	unsigned int shift = ctx->meshPosition.passCount / 3 - (ctx->meshPosition.pass - 1) / 3;
++	unsigned int shift = ctx->meshPosition.passCount / 3 - (ctx->meshPosition.pass > 0 ? (ctx->meshPosition.pass - 1) / 3 : 0);
+ 	unsigned int step = (1 << shift);
+ 	assert(step > 0);
+ 	return step;
+@@ -616,155 +622,9 @@
+ 	return lm_findFirstConservativeTriangleRasterizerPosition(ctx);
+ }
+ 
+-static void lm_integrateHemisphereBatch(lm_context *ctx)
+-{
+-	if (!ctx->hemisphere.fbHemiIndex)
+-		return; // nothing to do
+-
+-	glDisable(GL_DEPTH_TEST);
+-	glBindVertexArray(ctx->hemisphere.vao);
+-
+-	int fbRead = 0;
+-	int fbWrite = 1;
+-
+-	// weighted downsampling pass
+-	int outHemiSize = ctx->hemisphere.size / 2;
+-	glBindFramebuffer(GL_FRAMEBUFFER, ctx->hemisphere.fb[fbWrite]);
+-	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx->hemisphere.fbTexture[fbWrite], 0);
+-	glViewport(0, 0, outHemiSize * ctx->hemisphere.fbHemiCountX, outHemiSize * ctx->hemisphere.fbHemiCountY);
+-	glUseProgram(ctx->hemisphere.firstPass.programID);
+-	glUniform1i(ctx->hemisphere.firstPass.hemispheresTextureID, 0);
+-	glActiveTexture(GL_TEXTURE0);
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.fbTexture[fbRead]);
+-	glUniform1i(ctx->hemisphere.firstPass.weightsTextureID, 1);
+-	glActiveTexture(GL_TEXTURE1);
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.firstPass.weightsTexture);
+-	glActiveTexture(GL_TEXTURE0);
+-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+-	//glBindTexture(GL_TEXTURE_2D, 0);
+-
+-#if 0
+-	// debug output
+-	int w = outHemiSize * ctx->hemisphere.fbHemiCountX, h = outHemiSize * ctx->hemisphere.fbHemiCountY;
+-	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+-	glBindFramebuffer(GL_READ_FRAMEBUFFER, ctx->hemisphere.fb[fbWrite]);
+-	glReadBuffer(GL_COLOR_ATTACHMENT0);
+-	float *image = new float[3 * w * h];
+-	glReadPixels(0, 0, w, h, GL_RGB, GL_FLOAT, image);
+-	lmImageSaveTGAf("firstpass.png", image, w, h, 3);
+-	delete[] image;
+-#endif
+-
+-	// downsampling passes
+-	glUseProgram(ctx->hemisphere.downsamplePass.programID);
+-	glUniform1i(ctx->hemisphere.downsamplePass.hemispheresTextureID, 0);
+-	while (outHemiSize > 1)
+-	{
+-		LM_SWAP(int, fbRead, fbWrite);
+-		outHemiSize /= 2;
+-		glBindFramebuffer(GL_FRAMEBUFFER, ctx->hemisphere.fb[fbWrite]);
+-		glViewport(0, 0, outHemiSize * ctx->hemisphere.fbHemiCountX, outHemiSize * ctx->hemisphere.fbHemiCountY);
+-		glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.fbTexture[fbRead]);
+-		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+-		//glBindTexture(GL_TEXTURE_2D, 0);
+-	}
+-
+-	// copy results to storage texture
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.storage.texture);
+-	glCopyTexSubImage2D(GL_TEXTURE_2D, 0,
+-		ctx->hemisphere.storage.writePosition.x, ctx->hemisphere.storage.writePosition.y,
+-		0, 0, ctx->hemisphere.fbHemiCountX, ctx->hemisphere.fbHemiCountY);
+-	glBindTexture(GL_TEXTURE_2D, 0);
+-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+-	glBindVertexArray(0);
+-	glEnable(GL_DEPTH_TEST);
+-
+-	// copy position mapping to storage
+-	for (unsigned int y = 0; y < ctx->hemisphere.fbHemiCountY; y++)
+-	{
+-		int sy = ctx->hemisphere.storage.writePosition.y + y;
+-		for (unsigned int x = 0; x < ctx->hemisphere.fbHemiCountX; x++)
+-		{
+-			int sx = ctx->hemisphere.storage.writePosition.x + x;
+-			unsigned int hemiIndex = y * ctx->hemisphere.fbHemiCountX + x;
+-			if (hemiIndex >= ctx->hemisphere.fbHemiIndex)
+-				ctx->hemisphere.storage.toLightmapLocation[sy * ctx->lightmap.width + sx] = lm_i2(-1, -1);
+-			else
+-				ctx->hemisphere.storage.toLightmapLocation[sy * ctx->lightmap.width + sx] = ctx->hemisphere.fbHemiToLightmapLocation[hemiIndex];
+-		}
+-	}
+-
+-	// advance storage texture write position
+-	ctx->hemisphere.storage.writePosition.x += ctx->hemisphere.fbHemiCountX;
+-	if (ctx->hemisphere.storage.writePosition.x + (int)ctx->hemisphere.fbHemiCountX > ctx->lightmap.width)
+-	{
+-		ctx->hemisphere.storage.writePosition.x = 0;
+-		ctx->hemisphere.storage.writePosition.y += ctx->hemisphere.fbHemiCountY;
+-		assert(ctx->hemisphere.storage.writePosition.y + (int)ctx->hemisphere.fbHemiCountY < ctx->lightmap.height);
+-	}
+-
+-	ctx->hemisphere.fbHemiIndex = 0;
+-}
+-
+-static void lm_writeResultsToLightmap(lm_context *ctx)
+-{
+-	// do the GPU->CPU transfer of downsampled hemispheres
+-	float *hemi = (float*)LM_CALLOC(ctx->lightmap.width * ctx->lightmap.height, 4 * sizeof(float));
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.storage.texture);
+-	glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_FLOAT, hemi);
+-
+-	// write results to lightmap texture
+-	for (int y = 0; y < ctx->hemisphere.storage.writePosition.y + (int)ctx->hemisphere.fbHemiCountY; y++)
+-	{
+-		for (int x = 0; x < ctx->lightmap.width; x++)
+-		{
+-			lm_ivec2 lmUV = ctx->hemisphere.storage.toLightmapLocation[y * ctx->lightmap.width + x];
+-			if (lmUV.x >= 0)
+-			{
+-				float *c = hemi + (y * ctx->lightmap.width + x) * 4;
+-				float validity = c[3];
+-				float *lm = ctx->lightmap.data + (lmUV.y * ctx->lightmap.width + lmUV.x) * ctx->lightmap.channels;
+-				if (!lm[0] && validity > 0.9)
+-				{
+-					float scale = 1.0f / validity;
+-					switch (ctx->lightmap.channels)
+-					{
+-					case 1:
+-						lm[0] = lm_maxf((c[0] + c[1] + c[2]) * scale / 3.0f, FLT_MIN);
+-						break;
+-					case 2:
+-						lm[0] = lm_maxf((c[0] + c[1] + c[2]) * scale / 3.0f, FLT_MIN);
+-						lm[1] = 1.0f; // do we want to support this format?
+-						break;
+-					case 3:
+-						lm[0] = lm_maxf(c[0] * scale, FLT_MIN);
+-						lm[1] = lm_maxf(c[1] * scale, FLT_MIN);
+-						lm[2] = lm_maxf(c[2] * scale, FLT_MIN);
+-						break;
+-					case 4:
+-						lm[0] = lm_maxf(c[0] * scale, FLT_MIN);
+-						lm[1] = lm_maxf(c[1] * scale, FLT_MIN);
+-						lm[2] = lm_maxf(c[2] * scale, FLT_MIN);
+-						lm[3] = 1.0f;
+-						break;
+-					default:
+-						assert(LM_FALSE);
+-						break;
+-					}
+-
+-#ifdef LM_DEBUG_INTERPOLATION
+-					// set sampled pixel to red in debug output
+-					ctx->lightmap.debug[(lmUV.y * ctx->lightmap.width + lmUV.x) * 3 + 0] = 255;
+-#endif
+-				}
+-			}
+-			ctx->hemisphere.storage.toLightmapLocation[y * ctx->lightmap.width + x].x = -1; // reset
+-		}
+-	}
+-
+-	LM_FREE(hemi);
+-	ctx->hemisphere.storage.writePosition = lm_i2(0, 0);
+-}
++// Host captures are integrated as soon as their readback completes; no GL queue remains.
++static void lm_integrateHemisphereBatch(lm_context*) {}
++static void lm_writeResultsToLightmap(lm_context*) {}
+ 
+ static void lm_setView(
+ 	int* viewport, int x, int y, int w, int h,
+@@ -799,21 +659,9 @@
+ 		return LM_FALSE;
+ 
+ 	if (ctx->meshPosition.hemisphere.side == 0)
+-	{
+-		// prepare hemisphere
+-		glBindFramebuffer(GL_FRAMEBUFFER, ctx->hemisphere.fb[0]);
+-		if (ctx->hemisphere.fbHemiIndex == 0)
+-		{
+-			// prepare hemisphere batch
+-			glClearColor( // clear to valid background pixels!
+-				ctx->hemisphere.clearColor.r,
+-				ctx->hemisphere.clearColor.g,
+-				ctx->hemisphere.clearColor.b, 1.0f);
+-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+-		}
+-		ctx->hemisphere.fbHemiToLightmapLocation[ctx->hemisphere.fbHemiIndex] =
+-			lm_i2(ctx->meshPosition.rasterizer.x, ctx->meshPosition.rasterizer.y);
+-	}
++    {
++        memset(ctx->cpuSum, 0, sizeof(ctx->cpuSum));
++    }
+ 
+ 	// find the target position in the batch
+ 	int x = (ctx->hemisphere.fbHemiIndex % ctx->hemisphere.fbHemiCountX) * ctx->hemisphere.size * 3;
+@@ -867,21 +715,43 @@
+ 		break;
+ 	}
+ 
++	memcpy(ctx->cpuViewport, viewport, sizeof(ctx->cpuViewport));
+ 	return LM_TRUE;
+ }
+ 
++void lmSubmitPixels(lm_context *ctx, const float *rgba, int width, int height)
++{
++    assert(width == ctx->cpuViewport[2] && height == ctx->cpuViewport[3]);
++    const unsigned int stride = 3 * ctx->hemisphere.size;
++    for (int y = 0; y < height; ++y)
++    {
++        const int sy = ctx->cpuViewport[1] + height - 1 - y;
++        for (int x = 0; x < width; ++x)
++        {
++            const int sx = ctx->cpuViewport[0] + x;
++            const float *weights = ctx->cpuWeights + 2 * (sy * stride + sx);
++            const float *pixel = rgba + 4 * (y * width + x);
++            for (int c = 0; c < 3; ++c)
++                ctx->cpuSum[c] += pixel[c] * weights[0] * 6.2831853071795864769;
++            ctx->cpuSum[3] += pixel[3] * weights[1];
++        }
++    }
++}
++
+ static void lm_endSampleHemisphere(lm_context *ctx)
+ {
+-	if (++ctx->meshPosition.hemisphere.side == 5)
+-	{
+-		// finish hemisphere
+-		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+-		if (++ctx->hemisphere.fbHemiIndex == ctx->hemisphere.fbHemiCountX * ctx->hemisphere.fbHemiCountY)
+-		{
+-			// downsample new hemisphere batch and store the results
+-			lm_integrateHemisphereBatch(ctx);
+-		}
+-	}
++    if (++ctx->meshPosition.hemisphere.side != 5)
++        return;
++    const double validity = ctx->cpuSum[3];
++    if (validity > 0.9)
++    {
++        float *pixel = lm_getLightmapPixel(ctx, ctx->meshPosition.rasterizer.x,
++                                          ctx->meshPosition.rasterizer.y);
++        for (int c = 0; c < 3 && c < ctx->lightmap.channels; ++c)
++            pixel[c] = lm_maxf((float)(ctx->cpuSum[c] / validity), FLT_MIN);
++        if (ctx->lightmap.channels == 4)
++            pixel[3] = 1.0f;
++    }
+ }
+ 
+ static void lm_inverseTranspose(const float *m44, float *n33)
+@@ -1072,296 +942,45 @@
+ 		ctx->meshPosition.hemisphere.side = 5; // no samples on this triangle! put hemisphere sampler into finished state
+ }
+ 
+-static GLuint lm_LoadShader(GLenum type, const char *source)
+-{
+-	GLuint shader = glCreateShader(type);
+-	if (shader == 0)
+-	{
+-		fprintf(stderr, "Could not create shader!\n");
+-		return 0;
+-	}
+-	glShaderSource(shader, 1, &source, NULL);
+-	glCompileShader(shader);
+-	GLint compiled;
+-	glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
+-	if (!compiled)
+-	{
+-		fprintf(stderr, "Could not compile shader!\n");
+-		GLint infoLen = 0;
+-		glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &infoLen);
+-		if (infoLen)
+-		{
+-			char* infoLog = (char*)malloc(infoLen);
+-			glGetShaderInfoLog(shader, infoLen, NULL, infoLog);
+-			fprintf(stderr, "%s\n", infoLog);
+-			free(infoLog);
+-		}
+-		glDeleteShader(shader);
+-		return 0;
+-	}
+-	return shader;
+-}
+-
+-static GLuint lm_LoadProgram(const char *vp, const char *fp)
+-{
+-	GLuint program = glCreateProgram();
+-	if (program == 0)
+-	{
+-		fprintf(stderr, "Could not create program!\n");
+-		return 0;
+-	}
+-	GLuint vertexShader = lm_LoadShader(GL_VERTEX_SHADER, vp);
+-	GLuint fragmentShader = lm_LoadShader(GL_FRAGMENT_SHADER, fp);
+-	glAttachShader(program, vertexShader);
+-	glAttachShader(program, fragmentShader);
+-	glLinkProgram(program);
+-	glDeleteShader(vertexShader);
+-	glDeleteShader(fragmentShader);
+-	GLint linked;
+-	glGetProgramiv(program, GL_LINK_STATUS, &linked);
+-	if (!linked)
+-	{
+-		fprintf(stderr, "Could not link program!\n");
+-		GLint infoLen = 0;
+-		glGetProgramiv(program, GL_INFO_LOG_LENGTH, &infoLen);
+-		if (infoLen)
+-		{
+-			char* infoLog = (char*)malloc(sizeof(char) * infoLen);
+-			glGetProgramInfoLog(program, infoLen, NULL, infoLog);
+-			fprintf(stderr, "%s\n", infoLog);
+-			free(infoLog);
+-		}
+-		glDeleteProgram(program);
+-		return 0;
+-	}
+-	return program;
+-}
+-
+-static float lm_defaultWeights(float cos_theta, void *userdata)
+-{
+-	return 1.0f;
+-}
++static float lm_cosineWeight(float cosine, void*) { return cosine; }
+ 
+ lm_context *lmCreate(int hemisphereSize, float zNear, float zFar,
+-	float clearR, float clearG, float clearB,
+-	int interpolationPasses, float interpolationThreshold,
+-	float cameraToSurfaceDistanceModifier)
+-{
+-	assert(hemisphereSize == 512 || hemisphereSize == 256 || hemisphereSize == 128 ||
+-		   hemisphereSize ==  64 || hemisphereSize ==  32 || hemisphereSize ==  16);
+-	assert(zNear < zFar && zNear > 0.0f);
+-	assert(cameraToSurfaceDistanceModifier >= -1.0f);
+-	assert(interpolationPasses >= 0 && interpolationPasses <= 8);
+-	assert(interpolationThreshold >= 0.0f);
+-
+-	lm_context *ctx = (lm_context*)LM_CALLOC(1, sizeof(lm_context));
+-
+-	ctx->meshPosition.passCount = 1 + 3 * interpolationPasses;
+-	ctx->interpolationThreshold = interpolationThreshold;
+-	ctx->hemisphere.size = hemisphereSize;
+-	ctx->hemisphere.zNear = zNear;
+-	ctx->hemisphere.zFar = zFar;
+-	ctx->hemisphere.cameraToSurfaceDistanceModifier = cameraToSurfaceDistanceModifier;
+-	ctx->hemisphere.clearColor.r = clearR;
+-	ctx->hemisphere.clearColor.g = clearG;
+-	ctx->hemisphere.clearColor.b = clearB;
+-
+-	// calculate hemisphere batch size
+-	ctx->hemisphere.fbHemiCountX = 1536 / (3 * ctx->hemisphere.size);
+-	ctx->hemisphere.fbHemiCountY = 512 / ctx->hemisphere.size;
+-
+-	// hemisphere batch framebuffers
+-	unsigned int w[] = {
+-		ctx->hemisphere.fbHemiCountX * ctx->hemisphere.size * 3,
+-		ctx->hemisphere.fbHemiCountX * ctx->hemisphere.size / 2 };
+-	unsigned int h[] = {
+-		ctx->hemisphere.fbHemiCountY * ctx->hemisphere.size,
+-		ctx->hemisphere.fbHemiCountY * ctx->hemisphere.size / 2 };
+-
+-	glGenTextures(2, ctx->hemisphere.fbTexture);
+-	glGenFramebuffers(2, ctx->hemisphere.fb);
+-	glGenRenderbuffers(1, &ctx->hemisphere.fbDepth);
+-
+-	glBindRenderbuffer(GL_RENDERBUFFER, ctx->hemisphere.fbDepth);
+-	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, w[0], h[0]);
+-	glBindFramebuffer(GL_FRAMEBUFFER, ctx->hemisphere.fb[0]);
+-	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, ctx->hemisphere.fbDepth);
+-	for (int i = 0; i < 2; i++)
+-	{
+-		glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.fbTexture[i]);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w[i], h[i], 0, GL_RGBA, GL_FLOAT, 0);
+-
+-		glBindFramebuffer(GL_FRAMEBUFFER, ctx->hemisphere.fb[i]);
+-		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, ctx->hemisphere.fbTexture[i], 0);
+-		GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+-		if (status != GL_FRAMEBUFFER_COMPLETE)
+-		{
+-			fprintf(stderr, "Could not create framebuffer!\n");
+-			glDeleteRenderbuffers(1, &ctx->hemisphere.fbDepth);
+-			glDeleteFramebuffers(2, ctx->hemisphere.fb);
+-			glDeleteTextures(2, ctx->hemisphere.fbTexture);
+-			LM_FREE(ctx);
+-			return NULL;
+-		}
+-	}
+-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+-
+-	// dummy vao for fullscreen quad rendering
+-	glGenVertexArrays(1, &ctx->hemisphere.vao);
+-
+-	// hemisphere shader (weighted downsampling of the 3x1 hemisphere layout to a 0.5x0.5 square)
+-	{
+-		const char *vs =
+-			"#version 150 core\n"
+-			"const vec2 ps[4] = vec2[](vec2(1, -1), vec2(1, 1), vec2(-1, -1), vec2(-1, 1));\n"
+-			"void main()\n"
+-			"{\n"
+-				"gl_Position = vec4(ps[gl_VertexID], 0, 1);\n"
+-			"}\n";
+-		const char *fs =
+-			"#version 150 core\n"
+-			"uniform sampler2D hemispheres;\n"
+-			"uniform sampler2D weights;\n"
+-
+-			"layout(pixel_center_integer) in vec4 gl_FragCoord;\n" // whole integer values represent pixel centers, GL_ARB_fragment_coord_conventions
+-
+-			"out vec4 outColor;\n"
+-
+-			"vec4 weightedSample(ivec2 h_uv, ivec2 w_uv, ivec2 quadrant)\n"
+-			"{\n"
+-				"vec4 sample = texelFetch(hemispheres, h_uv + quadrant, 0);\n"
+-				"vec2 weight = texelFetch(weights, w_uv + quadrant, 0).rg;\n"
+-				"return vec4(sample.rgb * weight.r, sample.a * weight.g);\n"
+-			"}\n"
+-
+-			"vec4 threeWeightedSamples(ivec2 h_uv, ivec2 w_uv, ivec2 offset)\n"
+-			"{\n" // horizontal triple sum
+-				"vec4 sum = weightedSample(h_uv, w_uv, offset);\n"
+-				"sum += weightedSample(h_uv, w_uv, offset + ivec2(2, 0));\n"
+-				"sum += weightedSample(h_uv, w_uv, offset + ivec2(4, 0));\n"
+-				"return sum;\n"
+-			"}\n"
+-
+-			"void main()\n"
+-			"{\n" // this is a weighted sum downsampling pass (alpha component contains the weighted valid sample count)
+-				"vec2 in_uv = gl_FragCoord.xy * vec2(6.0, 2.0) + vec2(0.5);\n"
+-				"ivec2 h_uv = ivec2(in_uv);\n"
+-				"ivec2 w_uv = ivec2(mod(in_uv, vec2(textureSize(weights, 0))));\n" // there's no integer modulo :(
+-				"vec4 lb = threeWeightedSamples(h_uv, w_uv, ivec2(0, 0));\n"
+-				"vec4 rb = threeWeightedSamples(h_uv, w_uv, ivec2(1, 0));\n"
+-				"vec4 lt = threeWeightedSamples(h_uv, w_uv, ivec2(0, 1));\n"
+-				"vec4 rt = threeWeightedSamples(h_uv, w_uv, ivec2(1, 1));\n"
+-				"outColor = lb + rb + lt + rt;\n"
+-			"}\n";
+-		ctx->hemisphere.firstPass.programID = lm_LoadProgram(vs, fs);
+-		if (!ctx->hemisphere.firstPass.programID)
+-		{
+-			fprintf(stderr, "Error loading the hemisphere first pass shader program... leaving!\n");
+-			glDeleteVertexArrays(1, &ctx->hemisphere.vao);
+-			glDeleteRenderbuffers(1, &ctx->hemisphere.fbDepth);
+-			glDeleteFramebuffers(2, ctx->hemisphere.fb);
+-			glDeleteTextures(2, ctx->hemisphere.fbTexture);
+-			LM_FREE(ctx);
+-			return NULL;
+-		}
+-		ctx->hemisphere.firstPass.hemispheresTextureID = glGetUniformLocation(ctx->hemisphere.firstPass.programID, "hemispheres");
+-		ctx->hemisphere.firstPass.weightsTextureID = glGetUniformLocation(ctx->hemisphere.firstPass.programID, "weights");
+-	}
+-
+-	// downsample shader
+-	{
+-		const char *vs =
+-			"#version 150 core\n"
+-			"const vec2 ps[4] = vec2[](vec2(1, -1), vec2(1, 1), vec2(-1, -1), vec2(-1, 1));\n"
+-			"void main()\n"
+-			"{\n"
+-				"gl_Position = vec4(ps[gl_VertexID], 0, 1);\n"
+-			"}\n";
+-		const char *fs =
+-			"#version 150 core\n"
+-			"uniform sampler2D hemispheres;\n"
+-
+-			"layout(pixel_center_integer) in vec4 gl_FragCoord;\n" // whole integer values represent pixel centers, GL_ARB_fragment_coord_conventions
+-
+-			"out vec4 outColor;\n"
+-
+-			"void main()\n"
+-			"{\n" // this is a sum downsampling pass (alpha component contains the weighted valid sample count)
+-				"ivec2 h_uv = ivec2(gl_FragCoord.xy) * 2;\n"
+-				"vec4 lb = texelFetch(hemispheres, h_uv + ivec2(0, 0), 0);\n"
+-				"vec4 rb = texelFetch(hemispheres, h_uv + ivec2(1, 0), 0);\n"
+-				"vec4 lt = texelFetch(hemispheres, h_uv + ivec2(0, 1), 0);\n"
+-				"vec4 rt = texelFetch(hemispheres, h_uv + ivec2(1, 1), 0);\n"
+-				"outColor = lb + rb + lt + rt;\n"
+-			"}\n";
+-		ctx->hemisphere.downsamplePass.programID = lm_LoadProgram(vs, fs);
+-		if (!ctx->hemisphere.downsamplePass.programID)
+-		{
+-			fprintf(stderr, "Error loading the hemisphere downsample pass shader program... leaving!\n");
+-			glDeleteProgram(ctx->hemisphere.firstPass.programID);
+-			glDeleteVertexArrays(1, &ctx->hemisphere.vao);
+-			glDeleteRenderbuffers(1, &ctx->hemisphere.fbDepth);
+-			glDeleteFramebuffers(2, ctx->hemisphere.fb);
+-			glDeleteTextures(2, ctx->hemisphere.fbTexture);
+-			LM_FREE(ctx);
+-			return NULL;
+-		}
+-		ctx->hemisphere.downsamplePass.hemispheresTextureID = glGetUniformLocation(ctx->hemisphere.downsamplePass.programID, "hemispheres");
+-	}
+-
+-	// hemisphere weights texture
+-	glGenTextures(1, &ctx->hemisphere.firstPass.weightsTexture);
+-	lmSetHemisphereWeights(ctx, lm_defaultWeights, 0);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+-
+-	// allocate batchPosition-to-lightmapPosition map
+-	ctx->hemisphere.fbHemiToLightmapLocation = (lm_ivec2*)LM_CALLOC(ctx->hemisphere.fbHemiCountX * ctx->hemisphere.fbHemiCountY, sizeof(lm_ivec2));
+-
+-	return ctx;
++    float clearR, float clearG, float clearB, int interpolationPasses,
++    float interpolationThreshold, float cameraToSurfaceDistanceModifier)
++{
++    if (hemisphereSize < 16 || hemisphereSize > 512 ||
++        (hemisphereSize & (hemisphereSize - 1)) || zNear <= 0 || zNear >= zFar ||
++        interpolationPasses < 0 || interpolationPasses > 8 || interpolationThreshold < 0)
++        return 0;
++    lm_context *ctx = (lm_context*)LM_CALLOC(1, sizeof(lm_context));
++    if (!ctx) return 0;
++    ctx->meshPosition.passCount = 1 + 3 * interpolationPasses;
++    ctx->interpolationThreshold = interpolationThreshold;
++    ctx->hemisphere.size = hemisphereSize;
++    ctx->hemisphere.zNear = zNear;
++    ctx->hemisphere.zFar = zFar;
++    ctx->hemisphere.cameraToSurfaceDistanceModifier = cameraToSurfaceDistanceModifier;
++    ctx->hemisphere.clearColor.r = clearR;
++    ctx->hemisphere.clearColor.g = clearG;
++    ctx->hemisphere.clearColor.b = clearB;
++    ctx->hemisphere.fbHemiCountX = ctx->hemisphere.fbHemiCountY = 1;
++    lmSetHemisphereWeights(ctx, lm_cosineWeight, 0);
++    if (!ctx->cpuWeights) { LM_FREE(ctx); return 0; }
++    return ctx;
+ }
+ 
+ void lmDestroy(lm_context *ctx)
+ {
+-	// reset state
+-	glUseProgram(0);
+-	glBindTexture(GL_TEXTURE_2D, 0);
+-	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+-	glBindVertexArray(0);
+-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+-	glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+-
+-	// delete gl objects
+-	glDeleteTextures(1, &ctx->hemisphere.firstPass.weightsTexture);
+-	glDeleteTextures(1, &ctx->hemisphere.storage.texture);
+-	glDeleteProgram(ctx->hemisphere.downsamplePass.programID);
+-	glDeleteProgram(ctx->hemisphere.firstPass.programID);
+-	glDeleteVertexArrays(1, &ctx->hemisphere.vao);
+-	glDeleteRenderbuffers(1, &ctx->hemisphere.fbDepth);
+-	glDeleteFramebuffers(2, ctx->hemisphere.fb);
+-	glDeleteTextures(2, ctx->hemisphere.fbTexture);
+-	glDeleteTextures(1, &ctx->hemisphere.storage.texture);
+-
+-	// free memory
+-	LM_FREE(ctx->hemisphere.storage.toLightmapLocation);
+-	LM_FREE(ctx->hemisphere.fbHemiToLightmapLocation);
+-#ifdef LM_DEBUG_INTERPOLATION
+-	LM_FREE(ctx->lightmap.debug);
+-#endif
+-	LM_FREE(ctx);
++    if (!ctx) return;
++    LM_FREE(ctx->cpuWeights);
++    LM_FREE(ctx);
+ }
+ 
+ void lmSetHemisphereWeights(lm_context *ctx, lm_weight_func f, void *userdata)
+ {
+ 	// hemisphere weights texture. bakes in material dependent attenuation behaviour.
+ 	float *weights = (float*)LM_CALLOC(2 * 3 * ctx->hemisphere.size * ctx->hemisphere.size, sizeof(float));
++	if (!weights) return;
+ 	float center = (ctx->hemisphere.size - 1) * 0.5f;
+ 	double sum = 0.0;
+ 	for (unsigned int y = 0; y < ctx->hemisphere.size; y++)
+@@ -1399,10 +1018,8 @@
+ 	for (unsigned int i = 0; i < 2 * 3 * ctx->hemisphere.size * ctx->hemisphere.size; i++)
+ 		weights[i] *= weightScale;
+ 
+-	// upload weight texture
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.firstPass.weightsTexture);
+-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RG32F, 3 * ctx->hemisphere.size, ctx->hemisphere.size, 0, GL_RG, GL_FLOAT, weights);
+-	LM_FREE(weights);
++    LM_FREE(ctx->cpuWeights);
++    ctx->cpuWeights = weights;
+ }
+ 
+ void lmSetTargetLightmap(lm_context *ctx, float *outLightmap, int w, int h, int c)
+@@ -1412,29 +1029,6 @@
+ 	ctx->lightmap.height = h;
+ 	ctx->lightmap.channels = c;
+ 
+-	// allocate storage texture
+-	if (!ctx->hemisphere.storage.texture)
+-		glGenTextures(1, &ctx->hemisphere.storage.texture);
+-	glBindTexture(GL_TEXTURE_2D, ctx->hemisphere.storage.texture);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, w, h, 0, GL_RGBA, GL_FLOAT, 0);
+-
+-	// allocate storage position to lightmap position map
+-	if (ctx->hemisphere.storage.toLightmapLocation)
+-		LM_FREE(ctx->hemisphere.storage.toLightmapLocation);
+-	ctx->hemisphere.storage.toLightmapLocation = (lm_ivec2*)LM_CALLOC(w * h, sizeof(lm_ivec2));
+-	// invalidate all positions
+-	for (int i = 0; i < w * h; i++)
+-		ctx->hemisphere.storage.toLightmapLocation[i].x = -1;
+-
+-#ifdef LM_DEBUG_INTERPOLATION
+-	if (ctx->lightmap.debug)
+-		LM_FREE(ctx->lightmap.debug);
+-	ctx->lightmap.debug = (unsigned char*)LM_CALLOC(ctx->lightmap.width * ctx->lightmap.height, 3);
+-#endif
+ }
+ 
+ void lmSetGeometry(lm_context *ctx,

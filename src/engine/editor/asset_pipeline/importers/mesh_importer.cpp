@@ -97,7 +97,7 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
         }
         mesh.indices.push_back(static_cast<std::uint32_t>(*index));
     }
-    for (const char* name : {"texcoords", "tangents", "colors"})
+    for (const char* name : {"texcoords", "lightmap_texcoords", "tangents", "colors"})
     {
         if (!table.contains(name))
         {
@@ -111,7 +111,8 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
         }
         for (const auto& item : *values)
         {
-            if (std::string_view(name) == "texcoords")
+            if (std::string_view(name) == "texcoords" ||
+                std::string_view(name) == "lightmap_texcoords")
             {
                 std::array<double, 2> value{};
                 if (!numbers(&item, value) ||
@@ -121,7 +122,19 @@ bool MeshImporter::convert(const ImportAsset& asset, const ImportContext& contex
                     error = "mesh texcoord requires two finite float values";
                     return false;
                 }
-                mesh.texcoords.emplace_back(value[0], value[1]);
+                if (std::string_view(name) == "lightmap_texcoords")
+                {
+                    if (value[0] < 0 || value[0] > 1 || value[1] < 0 || value[1] > 1)
+                    {
+                        error = "mesh lightmap_texcoords must be in [0, 1]";
+                        return false;
+                    }
+                    mesh.lightmap_texcoords.emplace_back(value[0], value[1]);
+                }
+                else
+                {
+                    mesh.texcoords.emplace_back(value[0], value[1]);
+                }
                 continue;
             }
             std::array<double, 4> value{};

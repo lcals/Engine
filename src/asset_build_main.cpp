@@ -113,7 +113,7 @@ int main(int argc, char** argv)
         return 2;
     }
     engine::ThreadSystem threads;
-    engine::TaskSystem tasks(threads, {"Editor", 4, engine::TaskPriority::low});
+    engine::TaskSystem tasks(threads, {"Editor", 8, engine::TaskPriority::low});
     engine::editor::AssetPipelineSystem pipeline(tasks);
     const engine::EngineConfig config;
     if (!threads.initialize(config) || !tasks.initialize(config))

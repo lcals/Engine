@@ -4,6 +4,7 @@
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
 #include "plugins/editor/mcp/project_tool_utils.hpp"
+#include "plugins/editor/mcp/project_script_mcp_tools.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -208,6 +209,9 @@ bool EditorMcpTools::register_tools(McpSystem& system)
     light["color"] = vector_schema(4);
     light["intensity"] = {{"type", "number"}};
     light["kind"] = {{"type", "string"}, {"enum", {"directional", "point", "spot"}}};
+    light["castShadows"] = {{"type", "boolean"}};
+    light["shadowResolution"] = {{"type", "integer"}, {"minimum", 128}, {"maximum", 8192}};
+    light["shadowBias"] = {{"type", "number"}, {"minimum", 0}, {"maximum", .1}};
     for (const char* name : {"range", "innerAngle", "outerAngle"})
     {
         light[name] = {{"type", "number"}};
@@ -231,7 +235,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
         object_schema({{"command", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
                        {"arguments", {{"type", "object"}, {"additionalProperties", true}}}},
                       {"command", "arguments"});
-    return register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
+    return register_project_script_tools(system, *this, project_root_, target_) &&
+           register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
            register_animation_tools(system, *this) && register_model_tools(system, *this) &&
            register_command(
                "get_scene", "get_scene",
@@ -267,6 +272,14 @@ bool EditorMcpTools::register_tools(McpSystem& system)
            register_command("set_camera", "set_camera", "Edit camera projection and clipping.",
                             object_schema(std::move(camera), required_node)) &&
            register_command(
+               "set_material_blend_mode", "set_material_blend_mode",
+               "Set a renderer material slot to opaque, alpha blend or premultiplied blending.",
+               object_schema(
+                   {{"sceneId", id_schema()}, {"nodeId", id_schema()},
+                    {"slot", {{"type", "integer"}, {"minimum", 0}, {"maximum", 15}}},
+                    {"mode", {{"type", "string"}, {"enum", {"opaque", "alpha_blend", "premultiplied"}}}}},
+                   {"sceneId", "nodeId", "mode"})) &&
+           register_command(
                "set_material_texture", "set_material_texture",
                "Assign a texture by sampler name and resource path.",
                object_schema(std::move(texture), {"sceneId", "nodeId", "name", "path"})) &&
@@ -294,6 +307,10 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                             object_schema({{"sceneId", id_schema()}}, {"sceneId"})) &&
            register_command("redo", "redo", "Redo the last undone editor edit in this scene.",
                             object_schema({{"sceneId", id_schema()}}, {"sceneId"})) &&
+           register_command("close_editor", "close_editor",
+                            "Acknowledge the request, then close the editor after the delay.",
+                            object_schema({{"delayMs", {{"type", "integer"}, {"minimum", 100},
+                                                         {"maximum", 10000}}}})) &&
            system.register_tool(
                {"get_editor_receipt", "Look up a durable editor receipt by session and request id.",
                 object_schema({{"session", id_schema()}, {"requestId", id_schema()}},

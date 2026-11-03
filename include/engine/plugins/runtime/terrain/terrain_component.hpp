@@ -26,6 +26,8 @@ public:
     [[nodiscard]] bool apply_sphere(const Vec3& center, float radius, bool fill);
     [[nodiscard]] bool collapse_detached(std::uint32_t min_samples, std::uint32_t max_fragments,
                                          std::uint32_t fragment_cells = 4, float density = 1600);
+    [[nodiscard]] bool retire_fragments(std::uint32_t max_count, double max_age_seconds,
+                                        std::uint32_t& retired_count);
     [[nodiscard]] std::size_t fragment_count() const noexcept;
     [[nodiscard]] bool reset();
     [[nodiscard]] bool snapshot(ByteBuffer& output) const;

@@ -11,6 +11,8 @@
 uniform vec4 u_hdr_params;
 // Sampling interval: source texels for extraction, scaled Bloom texels for blur.
 uniform vec4 u_hdr_texel;
+// x: HDR output enabled; otherwise the color alpha selects per-pixel tone mapping.
+uniform vec4 u_hdr_output;
 
 vec3 hdr_blur9(sampler2D source, vec2 uv, vec2 step_size)
 {
@@ -26,9 +28,10 @@ vec3 hdr_blur9(sampler2D source, vec2 uv, vec2 step_size)
     return color / 4.46;
 }
 
-vec3 hdr_display_color(vec3 radiance)
+vec3 hdr_display_color(vec3 radiance, float tone_weight)
 {
-    vec3 color = max(radiance, vec3_splat(0.0)) * u_hdr_params.x;
+    vec3 linear_color = max(radiance, vec3_splat(0.0));
+    vec3 color = linear_color * u_hdr_params.x;
     if (u_hdr_params.y > 0.5)
     {
         color = saturate((color * (2.51 * color + 0.03)) /
@@ -38,6 +41,7 @@ vec3 hdr_display_color(vec3 radiance)
     {
         color = color / (vec3_splat(1.0) + color);
     }
+    color = mix(linear_color, color, u_hdr_output.x > 0.5 ? 1.0 : saturate(tone_weight));
     // The current swapchain is SDR and does not perform an additional sRGB encoding.
     return pow(max(color, vec3_splat(0.0)), vec3_splat(1.0 / 2.2));
 }

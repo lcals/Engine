@@ -24,6 +24,7 @@ class UiSystem;
 class ScriptRuntime;
 class TaskSystem;
 struct ScriptStatus;
+struct ProjectScriptRequest;
 
 class GameplaySession final
 {
@@ -45,6 +46,8 @@ public:
     [[nodiscard]] bool tick();
     [[nodiscard]] bool start(std::string_view entry = {});
     void stop(std::string_view reason = {}) noexcept;
+    [[nodiscard]] bool execute_project_script(const ProjectScriptRequest& request,
+                                              std::string& result_json, std::string& error);
     [[nodiscard]] const ScriptStatus* script_status() const noexcept;
     [[nodiscard]] std::string_view last_error() const noexcept;
 

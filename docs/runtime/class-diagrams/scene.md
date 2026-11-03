@@ -21,6 +21,7 @@ classDiagram
         +set_active_camera(Camera#42; camera) bool
         +build_data(SceneDataT& output) bool
         -restore_data(const SceneDataT& data) bool
+        -retain_persistent() void
         -create_node(string_view name, uint64_t local_id) Node#42;
         -node_index_ unordered_map~uint64_t, Node#42;~
         -local_node_index_ unordered_map~uint64_t, Node#42;~
@@ -49,7 +50,8 @@ classDiagram
         +unique_ptr~NodeInfoT~ info
         +vector~unique_ptr~ComponentDataT~~ components
     }
-    WorldSystem "1" *-- "0..1" Scene : 独占活动场景
+    WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
+    WorldSystem --> Scene : 可空当前玩法场景
     Scene "1" *-- "0..*" Node : 独占节点
     Scene o-- Resource : 已加载场景根资源共享引用
     Scene "1" *-- "1" SceneInfoT : 唯一场景元数据
@@ -77,7 +79,7 @@ classDiagram
 
 `build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
 
-由 WorldSystem 加载的场景持有场景根资源及其必要依赖，节点销毁完成后才释放该引用。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。
+由 WorldSystem 加载的活动场景持有场景根资源及其必要依赖。普通卸载删除非持久子树并释放根资源引用；有常驻节点时保留原 Scene 容器和局部 ID，清除活动相机选择。常驻组件仅继续持有实际所需的资源，不为保留 UI 持有整关资源闭包。空的保留容器在卸载、切换或下一次世界更新回收。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。
 
 场景快照保存全部材质槽的 GUID：槽 0 为 material_guid，其余为 additional_material_guids。瞬时网格未落为独立资源、没有 GUID 时 build_data 返回 false，输出为空；不能悄悄序列化成旧网格或丢失动态几何。
 

@@ -24,6 +24,7 @@ class DestructionComponent {
 +refresh_support(Collider support, float max_gap, float min_coverage) bool
 +apply_stress(Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(uint64_t node_id) bool
++retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset() bool
 +snapshot(ByteBuffer output) bool
 +restore(ByteView bytes) bool
@@ -45,6 +46,7 @@ class DestructionSystem {
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
 +apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
++retire_fragments(DestructionComponent& component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset(DestructionComponent component) bool
 +snapshot(DestructionComponent component, DestructionStateDataT output) bool
 +restore(DestructionComponent component, DestructionStateDataT state) bool
@@ -69,7 +71,7 @@ DestructionSystem ..> DestructionGraph : candidate clone
 
 `request_damage` 是独立的非阻塞请求入口，保留同步 `damage` 契约。构造可借用已初始化任务域，默认最多 64 个未完成请求、每次同步最多发布 1 个候选；无任务域、空委托或预算满时拒绝请求。每个建筑串行排队，不同建筑可并行，候选数量受域并发上限限制。完成委托只在主线程全局 `synchronize`/tick 执行；关闭丢弃委托，worker 仅保留独占数据。
 
-启动请求时复制 Blast family 并捕获各原始组的世界矩阵和缩放，worker 只计算资产局部损伤、变更组网格/凸包描述与该时刻的爆炸速度增量。发布时重新读取当前组姿态、速度并进行质心修正，再叠加速度增量；后台期间发生的刚体运动不会被旧 Transform 覆盖。源组缩放变化、组件 revision 改变、删除重建或换场景会取消旧结果。独立组件生命周期 token 避免同节点同 revision 的新组件被旧任务写入。同步 Reset/Restore 等仍立即生效，旧候选和排队请求随后以 false 完成。
+启动请求时复制 Blast family 并捕获各原始组的世界矩阵和缩放，worker 只计算资产局部损伤、变更组网格/凸包描述与该时刻的爆炸速度增量。发布时重新读取当前组姿态、速度并进行质心修正，再叠加速度增量；后台期间发生的刚体运动不会被旧 Transform 覆盖。源组缩放变化、组件 revision 改变、删除重建或普通节点卸载会取消旧结果。独立组件生命周期 token 避免同节点同 revision 的新组件被旧任务写入。同步 Reset/Restore 等仍立即生效，旧候选和排队请求随后以 false 完成。
 
 队列预算包含尚未派发的完成项；提交预算限制单次发布数量，不承诺对一个节点/Jolt 原子发布做时间抢占。暂停时不启动或发布请求。异步应力与地基查询尚未迁移，查询继续在物理安全点使用原同步接口。
 
@@ -92,7 +94,7 @@ MeshRenderer、Collider 与 RigidBody，不重新拼网格或构建凸包。只�
 同步必须将速度真正提交给 Jolt；不把组件数据更新当作物理已经消费。
 断裂组继承原组姿态及质心速度（包含角速度产生的偏移），其他组身份保持稳定。
 Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建，不复用陈旧材质或碰撞配置。
-快照使用 FlatBuffers 的基础 GUID/hash、稳定 bond 血量以及各组块 ID、姿态和速度，
+快照使用 FlatBuffers 的基础 GUID/hash、稳定 bond 血量、退休 chunk 集合，以及存活组的块 ID、姿态、速度和动态年龄，
 不保存 Blast ABI 内存。状态恢复先校验再提交；正常场景保存只保存初始资源与组件配置。
 
 系统在物理前由父系统驱动；编辑器预览调用 synchronize，不直接 tick 子系统。
@@ -111,15 +113,27 @@ Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建�
 针对当前切片/Voronoi 盒体的平面底面；没有可测平面底面的锚点返回失败，
 不把 AABB 内不属于真实底面的区域当作支撑，不尝试推断任意模型的接触区域。
 
-组件和自身变换必须启用并属于当前世界。拒绝跨场景、trigger、动态支撑及
+组件和自身变换必须启用并属于当前世界。允许同一已发布世界中不同 Scene 的明确支撑体；拒绝 trigger、动态支撑及
 该破坏组件自己生成的碎块作为地基；禁用或已清空的合法支撑碰撞按无覆盖处理。
 射线只查询明确指定的支撑体，其他建筑、碎块和角色不会遮挡它。
 全部锚点查询成功后，候选图只断失效 world bonds，并通过已有 `rebuild(..., true)`
 一次发布；保留其他连接健康值、组姿态与速度。无变化不重建、不增加 revision。
 填回支撑不会自动重新锚定，恢复仍使用 reset 或完整状态快照。
 
-`owns_fragment` 只查询当前活动场景中该组件生成的组节点，不向核心增加归属知识，
-不保留节点引用。失败、组件移除或场景更换后不会报告旧节点归属。
+`owns_fragment` 查询已发布世界中该组件生成的组节点，不向核心增加归属知识，
+不保留节点引用。失败、组件移除或组节点卸载后不会报告旧节点归属。
+
+## 显式动态碎片退休
+
+`retire_fragments(max_count, max_age_seconds, retired_count)` 只回收指定组件的动态组。
+调用方决定预算和调用频率；0 数量清除全部动态组，0 年龄关闭按寿命筛选。
+同 owner 的异步请求及未派发完成项必须全部结束，最后一个完成回调内可以调用。
+失败将输出计数清零，保留有效组；成功保持 owner ready，返回实际退休数量。
+动态年龄按模拟时间累计，世界暂停和禁用源组件/Transform 时冻结，拆分继承年龄。
+退休使用官方 Blast actor deactivation 与现有 Jolt/Node 回收路径；不会填回碎片、
+重新连接或在应力求解后复活。生成 Collider/MeshRenderer 的实例身份变化时拒绝退休；
+Transform/RigidBody 沿用现有存在性、有效参数和运动模式校验，没有新增组件身份接口。
+完整语义和状态字段见[动态碎片退休](fragment-retirement.md)。
 
 ## 显式承重应力（步骤 4）
 
@@ -139,3 +153,5 @@ Reset、完整状态恢复与资源/组件配置变更仍走显式完整重建�
 临时 family 把项目 health 换算成连接剩余面积后求解，再把受损比例换回项目单位；
 Pa 阈值与项目损伤计数解耦。
 该方法只计算重力承载，不含接触应力、外力、疲劳时间模型或非等比形变。
+
+常驻源节点与组节点各自遵守普通 Node 生命周期，独立生成根节点不自动继承源常驻标记。源和相关组均存活时，切场景保留图、姿态与在途损伤候选；发布仍按原 Scene、Node、生命周期和 revision 检查。源常驻而普通组被卸载时，系统回收残余生成记录，置 `ready=false`、`pending=false` 并保留图/损伤与一次明确错误；后续同步返回成功，不停止宿主或反复重建。调用方可显式 Reset 重建初始组。该边界不引入通用派生节点所有权层。

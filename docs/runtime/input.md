@@ -1,6 +1,6 @@
 # 输入模块
 
-输入由核心 InputSystem 统一采集和求值，WindowSystem 只保留窗口与单次事件泵。原生接口、生成数据和脚本 SDK 共用下述契约；平台构建与运行验证范围另见根 README 的实际记录。
+输入由核心 InputSystem 统一采集和求值，WindowSystem 只保留窗口与单次事件泵。原生接口、生成数据和脚本 SDK 共用下述契约；平台构建见[构建指南](../building.md)，运行验证范围见[测试与范例](../testing.md)。
 
 [原生类图](class-diagrams/input-system.md) · [数据契约](class-diagrams/input-data.md) · [脚本接口](../plugins/runtime/class-diagrams/input-script-api.md) · [首个游戏](../first-game.md)
 
@@ -161,7 +161,7 @@ RuntimeHost 初始化 WindowSystem 后创建并初始化 InputSystem；输入在
 - InputBinding 提供同一原生能力，TS 只做配置与少量动作查询。编辑器也作为普通调用方提交自己的通道，不在核心加入编辑器模式。
 - 验收围绕全键与组合、多来源边沿、同帧短按、摇杆死区、多个手柄独立输入、断开 / 重连、前后台变化、多指操作、UI 阻止穿透、配置失败保留旧映射和 Run 清理；不以能显示输入数值代替完整链路。
 
-输入通道支持多个逻辑玩家，角色控制器仍是当前选中角色的输入 / 相机策略，未实现一份 CharacterControllerSystem 同时驱动多个玩家。设备震动、传感器与独立手势识别也不属于当前输入 SDK。本文说明当前代码契约，实际平台验证以 README 的记录为准。
+输入通道支持多个逻辑玩家，角色控制器仍是当前选中角色的输入 / 相机策略，未实现一份 CharacterControllerSystem 同时驱动多个玩家。设备震动、传感器与独立手势识别也不属于当前输入 SDK。本文说明当前代码契约，实际平台验证以[测试与范例](../testing.md)的记录为准。
 
 ## 参考与取舍
 

@@ -11,3 +11,9 @@
 FBX/USD 格式插件只存在于编辑器，按各自已支持的范围输出统一运行数据：FBX 使用 Model/Mesh/Skeleton/Animation Schema，当前 USD 使用 Model/Mesh。运行时对应 ResourceCodec 负责单项解码与声明引用校验，Scene 和 AnimationSystem 消费生成数据，依赖闭包仍由资源加载插件组织。几何、骨架和动画可以独立 GUID 读取，不要求把整个模型一次解析成常驻资源。
 
 美术源文件的虚拟包分组与子资源 meta 属于编辑器。运行时 Model 版本 2 只保存节点层级及 Mesh/Material 引用；同源动画不再是 Model 的隐式依赖。旧 Model 版本 1 缓存和运行包必须重新导入、构建；废弃字段保留原 FlatBuffers 槽位，不复用。
+
+## 生成与组件扩展
+
+`include/schemas/runtime/scene.fbs` 只描述场景节点和组件，网格/材质通过 GUID 引用。`mesh.fbs`、`model.fbs`、`skeleton.fbs`、`animation.fbs`、`shader.fbs`、`material.fbs`、`audio.fbs`、`asset_catalog.fbs`、`resource_header.fbs` 独立维护对应模型，`common.fbs` 提供共享数值类型。构建使用宿主 flatc 生成 C++ 到 `build/<preset>/generated/include/engine/runtime/schema/`，生成 TS 到 `build/<preset>/generated/typescript/`；不提交生成物。可用 `ENGINE_FLATC_EXECUTABLE` 指定能在宿主运行的 flatc。FlatBuffers npm 依赖归项目 settings；场景以 `.scene` TOML 文件保存，导入为 FlatBuffers；运行时校验并读取 GUID 二进制。
+
+Component 统一提供生成数据的 `build_data` / `restore_data`，各具体组件在自己的文件处理恢复与校验，通过 `ComponentRegistry::add<T>()` 登记创建函数。Scene 只组织节点和层级；编辑器 TOML 读写位于资源管线的 `components/`，运行时资源实体解码位于 `runtime/resource/codecs/`。

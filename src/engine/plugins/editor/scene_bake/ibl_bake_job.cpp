@@ -67,9 +67,14 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
     }
     else
     {
+        const bool hdr = data.encoding == schema::TextureEncoding::basis &&
+                         data.format == schema::TextureFormat::rgba16f;
+        const auto format = hdr ? bgfx::TextureFormat::RGBA16F : bgfx::TextureFormat::RGBA8;
+        const auto transcode = hdr ? basist::transcoder_texture_format::cTFRGBA_HALF
+                                  : basist::transcoder_texture_format::cTFRGBA32;
         output = bgfx::createTexture2D(static_cast<std::uint16_t>(data.width),
                                        static_cast<std::uint16_t>(data.height), data.mip_count > 1,
-                                       1, bgfx::TextureFormat::RGBA8, flags);
+                                       1, format, flags);
         if (!bgfx::isValid(output))
         {
             error = "Cannot allocate the IBL input texture";
@@ -90,13 +95,13 @@ bool source_texture(const schema::TextureDataT& data, bgfx::TextureHandle& outpu
         {
             const auto width = static_cast<std::uint16_t>(std::max(1U, data.width >> mip));
             const auto height = static_cast<std::uint16_t>(std::max(1U, data.height >> mip));
-            const std::size_t bytes = std::size_t(width) * height * 4;
+            const std::size_t bytes = std::size_t(width) * height * (hdr ? 8 : 4);
             std::vector<std::uint8_t> pixels(bytes);
             if (data.encoding == schema::TextureEncoding::basis)
             {
                 if (!decoder.transcode_image_level(data.data.data(), data.data.size(), 0, mip,
                                                    pixels.data(), width * height,
-                                                   basist::transcoder_texture_format::cTFRGBA32))
+                                                   transcode))
                 {
                     error = "Cannot decode an IBL input mip level";
                     return false;

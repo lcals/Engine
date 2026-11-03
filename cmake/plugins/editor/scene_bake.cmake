@@ -2,6 +2,7 @@ function(engine_configure_scene_bake_plugin)
     engine_add_system(plugins/editor scene_bake)
     target_sources(engine_scene_bake PRIVATE
         src/engine/plugins/editor/scene_bake/ibl_bake_job.cpp
+        src/engine/plugins/editor/scene_bake/lighting_bake_job.cpp
         src/engine/plugins/editor/scene_bake/scene_bake_files.cpp)
     target_include_directories(engine_scene_bake PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     get_target_property(_toml_includes tomlplusplus::tomlplusplus INTERFACE_INCLUDE_DIRECTORIES)
@@ -10,7 +11,7 @@ function(engine_configure_scene_bake_plugin)
                                                        JSON_NOEXCEPTION=1)
     target_link_libraries(engine_scene_bake PRIVATE engine::editor engine::asset_pipeline
         engine::render engine::resource bgfx::bgfx bgfx::bimg bgfx::bimg_encode bgfx::bx
-        basisu::basisu_encoder)
+        basisu::basisu_encoder xatlas::xatlas lightmapper::lightmapper engine::task)
     if(APPLE)
         set(_platform osx)
         set(_profile metal)

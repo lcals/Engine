@@ -80,6 +80,7 @@ public:
     [[nodiscard]] const std::string& input_error() const noexcept;
     [[nodiscard]] std::uint64_t scene_id() const noexcept;
     void set_scene_id(std::uint64_t value) noexcept;
+    [[nodiscard]] Node* find_node(std::uint64_t scene_id, std::uint64_t node_id) const noexcept;
     [[nodiscard]] double delta_time() const noexcept;
     [[nodiscard]] KeyValueStore& storage();
     void set_storage_error(std::string_view error);
@@ -132,6 +133,7 @@ private:
     std::string input_error_;
     bool active_ = false;
     std::uint64_t scene_id_ = 0;
+    std::vector<std::uint64_t> owned_scene_ids_;
     bool callable_ = false;
     double delta_time_ = 0.0;
     KeyValueStore storage_;

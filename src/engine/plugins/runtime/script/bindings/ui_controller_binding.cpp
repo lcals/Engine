@@ -119,7 +119,7 @@ function dispatchUiEvents() {
                 uiPruneSubscriptions();
             }
         }
-        // 场景切换或文档替换后，本次派发不继续消费旧事件批次。
+        // 目标卸载或文档替换后停止旧事件；常驻文档继续保留有效订阅。
         if (!target.isValid) break;
     }
     uiPruneSubscriptions();

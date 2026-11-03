@@ -7,14 +7,17 @@
 #include "runtime/schema/texture_generated.h"
 #include "runtime/utils/path_utils.hpp"
 
+#include <basisu/encoder/3rdparty/tinyexr.h>
 #include <basisu/encoder/basisu_comp.h>
 #include <basisu/encoder/jpgd.h>
 #include <basisu/encoder/pvpngreader.h>
+#include <basisu/transcoder/basisu_astc_hdr_core.h>
 #include <flatbuffers/flatbuffers.h>
 #include <toml++/toml.hpp>
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -51,8 +54,11 @@ bool dimensions(std::uint32_t width, std::uint32_t height)
            static_cast<std::uint64_t>(width) * height <= maximum_pixels;
 }
 
-bool settings(const std::filesystem::path& source, TextureSettings& output, std::string& error)
+bool settings(const std::filesystem::path& source, bool hdr, TextureSettings& output,
+              std::string& error)
 {
+    output.srgb = !hdr;
+    output.format = hdr ? schema::TextureFormat::rgba16f : schema::TextureFormat::auto_format;
     auto path = source;
     path += ".meta";
     std::string text;
@@ -91,7 +97,8 @@ bool settings(const std::filesystem::path& source, TextureSettings& output, std:
         }
     }
     const auto format = (*table)["format"].value_or(std::string("auto"));
-    constexpr std::array<std::string_view, 5> formats = {"auto", "rgba8", "bc7", "astc4x4", "etc2"};
+    constexpr std::array<std::string_view, 6> formats = {
+        "auto", "rgba8", "bc7", "astc4x4", "etc2", "rgba16f"};
     const auto selected = std::find(formats.begin(), formats.end(), format);
     const auto compression = (*table)["compression"].value_or(std::string("uastc"));
     if ((table->contains("format") && !(*table)["format"].is_string()) ||
@@ -103,6 +110,22 @@ bool settings(const std::filesystem::path& source, TextureSettings& output, std:
     }
     output.format = static_cast<schema::TextureFormat>(selected - formats.begin());
     output.uastc = compression == "uastc";
+    if ((hdr && (!output.uastc || (output.format != schema::TextureFormat::auto_format &&
+                                 output.format != schema::TextureFormat::rgba16f))) ||
+        (!hdr && output.format == schema::TextureFormat::rgba16f))
+    {
+        error = "HDR sources require UASTC and auto/rgba16f; LDR sources require an LDR format";
+        return false;
+    }
+    if (hdr)
+    {
+        output.format = schema::TextureFormat::rgba16f;
+        if (table->contains("rdo_quality_scalar"))
+        {
+            error = "rdo_quality_scalar applies only to UASTC LDR";
+            return false;
+        }
+    }
     if ((output.uastc && table->contains("quality")) ||
         (!output.uastc && table->contains("rdo_quality_scalar")))
     {
@@ -126,7 +149,9 @@ bool settings(const std::filesystem::path& source, TextureSettings& output, std:
         return true;
     };
     if (!integer("quality", 1, 255, output.quality) ||
-        !integer("compression_level", 0, output.uastc ? 4U : 5U, output.compression_level))
+        !integer("compression_level", 0,
+                 output.uastc ? 4U : basisu::BASISU_MAX_ETC1S_COMPRESSION_LEVEL,
+                 output.compression_level))
     {
         return false;
     }
@@ -148,25 +173,20 @@ bool settings(const std::filesystem::path& source, TextureSettings& output, std:
             return false;
         }
     }
-    output.srgb = (*table)["srgb"].value_or(true);
+    output.srgb = (*table)["srgb"].value_or(!hdr);
+    if (hdr && output.srgb)
+    {
+        error = "HDR textures require linear color space (srgb=false)";
+        return false;
+    }
     output.mipmaps = (*table)["mipmaps"].value_or(true);
     return true;
 }
 
-bool read_image(const ImportAsset& asset, basisu::image& image, std::string& error)
+bool read_image(std::span<const std::uint8_t> bytes, std::string_view extension,
+                basisu::image& image, std::string& error)
 {
-    ByteBuffer bytes;
-    if (!ResourceSystem::read_binary(asset.source, bytes) || bytes.empty() ||
-        bytes.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-    {
-        error = "cannot read texture source";
-        return false;
-    }
-    auto extension = PathUtils::to_utf8(asset.source.extension());
-    std::transform(
-        extension.begin(), extension.end(), extension.begin(), [](unsigned char value)
-        { return static_cast<char>(value >= 'A' && value <= 'Z' ? value + 32 : value); });
-    const auto* data = reinterpret_cast<const std::uint8_t*>(bytes.data());
+    const auto* data = bytes.data();
     if (extension == ".png")
     {
         pv_png::png_info info{};
@@ -219,8 +239,157 @@ bool read_image(const ImportAsset& asset, basisu::image& image, std::string& err
         std::free(pixels);
         return true;
     }
-    error = "texture source must be PNG, JPG or JPEG";
+    if (extension == ".tga")
+    {
+        const auto u16 = [&](std::size_t offset)
+        { return std::uint32_t(data[offset]) | (std::uint32_t(data[offset + 1]) << 8); };
+        if (bytes.size() < 18 || !dimensions(u16(12), u16(14)))
+        {
+            error = "invalid TGA header or unsupported texture dimensions";
+            return false;
+        }
+        int width = 0;
+        int height = 0;
+        int channels = 0;
+        auto* pixels = basisu::read_tga(data, static_cast<std::uint32_t>(bytes.size()), width,
+                                       height, channels);
+        if (pixels == nullptr || width != static_cast<int>(u16(12)) ||
+            height != static_cast<int>(u16(14)))
+        {
+            std::free(pixels);
+            error = "cannot decode TGA texture";
+            return false;
+        }
+        image.init(pixels, width, height, channels);
+        std::free(pixels);
+        return true;
+    }
+    if (extension == ".qoi")
+    {
+        const auto u32 = [&](std::size_t offset)
+        {
+            return (std::uint32_t(data[offset]) << 24) | (std::uint32_t(data[offset + 1]) << 16) |
+                   (std::uint32_t(data[offset + 2]) << 8) | std::uint32_t(data[offset + 3]);
+        };
+        if (bytes.size() < 14 || !dimensions(u32(4), u32(8)) ||
+            !basisu::load_qoi(data, bytes.size(), image))
+        {
+            error = "invalid QOI texture or unsupported dimensions";
+            return false;
+        }
+        return true;
+    }
+    error = "unsupported LDR texture source";
     return false;
+}
+
+bool read_hdr(std::span<const std::uint8_t> bytes, std::string_view extension,
+              basisu::imagef& image, std::string& error)
+{
+    bool luminance = false;
+    if (extension == ".exr")
+    {
+        EXRVersion version{};
+        EXRHeader header{};
+        InitEXRHeader(&header);
+        const char* message = nullptr;
+        const bool parsed =
+            ParseEXRVersionFromMemory(&version, bytes.data(), bytes.size()) == 0 &&
+            !version.multipart && !version.non_image &&
+            ParseEXRHeaderFromMemory(&header, &version, bytes.data(), bytes.size(), &message) == 0;
+        const auto width = std::int64_t(header.data_window.max_x) - header.data_window.min_x + 1;
+        const auto height = std::int64_t(header.data_window.max_y) - header.data_window.min_y + 1;
+        const bool valid = parsed && width > 0 && height > 0 && width <= maximum_dimension &&
+                           height <= maximum_dimension && dimensions(width, height);
+        luminance = parsed && header.num_channels == 1 &&
+                    std::string_view(header.channels[0].name) == "Y";
+        FreeEXRErrorMessage(message);
+        FreeEXRHeader(&header);
+        if (!valid)
+        {
+            error = "invalid EXR header or unsupported texture dimensions/type";
+            return false;
+        }
+    }
+    else
+    {
+        // Bound the Radiance resolution before the upstream decoder allocates image storage.
+        const std::string_view text(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        const auto separator = text.find("\n\n");
+        if (separator == std::string_view::npos || separator > 4096)
+        {
+            error = "invalid HDR header";
+            return false;
+        }
+        auto resolution = text.substr(separator + 2);
+        const auto end = resolution.find('\n');
+        if (end == std::string_view::npos || end > 128)
+        {
+            error = "invalid HDR resolution";
+            return false;
+        }
+        resolution = resolution.substr(0, end);
+        std::array<std::uint32_t, 2> sizes{};
+        for (auto& size : sizes)
+        {
+            while (!resolution.empty() && resolution.front() == ' ')
+            {
+                resolution.remove_prefix(1);
+            }
+            if (resolution.size() < 4 ||
+                (resolution[0] != '-' && resolution[0] != '+') ||
+                (resolution[1] != 'X' && resolution[1] != 'Y') || resolution[2] != ' ')
+            {
+                error = "invalid HDR resolution axis";
+                return false;
+            }
+            resolution.remove_prefix(3);
+            const auto parsed = std::from_chars(resolution.data(),
+                                                resolution.data() + resolution.size(), size);
+            if (parsed.ec != std::errc{})
+            {
+                error = "invalid HDR resolution size";
+                return false;
+            }
+            resolution.remove_prefix(static_cast<std::size_t>(parsed.ptr - resolution.data()));
+        }
+        if (!resolution.empty() || !dimensions(sizes[0], sizes[1]))
+        {
+            error = "unsupported HDR texture dimensions";
+            return false;
+        }
+    }
+    const auto type = extension == ".exr" ? basisu::hdr_image_type::cHITEXRImage
+                                          : basisu::hdr_image_type::cHITHDRImage;
+    if (!basisu::load_image_hdr(bytes.data(), bytes.size(), image, 0, 0, type, false) ||
+        !dimensions(image.get_width(), image.get_height()))
+    {
+        error = "cannot decode HDR texture";
+        return false;
+    }
+    for (std::uint32_t index = 0; index < image.get_total_pixels(); ++index)
+    {
+        auto& pixel = image.get_ptr()[index];
+        if (luminance)
+        {
+            pixel[3] = 1.0F;
+        }
+        if (pixel[3] != 1.0F)
+        {
+            error = "BasisU HDR does not preserve alpha; use linear RGBA16F KTX for HDR alpha";
+            return false;
+        }
+        for (std::size_t channel = 0; channel < 3; ++channel)
+        {
+            if (!std::isfinite(pixel[channel]) || pixel[channel] < 0.0F ||
+                pixel[channel] > basist::ASTC_HDR_MAX_VAL)
+            {
+                error = "BasisU HDR requires finite RGB values in [0, 65216]";
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -228,12 +397,12 @@ bool read_image(const ImportAsset& asset, basisu::image& image, std::string& err
 std::string_view TextureImporter::default_meta() const noexcept
 {
     return "\n[texture]\nformat = \"auto\"\ncompression = \"uastc\"\n"
-           "compression_level = 2\nrdo_quality_scalar = 1.0\nsrgb = true\nmipmaps = true\n";
+           "compression_level = 2\nmipmaps = true\n";
 }
 
 std::string_view TextureImporter::version() noexcept
 {
-    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-1";
+    return "basisu-" BASISU_LIB_VERSION_STRING "-texture-importer-2";
 }
 
 bool TextureImporter::initialize(std::string& error)
@@ -251,26 +420,55 @@ bool TextureImporter::convert(const ImportAsset& asset, const ImportContext& con
                               std::string& error) const
 {
     TextureSettings configuration;
-    basisu::image image;
-    if (!settings(asset.source, configuration, error) || !read_image(asset, image, error))
+    const auto extension = source_extension(asset.source);
+    const bool hdr = extension == ".hdr" || extension == ".exr";
+    ByteBuffer source;
+    if (!settings(asset.source, hdr, configuration, error))
     {
         return false;
     }
+    if (!ResourceSystem::read_binary(asset.source, source) || source.empty() ||
+        source.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
+    {
+        error = "cannot read texture source";
+        return false;
+    }
+    const auto bytes = std::span(reinterpret_cast<const std::uint8_t*>(source.data()),
+                                 source.size());
     basisu::job_pool jobs(1);
     basisu::basis_compressor_params parameters;
     parameters.m_pJob_pool = &jobs;
-    parameters.m_source_images.push_back(image);
-    parameters.m_uastc = configuration.uastc;
-    parameters.m_quality_level = static_cast<int>(configuration.quality);
-    parameters.m_compression_level = static_cast<int>(configuration.compression_level);
-    parameters.m_pack_uastc_flags = configuration.compression_level;
-    parameters.m_rdo_uastc = configuration.uastc;
-    parameters.m_rdo_uastc_quality_scalar = configuration.rdo_quality_scalar;
+    if (hdr)
+    {
+        basisu::imagef image;
+        if (!read_hdr(bytes, extension, image, error))
+        {
+            return false;
+        }
+        parameters.m_source_images_hdr.push_back(std::move(image));
+        parameters.set_format_mode(basist::basis_tex_format::cUASTC_HDR_4x4);
+        parameters.m_uastc_hdr_4x4_options.set_quality_level(configuration.compression_level);
+    }
+    else
+    {
+        basisu::image image;
+        if (!read_image(bytes, extension, image, error))
+        {
+            return false;
+        }
+        parameters.m_source_images.push_back(std::move(image));
+        parameters.set_format_mode(configuration.uastc ? basist::basis_tex_format::cUASTC_LDR_4x4
+                                                       : basist::basis_tex_format::cETC1S);
+        parameters.m_quality_level = static_cast<int>(configuration.quality);
+        parameters.m_etc1s_compression_level = static_cast<int>(configuration.compression_level);
+        parameters.m_pack_uastc_ldr_4x4_flags = configuration.compression_level;
+        parameters.m_rdo_uastc_ldr_4x4 = configuration.uastc;
+        parameters.m_rdo_uastc_ldr_4x4_quality_scalar = configuration.rdo_quality_scalar;
+    }
     parameters.m_mip_gen = configuration.mipmaps;
-    parameters.m_mip_srgb = configuration.srgb;
-    parameters.m_perceptual = configuration.srgb;
+    parameters.set_srgb_options(configuration.srgb);
     parameters.m_multithreading = false;
-    parameters.m_rdo_uastc_multithreading = false;
+    parameters.m_rdo_uastc_ldr_4x4_multithreading = false;
     parameters.m_status_output = false;
     parameters.m_print_stats = false;
     parameters.m_debug = false;
@@ -313,7 +511,8 @@ schema::AssetKind TextureImporter::kind() const noexcept
 bool TextureImporter::matches(const std::filesystem::path& source) const
 {
     const auto extension = source_extension(source);
-    return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
+    return extension == ".png" || extension == ".jpg" || extension == ".jpeg" ||
+           extension == ".tga" || extension == ".qoi" || extension == ".hdr" || extension == ".exr";
 }
 bool TextureImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                     std::string& error)

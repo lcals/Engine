@@ -37,46 +37,35 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         return false;
     }
     const Scene* scene = world_ != nullptr ? world_->scene() : nullptr;
-    if (scene == nullptr || scene->id() != scene_id_)
+    if (ui_ && !ui_->synchronize())
     {
-        if (scene_id_ != 0)
-        {
-            release_extensions_scene();
-        }
-        // UI 可能已在玩法初始化中准备，切换绘制资源不销毁新的 View。
-        release_draw_resources();
-        if (fonts_)
-        {
-            fonts_->release_scene();
-        }
-        if (ui_ && !ui_->synchronize())
-        {
-            return false;
-        }
+        return false;
     }
-    if (scene == nullptr)
+    if (world_ == nullptr || world_->scenes().empty())
+    {
+        release_scene();
+        return true;
+    }
+    const bool capture_active = capture_status_ == SceneCaptureStatus::pending ||
+                                capture_status_ == SceneCaptureStatus::complete;
+    if (scene_resources_ == nullptr && !capture_active &&
+        !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
     {
         return true;
     }
-    if (!render_detail::drawable_scene(*scene, camera, !extensions_.empty()))
+    const auto lights = scene == nullptr
+                            ? 0
+                            : std::count_if(scene->nodes().begin(), scene->nodes().end(),
+                                            [](const auto& node)
+                                            {
+                                                const auto* light =
+                                                    node->template get_component<Light>();
+                                                return light != nullptr && light->enabled();
+                                            });
+    if (lights > static_cast<std::ptrdiff_t>(config_.maximum_lights))
     {
-        if (scene_resources_)
-        {
-            release_draw_resources();
-        }
-        scene_id_ = scene->id();
-        return true;
-    }
-    const auto lights = std::count_if(scene->nodes().begin(), scene->nodes().end(),
-                                      [](const auto& node)
-                                      {
-                                          const auto* light = node->template get_component<Light>();
-                                          return light != nullptr && light->enabled();
-                                      });
-    if (lights > static_cast<std::ptrdiff_t>(render_detail::maximum_lights))
-    {
-        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Scene exceeds the limit of %zu active lights",
-                     render_detail::maximum_lights);
+        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Scene exceeds the limit of %u active lights",
+                     config_.maximum_lights);
         release_scene();
         return false;
     }
@@ -97,10 +86,9 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             release_scene();
             return false;
         }
-        scene_id_ = scene->id();
     }
     auto& resources = *scene_resources_;
-    if (!resources.prepare_ibl(*scene, config_.texture_staging_bytes))
+    if (!resources.prepare_ibl(scene, config_.texture_staging_bytes))
     {
         release_scene();
         return false;
@@ -113,142 +101,163 @@ bool RenderSystem::prepare_scene(const Camera* camera)
     std::set<const Resource*> needed_textures;
     std::vector<render_detail::PreparedTexture> missing_textures;
     bool needs_skinning = false;
-    for (const auto& node : scene->nodes())
+    for (const auto& owner : world_->scenes())
     {
-        const auto* renderer = node->get_component<MeshRenderer>();
-        if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+        for (const auto& node : owner->nodes())
         {
-            continue;
-        }
-        const auto* data = renderer->mesh_data();
-        if (data == nullptr)
-        {
-            release_scene();
-            return false;
-        }
-        needed_meshes.insert(node->id());
-        if (!renderer->skinning_palette().empty())
-        {
-            needs_skinning = true;
-            if (!resources.skinning.prepare())
+            const auto* renderer = node->get_component<MeshRenderer>();
+            if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+            {
+                continue;
+            }
+            const auto* data = renderer->mesh_data();
+            if (data == nullptr)
             {
                 release_scene();
                 return false;
             }
-        }
-        auto mesh = std::find_if(meshes.begin(), meshes.end(),
-                                 [&node](const auto& item) { return item.node_id == node->id(); });
-        if (mesh == meshes.end())
-        {
-            meshes.emplace_back();
-            mesh = std::prev(meshes.end());
-        }
-        if (mesh->instance_id != renderer->mesh_instance_id() ||
-            mesh->revision != renderer->mesh_revision())
-        {
-            ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
-            const auto source = renderer->mesh_resource();
-            std::shared_ptr<render_detail::GpuGeometry> geometry;
-            if (source)
+            needed_meshes.insert(node->id());
+            if (!renderer->skinning_palette().empty())
             {
-                const auto cached = resources.geometries.find(source.get());
-                if (cached != resources.geometries.end())
-                {
-                    geometry = cached->second.lock();
-                }
-            }
-            if (!geometry)
-            {
-                geometry = std::make_shared<render_detail::GpuGeometry>();
-                if (!geometry->create(*renderer))
+                needs_skinning = true;
+                if (!resources.skinning.prepare())
                 {
                     release_scene();
                     return false;
                 }
+            }
+            auto mesh = std::find_if(meshes.begin(), meshes.end(), [&node](const auto& item)
+                                     { return item.node_id == node->id(); });
+            if (mesh == meshes.end())
+            {
+                meshes.emplace_back();
+                mesh = std::prev(meshes.end());
+            }
+            if (mesh->instance_id != renderer->mesh_instance_id() ||
+                mesh->revision != renderer->mesh_revision())
+            {
+                ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");
+                const auto source = renderer->mesh_resource();
+                std::shared_ptr<render_detail::GpuGeometry> geometry;
                 if (source)
                 {
-                    resources.geometries[source.get()] = geometry;
-                }
-            }
-            if (!mesh->create(*renderer, std::move(geometry)))
-            {
-                release_scene();
-                return false;
-            }
-        }
-        if (!mesh->update_deformation(*renderer, resources.skinning))
-        {
-            release_scene();
-            return false;
-        }
-        std::set<std::size_t> slots;
-        if (data->submeshes.empty())
-        {
-            slots.insert(0);
-        }
-        for (const auto& submesh : data->submeshes)
-        {
-            slots.insert(submesh.material_slot());
-        }
-        for (auto slot : slots)
-        {
-            const auto* material = renderer->material(slot);
-            if (material == nullptr)
-            {
-                release_scene();
-                return false;
-            }
-            const std::string path(material->shader_path());
-            const auto* shader = material->shader_data();
-            if (shader == nullptr)
-            {
-                SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Unknown shader resource: %s", path.c_str());
-                release_scene();
-                return false;
-            }
-            if (needed_programs.insert(path).second)
-            {
-                auto program =
-                    std::find_if(programs.begin(), programs.end(),
-                                 [&path](const auto& item) { return item.path == path; });
-                if (program == programs.end())
-                {
-                    programs.emplace_back();
-                    program = std::prev(programs.end());
-                }
-                if (program->definition != *shader || !bgfx::isValid(program->program))
-                {
-                    program->release();
-                    if (!program->create(*shader))
+                    const auto cached = resources.geometries.find(source.get());
+                    if (cached != resources.geometries.end())
                     {
-                        SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare shader resource: %s",
-                                     path.c_str());
+                        geometry = cached->second.lock();
+                    }
+                }
+                if (!geometry)
+                {
+                    geometry = std::make_shared<render_detail::GpuGeometry>();
+                    if (!geometry->create(*renderer))
+                    {
                         release_scene();
                         return false;
                     }
+                    if (source)
+                    {
+                        resources.geometries[source.get()] = geometry;
+                    }
                 }
-            }
-            for (const auto& sampler : shader->samplers)
-            {
-                const auto& source = material->texture(sampler->name);
-                if (!source || source->texture() == nullptr)
+                if (!mesh->create(*renderer, std::move(geometry)))
                 {
                     release_scene();
                     return false;
                 }
-                if (needed_textures.insert(source.get()).second &&
-                    std::none_of(textures.begin(), textures.end(),
-                                 [&source](const auto& item) { return item.resource == source; }))
+            }
+            if (!mesh->update_deformation(*renderer, resources.skinning))
+            {
+                release_scene();
+                return false;
+            }
+            const auto lightmap = renderer->lightmap_resource();
+            if (lightmap && needed_textures.insert(lightmap.get()).second &&
+                std::none_of(textures.begin(), textures.end(),
+                             [&lightmap](const auto& item) { return item.resource == lightmap; }))
+            {
+                missing_textures.emplace_back();
+                if (!missing_textures.back().describe(lightmap, *bgfx::getCaps(),
+                                                      config_.texture_staging_bytes))
                 {
-                    missing_textures.emplace_back();
-                    if (!missing_textures.back().describe(source, *bgfx::getCaps(),
-                                                          config_.texture_staging_bytes))
+                    release_scene();
+                    return false;
+                }
+            }
+            std::set<std::size_t> slots;
+            if (data->submeshes.empty())
+            {
+                slots.insert(0);
+            }
+            for (const auto& submesh : data->submeshes)
+            {
+                slots.insert(submesh.material_slot());
+            }
+            for (auto slot : slots)
+            {
+                const auto* material = renderer->material(slot);
+                if (material == nullptr)
+                {
+                    release_scene();
+                    return false;
+                }
+                const std::string path(material->shader_path());
+                const auto* shader = material->shader_data();
+                if (shader == nullptr)
+                {
+                    SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Unknown shader resource: %s",
+                                 path.c_str());
+                    release_scene();
+                    return false;
+                }
+                if (needed_programs.insert(path).second)
+                {
+                    auto program =
+                        std::find_if(programs.begin(), programs.end(),
+                                     [&path](const auto& item) { return item.path == path; });
+                    if (program == programs.end())
                     {
-                        SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-                                     "Unsupported texture or staging budget exceeded: %s",
-                                     source->info().path.c_str());
+                        programs.emplace_back();
+                        program = std::prev(programs.end());
+                    }
+                    if (program->definition != *shader || !bgfx::isValid(program->program))
+                    {
+                        program->release();
+                        if (!program->create(*shader))
+                        {
+                            SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                         "Cannot prepare shader resource: %s", path.c_str());
+                            release_scene();
+                            return false;
+                        }
+                    }
+                }
+                for (const auto& sampler : shader->samplers)
+                {
+                    if (sampler->source != schema::ShaderTextureSource::resource)
+                    {
+                        continue;
+                    }
+                    const auto& source = material->texture(sampler->name);
+                    if (!source || source->texture() == nullptr)
+                    {
                         release_scene();
                         return false;
+                    }
+                    if (needed_textures.insert(source.get()).second &&
+                        std::none_of(textures.begin(), textures.end(), [&source](const auto& item)
+                                     { return item.resource == source; }))
+                    {
+                        missing_textures.emplace_back();
+                        if (!missing_textures.back().describe(source, *bgfx::getCaps(),
+                                                              config_.texture_staging_bytes))
+                        {
+                            SDL_LogError(SDL_LOG_CATEGORY_RENDER,
+                                         "Unsupported texture or staging budget exceeded: %s",
+                                         source->info().path.c_str());
+                            release_scene();
+                            return false;
+                        }
                     }
                 }
             }
@@ -281,11 +290,11 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         }
         {
             ENGINE_PROFILE_ZONE("Render.textureJoin");
-            const bool ready = prepared.valid()
-                                   ? prepared.get()
-                                   : std::all_of(missing_textures.begin() + begin,
-                                                 missing_textures.begin() + end,
-                                                 [](auto& texture) { return texture.prepare(); });
+            const bool ready =
+                prepared.valid()
+                    ? prepared.get()
+                    : std::all_of(missing_textures.begin() + begin, missing_textures.begin() + end,
+                                  [](auto& texture) { return texture.prepare(); });
             if (!ready)
             {
                 SDL_LogError(SDL_LOG_CATEGORY_RENDER, "Cannot prepare texture batch");
@@ -350,11 +359,28 @@ bool RenderSystem::prepare_scene(const Camera* camera)
             ++item;
         }
     }
+    if (!capture_active && !render_detail::drawable_scene(*world_, camera, !extensions_.empty()))
+    {
+        resources.shadow.release();
+        resources.ambient_occlusion.release();
+        resources.hdr_post_process.release();
+        if (meshes.empty())
+        {
+            release_draw_resources();
+        }
+    }
     return true;
 }
 
 void RenderSystem::release_scene() noexcept
 {
+    if (capture_status_ == SceneCaptureStatus::pending ||
+        capture_status_ == SceneCaptureStatus::complete)
+    {
+        capture_status_ = SceneCaptureStatus::cancelled;
+    }
+    capture_request_ = {};
+    capture_snapshot_.clear();
     release_extensions_scene();
     if (ui_)
     {
@@ -369,8 +395,17 @@ void RenderSystem::release_scene() noexcept
 
 void RenderSystem::release_draw_resources() noexcept
 {
+    // Complete GPU readback while its destination and the renderer still exist.
+    // Keep the public frame counter in sync with these teardown submissions.
+    while (scene_resources_ && scene_resources_->capture_pending)
+    {
+        frame_number_ = bgfx::frame();
+        if (static_cast<std::int32_t>(frame_number_ - scene_resources_->capture_ready_frame) >= 0)
+        {
+            scene_resources_->capture_pending = false;
+        }
+    }
     scene_resources_.reset();
-    scene_id_ = 0;
 }
 
 bool RenderSystem::scene_prepared() const noexcept

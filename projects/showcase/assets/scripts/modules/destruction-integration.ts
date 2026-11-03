@@ -247,8 +247,8 @@ export default class Game extends Gameplay {
             if (impact.closingSpeed < 2.5 || impact.estimatedImpulse < 900) continue;
             let owned = false;
             for (const specimen of this.specimens) {
-                if (!specimen.component.OwnsFragment(impact.nodeA) &&
-                    !specimen.component.OwnsFragment(impact.nodeB)) continue;
+                if (!specimen.component.OwnsFragment(impact.a.nodeId) &&
+                    !specimen.component.OwnsFragment(impact.b.nodeId)) continue;
                 requests.push({ specimen, impact });
                 owned = true;
             }
@@ -261,6 +261,7 @@ export default class Game extends Gameplay {
         let applied = 0;
         for (const { specimen, impact } of requests) {
             if (applied >= 2 || this.secondary_damage >= max_secondary_damage) break;
+            if (!Physics.IsObjectValid(impact.a) || !Physics.IsObjectValid(impact.b)) continue;
             if (this.clock < specimen.next_impact) continue;
             specimen.next_impact = this.clock + 0.65;
             const { x, y, z } = impact.point;

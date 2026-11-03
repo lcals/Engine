@@ -104,7 +104,7 @@ struct FontSystem::GpuState
 
     struct Program
     {
-        ResourcePtr resource;
+        std::weak_ptr<const Resource> resource;
         bgfx::ProgramHandle handle = BGFX_INVALID_HANDLE;
 
         ~Program() noexcept
@@ -218,11 +218,14 @@ struct FontSystem::GpuState
 
     Program* get_program(const ResourcePtr& resource)
     {
+        std::erase_if(programs, [](const auto& program) { return program->resource.expired(); });
         for (const auto& program : programs)
         {
-            if (program->resource->info().guid == resource->info().guid &&
-                program->resource->generation() == resource->generation())
+            const auto existing = program->resource.lock();
+            if (existing && existing->info().guid == resource->info().guid &&
+                existing->generation() == resource->generation())
             {
+                program->resource = resource;
                 return program.get();
             }
         }
@@ -311,6 +314,20 @@ FontSystem::~FontSystem() noexcept
 bool FontSystem::on_initialize(const EngineConfig&)
 {
     last_error_.clear();
+    return true;
+}
+
+bool FontSystem::on_tick(double)
+{
+    if (gpu_)
+    {
+        std::erase_if(gpu_->textures, [](const auto& item) { return item->resource.expired(); });
+        std::erase_if(gpu_->programs, [](const auto& item) { return item->resource.expired(); });
+        if (gpu_->textures.empty() && gpu_->programs.empty())
+        {
+            gpu_.reset();
+        }
+    }
     return true;
 }
 
@@ -595,9 +612,11 @@ bool FontSystem::draw(const ResourcePtr& font, const FontGeometry& geometry,
                                   settings.linear_output ? 1.0F : 0.0F, 0.0F};
     bgfx::setUniform(gpu_->texture_info, texture_info);
     bgfx::setTexture(0, gpu_->sampler, texture->handle);
-    std::uint64_t state =
-        BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
-        BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA);
+    std::uint64_t state = BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_MSAA |
+                          BGFX_STATE_BLEND_FUNC_SEPARATE(
+                              BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA,
+                              settings.linear_output ? BGFX_STATE_BLEND_ZERO : BGFX_STATE_BLEND_ONE,
+                              BGFX_STATE_BLEND_INV_SRC_ALPHA);
     if (settings.depth_test)
     {
         state |= BGFX_STATE_DEPTH_TEST_LEQUAL;

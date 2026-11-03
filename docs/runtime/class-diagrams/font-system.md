@@ -29,6 +29,7 @@ classDiagram
         +release_scene() void
         +gpu_resource_count() uint32
         +last_error() string
+        #on_tick(double delta_time) bool
     }
     class TextComponent {
         +valid_settings(settings) bool$
@@ -81,7 +82,7 @@ classDiagram
     FontDraw o-- Resource : 共享已加载Shader
 ```
 
-- `ResourcePtr` 表达共享 CPU 资源；字体 GPU 曲线纹理按资源身份和代际共享，字号不产生新字体资源。
+- `ResourcePtr` 表达共享 CPU 资源；字体 GPU 曲线纹理按资源身份和代际共享，字号不产生新字体资源。GPU 字体与 Shader 缓存只保存资源弱引用，每次 tick 回收已失效的条目；普通场景切换不会全清，常驻文档和文字组件继续共享原 GPU 数据。完整停止/设备释放仍使用 `release_scene()`。
 - `FontGeometry` 是临时绘制数据，顶点保存位置、预乘颜色、字形坐标与曲线范围；不成为新的持久资源模型。
 - `FontVertex.dilation` 保存局部向外方向与字体 XY 缩放的倒数，公开 Slug 顶点算法据此在透视与正交视图中扩张像素边界，保持曲线覆盖率抗锯齿。
 - `FontDraw` 保存当前帧的视图、模型矩阵与裁剪信息，持有调用方已加载的 Shader 引用；绘制不重新查询目录，目录更新不会把旧字体和新 Shader 混用。UI 和 3D 共用同一绘制能力。RmlUi 在正常渲染顺序中调用，排版阶段不提交 GPU 命令。
