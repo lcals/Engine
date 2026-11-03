@@ -1,5 +1,7 @@
 #include "plugins/runtime/character_controller/character_camera.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/transform.hpp"
 
@@ -8,20 +10,14 @@
 
 namespace engine::plugins::character_controller
 {
-namespace
+bool CharacterCamera::register_type(ComponentRegistry& registry)
 {
-
-schema::ComponentDataT make_data()
-{
-    schema::ComponentDataT data;
-    data.payload.Set(schema::CharacterCameraDataT{});
-    return data;
+    return register_component_storage<CharacterCamera, Data, Runtime>(registry);
 }
 
-} // namespace
-
-CharacterCamera::CharacterCamera(Node& node) : Component(node, make_data())
+CharacterCamera::Runtime* CharacterCamera::runtime() const noexcept
 {
+    return runtime_state<Runtime>();
 }
 
 bool CharacterCamera::valid_settings(const schema::CharacterCameraDataT& value) noexcept
@@ -36,71 +32,138 @@ bool CharacterCamera::valid_settings(const schema::CharacterCameraDataT& value) 
            bounded(value.collision_margin, 0.0F, 100.0F);
 }
 
-const schema::CharacterCameraDataT& CharacterCamera::settings() const noexcept
+schema::CharacterCameraDataT CharacterCamera::settings() const noexcept
 {
-    return *data().payload.AsCharacterCameraData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool CharacterCamera::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool CharacterCamera::set_settings(const schema::CharacterCameraDataT& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    *mutable_data().payload.AsCharacterCameraData() = value;
-    pitch_ = std::clamp(pitch_, static_cast<double>(value.pitch_min),
-                        static_cast<double>(value.pitch_max));
+    *write_data<Data>() = value;
+    modified();
+    runtime()->pitch_ = std::clamp(runtime()->pitch_, static_cast<double>(value.pitch_min),
+                                   static_cast<double>(value.pitch_max));
     return true;
 }
 
 bool CharacterCamera::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsCharacterCameraData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    angles_initialized_ = false;
-    set_enabled(value.enabled);
+    runtime()->angles_initialized_ = false;
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
+}
+
+bool CharacterCamera::remap_node_references(schema::ComponentDataT& data,
+                                            std::span<const schema::NodeIdMappingT> mapping) const
+{
+    auto* settings = data.payload.AsCharacterCameraData();
+    if (!settings)
+    {
+        return false;
+    }
+    if (settings->target_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& entry : mapping)
+    {
+        if (entry.source_id == settings->target_node_id)
+        {
+            if (entry.target_id == 0 || entry.retired)
+            {
+                return false;
+            }
+            settings->target_node_id = entry.target_id;
+            return true;
+        }
+    }
+    return false;
 }
 
 bool CharacterCamera::synchronize_angles() noexcept
 {
-    if (angles_initialized_)
-    {
-        return true;
-    }
-    const auto* transform = node().get_component<Transform>();
-    if (transform == nullptr)
+    if (!writable())
     {
         return false;
     }
-    const auto& rotation = transform->settings().rotation;
+    if (runtime()->angles_initialized_)
+    {
+        return true;
+    }
+    auto transform = node().get_component<Transform>();
+    if (!transform.valid())
+    {
+        return false;
+    }
+    const auto& rotation = transform.settings().rotation;
     return set_angles(rotation.y(), rotation.x());
 }
 
 bool CharacterCamera::set_angles(double yaw, double pitch) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!std::isfinite(yaw) || !std::isfinite(pitch))
     {
         return false;
     }
-    yaw_ = std::remainder(yaw, 360.0);
-    pitch_ = std::clamp(pitch, static_cast<double>(settings().pitch_min),
-                        static_cast<double>(settings().pitch_max));
-    angles_initialized_ = true;
+    runtime()->yaw_ = std::remainder(yaw, 360.0);
+    runtime()->pitch_ = std::clamp(pitch, static_cast<double>(settings().pitch_min),
+                                   static_cast<double>(settings().pitch_max));
+    runtime()->angles_initialized_ = true;
     return true;
 }
 
 double CharacterCamera::yaw() const noexcept
 {
-    return yaw_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->yaw_;
 }
 
 double CharacterCamera::pitch() const noexcept
 {
-    return pitch_;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->pitch_;
 }
 
 } // namespace engine::plugins::character_controller

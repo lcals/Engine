@@ -1,12 +1,34 @@
 #include "animation_fixture.hpp"
+#include "scene_snapshot.hpp"
+#include "script_fixture.hpp"
 
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/log/log_system.hpp"
+#include "runtime/schema/prefab_generated.h"
 
 namespace
 {
 using namespace test_support::animation;
+
+bool add_prefab(Fixture& fixture)
+{
+    engine::schema::PrefabDataT prefab;
+    prefab.root_id = 1;
+    auto node = std::make_unique<engine::schema::NodeDataT>();
+    node->info = test_support::node_info();
+    node->info->properties->id = 1;
+    node->info->properties->name = "Template";
+    auto transform = test_support::component_data();
+    transform->payload.Set(engine::schema::TransformDataT{});
+    node->components.push_back(std::move(transform));
+    prefab.nodes.push_back(std::move(node));
+    flatbuffers::FlatBufferBuilder builder;
+    engine::schema::FinishPrefabDataBuffer(builder,
+                                           engine::schema::PrefabData::Pack(builder, &prefab));
+    return add(fixture.files, "40000000-0000-4000-8000-000000000009", "prefabs/template.prefab",
+               engine::schema::AssetKind::prefab, builder);
+}
 
 bool script_bindings(Fixture& fixture)
 {
@@ -15,6 +37,14 @@ import { Gameplay, Scene, Component, Animator, MeshRenderer } from 'engine';
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Create('Model and animation bindings');
+        const first = scene?.InstantiatePrefab('prefabs/template.prefab', 'First');
+        const second = scene?.InstantiatePrefab('prefabs/template.prefab', 'Second');
+        if (!first || !second || !first.SetEnabled(false) || !second.active ||
+            scene.FindNode('First')?.id !== first.id ||
+            scene.InstantiatePrefab('missing.prefab', 'Missing') !== null ||
+            scene.InstantiatePrefab('models/character.fbx', 'Wrong type') !== null ||
+            !first.Destroy() || first.IsValid() || !second.IsValid() || !second.Destroy())
+            return false;
         const root = scene?.InstantiateModel('models/character.fbx', 'Character');
         const otherRoot = scene?.InstantiateModel('models/character.fbx', 'Character');
         const body = root?.FindChild('Assembly/Body');
@@ -76,7 +106,7 @@ export default class extends Gameplay {
     }
 }
 )js";
-    if (!fixture.initialize() || !add_model(fixture.files) ||
+    if (!fixture.initialize() || !add_model(fixture.files) || !add_prefab(fixture) ||
         !add_bytes(fixture.files, "40000000-0000-4000-8000-000000000008", "scripts/game.js",
                    engine::schema::AssetKind::script,
                    {reinterpret_cast<const std::byte*>(source.data()), source.size()}))
@@ -90,7 +120,9 @@ export default class extends Gameplay {
     }
     fixture.world.destroy_scene();
     engine::plugins::script::ScriptSystem script(&fixture.world);
-    if (!expect(script.initialize({}) && script.start_gameplay("scripts/game.js"),
+    if (!expect(script.initialize({}) && test_support::start_script(
+                                             script, fixture.resources,
+                                             {{"content", fixture.files.root}}, "scripts/game.js"),
                 "selected script backend executes model instantiation and Animator bindings") ||
         !expect(fixture.animation.tick(0) && script.tick(0.25) && script.status().running,
                 "paused pose survives a script update"))
@@ -98,13 +130,16 @@ export default class extends Gameplay {
         return false;
     }
     const auto* scene = fixture.world.scene();
-    if (!expect(
-            scene && scene->nodes().size() == 6 &&
-                close(sampled_vertex(*scene->nodes()[2]->get_component<engine::MeshRenderer>()).x(),
-                      2) &&
-                close(sampled_vertex(*scene->nodes()[5]->get_component<engine::MeshRenderer>()).x(),
-                      1),
-            "relative lookup configures two identical model instances independently"))
+    if (!expect(scene && test_support::scene_nodes(*scene).size() == 6 &&
+                    close(sampled_vertex(test_support::scene_nodes(*scene)[2]
+                                             .get_component<engine::MeshRenderer>())
+                              .x(),
+                          2) &&
+                    close(sampled_vertex(test_support::scene_nodes(*scene)[5]
+                                             .get_component<engine::MeshRenderer>())
+                              .x(),
+                          1),
+                "relative lookup configures two identical model instances independently"))
     {
         return false;
     }

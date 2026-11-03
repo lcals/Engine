@@ -170,6 +170,12 @@ bool EnvironmentCodec::read(const toml::table& table, schema::ComponentDataT& co
     return true;
 }
 
+std::span<const std::string_view> EnvironmentCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"ibl_irradiance", "ibl_prefilter", "ibl_lut"};
+    return fields;
+}
+
 void EnvironmentCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto& settings = *component.payload.AsEnvironmentData();

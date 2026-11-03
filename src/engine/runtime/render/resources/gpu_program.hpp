@@ -34,7 +34,8 @@ struct GpuProgram
     [[nodiscard]] bool create(const schema::ShaderDataT& shader);
     [[nodiscard]] bool bind_material(const Material& material,
                                      const std::vector<GpuTexture>& textures,
-                                     std::span<const bgfx::TextureHandle> frame_textures = {});
+                                     std::span<const bgfx::TextureHandle> frame_textures = {},
+                                     bool max_anisotropy = false);
     void release() noexcept;
 
     std::string path;

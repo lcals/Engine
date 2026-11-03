@@ -10,6 +10,7 @@
 #include <vector>
 
 struct ecs_world_t;
+struct ecs_query_t;
 
 namespace engine
 {
@@ -58,8 +59,12 @@ public:
     [[nodiscard]] const Scene* scene() const noexcept;
     // 包含活动场景及常驻节点的原容器，不含恢复候选；迭代器不能跨场景变更持有。
     [[nodiscard]] const std::vector<std::unique_ptr<Scene>>& scenes() const noexcept;
-    [[nodiscard]] Node* find_node(std::uint64_t id) noexcept;
-    [[nodiscard]] const Node* find_node(std::uint64_t id) const noexcept;
+    [[nodiscard]] Node find_node(std::uint64_t id) const noexcept;
+    [[nodiscard]] ecs_world_t* native_world() const noexcept;
+    [[nodiscard]] std::uint64_t epoch() const noexcept;
+    [[nodiscard]] bool can_modify() const noexcept;
+    [[nodiscard]] bool refresh_scene_state();
+    void invalidate_scene_state() noexcept;
     // 临时世界模拟状态；菜单、输入和绘制仍由原有系统链更新。
     [[nodiscard]] bool set_paused(bool paused) noexcept;
     [[nodiscard]] bool paused() const noexcept;
@@ -78,6 +83,10 @@ private:
     bool restore_ready_ = false;
     ComponentRegistry components_;
     ecs_world_t* world_ = nullptr;
+    ecs_query_t* state_query_ = nullptr;
+    std::uint64_t world_epoch_ = 0;
+    std::uint64_t state_revision_ = 1;
+    std::uint64_t prepared_revision_ = 0;
     std::vector<std::unique_ptr<Scene>> scenes_;
     Scene* scene_ = nullptr; // 借用 scenes_ 中当前玩法场景。
     std::uint64_t scene_sequence_ = 0;

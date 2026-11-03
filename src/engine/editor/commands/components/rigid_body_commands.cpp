@@ -102,11 +102,11 @@ bool register_rigid_body(WorldSystem& world, EditorCommands& commands, NodeAlias
             {
                 return false;
             }
-            auto* node = target(world, arguments, error);
-            auto* body = node ? node->get_component<RigidBody>() : nullptr;
+            auto node = target(world, arguments, error);
+            auto body = node ? node.get_component<RigidBody>() : RigidBody{};
             Vec3 impulse;
             if (!body || !arguments.contains("impulse") || !vector(arguments["impulse"], impulse) ||
-                !body->add_impulse(impulse))
+                !body.add_impulse(impulse))
             {
                 if (error.empty())
                 {

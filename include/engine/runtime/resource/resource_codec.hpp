@@ -28,6 +28,7 @@ protected:
     static void store(Resource& output, std::unique_ptr<schema::TextureDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::AudioClipDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::ModelDataT> data) noexcept;
+    static void store(Resource& output, std::unique_ptr<schema::PrefabDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::SkeletonDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::AnimationDataT> data) noexcept;
     static void store(Resource& output, std::unique_ptr<schema::FontDataT> data) noexcept;

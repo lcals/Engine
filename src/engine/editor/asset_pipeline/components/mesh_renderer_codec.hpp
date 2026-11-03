@@ -15,6 +15,7 @@ public:
                             std::string& error) const override;
     [[nodiscard]] bool validate(const schema::ComponentDataT& component,
                                 std::string& error) const override;
+    [[nodiscard]] std::span<const std::string_view> resource_fields() const noexcept override;
     void write(const schema::ComponentDataT& component, toml::table& value) const override;
 };
 

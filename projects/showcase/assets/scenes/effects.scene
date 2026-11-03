@@ -84,54 +84,6 @@ intensity = 9.0
 range = 12.0
 
 [[nodes]]
-id = 5
-name = "Ground"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -0.3, 0]
-rotation = [0, 0, 0]
-scale = [12, 0.3, 10]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
-
-[[nodes]]
-id = 6
-name = "Laser stage"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-4, 0.15, 0]
-rotation = [0, 0, 0]
-scale = [2.8, 0.15, 4.5]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
-
-[[nodes]]
-id = 7
-name = "Arrow stage"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [4, 0.15, 0]
-rotation = [0, 0, 0]
-scale = [2.8, 0.15, 4.5]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
-
-[[nodes]]
 id = 10
 name = "Laser effect"
 parent = 0
@@ -220,3 +172,23 @@ font = "d5dc034b-395d-4c74-b514-d2d4f116b09b"
 text = "02 / MODEL + UV"
 size = 0.42
 color = [1, 0.7, 0.4, 1]
+
+[[prefab_instances]]
+prefab = "1a5310c2-210d-4077-b827-f4da73987755"
+root = "23"
+
+[[prefab_instances.node_mappings]]
+source = "23"
+target = "23"
+
+[[prefab_instances.node_mappings]]
+source = "5"
+target = "5"
+
+[[prefab_instances.node_mappings]]
+source = "6"
+target = "6"
+
+[[prefab_instances.node_mappings]]
+source = "7"
+target = "7"

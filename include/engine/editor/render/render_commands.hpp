@@ -11,6 +11,7 @@ class WorldSystem;
 namespace engine::editor
 {
 class EditorCommands;
+class SceneCommands;
 
 class RenderCommands final
 {
@@ -18,7 +19,7 @@ public:
     RenderCommands(RenderSystem& renderer, WorldSystem& world, std::filesystem::path capture_root);
     RenderCommands(const RenderCommands&) = delete;
     RenderCommands& operator=(const RenderCommands&) = delete;
-    [[nodiscard]] bool register_commands(EditorCommands& commands);
+    [[nodiscard]] bool register_commands(EditorCommands& commands, SceneCommands& scenes);
 
 private:
     RenderSystem& renderer_;

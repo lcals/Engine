@@ -45,85 +45,85 @@ Object.freeze(PostProcessComponent);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<PostProcessComponent>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<PostProcessComponent>().valid());
 }
 
 void exposure(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
-    if (target == nullptr || arguments.count() != 3)
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 3)
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     if (BindingContext::scalar(arguments, 2, value.exposure))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 
 void filmic_tonemap(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
-    if (target == nullptr || arguments.count() != 3 || !arguments.is_boolean(2))
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 3 || !arguments.is_boolean(2))
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.filmic_tonemap = arguments.boolean(2);
-    arguments.set_return(target->set_settings(value));
+    arguments.set_return(target.set_settings(value));
 }
 
 void hdr(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
-    if (target == nullptr || arguments.count() != 3 || !arguments.is_boolean(2))
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 3 || !arguments.is_boolean(2))
     {
         return;
     }
-    auto settings = target->settings();
+    auto settings = target.settings();
     settings.hdr_enabled = arguments.boolean(2);
-    arguments.set_return(target->set_settings(settings));
+    arguments.set_return(target.set_settings(settings));
 }
 
 void bloom(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
-    if (target == nullptr || arguments.count() != 6 || !arguments.is_boolean(2))
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 6 || !arguments.is_boolean(2))
     {
         return;
     }
-    auto settings = target->settings();
+    auto settings = target.settings();
     settings.bloom_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, settings.bloom_threshold) &&
         BindingContext::scalar(arguments, 4, settings.bloom_intensity) &&
         BindingContext::scalar(arguments, 5, settings.bloom_radius))
     {
-        arguments.set_return(target->set_settings(settings));
+        arguments.set_return(target.set_settings(settings));
     }
 }
 
 void screen_space_reflections(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
     if (!target || arguments.count() != 8 || !arguments.is_boolean(2) || !arguments.is_uint32(4) ||
         arguments.unsigned_integer(4) > 256)
     {
         return;
     }
-    auto settings = target->settings();
+    auto settings = target.settings();
     settings.ssr_enabled = arguments.boolean(2);
     settings.ssr_max_steps = static_cast<std::uint16_t>(arguments.unsigned_integer(4));
     if (BindingContext::scalar(arguments, 3, settings.ssr_resolution_scale) &&
@@ -131,20 +131,20 @@ void screen_space_reflections(const Arguments& arguments)
         BindingContext::scalar(arguments, 6, settings.ssr_thickness) &&
         BindingContext::scalar(arguments, 7, settings.ssr_roughness_cutoff))
     {
-        arguments.set_return(target->set_settings(settings));
+        arguments.set_return(target.set_settings(settings));
     }
 }
 
 void ambient_occlusion(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* target = node == nullptr ? nullptr : node->get_component<PostProcessComponent>();
-    if (target == nullptr || arguments.count() != 8 || !arguments.is_boolean(2))
+    auto node = BindingContext::node(arguments);
+    auto target = !node ? PostProcessComponent{} : node.get_component<PostProcessComponent>();
+    if (!target || arguments.count() != 8 || !arguments.is_boolean(2))
     {
         return;
     }
-    auto settings = target->settings();
+    auto settings = target.settings();
     settings.ao_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, settings.ao_radius) &&
         BindingContext::scalar(arguments, 4, settings.ao_strength) &&
@@ -152,7 +152,7 @@ void ambient_occlusion(const Arguments& arguments)
         BindingContext::scalar(arguments, 6, settings.ao_fade_start) &&
         BindingContext::scalar(arguments, 7, settings.ao_fade_end))
     {
-        arguments.set_return(target->set_settings(settings));
+        arguments.set_return(target.set_settings(settings));
     }
 }
 } // namespace

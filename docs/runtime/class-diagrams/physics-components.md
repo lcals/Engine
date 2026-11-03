@@ -7,26 +7,37 @@
 ```mermaid
 classDiagram
     class Collider {
+        <<value handle>>
+        +Collider()
+        +Collider(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() ColliderRuntime#42;
         <<final>>
         +valid_settings(const ColliderDataT& settings, const MeshDataT* transient_mesh = nullptr, const MeshCollisionData* mesh_parts = nullptr) bool$
-        +settings() const ColliderDataT&
+        +settings() ColliderDataT
+        +get_settings(ColliderDataT& output) bool
         +set_settings(const ColliderDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +build_data(ComponentDataT& output) const bool
-        +instance_id() const uint64_t
         +mesh_data() const MeshDataT*
         +set_mesh(string_view path) bool
         +mesh_path() const string_view
     }
     class RigidBody {
+        <<value handle>>
+        +RigidBody()
+        +RigidBody(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() RigidBodyRuntime#42;
         <<final>>
         +valid_settings(const RigidBodyDataT& settings) bool$
-        +settings() const RigidBodyDataT&
+        +settings() RigidBodyDataT
+        +get_settings(RigidBodyDataT& output) bool
         +set_settings(const RigidBodyDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +add_impulse(const Vec3& impulse) bool
         +set_linear_velocity(const Vec3& velocity) bool
-        +linear_velocity() const Vec3&
+        +linear_velocity() Vec3
     }
     class Component
     class Node
@@ -42,12 +53,12 @@ classDiagram
     class MeshCollisionData
     Component <|-- Collider
     Component <|-- RigidBody
-    Node *-- Component : 独占无类型组件列表
+    Node ..> Component : 按类型返回值句柄
     Collider ..> ColliderDataT : 生成数据
     ColliderDataT *-- ColliderHullDataT : 生成的复合凸包列表
-    Collider o-- Resource : 共享持有独立碰撞网格
-    Collider o-- MeshDataT : 共享持有不可变瞬时网格
-    Collider o-- MeshCollisionData : 共享持有不可变分段列表
+    ColliderRuntime o-- Resource : 共享持有独立碰撞网格
+    ColliderRuntime o-- MeshDataT : 共享持有不可变瞬时网格
+    ColliderRuntime o-- MeshCollisionData : 共享持有不可变分段列表
     Collider ..> ResourceSystem : 通过加载接口解析网格
     RigidBody ..> RigidBodyDataT : 生成数据
     Collider ..> RigidBody : 校验静态网格运动限制
@@ -55,8 +66,23 @@ classDiagram
     Collider ..> ComponentDataT : 恢复参数
     RigidBody ..> ComponentDataT : 恢复参数
     RigidBody ..> Vec3 : 冲量与速度
-    PhysicsSystem ..> RigidBody : 友元消费瞬态冲量
-    PhysicsSystem ..> Collider : 友元读取已加载网格
+    PhysicsSystem ..> RigidBody : 读取ECS运行列的瞬态冲量
+    PhysicsSystem ..> Collider : 读取ECS运行列的网格引用
+    class ComponentRegistry
+    class ecs_world_t
+    class ColliderRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- ColliderRuntime : 实例运行数据
+    Collider ..> ColliderRuntime : 校验身份后短期借用
+    class RigidBodyRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- RigidBodyRuntime : 实例运行数据
+    RigidBody ..> RigidBodyRuntime : 校验身份后短期借用
+    Collider ..> ComponentRegistry : 静态登记类型操作
+    RigidBody ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 设置失败保持已有数据。冲量只接受启用的动态刚体；静态刚体拒绝非零速度。`valid_settings` 可由编辑器导入器复用。所有尺寸、质量和速度必须有限并处于校验范围；瞬态冲量不进入持久数据。
@@ -70,3 +96,5 @@ classDiagram
 分段静态几何通过 `PhysicsSystem::set_mesh_parts(collider, data)` 原子提交。Collider 复制完整槽位列表并共享其中的不可变 MeshDataT；空槽表示无几何，全部为空时保留来源并移除碰撞，禁用后恢复或清理物理世界后仍能重建。分段模式的 `mesh_data()` 返回 nullptr，`build_data()` 同样拒绝序列化并清空输出。与单瞬时网格、资源网格或普通形状切换时只在成功后释放旧来源；完整契约见[分段静态网格碰撞](mesh-collision-data.md)。
 
 `ColliderShape::compound` 使用 ColliderData 的 hulls，每个 ColliderHullData 只保存所属节点局部空间 vertices；现有 center 对整体再偏移。描述允许 1–4096 个凸包、每个至少 4 点、累计最多 1M 点，点必须有限且有界；非 compound 不携带 hulls，compound 不引用 mesh_guid。几何凸包和最终 256 个凸包顶点的上游限制由 Jolt 构建验证，退化或超限返回失败，不以包围盒静默替代。多个凸包共用一个 RigidBody，质量来自该组件，惯量及质心由 Jolt 计算。普通 set_settings 仍在下一次物理同步生效，需要同步确认创建/替换结果时使用 PhysicsSystem::set_collider_data。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

@@ -4,7 +4,7 @@
 
 ## 核对方式
 
-2026-11-03 在 macOS 当前完整桌面 Debug 构建执行标准 `tools/list`，实际返回 **115 个工具**。这是注册与参数覆盖核对，不表示所有工具都已完成实窗验收。运行时能力已实现，也不等于其 MCP 编辑入口已实现。
+2026-11-03 在 macOS 当前完整桌面 Debug 构建执行标准 `tools/list`，实际返回 **125 个工具**，包含节点/组件状态和 8 项预制体工具。这是注册与参数覆盖核对，不表示所有工具都已完成实窗验收。运行时能力已实现，也不等于其 MCP 编辑入口已实现。
 
 ```sh
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
@@ -18,7 +18,8 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 | 功能 | 已有 MCP 入口 | 需要补齐或说明的边界 |
 | --- | --- | --- |
 | 项目、资源、启停 | `build_resources`、`sync_assets`、`start_project`、`stop_project`、`set_hot_reload`、`get_status` | `execute_project_script` 在活动 Run 中执行临时 TS；`close_editor` 返回回执后延迟正常关闭 |
-| 场景与节点 | `get_scene`、`create_node`、`set_transform`、`save_scene`、`set_active_camera` | 查询和基础创建已有；通用节点删除、父子关系、常驻属性尚无专用编辑工具，不能把建模节点操作当成通用节点编辑 |
+| 场景与节点 | `get_scene`、`create_node`、`set_transform`、`set_node_state`、`set_component_state`、`save_scene`、`set_active_camera` | 查询、基础创建及激活/可见状态已有；通用节点删除、父子关系、常驻属性尚无专用编辑工具，不能把建模节点操作当成通用节点编辑 |
+| 预制体 | `create_prefab`、`create_prefab_from_model`、`instantiate_prefab`、`link_prefab`、`unlink_prefab`、`get_prefab_instance`、`set_prefab_override`、`revert_prefab_override` | 支持子树模板与模型关联模板、独立实例及字段覆盖；嵌套、变体与应用实例覆盖到模板尚未开放，操作见[制作流程](../../editor/prefabs.md) |
 | 编辑事务 | `execute_batch`、`undo`、`redo`、`get_editor_receipt` | 只针对已登记的可撤销编辑；运行脚本、模拟输入、播放和冲量不属于可回滚事务 |
 | 预览与截图 | `open_scene_preview`、`close_scene_preview`、`get_scene_preview`、`set_preview_camera`、`refresh_scene_preview`、`capture_frame`、`get_frame_capture` | 截图须查询实际完成；预览不启动项目玩法 |
 | 环境与后处理 | `get_render_settings`、`set_render_settings`、`set_render_stats` | 已有环境光、IBL 强度、雾、曝光、AO、HDR/Bloom、方向光 CSM；已补 SSR 参数 |
@@ -42,7 +43,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
 2. [UI 编辑与交互](class-diagrams/ui-editor.md)：查询控件及实际状态，模拟指针、拖动、滚轮、键盘和文字输入，区分源编辑与临时交互。
 3. [渲染 MCP 补齐](class-diagrams/render-mcp-tools.md)：沿现有组件、命令和撤销链补参数及缺少的组件入口。
 
-以上接口已经用户评审通过并实现，包含在本次完整桌面构建的 115 个工具中。注册、原生定向测试与真实窗口验证分别记录，不能用模拟返回值宣称业务链路已经通过。
+以上接口已经用户评审通过并实现，包含在渲染与 UI 整理阶段的 115 个工具中；最新工具总数见本页开头。注册、原生定向测试与真实窗口验证分别记录，不能用模拟返回值宣称业务链路已经通过。
 
 ## 验证要求
 

@@ -216,8 +216,9 @@ bool query_allowed(const BindingContext& binding)
     return std::any_of(world->scenes().begin(), world->scenes().end(),
                        [&](const auto& scene)
                        {
-                           return !scene->nodes().empty() &&
-                                  binding.find_node(scene->id(), scene->nodes().front()->id());
+                           std::vector<Node> nodes;
+                           return scene->collect_nodes(nodes) && !nodes.empty() &&
+                                  binding.find_node(scene->id(), nodes.front().id()).valid();
                        });
 }
 
@@ -279,25 +280,25 @@ void cast_sphere(const Arguments& arguments)
 void contact_target(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* node = BindingContext::node(arguments);
+    const auto node = BindingContext::node(arguments);
     const auto* binding = BindingContext::current(arguments);
     const auto* physics = binding ? binding->physics() : nullptr;
     if (arguments.count() != 2 || !node || !physics)
     {
         return;
     }
-    const auto* collider = node->get_component<Collider>();
-    const auto* motor = node->get_component<CharacterMotor>();
-    const bool has_collider = collider && collider->enabled();
-    const bool has_motor = motor && motor->enabled();
+    const auto collider = node.get_component<Collider>();
+    const auto motor = node.get_component<CharacterMotor>();
+    const bool has_collider = collider && collider.active();
+    const bool has_motor = motor && motor.active();
     if (has_collider == has_motor)
     {
         return;
     }
-    const PhysicsObject object{node->scene().id(), node->id(),
+    const PhysicsObject object{node.scene()->id(), node.id(),
                                has_motor ? PhysicsObjectKind::character
                                          : PhysicsObjectKind::collider,
-                               has_motor ? motor->instance_id() : collider->instance_id()};
+                               has_motor ? motor.instance_id() : collider.instance_id()};
     if (!physics->is_object_valid(object))
     {
         return;
@@ -314,12 +315,10 @@ bool query_context(const Arguments& arguments, int filter_offset, PhysicsSystem*
     auto* binding = BindingContext::current(arguments);
     physics = binding ? binding->physics() : nullptr;
     std::uint64_t ignored_scene = 0;
-    if (!physics || !query_allowed(*binding) ||
-        arguments.count() != filter_offset + 8 ||
+    if (!physics || !query_allowed(*binding) || arguments.count() != filter_offset + 8 ||
         !BindingContext::identifier(arguments, filter_offset, ignored_scene) ||
         !BindingContext::identifier(arguments, filter_offset + 1, filter.ignore_node_id) ||
-        (filter.ignore_node_id != 0 &&
-         !binding->find_node(ignored_scene, filter.ignore_node_id)))
+        (filter.ignore_node_id != 0 && !binding->find_node(ignored_scene, filter.ignore_node_id)))
     {
         return false;
     }

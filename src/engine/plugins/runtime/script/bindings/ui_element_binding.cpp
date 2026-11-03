@@ -96,13 +96,13 @@ Object.freeze(UiElement);
 UiSystem* element(const Arguments& arguments, UiElementHandle& handle)
 {
     handle = {};
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     auto* binding = BindingContext::current(arguments);
     auto* ui = binding == nullptr ? nullptr : binding->ui();
-    if (arguments.count() < 4 || node == nullptr || ui == nullptr || !ui->is_initialized() ||
+    if (arguments.count() < 4 || !node || ui == nullptr || !ui->is_initialized() ||
         !BindingContext::identifier(arguments, 2, handle.document_id) ||
         !BindingContext::identifier(arguments, 3, handle.element_id) || handle.document_id == 0 ||
-        handle.element_id == 0 || ui->document_id(node->id()) != handle.document_id ||
+        handle.element_id == 0 || ui->document_id(node.id()) != handle.document_id ||
         !ui->is_valid(handle))
     {
         handle = {};

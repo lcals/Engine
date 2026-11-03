@@ -74,11 +74,11 @@ target_link_libraries(engine_resource PRIVATE example::example)
 
 CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页面选择 `ci`，点击 Run workflow 并选择分支；提交、推送、创建或更新 PR、合并分支均不会自动运行 CI。助手只有在用户明确要求运行 CI 时才可手动触发。
 
-工作流配置 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建与测试，并在 Debug 作业解析全部已选依赖的 vcpkg feature。配置支持范围不等于运行结果；在 Actions 页面查看每次实际结果，本地验证记录见[验证范围与限制](testing.md)。
+工作流配置 Linux GCC、Linux Clang、Windows MSVC 和 macOS AppleClang 的 Debug / Release 构建，仅 Release 作业运行测试，并在 Debug 作业解析全部已选依赖的 vcpkg feature。配置支持范围不等于运行结果；在 Actions 页面查看每次实际结果，本地验证记录见[验证范围与限制](testing.md)。
 
 ## 测试约定
 
-`tests/` 按运行时、编辑器及插件的所属模块归档，构建规则检查放 `tests/build/`，共用夹具放 `tests/support/`，项目行为测试留在项目内。完整目录说明见[测试目录](testing.md#测试目录)。CTest 运行库单元测试和 CLI 测试；测试使用普通失败返回值，在 Release 中同样生效，新增业务通过正式接口验证，不为测试扩大正式接口可见性。按修改范围运行受影响的 Debug / Release 构建与 CTest，入口见[根目录 Presets](building.md#根目录-presets)。
+`tests/` 按运行时、编辑器及插件的所属模块归档，构建规则检查放 `tests/build/`，共用夹具放 `tests/support/`，项目行为测试留在项目内。完整目录说明见[测试目录](testing.md#测试目录)。CTest 运行库单元测试和 CLI 测试；测试使用普通失败返回值，在 Release 中同样生效，新增业务通过正式接口验证，不为测试扩大正式接口可见性。按修改范围完成 Debug / Release 构建，Debug 只检查编译，CTest 和实际运行验收使用 Release；入口见[根目录 Presets](building.md#根目录-presets)。
 
 ## 代码格式维护
 
@@ -98,6 +98,6 @@ CI 仅通过 `workflow_dispatch` 手动触发。在 GitHub 仓库的 Actions 页
 prettier --check --tab-width 4 --print-width 100 include/engine.d.ts "projects/showcase/assets/scripts/**/*.ts" scripts/build_scripts.mjs tests/runtime/scene/scene_schema_bridge.ts
 ```
 
-Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎构建依赖；可在独立工具环境安装。格式检查不能替代命名、模块职责、返回值错误处理及资源释放顺序的代码审查，C++ 修改仍需 Debug / Release 构建和受影响的 CTest。
+Black 26.10.1、cmakelang 0.6.13 与 Prettier 用于格式维护，不是引擎构建依赖；可在独立工具环境安装。格式检查不能替代命名、模块职责、返回值错误处理及资源释放顺序的代码审查，C++ 修改仍需 Debug / Release 构建和受影响的 Release CTest。
 
 项目采用 [MIT License](../LICENSE)。

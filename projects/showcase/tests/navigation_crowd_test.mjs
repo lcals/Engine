@@ -111,7 +111,7 @@ export class Scene {
     static Load() { const scene=new Scene(); fixture.scene=scene; return scene; }
     CreateNode(name) { const node=new Node(this,name); this.nodes.push(node); return node; }
     FindNode(name) { return this.nodes.find(node=>node.name===name && node.live) ?? null; }
-    InstantiateModel(path,name) {
+    InstantiatePrefab(path,name) {
         const root=this.CreateNode(name), body=this.CreateNode('GENERIC MAN new');
         body.SetParent(root); body.AddComponent(MeshRenderer); root.body=body; return root;
     }

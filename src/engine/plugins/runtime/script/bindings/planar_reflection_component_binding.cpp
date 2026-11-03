@@ -24,22 +24,23 @@ Object.freeze(PlanarReflectionComponent);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node &&
-                         node->add_component<PlanarReflectionComponent>() != nullptr);
+                         node.add_component<PlanarReflectionComponent>().valid());
 }
 
 void settings(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* component = node ? node->get_component<PlanarReflectionComponent>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto component =
+        node ? node.get_component<PlanarReflectionComponent>() : PlanarReflectionComponent{};
     PlanarReflectionSettings settings;
     if (component && arguments.count() == 4 &&
         BindingContext::scalar(arguments, 2, settings.resolution_scale) &&
         BindingContext::scalar(arguments, 3, settings.clip_bias))
     {
-        arguments.set_return(component->set_settings(settings));
+        arguments.set_return(component.set_settings(settings));
     }
 }
 } // namespace

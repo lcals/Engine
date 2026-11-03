@@ -13,6 +13,42 @@
 
 namespace engine::editor::asset_pipeline
 {
+
+bool read_generated_payload(const Guid& guid, const ImportContext& context,
+                            std::vector<std::byte>& output, std::string& error)
+{
+    output.clear();
+    std::vector<std::byte> bytes;
+    if (!read_bytes(context.output / guid, bytes, error))
+    {
+        return false;
+    }
+    if (bytes.size() >= 4 && bytes[0] == std::byte{'E'} && bytes[1] == std::byte{'R'} &&
+        bytes[2] == std::byte{'S'} && bytes[3] == std::byte{'1'})
+    {
+        const schema::AssetEntryT* entry = nullptr;
+        if (context.previous_catalog)
+        {
+            for (const auto& candidate : context.previous_catalog->entries)
+            {
+                if (candidate->guid == guid)
+                {
+                    entry = candidate.get();
+                    break;
+                }
+            }
+        }
+        if (!entry || !ResourceSystem::decode_resource(*entry, bytes, output))
+        {
+            error = "Invalid reused resource dependency: " + guid;
+            return false;
+        }
+        return true;
+    }
+    output = std::move(bytes);
+    return true;
+}
+
 bool read_table(const std::filesystem::path& path, toml::table& table, std::string& error)
 {
     std::string text;

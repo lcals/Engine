@@ -123,26 +123,6 @@ jump_speed = 5.5
 look_sensitivity = 0.12
 
 [[nodes]]
-id = 5
-name = "Terrain"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, 0, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "terrain"
-terrain = "ddc3e00c-0e5a-4141-876f-858a2f54d2b6"
-material = "df6a80fa-be66-4396-8a01-62aaadd61574"
-collision = true
-surface_color = [0.35, 0.48, 0.24, 1]
-wall_color = [0.48, 0.36, 0.24, 1]
-uv_scale = 0.2
-
-[[nodes]]
 id = 6
 name = "Environment"
 parent = 0
@@ -261,28 +241,6 @@ intensity = 8.0
 range = 16.0
 
 [[nodes]]
-id = 12
-name = "Foundation platform"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -12.5, 0]
-rotation = [0, 0, 0]
-scale = [40, 0.3, 40]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
-
-[[nodes.components]]
-type = "collider"
-shape = "box"
-half_extents = [1, 1, 1]
-friction = 0.7
-
-[[nodes]]
 id = 13
 name = "Terrain UI"
 parent = 0
@@ -297,50 +255,34 @@ scale = [1, 1, 1]
 type = "ui"
 document = "2b0fe596-c56b-4b99-9060-6e4caa65ba9b"
 
-[[nodes]]
-id = 14
-name = "West seam marker"
-parent = 0
+[[prefab_instances]]
+prefab = "5e1a2347-6018-44e8-8764-7b1a9edc296a"
+root = "17"
 
-[[nodes.components]]
-type = "transform"
-position = [-12, 0, 0]
-rotation = [0, 0, 0]
-scale = [0.08, 5, 0.08]
+[[prefab_instances.node_mappings]]
+source = "17"
+target = "17"
 
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
+[[prefab_instances.node_mappings]]
+source = "12"
+target = "12"
 
-[[nodes]]
-id = 15
-name = "East seam marker"
-parent = 0
+[[prefab_instances.node_mappings]]
+source = "14"
+target = "14"
 
-[[nodes.components]]
-type = "transform"
-position = [4, 0, 0]
-rotation = [0, 0, 0]
-scale = [0.08, 5, 0.08]
+[[prefab_instances.node_mappings]]
+source = "15"
+target = "15"
 
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
+[[prefab_instances.node_mappings]]
+source = "16"
+target = "16"
 
-[[nodes]]
-id = 16
-name = "Crater seam marker"
-parent = 0
+[[prefab_instances]]
+prefab = "7b2187a1-707a-4ca9-9f9a-aaff84e6c577"
+root = "5"
 
-[[nodes.components]]
-type = "transform"
-position = [22, 0, 0]
-rotation = [0, 0, 0]
-scale = [0.08, 5, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
+[[prefab_instances.node_mappings]]
+source = "5"
+target = "5"

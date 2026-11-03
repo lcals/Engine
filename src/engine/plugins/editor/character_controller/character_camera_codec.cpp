@@ -98,6 +98,31 @@ void CharacterCameraCodec::write(const schema::ComponentDataT& component, toml::
     table.insert("collision_margin", value->collision_margin);
 }
 
+bool CharacterCameraCodec::remap_node_references(schema::ComponentDataT& component,
+                                                 std::span<const schema::NodeIdMappingT> mapping,
+                                                 std::string& error) const
+{
+    auto* data = component.payload.AsCharacterCameraData();
+    if (!data)
+    {
+        return false;
+    }
+    if (data->target_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& value : mapping)
+    {
+        if (value.source_id == data->target_node_id)
+        {
+            data->target_node_id = value.target_id;
+            return true;
+        }
+    }
+    error = "Prefab has an external node reference: target_node_id";
+    return false;
+}
+
 bool register_character_camera_codec()
 {
     if (editor::asset_pipeline::find_scene_component_codec(

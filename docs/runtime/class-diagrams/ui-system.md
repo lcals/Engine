@@ -2,18 +2,23 @@
 
 [类图索引](../../class-diagrams/index.md) · [字体系统](font-system.md)
 
-普通 Node 持有 UiComponent，组件引用导入后的 UI 资源。RmlUi 文档中的控件不成为场景节点。
+普通节点通过 UiComponent 值句柄访问 ECS 中的 UI 设置，组件引用导入后的 UI 资源。RmlUi 文档中的控件不成为场景节点。
 系统负责文档呈现与事件输出，项目业务通过调用方接入。
 
 ```mermaid
 classDiagram
     class UiComponent {
+        <<value handle>>
+        +UiComponent()
+        +UiComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() UiComponentRuntime#42;
         +valid_settings(const UiDataT& settings)$ bool
-        +settings() const UiDataT&
+        +settings() UiDataT
+        +get_settings(UiDataT& output) bool
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
-        +document() const ResourcePtr&
-        +view_id() uint64
+        +document() ResourcePtr
         +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }
@@ -89,8 +94,8 @@ classDiagram
     UiElementInfo ..> UiElementHandle : 当前与父控件身份
     System <|-- UiSystem
     Component <|-- UiComponent
-    Node "1" *-- "0..1" UiComponent : 普通组件
-    UiComponent o-- Resource : 共享 UI 资源
+    Node ..> UiComponent : 按类型返回值句柄
+    UiComponentRuntime o-- Resource : 共享 UI 资源
     UiSystem --> WorldSystem : 借用所有已发布场景与存活节点
     UiSystem --> WindowSystem : 借用输入与尺寸
     UiSystem --> FontSystem : 借用字体能力
@@ -100,6 +105,15 @@ classDiagram
     UiEvent ..> UiElementHandle : 保存事件目标身份
     RenderSystem --> UiSystem : 绘制 UI 通道
     RuntimeHost ..> UiSystem : 装配与释放顺序
+    class ComponentRegistry
+    class ecs_world_t
+    class UiComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- UiComponentRuntime : 实例运行数据
+    UiComponent ..> UiComponentRuntime : 校验身份后短期借用
+    UiComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 - 核心 UI 系统只加载明确挂载的文档，更新布局、转发输入并输出事件，不选择项目场景。
@@ -108,7 +122,7 @@ classDiagram
 - RmlUi 的渲染与字体接口在 UI 模块内部实现；提交顺序、预乘透明度、裁剪和变换保留在 UI 绘制阶段。
 - 文档先销毁，再释放字体和 GPU 对象，最后关闭渲染设备。反复启停及平台 Surface 重建使用同样顺序。
 - C++ 返回失败状态；公开接口不暴露 RmlUi 类型。SDL 事件借用仅在调用期间有效。
-- synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 的 view_id 区分同节点上先移除再添加的组件。
+- synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 继承的 instance_id 区分同节点上先移除再添加的组件。
 - 文档按节点独立同步，其他文档的增加或移除不会清空未变更的 View。失效事件不返回给调用方。
 - 普通常驻标记通过 Node 生效，文档中的控件仍不成为节点。常驻文档在普通关卡文档之后绘制、优先命中输入；同组保留场景和节点顺序。UiEvent.scene_id 记录目标文档的实际所属场景，不用活动关卡 ID 替代。
 - release_scene 是整个会话的完整清理入口，停止与重载时释放全部文档；普通场景切换依靠同步裁剪已删除节点，不调用全量释放。
@@ -127,3 +141,7 @@ classDiagram
 
 - [UI 编辑器插件](../../plugins/editor/class-diagrams/ui-editor.md) 复用最小查询与输入增量。UiElementInfo 只读快照，bounds 为窗口逻辑坐标，密码值掩码；实际遮挡仍由 RmlUi 命中测试决定。句柄失效保持失败，不查找同名替代。
 - 显式 modifiers 重载仅影响本次输入，不改 SDL 全局修饰键状态。取消先清理指针捕获，再失焦并释放已记录按键，抑制取消引起的激活但不删除已排队合法事件。
+
+隐藏或停用节点/UiComponent 保留 Rml 文档与控件身份。隐藏清除输入捕获及排队事件，停用还暂停 Context 更新；恢复后使用同一文档。`set_document_visible` 只写组件本地 visible，`document_visible` 返回有效激活及可见结果，不另存可写文档状态。删除组件、替换文档或卸载所属场景才释放文档。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

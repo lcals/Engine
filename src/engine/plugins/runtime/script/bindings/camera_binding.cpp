@@ -33,52 +33,52 @@ Object.freeze(Camera);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<Camera>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<Camera>().valid());
 }
 
 void settings(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* camera = node == nullptr ? nullptr : node->get_component<Camera>();
+    auto node = BindingContext::node(arguments);
+    auto camera = !node ? Camera{} : node.get_component<Camera>();
     CameraSettings value;
-    if (camera != nullptr && arguments.count() == 5 &&
+    if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.fov_degrees) &&
         BindingContext::scalar(arguments, 3, value.near_clip) &&
         BindingContext::scalar(arguments, 4, value.far_clip))
     {
-        arguments.set_return(camera->set_settings(value));
+        arguments.set_return(camera.set_settings(value));
     }
 }
 void orthographic(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* camera = node == nullptr ? nullptr : node->get_component<Camera>();
+    auto node = BindingContext::node(arguments);
+    auto camera = !node ? Camera{} : node.get_component<Camera>();
     CameraSettings value;
     value.projection = schema::Projection::orthographic;
-    if (camera != nullptr && arguments.count() == 5 &&
+    if (camera.valid() && arguments.count() == 5 &&
         BindingContext::scalar(arguments, 2, value.orthographic_size) &&
         BindingContext::scalar(arguments, 3, value.near_clip) &&
         BindingContext::scalar(arguments, 4, value.far_clip))
     {
-        arguments.set_return(camera->set_settings(value));
+        arguments.set_return(camera.set_settings(value));
     }
 }
 
 void point_to_ray(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* node = BindingContext::node(arguments);
-    const auto* camera = node == nullptr ? nullptr : node->get_component<Camera>();
+    const auto node = BindingContext::node(arguments);
+    const auto camera = !node ? Camera{} : node.get_component<Camera>();
     const bool screen = arguments.data() == 0;
     double x = 0.0;
     double y = 0.0;
     double width_or_aspect = 0.0;
     double height = 0.0;
-    if (camera == nullptr || arguments.count() != (screen ? 6 : 5) ||
+    if (!camera || arguments.count() != (screen ? 6 : 5) ||
         !BindingContext::number(arguments, 2, x) || !BindingContext::number(arguments, 3, y) ||
         !BindingContext::number(arguments, 4, width_or_aspect) ||
         (screen && !BindingContext::number(arguments, 5, height)))
@@ -88,8 +88,8 @@ void point_to_ray(const Arguments& arguments)
     Vec3 origin;
     Vec3 direction;
     const bool success =
-        screen ? camera->screen_point_to_ray({x, y}, {width_or_aspect, height}, origin, direction)
-               : camera->viewport_point_to_ray({x, y}, width_or_aspect, origin, direction);
+        screen ? camera.screen_point_to_ray({x, y}, {width_or_aspect, height}, origin, direction)
+               : camera.viewport_point_to_ray({x, y}, width_or_aspect, origin, direction);
     if (!success)
     {
         return;

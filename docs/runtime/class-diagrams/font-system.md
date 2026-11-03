@@ -14,9 +14,9 @@ classDiagram
     FontSystem ..> FontLayout : 排布参数
     FontSystem ..> FontDraw : 绘制参数
     FontSystem ..> Scene : 遍历文字组件
-    TextComponent o-- Resource : 共享字体及Shader
+    TextComponentRuntime o-- Resource : 共享字体及Shader
     TextComponent ..> FontSystem : 请求排布和绘制
-    Node *-- Component : 独占普通组件
+    Node ..> Component : 按类型返回值句柄
     class FontSystem {
         +load_font(path_or_guid, output) bool
         +glyph(data, codepoint) const FontGlyphT#42;$
@@ -32,14 +32,29 @@ classDiagram
         #on_tick(double delta_time) bool
     }
     class TextComponent {
+        <<value handle>>
+        +TextComponent()
+        +TextComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() TextComponentRuntime#42;
         +valid_settings(settings) bool$
         +settings() TextDataT
+        +get_settings(TextDataT& output) bool
         +set_settings(settings) bool
         +set_font(path) bool
         +font() ResourcePtr
         +shader() ResourcePtr
         +restore_data(data) bool
     }
+    class ComponentRegistry
+    class ecs_world_t
+    class TextComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- TextComponentRuntime : 实例运行数据
+    TextComponent ..> TextComponentRuntime : 校验身份后短期借用
+    TextComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 ```mermaid
@@ -91,3 +106,5 @@ classDiagram
 
 
 HDR 绘制契约：`FontDraw.linear_output` 默认 false，表示既有显示色预乘输出。`render_scene` 接受同名参数，由场景渲染调用方按目标明确传入；UI 保持 false。为 true 时，字体 Shader 使用 `u_font_texture.z=1` 将预乘显示色先解预乘、转换线性再预乘，字形覆盖率与 alpha 不进行 gamma 转换。字体仍进入场景深度目标，参与最终曝光和色调映射；不按 view 编号猜测调用方。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

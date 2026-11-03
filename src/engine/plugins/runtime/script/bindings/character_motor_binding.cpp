@@ -66,45 +66,45 @@ Object.freeze(CharacterMotor.prototype);
 Object.freeze(CharacterMotor);
 )js";
 
-CharacterMotor* motor(const Arguments& arguments, int count)
+CharacterMotor motor(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count ? node->get_component<CharacterMotor>()
-                                                         : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count ? node.get_component<CharacterMotor>()
+                                                      : CharacterMotor{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<CharacterMotor>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<CharacterMotor>().valid());
 }
 
 void capsule(const Arguments& arguments)
 {
-    auto* value = motor(arguments, 4);
+    auto value = motor(arguments, 4);
     float radius = 0;
     float half_height = 0;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, radius) &&
+    if (value.valid() && BindingContext::scalar(arguments, 2, radius) &&
         BindingContext::scalar(arguments, 3, half_height))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.radius = radius;
         settings.half_height = half_height;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void set_number(const Arguments& arguments, float schema::CharacterMotorDataT::* field)
 {
-    auto* value = motor(arguments, 3);
+    auto value = motor(arguments, 3);
     float number = 0;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, number))
+    if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.*field = number;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
@@ -135,66 +135,66 @@ void external_damping(const Arguments& arguments)
 
 void velocity(const Arguments& arguments)
 {
-    auto* value = motor(arguments, 4);
+    auto value = motor(arguments, 4);
     double x = 0;
     double z = 0;
-    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+    if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, z))
     {
-        arguments.set_return(value->set_velocity({x, 0, z}));
+        arguments.set_return(value.set_velocity({x, 0, z}));
     }
 }
 
 void get_velocity(const Arguments& arguments)
 {
-    const auto* value = motor(arguments, 2);
+    const auto value = motor(arguments, 2);
     arguments.set_return({});
-    if (value == nullptr)
+    if (!value)
     {
         return;
     }
-    const auto& velocity = value->velocity();
+    const auto& velocity = value.velocity();
     arguments.set_return(
         vm::NativeValue::Object{{"x", velocity.x()}, {"y", velocity.y()}, {"z", velocity.z()}});
 }
 
 void clear_input(const Arguments& arguments)
 {
-    auto* value = motor(arguments, 2);
-    if (value != nullptr)
+    auto value = motor(arguments, 2);
+    if (value.valid())
     {
-        value->clear_input();
+        value.clear_input();
         arguments.set_return(true);
     }
 }
 
 void add_velocity(const Arguments& arguments)
 {
-    auto* value = motor(arguments, 5);
+    auto value = motor(arguments, 5);
     double x = 0;
     double y = 0;
     double z = 0;
-    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+    if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z))
     {
-        arguments.set_return(value->add_velocity({x, y, z}));
+        arguments.set_return(value.add_velocity({x, y, z}));
     }
 }
 
 void jump(const Arguments& arguments)
 {
-    auto* value = motor(arguments, 3);
+    auto value = motor(arguments, 3);
     float speed = 0;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, speed))
+    if (value.valid() && BindingContext::scalar(arguments, 2, speed))
     {
-        arguments.set_return(value->jump(speed));
+        arguments.set_return(value.jump(speed));
     }
 }
 
 void grounded(const Arguments& arguments)
 {
-    const auto* value = motor(arguments, 2);
-    arguments.set_return(value != nullptr && value->grounded());
+    const auto value = motor(arguments, 2);
+    arguments.set_return(value.valid() && value.grounded());
 }
 
 } // namespace

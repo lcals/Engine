@@ -39,7 +39,7 @@ public:
     [[nodiscard]] bool revert(std::string& error) override;
 
 private:
-    [[nodiscard]] DestructionComponent* target(std::string& error);
+    [[nodiscard]] DestructionComponent target(std::string& error);
     WorldSystem& world_;
     std::uint64_t scene_;
     std::shared_ptr<std::uint64_t> node_;

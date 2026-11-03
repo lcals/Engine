@@ -88,6 +88,31 @@ void CharacterControllerCodec::write(const schema::ComponentDataT& component,
     table.insert("camera_node_id", std::to_string(value->camera_node_id));
 }
 
+bool CharacterControllerCodec::remap_node_references(
+    schema::ComponentDataT& component, std::span<const schema::NodeIdMappingT> mapping,
+    std::string& error) const
+{
+    auto* data = component.payload.AsCharacterControllerData();
+    if (!data)
+    {
+        return false;
+    }
+    if (data->camera_node_id == 0)
+    {
+        return true;
+    }
+    for (const auto& value : mapping)
+    {
+        if (value.source_id == data->camera_node_id)
+        {
+            data->camera_node_id = value.target_id;
+            return true;
+        }
+    }
+    error = "Prefab has an external node reference: camera_node_id";
+    return false;
+}
+
 bool register_controller_codec()
 {
     if (!editor::asset_pipeline::find_scene_component_codec(

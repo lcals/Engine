@@ -17,20 +17,72 @@
 #include "runtime/scene/transform.hpp"
 #include "runtime/scene/ui_component.hpp"
 
+#include "runtime/world/world_system.hpp"
+
 namespace engine
 {
-
 bool ComponentRegistry::contains(ComponentType type) const noexcept
 {
-    return factories_.contains(type);
+    return operations_.contains(type);
 }
-
-Component* ComponentRegistry::create(ComponentType type, Node& node) const
+const ComponentRegistry::Operations*
+ComponentRegistry::operations(ComponentType type) const noexcept
 {
-    const auto entry = factories_.find(type);
-    return entry == factories_.end() ? nullptr : entry->second(node);
+    const auto found = operations_.find(type);
+    return found == operations_.end() ? nullptr : &found->second;
 }
-
+ecs_world_t* ComponentRegistry::native_world() const noexcept
+{
+    return world_;
+}
+bool ComponentRegistry::register_type(ComponentType type, const Operations& operations)
+{
+    if (!world_ || type == ComponentType::NONE || !operations.create || !operations.remove ||
+        !operations.state || !operations.data || !operations.runtime || !operations.snapshot ||
+        !operations.build || !operations.restore || !operations.remap)
+    {
+        return false;
+    }
+    return operations_.emplace(type, operations).second;
+}
+Component ComponentRegistry::create(ComponentType type, Node node) const
+{
+    const auto* ops = operations(type);
+    return ops && node && node.world()->native_world() == world_ ? ops->create(node) : Component{};
+}
+Component ComponentRegistry::find(ComponentType type, Node node) const noexcept
+{
+    const auto* ops = operations(type);
+    if (!ops || !node || node.world()->native_world() != world_)
+    {
+        return {};
+    }
+    const auto* state = ops->state(node);
+    return state && state->instance_id != 0 ? Component(node, type, state->instance_id)
+                                            : Component{};
+}
+bool ComponentRegistry::remove(ComponentType type, Node node) const
+{
+    const auto* ops = operations(type);
+    return ops && node && node.world()->native_world() == world_ && ops->remove(node);
+}
+bool ComponentRegistry::collect(Node node, std::vector<Component>& output) const
+{
+    output.clear();
+    if (!node || node.world()->native_world() != world_)
+    {
+        return false;
+    }
+    for (const auto& [type, ops] : operations_)
+    {
+        const auto* state = ops.state(node);
+        if (state && state->instance_id != 0)
+        {
+            output.push_back(Component(node, type, state->instance_id));
+        }
+    }
+    return true;
+}
 bool register_scene_components(ComponentRegistry& registry)
 {
     return registry.add<Transform>() && registry.add<Camera>() && registry.add<Light>() &&
@@ -41,5 +93,4 @@ bool register_scene_components(ComponentRegistry& registry)
            registry.add<EnvironmentComponent>() && registry.add<PostProcessComponent>() &&
            registry.add<PlanarReflectionComponent>() && registry.add<LightProbeVolumeComponent>();
 }
-
 } // namespace engine

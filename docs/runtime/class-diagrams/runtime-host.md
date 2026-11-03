@@ -51,7 +51,6 @@ classDiagram
     class InputSystem
     class GameplaySession
     class RenderSystem
-    class PerformanceSystem
     class WorldSystem
     class PhysicsSystem
     class NavigationSystem
@@ -83,7 +82,6 @@ classDiagram
     RuntimeHost *-- InputSystem : 独占输入，暂停前发布状态
     RuntimeHost *-- GameplaySession : 独占运行会话
     RuntimeHost --> RenderSystem : 借用以提交帧
-    RuntimeHost ..> PerformanceSystem : 创建并移交引擎独占
     RuntimeHost --> WorldSystem : 借用场景状态
     RuntimeHost --> PhysicsSystem : 装配后借用
     RuntimeHost ..> NavigationSystem : 创建并移交世界独占，传给脚本工厂
@@ -103,7 +101,7 @@ classDiagram
 ```
 
 - RuntimeHost 位于运行时 app 模块，是桌面、编辑器和 Android 共用的运行组合入口。类型为 final，禁止复制和移动；构造、析构、查询、退出请求和关闭为 noexcept；initialize、tick 和 gameplay 的返回值标注 nodiscard。
-- 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 PerformanceSystem、WorldSystem、RenderSystem。性能系统是独立根系统，通过可选 Tracy 客户端接收各模块采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
+- 初始化先独立创建 WindowSystem 和 InputSystem；resources 为空时向 Engine 注册并拥有 ResourceSystem，非空时借用宿主已经初始化的资源底层，再装配 WorldSystem、RenderSystem。宿主初始化可选 Tracy 主线程名称，各模块独立提交采样；覆盖范围见[性能文档](../performance.md)；世界独占物理、音频、导航、动画、字体、界面和可选脚本子系统。引擎已被其他宿主使用时拒绝初始化，不清理他人的资源。
 - `resources`、`script_factory` 和 `setup` 默认空。`ScriptRuntimeFactory` 是 `std::unique_ptr<ScriptRuntime> (*)(WorldSystem&, RenderSystem&, UiSystem&, PhysicsSystem&, NavigationSystem&, InputSystem&, WindowSystem&)` 函数指针别名，由可执行宿主选择插件并提供。先构造世界和渲染器，再调用工厂创建尚未初始化的抽象脚本子系统，交给世界统一初始化、更新和关闭；初始化仍按世界、渲染器的次序。非空工厂返回空或无法附属时，整个初始化失败并清理已取得的资源。渲染器与输入借用仅用于玩法回调；关闭时先由 GameplaySession 停止回调，再释放渲染器和世界。
 
 上述工厂最后一个参数 `WindowSystem&`，传入宿主已有窗口，供脚本插件的现有/新增绑定

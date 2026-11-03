@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "plugins/runtime/terrain/terrain_component.hpp"
 #include "plugins/runtime/terrain/terrain_system.hpp"
 #include "plugins/runtime/terrain/terrain_volume.hpp"
@@ -198,20 +200,19 @@ bool runtime_contract()
         return false;
     }
     auto* scene = world.create_scene("Terrain contracts");
-    auto* node = scene ? scene->create_node("Volume") : nullptr;
-    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
-    if (!expect(component != nullptr && !component->ready(),
-                "empty component has no generated output"))
+    auto node = scene ? scene->create_node("Volume") : engine::Node{};
+    auto component = node ? node.add_component<TerrainComponent>() : TerrainComponent{};
+    if (!expect(component.valid() && !component.ready(), "empty component has no generated output"))
     {
         return false;
     }
-    auto settings = component->settings();
+    auto settings = component.settings();
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
-    if (!expect(component->set_settings(settings) && terrain.tick(0) && component->ready() &&
+    if (!expect(component.set_settings(settings) && terrain.tick(0) && component.ready() &&
                     physics.tick(0) && physics.body_count() == 1,
                 "configured component creates rendering and collision through the plugin"))
     {
-        std::fprintf(stderr, "terrain diagnostic: %s\n", component->last_error().c_str());
+        std::fprintf(stderr, "terrain diagnostic: %s\n", component.last_error().c_str());
         return false;
     }
     auto cast = [&](double x, bool expected)
@@ -220,11 +221,12 @@ bool runtime_contract()
         return physics.cast_sphere({x, 4, 0.25}, {0, -12, 0}, 0.1F, fraction) &&
                (expected ? fraction < 1.0F : fraction == 1.0F);
     };
-    auto* renderer = node->get_component<MeshRenderer>();
-    auto* collider = node->get_component<Collider>();
+    auto renderer = node.get_component<MeshRenderer>();
+    auto collider = node.get_component<Collider>();
     schema::SceneDataT scene_data;
-    if (!expect(renderer && collider && renderer->transient() && collider->transient() &&
-                    collider->mesh_data() == nullptr && scene->nodes().size() == 1 &&
+    if (!expect(renderer && collider && renderer.transient() && collider.transient() &&
+                    collider.mesh_data() == nullptr &&
+                    test_support::scene_nodes(*scene).size() == 1 &&
                     scene->build_data(scene_data) && scene_data.nodes.size() == 1 &&
                     scene_data.nodes.front()->components.size() == 2 && cast(0.25, true),
                 "scene snapshot retains only Transform and Terrain, excluding generated outputs"))
@@ -233,15 +235,16 @@ bool runtime_contract()
     }
     float original_fraction = 0;
     float edited_fraction = 0;
-    if (!expect(physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, original_fraction) &&
-                    original_fraction < 1 && component->apply_sphere({-8, -1, 0.25}, 2, false) &&
-                    component->rebuilt_chunks() > 0 &&
-                    component->rebuilt_chunks() < component->chunk_count() &&
-                    physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
+    if (!expect(physics.cast_ray(collider, {-8, 4, 0.25}, {0, -8, 0}, original_fraction) &&
+                    original_fraction < 1 && component.apply_sphere({-8, -1, 0.25}, 2, false) &&
+                    component.rebuilt_chunks() > 0 &&
+                    component.rebuilt_chunks() < component.chunk_count() &&
+                    physics.cast_ray(collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
                     edited_fraction > original_fraction + 0.1F && edited_fraction < 1 &&
-                    cast(12, true) && physics.body_count() == 1 && scene->nodes().size() == 1 &&
-                    node->get_component<Collider>() == collider && component->reset() &&
-                    physics.cast_ray(*collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
+                    cast(12, true) && physics.body_count() == 1 &&
+                    test_support::scene_nodes(*scene).size() == 1 &&
+                    node.get_component<Collider>() == collider && component.reset() &&
+                    physics.cast_ray(collider, {-8, 4, 0.25}, {0, -8, 0}, edited_fraction) &&
                     std::abs(edited_fraction - original_fraction) < 0.001F,
                 "a local brush replaces only affected chunks on the same collider and restores "
                 "the original surface"))
@@ -250,31 +253,30 @@ bool runtime_contract()
     }
     physics.clear();
     if (!expect(physics.tick(0) && physics.body_count() == 1 && cast(12, true) &&
-                    node->get_component<Collider>() == collider,
+                    node.get_component<Collider>() == collider,
                 "clearing physics rebuilds all terrain chunks from the retained collider"))
     {
         return false;
     }
-    const auto initial_revision = component->revision();
+    const auto initial_revision = component.revision();
     ByteBuffer saved;
     const auto state_path = fixture.root / "state" / "dig.bin";
-    if (!expect(component->apply_sphere({0, -3, 0}, 8, false) &&
-                    component->revision() > initial_revision && cast(0.25, false) &&
-                    cast(12, true) && component->snapshot(saved) &&
-                    component->save_state(state_path),
+    if (!expect(component.apply_sphere({0, -3, 0}, 8, false) &&
+                    component.revision() > initial_revision && cast(0.25, false) &&
+                    cast(12, true) && component.snapshot(saved) && component.save_state(state_path),
                 "dig opens collision immediately while retaining the surrounding surface") ||
-        !expect(component->reset() && cast(0.25, true) && component->load_state(state_path) &&
+        !expect(component.reset() && cast(0.25, true) && component.load_state(state_path) &&
                     cast(0.25, false),
                 "file save and restore recover modified volume after reset"))
     {
         return false;
     }
-    const auto revision = component->revision();
+    const auto revision = component.revision();
     ByteBuffer after;
     auto corrupted = saved;
     corrupted[4] = std::byte{0};
-    if (!expect(!component->restore(corrupted) && component->revision() == revision &&
-                    component->snapshot(after) && after == saved && cast(0.25, false),
+    if (!expect(!component.restore(corrupted) && component.revision() == revision &&
+                    component.snapshot(after) && after == saved && cast(0.25, false),
                 "corrupt state preserves volume and collision"))
     {
         return false;
@@ -287,23 +289,22 @@ bool runtime_contract()
                                          schema::TerrainStateData::Pack(mismatch, state.get()));
     const ByteView wrong_base(reinterpret_cast<const std::byte*>(mismatch.GetBufferPointer()),
                               mismatch.GetSize());
-    if (!expect(!component->restore(wrong_base) && component->revision() == revision &&
-                    component->snapshot(after) && after == saved,
+    if (!expect(!component.restore(wrong_base) && component.revision() == revision &&
+                    component.snapshot(after) && after == saved,
                 "state from another base resource is rejected without mutation"))
     {
         return false;
     }
-    auto* transform = node->get_component<Transform>();
-    const auto original_pose = transform->settings();
+    auto transform = node.get_component<Transform>();
+    const auto original_pose = transform.settings();
     auto invalid_pose = original_pose;
     invalid_pose.scale = {-1, 1, 1};
-    const auto mesh_before = triangles(*renderer->mesh_data());
+    const auto mesh_before = triangles(*renderer.mesh_data());
     if (!expect(
-            transform->set_settings(invalid_pose) &&
-                !component->apply_sphere({0, -3, 0}, 3, true) &&
-                component->revision() == revision && component->snapshot(after) && after == saved &&
-                triangles(*renderer->mesh_data()) == mesh_before &&
-                transform->set_settings(original_pose) && cast(0.25, false) && cast(12, true),
+            transform.set_settings(invalid_pose) && !component.apply_sphere({0, -3, 0}, 3, true) &&
+                component.revision() == revision && component.snapshot(after) && after == saved &&
+                triangles(*renderer.mesh_data()) == mesh_before &&
+                transform.set_settings(original_pose) && cast(0.25, false) && cast(12, true),
             "failed physics commit rolls back volume and rendering and preserves old collision"))
     {
         return false;
@@ -311,39 +312,46 @@ bool runtime_contract()
     auto no_collision = settings;
     no_collision.collision = false;
     if (!expect(
-            component->set_settings(no_collision) && !collider->enabled() &&
+            component.set_settings(no_collision) && !collider.enabled() &&
                 physics.body_count() == 0 && cast(12, false) &&
-                transform->set_settings(invalid_pose) && !component->set_settings(settings) &&
-                component->settings() == no_collision && !collider->enabled() &&
-                physics.body_count() == 0 && transform->set_settings(original_pose) &&
-                component->set_settings(settings) && collider->enabled() && cast(12, true) &&
-                component->snapshot(after) && after == saved,
+                transform.set_settings(invalid_pose) && !component.set_settings(settings) &&
+                component.settings() == no_collision && !collider.enabled() &&
+                physics.body_count() == 0 && transform.set_settings(original_pose) &&
+                component.set_settings(settings) && collider.enabled() && cast(12, true) &&
+                component.snapshot(after) && after == saved,
             "collision changes publish immediately and failed reenabling restores disabled state"))
     {
         return false;
     }
-    if (!expect(component->apply_sphere({0, 0, 0}, 100, false) &&
-                    component->triangle_count() == 0 && !renderer->visible() &&
-                    !collider->enabled() && physics.body_count() == 0 && cast(0.25, false) &&
-                    component->apply_sphere({0, -4, 0}, 4, true) &&
-                    component->triangle_count() > 0 && renderer->visible() && collider->enabled() &&
-                    physics.body_count() == 1 && node->get_component<Collider>() == collider &&
-                    scene->nodes().size() == 1 && cast(0.25, true) && component->restore(saved) &&
-                    cast(0.25, false) && cast(12, true),
-                "filling an entirely empty terrain restores collision without a physics tick"))
+    if (!expect(component.apply_sphere({0, 0, 0}, 100, false) && component.triangle_count() == 0 &&
+                    !renderer.visible() && !collider.enabled() && physics.body_count() == 0 &&
+                    cast(0.25, false) && terrain.synchronize() && component.triangle_count() == 0 &&
+                    !renderer.visible() && !collider.enabled() &&
+                    component.apply_sphere({0, -4, 0}, 4, true) && component.triangle_count() > 0 &&
+                    renderer.visible() && collider.enabled() && physics.body_count() == 1 &&
+                    node.get_component<Collider>() == collider &&
+                    test_support::scene_nodes(*scene).size() == 1 && cast(0.25, true) &&
+                    component.restore(saved) && cast(0.25, false) && cast(12, true),
+                "empty terrain stays hidden after synchronization and filling restores collision"))
     {
         return false;
     }
-    component->set_enabled(false);
-    if (!expect(terrain.tick(0) && physics.tick(0) && !renderer->enabled() &&
-                    !collider->enabled() && physics.body_count() == 0 && cast(12, false),
+    if (!component.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(terrain.tick(0) && physics.tick(0) && !renderer.enabled() && !collider.enabled() &&
+                    physics.body_count() == 0 && cast(12, false),
                 "disabled terrain removes both render output and collision"))
     {
         return false;
     }
-    component->set_enabled(true);
+    if (!component.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(terrain.tick(0) && physics.tick(0) && cast(12, true) && physics.body_count() == 1 &&
-                    node->get_component<Collider>() == collider,
+                    node.get_component<Collider>() == collider,
                 "reenabling terrain restores its modified surface"))
     {
         return false;
@@ -351,16 +359,16 @@ bool runtime_contract()
     auto cleared = settings;
     cleared.terrain_guid.clear();
     if (!expect(
-            component->set_settings(cleared) && !component->ready() &&
-                component->chunk_count() == 0 && component->triangle_count() == 0 &&
-                terrain.tick(0) && physics.tick(0) && physics.body_count() == 0 &&
-                node->get_component<MeshRenderer>() == nullptr &&
-                node->get_component<Collider>() == nullptr && component->triangle_count() == 0 &&
-                component->set_settings(settings) && component->restore(saved) && cast(12, true),
+            component.set_settings(cleared) && !component.ready() && component.chunk_count() == 0 &&
+                component.triangle_count() == 0 && terrain.tick(0) && physics.tick(0) &&
+                physics.body_count() == 0 && node.get_component<MeshRenderer>().valid() == false &&
+                node.get_component<Collider>().valid() == false &&
+                component.triangle_count() == 0 && component.set_settings(settings) &&
+                component.restore(saved) && cast(12, true),
             "clearing the resource resets statistics and the component can be configured again") ||
-        !expect(node->remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
-                    physics.tick(0) && node->get_component<MeshRenderer>() == nullptr &&
-                    node->get_component<Collider>() == nullptr && physics.body_count() == 0 &&
+        !expect(node.remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
+                    physics.tick(0) && node.get_component<MeshRenderer>().valid() == false &&
+                    node.get_component<Collider>().valid() == false && physics.body_count() == 0 &&
                     scene->build_data(scene_data) &&
                     scene_data.nodes.front()->components.size() == 1,
                 "removing terrain removes only generated components and their physical bodies"))
@@ -397,17 +405,17 @@ bool subsystem_contract()
         return false;
     }
     auto* scene = world.create_scene("Preview terrain");
-    auto* node = scene ? scene->create_node("Volume") : nullptr;
-    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
-    if (!expect(component != nullptr, "create a pending terrain in the preview scene"))
+    auto node = scene ? scene->create_node("Volume") : engine::Node{};
+    auto component = node ? node.add_component<TerrainComponent>() : TerrainComponent{};
+    if (!expect(component.valid(), "create a pending terrain in the preview scene"))
     {
         return false;
     }
-    auto settings = component->settings();
+    auto settings = component.settings();
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
     float fraction = 1;
-    if (!expect(component->set_settings(settings) && !terrain->tick(0) && !component->ready() &&
-                    terrain->synchronize() && component->ready() && physics.body_count() == 1 &&
+    if (!expect(component.set_settings(settings) && !terrain->tick(0) && !component.ready() &&
+                    terrain->synchronize() && component.ready() && physics.body_count() == 1 &&
                     physics.cast_sphere({0.25, 4, 0.25}, {0, -12, 0}, 0.1F, fraction) &&
                     fraction < 1,
                 "preview explicitly synchronizes terrain while direct subsystem ticking stays "
@@ -415,8 +423,8 @@ bool subsystem_contract()
     {
         return false;
     }
-    const auto revision = component->revision();
-    if (!expect(world.tick(0) && component->revision() == revision,
+    const auto revision = component.revision();
+    if (!expect(world.tick(0) && component.revision() == revision,
                 "normal parent ticking reuses the synchronized terrain without rebuilding"))
     {
         return false;
@@ -618,36 +626,39 @@ bool collapse_runtime_contract()
         return false;
     }
     auto* scene = world.create_scene("Terrain collapse");
-    auto* node = scene ? scene->create_node("Supported island") : nullptr;
-    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
-    if (!expect(component != nullptr, "create terrain collapse component"))
+    auto node = scene ? scene->create_node("Supported island") : engine::Node{};
+    auto component = node ? node.add_component<TerrainComponent>() : TerrainComponent{};
+    if (!expect(component.valid(), "create terrain collapse component"))
     {
         return false;
     }
-    auto settings = component->settings();
+    auto settings = component.settings();
     settings.terrain_guid = fixture.catalog.entries.front()->guid;
-    if (!expect(component->set_settings(settings) && terrain.tick(0) &&
-                    component->collapse_detached(8, 16, 2, 100) &&
-                    component->fragment_count() == 0 &&
-                    component->apply_sphere({7, 4, 7}, 1.8F, false),
+    if (!expect(component.set_settings(settings) && terrain.tick(0) &&
+                    component.collapse_detached(8, 16, 2, 100) && component.fragment_count() == 0 &&
+                    component.apply_sphere({7, 4, 7}, 1.8F, false),
                 "an intact support does not collapse; digging removes the support"))
     {
         return false;
     }
     ByteBuffer before;
     ByteBuffer after;
-    const auto revision = component->revision();
-    if (!expect(component->snapshot(before) && !component->collapse_detached(8, 7, 2, 100) &&
-                    component->snapshot(after) && before == after &&
-                    component->revision() == revision && component->fragment_count() == 0 &&
-                    physics.body_count() == 1 && scene->nodes().size() == 1,
+    const auto revision = component.revision();
+    if (!component.set_visible(false))
+    {
+        std::abort();
+    }
+    if (!expect(component.snapshot(before) && !component.collapse_detached(8, 7, 2, 100) &&
+                    component.snapshot(after) && before == after &&
+                    component.revision() == revision && component.fragment_count() == 0 &&
+                    physics.body_count() == 1 && test_support::scene_nodes(*scene).size() == 1,
                 "rejected collapse publishes neither holes nor candidate rigid bodies") ||
-        !expect(component->collapse_detached(8, 16, 2, 100) && component->fragment_count() == 8 &&
-                    physics.body_count() == 9 && !component->snapshot(after) && after.empty() &&
-                    !component->restore(before),
+        !expect(component.collapse_detached(8, 16, 2, 100) && component.fragment_count() == 8 &&
+                    physics.body_count() == 9 && !component.snapshot(after) && after.empty() &&
+                    !component.restore(before),
                 "eight dynamic fragments replace the island and unsupported saves fail explicitly"))
     {
-        std::fprintf(stderr, "terrain collapse diagnostic: %s\n", component->last_error().c_str());
+        std::fprintf(stderr, "terrain collapse diagnostic: %s\n", component.last_error().c_str());
         return false;
     }
     schema::SceneDataT saved;
@@ -657,22 +668,80 @@ bool collapse_runtime_contract()
         return false;
     }
     std::uint64_t fragment_id = 0;
-    for (const auto& item : scene->nodes())
+    for (const auto& item : test_support::scene_nodes(*scene))
     {
-        if (item->transient())
+        if (item.transient())
         {
-            fragment_id = item->id();
-            auto* body = item->get_component<RigidBody>();
-            if (!expect(body && body->settings().motion == schema::BodyMotion::dynamic &&
-                            item->get_component<MeshRenderer>() && item->get_component<Collider>(),
-                        "detached soil uses ordinary renderer/collider/dynamic-body components"))
+            fragment_id = item.id();
+            auto body = item.get_component<RigidBody>();
+            if (!expect(body && body.settings().motion == schema::BodyMotion::dynamic &&
+                            item.get_component<MeshRenderer>() && item.get_component<Collider>() &&
+                            !item.get_component<MeshRenderer>().visible_in_hierarchy() &&
+                            item.get_component<Collider>().active(),
+                        "new soil fragments immediately inherit hidden source state without "
+                        "suppressing collision"))
             {
                 return false;
             }
         }
     }
+    const auto fragments_visible = [&](bool expected)
+    {
+        const auto nodes = test_support::scene_nodes(*scene);
+        return std::all_of(nodes.begin(), nodes.end(),
+                           [&](const auto& item)
+                           {
+                               auto mesh = item.template get_component<MeshRenderer>();
+                               return !item.transient() ||
+                                      (mesh && mesh.visible_in_hierarchy() == expected);
+                           });
+    };
+    if (!component.set_visible(true))
+    {
+        std::abort();
+    }
+    if (!expect(world.set_paused(true) && terrain.tick(2) && fragments_visible(true) &&
+                    node.get_component<MeshRenderer>().visible(),
+                "paused terrain synchronizes visibility without advancing simulation"))
+    {
+        return false;
+    }
+    if (!node.set_visible(false))
+    {
+        std::abort();
+    }
+    if (!expect(terrain.tick(2) && fragments_visible(false) && physics.body_count() == 9,
+                "hiding the source node while paused hides all independent fragments"))
+    {
+        return false;
+    }
+    if (!node.set_visible(true))
+    {
+        std::abort();
+    }
+    if (!node.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(terrain.tick(2) && physics.tick(0) &&
+                    !scene->find_node(fragment_id).get_component<MeshRenderer>().active() &&
+                    !scene->find_node(fragment_id).get_component<Collider>().active(),
+                "disabling the source while paused synchronizes fragment activation"))
+    {
+        return false;
+    }
+    if (!node.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!expect(terrain.tick(2) && physics.tick(0) && fragments_visible(true) &&
+                    physics.body_count() == 9 && world.set_paused(false),
+                "reenabling the paused source restores the retained fragments"))
+    {
+        return false;
+    }
     const double initial_y =
-        scene->find_node(fragment_id)->get_component<Transform>()->settings().position.y();
+        scene->find_node(fragment_id).get_component<Transform>().settings().position.y();
     for (int step = 0; step < 20; ++step)
     {
         if (!physics.tick(1.0 / 60.0))
@@ -680,38 +749,48 @@ bool collapse_runtime_contract()
             return false;
         }
     }
-    if (!expect(scene->find_node(fragment_id)->get_component<Transform>()->settings().position.y() <
+    if (!expect(scene->find_node(fragment_id).get_component<Transform>().settings().position.y() <
                     initial_y - 0.1,
                 "detached soil actually falls under Jolt gravity") ||
-        !expect(component->apply_sphere({3, 2, 3}, 1, false) &&
-                    component->apply_sphere({3, 2, 3}, 1, true) &&
-                    component->fragment_count() == 8 &&
-                    !component->collapse_detached(8, 8, 2, 100) && component->fragment_count() == 8,
+        !expect(component.apply_sphere({3, 2, 3}, 1, false) &&
+                    component.apply_sphere({3, 2, 3}, 1, true) && component.fragment_count() == 8 &&
+                    !component.collapse_detached(8, 8, 2, 100) && component.fragment_count() == 8,
                 "further brushes preserve moving fragments and respect the total active budget"))
     {
         return false;
     }
-    component->set_enabled(false);
+    if (!component.set_enabled(false))
+    {
+        std::abort();
+    }
     if (!expect(terrain.tick(0) && physics.tick(0) && physics.body_count() == 0 &&
-                    component->fragment_count() == 8 &&
-                    !scene->find_node(fragment_id)->get_component<MeshRenderer>()->enabled(),
+                    component.fragment_count() == 8 &&
+                    !scene->find_node(fragment_id).get_component<MeshRenderer>().enabled(),
                 "disabling the terrain disables both source and moving soil"))
     {
         return false;
     }
-    component->set_enabled(true);
+    if (!component.set_enabled(true))
+    {
+        std::abort();
+    }
     if (!expect(terrain.tick(0) && physics.tick(0) && physics.body_count() == 9 &&
-                    component->reset() && component->fragment_count() == 0 &&
-                    physics.body_count() == 1 && scene->nodes().size() == 1 &&
-                    component->snapshot(after),
+                    component.reset() && component.fragment_count() == 0 &&
+                    physics.body_count() == 1 && test_support::scene_nodes(*scene).size() == 1 &&
+                    component.snapshot(after),
                 "reenabling restores fragments and reset cleans them while restoring source"))
     {
         return false;
     }
-    if (!expect(component->apply_sphere({7, 4, 7}, 1.8F, false) &&
-                    component->collapse_detached(8, 16, 2, 100) &&
-                    node->remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
-                    physics.tick(0) && physics.body_count() == 0 && scene->nodes().size() == 1,
+    if (!node.set_visible(false))
+    {
+        std::abort();
+    }
+    if (!expect(component.apply_sphere({7, 4, 7}, 1.8F, false) &&
+                    component.collapse_detached(8, 16, 2, 100) && fragments_visible(false) &&
+                    node.remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
+                    physics.tick(0) && physics.body_count() == 0 &&
+                    test_support::scene_nodes(*scene).size() == 1,
                 "removing the source component cleans all fragment nodes and bodies"))
     {
         return false;
@@ -738,53 +817,52 @@ bool fragment_retirement_contract()
         return false;
     }
     auto* scene = world.create_scene("Terrain retirement");
-    auto* first_node = scene ? scene->create_node("First owner") : nullptr;
-    auto* second_node = scene ? scene->create_node("Second owner") : nullptr;
-    auto* first = first_node ? first_node->add_component<TerrainComponent>() : nullptr;
-    auto* second = second_node ? second_node->add_component<TerrainComponent>() : nullptr;
+    auto first_node = scene ? scene->create_node("First owner") : engine::Node{};
+    auto second_node = scene ? scene->create_node("Second owner") : engine::Node{};
+    auto first = first_node ? first_node.add_component<TerrainComponent>() : TerrainComponent{};
+    auto second = second_node ? second_node.add_component<TerrainComponent>() : TerrainComponent{};
     std::uint32_t retired = 99;
-    if (!expect(first && second && !first->retire_fragments(0, 0, retired) && retired == 0,
+    if (!expect(first && second && !first.retire_fragments(0, 0, retired) && retired == 0,
                 "unready retirement fails with a cleared output"))
     {
         return false;
     }
-    auto pose = second_node->get_component<Transform>()->settings();
+    auto pose = second_node.get_component<Transform>().settings();
     pose.position = {30, 0, 0};
     schema::TerrainDataT description;
     description.terrain_guid = fixture.catalog.entries.front()->guid;
     ByteBuffer before_collapse;
-    if (!second_node->get_component<Transform>()->set_settings(pose) ||
-        !first->set_settings(description) || !second->set_settings(description) ||
-        !terrain.synchronize() || !first->apply_sphere({7, 4, 7}, 1.8F, false) ||
-        !first->snapshot(before_collapse) || !first->collapse_detached(8, 16, 2, 100))
+    if (!second_node.get_component<Transform>().set_settings(pose) ||
+        !first.set_settings(description) || !second.set_settings(description) ||
+        !terrain.synchronize() || !first.apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !first.snapshot(before_collapse) || !first.collapse_detached(8, 16, 2, 100))
     {
         return false;
     }
     std::vector<std::uint64_t> first_ids;
-    for (const auto& node : scene->nodes())
+    for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (node->transient())
+        if (node.transient())
         {
-            first_ids.push_back(node->id());
+            first_ids.push_back(node.id());
         }
     }
     std::sort(first_ids.begin(), first_ids.end());
-    if (!terrain.tick(0.5) || !second->apply_sphere({7, 4, 7}, 1.8F, false) ||
-        !second->collapse_detached(8, 16, 2, 100) || !terrain.tick(0.5) ||
-        !expect(first_ids.size() == 8 && second->fragment_count() == 8 &&
-                    physics.body_count() == 18,
+    if (!terrain.tick(0.5) || !second.apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !second.collapse_detached(8, 16, 2, 100) || !terrain.tick(0.5) ||
+        !expect(first_ids.size() == 8 && second.fragment_count() == 8 && physics.body_count() == 18,
                 "two independent owners publish eight soil fragments at distinct ages"))
     {
         return false;
     }
-    const auto revision = first->revision();
-    const auto source_triangles = first->triangle_count();
-    const auto rebuilt_chunks = first->rebuilt_chunks();
-    const auto* source_mesh = first_node->get_component<MeshRenderer>()->mesh_data();
-    auto* retained = scene->find_node(first_ids.back());
-    auto* retained_body = retained->get_component<RigidBody>();
-    const auto retained_pose = retained->get_component<Transform>()->settings();
-    if (!retained_body->set_linear_velocity({1, 2, 3}))
+    const auto revision = first.revision();
+    const auto source_triangles = first.triangle_count();
+    const auto rebuilt_chunks = first.rebuilt_chunks();
+    auto source_mesh = first_node.get_component<MeshRenderer>().mesh_data();
+    auto retained = scene->find_node(first_ids.back());
+    auto retained_body = retained.get_component<RigidBody>();
+    const auto retained_pose = retained.get_component<Transform>().settings();
+    if (!retained_body.set_linear_velocity({1, 2, 3}))
     {
         return false;
     }
@@ -794,26 +872,27 @@ bool fragment_retirement_contract()
         return false;
     }
     const auto found = std::find_if(hits.begin(), hits.end(), [&](const auto& hit)
-                                   { return hit.node_id == first_ids.front(); });
+                                    { return hit.node_id == first_ids.front(); });
     if (!expect(found != hits.end(), "fragment collision is present before retirement"))
     {
         return false;
     }
     const auto old_handle = *found;
-    if (!expect(!first->retire_fragments(0, -1, retired) && retired == 0 &&
-                    !first->retire_fragments(0, std::numeric_limits<double>::infinity(), retired) &&
-                    retired == 0 && first->revision() == revision && first->fragment_count() == 8 &&
-                    first->retire_fragments(6, 0, retired) && retired == 2 &&
-                    !scene->find_node(first_ids[0]) && !scene->find_node(first_ids[1]) &&
-                    scene->find_node(first_ids.back()) == retained &&
-                    retained->get_component<Transform>()->settings() == retained_pose &&
-                    retained_body->linear_velocity() == Vec3(1, 2, 3) &&
-                    first->fragment_count() == 6 && second->fragment_count() == 8 &&
-                    physics.body_count() == 16 && !physics.is_object_valid(old_handle) &&
-                    first->revision() == revision + 1 && first->triangle_count() == source_triangles &&
-                    first->rebuilt_chunks() == rebuilt_chunks &&
-                    first_node->get_component<MeshRenderer>()->mesh_data() == source_mesh,
-                "count retirement removes stable oldest IDs without rebuilding source or survivors"))
+    if (!expect(
+            !first.retire_fragments(0, -1, retired) && retired == 0 &&
+                !first.retire_fragments(0, std::numeric_limits<double>::infinity(), retired) &&
+                retired == 0 && first.revision() == revision && first.fragment_count() == 8 &&
+                first.retire_fragments(6, 0, retired) && retired == 2 &&
+                !scene->find_node(first_ids[0]) && !scene->find_node(first_ids[1]) &&
+                scene->find_node(first_ids.back()) == retained &&
+                retained.get_component<Transform>().settings() == retained_pose &&
+                retained_body.linear_velocity() == Vec3(1, 2, 3) && first.fragment_count() == 6 &&
+                second.fragment_count() == 8 && physics.body_count() == 16 &&
+                !physics.is_object_valid(old_handle) && first.revision() == revision + 1 &&
+                first.triangle_count() == source_triangles &&
+                first.rebuilt_chunks() == rebuilt_chunks &&
+                first_node.get_component<MeshRenderer>().mesh_data() == source_mesh,
+            "count retirement removes stable oldest IDs without rebuilding source or survivors"))
     {
         return false;
     }
@@ -824,58 +903,60 @@ bool fragment_retirement_contract()
     {
         return false;
     }
-    if (!expect(world.set_paused(true) && terrain.tick(100) && terrain.synchronize() &&
-                    first->retire_fragments(128, 1.5, retired) && retired == 0 &&
-                    first->revision() == revision + 1 && world.set_paused(false) &&
-                    terrain.tick(0.5) && first->retire_fragments(128, 1.5, retired) && retired == 6 &&
-                    second->retire_fragments(128, 1.5, retired) && retired == 0 &&
-                    second->fragment_count() == 8 && physics.body_count() == 10,
-                "simulation age excludes pause and editor synchronization, and remains owner-local"))
+    if (!expect(
+            world.set_paused(true) && terrain.tick(100) && terrain.synchronize() &&
+                first.retire_fragments(128, 1.5, retired) && retired == 0 &&
+                first.revision() == revision + 1 && world.set_paused(false) && terrain.tick(0.5) &&
+                first.retire_fragments(128, 1.5, retired) && retired == 6 &&
+                second.retire_fragments(128, 1.5, retired) && retired == 0 &&
+                second.fragment_count() == 8 && physics.body_count() == 10,
+            "simulation age excludes pause and editor synchronization, and remains owner-local"))
     {
         return false;
     }
     ByteBuffer saved;
-    const auto empty_revision = first->revision();
-    if (!expect(first->retire_fragments(0, 0, retired) && retired == 0 &&
-                    first->revision() == empty_revision && !first->snapshot(saved) && saved.empty() &&
-                    !first->restore(before_collapse) &&
-                    first->apply_sphere({3, 2, 3}, 1, false) &&
-                    first->collapse_detached(8, 16, 2, 100) && first->fragment_count() == 0 &&
-                    !first->snapshot(saved),
-                "empty retirement preserves detached-state restriction and never refills source soil"))
+    const auto empty_revision = first.revision();
+    if (!expect(
+            first.retire_fragments(0, 0, retired) && retired == 0 &&
+                first.revision() == empty_revision && !first.snapshot(saved) && saved.empty() &&
+                !first.restore(before_collapse) && first.apply_sphere({3, 2, 3}, 1, false) &&
+                first.collapse_detached(8, 16, 2, 100) && first.fragment_count() == 0 &&
+                !first.snapshot(saved),
+            "empty retirement preserves detached-state restriction and never refills source soil"))
     {
         return false;
     }
-    Node* second_fragment = nullptr;
-    for (const auto& node : scene->nodes())
+    Node second_fragment = {};
+    for (const auto& node : test_support::scene_nodes(*scene))
     {
-        if (node->transient())
+        if (node.transient())
         {
-            second_fragment = node.get();
+            second_fragment = node;
             break;
         }
     }
-    auto* child = scene->create_node("Project attachment");
-    const auto second_revision = second->revision();
-    if (!expect(second_fragment && child && child->set_parent(second_fragment) &&
-                    !second->retire_fragments(0, 0, retired) && retired == 0 &&
-                    second->revision() == second_revision && second->fragment_count() == 8 &&
-                    scene->destroy_node(child->id()),
+    auto child = scene->create_node("Project attachment");
+    const auto second_revision = second.revision();
+    if (!expect(second_fragment && child && child.set_parent(second_fragment) &&
+                    !second.retire_fragments(0, 0, retired) && retired == 0 &&
+                    second.revision() == second_revision && second.fragment_count() == 8 &&
+                    scene->destroy_node(child.id()),
                 "foreign child nodes reject the entire retirement before mutation"))
     {
         return false;
     }
-    if (!expect(second_fragment->remove_component(Collider::component_type) &&
-                    second_fragment->add_component<Collider>() &&
-                    !second->retire_fragments(0, 0, retired) && retired == 0 &&
-                    second->revision() == second_revision && second->fragment_count() == 8 &&
-                    physics.body_count() == 10 && second->reset() &&
-                    second->fragment_count() == 0 && first->reset() && first->snapshot(saved) &&
-                    first->apply_sphere({7, 4, 7}, 1.8F, false) &&
-                    first->collapse_detached(8, 16, 2, 100) && first->fragment_count() == 8 &&
-                    first->retire_fragments(0, 0, retired) && retired == 8 &&
-                    first->fragment_count() == 0 && physics.body_count() == 2,
-                "replaced generated components reject atomically; reset explicitly restores source"))
+    if (!expect(
+            second_fragment.remove_component(Collider::component_type) &&
+                second_fragment.add_component<Collider>() &&
+                !second.retire_fragments(0, 0, retired) && retired == 0 &&
+                second.revision() == second_revision && second.fragment_count() == 8 &&
+                physics.body_count() == 10 && second.reset() && second.fragment_count() == 0 &&
+                first.reset() && first.snapshot(saved) &&
+                first.apply_sphere({7, 4, 7}, 1.8F, false) &&
+                first.collapse_detached(8, 16, 2, 100) && first.fragment_count() == 8 &&
+                first.retire_fragments(0, 0, retired) && retired == 8 &&
+                first.fragment_count() == 0 && physics.body_count() == 2,
+            "replaced generated components reject atomically; reset explicitly restores source"))
     {
         return false;
     }
@@ -905,11 +986,11 @@ bool asynchronous_brush_contract()
         return false;
     }
     auto* scene = world.create_scene("Async terrain");
-    auto* node = scene ? scene->create_node("Volume") : nullptr;
-    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
+    auto node = scene ? scene->create_node("Volume") : engine::Node{};
+    auto component = node ? node.add_component<TerrainComponent>() : TerrainComponent{};
     schema::TerrainDataT description;
     description.terrain_guid = fixture.catalog.entries.front()->guid;
-    if (!component || !component->set_settings(description) || !terrain.synchronize())
+    if (!component || !component.set_settings(description) || !terrain.synchronize())
     {
         return false;
     }
@@ -935,25 +1016,27 @@ bool asynchronous_brush_contract()
         if (observe_retirement)
         {
             std::uint32_t retired = 99;
-            const bool allowed = component->retire_fragments(128, 0, retired);
+            const bool allowed = component.retire_fragments(128, 0, retired);
             retirement_allowed.push_back(allowed && retired == 0);
         }
     };
-    const auto before = component->revision();
+    const auto before = component.revision();
     std::uint32_t retired = 99;
-    const bool queued =
-        terrain.request_apply_sphere(*component, {-2, -1, 0}, 2, false, completed) &&
-        terrain.request_apply_sphere(*component, {2, -1, 0}, 2, false, completed) &&
-        !terrain.request_apply_sphere(*component, {}, 1, true, completed) &&
-        !component->retire_fragments(0, 0, retired) && retired == 0 &&
-        terrain.synchronize() && results.empty() && component->revision() == before &&
-        !component->retire_fragments(0, 0, retired) && retired == 0;
+    const bool queued = terrain.request_apply_sphere(component, {-2, -1, 0}, 2, false, completed) &&
+                        terrain.request_apply_sphere(component, {2, -1, 0}, 2, false, completed) &&
+                        !terrain.request_apply_sphere(component, {}, 1, true, completed) &&
+                        !component.retire_fragments(0, 0, retired) && retired == 0 &&
+                        terrain.synchronize() && results.empty() &&
+                        component.revision() == before &&
+                        !component.retire_fragments(0, 0, retired) && retired == 0;
     gate.release();
-    if (!expect(occupied.get() && queued && tasks.wait() && terrain.synchronize() &&
-                    results == std::vector<bool>{true} && component->revision() == before + 1 &&
-                    tasks.wait() && terrain.synchronize() &&
+    if (!expect(occupied.get() && queued && tasks.wait() && world.set_paused(true) &&
+                    terrain.tick(1) && terrain.synchronize() && results.empty() &&
+                    component.revision() == before && world.set_paused(false) &&
+                    terrain.synchronize() && results == std::vector<bool>{true} &&
+                    component.revision() == before + 1 && tasks.wait() && terrain.synchronize() &&
                     results == std::vector<bool>({true, true}) &&
-                    component->revision() == before + 2 &&
+                    component.revision() == before + 2 &&
                     retirement_allowed == std::vector<bool>({false, true}),
                 "queued edits stay ordered; retirement waits through the last owner completion"))
     {
@@ -964,7 +1047,7 @@ bool asynchronous_brush_contract()
     ByteBuffer bytes;
     if (!reference.initialize(asset, error) ||
         !reference.apply_sphere({-2, -1, 0}, 2, false, error) ||
-        !reference.apply_sphere({2, -1, 0}, 2, false, error) || !component->snapshot(bytes))
+        !reference.apply_sphere({2, -1, 0}, 2, false, error) || !component.snapshot(bytes))
     {
         return false;
     }
@@ -977,10 +1060,10 @@ bool asynchronous_brush_contract()
     }
 
     results.clear();
-    if (!expect(terrain.request_apply_sphere(*component, {}, 3, false, completed) &&
-                    terrain.synchronize() && tasks.wait() && component->reset() &&
+    if (!expect(terrain.request_apply_sphere(component, {}, 3, false, completed) &&
+                    terrain.synchronize() && tasks.wait() && component.reset() &&
                     terrain.synchronize() && results == std::vector<bool>{false} &&
-                    component->snapshot(bytes),
+                    component.snapshot(bytes),
                 "synchronous reset invalidates an already prepared asynchronous candidate"))
     {
         return false;
@@ -991,23 +1074,23 @@ bool asynchronous_brush_contract()
         return false;
     }
 
-    auto* replacement_node = scene->create_node("Replacement identity");
-    auto* original = replacement_node->add_component<TerrainComponent>();
+    auto replacement_node = scene->create_node("Replacement identity");
+    auto original = replacement_node.add_component<TerrainComponent>();
     results.clear();
-    if (!original || !original->set_settings(description) || !terrain.synchronize())
+    if (!original || !original.set_settings(description) || !terrain.synchronize())
     {
         return false;
     }
-    const auto original_revision = original->revision();
-    if (!terrain.request_apply_sphere(*original, {}, 2, false, completed) ||
+    const auto original_revision = original.revision();
+    if (!terrain.request_apply_sphere(original, {}, 2, false, completed) ||
         !terrain.synchronize() || !tasks.wait() ||
-        !replacement_node->remove_component(TerrainComponent::component_type))
+        !replacement_node.remove_component(TerrainComponent::component_type))
     {
         return false;
     }
-    auto* replacement = replacement_node->add_component<TerrainComponent>();
-    if (!expect(replacement && replacement->set_settings(description) && terrain.synchronize() &&
-                    replacement->revision() == original_revision &&
+    auto replacement = replacement_node.add_component<TerrainComponent>();
+    if (!expect(replacement && replacement.set_settings(description) && terrain.synchronize() &&
+                    replacement.revision() == original_revision &&
                     results == std::vector<bool>{false},
                 "same node and revision cannot revive a removed component request"))
     {
@@ -1015,7 +1098,7 @@ bool asynchronous_brush_contract()
     }
 
     results.clear();
-    if (!terrain.request_apply_sphere(*replacement, {}, 2, false, completed) ||
+    if (!terrain.request_apply_sphere(replacement, {}, 2, false, completed) ||
         !terrain.synchronize())
     {
         return false;
@@ -1028,11 +1111,10 @@ bool asynchronous_brush_contract()
         return false;
     }
     node = world.scene()->create_node("Shutdown");
-    component = node->add_component<TerrainComponent>();
+    component = node.add_component<TerrainComponent>();
     results.clear();
-    if (!component || !component->set_settings(description) || !terrain.synchronize() ||
-        !terrain.request_apply_sphere(*component, {}, 2, false, completed) ||
-        !terrain.synchronize())
+    if (!component || !component.set_settings(description) || !terrain.synchronize() ||
+        !terrain.request_apply_sphere(component, {}, 2, false, completed) || !terrain.synchronize())
     {
         return false;
     }
@@ -1063,13 +1145,13 @@ bool asynchronous_brush_fairness(std::size_t concurrency)
         return false;
     }
     auto* scene = world.create_scene("Fair terrain edits");
-    auto* low_node = scene ? scene->create_node("Frequent edits") : nullptr;
-    auto* high_node = scene ? scene->create_node("Occasional edit") : nullptr;
-    auto* low = low_node ? low_node->add_component<TerrainComponent>() : nullptr;
-    auto* high = high_node ? high_node->add_component<TerrainComponent>() : nullptr;
+    auto low_node = scene ? scene->create_node("Frequent edits") : engine::Node{};
+    auto high_node = scene ? scene->create_node("Occasional edit") : engine::Node{};
+    auto low = low_node ? low_node.add_component<TerrainComponent>() : TerrainComponent{};
+    auto high = high_node ? high_node.add_component<TerrainComponent>() : TerrainComponent{};
     schema::TerrainDataT description;
     description.terrain_guid = files.catalog.entries.front()->guid;
-    if (!low || !high || !low->set_settings(description) || !high->set_settings(description) ||
+    if (!low || !high || !low.set_settings(description) || !high.set_settings(description) ||
         !terrain.synchronize())
     {
         return false;
@@ -1084,12 +1166,12 @@ bool asynchronous_brush_fairness(std::size_t concurrency)
         ++low_completions;
         if (!high_finished)
         {
-            succeeded = terrain.request_apply_sphere(*low, {}, 1, false, refill) && succeeded;
+            succeeded = terrain.request_apply_sphere(low, {}, 1, false, refill) && succeeded;
         }
     };
-    if (!terrain.request_apply_sphere(*low, {}, 1, false, refill) ||
-        !terrain.request_apply_sphere(*low, {}, 1, false, refill) ||
-        !terrain.request_apply_sphere(*high, {}, 1, false,
+    if (!terrain.request_apply_sphere(low, {}, 1, false, refill) ||
+        !terrain.request_apply_sphere(low, {}, 1, false, refill) ||
+        !terrain.request_apply_sphere(high, {}, 1, false,
                                       [&](bool success)
                                       {
                                           succeeded = success && succeeded;
@@ -1129,24 +1211,24 @@ bool persistent_terrain_contract()
         return false;
     }
     auto* scene = world.create_scene("Retained terrain");
-    auto* node = scene ? scene->create_node("Source") : nullptr;
-    auto* component = node ? node->add_component<TerrainComponent>() : nullptr;
+    auto node = scene ? scene->create_node("Source") : engine::Node{};
+    auto component = node ? node.add_component<TerrainComponent>() : TerrainComponent{};
     schema::TerrainDataT description;
     description.terrain_guid = fixture.catalog.entries.front()->guid;
-    if (!component || !node->set_persistent(true) || !component->set_settings(description) ||
-        !terrain.synchronize() || !component->apply_sphere({7, 4, 7}, 1.8F, false) ||
-        !component->collapse_detached(8, 16, 2, 100) || component->fragment_count() != 8)
+    if (!component || !node.set_persistent(true) || !component.set_settings(description) ||
+        !terrain.synchronize() || !component.apply_sphere({7, 4, 7}, 1.8F, false) ||
+        !component.collapse_detached(8, 16, 2, 100) || component.fragment_count() != 8)
     {
         return false;
     }
-    const auto revision = component->revision();
-    auto* renderer = node->get_component<MeshRenderer>();
-    auto* collider = node->get_component<Collider>();
+    const auto revision = component.revision();
+    auto renderer = node.get_component<MeshRenderer>();
+    auto collider = node.get_component<Collider>();
     world.unload_scene();
-    if (!expect(terrain.synchronize() && physics.tick(0) && component->ready() &&
-                    component->revision() == revision && component->fragment_count() == 0 &&
-                    node->get_component<MeshRenderer>() == renderer &&
-                    node->get_component<Collider>() == collider && physics.body_count() == 1,
+    if (!expect(terrain.synchronize() && physics.tick(0) && component.ready() &&
+                    component.revision() == revision && component.fragment_count() == 0 &&
+                    node.get_component<MeshRenderer>() == renderer &&
+                    node.get_component<Collider>() == collider && physics.body_count() == 1,
                 "ordinary soil roots unload while the retained source keeps mesh, volume and "
                 "collision"))
     {
@@ -1154,7 +1236,7 @@ bool persistent_terrain_contract()
     }
     bool completed = false;
     bool success = false;
-    if (!terrain.request_apply_sphere(*component, {3, 2, 3}, 1, false,
+    if (!terrain.request_apply_sphere(component, {3, 2, 3}, 1, false,
                                       [&](bool result)
                                       {
                                           completed = true;
@@ -1170,8 +1252,8 @@ bool persistent_terrain_contract()
         return false;
     }
     return expect(
-        completed && success && component->revision() > revision &&
-            world.find_node(node->id()) == node,
+        completed && success && component.revision() > revision &&
+            world.find_node(node.id()) == node,
         "queued terrain candidate publishes to the retained source across scene replacement");
 }
 
@@ -1182,8 +1264,8 @@ int main()
     return persistent_terrain_contract() && volume_contract() && runtime_contract() &&
                    subsystem_contract() && island_contract() && incremental_collapse_contract() &&
                    collapse_runtime_contract() && fragment_retirement_contract() &&
-                   asynchronous_brush_contract() &&
-                   asynchronous_brush_fairness(1) && asynchronous_brush_fairness(2)
+                   asynchronous_brush_contract() && asynchronous_brush_fairness(1) &&
+                   asynchronous_brush_fairness(2)
                ? 0
                : 1;
 }

@@ -26,7 +26,6 @@ public:
                                                 std::string_view revision = {}) = 0;
     [[nodiscard]] virtual bool start_prepared_gameplay() = 0;
     virtual void stop_gameplay() noexcept = 0;
-    virtual void set_hot_reload(bool enabled) = 0;
     // 仅活动 Run 的主线程安全点；失败不停止玩法，也不回滚脚本已产生的副作用。
     [[nodiscard]] virtual bool execute_project_script(const ProjectScriptRequest& request,
                                                       std::string& result_json,

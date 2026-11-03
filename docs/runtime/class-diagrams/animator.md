@@ -5,9 +5,15 @@
 ```mermaid
 classDiagram
     class Animator {
+        <<value handle>>
+        +Animator()
+        +Animator(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() AnimatorRuntime#42;
         <<final>>
         +valid_settings(const AnimatorDataT& settings)$ bool
-        +settings() const AnimatorDataT&
+        +settings() AnimatorDataT
+        +get_settings(AnimatorDataT& output) bool
         +set_settings(const AnimatorDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +set_animation(string_view path) bool
@@ -38,13 +44,22 @@ classDiagram
         paused
     }
     Component <|-- Animator
-    Node *-- Animator : 独占组件
-    Animator --> Resource : 共享动画与目标骨架
+    Node ..> Animator : 按类型返回值句柄
+    AnimatorRuntime --> Resource : 共享动画与目标骨架
     Animator ..> MeshRenderer : 停止时恢复绑定姿态
     Animator ..> AnimatorDataT : 参数和返回值
     Animator ..> ComponentDataT : 恢复参数
     Animator ..> AnimationPlayback : 返回播放状态
     AnimationSystem ..> Animator : 推进与采样
+    class ComponentRegistry
+    class ecs_world_t
+    class AnimatorRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- AnimatorRuntime : 实例运行数据
+    Animator ..> AnimatorRuntime : 校验身份后短期借用
+    Animator ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 - 使用 `Node::add_component<Animator>()` 创建；公开接口无 ozz 类型。
@@ -57,3 +72,5 @@ classDiagram
 - `play()` 从停止状态重新开始，从暂停状态继续。`pause()` 保留最后姿态；`stop()` 将时间归零并恢复 Mesh 绑定姿态。
 - `seek()` 接受当前动画 `[0, duration]` 内的秒数；下一次系统更新提交该姿态。停止时定位会进入暂停以保留该姿态，播放中定位保持播放。速度范围为 `0..16`，零速度保留时间；单次播放到结尾进入暂停并保留最后姿态。
 - 可能失败的方法返回 `bool` 并标注 `[[nodiscard]]`；读取方法为 `const`，无外部分配或资源加载的控制方法为 `noexcept`。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

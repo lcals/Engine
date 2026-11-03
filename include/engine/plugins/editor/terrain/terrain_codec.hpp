@@ -18,6 +18,7 @@ public:
                                          const editor::asset_pipeline::ImportContext& context,
                                          std::vector<Guid>& dependencies,
                                          std::string& error) const override;
+    [[nodiscard]] std::span<const std::string_view> resource_fields() const noexcept override;
     void write(const schema::ComponentDataT& component, toml::table& table) const override;
 };
 

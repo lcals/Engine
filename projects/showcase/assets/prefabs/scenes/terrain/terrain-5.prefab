@@ -1,0 +1,21 @@
+root = "5"
+
+[[nodes]]
+id = 5
+name = "Terrain"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "terrain"
+terrain = "ddc3e00c-0e5a-4141-876f-858a2f54d2b6"
+material = "df6a80fa-be66-4396-8a01-62aaadd61574"
+collision = true
+surface_color = [0.35, 0.48, 0.24, 1]
+wall_color = [0.48, 0.36, 0.24, 1]
+uv_scale = 0.2

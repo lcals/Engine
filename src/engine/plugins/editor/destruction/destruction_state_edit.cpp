@@ -58,24 +58,25 @@ bool DestructionStateEdit::affects_scene() const noexcept
     return false;
 }
 
-DestructionComponent* DestructionStateEdit::target(std::string& error)
+DestructionComponent DestructionStateEdit::target(std::string& error)
 {
     auto* scene = world_.scene();
-    auto* node = scene && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
-    auto* component = node ? node->get_component<DestructionComponent>() : nullptr;
+    auto node = scene && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+    auto component = node ? node.get_component<DestructionComponent>() : DestructionComponent{};
     schema::ComponentDataT settings;
-    if (!component || !component->ready() || component->revision() != *revision_ ||
-        !component->build_data(settings) || settings != settings_)
+    settings.flags = std::make_unique<schema::ComponentFlagsT>();
+    if (!component || !component.ready() || component.revision() != *revision_ ||
+        !component.build_data(settings) || settings != settings_)
     {
         error = "Destruction scene, node, settings or damage changed outside the edit history";
-        return nullptr;
+        return {};
     }
     return component;
 }
 
 bool DestructionStateEdit::apply(std::string& error)
 {
-    auto* component = target(error);
+    auto component = target(error);
     if (!component)
     {
         return false;
@@ -89,11 +90,11 @@ bool DestructionStateEdit::apply(std::string& error)
         bool applied = false;
         if (stress_)
         {
-            const auto before_revision = component->revision();
+            const auto before_revision = component.revision();
             std::uint32_t broken = 0;
-            applied = component->apply_stress(gravity_, elastic_limit_, fatal_limit_, iterations_,
-                                               broken);
-            no_change_ = applied && component->revision() == before_revision;
+            applied =
+                component.apply_stress(gravity_, elastic_limit_, fatal_limit_, iterations_, broken);
+            no_change_ = applied && component.revision() == before_revision;
             if (no_change_)
             {
                 return true;
@@ -101,16 +102,17 @@ bool DestructionStateEdit::apply(std::string& error)
         }
         else if (support_)
         {
-            const auto* support_node = component->node().scene().find_node(*support_);
-            const auto* collider = support_node ? support_node->get_component<Collider>() : nullptr;
+            const auto support_node = component.node().scene()->find_node(*support_);
+            const auto collider =
+                support_node ? support_node.get_component<Collider>() : Collider{};
             if (!collider)
             {
                 error = "Foundation support collider no longer exists";
                 return false;
             }
-            const auto before_revision = component->revision();
-            applied = component->refresh_support(*collider, max_gap_, min_coverage_);
-            no_change_ = applied && component->revision() == before_revision;
+            const auto before_revision = component.revision();
+            applied = component.refresh_support(collider, max_gap_, min_coverage_);
+            no_change_ = applied && component.revision() == before_revision;
             if (no_change_)
             {
                 return true;
@@ -118,50 +120,50 @@ bool DestructionStateEdit::apply(std::string& error)
         }
         else
         {
-            applied = reset_ ? component->reset()
-                             : component->damage_sphere(center_, radius_, damage_, impulse_);
+            applied = reset_ ? component.reset()
+                             : component.damage_sphere(center_, radius_, damage_, impulse_);
         }
         if (!applied)
         {
-            error = component->last_error();
+            error = component.last_error();
             return false;
         }
-        if (!component->snapshot(after_))
+        if (!component.snapshot(after_))
         {
             error = "Cannot capture the resulting destruction state";
-            if (!component->restore(before_))
+            if (!component.restore(before_))
             {
                 error += "; failed to roll back the operation";
             }
-            *revision_ = component->revision();
+            *revision_ = component.revision();
             return false;
         }
     }
-    else if (!component->restore(after_))
+    else if (!component.restore(after_))
     {
-        error = component->last_error();
+        error = component.last_error();
         return false;
     }
-    *revision_ = component->revision();
+    *revision_ = component.revision();
     return true;
 }
 
 bool DestructionStateEdit::revert(std::string& error)
 {
-    auto* component = target(error);
+    auto component = target(error);
     if (component && no_change_)
     {
         return true;
     }
-    if (!component || !component->restore(before_))
+    if (!component || !component.restore(before_))
     {
         if (component)
         {
-            error = component->last_error();
+            error = component.last_error();
         }
         return false;
     }
-    *revision_ = component->revision();
+    *revision_ = component.revision();
     return true;
 }
 

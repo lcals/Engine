@@ -139,17 +139,17 @@ Json component_json(const TerrainComponent& component)
     result["rebuiltChunks"] = component.rebuilt_chunks();
     result["triangles"] = component.triangle_count();
     result["fragmentCount"] = component.fragment_count();
-    result["sceneId"] = std::to_string(component.node().scene().id());
+    result["sceneId"] = std::to_string(component.node().scene()->id());
     result["nodeId"] = std::to_string(component.node().id());
     result["lastError"] = component.last_error();
     return result;
 }
 
-TerrainComponent* target(WorldSystem& world, const Json& arguments, std::string& error)
+TerrainComponent target(WorldSystem& world, const Json& arguments, std::string& error)
 {
-    auto* node = editor::components::target(world, arguments, error);
-    auto* component = node != nullptr ? node->get_component<TerrainComponent>() : nullptr;
-    if (component == nullptr && error.empty())
+    auto node = editor::components::target(world, arguments, error);
+    auto component = node.valid() ? node.get_component<TerrainComponent>() : TerrainComponent{};
+    if (!component && error.empty())
     {
         error = "Node has no terrain component";
     }
@@ -304,8 +304,8 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
     {
         return false;
     }
-    auto* component = target(world, arguments, error);
-    if (component && component->fragment_count() != 0)
+    auto component = target(world, arguments, error);
+    if (component && component.fragment_count() != 0)
     {
         error = "Dynamic terrain fragments cannot be captured in volume-only undo/save state; "
                 "use terrain_reset_runtime before this edit";
@@ -313,9 +313,10 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
     }
     ByteBuffer before;
     schema::ComponentDataT settings;
+    settings.flags = std::make_unique<schema::ComponentFlagsT>();
     std::unique_ptr<schema::TerrainStateDataT> state;
-    if (component == nullptr || !component->ready() || !component->snapshot(before) ||
-        !component->build_data(settings) || !unpack_state(before, state, error))
+    if (!component || !component.ready() || !component.snapshot(before) ||
+        !component.build_data(settings) || !unpack_state(before, state, error))
     {
         if (error.empty())
         {
@@ -387,19 +388,19 @@ bool state_edit(WorldSystem& world, editor::SceneCommands& scene_commands,
     {
         return false;
     }
-    auto identity = scene_commands.node_identity(component->node().id());
+    auto identity = scene_commands.node_identity(component.node().id());
     if (!identity)
     {
         error = "Cannot resolve stable terrain node identity";
         return false;
     }
     auto after = pack_state(*state);
-    result = {{"sceneId", std::to_string(component->node().scene().id())},
-              {"nodeId", std::to_string(component->node().id())},
+    result = {{"sceneId", std::to_string(component.node().scene()->id())},
+              {"nodeId", std::to_string(component.node().id())},
               {"operation", operation},
               {"changed", before != after},
               {"undoable", true}};
-    edit = std::make_unique<TerrainStateEdit>(world, component->node().scene().id(),
+    edit = std::make_unique<TerrainStateEdit>(world, component.node().scene()->id(),
                                               std::move(identity), std::move(settings),
                                               std::move(before), std::move(after));
     return true;
@@ -417,35 +418,37 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
             [&world, &scene_commands](const Json& arguments, Json& result,
                                       std::unique_ptr<editor::EditorEdit>& edit, std::string& error)
             {
-                auto* node = editor::components::target(world, arguments, error);
-                if (node == nullptr)
+                auto node = editor::components::target(world, arguments, error);
+                if (!node)
                 {
                     return false;
                 }
-                const auto* component = node->get_component<TerrainComponent>();
+                const auto component = node.get_component<TerrainComponent>();
                 std::optional<schema::ComponentDataT> before;
                 ByteBuffer before_state;
-                if (component != nullptr)
+                if (component.valid())
                 {
                     before.emplace();
-                    if (!component->build_data(*before))
+                    if (!component.build_data(*before))
                     {
                         error = "Cannot snapshot terrain settings";
                         return false;
                     }
-                    if (component->ready() && !component->snapshot(before_state))
+                    if (component.ready() && !component.snapshot(before_state))
                     {
                         error = "Cannot snapshot current terrain volume";
                         return false;
                     }
                 }
-                auto value = component != nullptr ? component->settings() : schema::TerrainDataT{};
+                auto value = component.valid() ? component.settings() : schema::TerrainDataT{};
                 if (!read_settings(arguments, value, error))
                 {
                     return false;
                 }
                 schema::ComponentDataT after;
-                after.enabled = component == nullptr || component->enabled();
+                after.flags = std::make_unique<schema::ComponentFlagsT>();
+                after.flags->enabled = !component || component.enabled();
+                after.flags->visible = !component || component.visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())
@@ -453,18 +456,18 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                         error = "Terrain enabled must be boolean";
                         return false;
                     }
-                    after.enabled = arguments["enabled"].get<bool>();
+                    after.flags->enabled = arguments["enabled"].get<bool>();
                 }
-                auto identity = scene_commands.node_identity(node->id());
+                auto identity = scene_commands.node_identity(node.id());
                 if (!identity)
                 {
                     error = "Cannot resolve stable terrain node identity";
                     return false;
                 }
                 result = settings_json(value);
-                result["enabled"] = after.enabled;
-                result["sceneId"] = std::to_string(node->scene().id());
-                result["nodeId"] = std::to_string(node->id());
+                result["enabled"] = after.flags->enabled;
+                result["sceneId"] = std::to_string(node.scene()->id());
+                result["nodeId"] = std::to_string(node.id());
                 ByteBuffer after_state;
                 if (!settings_state(value, before_state, after_state, error))
                 {
@@ -472,7 +475,7 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                 }
                 after.payload.Set(std::move(value));
                 edit = std::make_unique<TerrainSettingsEdit>(
-                    world, node->scene().id(), std::move(identity), std::move(before),
+                    world, node.scene()->id(), std::move(identity), std::move(before),
                     std::move(after), std::move(before_state), std::move(after_state));
                 return true;
             }) ||
@@ -485,26 +488,26 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                                        {
                                            return false;
                                        }
-                                       const auto* component = target(world, arguments, error);
-                                       if (component == nullptr)
+                                       const auto component = target(world, arguments, error);
+                                       if (!component)
                                        {
                                            return false;
                                        }
-                                       result = component_json(*component);
+                                       result = component_json(component);
                                        return true;
                                    }) ||
         !commands.register_command(
             "terrain_collapse_detached", false,
             [&world](const Json& arguments, Json& result, std::unique_ptr<editor::EditorEdit>&,
-                      std::string& error)
+                     std::string& error)
             {
                 std::uint32_t minimum = 0;
                 std::uint32_t maximum = 0;
                 std::uint32_t cells = 4;
                 float density = 1600;
-                if (!editor::components::fields(arguments,
-                                                 {"minSamples", "maxFragments", "fragmentCells",
-                                                  "density"}, error) ||
+                if (!editor::components::fields(
+                        arguments, {"minSamples", "maxFragments", "fragmentCells", "density"},
+                        error) ||
                     !arguments.contains("minSamples") ||
                     !bounded_integer(arguments["minSamples"], 4U * 1024U * 1024U, minimum) ||
                     !arguments.contains("maxFragments") ||
@@ -521,41 +524,41 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                     }
                     return false;
                 }
-                auto* component = target(world, arguments, error);
-                if (!component || !component->collapse_detached(minimum, maximum, cells, density))
+                auto component = target(world, arguments, error);
+                if (!component || !component.collapse_detached(minimum, maximum, cells, density))
                 {
                     if (component)
                     {
-                        error = component->last_error();
+                        error = component.last_error();
                     }
                     return false;
                 }
-                result = component_json(*component);
+                result = component_json(component);
                 result["undoable"] = false;
                 return true;
             }) ||
-        !commands.register_command(
-            "terrain_reset_runtime", false,
-            [&world](const Json& arguments, Json& result, std::unique_ptr<editor::EditorEdit>&,
-                      std::string& error)
-            {
-                if (!editor::components::fields(arguments, {}, error))
-                {
-                    return false;
-                }
-                auto* component = target(world, arguments, error);
-                if (!component || !component->reset())
-                {
-                    if (component)
-                    {
-                        error = component->last_error();
-                    }
-                    return false;
-                }
-                result = component_json(*component);
-                result["undoable"] = false;
-                return true;
-            }))
+        !commands.register_command("terrain_reset_runtime", false,
+                                   [&world](const Json& arguments, Json& result,
+                                            std::unique_ptr<editor::EditorEdit>&,
+                                            std::string& error)
+                                   {
+                                       if (!editor::components::fields(arguments, {}, error))
+                                       {
+                                           return false;
+                                       }
+                                       auto component = target(world, arguments, error);
+                                       if (!component || !component.reset())
+                                       {
+                                           if (component)
+                                           {
+                                               error = component.last_error();
+                                           }
+                                           return false;
+                                       }
+                                       result = component_json(component);
+                                       result["undoable"] = false;
+                                       return true;
+                                   }))
     {
         return false;
     }
@@ -588,15 +591,15 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                 }
                 return false;
             }
-            auto* component = target(world, arguments, error);
-            if (component && component->fragment_count() != 0)
+            auto component = target(world, arguments, error);
+            if (component && component.fragment_count() != 0)
             {
                 error = "Volume-only terrain state cannot save dynamic fragments; "
                         "use terrain_reset_runtime first";
                 return false;
             }
             std::filesystem::path path;
-            if (component == nullptr || !component->ready() ||
+            if (!component || !component.ready() ||
                 !terrain_file_path(project_root, "cache/terrain-states",
                                    arguments["path"].get_ref<const std::string&>(), ".terrainstate",
                                    path, error))
@@ -609,13 +612,13 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
             }
             std::error_code filesystem_error;
             std::filesystem::create_directories(path.parent_path(), filesystem_error);
-            if (filesystem_error || !component->save_state(path))
+            if (filesystem_error || !component.save_state(path))
             {
-                error = component->last_error().empty() ? "Cannot save terrain state"
-                                                        : component->last_error();
+                error = component.last_error().empty() ? "Cannot save terrain state"
+                                                       : component.last_error();
                 return false;
             }
-            result = component_json(*component);
+            result = component_json(component);
             result["path"] = arguments["path"];
             result["directory"] = "cache/terrain-states";
             return true;

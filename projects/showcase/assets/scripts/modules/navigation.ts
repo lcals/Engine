@@ -278,7 +278,7 @@ export default class Game extends Gameplay {
             })
         )
             return false;
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", `Avatar ${index + 1}`);
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", `Avatar ${index + 1}`);
         if (!avatar) return false;
         if (!avatar.SetParent(root)) {
             if (!avatar.Destroy()) Debug.LogWarning("Could not remove the unattached avatar");

@@ -23,21 +23,22 @@ Object.freeze(LightProbeVolumeComponent);
 )js";
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
+    auto node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node &&
-                         node->add_component<LightProbeVolumeComponent>() != nullptr);
+                         node.add_component<LightProbeVolumeComponent>().valid());
 }
 void resource(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* component = node ? node->get_component<LightProbeVolumeComponent>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto component =
+        node ? node.get_component<LightProbeVolumeComponent>() : LightProbeVolumeComponent{};
     std::string path;
     LightProbeVolumeSettings settings;
     if (component && arguments.count() == 3 && BindingContext::text(arguments, 2, path) &&
         (path.empty() || ResourceSystem::path_to_guid(path, settings.probes_guid)))
     {
-        arguments.set_return(component->set_settings(settings));
+        arguments.set_return(component.set_settings(settings));
     }
 }
 } // namespace

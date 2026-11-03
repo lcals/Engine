@@ -131,7 +131,7 @@ export default class Game extends Gameplay {
         const motor = node?.GetComponent(CharacterMotor) ?? null;
         const agent = node?.GetComponent(NavigationAgent) ?? null;
         if (!scene || !node || !transform || !position || !!motor === !!agent) return false;
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", `${label} avatar`);
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", `${label} avatar`);
         if (!avatar) return false;
         this.avatars.push(avatar);
         if (!avatar.SetParent(node)) return false;

@@ -1,6 +1,6 @@
 # 场景 GPU 烘焙
 
-静态间接光和探针的拟扩展见[待评审增量类图](scene-lighting-bake.md)；本文仍描述当前已实现的 IBL 烘焙。
+本页维护 IBL 与静态照明共用的任务和发布契约；Lightmap 与光照探针的现行接口见[静态照明烘焙](scene-lighting-bake.md)。
 
 ```mermaid
 classDiagram
@@ -13,10 +13,11 @@ classDiagram
         #on_shutdown() void
     }
     class IblBakeJob
+    class LightingBakeJob
     class SceneBakeFiles
-    class SceneBakeMcpTools {
-        +SceneBakeMcpTools(EditorMcpTools& editor)
-        +register_tools(McpSystem& system) bool
+    class register_scene_bake_tools {
+        <<namespace function>>
+        +register_scene_bake_tools(McpSystem& system, EditorMcpTools& editor) bool
     }
     class System
     class RenderSystem
@@ -27,15 +28,16 @@ classDiagram
     class EditorMcpTools
     class McpSystem
     System <|-- SceneBakeSystem
-    SceneBakeSystem *-- IblBakeJob : State 独占 GPU 任务及读回缓冲
+    SceneBakeSystem *-- IblBakeJob : State 独占 IBL 任务及读回缓冲
+    SceneBakeSystem *-- LightingBakeJob : State 独占照明任务，与 IBL 互斥
     SceneBakeSystem *-- SceneBakeFiles : State 按值拥有文件发布事务
     SceneBakeSystem --> RenderSystem : 借用 GPU 就绪和已提交帧号
     SceneBakeSystem --> WorldSystem : 借用当前预览场景并解析持久节点身份
     SceneBakeSystem --> TaskSystem : 借用编辑器任务域准备照明数据
     SceneBakeSystem --> ResourceSystem : 加载源纹理及校验输入版本
     SceneBakeSystem ..> EditorCommands : 注册启动查询取消命令
-    SceneBakeMcpTools --> EditorMcpTools : 转发编辑器命令
-    SceneBakeMcpTools ..> McpSystem : 登记工具
+    register_scene_bake_tools --> EditorMcpTools : 转发编辑器命令
+    register_scene_bake_tools ..> McpSystem : 登记工具
 ```
 
 `SceneBakeSystem` 通过私有 `State` 持有 GPU 任务、文件事务、输入 ResourcePtr、任务身份和状态；ValidateCallback / PublishCallback 由宿主提供且依赖对象覆盖系统生命周期。ValidateCallback 输出当前场景身份并检查已保存预览，PublishCallback 只执行通用导入刷新。注册命令与 MCP 回调均为借用，必须先关闭命令服务再销毁模块。
@@ -112,3 +114,5 @@ classDiagram
 当前保留按场景输出三份 IBL 纹理的实现，先保证场景效果。后续将 BRDF LUT 改为引擎内置的全局共享资源，所有场景复用同一份，避免重复烘焙、保存和打包。
 
 BRDF LUT 取决于所选 BRDF 模型与积分约定，与具体场景及天空图无关；漫反射环境图和预滤波反射图仍由各场景烘焙。迁移时同步调整场景资源引用、依赖清单与 Shader 绑定；上述优化尚未实施。
+
+`register_scene_bake_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。

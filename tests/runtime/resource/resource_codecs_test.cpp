@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
@@ -141,9 +142,9 @@ bool codec_tests()
     schema::SceneDataT scene;
     scene.info = std::make_unique<schema::SceneInfoT>();
     auto node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = 1;
-    auto component = std::make_unique<schema::ComponentDataT>();
+    node->info = test_support::node_info();
+    node->info->properties->id = 1;
+    auto component = test_support::component_data();
     schema::MeshRendererDataT renderer;
     renderer.mesh_guid = fixture.catalog.entries[0]->guid;
     renderer.material_guid = fixture.catalog.entries[3]->guid;

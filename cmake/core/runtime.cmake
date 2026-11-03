@@ -16,8 +16,6 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
-    engine_add_system(runtime performance)
-    engine_enable_profiling(engine_performance)
 
     engine_add_system(runtime task)
     target_sources(engine_task PRIVATE src/engine/runtime/task/thread_system.cpp)
@@ -104,6 +102,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/resource/codecs/resource_codecs.cpp
                 src/engine/runtime/resource/codecs/binary_resource_codec.cpp
                 src/engine/runtime/resource/codecs/scene_resource_codec.cpp
+                src/engine/runtime/resource/codecs/prefab_resource_codec.cpp
                 src/engine/runtime/resource/codecs/mesh_resource_codec.cpp
                 src/engine/runtime/resource/codecs/shader_resource_codec.cpp
                 src/engine/runtime/resource/codecs/material_resource_codec.cpp
@@ -129,6 +128,9 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_enable_profiling(engine_world)
     include(${PROJECT_SOURCE_DIR}/cmake/core/scene_schema.cmake)
     engine_add_scene_schema()
+    add_library(engine_scene_ecs INTERFACE)
+    add_library(engine::scene_ecs ALIAS engine_scene_ecs)
+    target_link_libraries(engine_scene_ecs INTERFACE engine::scene_data flecs::flecs_static)
     target_sources(
         engine_world
         PRIVATE src/engine/runtime/scene/component.cpp
@@ -141,6 +143,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 src/engine/runtime/scene/ui_component.cpp
                 src/engine/runtime/scene/text_component.cpp
                 src/engine/runtime/scene/model_instantiation.cpp
+                src/engine/runtime/scene/prefab_instantiation.cpp
                 src/engine/runtime/scene/audio_listener.cpp
                 src/engine/runtime/scene/camera.cpp
                 src/engine/runtime/scene/camera_math.cpp
@@ -157,7 +160,7 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     target_link_libraries(
         engine_world
         PUBLIC engine::scene_data
-        PRIVATE flecs::flecs_static engine::resource engine::log bgfx::bx)
+        PRIVATE engine::scene_ecs engine::resource engine::log bgfx::bx)
     target_include_directories(engine_world PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
 
     engine_add_system(runtime physics)
@@ -216,8 +219,11 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
                 basisu::basisu_encoder)
     engine_embed_render_shaders(engine_ui ui)
 
+    foreach(_ecs_target engine_render engine_physics engine_audio engine_animation engine_font engine_ui)
+        target_link_libraries(${_ecs_target} PRIVATE engine::scene_ecs)
+    endforeach()
+
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
-        engine::performance
         engine::task
         engine::window
         engine::input

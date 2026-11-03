@@ -1,0 +1,20 @@
+root = "13"
+
+[[nodes]]
+id = 13
+name = "Stress beam"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [12, 5.8, -13]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "deebd72c-5643-51bb-98d4-b4230e958eff"
+material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
+density = 80
+friction = 0.7
+restitution = 0.08

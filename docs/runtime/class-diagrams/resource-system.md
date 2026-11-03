@@ -105,9 +105,12 @@ classDiagram
     WorldSystem ..> ResourceLoader : 加载场景根资源
     WorldSystem *-- Scene : 独占活动场景
     Scene o-- Resource : 场景根资源引用
-    MeshRenderer o-- Resource : 当前网格引用
-    MeshRenderer *-- Material : 独占参数实例
-    Material o-- Resource : 材质及当前 Shader 引用
+    class MeshRendererRuntime
+    class MaterialState
+    MeshRenderer ..> Material : 按槽返回身份句柄
+    MeshRendererRuntime o-- Resource : ECS运行列持有网格
+    MeshRendererRuntime *-- MaterialState : 材质槽数据
+    MaterialState o-- Resource : 材质及当前Shader引用
 ```
 
 ```mermaid

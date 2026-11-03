@@ -1,0 +1,20 @@
+root = "4"
+
+[[nodes]]
+id = 4
+name = "Wall"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [-11, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "22a094f5-acc3-493d-a06a-6aa15d8b5c98"
+material = "c9a8250e-1bda-407f-b93a-952691dba977"
+density = 80
+friction = 0.7
+restitution = 0.08

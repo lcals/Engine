@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [编辑器命令](../../../editor/class-diagrams/editor-commands.md)
 
-模块向 MCP 注册场景查询、组件修改、批量编辑、撤销、重做和回执查询。组件本身提供普通 C++ 接口；MCP 客户端通过文件通道提交命令，编辑器主线程执行。
+模块向 MCP 注册项目启停、场景查询、组件修改、批量编辑、撤销、重做和回执查询。组件本身提供普通 C++ 接口；MCP 客户端通过文件通道提交命令，编辑器主线程执行。
 
 ```mermaid
 classDiagram
@@ -46,6 +46,10 @@ classDiagram
 
 ## 延迟关闭编辑器
 
+`start_project`、`stop_project` 为无参数非撤销命令，复用同一会话校验、OS 提交锁和持久回执。启动仍在项目资源锁内刷新目录并开始玩法，预览与玩法保持互斥。
+
 `close_editor({delayMs?})` 使用同一命令通道，由 EditorSystem 内部登记，无新增公开类或方法。默认 500 ms，可选 100～10000 ms。先返回 `scheduled: true`；只有持久回执发布成功后才开始单调时钟计时，发布失败保留请求并重试，不重复执行。重复请求不延长原截止时间。
 
 延时到期后投递现有 SDL 退出事件，由宿主走正常清理；源文件保存仍须显式调用，关闭请求不替用户保存。MCP 工具进程独立存活，仍可查询原完成回执；调度完成、进程退出和客户端已读是不同状态。此工具不加入可撤销批次。
+
+`set_node_state` 和 `set_component_state` 使用同一编辑通道与撤销栈；后者接收 `get_scene` 返回的 `componentType`，两者至少提供 `enabled` 或 `visible` 布尔值。查询分别返回局部状态与继承后的 `active/visibleInHierarchy`，修改父节点不覆盖后代局部选择。

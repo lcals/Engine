@@ -59,6 +59,12 @@ bool AnimatorCodec::read(const toml::table& table, schema::ComponentDataT& compo
     component.payload.Set(std::move(value));
     return validate(component, error);
 }
+std::span<const std::string_view> AnimatorCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"animation"};
+    return fields;
+}
+
 void AnimatorCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto* value = component.payload.AsAnimatorData();

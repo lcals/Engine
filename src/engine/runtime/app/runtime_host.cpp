@@ -8,7 +8,6 @@
 #include "runtime/gameplay/script_runtime.hpp"
 #include "runtime/input/input_system.hpp"
 #include "runtime/navigation/navigation_system.hpp"
-#include "runtime/performance/performance_system.hpp"
 #include "runtime/performance/profiling.hpp"
 #include "runtime/physics/physics_system.hpp"
 #include "runtime/render/render_system.hpp"
@@ -103,12 +102,9 @@ bool RuntimeHost::initialize(const EngineConfig& config, ResourceSystem* resourc
         }
     }
 
-    std::unique_ptr<System> performance = std::make_unique<PerformanceSystem>();
-    if (!engine_.add_system(performance))
-    {
-        shutdown();
-        return false;
-    }
+#if defined(ENGINE_ENABLE_TRACY)
+    tracy::SetThreadName("Engine main");
+#endif
 
     auto world = std::make_unique<WorldSystem>(parallel.scene_restore);
     auto physics_system = std::make_unique<PhysicsSystem>(world.get(), physics_tasks_.get());

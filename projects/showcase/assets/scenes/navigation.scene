@@ -139,166 +139,54 @@ scale = [1, 1, 1]
 type = "ui"
 document = "783cb659-63b7-4f35-8e9f-c0080c916b48"
 
-[[nodes]]
-id = 7
-name = "Navigation ground"
-parent = 0
+[[prefab_instances]]
+prefab = "beccd0c5-763f-47b9-abca-c32b0f86215b"
+root = "17"
 
-[[nodes.components]]
-type = "transform"
-position = [0, 0, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
+[[prefab_instances.node_mappings]]
+source = "17"
+target = "17"
 
-[[nodes.components]]
-type = "terrain"
-terrain = "9cf6a604-6b75-4a85-bc8d-0680389c0276"
-material = "4ed9d0fc-3c30-452b-8171-7acb834ea104"
-collision = true
-surface_color = [0.3, 0.38, 0.38, 1]
-wall_color = [0.5, 0.32, 0.18, 1]
-uv_scale = 0.2
+[[prefab_instances.node_mappings]]
+source = "8"
+target = "8"
 
-[[nodes]]
-id = 8
-name = "Sector divider"
-parent = 0
+[[prefab_instances.node_mappings]]
+source = "9"
+target = "9"
 
-[[nodes.components]]
-type = "transform"
-position = [0, 1.2, 0]
-rotation = [0, 0, 0]
-scale = [0.15, 1.2, 16]
+[[prefab_instances.node_mappings]]
+source = "10"
+target = "10"
 
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "9261910f-18c9-44dc-a0d2-aad030213465"
+[[prefab_instances.node_mappings]]
+source = "11"
+target = "11"
 
-[[nodes]]
-id = 9
-name = "Gate west"
-parent = 0
+[[prefab_instances.node_mappings]]
+source = "12"
+target = "12"
 
-[[nodes.components]]
-type = "transform"
-position = [5.475, 1.2, 0]
-rotation = [0, 0, 0]
-scale = [5.325, 1.2, 0.35]
+[[prefab_instances.node_mappings]]
+source = "13"
+target = "13"
 
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "9261910f-18c9-44dc-a0d2-aad030213465"
+[[prefab_instances.node_mappings]]
+source = "14"
+target = "14"
 
-[[nodes]]
-id = 10
-name = "Gate east"
-parent = 0
+[[prefab_instances.node_mappings]]
+source = "15"
+target = "15"
 
-[[nodes.components]]
-type = "transform"
-position = [18.6, 1.2, 0]
-rotation = [0, 0, 0]
-scale = [5.4, 1.2, 0.35]
+[[prefab_instances.node_mappings]]
+source = "16"
+target = "16"
 
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "9261910f-18c9-44dc-a0d2-aad030213465"
+[[prefab_instances]]
+prefab = "fd167615-ec1d-431d-947b-4ea7e2f028ec"
+root = "7"
 
-[[nodes]]
-id = 11
-name = "Crossing west pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-21.7, 0.012, 0]
-rotation = [0, 0, 0]
-scale = [2, 0.012, 2.6]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "da118a34-a384-4863-b1ab-5d6dea5fdb82"
-
-[[nodes]]
-id = 12
-name = "Crossing east pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-4.4, 0.012, 0]
-rotation = [0, 0, 0]
-scale = [0.4, 0.012, 2.6]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
-
-[[nodes]]
-id = 13
-name = "Crossing north pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-12, 0.012, -10.8]
-rotation = [0, 0, 0]
-scale = [2.6, 0.012, 2.6]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "a998204f-8aff-4071-a874-b4495ea9a031"
-
-[[nodes]]
-id = 14
-name = "Crossing south pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-12, 0.012, 10.8]
-rotation = [0, 0, 0]
-scale = [2.6, 0.012, 2.6]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "b1c1a877-ada8-4ac4-b9cd-f4b078f70f99"
-
-[[nodes]]
-id = 15
-name = "Doorway north pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [12, 0.012, -9.2]
-rotation = [0, 0, 0]
-scale = [2.6, 0.012, 4.5]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "da118a34-a384-4863-b1ab-5d6dea5fdb82"
-
-[[nodes]]
-id = 16
-name = "Doorway south pad"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [12, 0.012, 9.2]
-rotation = [0, 0, 0]
-scale = [2.6, 0.012, 4.5]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "d4e3463f-60e5-477c-93a4-2364f9a0f5ad"
+[[prefab_instances.node_mappings]]
+source = "7"
+target = "7"

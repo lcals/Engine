@@ -409,7 +409,7 @@ try {
     for (const name of ["Near target", "Far target", "Covered target"])
         for (const child of ["Center", "Bullseye"]) makeNode(`${name}/${child}`);
     rangeScene.FindNode = (name) => nodes.get(name) ?? null;
-    rangeScene.InstantiateModel = () => nodes.get("Avatar");
+    rangeScene.InstantiatePrefab = () => nodes.get("Avatar");
     rangeScene.CreateNode = (name) => makeNode(name);
     api.Scene.Load = (path) => {
         if (path !== rangePath) return originalLoad(path);

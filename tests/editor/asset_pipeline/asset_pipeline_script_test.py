@@ -46,6 +46,7 @@ def test(builder, source_project, temporary):
     project = temporary / "configuration project 中文"
     for name in ("assets", "settings", "cache"):
         (project / name).mkdir(parents=True)
+    (project / "settings/import.toml").write_text("import_threads = 4\n", encoding="utf-8")
     compiler = source_project / "settings/node_modules/typescript"
     require(compiler.is_dir(), "Run npm ci --prefix projects/showcase/settings first")
     shutil.copytree(compiler, project / "settings/node_modules/typescript")
@@ -83,7 +84,7 @@ def test(builder, source_project, temporary):
     # Legacy directory locks left by an interrupted old JS compiler must not block the OS-locked pipeline.
     (project / "cache/.script-build-lock").mkdir()
     first = build(builder, project)
-    require(first[:4] == (1, 0, 0, 4), "first TS import must use four workers")
+    require(first[:4] == (1, 0, 0, 4), "first TS import must use the configured four workers")
     require(
         not (project / "cache/assets").exists(), "compiler must not restore legacy asset output"
     )
@@ -151,14 +152,12 @@ def test(builder, source_project, temporary):
     text = text.replace(
         "#include <bgfx_shader.sh>", '#include <bgfx_shader.sh>\n#include "lighting.inc"'
     )
-    tint_target = (
-        "vec4 base_color = texture2D(s_base_color, v_texcoord0) * u_base_color * v_color0;"
-    )
+    tint_target = "    vec3 color = surface.base_color.rgb;"
     require(
         text.count(tint_target) == 1,
         "shader fixture must insert TEST_TINT into the actual sampled base-color calculation",
     )
-    text = text.replace(tint_target, tint_target + "\n    base_color.rgb *= TEST_TINT;")
+    text = text.replace(tint_target, "    surface.base_color.rgb *= TEST_TINT;\n" + tint_target)
     fragment.write_text(text, encoding="utf-8")
     shader_assets = {
         path.relative_to(project / "assets").as_posix()

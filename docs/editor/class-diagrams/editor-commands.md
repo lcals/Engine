@@ -10,6 +10,7 @@ classDiagram
         +EditorCommands(SceneIdProvider scene_id)
         +~EditorCommands()
         +register_command(string_view name, bool undoable, Handler handler) bool
+        +set_edit_wrapper(EditWrapper wrapper) bool
         +execute(string_view name, const Json& arguments, Json& result, string& error) bool
         +clear_history() void
         +undo_count() size_t
@@ -50,7 +51,7 @@ classDiagram
 - `get_scene(offset?, limit?)` 按场景节点顺序分页，参数均为非负整数。offset 默认 0，省略 limit 返回该偏移后的全部节点，保持无参数查询行为；limit 为 0 或 offset 超出节点总数时返回空节点数组。结果顶层返回 `totalNodes` 和请求的 `offset`，`scene.nodes` 仅包含当前页；无活动场景时 `scene=null`、`totalNodes=0`。分页不锁定跨请求快照，调用方应核对 sceneId，并在结构变化后重新查询。
 - 节点 ID 与 sceneId 使用完整十进制 uint64 字符串；数值 JSON ID、零值、溢出及旧场景身份均拒绝。材料参数支持 float/v2/v3/v4，遵守原生材质类型与值域检查。
 
-通道位于编辑器持久目录：`editor-command.json` 输入，`editor-receipt.json` 为最新回执，`editor-receipts/<session>/<requestId>.json` 保存各请求原回执。输入上限 1 MiB。请求为 `{session,projectRoot,requestId,command,arguments}`；回执为 `{session,projectRoot,requestId,command,success,result,error,completedAtMs}`。session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。会话与项目必须匹配；同会话 requestId 只执行一次，先写独立回执再更新最新快照。写回失败保留已执行结果供重试。旧 `project-control.json` 启停协议保持兼容。
+通道位于编辑器持久目录：`editor-command.json` 输入，`editor-receipt.json` 为最新回执，`editor-receipts/<session>/<requestId>.json` 保存各请求原回执。输入上限 1 MiB。请求为 `{session,projectRoot,requestId,command,arguments}`；回执为 `{session,projectRoot,requestId,command,success,result,error,completedAtMs}`。session/requestId 仅允许不超过 128 个 ASCII 字母、数字、下划线或连字符。会话与项目必须匹配；同会话 requestId 只执行一次，先写独立回执再更新最新快照。写回失败保留已执行结果供重试。`start_project`、`stop_project` 与其他非撤销命令共用此通道；项目状态仍单独发布到 `project-status.json`，不再维护第二套启停请求文件。
 
 ```mermaid
 classDiagram
@@ -58,6 +59,7 @@ classDiagram
         +EditorCommandChannel(EditorCommands& commands, filesystem_path directory, string project_root, string session)
         +poll() bool
         +last_error() const string&
+        +last_receipt() const Json&
     }
     class EditorCommands
     class EditorSystem
@@ -65,7 +67,7 @@ classDiagram
     EditorCommandChannel --> EditorCommands : 持续借用及执行
 ```
 
-内部 `EditorCommandChannel` 仅负责上述文件传输。命令执行失败属于正常回执，不使编辑器退出；传输失败保留待写回执供下一帧重试。已执行 ID 不因回执文件被删除而重新执行。回执同样限制为 1 MiB；超大查询返回同 ID 的有界失败回执。输入及历史回执在读取前后都校验长度，历史回执校验身份及字段类型。
+内部 `EditorCommandChannel` 仅负责上述文件传输。命令执行失败属于正常回执，不使编辑器退出；传输失败保留待写回执供下一帧重试。`last_receipt()` 借用最近完整发布的原回执；回执重试成功的这一帧先返回，宿主观察该结果后下一帧再处理新请求。已执行 ID 不因回执文件被删除而重新执行。回执同样限制为 1 MiB；超大查询返回同 ID 的有界失败回执。输入及历史回执在读取前后都校验长度，历史回执校验身份及字段类型。
 
 EditorCommands 与 SceneCommands 明确禁止复制。EditorCommands 的析构、clear_history、undo_count、redo_count 为 noexcept；后两者为 const。EditorEdit 通过 noexcept 虚析构释放；场景查询、命令执行和编辑记录 apply/revert 不承诺 noexcept。需要检查的状态返回值标注 nodiscard。
 
@@ -79,6 +81,7 @@ classDiagram
     class TextureEdit
     class MaterialEdit
     class TransformEdit
+    class StateEdit
     class AssetEntryT
     class WorldSystem
     EditorEdit <|-- CameraEdit
@@ -86,12 +89,14 @@ classDiagram
     EditorEdit <|-- TextureEdit
     EditorEdit <|-- MaterialEdit
     EditorEdit <|-- TransformEdit
+    EditorEdit <|-- StateEdit
     TextureEdit *-- AssetEntryT : 前后版本快照值
     TextureEdit --> WorldSystem : 场景身份解析
     CameraEdit --> WorldSystem : 组件身份解析
     LightEdit --> WorldSystem : 组件身份解析
     MaterialEdit --> WorldSystem : 组件身份解析
     TransformEdit --> WorldSystem : 组件身份解析
+    StateEdit --> WorldSystem : 节点及组件类型解析
 ```
 
 这些具体编辑记录是命令模块的内部实现，仅实现基类 apply/revert，不向运行时公开。
@@ -105,3 +110,7 @@ classDiagram
 `SceneCommands::node_identity(id)` 返回当前场景中已存在节点的共享 ID 单元；调用前核验场景代次，不存在返回空。插件编辑记录共享同一单元，创建命令重做更新单元值后可继续定位；共享的是身份值，不是节点或场景所有权。场景改变清空当前映射，历史执行仍须核验其原场景代次。
 
 模型实例化的事务与资源版本校验见[模型命令](model-commands.md)。
+
+`set_node_state(sceneId,nodeId,enabled?,visible?)` 和 `set_component_state(sceneId,nodeId,componentType,enabled?,visible?)` 至少修改一个布尔字段；组件类型使用 `get_scene` 的 `componentType`（生成枚举名称）。内部 StateEdit 复用共享节点身份，只检查和修改请求的局部标记，不恢复整个组件数据、不改后代的局部设置。支持批次、撤销和重做；外部改变相同字段时拒绝陈旧历史。查询对节点和组件同时返回局部 `enabled/visible` 与继承后 `active/visibleInHierarchy`；组件额外返回 `componentType` 与 `instanceId`，后者仅标识当前实例。
+
+Prefab 编辑登记一个 `EditWrapper = std::function<bool(std::string_view, const Json&, std::unique_ptr<EditorEdit>&, std::string&)>`；`set_edit_wrapper` 仅允许登记一次非空回调。命令先准备尚未应用的记录，再由包装器验证目标并把显式属性覆盖与原修改组成同一撤销记录。包装器只处理可撤销编辑，批次走相同入口；未知会影响 Prefab 的修改明确拒绝，不在保存时把任意运行变化推断成覆盖。回调借用 WorldSystem/SceneCommands 至命令服务释放。

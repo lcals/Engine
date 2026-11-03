@@ -1,0 +1,182 @@
+--- a/bgfx/include/bgfx/bgfx.h
++++ b/bgfx/include/bgfx/bgfx.h
+@@ -846,6 +846,12 @@
+ 		///   - `BGFX_CAPS_FORMAT_TEXTURE_MIP_AUTOGEN` - Texture format supports auto-generated
+ 		///     mips.
+ 		uint16_t formats[TextureFormat::Count];
++
++		/// Exact framebuffer sample counts supported by this backend, per linear format.
++		/// Bits use sample-count values (1, 2, 4, 8); zero means unavailable/unreported.
++		/// A backend fallback to a lower count is not reported as support.
++		uint8_t framebufferSampleCounts[TextureFormat::Count];
++		uint8_t maxAnisotropy; //!< Maximum sampler anisotropy; 1 means unsupported/unreported.
+ 	};
+ 
+ 	/// Transient index buffer.
+--- a/bgfx/include/bgfx/c99/bgfx.h
++++ b/bgfx/include/bgfx/c99/bgfx.h
+@@ -590,6 +590,11 @@
+      *     mips.
+      */
+     uint16_t             formats[BGFX_TEXTURE_FORMAT_COUNT];
++
++    /** Exact framebuffer sample-count bits (1, 2, 4, 8), per linear format.
++     *  Zero means unavailable/unreported; backend fallback is not support. */
++    uint8_t              framebufferSampleCounts[BGFX_TEXTURE_FORMAT_COUNT];
++    uint8_t              maxAnisotropy;      /** Maximum sampler anisotropy; 1 means unsupported/unreported. */
+ 
+ } bgfx_caps_t;
+ 
+--- a/bgfx/scripts/bgfx.idl
++++ b/bgfx/scripts/bgfx.idl
+@@ -771,6 +771,10 @@
+ 		---   - `BGFX_CAPS_FORMAT_TEXTURE_MSAA` - Texture can be sampled as MSAA.
+ 		---   - `BGFX_CAPS_FORMAT_TEXTURE_MIP_AUTOGEN` - Texture format supports auto-generated
+ 		---     mips.
++	.framebufferSampleCounts "uint8_t[TextureFormat::Count]"
++		--- Exact framebuffer sample-count bits (1, 2, 4, 8), per linear format.
++		--- Zero means unavailable/unreported; backend fallback is not support.
++	.maxAnisotropy "uint8_t" --- Maximum sampler anisotropy; 1 means unsupported/unreported.
+ 
+ --- Internal data.
+ struct.InternalData
+--- a/bgfx/src/bgfx.cpp
++++ b/bgfx/src/bgfx.cpp
+@@ -3541,6 +3541,7 @@
+ 		}
+ 
+ 		bx::memSet(&g_caps, 0, sizeof(g_caps) );
++		g_caps.maxAnisotropy = 1;
+ 		g_caps.limits.maxDrawCalls            = BGFX_CONFIG_MAX_DRAW_CALLS;
+ 		g_caps.limits.maxBlits                = BGFX_CONFIG_MAX_BLIT_ITEMS;
+ 		g_caps.limits.maxTextureSize          = 0;
+--- a/bgfx/src/renderer_mtl.mm
++++ b/bgfx/src/renderer_mtl.mm
+@@ -878,6 +878,27 @@
+ 				}
+ 			}
+ 
++			g_caps.maxAnisotropy = 16;
++			for (uint32_t ii = 0; ii < TextureFormat::Count; ++ii)
++			{
++				if (MTLPixelFormatInvalid != s_textureFormat[ii].m_fmt
++				&&  0 != (g_caps.formats[ii] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) )
++				{
++					g_caps.framebufferSampleCounts[ii] = 1;
++					if (0 != (g_caps.formats[ii] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA) )
++					{
++						for (uint32_t jj = 1; jj < 4; ++jj)
++						{
++							const uint32_t samples = 1u << jj;
++							if (uint32_t(s_msaa[jj]) == samples)
++							{
++								g_caps.framebufferSampleCounts[ii] |= uint8_t(samples);
++							}
++						}
++					}
++				}
++			}
++
+ 			// Init reserved part of view name.
+ 			for (uint32_t ii = 0; ii < BGFX_CONFIG_MAX_VIEWS; ++ii)
+ 			{
+--- a/bgfx/src/renderer_d3d12.cpp
++++ b/bgfx/src/renderer_d3d12.cpp
+@@ -1530,6 +1530,11 @@
+ 					g_caps.formats[ii] = support;
+ 				}
+ 
++				g_caps.maxAnisotropy = D3D12_REQ_MAXANISOTROPY;
++				// The initial swap-chain probe precedes format capabilities. Refresh now
++				// so offscreen counts match both the format and the actual fallback table.
++				updateMsaa(m_scd.format);
++
+ 				// Init reserved part of view name.
+ 				for (uint32_t ii = 0; ii < BGFX_CONFIG_MAX_VIEWS; ++ii)
+ 				{
+@@ -2421,7 +2426,7 @@
+ 				uint32_t msaa = s_checkMsaa[ii];
+ 
+ 				D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS data;
+-				bx::memSet(&data, 0, sizeof(msaa) );
++				bx::memSet(&data, 0, sizeof(data) );
+ 				data.Format = _format;
+ 				data.SampleCount = msaa;
+ 				data.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
+@@ -2437,6 +2442,44 @@
+ 				else
+ 				{
+ 					s_msaa[ii] = s_msaa[last];
++				}
++			}
++
++			for (uint32_t ii = 0; ii < TextureFormat::Count; ++ii)
++			{
++				g_caps.framebufferSampleCounts[ii] = 0;
++				if (0 == (g_caps.formats[ii] & BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER) )
++				{
++					continue;
++				}
++
++				const DXGI_FORMAT fmt = bimg::isDepth(bimg::TextureFormat::Enum(ii) )
++					? s_textureFormat[ii].m_fmtDsv
++					: s_textureFormat[ii].m_fmt
++					;
++				if (DXGI_FORMAT_UNKNOWN == fmt)
++				{
++					continue;
++				}
++
++				g_caps.framebufferSampleCounts[ii] = 1;
++				for (uint32_t jj = 1; jj < 4; ++jj)
++				{
++					const uint32_t samples = 1u << jj;
++					if (s_msaa[jj].Count != samples)
++					{
++						continue;
++					}
++
++					D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS data = {};
++					data.Format = fmt;
++					data.SampleCount = samples;
++					data.Flags = D3D12_MULTISAMPLE_QUALITY_LEVELS_FLAG_NONE;
++					const HRESULT hr = m_device->CheckFeatureSupport(D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS, &data, sizeof(data) );
++					if (SUCCEEDED(hr) && data.NumQualityLevels > s_msaa[jj].Quality)
++					{
++						g_caps.framebufferSampleCounts[ii] |= uint8_t(samples);
++					}
+ 				}
+ 			}
+ 		}
+--- a/bgfx/src/renderer_vk.cpp
++++ b/bgfx/src/renderer_vk.cpp
+@@ -1657,6 +1657,9 @@
+ 
+ 				const uint32_t maxAttachments = bx::min<uint32_t>(m_deviceProperties.limits.maxFragmentOutputAttachments, m_deviceProperties.limits.maxColorAttachments);
+ 
++				g_caps.maxAnisotropy = m_deviceFeatures.samplerAnisotropy
++					? uint8_t(bx::clamp(m_deviceProperties.limits.maxSamplerAnisotropy, 1.0f, 255.0f))
++					: 1;
+ 				g_caps.limits.maxTextureSize     = m_deviceProperties.limits.maxImageDimension2D;
+ 				g_caps.limits.maxTextureLayers   = m_deviceProperties.limits.maxImageArrayLayers;
+ 				g_caps.limits.maxFBAttachments   = bx::min<uint32_t>(maxAttachments, BGFX_CONFIG_MAX_FRAME_BUFFER_ATTACHMENTS);
+@@ -1729,6 +1732,19 @@
+ 
+ 									if (it.usage & (VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT) )
+ 									{
++										if (0 == jj)
++										{
++											for (uint32_t sample = 0; sample < 4; ++sample)
++											{
++												const uint32_t samples = 1u << sample;
++												if (uint32_t(s_msaa[sample].Sample) == samples
++												&&  0 != (ifp.sampleCounts & samples) )
++												{
++													g_caps.framebufferSampleCounts[ii] |= uint8_t(samples);
++												}
++											}
++										}
++
+ 										support |= 0
+ 											| BGFX_CAPS_FORMAT_TEXTURE_MIP_AUTOGEN
+ 											| (multisample ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA : 0)

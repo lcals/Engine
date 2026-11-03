@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "resource_fixture.hpp"
 
 #include "runtime/audio/audio_system.hpp"
@@ -113,7 +115,7 @@ bool pump(engine::AudioSystem& audio, std::chrono::milliseconds duration)
     return true;
 }
 
-bool wait_stopped(engine::AudioSystem& audio, const engine::AudioSource& source)
+bool wait_stopped(engine::AudioSystem& audio, engine::AudioSource source)
 {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
     while (source.playback() != engine::AudioPlayback::stopped)
@@ -137,68 +139,77 @@ bool settings_and_resources()
         return false;
     }
     auto* scene = world.create_scene("Audio settings");
-    auto* node = scene ? scene->create_node("Speaker") : nullptr;
-    auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    auto* listener = node ? node->add_component<engine::AudioListener>() : nullptr;
+    auto node = scene ? scene->create_node("Speaker") : engine::Node{};
+    auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    auto listener = node ? node.add_component<engine::AudioListener>() : engine::AudioListener{};
     if (!expect(source && listener, "attach audio components") ||
-        !expect(!source->play() && source->clip_data() == nullptr, "empty clip cannot play") ||
-        !expect(source->set_clip("audio/mono.wav"), "load audio by virtual path"))
+        !expect(!source.play() && source.clip_data() == nullptr, "empty clip cannot play") ||
+        !expect(source.set_clip("audio/mono.wav"), "load audio by virtual path"))
     {
         return false;
     }
-    const auto* retained = source->clip_data();
-    auto settings = source->settings();
+    const auto* retained = source.clip_data();
+    auto settings = source.settings();
     settings.clip_guid = "20000000-0000-4000-8000-000000000099";
-    if (!expect(engine::AudioSource::valid_settings(settings) && !source->set_settings(settings) &&
-                    source->clip_data() == retained,
+    if (!expect(engine::AudioSource::valid_settings(settings) && !source.set_settings(settings) &&
+                    source.clip_data() == retained,
                 "pure settings validation does not require resource availability") ||
-        !expect(!source->set_clip("audio/missing.wav") && source->clip_data() == retained,
+        !expect(!source.set_clip("audio/missing.wav") && source.clip_data() == retained,
                 "failed clip replacement retains ownership"))
     {
         return false;
     }
-    settings = source->settings();
+    settings = source.settings();
     settings.pitch = 0.0F;
-    if (!expect(!source->set_settings(settings) && source->settings().pitch == 1.0F,
+    if (!expect(!source.set_settings(settings) && source.settings().pitch == 1.0F,
                 "invalid pitch leaves settings unchanged"))
     {
         return false;
     }
-    settings = source->settings();
+    settings = source.settings();
     settings.volume = std::numeric_limits<float>::quiet_NaN();
     if (!expect(!engine::AudioSource::valid_settings(settings), "reject nonfinite volume"))
     {
         return false;
     }
-    settings = source->settings();
+    settings = source.settings();
     settings.max_distance = settings.min_distance;
-    auto listener_settings = listener->settings();
+    auto listener_settings = listener.settings();
     listener_settings.volume = -1.0F;
-    if (!expect(!source->set_settings(settings), "reject empty attenuation interval") ||
-        !expect(!listener->set_settings(listener_settings) && listener->settings().volume == 1.0F,
+    if (!expect(!source.set_settings(settings), "reject empty attenuation interval") ||
+        !expect(!listener.set_settings(listener_settings) && listener.settings().volume == 1.0F,
                 "listener rejects invalid gain"))
     {
         return false;
     }
     engine::schema::ComponentDataT snapshot;
-    if (!expect(source->build_data(snapshot), "snapshot generated audio data") ||
-        !expect(source->set_clip("") && source->clip_data() == nullptr &&
-                    source->clip_path().empty(),
+    if (!expect(source.build_data(snapshot), "snapshot generated audio data") ||
+        !expect(source.set_clip("") && source.clip_data() == nullptr && source.clip_path().empty(),
                 "empty path clears clip") ||
-        !expect(source->restore_data(snapshot) && source->clip_path() == "audio/mono.wav",
+        !expect(source.restore_data(snapshot) && source.clip_path() == "audio/mono.wav",
                 "restore clip using its GUID") ||
-        !expect(source->play() && source->playback() == engine::AudioPlayback::pending &&
-                    !source->playing(),
+        !expect(source.play() && source.playback() == engine::AudioPlayback::pending &&
+                    !source.playing(),
                 "accepted request is not reported as actual playback") ||
-        !expect(source->pause() && source->playback() == engine::AudioPlayback::paused &&
-                    source->play() && source->stop(),
+        !expect(source.pause() && source.playback() == engine::AudioPlayback::paused &&
+                    source.play() && source.stop(),
                 "request controls are explicit"))
+    {
+        return false;
+    }
+    auto missing_flags = snapshot;
+    missing_flags.flags.reset();
+    missing_flags.payload.AsAudioSourceData()->volume = 0.25F;
+    if (!expect(source.play() && !source.restore_data(missing_flags) &&
+                    source.settings() == *snapshot.payload.AsAudioSourceData() &&
+                    source.playback() == engine::AudioPlayback::pending && source.stop(),
+                "typed restore with missing flags preserves settings and pending playback"))
     {
         return false;
     }
     engine::schema::ComponentDataT wrong;
     wrong.payload.Set(engine::schema::TransformDataT{});
-    return expect(!source->restore_data(wrong) && !listener->restore_data(wrong),
+    return expect(!source.restore_data(wrong) && !listener.restore_data(wrong),
                   "restore rejects a different component type");
 }
 
@@ -220,10 +231,10 @@ bool playback_and_lifecycle()
         return false;
     }
     auto* scene = world.create_scene("Audio playback");
-    auto* node = scene ? scene->create_node("One shot") : nullptr;
-    auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("audio/mono.wav"), "prepare one-shot source") ||
-        !expect(audio.tick(0.0) && source->playing() && audio.voice_count() == 1,
+    auto node = scene ? scene->create_node("One shot") : engine::Node{};
+    auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    if (!expect(source && source.set_clip("audio/mono.wav"), "prepare one-shot source") ||
+        !expect(audio.tick(0.0) && source.playing() && audio.voice_count() == 1,
                 "play-on-awake creates a real SDL stream even when spatially muted") ||
         !expect(SDL_GetCurrentAudioDriver() &&
                     std::string_view(SDL_GetCurrentAudioDriver()) == "dummy",
@@ -233,116 +244,120 @@ bool playback_and_lifecycle()
     }
     // 不调度 AudioSystem：旧的主线程 80ms 补流无法播放完这个 120ms 片段。
     SDL_Delay(350);
-    if (!expect(audio.tick(0.0) && source->playback() == engine::AudioPlayback::stopped &&
+    if (!expect(audio.tick(0.0) && source.playback() == engine::AudioPlayback::stopped &&
                     audio.voice_count() == 0,
                 "SDL callback finishes a one-shot clip without main-thread refills") ||
-        !expect(audio.tick(0.0) && !source->playing() && audio.voice_count() == 0,
+        !expect(audio.tick(0.0) && !source.playing() && audio.voice_count() == 0,
                 "play-on-awake does not repeat after completion"))
     {
         return false;
     }
-    auto* listener_node = scene->create_node("Listener");
-    auto* listener =
-        listener_node ? listener_node->add_component<engine::AudioListener>() : nullptr;
-    auto settings = source->settings();
+    auto listener_node = scene->create_node("Listener");
+    auto listener = listener_node ? listener_node.add_component<engine::AudioListener>()
+                                  : engine::AudioListener{};
+    auto settings = source.settings();
     settings.loop = true;
     settings.pitch = 1.5F;
     settings.volume = 0.5F;
-    if (!expect(listener && source->set_settings(settings) && source->play() && audio.tick(0.0),
+    if (!expect(listener && source.set_settings(settings) && source.play() && audio.tick(0.0),
                 "explicit looping source with listener") ||
-        !expect(pump(audio, std::chrono::milliseconds(350)) && source->playing() &&
+        !expect(pump(audio, std::chrono::milliseconds(350)) && source.playing() &&
                     audio.voice_count() == 1,
                 "loop survives several clip durations"))
     {
         return false;
     }
     engine::schema::ComponentDataT edited;
-    if (!expect(source->build_data(edited), "capture source for component editing"))
+    if (!expect(source.build_data(edited), "capture source for component editing"))
     {
         return false;
     }
     auto* edited_settings = edited.payload.AsAudioSourceData();
     edited_settings->volume = 0.25F;
     edited_settings->pitch = 0.75F;
-    if (!expect(source->restore_data(edited) && source->playing() && audio.tick(0.0) &&
-                    source->playing() && audio.voice_count() == 1 &&
-                    source->settings().volume == 0.25F && source->settings().pitch == 0.75F,
+    if (!expect(source.restore_data(edited) && source.playing() && audio.tick(0.0) &&
+                    source.playing() && audio.voice_count() == 1 &&
+                    source.settings().volume == 0.25F && source.settings().pitch == 0.75F,
                 "editing same-clip settings preserves active playback") ||
-        !expect(source->pause() && audio.tick(0.0) && !source->playing() &&
-                    audio.voice_count() == 1,
+        !expect(source.pause() && audio.tick(0.0) && !source.playing() && audio.voice_count() == 1,
                 "source pause retains one unbound stream"))
     {
         return false;
     }
     edited_settings->volume = 0.5F;
-    if (!expect(source->restore_data(edited) &&
-                    source->playback() == engine::AudioPlayback::paused && audio.tick(0.0) &&
-                    source->playback() == engine::AudioPlayback::paused && audio.voice_count() == 1,
+    if (!expect(source.restore_data(edited) && source.playback() == engine::AudioPlayback::paused &&
+                    audio.tick(0.0) && source.playback() == engine::AudioPlayback::paused &&
+                    audio.voice_count() == 1,
                 "editing same-clip settings preserves paused playback") ||
-        !expect(pump(audio, std::chrono::milliseconds(150)) && source->play() && audio.tick(0.0) &&
-                    source->playing(),
+        !expect(pump(audio, std::chrono::milliseconds(150)) && source.play() && audio.tick(0.0) &&
+                    source.playing(),
                 "paused source resumes without creating another voice"))
     {
         return false;
     }
-    auto* second_node = scene->create_node("Stereo");
-    auto* second = second_node ? second_node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(second && second->set_clip("audio/stereo.wav"), "load stereo clip"))
+    auto second_node = scene->create_node("Stereo");
+    auto second =
+        second_node ? second_node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    if (!expect(second && second.set_clip("audio/stereo.wav"), "load stereo clip"))
     {
         return false;
     }
-    auto second_settings = second->settings();
+    auto second_settings = second.settings();
     second_settings.spatial = false;
-    if (!expect(second->set_settings(second_settings) && audio.set_paused(true) &&
-                    audio.tick(0.0) && audio.paused() && audio.voice_count() == 2 &&
-                    second->playing(),
+    if (!expect(second.set_settings(second_settings) && audio.set_paused(true) && audio.tick(0.0) &&
+                    audio.paused() && audio.voice_count() == 2 && second.playing(),
                 "background pause applies to all active streams") ||
-        !expect(pump(audio, std::chrono::milliseconds(250)) && second->playing(),
+        !expect(pump(audio, std::chrono::milliseconds(250)) && second.playing(),
                 "paused device does not consume the non-looping stream") ||
-        !expect(audio.set_paused(false) && wait_stopped(audio, *second) && source->playing() &&
+        !expect(audio.set_paused(false) && wait_stopped(audio, second) && source.playing() &&
                     audio.voice_count() == 1,
                 "device resume drains only the one-shot source"))
     {
         return false;
     }
-    auto transform = listener_node->get_component<engine::Transform>()->settings();
+    auto transform = listener_node.get_component<engine::Transform>().settings();
     transform.position = engine::Vec3(100.0, 0.0, 0.0);
     transform.rotation = engine::Vec3(0.0, 90.0, 0.0);
-    if (!expect(listener_node->get_component<engine::Transform>()->set_settings(transform) &&
-                    audio.tick(0.0) && source->playing(),
+    if (!expect(listener_node.get_component<engine::Transform>().set_settings(transform) &&
+                    audio.tick(0.0) && source.playing(),
                 "distance and listener orientation update live"))
     {
         return false;
     }
-    source->set_enabled(false);
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 &&
-                    source->playback() == engine::AudioPlayback::stopped && !source->play(),
-                "disabled source stops and cannot request output"))
+    if (!source.set_enabled(false))
+    {
+        std::abort();
+    }
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 1 && !source.playing() && !source.play(),
+                "disabled source suspends its stream and cannot request output"))
     {
         return false;
     }
-    source->set_enabled(true);
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0,
-                "reenabling does not retrigger play-on-awake") ||
-        !expect(source->play() && audio.tick(0.0) && scene->destroy_node(node->id()) &&
+    if (!source.set_enabled(true))
+    {
+        std::abort();
+    }
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 1 && source.playing(),
+                "reenabling resumes the existing stream without retriggering play-on-awake") ||
+        !expect(source.play() && audio.tick(0.0) && scene->destroy_node(node.id()) &&
                     audio.tick(0.0) && audio.voice_count() == 0,
                 "deleted source leaves no stream or dangling component"))
     {
         return false;
     }
-    if (!expect(second->play() && audio.tick(0.0) && second->set_clip("audio/mono.wav"),
+    if (!expect(second.play() && audio.tick(0.0) && second.set_clip("audio/mono.wav"),
                 "replace source clip while an SDL callback may own the previous PCM"))
     {
         return false;
     }
     SDL_Delay(25);
     if (!expect(audio.tick(0.0) && audio.voice_count() == 0 &&
-                    second->playback() == engine::AudioPlayback::stopped,
+                    second.playback() == engine::AudioPlayback::stopped,
                 "old stream is destroyed before releasing its pinned resource"))
     {
         return false;
     }
-    if (!expect(second->play() && audio.tick(0.0) && audio.voice_count() == 1,
+    if (!expect(second.play() && audio.tick(0.0) && audio.voice_count() == 1,
                 "start a voice before scene destruction"))
     {
         return false;
@@ -354,9 +369,9 @@ bool playback_and_lifecycle()
         return false;
     }
     scene = world.create_scene("New audio scene");
-    node = scene ? scene->create_node("New source") : nullptr;
-    source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("audio/mono.wav") && source->play(),
+    node = scene ? scene->create_node("New source") : engine::Node{};
+    source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    if (!expect(source && source.set_clip("audio/mono.wav") && source.play(),
                 "new scene has independent source identity"))
     {
         return false;
@@ -364,9 +379,9 @@ bool playback_and_lifecycle()
     audio.clear();
     audio.clear();
     if (!expect(audio.tick(0.0) && audio.voice_count() == 0 &&
-                    source->playback() == engine::AudioPlayback::stopped,
+                    source.playback() == engine::AudioPlayback::stopped,
                 "clear cancels even pending requests without restarting awake playback") ||
-        !expect(source->play() && audio.tick(0.0) && source->playing(),
+        !expect(source.play() && audio.tick(0.0) && source.playing(),
                 "explicit playback works after clear"))
     {
         return false;
@@ -374,7 +389,7 @@ bool playback_and_lifecycle()
     audio.shutdown();
     audio.shutdown();
     return expect(audio.voice_count() == 0 && SDL_WasInit(SDL_INIT_AUDIO) == 0 &&
-                      source->playback() == engine::AudioPlayback::stopped,
+                      source.playback() == engine::AudioPlayback::stopped,
                   "shutdown is repeatable and releases the owned SDL subsystem");
 }
 
@@ -390,38 +405,38 @@ bool persistent_audio()
         return false;
     }
     auto* scene = world.create_scene("Retained audio");
-    auto* node = scene ? scene->create_node("Music") : nullptr;
-    auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    auto* ordinary_node = scene ? scene->create_node("Ordinary audio") : nullptr;
-    auto* ordinary = ordinary_node ? ordinary_node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && ordinary && node->set_persistent(true) &&
-                    source->set_clip("audio/mono.wav") && ordinary->set_clip("audio/stereo.wav") &&
-                    audio.tick(0) && source->pause() && audio.tick(0) && audio.voice_count() == 2,
+    auto node = scene ? scene->create_node("Music") : engine::Node{};
+    auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    auto ordinary_node = scene ? scene->create_node("Ordinary audio") : engine::Node{};
+    auto ordinary =
+        ordinary_node ? ordinary_node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    if (!expect(source && ordinary && node.set_persistent(true) &&
+                    source.set_clip("audio/mono.wav") && ordinary.set_clip("audio/stereo.wav") &&
+                    audio.tick(0) && source.pause() && audio.tick(0) && audio.voice_count() == 2,
                 "create a paused persistent stream and an ordinary voice"))
     {
         return false;
     }
     world.unload_scene();
     if (!expect(audio.tick(0) && audio.voice_count() == 1 &&
-                    source->playback() == engine::AudioPlayback::paused &&
+                    source.playback() == engine::AudioPlayback::paused &&
                     SDL_WasInit(SDL_INIT_AUDIO) != 0,
                 "unload keeps the existing paused stream and audio device") ||
         !expect(world.create_scene("Next audio scene") && audio.tick(0) &&
-                    audio.voice_count() == 1 && source->play() && audio.tick(0) &&
-                    source->playing(),
+                    audio.voice_count() == 1 && source.play() && audio.tick(0) && source.playing(),
                 "resume retained stream after creating another scene") ||
-        !expect(node->remove_component(engine::AudioSource::component_type),
+        !expect(node.remove_component(engine::AudioSource::component_type),
                 "remove retained source while its stream exists"))
     {
         return false;
     }
-    source = node->add_component<engine::AudioSource>();
-    if (!expect(source && source->set_clip("audio/mono.wav") && source->play() && source->pause() &&
+    source = node.add_component<engine::AudioSource>();
+    if (!expect(source && source.set_clip("audio/mono.wav") && source.play() && source.pause() &&
                     audio.tick(0) && audio.voice_count() == 0,
                 "replacement source cannot inherit a stream with a matching revision") ||
-        !expect(source->play() && audio.tick(0) && audio.voice_count() == 1,
+        !expect(source.play() && audio.tick(0) && audio.voice_count() == 1,
                 "replacement source starts its own stream") ||
-        !expect(node->scene().destroy_node(node->id()) && audio.tick(0) && audio.voice_count() == 0,
+        !expect(node.scene()->destroy_node(node.id()) && audio.tick(0) && audio.voice_count() == 0,
                 "explicit retained node deletion closes its stream"))
     {
         return false;
@@ -449,12 +464,12 @@ bool unavailable_device()
         return false;
     }
     auto* scene = world.create_scene("Unavailable output");
-    auto* node = scene ? scene->create_node("Source") : nullptr;
-    auto* source = node ? node->add_component<engine::AudioSource>() : nullptr;
-    if (!expect(source && source->set_clip("audio/mono.wav") && source->play(),
+    auto node = scene ? scene->create_node("Source") : engine::Node{};
+    auto source = node ? node.add_component<engine::AudioSource>() : engine::AudioSource{};
+    if (!expect(source && source.set_clip("audio/mono.wav") && source.play(),
                 "playback request is accepted before opening the device") ||
-        !expect(!audio.tick(0.0) && source->playback() == engine::AudioPlayback::failed &&
-                    !source->playing() && audio.voice_count() == 0 && !audio.last_error().empty(),
+        !expect(!audio.tick(0.0) && source.playback() == engine::AudioPlayback::failed &&
+                    !source.playing() && audio.voice_count() == 0 && !audio.last_error().empty(),
                 "unavailable device reports failure instead of fake playback"))
     {
         return false;
@@ -463,7 +478,7 @@ bool unavailable_device()
     {
         return false;
     }
-    return expect(source->play() && audio.tick(0.0) && source->playing() &&
+    return expect(source.play() && audio.tick(0.0) && source.playing() &&
                       audio.last_error().empty(),
                   "an explicit retry can recover after output becomes available");
 }

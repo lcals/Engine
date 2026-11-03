@@ -37,6 +37,12 @@ bool UiCodec::validate(const schema::ComponentDataT& component, std::string& err
     }
     return true;
 }
+std::span<const std::string_view> UiCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"document"};
+    return fields;
+}
+
 void UiCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     table.insert("type", "ui");

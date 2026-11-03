@@ -101,6 +101,12 @@ bool AudioSourceCodec::read(const toml::table& table, schema::ComponentDataT& co
     component.payload.Set(std::move(value));
     return true;
 }
+std::span<const std::string_view> AudioSourceCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"clip"};
+    return fields;
+}
+
 void AudioSourceCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto* value = component.payload.AsAudioSourceData();

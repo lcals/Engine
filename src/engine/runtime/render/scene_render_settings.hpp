@@ -1,4 +1,7 @@
 #pragma once
+#include "runtime/scene/environment_component.hpp"
+#include "runtime/scene/light.hpp"
+#include "runtime/scene/post_process_component.hpp"
 
 #include "runtime/render/render_settings.hpp"
 
@@ -16,9 +19,9 @@ namespace render_detail
 // 仅在当前主线程调用期间借用；不缓存跨帧或跨场景的组件指针。
 struct SceneRenderComponents
 {
-    EnvironmentComponent* environment = nullptr;
-    PostProcessComponent* post_process = nullptr;
-    Light* shadow_light = nullptr;
+    EnvironmentComponent environment = {};
+    PostProcessComponent post_process = {};
+    Light shadow_light = {};
 };
 
 [[nodiscard]] bool scene_render_components(Scene& scene, SceneRenderComponents& output);

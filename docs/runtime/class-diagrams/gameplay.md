@@ -59,11 +59,19 @@ classDiagram
         +SetPaused(paused bool) bool
         +GetPaused() bool?
         +CreateNode(name string) Node?
+        +InstantiateModel(path string, name string) Node?
+        +InstantiatePrefab(path string, name string) Node?
         +SetActiveCamera(camera Camera?) bool
         +Destroy() bool
     }
     class Node {
         +IsValid() bool
+        +SetEnabled(enabled bool) bool
+        +enabled bool?
+        +active bool?
+        +SetVisible(visible bool) bool
+        +visible bool?
+        +visibleInHierarchy bool?
         +Destroy() bool
         +SetParent(parent Node?) bool
         +FindChild(path string) Node?
@@ -96,6 +104,11 @@ classDiagram
         +node Node
         +IsValid() bool
         +SetEnabled(enabled bool) bool
+        +enabled bool?
+        +active bool?
+        +SetVisible(visible bool) bool
+        +visible bool?
+        +visibleInHierarchy bool?
     }
     class Transform {
         +SetPosition(x number, y number, z number) bool
@@ -132,7 +145,8 @@ classDiagram
 ```
 
 - Scene、Node 与具体组件不能由脚本直接构造；Create/Add 失败返回 null，修改和有效性检查返回 bool。每个 Node 每类组件最多一个。CreateNode 自动添加 Transform；通过 `node.GetComponent(Transform)` 取得变换，通过 `node.AddComponent(Camera)` 添加相机。泛型推导返回具体组件类型，重复添加返回 null，缺失或非法类型查询返回 null。类型注册与转换在脚本绑定层，原生 Node 不枚举具体组件。
-- `Component.node` 与 `Time.deltaTime` 只读；组件引用和节点引用在节点销毁、场景销毁或玩法退出后失效。
+- `Component.node` 与 `Time.deltaTime` 只读；组件引用同时捕获组件实例身份，在组件移除、节点销毁、场景销毁或玩法退出后失效。同节点重新添加同类组件不会恢复旧引用；所有组件共享这一规则。
+- Node 与 Component 的 enabled/visible 是本地设置，active/visibleInHierarchy 分别报告父链合成后的有效激活与可见状态。SetEnabled 影响逻辑系统参与，SetVisible 只影响显示；修改失败返回 false，失效状态查询返回 null。禁用或隐藏不销毁对象，也不使实例句柄失效。UiComponent 继承同一接口，文档实际显示由 UiSystem 按有效状态同步，不另存一份组件可见开关。
 - SetParent 保留局部变换，null 解除父子关系，拒绝循环和跨场景关系；Destroy Node 同时销毁其子树。旋转使用度，前向为 -Z。
 - 持久数据模型由 `include/schemas/runtime/scene.fbs` 定义，原生组件持有生成的对象数据；脚本 API 是行为绑定，材质命名参数经验证写入生成数据，不作为另一套磁盘格式。
 - `MeshRenderer.material` 返回该组件所属材质的借用包装；材质和 Shader 各自通过唯一资源路径字符串指定，分别由 SetType 与 SetShader 选择。内置 builtin://materials/default-pbr 引用 builtin://shaders/pbr，声明 baseColor（V4）、metallic（Float）、roughness（Float），builtin://materials/default-unlit 引用 builtin://shaders/unlit，声明 baseColor（V4）。SetV2/SetV3 是统一类型接口，只有材质声明相应参数时可写入；未知名字、错误类型和无效数值返回 false 并保留原值。变更材质类型或 Shader 重建所选定义的默认参数，同路径设置保持原值；未知路径返回 false。MeshRenderer 通过资源路径选择内置或项目网格。

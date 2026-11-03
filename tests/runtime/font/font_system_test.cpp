@@ -1,3 +1,5 @@
+#include "scene_snapshot.hpp"
+
 #include "resource_fixture.hpp"
 
 #include "runtime/engine_config.hpp"
@@ -216,17 +218,18 @@ int main()
         return 1;
     }
     auto* scene = world.create_scene("Text resource lifetime");
-    auto* node = scene == nullptr ? nullptr : scene->create_node("Ordinary text node");
-    auto* text = node == nullptr ? nullptr : node->add_component<engine::TextComponent>();
+    auto node = scene == nullptr ? engine::Node{} : scene->create_node("Ordinary text node");
+    auto text =
+        !node.valid() ? engine::TextComponent{} : node.add_component<engine::TextComponent>();
     component.size = 1;
     component.font_guid = font->info().guid;
     component.shader_path = shader_data.path;
-    if (!expect(text != nullptr && text->set_settings(component) && text->shader(),
+    if (!expect(text.valid() && text.set_settings(component) && text.shader(),
                 "text component retains its loaded shader"))
     {
         return 1;
     }
-    const auto held_shader = text->shader();
+    const auto held_shader = text.shader();
     fixture.catalog.entries.pop_back();
     shader_data.fragment_code = {3};
     engine::ResourcePtr newer_shader;
@@ -237,7 +240,7 @@ int main()
         return 1;
     }
     engine::FontDraw draw;
-    draw.shader = text->shader();
+    draw.shader = text.shader();
     if (!expect(draw.shader == held_shader && draw.shader->shader()->fragment_code[0] == 2,
                 "existing text draws with retained shader, not current catalog generation"))
     {

@@ -3,14 +3,17 @@
 #include "editor/commands/components/component_edit.hpp"
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#if ENGINE_HAS_ASSET_PIPELINE
+#include "editor/commands/prefab_commands.hpp"
+#endif
 #include "editor/render/render_component_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/scene/ui_component.hpp"
@@ -127,16 +130,16 @@ struct Target
         return identity ? *identity : node_id;
     }
 
-    Node* node(std::string& error) const
+    Node node(std::string& error) const
     {
         auto* scene = world.scene();
         if (scene == nullptr || scene->id() != scene_id)
         {
             error = "The requested scene is no longer active";
-            return nullptr;
+            return {};
         }
-        auto* found = scene->find_node(resolved_id());
-        if (found == nullptr)
+        auto found = scene->find_node(resolved_id());
+        if (!found)
         {
             error = "The requested node no longer exists";
         }
@@ -171,13 +174,150 @@ std::vector<std::uint8_t> node_snapshot(const Node& node)
 {
     schema::NodeDataT data;
     data.info = std::make_unique<schema::NodeInfoT>(node.info());
-    for (const auto& component : node.components())
+    std::vector<Component> components;
+    if (!node.collect_components(components))
     {
-        data.components.push_back(std::make_unique<schema::ComponentDataT>(component->data()));
+        return {};
+    }
+    for (const auto& component : components)
+    {
+        data.components.push_back(std::make_unique<schema::ComponentDataT>(component.data()));
     }
     flatbuffers::FlatBufferBuilder builder;
     builder.Finish(schema::NodeData::Pack(builder, &data));
     return {builder.GetBufferPointer(), builder.GetBufferPointer() + builder.GetSize()};
+}
+
+class StateEdit final : public EditorEdit
+{
+public:
+    Target target;
+    ComponentType component_type = ComponentType::NONE;
+    bool change_enabled = false;
+    bool change_visible = false;
+    bool before_enabled = true;
+    bool before_visible = true;
+    bool after_enabled = true;
+    bool after_visible = true;
+
+    explicit StateEdit(Target value) : target(std::move(value))
+    {
+    }
+
+    bool apply(std::string& error) override
+    {
+        return change(before_enabled, before_visible, after_enabled, after_visible, error);
+    }
+
+    bool revert(std::string& error) override
+    {
+        return change(after_enabled, after_visible, before_enabled, before_visible, error);
+    }
+
+private:
+    bool change(bool expected_enabled, bool expected_visible, bool enabled, bool visible,
+                std::string& error)
+    {
+        auto node = target.node(error);
+        if (!node)
+        {
+            return false;
+        }
+        Component component = {};
+        if (component_type != ComponentType::NONE)
+        {
+            component = node.get_component(component_type);
+            if (!component)
+            {
+                error = "The requested component no longer exists";
+                return false;
+            }
+        }
+        const bool current_enabled = component ? component.enabled() : node.enabled();
+        const bool current_visible = component ? component.visible() : node.visible();
+        if ((change_enabled && current_enabled != expected_enabled) ||
+            (change_visible && current_visible != expected_visible))
+        {
+            error = "State flags changed outside this edit; undo or redo is stale";
+            return false;
+        }
+        const bool changed = component ? (!change_enabled || component.set_enabled(enabled)) &&
+                                             (!change_visible || component.set_visible(visible))
+                                       : (!change_enabled || node.set_enabled(enabled)) &&
+                                             (!change_visible || node.set_visible(visible));
+        if (!changed)
+        {
+            error = "Cannot update entity or component state";
+            return false;
+        }
+        return true;
+    }
+};
+
+bool prepare_state(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
+                   std::unique_ptr<EditorEdit>& output, std::string& error, bool component_state)
+{
+    Target target(world, &aliases);
+    if (!fields(arguments,
+                component_state
+                    ? std::initializer_list<std::string_view>{"sceneId", "nodeId", "componentType",
+                                                              "enabled", "visible"}
+                    : std::initializer_list<std::string_view>{"sceneId", "nodeId", "enabled",
+                                                              "visible"}) ||
+        (!arguments.contains("enabled") && !arguments.contains("visible")) ||
+        (arguments.contains("enabled") && !arguments["enabled"].is_boolean()) ||
+        (arguments.contains("visible") && !arguments["visible"].is_boolean()) ||
+        !target.read(arguments, error))
+    {
+        error = "State commands require a scene/node target and enabled or visible booleans";
+        return false;
+    }
+    auto record = std::make_unique<StateEdit>(std::move(target));
+    auto node = record->target.node(error);
+    record->before_enabled = node.enabled();
+    record->before_visible = node.visible();
+    if (component_state)
+    {
+        if (!arguments.contains("componentType") || !arguments["componentType"].is_string())
+        {
+            error = "componentType must name a componentType returned by get_scene";
+            return false;
+        }
+        std::vector<Component> components;
+        if (!node.collect_components(components))
+        {
+            return {};
+        }
+        for (const auto& component : components)
+        {
+            if (arguments["componentType"] == schema::EnumNameComponentPayload(component.type()))
+            {
+                record->component_type = component.type();
+                record->before_enabled = component.enabled();
+                record->before_visible = component.visible();
+                break;
+            }
+        }
+        if (record->component_type == ComponentType::NONE)
+        {
+            error = "The requested component type is not present on this node";
+            return false;
+        }
+    }
+    record->change_enabled = arguments.contains("enabled");
+    record->change_visible = arguments.contains("visible");
+    record->after_enabled = arguments.value("enabled", record->before_enabled);
+    record->after_visible = arguments.value("visible", record->before_visible);
+    result = {{"sceneId", arguments["sceneId"]},
+              {"nodeId", arguments["nodeId"]},
+              {"enabled", record->after_enabled},
+              {"visible", record->after_visible}};
+    if (component_state)
+    {
+        result["componentType"] = arguments["componentType"];
+    }
+    output = std::move(record);
+    return true;
 }
 
 class CreateNodeEdit final : public EditorEdit
@@ -201,57 +341,69 @@ public:
             error = "The requested scene is no longer active";
             return false;
         }
-        for (const auto& node : scene->nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (node->name() == name)
+            error = "Cannot collect scene entities";
+            return false;
+        }
+        for (const auto& node : nodes)
+        {
+            if (node.name() == name)
             {
                 error = "A node with this name already exists in the scene";
                 return false;
             }
         }
-        auto* node = scene->create_node(name);
+        auto node = scene->create_node(name);
         if (!node)
         {
             error = "Cannot create scene node";
             return false;
         }
-        if ((component == "light" && !node->add_component<Light>()) ||
-            (component == "camera" && !node->add_component<Camera>()))
+        if ((component == "light" && !node.add_component<Light>()) ||
+            (component == "camera" && !node.add_component<Camera>()))
         {
-            const bool removed = scene->destroy_node(node->id());
+            const bool removed = scene->destroy_node(node.id());
             error = removed ? "Cannot create requested component" : "Cannot clean up created node";
             return false;
         }
-        target.node_id = node->id();
-        *target.identity = node->id();
-        (*target.aliases)[node->id()] = target.identity;
-        snapshot = node_snapshot(*node);
+        target.node_id = node.id();
+        *target.identity = node.id();
+        (*target.aliases)[node.id()] = target.identity;
+        snapshot = node_snapshot(node);
         return true;
     }
 
     bool revert(std::string& error) override
     {
-        auto* node = target.node(error);
+        auto node = target.node(error);
         if (!node)
         {
             return false;
         }
-        auto& scene = node->scene();
-        if (node_snapshot(*node) != snapshot ||
-            (scene.active_camera() && &scene.active_camera()->node() == node))
+        auto* scene = node.scene();
+        if (node_snapshot(node) != snapshot ||
+            (scene->active_camera() && scene->active_camera().node() == node))
         {
             error = "Created node changed outside this edit; undo is stale";
             return false;
         }
-        for (const auto& other : scene.nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (other->parent() == node)
+            error = "Cannot collect scene entities";
+            return false;
+        }
+        for (const auto& other : nodes)
+        {
+            if (other.parent() == node)
             {
                 error = "Created node has children; undo would remove unrelated nodes";
                 return false;
             }
         }
-        if (!scene.destroy_node(node->id()))
+        if (!scene->destroy_node(node.id()))
         {
             error = "Cannot remove created node";
             return false;
@@ -288,9 +440,9 @@ private:
             error = "The requested scene is no longer active";
             return false;
         }
-        const auto current = scene->active_camera() ? scene->active_camera()->node().id() : 0;
-        auto* node = replacement ? scene->find_node(replacement) : nullptr;
-        auto* camera = node ? node->get_component<Camera>() : nullptr;
+        const auto current = scene->active_camera() ? scene->active_camera().node().id() : 0;
+        auto node = replacement ? scene->find_node(replacement) : Node{};
+        auto camera = node ? node.get_component<Camera>() : Camera{};
         if (current != expected || (replacement && !camera))
         {
             error = "Active camera changed outside this edit or target is missing";
@@ -341,15 +493,15 @@ bool prepare_active_camera(WorldSystem& world, NodeAliases& aliases, const Json&
         error = "set_active_camera requires current sceneId and nodeId";
         return false;
     }
-    auto* node = target.node(error);
-    if (!node || !node->get_component<Camera>())
+    auto node = target.node(error);
+    if (!node || !node.get_component<Camera>())
     {
         error = "Requested node has no Camera component";
         return false;
     }
     auto record = std::make_unique<ActiveCameraEdit>(target);
-    const auto* previous = world.scene()->active_camera();
-    record->before = previous ? previous->node().id() : 0;
+    const auto previous = world.scene()->active_camera();
+    record->before = previous ? previous.node().id() : 0;
     const auto previous_identity = aliases.find(record->before);
     if (previous_identity != aliases.end())
     {
@@ -388,14 +540,14 @@ private:
     bool change(const TransformSettings& expected, const TransformSettings& replacement,
                 std::string& error)
     {
-        auto* node = target.node(error);
-        auto* component = node != nullptr ? node->get_component<Transform>() : nullptr;
-        if (component == nullptr)
+        auto node = target.node(error);
+        auto component = node.valid() ? node.get_component<Transform>() : Transform{};
+        if (!component)
         {
             error = "Transform target no longer exists";
             return false;
         }
-        auto current = component->settings();
+        auto current = component.settings();
         if ((position && !same(current.position, expected.position)) ||
             (rotation && !same(current.rotation, expected.rotation)) ||
             (scale && !same(current.scale, expected.scale)))
@@ -415,7 +567,7 @@ private:
         {
             current.scale = replacement.scale;
         }
-        if (!component->set_settings(current))
+        if (!component.set_settings(current))
         {
             error = "Invalid transform values";
             return false;
@@ -457,14 +609,14 @@ public:
 private:
     bool change(const LightSettings& expected, const LightSettings& replacement, std::string& error)
     {
-        auto* node = target.node(error);
-        auto* component = node != nullptr ? node->get_component<Light>() : nullptr;
-        if (component == nullptr)
+        auto node = target.node(error);
+        auto component = node.valid() ? node.get_component<Light>() : Light{};
+        if (!component)
         {
             error = "Light target no longer exists";
             return false;
         }
-        auto current = component->settings();
+        auto current = component.settings();
         if ((color && !same(current.color, expected.color)) ||
             (intensity && current.intensity != expected.intensity) ||
             (kind && current.kind != expected.kind) || (range && current.range != expected.range) ||
@@ -513,7 +665,7 @@ private:
         {
             current.shadow_bias = replacement.shadow_bias;
         }
-        if (!component->set_settings(current))
+        if (!component.set_settings(current))
         {
             error = "Invalid light values";
             return false;
@@ -599,20 +751,20 @@ private:
     bool change(const std::array<double, 4>& expected, const std::array<double, 4>& replacement,
                 std::string& error)
     {
-        auto* node = target.node(error);
-        auto* component = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-        if (component == nullptr)
+        auto node = target.node(error);
+        auto component = node.valid() ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        if (!component)
         {
             error = "Material target no longer exists";
             return false;
         }
-        auto* selected = component->material(slot);
-        if (selected == nullptr)
+        auto selected = component.material(slot);
+        if (!selected)
         {
             error = "Material slot no longer exists";
             return false;
         }
-        auto& material = *selected;
+        auto material = selected;
         std::array<double, 4> current{};
         if (material.type_path() != material_path || material.shader_path() != shader_path ||
             !read_parameter(material, name, type, current) || current != expected)
@@ -659,14 +811,14 @@ bool prepare_transform(WorldSystem& world, NodeAliases& aliases, const Json& arg
         }
         return false;
     }
-    const auto* component = target.node(error)->get_component<Transform>();
-    if (component == nullptr)
+    const auto component = target.node(error).get_component<Transform>();
+    if (!component)
     {
         error = "Node has no Transform";
         return false;
     }
     auto edit = std::make_unique<TransformEdit>(target);
-    edit->before = component->settings();
+    edit->before = component.settings();
     edit->after = edit->before;
     for (const char* name : {"position", "rotation", "scale"})
     {
@@ -706,8 +858,9 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
                    std::unique_ptr<EditorEdit>& output, std::string& error)
 {
     Target target(world, &aliases);
-    if (!fields(arguments, {"sceneId", "nodeId", "color", "intensity", "kind", "range",
-                            "innerAngle", "outerAngle", "castShadows", "shadowResolution", "shadowBias"}) ||
+    if (!fields(arguments,
+                {"sceneId", "nodeId", "color", "intensity", "kind", "range", "innerAngle",
+                 "outerAngle", "castShadows", "shadowResolution", "shadowBias"}) ||
         arguments.size() <= 2 || !target.read(arguments, error))
     {
         if (error.empty())
@@ -716,14 +869,14 @@ bool prepare_light(WorldSystem& world, NodeAliases& aliases, const Json& argumen
         }
         return false;
     }
-    const auto* component = target.node(error)->get_component<Light>();
-    if (component == nullptr)
+    const auto component = target.node(error).get_component<Light>();
+    if (!component)
     {
         error = "Node has no Light";
         return false;
     }
     auto edit = std::make_unique<LightEdit>(target);
-    edit->before = component->settings();
+    edit->before = component.settings();
     edit->after = edit->before;
     if (arguments.contains("color"))
     {
@@ -874,8 +1027,8 @@ bool prepare_material(WorldSystem& world, NodeAliases& aliases, const Json& argu
         }
         return false;
     }
-    const auto* component = target.node(error)->get_component<MeshRenderer>();
-    if (component == nullptr)
+    const auto component = target.node(error).get_component<MeshRenderer>();
+    if (!component)
     {
         error = "Node has no MeshRenderer";
         return false;
@@ -883,12 +1036,12 @@ bool prepare_material(WorldSystem& world, NodeAliases& aliases, const Json& argu
     auto edit = std::make_unique<MaterialEdit>(target);
     edit->name = arguments["name"].get<std::string>();
     edit->type = arguments["type"].get<std::string>();
-    if (!read_slot(arguments, edit->slot) || !component->material(edit->slot))
+    if (!read_slot(arguments, edit->slot) || !component.material(edit->slot))
     {
         error = "Invalid material slot";
         return false;
     }
-    const auto& material = *component->material(edit->slot);
+    const auto& material = component.material(edit->slot);
     edit->material_path = material.type_path();
     edit->shader_path = material.shader_path();
     if (!read_parameter(material, edit->name, edit->type, edit->before))
@@ -944,14 +1097,14 @@ private:
     bool change(const CameraSettings& expected, const CameraSettings& replacement,
                 std::string& error)
     {
-        auto* node = target.node(error);
-        auto* camera = node ? node->get_component<Camera>() : nullptr;
+        auto node = target.node(error);
+        auto camera = node ? node.get_component<Camera>() : Camera{};
         if (!camera)
         {
             error = "Camera target no longer exists";
             return false;
         }
-        auto current = camera->settings();
+        auto current = camera.settings();
         if ((projection && current.projection != expected.projection) ||
             (fov && current.fov_degrees != expected.fov_degrees) ||
             (near_clip && current.near_clip != expected.near_clip) ||
@@ -981,7 +1134,7 @@ private:
         {
             current.orthographic_size = replacement.orthographic_size;
         }
-        if (!camera->set_settings(current))
+        if (!camera.set_settings(current))
         {
             error = "Invalid camera settings";
             return false;
@@ -1004,14 +1157,14 @@ bool prepare_camera(WorldSystem& world, NodeAliases& aliases, const Json& argume
         }
         return false;
     }
-    const auto* camera = target.node(error)->get_component<Camera>();
+    const auto camera = target.node(error).get_component<Camera>();
     if (!camera)
     {
         error = "Node has no Camera";
         return false;
     }
     auto edit = std::make_unique<CameraEdit>(target);
-    edit->before = camera->settings();
+    edit->before = camera.settings();
     edit->after = edit->before;
     if (arguments.contains("projection"))
     {
@@ -1095,20 +1248,20 @@ private:
     bool change(const schema::AssetEntryT& expected, const schema::AssetEntryT& replacement,
                 std::string& error)
     {
-        auto* node = target.node(error);
-        auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
-        auto* material = renderer ? renderer->material(slot) : nullptr;
+        auto node = target.node(error);
+        auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        auto material = renderer ? renderer.material(slot) : Material{};
         auto* resources = ResourceSystem::instance();
         const auto* available = resources ? resources->catalog().find(replacement.guid) : nullptr;
-        const auto current = material ? material->texture(name) : ResourcePtr{};
+        const auto current = material ? material.texture(name) : ResourcePtr{};
         if (!current || current->info() != expected || !available || *available != replacement ||
-            !material || material->type_path() != material_path ||
-            material->shader_path() != shader_path || !current->texture())
+            !material || material.type_path() != material_path ||
+            material.shader_path() != shader_path || !current->texture())
         {
             error = "Texture target changed; undo or redo is stale";
             return false;
         }
-        if (!material->set_texture(name, replacement.path))
+        if (!material.set_texture(name, replacement.path))
         {
             error = "Texture assignment failed";
             return false;
@@ -1132,14 +1285,14 @@ bool prepare_texture(WorldSystem& world, NodeAliases& aliases, const Json& argum
         }
         return false;
     }
-    const auto* renderer = target.node(error)->get_component<MeshRenderer>();
+    const auto renderer = target.node(error).get_component<MeshRenderer>();
     auto edit = std::make_unique<TextureEdit>(target);
-    if (!renderer || !read_slot(arguments, edit->slot) || !renderer->material(edit->slot))
+    if (!renderer || !read_slot(arguments, edit->slot) || !renderer.material(edit->slot))
     {
         error = "Invalid material slot";
         return false;
     }
-    const auto& material = *renderer->material(edit->slot);
+    const auto& material = renderer.material(edit->slot);
     edit->name = arguments["name"].get<std::string>();
     std::string_view previous_path;
     Guid guid;
@@ -1233,7 +1386,7 @@ Json material_json(const Material& material)
             {"parameters", std::move(parameters)}};
 }
 
-bool restore_material(Material& material, const Json& saved)
+bool restore_material(Material material, const Json& saved)
 {
     if (!material.set_type(saved["typePath"].get<std::string>()) ||
         !material.set_shader(saved["shaderPath"].get<std::string>()))
@@ -1250,9 +1403,9 @@ bool restore_material(Material& material, const Json& saved)
     }
     const auto blend = saved.value("blendMode", std::string("opaque"));
     if ((blend != "opaque" && blend != "alpha_blend" && blend != "premultiplied") ||
-        !material.set_blend_mode(blend == "opaque" ? schema::BlendMode::opaque
-                                : blend == "alpha_blend" ? schema::BlendMode::alpha_blend
-                                                         : schema::BlendMode::premultiplied))
+        !material.set_blend_mode(blend == "opaque"        ? schema::BlendMode::opaque
+                                 : blend == "alpha_blend" ? schema::BlendMode::alpha_blend
+                                                          : schema::BlendMode::premultiplied))
     {
         return false;
     }
@@ -1349,11 +1502,11 @@ public:
 private:
     bool change(const Json& expected, Json& replacement, std::string& error)
     {
-        auto* node = target.node(error);
-        auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
-        auto* material = renderer ? renderer->material(slot) : nullptr;
+        auto node = target.node(error);
+        auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        auto material = renderer ? renderer.material(slot) : Material{};
         auto* resources = ResourceSystem::instance();
-        if (!material || !resources || material_json(*material) != expected)
+        if (!material || !resources || material_json(material) != expected)
         {
             error = "Material changed outside this edit; undo or redo is stale";
             return false;
@@ -1373,17 +1526,17 @@ private:
         }
         if (replacement.is_null())
         {
-            if (!material->set_type(path))
+            if (!material.set_type(path))
             {
                 error = "Cannot assign material type";
                 return false;
             }
-            replacement = material_json(*material);
+            replacement = material_json(material);
             return true;
         }
-        if (!restore_material(*material, replacement))
+        if (!restore_material(material, replacement))
         {
-            const bool restored = restore_material(*material, expected);
+            const bool restored = restore_material(material, expected);
             error =
                 restored ? "Cannot restore material values" : "Cannot roll back material values";
             return false;
@@ -1403,13 +1556,13 @@ bool prepare_material_type(WorldSystem& world, NodeAliases& aliases, const Json&
         return false;
     }
     auto record = std::make_unique<MaterialTypeEdit>(target);
-    const auto* renderer = target.node(error)->get_component<MeshRenderer>();
-    if (!renderer || !read_slot(arguments, record->slot) || !renderer->material(record->slot))
+    const auto renderer = target.node(error).get_component<MeshRenderer>();
+    if (!renderer || !read_slot(arguments, record->slot) || !renderer.material(record->slot))
     {
         error = "Invalid material slot";
         return false;
     }
-    const auto& material = *renderer->material(record->slot);
+    const auto& material = renderer.material(record->slot);
     record->path = arguments["path"].get<std::string>();
     Guid guid;
     ResourcePtr requested;
@@ -1447,22 +1600,23 @@ bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases, const Json
                             Json& result, std::unique_ptr<EditorEdit>& output, std::string& error)
 {
     Target target(world, &aliases);
-    if (!fields(arguments, {"sceneId", "nodeId", "slot", "mode"}) ||
-        !arguments.contains("mode") ||
+    if (!fields(arguments, {"sceneId", "nodeId", "slot", "mode"}) || !arguments.contains("mode") ||
         (arguments["mode"] != "opaque" && arguments["mode"] != "alpha_blend" &&
-         arguments["mode"] != "premultiplied") || !target.read(arguments, error))
+         arguments["mode"] != "premultiplied") ||
+        !target.read(arguments, error))
     {
-        error = "set_material_blend_mode requires a target and opaque, alpha_blend or premultiplied";
+        error =
+            "set_material_blend_mode requires a target and opaque, alpha_blend or premultiplied";
         return false;
     }
     auto record = std::make_unique<MaterialTypeEdit>(target);
-    const auto* renderer = target.node(error)->get_component<MeshRenderer>();
-    if (!renderer || !read_slot(arguments, record->slot) || !renderer->material(record->slot))
+    const auto renderer = target.node(error).get_component<MeshRenderer>();
+    if (!renderer || !read_slot(arguments, record->slot) || !renderer.material(record->slot))
     {
         error = "Invalid material slot";
         return false;
     }
-    const auto& material = *renderer->material(record->slot);
+    const auto& material = renderer.material(record->slot);
     record->before = material_json(material);
     record->after = record->before;
     record->after["blendMode"] = arguments["mode"];
@@ -1480,8 +1634,10 @@ bool prepare_material_blend(WorldSystem& world, NodeAliases& aliases, const Json
             return false;
         }
     }
-    result = {{"sceneId", arguments["sceneId"]}, {"nodeId", arguments["nodeId"]},
-              {"slot", record->slot}, {"mode", arguments["mode"]}};
+    result = {{"sceneId", arguments["sceneId"]},
+              {"nodeId", arguments["nodeId"]},
+              {"slot", record->slot},
+              {"mode", arguments["mode"]}};
     output = std::move(record);
     return true;
 }
@@ -1526,7 +1682,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
     {
         return true;
     }
-    const auto& scene_nodes = scene->nodes();
+    std::vector<Node> scene_nodes;
+    if (!scene->collect_nodes(scene_nodes))
+    {
+        error = "Cannot collect scene entities";
+        return false;
+    }
     result["totalNodes"] = scene_nodes.size();
     const auto start = std::min(offset, scene_nodes.size());
     const auto end = start + std::min(limit, scene_nodes.size() - start);
@@ -1535,14 +1696,25 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
     {
         const auto& node = scene_nodes[index];
         Json components = Json::array();
-        for (const auto& component : node->components())
+        std::vector<Component> component_handles;
+        if (!node.collect_components(component_handles))
         {
-            Json data = {{"enabled", component->enabled()}};
-            switch (component->type())
+            error = "Cannot collect entity components";
+            return false;
+        }
+        for (const auto& component : component_handles)
+        {
+            Json data = {{"enabled", component.enabled()},
+                         {"active", component.active()},
+                         {"visible", component.visible()},
+                         {"visibleInHierarchy", component.visible_in_hierarchy()},
+                         {"componentType", schema::EnumNameComponentPayload(component.type())},
+                         {"instanceId", std::to_string(component.instance_id())}};
+            switch (component.type())
             {
             case ComponentType::TransformData:
             {
-                const auto& value = node->get_component<Transform>()->settings();
+                const auto& value = node.get_component<Transform>().settings();
                 data.update({{"type", "transform"},
                              {"position", json_vector(value.position)},
                              {"rotation", json_vector(value.rotation)},
@@ -1551,7 +1723,7 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::CameraData:
             {
-                const auto& value = node->get_component<Camera>()->settings();
+                const auto& value = node.get_component<Camera>().settings();
                 data.update({{"type", "camera"},
                              {"fovDegrees", value.fov_degrees},
                              {"nearClip", value.near_clip},
@@ -1562,7 +1734,7 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::LightData:
             {
-                const auto& value = node->get_component<Light>()->settings();
+                const auto& value = node.get_component<Light>().settings();
                 data.update({{"type", "light"},
                              {"color",
                               {value.color.r(), value.color.g(), value.color.b(), value.color.a()}},
@@ -1578,11 +1750,11 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::MeshRendererData:
             {
-                const auto& value = *node->get_component<MeshRenderer>();
+                const auto& value = node.get_component<MeshRenderer>();
                 Json materials = Json::array();
                 for (std::size_t slot = 0; slot < value.material_count(); ++slot)
                 {
-                    materials.push_back(material_json(*value.material(slot)));
+                    materials.push_back(material_json(value.material(slot)));
                 }
                 data["materials"] = std::move(materials);
                 data.update(mesh_lighting_json(value));
@@ -1593,16 +1765,18 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 break;
             }
             case ComponentType::PlanarReflectionData:
-                data.update(planar_reflection_json(*node->get_component<PlanarReflectionComponent>()));
+                data.update(
+                    planar_reflection_json(node.get_component<PlanarReflectionComponent>()));
                 data["type"] = "planar_reflection";
                 break;
             case ComponentType::LightProbeVolumeData:
-                data.update(light_probe_volume_json(*node->get_component<LightProbeVolumeComponent>()));
+                data.update(
+                    light_probe_volume_json(node.get_component<LightProbeVolumeComponent>()));
                 data["type"] = "light_probe_volume";
                 break;
             case ComponentType::UiData:
             {
-                const auto& value = *node->get_component<UiComponent>();
+                const auto& value = node.get_component<UiComponent>();
                 const auto& guid = value.settings().document_guid;
                 std::string path;
                 if (!guid.empty() && !ResourceSystem::guid_to_path(guid, path))
@@ -1614,8 +1788,9 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
             }
             case ComponentType::PostProcessData:
             {
-                const auto& value = node->get_component<PostProcessComponent>()->settings();
-                data.update({{"type", "post_process"}, {"ssrEnabled", value.ssr_enabled},
+                const auto& value = node.get_component<PostProcessComponent>().settings();
+                data.update({{"type", "post_process"},
+                             {"ssrEnabled", value.ssr_enabled},
                              {"ssrResolutionScale", value.ssr_resolution_scale},
                              {"ssrMaxSteps", value.ssr_max_steps},
                              {"ssrMaxDistance", value.ssr_max_distance},
@@ -1624,28 +1799,40 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
                 break;
             }
             default:
-                data["type"] = schema::EnumNameComponentPayload(component->type());
+                data["type"] = schema::EnumNameComponentPayload(component.type());
                 break;
             }
             components.push_back(std::move(data));
         }
-        nodes.push_back(
-            {{"nodeId", std::to_string(node->id())},
-             {"name", node->name()},
-             {"parentId", node->parent() == nullptr ? Json(nullptr)
-                                                    : Json(std::to_string(node->parent()->id()))},
-             {"components", std::move(components)}});
+        nodes.push_back({{"nodeId", std::to_string(node.id())},
+                         {"name", node.name()},
+                         {"enabled", node.enabled()},
+                         {"active", node.active()},
+                         {"visible", node.visible()},
+                         {"visibleInHierarchy", node.visible_in_hierarchy()},
+                         {"parentId", !node.parent() ? Json(nullptr)
+                                                     : Json(std::to_string(node.parent().id()))},
+                         {"components", std::move(components)}});
     }
-    const auto* camera = scene->active_camera();
-    result["scene"] = {{"sceneId", std::to_string(scene->id())},
-                       {"name", scene->name()},
-                       {"activeCameraNodeId", camera == nullptr
-                                                  ? Json(nullptr)
-                                                  : Json(std::to_string(camera->node().id()))},
-                       {"nodes", std::move(nodes)}};
+    const auto camera = scene->active_camera();
+    result["scene"] = {
+        {"sceneId", std::to_string(scene->id())},
+        {"name", scene->name()},
+        {"activeCameraNodeId", !camera ? Json(nullptr) : Json(std::to_string(camera.node().id()))},
+        {"nodes", std::move(nodes)}};
     return true;
 }
 } // namespace
+
+Json components::material_snapshot(const Material& material)
+{
+    return material_json(material);
+}
+
+bool components::restore_material_snapshot(Material material, const Json& snapshot)
+{
+    return restore_material(material, snapshot);
+}
 
 SceneCommands::SceneCommands(WorldSystem& world) noexcept : world_(world)
 {
@@ -1679,6 +1866,12 @@ std::shared_ptr<std::uint64_t> SceneCommands::node_identity(std::uint64_t id)
 
 bool SceneCommands::register_commands(EditorCommands& commands)
 {
+#if ENGINE_HAS_ASSET_PIPELINE
+    if (!register_prefab_commands(world_, *this, node_aliases_, commands))
+    {
+        return false;
+    }
+#endif
     return commands.register_command("instantiate_model", true,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>& edit, std::string& error)
@@ -1704,6 +1897,22 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                          synchronize_aliases();
                                          return prepare_create_node(world_, node_aliases_,
                                                                     arguments, result, edit, error);
+                                     }) &&
+           commands.register_command("set_node_state", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_state(world_, node_aliases_, arguments,
+                                                              result, edit, error, false);
+                                     }) &&
+           commands.register_command("set_component_state", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_state(world_, node_aliases_, arguments,
+                                                              result, edit, error, true);
                                      }) &&
            commands.register_command("set_active_camera", true,
                                      [this](const Json& arguments, Json& result,
@@ -1734,8 +1943,8 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                             std::unique_ptr<EditorEdit>& edit, std::string& error)
                                      {
                                          synchronize_aliases();
-                                         return prepare_material_blend(world_, node_aliases_, arguments,
-                                                                       result, edit, error);
+                                         return prepare_material_blend(
+                                             world_, node_aliases_, arguments, result, edit, error);
                                      }) &&
            commands.register_command("set_material_type", true,
                                      [this](const Json& arguments, Json& result,

@@ -49,9 +49,9 @@ bool exercise_bake_tools()
 {
 #if defined(ENGINE_TEST_SCENE_BAKE_TOOLS)
     engine::plugins::mcp::EditorMcpTools editor({}, {});
-    engine::plugins::scene_bake::SceneBakeMcpTools tools(editor);
     engine::plugins::mcp::McpSystem mcp;
-    if (!check(tools.register_tools(mcp) && mcp.initialize({}),
+    if (!check(engine::plugins::scene_bake::register_scene_bake_tools(mcp, editor) &&
+                   mcp.initialize({}),
                "scene bake tools provide valid registration schemas") ||
         !check(mcp.list_tools()["tools"].size() == 3,
                "scene bake registers start, query and cancel tools"))
@@ -75,9 +75,8 @@ bool exercise_render_tools()
 {
 #if defined(ENGINE_TEST_RENDER_TOOLS)
     engine::plugins::mcp::EditorMcpTools editor({}, {});
-    engine::plugins::mcp::RenderMcpTools tools(editor);
     engine::plugins::mcp::McpSystem mcp;
-    if (!check(tools.register_tools(mcp) && mcp.initialize({}),
+    if (!check(engine::plugins::mcp::register_render_tools(mcp, editor) && mcp.initialize({}),
                "render tools register schemas supported by the MCP protocol") ||
         !check(mcp.list_tools()["tools"].size() == 11, "all render tools are discoverable"))
     {

@@ -1,0 +1,627 @@
+root = "1"
+model = "b0ba0001-0000-4000-8000-000000000001"
+nodes = []
+
+[[model_nodes]]
+source_key = "root"
+id = "2"
+
+[[model_nodes]]
+source_key = "root/Producer Perspective"
+id = "3"
+
+[[model_nodes]]
+source_key = "root/Producer Front"
+id = "4"
+
+[[model_nodes]]
+source_key = "root/Producer Back"
+id = "5"
+
+[[model_nodes]]
+source_key = "root/Producer Right"
+id = "6"
+
+[[model_nodes]]
+source_key = "root/Producer Left"
+id = "7"
+
+[[model_nodes]]
+source_key = "root/Producer Top"
+id = "8"
+
+[[model_nodes]]
+source_key = "root/Producer Bottom"
+id = "9"
+
+[[model_nodes]]
+source_key = "root/Camera Switcher"
+id = "10"
+
+[[model_nodes]]
+source_key = "root/Hips"
+id = "11"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis"
+id = "12"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine"
+id = "13"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1"
+id = "14"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2"
+id = "15"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3"
+id = "16"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck"
+id = "17"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/Head"
+id = "18"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/Head/Bip01 HeadNub"
+id = "19"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder"
+id = "20"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm"
+id = "21"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm"
+id = "22"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand"
+id = "23"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandThumb1"
+id = "24"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandThumb1/LeftHandThumb2"
+id = "25"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandThumb1/LeftHandThumb2/LeftHandThumb3"
+id = "26"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandThumb1/LeftHandThumb2/LeftHandThumb3/Bip01 L Finger0Nub"
+id = "27"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandIndex1"
+id = "28"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandIndex1/LeftHandIndex2"
+id = "29"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandIndex1/LeftHandIndex2/LeftHandIndex3"
+id = "30"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandIndex1/LeftHandIndex2/LeftHandIndex3/Bip01 L Finger1Nub"
+id = "31"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandMiddle1"
+id = "32"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandMiddle1/LeftHandMiddle2"
+id = "33"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandMiddle1/LeftHandMiddle2/LeftHandMiddle3"
+id = "34"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandMiddle1/LeftHandMiddle2/LeftHandMiddle3/Bip01 L Finger2Nub"
+id = "35"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRing1"
+id = "36"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRing1/LeftHandRing2"
+id = "37"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRing1/LeftHandRing2/LeftHandRing3"
+id = "38"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRing1/LeftHandRing2/LeftHandRing3/Bip01 L Finger3Nub"
+id = "39"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRingPinky1"
+id = "40"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRingPinky1/LeftHandRingPinky2"
+id = "41"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRingPinky1/LeftHandRingPinky2/LeftHandRingPinky3"
+id = "42"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/LeftShoulder/LeftArm/LeftForeArm/Lefthand/LeftHandRingPinky1/LeftHandRingPinky2/LeftHandRingPinky3/Bip01 L Finger4Nub"
+id = "43"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder"
+id = "44"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm"
+id = "45"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm"
+id = "46"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand"
+id = "47"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandThumb1"
+id = "48"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandThumb1/RightHandThumb2"
+id = "49"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandThumb1/RightHandThumb2/RightHandThumb3"
+id = "50"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandThumb1/RightHandThumb2/RightHandThumb3/Bip01 R Finger0Nub"
+id = "51"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandIndex1"
+id = "52"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandIndex1/RightHandIndex2"
+id = "53"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandIndex1/RightHandIndex2/RightHandIndex3"
+id = "54"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandIndex1/RightHandIndex2/RightHandIndex3/Bip01 R Finger1Nub"
+id = "55"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandMiddle1"
+id = "56"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandMiddle1/RightHandMiddle2"
+id = "57"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandMiddle1/RightHandMiddle2/RightHandMiddle3"
+id = "58"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandMiddle1/RightHandMiddle2/RightHandMiddle3/Bip01 R Finger2Nub"
+id = "59"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandRing1"
+id = "60"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandRing1/RightHandRing2"
+id = "61"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandRing1/RightHandRing2/RightHandRing3"
+id = "62"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandRing1/RightHandRing2/RightHandRing3/Bip01 R Finger3Nub"
+id = "63"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandPinky1"
+id = "64"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandPinky1/RightHandPinky2"
+id = "65"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandPinky1/RightHandPinky2/RightHandPinky3"
+id = "66"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/Spine1/Spine2/Spine3/Neck/RightShoulder/RightArm/RightForeArm/RightHand/RightHandPinky1/RightHandPinky2/RightHandPinky3/Bip01 R Finger4Nub"
+id = "67"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/LeftUpLeg"
+id = "68"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/LeftUpLeg/LeftLeg"
+id = "69"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/LeftUpLeg/LeftLeg/LeftFoot"
+id = "70"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/LeftUpLeg/LeftLeg/LeftFoot/LeftFootThumb1"
+id = "71"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/LeftUpLeg/LeftLeg/LeftFoot/LeftFootThumb1/Bip01 L Toe0Nub"
+id = "72"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/RightUpLeg"
+id = "73"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/RightUpLeg/RightLeg"
+id = "74"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/RightUpLeg/RightLeg/RightFoot"
+id = "75"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/RightUpLeg/RightLeg/RightFoot/RightFootThumb1"
+id = "76"
+
+[[model_nodes]]
+source_key = "root/Hips/Pelvis/Spine/RightUpLeg/RightLeg/RightFoot/RightFootThumb1/Bip01 R Toe0Nub"
+id = "77"
+
+[[model_nodes]]
+source_key = "root/Camera01.Target"
+id = "78"
+
+[[model_nodes]]
+source_key = "root/GENERIC MAN new"
+id = "79"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference"
+id = "80"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1"
+id = "81"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/LeftUpLeg 1"
+id = "82"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/LeftUpLeg 1/LeftLeg 1"
+id = "83"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/LeftUpLeg 1/LeftLeg 1/LeftFoot 1"
+id = "84"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/LeftUpLeg 1/LeftLeg 1/LeftFoot 1/LeftFootThumb2"
+id = "85"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/RightUpLeg 1"
+id = "86"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/RightUpLeg 1/RightLeg 1"
+id = "87"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/RightUpLeg 1/RightLeg 1/RightFoot 1"
+id = "88"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/RightUpLeg 1/RightLeg 1/RightFoot 1/RightFootThumb2"
+id = "89"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1"
+id = "90"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4"
+id = "91"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5"
+id = "92"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6"
+id = "93"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1"
+id = "94"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1"
+id = "95"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1"
+id = "96"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand"
+id = "97"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandThumb4"
+id = "98"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandThumb4/LeftHandThumb5"
+id = "99"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandThumb4/LeftHandThumb5/LeftHandThumb6"
+id = "100"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandIndex4"
+id = "101"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandIndex4/LeftHandIndex5"
+id = "102"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandIndex4/LeftHandIndex5/LeftHandIndex6"
+id = "103"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandMiddle4"
+id = "104"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandMiddle4/LeftHandMiddle5"
+id = "105"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandMiddle4/LeftHandMiddle5/LeftHandMiddle6"
+id = "106"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandRing4"
+id = "107"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandRing4/LeftHandRing5"
+id = "108"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/LeftShoulder 1/LeftArm 1/LeftForeArm 1/LeftHand/LeftHandRing4/LeftHandRing5/LeftHandRing6"
+id = "109"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1"
+id = "110"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1"
+id = "111"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1"
+id = "112"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1"
+id = "113"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandThumb4"
+id = "114"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandThumb4/RightHandThumb5"
+id = "115"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandThumb4/RightHandThumb5/RightHandThumb6"
+id = "116"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandIndex4"
+id = "117"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandIndex4/RightHandIndex5"
+id = "118"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandIndex4/RightHandIndex5/RightHandIndex6"
+id = "119"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandMiddle4"
+id = "120"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandMiddle4/RightHandMiddle5"
+id = "121"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandMiddle4/RightHandMiddle5/RightHandMiddle6"
+id = "122"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandRing4"
+id = "123"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandRing4/RightHandRing5"
+id = "124"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandRing4/RightHandRing5/RightHandRing6"
+id = "125"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandPinky4"
+id = "126"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandPinky4/RightHandPinky5"
+id = "127"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/RightShoulder 1/RightArm 1/RightForeArm 1/RightHand 1/RightHandPinky4/RightHandPinky5/RightHandPinky6"
+id = "128"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/Neck 1"
+id = "129"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/Hips 1/Spine 1/Spine4/Spine5/Spine6/Neck 1/Head 1"
+id = "130"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/HipsEffector"
+id = "131"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftAnkleEffector"
+id = "132"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightAnkleEffector"
+id = "133"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftWristEffector"
+id = "134"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightWristEffector"
+id = "135"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftKneeEffector"
+id = "136"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightKneeEffector"
+id = "137"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftElbowEffector"
+id = "138"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightElbowEffector"
+id = "139"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/ChestOriginEffector"
+id = "140"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/ChestEndEffector"
+id = "141"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftShoulderEffector"
+id = "142"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightShoulderEffector"
+id = "143"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/HeadEffector"
+id = "144"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftHipEffector"
+id = "145"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHipEffector"
+id = "146"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftHandThumbEffector"
+id = "147"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftHandIndexEffector"
+id = "148"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftHandMiddleEffector"
+id = "149"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftHandRingEffector"
+id = "150"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHandThumbEffector"
+id = "151"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHandIndexEffector"
+id = "152"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHandMiddleEffector"
+id = "153"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHandRingEffector"
+id = "154"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightHandPinkyEffector"
+id = "155"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/LeftFootThumbEffector"
+id = "156"
+
+[[model_nodes]]
+source_key = "root/Character_Ctrl%3aReference/RightFootThumbEffector"
+id = "157"

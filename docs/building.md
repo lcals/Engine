@@ -59,7 +59,7 @@ cmake --preset asset-pipeline-deps
 cmake --preset editor-deps
 ```
 
-这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译编辑器及基础运行时系统，运行生命周期、依赖链接、命令行，以及 TBB / USD 回归测试：
+这些配置会建立对应系统目标。编辑器 Debug / Release workflow 编译编辑器及基础运行时系统；仅 Release workflow 运行生命周期、依赖链接、命令行及 TBB / USD 回归测试：
 
 ```sh
 cmake --workflow --preset editor-deps
@@ -73,9 +73,9 @@ cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
-这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；先按[脚本运行准备](plugins/runtime/scripting.md)准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug` 分步复跑。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
+这两个 workflow 包括统一的 `engine_script_prepare` 步骤，并启用默认 QuickJS 桌面脚本运行；Debug 到构建成功为止，Release 另执行 CTest。先按[脚本运行准备](plugins/runtime/scripting.md)准备 Node.js、npm、Python 3 和示例项目的 TypeScript 依赖。已准备过且依赖未变时，可用对应预设的 configure/build 分步复跑，测试使用 `ctest --preset ninja-engine-release`。`engine-debug` / `engine-release` 提供相同系统组合，使用平台默认生成器。QuickJS 构建不准备、编译或链接 V8/ICU。显式 V8 构建也默认裁剪 Intl/ICU，因此默认产物均无 `icudtl.dat`。
 
-单配置生成器使用 `CMAKE_BUILD_TYPE`；多配置生成器由 build / test preset 的 `configuration` 选择同名配置。受影响的 C++ 修改完成 Debug / Release 构建和 CTest；本机已验证范围见[验证记录](testing.md)，不能由预设存在推断平台已经通过。
+单配置生成器使用 `CMAKE_BUILD_TYPE`；多配置生成器由 build / test preset 的 `configuration` 选择同名配置。受影响的 C++ 修改完成 Debug / Release 构建，Debug 仅要求编译成功，CTest、功能测试及实际运行验收使用 Release。保留 Debug test preset 供用户明确要求的调试，不在默认 workflow 中运行；本机已验证范围见[验证记录](testing.md)，不能由预设存在推断平台已经通过。
 
 ## 依赖与缓存
 

@@ -42,20 +42,16 @@ Json selection()
 }
 } // namespace
 
-ModelingMcpTools::ModelingMcpTools(engine::plugins::mcp::EditorMcpTools& editor) noexcept
-    : editor_(editor)
-{
-}
-
-bool ModelingMcpTools::register_tools(engine::plugins::mcp::McpSystem& system)
+bool register_modeling_tools(engine::plugins::mcp::McpSystem& system,
+                             engine::plugins::mcp::EditorMcpTools& editor)
 {
     const auto add = [&](std::string name, std::string description, Json schema)
     {
         const auto command = name;
         const bool registered =
             system.register_tool({std::move(name), std::move(description), std::move(schema),
-                                  [this, command](const Json& arguments, Json& reply)
-                                  { return editor_.call_command(command, arguments, reply); }});
+                                  [&editor, command](const Json& arguments, Json& reply)
+                                  { return editor.call_command(command, arguments, reply); }});
         if (!registered)
         {
             std::fprintf(stderr, "Cannot register modeling MCP tool: %s\n", command.c_str());

@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
 
 #include "runtime/engine_config.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -34,9 +35,140 @@ bool expect(bool condition, const char* message)
     return condition;
 }
 
+std::vector<engine::Component> components_of(engine::Node node)
+{
+    std::vector<engine::Component> result;
+    if (!node.collect_components(result))
+    {
+        std::abort();
+    }
+    return result;
+}
+
 bool near(float actual, float expected)
 {
     return std::abs(actual - expected) < 0.0001F;
+}
+
+bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
+                        const engine::schema::SceneDataT& data);
+
+bool node_component_state()
+{
+    test_support::ResourceFixture fixture;
+    auto* resources = engine::ResourceSystem::instance();
+    engine::WorldSystem world;
+    if (!expect(resources && world.initialize({}), "initialize hierarchy state world"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("State hierarchy");
+    auto parent = scene ? scene->create_node("Parent") : engine::Node{};
+    auto child = scene ? scene->create_node("Child") : engine::Node{};
+    auto light = child ? child.add_component<engine::Light>() : engine::Light{};
+    if (!expect(parent && child && light && child.set_parent(parent), "create state hierarchy"))
+    {
+        return false;
+    }
+    const auto identity = light.instance_id();
+    if (!expect(identity != 0 && identity != child.get_component<engine::Transform>().instance_id(),
+                "all component kinds share unique nonzero identities"))
+    {
+        return false;
+    }
+    if (!parent.set_visible(false))
+    {
+        return false;
+    }
+    if (!expect(light.active() && light.visible() && !light.visible_in_hierarchy(),
+                "parent hide changes effective display without disabling simulation"))
+    {
+        return false;
+    }
+    if (!light.set_visible(false))
+    {
+        return false;
+    }
+    if (!parent.set_visible(true))
+    {
+        return false;
+    }
+    if (!parent.set_enabled(false))
+    {
+        return false;
+    }
+    if (!expect(child.enabled() && light.enabled() && !light.active() &&
+                    !light.visible_in_hierarchy() && light.instance_id() == identity,
+                "parent suspension preserves child flags and component identity"))
+    {
+        return false;
+    }
+    if (!light.set_enabled(false))
+    {
+        return false;
+    }
+    if (!parent.set_enabled(true))
+    {
+        return false;
+    }
+    if (!expect(!light.active() && child.active(),
+                "reactivation does not overwrite the child's explicitly disabled component"))
+    {
+        return false;
+    }
+    if (!child.set_visible(false))
+    {
+        return false;
+    }
+    if (!parent.set_enabled(false))
+    {
+        return false;
+    }
+    engine::schema::SceneDataT snapshot;
+    if (!expect(scene->build_data(snapshot), "snapshot local hierarchy and component flags"))
+    {
+        return false;
+    }
+    const auto child_id = child.info().properties->id;
+    if (!expect(add_scene_resource(fixture, "state.scene", snapshot) && fixture.publish(*resources),
+                "publish hierarchy state snapshot"))
+    {
+        return false;
+    }
+    scene = world.load_scene("state.scene");
+    if (!expect(scene != nullptr, "restore flags through the scene resource"))
+    {
+        return false;
+    }
+    child = {};
+    for (const auto& node : test_support::scene_nodes(*scene))
+    {
+        if (node.info().properties->id == child_id)
+        {
+            child = node;
+            break;
+        }
+    }
+    light = child ? child.get_component<engine::Light>() : engine::Light{};
+    if (!expect(light && light.instance_id() != identity && !child.visible() && !child.active() &&
+                    !light.enabled() && !light.visible(),
+                "restoration preserves local flags and allocates fresh component identity"))
+    {
+        return false;
+    }
+    if (!expect(child.set_parent({}) && child.active() && !light.active(),
+                "reparenting immediately recomputes inherited activation"))
+    {
+        return false;
+    }
+    const auto old = light.instance_id();
+    if (!child.remove_component(engine::Light::component_type))
+    {
+        return false;
+    }
+    light = child.add_component<engine::Light>();
+    return expect(light && light.instance_id() != old && light.enabled() && light.visible(),
+                  "replacing the component does not resurrect old identity or local flags");
 }
 
 bool scene_lifecycle()
@@ -53,27 +185,27 @@ bool scene_lifecycle()
     if (!expect(scene != nullptr && scene->name() == "First" && world.scene() == scene,
                 "world owns named scene") ||
         !expect(world.create_scene("Duplicate") == nullptr, "reject second active scene") ||
-        !expect(scene->nodes().empty() && scene->active_camera() == nullptr,
+        !expect(test_support::scene_nodes(*scene).empty() && !scene->active_camera(),
                 "scene starts with no hidden objects"))
     {
         return false;
     }
     const std::uint64_t first_id = scene->id();
-    engine::Node* original = scene->create_node("Original");
-    if (!expect(original != nullptr, "create flecs-backed node"))
+    engine::Node original = scene->create_node("Original");
+    if (!expect(original.valid(), "create flecs-backed node"))
     {
         return false;
     }
-    const std::uint64_t original_id = original->id();
+    const std::uint64_t original_id = original.id();
     if (!expect(scene->find_node(original_id) == original, "lookup complete node identity") ||
         !expect(scene->destroy_node(original_id), "delete node") ||
-        !expect(!scene->destroy_node(original_id) && scene->find_node(original_id) == nullptr,
+        !expect(!scene->destroy_node(original_id) && !scene->find_node(original_id),
                 "deleted node identity must stop resolving"))
     {
         return false;
     }
-    engine::Node* replacement = scene->create_node("Replacement");
-    if (!expect(replacement != nullptr && replacement->id() != original_id,
+    engine::Node replacement = scene->create_node("Replacement");
+    if (!expect(replacement.valid() && replacement.id() != original_id,
                 "recycled entity slots have new generation") ||
         !expect(world.tick(1.0 / 60.0), "world with scene advances ECS"))
     {
@@ -119,19 +251,19 @@ bool hierarchy_and_transforms()
     {
         return false;
     }
-    engine::Node* parent = scene->create_node("Parent");
-    engine::Node* child = scene->create_node("Child");
-    engine::Node* grandchild = scene->create_node("Grandchild");
-    engine::Node* sibling = scene->create_node("Unrelated");
-    engine::Node* foreign = foreign_scene->create_node("Foreign node");
-    if (!expect(parent != nullptr && child != nullptr && grandchild != nullptr &&
-                    sibling != nullptr && foreign != nullptr,
+    engine::Node parent = scene->create_node("Parent");
+    engine::Node child = scene->create_node("Child");
+    engine::Node grandchild = scene->create_node("Grandchild");
+    engine::Node sibling = scene->create_node("Unrelated");
+    engine::Node foreign = foreign_scene->create_node("Foreign node");
+    if (!expect(parent.valid() && child.valid() && grandchild.valid() && sibling.valid() &&
+                    foreign.valid(),
                 "create hierarchy nodes") ||
-        !expect(child->set_parent(parent) && grandchild->set_parent(child), "attach child chain") ||
-        !expect(!parent->set_parent(grandchild) && parent->parent() == nullptr,
+        !expect(child.set_parent(parent) && grandchild.set_parent(child), "attach child chain") ||
+        !expect(!parent.set_parent(grandchild) && !parent.parent(),
                 "reject cycles without changing parent") ||
-        !expect(!child->set_parent(child), "reject self parent") ||
-        !expect(!child->set_parent(foreign) && child->parent() == parent,
+        !expect(!child.set_parent(child), "reject self parent") ||
+        !expect(!child.set_parent(foreign) && child.parent() == parent,
                 "reject cross-scene hierarchy"))
     {
         return false;
@@ -142,14 +274,14 @@ bool hierarchy_and_transforms()
     parent_transform.scale.mutate_x(2.0);
     engine::TransformSettings child_transform;
     child_transform.position.mutate_x(1.0);
-    if (!expect(parent->get_component<engine::Transform>()->set_settings(parent_transform) &&
-                    child->get_component<engine::Transform>()->set_settings(child_transform),
+    if (!expect(parent.get_component<engine::Transform>().set_settings(parent_transform) &&
+                    child.get_component<engine::Transform>().set_settings(child_transform),
                 "set parent and local child transforms"))
     {
         return false;
     }
     std::array<float, 16> matrix{};
-    if (!expect(child->get_component<engine::Transform>()->world_matrix(matrix.data()),
+    if (!expect(child.get_component<engine::Transform>().world_matrix(matrix.data()),
                 "compute world matrix") ||
         !expect(near(matrix[12], 1.0F) && near(matrix[13], 4.0F) && near(matrix[14], 3.0F),
                 "world translation applies parent rotation and nonuniform scale") ||
@@ -160,21 +292,21 @@ bool hierarchy_and_transforms()
     }
     engine::TransformSettings invalid = child_transform;
     invalid.scale.mutate_y(0.0);
-    if (!expect(!child->get_component<engine::Transform>()->set_settings(invalid) &&
-                    child->get_component<engine::Transform>()->settings().scale.y() == 1.0,
+    if (!expect(!child.get_component<engine::Transform>().set_settings(invalid) &&
+                    child.get_component<engine::Transform>().settings().scale.y() == 1.0,
                 "zero scale rejected without altering transform"))
     {
         return false;
     }
     invalid = child_transform;
     invalid.position.mutate_y(std::numeric_limits<double>::quiet_NaN());
-    if (!expect(!child->get_component<engine::Transform>()->set_settings(invalid) &&
-                    child->get_component<engine::Transform>()->settings().position.y() == 0.0,
+    if (!expect(!child.get_component<engine::Transform>().set_settings(invalid) &&
+                    child.get_component<engine::Transform>().settings().position.y() == 0.0,
                 "nonfinite transform rejected without altering transform") ||
-        !expect(!child->get_component<engine::Transform>()->world_matrix(nullptr),
+        !expect(!child.get_component<engine::Transform>().world_matrix(nullptr),
                 "null matrix output rejected") ||
-        !expect(child->set_parent(nullptr), "detach preserves local transform") ||
-        !expect(child->get_component<engine::Transform>()->world_matrix(matrix.data()) &&
+        !expect(child.set_parent({}), "detach preserves local transform") ||
+        !expect(child.get_component<engine::Transform>().world_matrix(matrix.data()) &&
                     near(matrix[12], 1.0F) && near(matrix[13], 0.0F),
                 "detached world matrix uses local coordinates"))
     {
@@ -182,9 +314,9 @@ bool hierarchy_and_transforms()
     }
     invalid = child_transform;
     invalid.scale.mutate_x(std::numeric_limits<double>::max());
-    if (!expect(child->get_component<engine::Transform>()->set_settings(invalid),
+    if (!expect(child.get_component<engine::Transform>().set_settings(invalid),
                 "finite transform may exceed GPU precision") ||
-        !expect(!child->get_component<engine::Transform>()->world_matrix(matrix.data()),
+        !expect(!child.get_component<engine::Transform>().world_matrix(matrix.data()),
                 "reject float matrix overflow"))
     {
         return false;
@@ -198,28 +330,27 @@ bool hierarchy_and_transforms()
         }
     }
     child_transform.scale.mutate_z(-1.0);
-    if (!expect(child->get_component<engine::Transform>()->set_settings(child_transform) &&
-                    child->set_parent(parent),
+    if (!expect(child.get_component<engine::Transform>().set_settings(child_transform) &&
+                    child.set_parent(parent),
                 "negative scale allowed and child can reattach"))
     {
         return false;
     }
-    engine::Camera* camera = grandchild->add_component<engine::Camera>();
-    if (!expect(camera != nullptr && scene->active_camera() == nullptr &&
-                    scene->set_active_camera(camera),
+    engine::Camera camera = grandchild.add_component<engine::Camera>();
+    if (!expect(camera.valid() && !scene->active_camera() && scene->set_active_camera(camera),
                 "select active camera explicitly"))
     {
         return false;
     }
-    const std::uint64_t parent_id = parent->id();
-    const std::uint64_t child_id = child->id();
-    const std::uint64_t grandchild_id = grandchild->id();
-    const std::uint64_t sibling_id = sibling->id();
+    const std::uint64_t parent_id = parent.id();
+    const std::uint64_t child_id = child.id();
+    const std::uint64_t grandchild_id = grandchild.id();
+    const std::uint64_t sibling_id = sibling.id();
     return expect(scene->destroy_node(parent_id), "destroy hierarchy root") &&
-           expect(scene->find_node(parent_id) == nullptr && scene->find_node(child_id) == nullptr &&
-                      scene->find_node(grandchild_id) == nullptr,
+           expect(!scene->find_node(parent_id) && !scene->find_node(child_id) &&
+                      !scene->find_node(grandchild_id),
                   "root deletion destroys all descendants") &&
-           expect(scene->active_camera() == nullptr && scene->nodes().size() == 1 &&
+           expect(!scene->active_camera() && test_support::scene_nodes(*scene).size() == 1 &&
                       scene->find_node(sibling_id) == sibling,
                   "subtree deletion clears active camera and preserves unrelated nodes");
 }
@@ -293,7 +424,7 @@ bool indexed_scene_restore()
             return false;
         }
     }
-    auto* camera = original->nodes()[0]->add_component<Camera>();
+    auto camera = test_support::scene_nodes(*original)[0].add_component<Camera>();
     schema::SceneDataT source;
     if (!camera || !original->set_active_camera(camera) || !original->build_data(source))
     {
@@ -303,7 +434,7 @@ bool indexed_scene_restore()
     const std::array<std::uint64_t, 4> ids{42, 1, 2, 10000};
     for (std::size_t i = 0; i < ids.size(); ++i)
     {
-        source.nodes[i]->info->id = ids[i];
+        source.nodes[i]->info->properties->id = ids[i];
     }
     source.nodes[0]->info->parent_id = 2;
     source.nodes[2]->info->parent_id = 1;
@@ -313,26 +444,27 @@ bool indexed_scene_restore()
         return false;
     }
     auto* loaded = world.load_scene("indexed.scene");
-    if (!expect(loaded && loaded->nodes().size() == ids.size(), "restore sparse unordered IDs"))
+    if (!expect(loaded && test_support::scene_nodes(*loaded).size() == ids.size(),
+                "restore sparse unordered IDs"))
     {
         return false;
     }
     for (std::size_t i = 0; i < ids.size(); ++i)
     {
-        auto* node = loaded->nodes()[i].get();
-        if (!expect(node->info().id == ids[i] && loaded->find_node(node->id()) == node &&
-                        std::as_const(*loaded).find_node(node->id()) == node,
+        auto node = test_support::scene_nodes(*loaded)[i];
+        if (!expect(node.info().properties->id == ids[i] && loaded->find_node(node.id()) == node &&
+                        std::as_const(*loaded).find_node(node.id()) == node,
                     "resource order and both const/mutable runtime lookups survive restoration"))
         {
             return false;
         }
     }
-    auto* leaf = loaded->nodes()[0].get();
-    auto* root = loaded->nodes()[1].get();
-    auto* branch = loaded->nodes()[2].get();
-    auto* spare = loaded->nodes()[3].get();
-    if (!expect(leaf->parent() == branch && branch->parent() == root && !root->parent() &&
-                    !spare->parent() && loaded->active_camera() == leaf->get_component<Camera>() &&
+    auto leaf = test_support::scene_nodes(*loaded)[0];
+    auto root = test_support::scene_nodes(*loaded)[1];
+    auto branch = test_support::scene_nodes(*loaded)[2];
+    auto spare = test_support::scene_nodes(*loaded)[3];
+    if (!expect(leaf.parent() == branch && branch.parent() == root && !root.parent() &&
+                    !spare.parent() && loaded->active_camera() == leaf.get_component<Camera>() &&
                     !loaded->find_node(0),
                 "local identity index resolves parents and camera independently of runtime IDs"))
     {
@@ -344,7 +476,7 @@ bool indexed_scene_restore()
         auto invalid = source;
         if (failure == 0)
         {
-            invalid.nodes[3]->info->id = 2;
+            invalid.nodes[3]->info->properties->id = 2;
         }
         else if (failure == 1)
         {
@@ -365,19 +497,19 @@ bool indexed_scene_restore()
         const auto path = "invalid-index-" + std::to_string(failure) + ".scene";
         if (!add_scene_resource(fixture, path, invalid) || !fixture.publish(*resources) ||
             !expect(!world.load_scene(path) && world.scene() == loaded &&
-                        loaded->find_node(leaf->id()) == leaf && leaf->parent() == branch &&
+                        loaded->find_node(leaf.id()) == leaf && leaf.parent() == branch &&
                         loaded->active_camera() == camera,
                     "failed candidate cleans its indices without changing the active scene"))
         {
             return false;
         }
     }
-    std::vector<Node*> survivors{spare};
-    std::vector<std::uint64_t> removed{leaf->id(), root->id(), branch->id()};
+    std::vector<Node> survivors{spare};
+    std::vector<std::uint64_t> removed{leaf.id(), root.id(), branch.id()};
     for (std::size_t i = 0; i < 256; ++i)
     {
-        auto* node = loaded->create_node("Indexed growth");
-        if (!expect(node && node->info().id == 10001 + i && !node->parent(),
+        auto node = loaded->create_node("Indexed growth");
+        if (!expect(node && node.info().properties->id == 10001 + i && !node.parent(),
                     "new local IDs advance from the restored maximum"))
         {
             return false;
@@ -388,22 +520,23 @@ bool indexed_scene_restore()
         }
         else
         {
-            if (!node->set_parent(branch))
+            if (!node.set_parent(branch))
             {
                 return false;
             }
-            removed.push_back(node->id());
+            removed.push_back(node.id());
         }
     }
-    auto* unrelated = loaded->create_node("Unrelated root");
-    if (!expect(unrelated && loaded->destroy_node(unrelated->id()) &&
+    auto unrelated = loaded->create_node("Unrelated root");
+    if (!expect(unrelated && loaded->destroy_node(unrelated.id()) &&
                     loaded->active_camera() == camera,
                 "deleting another root keeps the indexed active camera"))
     {
         return false;
     }
-    if (!expect(leaf->parent() == branch && loaded->destroy_node(root->id()) &&
-                    !loaded->active_camera() && loaded->nodes().size() == survivors.size(),
+    if (!expect(leaf.parent() == branch && loaded->destroy_node(root.id()) &&
+                    !loaded->active_camera() &&
+                    test_support::scene_nodes(*loaded).size() == survivors.size(),
                 "subtree deletion works after index growth with interleaved surviving nodes"))
     {
         return false;
@@ -418,23 +551,25 @@ bool indexed_scene_restore()
     }
     for (std::size_t i = 0; i < survivors.size(); ++i)
     {
-        if (!expect(loaded->nodes()[i].get() == survivors[i] &&
-                        loaded->find_node(survivors[i]->id()) == survivors[i] &&
-                        !survivors[i]->parent(),
+        if (!expect(test_support::scene_nodes(*loaded)[i] == survivors[i] &&
+                        loaded->find_node(survivors[i].id()) == survivors[i] &&
+                        !survivors[i].parent(),
                     "stable erase preserves remaining node order, addresses and root identity"))
         {
             return false;
         }
     }
-    source.nodes[0]->info->id = std::numeric_limits<std::uint64_t>::max();
-    source.info->active_camera_node = source.nodes[0]->info->id;
+    source.nodes[0]->info->properties->id = std::numeric_limits<std::uint64_t>::max();
+    source.info->active_camera_node = source.nodes[0]->info->properties->id;
     if (!add_scene_resource(fixture, "index-limit.scene", source) || !fixture.publish(*resources))
     {
         return false;
     }
     loaded = world.load_scene("index-limit.scene");
-    return expect(loaded && loaded->nodes().size() == ids.size() && loaded->active_camera() &&
-                      loaded->nodes()[0]->parent() == loaded->nodes()[2].get() &&
+    return expect(loaded && test_support::scene_nodes(*loaded).size() == ids.size() &&
+                      loaded->active_camera() &&
+                      test_support::scene_nodes(*loaded)[0].parent() ==
+                          test_support::scene_nodes(*loaded)[2] &&
                       !loaded->create_node("Cannot wrap ID"),
                   "maximum local ID may precede other nodes; automatic allocation never wraps");
 }
@@ -450,11 +585,11 @@ bool incremental_scene_restore()
         return false;
     }
     auto* active = world.create_scene("Keep until commit");
-    auto* child = active ? active->create_node("Child") : nullptr;
-    auto* parent = active ? active->create_node("Parent") : nullptr;
+    auto child = active ? active->create_node("Child") : engine::Node{};
+    auto parent = active ? active->create_node("Parent") : engine::Node{};
     schema::SceneDataT data;
-    if (!child || !parent || !child->set_parent(parent) ||
-        !active->set_active_camera(child->add_component<Camera>()) || !active->build_data(data) ||
+    if (!child || !parent || !child.set_parent(parent) ||
+        !active->set_active_camera(child.add_component<Camera>()) || !active->build_data(data) ||
         !add_scene_resource(fixture, "staged.scene", data) || !fixture.publish(*resources) ||
         !world.set_paused(true))
     {
@@ -488,8 +623,10 @@ bool incremental_scene_restore()
         return false;
     }
     auto* restored = world.commit_restore_scene(request);
-    if (!expect(restored && restored != active && restored->nodes().size() == 2 &&
-                    restored->nodes()[0]->parent() == restored->nodes()[1].get() &&
+    if (!expect(restored && restored != active &&
+                    test_support::scene_nodes(*restored).size() == 2 &&
+                    test_support::scene_nodes(*restored)[0].parent() ==
+                        test_support::scene_nodes(*restored)[1] &&
                     restored->active_camera() && !world.paused(),
                 "commit publishes complete hierarchy and clears old pause"))
     {
@@ -517,26 +654,25 @@ bool persistent_nodes()
         return false;
     }
     auto* scene = world.create_scene("Persistent hierarchy");
-    auto* child = scene ? scene->create_node("Created before root") : nullptr;
-    auto* ordinary = scene ? scene->create_node("Ordinary") : nullptr;
-    auto* root = scene ? scene->create_node("Persistent root") : nullptr;
-    auto* leaf = scene ? scene->create_node("Leaf") : nullptr;
-    if (!child || !ordinary || !root || !leaf || !child->set_parent(root) ||
-        !leaf->set_parent(child))
+    auto child = scene ? scene->create_node("Created before root") : engine::Node{};
+    auto ordinary = scene ? scene->create_node("Ordinary") : engine::Node{};
+    auto root = scene ? scene->create_node("Persistent root") : engine::Node{};
+    auto leaf = scene ? scene->create_node("Leaf") : engine::Node{};
+    if (!child || !ordinary || !root || !leaf || !child.set_parent(root) || !leaf.set_parent(child))
     {
         return false;
     }
     const auto scene_id = scene->id();
-    const auto root_id = root->id();
-    const auto child_id = child->id();
-    const auto leaf_id = leaf->id();
-    const auto ordinary_id = ordinary->id();
-    const auto root_local_id = root->info().id;
-    auto* transform = root->get_component<Transform>();
-    if (!expect(!root->persistent() && root->set_persistent(true) && root->set_persistent(true) &&
-                    child->persistent() && leaf->persistent() && !child->set_persistent(false),
+    const auto root_id = root.id();
+    const auto child_id = child.id();
+    const auto leaf_id = leaf.id();
+    const auto ordinary_id = ordinary.id();
+    const auto root_local_id = root.info().properties->id;
+    auto transform = root.get_component<Transform>();
+    if (!expect(!root.persistent() && root.set_persistent(true) && root.set_persistent(true) &&
+                    child.persistent() && leaf.persistent() && !child.set_persistent(false),
                 "only roots can set persistence; repeated calls preserve the complete subtree") ||
-        !expect(!root->set_parent(ordinary) && root->parent() == nullptr && !root->transient(),
+        !expect(!root.set_parent(ordinary) && !root.parent() && !root.transient(),
                 "marked root cannot be reparented and persistence does not imply transient") ||
         !world.set_paused(true))
     {
@@ -547,19 +683,19 @@ bool persistent_nodes()
     if (!expect(!world.scene() && !world.paused() && world.scenes().size() == 1 &&
                     world.find_node(root_id) == root && world.find_node(child_id) == child &&
                     std::as_const(world).find_node(leaf_id) == leaf &&
-                    !world.find_node(ordinary_id) && &root->scene() == scene &&
-                    root->info().id == root_local_id &&
-                    root->get_component<Transform>() == transform && child->parent() == root &&
-                    leaf->parent() == child,
+                    !world.find_node(ordinary_id) && root.scene() == scene &&
+                    root.info().properties->id == root_local_id &&
+                    root.get_component<Transform>() == transform && child.parent() == root &&
+                    leaf.parent() == child,
                 "unload preserves original owners and identities, including child-before-parent"))
     {
         return false;
     }
     auto* next = world.create_scene("Next");
-    auto* next_node = next ? next->create_node("Next root") : nullptr;
+    auto next_node = next ? next->create_node("Next root") : engine::Node{};
     if (!next_node ||
-        !expect(!child->set_parent(next_node), "cross-scene parenting stays rejected") ||
-        !expect(child->set_parent(nullptr) && !child->persistent() && !leaf->persistent(),
+        !expect(!child.set_parent(next_node), "cross-scene parenting stays rejected") ||
+        !expect(child.set_parent({}) && !child.persistent() && !leaf.persistent(),
                 "detached branch no longer inherits persistence"))
     {
         return false;
@@ -568,7 +704,7 @@ bool persistent_nodes()
     if (!expect(world.find_node(root_id) == root && !world.find_node(child_id) &&
                     !world.find_node(leaf_id) && world.scenes().size() == 1,
                 "next unload removes detached branch and ordinary next scene") ||
-        !expect(root->set_persistent(false) && world.find_node(root_id) == root,
+        !expect(root.set_persistent(false) && world.find_node(root_id) == root,
                 "unmark does not immediately destroy a node"))
     {
         return false;
@@ -581,8 +717,8 @@ bool persistent_nodes()
         return false;
     }
     auto* retained_scene = world.create_scene("Retained");
-    auto* retained = retained_scene ? retained_scene->create_node("Retained") : nullptr;
-    if (!retained || !retained->set_persistent(true))
+    auto retained = retained_scene ? retained_scene->create_node("Retained") : engine::Node{};
+    if (!retained || !retained.set_persistent(true))
     {
         return false;
     }
@@ -595,12 +731,12 @@ bool persistent_nodes()
     {
         return false;
     }
-    auto* explicit_root = active->create_node("Explicit destroy");
-    if (!explicit_root || !explicit_root->set_persistent(true))
+    auto explicit_root = active->create_node("Explicit destroy");
+    if (!explicit_root || !explicit_root.set_persistent(true))
     {
         return false;
     }
-    const auto explicit_id = explicit_root->id();
+    const auto explicit_id = explicit_root.id();
     world.unload_scene();
     if (!expect(active->destroy_node(explicit_id) && !world.find_node(explicit_id) &&
                     world.tick(0) && world.scenes().empty(),
@@ -609,12 +745,12 @@ bool persistent_nodes()
         return false;
     }
     active = world.create_scene("Shutdown");
-    auto* last = active ? active->create_node("Last") : nullptr;
-    if (!last || !last->set_persistent(true))
+    auto last = active ? active->create_node("Last") : engine::Node{};
+    if (!last || !last.set_persistent(true))
     {
         return false;
     }
-    const auto last_id = last->id();
+    const auto last_id = last.id();
     world.unload_scene();
     world.destroy_scene();
     world.destroy_scene();
@@ -629,7 +765,7 @@ bool persistent_scene_loading()
     auto* resources = ResourceSystem::instance();
     WorldSystem world({64, 1.0});
     auto* source = resources && world.initialize({}) ? world.create_scene("Source") : nullptr;
-    auto* node = source ? source->create_node("Resource owner") : nullptr;
+    auto node = source ? source->create_node("Resource owner") : engine::Node{};
     schema::SceneDataT data;
     if (!node || !source->build_data(data) ||
         !add_scene_resource(fixture, "persistent.scene", data))
@@ -653,13 +789,13 @@ bool persistent_scene_loading()
         return false;
     }
     auto* loaded = world.commit_restore_scene(first);
-    auto* persistent = loaded ? loaded->nodes().front().get() : nullptr;
-    if (!persistent || !persistent->set_persistent(true))
+    auto persistent = loaded ? test_support::scene_nodes(*loaded).front() : engine::Node{};
+    if (!persistent || !persistent.set_persistent(true))
     {
         return false;
     }
     resource.reset();
-    const auto persistent_id = persistent->id();
+    const auto persistent_id = persistent.id();
     if (!expect(!original_resource.expired(), "active scene owns its loaded root resource") ||
         !fixture.load("replacement.scene", resource))
     {
@@ -721,39 +857,36 @@ bool component_contracts()
     {
         return false;
     }
-    engine::Node* node = scene->create_node("Combined node");
-    engine::Node* foreign_node = foreign_scene->create_node("Foreign camera");
-    if (!expect(node != nullptr && foreign_node != nullptr, "create component owners"))
+    engine::Node node = scene->create_node("Combined node");
+    engine::Node foreign_node = foreign_scene->create_node("Foreign camera");
+    if (!expect(node.valid() && foreign_node.valid(), "create component owners"))
     {
         return false;
     }
-    if (!expect(node->get_component<engine::Transform>() != nullptr &&
-                    node->components().size() == 1,
+    if (!expect(node.get_component<engine::Transform>().valid() && components_of(node).size() == 1,
                 "new scene node owns a Transform through the generic component list") ||
-        !expect(node->get_component<engine::Camera>() == nullptr &&
-                    node->get_component(engine::Camera::component_type) == nullptr,
+        !expect(!node.get_component<engine::Camera>() &&
+                    !node.get_component(engine::Camera::component_type),
                 "generic typed and untyped lookup return null for missing component") ||
-        !expect(node->add_component<engine::Transform>() == nullptr,
+        !expect(!node.add_component<engine::Transform>(),
                 "duplicate Transform is rejected through the same generic method"))
     {
         return false;
     }
-    engine::Camera* camera = node->add_component<engine::Camera>();
-    engine::Light* light = node->add_component<engine::Light>();
-    engine::MeshRenderer* mesh = node->add_component<engine::MeshRenderer>();
-    engine::Camera* foreign_camera = foreign_node->add_component<engine::Camera>();
-    if (!expect(camera != nullptr && light != nullptr && mesh != nullptr &&
-                    foreign_camera != nullptr,
+    engine::Camera camera = node.add_component<engine::Camera>();
+    engine::Light light = node.add_component<engine::Light>();
+    engine::MeshRenderer mesh = node.add_component<engine::MeshRenderer>();
+    engine::Camera foreign_camera = foreign_node.add_component<engine::Camera>();
+    if (!expect(camera.valid() && light.valid() && mesh.valid() && foreign_camera.valid(),
                 "different components can share a node") ||
-        !expect(node->add_component<engine::Camera>() == nullptr &&
-                    node->add_component<engine::Light>() == nullptr &&
-                    node->add_component<engine::MeshRenderer>() == nullptr,
+        !expect(!node.add_component<engine::Camera>() && !node.add_component<engine::Light>() &&
+                    !node.add_component<engine::MeshRenderer>(),
                 "duplicate component type rejected") ||
-        !expect(&camera->node() == node && &light->node() == node && &mesh->node() == node,
+        !expect(camera.node() == node && light.node() == node && mesh.node() == node,
                 "components borrow their owner") ||
-        !expect(camera->type() == engine::ComponentType::CameraData &&
-                    light->type() == engine::ComponentType::LightData &&
-                    mesh->type() == engine::ComponentType::MeshRendererData,
+        !expect(camera.type() == engine::ComponentType::CameraData &&
+                    light.type() == engine::ComponentType::LightData &&
+                    mesh.type() == engine::ComponentType::MeshRendererData,
                 "component types are explicit") ||
         !expect(scene->set_active_camera(camera) && !scene->set_active_camera(foreign_camera) &&
                     scene->active_camera() == camera,
@@ -761,10 +894,10 @@ bool component_contracts()
     {
         return false;
     }
-    const engine::Node& read_only_node = *node;
-    if (!expect(node->get_component(engine::Camera::component_type) == camera &&
+    const engine::Node& read_only_node = node;
+    if (!expect(node.get_component(engine::Camera::component_type) == camera &&
                     read_only_node.get_component<engine::Camera>() == camera &&
-                    read_only_node.components().size() == 4,
+                    components_of(read_only_node).size() == 4,
                 "one generic list provides const typed and untyped access"))
     {
         return false;
@@ -773,33 +906,33 @@ bool component_contracts()
     camera_settings.fov_degrees = 75.0F;
     camera_settings.near_clip = 0.2F;
     camera_settings.far_clip = 50.0F;
-    if (!expect(camera->set_settings(camera_settings), "configure camera"))
+    if (!expect(camera.set_settings(camera_settings), "configure camera"))
     {
         return false;
     }
     camera_settings.far_clip = 0.1F;
-    if (!expect(!camera->set_settings(camera_settings) && camera->settings().far_clip == 50.0F,
+    if (!expect(!camera.set_settings(camera_settings) && camera.settings().far_clip == 50.0F,
                 "invalid clipping plane leaves old camera settings"))
     {
         return false;
     }
     engine::LightSettings light_settings;
     light_settings.intensity = 4.0F;
-    if (!expect(light->set_settings(light_settings), "configure light"))
+    if (!expect(light.set_settings(light_settings), "configure light"))
     {
         return false;
     }
     light_settings.color.mutate_r(std::numeric_limits<float>::infinity());
-    if (!expect(!light->set_settings(light_settings) && light->settings().color.r() == 1.0F,
+    if (!expect(!light.set_settings(light_settings) && light.settings().color.r() == 1.0F,
                 "invalid light color leaves old settings"))
     {
         return false;
     }
-    engine::Material& material = mesh->material();
+    engine::Material material = mesh.material();
     if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.set_float("metallic", 0.6F) && material.set_float("roughness", 0.2F) &&
                     material.set_v4("baseColor", engine::Vec4(0.7, 0.3, 0.15, 1.0)) &&
-                    mesh->mesh_path() == "builtin://meshes/cube",
+                    mesh.mesh_path() == "builtin://meshes/cube",
                 "configure built-in cube material by named typed parameters"))
     {
         return false;
@@ -847,13 +980,16 @@ bool component_contracts()
     {
         return false;
     }
-    mesh->set_enabled(false);
-    if (!expect(!mesh->enabled() && node->get_component<engine::MeshRenderer>() == mesh,
+    if (!mesh.set_enabled(false))
+    {
+        return false;
+    }
+    if (!expect(!mesh.enabled() && node.get_component<engine::MeshRenderer>() == mesh,
                 "disable retains component ownership"))
     {
         return false;
     }
-    return expect(scene->set_active_camera(nullptr) && scene->active_camera() == nullptr,
+    return expect(scene->set_active_camera({}) && !scene->active_camera(),
                   "active camera can be cleared");
 }
 
@@ -873,10 +1009,10 @@ bool camera_rays()
         return false;
     }
     auto* scene = world.create_scene("Camera rays");
-    auto* parent = scene != nullptr ? scene->create_node("Camera parent") : nullptr;
-    auto* node = scene != nullptr ? scene->create_node("Camera") : nullptr;
-    auto* camera = node != nullptr ? node->add_component<Camera>() : nullptr;
-    if (!expect(camera != nullptr && parent != nullptr, "create ray camera"))
+    auto parent = scene != nullptr ? scene->create_node("Camera parent") : engine::Node{};
+    auto node = scene != nullptr ? scene->create_node("Camera") : engine::Node{};
+    auto camera = node.valid() ? node.add_component<Camera>() : Camera{};
+    if (!expect(camera.valid() && parent.valid(), "create ray camera"))
     {
         return false;
     }
@@ -884,11 +1020,14 @@ bool camera_rays()
     settings.fov_degrees = 90.0F;
     settings.near_clip = 1.0F;
     settings.far_clip = 100.0F;
-    camera->set_enabled(false);
+    if (!camera.set_enabled(false))
+    {
+        return false;
+    }
     Vec3 origin;
     Vec3 direction;
-    if (!expect(camera->set_settings(settings) && scene->active_camera() == nullptr &&
-                    camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+    if (!expect(camera.set_settings(settings) && !scene->active_camera() &&
+                    camera.viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
                     vector_near(origin, {0.0, 0.0, -1.0}) &&
                     vector_near(direction, {0.0, 0.0, -1.0}),
                 "disabled non-active camera computes a center ray from its near plane"))
@@ -897,17 +1036,17 @@ bool camera_rays()
     }
     const double corner_length = std::sqrt(6.0);
     const Vec3 corner_direction{2.0 / corner_length, 1.0 / corner_length, -1.0 / corner_length};
-    if (!expect(camera->viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
+    if (!expect(camera.viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
                     vector_near(origin, {2.0, 1.0, -1.0}) &&
                     vector_near(direction, corner_direction),
                 "perspective top right follows vertical field of view and aspect ratio") ||
         !expect(
-            camera->screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
+            camera.screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
                 vector_near(origin, {2.0, 1.0, -1.0}) && vector_near(direction, corner_direction) &&
-                camera->screen_point_to_ray({400.0, 0.0}, {400.0, 200.0}, origin, direction) &&
+                camera.screen_point_to_ray({400.0, 0.0}, {400.0, 200.0}, origin, direction) &&
                 vector_near(origin, {2.0, 1.0, -1.0}) && vector_near(direction, corner_direction),
             "screen rays agree for matching logical or pixel coordinate units") ||
-        !expect(camera->viewport_point_to_ray({1.5, 1.5}, 2.0, origin, direction) &&
+        !expect(camera.viewport_point_to_ray({1.5, 1.5}, 2.0, origin, direction) &&
                     vector_near(origin, {4.0, -2.0, -1.0}),
                 "finite points outside the viewport are extrapolated without clamping"))
     {
@@ -916,10 +1055,10 @@ bool camera_rays()
     settings.projection = schema::Projection::orthographic;
     settings.orthographic_size = 2.0F;
     if (!expect(
-            camera->set_settings(settings) &&
-                camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+            camera.set_settings(settings) &&
+                camera.viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
                 vector_near(origin, {0.0, 0.0, -1.0}) && vector_near(direction, {0.0, 0.0, -1.0}) &&
-                camera->screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
+                camera.screen_point_to_ray({800.0, 0.0}, {800.0, 400.0}, origin, direction) &&
                 vector_near(origin, {4.0, 2.0, -1.0}) && vector_near(direction, {0.0, 0.0, -1.0}),
             "orthographic rays shift along the near plane while remaining parallel"))
     {
@@ -937,18 +1076,18 @@ bool camera_rays()
     const Vec3 shear_origin{12.0 + 3.0 / root_five, 27.0, 42.0 - 4.0 / root_five};
     const Vec3 shear_direction{3.0 / root_five / corner_length, 1.0 / corner_length,
                                -4.0 / root_five / corner_length};
-    if (!expect(camera->set_settings(settings) && node->set_parent(parent) &&
-                    parent->get_component<Transform>()->set_settings(parent_settings) &&
-                    node->get_component<Transform>()->set_settings(local_settings) &&
-                    camera->viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
+    if (!expect(camera.set_settings(settings) && node.set_parent(parent) &&
+                    parent.get_component<Transform>().set_settings(parent_settings) &&
+                    node.get_component<Transform>().set_settings(local_settings) &&
+                    camera.viewport_point_to_ray({1.0, 0.0}, 2.0, origin, direction) &&
                     vector_near(origin, shear_origin) && vector_near(direction, shear_direction),
                 "world ray uses the rendered orthogonal basis under parent scale and shear"))
     {
         return false;
     }
     local_settings.scale.mutate_z(-7.0);
-    if (!expect(node->get_component<Transform>()->set_settings(local_settings) &&
-                    camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+    if (!expect(node.get_component<Transform>().set_settings(local_settings) &&
+                    camera.viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
                     vector_near(origin, {12.0 + 1.0 / root_five, 26.0, 42.0 + 2.0 / root_five}) &&
                     vector_near(direction, {1.0 / root_five, 0.0, 2.0 / root_five}),
                 "mirrored camera keeps the rendered forward direction"))
@@ -964,7 +1103,7 @@ bool camera_rays()
     {
         origin = {1.0, 2.0, 3.0};
         direction = {4.0, 5.0, 6.0};
-        if (!expect(!camera->screen_point_to_ray({0.5, 0.5}, size, origin, direction) &&
+        if (!expect(!camera.screen_point_to_ray({0.5, 0.5}, size, origin, direction) &&
                         vector_near(origin, {}) && vector_near(direction, {}),
                     "invalid screen dimensions clear both ray outputs"))
         {
@@ -975,7 +1114,7 @@ bool camera_rays()
     {
         origin = {1.0, 2.0, 3.0};
         direction = {4.0, 5.0, 6.0};
-        if (!expect(!camera->viewport_point_to_ray({0.5, 0.5}, aspect, origin, direction) &&
+        if (!expect(!camera.viewport_point_to_ray({0.5, 0.5}, aspect, origin, direction) &&
                         vector_near(origin, {}) && vector_near(direction, {}),
                     "invalid or unrepresentable aspect clears both ray outputs"))
         {
@@ -986,9 +1125,9 @@ bool camera_rays()
     {
         origin = {1.0, 2.0, 3.0};
         direction = {4.0, 5.0, 6.0};
-        if (!expect(!camera->viewport_point_to_ray(point, 2.0, origin, direction) &&
+        if (!expect(!camera.viewport_point_to_ray(point, 2.0, origin, direction) &&
                         vector_near(origin, {}) && vector_near(direction, {}) &&
-                        !camera->screen_point_to_ray(point, {800.0, 400.0}, origin, direction),
+                        !camera.screen_point_to_ray(point, {800.0, 400.0}, origin, direction),
                     "both coordinate APIs reject non-finite points"))
         {
             return false;
@@ -997,8 +1136,8 @@ bool camera_rays()
     local_settings.scale.mutate_x(1e-100);
     origin = {1.0, 2.0, 3.0};
     direction = {4.0, 5.0, 6.0};
-    if (!expect(node->get_component<Transform>()->set_settings(local_settings) &&
-                    !camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+    if (!expect(node.get_component<Transform>().set_settings(local_settings) &&
+                    !camera.viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
                     vector_near(origin, {}) && vector_near(direction, {}),
                 "a world axis lost to float underflow is rejected as a degenerate transform"))
     {
@@ -1008,8 +1147,8 @@ bool camera_rays()
     local_settings.position.mutate_x(std::numeric_limits<double>::max());
     origin = {1.0, 2.0, 3.0};
     direction = {4.0, 5.0, 6.0};
-    return expect(node->get_component<Transform>()->set_settings(local_settings) &&
-                      !camera->viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
+    return expect(node.get_component<Transform>().set_settings(local_settings) &&
+                      !camera.viewport_point_to_ray({0.5, 0.5}, 2.0, origin, direction) &&
                       vector_near(origin, {}) && vector_near(direction, {}),
                   "unrepresentable world transform fails without partial ray outputs");
 }
@@ -1022,46 +1161,58 @@ bool transient_nodes()
         return false;
     }
     auto* scene = world.create_scene("Generated hierarchy");
-    auto* persistent = scene ? scene->create_node("Source") : nullptr;
-    auto* generated = scene ? scene->create_node("Generated") : nullptr;
-    auto* child = scene ? scene->create_node("Generated child") : nullptr;
-    if (!expect(persistent && generated && child && child->set_parent(generated) &&
-                    !generated->transient() && !child->transient(),
+    auto persistent = scene ? scene->create_node("Source") : engine::Node{};
+    auto generated = scene ? scene->create_node("Generated") : engine::Node{};
+    auto child = scene ? scene->create_node("Generated child") : engine::Node{};
+    if (!expect(persistent && generated && child && child.set_parent(generated) &&
+                    !generated.transient() && !child.transient(),
                 "nodes start persistent"))
     {
         return false;
     }
-    generated->set_transient(true);
-    child->set_transient(false);
+    if (!generated.set_transient(true))
+    {
+        return false;
+    }
+    if (!child.set_transient(false))
+    {
+        return false;
+    }
     engine::schema::SceneDataT saved;
-    if (!expect(generated->transient() && child->transient() && !persistent->transient() &&
+    if (!expect(generated.transient() && child.transient() && !persistent.transient() &&
                     scene->build_data(saved) && saved.nodes.size() == 1 &&
-                    saved.nodes.front()->info->id == persistent->info().id &&
-                    scene->nodes().size() == 3,
+                    saved.nodes.front()->info->properties->id == persistent.info().properties->id &&
+                    test_support::scene_nodes(*scene).size() == 3,
                 "snapshot excludes generated subtree without changing live nodes"))
     {
         return false;
     }
-    auto* camera = child->add_component<engine::Camera>();
+    auto camera = child.add_component<engine::Camera>();
     if (!expect(camera && scene->set_active_camera(camera) && !scene->build_data(saved) &&
                     saved.nodes.empty() && !saved.info,
                 "snapshot rejects a transient active camera without leaving partial output"))
     {
         return false;
     }
-    generated->set_transient(false);
-    if (!expect(!child->transient() && scene->build_data(saved) && saved.nodes.size() == 3 &&
-                    saved.info->active_camera_node == child->info().id,
+    if (!generated.set_transient(false))
+    {
+        return false;
+    }
+    if (!expect(!child.transient() && scene->build_data(saved) && saved.nodes.size() == 3 &&
+                    saved.info->active_camera_node == child.info().properties->id,
                 "clearing parent marker restores descendant persistence and camera identity"))
     {
         return false;
     }
-    child->set_transient(true);
-    if (!scene->set_active_camera(nullptr) || !child->set_parent(nullptr))
+    if (!child.set_transient(true))
     {
         return false;
     }
-    return expect(child->transient() && !generated->transient() && scene->build_data(saved) &&
+    if (!scene->set_active_camera({}) || !child.set_parent({}))
+    {
+        return false;
+    }
+    return expect(child.transient() && !generated.transient() && scene->build_data(saved) &&
                       saved.nodes.size() == 2,
                   "own transient marker survives reparenting");
 }
@@ -1075,10 +1226,10 @@ bool missing_material_resources()
         return false;
     }
     engine::Scene* scene = world.create_scene("Before resource initialization");
-    engine::Node* node = scene == nullptr ? nullptr : scene->create_node("Node");
-    return expect(node != nullptr && node->add_component<engine::MeshRenderer>() == nullptr &&
-                      node->get_component<engine::MeshRenderer>() == nullptr &&
-                      node->components().size() == 1,
+    engine::Node node = scene == nullptr ? engine::Node{} : scene->create_node("Node");
+    return expect(node.valid() && !node.add_component<engine::MeshRenderer>() &&
+                      !node.get_component<engine::MeshRenderer>() &&
+                      components_of(node).size() == 1,
                   "failed component initialization leaves the generic component list unchanged");
 }
 
@@ -1138,14 +1289,14 @@ bool material_contracts()
         return false;
     }
     engine::Scene* scene = world.create_scene("Material contracts");
-    engine::Node* node = scene == nullptr ? nullptr : scene->create_node("Mesh");
-    engine::MeshRenderer* mesh =
-        node == nullptr ? nullptr : node->add_component<engine::MeshRenderer>();
-    if (!expect(mesh != nullptr, "create mesh after resource initialization"))
+    engine::Node node = scene == nullptr ? engine::Node{} : scene->create_node("Mesh");
+    engine::MeshRenderer mesh =
+        !node ? engine::MeshRenderer{} : node.add_component<engine::MeshRenderer>();
+    if (!expect(mesh.valid(), "create mesh after resource initialization"))
     {
         return false;
     }
-    engine::Material& material = mesh->material();
+    engine::Material material = mesh.material();
     engine::Vec2 vector2;
     engine::Vec3 vector3;
     engine::Vec4 vector4;
@@ -1308,47 +1459,48 @@ bool baked_lighting_bindings()
         return false;
     }
     auto* scene = world.create_scene("Baked lighting");
-    auto* node = scene ? scene->create_node("Baked mesh") : nullptr;
-    auto* mesh = node ? node->add_component<engine::MeshRenderer>() : nullptr;
-    auto* probe = node ? node->add_component<engine::LightProbeVolumeComponent>() : nullptr;
-    auto* transform = node ? node->get_component<engine::Transform>() : nullptr;
+    auto node = scene ? scene->create_node("Baked mesh") : engine::Node{};
+    auto mesh = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+    auto probe = node ? node.add_component<engine::LightProbeVolumeComponent>()
+                      : engine::LightProbeVolumeComponent{};
+    auto transform = node ? node.get_component<engine::Transform>() : engine::Transform{};
     engine::LightProbeVolumeSettings probe_settings;
-    if (!expect(mesh && probe && transform && mesh->set_mesh(mesh_data.path) &&
-                    mesh->set_bake_static(true) && mesh->set_lightmap(texture.path) &&
-                    mesh->lightmap_resource() && mesh->lightmap_path() == texture.path &&
+    if (!expect(mesh && probe && transform && mesh.set_mesh(mesh_data.path) &&
+                    mesh.set_bake_static(true) && mesh.set_lightmap(texture.path) &&
+                    mesh.lightmap_resource() && mesh.lightmap_path() == texture.path &&
                     engine::ResourceSystem::path_to_guid(probes.path, probe_settings.probes_guid) &&
-                    probe->set_settings(probe_settings) && probe->resource(),
+                    probe.set_settings(probe_settings) && probe.resource(),
                 "bind compiled baked resources through ordinary components"))
     {
         return false;
     }
     engine::schema::ComponentDataT saved;
-    if (!expect(mesh->build_data(saved) &&
+    saved.flags = std::make_unique<engine::schema::ComponentFlagsT>();
+    if (!expect(mesh.build_data(saved) &&
                     !saved.payload.AsMeshRendererData()->lightmap_mesh_hash.empty() &&
                     saved.payload.AsMeshRendererData()->lightmap_transform.size() == 16 &&
-                    !mesh->set_lightmap("builtin://textures/white-srgb") &&
-                    mesh->lightmap_resource(),
+                    !mesh.set_lightmap("builtin://textures/white-srgb") && mesh.lightmap_resource(),
                 "persist bake fingerprint; invalid replacement preserves existing lightmap"))
     {
         return false;
     }
-    auto moved = transform->settings();
+    auto moved = transform.settings();
     moved.position = {2, 0, 0};
-    if (!expect(transform->set_settings(moved) && !mesh->lightmap_resource() &&
-                    !probe->resource() && mesh->restore_data(saved) && !mesh->lightmap_resource(),
+    if (!expect(transform.set_settings(moved) && !mesh.lightmap_resource() && !probe.resource() &&
+                    mesh.restore_data(saved) && !mesh.lightmap_resource(),
                 "moving geometry/probe invalidates bake and restoration cannot rebase fingerprint"))
     {
         return false;
     }
     moved.position = {0, 0, 0};
-    if (!expect(transform->set_settings(moved) && mesh->lightmap_resource() && probe->resource() &&
-                    mesh->set_mesh("builtin://meshes/cube") && !mesh->lightmap_resource() &&
-                    !mesh->set_lightmap(texture.path),
+    if (!expect(transform.set_settings(moved) && mesh.lightmap_resource() && probe.resource() &&
+                    mesh.set_mesh("builtin://meshes/cube") && !mesh.lightmap_resource() &&
+                    !mesh.set_lightmap(texture.path),
                 "matching baked pose restores validity; replacing geometry clears lightmap"))
     {
         return false;
     }
-    return expect(probe->set_settings({}) && !probe->resource() && mesh->set_lightmap(""),
+    return expect(probe.set_settings({}) && !probe.resource() && mesh.set_lightmap(""),
                   "clearing baked resource bindings releases held resources");
 }
 
@@ -1359,9 +1511,9 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !hierarchy_and_transforms() || !indexed_scene_restore() || !incremental_scene_restore() ||
-        !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
-        !camera_rays() || !transient_nodes() || !material_contracts() ||
+        !node_component_state() || !hierarchy_and_transforms() || !indexed_scene_restore() ||
+        !incremental_scene_restore() || !persistent_nodes() || !persistent_scene_loading() ||
+        !component_contracts() || !camera_rays() || !transient_nodes() || !material_contracts() ||
         !baked_lighting_bindings() || !resource_namespaces())
     {
         return 1;

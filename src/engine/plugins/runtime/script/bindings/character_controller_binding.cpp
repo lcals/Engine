@@ -33,25 +33,22 @@ Object.freeze(CharacterController);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<character_controller::CharacterController>() !=
-                             nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<character_controller::CharacterController>().valid());
 }
 
 void set_input(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* controller = node != nullptr
-                           ? node->get_component<character_controller::CharacterController>()
-                           : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto controller = node.valid() ? node.get_component<character_controller::CharacterController>()
+                                   : character_controller::CharacterController{};
     double move_x = 0;
     double move_y = 0;
     double look_x = 0;
     double look_y = 0;
-    if (controller == nullptr || arguments.count() != 8 ||
-        !BindingContext::number(arguments, 2, move_x) ||
+    if (!controller || arguments.count() != 8 || !BindingContext::number(arguments, 2, move_x) ||
         !BindingContext::number(arguments, 3, move_y) ||
         !BindingContext::number(arguments, 4, look_x) ||
         !BindingContext::number(arguments, 5, look_y) || !arguments.is_boolean(6) ||
@@ -64,19 +61,18 @@ void set_input(const Arguments& arguments)
     input.look = {look_x, look_y};
     input.jump = arguments.boolean(6);
     input.toggle_view = arguments.boolean(7);
-    arguments.set_return(controller->set_input(input));
+    arguments.set_return(controller.set_input(input));
 }
 
 void clear_input(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* controller = node != nullptr
-                           ? node->get_component<character_controller::CharacterController>()
-                           : nullptr;
-    if (controller != nullptr && arguments.count() == 2)
+    auto node = BindingContext::node(arguments);
+    auto controller = node.valid() ? node.get_component<character_controller::CharacterController>()
+                                   : character_controller::CharacterController{};
+    if (controller.valid() && arguments.count() == 2)
     {
-        controller->clear_input();
+        controller.clear_input();
         arguments.set_return(true);
     }
 }

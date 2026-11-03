@@ -10,11 +10,8 @@
 
 namespace engine::plugins::mcp
 {
-ScenePreviewMcpTools::ScenePreviewMcpTools(EditorMcpTools& editor) noexcept : editor_(editor)
-{
-}
 
-bool ScenePreviewMcpTools::register_tools(McpSystem& system)
+bool register_scene_preview_tools(McpSystem& system, EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
     const auto object = [](Json properties, Json required = Json::array())
@@ -36,8 +33,8 @@ bool ScenePreviewMcpTools::register_tools(McpSystem& system)
     {
         const auto command = name;
         return system.register_tool({std::move(name), std::move(description), std::move(schema),
-                                     [this, command](const Json& arguments, Json& reply)
-                                     { return editor_.call_command(command, arguments, reply); }});
+                                     [&editor, command](const Json& arguments, Json& reply)
+                                     { return editor.call_command(command, arguments, reply); }});
     };
     return add("open_scene_preview",
                "在编辑器窗口预览场景资源，不启动玩法；替换当前场景并丢弃其未保存内存编辑。"

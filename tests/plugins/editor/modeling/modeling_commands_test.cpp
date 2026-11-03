@@ -6,6 +6,7 @@
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #ifdef ENGINE_TEST_MODELING_MCP
 #include "plugins/editor/mcp/editor_mcp_tools.hpp"
@@ -39,11 +40,12 @@ bool expect(bool value, const char* message, const std::string& error)
 bool registry_test()
 {
     engine::plugins::mcp::EditorMcpTools editor({}, {});
-    engine::plugins::modeling::ModelingMcpTools module(editor);
     engine::plugins::mcp::McpSystem system;
     Json reply;
-    if (!expect(module.register_tools(system), "register all modeling schemas", {}) ||
-        !expect(!module.register_tools(system), "duplicate modeling registration rejected", {}) ||
+    if (!expect(engine::plugins::modeling::register_modeling_tools(system, editor),
+                "register all modeling schemas", {}) ||
+        !expect(!engine::plugins::modeling::register_modeling_tools(system, editor),
+                "duplicate modeling registration rejected", {}) ||
         !expect(system.list_tools()["tools"].size() == 11, "all tools are discoverable", {}) ||
         !expect(system.initialize({}), "initialize registry", {}))
     {
@@ -149,7 +151,7 @@ bool run(const fs::path& project)
     { return commands.execute(command, arguments, result, error); };
     auto create = identity;
     create.update({{"shape", "cube"}, {"name", "Editable cube"}});
-    if (!expect(execute("modeling_create", create) && scene->nodes().size() == 1,
+    if (!expect(execute("modeling_create", create) && test_support::scene_nodes(*scene).size() == 1,
                 "create Node and renderer", error))
     {
         return false;
@@ -203,10 +205,10 @@ bool run(const fs::path& project)
     }
     auto load = identity;
     load["path"] = "models/cube.mesh";
-    if (!expect(execute("modeling_load", load) && scene->nodes().size() == 2, "load saved model",
-                error) ||
-        !expect(execute("undo", identity) && scene->nodes().size() == 1, "undo loaded model",
-                error))
+    if (!expect(execute("modeling_load", load) && test_support::scene_nodes(*scene).size() == 2,
+                "load saved model", error) ||
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 1,
+                "undo loaded model", error))
     {
         return false;
     }
@@ -216,9 +218,9 @@ bool run(const fs::path& project)
     {
         return false;
     }
-    if (!expect(execute("modeling_delete", target) && scene->nodes().empty(),
+    if (!expect(execute("modeling_delete", target) && test_support::scene_nodes(*scene).empty(),
                 "delete modeling node", error) ||
-        !expect(execute("undo", identity) && scene->nodes().size() == 1,
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 1,
                 "undo deletion restores model", error) ||
         !expect(execute("modeling_get", target) && result["model"]["nodeId"] != old_node &&
                     result["faces"] == original["faces"],
@@ -305,25 +307,27 @@ bool run(const fs::path& project)
     auto material = target;
     material.update(
         {{"operation", "material"}, {"selection", {{"all", true}}}, {"parameters", {{"slot", 1}}}});
-    if (!expect(execute("modeling_edit", material) &&
-                    scene->nodes()[0]->get_component<engine::MeshRenderer>()->material_count() == 2,
+    if (!expect(execute("modeling_edit", material) && test_support::scene_nodes(*scene)[0]
+                                                              .get_component<engine::MeshRenderer>()
+                                                              .material_count() == 2,
                 "face material assignment grows renderer slots", error) ||
-        !expect(execute("undo", identity) &&
-                    scene->nodes()[0]->get_component<engine::MeshRenderer>()->material_count() == 1,
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene)[0]
+                                                     .get_component<engine::MeshRenderer>()
+                                                     .material_count() == 1,
                 "material assignment undo restores slot count", error))
     {
         return false;
     }
-    auto* parent = scene->create_node("Model parent");
-    auto* source_node = scene->nodes()[0].get();
+    auto parent = scene->create_node("Model parent");
+    auto source_node = test_support::scene_nodes(*scene)[0];
     if (!parent)
     {
         return false;
     }
-    auto parent_settings = parent->get_component<engine::Transform>()->settings();
+    auto parent_settings = parent.get_component<engine::Transform>().settings();
     parent_settings.position = {10, 0, 0};
-    if (!expect(parent->get_component<engine::Transform>()->set_settings(parent_settings) &&
-                    source_node->set_parent(parent) && execute("modeling_duplicate", target),
+    if (!expect(parent.get_component<engine::Transform>().set_settings(parent_settings) &&
+                    source_node.set_parent(parent) && execute("modeling_duplicate", target),
                 "duplicate parented model", error))
     {
         return false;
@@ -335,8 +339,8 @@ bool run(const fs::path& project)
                         original["vertices"][0]["position"][0].get<double>() + 10,
                 "parented copy bakes world transform instead of jumping to local position",
                 error) ||
-        !expect(execute("undo", identity) && source_node->set_parent(nullptr) &&
-                    scene->destroy_node(parent->id()),
+        !expect(execute("undo", identity) && source_node.set_parent({}) &&
+                    scene->destroy_node(parent.id()),
                 "restore parented-copy test scene", error))
     {
         return false;
@@ -348,7 +352,8 @@ bool run(const fs::path& project)
     const auto duplicate_id = result["modelId"];
     auto combination = identity;
     combination["modelIds"] = {target["modelId"], duplicate_id};
-    if (!expect(execute("modeling_combine", combination) && scene->nodes().size() == 3,
+    if (!expect(execute("modeling_combine", combination) &&
+                    test_support::scene_nodes(*scene).size() == 3,
                 "combine creates a model without destroying inputs", error))
     {
         return false;
@@ -357,20 +362,21 @@ bool run(const fs::path& project)
     combined_target["modelId"] = result["modelId"];
     if (!expect(execute("modeling_get", combined_target) && result["model"]["faceCount"] == 12,
                 "combine uses core topology append", error) ||
-        !expect(execute("undo", identity) && scene->nodes().size() == 2, "undo combined object",
-                error) ||
-        !expect(execute("undo", identity) && scene->nodes().size() == 1, "undo duplicate object",
-                error))
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 2,
+                "undo combined object", error) ||
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 1,
+                "undo duplicate object", error))
     {
         return false;
     }
     auto separation = target;
     separation["selection"] = {{"faces", Json::array({original["faces"][0]["id"]})}};
-    if (!expect(execute("modeling_separate", separation) && scene->nodes().size() == 2,
+    if (!expect(execute("modeling_separate", separation) &&
+                    test_support::scene_nodes(*scene).size() == 2,
                 "separate selected faces", error) ||
         !expect(execute("modeling_get", target) && result["model"]["faceCount"] == 5,
                 "separate removes selected face from source", error) ||
-        !expect(execute("undo", identity) && scene->nodes().size() == 1,
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).size() == 1,
                 "separate undo restores both objects atomically", error))
     {
         return false;

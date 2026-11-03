@@ -65,40 +65,40 @@ Object.freeze(AudioSource.prototype);
 Object.freeze(AudioSource);
 )js";
 
-AudioSource* audio_source(const Arguments& arguments, int count)
+AudioSource audio_source(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count ? node->get_component<AudioSource>()
-                                                         : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count ? node.get_component<AudioSource>()
+                                                      : AudioSource{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<AudioSource>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<AudioSource>().valid());
 }
 
 void clip(const Arguments& arguments)
 {
-    auto* value = audio_source(arguments, 3);
+    auto value = audio_source(arguments, 3);
     std::string path;
-    if (value != nullptr && BindingContext::text(arguments, 2, path))
+    if (value.valid() && BindingContext::text(arguments, 2, path))
     {
-        arguments.set_return(value->set_clip(path));
+        arguments.set_return(value.set_clip(path));
     }
 }
 
 void set_scalar(const Arguments& arguments, float schema::AudioSourceDataT::* field)
 {
-    auto* value = audio_source(arguments, 3);
+    auto value = audio_source(arguments, 3);
     float number = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, number))
+    if (value.valid() && BindingContext::scalar(arguments, 2, number))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.*field = number;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
@@ -114,12 +114,12 @@ void pitch(const Arguments& arguments)
 
 void set_boolean(const Arguments& arguments, bool schema::AudioSourceDataT::* field)
 {
-    auto* value = audio_source(arguments, 3);
-    if (value != nullptr && arguments.is_boolean(2))
+    auto value = audio_source(arguments, 3);
+    if (value.valid() && arguments.is_boolean(2))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.*field = arguments.boolean(2);
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
@@ -140,53 +140,53 @@ void awake(const Arguments& arguments)
 
 void distances(const Arguments& arguments)
 {
-    auto* value = audio_source(arguments, 4);
+    auto value = audio_source(arguments, 4);
     float minimum = 0.0F;
     float maximum = 0.0F;
-    if (value != nullptr && BindingContext::scalar(arguments, 2, minimum) &&
+    if (value.valid() && BindingContext::scalar(arguments, 2, minimum) &&
         BindingContext::scalar(arguments, 3, maximum))
     {
-        auto settings = value->settings();
+        auto settings = value.settings();
         settings.min_distance = minimum;
         settings.max_distance = maximum;
-        arguments.set_return(value->set_settings(settings));
+        arguments.set_return(value.set_settings(settings));
     }
 }
 
 void play(const Arguments& arguments)
 {
-    auto* value = audio_source(arguments, 2);
-    arguments.set_return(value != nullptr && value->play());
+    auto value = audio_source(arguments, 2);
+    arguments.set_return(value.valid() && value.play());
 }
 
 void pause(const Arguments& arguments)
 {
-    auto* value = audio_source(arguments, 2);
-    arguments.set_return(value != nullptr && value->pause());
+    auto value = audio_source(arguments, 2);
+    arguments.set_return(value.valid() && value.pause());
 }
 
 void stop(const Arguments& arguments)
 {
-    auto* value = audio_source(arguments, 2);
-    arguments.set_return(value != nullptr && value->stop());
+    auto value = audio_source(arguments, 2);
+    arguments.set_return(value.valid() && value.stop());
 }
 
 void playing(const Arguments& arguments)
 {
-    const auto* value = audio_source(arguments, 2);
-    arguments.set_return(value != nullptr && value->playing());
+    const auto value = audio_source(arguments, 2);
+    arguments.set_return(value.valid() && value.playing());
 }
 
 void playback(const Arguments& arguments)
 {
-    const auto* value = audio_source(arguments, 2);
+    const auto value = audio_source(arguments, 2);
     arguments.set_return({});
-    if (value == nullptr)
+    if (!value)
     {
         return;
     }
     const char* state = nullptr;
-    switch (value->playback())
+    switch (value.playback())
     {
     case AudioPlayback::stopped:
         state = "stopped";

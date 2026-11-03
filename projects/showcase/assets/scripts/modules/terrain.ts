@@ -34,7 +34,7 @@ export default class Game extends Gameplay {
             return false;
 
         // Reuse the open showcase character; terrain contains no purchased project assets.
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Terrain avatar");
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", "Terrain avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);

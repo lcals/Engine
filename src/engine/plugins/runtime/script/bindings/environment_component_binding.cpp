@@ -42,13 +42,12 @@ Object.freeze(EnvironmentComponent.prototype);
 Object.freeze(EnvironmentComponent);
 )js";
 
-EnvironmentComponent* environment(const Arguments& arguments, int count)
+EnvironmentComponent environment(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count
-               ? node->get_component<EnvironmentComponent>()
-               : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count ? node.get_component<EnvironmentComponent>()
+                                                      : EnvironmentComponent{};
 }
 
 bool read_color(const Arguments& arguments, int index, Color& output)
@@ -68,104 +67,104 @@ bool read_color(const Arguments& arguments, int index, Color& output)
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<EnvironmentComponent>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<EnvironmentComponent>().valid());
 }
 
 void ambient(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 6);
-    if (target == nullptr)
+    auto target = environment(arguments, 6);
+    if (!target)
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.ambient_tricolor = false;
     if (read_color(arguments, 2, value.ambient_color) &&
         BindingContext::scalar(arguments, 5, value.ambient_intensity))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 
 void tricolor(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 12);
-    if (target == nullptr)
+    auto target = environment(arguments, 12);
+    if (!target)
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.ambient_tricolor = true;
     if (read_color(arguments, 2, value.ambient_sky_color) &&
         read_color(arguments, 5, value.ambient_equator_color) &&
         read_color(arguments, 8, value.ambient_ground_color) &&
         BindingContext::scalar(arguments, 11, value.ambient_intensity))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 
 void linear_fog(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 8);
-    if (target == nullptr || !arguments.is_boolean(2))
+    auto target = environment(arguments, 8);
+    if (!target || !arguments.is_boolean(2))
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.fog_mode = arguments.boolean(2) ? schema::FogMode::linear : schema::FogMode::none;
     if (read_color(arguments, 3, value.fog_color) &&
         BindingContext::scalar(arguments, 6, value.fog_start) &&
         BindingContext::scalar(arguments, 7, value.fog_end))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 
 void exponential_fog(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 8);
-    if (target == nullptr || !arguments.is_boolean(2) || !arguments.is_boolean(7))
+    auto target = environment(arguments, 8);
+    if (!target || !arguments.is_boolean(2) || !arguments.is_boolean(7))
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.fog_mode = !arguments.boolean(2)  ? schema::FogMode::none
                      : arguments.boolean(7) ? schema::FogMode::exponential_squared
                                             : schema::FogMode::exponential;
     if (read_color(arguments, 3, value.fog_color) &&
         BindingContext::scalar(arguments, 6, value.fog_density))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 
 void clear_color(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 3);
-    if (target == nullptr || !arguments.is_uint32(2))
+    auto target = environment(arguments, 3);
+    if (!target || !arguments.is_uint32(2))
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.clear_color = arguments.unsigned_integer(2);
-    arguments.set_return(target->set_settings(value));
+    arguments.set_return(target.set_settings(value));
 }
 
 void ibl(const Arguments& arguments)
 {
-    auto* target = environment(arguments, 4);
-    if (target == nullptr || !arguments.is_boolean(2))
+    auto target = environment(arguments, 4);
+    if (!target || !arguments.is_boolean(2))
     {
         return;
     }
-    auto value = target->settings();
+    auto value = target.settings();
     value.ibl_enabled = arguments.boolean(2);
     if (BindingContext::scalar(arguments, 3, value.ibl_intensity))
     {
-        arguments.set_return(target->set_settings(value));
+        arguments.set_return(target.set_settings(value));
     }
 }
 } // namespace

@@ -23,30 +23,8 @@ enum class AnimationPlayback
     paused
 };
 
-class Animator final : public Component
+struct AnimatorRuntime
 {
-public:
-    static constexpr ComponentType component_type = ComponentType::AnimatorData;
-    [[nodiscard]] static bool valid_settings(const schema::AnimatorDataT& settings) noexcept;
-    [[nodiscard]] const schema::AnimatorDataT& settings() const noexcept;
-    [[nodiscard]] bool set_settings(const schema::AnimatorDataT& settings);
-    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
-    [[nodiscard]] bool set_animation(std::string_view path);
-    // 校验后从当前姿态过渡；非负秒数，零秒直接切换，失败保留原状态。
-    [[nodiscard]] bool cross_fade(std::string_view path, double seconds);
-    [[nodiscard]] std::string_view animation_path() const noexcept;
-    [[nodiscard]] bool play() noexcept;
-    [[nodiscard]] bool pause() noexcept;
-    [[nodiscard]] bool stop() noexcept;
-    [[nodiscard]] bool seek(double seconds) noexcept;
-    [[nodiscard]] AnimationPlayback playback() const noexcept;
-    [[nodiscard]] double time() const noexcept;
-
-private:
-    friend class Node;
-    friend class AnimationSystem;
-    explicit Animator(Node& node);
-
     std::shared_ptr<const Resource> animation_;
     std::shared_ptr<const Resource> target_skeleton_;
     std::shared_ptr<const Resource> previous_animation_;
@@ -63,6 +41,35 @@ private:
     AnimationPlayback playback_ = AnimationPlayback::stopped;
     bool awake_pending_ = true;
     bool pose_dirty_ = false;
+};
+
+class Animator final : public Component
+{
+public:
+    using Data = schema::AnimatorDataT;
+    Animator() noexcept = default;
+    explicit Animator(Component component) noexcept : Component(component, component_type)
+    {
+    }
+    [[nodiscard]] static bool register_type(ComponentRegistry& registry);
+    using Runtime = AnimatorRuntime;
+    [[nodiscard]] Runtime* runtime() const noexcept;
+    static constexpr ComponentType component_type = ComponentType::AnimatorData;
+    [[nodiscard]] static bool valid_settings(const schema::AnimatorDataT& settings) noexcept;
+    [[nodiscard]] schema::AnimatorDataT settings() const noexcept;
+    [[nodiscard]] bool get_settings(Data& output) const noexcept;
+    [[nodiscard]] bool set_settings(const schema::AnimatorDataT& settings);
+    [[nodiscard]] bool restore_data(const schema::ComponentDataT& data);
+    [[nodiscard]] bool set_animation(std::string_view path);
+    // 校验后从当前姿态过渡；非负秒数，零秒直接切换，失败保留原状态。
+    [[nodiscard]] bool cross_fade(std::string_view path, double seconds);
+    [[nodiscard]] std::string_view animation_path() const noexcept;
+    [[nodiscard]] bool play() noexcept;
+    [[nodiscard]] bool pause() noexcept;
+    [[nodiscard]] bool stop() noexcept;
+    [[nodiscard]] bool seek(double seconds) noexcept;
+    [[nodiscard]] AnimationPlayback playback() const noexcept;
+    [[nodiscard]] double time() const noexcept;
 };
 
 } // namespace engine

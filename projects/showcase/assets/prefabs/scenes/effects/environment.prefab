@@ -1,0 +1,60 @@
+root = "23"
+
+[[nodes]]
+id = "23"
+name = "effects environment"
+parent = "0"
+
+[[nodes.components]]
+type = "transform"
+position = [0.0, 0.0, 0.0]
+rotation = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[nodes]]
+id = 5
+name = "Ground"
+parent = "23"
+
+[[nodes.components]]
+type = "transform"
+position = [0, -0.3, 0]
+rotation = [0, 0, 0]
+scale = [12, 0.3, 10]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes]]
+id = 6
+name = "Laser stage"
+parent = "23"
+
+[[nodes.components]]
+type = "transform"
+position = [-4, 0.15, 0]
+rotation = [0, 0, 0]
+scale = [2.8, 0.15, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"
+
+[[nodes]]
+id = 7
+name = "Arrow stage"
+parent = "23"
+
+[[nodes.components]]
+type = "transform"
+position = [4, 0.15, 0]
+rotation = [0, 0, 0]
+scale = [2.8, 0.15, 4.5]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "689474bd-d6b2-42ba-84b0-f76a4115d333"

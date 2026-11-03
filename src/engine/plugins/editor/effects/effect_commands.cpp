@@ -90,7 +90,7 @@ Json write(const EffectComponent& component)
             {"playOnAwake", value.play_on_awake},
             {"enabled", component.enabled()},
             {"playing", component.playing()},
-            {"sceneId", std::to_string(component.node().scene().id())},
+            {"sceneId", std::to_string(component.node().scene()->id())},
             {"nodeId", std::to_string(component.node().id())}};
 }
 
@@ -104,29 +104,31 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
             [&world, &scene_commands](const Json& arguments, Json& result,
                                       std::unique_ptr<editor::EditorEdit>& edit, std::string& error)
             {
-                auto* node = editor::components::target(world, arguments, error);
-                if (node == nullptr)
+                auto node = editor::components::target(world, arguments, error);
+                if (!node)
                 {
                     return false;
                 }
-                const auto* component = node->get_component<EffectComponent>();
+                const auto component = node.get_component<EffectComponent>();
                 std::optional<schema::ComponentDataT> before;
-                if (component != nullptr)
+                if (component.valid())
                 {
                     before.emplace();
-                    if (!component->build_data(*before))
+                    if (!component.build_data(*before))
                     {
                         error = "Cannot snapshot effect component";
                         return false;
                     }
                 }
-                auto value = component != nullptr ? component->settings() : schema::EffectDataT{};
+                auto value = component.valid() ? component.settings() : schema::EffectDataT{};
                 if (!read(arguments, value, error))
                 {
                     return false;
                 }
                 schema::ComponentDataT after;
-                after.enabled = component == nullptr || component->enabled();
+                after.flags = std::make_unique<schema::ComponentFlagsT>();
+                after.flags->enabled = !component || component.enabled();
+                after.flags->visible = !component || component.visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())
@@ -134,9 +136,9 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                         error = "enabled must be boolean";
                         return false;
                     }
-                    after.enabled = arguments["enabled"].get<bool>();
+                    after.flags->enabled = arguments["enabled"].get<bool>();
                 }
-                auto identity = scene_commands.node_identity(node->id());
+                auto identity = scene_commands.node_identity(node.id());
                 if (!identity)
                 {
                     error = "Cannot resolve stable node identity";
@@ -152,12 +154,12 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                           {"speed", value.speed},
                           {"loop", value.loop},
                           {"playOnAwake", value.play_on_awake},
-                          {"enabled", after.enabled},
-                          {"sceneId", std::to_string(node->scene().id())},
-                          {"nodeId", std::to_string(node->id())}};
+                          {"enabled", after.flags->enabled},
+                          {"sceneId", std::to_string(node.scene()->id())},
+                          {"nodeId", std::to_string(node.id())}};
                 after.payload.Set(std::move(value));
                 edit = std::make_unique<editor::components::ComponentEdit>(
-                    world, node->scene().id(), std::move(identity), std::move(before),
+                    world, node.scene()->id(), std::move(identity), std::move(before),
                     std::move(after));
                 return true;
             }))
@@ -175,10 +177,10 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                 {
                     return false;
                 }
-                auto* node = editor::components::target(world, arguments, error);
-                auto* component =
-                    node != nullptr ? node->get_component<EffectComponent>() : nullptr;
-                if (component == nullptr || (operation != nullptr && !(component->*operation)()))
+                auto node = editor::components::target(world, arguments, error);
+                auto component =
+                    node.valid() ? node.get_component<EffectComponent>() : EffectComponent{};
+                if (!component || (operation != nullptr && !(component.*operation)()))
                 {
                     if (error.empty())
                     {
@@ -186,7 +188,7 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                     }
                     return false;
                 }
-                result = write(*component);
+                result = write(component);
                 return true;
             });
     };

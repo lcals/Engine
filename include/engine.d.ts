@@ -310,7 +310,7 @@ declare module "engine" {
         static readonly deltaTime: number;
     }
 
-    /** Scene parameter facade. Requires an active callback and existing scene components. */
+    /** Render target and presentation controls. Scene effects are edited through components. */
     export class Render {
         private constructor();
         /** Current render target size in pixels; null without an initialized renderer. */
@@ -319,68 +319,17 @@ declare module "engine" {
         static SetVSync(enabled: boolean): boolean;
         /** Last accepted request, not a measurement of presentation timing. */
         static GetVSync(): boolean | null;
-        /** Linear RGB in [0, 1], intensity in [0, 1000]. Invalid calls leave settings unchanged. */
-        static SetAmbient(r: number, g: number, b: number, intensity: number): boolean;
-        /** Enables three-color ambient light. SetAmbient switches back to a constant color. */
-        static SetAmbientTricolor(
-            sky: readonly [number, number, number],
-            equator: readonly [number, number, number],
-            ground: readonly [number, number, number],
-            intensity: number,
-        ): boolean;
-        /** Linear RGB and world distances. Requires 0 <= start < end, even when disabled. */
-        static SetLinearFog(
-            enabled: boolean,
-            r: number,
-            g: number,
-            b: number,
-            start: number,
-            end: number,
-        ): boolean;
-        /** Nonnegative density, forward camera depth. squared defaults to false. */
-        static SetExponentialFog(
-            enabled: boolean,
-            r: number,
-            g: number,
-            b: number,
-            density: number,
-            squared?: boolean,
-        ): boolean;
-        /** Exposure in (0, 100]. */
-        static SetExposure(value: number): boolean;
-        static SetFilmicTonemap(enabled: boolean): boolean;
-        /** HDR defaults off. Disable Bloom before disabling HDR; failure preserves all settings. */
-        static SetHdr(enabled: boolean): boolean;
-        /** Requires HDR when enabled; preserves HDR. Defaults: threshold 1, intensity 0.15. */
-        /** Threshold [0,100], intensity [0,10], radius [0.25,4] (default 1). */
-        static SetBloom(
-            enabled: boolean,
-            threshold?: number,
-            intensity?: number,
-            radius?: number,
-        ): boolean;
-        /** AO defaults: radius 1, strength 1, power 1.5, fade 80..150 world units. */
-        /** Radius (0,100], strength [0,2], power [0.1,8], 0 <= fadeStart < fadeEnd <= 100000. */
-        static SetAmbientOcclusion(
-            enabled: boolean,
-            radius?: number,
-            strength?: number,
-            power?: number,
-            fadeStart?: number,
-            fadeEnd?: number,
-        ): boolean;
-        /** Full atlas resolution defaults to 2048; bias to 0.001. Preserves cascade settings. */
-        static SetDirectionalShadows(enabled: boolean, resolution?: number, bias?: number): boolean;
-        /** Count: 1/2/4; distance: (0, 100000]. Preserves the shadow enabled state. */
-        /** splitLambda: [0,1], default 0.6; blend: [0,0.3], default 0.1. */
-        static SetShadowCascades(
-            count: number,
-            distance: number,
-            splitLambda?: number,
-            blend?: number,
-        ): boolean;
-        /** Unsigned 32-bit 0xRRGGBBAA; MCP uses a normalized [r,g,b,a] array in the same order. */
-        static SetClearColor(rgba: number): boolean;
+        /** Geometry MSAA sample count. 1 disables MSAA; unsupported requests preserve old settings. */
+        static SetMsaaSamples(samples: number): boolean;
+        /** Last accepted sample count; null without an initialized renderer. */
+        static GetMsaaSamples(): number | null;
+        /** True only for 1/2/4/8 supported by the current device and offscreen render targets. */
+        static SupportsMsaaSamples(samples: number): boolean;
+        /** Maximum anisotropic filtering for material textures; applied at the next drawable frame. */
+        static SetMaxAnisotropy(enabled: boolean): boolean;
+        static GetMaxAnisotropy(): boolean | null;
+        /** False while the graphics device is unavailable. */
+        static SupportsMaxAnisotropy(): boolean;
     }
 
     /** Resource paths are relative to assets, or use builtin://. Parameters match the shader. */
@@ -430,17 +379,28 @@ declare module "engine" {
         CreateNode(name: string): Node | null;
         /** Instantiate a model package as ordinary nodes; failure leaves the scene unchanged. */
         InstantiateModel(path: string, name: string): Node | null;
+        /** 创建独立的预制体实例；非空 name 覆盖根名称，失败不留下部分节点。 */
+        InstantiatePrefab(path: string, name: string): Node | null;
         SetActiveCamera(camera: Camera | null): boolean;
         /** Unloads this active scene, preserving persistent subtrees until gameplay stops. */
         Destroy(): boolean;
     }
 
+    /** Lightweight identity handle; scene instance data lives only in the ECS world. */
     export class Node {
         private constructor();
         /** Stable lifetime identities; use IsValid() before accessing a deleted node. */
         readonly id: bigint;
         readonly sceneId: bigint;
         IsValid(): boolean;
+        SetEnabled(enabled: boolean): boolean;
+        readonly enabled: boolean | null;
+        /** Local enabled state combined with every ancestor. */
+        readonly active: boolean | null;
+        SetVisible(visible: boolean): boolean;
+        readonly visible: boolean | null;
+        /** Visibility combined with every ancestor; does not stop simulation. */
+        readonly visibleInHierarchy: boolean | null;
         Destroy(): boolean;
         /** Root nodes only. Retains the subtree across scene unloads within this gameplay Run. */
         SetPersistent(value: boolean): boolean;
@@ -458,11 +418,19 @@ declare module "engine" {
         readonly prototype: T;
     }
 
+    /** Access handle, not an owned native object. Archetype moves preserve it; removal invalidates it. */
     export class Component {
         protected constructor();
         readonly node: Node;
         IsValid(): boolean;
         SetEnabled(enabled: boolean): boolean;
+        readonly enabled: boolean | null;
+        /** Local enabled state combined with the owning node's active state. */
+        readonly active: boolean | null;
+        SetVisible(visible: boolean): boolean;
+        readonly visible: boolean | null;
+        /** Visibility combined with the owning node's ancestors; does not stop simulation. */
+        readonly visibleInHierarchy: boolean | null;
     }
     /** Every scene node starts with one Transform component. */
     export class Transform extends Component {
@@ -982,8 +950,6 @@ declare module "engine" {
         SetDocument(path: string): boolean;
         /** Available immediately after Scene.Load, including during OnInitialize. */
         FindElement(id: string): UiElement | null;
-        SetVisible(value: boolean): boolean;
-        readonly visible: boolean;
     }
 
     export type UiEventType = "click" | "change" | "input";

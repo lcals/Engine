@@ -16,6 +16,8 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
+#include "script_fixture.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -356,6 +358,8 @@ std::string bubbling_source(std::string_view operation)
     return "const operation = '" + std::string(operation) + "';\n" + R"js(
 import { Gameplay, Scene, UiComponent, UiController } from 'engine';
 function check(value, message) { if (!value) throw new Error(message); }
+const stateCase = operation === 'bubble-disable-parent' || operation === 'bubble-hide-parent' ||
+    operation === 'bubble-disable-view';
 function checkEvent(event, current) {
     check(event.type === 'click' && event.target.id === 'caption' && event.target.isValid &&
           event.currentTarget.id === current && event.currentTarget.isValid,
@@ -366,8 +370,9 @@ class BubbleController extends UiController {
         // Register the ancestor first: delivery must still follow the actual element path.
         return this.Listen(this.model.button, 'click', event => {
             checkEvent(event, 'bubble-button');
-            check(operation === 'bubble-order', 'invalidated child stops parent delivery');
-            check(this.model.children === this.model.parents + 1,
+            check(operation === 'bubble-order' || (stateCase && this.model.children > 1),
+                  'inactive or invalidated child stops parent delivery');
+            check(this.model.children === this.model.parents + (stateCase ? 2 : 1),
                   'child callback precedes its parent regardless of registration order');
             ++this.model.parents;
             this.model.calls.push('parent');
@@ -391,19 +396,28 @@ class BubbleController extends UiController {
             } else if (operation === 'bubble-remove') {
                 check(this.model.button.SetText('Removed') && !this.model.caption.isValid &&
                       this.model.button.isValid, 'remove the target while retaining its ancestor');
+            } else if (stateCase && this.model.children === 1) {
+                const changed = operation === 'bubble-disable-view' ? this.view.SetEnabled(false) :
+                    operation === 'bubble-disable-parent' ? this.model.parent.SetEnabled(false) :
+                    this.model.parent.SetVisible(false);
+                check(changed && this.bound && this.model.caption.isValid,
+                      'stopping UI events retains the controller and its document handles');
             }
             check(this.model.label.SetText(this.model.calls.join(',')), 'display callback order');
         });
     }
     OnRefresh() { return this.model.label.SetText(this.model.calls.join(',')); }
+    OnUnbind() { ++this.model.unbinds; }
 }
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
+        const parent = stateCase ? scene?.CreateNode('UI Parent') : null;
+        check(!stateCase || (parent && view?.node.SetParent(parent)), 'attach UI under a parent');
         this.model = { button: view?.FindElement('bubble-button'),
                        caption: view?.FindElement('caption'), label: view?.FindElement('label'),
-                       calls: [], children: 0, parents: 0, late: 0 };
+                       parent, calls: [], children: 0, parents: 0, late: 0, unbinds: 0 };
         check(this.model.button?.isValid && this.model.caption?.isValid, 'nested View elements');
         this.controller = new BubbleController(view, this.model);
         this.frame = 0;
@@ -416,6 +430,20 @@ export default class extends Gameplay {
             check(this.model.children === (first ? 1 : 2) &&
                   this.model.parents === (first ? 1 : 2) && this.model.late === (first ? 0 : 1),
                   'each eligible listener runs once, and the event snapshot excludes new ones');
+        } else if (stateCase) {
+            check(this.model.children === (this.frame < 3 ? 1 : 2) &&
+                  this.model.parents === (this.frame < 3 ? 0 : 1),
+                  'stopping UI suppresses remaining callbacks and discards queued input');
+            check(this.controller.bound && this.model.unbinds === 0 && this.model.caption.isValid,
+                  'stopping UI retains controller bindings and document identity');
+            if (this.frame === 1) {
+                const view = this.controller.view;
+                check(operation === 'bubble-hide-parent' ? view.active && !view.visibleInHierarchy :
+                      !view.active, 'UI inherits effective parent activation and visibility');
+                check(view.SetEnabled(true) && this.model.parent.SetEnabled(true) &&
+                      this.model.parent.SetVisible(true) && view.active && view.visibleInHierarchy,
+                      'resuming UI retains original handles and subscriptions');
+            }
         } else {
             check(this.model.children === 1 && this.model.parents === 0,
                   'child invalidation suppresses both the parent and queued stale input');
@@ -432,7 +460,7 @@ export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
-        if (!view || view.FindElement('action') !== null || view.SetVisible(true)) return false;
+        if (!view || view.FindElement('action') !== null || !view.SetVisible(true) || !view.visible) return false;
         const controller = new UiController(view, {});
         return !controller.Bind() && !controller.bound;
     }
@@ -509,6 +537,7 @@ export default class extends Gameplay {
 
 struct Systems
 {
+    engine::MountList mounts;
     engine::ResourceSystem resources;
     engine::ThreadSystem threads;
     engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
@@ -567,6 +596,7 @@ struct Systems
 
     bool initialize(const fs::path& project)
     {
+        mounts = {{"content", project / "cache"}};
         engine::EngineConfig config;
         config.window_title = "Engine UI script MVC integration";
         config.width = 640;
@@ -600,15 +630,16 @@ struct Systems
                 return false;
             }
         }
-        for (const auto* operation : {"bubble-order", "bubble-unbind", "bubble-remove"})
+        for (const auto* operation :
+             {"bubble-order", "bubble-unbind", "bubble-remove", "bubble-disable-parent",
+              "bubble-hide-parent", "bubble-disable-view"})
         {
             if (!add_script(catalog, project, operation, bubbling_source(operation)))
             {
                 return false;
             }
         }
-        return expect(resources.initialize(config) &&
-                          resources.update_catalog(catalog, {{"content", project / "cache"}}),
+        return expect(resources.initialize(config) && resources.update_catalog(catalog, mounts),
                       resources.last_error()) &&
                expect(window.initialize(config) && world.initialize(config) &&
                           fonts.initialize(config) && ui.initialize(config) &&
@@ -649,7 +680,8 @@ struct Systems
 
     bool start(std::string_view name)
     {
-        return expect(script.start_gameplay("scripts/" + std::string(name) + ".js"),
+        return expect(test_support::start_script(script, resources, mounts,
+                                                 "scripts/" + std::string(name) + ".js"),
                       script.status().last_error) &&
                expect(renderer.prepare_scene(), "prepare scene after gameplay initialization") &&
                frames();
@@ -668,10 +700,11 @@ struct Systems
         const auto* scene = world.scene();
         engine::UiElementHandle label;
         std::string value;
-        return expect(scene != nullptr && !scene->nodes().empty() &&
-                          ui.find_element(scene->nodes().front()->id(), "label", label) &&
-                          ui.text(label, value) && value == expected,
-                      "native view text matches the script model: " + std::string(expected));
+        return expect(
+            scene != nullptr && !test_support::scene_nodes(*scene).empty() &&
+                ui.find_element(test_support::scene_nodes(*scene).front().id(), "label", label) &&
+                ui.text(label, value) && value == expected,
+            "native view text matches the script model: " + std::string(expected));
     }
 };
 
@@ -755,12 +788,13 @@ bool native_mouse_capture_case(Systems& systems)
     }
     engine::UiElementHandle action;
     engine::UiEvent clicked;
-    if (!expect(systems.ui.find_element(systems.world.scene()->nodes().front()->id(), "action",
-                                       action) &&
-                    systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
-                    systems.ui.poll_event(clicked) && clicked.type == "click" &&
-                    clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
-                "project-managed buttons retain mouse clicks without claiming the keyboard"))
+    if (!expect(
+            systems.ui.find_element(test_support::scene_nodes(*systems.world.scene()).front().id(),
+                                    "action", action) &&
+                systems.ui.set_style(action, "tab-index", "none") && click(systems) &&
+                systems.ui.poll_event(clicked) && clicked.type == "click" &&
+                clicked.element_id == "action" && !systems.ui.keyboard_claimed(),
+            "project-managed buttons retain mouse clicks without claiming the keyboard"))
     {
         return false;
     }
@@ -950,8 +984,8 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     {
         return false;
     }
-    auto* root = systems.world.scene()->nodes().front().get();
-    const auto node_id = root->id();
+    auto root = test_support::scene_nodes(*systems.world.scene()).front();
+    const auto node_id = root.id();
     engine::UiElementHandle original;
     if (!expect(systems.ui.find_element(node_id, "action", original),
                 "record original persistent element identity"))
@@ -967,13 +1001,14 @@ bool persistent_documents(Systems& systems, const fs::path& project)
         if (phase < 4)
         {
             engine::UiElementHandle current;
-            if (!expect(systems.world.find_node(node_id) == root &&
-                            systems.ui.find_element(node_id, "action", current) &&
-                            current.document_id == original.document_id &&
-                            current.element_id == original.element_id &&
-                            systems.ui.is_valid(original) &&
-                            (phase != 2 || systems.world.scene() == nullptr),
-                        "same native node, document and element survive scene changes and empty world"))
+            if (!expect(
+                    systems.world.find_node(node_id) == root &&
+                        systems.ui.find_element(node_id, "action", current) &&
+                        current.document_id == original.document_id &&
+                        current.element_id == original.element_id &&
+                        systems.ui.is_valid(original) &&
+                        (phase != 2 || systems.world.scene() == nullptr),
+                    "same native node, document and element survive scene changes and empty world"))
             {
                 return false;
             }
@@ -994,7 +1029,7 @@ bool persistent_documents(Systems& systems, const fs::path& project)
     {
         return false;
     }
-    const auto old_node = systems.world.scenes().front()->nodes().front()->id();
+    const auto old_node = test_support::scene_nodes(*systems.world.scenes().front()).front().id();
     engine::UiElementHandle old_element;
     if (!systems.ui.find_element(old_node, "action", old_element))
     {
@@ -1024,14 +1059,14 @@ bool lifetime_cases(Systems& systems)
         }
         if (std::string_view(operation) == "component")
         {
-            auto* node = systems.world.scene()->nodes().front().get();
-            if (!expect(node->remove_component(engine::UiComponent::component_type),
+            auto node = test_support::scene_nodes(*systems.world.scene()).front();
+            if (!expect(node.remove_component(engine::UiComponent::component_type),
                         "remove component while its input is queued"))
             {
                 return false;
             }
-            auto* replacement = node->add_component<engine::UiComponent>();
-            if (!expect(replacement != nullptr && replacement->set_document(main_document) &&
+            auto replacement = node.add_component<engine::UiComponent>();
+            if (!expect(replacement.valid() && replacement.set_document(main_document) &&
                             systems.ui.synchronize(),
                         "same node and document produce a new component identity"))
             {
@@ -1067,6 +1102,18 @@ bool bubbling_cases(Systems& systems)
         }
         systems.stop();
     }
+    for (const auto* operation :
+         {"bubble-disable-parent", "bubble-hide-parent", "bubble-disable-view"})
+    {
+        if (!systems.start(operation) || !click(systems, 350.0F, 40.0F) ||
+            !click(systems, 350.0F, 40.0F) || !systems.tick() || !systems.label_is("child") ||
+            !systems.tick() || !systems.label_is("child") || !click(systems, 350.0F, 40.0F) ||
+            !systems.tick() || !systems.label_is("child,child,parent"))
+        {
+            return false;
+        }
+        systems.stop();
+    }
     return true;
 }
 
@@ -1075,41 +1122,44 @@ bool independent_documents(Systems& systems)
     auto* scene = systems.world.load_scene(main_scene);
     engine::UiElementHandle original;
     if (!expect(scene != nullptr &&
-                    systems.ui.find_element(scene->nodes().front()->id(), "label", original),
+                    systems.ui.find_element(test_support::scene_nodes(*scene).front().id(), "label",
+                                            original),
                 "prepare first document without rendering"))
     {
         return false;
     }
-    auto* second = scene->create_node("Second View");
-    auto* component = second == nullptr ? nullptr : second->add_component<engine::UiComponent>();
-    if (!expect(component != nullptr && component->set_document(main_document) &&
+    auto second = scene->create_node("Second View");
+    auto component = !second ? engine::UiComponent{} : second.add_component<engine::UiComponent>();
+    if (!expect(component.valid() && component.set_document(main_document) &&
                     systems.ui.synchronize() && systems.ui.document_count() == 2 &&
                     systems.ui.is_valid(original) && systems.ui.set_text(original, "preserved"),
                 "adding another document retains the original View identity") ||
-        !expect(scene->destroy_node(second->id()) && systems.ui.synchronize() &&
+        !expect(scene->destroy_node(second.id()) && systems.ui.synchronize() &&
                     systems.ui.document_count() == 1 && systems.ui.is_valid(original),
                 "removing another document retains the original View identity"))
     {
         return false;
     }
-    auto* original_component = scene->nodes().front()->get_component<engine::UiComponent>();
-    const auto revision = original_component->document_revision();
-    if (!expect(original_component->set_document("ui/alternate.rml") &&
-                    original_component->document_revision() == revision + 1 &&
-                    original_component->set_document(main_document) &&
-                    original_component->document_revision() == revision + 2 &&
+    auto original_component =
+        test_support::scene_nodes(*scene).front().get_component<engine::UiComponent>();
+    const auto revision = original_component.document_revision();
+    if (!expect(original_component.set_document("ui/alternate.rml") &&
+                    original_component.document_revision() == revision + 1 &&
+                    original_component.set_document(main_document) &&
+                    original_component.document_revision() == revision + 2 &&
                     !systems.ui.is_valid(original),
                 "A to B to A increments the document revision and invalidates the original View"))
     {
         return false;
     }
     engine::UiElementHandle replacement;
-    if (!expect(systems.ui.find_element(scene->nodes().front()->id(), "label", replacement) &&
+    if (!expect(systems.ui.find_element(test_support::scene_nodes(*scene).front().id(), "label",
+                                        replacement) &&
                     systems.ui.is_valid(replacement) &&
                     replacement.document_id != original.document_id,
                 "returning to A creates a fresh document identity") ||
-        !expect(original_component->set_document(main_document) &&
-                    original_component->document_revision() == revision + 2 &&
+        !expect(original_component.set_document(main_document) &&
+                    original_component.document_revision() == revision + 2 &&
                     systems.ui.is_valid(replacement),
                 "assigning the current document preserves its revision and live handles"))
     {
@@ -1124,7 +1174,9 @@ bool independent_documents(Systems& systems)
 bool missing_ui(Systems& systems)
 {
     engine::plugins::script::ScriptSystem script(&systems.world);
-    if (!expect(script.initialize({}) && script.start_gameplay("scripts/no-ui.js") &&
+    if (!expect(script.initialize({}) &&
+                    test_support::start_script(script, systems.resources, systems.mounts,
+                                               "scripts/no-ui.js") &&
                     script.tick(delta_time) && script.status().running,
                 "UI script API safely rejects View binding without an injected UiSystem"))
     {
@@ -1180,8 +1232,8 @@ int main(int argc, char** argv)
                         "integration requires a real GPU backend") &&
                  native_mouse_capture_case(systems) && native_touch_case(systems) &&
                  mvc_case(systems, project.root) && persistent_documents(systems, project.root) &&
-                 lifetime_cases(systems) &&
-                 bubbling_cases(systems) && independent_documents(systems) && missing_ui(systems) &&
+                 lifetime_cases(systems) && bubbling_cases(systems) &&
+                 independent_documents(systems) && missing_ui(systems) &&
                  asynchronous_callback_rejected(systems);
     }
     engine::LogSystem::instance().shutdown();

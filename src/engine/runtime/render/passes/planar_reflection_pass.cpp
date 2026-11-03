@@ -1,5 +1,6 @@
 #include "runtime/render/passes/planar_reflection_pass.hpp"
 #include "runtime/render/passes/planar_reflection_math.hpp"
+#include "runtime/render/render_sampling.hpp"
 #include "runtime/scene/camera_math.hpp"
 #include <algorithm>
 #include <bx/math.h>
@@ -12,26 +13,29 @@ PlanarReflectionPass::~PlanarReflectionPass() noexcept
     release();
 }
 
-bool PlanarReflectionPass::prepare(std::uint16_t new_width, std::uint16_t new_height)
+bool PlanarReflectionPass::prepare(std::uint16_t new_width, std::uint16_t new_height,
+                                   std::uint8_t samples)
 {
-    if (new_width == width && new_height == height && bgfx::isValid(framebuffer_))
+    if (new_width == width && new_height == height && samples_ == samples &&
+        bgfx::isValid(framebuffer_))
     {
         return true;
     }
     release();
     const auto* caps = bgfx::getCaps();
-    if (!caps || new_width == 0 || new_height == 0 || new_width > caps->limits.maxTextureSize ||
-        new_height > caps->limits.maxTextureSize || caps->limits.maxFBAttachments < 3)
+    if (!caps || !valid_msaa_samples(samples) || new_width == 0 || new_height == 0 ||
+        new_width > caps->limits.maxTextureSize || new_height > caps->limits.maxTextureSize ||
+        caps->limits.maxFBAttachments < 3)
     {
         return false;
     }
-    constexpr auto flags = BGFX_TEXTURE_RT | BGFX_SAMPLER_UVW_CLAMP;
+    const auto flags = render_target_flags(samples) | BGFX_SAMPLER_UVW_CLAMP;
     color_ =
         bgfx::createTexture2D(new_width, new_height, false, 1, bgfx::TextureFormat::RGBA16F, flags);
     specular_ =
         bgfx::createTexture2D(new_width, new_height, false, 1, bgfx::TextureFormat::RGBA16F, flags);
     depth_ = bgfx::createTexture2D(new_width, new_height, false, 1, bgfx::TextureFormat::D32F,
-                                   BGFX_TEXTURE_RT | BGFX_TEXTURE_RT_WRITE_ONLY);
+                                   render_target_flags(samples) | BGFX_TEXTURE_RT_WRITE_ONLY);
     if (bgfx::isValid(color_) && bgfx::isValid(specular_) && bgfx::isValid(depth_))
     {
         const std::array attachments = {color_, specular_, depth_};
@@ -44,6 +48,7 @@ bool PlanarReflectionPass::prepare(std::uint16_t new_width, std::uint16_t new_he
     }
     width = new_width;
     height = new_height;
+    samples_ = samples;
     return true;
 }
 
@@ -99,6 +104,7 @@ void PlanarReflectionPass::release() noexcept
     width = height = 0;
     node_id = 0;
     attached_view_ = UINT16_MAX;
+    samples_ = 1;
 }
 std::uint32_t PlanarReflectionPass::resource_count() const noexcept
 {

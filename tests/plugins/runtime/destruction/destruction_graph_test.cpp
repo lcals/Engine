@@ -123,8 +123,7 @@ bool retirement_contract()
         return false;
     }
     const auto before = graph.healths();
-    if (!expect(!graph.retire_groups(anchored, error) &&
-                    !graph.retire_groups(duplicate, error) &&
+    if (!expect(!graph.retire_groups(anchored, error) && !graph.retire_groups(duplicate, error) &&
                     !graph.retire_groups(invalid, error) && graph.groups().size() == 2 &&
                     graph.healths() == before && graph.retire_groups(last, error) &&
                     graph.groups().size() == 1 && graph.groups().front().chunks.size() == 2 &&
@@ -261,10 +260,10 @@ bool stress_contract()
     for (const auto& group : graph.groups())
     {
         if (!group.anchored &&
-            !expect(graph.apply_stress(group.id, {0, -9.81, 0}, 100, 0.1F, 0.2F, 500,
-                                        broken, error) && broken == 0 &&
-                        graph.healths() == fractured,
-                    "free-falling group is not damaged by uniform gravity", error))
+            !expect(
+                graph.apply_stress(group.id, {0, -9.81, 0}, 100, 0.1F, 0.2F, 500, broken, error) &&
+                    broken == 0 && graph.healths() == fractured,
+                "free-falling group is not damaged by uniform gravity", error))
         {
             return false;
         }
@@ -282,8 +281,7 @@ bool stress_contract()
     }
     DestructionGraph baseline;
     DestructionGraph alternate;
-    if (!expect(baseline.initialize(asset, error) &&
-                    alternate.initialize(stronger_health, error) &&
+    if (!expect(baseline.initialize(asset, error) && alternate.initialize(stronger_health, error) &&
                     baseline.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error) &&
                     alternate.apply_stress(0, {0, -9.81, 0}, 100, 1, 1e6F, 500, broken, error),
                 "solve equivalent materials with different gameplay health", error))
@@ -305,12 +303,11 @@ bool stress_contract()
     auto recentered = asset;
     for (auto& chunk : recentered.chunks)
     {
-        chunk->centroid = {chunk->centroid.x(), chunk->centroid.y() - 0.5,
-                           chunk->centroid.z()};
+        chunk->centroid = {chunk->centroid.x(), chunk->centroid.y() - 0.5, chunk->centroid.z()};
         for (auto& vertex : chunk->mesh->vertices)
         {
-            vertex = {vertex.x(), vertex.y() - 0.5F, vertex.z(), vertex.nx(), vertex.ny(),
-                       vertex.nz()};
+            vertex = {vertex.x(),  vertex.y() - 0.5F, vertex.z(),
+                      vertex.nx(), vertex.ny(),       vertex.nz()};
         }
     }
     for (auto& bond : recentered.bonds)

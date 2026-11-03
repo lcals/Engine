@@ -8,6 +8,7 @@
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "scene_snapshot.hpp"
 
 #include <flatbuffers/verifier.h>
 
@@ -344,7 +345,7 @@ bool scene_effects(engine::ResourceSystem& resources,
     {
         return false;
     }
-    invalid.nodes[1]->components.back()->enabled = false;
+    invalid.nodes[1]->components.back()->flags->enabled = false;
     if (!expect(engine::editor::SceneImporter::write(invalid_path, invalid, error),
                 "disabled alternate environment may be saved"))
     {
@@ -359,13 +360,13 @@ bool scene_effects(engine::ResourceSystem& resources,
     }
     invalid.nodes[0]->components.back()->payload.AsLightData()->kind =
         engine::schema::LightKind::point;
-    auto planar = std::make_unique<engine::schema::ComponentDataT>();
+    auto planar = test_support::component_data();
     engine::schema::PlanarReflectionDataT planar_settings;
     planar_settings.resolution_scale = 0.75F;
     planar_settings.clip_bias = 0.03F;
     planar->payload.Set(planar_settings);
     invalid.nodes[1]->components.push_back(std::move(planar));
-    auto probes = std::make_unique<engine::schema::ComponentDataT>();
+    auto probes = test_support::component_data();
     probes->payload.Set(engine::schema::LightProbeVolumeDataT{});
     invalid.nodes[1]->components.push_back(std::move(probes));
     engine::schema::SceneDataT restored;
@@ -635,7 +636,8 @@ bool tests()
     std::string import_error;
     const auto saved_scene = fixture.root / "settings/roundtrip.scene";
     if (!expect(engine::editor::SceneImporter::read(assets / "main.scene", data, import_error) &&
-                    data.nodes[1]->info->id == std::numeric_limits<std::uint64_t>::max(),
+                    data.nodes[1]->info->properties->id ==
+                        std::numeric_limits<std::uint64_t>::max(),
                 "TOML decimal strings preserve complete uint64 node identity") ||
         !expect(engine::editor::SceneImporter::write(saved_scene, data, import_error),
                 "save actual generated scene data as TOML"))
@@ -650,7 +652,7 @@ bool tests()
     {
         return false;
     }
-    data.nodes[0]->info->parent_id = data.nodes[1]->info->id;
+    data.nodes[0]->info->parent_id = data.nodes[1]->info->properties->id;
     const auto saved_text = read(saved_scene);
     if (!expect(!engine::editor::SceneImporter::write(saved_scene, data, import_error) &&
                     read(saved_scene) == saved_text,

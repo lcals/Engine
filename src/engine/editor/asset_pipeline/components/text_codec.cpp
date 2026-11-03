@@ -84,6 +84,12 @@ bool TextCodec::read(const toml::table& table, schema::ComponentDataT& component
     return true;
 }
 
+std::span<const std::string_view> TextCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"font", "shader"};
+    return fields;
+}
+
 void TextCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto* value = component.payload.AsTextData();

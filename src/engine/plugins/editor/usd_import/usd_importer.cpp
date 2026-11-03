@@ -298,6 +298,7 @@ bool UsdImporter::discover(const editor::asset_pipeline::ImportAsset& source,
         }
         auto node = std::make_unique<schema::ModelNodeDataT>();
         node->name = prim.GetName().GetString();
+        node->source_key = prim.GetPath().GetString();
         const auto parent = node_indices.find(prim.GetParent().GetPath());
         node->parent = parent == node_indices.end() ? -1 : parent->second;
         const auto index = parsed.model.nodes.size();

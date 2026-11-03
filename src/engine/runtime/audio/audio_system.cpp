@@ -1,4 +1,6 @@
 #include "runtime/audio/audio_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/performance/profiling.hpp"
 #include "runtime/resource/resource.hpp"
@@ -36,18 +38,29 @@ struct Listener
 Listener find_listener(const Scene& scene)
 {
     Listener result;
-    for (const auto& node : scene.nodes())
-    {
-        const auto* listener = node->get_component<AudioListener>();
-        const auto* transform = node->get_component<Transform>();
-        if (listener && listener->enabled() && transform && transform->enabled() &&
-            transform->world_matrix(result.matrix.data()))
+    std::uint64_t selected_order = UINT64_MAX;
+    auto& world = scene.world();
+    auto query =
+        flecs::world(world.native_world())
+            .query_builder<const ecs_detail::ComponentStorage<AudioListener::Data>,
+                           const ecs_detail::ComponentStorage<Transform::Data>,
+                           const ecs_detail::NodeRuntime, const ecs_detail::WorldTransform>()
+            .with<ecs_detail::Published>()
+            .build();
+    query.each(
+        [&](const auto& listener, const auto& transform, const ecs_detail::NodeRuntime& state,
+            const ecs_detail::WorldTransform& pose)
         {
-            result.volume = listener->settings().volume;
+            if (state.scene != &scene || !state.active || !listener.state.flags.enabled ||
+                !transform.state.flags.enabled || !pose.valid || state.order >= selected_order)
+            {
+                return;
+            }
+            selected_order = state.order;
+            result.matrix = pose.matrix;
+            result.volume = listener.data.volume;
             result.available = true;
-            break;
-        }
-    }
+        });
     return result;
 }
 
@@ -64,9 +77,9 @@ bool spatial_mix(const AudioSource& source, const Listener& listener, float& gai
         gain = 0.0F;
         return true;
     }
-    const auto* transform = source.node().get_component<Transform>();
+    const auto transform = source.node().get_component<Transform>();
     std::array<float, 16> matrix{};
-    if (!transform || !transform->enabled() || !transform->world_matrix(matrix.data()))
+    if (!transform || !transform.active() || !transform.world_matrix(matrix.data()))
     {
         return false;
     }
@@ -335,20 +348,19 @@ bool AudioSystem::on_tick(double)
         impl_->close_device();
         return true;
     }
+    if (!world_->refresh_scene_state())
+    {
+        return false;
+    }
     for (auto iterator = impl_->voices.begin(); iterator != impl_->voices.end();)
     {
-        auto* node = world_->find_node(iterator->first);
-        auto* source = node ? node->get_component<AudioSource>() : nullptr;
-        if (!source || !source->enabled() || source->playback_ == AudioPlayback::stopped ||
-            source->playback_ == AudioPlayback::failed ||
-            source->revision_ != iterator->second->revision ||
-            source->instance_id_ != iterator->second->instance_id)
+        auto node = world_->find_node(iterator->first);
+        auto source = node ? node.get_component<AudioSource>() : AudioSource{};
+        if (!source || source.runtime()->playback_ == AudioPlayback::stopped ||
+            source.runtime()->playback_ == AudioPlayback::failed ||
+            source.runtime()->revision_ != iterator->second->revision ||
+            source.instance_id() != iterator->second->instance_id)
         {
-            if (source && !source->enabled())
-            {
-                source->playback_ = AudioPlayback::stopped;
-                source->awake_pending_ = false;
-            }
             iterator = impl_->voices.erase(iterator);
         }
         else
@@ -369,62 +381,71 @@ bool AudioSystem::on_tick(double)
         }
     }
     bool success = true;
-    for (const auto& scene : world_->scenes())
     {
-        for (const auto& node : scene->nodes())
+        const auto process =
+            [&](Node node, const ecs_detail::ComponentStorage<AudioSource::Data>& stored) -> bool
         {
-            auto* source = node->get_component<AudioSource>();
+            const auto* scene = node.scene();
+            (void)scene;
+            (void)stored;
+
+            auto source = node.get_component<AudioSource>();
             if (!source)
             {
-                continue;
+                return true;
             }
-            if (!source->enabled())
+            if (!source.active())
             {
-                source->playback_ = AudioPlayback::stopped;
-                continue;
+                const auto voice = impl_->voices.find(node.id());
+                if (voice != impl_->voices.end() && voice->second->bound)
+                {
+                    SDL_UnbindAudioStream(voice->second->stream);
+                    voice->second->bound = false;
+                }
+                return true;
             }
-            if (source->awake_pending_)
+            if (source.runtime()->awake_pending_)
             {
-                source->awake_pending_ = false;
-                if (source->settings().play_on_awake && source->clip_data() && !source->play())
+                source.runtime()->awake_pending_ = false;
+                if (stored.data.play_on_awake && source.clip_data() && !source.play())
                 {
                     impl_->error = "Cannot request play-on-awake audio";
-                    source->playback_ = AudioPlayback::failed;
+                    source.runtime()->playback_ = AudioPlayback::failed;
                     success = false;
                 }
             }
-            auto found = impl_->voices.find(node->id());
-            if (source->playback_ == AudioPlayback::paused)
+            auto found = impl_->voices.find(node.id());
+            if (source.runtime()->playback_ == AudioPlayback::paused)
             {
                 if (found != impl_->voices.end() && found->second->bound)
                 {
                     SDL_UnbindAudioStream(found->second->stream);
                     found->second->bound = false;
                 }
-                continue;
+                return true;
             }
-            if (source->playback_ != AudioPlayback::pending &&
-                source->playback_ != AudioPlayback::playing)
+            if (source.runtime()->playback_ != AudioPlayback::pending &&
+                source.runtime()->playback_ != AudioPlayback::playing)
             {
-                continue;
+                return true;
             }
             const auto fail_source = [&]()
             {
-                impl_->voices.erase(node->id());
-                source->playback_ = AudioPlayback::failed;
+                impl_->voices.erase(node.id());
+                source.runtime()->playback_ = AudioPlayback::failed;
                 success = false;
             };
-            const auto* clip = source->clip_data();
+            const auto* clip = source.clip_data();
             if (!clip || !valid_clip(*clip))
             {
                 impl_->error = "Audio source has no valid PCM clip";
                 fail_source();
-                continue;
+                return true;
             }
             if (!impl_->open_device())
             {
                 fail_source();
-                continue;
+                return true;
             }
             if (found == impl_->voices.end())
             {
@@ -432,24 +453,24 @@ bool AudioSystem::on_tick(double)
                 const SDL_AudioSpec input{SDL_AUDIO_F32, 2, static_cast<int>(clip->sample_rate)};
                 const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
                 voice->stream = SDL_CreateAudioStream(&input, &output);
-                voice->clip = source->clip_;
-                voice->instance_id = source->instance_id_;
-                voice->revision = source->revision_;
+                voice->clip = source.runtime()->clip_;
+                voice->instance_id = source.instance_id();
+                voice->revision = source.runtime()->revision_;
                 if (!voice->stream ||
                     !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))
                 {
                     static_cast<void>(impl_->fail("Cannot create audio stream"));
                     fail_source();
-                    continue;
+                    return true;
                 }
-                found = impl_->voices.emplace(node->id(), std::move(voice)).first;
+                found = impl_->voices.emplace(node.id(), std::move(voice)).first;
             }
             auto& voice = *found->second;
             bool finished = false;
-            if (!impl_->publish(voice, *source, listener, finished))
+            if (!impl_->publish(voice, source, listener, finished))
             {
                 fail_source();
-                continue;
+                return true;
             }
             if (!finished && !voice.bound)
             {
@@ -457,20 +478,36 @@ bool AudioSystem::on_tick(double)
                 {
                     static_cast<void>(impl_->fail("Cannot bind audio stream"));
                     fail_source();
-                    continue;
+                    return true;
                 }
                 voice.bound = true;
             }
             if (finished)
             {
-                source->playback_ = AudioPlayback::stopped;
+                source.runtime()->playback_ = AudioPlayback::stopped;
                 impl_->voices.erase(found);
             }
             else
             {
-                source->playback_ = AudioPlayback::playing;
+                source.runtime()->playback_ = AudioPlayback::playing;
             }
-        }
+
+            return true;
+        };
+        auto query = flecs::world(world_->native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<AudioSource::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity, const ecs_detail::ComponentStorage<AudioSource::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_->find_node(entity.id()), stored);
+                }
+            });
+        (void)query_success;
     }
     if (success)
     {
@@ -487,16 +524,38 @@ void AudioSystem::clear() noexcept
     }
     if (world_ != nullptr)
     {
-        for (const auto& scene : world_->scenes())
         {
-            for (const auto& node : scene->nodes())
+            const auto process =
+                [&](Node node,
+                    const ecs_detail::ComponentStorage<AudioSource::Data>& stored) -> bool
             {
-                if (auto* source = node->get_component<AudioSource>())
+                const auto* scene = node.scene();
+                (void)scene;
+                (void)stored;
+
+                if (auto source = node.get_component<AudioSource>())
                 {
-                    source->playback_ = AudioPlayback::stopped;
-                    source->awake_pending_ = false;
+                    source.runtime()->playback_ = AudioPlayback::stopped;
+                    source.runtime()->awake_pending_ = false;
                 }
-            }
+
+                return true;
+            };
+            auto query = flecs::world(world_->native_world())
+                             .query_builder<const ecs_detail::ComponentStorage<AudioSource::Data>>()
+                             .with<ecs_detail::Published>()
+                             .build();
+            bool query_success = true;
+            query.each(
+                [&](flecs::entity entity,
+                    const ecs_detail::ComponentStorage<AudioSource::Data>& stored)
+                {
+                    if (query_success)
+                    {
+                        query_success = process(world_->find_node(entity.id()), stored);
+                    }
+                });
+            (void)query_success;
         }
     }
     impl_->close_device();

@@ -6,7 +6,8 @@
 classDiagram
     class ModelInstantiationEdit {
         <<internal final>>
-        +ModelInstantiationEdit(WorldSystem& world, NodeAliases& aliases, uint64_t scene, string path, string name, vector~AssetEntryT~ versions)
+        +ModelInstantiationEdit(WorldSystem& world, NodeAliases& aliases, uint64_t scene, string path, string name, vector~AssetEntryT~ versions, bool prefab = false)
+        -root_index_ size_t
         +apply(string& error) bool
         +revert(string& error) bool
     }
@@ -16,6 +17,7 @@ classDiagram
     class Scene
     class NodeDataT
     class AssetEntryT
+    class PrefabInstanceDataT
     class NodeAliases
     EditorEdit <|-- ModelInstantiationEdit
     SceneCommands ..> ModelInstantiationEdit : 准备尚未应用的编辑记录
@@ -23,10 +25,13 @@ classDiagram
     ModelInstantiationEdit --> NodeAliases : 借用同一节点身份表
     ModelInstantiationEdit *-- NodeDataT : 拥有本次实例全部节点快照
     ModelInstantiationEdit *-- AssetEntryT : 拥有资源及依赖版本快照
+    ModelInstantiationEdit "1" *-- "0..1" PrefabInstanceDataT : Prefab 关联快照
     ModelInstantiationEdit ..> Scene : 实例化与整体删除
 ```
 
 - `instantiate_model(sceneId, path, name)` 按运行目录加载模型资源（Model）并展开为 Node + Component 层级。返回根名称及资源路径，`get_scene` 查询创建后的节点 ID。
+- `instantiate_prefab(sceneId, path, name)` 复用该编辑记录，构造参数 `prefab=true` 时调用 `Scene::instantiate_prefab`；默认 `false` 保持 Model 实例化入口。
+- `root_index_` 记录实际根在本次创建节点中的位置，不要求模板数组把根排在首项。Prefab 创建记录同时保存 `PrefabInstanceDataT`，撤销前核对关联、映射与覆盖没有外部改变；删除实际根时整体移除关联。
 - 构建记录时保留模型及依赖元数据。应用及重做检查相同版本；失败保留原场景和撤销栈，不接受已经变化的资源。
 - 创建记录保存完整子树快照；撤销只允许删除未被外部修改的本次层级，有额外子节点、节点被移动或组件变化时拒绝。
 - 重做更新所有子节点的共享身份，后续变换、组件及插件编辑仍能定位重建后的节点。历史只持有 ID、快照和共享身份，不持有 Node 借用。

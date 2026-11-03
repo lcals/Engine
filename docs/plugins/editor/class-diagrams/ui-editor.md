@@ -8,7 +8,7 @@
 
 ## 编辑器装配与职责
 
-新增两个有行为的类：`UiEditorCommands` 执行编辑器命令，`UiEditorMcpTools` 只声明并转发 MCP 工具。两者均属于 `engine::plugins::ui`，不增加常驻 System 或通用 Manager。复用现有 `ComponentEdit` 记录实现组件绑定的撤销，不建立第二套撤销系统。
+`UiEditorCommands` 执行编辑器命令，模块函数 `register_ui_editor_tools` 只声明并转发 MCP 工具。两者均属于 `engine::plugins::ui`，不增加常驻 System 或通用 Manager。复用现有 `ComponentEdit` 和 `SceneCommands::node_identity` 实现组件绑定的撤销，不建立第二套撤销系统。
 
 ```mermaid
 classDiagram
@@ -16,7 +16,7 @@ classDiagram
         <<final>>
         +UiEditorCommands(WorldSystem&, UiSystem&, WindowSystem&, ScenePreview&, TaskSystem&, path)
         +~UiEditorCommands()
-        +register_commands(EditorCommands&) bool
+        +register_commands(EditorCommands&, SceneCommands&) bool
         +tick(double delta_time) void
         +observe_event(const SDL_Event&) void
         +cancel_pending_input() void
@@ -41,12 +41,14 @@ classDiagram
 classDiagram
     class UiEditorCommands
     class EditorCommands
+    class SceneCommands
     class EditorEdit
     class UiComponent
     class UiImporter
     class SDL_Event
     class filesystem_path
     UiEditorCommands ..> EditorCommands : 登记命令及回执
+    UiEditorCommands --> SceneCommands : 借用共享节点身份
     EditorCommands --> UiEditorCommands : 回调借用
     EditorCommands *-- EditorEdit : 独占撤销历史
     UiEditorCommands ..> EditorEdit : 生成组件编辑记录
@@ -60,25 +62,24 @@ MCP 侧只负责固定项目通道的工具适配；原生输入观察回调的�
 
 ```mermaid
 classDiagram
-    class UiEditorMcpTools {
-        <<final>>
-        +UiEditorMcpTools(EditorMcpTools& editor)
-        +register_tools(McpSystem& system) bool
+    class register_ui_editor_tools {
+        <<namespace function>>
+        +register_ui_editor_tools(McpSystem& system, EditorMcpTools& editor) bool
     }
     class McpHost
     class EditorMcpTools
     class McpSystem
     class UiEditorCommands
-    McpHost *-- UiEditorMcpTools : 独占
-    UiEditorMcpTools --> EditorMcpTools : 借用固定目标通道
-    UiEditorMcpTools ..> McpSystem : 注册工具
-    McpSystem --> UiEditorMcpTools : 回调借用
-    UiEditorMcpTools ..> UiEditorCommands : 经通道转发
+    register_ui_editor_tools ..> McpHost : 宿主启动时调用
+    register_ui_editor_tools --> EditorMcpTools : 借用固定目标通道
+    register_ui_editor_tools ..> McpSystem : 注册工具
+    McpSystem --> EditorMcpTools : 工具回调直接借用通道
+    register_ui_editor_tools ..> UiEditorCommands : 经通道转发
 ```
 
 - 所有查询、DOM 调整与合成输入在编辑器主线程执行。宿主沿现有编辑器逐帧流程调用 `tick` 推进一个有界输入序列；等待让出主线程，不增加线程、通用调度器或第二套任务系统。文件处理复用编辑器任务域，完成提交回到现有命令安全点。
-- 构造函数建立安全状态，`register_commands` / `register_tools` 返回值标注 `[[nodiscard]]`。两类禁止复制和移动，析构、`observe_event` 和 `cancel_pending_input` 为 `noexcept`；不把可能失败的文件访问或文档加载放进构造函数。
-- 宿主独占插件对象并负责条件装配；先注销原生输入观察回调并取消输入作业，再释放命令服务及撤销历史和 `UiEditorCommands`，其借用对象最后释放。MCP 宿主同样先结束工具回调再销毁适配器。
+- 构造函数建立安全状态，`register_commands` / `register_ui_editor_tools` 返回值标注 `[[nodiscard]]`。`UiEditorCommands` 禁止复制和移动，析构、`observe_event` 和 `cancel_pending_input` 为 `noexcept`；不把可能失败的文件访问或文档加载放进构造函数。
+- 宿主独占插件对象并负责条件装配；先注销原生输入观察回调并取消输入作业，再释放命令服务及撤销历史和 `UiEditorCommands`，其借用对象最后释放。MCP 宿主先结束工具回调，再销毁借用的 EditorMcpTools 通道。
 - 清单放在 `cmake/plugins/editor/ui.cmake`，源码/公开头放在对应 `plugins/editor/ui/`。`editor/ui` 明确依赖 `editor/ui_import`，MCP 适配目标仅在已选 `editor/mcp` 时创建。核心、编辑器基础库和运行包均不链接这个具体插件。
 - 不复制 RmlUi DOM、布局、hit-test 或事件实现。运行时不暴露 RmlUi 指针，不 include 编辑器头文件；无编辑器插件时 UI 绘制和 TS MVC 继续使用原路径。
 
@@ -176,7 +177,7 @@ classDiagram
 
 `get_ui_documents` 对未能加载文档的组件返回绑定和明确错误，不把它当成不存在。树查询默认限制深度和节点数，并支持继续分页；有 id 的父级和无 id 的子级都保持真实层级。查询返回可能的密码控件时只返回值长度/掩码，不输出密码值。
 
-`set_ui_document` 验证目标资源类型、场景身份和运行节点身份，撤销记录保存资源身份/版本与生成的 UiData，而不是旧 RmlUi 指针。玩法运行期间的临时显示改动使用 `set_ui_element`，不能把业务运行态误写入场景。
+`set_ui_document` 验证目标资源类型、场景身份和运行节点身份，撤销记录保存 AssetEntryT 资源版本值与生成的 UiData，不持有资源载荷；节点身份复用 SceneCommands 的共享身份单元，而不是旧 RmlUi 指针。玩法运行期间的临时显示改动使用 `set_ui_element`，不能把业务运行态误写入场景。
 
 `set_ui_element` 继续遵守现有语义：`text` 为纯文字，会替换子内容；`value` 为直接设置 View 值，不等同真实输入或业务数据变更；`style` 修改本控件局部 RCSS 属性。Image 只接受 UI 资源已声明的纹理，不能绕过 GUID 依赖。读取实际 UI 时应能看到 TS Controller 随后覆盖的结果，不能暗中停用 Controller 以保留临时改动。
 
@@ -273,3 +274,5 @@ sequenceDiagram
 - `get_ui_element` 与 `set_ui_element` 使用 `target:{documentId,elementId}`。修改明确指定 `operation`：text/value/visible/enabled/image 使用 `value`；class 使用 `name/active`；style 使用 `name/value`。拒绝与当前操作无关的字段。
 - `save_ui_source` 使用 `path/source/expectedSourceHash/expectedMetaHash`，可选 `fonts:[{family,asset,shader}]` 和 `textures:[resourcePathOrGuid]`。源文件完成只报告 `stage:source_saved, import:pending, view:pending`；现有编辑器监听负责后续导入和激活。
 - 宿主在 Run 身份变更、停止和关闭之前调用取消，插件自身也检查窗口逻辑/像素尺寸与文档身份。临时 View 文字变更不会触发全局代次。
+
+`register_ui_editor_tools` 是模块登记函数，没有适配器对象或独立状态；工具回调直接借用 EditorMcpTools，宿主保证通道存活到 McpSystem 关闭。

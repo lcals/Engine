@@ -6,7 +6,9 @@
 
 ## 源资源与身份
 
-项目源资源位于 `assets/`。场景、网格、材质和 Shader 描述分别使用 `.scene`、`.mesh`、`.material`、`.shader` 后缀，内容为 TOML；不追加 `.toml`。TypeScript、Shader 源码、图片及其他文件保留其格式。
+项目源资源位于 `assets/`。场景、预制体、网格、材质和 Shader 描述分别使用 `.scene`、`.prefab`、`.mesh`、`.material`、`.shader` 后缀，内容为 TOML；不追加 `.toml`。TypeScript、Shader 源码、图片及其他文件保留其格式。
+
+美术默认采用“源模型 → 预制体 → 场景实例”流程，也可直接将引擎节点子树保存成预制体。模型源保留用于再导入，场景保存实例关联与明确属性覆盖；普通保存不回写模板。制作、覆盖与 MCP 命令见[预制体工作流](prefabs.md)。
 
 每个源文件都必须有邻接 `.meta`，以 TOML 保存唯一完整 GUID。新资源自动生成 meta；移动资源时一起移动 meta，保持身份；复制资源不能复用原 GUID。重复 GUID、已知资源丢失 meta 均返回失败，不静默重写身份。
 

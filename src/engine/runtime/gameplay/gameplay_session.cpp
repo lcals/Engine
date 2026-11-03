@@ -388,7 +388,7 @@ struct GameplaySession::State
     std::string last_attempt;
     std::string last_status;
     bool gameplay_requested = false;
-    mutable ScriptStatus reported;
+    bool hot_reload = false;
 
     explicit State(GameplaySession& session)
         : owner(session),
@@ -417,12 +417,13 @@ struct GameplaySession::State
         {
             return;
         }
-        const Json document = {{"running", status->running},
-                               {"runId", std::to_string(status->run_id)},
-                               {"hotReload", status->hot_reload},
-                               {"activeRevision", status->active_revision},
-                               {"availableRevision", status->available_revision},
-                               {"lastError", status->last_error}};
+        const Json document = {
+            {"running", status->running},
+            {"runId", std::to_string(status->run_id)},
+            {"hotReload", hot_reload},
+            {"activeRevision", status->active_revision},
+            {"availableRevision", available ? available->revision : ""},
+            {"lastError", owner.last_error_.empty() ? status->last_error : owner.last_error_}};
         desired_status = document.dump(-1, ' ', false, Json::error_handler_t::replace);
         if (owner.background_ != nullptr || desired_status == last_status)
         {
@@ -458,11 +459,11 @@ struct GameplaySession::State
         last_control = control.text;
         last_control_time = control.written;
         control_seen = true;
-        if (control.hot_reload && !owner.script_->status().hot_reload)
+        if (control.hot_reload && !hot_reload)
         {
             last_attempt.clear();
         }
-        owner.script_->set_hot_reload(control.hot_reload);
+        hot_reload = control.hot_reload;
     }
 
     void poll_control()
@@ -660,6 +661,7 @@ bool GameplaySession::set_resources(const schema::AssetCatalogDataT& data, const
     if (state_)
     {
         candidate->last_manifest = state_->last_manifest;
+        candidate->hot_reload = state_->hot_reload;
     }
     else if (App::is_initialized())
     {
@@ -758,8 +760,8 @@ bool GameplaySession::tick()
         state_->gameplay_requested = false;
         release_scene();
     }
-    if (complete && state_->gameplay_requested && script_->status().hot_reload &&
-        state_->available && state_->available->revision != script_->status().active_revision &&
+    if (complete && state_->gameplay_requested && state_->hot_reload && state_->available &&
+        state_->available->revision != script_->status().active_revision &&
         state_->available->revision != state_->last_attempt)
     {
         state_->last_attempt = state_->available->revision;
@@ -838,17 +840,7 @@ const ScriptStatus* GameplaySession::script_status() const noexcept
     {
         return nullptr;
     }
-    if (!state_)
-    {
-        return &script_->status();
-    }
-    state_->reported = script_->status();
-    state_->reported.available_revision = state_->available ? state_->available->revision : "";
-    if (!last_error_.empty())
-    {
-        state_->reported.last_error = last_error_;
-    }
-    return &state_->reported;
+    return &script_->status();
 }
 
 std::string_view GameplaySession::last_error() const noexcept

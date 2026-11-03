@@ -148,83 +148,6 @@ jump_speed = 5.5
 look_sensitivity = 0.12
 
 [[nodes]]
-id = 5
-name = "Terrain"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, 0, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "terrain"
-terrain = "6f8bc987-33aa-5016-97a9-f2f945106deb"
-material = "df6a80fa-be66-4396-8a01-62aaadd61574"
-collision = true
-surface_color = [0.31, 0.38, 0.24, 1]
-wall_color = [0.51, 0.37, 0.23, 1]
-uv_scale = 0.2
-
-[[nodes]]
-id = 6
-name = "Tower"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, 0, -2]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "destruction"
-destruction = "c89a73d9-cef0-52bf-a489-01f6a7790347"
-material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
-density = 80
-friction = 0.7
-restitution = 0.08
-
-[[nodes]]
-id = 7
-name = "Wall"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-11, 0, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "destruction"
-destruction = "f344631c-5d66-5537-80c5-47a3b96744c1"
-material = "c9a8250e-1bda-407f-b93a-952691dba977"
-density = 80
-friction = 0.7
-restitution = 0.08
-
-[[nodes]]
-id = 8
-name = "Column"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [11, 0, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "destruction"
-destruction = "fce3aad2-f8a9-5247-851a-5095a396684d"
-material = "7160a450-f188-485d-9b2b-7fac47d5a93a"
-density = 80
-friction = 0.7
-restitution = 0.08
-
-[[nodes]]
 id = 9
 name = "Environment"
 parent = 0
@@ -289,47 +212,6 @@ intensity = 12
 range = 35
 
 [[nodes]]
-id = 13
-name = "Stress beam"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [12, 5.8, -13]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "destruction"
-destruction = "deebd72c-5643-51bb-98d4-b4230e958eff"
-material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
-density = 80
-friction = 0.7
-restitution = 0.08
-
-[[nodes]]
-id = 14
-name = "Stress foundation"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [7.5, 2.9, -13]
-rotation = [0, 0, 0]
-scale = [1.5, 2.9, 2.0]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
-
-[[nodes.components]]
-type = "collider"
-shape = "box"
-half_extents = [1, 1, 1]
-friction = 0.7
-
-[[nodes]]
 id = 12
 name = "Integration UI"
 parent = 0
@@ -343,86 +225,6 @@ scale = [1, 1, 1]
 [[nodes.components]]
 type = "ui"
 document = "90eba375-df77-5d95-9113-8b9c4a0526bc"
-
-[[nodes]]
-id = 20
-name = "Safe zone marker 1"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-16, 0.025, 10]
-rotation = [0, 0, 0]
-scale = [0.75, 0.025, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
-
-[[nodes]]
-id = 21
-name = "Safe zone marker 2"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [-8, 0.025, 10]
-rotation = [0, 0, 0]
-scale = [0.75, 0.025, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
-
-[[nodes]]
-id = 22
-name = "Safe zone marker 3"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, 0.025, 10]
-rotation = [0, 0, 0]
-scale = [0.75, 0.025, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
-
-[[nodes]]
-id = 23
-name = "Safe zone marker 4"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [8, 0.025, 10]
-rotation = [0, 0, 0]
-scale = [0.75, 0.025, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
-
-[[nodes]]
-id = 24
-name = "Safe zone marker 5"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [16, 0.025, 10]
-rotation = [0, 0, 0]
-scale = [0.75, 0.025, 0.08]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "adf89965-c8d0-4593-96e7-349384f8191d"
 
 [[nodes]]
 id = 30
@@ -866,2370 +668,526 @@ play_on_awake = false
 min_distance = 8.0
 max_distance = 140.0
 
-[[nodes]]
-id = 200
-name = "Rocket 1"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 201
-name = "Rocket 2"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 202
-name = "Rocket 3"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 203
-name = "Rocket 4"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 204
-name = "Rocket 5"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 205
-name = "Rocket 6"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 206
-name = "Rocket 7"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 207
-name = "Rocket 8"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 208
-name = "Rocket 9"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 209
-name = "Rocket 10"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 210
-name = "Rocket 11"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 211
-name = "Rocket 12"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 212
-name = "Rocket 13"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 213
-name = "Rocket 14"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 214
-name = "Rocket 15"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 215
-name = "Rocket 16"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 216
-name = "Rocket 17"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 217
-name = "Rocket 18"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 218
-name = "Rocket 19"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 219
-name = "Rocket 20"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 220
-name = "Rocket 21"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 221
-name = "Rocket 22"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 222
-name = "Rocket 23"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 223
-name = "Rocket 24"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 224
-name = "Rocket 25"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 225
-name = "Rocket 26"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 226
-name = "Rocket 27"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 227
-name = "Rocket 28"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 228
-name = "Rocket 29"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 229
-name = "Rocket 30"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 230
-name = "Rocket 31"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 231
-name = "Rocket 32"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 232
-name = "Rocket 33"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 233
-name = "Rocket 34"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 234
-name = "Rocket 35"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 235
-name = "Rocket 36"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 236
-name = "Rocket 37"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 237
-name = "Rocket 38"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 238
-name = "Rocket 39"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 239
-name = "Rocket 40"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 240
-name = "Rocket 41"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 241
-name = "Rocket 42"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 242
-name = "Rocket 43"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 243
-name = "Rocket 44"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 244
-name = "Rocket 45"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 245
-name = "Rocket 46"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 246
-name = "Rocket 47"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 247
-name = "Rocket 48"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 248
-name = "Rocket 49"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 249
-name = "Rocket 50"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 250
-name = "Rocket 51"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 251
-name = "Rocket 52"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 252
-name = "Rocket 53"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 253
-name = "Rocket 54"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 254
-name = "Rocket 55"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 255
-name = "Rocket 56"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 256
-name = "Rocket 57"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 257
-name = "Rocket 58"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 258
-name = "Rocket 59"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 259
-name = "Rocket 60"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 260
-name = "Rocket 61"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 261
-name = "Rocket 62"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 262
-name = "Rocket 63"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 263
-name = "Rocket 64"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [1, 1, 1]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "664d836d-51dc-5448-ab4c-f204464464f4"
-enabled = false
-
-[[nodes.components]]
-type = "effect"
-effect = "bdeddf20-7cb7-56ca-9252-b9679257afa5"
-speed = 1.0
-play_on_awake = false
-loop = false
-
-[[nodes]]
-id = 95
-name = "Rocket launcher"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [15.45, 1.5, 13.8]
-rotation = [0, 0, 0]
-scale = [1.35, 1.35, 1.35]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "d53ad4cd-27b0-5068-b013-5637307d5650"
-material = "82b201e3-1b63-5e2a-80e9-045a51acfeb5"
-
-[[nodes]]
-id = 100
-name = "Route marker 1"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 101
-name = "Route marker 2"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 102
-name = "Route marker 3"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 103
-name = "Route marker 4"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 104
-name = "Route marker 5"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 105
-name = "Route marker 6"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 106
-name = "Route marker 7"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 107
-name = "Route marker 8"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 108
-name = "Route marker 9"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 109
-name = "Route marker 10"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 110
-name = "Route marker 11"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 111
-name = "Route marker 12"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 112
-name = "Route marker 13"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 113
-name = "Route marker 14"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 114
-name = "Route marker 15"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 115
-name = "Route marker 16"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 116
-name = "Route marker 17"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 117
-name = "Route marker 18"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 118
-name = "Route marker 19"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 119
-name = "Route marker 20"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 120
-name = "Route marker 21"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 121
-name = "Route marker 22"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 122
-name = "Route marker 23"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 123
-name = "Route marker 24"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 124
-name = "Route marker 25"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 125
-name = "Route marker 26"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 126
-name = "Route marker 27"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 127
-name = "Route marker 28"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 128
-name = "Route marker 29"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 129
-name = "Route marker 30"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 130
-name = "Route marker 31"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 131
-name = "Route marker 32"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 132
-name = "Route marker 33"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 133
-name = "Route marker 34"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 134
-name = "Route marker 35"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 135
-name = "Route marker 36"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 136
-name = "Route marker 37"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 137
-name = "Route marker 38"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 138
-name = "Route marker 39"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 139
-name = "Route marker 40"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 140
-name = "Route marker 41"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 141
-name = "Route marker 42"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 142
-name = "Route marker 43"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 143
-name = "Route marker 44"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 144
-name = "Route marker 45"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 145
-name = "Route marker 46"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 146
-name = "Route marker 47"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
-
-[[nodes]]
-id = 147
-name = "Route marker 48"
-parent = 0
-
-[[nodes.components]]
-type = "transform"
-position = [0, -100, 0]
-rotation = [0, 0, 0]
-scale = [0.16, 0.045, 0.16]
-
-[[nodes.components]]
-type = "mesh_renderer"
-mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
-material = "6eefae67-5b1d-5ba2-b618-39e3a2bab5cc"
-enabled = false
+[[prefab_instances]]
+prefab = "2f8fbfb7-85bd-4085-af02-12d5cb0ed65c"
+root = "264"
+
+[[prefab_instances.node_mappings]]
+source = "264"
+target = "264"
+
+[[prefab_instances.node_mappings]]
+source = "14"
+target = "14"
+
+[[prefab_instances.node_mappings]]
+source = "20"
+target = "20"
+
+[[prefab_instances.node_mappings]]
+source = "21"
+target = "21"
+
+[[prefab_instances.node_mappings]]
+source = "22"
+target = "22"
+
+[[prefab_instances.node_mappings]]
+source = "23"
+target = "23"
+
+[[prefab_instances.node_mappings]]
+source = "24"
+target = "24"
+
+[[prefab_instances.node_mappings]]
+source = "200"
+target = "200"
+
+[[prefab_instances.node_mappings]]
+source = "201"
+target = "201"
+
+[[prefab_instances.node_mappings]]
+source = "202"
+target = "202"
+
+[[prefab_instances.node_mappings]]
+source = "203"
+target = "203"
+
+[[prefab_instances.node_mappings]]
+source = "204"
+target = "204"
+
+[[prefab_instances.node_mappings]]
+source = "205"
+target = "205"
+
+[[prefab_instances.node_mappings]]
+source = "206"
+target = "206"
+
+[[prefab_instances.node_mappings]]
+source = "207"
+target = "207"
+
+[[prefab_instances.node_mappings]]
+source = "208"
+target = "208"
+
+[[prefab_instances.node_mappings]]
+source = "209"
+target = "209"
+
+[[prefab_instances.node_mappings]]
+source = "210"
+target = "210"
+
+[[prefab_instances.node_mappings]]
+source = "211"
+target = "211"
+
+[[prefab_instances.node_mappings]]
+source = "212"
+target = "212"
+
+[[prefab_instances.node_mappings]]
+source = "213"
+target = "213"
+
+[[prefab_instances.node_mappings]]
+source = "214"
+target = "214"
+
+[[prefab_instances.node_mappings]]
+source = "215"
+target = "215"
+
+[[prefab_instances.node_mappings]]
+source = "216"
+target = "216"
+
+[[prefab_instances.node_mappings]]
+source = "217"
+target = "217"
+
+[[prefab_instances.node_mappings]]
+source = "218"
+target = "218"
+
+[[prefab_instances.node_mappings]]
+source = "219"
+target = "219"
+
+[[prefab_instances.node_mappings]]
+source = "220"
+target = "220"
+
+[[prefab_instances.node_mappings]]
+source = "221"
+target = "221"
+
+[[prefab_instances.node_mappings]]
+source = "222"
+target = "222"
+
+[[prefab_instances.node_mappings]]
+source = "223"
+target = "223"
+
+[[prefab_instances.node_mappings]]
+source = "224"
+target = "224"
+
+[[prefab_instances.node_mappings]]
+source = "225"
+target = "225"
+
+[[prefab_instances.node_mappings]]
+source = "226"
+target = "226"
+
+[[prefab_instances.node_mappings]]
+source = "227"
+target = "227"
+
+[[prefab_instances.node_mappings]]
+source = "228"
+target = "228"
+
+[[prefab_instances.node_mappings]]
+source = "229"
+target = "229"
+
+[[prefab_instances.node_mappings]]
+source = "230"
+target = "230"
+
+[[prefab_instances.node_mappings]]
+source = "231"
+target = "231"
+
+[[prefab_instances.node_mappings]]
+source = "232"
+target = "232"
+
+[[prefab_instances.node_mappings]]
+source = "233"
+target = "233"
+
+[[prefab_instances.node_mappings]]
+source = "234"
+target = "234"
+
+[[prefab_instances.node_mappings]]
+source = "235"
+target = "235"
+
+[[prefab_instances.node_mappings]]
+source = "236"
+target = "236"
+
+[[prefab_instances.node_mappings]]
+source = "237"
+target = "237"
+
+[[prefab_instances.node_mappings]]
+source = "238"
+target = "238"
+
+[[prefab_instances.node_mappings]]
+source = "239"
+target = "239"
+
+[[prefab_instances.node_mappings]]
+source = "240"
+target = "240"
+
+[[prefab_instances.node_mappings]]
+source = "241"
+target = "241"
+
+[[prefab_instances.node_mappings]]
+source = "242"
+target = "242"
+
+[[prefab_instances.node_mappings]]
+source = "243"
+target = "243"
+
+[[prefab_instances.node_mappings]]
+source = "244"
+target = "244"
+
+[[prefab_instances.node_mappings]]
+source = "245"
+target = "245"
+
+[[prefab_instances.node_mappings]]
+source = "246"
+target = "246"
+
+[[prefab_instances.node_mappings]]
+source = "247"
+target = "247"
+
+[[prefab_instances.node_mappings]]
+source = "248"
+target = "248"
+
+[[prefab_instances.node_mappings]]
+source = "249"
+target = "249"
+
+[[prefab_instances.node_mappings]]
+source = "250"
+target = "250"
+
+[[prefab_instances.node_mappings]]
+source = "251"
+target = "251"
+
+[[prefab_instances.node_mappings]]
+source = "252"
+target = "252"
+
+[[prefab_instances.node_mappings]]
+source = "253"
+target = "253"
+
+[[prefab_instances.node_mappings]]
+source = "254"
+target = "254"
+
+[[prefab_instances.node_mappings]]
+source = "255"
+target = "255"
+
+[[prefab_instances.node_mappings]]
+source = "256"
+target = "256"
+
+[[prefab_instances.node_mappings]]
+source = "257"
+target = "257"
+
+[[prefab_instances.node_mappings]]
+source = "258"
+target = "258"
+
+[[prefab_instances.node_mappings]]
+source = "259"
+target = "259"
+
+[[prefab_instances.node_mappings]]
+source = "260"
+target = "260"
+
+[[prefab_instances.node_mappings]]
+source = "261"
+target = "261"
+
+[[prefab_instances.node_mappings]]
+source = "262"
+target = "262"
+
+[[prefab_instances.node_mappings]]
+source = "263"
+target = "263"
+
+[[prefab_instances.node_mappings]]
+source = "95"
+target = "95"
+
+[[prefab_instances.node_mappings]]
+source = "100"
+target = "100"
+
+[[prefab_instances.node_mappings]]
+source = "101"
+target = "101"
+
+[[prefab_instances.node_mappings]]
+source = "102"
+target = "102"
+
+[[prefab_instances.node_mappings]]
+source = "103"
+target = "103"
+
+[[prefab_instances.node_mappings]]
+source = "104"
+target = "104"
+
+[[prefab_instances.node_mappings]]
+source = "105"
+target = "105"
+
+[[prefab_instances.node_mappings]]
+source = "106"
+target = "106"
+
+[[prefab_instances.node_mappings]]
+source = "107"
+target = "107"
+
+[[prefab_instances.node_mappings]]
+source = "108"
+target = "108"
+
+[[prefab_instances.node_mappings]]
+source = "109"
+target = "109"
+
+[[prefab_instances.node_mappings]]
+source = "110"
+target = "110"
+
+[[prefab_instances.node_mappings]]
+source = "111"
+target = "111"
+
+[[prefab_instances.node_mappings]]
+source = "112"
+target = "112"
+
+[[prefab_instances.node_mappings]]
+source = "113"
+target = "113"
+
+[[prefab_instances.node_mappings]]
+source = "114"
+target = "114"
+
+[[prefab_instances.node_mappings]]
+source = "115"
+target = "115"
+
+[[prefab_instances.node_mappings]]
+source = "116"
+target = "116"
+
+[[prefab_instances.node_mappings]]
+source = "117"
+target = "117"
+
+[[prefab_instances.node_mappings]]
+source = "118"
+target = "118"
+
+[[prefab_instances.node_mappings]]
+source = "119"
+target = "119"
+
+[[prefab_instances.node_mappings]]
+source = "120"
+target = "120"
+
+[[prefab_instances.node_mappings]]
+source = "121"
+target = "121"
+
+[[prefab_instances.node_mappings]]
+source = "122"
+target = "122"
+
+[[prefab_instances.node_mappings]]
+source = "123"
+target = "123"
+
+[[prefab_instances.node_mappings]]
+source = "124"
+target = "124"
+
+[[prefab_instances.node_mappings]]
+source = "125"
+target = "125"
+
+[[prefab_instances.node_mappings]]
+source = "126"
+target = "126"
+
+[[prefab_instances.node_mappings]]
+source = "127"
+target = "127"
+
+[[prefab_instances.node_mappings]]
+source = "128"
+target = "128"
+
+[[prefab_instances.node_mappings]]
+source = "129"
+target = "129"
+
+[[prefab_instances.node_mappings]]
+source = "130"
+target = "130"
+
+[[prefab_instances.node_mappings]]
+source = "131"
+target = "131"
+
+[[prefab_instances.node_mappings]]
+source = "132"
+target = "132"
+
+[[prefab_instances.node_mappings]]
+source = "133"
+target = "133"
+
+[[prefab_instances.node_mappings]]
+source = "134"
+target = "134"
+
+[[prefab_instances.node_mappings]]
+source = "135"
+target = "135"
+
+[[prefab_instances.node_mappings]]
+source = "136"
+target = "136"
+
+[[prefab_instances.node_mappings]]
+source = "137"
+target = "137"
+
+[[prefab_instances.node_mappings]]
+source = "138"
+target = "138"
+
+[[prefab_instances.node_mappings]]
+source = "139"
+target = "139"
+
+[[prefab_instances.node_mappings]]
+source = "140"
+target = "140"
+
+[[prefab_instances.node_mappings]]
+source = "141"
+target = "141"
+
+[[prefab_instances.node_mappings]]
+source = "142"
+target = "142"
+
+[[prefab_instances.node_mappings]]
+source = "143"
+target = "143"
+
+[[prefab_instances.node_mappings]]
+source = "144"
+target = "144"
+
+[[prefab_instances.node_mappings]]
+source = "145"
+target = "145"
+
+[[prefab_instances.node_mappings]]
+source = "146"
+target = "146"
+
+[[prefab_instances.node_mappings]]
+source = "147"
+target = "147"
+
+[[prefab_instances]]
+prefab = "88ea87b2-9a25-4501-a1e0-617fe86dc4a8"
+root = "5"
+
+[[prefab_instances.node_mappings]]
+source = "5"
+target = "5"
+
+[[prefab_instances]]
+prefab = "3e2ee674-91f6-474c-baf4-63290e477c6e"
+root = "6"
+
+[[prefab_instances.node_mappings]]
+source = "6"
+target = "6"
+
+[[prefab_instances]]
+prefab = "879287d6-09cd-4585-b875-9088f99e6579"
+root = "7"
+
+[[prefab_instances.node_mappings]]
+source = "7"
+target = "7"
+
+[[prefab_instances]]
+prefab = "4879c641-44db-43fc-bf88-62d33983e0ad"
+root = "8"
+
+[[prefab_instances.node_mappings]]
+source = "8"
+target = "8"
+
+[[prefab_instances]]
+prefab = "126f8cc5-9e00-4808-a0d0-81cac3f225b4"
+root = "13"
+
+[[prefab_instances.node_mappings]]
+source = "13"
+target = "13"

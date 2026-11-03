@@ -22,7 +22,7 @@ bool read(WorldSystem& world, Node& node, const Json& arguments,
     {
         return false;
     }
-    if (node.get_component<Camera>() == nullptr)
+    if (!node.get_component<Camera>())
     {
         error = "CharacterCamera requires a Camera on the same node";
         return false;
@@ -37,12 +37,12 @@ bool read(WorldSystem& world, Node& node, const Json& arguments,
         {
             Json target = {{"sceneId", arguments["sceneId"]},
                            {"nodeId", arguments["targetNodeId"]}};
-            const auto* target_node = editor::components::target(world, target, error);
-            if (target_node == nullptr)
+            const auto target_node = editor::components::target(world, target, error);
+            if (!target_node)
             {
                 return false;
             }
-            value.target_node_id = target_node->info().id;
+            value.target_node_id = target_node.info().properties->id;
         }
     }
     if (arguments.contains("mode"))
@@ -82,11 +82,16 @@ Json write(const WorldSystem& world, const schema::CharacterCameraDataT& value)
     Json target_id = nullptr;
     if (const auto* scene = world.scene())
     {
-        for (const auto& node : scene->nodes())
+        std::vector<Node> nodes;
+        if (!scene->collect_nodes(nodes))
         {
-            if (node->info().id == value.target_node_id)
+            return {};
+        }
+        for (const auto& node : nodes)
+        {
+            if (node.info().properties->id == value.target_node_id)
             {
-                target_id = std::to_string(node->id());
+                target_id = std::to_string(node.id());
                 break;
             }
         }

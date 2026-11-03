@@ -24,7 +24,8 @@ public:
     HdrPostProcessPass(HdrPostProcessPass&&) = delete;
     HdrPostProcessPass& operator=(HdrPostProcessPass&&) = delete;
 
-    [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled);
+    [[nodiscard]] bool prepare(std::uint16_t width, std::uint16_t height, bool bloom_enabled,
+                               std::uint8_t samples);
     // clear_color 沿用显示空间 RGBA8 语义，解码为线性值后参与统一曝光和色调映射。
     void begin_scene(std::uint32_t clear_color);
     [[nodiscard]] bgfx::FrameBufferHandle scene_framebuffer() const noexcept;
@@ -47,8 +48,8 @@ private:
     void release_bloom() noexcept;
     void release_targets() noexcept;
 
-    std::array<bgfx::ProgramHandle, 3> programs_ = {
-        {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
+    std::array<bgfx::ProgramHandle, 4> programs_ = {
+        {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
     std::array<bgfx::UniformHandle, 2> samplers_ = {{BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
     bgfx::UniformHandle parameters_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle texel_ = BGFX_INVALID_HANDLE;
@@ -66,6 +67,7 @@ private:
         {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
     std::uint16_t width_ = 0;
     std::uint16_t height_ = 0;
+    std::uint8_t samples_ = 1;
     std::array<std::uint16_t, 2> bloom_widths_{};
     std::array<std::uint16_t, 2> bloom_heights_{};
 };

@@ -38,24 +38,25 @@ bool TerrainStateEdit::replace(const ByteBuffer& expected, const ByteBuffer& val
                                std::string& error)
 {
     auto* scene = world_.scene();
-    auto* node = scene != nullptr && scene->id() == scene_ ? scene->find_node(*node_) : nullptr;
-    auto* component = node != nullptr ? node->get_component<TerrainComponent>() : nullptr;
-    if (component == nullptr || !component->ready())
+    auto node = scene != nullptr && scene->id() == scene_ ? scene->find_node(*node_) : Node{};
+    auto component = node.valid() ? node.get_component<TerrainComponent>() : TerrainComponent{};
+    if (!component || !component.ready())
     {
         error = "Terrain edit targets a stale scene, node or unavailable terrain";
         return false;
     }
     schema::ComponentDataT settings;
+    settings.flags = std::make_unique<schema::ComponentFlagsT>();
     ByteBuffer current;
-    if (!component->build_data(settings) || settings != settings_ ||
-        !component->snapshot(current) || current != expected)
+    if (!component.build_data(settings) || settings != settings_ || !component.snapshot(current) ||
+        current != expected)
     {
         error = "Terrain changed since the edit; refusing to overwrite its current state";
         return false;
     }
-    if (!component->restore(value))
+    if (!component.restore(value))
     {
-        error = component->last_error();
+        error = component.last_error();
         if (error.empty())
         {
             error = "Cannot restore terrain edit";

@@ -1,0 +1,55 @@
+root = "11"
+
+[[nodes]]
+id = 11
+name = "Near target"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 1.6, -6]
+rotation = [0, 0, 0]
+scale = [1.05, 1.05, 0.15]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"
+
+[[nodes.components]]
+type = "collider"
+shape = "box"
+half_extents = [1, 1, 1]
+friction = 0.8
+
+[[nodes]]
+id = 12
+name = "Center"
+parent = 11
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.1]
+rotation = [0, 0, 0]
+scale = [0.62, 0.62, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "5e43d10c-d508-4126-a5bd-b52040ab4890"
+
+[[nodes]]
+id = 13
+name = "Bullseye"
+parent = 11
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 1.3]
+rotation = [0, 0, 0]
+scale = [0.22, 0.22, 0.12]
+
+[[nodes.components]]
+type = "mesh_renderer"
+mesh = "ed1a3ef0-b010-47f5-a0b6-098ccd8eb54c"
+material = "183d106d-f508-4eeb-93a6-b3b15443f7ba"

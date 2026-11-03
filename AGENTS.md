@@ -17,7 +17,7 @@
 - 私有项目整个目录不得进入版本管理，包括自行编写的脚本、UI、配置、文档、meta 和工具生成资源；不以原创内容为例外，不使用强制添加绕过忽略规则。只有明确公开的范例项目与不包含私有业务的通用引擎增强可以提交。发现历史误收录时先保护本地文件，再按用户授权清理受影响的历史和远端引用。
 - 构建与测试使用根目录的 CMake Presets，具体命令见[构建指南](docs/building.md)，测试项目与验证记录见[测试文档](docs/testing.md)。
 - 宿主环境安装统一检查和准备 Ninja 与编译缓存：Windows 默认 sccache，Linux / macOS 默认 ccache；跨平台 Ninja 缓存预设要求工具存在且可执行，不能默默退化为无缓存构建。保留 vcpkg 二进制缓存与上游增量产物，不在普通构建中反复清理、同步或触摸未改变的依赖。
-- C++ 改动运行受影响的 Debug / Release 构建与 CTest。
+- C++ 改动完成受影响的 Debug / Release 构建；Debug 只要求编译成功，CTest、功能测试及实际运行验收统一使用 Release。除非用户明确要求，不运行 Debug 测试。
 - 测试代码按所属模块放入 `tests/runtime/`、`tests/editor/`、`tests/plugins/runtime/` 或 `tests/plugins/editor/` 的模块目录；构建规则检查归 `tests/build/`，共用夹具归 `tests/support/`，项目专属测试留在各项目的 `tests/`，不把测试源码堆在根 `tests/`。
 - 新增依赖需有明确用途；新增 CI Action 使用完整提交 SHA，由 Dependabot 维护更新。
 - 有可用跨平台 port 的第三方库在 `vcpkg.json` 声明，并在 `cmake/dependencies/` 按运行时、编辑器与资源管线分类查找；其余依赖使用固定版本的 Git 子项目。上游问题的补丁放在 `third_party/`，构建前应用，不直接修改上游检出目录。
@@ -46,7 +46,7 @@
 - CMake 按 `cmake/install/`、`cmake/dependencies/`、`cmake/plugins/`、`cmake/core/`、`cmake/editor/`、`cmake/platforms/` 分职责。根 CMakeLists 只组织入口，插件注册不替代依赖查找，不把安装、平台打包或业务插件混入核心配置。启用/禁用必须验证配置、目标存在性、链接及宿主条件装配。
 
 - 场景节点命名 `Node`，脚本直接使用 `Component`，不引入 `GameObject`、`Behaviour` 或 `MonoBehaviour` 层次。项目 `Gameplay` 连接引擎与场景，可承载业务，不限制成纯启动脚本。
-- `Node` 保持轻量，只管理身份、层级及无具体类型的组件列表；通过 `add_component<T>() / get_component<T>()` 添加和查找，TS 对应 `AddComponent(Type) / GetComponent(Type)`。节点不保存具体组件指针、不枚举相机等类型、不提供专用添加方法；变换同样由组件表达。
+- 场景运行数据唯一存于 `WorldSystem` 拥有的 Flecs world。`Node` 是世界借用、世界代次及实体 ID 的可复制值句柄，`Component` 另含类型及附加实例身份；不拥有逐实例行为对象、组件列表或虚函数表。通过 `add_component<T>() / get_component<T>()` 返回具名值句柄，TS 对应 `AddComponent(Type) / GetComponent(Type)`；Node 不保存具体类型指针、不提供专用添加方法。真实持久参数使用 schema 生成 Data 的 ECS 列，领域运行字段放相应 Runtime 列；动态 union 仅用于边界快照。
 - GUID 与逻辑路径的双向映射位于核心模块，编辑器、桌面及真机共用，不依赖 SQLite 或平台路径。每个 assets 源资源必须有唯一 GUID 的邻接 meta；移动保留身份，复制生成新身份，冲突不静默重写。
 - 渲染效果优先适配已选上游的范例和 Shader 工具，保留来源、许可及必要的兼容调整，不重复建立同类算法框架。
 - 图片格式、压缩模式、质量、颜色空间及 mipmap 等导入参数放在资源相邻 `.meta`；参数变化触发对应 GUID 缓存增量生成。
@@ -58,12 +58,12 @@
 - UI 使用普通 `Node` 挂载 `UiComponent`，组件绑定独立 UI 资源；UI 资源内部可以包含多个控件，控件不展开为场景节点，也不向 `Node` 增加 UI 专用成员。RmlUi 负责文档、布局和控件，字体通过核心 FontSystem 处理；UI 系统提供输入与控件事件，具体业务和场景跳转由调用方决定。
 - UI 业务使用 MVC：Model 是项目脚本数据，View 由 UiComponent 与文档控件提供，Controller 在脚本层组织事件、数据变更和显式刷新。核心不持有项目 Model 或脚本控制器；事件订阅随控制器、文档和脚本上下文生命周期清理。控件句柄必须校验文档与控件身份，重建后的同名控件不能复活旧引用。
 - UI 资源通过多项字体绑定分别指定族别名、字体资源与 Shader，并显式引用多张纹理；资源依赖进入统一目录。族别名在文档内唯一、跨文档隔离，不在 UI 系统写死单字体、单 Shader 或单图片。
-- 组件生成数据的保存和恢复由 Component 的统一契约及具体组件实现，Scene 只组织节点与层级；编辑器 TOML 编解码按组件类型拆分，不能进入运行时组件。
+- 组件生成数据的保存和恢复通过 Component 的统一值句柄契约及现有类型登记表静态分派；Scene 组织加载、发布、卸载、资源与局部 ID 索引，不再拥有节点对象。层级唯一存 Flecs ChildOf，世界变换及有效激活/可见性为安全点更新的派生缓存。原生系统直接查询具体 ECS 列及 Published 标记，不消费未发布候选；collect_nodes/collect_components 仅用于编辑、保存和诊断快照。编辑器 TOML 编解码按组件类型拆分，不能进入运行时组件。
 - ThreadSystem 在运行时统一管理 oneTBB 进程并行预算，TaskSystem 提供独立任务域；编辑器和运行时共享 worker，分别配置域优先度与并发额度，不自建线程池。项目 settings/import.toml 的 import_threads 默认 8；资源管线借用编辑器任务域，仍负责 meta、SQLite、依赖和发布，运行时不反向依赖它们。
 - MCP 同步完整运行资源版本，覆盖场景、Mesh、材质、Shader、脚本及其他资源；以 catalog 及其中定位的散文件或合并包为共同契约，不能限制为脚本同步。散文件保持 gen/GUID 命名，整批校验后发布，SQLite、源 meta 与项目设置留在编辑器端。
 - 场景环境参数由普通节点的 `EnvironmentComponent` 保存，相机画面参数由同节点的 `PostProcessComponent` 保存，阴影由 `Light` 保存；Scene 不堆叠渲染字段。渲染每帧读取当前场景组件，预览隐藏镜头只提供观察视角，后处理仍取场景活动相机。缺少或禁用组件使用固定默认值，切场景不继承前一场景参数；新效果随实际渲染实现扩展，不添加无效开关。
 - 场景烘焙归编辑器插件，MCP 启动作业并查询进度/取消，GPU 按帧提交和回读；运行时只加载预计算结果。生成源贴图及唯一 meta 放在场景同名资源子目录，进入标准 GUID 缓存与依赖清单；成功发布后刷新场景，已开启的效果立即使用新资源，关闭状态不自动改变。
-- 场景、节点和组件的数据以 FlatBuffers schema 为唯一模型来源，生成跨语言数据结构；运行时行为类使用生成数据，不维护另一份手写持久数据模型。落盘读写按阶段实现。
+- 场景、节点和组件的数据以 FlatBuffers schema 为唯一模型来源，生成跨语言结构并直接用于 ECS 列，不维护另一份手写持久模型。NodeInfo/ComponentData 等完整对象只在保存、恢复、撤销边界组装。Node/Component/Material 句柄每次访问重新校验实体、组件或槽身份；删除再添加不能复活旧句柄。原生列、runtime 指针和视图仅在当前结构稳定阶段借用，不跨结构修改或异步任务保存。
 - 材质和 Shader 通过目录中的唯一资源路径字符串标识并按需加载，不使用固定种类枚举；材质引用 Shader 定义并组合命名参数，以名字和明确数值类型读写参数（如 SetFloat、SetV2/3/4），不把每项 shader 参数做成固定业务字段；匹配和校验由材质负责。
 - 材质和 Shader 分为引擎内置与项目资源，项目路径直接相对 `assets/`，引擎定义以 `builtin://` 标识来源；项目材质可复用内置 Shader，内置定义不得反向依赖项目。项目停止释放场景、脚本资源引用和 GPU 资源，CPU 资源随最后一个共享引用释放；内置定义保留至引擎关闭。
 - 编辑器路径映射与内置资源准备由 `EditorEnvironment` 集中管理，运行时继续使用 `App` 的内置、持久和缓存路径语义；不在 `ProjectSystem` 增加重复的根路径访问器。

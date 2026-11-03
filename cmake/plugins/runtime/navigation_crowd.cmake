@@ -3,6 +3,7 @@ function(engine_configure_navigation_crowd_plugin)
     target_sources(engine_navigation_crowd
                    PRIVATE src/engine/plugins/runtime/navigation_crowd/navigation_agent.cpp)
     target_link_libraries(engine_navigation_crowd PUBLIC engine::world engine::navigation)
+    target_link_libraries(engine_navigation_crowd PRIVATE engine::scene_ecs)
     engine_enable_profiling(engine_navigation_crowd)
 endfunction()
 

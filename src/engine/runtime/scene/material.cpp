@@ -1,5 +1,7 @@
 #include "runtime/scene/material.hpp"
 
+#include "runtime/scene/mesh_renderer.hpp"
+
 #include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
@@ -131,26 +133,22 @@ bool load_textures(const Resource& shader, const schema::MaterialDataT* material
 
 } // namespace
 
-Material::Material() noexcept
-{
-}
-
-std::string_view Material::type_path() const noexcept
+std::string MaterialState::type_path() const noexcept
 {
     return data_.type_path;
 }
 
-std::string_view Material::shader_path() const noexcept
+std::string MaterialState::shader_path() const noexcept
 {
     return data_.shader_path;
 }
 
-const schema::ShaderDataT* Material::shader_data() const noexcept
+const schema::ShaderDataT* MaterialState::shader_data() const noexcept
 {
     return shader_resource_ ? shader_resource_->shader() : nullptr;
 }
 
-bool Material::has_overrides() const noexcept
+bool MaterialState::has_overrides() const noexcept
 {
     const auto* material = material_resource_ ? material_resource_->material() : nullptr;
     const auto* shader = shader_data();
@@ -228,7 +226,7 @@ bool Material::has_overrides() const noexcept
     return false;
 }
 
-bool Material::set_type(std::string_view path)
+bool MaterialState::set_type(std::string_view path)
 {
     if (data_.type_path == path && material_resource_ && shader_resource_)
     {
@@ -297,7 +295,7 @@ bool Material::set_type(std::string_view path)
     return true;
 }
 
-bool Material::set_shader(std::string_view path)
+bool MaterialState::set_shader(std::string_view path)
 {
     if (!material_resource_)
     {
@@ -329,12 +327,12 @@ bool Material::set_shader(std::string_view path)
     return true;
 }
 
-schema::CullMode Material::cull_mode() const noexcept
+schema::CullMode MaterialState::cull_mode() const noexcept
 {
     return data_.cull_mode;
 }
 
-bool Material::set_cull_mode(schema::CullMode mode) noexcept
+bool MaterialState::set_cull_mode(schema::CullMode mode) noexcept
 {
     if (mode != schema::CullMode::back && mode != schema::CullMode::front &&
         mode != schema::CullMode::none)
@@ -345,12 +343,12 @@ bool Material::set_cull_mode(schema::CullMode mode) noexcept
     return true;
 }
 
-schema::BlendMode Material::blend_mode() const noexcept
+schema::BlendMode MaterialState::blend_mode() const noexcept
 {
     return data_.blend_mode;
 }
 
-bool Material::set_blend_mode(schema::BlendMode mode) noexcept
+bool MaterialState::set_blend_mode(schema::BlendMode mode) noexcept
 {
     if (mode < schema::BlendMode::MIN || mode > schema::BlendMode::MAX)
     {
@@ -360,7 +358,7 @@ bool Material::set_blend_mode(schema::BlendMode mode) noexcept
     return true;
 }
 
-bool Material::set_texture(std::string_view name, std::string_view path)
+bool MaterialState::set_texture(std::string_view name, std::string_view path)
 {
     const auto* sampler = find_sampler(shader_resource_, name);
     auto* resources = ResourceSystem::instance();
@@ -386,7 +384,7 @@ bool Material::set_texture(std::string_view name, std::string_view path)
     return true;
 }
 
-bool Material::get_texture(std::string_view name, std::string_view& output) const noexcept
+bool MaterialState::get_texture(std::string_view name, std::string_view& output) const noexcept
 {
     output = {};
     const auto* sampler = find_sampler(shader_resource_, name);
@@ -399,14 +397,13 @@ bool Material::get_texture(std::string_view name, std::string_view& output) cons
     return true;
 }
 
-const ResourcePtr& Material::texture(std::string_view name) const noexcept
+ResourcePtr MaterialState::texture(std::string_view name) const noexcept
 {
-    static const ResourcePtr empty;
     const auto found = textures_.find(name);
-    return found == textures_.end() ? empty : found->second;
+    return found == textures_.end() ? ResourcePtr{} : found->second;
 }
 
-bool Material::set_float(std::string_view name, float value) noexcept
+bool MaterialState::set_float(std::string_view name, float value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::FloatValue);
     if (parameter == nullptr ||
@@ -418,7 +415,7 @@ bool Material::set_float(std::string_view name, float value) noexcept
     return true;
 }
 
-bool Material::set_v2(std::string_view name, const Vec2& value) noexcept
+bool MaterialState::set_v2(std::string_view name, const Vec2& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec2Value);
     if (parameter == nullptr ||
@@ -431,7 +428,7 @@ bool Material::set_v2(std::string_view name, const Vec2& value) noexcept
     return true;
 }
 
-bool Material::set_v3(std::string_view name, const Vec3& value) noexcept
+bool MaterialState::set_v3(std::string_view name, const Vec3& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec3Value);
     if (parameter == nullptr ||
@@ -444,7 +441,7 @@ bool Material::set_v3(std::string_view name, const Vec3& value) noexcept
     return true;
 }
 
-bool Material::set_v4(std::string_view name, const Vec4& value) noexcept
+bool MaterialState::set_v4(std::string_view name, const Vec4& value) noexcept
 {
     auto* parameter = find_parameter(name, schema::MaterialValue::Vec4Value);
     if (parameter == nullptr ||
@@ -457,7 +454,7 @@ bool Material::set_v4(std::string_view name, const Vec4& value) noexcept
     return true;
 }
 
-bool Material::get_float(std::string_view name, float& output) const noexcept
+bool MaterialState::get_float(std::string_view name, float& output) const noexcept
 {
     output = 0.0F;
     const auto* parameter = find_parameter(name, schema::MaterialValue::FloatValue);
@@ -474,7 +471,7 @@ bool Material::get_float(std::string_view name, float& output) const noexcept
     return true;
 }
 
-bool Material::get_v2(std::string_view name, Vec2& output) const noexcept
+bool MaterialState::get_v2(std::string_view name, Vec2& output) const noexcept
 {
     output = {};
     const auto* parameter = find_parameter(name, schema::MaterialValue::Vec2Value);
@@ -492,7 +489,7 @@ bool Material::get_v2(std::string_view name, Vec2& output) const noexcept
     return true;
 }
 
-bool Material::get_v3(std::string_view name, Vec3& output) const noexcept
+bool MaterialState::get_v3(std::string_view name, Vec3& output) const noexcept
 {
     output = {};
     const auto* parameter = find_parameter(name, schema::MaterialValue::Vec3Value);
@@ -510,7 +507,7 @@ bool Material::get_v3(std::string_view name, Vec3& output) const noexcept
     return true;
 }
 
-bool Material::get_v4(std::string_view name, Vec4& output) const noexcept
+bool MaterialState::get_v4(std::string_view name, Vec4& output) const noexcept
 {
     output = {};
     const auto* parameter = find_parameter(name, schema::MaterialValue::Vec4Value);
@@ -528,14 +525,14 @@ bool Material::get_v4(std::string_view name, Vec4& output) const noexcept
     return true;
 }
 
-schema::MaterialParameterT* Material::find_parameter(std::string_view name,
-                                                     schema::MaterialValue type) noexcept
+schema::MaterialParameterT* MaterialState::find_parameter(std::string_view name,
+                                                          schema::MaterialValue type) noexcept
 {
     return const_cast<schema::MaterialParameterT*>(std::as_const(*this).find_parameter(name, type));
 }
 
 const schema::MaterialParameterT*
-Material::find_parameter(std::string_view name, schema::MaterialValue type) const noexcept
+MaterialState::find_parameter(std::string_view name, schema::MaterialValue type) const noexcept
 {
     if (find_definition(shader_resource_, name, type) == nullptr)
     {
@@ -551,13 +548,329 @@ Material::find_parameter(std::string_view name, schema::MaterialValue type) cons
     return iterator == data_.parameters.end() ? nullptr : iterator->get();
 }
 
-void Material::swap(Material& other) noexcept
+Material::Material(Component owner, std::size_t slot, std::uint64_t identity) noexcept
+    : owner_(owner), slot_(slot), identity_(identity)
 {
-    using std::swap;
-    swap(material_resource_, other.material_resource_);
-    swap(shader_resource_, other.shader_resource_);
-    swap(data_, other.data_);
-    swap(textures_, other.textures_);
 }
 
+MaterialState* Material::state() const noexcept
+{
+    if (!owner_.valid() || owner_.type() != MeshRenderer::component_type)
+    {
+        return nullptr;
+    }
+    auto* runtime = MeshRenderer(owner_).runtime();
+    if (!runtime || slot_ >= runtime->materials_.size() ||
+        runtime->materials_[slot_].identity != identity_)
+    {
+        return nullptr;
+    }
+    return &runtime->materials_[slot_];
+}
+
+bool Material::valid() const noexcept
+{
+    return state() != nullptr;
+}
+
+std::uint64_t Material::instance_id() const noexcept
+{
+    return valid() ? identity_ : 0;
+}
+
+std::string Material::type_path() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->type_path();
+}
+
+std::string Material::shader_path() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->shader_path();
+}
+
+const schema::ShaderDataT* Material::shader_data() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->shader_data();
+}
+
+bool Material::has_overrides() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->has_overrides();
+}
+
+bool Material::set_type(std::string_view path)
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_type(path))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_shader(std::string_view path)
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_shader(path))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+schema::CullMode Material::cull_mode() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->cull_mode();
+}
+
+bool Material::set_cull_mode(schema::CullMode mode) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_cull_mode(mode))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+schema::BlendMode Material::blend_mode() const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->blend_mode();
+}
+
+bool Material::set_blend_mode(schema::BlendMode mode) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_blend_mode(mode))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_float(std::string_view name, float value) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_float(name, value))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_v2(std::string_view name, const Vec2& value) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_v2(name, value))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_v3(std::string_view name, const Vec3& value) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_v3(name, value))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_v4(std::string_view name, const Vec4& value) noexcept
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_v4(name, value))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::set_texture(std::string_view name, std::string_view path)
+{
+    if (!MeshRenderer(owner_).writable())
+    {
+        return false;
+    }
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    if (!material_state->set_texture(name, path))
+    {
+        return false;
+    }
+    MeshRenderer(owner_).modified();
+    return true;
+}
+
+bool Material::get_texture(std::string_view name, std::string_view& output) const noexcept
+{
+    output = {};
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->get_texture(name, output);
+}
+
+std::shared_ptr<const Resource> Material::texture(std::string_view name) const noexcept
+{
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return {};
+    }
+    return material_state->texture(name);
+}
+
+bool Material::get_float(std::string_view name, float& output) const noexcept
+{
+    output = {};
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->get_float(name, output);
+}
+
+bool Material::get_v2(std::string_view name, Vec2& output) const noexcept
+{
+    output = {};
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->get_v2(name, output);
+}
+
+bool Material::get_v3(std::string_view name, Vec3& output) const noexcept
+{
+    output = {};
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->get_v3(name, output);
+}
+
+bool Material::get_v4(std::string_view name, Vec4& output) const noexcept
+{
+    output = {};
+    auto* material_state = state();
+    if (!material_state)
+    {
+        return false;
+    }
+    return material_state->get_v4(name, output);
+}
 } // namespace engine

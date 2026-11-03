@@ -3,27 +3,28 @@
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/scene_commands.hpp"
 #include "editor/project/project_system.hpp"
-#include "editor/scene/scene_persistence.hpp"
 #include "editor/render/render_commands.hpp"
-#include "runtime/render/render_system.hpp"
-#include "runtime/window/window_system.hpp"
+#include "editor/scene/scene_persistence.hpp"
 #include "plugins/editor/modeling/modeling_commands.hpp"
 #include "plugins/editor/modeling/modeling_mesh_importer.hpp"
 #include "runtime/engine_config.hpp"
+#include "runtime/render/render_system.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
+#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/planar_reflection_component.hpp"
 #include "runtime/scene/post_process_component.hpp"
-#include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/scene/transform.hpp"
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
+#include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -56,16 +57,16 @@ bool expect(bool condition, const char* message, const std::string& error = {})
     return condition;
 }
 
-Node* named(Scene& scene, std::string_view name)
+Node named(Scene& scene, std::string_view name)
 {
-    for (const auto& node : scene.nodes())
+    for (const auto& node : test_support::scene_nodes(scene))
     {
-        if (node->name() == name)
+        if (node.name() == name)
         {
-            return node.get();
+            return node;
         }
     }
-    return nullptr;
+    return {};
 }
 
 struct SourceSnapshot
@@ -127,7 +128,7 @@ const schema::MeshRendererDataT* saved_mesh(const schema::SceneDataT& scene, std
 {
     for (const auto& node : scene.nodes)
     {
-        if (!node || !node->info || node->info->id != node_id)
+        if (!node || !node->info || node->info->properties->id != node_id)
         {
             continue;
         }
@@ -156,13 +157,15 @@ bool compound_scene_round_trip(const fs::path& root)
     source.info = std::make_unique<schema::SceneInfoT>();
     source.info->name = "Compound collider";
     auto node = std::make_unique<schema::NodeDataT>();
-    node->info = std::make_unique<schema::NodeInfoT>();
-    node->info->id = 1;
-    node->info->name = "One compound";
-    auto transform = std::make_unique<schema::ComponentDataT>();
+    node->info = test_support::node_info();
+    node->info->properties->id = 1;
+    node->info->properties->name = "One compound";
+    node->info->properties->enabled = false;
+    node->info->properties->visible = false;
+    auto transform = test_support::component_data();
     transform->payload.Set(schema::TransformDataT{});
     node->components.push_back(std::move(transform));
-    auto collider = std::make_unique<schema::ComponentDataT>();
+    auto collider = test_support::component_data();
     schema::ColliderDataT data;
     data.shape = schema::ColliderShape::compound;
     for (const double offset : {-1.0, 1.0})
@@ -172,6 +175,8 @@ bool compound_scene_round_trip(const fs::path& root)
         data.hulls.push_back(std::move(hull));
     }
     collider->payload.Set(std::move(data));
+    collider->flags->enabled = false;
+    collider->flags->visible = false;
     node->components.push_back(std::move(collider));
     source.nodes.push_back(std::move(node));
     schema::SceneDataT restored;
@@ -240,7 +245,8 @@ bool run(const fs::path& root)
     engine::editor::EditorCommands commands([&]()
                                             { return world.scene() ? world.scene()->id() : 0; });
     if (!modeling.register_commands(commands) || !scene_commands.register_commands(commands) ||
-        !persistence.register_commands(commands) || !render_commands.register_commands(commands))
+        !persistence.register_commands(commands) ||
+        !render_commands.register_commands(commands, scene_commands))
     {
         return false;
     }
@@ -252,15 +258,16 @@ bool run(const fs::path& root)
     const Json identity = {{"sceneId", id}};
     if (!expect(execute("create_node", {{"sceneId", id}, {"name", "Eye"}, {"component", "camera"}}),
                 "create camera", error) ||
-        !expect(execute("undo", identity) && scene->nodes().empty(), "undo camera create", error) ||
+        !expect(execute("undo", identity) && test_support::scene_nodes(*scene).empty(),
+                "undo camera create", error) ||
         !expect(execute("redo", identity), "redo camera create", error))
     {
         return false;
     }
-    auto* camera = named(*scene, "Eye");
+    auto camera = named(*scene, "Eye");
     if (!camera ||
         !expect(execute("set_active_camera",
-                        {{"sceneId", id}, {"nodeId", std::to_string(camera->id())}}),
+                        {{"sceneId", id}, {"nodeId", std::to_string(camera.id())}}),
                 "select active camera", error) ||
         !expect(execute("undo", identity) && !scene->active_camera(), "undo camera selection",
                 error) ||
@@ -279,15 +286,18 @@ bool run(const fs::path& root)
         return false;
     }
     camera = named(*scene, "Eye");
-    auto* light = named(*scene, "Lamp")->get_component<Light>();
-    auto light_settings = light->settings();
+    auto light = named(*scene, "Lamp").get_component<Light>();
+    auto light_settings = light.settings();
     light_settings.kind = schema::LightKind::point;
     light_settings.intensity = 7;
-    if (!light->set_settings(light_settings))
+    if (!light.set_settings(light_settings))
     {
         return false;
     }
-    light->set_enabled(false);
+    if (!light.set_enabled(false))
+    {
+        return false;
+    }
     for (const char* name : {"First", "Second"})
     {
         if (!expect(
@@ -297,33 +307,33 @@ bool run(const fs::path& root)
             return false;
         }
     }
-    auto* first = named(*scene, "First");
-    auto* second = named(*scene, "Second");
-    auto* renderer = first != nullptr ? first->get_component<MeshRenderer>() : nullptr;
+    auto first = named(*scene, "First");
+    auto second = named(*scene, "Second");
+    auto renderer = first.valid() ? first.get_component<MeshRenderer>() : MeshRenderer{};
     float default_roughness = 0;
     if (!first || !second || !renderer ||
-        !expect(!renderer->material().has_overrides() &&
-                    renderer->material().get_float("roughness", default_roughness) &&
-                    renderer->material().set_float("roughness", 0.37F) &&
-                    renderer->material().has_overrides() &&
-                    renderer->material().set_float("roughness", default_roughness) &&
-                    !renderer->material().has_overrides(),
+        !expect(!renderer.material().has_overrides() &&
+                    renderer.material().get_float("roughness", default_roughness) &&
+                    renderer.material().set_float("roughness", 0.37F) &&
+                    renderer.material().has_overrides() &&
+                    renderer.material().set_float("roughness", default_roughness) &&
+                    !renderer.material().has_overrides(),
                 "material restored to its resource has no persistent overrides") ||
-        !expect(renderer->material().set_cull_mode(schema::CullMode::none) &&
-                    renderer->material().has_overrides() &&
-                    renderer->material().set_cull_mode(schema::CullMode::back) &&
-                    !renderer->material().has_overrides(),
+        !expect(renderer.material().set_cull_mode(schema::CullMode::none) &&
+                    renderer.material().has_overrides() &&
+                    renderer.material().set_cull_mode(schema::CullMode::back) &&
+                    !renderer.material().has_overrides(),
                 "restoring material coverage clears its persistent override") ||
-        !second->set_parent(first) || !renderer->set_material_count(2) ||
-        !renderer->material(1)->set_v4("baseColor", Vec4(0.2, 0.3, 0.4, 1)) ||
-        !renderer->material(1)->set_float("roughness", 0.75F) ||
-        !renderer->material(1)->set_float("alphaCutoff", 0.4F) ||
-        !renderer->material(1)->set_cull_mode(schema::CullMode::none))
+        !second.set_parent(first) || !renderer.set_material_count(2) ||
+        !renderer.material(1).set_v4("baseColor", Vec4(0.2, 0.3, 0.4, 1)) ||
+        !renderer.material(1).set_float("roughness", 0.75F) ||
+        !renderer.material(1).set_float("alphaCutoff", 0.4F) ||
+        !renderer.material(1).set_cull_mode(schema::CullMode::none))
     {
         return false;
     }
-    renderer->set_cast_shadows(false);
-    const Json receiver = {{"sceneId", id}, {"nodeId", std::to_string(first->id())}};
+    renderer.set_cast_shadows(false);
+    const Json receiver = {{"sceneId", id}, {"nodeId", std::to_string(first.id())}};
     auto edit_receiver = receiver;
     edit_receiver.update({{"enabled", false}, {"resolutionScale", .75}, {"clipBias", .04}});
     auto edit_probe = receiver;
@@ -338,26 +348,31 @@ bool run(const fs::path& root)
                     execute("set_material_blend_mode", edit_blend) &&
                     execute("set_render_settings", {{"ssrEnabled", true}, {"ssrMaxSteps", 96}}),
                 "edit rendering components and material through the normal commands", error))
+    {
         return false;
-    auto local_shadow = Json{{"sceneId", id}, {"nodeId", std::to_string(light->node().id())},
-                             {"castShadows", true}, {"shadowResolution", 512}, {"shadowBias", .003}};
+    }
+    auto local_shadow = Json{{"sceneId", id},
+                             {"nodeId", std::to_string(light.node().id())},
+                             {"castShadows", true},
+                             {"shadowResolution", 512},
+                             {"shadowBias", .003}};
     if (!expect(execute("set_light", local_shadow), "edit local light shadow settings", error))
     {
         return false;
     }
     const Json material_type = {{"sceneId", id},
-                                {"nodeId", std::to_string(first->id())},
+                                {"nodeId", std::to_string(first.id())},
                                 {"slot", 1},
                                 {"path", "builtin://materials/default-unlit"}};
     float restored_roughness = 0;
     if (!expect(execute("set_material_type", material_type) &&
-                    renderer->material(1)->type_path() == "builtin://materials/default-unlit",
+                    renderer.material(1).type_path() == "builtin://materials/default-unlit",
                 "switch material resource", error) ||
         !expect(execute("undo", identity) &&
-                    renderer->material(1)->type_path() == "builtin://materials/default-pbr" &&
-                    renderer->material(1)->cull_mode() == schema::CullMode::none &&
-                    renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
-                    renderer->material(1)->get_float("roughness", restored_roughness) &&
+                    renderer.material(1).type_path() == "builtin://materials/default-pbr" &&
+                    renderer.material(1).cull_mode() == schema::CullMode::none &&
+                    renderer.material(1).blend_mode() == schema::BlendMode::premultiplied &&
+                    renderer.material(1).get_float("roughness", restored_roughness) &&
                     restored_roughness == 0.75F,
                 "undo material type restores previous overrides", error) ||
         !expect(execute("redo", identity) && execute("undo", identity),
@@ -365,21 +380,24 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    auto transform = first->get_component<Transform>()->settings();
+    auto transform = first.get_component<Transform>().settings();
     transform.position = Vec3(3, 4, 5);
-    if (!first->get_component<Transform>()->set_settings(transform))
+    if (!first.get_component<Transform>().set_settings(transform))
     {
         return false;
     }
     const Json save = {{"sceneId", id}, {"path", "scenes/room.scene"}};
-    auto* transient_root = scene->create_node("Generated fragment");
-    auto* transient_child = scene->create_node("Generated child");
-    if (!transient_root || !transient_child || !transient_child->set_parent(transient_root) ||
-        !transient_root->add_component<MeshRenderer>())
+    auto transient_root = scene->create_node("Generated fragment");
+    auto transient_child = scene->create_node("Generated child");
+    if (!transient_root || !transient_child || !transient_child.set_parent(transient_root) ||
+        !transient_root.add_component<MeshRenderer>())
     {
         return false;
     }
-    transient_root->set_transient(true);
+    if (!transient_root.set_transient(true))
+    {
+        return false;
+    }
     const auto history = commands.undo_count();
     if (!expect(execute("save_scene", save) && result["nodeCount"] == 4 &&
                     result["importRequired"] == true && result["resourceCount"] == 4 &&
@@ -403,21 +421,28 @@ bool run(const fs::path& root)
     }
     schema::SceneDataT saved;
     if (!expect(engine::editor::SceneImporter::read(path, saved, error) &&
-                    saved.nodes.size() == 4 && saved.info->active_camera_node == camera->info().id,
+                    saved.nodes.size() == 4 &&
+                    saved.info->active_camera_node == camera.info().properties->id,
                 "saved schema omits transient nodes and descendants, retaining the camera", error))
     {
         return false;
     }
-    camera->set_transient(true);
+    if (!camera.set_transient(true))
+    {
+        return false;
+    }
     const auto saved_count = save_count;
     if (!expect(!execute("save_scene", save) && save_count == saved_count,
                 "transient active camera cannot publish a scene with a dangling reference", error))
     {
         return false;
     }
-    camera->set_transient(false);
+    if (!camera.set_transient(false))
+    {
+        return false;
+    }
     const auto mesh_path = root / "assets/scenes/room-resources/meshes" /
-                           ("node-" + std::to_string(first->info().id) + ".mesh");
+                           ("node-" + std::to_string(first.info().properties->id) + ".mesh");
     std::string original_mesh;
     if (!ResourceSystem::read_text(mesh_path, original_mesh))
     {
@@ -476,8 +501,9 @@ bool run(const fs::path& root)
     }
     auto mesh_meta_path = mesh_path;
     mesh_meta_path += ".meta";
-    const auto material_path = root / "assets/scenes/room-resources/materials" /
-                               ("node-" + std::to_string(first->info().id) + "-slot-1.material");
+    const auto material_path =
+        root / "assets/scenes/room-resources/materials" /
+        ("node-" + std::to_string(first.info().properties->id) + "-slot-1.material");
     for (const auto& conflict_path : {mesh_path, mesh_meta_path, material_path, path})
     {
         std::string original;
@@ -529,41 +555,52 @@ bool run(const fs::path& root)
         return false;
     }
     scene = world.load_scene("scenes/room.scene");
-    if (!expect(scene && scene->nodes().size() == 4 && scene->active_camera() &&
-                    scene->active_camera()->node().name() == "Eye",
+    if (!expect(scene && test_support::scene_nodes(*scene).size() == 4 && scene->active_camera() &&
+                    scene->active_camera().node().name() == "Eye",
                 "reload complete scene"))
     {
         return false;
     }
     first = named(*scene, "First");
     second = named(*scene, "Second");
-    renderer = first->get_component<MeshRenderer>();
+    renderer = first.get_component<MeshRenderer>();
     Vec4 color;
     float roughness = 0;
     float cutoff = 0;
-    if (!expect(second->parent() == first &&
-                    first->get_component<Transform>()->settings().position.x() == 3 &&
-                    renderer->material_count() == 2 && !renderer->cast_shadows() && renderer->bake_static() &&
-                    renderer->material(1)->blend_mode() == schema::BlendMode::premultiplied &&
-                    first->get_component<PlanarReflectionComponent>() &&
-                    !first->get_component<PlanarReflectionComponent>()->enabled() &&
-                    first->get_component<PlanarReflectionComponent>()->settings().resolution_scale == .75F &&
-                    first->get_component<PlanarReflectionComponent>()->settings().clip_bias == .04F &&
-                    first->get_component<LightProbeVolumeComponent>() &&
-                    !first->get_component<LightProbeVolumeComponent>()->enabled() &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>() &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_enabled &&
-                    scene->active_camera()->node().get_component<PostProcessComponent>()->settings().ssr_max_steps == 96 &&
-                    renderer->material(1)->cull_mode() == schema::CullMode::none &&
-                    renderer->material(1)->get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
-                    renderer->material(1)->get_v4("baseColor", color) && color.y() == 0.3 &&
-                    renderer->material(1)->get_float("roughness", roughness) && roughness == 0.75F,
+    if (!expect(second.parent() == first &&
+                    first.get_component<Transform>().settings().position.x() == 3 &&
+                    renderer.material_count() == 2 && !renderer.cast_shadows() &&
+                    renderer.bake_static() &&
+                    renderer.material(1).blend_mode() == schema::BlendMode::premultiplied &&
+                    first.get_component<PlanarReflectionComponent>() &&
+                    !first.get_component<PlanarReflectionComponent>().enabled() &&
+                    first.get_component<PlanarReflectionComponent>().settings().resolution_scale ==
+                        .75F &&
+                    first.get_component<PlanarReflectionComponent>().settings().clip_bias == .04F &&
+                    first.get_component<LightProbeVolumeComponent>() &&
+                    !first.get_component<LightProbeVolumeComponent>().enabled() &&
+                    scene->active_camera().node().get_component<PostProcessComponent>() &&
+                    scene->active_camera()
+                        .node()
+                        .get_component<PostProcessComponent>()
+                        .settings()
+                        .ssr_enabled &&
+                    scene->active_camera()
+                            .node()
+                            .get_component<PostProcessComponent>()
+                            .settings()
+                            .ssr_max_steps == 96 &&
+                    renderer.material(1).cull_mode() == schema::CullMode::none &&
+                    renderer.material(1).get_float("alphaCutoff", cutoff) && cutoff == 0.4F &&
+                    renderer.material(1).get_v4("baseColor", color) && color.y() == 0.3 &&
+                    renderer.material(1).get_float("roughness", roughness) && roughness == 0.75F,
                 "reload hierarchy, transform and all material slot values") ||
-        !expect(!named(*scene, "Lamp")->get_component<Light>()->enabled() &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().intensity == 7 &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().cast_shadows &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_resolution == 512 &&
-                    named(*scene, "Lamp")->get_component<Light>()->settings().shadow_bias == .003F,
+        !expect(!named(*scene, "Lamp").get_component<Light>().enabled() &&
+                    named(*scene, "Lamp").get_component<Light>().settings().intensity == 7 &&
+                    named(*scene, "Lamp").get_component<Light>().settings().cast_shadows &&
+                    named(*scene, "Lamp").get_component<Light>().settings().shadow_resolution ==
+                        512 &&
+                    named(*scene, "Lamp").get_component<Light>().settings().shadow_bias == .003F,
                 "reload light values and disabled component"))
     {
         return false;
@@ -587,8 +624,8 @@ bool run(const fs::path& root)
         return false;
     }
     // 切回资源引用，避免建模撤销保留的瞬态网格影响普通加载场景的回归。
-    if (!expect(renderer->set_mesh("scenes/room-resources/meshes/node-" +
-                                   std::to_string(first->info().id) + ".mesh"),
+    if (!expect(renderer.set_mesh("scenes/room-resources/meshes/node-" +
+                                  std::to_string(first.info().properties->id) + ".mesh"),
                 "restore imported mesh resource after modeling round trip"))
     {
         return false;
@@ -606,7 +643,7 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    const std::string original_material_path(renderer->material(1)->type_path());
+    const std::string original_material_path(renderer.material(1).type_path());
     const auto original_material_source =
         root / "assets" / PathUtils::from_utf8(original_material_path);
     std::string original_material;
@@ -616,24 +653,24 @@ bool run(const fs::path& root)
     }
     Guid shared_mesh_guid;
     Guid shared_material_guid;
-    if (!ResourceSystem::path_to_guid(renderer->mesh_path(), shared_mesh_guid) ||
+    if (!ResourceSystem::path_to_guid(renderer.mesh_path(), shared_mesh_guid) ||
         !ResourceSystem::path_to_guid(original_material_path, shared_material_guid))
     {
         return false;
     }
-    Node* shared = nullptr;
+    Node shared = {};
     for (std::size_t index = 0; index != 6; ++index)
     {
-        auto* node = scene->create_node("Shared " + std::to_string(index));
-        auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
-        if (!mesh || !mesh->set_mesh(renderer->mesh_path()) ||
-            !mesh->material().set_type(original_material_path))
+        auto node = scene->create_node("Shared " + std::to_string(index));
+        auto mesh = node ? node.add_component<MeshRenderer>() : MeshRenderer{};
+        if (!mesh || !mesh.set_mesh(renderer.mesh_path()) ||
+            !mesh.material().set_type(original_material_path))
         {
             return false;
         }
         shared = node;
     }
-    auto* environment = named(*scene, "Lamp")->add_component<EnvironmentComponent>();
+    auto environment = named(*scene, "Lamp").add_component<EnvironmentComponent>();
     if (!environment ||
         !expect(execute("save_scene", loaded_save) && result["resourceCount"] == 1 &&
                     export_count == 0 && engine::editor::SceneImporter::read(path, saved, error),
@@ -641,7 +678,7 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    const auto* shared_saved = saved_mesh(saved, shared->info().id);
+    const auto* shared_saved = saved_mesh(saved, shared.info().properties->id);
     if (!expect(shared_saved && shared_saved->mesh_guid == shared_mesh_guid &&
                     shared_saved->material_guid == shared_material_guid,
                 "shared resources keep their original GUIDs") ||
@@ -654,7 +691,7 @@ bool run(const fs::path& root)
     initial_sources = current_sources;
     const std::string before_transform = current_sources.at(path).content;
     const Json move = {{"sceneId", std::to_string(scene->id())},
-                       {"nodeId", std::to_string(first->id())},
+                       {"nodeId", std::to_string(first.id())},
                        {"position", {9, 4, 5}}};
     if (!expect(execute("set_transform", move), "edit loaded scene transform", error))
     {
@@ -684,7 +721,7 @@ bool run(const fs::path& root)
         return false;
     }
     const Json material_edit = {{"sceneId", std::to_string(scene->id())},
-                                {"nodeId", std::to_string(first->id())},
+                                {"nodeId", std::to_string(first.id())},
                                 {"slot", 1},
                                 {"name", "roughness"},
                                 {"type", "float"},
@@ -696,8 +733,8 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    const auto* first_saved = saved_mesh(saved, first->info().id);
-    shared_saved = saved_mesh(saved, shared->info().id);
+    const auto* first_saved = saved_mesh(saved, first.info().properties->id);
+    shared_saved = saved_mesh(saved, shared.info().properties->id);
     if (!expect(first_saved && first_saved->additional_material_guids.size() == 1 &&
                     first_saved->additional_material_guids[0] != shared_material_guid &&
                     shared_saved && shared_saved->material_guid == shared_material_guid &&
@@ -710,7 +747,7 @@ bool run(const fs::path& root)
                     snapshot_sources(root / "assets", current_sources) &&
                     unchanged_sources(initial_sources, current_sources),
                 "repeated override save preserves all timestamps", error) ||
-        !expect(execute("undo", current) && !renderer->material(1)->has_overrides() &&
+        !expect(execute("undo", current) && !renderer.material(1).has_overrides() &&
                     execute("save_scene", loaded_save) && result["resourceCount"] == 1 &&
                     commands.redo_count() == 1,
                 "undoing the override restores the original material reference", error) ||
@@ -724,17 +761,104 @@ bool run(const fs::path& root)
     {
         return false;
     }
-    auto environment_settings = environment->settings();
+    auto environment_settings = environment.settings();
     environment_settings.ambient_intensity = 0.4F;
-    light = named(*scene, "Lamp")->get_component<Light>();
-    light_settings = light->settings();
+    light = named(*scene, "Lamp").get_component<Light>();
+    light_settings = light.settings();
     light_settings.intensity = 3;
-    if (!expect(environment->set_settings(environment_settings) &&
-                    light->set_settings(light_settings) && execute("save_scene", loaded_save) &&
+    if (!expect(environment.set_settings(environment_settings) &&
+                    light.set_settings(light_settings) && execute("save_scene", loaded_save) &&
                     result["resourceCount"] == 1 && export_count == 0 &&
                     snapshot_sources(root / "assets", current_sources) &&
                     unchanged_sources(initial_sources, current_sources, path),
                 "lighting and environment edits do not export referenced assets", error))
+    {
+        return false;
+    }
+    auto shared_renderer = shared.get_component<MeshRenderer>();
+    if (!shared_renderer.set_material_count(2) ||
+        !shared_renderer.material(1).set_type(original_material_path))
+    {
+        return false;
+    }
+    const Json prefab_create = {{"sceneId", std::to_string(scene->id())},
+                                {"nodeId", std::to_string(shared.id())},
+                                {"path", "prefabs/material.prefab"}};
+    if (!expect(execute("create_prefab", prefab_create) && pipeline.build_assets(root) &&
+                    resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
+                    execute("instantiate_prefab", {{"sceneId", std::to_string(scene->id())},
+                                                   {"path", "prefabs/material.prefab"},
+                                                   {"name", "Prefab copy"}}),
+                "subtree prefab enters the standard import and instantiate path", error))
+    {
+        return false;
+    }
+    auto prefab_node = named(*scene, "Prefab copy");
+    auto prefab_renderer = prefab_node ? prefab_node.get_component<MeshRenderer>() : MeshRenderer{};
+    if (!prefab_renderer)
+    {
+        return false;
+    }
+    auto prefab_material = current;
+    prefab_material.update({{"nodeId", std::to_string(prefab_node.id())},
+                            {"slot", 0},
+                            {"name", "roughness"},
+                            {"type", "float"},
+                            {"value", 0.29}});
+    if (!expect(execute("set_material_parameter", prefab_material),
+                "prefab primary material edit becomes a binding override", error))
+    {
+        return false;
+    }
+    prefab_material["slot"] = 1;
+    prefab_material["value"] = 0.37;
+    float primary = 0, additional = 0;
+    const Json restore_binding = {{"sceneId", std::to_string(scene->id())},
+                                  {"nodeId", std::to_string(prefab_node.id())},
+                                  {"componentType", "MeshRendererData"},
+                                  {"fields", {"material"}}};
+    if (!expect(execute("set_material_parameter", prefab_material) &&
+                    execute("revert_prefab_override", restore_binding) &&
+                    prefab_renderer.material().get_float("roughness", primary) &&
+                    prefab_renderer.material(1).get_float("roughness", additional) &&
+                    primary == 0.75F && additional == 0.37F && execute("undo", current) &&
+                    prefab_renderer.material().get_float("roughness", primary) &&
+                    prefab_renderer.material(1).get_float("roughness", additional) &&
+                    primary == 0.29F && additional == 0.37F,
+                "material restore preserves other slots and undo restores complete parameters",
+                error))
+    {
+        return false;
+    }
+    const Json prefab_save = {{"sceneId", std::to_string(scene->id())},
+                              {"path", "scenes/prefab.scene"}};
+    schema::SceneDataT prefab_saved;
+    if (!expect(execute("save_scene", prefab_save) &&
+                    engine::editor::SceneImporter::read(root / "assets/scenes/prefab.scene",
+                                                        prefab_saved, error) &&
+                    prefab_saved.prefab_instances.size() == 1,
+                "save preserves prefab association with independent material exports", error))
+    {
+        return false;
+    }
+    const schema::MeshRendererDataT* material_override = nullptr;
+    for (const auto& node_override : prefab_saved.prefab_instances.front()->overrides)
+    {
+        for (const auto& component_override : node_override->components)
+        {
+            if (const auto mesh = component_override->component->payload.AsMeshRendererData())
+            {
+                material_override = mesh;
+            }
+        }
+    }
+    if (!expect(material_override && material_override->material_guid != shared_material_guid &&
+                    material_override->additional_material_guids.size() == 1 &&
+                    material_override->additional_material_guids.front() != shared_material_guid &&
+                    ResourceSystem::read_text(original_material_source, restored) &&
+                    restored == original_material,
+                "prefab overrides export full material resources without changing the template",
+                error))
     {
         return false;
     }

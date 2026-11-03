@@ -14,9 +14,6 @@ constexpr std::string_view javascript = R"js(
 export class NavigationAgent extends Component {
     constructor(token, scene, node) {
         super(token, scene, node, native.NavigationAgentKind);
-        const h = handles.get(this);
-        h.instance = native.NavigationAgentIdentity(scene, node);
-        h.validate = () => native.NavigationAgentValid(h.scene, h.node, h.instance);
     }
     Configure(options) {
         if (options === null || typeof options !== 'object' || Array.isArray(options)) return false;
@@ -53,49 +50,32 @@ Object.freeze(NavigationAgent.prototype);
 Object.freeze(NavigationAgent);
 )js";
 
-navigation_crowd::NavigationAgent* component(const Arguments& arguments, int count)
+navigation_crowd::NavigationAgent component(const Arguments& arguments, int count)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* agent =
-        node != nullptr ? node->get_component<navigation_crowd::NavigationAgent>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto agent = node.valid() ? node.get_component<navigation_crowd::NavigationAgent>()
+                              : navigation_crowd::NavigationAgent{};
     std::uint64_t instance = 0;
-    return arguments.count() == count && agent != nullptr &&
+    return arguments.count() == count && agent.valid() &&
                    BindingContext::identifier(arguments, 2, instance) &&
-                   instance == agent->instance_id()
+                   instance == agent.instance_id()
                ? agent
-               : nullptr;
+               : navigation_crowd::NavigationAgent{};
 }
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<navigation_crowd::NavigationAgent>() != nullptr);
-}
-
-void identity(const Arguments& arguments)
-{
-    arguments.set_return({});
-    const auto* node = BindingContext::node(arguments);
-    const auto* agent =
-        node != nullptr ? node->get_component<navigation_crowd::NavigationAgent>() : nullptr;
-    if (arguments.count() == 2 && agent != nullptr)
-    {
-        arguments.set_return(agent->instance_id());
-    }
-}
-
-void valid(const Arguments& arguments)
-{
-    arguments.set_return(component(arguments, 3) != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<navigation_crowd::NavigationAgent>().valid());
 }
 
 void configure(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* agent = component(arguments, 10);
+    auto agent = component(arguments, 10);
     schema::NavigationAgentDataT settings;
-    if (agent == nullptr || !BindingContext::scalar(arguments, 3, settings.radius) ||
+    if (!agent || !BindingContext::scalar(arguments, 3, settings.radius) ||
         !BindingContext::scalar(arguments, 4, settings.height) ||
         !BindingContext::scalar(arguments, 5, settings.max_speed) ||
         !BindingContext::scalar(arguments, 6, settings.max_acceleration) ||
@@ -106,30 +86,30 @@ void configure(const Arguments& arguments)
         return;
     }
     settings.face_velocity = arguments.boolean(9);
-    arguments.set_return(agent->set_settings(settings));
+    arguments.set_return(agent.set_settings(settings));
 }
 
 void move_to(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* agent = component(arguments, 6);
+    auto agent = component(arguments, 6);
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    if (agent != nullptr && BindingContext::number(arguments, 3, x) &&
+    if (agent.valid() && BindingContext::number(arguments, 3, x) &&
         BindingContext::number(arguments, 4, y) && BindingContext::number(arguments, 5, z))
     {
-        arguments.set_return(agent->move_to({x, y, z}));
+        arguments.set_return(agent.move_to({x, y, z}));
     }
 }
 
 void stop(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* agent = component(arguments, 3);
-    if (agent != nullptr)
+    auto agent = component(arguments, 3);
+    if (agent.valid())
     {
-        agent->stop();
+        agent.stop();
         arguments.set_return(true);
     }
 }
@@ -137,12 +117,12 @@ void stop(const Arguments& arguments)
 void state(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* agent = component(arguments, 3);
-    if (agent == nullptr)
+    const auto agent = component(arguments, 3);
+    if (!agent)
     {
         return;
     }
-    switch (agent->state())
+    switch (agent.state())
     {
     case NavigationAgentStatus::idle:
         arguments.set_return("idle");
@@ -168,10 +148,10 @@ void state(const Arguments& arguments)
 void velocity(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* agent = component(arguments, 3);
-    if (agent != nullptr)
+    const auto agent = component(arguments, 3);
+    if (agent.valid())
     {
-        const Vec3 value = agent->velocity();
+        const Vec3 value = agent.velocity();
         arguments.set_return(
             vm::NativeValue::Object{{"x", value.x()}, {"y", value.y()}, {"z", value.z()}});
     }
@@ -193,8 +173,6 @@ bool NavigationAgentBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("NavigationAgentKind",
                       static_cast<int>(navigation_crowd::NavigationAgent::component_type)) &&
            vm.function("NavigationAgentAdd", add) &&
-           vm.function("NavigationAgentIdentity", identity) &&
-           vm.function("NavigationAgentValid", valid) &&
            vm.function("NavigationAgentConfigure", configure) &&
            vm.function("NavigationAgentMoveTo", move_to) &&
            vm.function("NavigationAgentStop", stop) && vm.function("NavigationAgentState", state) &&

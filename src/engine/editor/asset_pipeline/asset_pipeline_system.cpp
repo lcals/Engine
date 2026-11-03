@@ -643,11 +643,6 @@ bool AssetPipelineSystem::set_importer(std::unique_ptr<asset_pipeline::AssetImpo
     return true;
 }
 
-bool AssetPipelineSystem::build_scripts(const std::filesystem::path& project_root)
-{
-    return build_assets(project_root);
-}
-
 bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root,
                                        std::string_view requested_target)
 {
@@ -965,6 +960,14 @@ bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root
             }
         }
         return fail();
+    }
+    for (auto& record : records)
+    {
+        const auto* importer = importers.find(record.asset.importer_id);
+        if (!importer || !importer->finalize_dependencies(record.asset, context, last_error_))
+        {
+            return fail();
+        }
     }
     // 转换器读取暂存的原始载荷；所有依赖转换结束后再统一封装资源实体。
     for (std::size_t index = 0; index < records.size(); ++index)

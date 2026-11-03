@@ -1,4 +1,6 @@
 #include "plugins/runtime/effects/effect_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "plugins/runtime/effects/effect_component.hpp"
 #include "plugins/runtime/effects/effect_model_loader.hpp"
@@ -32,25 +34,20 @@ namespace
 
 bool has_effect_resources(const WorldSystem& world)
 {
-    return std::any_of(world.scenes().begin(), world.scenes().end(),
-                       [](const auto& scene)
-                       {
-                           return std::any_of(
-                               scene->nodes().begin(), scene->nodes().end(),
-                               [](const auto& node)
-                               {
-                                   const auto* effect =
-                                       node->template get_component<EffectComponent>();
-                                   return effect != nullptr && !effect->effect_path().empty();
-                               });
-                       });
+    bool found = false;
+    auto query = flecs::world(world.native_world())
+                     .query_builder<const ecs_detail::ComponentStorage<EffectComponent::Data>>()
+                     .with<ecs_detail::Published>()
+                     .build();
+    query.each([&](const auto& stored) { found = found || !stored.data.effect_guid.empty(); });
+    return found;
 }
 
 bool effect_transform(const Node& node, Effekseer::Matrix43& output)
 {
-    const auto* transform = node.get_component<Transform>();
+    const auto transform = node.get_component<Transform>();
     float matrix[16]{};
-    if (!transform || !transform->world_matrix(matrix))
+    if (!transform || !transform.world_matrix(matrix))
     {
         return false;
     }
@@ -70,29 +67,38 @@ void set_effect_light(const Scene& scene, EffekseerRenderer::Renderer& renderer)
     renderer.SetLightDirection({0.0F, 1.0F, 0.0F});
     renderer.SetLightColor({255, 255, 255, 255});
     renderer.SetLightAmbientColor({0, 0, 0, 255});
-    for (const auto& node : scene.nodes())
+    if (!scene.world().refresh_scene_state())
     {
-        const auto* light = node->get_component<Light>();
-        if (!light || !light->enabled() || light->settings().kind != schema::LightKind::directional)
-        {
-            continue;
-        }
-        Effekseer::Matrix43 matrix;
-        if (!effect_transform(*node, matrix))
-        {
-            continue;
-        }
-        const auto& settings = light->settings();
-        const auto channel = [&settings](float value)
-        {
-            return static_cast<std::uint8_t>(std::clamp(value * settings.intensity, 0.0F, 1.0F) *
-                                             255.0F);
-        };
-        renderer.SetLightDirection({matrix.Value[2][0], matrix.Value[2][1], matrix.Value[2][2]});
-        renderer.SetLightColor({channel(settings.color.r()), channel(settings.color.g()),
-                                channel(settings.color.b()), 255});
-        break;
+        return;
     }
+    std::uint64_t selected_order = UINT64_MAX;
+    auto query =
+        flecs::world(scene.world().native_world())
+            .query_builder<const ecs_detail::ComponentStorage<Light::Data>,
+                           const ecs_detail::NodeRuntime, const ecs_detail::WorldTransform>()
+            .with<ecs_detail::Published>()
+            .build();
+    query.each(
+        [&](const auto& stored, const ecs_detail::NodeRuntime& state,
+            const ecs_detail::WorldTransform& pose)
+        {
+            if (state.scene != &scene || !state.active || !state.visible_in_hierarchy ||
+                !stored.state.flags.enabled || !stored.state.flags.visible || !pose.valid ||
+                stored.data.kind != schema::LightKind::directional || state.order >= selected_order)
+            {
+                return;
+            }
+            selected_order = state.order;
+            const auto& settings = stored.data;
+            const auto channel = [&settings](float value)
+            {
+                return static_cast<std::uint8_t>(
+                    std::clamp(value * settings.intensity, 0.0F, 1.0F) * 255.0F);
+            };
+            renderer.SetLightDirection({pose.matrix[8], pose.matrix[9], pose.matrix[10]});
+            renderer.SetLightColor({channel(settings.color.r()), channel(settings.color.g()),
+                                    channel(settings.color.b()), 255});
+        });
 }
 
 } // namespace
@@ -111,7 +117,6 @@ struct EffectSystem::State
         std::uint64_t revision = 0;
         std::shared_ptr<CompiledEffect> compiled;
         Effekseer::Handle handle = -1;
-        bool disabled = false;
     };
 
     detail::EffectResources resources;
@@ -279,7 +284,7 @@ struct EffectSystem::State
     {
         if (!instance.compiled)
         {
-            instance.compiled = compile(component.effect_);
+            instance.compiled = compile(component.runtime()->effect_);
             if (!instance.compiled)
             {
                 return false;
@@ -300,86 +305,109 @@ struct EffectSystem::State
         resources.error.clear();
         std::set<std::uint64_t> alive;
         // 仅借用到本次同步返回；避免对每个实例线性查找整棵场景。
-        std::vector<std::pair<EffectComponent*, Instance*>> active;
-        for (const auto& scene : world.scenes())
+        std::vector<std::pair<EffectComponent, Instance*>> active;
         {
-            for (const auto& node : scene->nodes())
+            const auto process =
+                [&](Node node,
+                    const ecs_detail::ComponentStorage<EffectComponent::Data>& stored) -> bool
             {
-                auto* component = node->get_component<EffectComponent>();
-                if (!component || !component->effect_)
+                const auto* scene = node.scene();
+                (void)scene;
+                (void)stored;
+
+                auto component = node.get_component<EffectComponent>();
+                if (!component || !component.runtime()->effect_)
                 {
-                    continue;
+                    return true;
                 }
                 auto* source = ResourceSystem::instance();
-                if (source && component->effect_->generation() != source->generation())
+                if (source && component.runtime()->effect_->generation() != source->generation())
                 {
-                    const auto settings = component->settings();
-                    if (!component->set_settings(settings))
+                    const auto settings = stored.data;
+                    if (!component.set_settings(settings))
                     {
                         resources.error = "Cannot refresh effect resource: " +
-                                          std::string(component->effect_path());
+                                          std::string(component.effect_path());
                         return false;
                     }
                 }
-                const auto id = component->instance_id();
+                const auto id = component.instance_id();
                 alive.insert(id);
                 auto& instance = instances[id];
-                if (!component->enabled())
+                if (!component.active())
                 {
-                    stop(instance);
-                    instance.compiled.reset();
-                    if (!instance.disabled)
+                    if (instance.handle >= 0)
                     {
-                        component->requested_ = EffectComponent::Playback::stopped;
-                        component->awake_pending_ = component->settings().play_on_awake;
+                        manager->SetPaused(instance.handle, true);
+                        manager->SetShown(instance.handle, false);
                     }
-                    instance.disabled = true;
-                    component->playing_ = false;
-                    continue;
+                    component.runtime()->playing_ = false;
+                    return true;
                 }
-                instance.disabled = false;
-                if (instance.revision != component->revision_)
+                if (instance.revision != component.runtime()->revision_)
                 {
                     stop(instance);
                     instance.compiled.reset();
-                    instance.revision = component->revision_;
+                    instance.revision = component.runtime()->revision_;
                 }
-                if (component->awake_pending_)
+                if (component.runtime()->awake_pending_)
                 {
                     if (world_paused)
                     {
-                        continue;
+                        return true;
                     }
-                    component->requested_ = EffectComponent::Playback::playing;
-                    component->awake_pending_ = false;
+                    component.runtime()->requested_ = EffectComponent::Playback::playing;
+                    component.runtime()->awake_pending_ = false;
                 }
-                if (component->requested_ == EffectComponent::Playback::stopped)
+                if (component.runtime()->requested_ == EffectComponent::Playback::stopped)
                 {
                     stop(instance);
                     instance.compiled.reset();
-                    component->playing_ = false;
-                    continue;
+                    component.runtime()->playing_ = false;
+                    return true;
                 }
                 if (instance.handle < 0 && world_paused)
                 {
-                    continue;
+                    return true;
                 }
-                if (instance.handle < 0 && !start(instance, *component))
+                if (instance.handle < 0 && !start(instance, component))
                 {
                     return false;
                 }
                 Effekseer::Matrix43 transform;
-                if (!effect_transform(*node, transform))
+                if (!effect_transform(node, transform))
                 {
                     resources.error = "Invalid effect emitter world transform";
                     return false;
                 }
                 manager->SetMatrix(instance.handle, transform);
-                manager->SetSpeed(instance.handle, component->settings().speed);
+                manager->SetShown(instance.handle, component.visible_in_hierarchy());
+                manager->SetSpeed(instance.handle, stored.data.speed);
                 manager->SetPaused(instance.handle,
-                                   world_paused ||
-                                       component->requested_ == EffectComponent::Playback::paused);
+                                   world_paused || component.runtime()->requested_ ==
+                                                       EffectComponent::Playback::paused);
                 active.emplace_back(component, &instance);
+
+                return true;
+            };
+            auto query =
+                flecs::world(world.native_world())
+                    .query_builder<const ecs_detail::ComponentStorage<EffectComponent::Data>>()
+                    .with<ecs_detail::Published>()
+                    .build();
+            bool query_success = true;
+            query.each(
+                [&](flecs::entity entity,
+                    const ecs_detail::ComponentStorage<EffectComponent::Data>& stored)
+                {
+                    if (query_success)
+                    {
+                        query_success = process(world.find_node(entity.id()), stored);
+                    }
+                });
+            if (!query_success)
+            {
+                return false;
             }
         }
         for (auto entry = instances.begin(); entry != instances.end();)
@@ -401,33 +429,36 @@ struct EffectSystem::State
             time += static_cast<float>(delta_time);
         }
         bool restarted = false;
-        for (const auto& [component, entry] : active)
+        for (auto& [component, entry] : active)
         {
             auto& instance = *entry;
             if (instance.handle >= 0 && !manager->Exists(instance.handle))
             {
                 instance.handle = -1;
-                if (!world_paused && component->requested_ == EffectComponent::Playback::playing &&
-                    component->settings().loop)
+                if (!world_paused &&
+                    component.runtime()->requested_ == EffectComponent::Playback::playing &&
+                    component.settings().loop)
                 {
                     Effekseer::Matrix43 transform;
-                    if (!start(instance, *component) ||
-                        !effect_transform(component->node(), transform))
+                    if (!start(instance, component) ||
+                        !effect_transform(component.node(), transform))
                     {
                         return false;
                     }
                     manager->SetMatrix(instance.handle, transform);
-                    manager->SetSpeed(instance.handle, component->settings().speed);
+                    manager->SetShown(instance.handle, component.visible_in_hierarchy());
+                    manager->SetSpeed(instance.handle, component.settings().speed);
                     restarted = true;
                 }
                 else
                 {
-                    component->requested_ = EffectComponent::Playback::stopped;
+                    component.runtime()->requested_ = EffectComponent::Playback::stopped;
                     instance.compiled.reset();
                 }
             }
-            component->playing_ = instance.handle >= 0 && manager->Exists(instance.handle) &&
-                                  component->requested_ == EffectComponent::Playback::playing;
+            component.runtime()->playing_ =
+                instance.handle >= 0 && manager->Exists(instance.handle) &&
+                component.runtime()->requested_ == EffectComponent::Playback::playing;
         }
         if (restarted && !world_paused)
         {
@@ -564,15 +595,38 @@ bool EffectSystem::draw(const RenderContext& context)
 void EffectSystem::release_scene() noexcept
 {
     // 只查询世界当前仍存活的节点；从不保存跨帧的组件指针。
-    for (const auto& scene : world_.scenes())
+    if (world_.native_world())
     {
-        for (const auto& node : scene->nodes())
+        const auto process =
+            [&](Node node,
+                const ecs_detail::ComponentStorage<EffectComponent::Data>& stored) -> bool
         {
-            if (auto* effect = node->get_component<EffectComponent>())
+            const auto* scene = node.scene();
+            (void)scene;
+            (void)stored;
+
+            if (auto effect = node.get_component<EffectComponent>())
             {
-                effect->playing_ = false;
+                effect.runtime()->playing_ = false;
             }
-        }
+
+            return true;
+        };
+        auto query = flecs::world(world_.native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<EffectComponent::Data>>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity,
+                const ecs_detail::ComponentStorage<EffectComponent::Data>& stored)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_.find_node(entity.id()), stored);
+                }
+            });
+        (void)query_success;
     }
     if (state_)
     {

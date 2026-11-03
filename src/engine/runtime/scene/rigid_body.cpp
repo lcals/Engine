@@ -1,5 +1,7 @@
 #include "runtime/scene/rigid_body.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/scene/collider.hpp"
 #include "runtime/scene/node.hpp"
 
@@ -28,9 +30,14 @@ bool zero(const Vec3& value) noexcept
 
 } // namespace
 
-RigidBody::RigidBody(Node& node) : Component(node)
+bool RigidBody::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::RigidBodyDataT{});
+    return register_component_storage<RigidBody, Data, Runtime>(registry);
+}
+
+RigidBody::Runtime* RigidBody::runtime() const noexcept
+{
+    return runtime_state<Runtime>();
 }
 
 bool RigidBody::valid_settings(const schema::RigidBodyDataT& value) noexcept
@@ -45,69 +52,106 @@ bool RigidBody::valid_settings(const schema::RigidBodyDataT& value) noexcept
             (zero(value.linear_velocity) && zero(value.angular_velocity)));
 }
 
-const schema::RigidBodyDataT& RigidBody::settings() const noexcept
+schema::RigidBodyDataT RigidBody::settings() const noexcept
 {
-    return *data().payload.AsRigidBodyData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool RigidBody::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool RigidBody::set_settings(const schema::RigidBodyDataT& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     if (!valid_settings(value))
     {
         return false;
     }
-    const auto* collider = node().get_component<Collider>();
-    if (value.motion != schema::BodyMotion::static_body && collider != nullptr &&
-        collider->settings().shape == schema::ColliderShape::mesh)
+    auto collider = node().get_component<Collider>();
+    if (value.motion != schema::BodyMotion::static_body && collider.valid() &&
+        collider.settings().shape == schema::ColliderShape::mesh)
     {
         return false;
     }
-    *mutable_data().payload.AsRigidBodyData() = value;
+    *write_data<Data>() = value;
+    modified();
     if (value.motion != schema::BodyMotion::dynamic)
     {
-        pending_impulse_ = {};
+        runtime()->pending_impulse_ = {};
     }
     return true;
 }
 
 bool RigidBody::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsRigidBodyData();
     if (settings == nullptr || !set_settings(*settings))
     {
         return false;
     }
-    pending_impulse_ = {};
-    set_enabled(value.enabled);
+    runtime()->pending_impulse_ = {};
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
 }
 
 bool RigidBody::add_impulse(const Vec3& value) noexcept
 {
-    if (!enabled() || settings().motion != schema::BodyMotion::dynamic ||
+    if (!writable())
+    {
+        return false;
+    }
+    if (!active() || settings().motion != schema::BodyMotion::dynamic ||
         !vector_bounded(value, 1000000.0))
     {
         return false;
     }
-    const Vec3 sum(pending_impulse_.x() + value.x(), pending_impulse_.y() + value.y(),
-                   pending_impulse_.z() + value.z());
+    const Vec3 sum(runtime()->pending_impulse_.x() + value.x(),
+                   runtime()->pending_impulse_.y() + value.y(),
+                   runtime()->pending_impulse_.z() + value.z());
     if (!vector_bounded(sum, 1000000.0))
     {
         return false;
     }
-    pending_impulse_ = sum;
+    runtime()->pending_impulse_ = sum;
     return true;
 }
 
 bool RigidBody::set_linear_velocity(const Vec3& value) noexcept
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto replacement = settings();
     replacement.linear_velocity = value;
     return set_settings(replacement);
 }
 
-const Vec3& RigidBody::linear_velocity() const noexcept
+Vec3 RigidBody::linear_velocity() const noexcept
 {
+    if (!valid())
+    {
+        return {};
+    }
     return settings().linear_velocity;
 }
 

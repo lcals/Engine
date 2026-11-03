@@ -36,8 +36,8 @@ classDiagram
     class MeshRenderer
     class ResourceLoader
     Scene ..> ResourceLoader : 加载模型根及依赖
-    Scene *-- Node : 成功创建的模型实例层级
-    Node *-- MeshRenderer : 含网格的模型节点
+    Scene ..> Node : 管理实体生命周期并返回值句柄
+    Node ..> MeshRenderer : 按类型返回值句柄
 ```
 
 `instantiate_model` 返回本场景拥有的根节点借用；失败删除本次候选节点，保留场景原对象。实例化后使用 Node、Transform 与 MeshRenderer 表达模型；动画由调用方添加 Animator 并选择片段。
@@ -60,6 +60,7 @@ classDiagram
         +vector~unique_ptr~ModelNodeDataT~~ nodes
     }
     class ModelNodeDataT {
+        +string source_key
         +string name
         +int32_t parent
         +Vec3 position
@@ -121,3 +122,5 @@ classDiagram
 ModelNode 的 rotation 为角度制 Euler XYZ，Joint 和 RotationKey 为四元数 xyzw；inverse_bind 与 mesh_to_skeleton 均为 16 项列主序矩阵。父索引 -1 表示根，其余必须指向已有父记录。上述结构均来自 Schema 生成，导入器不定义另一套手写持久模型。
 
 Model 当前格式版本为 2，生成器显式写入版本；Schema 的字段默认仍为 1，以便拒绝旧文件中省略该字段的版本 1 数据。原 `skeleton_guid` 和 `animations` 字段以 deprecated 保留槽位，不复用为其他含义；历史 ModelAnimationData 表仅为该旧槽位声明保留。运行解码器只接受版本 2，Schema 指纹变化触发编辑器重新导入缓存；旧运行包必须重新构建，不静默解释为新模型。
+
+`ModelNodeDataT.source_key` 是源文件稳定层级路径：FBX 使用已消歧的节点路径，USD 使用 prim 路径；预制体用它保留模板节点身份，不使用数组下标。

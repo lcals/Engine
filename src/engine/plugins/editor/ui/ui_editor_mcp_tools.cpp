@@ -10,10 +10,7 @@
 
 namespace engine::plugins::ui
 {
-UiEditorMcpTools::UiEditorMcpTools(mcp::EditorMcpTools& editor) noexcept : editor_(editor)
-{
-}
-bool UiEditorMcpTools::register_tools(mcp::McpSystem& system)
+bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
     const auto object = [](Json properties, Json required = Json::array())
@@ -27,8 +24,8 @@ bool UiEditorMcpTools::register_tools(mcp::McpSystem& system)
     {
         auto command = name;
         return system.register_tool({std::move(name), std::move(description), std::move(schema),
-                                     [this, command](const Json& args, Json& reply)
-                                     { return editor_.call_command(command, args, reply); }});
+                                     [&editor, command](const Json& args, Json& reply)
+                                     { return editor.call_command(command, args, reply); }});
     };
     const Json id{{"type", "string"}, {"minLength", 1}, {"maxLength", 20}};
     const Json short_text{{"type", "string"}, {"minLength", 1}, {"maxLength", 128}};

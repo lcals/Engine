@@ -9,6 +9,7 @@ table ModelNodeData {
     scale:Vec3 (required, native_inline, native_default: "Vec3(1.0, 1.0, 1.0)");
     mesh_guid:string;
     material_guids:[string];
+    source_key:string;
 }
 
 // Legacy table retained only for the deprecated ModelData.animations field slot.

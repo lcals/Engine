@@ -8,6 +8,7 @@
 #include "runtime/schema/material_generated.h"
 #include "runtime/schema/mesh_generated.h"
 #include "runtime/schema/model_generated.h"
+#include "runtime/schema/prefab_generated.h"
 #include "runtime/schema/scene_generated.h"
 #include "runtime/schema/shader_generated.h"
 #include "runtime/schema/skeleton_generated.h"
@@ -47,6 +48,7 @@ public:
     [[nodiscard]] const schema::TextureDataT* texture() const noexcept;
     [[nodiscard]] const schema::AudioClipDataT* audio() const noexcept;
     [[nodiscard]] const schema::ModelDataT* model() const noexcept;
+    [[nodiscard]] const schema::PrefabDataT* prefab() const noexcept;
     [[nodiscard]] const schema::SkeletonDataT* skeleton() const noexcept;
     [[nodiscard]] const schema::AnimationDataT* animation() const noexcept;
     [[nodiscard]] const schema::FontDataT* font() const noexcept;
@@ -68,6 +70,7 @@ private:
     std::unique_ptr<schema::TextureDataT> texture_;
     std::unique_ptr<schema::AudioClipDataT> audio_;
     std::unique_ptr<schema::ModelDataT> model_;
+    std::unique_ptr<schema::PrefabDataT> prefab_;
     std::unique_ptr<schema::SkeletonDataT> skeleton_;
     std::unique_ptr<schema::AnimationDataT> animation_;
     std::unique_ptr<schema::FontDataT> font_;

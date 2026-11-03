@@ -1,4 +1,6 @@
 #include "resource_fixture.hpp"
+#include "scene_snapshot.hpp"
+#include "script_fixture.hpp"
 
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 #include "plugins/runtime/script/script_system.hpp"
@@ -163,34 +165,35 @@ bool run(test_support::ResourceFixture& files)
                     world.subsystem_count() == 2 && world.initialize({}) &&
                     world.component_registry().contains(NavigationAgent::component_type) &&
                     script.initialize({}) && add_script(files) && files.publish(resources) &&
-                    script.start_gameplay("scripts/game.js"),
+                    test_support::start_script(script, resources, {{"content", files.root}},
+                                               "scripts/game.js"),
                 "production host assembly registers the plugin without a window or GPU", script))
     {
         return false;
     }
     auto* scene = world.scene();
-    auto* node =
-        scene != nullptr && !scene->nodes().empty() ? scene->nodes().front().get() : nullptr;
-    auto* old_agent = node != nullptr ? node->get_component<NavigationAgent>() : nullptr;
-    if (!expect(old_agent != nullptr && std::abs(old_agent->settings().radius - .45F) < .0001F &&
-                    old_agent->settings().max_speed == 4.0F &&
-                    !old_agent->settings().face_velocity &&
-                    old_agent->state() == engine::NavigationAgentStatus::pending,
+    auto node = scene != nullptr && !test_support::scene_nodes(*scene).empty()
+                    ? test_support::scene_nodes(*scene).front()
+                    : engine::Node{};
+    auto old_agent = node.valid() ? node.get_component<NavigationAgent>() : NavigationAgent{};
+    if (!expect(old_agent.valid() && std::abs(old_agent.settings().radius - .45F) < .0001F &&
+                    old_agent.settings().max_speed == 4.0F && !old_agent.settings().face_velocity &&
+                    old_agent.state() == engine::NavigationAgentStatus::pending,
                 "script configuration and pending target use the native component", script))
     {
         return false;
     }
-    const auto old_identity = old_agent->instance_id();
-    if (!expect(node->remove_component(NavigationAgent::component_type),
+    const auto old_identity = old_agent.instance_id();
+    if (!expect(node.remove_component(NavigationAgent::component_type),
                 "remove the native component while retaining its script handle", script))
     {
         return false;
     }
-    auto* fresh = node->add_component<NavigationAgent>();
-    if (!expect(fresh != nullptr && fresh->instance_id() != old_identity && script.tick(.016) &&
-                    script.status().running && fresh->enabled() &&
-                    fresh->settings() == engine::schema::NavigationAgentDataT{} &&
-                    fresh->state() == engine::NavigationAgentStatus::idle,
+    auto fresh = node.add_component<NavigationAgent>();
+    if (!expect(fresh.valid() && fresh.instance_id() != old_identity && script.tick(.016) &&
+                    script.status().running && fresh.enabled() &&
+                    fresh.settings() == engine::schema::NavigationAgentDataT{} &&
+                    fresh.state() == engine::NavigationAgentStatus::idle,
                 "stale handle is rejected and the replacement uses schema defaults", script) ||
         !expect(world.tick(.016) && script.tick(.016) && script.status().running,
                 "crowd state queries and cross-scene invalidation use the actual script backend",

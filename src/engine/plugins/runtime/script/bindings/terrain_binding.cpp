@@ -68,13 +68,13 @@ Object.freeze(TerrainComponent.prototype);
 Object.freeze(TerrainComponent);
 )js";
 
-terrain::TerrainComponent* component(const Arguments& arguments, int count)
+terrain::TerrainComponent component(const Arguments& arguments, int count)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    return node != nullptr && arguments.count() == count
-               ? node->get_component<terrain::TerrainComponent>()
-               : nullptr;
+    auto node = BindingContext::node(arguments);
+    return node.valid() && arguments.count() == count
+               ? node.get_component<terrain::TerrainComponent>()
+               : terrain::TerrainComponent{};
 }
 
 bool status(const std::filesystem::path& path, std::filesystem::file_status& output)
@@ -160,29 +160,29 @@ bool slot_path(std::string_view slot, bool saving, std::filesystem::path& output
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<terrain::TerrainComponent>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<terrain::TerrainComponent>().valid());
 }
 
 void sphere(const Arguments& arguments)
 {
-    auto* value = component(arguments, 6);
+    auto value = component(arguments, 6);
     double x = 0;
     double y = 0;
     double z = 0;
     float radius = 0;
-    if (value != nullptr && BindingContext::number(arguments, 2, x) &&
+    if (value.valid() && BindingContext::number(arguments, 2, x) &&
         BindingContext::number(arguments, 3, y) && BindingContext::number(arguments, 4, z) &&
         BindingContext::scalar(arguments, 5, radius) && radius > 0)
     {
-        arguments.set_return(value->apply_sphere({x, y, z}, radius, arguments.data() != 0));
+        arguments.set_return(value.apply_sphere({x, y, z}, radius, arguments.data() != 0));
     }
 }
 
 void sphere_async(const Arguments& arguments)
 {
-    auto* value = component(arguments, 6);
+    auto value = component(arguments, 6);
     auto* context = BindingContext::current(arguments);
     auto* system = terrain::TerrainSystem::instance();
     double x = 0;
@@ -194,9 +194,9 @@ void sphere_async(const Arguments& arguments)
         BindingContext::scalar(arguments, 5, radius))
     {
         arguments.set_return(context->submit_async(
-            [=, fill = arguments.data() != 0](std::function<void(bool)> completed)
+            [=, fill = arguments.data() != 0](std::function<void(bool)> completed) mutable
             {
-                return system->request_apply_sphere(*value, {x, y, z}, radius, fill,
+                return system->request_apply_sphere(value, {x, y, z}, radius, fill,
                                                     std::move(completed));
             }));
     }
@@ -204,51 +204,51 @@ void sphere_async(const Arguments& arguments)
 
 void reset(const Arguments& arguments)
 {
-    auto* value = component(arguments, 2);
-    arguments.set_return(value != nullptr && value->reset());
+    auto value = component(arguments, 2);
+    arguments.set_return(value.valid() && value.reset());
 }
 
 void persistence(const Arguments& arguments)
 {
-    auto* value = component(arguments, 3);
+    auto value = component(arguments, 3);
     std::string slot;
     std::filesystem::path path;
     const bool saving = arguments.data() != 0;
-    if (value == nullptr || !value->ready() || !BindingContext::text(arguments, 2, slot) ||
+    if (!value || !value.ready() || !BindingContext::text(arguments, 2, slot) ||
         !slot_path(slot, saving, path))
     {
         return;
     }
-    arguments.set_return(saving ? value->save_state(path) : value->load_state(path));
+    arguments.set_return(saving ? value.save_state(path) : value.load_state(path));
 }
 
 void ready(const Arguments& arguments)
 {
-    const auto* value = component(arguments, 2);
-    arguments.set_return(value != nullptr && value->ready());
+    const auto value = component(arguments, 2);
+    arguments.set_return(value.valid() && value.ready());
 }
 
 void collapse(const Arguments& arguments)
 {
-    auto* value = component(arguments, 6);
+    auto value = component(arguments, 6);
     float density = 0;
-    if (value && arguments.is_uint32(2) && arguments.is_uint32(3) &&
-        arguments.is_uint32(4) && BindingContext::scalar(arguments, 5, density))
+    if (value && arguments.is_uint32(2) && arguments.is_uint32(3) && arguments.is_uint32(4) &&
+        BindingContext::scalar(arguments, 5, density))
     {
-        arguments.set_return(value->collapse_detached(arguments.unsigned_integer(2),
-            arguments.unsigned_integer(3), arguments.unsigned_integer(4), density));
+        arguments.set_return(value.collapse_detached(arguments.unsigned_integer(2),
+                                                     arguments.unsigned_integer(3),
+                                                     arguments.unsigned_integer(4), density));
     }
 }
 
 void retire(const Arguments& arguments)
 {
-    auto* value = component(arguments, 4);
+    auto value = component(arguments, 4);
     arguments.set_return({});
     double max_age_seconds = 0;
     std::uint32_t retired_count = 0;
-    if (value && arguments.is_uint32(2) &&
-        BindingContext::number(arguments, 3, max_age_seconds) &&
-        value->retire_fragments(arguments.unsigned_integer(2), max_age_seconds, retired_count))
+    if (value && arguments.is_uint32(2) && BindingContext::number(arguments, 3, max_age_seconds) &&
+        value.retire_fragments(arguments.unsigned_integer(2), max_age_seconds, retired_count))
     {
         arguments.set_return(static_cast<double>(retired_count));
     }
@@ -256,31 +256,31 @@ void retire(const Arguments& arguments)
 
 void statistic(const Arguments& arguments)
 {
-    const auto* value = component(arguments, 2);
+    const auto value = component(arguments, 2);
     arguments.set_return({});
-    if (value == nullptr)
+    if (!value)
     {
         return;
     }
     switch (arguments.data())
     {
     case 0:
-        arguments.set_return(value->revision());
+        arguments.set_return(value.revision());
         break;
     case 1:
-        arguments.set_return(static_cast<double>(value->chunk_count()));
+        arguments.set_return(static_cast<double>(value.chunk_count()));
         break;
     case 2:
-        arguments.set_return(static_cast<double>(value->rebuilt_chunks()));
+        arguments.set_return(static_cast<double>(value.rebuilt_chunks()));
         break;
     case 3:
-        arguments.set_return(static_cast<double>(value->triangle_count()));
+        arguments.set_return(static_cast<double>(value.triangle_count()));
         break;
     case 4:
-        arguments.set_return(value->last_error());
+        arguments.set_return(value.last_error());
         break;
     case 5:
-        arguments.set_return(static_cast<double>(value->fragment_count()));
+        arguments.set_return(static_cast<double>(value.fragment_count()));
         break;
     }
 }
@@ -304,8 +304,7 @@ bool TerrainBinding::register_functions(vm::ScriptVm& vm) const
            vm.function("TerrainFill", sphere, 1) && vm.function("TerrainReset", reset) &&
            vm.function("TerrainDigAsync", sphere_async, 0) &&
            vm.function("TerrainFillAsync", sphere_async, 1) &&
-           vm.function("TerrainCollapse", collapse) &&
-           vm.function("TerrainRetire", retire) &&
+           vm.function("TerrainCollapse", collapse) && vm.function("TerrainRetire", retire) &&
            vm.function("TerrainFragments", statistic, 5) &&
            vm.function("TerrainSave", persistence, 1) &&
            vm.function("TerrainLoad", persistence, 0) && vm.function("TerrainReady", ready) &&

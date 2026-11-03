@@ -1,0 +1,29 @@
+name = "ECS many objects"
+active_camera = 1
+
+[[nodes]]
+id = 1
+name = "ECS Camera"
+parent = 0
+[[nodes.components]]
+type = "transform"
+position = [0.0, 140.0, 180.0]
+rotation = [-36.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+[[nodes.components]]
+type = "camera"
+fov_degrees = 55.0
+near_clip = 0.5
+far_clip = 2000.0
+
+[[nodes]]
+id = 2
+name = "Sun"
+parent = 0
+[[nodes.components]]
+type = "transform"
+rotation = [-45.0, -30.0, 0.0]
+[[nodes.components]]
+type = "light"
+color = [1.0, 0.96, 0.9, 1.0]
+intensity = 4.0

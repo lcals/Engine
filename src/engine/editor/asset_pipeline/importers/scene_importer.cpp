@@ -1,16 +1,144 @@
 #include "editor/asset_pipeline/importers/scene_importer.hpp"
 
 #include "editor/asset_pipeline/asset_io.hpp"
-#include "editor/asset_pipeline/components/scene_component_codec.hpp"
 #include "editor/asset_pipeline/importer_utils.hpp"
+#include "editor/asset_pipeline/prefab_composition.hpp"
 #include "editor/asset_pipeline/scene_importer.hpp"
+#include "runtime/resource/resource_system.hpp"
 
 #include <algorithm>
 #include <flatbuffers/flatbuffers.h>
+#include <flatbuffers/verifier.h>
 #include <span>
 
 namespace engine::editor::asset_pipeline
 {
+namespace
+{
+// Cached nodes and overrides are rebuilt from TOML. Their layout may change while the
+// prefab identity fields remain stable; verify only the schema-defined fields consumed here.
+bool verify_cached_identities(std::span<const std::byte> payload, const schema::SceneData*& scene)
+{
+    scene = nullptr;
+    const auto* bytes = reinterpret_cast<const std::uint8_t*>(payload.data());
+    if (payload.size() < 2 * sizeof(flatbuffers::uoffset_t) ||
+        !flatbuffers::BufferHasIdentifier(bytes, schema::SceneDataIdentifier()))
+    {
+        return false;
+    }
+    flatbuffers::Verifier verifier(bytes, payload.size());
+    const auto root_offset = verifier.VerifyOffset<flatbuffers::uoffset_t>(0);
+    if (!root_offset)
+    {
+        return false;
+    }
+    const auto* root = reinterpret_cast<const schema::SceneData*>(bytes + root_offset);
+    const auto* root_table = reinterpret_cast<const flatbuffers::Table*>(root);
+    if (!root_table->VerifyTableStart(verifier) ||
+        !root_table->VerifyOffset(verifier, schema::SceneData::VT_PREFAB_INSTANCES) ||
+        !verifier.VerifyVector(root->prefab_instances()))
+    {
+        return false;
+    }
+    if (const auto* instances = root->prefab_instances())
+    {
+        for (flatbuffers::uoffset_t index = 0; index < instances->size(); ++index)
+        {
+            const auto* offset = instances->Data() + index * sizeof(flatbuffers::uoffset_t);
+            if (!verifier.VerifyOffset(offset, 0))
+            {
+                return false;
+            }
+            const auto* instance = instances->Get(index);
+            const auto* table = reinterpret_cast<const flatbuffers::Table*>(instance);
+            if (!table->VerifyTableStart(verifier) ||
+                !table->VerifyOffsetRequired(verifier,
+                                             schema::PrefabInstanceData::VT_PREFAB_GUID) ||
+                !verifier.VerifyString(instance->prefab_guid()) ||
+                !table->VerifyField<std::uint64_t>(verifier, schema::PrefabInstanceData::VT_ROOT_ID,
+                                                   sizeof(std::uint64_t)) ||
+                !table->VerifyOffset(verifier, schema::PrefabInstanceData::VT_NODE_MAPPINGS) ||
+                !verifier.VerifyVector(instance->node_mappings()) ||
+                !verifier.VerifyVectorOfTables(instance->node_mappings()) || !verifier.EndTable())
+            {
+                return false;
+            }
+        }
+    }
+    if (!verifier.EndTable())
+    {
+        return false;
+    }
+    scene = root;
+    return true;
+}
+
+bool retain_generated_mappings(const ImportAsset& asset, const ImportContext& context,
+                               schema::SceneDataT& scene, std::string& error)
+{
+    if (!context.previous_catalog || scene.prefab_instances.empty())
+    {
+        return true;
+    }
+    const auto found = std::find_if(context.previous_catalog->entries.begin(),
+                                    context.previous_catalog->entries.end(),
+                                    [&](const auto& entry) { return entry->guid == asset.guid; });
+    if (found == context.previous_catalog->entries.end())
+    {
+        return true;
+    }
+    const auto path = context.project / "cache" / "gen" / asset.guid;
+    std::error_code filesystem_error;
+    if (!std::filesystem::exists(path, filesystem_error) && !filesystem_error)
+    {
+        return true;
+    }
+    std::vector<std::byte> entity, payload;
+    if (filesystem_error || !ResourceSystem::read_binary(path, entity) ||
+        !ResourceSystem::decode_resource(**found, entity, payload))
+    {
+        error = "Cannot preserve previous scene instance identities: " + asset.guid;
+        return false;
+    }
+    const schema::SceneData* previous = nullptr;
+    if (!verify_cached_identities(payload, previous))
+    {
+        error = "Invalid previous scene instance identities";
+        return false;
+    }
+    const auto* previous_instances = previous->prefab_instances();
+    if (!previous_instances)
+    {
+        return true;
+    }
+    for (auto& instance : scene.prefab_instances)
+    {
+        const auto old =
+            std::find_if(previous_instances->begin(), previous_instances->end(),
+                         [&](const auto* item)
+                         {
+                             return item->prefab_guid()->string_view() == instance->prefab_guid &&
+                                    item->root_id() == instance->root_id;
+                         });
+        if (old == previous_instances->end() || !(*old)->node_mappings())
+        {
+            continue;
+        }
+        for (const auto* mapping : *(*old)->node_mappings())
+        {
+            const auto explicit_mapping = std::find_if(
+                instance->node_mappings.begin(), instance->node_mappings.end(),
+                [&](const auto& item) { return item->source_id == mapping->source_id(); });
+            if (explicit_mapping == instance->node_mappings.end())
+            {
+                instance->node_mappings.emplace_back(mapping->UnPack());
+            }
+        }
+    }
+    return true;
+}
+} // namespace
+
 schema::AssetKind SceneAssetImporter::kind() const noexcept
 {
     return schema::AssetKind::scene;
@@ -22,7 +150,7 @@ bool SceneAssetImporter::matches(const std::filesystem::path& source) const
 bool SceneAssetImporter::inspect_batch(const ImportContext&, std::string& fingerprint,
                                        std::string& error)
 {
-    return schema_fingerprint({"scene.fbs"}, fingerprint, error);
+    return schema_fingerprint({"scene.fbs", "prefab.fbs"}, fingerprint, error);
 }
 bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportContext& context,
                                            std::string& error) const
@@ -34,124 +162,21 @@ bool SceneAssetImporter::scan_dependencies(ImportAsset& asset, const ImportConte
     {
         return false;
     }
-    for (const auto& node : scene.nodes)
+    if (!scan_node_dependencies(scene.nodes, context, asset.build_dependencies, error))
     {
-        for (const auto& component : node->components)
+        return false;
+    }
+    for (const auto& instance : scene.prefab_instances)
+    {
+        if (!reference(instance->prefab_guid, schema::AssetKind::prefab, context,
+                       asset.build_dependencies, error) ||
+            !scan_override_dependencies(instance->overrides, context, asset.build_dependencies,
+                                        error))
         {
-            const auto* codec = find_scene_component_codec(component->payload.type);
-            if (codec == nullptr ||
-                !codec->scan_dependencies(*component, context, asset.build_dependencies, error))
-            {
-                if (error.empty())
-                {
-                    error = "scene component dependency codec is unavailable";
-                }
-                return false;
-            }
-            if (const auto* environment = component->payload.AsEnvironmentData(); environment)
-            {
-                for (const auto* guid :
-                     {&environment->ibl_irradiance_guid, &environment->ibl_prefilter_guid,
-                      &environment->ibl_lut_guid})
-                {
-                    if (!guid->empty() && !reference(*guid, schema::AssetKind::texture, context,
-                                                     asset.build_dependencies, error))
-                    {
-                        return false;
-                    }
-                }
-            }
-            if (const auto* ui = component->payload.AsUiData(); ui && !ui->document_guid.empty())
-            {
-                if (!reference(ui->document_guid, schema::AssetKind::ui, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-            }
-            if (const auto* text = component->payload.AsTextData();
-                text && !text->font_guid.empty())
-            {
-                Guid shader;
-                const auto path =
-                    text->shader_path.empty() ? "builtin://shaders/font" : text->shader_path;
-                if (!context.identities.path_to_guid(path, shader) ||
-                    !reference(shader, schema::AssetKind::shader, context, asset.build_dependencies,
-                               error) ||
-                    !reference(text->font_guid, schema::AssetKind::font, context,
-                               asset.build_dependencies, error))
-                {
-                    if (error.empty())
-                    {
-                        error = "text references an unknown font shader";
-                    }
-                    return false;
-                }
-            }
-            if (const auto* animator = component->payload.AsAnimatorData();
-                animator != nullptr && !animator->animation_guid.empty())
-            {
-                if (!reference(animator->animation_guid, schema::AssetKind::animation, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-            }
-            if (const auto* audio = component->payload.AsAudioSourceData();
-                audio != nullptr && !audio->clip_guid.empty())
-            {
-                if (!reference(audio->clip_guid, schema::AssetKind::audio, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-            }
-            if (const auto* volume = component->payload.AsLightProbeVolumeData();
-                volume && !volume->probes_guid.empty())
-            {
-                if (!reference(volume->probes_guid, schema::AssetKind::light_probe, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-            }
-            if (const auto* mesh = component->payload.AsMeshRendererData())
-            {
-                if (!reference(mesh->mesh_guid, schema::AssetKind::mesh, context,
-                               asset.build_dependencies, error) ||
-                    !reference(mesh->material_guid, schema::AssetKind::material, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-                if (!mesh->lightmap_guid.empty() &&
-                    !reference(mesh->lightmap_guid, schema::AssetKind::texture, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-                for (const auto& material : mesh->additional_material_guids)
-                {
-                    if (!reference(material, schema::AssetKind::material, context,
-                                   asset.build_dependencies, error))
-                    {
-                        return false;
-                    }
-                }
-            }
-            if (const auto* collider = component->payload.AsColliderData();
-                collider != nullptr && collider->shape == schema::ColliderShape::mesh)
-            {
-                if (!reference(collider->mesh_guid, schema::AssetKind::mesh, context,
-                               asset.build_dependencies, error))
-                {
-                    return false;
-                }
-            }
+            return false;
         }
     }
     std::sort(asset.build_dependencies.begin(), asset.build_dependencies.end());
-    asset.runtime_dependencies = asset.build_dependencies;
     return true;
 }
 bool SceneAssetImporter::convert(const ImportAsset& asset, const ImportContext& context,
@@ -162,10 +187,34 @@ bool SceneAssetImporter::convert(const ImportAsset& asset, const ImportContext& 
     {
         return false;
     }
+    if (!retain_generated_mappings(asset, context, scene, error) ||
+        !compose_scene(scene, context, error))
+    {
+        return false;
+    }
     flatbuffers::FlatBufferBuilder builder;
     schema::FinishSceneDataBuffer(builder, schema::SceneData::Pack(builder, &scene));
     return write_bytes(context.output / asset.guid,
                        std::as_bytes(std::span(builder.GetBufferPointer(), builder.GetSize())),
                        error);
+}
+bool SceneAssetImporter::finalize_dependencies(ImportAsset& asset, const ImportContext& context,
+                                               std::string& error) const
+{
+    std::vector<std::byte> payload;
+    if (!read_generated_payload(asset.guid, context, payload, error))
+    {
+        return false;
+    }
+    flatbuffers::Verifier verifier(reinterpret_cast<const std::uint8_t*>(payload.data()),
+                                   payload.size());
+    if (!schema::VerifySceneDataBuffer(verifier))
+    {
+        error = "Invalid generated scene";
+        return false;
+    }
+    const auto scene = schema::UnPackSceneData(payload.data());
+    asset.runtime_dependencies.clear();
+    return scan_node_dependencies(scene->nodes, context, asset.runtime_dependencies, error);
 }
 } // namespace engine::editor::asset_pipeline

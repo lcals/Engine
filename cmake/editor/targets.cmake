@@ -69,6 +69,9 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/asset_publish.cpp
                 src/engine/editor/asset_pipeline/project_lock.cpp
                 src/engine/editor/asset_pipeline/scene_importer.cpp
+                src/engine/editor/asset_pipeline/prefab_importer.cpp
+                src/engine/editor/asset_pipeline/prefab_source.cpp
+                src/engine/editor/asset_pipeline/prefab_composition.cpp
                 src/engine/editor/asset_pipeline/components/scene_component_codec.cpp
                 src/engine/editor/asset_pipeline/components/transform_codec.cpp
                 src/engine/editor/asset_pipeline/components/collider_codec.cpp
@@ -90,6 +93,7 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 src/engine/editor/asset_pipeline/importers/shader_importer.cpp
                 src/engine/editor/asset_pipeline/importers/material_importer.cpp
                 src/engine/editor/asset_pipeline/importers/scene_importer.cpp
+                src/engine/editor/asset_pipeline/importers/prefab_importer.cpp
                 src/engine/editor/asset_pipeline/importers/texture_importer.cpp
                 src/engine/editor/asset_pipeline/importers/ktx_texture_importer.cpp
                 src/engine/editor/asset_pipeline/importers/light_probe_importer.cpp
@@ -135,7 +139,8 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                 ENGINE_SCRIPT_BUILDER="${PROJECT_SOURCE_DIR}/scripts/build_scripts.mjs")
 
     if(TARGET engine_editor)
-        target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp)
+        target_sources(engine_editor PRIVATE src/engine/editor/scene/scene_persistence.cpp
+                                             src/engine/editor/commands/prefab_commands.cpp)
         target_link_libraries(engine_editor PRIVATE engine::asset_pipeline efsw::efsw)
     endif()
 

@@ -5,6 +5,7 @@
 #include "runtime/scene/mesh_renderer.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 #if defined(__APPLE__)
@@ -357,12 +358,12 @@ bool run(const std::filesystem::path& root)
         return false;
     }
     auto* scene = world.create_scene("Catalog scene");
-    auto* camera_node = scene ? scene->create_node("Camera") : nullptr;
-    auto* mesh_node = scene ? scene->create_node("Triangle") : nullptr;
-    auto* camera = camera_node ? camera_node->add_component<Camera>() : nullptr;
-    auto* renderer = mesh_node ? mesh_node->add_component<MeshRenderer>() : nullptr;
+    auto camera_node = scene ? scene->create_node("Camera") : engine::Node{};
+    auto mesh_node = scene ? scene->create_node("Triangle") : engine::Node{};
+    auto camera = camera_node ? camera_node.add_component<Camera>() : Camera{};
+    auto renderer = mesh_node ? mesh_node.add_component<MeshRenderer>() : MeshRenderer{};
     if (!camera || !renderer || !scene->set_active_camera(camera) ||
-        !mesh_node->set_parent(camera_node))
+        !mesh_node.set_parent(camera_node))
     {
         return false;
     }
@@ -510,8 +511,10 @@ bool run(const std::filesystem::path& root)
         return false;
     }
     auto* restored = world.load_scene("scenes/main.scene");
-    if (!expect(restored && restored->nodes().size() == 2 && restored->active_camera() &&
-                    restored->nodes()[1]->parent() == restored->nodes()[0].get(),
+    if (!expect(restored && test_support::scene_nodes(*restored).size() == 2 &&
+                    restored->active_camera() &&
+                    test_support::scene_nodes(*restored)[1].parent() ==
+                        test_support::scene_nodes(*restored)[0],
                 "world reconstructs scene while holding resource root"))
     {
         return false;
@@ -536,7 +539,7 @@ bool run(const std::filesystem::path& root)
     std::weak_ptr<const Resource> weak = loaded;
     loaded.reset();
     shared.reset();
-    if (!expect(weak.expired() && restored->nodes().size() == 2,
+    if (!expect(weak.expired() && test_support::scene_nodes(*restored).size() == 2,
                 "core does not share roots; world owns its independently loaded scene"))
     {
         return false;

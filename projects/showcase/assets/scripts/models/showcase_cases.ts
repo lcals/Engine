@@ -11,6 +11,7 @@ import ShootingRange from "../modules/shooting-range.js";
 import NavigationLab from "../modules/navigation.js";
 import PhysicsInteractions from "../modules/physics-interactions.js";
 import PersistentUi from "../modules/persistent-ui.js";
+import EcsManyObjects from "../modules/ecs-many-objects.js";
 
 export type ShowcaseGame = Gameplay & { scene: Scene | null };
 
@@ -84,5 +85,10 @@ export const showcase_cases: readonly ShowcaseCase[] = [
         id: "persistent-ui", button: "scene-persistent-ui", title: "UI and scene lifetime",
         goal: "Keep text and subscriptions through loading, cancellation, failure and unload.",
         scene: "scenes/persistent-ui.scene", game: PersistentUi,
+    },
+    {
+        id: "ecs-many-objects", button: "scene-ecs", title: "ECS many objects",
+        goal: "Create 1,000 / 10,000 / 50,000 real entities; check hierarchy, visibility and stale handles.",
+        scene: "scenes/ecs-many-objects.scene", game: EcsManyObjects,
     },
 ];

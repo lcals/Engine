@@ -1,34 +1,20 @@
 #include "runtime/scene/collider.hpp"
 
+#include "runtime/scene/ecs_storage.hpp"
+
 #include "runtime/core/guid_map.hpp"
 #include "runtime/physics/mesh_collision_data.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/node.hpp"
 #include "runtime/scene/rigid_body.hpp"
 
-#include <atomic>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 namespace engine
 {
 namespace
 {
-
-std::uint64_t next_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
-}
 
 bool bounded(double value, double minimum, double maximum) noexcept
 {
@@ -37,19 +23,14 @@ bool bounded(double value, double minimum, double maximum) noexcept
 
 } // namespace
 
-Collider::Collider(Node& node) : Component(node), instance_id_(next_instance_id())
+bool Collider::register_type(ComponentRegistry& registry)
 {
-    mutable_data().payload.Set(schema::ColliderDataT{});
+    return register_component_storage<Collider, Data, Runtime>(registry);
 }
 
-bool Collider::initialize()
+Collider::Runtime* Collider::runtime() const noexcept
 {
-    return instance_id_ != 0;
-}
-
-std::uint64_t Collider::instance_id() const noexcept
-{
-    return instance_id_;
+    return runtime_state<Runtime>();
 }
 
 bool Collider::valid_settings(const schema::ColliderDataT& value,
@@ -105,24 +86,36 @@ bool Collider::valid_settings(const schema::ColliderDataT& value,
            bounded(value.restitution, 0.0, 1.0);
 }
 
-const schema::ColliderDataT& Collider::settings() const noexcept
+schema::ColliderDataT Collider::settings() const noexcept
 {
-    return *data().payload.AsColliderData();
+    const auto* value = read_data<Data>();
+    return value ? *value : Data{};
+}
+
+bool Collider::get_settings(Data& output) const noexcept
+{
+    const auto* value = read_data<Data>();
+    output = value ? *value : Data{};
+    return value != nullptr;
 }
 
 bool Collider::set_settings(const schema::ColliderDataT& value)
 {
-    if (!valid_settings(value, transient_mesh_.get(), mesh_parts_.get()))
+    if (!writable())
     {
         return false;
     }
-    auto replacement = mesh_;
-    auto transient = transient_mesh_;
-    auto parts = mesh_parts_;
+    if (!valid_settings(value, runtime()->transient_mesh_.get(), runtime()->mesh_parts_.get()))
+    {
+        return false;
+    }
+    auto replacement = runtime()->mesh_;
+    auto transient = runtime()->transient_mesh_;
+    auto parts = runtime()->mesh_parts_;
     if (value.shape == schema::ColliderShape::mesh)
     {
-        const auto* body = node().get_component<RigidBody>();
-        if (body != nullptr && body->settings().motion != schema::BodyMotion::static_body)
+        auto body = node().get_component<RigidBody>();
+        if (body.valid() && body.settings().motion != schema::BodyMotion::static_body)
         {
             return false;
         }
@@ -151,37 +144,64 @@ bool Collider::set_settings(const schema::ColliderDataT& value)
         transient.reset();
         parts.reset();
     }
-    *mutable_data().payload.AsColliderData() = value;
-    mesh_ = std::move(replacement);
-    transient_mesh_ = std::move(transient);
-    mesh_parts_ = std::move(parts);
+    *write_data<Data>() = value;
+    modified();
+    runtime()->mesh_ = std::move(replacement);
+    runtime()->transient_mesh_ = std::move(transient);
+    runtime()->mesh_parts_ = std::move(parts);
     return true;
 }
 
 bool Collider::restore_data(const schema::ComponentDataT& value)
 {
+    if (!value.flags)
+    {
+        return false;
+    }
+    if (!writable())
+    {
+        return false;
+    }
     const auto* settings = value.payload.AsColliderData();
     if (settings == nullptr || !valid_settings(*settings) || !set_settings(*settings))
     {
         return false;
     }
-    set_enabled(value.enabled);
+    if (!restore_flags(value))
+    {
+        return false;
+    }
     return true;
 }
 
 bool Collider::build_data(schema::ComponentDataT& output) const
 {
     output = {};
-    return transient_mesh_ == nullptr && mesh_parts_ == nullptr && Component::build_data(output);
+    if (!valid())
+    {
+        return false;
+    }
+    return runtime()->transient_mesh_ == nullptr && runtime()->mesh_parts_ == nullptr &&
+           build_storage_data(output);
 }
 
 const schema::MeshDataT* Collider::mesh_data() const noexcept
 {
-    return transient_mesh_ ? transient_mesh_.get() : mesh_ ? mesh_->mesh() : nullptr;
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->transient_mesh_ ? runtime()->transient_mesh_.get()
+           : runtime()->mesh_         ? runtime()->mesh_->mesh()
+                                      : nullptr;
 }
 
 bool Collider::set_mesh(std::string_view path)
 {
+    if (!writable())
+    {
+        return false;
+    }
     auto replacement = settings();
     if (!ResourceSystem::path_to_guid(path, replacement.mesh_guid))
     {
@@ -194,7 +214,11 @@ bool Collider::set_mesh(std::string_view path)
 
 std::string_view Collider::mesh_path() const noexcept
 {
-    return mesh_ ? std::string_view(mesh_->info().path) : std::string_view{};
+    if (!valid())
+    {
+        return {};
+    }
+    return runtime()->mesh_ ? std::string_view(runtime()->mesh_->info().path) : std::string_view{};
 }
 
 } // namespace engine

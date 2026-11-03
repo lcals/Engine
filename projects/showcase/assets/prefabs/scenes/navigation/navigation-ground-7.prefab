@@ -1,0 +1,21 @@
+root = "7"
+
+[[nodes]]
+id = 7
+name = "Navigation ground"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, 0]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "terrain"
+terrain = "9cf6a604-6b75-4a85-bc8d-0680389c0276"
+material = "4ed9d0fc-3c30-452b-8171-7acb834ea104"
+collision = true
+surface_color = [0.3, 0.38, 0.38, 1]
+wall_color = [0.5, 0.32, 0.18, 1]
+uv_scale = 0.2

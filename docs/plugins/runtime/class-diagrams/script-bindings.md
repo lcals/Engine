@@ -67,7 +67,7 @@ classDiagram
         +storage_error() const string&
         +scene_id() uint64_t
         +set_scene_id(uint64_t value) void
-        +find_node(uint64_t scene_id, uint64_t node_id) Node#42;
+        +find_node(uint64_t scene_id, uint64_t node_id) Node
         +delta_time() double
     }
     class ScriptVm
@@ -134,8 +134,8 @@ classDiagram
     class BindingContext {
         +current(Arguments arguments, bool require_callable) BindingContext#42;$
         +scene(Arguments arguments) Scene#42;$
-        +node(Arguments arguments) Node#42;$
-        +component(Arguments arguments) Component#42;$
+        +node(Arguments arguments) Node$
+        +component(Arguments arguments) Component$
         +identifier(Arguments arguments, int index, uint64_t& output) bool$
         +number(Arguments arguments, int index, double& output) bool$
         +scalar(Arguments arguments, int index, float& output) bool$
@@ -226,7 +226,7 @@ classDiagram
 - `ScriptBinding` 定义名称、JS 门面和原生函数注册；具体实现不重复持有 Run 或世界。`add<T>()` 通过普通模板创建并登记一个实现，默认绑定在初始化入口逐类列出。注册表独占绑定对象，拒绝空绑定和重复名称，失败不转移调用者所有权。原生属性注册拒绝已有名称，不能覆盖其他绑定函数。
 - 每个组件绑定自行注册工厂和组件种类值；Node 的 AddComponent 根据注册表调用相应工厂，新增组件绑定无需修改 Node 或全局业务 switch。
 - BindingContext 的共享静态帮助方法负责数值/字符串/64位标识校验与场景/节点查找；所有失败返回状态或空借用。
-- 绑定上下文借用 World，保存 Run 所属场景 ID 和本帧时间，不持有原生 Node/Component 指针。虚拟机回调借用对应 Run 的 owner，上下文活性与回调许可全部匹配后才允许访问；上下文存活期覆盖 VM，VM 释放后撤销活性并仅清理自己的场景。
+- 绑定上下文借用 World，保存 Run 所属场景 ID 和本帧时间，不持有原生 Node/Component 指针。组件包装统一捕获 Component 的非零实例身份，共享句柄查询逐次校验 scene/node/kind/instance；组件删除后重建不会复活旧引用，附属于 MeshRenderer 的 Material 同样校验拥有组件的身份。失效句柄沿原生操作返回 false/null，不为每个组件维护专用验证闭包。虚拟机回调借用对应 Run 的 owner，上下文活性与回调许可全部匹配后才允许访问；上下文存活期覆盖 VM，VM 释放后撤销活性并仅清理自己的场景。
 - `AppBinding` 读取 App 现有三种路径；`DebugBinding` 转发日志；`TimeBinding` 仅在有效生命周期回调内返回时间；GameplayBinding 只有 JS 基类。
 - `StorageBinding` 提供字符串 KV 与显式保存；BindingContext 独占缓存，只在有效回调首次访问时读取 App 持久根。接口和失败语义见 [KV 脚本接口](storage-script-api.md)。
 - `EngineBinding` 独立提供 `Engine.SetTargetFrameRate(fps): boolean` 与 `Engine.GetTargetFrameRate(): number | null`，调用核心 Engine 的帧调度接口。设置只接受 `-1` 或正 int32 整数；无效参数不改变当前值。两者只允许活动 Run 的生命周期或组件回调使用，模块顶层、构造和候选预检阶段不能读取或修改运行中的上限。编辑器限帧的保存、解除与恢复由编辑器会话负责，绑定不读项目配置。

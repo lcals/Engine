@@ -69,7 +69,7 @@ export default class Game extends Gameplay {
             return false;
 
         // The same openly licensed showcase avatar and animation as the courtyard.
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Avatar");
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", "Avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);

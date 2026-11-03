@@ -36,28 +36,27 @@ Object.freeze(Transform);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<Transform>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<Transform>().valid());
 }
 
 void set_vector(const Arguments& arguments, Vec3 TransformSettings::* field)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* transform = node == nullptr ? nullptr : node->get_component<Transform>();
+    auto node = BindingContext::node(arguments);
+    auto transform = !node ? Transform{} : node.get_component<Transform>();
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
-    if (transform == nullptr || arguments.count() != 5 ||
-        !BindingContext::number(arguments, 2, x) || !BindingContext::number(arguments, 3, y) ||
-        !BindingContext::number(arguments, 4, z))
+    if (!transform || arguments.count() != 5 || !BindingContext::number(arguments, 2, x) ||
+        !BindingContext::number(arguments, 3, y) || !BindingContext::number(arguments, 4, z))
     {
         return;
     }
-    auto settings = transform->settings();
+    auto settings = transform.settings();
     settings.*field = Vec3(x, y, z);
-    arguments.set_return(transform->set_settings(settings));
+    arguments.set_return(transform.set_settings(settings));
 }
 
 void position(const Arguments& arguments)
@@ -76,10 +75,10 @@ void scale(const Arguments& arguments)
 void world_vector(const Arguments& arguments)
 {
     arguments.set_return({});
-    const auto* node = BindingContext::node(arguments);
-    const auto* transform = node ? node->get_component<Transform>() : nullptr;
+    const auto node = BindingContext::node(arguments);
+    const auto transform = node ? node.get_component<Transform>() : Transform{};
     float matrix[16]{};
-    if (!transform || arguments.count() != 2 || !transform->world_matrix(matrix))
+    if (!transform || arguments.count() != 2 || !transform.world_matrix(matrix))
     {
         return;
     }

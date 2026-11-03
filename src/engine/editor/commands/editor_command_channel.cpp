@@ -107,6 +107,7 @@ bool EditorCommandChannel::publish_pending()
         last_error_ = "Cannot publish editor command receipt; execution will not be repeated";
         return false;
     }
+    last_receipt_ = std::move(pending_);
     pending_ = nullptr;
     return true;
 }
@@ -114,9 +115,10 @@ bool EditorCommandChannel::publish_pending()
 bool EditorCommandChannel::poll()
 {
     last_error_.clear();
-    if (!publish_pending())
+    if (!pending_.is_null())
     {
-        return false;
+        // 一次 poll 只发布一个已执行回执，宿主可观察恢复成功的生命周期结果。
+        return publish_pending();
     }
     const auto input = directory_ / "editor-command.json";
     std::error_code code;
@@ -246,6 +248,11 @@ bool EditorCommandChannel::poll()
     }
     last_text_ = std::move(text);
     return publish_pending();
+}
+
+const Json& EditorCommandChannel::last_receipt() const noexcept
+{
+    return last_receipt_;
 }
 
 const std::string& EditorCommandChannel::last_error() const noexcept

@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [现有渲染系统](render-system.md) · [上游实现与适配](../rendering-upstream-plan.md) · [编辑器光照烘焙](../../plugins/editor/class-diagrams/scene-lighting-bake.md)
 
-**状态：接口已评审通过，实现与验证中。** 本图集中列出本轮新增及改变的契约；现有方法仍以所属类图为准。实现继续使用当前工作分支。目标包括分簇前向光照、SSR、平面反射、透明与折射、点光/聚光阴影、静态 Lightmap 和动态对象的光照探针。
+**状态：当前实现契约。** 本图维护分簇与反射相关接口；基础方法以所属类图为准，实际验证范围见[测试文档](../../testing.md)。功能包括分簇前向光照、SSR、平面反射、透明与折射、点光/聚光阴影、静态 Lightmap 和动态对象的光照探针。
 
 ## 运行时归属
 
@@ -33,7 +33,7 @@ classDiagram
     SceneGpuResources *-- HdrPostProcessPass : 扩展已有颜色目标
 ```
 
-沿用 `RenderSystem` 和已有 `passes/`，不增加渲染管理器或另一套图形后端。以上私有通道只拥有 GPU 资源，不拥有 Scene、Node 或 Component；输入只在帧提交期间借用。初始化失败清理已创建部分；窗口尺寸改变时重新准备受影响目标，关闭效果、换场景和关闭设备时释放。GPU 拥有者不可复制，析构兜底。
+沿用 `RenderSystem` 和已有 `passes/`，不增加渲染管理器或另一套图形后端。以上私有通道只拥有 GPU 资源，不拥有 Scene、Node 或 Component；输入只在帧提交期间借用。初始化失败清理已创建部分；窗口尺寸改变时重新准备受影响目标，关闭效果、已无存活使用者或关闭设备时释放。GPU 拥有者不可复制，析构兜底。
 
 内部组织仍采用各通道的 `prepare(...) -> bool`、`release() noexcept`、`resource_count() const noexcept -> uint32_t` 契约。具体提交保持在渲染模块内部，不向脚本暴露 GPU handle：
 
@@ -91,7 +91,12 @@ classDiagram
     class PostProcessComponent
     class Component
     class PlanarReflectionComponent {
-        +settings() const PlanarReflectionSettings&
+        <<value handle>>
+        +PlanarReflectionComponent()
+        +PlanarReflectionComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +settings() PlanarReflectionSettings
+        +get_settings(PlanarReflectionSettings& output) bool
         +set_settings(const PlanarReflectionSettings& settings) bool
         +restore_data(const ComponentDataT& data) bool
     }
@@ -101,8 +106,8 @@ classDiagram
         +float clip_bias = 0.02
     }
     Component <|-- PlanarReflectionComponent
-    PlanarReflectionComponent *-- PlanarReflectionSettings : 使用组件生成数据
-    PostProcessComponent *-- PostProcessSettings : 使用现有事务设置接口
+    PlanarReflectionComponent ..> PlanarReflectionSettings : 访问ECS中的生成数据
+    PostProcessComponent ..> PostProcessSettings : 使用现有事务设置接口
 ```
 
 SSR 参数扩展现有 `PostProcessData` 和渲染设置快照；`set_settings()` 整体校验后提交。分辨率比例 `[0.25,1]`，步数 `[8,256]`，距离 `(0,100000]`，厚度 `(0,10]`，粗糙度截止值 `[0,1]`。本轮 SSR 使用确定性层级深度遍历，尚不包含随机射线、运动矢量和时序降噪。法线、粗糙度和 F0 来自真实材质；有效命中替换 IBL 镜面项，未命中保留 IBL，避免重复叠加高光。
@@ -195,7 +200,13 @@ classDiagram
     }
     class Component
     class LightProbeVolumeComponent {
-        +settings() const LightProbeVolumeSettings&
+        <<value handle>>
+        +LightProbeVolumeComponent()
+        +LightProbeVolumeComponent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() LightProbeVolumeComponentRuntime#42;
+        +settings() LightProbeVolumeSettings
+        +get_settings(LightProbeVolumeSettings& output) bool
         +set_settings(const LightProbeVolumeSettings& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +resource() shared_ptr~const Resource~
@@ -207,12 +218,27 @@ classDiagram
     class Resource
     class LightProbeData
     Component <|-- LightProbeVolumeComponent
-    LightProbeVolumeComponent *-- LightProbeVolumeSettings
-    LightProbeVolumeComponent o-- Resource : 保留探针资源版本
+    LightProbeVolumeComponent ..> LightProbeVolumeSettings : 访问ECS中的生成数据
+    LightProbeVolumeComponentRuntime o-- Resource : 保留探针资源版本
     Resource *-- LightProbeData : 独立生成资源
     MeshRenderer ..> MeshRendererData : 保存绑定与烘焙时几何/变换指纹
     MeshRenderer ..> MeshData : 共享几何包含第二套UV
-    MeshRenderer o-- Resource : 每实例保留Lightmap资源
+    MeshRendererRuntime o-- Resource : 每实例保留Lightmap资源
+    class ComponentRegistry
+    class ecs_world_t
+    class LightProbeVolumeComponentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- LightProbeVolumeComponentRuntime : 实例运行数据
+    LightProbeVolumeComponent ..> LightProbeVolumeComponentRuntime : 校验身份后短期借用
+    class MeshRendererRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- MeshRendererRuntime : 实例运行数据
+    MeshRenderer ..> MeshRendererRuntime : 校验身份后短期借用
+    LightProbeVolumeComponent ..> ComponentRegistry : 静态登记类型操作
+    PlanarReflectionComponent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 `bake_static=false` 默认不参与静态烘焙。`set_lightmap("")` 清除绑定；非空路径必须解析为有效线性纹理且网格具备合格 UV2，失败保持原状态。绑定保存在 MeshRendererData 而不是共享材质；同时保存编译网格内容哈希和烘焙时 16 元素世界矩阵。恢复时保留原指纹，不能按当前变换重新绑定。网格或实例变换变化后旧绑定失效并退回探针/IBL，不能将另一份几何的光照套上去。具体版本指纹和发布数据见烘焙图。
@@ -276,3 +302,5 @@ classDiagram
 公开组件加入既有逐类型注册、TOML 编解码、FlatBuffers 生成、TS 绑定和编辑命令；不增加项目专用类型。TS 采用 `PostProcessComponent.SetScreenSpaceReflections(...)`、`Material.SetBlendMode(...)`、`PlanarReflectionComponent.SetSettings(...)`、`MeshRenderer.SetBakeStatic(...) / SetLightmap(...)`、`LightProbeVolumeComponent.SetResource(path)`，统一返回 bool；仍可通过 `Node.AddComponent(Type)` 组合。设置读取保持相同字段含义，声明只随对应实现落地。
 
 验证围绕功能：Debug/Release 受影响构建及 CTest；验证多个局部光源遮挡、透明排序、离屏角色平面倒影、SSR 命中/缺失回退、烘焙颜色反弹、动态对象穿过探针体积、取消与切场景释放。实际画面首先在 macOS/Metal 检查；其他后端离线 Shader 编译不等于真机已通过。不开展无关模块优化或压力测试。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](ecs-scene.md)。

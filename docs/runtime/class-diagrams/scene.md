@@ -1,90 +1,72 @@
 # 场景
 
-[类图索引](../../class-diagrams/index.md) · [世界系统](world-system.md) · [节点](node.md)
+[类图索引](../../class-diagrams/index.md) · [世界系统](world-system.md) · [节点](node.md) · [ECS 场景](ecs-scene.md)
 
-场景中所有对象均为 Node 与 Component 的组合；跨语言数据及缓存二进制格式由 FlatBuffers schema 定义。
+Scene 组织场景加载、发布、卸载和资源引用；节点属性、层级、组件数据与预制体实例记录唯一存放在 WorldSystem 的 Flecs world。
 
 ```mermaid
 classDiagram
     class Scene {
         +~Scene()
         +id() uint64_t
-        +name() string_view
-        +instantiate_model(string_view path, string_view name) Node#42;
-        +create_node(string_view name) Node#42;
-        +find_node(uint64_t id) Node#42;
-        +find_node(uint64_t id) const Node#42;
+        +name() string
+        +world() WorldSystem&
+        +empty() bool
+        +create_node(string_view name) Node
+        +instantiate_model(string_view path, string_view name, vector~Node~#42; created) Node
+        +instantiate_prefab(string_view path, string_view name, vector~Node~#42; created) Node
+        +find_node(uint64_t id) Node
+        +collect_nodes(vector~Node~& output) bool
         +destroy_node(uint64_t id) bool
-        +nodes() const vector~unique_ptr~Node~~&
-        +active_camera() Camera#42;
-        +active_camera() const Camera#42;
-        +set_active_camera(Camera#42; camera) bool
+        +collect_prefab_instances(vector~PrefabInstanceDataT~& output) bool
+        +set_prefab_instance(const PrefabInstanceDataT& instance) bool
+        +remove_prefab_instance(uint64_t root_local_id) bool
+        +active_camera() Camera
+        +set_active_camera(Camera camera) bool
         +build_data(SceneDataT& output) bool
         -restore_data(const SceneDataT& data) bool
         -retain_persistent() void
-        -create_node(string_view name, uint64_t local_id) Node#42;
-        -node_index_ unordered_map~uint64_t, Node#42;~
-        -local_node_index_ unordered_map~uint64_t, Node#42;~
-        -find_local_node(uint64_t local_id) Node#42;
+        -world_ WorldSystem&
+        -metadata_entity_ uint64_t
+        -local_node_index_ unordered_map~uint64_t,uint64_t~
     }
-    class Resource
     class WorldSystem
+    class ecs_world_t
+    class Resource
     class Node
     class Camera
-    class Transform
-    class ecs_world_t
     class ComponentRegistry
-    class Component
-    class SceneInfoT {
-        <<FlatBuffers生成>>
-        +string name
-        +uint64_t active_camera_node
-    }
-    class SceneDataT {
-        <<FlatBuffers生成>>
-        +unique_ptr~SceneInfoT~ info
-        +vector~unique_ptr~NodeDataT~~ nodes
-    }
-    class NodeDataT {
-        <<FlatBuffers生成>>
-        +unique_ptr~NodeInfoT~ info
-        +vector~unique_ptr~ComponentDataT~~ components
-    }
-    WorldSystem "1" *-- "0..*" Scene : 独占已发布场景容器
-    WorldSystem --> Scene : 可空当前玩法场景
-    Scene "1" *-- "0..*" Node : 独占节点
-    Scene o-- Resource : 已加载场景根资源共享引用
-    Scene "1" *-- "1" SceneInfoT : 唯一场景元数据
-    Scene --> ecs_world_t : 借用底层实体世界
-    Scene ..> Camera : 根据节点id查询与设置活动相机
-    Scene ..> Transform : 创建节点时添加
-    Scene ..> SceneDataT : 构造临时完整快照
-    Scene ..> ComponentRegistry : 创建已登记组件
-    Scene ..> Component : 调用统一保存和恢复接口
-    SceneDataT *-- SceneInfoT : 快照元数据
-    SceneDataT *-- NodeDataT : 快照节点
+    class SceneDataT
+    class SceneInfoT
+    class PrefabInstanceDataT
+    WorldSystem "1" *-- "0..*" Scene : 已发布与候选生命周期
+    WorldSystem "1" *-- "1" ecs_world_t : 唯一真实场景数据
+    Scene --> WorldSystem : 借用所属世界
+    Scene o-- Resource : 场景根资源共享引用
+    Scene ..> Node : 返回与收集值句柄
+    Scene ..> Camera : 活动镜头值句柄
+    Scene ..> SceneDataT : 生成独立保存快照
+    Scene ..> ComponentRegistry : 调用已登记类型操作
+    ecs_world_t *-- SceneInfoT : 场景元数据实体上的生成数据
+    ecs_world_t *-- PrefabInstanceDataT : 预制体实例根上的来源与覆盖
 ```
 
-- 只能由已初始化的 WorldSystem 创建，一个世界同时最多一个活动场景。场景生命周期 id 由 WorldSystem 递增，关闭再初始化也不重用。
-- 节点身份使用 flecs 完整 64 位标识（含代次），删除后不会由新节点冒用。`create_node()` 自动添加 Transform，Node 本身不包含具体组件创建逻辑。
-- Camera 添加后由调用方显式 `set_active_camera()`，没有添加组件隐式修改场景状态的行为。传空指针清除，拒绝其他场景的相机。
-- 各 Camera 的瞬态网格隐藏列表独立，由[相机组件接口](component.md)管理；Scene 不保存全局观察者遮罩，场景快照不包含隐藏列表。调用方可显式传入另一个镜头观察同一场景，不修改活动相机或网格状态。
-- `find_node()` 使用完整运行时实体 ID 索引，父节点和活动相机使用独立的场景局部 ID 索引，平均 O(1) 查找；ID 为 0 直接返回空。索引只借用节点，`nodes_` 仍按创建／恢复顺序独占节点，Node 不持有组件专用指针或新增层级缓存。
-- 创建时同时登记两类 ID；恢复直接登记源资源的局部 ID，允许乱序、不连续及最大 `uint64_t` 值，后续自动 ID 从最大已用值递增，耗尽后返回空。不得先以临时递增 ID 登记再覆盖，避免与后续资源 ID 碰撞。
-- `destroy_node()` 连同后代一起删除；一次删除以临时祖先归属表缓存已判断分支，平均 O(N) 判定后稳定删除，避免逐节点全表父查找和删除集合线性扫描。保留节点的相对顺序及借用地址不变；活动相机若属于该子树则清除。不存在时返回 false。
-- 节点组件释放后、实体销毁前移除该节点的两类索引；部分构造失败和候选场景加载失败使用同一析构路径。场景关闭先销毁所有节点，再释放索引和资源引用。
-- 返回节点和组件均为借用，删除所属节点或场景后失效。遍历 `nodes()` 期间不可增加或删除节点。
-- `build_data()` 从生成类型组成的运行时状态创建独立的 `SceneDataT` 内存快照；失败输出为空。快照可由 FlatBuffers Pack、Verifier、UnPack，并保留层级、组件类型及参数。资源写入由编辑器转换器完成；WorldSystem 读取运行时缓存并向候选 Scene 恢复数据。
-- `include/schemas/runtime/scene.fbs` 是共享字段定义；flatc 生成头只在构建目录产生。C++ 与 TypeScript 从同一 schema 生成类型，不另定义数据模型。
+- WorldSystem 最多有一个当前玩法 Scene，另可保留常驻场景及一个未发布候选。场景 ID 在世界重新初始化后不重用。
+- `create_node()` 创建实体并自动添加 Transform。节点的完整 64 位实体 ID 含代次；局部 ID 另行分配并由 `local_node_index_` 索引。索引只保存身份映射，不复制节点状态或拥有 Node 对象。
+- SceneInfoT 存放于内部场景实体，活动相机只以局部 ID 保存；`active_camera()` 按需返回 Camera 值句柄。`set_active_camera(Camera{})` 清空选择，过期非空或其他场景镜头失败。添加 Camera 不自动改变选择。
+- `collect_nodes()` 按创建/恢复顺序生成独立值句柄数组；不暴露 ECS 内部地址或拥有容器。数组跨 ECS 移表仍可用于重新查找，但被删除实体的句柄立即失效。游戏系统以具体列和 Published 标记查询，不每帧调用该快照接口。
+- `destroy_node()` 删除节点及全部 ChildOf 后代，先清理索引和活动镜头选择，再释放 ECS 列与运行资源；不存在返回 false。其他实体身份不变。
+- 候选恢复使用源局部 ID，允许乱序、不连续及最大 uint64_t；后续自动 ID 在耗尽时失败。无效父链、组件或资源使候选完整回滚；发布前没有 Published 标记，原生系统查询不能看到半成品。
+- `build_data()` 由 ECS 中的唯一生成数据组装独立 SceneDataT，失败清空输出。运行实体 ID、缓存、请求与后端句柄不落盘；FlatBuffers 与 TypeScript 使用同一 schema。
 
-`build_data` 保存局部稳定节点 ID 与资源 GUID；`restore_data` 只向空候选场景加载，校验完成后由 WorldSystem 发布。失败候选销毁，不替换活动场景。
+## 实例化、预制体与保存
 
-由 WorldSystem 加载的活动场景持有场景根资源及其必要依赖。普通卸载删除非持久子树并释放根资源引用；有常驻节点时保留原 Scene 容器和局部 ID，清除活动相机选择。常驻组件仅继续持有实际所需的资源，不为保留 UI 持有整关资源闭包。空的保留容器在卸载、切换或下一次世界更新回收。动态创建的空场景没有场景文件引用，组件按自身实际使用持有资源。
+`instantiate_model` 加载独立 Model 及必要依赖，展开普通节点、Transform 与 MeshRenderer；动画由调用方另加。`instantiate_prefab` 恢复节点树并在实例根登记来源、稳定映射与显式覆盖；非空 name 是根名称覆盖。两者可选 `created` 输出精确本次创建集合，默认 nullptr，失败输出为空并回滚候选；编辑器撤销不按全场景数组长度推算新节点。
 
-场景快照保存全部材质槽的 GUID：槽 0 为 material_guid，其余为 additional_material_guids。瞬时网格未落为独立资源、没有 GUID 时 build_data 返回 false，输出为空；不能悄悄序列化成旧网格或丢失动态几何。
+`collect_prefab_instances()` 返回独立来源/覆盖快照，顺序由明确登记次序保持；解除再关联排到后面，不依赖 ECS 表行顺序。`set_prefab_instance()` 校验存在的节点及映射后替换元数据，不自动将运行时变化记录为覆盖。来源、修改与展开见[预制体](prefab.md)。
 
-组件持久化行为由 [Component](component.md) 的 build_data/restore_data 契约承担，创建函数由[组件登记表](component-registry.md)选择；场景不再直接处理渲染组件的 GUID 或逐组件字段。Component 默认不是 transient；调用方可标记自己生成的派生组件，Scene 快照略过这些组件，由其拥有者保存源数据并重新生成。标记只影响场景快照，不改变组件本身的严格 build_data 校验，也不进入持久 schema。
+源场景/预制体由编辑器 TOML 编解码，运行时只消费 FlatBuffers。统一 Component 登记操作负责具体类型的保存/恢复与 GUID，Scene 不出现组件字段分支。生成的 NodeInfoT/ComponentDataT 只在保存、恢复、撤销边界组装。
 
-`instantiate_model(path, name)` 通过当前加载器获取模型资源及依赖，创建普通 Node/Transform/MeshRenderer 层级，返回本场景拥有的根节点借用。失败回滚本次候选节点而保留原场景；调用方另行添加 Animator 并指定动画。数据关系见[模型资源](model-resources.md)，编辑器撤销流程见[模型命令](../../editor/class-diagrams/model-commands.md)。
+瞬态节点的整棵子树及瞬态组件从保存排除；活动相机被排除时保存失败。MeshRenderer 保存所有材质槽 GUID，尚未导出的动态网格使保存失败，不伪造资源身份。
 
-`Node::transient()` 为真时，快照和编辑器场景保存跳过整个节点（含继承瞬态的后代），无需为其每个组件重复设置标记。活动相机若位于被排除子树，保存明确失败，避免写入悬空相机 ID；其他持久组件的引用继续遵守其编解码校验。瞬态节点仍存在于运行场景，拥有者销毁节点时按普通层级释放。
+普通卸载释放非持久子树及场景根资源；常驻实体保留原 Scene 和局部身份，组件只持有实际依赖，空保留容器按世界生命周期回收。显式 destroy_scene 和世界关闭释放全部实体。句柄析构不触发释放，跨场景语义见[常驻节点](persistent-nodes.md)。

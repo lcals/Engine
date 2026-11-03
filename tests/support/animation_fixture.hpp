@@ -1,5 +1,7 @@
 #pragma once
 
+#include "scene_snapshot.hpp"
+
 #include "resource_fixture.hpp"
 
 #include "runtime/animation/animation_system.hpp"
@@ -36,7 +38,7 @@ constexpr const char* model_guid = "40000000-0000-4000-8000-000000000007";
 constexpr const char* model_path = "models/character.fbx";
 
 // 测试端 CPU 参考计算，用同一 palette 校验位置、非均匀缩放与镜像；生产只上传骨骼。
-inline engine::Vec3 skin_vector(const engine::MeshRenderer& renderer, std::size_t index,
+inline engine::Vec3 skin_vector(engine::MeshRenderer renderer, std::size_t index,
                                 engine::Vec3 value, bool position, bool normal = false)
 {
     const auto& weights = renderer.mesh_data()->skin[index];
@@ -62,7 +64,7 @@ inline engine::Vec3 skin_vector(const engine::MeshRenderer& renderer, std::size_
     return {x, y, z};
 }
 
-inline engine::schema::MeshVertex sampled_vertex(const engine::MeshRenderer& renderer,
+inline engine::schema::MeshVertex sampled_vertex(engine::MeshRenderer renderer,
                                                  std::size_t index = 0)
 {
     const auto& bind = renderer.mesh_data()->vertices[index];
@@ -75,7 +77,7 @@ inline engine::schema::MeshVertex sampled_vertex(const engine::MeshRenderer& ren
             static_cast<float>(normal.y() / length), static_cast<float>(normal.z() / length)};
 }
 
-inline engine::Vec4 sampled_tangent(const engine::MeshRenderer& renderer, std::size_t index = 0)
+inline engine::Vec4 sampled_tangent(engine::MeshRenderer renderer, std::size_t index = 0)
 {
     const auto& bind = renderer.mesh_data()->vertices[index];
     const auto& tangent = renderer.mesh_data()->tangents[index];
@@ -331,19 +333,19 @@ struct Fixture
         return files.publish(resources);
     }
 
-    engine::Node* create(bool auto_play = true)
+    engine::Node create(bool auto_play = true)
     {
-        auto* node = world.scene()->create_node("Animated");
-        auto* renderer = node ? node->add_component<engine::MeshRenderer>() : nullptr;
-        auto* animator = node ? node->add_component<engine::Animator>() : nullptr;
-        if (!renderer || !animator || !renderer->set_mesh_data(mesh()))
+        auto node = world.scene()->create_node("Animated");
+        auto renderer = node ? node.add_component<engine::MeshRenderer>() : engine::MeshRenderer{};
+        auto animator = node ? node.add_component<engine::Animator>() : engine::Animator{};
+        if (!renderer || !animator || !renderer.set_mesh_data(mesh()))
         {
-            return nullptr;
+            return {};
         }
-        auto settings = animator->settings();
+        auto settings = animator.settings();
         settings.animation_guid = clip_guid;
         settings.play_on_awake = auto_play;
-        return animator->set_settings(settings) ? node : nullptr;
+        return animator.set_settings(settings) ? node : engine::Node{};
     }
 };
 

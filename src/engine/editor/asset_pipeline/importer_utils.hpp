@@ -7,11 +7,15 @@
 #include <toml++/toml.hpp>
 
 #include <array>
+#include <cstddef>
 #include <initializer_list>
 #include <string_view>
+#include <vector>
 
 namespace engine::editor::asset_pipeline
 {
+[[nodiscard]] bool read_generated_payload(const Guid& guid, const ImportContext& context,
+                                          std::vector<std::byte>& output, std::string& error);
 [[nodiscard]] bool read_table(const std::filesystem::path& path, toml::table& table,
                               std::string& error);
 [[nodiscard]] bool reference(const Guid& guid, schema::AssetKind kind, const ImportContext& context,

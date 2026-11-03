@@ -123,6 +123,12 @@ bool TerrainCodec::scan_dependencies(const schema::ComponentDataT& component,
                                               context, dependencies, error));
 }
 
+std::span<const std::string_view> TerrainCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"terrain", "material"};
+    return fields;
+}
+
 void TerrainCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto& value = *component.payload.AsTerrainData();

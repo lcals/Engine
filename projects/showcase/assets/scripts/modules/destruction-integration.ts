@@ -98,7 +98,7 @@ export default class Game extends Gameplay {
                 pool.push({ effect, audio, transform, available_at: 0 });
             }
         }
-        const avatar = scene.InstantiateModel("models/skeleton.fbx", "Integration avatar");
+        const avatar = scene.InstantiatePrefab("prefabs/characters/player.prefab", "Integration avatar");
         const body = scene.FindNode("GENERIC MAN new");
         const transform = avatar?.GetComponent(Transform);
         const renderer = body?.GetComponent(MeshRenderer);

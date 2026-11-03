@@ -47,7 +47,6 @@ def test(editor, mcp, root, temporary):
             require(receipt.get("success") is (not expect_error), f"failed command: {receipt}")
             return receipt.get("result")
 
-        before_render = command("get_render_settings", {})
         render_settings = {
             "ambientColor": [0.5, 0.625, 0.75],
             "ambientIntensity": 0.25,
@@ -58,6 +57,21 @@ def test(editor, mcp, root, temporary):
             "shadowBias": 0.001,
             "clearColor": [17 / 255, 34 / 255, 51 / 255, 1],
         }
+        # The shared sample now instantiates Cube from a prefab. This test edits an
+        # ordinary modeling scene; explicitly unlink its root without relaxing the
+        # protection against implicit edits in scenes containing prefab instances.
+        cube_root = next(node for node in scene["nodes"] if node["name"] == "Cube")
+        cube_target = identity | {"nodeId": cube_root["nodeId"]}
+        require(command("get_prefab_instance", cube_target)["prefab"] is not None,
+                "sample cube must retain its prefab association before explicit unlink")
+        protected_render = command("get_render_settings", {})
+        command("set_render_settings", render_settings, True)
+        require(command("get_render_settings", {}) == protected_render,
+                "rejected implicit prefab edit changed rendering or history")
+        command("unlink_prefab", cube_target)
+        require(command("get_prefab_instance", cube_target)["prefab"] is None,
+                "explicit prefab unlink did not produce an ordinary modeling node")
+        before_render = command("get_render_settings", {})
         command("set_render_settings", render_settings)
         after_render = command("get_render_settings", {})
         for name, expected in render_settings.items():

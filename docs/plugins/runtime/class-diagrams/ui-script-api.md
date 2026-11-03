@@ -24,8 +24,6 @@ classDiagram
     class UiComponent {
         +SetDocument(string path) boolean
         +FindElement(string id) UiElement
-        +SetVisible(boolean value) boolean
-        +visible boolean
     }
     class UiElement {
         +isValid boolean
@@ -68,6 +66,8 @@ classDiagram
 - 事件按目标到祖先顺序冒泡；target 保持事件目标，currentTarget 是当前订阅的控件。每个事件开始时固定订阅快照，回调内解绑立即生效，新订阅从后续事件开始接收。目标被删除或文档替换时停止旧事件分发。
 - UI 事件回调必须同步完成；返回 Promise 会报告脚本错误并停止当前玩法，与 Gameplay 回调保持一致。
 - Model 变化由控制器显式调用 Refresh；不引入代理反射、通用状态管理器或 C++ 业务 Model。
+- UiComponent 的 SetVisible/visible 与激活状态继承统一 Component 契约；本地开关可在文档尚未就绪或没有 UiSystem 时设置，文档显示由 UiSystem 合并节点父链状态后同步，不维护第二份可见状态。UiElement.SetVisible 仍只改变文档内单个控件。
+- Node 或 UiComponent 停用、隐藏时保留 Controller、文档身份和订阅，暂停自动事件派发；回调内改变自身或祖先状态后，立即停止当前事件的剩余投递。重新启用并显示后，原有订阅继续接收后续事件。
 - Showcase 的 LauncherController 只提交 Model 中的导航请求并切换 View 状态类；入口 Gameplay 在 Update 中消费请求、配对子玩法初始化与关闭。子玩法在初始化前登记所有权，初始化失败恢复菜单；抛错时入口关闭仍清理部分初始化对象，关闭钩子先移出引用以避免重复调用。
 - SetText 写入纯文本；图片只使用文档已声明的纹理资源。原生 RmlUi 类型不进入公开 SDK。
 - UI 绑定分别放 UiComponentBinding、UiElementBinding、UiControllerBinding 文件，并登记到 ScriptBindingRegistry。

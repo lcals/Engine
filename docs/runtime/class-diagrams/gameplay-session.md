@@ -46,12 +46,12 @@ classDiagram
     class App
     GameplaySession ..> AssetCatalogDataT : 目录输入
     GameplaySession ..> ResourceMount : 存储挂载输入
-    GameplaySession ..> ScriptStatus : 合并运行和部署状态
+    GameplaySession ..> ScriptStatus : 借用脚本执行状态
     GameplaySession ..> App : 宿主部署及控制路径
 ```
 
 - 会话是调用方协调对象，不继承 System、不拥有其他系统。RuntimeHost 在系统就绪后创建并独占它，先销毁会话再关闭系统。
-- 会话只调用 ScriptRuntime 的预检、启动、停止、重载开关和状态接口，不依赖具体虚拟机或 ScriptSystem 插件。脚本实例为空时仍可关闭场景与渲染，脚本玩法启动返回明确失败。
+- 会话只调用 ScriptRuntime 的预检、启动、停止和状态接口，不依赖具体虚拟机或 ScriptSystem 插件。热重载许可与可用部署版本由会话独占；脚本实例为空时仍可关闭场景与渲染，脚本玩法启动返回明确失败。
 - `set_resources()` 由编辑器直接提交已导入的完整目录与 content 挂载，入口默认 `scripts/game.js`。运行中拒绝替换；调用方须先停止。未装配脚本时仍可提交资源目录，供原生场景和渲染使用；脚本启动另行报告不可用。无编辑器配置进入资源核心。
 - 首次 `start()` 在所有平台从 `App::assets_path()` 读取 `catalog.bin`，以目录修订标识包内版本，入口默认 `scripts/game.js`，调用方可显式覆盖；随后优先选用宿主明确发布的完整持久候选。Android 不再生成或读取额外包内 JSON，也不导出首次同步基线。正常运行不扫描源项目，启动不读取全部实体。
 - `start()` 已运行时幂等。先预检候选脚本，再停止旧玩法、销毁场景与 GPU，提交目录、启动已预检脚本并准备 GPU。候选预检失败保留旧玩法；目录应用或新入口失败保持停止并报告。
@@ -61,5 +61,5 @@ classDiagram
 - 持久部署版本位于 `assets/versions/<revision>`，不可原地覆盖。目录中的位置可指向散文件或包成员；清单与存储集合必须一致。发布文件用固定缓冲区流式校验，不解包整个目录。实体只在脚本预检或核心按需加载时读取；包体尺寸不受单实体上限约束。
 - 显式 stop 或 Update 失败后不因新候选而自动重启。重新开启重载允许重试最新候选。普通运行集合固定，只有显式发布部署文件才触发候选处理。
 - `stop()` 先退出脚本，再停止音频、清理物理、销毁场景和 GPU；资源随共享引用释放，保留资源索引和内置定义以供下次启动。重复关闭安全。
-- `script_status()` 返回合并脚本与部署状态的只读借用；无脚本模块返回空。状态原子写入 `script-status.json`，错误仍通过返回值与 last_error 表达。
+- `script_status()` 直接返回脚本执行状态的只读借用，不复制或覆盖插件状态；无脚本模块返回空。会话发布 `script-status.json` 时组合执行状态、自身热重载许可及可用版本；部署错误通过会话 `last_error()` 报告，发布时优先于执行错误。
 - 类型不可复制或移动。构造、析构、stop 与查询为 noexcept；查询为 const，可能失败方法与重要查询标注 nodiscard。entry/reason 默认空。

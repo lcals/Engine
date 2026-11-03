@@ -11,6 +11,7 @@
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/scene.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -160,8 +161,8 @@ bool commands_and_identity()
     {
         return false;
     }
-    auto* camera = world.scene()->create_node("Camera");
-    if (camera == nullptr || camera->add_component<engine::Camera>() == nullptr)
+    auto camera = world.scene()->create_node("Camera");
+    if (!camera || camera.add_component<engine::Camera>().valid() == false)
     {
         return false;
     }
@@ -176,16 +177,16 @@ bool commands_and_identity()
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    auto* node = world.scene()->nodes().back().get();
-    if (!node || node->name() != "Player")
+    auto node = test_support::scene_nodes(*world.scene()).back();
+    if (!node || node.name() != "Player")
     {
         return false;
     }
-    const auto id = std::to_string(node->id());
+    const auto id = std::to_string(node.id());
     auto identity = scene;
     identity["nodeId"] = id;
     auto edit = identity;
-    edit["cameraNodeId"] = std::to_string(camera->id());
+    edit["cameraNodeId"] = std::to_string(camera.id());
     edit["moveSpeed"] = 7.0;
     if (!expect(commands.execute("set_character_controller", edit, result, error),
                 "typed editor command adds plugin component through World registry"))
@@ -193,11 +194,12 @@ bool commands_and_identity()
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    auto* controller = node->get_component<CharacterController>();
-    if (!expect(controller && controller->settings().camera_node_id == camera->info().id &&
-                    controller->settings().move_speed == 7 &&
+    auto controller = node.get_component<CharacterController>();
+    if (!expect(controller &&
+                    controller.settings().camera_node_id == camera.info().properties->id &&
+                    controller.settings().move_speed == 7 &&
                     commands.execute("get_character_controller", identity, result, error) &&
-                    result["cameraNodeId"] == std::to_string(camera->id()),
+                    result["cameraNodeId"] == std::to_string(camera.id()),
                 "commands translate runtime camera identity into persistent local identity"))
     {
         return false;
@@ -205,10 +207,10 @@ bool commands_and_identity()
     const auto history = commands.undo_count();
     edit["moveSpeed"] = -1;
     if (!expect(!commands.execute("set_character_controller", edit, result, error) &&
-                    controller->settings().move_speed == 7 && commands.undo_count() == history,
+                    controller.settings().move_speed == 7 && commands.undo_count() == history,
                 "invalid edits leave component and history unchanged") ||
         !expect(commands.execute("undo", scene, result, error) &&
-                    !node->get_component<CharacterController>(),
+                    !node.get_component<CharacterController>(),
                 "undo removes newly added plugin component") ||
         !expect(commands.execute("undo", scene, result, error),
                 "undo removes created player node") ||
@@ -220,34 +222,34 @@ bool commands_and_identity()
         std::fprintf(stderr, "%s\n", error.c_str());
         return false;
     }
-    node = nullptr;
-    for (const auto& candidate : world.scene()->nodes())
+    node = {};
+    for (const auto& candidate : test_support::scene_nodes(*world.scene()))
     {
-        if (candidate->name() == "Player")
+        if (candidate.name() == "Player")
         {
-            node = candidate.get();
+            node = candidate;
         }
     }
-    if (!expect(node && node->get_component<CharacterController>() &&
-                    node->get_component<CharacterController>()->settings().camera_node_id ==
-                        camera->info().id,
+    if (!expect(node && node.get_component<CharacterController>() &&
+                    node.get_component<CharacterController>().settings().camera_node_id ==
+                        camera.info().properties->id,
                 "component redo keeps persistent camera reference after node recreation"))
     {
         return false;
     }
     auto camera_identity = scene;
-    camera_identity["nodeId"] = std::to_string(camera->id());
+    camera_identity["nodeId"] = std::to_string(camera.id());
     auto camera_edit = camera_identity;
-    camera_edit["targetNodeId"] = std::to_string(node->id());
+    camera_edit["targetNodeId"] = std::to_string(node.id());
     camera_edit["mode"] = "first_person";
     camera_edit["collisionRadius"] = 0.25;
     if (!expect(commands.execute("set_character_camera", camera_edit, result, error) &&
-                    camera->get_component<CharacterCamera>() &&
-                    camera->get_component<CharacterCamera>()->settings().target_node_id ==
-                        node->info().id &&
+                    camera.get_component<CharacterCamera>() &&
+                    camera.get_component<CharacterCamera>().settings().target_node_id ==
+                        node.info().properties->id &&
                     commands.execute("get_character_camera", camera_identity, result, error) &&
-                    result["targetNodeId"] == std::to_string(node->id()) &&
-                    result["targetLocalId"] == std::to_string(node->info().id),
+                    result["targetNodeId"] == std::to_string(node.id()) &&
+                    result["targetLocalId"] == std::to_string(node.info().properties->id),
                 "follow-camera commands translate target identity independently of player input"))
     {
         return false;
@@ -255,14 +257,13 @@ bool commands_and_identity()
     const auto camera_history = commands.undo_count();
     camera_edit["collisionRadius"] = -1;
     if (!expect(!commands.execute("set_character_camera", camera_edit, result, error) &&
-                    camera->get_component<CharacterCamera>()->settings().collision_radius ==
-                        0.25F &&
+                    camera.get_component<CharacterCamera>().settings().collision_radius == 0.25F &&
                     commands.undo_count() == camera_history &&
                     commands.execute("undo", scene, result, error) &&
-                    camera->get_component<CharacterCamera>() == nullptr &&
+                    camera.get_component<CharacterCamera>().valid() == false &&
                     commands.execute("redo", scene, result, error) &&
-                    camera->get_component<CharacterCamera>()->settings().target_node_id ==
-                        node->info().id,
+                    camera.get_component<CharacterCamera>().settings().target_node_id ==
+                        node.info().properties->id,
                 "invalid follow edits are atomic and valid edits support undo and redo"))
     {
         return false;
@@ -277,11 +278,11 @@ bool commands_and_identity()
         return false;
     }
     auto player_identity = scene;
-    player_identity["nodeId"] = std::to_string(node->id());
+    player_identity["nodeId"] = std::to_string(node.id());
     camera_edit = player_identity;
-    camera_edit["targetNodeId"] = std::to_string(camera->id());
+    camera_edit["targetNodeId"] = std::to_string(camera.id());
     if (!expect(!commands.execute("set_character_camera", camera_edit, result, error) &&
-                    node->get_component<CharacterCamera>() == nullptr,
+                    node.get_component<CharacterCamera>().valid() == false,
                 "follow-camera edit requires a Camera on its owning node"))
     {
         return false;
@@ -291,7 +292,7 @@ bool commands_and_identity()
     if (!expect(commands.execute("set_character_visual", visual_edit, result, error) &&
                     commands.execute("get_character_visual", player_identity, result, error) &&
                     result["kind"] == "head" &&
-                    node->get_component<CharacterVisual>()->settings().kind ==
+                    node.get_component<CharacterVisual>().settings().kind ==
                         engine::schema::CharacterVisualKind::head,
                 "visual classification has independent typed set and get commands"))
     {
@@ -302,7 +303,7 @@ bool commands_and_identity()
     if (!expect(!commands.execute("set_character_visual", visual_edit, result, error) &&
                     commands.undo_count() == visual_history &&
                     commands.execute("undo", scene, result, error) &&
-                    node->get_component<CharacterVisual>() == nullptr,
+                    node.get_component<CharacterVisual>().valid() == false,
                 "invalid visual edits preserve history and undo removes the added marker"))
     {
         return false;
@@ -324,7 +325,7 @@ bool commands_and_identity()
         return false;
     }
     auto motor_edit = scene;
-    motor_edit["nodeId"] = std::to_string(node->id());
+    motor_edit["nodeId"] = std::to_string(node.id());
     motor_edit["radius"] = 0.4;
     motor_edit["stepHeight"] = 0.25;
     motor_edit["externalDamping"] = 12.0;
@@ -334,11 +335,11 @@ bool commands_and_identity()
         return false;
     }
     auto motor_query = scene;
-    motor_query["nodeId"] = std::to_string(node->id());
+    motor_query["nodeId"] = std::to_string(node.id());
     const auto motor_history = commands.undo_count();
     motor_edit["externalDamping"] = 1001.0;
     if (!expect(!commands.execute("set_character_motor", motor_edit, result, error) &&
-                    node->get_component<engine::CharacterMotor>()->settings().external_damping ==
+                    node.get_component<engine::CharacterMotor>().settings().external_damping ==
                         12.0F &&
                     commands.undo_count() == motor_history,
                 "external damping range is enforced without changing component or undo history"))
@@ -348,7 +349,7 @@ bool commands_and_identity()
     return expect(commands.execute("get_character_motor", motor_query, result, error) &&
                       result["stepHeight"] == 0.25 && result["externalDamping"] == 12.0 &&
                       commands.execute("undo", scene, result, error) &&
-                      node->get_component<engine::CharacterMotor>() == nullptr,
+                      node.get_component<engine::CharacterMotor>().valid() == false,
                   "core motor edits use the same get and undo contract");
 }
 

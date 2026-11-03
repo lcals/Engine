@@ -7,14 +7,19 @@
 ```mermaid
 classDiagram
     class NavigationAgent {
+        <<value handle>>
+        +NavigationAgent()
+        +NavigationAgent(Component component)
+        +register_type(ComponentRegistry& registry) bool$
+        +runtime() NavigationAgentRuntime#42;
         +valid_settings(const NavigationAgentDataT& settings)$ bool
-        +settings() const NavigationAgentDataT&
+        +settings() NavigationAgentDataT
+        +get_settings(NavigationAgentDataT& output) bool
         +set_settings(const NavigationAgentDataT& settings) bool
         +move_to(const Vec3& target) bool
         +stop() void
         +state() NavigationAgentStatus
         +velocity() Vec3
-        +instance_id() uint64_t
         +restore_data(const ComponentDataT& data) bool
     }
     class NavigationCrowdSystem {
@@ -42,7 +47,7 @@ classDiagram
     class CrowdState["NavigationCrowdSystem::State"]
     Component <|-- NavigationAgent
     System <|-- NavigationCrowdSystem
-    Node *-- NavigationAgent : 独占
+    Node ..> NavigationAgent : 按类型返回值句柄
     NavigationAgent ..> NavigationAgentDataT : 唯一持久配置模型
     NavigationAgent ..> ComponentDataT : 恢复参数
     NavigationAgent ..> NavigationAgentStatus : 瞬态状态
@@ -57,6 +62,15 @@ classDiagram
     NavigationCrowdSystem ..> RigidBody : 只接受静止速度的运动学镜像
     NavigationCrowdSystem ..> CharacterMotor : 拒绝同时启用的位置求解器
     NavigationCrowdSystem ..> EngineConfig : 初始化参数
+    class ComponentRegistry
+    class ecs_world_t
+    class NavigationAgentRuntime {
+        <<ECS runtime column>>
+    }
+    ecs_world_t *-- NavigationAgentRuntime : 实例运行数据
+    NavigationAgent ..> NavigationAgentRuntime : 校验身份后短期借用
+    NavigationAgent ..> ComponentRegistry : 静态登记类型操作
+
 ```
 
 - 宿主在脚本及地形/建筑几何提交之后、物理之前调度插件；核心不自动推进代理，也不扫描场景。
@@ -69,3 +83,5 @@ classDiagram
 - 每帧遍历已发布场景集合登记代理，使用实例身份索引匹配，不做逐角色全场查找。先移除旧实例再分配新代理，支持满容量同帧替换。已失败的登记只在位置、参数、请求、网格版本或可用槽位变化后重试。所有第三方类型留在核心私有实现。
 
 常驻代理保持原 Scene、组件实例、目标请求和 Detour 句柄；没有活动玩法 Scene 时仍可推进。活动场景切换本身不清空 Crowd；调用方发布新导航网格后沿现有 navigation revision 路径重新挂接，网格和代理所有权规则不变。
+
+本页组件均为可复制值句柄，生成设置唯一存于 `ComponentStorage<Data>` 的 ECS 列；`settings()` 返回独立值，`get_settings(output)` 明确返回失败。Runtime 为 ECS 中的领域运行列，资源引用、请求和缓存归该列或所属 System；句柄不拥有这些数据。`runtime()` 指针仅在当前结构稳定阶段有效，不能跨 ECS 结构修改留存。类型注册、失效身份与查询规则见 [ECS 场景](../../../runtime/class-diagrams/ecs-scene.md)。

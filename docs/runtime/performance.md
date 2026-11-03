@@ -4,7 +4,7 @@
 
 ## 开关与职责
 
-- [PerformanceSystem](class-diagrams/performance-system.md) 已在运行宿主装配；引擎、插件与宿主在各自实现内提交采样，没有增加公开统计聚合接口。
+- [Tracy 接入](class-diagrams/performance-system.md) 由运行宿主初始化线程名称；引擎、插件与宿主在各自实现内提交采样，没有增加公开统计聚合接口。
 - `ENGINE_ENABLE_TRACY` 默认 `OFF`。开启时目标私有链接 Tracy 0.14.1 on-demand 客户端；关闭时不查找、编译或链接该依赖，私有采样宏不求值。`Engine/System` 框架无 Tracy 依赖。
 - 私有宏位于 `src/engine/runtime/performance/profiling.hpp`，由 `cmake/core/profiling.cmake` 对明确目标启用。`ENGINE_PROFILE_ZONE` 的名称必须是静态字符串；私有 Jolt job 观察器另用复制名称的 transient zone。正常 `bgfx::frame()` 后提交唯一默认 FrameMark。
 - bgfx 状态面板仍默认关闭，通过已有 MCP 开关控制；它与 Tracy 构建开关独立。on-demand 客户端即使未连接也有线程和监听成本，不等于完全零开销。

@@ -7,6 +7,7 @@
 #include "runtime/resource/codecs/binary_resource_codec.hpp"
 #include "runtime/resource/codecs/material_resource_codec.hpp"
 #include "runtime/resource/codecs/mesh_resource_codec.hpp"
+#include "runtime/resource/codecs/prefab_resource_codec.hpp"
 #include "runtime/resource/codecs/scene_resource_codec.hpp"
 #include "runtime/resource/codecs/shader_resource_codec.hpp"
 #include "runtime/resource/codecs/texture_resource_codec.hpp"
@@ -33,6 +34,7 @@ const AudioResourceCodec audio;
 const MaterialResourceCodec material;
 const MeshResourceCodec mesh;
 const SceneResourceCodec scene;
+const PrefabResourceCodec prefab;
 const ShaderResourceCodec shader;
 const TextureResourceCodec texture;
 const FontResourceCodec font;
@@ -47,6 +49,7 @@ struct CodecEntry
 
 const std::array registrations = {
     CodecEntry{schema::AssetKind::scene, &scene},
+    CodecEntry{schema::AssetKind::prefab, &prefab},
     CodecEntry{schema::AssetKind::mesh, &mesh},
     CodecEntry{schema::AssetKind::shader, &shader},
     CodecEntry{schema::AssetKind::material, &material},

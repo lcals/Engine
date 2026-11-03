@@ -5,14 +5,10 @@
 #include "editor/commands/editor_commands.hpp"
 #include "plugins/editor/destruction/destruction_authoring.hpp"
 #include "plugins/editor/destruction/destruction_source.hpp"
-#include "runtime/utils/path_utils.hpp"
 
-#include <SDL3/SDL_filesystem.h>
 #include <nlohmann/json.hpp>
 
-#include <algorithm>
 #include <memory>
-#include <system_error>
 
 namespace engine::plugins::destruction
 {
@@ -20,19 +16,6 @@ namespace
 {
 namespace fs = std::filesystem;
 using Json = nlohmann::json;
-
-bool unused(const fs::path& path, std::string& error)
-{
-    std::error_code status_error;
-    const auto status = fs::symlink_status(path, status_error);
-    if ((status_error && status_error != std::errc::no_such_file_or_directory) ||
-        (!status_error && status.type() != fs::file_type::not_found))
-    {
-        error = "Destruction source or meta already exists, or its destination cannot be inspected";
-        return false;
-    }
-    return true;
-}
 
 bool create_asset(const fs::path& project, const Json& arguments, Json& result, std::string& error)
 {
@@ -59,63 +42,10 @@ bool create_asset(const fs::path& project, const Json& arguments, Json& result, 
     {
         return false;
     }
-    auto meta = destination;
-    meta += ".meta";
-    if (!unused(destination, error) || !unused(meta, error))
+    std::string guid;
+    if (!editor::asset_pipeline::create_source_with_meta(destination, source, "destruction", guid,
+                                                         error))
     {
-        return false;
-    }
-    std::error_code filesystem_error;
-    fs::create_directories(destination.parent_path(), filesystem_error);
-    if (filesystem_error)
-    {
-        error = "Cannot create destruction source directory";
-        return false;
-    }
-    const auto guid = editor::asset_pipeline::new_guid();
-    if (guid.empty())
-    {
-        error = "Cannot generate destruction resource GUID";
-        return false;
-    }
-    auto source_temporary = destination;
-    source_temporary += ".destruction-write-" + guid + ".meta";
-    auto meta_temporary = meta;
-    meta_temporary += ".destruction-write-" + guid + ".meta";
-    if (!unused(source_temporary, error) || !unused(meta_temporary, error))
-    {
-        return false;
-    }
-    const auto metadata = "guid = \"" + guid + "\"\nimporter = \"destruction\"\nmeta_version = 1\n";
-    const auto cleanup = [&]()
-    {
-        std::error_code ignored;
-        fs::remove(source_temporary, ignored);
-        fs::remove(meta_temporary, ignored);
-    };
-    if (!editor::asset_pipeline::write_text(source_temporary, source, error) ||
-        !editor::asset_pipeline::write_text(meta_temporary, metadata, error))
-    {
-        cleanup();
-        return false;
-    }
-    if (!SDL_RenamePath(PathUtils::to_utf8(meta_temporary).c_str(),
-                        PathUtils::to_utf8(meta).c_str()))
-    {
-        cleanup();
-        error = "Cannot publish destruction meta";
-        return false;
-    }
-    if (!SDL_RenamePath(PathUtils::to_utf8(source_temporary).c_str(),
-                        PathUtils::to_utf8(destination).c_str()))
-    {
-        cleanup();
-        fs::remove(meta, filesystem_error);
-        error = "Cannot publish destruction source";
-        if (filesystem_error)
-        {
-            error += "; newly created meta could not be removed";
-        }
         return false;
     }
     result = {{"path", relative},
@@ -132,52 +62,8 @@ bool destruction_file_path(const std::filesystem::path& project, std::string_vie
                            std::string_view relative, std::string_view extension,
                            std::filesystem::path& output, std::string& error)
 {
-    output.clear();
-    if (relative.empty() || relative.size() > 1024 ||
-        std::any_of(relative.begin(), relative.end(), [](unsigned char value)
-                    { return value < 0x20 || value == 0x7f || value == ':' || value == '\\'; }))
-    {
-        error = "Destruction file path requires a bounded relative path without control characters";
-        return false;
-    }
-    const auto path = PathUtils::from_utf8(relative);
-    if (path.is_absolute() || path.has_root_name() || path.filename().empty() ||
-        PathUtils::to_utf8(path.extension()) != extension ||
-        std::any_of(path.begin(), path.end(),
-                    [](const auto& part) { return part == ".." || part == "." || part.empty(); }))
-    {
-        error = "Destruction file path must stay in its project directory and use " +
-                std::string(extension);
-        return false;
-    }
-    std::error_code filesystem_error;
-    const auto root = fs::canonical(project, filesystem_error);
-    if (filesystem_error || !fs::is_directory(root, filesystem_error) || filesystem_error)
-    {
-        error = "Destruction project directory is unavailable";
-        return false;
-    }
-    const auto candidate = root / PathUtils::from_utf8(directory) / path;
-    fs::path cursor = root;
-    for (const auto& part : candidate.lexically_relative(root))
-    {
-        cursor /= part;
-        const auto status = fs::symlink_status(cursor, filesystem_error);
-        if (filesystem_error && filesystem_error != std::errc::no_such_file_or_directory)
-        {
-            error = "Cannot inspect destruction file destination";
-            return false;
-        }
-        filesystem_error.clear();
-        if (fs::is_symlink(status) || (status.type() != fs::file_type::not_found &&
-                                       cursor != candidate && !fs::is_directory(status)))
-        {
-            error = "Destruction file destination contains a symbolic link or non-directory parent";
-            return false;
-        }
-    }
-    output = candidate;
-    return true;
+    return editor::asset_pipeline::project_file_path(project, directory, relative, extension,
+                                                     output, error);
 }
 
 bool register_destruction_asset_commands(editor::EditorCommands& commands,

@@ -53,87 +53,87 @@ Object.freeze(MeshRenderer);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<MeshRenderer>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<MeshRenderer>().valid());
 }
 void mesh(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
+    auto node = BindingContext::node(arguments);
+    auto mesh = !node ? MeshRenderer{} : node.get_component<MeshRenderer>();
     std::string path;
-    arguments.set_return(mesh != nullptr && arguments.count() == 3 &&
-                         BindingContext::text(arguments, 2, path) && mesh->set_mesh(path));
+    arguments.set_return(mesh.valid() && arguments.count() == 3 &&
+                         BindingContext::text(arguments, 2, path) && mesh.set_mesh(path));
 }
 
 void material_count(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    const auto count = mesh != nullptr && arguments.count() == 2 ? mesh->material_count() : 0;
+    auto node = BindingContext::node(arguments);
+    auto mesh = !node ? MeshRenderer{} : node.get_component<MeshRenderer>();
+    const auto count = mesh.valid() && arguments.count() == 2 ? mesh.material_count() : 0;
     arguments.set_return(static_cast<std::uint32_t>(count));
 }
 
 void cast_shadows(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-    arguments.set_return(mesh != nullptr && arguments.count() == 2 && mesh->cast_shadows());
+    auto node = BindingContext::node(arguments);
+    auto mesh = node.valid() ? node.get_component<MeshRenderer>() : MeshRenderer{};
+    arguments.set_return(mesh.valid() && arguments.count() == 2 && mesh.cast_shadows());
 }
 
 void set_cast_shadows(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-    if (mesh != nullptr && arguments.count() == 3 && arguments.is_boolean(2))
+    auto node = BindingContext::node(arguments);
+    auto mesh = node.valid() ? node.get_component<MeshRenderer>() : MeshRenderer{};
+    if (mesh.valid() && arguments.count() == 3 && arguments.is_boolean(2))
     {
-        mesh->set_cast_shadows(arguments.boolean(2));
+        mesh.set_cast_shadows(arguments.boolean(2));
         arguments.set_return(true);
     }
 }
 
 void bake_static(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
-    arguments.set_return(mesh && arguments.count() == 2 && mesh->bake_static());
+    auto node = BindingContext::node(arguments);
+    auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+    arguments.set_return(mesh && arguments.count() == 2 && mesh.bake_static());
 }
 
 void set_bake_static(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
     arguments.set_return(mesh && arguments.count() == 3 && arguments.is_boolean(2) &&
-                         mesh->set_bake_static(arguments.boolean(2)));
+                         mesh.set_bake_static(arguments.boolean(2)));
 }
 
 void lightmap_path(const Arguments& arguments)
 {
     arguments.set_return({});
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
     if (mesh && arguments.count() == 2)
     {
-        arguments.set_return(mesh->lightmap_path());
+        arguments.set_return(mesh.lightmap_path());
     }
 }
 
 void set_lightmap(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
+    auto node = BindingContext::node(arguments);
+    auto mesh = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
     std::string path;
     arguments.set_return(mesh && arguments.count() == 3 &&
-                         BindingContext::text(arguments, 2, path) && mesh->set_lightmap(path));
+                         BindingContext::text(arguments, 2, path) && mesh.set_lightmap(path));
 }
 
 void set_material_count(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    auto* mesh = node == nullptr ? nullptr : node->get_component<MeshRenderer>();
-    arguments.set_return(mesh != nullptr && arguments.count() == 3 && arguments.is_uint32(2) &&
-                         mesh->set_material_count(arguments.unsigned_integer(2)));
+    auto node = BindingContext::node(arguments);
+    auto mesh = !node ? MeshRenderer{} : node.get_component<MeshRenderer>();
+    arguments.set_return(mesh.valid() && arguments.count() == 3 && arguments.is_uint32(2) &&
+                         mesh.set_material_count(arguments.unsigned_integer(2)));
 }
 } // namespace
 

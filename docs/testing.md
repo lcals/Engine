@@ -32,7 +32,7 @@ cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
-两个 workflow 包含脚本准备、构建和测试。已准备过且依赖未变时，可分别执行 `cmake --preset ninja-engine-debug`、`cmake --build --preset ninja-engine-debug`、`ctest --preset ninja-engine-debug --output-on-failure`；Release 使用对应预设。针对 C++ 改动运行受影响的两种配置，不因普通回归清除共享依赖或缓存。测试集合随所选插件变化，不能用更小配置的结果代替完整配置。
+Debug workflow 只做脚本准备和构建，Release workflow 另运行测试。已准备过且依赖未变时，分别使用对应预设配置、构建，测试执行 `ctest --preset ninja-engine-release --output-on-failure`。自 2026-11-03 起按用户要求，Debug 只确认编译成功，功能测试和实窗验收统一使用 Release；历史 Debug 验证记录保留，不再作为后续要求。不因普通回归清除共享依赖或缓存；测试集合随所选插件变化，不能用更小配置的结果代替完整配置。
 
 showcase 的独立 TS 类型检查入口为：
 
@@ -41,24 +41,24 @@ node projects/showcase/settings/node_modules/typescript/bin/tsc \
   --project projects/showcase/settings/tsconfig.json --noEmit
 ```
 
-已知 `engine.scene_schema_cross_language` 失败及其范围见[已知失败与限制](#已知失败与限制)。本页保留失败事实，不以筛掉该测试的结果宣称全仓通过。
+`engine.scene_schema_cross_language` 在 ECS 迁移后已通过 Debug／Release 实跑；测试直接导入所需场景生成类型。全 SDK barrel 暴露的输入枚举生成问题仍见[已知失败与限制](#已知失败与限制)，未据此宣称输入生成器已修复。
 
 ### 真实窗口与 GPU 测试
 
 普通 CTest 不要求图形桌面；窗口测试需显式开启 `ENGINE_ENABLE_GPU_TESTS`，并在有真实图形会话的机器串行运行。完整引擎示例：
 
 ```sh
-cmake --preset ninja-engine-debug -DENGINE_ENABLE_GPU_TESTS=ON
-cmake --build --preset ninja-engine-debug
-ctest --preset ninja-engine-debug --output-on-failure
+cmake --preset ninja-engine-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-engine-release
+ctest --preset ninja-engine-release --output-on-failure
 ```
 
-Release 使用对应的 `ninja-engine-release`；不要让两个配置的窗口测试同时抢占窗口。若只验证基础窗口，原最小预设命令仍可使用：
+窗口测试串行运行，避免多个实例抢占窗口。若只验证基础窗口，可使用最小 Release 预设：
 
 ```sh
-cmake --preset ninja-debug -DENGINE_ENABLE_GPU_TESTS=ON
-cmake --build --preset ninja-debug
-ctest --preset ninja-debug
+cmake --preset ninja-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-release
+ctest --preset ninja-release
 ```
 
 - `engine.window_render`：真实后端、场景绘制、效果开关、窗口生命周期与 GPU 资源回收。
@@ -73,14 +73,14 @@ ctest --preset ninja-debug
 `projects/showcase/` 共用一套设置、资源目录和缓存。完整桌面预设默认装配菜单所需插件；显式裁剪插件时需按对应模块文档补齐运行时与编辑器清单。
 
 ```sh
-build/ninja-engine-debug/editor_app \
+build/ninja-engine-release/editor_app \
   --project projects/showcase --runtime-dir build/showcase-runtime
 ```
 
 编辑器空白待机后，在另一终端启动项目：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
   --project projects/showcase --runtime-dir build/showcase-runtime start
 ```
 
@@ -96,11 +96,31 @@ Windows 使用对应 `.exe`。选择菜单场景后，先聚焦引擎窗口再�
 
 ### 功能用例与常驻 UI
 
-菜单按功能组织 12 项用例，稳定 ID、标题、目标、场景和 Gameplay 入口统一定义在项目 [showcase_cases.ts](../projects/showcase/assets/scripts/models/showcase_cases.ts)。逐项操作、预期结果、自动覆盖和待补测试见[范例功能覆盖](editor/showcase-coverage.md)；不再在菜单与文档各维护一套场景注册。
+菜单按功能组织 13 项用例，稳定 ID、标题、目标、场景和 Gameplay 入口统一定义在项目 [showcase_cases.ts](../projects/showcase/assets/scripts/models/showcase_cases.ts)。逐项操作、预期结果、自动覆盖和待补测试见[范例功能覆盖](editor/showcase-coverage.md)；不再在菜单与文档各维护一套场景注册。
 
 项目行为测试放在 `projects/showcase/tests/`，核心算法、组件和协议测试继续归 `tests/`。测试须标明使用脚本替身还是实际引擎；脚本状态机检查不能代替 GPU、Jolt、RmlUi 和真实窗口的验收。MCP 工具覆盖见[模块清单](plugins/editor/mcp-coverage.md)。
 
 菜单 UI 根通过 `Node.SetPersistent(true)` 创建、绑定一次，切关复用原文档与 Controller，停止或热重载时完整清理。`UI and scene lifetime` 可检查换关、取消、加载失败、无活动关卡时输入和显式销毁；输入框内容应随原文档保留。生命周期契约见[常驻节点](runtime/class-diagrams/persistent-nodes.md)。
+
+### ECS 大量对象
+
+`ECS many objects` 默认建立 10,000 个真实 ECS 实体，可选 1,000／50,000。逐实体检查组件表迁移后的句柄、层级隐藏／激活、换父级、删除重建和整组回收，随后返回常驻菜单。操作细节见[用例说明](../projects/showcase/ecs-many-objects.md)。
+
+```sh
+python3 projects/showcase/tests/ecs_many_objects_test.py \
+  --server build/ninja-engine-release/mcp_app \
+  --runtime-dir build/showcase-runtime --count 10000
+```
+
+连接已启动并导入完成的 showcase 编辑器；脚本通过正常 UI 操作，只读当前 Gameplay 状态，并独立核对原生场景实体总数。回执位于 `projects/showcase/cache/ecs-many-objects/`，不关闭编辑器，不登记为普通 CTest，不输出性能分数。
+
+2026-11-03，ECS 迁移完成 macOS Debug／Release 全目标构建，Release 分批累计 117 项不同 CTest 全部通过：基础及模块回归、原生 10,000 实体、只读／延迟阶段保护、场景跨语言往返、预制体、编辑撤销、脚本、窗口渲染、字体／UI、物理／音频 MCP 和建模 MCP。脚本测试宿主补齐显式可选组件登记，建模测试夹具显式解除预制体关联后分别复验通过；没有放松生产接口保护。showcase 与本地私有项目 TS 类型检查通过，私有项目未纳入 Git。详细本地日志为 `build/ecs-final-release-ctest.log`、`build/ecs-script-effect-release-test.log`、`build/ecs-final-release-window-test.log`；前一份日志保留首次失败，最终结论合并后续对应复验，不等同于单次全仓运行。Debug 按用户新要求只作为编译验收，不再补跑测试；未触发 CI，未验证其他平台。
+
+2026-11-03，macOS Metal Release 实窗通过 10,000 对象完整流程：创建时增加组件不破坏原 Transform 句柄、移动父级、独立隐藏／激活、换父级、删除重建、整组回收至 1,000、返回菜单和重新进入 10,000。每步逐实体检查，原生场景总数始终为用例数量加 5 个固定节点；删除重建及整组回收拒绝了 27 个旧句柄。二次进入的状态恢复为初始值。结果、逐条 MCP 回执及真实截图位于本地 `projects/showcase/cache/ecs-many-objects/20261103T131005Z-6451c5d9/`。
+
+Debug 曾在原 180 秒等待上限内创建 9,856 个对象而超时，随后确认已创建 10,000 并保存实际画面；完整交互结果以本次 Release 记录为准。功能脚本等待上限调整为 600 秒，TS 用例创建每帧 128、检查每帧 1,024；没有采集或承诺帧率。
+
+额外 50,000 档位在原定 600 秒等待上限内完成创建 38,912 个对象，仍处于创建阶段，因此本轮没有完成 50,000 实体逐项验收。未延长或重复运行；随后正常返回菜单，原生 `get_scene.totalNodes` 回到 0，再经 `close_editor` 正常关闭专用编辑器。失败及清理回执保留于 `projects/showcase/cache/ecs-many-objects/20261103T131706Z-sizes-0ecd6366/`。10,000 的完整交互及切换至 1,000 后的回收检查通过，不外推为 50,000 或其他平台已通过。
 
 ### 现代公寓
 
@@ -216,6 +236,30 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 
 ## 有日期的验证记录
 
+### 2026-11-03：预制体与公开范例迁移，macOS ARM64 / QuickJS
+
+Debug／Release 全目标构建通过，两配置各通过 31 项定向 CTest：预制体字段合成、资源管线、运行时实例、编辑命令、场景保存、Model/FBX/USD、资源闭包、脚本实例化、架构边界和 5 项公开项目行为测试。覆盖同值/0/false 的明确覆盖、模板连续更新的稳定身份、引用重映射、失败回滚、材质恢复与撤销、缺失或临时实例的保存约束。另有 53 项 Python 资源打包/导出/架构规则检查通过；没有运行性能测试或 CI。
+
+公开范例 10 个场景改为引用直接预制体，动态人物使用 FBX 关联预制体。迁移核对保留全部 851 个原节点的数据，静态环境增加 9 个恒等变换包装根。TS 类型检查通过；脚本替身测试不能代替真实引擎运行。制作、覆盖和首版限制见[预制体流程](editor/prefabs.md)。
+
+本地构建与定向测试证据为 `build/prefab-build-*-final.log`、`build/prefab-ctest-*.log`；本轮未重跑既有跨语言 schema 失败项，不宣称全仓或其他平台通过。
+
+公开范例全量导入计时：`projects/showcase/assets` 共 2,641 个文件，逻辑大小 81,356,707 字节（77.59 MiB，含源资源和 meta）。Release 导入工具使用 8 线程，2026-11-03 19:39:45.744 开始，19:41:44.079 完成，约 118.34 秒；回执为 `imported=1326 reused=0 removed=0 threads=8`。耗时按导入日志创建至完成回执写入统计，覆盖扫描、转换与发布，不包含 C++ 构建及打包。当时还有另一个项目并行导入，文件系统缓存也已被读取；这是实际全量资源重导耗时，不是独占机器或冷磁盘基准。日志为 `build/prefab-import-showcase-release.log`。
+
+Release / Metal 真实编辑器已打开迁移后的方块、公寓、庭院场景，分别为 3、332、233 个节点。通过 MCP 创建两个角色预制体，验证其中一个的位移和 `enabled=false` 不影响另一个，明确覆盖查询、恢复模板位置、撤销/重做一致；关闭重开恢复源场景，项目菜单正常启停，最后 `close_editor` 退出码 0。回执和报告位于 `build/prefab-live/`。首轮验证遇到加载期间状态超过 MCP 的 5 秒存活窗口，客户端等待状态重新发布后完成；未将此扩展为其他模块重构。
+
+公开范例按正常 `--package --target macos` 构建运行资源，产出 1,240 项资源、2 个包，完整运行依赖校验通过；其中保留脚本动态创建的角色预制体，静态场景模板已展开，不额外打入模板及来源 Model。打包回执为 `build/prefab-package-showcase.log`。
+
+### 2026-11-03：架构收敛与节点状态，macOS ARM64 / Metal / QuickJS
+
+Debug／Release 全目标增量构建通过。两配置各通过 50 项定向 CTest，覆盖组件身份、父子激活与可见状态、场景持久化、物理、音频、动画、导航、地形与破坏、脚本、编辑器撤销、资源文件发布、MCP 传输及真实窗口。该轮另执行的 `engine.scene_schema_cross_language` 曾因既有 flatc 输入枚举 TS import 路径错误失败（`TS2307`）；后续 ECS 迁移让场景测试直接导入所需类型，Debug／Release 已复验通过。输入生成器的剩余边界见[已知失败与限制](#已知失败与限制)；不宣称全仓测试通过。公开范例 TS 类型检查通过。
+
+状态回归包括父级恢复不覆盖子级局部标记、组件重建后旧脚本句柄失效、隐藏仍保留碰撞、UI 隐藏／停用保留文档及订阅、回调内停用后停止剩余事件投递，以及暂停期间生成碎片同步显示但不发布异步破坏候选。渲染实窗检查覆盖父级隐藏的实际像素变化；项目启停、MCP 编辑和延迟关闭仍通过真实编辑器验证。
+
+架构收敛覆盖统一组件身份、唯一脚本预检启动路径、组件直接持有渲染设置、统一编辑命令通道、无状态 MCP 登记函数、资源元数据撤销快照及源文件／meta 发布共用函数。首轮新增测试的重复持锁已修复；MCP 边界测试通过同一会话检查所有非法 ID，保留原 60 秒上限及全部断言。重复持锁、超时两项问题及最后补充的状态用例均已定向复验通过。
+
+本地证据为 `build/architecture-build-*.log`、`build/architecture-test-debug*.log`、`build/architecture-test-release*.log`、`build/architecture-typescript.log`。没有执行性能测试或 CI，未新增其他平台实测结论。
+
 ### 2026-11-03：Basis Universal 2.50 与测试目录整理，macOS ARM64
 
 BasisU 2.50 的 Debug／Release 库已实际构建安装，两配置引擎全目标构建通过。各通过 15 项定向 CTest：贴图与资源导入、HDR 半浮点转码和预算、资源编解码、UI 导入、特效导入与运行、光照资源、渲染基础、脚本编译、架构规则及桌面／Android 资源打包；另各通过 `engine.window_render` 和 `engine.font_ui_render` 两项真实 Metal 测试。
@@ -228,7 +272,7 @@ BasisU 2.50 的 Debug／Release 库已实际构建安装，两配置引擎全目
 
 ### 2026-11-03：渲染升级，macOS Metal
 
-Debug／Release 均完成 `engine_app`、`editor_app` 及受影响测试目标构建，每种配置通过 17 项相关 CTest，覆盖场景与资源编解码、脚本绑定、预算配置、烘焙数学／发布、反射数学、真实渲染、字体和特效。公开范例 TS 类型检查通过；额外跨语言 schema 测试仍失败，见[已知失败](#已知失败与限制)。这些结果不是全仓 CTest 全过声明。
+Debug／Release 均完成 `engine_app`、`editor_app` 及受影响测试目标构建，每种配置通过 17 项相关 CTest，覆盖场景与资源编解码、脚本绑定、预算配置、烘焙数学／发布、反射数学、真实渲染、字体和特效。公开范例 TS 类型检查通过；该轮额外跨语言 schema 测试曾失败，后续 ECS 场景回归已复验通过，输入 SDK 生成器仍有限制，见[已知失败与限制](#已知失败与限制)。这些结果不是全仓 CTest 全过声明。
 
 独立开关画面对照检测到的有效变化像素如下，数字用于证明对应效果实际改变画面，不是质量评分或性能数据：
 
@@ -294,7 +338,7 @@ Debug（Tracy OFF）与 Release（ON）各 7 项定向测试通过；运行时�
 
 ## 已知失败与限制
 
-- **跨语言 schema 测试失败（2026-11-03）**：`engine.scene_schema_cross_language` 使用 flatc 25.9.23，为既有 `InputControlState` 生成的 TS 枚举 import 路径不正确，报 `TS2307`。使用渲染修改前 HEAD 的 schema 复现同样问题；该轮未修改输入模块或绕过测试，不能宣称全仓全过。
+- **输入 SDK 生成边界（2026-11-03）**：flatc 25.9.23 为既有 `InputControlState` 生成的 TS 枚举 import 路径不正确，整个 SDK barrel 会暴露 `TS2307`；输入生成器本轮未修改。`engine.scene_schema_cross_language` 已直接导入所需场景生成类型，保留完整场景跨语言往返断言，并在 Debug／Release 实际通过；这个结果不表示整个输入 SDK 问题已修复。
 - **Android 验收边界**：APK 为本机调试签名；单 `libmain.so` 包的 ZIP 与 ELF LOAD 16 KiB 对齐检查通过，但未在 16 KiB 页设备运行。adb 同步只支持 Debug 包，正式发布签名和内容更新渠道未实现；FNV-1a 仅作完整性检查。软件 Vulkan 不代表真机性能，纹理压缩格式矩阵仍待实机验证。
 - **图片验证器差异**：固定 bimg 的部分带 alpha 图片往返因 `m_hasAlpha` 元数据不一致导致 `texturec --validate` 失败。已测样本像素一致，元数据兼容问题未修补。
 - **渲染限制**：SSR 无屏幕外信息或时序降噪；透明按子网格排序，不解决交叉面的逐像素排序及多层折射。HDR 关闭时单通道权重只近似区分受光照／无光照贡献，加色与多层混合不能精确分离曝光。静态 GI 不随破坏实时重算，探针单点插值不能自动消除薄墙漏光；没有动态 GI 或自动局部反射立方探针。

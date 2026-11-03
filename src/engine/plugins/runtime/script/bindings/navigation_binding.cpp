@@ -140,19 +140,19 @@ bool geometry(const Arguments& arguments, std::vector<NavigationGeometry>& outpu
         {
             return false;
         }
-        const auto* node = scene->find_node(node_id);
-        const auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
-        const auto* transform = node ? node->get_component<Transform>() : nullptr;
-        const auto* body = node ? node->get_component<RigidBody>() : nullptr;
-        if (!renderer || !renderer->enabled() || !transform || !transform->enabled() ||
-            !renderer->mesh_data() ||
-            (body && body->settings().motion != schema::BodyMotion::static_body))
+        const auto node = scene->find_node(node_id);
+        const auto renderer = node ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        const auto transform = node ? node.get_component<Transform>() : Transform{};
+        const auto body = node ? node.get_component<RigidBody>() : RigidBody{};
+        if (!renderer || !renderer.active() || !transform || !transform.active() ||
+            !renderer.mesh_data() ||
+            (body && body.settings().motion != schema::BodyMotion::static_body))
         {
             return false;
         }
         NavigationGeometry item;
-        item.mesh = renderer->mesh_data();
-        if (!transform->world_matrix(item.transform.data()))
+        item.mesh = renderer.mesh_data();
+        if (!transform.world_matrix(item.transform.data()))
         {
             return false;
         }
@@ -170,8 +170,7 @@ void build(const Arguments& arguments)
     NavigationBounds bounds;
     if (!navigation || arguments.count() != 2 || !geometry(arguments, meshes) ||
         !json_argument(arguments, 1, options) || !options.is_object() ||
-        !vector(options, "minimum", bounds.minimum) ||
-        !vector(options, "maximum", bounds.maximum))
+        !vector(options, "minimum", bounds.minimum) || !vector(options, "maximum", bounds.maximum))
     {
         // A malformed replacement cannot identify safe retained tiles.
         if (navigation)
@@ -228,8 +227,8 @@ void path(const Arguments& arguments)
     vm::NativeValue::Array output;
     for (const auto& point : points)
     {
-        output.emplace_back(vm::NativeValue::Object{
-            {"x", point.x()}, {"y", point.y()}, {"z", point.z()}});
+        output.emplace_back(
+            vm::NativeValue::Object{{"x", point.x()}, {"y", point.y()}, {"z", point.z()}});
     }
     arguments.set_return(std::move(output));
 }
@@ -281,9 +280,9 @@ std::string_view NavigationBinding::source() const noexcept
 }
 bool NavigationBinding::register_functions(vm::ScriptVm& vm) const
 {
-    return vm.function("NavigationBuild", build, 0) &&
-           vm.function("NavigationReplace", build, 1) && vm.function("NavigationPath", path) &&
-           vm.function("NavigationClear", clear) && vm.function("NavigationReady", statistic, 0) &&
+    return vm.function("NavigationBuild", build, 0) && vm.function("NavigationReplace", build, 1) &&
+           vm.function("NavigationPath", path) && vm.function("NavigationClear", clear) &&
+           vm.function("NavigationReady", statistic, 0) &&
            vm.function("NavigationRevision", statistic, 1) &&
            vm.function("NavigationRebuilt", statistic, 2) &&
            vm.function("NavigationError", statistic, 3);

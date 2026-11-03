@@ -34,10 +34,7 @@ public:
                                         std::string_view entry = {},
                                         std::string_view revision = {}) override;
     [[nodiscard]] bool start_prepared_gameplay() override;
-    // 从宿主已提交的活动目录启动；目录缺失时返回失败，不回退物理脚本目录。
-    [[nodiscard]] bool start_gameplay(std::string_view entry = {});
     void stop_gameplay() noexcept override;
-    void set_hot_reload(bool enabled) override;
     [[nodiscard]] bool execute_project_script(const ProjectScriptRequest& request,
                                               std::string& result_json,
                                               std::string& error) override;

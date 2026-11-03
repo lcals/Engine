@@ -21,7 +21,8 @@ GpuTexture::~GpuTexture() noexcept
 
 GpuTexture::GpuTexture(GpuTexture&& other) noexcept
     : resource(std::move(other.resource)),
-      handle(std::exchange(other.handle, bgfx::TextureHandle{bgfx::kInvalidHandle}))
+      handle(std::exchange(other.handle, bgfx::TextureHandle{bgfx::kInvalidHandle})),
+      sampler_flags(std::exchange(other.sampler_flags, 0))
 {
 }
 
@@ -32,6 +33,7 @@ GpuTexture& GpuTexture::operator=(GpuTexture&& other) noexcept
         release();
         resource = std::move(other.resource);
         handle = std::exchange(other.handle, bgfx::TextureHandle{bgfx::kInvalidHandle});
+        sampler_flags = std::exchange(other.sampler_flags, 0);
     }
     return *this;
 }
@@ -63,8 +65,8 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
     using Format = bgfx::TextureFormat;
     if (data->encoding == schema::TextureEncoding::ktx)
     {
-        candidate.format = data->format == schema::TextureFormat::rgba16f ? Format::RGBA16F
-                                                                          : Format::RG16F;
+        candidate.format =
+            data->format == schema::TextureFormat::rgba16f ? Format::RGBA16F : Format::RG16F;
         const auto required =
             data->cube_map ? BGFX_CAPS_FORMAT_TEXTURE_CUBE : BGFX_CAPS_FORMAT_TEXTURE_2D;
         if (data->srgb || data->data.empty() || data->data.size() > max_bytes ||
@@ -110,7 +112,7 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
                             : format == Format::ASTC4x4 ? Transcode::cTFASTC_4x4_RGBA
                             : format == Format::ETC2A   ? Transcode::cTFETC2_RGBA
                             : format == Format::RGBA16F ? Transcode::cTFRGBA_HALF
-                                                       : Transcode::cTFRGBA32;
+                                                        : Transcode::cTFRGBA32;
         return basist::basis_is_format_supported(
             target, decoder.get_basis_tex_format(data->data.data(), size));
     };
@@ -168,8 +170,9 @@ bool PreparedTexture::describe(const ResourcePtr& source, const bgfx::Caps& caps
         const std::uint64_t units =
             raw ? static_cast<std::uint64_t>(width) * height
                 : static_cast<std::uint64_t>((width + 3) / 4) * ((height + 3) / 4);
-        const std::uint64_t level_bytes =
-            units * (candidate.format == Format::RGBA16F ? 8 : raw ? 4 : 16);
+        const std::uint64_t level_bytes = units * (candidate.format == Format::RGBA16F ? 8
+                                                   : raw                               ? 4
+                                                                                       : 16);
         total_bytes += level_bytes;
         if (level_bytes > std::numeric_limits<std::uint32_t>::max() || total_bytes > max_bytes)
         {
@@ -212,15 +215,15 @@ bool PreparedTexture::prepare()
                            : format == bgfx::TextureFormat::ASTC4x4 ? Transcode::cTFASTC_4x4_RGBA
                            : format == bgfx::TextureFormat::ETC2A   ? Transcode::cTFETC2_RGBA
                            : format == bgfx::TextureFormat::RGBA16F ? Transcode::cTFRGBA_HALF
-                                                                   : Transcode::cTFRGBA32;
+                                                                    : Transcode::cTFRGBA32;
     std::vector<std::vector<std::uint8_t>> candidate;
     std::uint32_t width = data->width;
     std::uint32_t height = data->height;
     std::size_t raw_offset = 0;
     for (std::uint32_t mip = 0; mip < data->mip_count; ++mip)
     {
-        const bool raw = format == bgfx::TextureFormat::RGBA8 ||
-                         format == bgfx::TextureFormat::RGBA16F;
+        const bool raw =
+            format == bgfx::TextureFormat::RGBA8 || format == bgfx::TextureFormat::RGBA16F;
         const std::size_t units =
             raw ? static_cast<std::size_t>(width) * height
                 : static_cast<std::size_t>((width + 3) / 4) * ((height + 3) / 4);
@@ -253,8 +256,8 @@ bool GpuTexture::create(const PreparedTexture& prepared)
 {
     ENGINE_PROFILE_ZONE("Render.textureUpload");
     const auto* data = prepared.resource ? prepared.resource->texture() : nullptr;
-    if (data == nullptr || !bgfx::isTextureValid(0, data->cube_map, 1, prepared.format,
-                                                prepared.flags))
+    if (data == nullptr ||
+        !bgfx::isTextureValid(0, data->cube_map, 1, prepared.format, prepared.flags))
     {
         return false;
     }
@@ -290,8 +293,7 @@ bool GpuTexture::create(const PreparedTexture& prepared)
         for (std::uint32_t mip = 0; mip < data->mip_count; ++mip)
         {
             const auto& bytes = prepared.levels[mip];
-            const auto* memory =
-                bgfx::copy(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
+            const auto* memory = bgfx::copy(bytes.data(), static_cast<std::uint32_t>(bytes.size()));
             bgfx::updateTexture2D(handle, 0, static_cast<std::uint8_t>(mip), 0, 0,
                                   static_cast<std::uint16_t>(width),
                                   static_cast<std::uint16_t>(height), memory);
@@ -300,6 +302,7 @@ bool GpuTexture::create(const PreparedTexture& prepared)
         }
     }
     resource = prepared.resource;
+    sampler_flags = static_cast<std::uint32_t>(prepared.flags & BGFX_SAMPLER_BITS_MASK);
     return true;
 }
 
@@ -311,6 +314,7 @@ void GpuTexture::release() noexcept
     }
     handle = BGFX_INVALID_HANDLE;
     resource.reset();
+    sampler_flags = 0;
 }
 
 } // namespace engine::render_detail

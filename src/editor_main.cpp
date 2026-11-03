@@ -365,7 +365,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
 #if ENGINE_HAS_UI_EDITOR
         ui_editor = std::make_unique<engine::plugins::ui::UiEditorCommands>(
             *runtime.world(), *runtime.ui(), *runtime.window(), *preview, tasks, project_root);
-        if (!ui_editor->register_commands(*editor->commands()))
+        if (!ui_editor->register_commands(*editor->commands(), *editor->scene_commands()))
         {
             LogSystem::write(LogLevel::error, "Cannot register UI editor commands");
             return 1;
@@ -429,7 +429,7 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
         {
             render_commands = std::make_unique<engine::editor::RenderCommands>(
                 *runtime.renderer(), *runtime.world(), project_root / "cache");
-            if (!render_commands->register_commands(*editor->commands()))
+            if (!render_commands->register_commands(*editor->commands(), *editor->scene_commands()))
             {
                 LogSystem::write(LogLevel::error, "Cannot register render commands");
                 return 1;
@@ -571,14 +571,17 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                                      "Scene preview terrain synchronization failed");
                     if (const auto* scene = runtime.world()->scene())
                     {
-                        for (const auto& node : scene->nodes())
+                        std::vector<engine::Node> nodes;
+                        if (!scene->collect_nodes(nodes))
+                            return 1;
+                        for (const auto node : nodes)
                         {
-                            const auto* terrain =
-                                node->get_component<engine::plugins::terrain::TerrainComponent>();
-                            if (terrain != nullptr && !terrain->last_error().empty())
+                            const auto terrain =
+                                node.get_component<engine::plugins::terrain::TerrainComponent>();
+                            if (terrain && !terrain.last_error().empty())
                             {
-                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
-                                                                      terrain->last_error());
+                                LogSystem::write(LogLevel::error,
+                                                 node.name() + ": " + terrain.last_error());
                             }
                         }
                     }
@@ -598,14 +601,17 @@ int run_editor(const fs::path& project_root, engine::editor::EditorEnvironment& 
                                      "Scene preview destruction synchronization failed");
                     if (const auto* scene = runtime.world()->scene())
                     {
-                        for (const auto& node : scene->nodes())
+                        std::vector<engine::Node> nodes;
+                        if (!scene->collect_nodes(nodes))
+                            return 1;
+                        for (const auto node : nodes)
                         {
-                            const auto* destruction = node->get_component<
+                            const auto destruction = node.get_component<
                                 engine::plugins::destruction::DestructionComponent>();
-                            if (destruction != nullptr && !destruction->last_error().empty())
+                            if (destruction && !destruction.last_error().empty())
                             {
-                                LogSystem::write(LogLevel::error, std::string(node->name()) + ": " +
-                                                                      destruction->last_error());
+                                LogSystem::write(LogLevel::error,
+                                                 node.name() + ": " + destruction.last_error());
                             }
                         }
                     }

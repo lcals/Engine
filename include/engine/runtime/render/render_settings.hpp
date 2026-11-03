@@ -14,6 +14,7 @@ enum class FogMode : std::uint8_t
     exponential_squared
 };
 
+// 组件组成的只读帧快照，不是场景写入接口或另一份持久状态。
 struct RenderSettings
 {
     std::array<float, 3> ambient_color{1.0F, 1.0F, 1.0F};

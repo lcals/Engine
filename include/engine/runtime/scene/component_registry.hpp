@@ -1,36 +1,57 @@
 #pragma once
 
-#include "runtime/scene/node.hpp"
+#include "runtime/scene/component.hpp"
 
 #include <map>
 
+struct ecs_world_t;
+
 namespace engine
 {
+struct ComponentState
+{
+    schema::ComponentFlagsT flags;
+    std::uint64_t instance_id = 0;
+    std::uint64_t revision = 1;
+    bool transient = false;
+};
 
 class ComponentRegistry final
 {
 public:
-    template <std::derived_from<Component> T> [[nodiscard]] bool add()
+    // Per-type operations; storage and callbacks belong to the registering module.
+    struct Operations
     {
-        if (T::component_type == ComponentType::NONE)
-        {
-            return false;
-        }
-        return factories_.emplace(T::component_type, &create_component<T>).second;
+        Component (*create)(Node) = nullptr;
+        bool (*remove)(Node) = nullptr;
+        ComponentState* (*state)(Node) = nullptr;
+        void* (*data)(Node) = nullptr;
+        void* (*runtime)(Node) = nullptr;
+        bool (*snapshot)(Component, schema::ComponentDataT&) = nullptr;
+        bool (*build)(Component, schema::ComponentDataT&) = nullptr;
+        bool (*restore)(Component, const schema::ComponentDataT&) = nullptr;
+        bool (*remap)(Component, schema::ComponentDataT&,
+                      std::span<const schema::NodeIdMappingT>) = nullptr;
+    };
+
+    template <class T> [[nodiscard]] bool add()
+    {
+        return T::register_type(*this);
     }
     [[nodiscard]] bool contains(ComponentType type) const noexcept;
-    // 返回由 node 拥有的借用；未知类型或重复组件返回空。
-    [[nodiscard]] Component* create(ComponentType type, Node& node) const;
+    [[nodiscard]] Component create(ComponentType type, Node node) const;
+    [[nodiscard]] Component find(ComponentType type, Node node) const noexcept;
+    [[nodiscard]] bool remove(ComponentType type, Node node) const;
+    [[nodiscard]] bool collect(Node node, std::vector<Component>& output) const;
+    [[nodiscard]] const Operations* operations(ComponentType type) const noexcept;
+    [[nodiscard]] bool register_type(ComponentType type, const Operations& operations);
+    [[nodiscard]] ecs_world_t* native_world() const noexcept;
 
 private:
-    template <std::derived_from<Component> T> static Component* create_component(Node& node)
-    {
-        return node.add_component<T>();
-    }
-    using Factory = Component* (*)(Node&);
-    std::map<ComponentType, Factory> factories_;
+    friend class WorldSystem;
+    ecs_world_t* world_ = nullptr;
+    std::map<ComponentType, Operations> operations_;
 };
-
+[[nodiscard]] std::uint64_t next_component_instance_id() noexcept;
 [[nodiscard]] bool register_scene_components(ComponentRegistry& registry);
-
 } // namespace engine

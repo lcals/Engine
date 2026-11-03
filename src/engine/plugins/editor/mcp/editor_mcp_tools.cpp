@@ -3,8 +3,8 @@
 
 #include "editor/asset_pipeline/project_lock.hpp"
 #include "plugins/editor/mcp/mcp_system.hpp"
-#include "plugins/editor/mcp/project_tool_utils.hpp"
 #include "plugins/editor/mcp/project_script_mcp_tools.hpp"
+#include "plugins/editor/mcp/project_tool_utils.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
@@ -173,7 +173,8 @@ bool EditorMcpTools::register_tools(McpSystem& system)
 {
     if (!target_.android_serial.empty())
     {
-        return true;
+        // 保留 Android 工具集合；生命周期调用由统一通道明确拒绝桌面专用操作。
+        return register_project_lifecycle_tools(system, *this);
     }
     std::error_code error;
     if (!tools::no_symlinks(project_root_) || !tools::no_symlinks(target_.runtime_dir))
@@ -200,6 +201,11 @@ bool EditorMcpTools::register_tools(McpSystem& system)
     };
     const auto required_node = Json::array({"sceneId", "nodeId"});
     const auto node_properties = Json{{"sceneId", id_schema()}, {"nodeId", id_schema()}};
+    auto node_state = node_properties;
+    node_state["enabled"] = {{"type", "boolean"}};
+    node_state["visible"] = {{"type", "boolean"}};
+    auto component_state = node_state;
+    component_state["componentType"] = id_schema();
     auto transform = node_properties;
     for (const char* field : {"position", "rotation", "scale"})
     {
@@ -235,9 +241,11 @@ bool EditorMcpTools::register_tools(McpSystem& system)
         object_schema({{"command", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
                        {"arguments", {{"type", "object"}, {"additionalProperties", true}}}},
                       {"command", "arguments"});
-    return register_project_script_tools(system, *this, project_root_, target_) &&
+    return register_project_lifecycle_tools(system, *this) &&
+           register_project_script_tools(system, *this, project_root_, target_) &&
            register_physics_tools(system, *this) && register_audio_tools(system, *this) &&
            register_animation_tools(system, *this) && register_model_tools(system, *this) &&
+           register_prefab_tools(system, *this) &&
            register_command(
                "get_scene", "get_scene",
                "Read the active scene and its components. Optional offset/limit page nodes; "
@@ -253,6 +261,15 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                     {"name", {{"type", "string"}, {"minLength", 1}, {"maxLength", 128}}},
                     {"component", {{"type", "string"}, {"enum", {"empty", "camera", "light"}}}}},
                    {"sceneId", "name", "component"})) &&
+           register_command("set_node_state", "set_node_state",
+                            "Edit local enabled/visible flags without changing child flags. "
+                            "Provide at least one flag; supports undo/redo.",
+                            object_schema(std::move(node_state), required_node)) &&
+           register_command(
+               "set_component_state", "set_component_state",
+               "Edit local component enabled/visible flags. Use componentType from "
+               "get_scene and provide at least one flag; supports undo/redo.",
+               object_schema(std::move(component_state), {"sceneId", "nodeId", "componentType"})) &&
            register_command("set_active_camera", "set_active_camera",
                             "Select the active scene camera.",
                             object_schema(node_properties, required_node)) &&
@@ -275,9 +292,11 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                "set_material_blend_mode", "set_material_blend_mode",
                "Set a renderer material slot to opaque, alpha blend or premultiplied blending.",
                object_schema(
-                   {{"sceneId", id_schema()}, {"nodeId", id_schema()},
+                   {{"sceneId", id_schema()},
+                    {"nodeId", id_schema()},
                     {"slot", {{"type", "integer"}, {"minimum", 0}, {"maximum", 15}}},
-                    {"mode", {{"type", "string"}, {"enum", {"opaque", "alpha_blend", "premultiplied"}}}}},
+                    {"mode",
+                     {{"type", "string"}, {"enum", {"opaque", "alpha_blend", "premultiplied"}}}}},
                    {"sceneId", "nodeId", "mode"})) &&
            register_command(
                "set_material_texture", "set_material_texture",
@@ -307,10 +326,11 @@ bool EditorMcpTools::register_tools(McpSystem& system)
                             object_schema({{"sceneId", id_schema()}}, {"sceneId"})) &&
            register_command("redo", "redo", "Redo the last undone editor edit in this scene.",
                             object_schema({{"sceneId", id_schema()}}, {"sceneId"})) &&
-           register_command("close_editor", "close_editor",
-                            "Acknowledge the request, then close the editor after the delay.",
-                            object_schema({{"delayMs", {{"type", "integer"}, {"minimum", 100},
-                                                         {"maximum", 10000}}}})) &&
+           register_command(
+               "close_editor", "close_editor",
+               "Acknowledge the request, then close the editor after the delay.",
+               object_schema(
+                   {{"delayMs", {{"type", "integer"}, {"minimum", 100}, {"maximum", 10000}}}})) &&
            system.register_tool(
                {"get_editor_receipt", "Look up a durable editor receipt by session and request id.",
                 object_schema({{"session", id_schema()}, {"requestId", id_schema()}},

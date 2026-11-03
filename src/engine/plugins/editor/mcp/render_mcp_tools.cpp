@@ -10,11 +10,8 @@
 
 namespace engine::plugins::mcp
 {
-RenderMcpTools::RenderMcpTools(EditorMcpTools& editor) noexcept : editor_(editor)
-{
-}
 
-bool RenderMcpTools::register_tools(McpSystem& system)
+bool register_render_tools(McpSystem& system, EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
     const auto object = [](Json properties, Json required = Json::array())
@@ -35,8 +32,8 @@ bool RenderMcpTools::register_tools(McpSystem& system)
     {
         const auto command = name;
         return system.register_tool({std::move(name), std::move(description), std::move(schema),
-                                     [this, command](const Json& arguments, Json& reply)
-                                     { return editor_.call_command(command, arguments, reply); }});
+                                     [&editor, command](const Json& arguments, Json& reply)
+                                     { return editor.call_command(command, arguments, reply); }});
     };
     const Json identity = {{"sceneId", {{"type", "string"}, {"minLength", 1}, {"maxLength", 20}}},
                            {"nodeId", {{"type", "string"}, {"minLength", 1}, {"maxLength", 20}}}};
@@ -55,7 +52,7 @@ bool RenderMcpTools::register_tools(McpSystem& system)
     return add("get_render_settings", "读取当前环境光、雾、曝光、阴影与背景设置。",
                object(Json::object())) &&
            add("set_render_settings",
-               "编辑场景环境、相机后处理和方向光阴影，支持保存及撤销；无场景时修改待机默认。",
+               "编辑场景环境、相机后处理和方向光阴影，支持保存及撤销；无场景时只接受 clearColor。",
                object(
                    {{"ambientColor", color(3)},
                     {"ambientIntensity", {{"type", "number"}, {"minimum", 0}}},
@@ -79,17 +76,22 @@ bool RenderMcpTools::register_tools(McpSystem& system)
                     {"hdrEnabled", {{"type", "boolean"}}},
                     {"bloomEnabled",
                      {{"type", "boolean"}, {"description", "启用 Bloom 要求同时启用 HDR。"}}},
-                    {"bloomThreshold",
-                     {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}},
+                    {"bloomThreshold", {{"type", "number"}, {"minimum", 0}, {"maximum", 100}}},
                     {"bloomIntensity", {{"type", "number"}, {"minimum", 0}, {"maximum", 10}}},
                     {"bloomRadius", {{"type", "number"}, {"minimum", 0.25}, {"maximum", 4}}},
                     {"ssrEnabled", {{"type", "boolean"}}},
                     {"ssrResolutionScale", {{"type", "number"}, {"minimum", .25}, {"maximum", 1}}},
                     {"ssrMaxSteps", {{"type", "integer"}, {"minimum", 8}, {"maximum", 256}}},
-                    {"ssrMaxDistance", {{"type", "number"}, {"minimum", 0}, {"maximum", 100000},
-                                        {"description", "必须大于 0。"}}},
-                    {"ssrThickness", {{"type", "number"}, {"minimum", 0}, {"maximum", 10},
-                                      {"description", "必须大于 0。"}}},
+                    {"ssrMaxDistance",
+                     {{"type", "number"},
+                      {"minimum", 0},
+                      {"maximum", 100000},
+                      {"description", "必须大于 0。"}}},
+                    {"ssrThickness",
+                     {{"type", "number"},
+                      {"minimum", 0},
+                      {"maximum", 10},
+                      {"description", "必须大于 0。"}}},
                     {"ssrRoughnessCutoff", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
                     {"aoRadius",
                      {{"type", "number"},
@@ -98,8 +100,7 @@ bool RenderMcpTools::register_tools(McpSystem& system)
                       {"description", "世界空间半径，必须大于 0。"}}},
                     {"aoStrength", {{"type", "number"}, {"minimum", 0}, {"maximum", 2}}},
                     {"aoPower", {{"type", "number"}, {"minimum", 0.1}, {"maximum", 8}}},
-                    {"aoFadeStart",
-                     {{"type", "number"}, {"minimum", 0}, {"maximum", 100000}}},
+                    {"aoFadeStart", {{"type", "number"}, {"minimum", 0}, {"maximum", 100000}}},
                     {"aoFadeEnd",
                      {{"type", "number"},
                       {"minimum", 0},
@@ -118,10 +119,12 @@ bool RenderMcpTools::register_tools(McpSystem& system)
                     {"shadowSplitLambda", {{"type", "number"}, {"minimum", 0}, {"maximum", 1}}},
                     {"shadowCascadeBlend", {{"type", "number"}, {"minimum", 0}, {"maximum", 0.3}}},
                     {"clearColor", color(4)}})) &&
-           add("get_planar_reflection", "读取已有平面反射组件。", object(identity, required_node)) &&
+           add("get_planar_reflection", "读取已有平面反射组件。",
+               object(identity, required_node)) &&
            add("set_planar_reflection", "编辑平面反射；可为已有 MeshRenderer 添加组件，支持撤销。",
                object(std::move(planar), required_node)) &&
-           add("get_light_probe_volume", "读取探针配置资源与当前变换下的有效性。", object(identity, required_node)) &&
+           add("get_light_probe_volume", "读取探针配置资源与当前变换下的有效性。",
+               object(identity, required_node)) &&
            add("set_light_probe_volume", "编辑探针体积，resource 使用逻辑路径，空字符串清空绑定。",
                object(std::move(probes), required_node)) &&
            add("get_mesh_lighting", "读取已有 MeshRenderer 的阴影、烘焙标记及 Lightmap 有效性。",

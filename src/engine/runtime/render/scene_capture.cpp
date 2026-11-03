@@ -2,6 +2,8 @@
 #include "runtime/render/render_math.hpp"
 #include "runtime/render/scene_gpu_resources.hpp"
 #include "runtime/resource/resource.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 #include "runtime/scene/environment_component.hpp"
 #include "runtime/scene/light.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -31,7 +33,8 @@ void append_value(std::vector<std::uint8_t>& bytes, const auto& value)
 void append_component(std::vector<std::uint8_t>& bytes, const Component& component)
 {
     flatbuffers::FlatBufferBuilder builder;
-    builder.Finish(schema::CreateComponentData(builder, &component.data()));
+    const auto data = component.data();
+    builder.Finish(schema::CreateComponentData(builder, &data));
     append_value(bytes, builder.GetSize());
     bytes.insert(bytes.end(), builder.GetBufferPointer(),
                  builder.GetBufferPointer() + builder.GetSize());
@@ -48,10 +51,10 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
     append_value(output, world.scene()->id());
     const auto append_node = [&](std::uint64_t id)
     {
-        const auto* node = world.find_node(id);
-        const auto* transform = node ? node->get_component<Transform>() : nullptr;
+        const auto node = world.find_node(id);
+        const auto transform = node ? node.get_component<Transform>() : Transform{};
         std::array<float, 16> matrix{};
-        if (!node || !transform || !transform->world_matrix(matrix.data()))
+        if (!node || !transform || !transform.world_matrix(matrix.data()))
         {
             return false;
         }
@@ -65,27 +68,27 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        const auto* renderer = world.find_node(id)->get_component<MeshRenderer>();
-        const auto* mesh = renderer ? renderer->mesh_data() : nullptr;
-        if (!renderer || !renderer->enabled() || !renderer->visible() || !mesh)
+        const auto renderer = world.find_node(id).get_component<MeshRenderer>();
+        const auto* mesh = renderer ? renderer.mesh_data() : nullptr;
+        if (!renderer || !renderer.active() || !renderer.visible_in_hierarchy() || !mesh)
         {
             return false;
         }
-        append_component(output, *renderer);
-        append_value(output, renderer->mesh_instance_id());
-        append_value(output, renderer->mesh_revision());
-        append_value(output, renderer->deformation_revision());
-        for (std::size_t slot = 0; slot < renderer->material_count(); ++slot)
+        append_component(output, renderer);
+        append_value(output, renderer.instance_id());
+        append_value(output, renderer.mesh_revision());
+        append_value(output, renderer.deformation_revision());
+        for (std::size_t slot = 0; slot < renderer.material_count(); ++slot)
         {
-            const auto* material = renderer->material(slot);
-            const auto* shader = material ? material->shader_data() : nullptr;
+            const auto material = renderer.material(slot);
+            const auto* shader = material ? material.shader_data() : nullptr;
             if (!shader)
             {
                 return false;
             }
             append_value(output, reinterpret_cast<std::uintptr_t>(shader));
-            append_value(output, material->cull_mode());
-            append_value(output, material->blend_mode());
+            append_value(output, material.cull_mode());
+            append_value(output, material.blend_mode());
             for (const auto& parameter : shader->parameters)
             {
                 if (!parameter)
@@ -102,19 +105,19 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                 Vec2 pair{};
                 Vec3 triple{};
                 Vec4 quad{};
-                if (material->get_float(parameter->name, scalar))
+                if (material.get_float(parameter->name, scalar))
                 {
                     append_value(output, scalar);
                 }
-                else if (material->get_v2(parameter->name, pair))
+                else if (material.get_v2(parameter->name, pair))
                 {
                     append_value(output, pair);
                 }
-                else if (material->get_v3(parameter->name, triple))
+                else if (material.get_v3(parameter->name, triple))
                 {
                     append_value(output, triple);
                 }
-                else if (material->get_v4(parameter->name, quad))
+                else if (material.get_v4(parameter->name, quad))
                 {
                     append_value(output, quad);
                 }
@@ -130,7 +133,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
                     return false;
                 }
                 append_value(output, reinterpret_cast<std::uintptr_t>(
-                                         material->texture(sampler->name).get()));
+                                         material.texture(sampler->name).get()));
             }
         }
     }
@@ -140,21 +143,29 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         {
             return false;
         }
-        const auto* light = world.find_node(id)->get_component<Light>();
-        if (!light || !light->enabled())
+        const auto light = world.find_node(id).get_component<Light>();
+        if (!light || !light.active() || !light.visible_in_hierarchy())
         {
             return false;
         }
-        append_component(output, *light);
+        append_component(output, light);
     }
-    for (const auto& node : world.scene()->nodes())
-    {
-        const auto* environment = node->get_component<EnvironmentComponent>();
-        if (environment && environment->enabled())
+    auto environments =
+        flecs::world(world.native_world())
+            .query_builder<const ecs_detail::ComponentStorage<EnvironmentComponent::Data>,
+                           const ecs_detail::NodeRuntime>()
+            .with<ecs_detail::Published>()
+            .build();
+    environments.each(
+        [&](flecs::entity entity, const auto& stored, const ecs_detail::NodeRuntime& state)
         {
-            append_component(output, *environment);
-        }
-    }
+            if (state.scene == world.scene() && state.active && state.visible_in_hierarchy &&
+                stored.state.flags.enabled && stored.state.flags.visible)
+            {
+                append_component(
+                    output, world.find_node(entity.id()).get_component<EnvironmentComponent>());
+            }
+        });
     return true;
 }
 } // namespace

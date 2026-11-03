@@ -204,7 +204,7 @@ bool ShadowPass::bind_material(const Material& material, const std::vector<GpuTe
         if (const auto* uv = parameter("uvTransform"))
         {
             const auto* transform = uv->default_value.AsVec4Value();
-            if (transform == nullptr)
+            if (!transform)
             {
                 return false;
             }
@@ -253,7 +253,7 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
     struct Caster
     {
         const GpuMesh* mesh = nullptr;
-        const MeshRenderer* renderer = nullptr;
+        MeshRenderer renderer = {};
         std::array<float, 16> model{};
         std::array<std::array<float, 3>, 8> world_points{};
         ShadowBounds bounds;
@@ -267,16 +267,18 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
         {
             continue;
         }
-        const Node* node = world.find_node(mesh.node_id);
-        const auto* renderer = node != nullptr ? node->get_component<MeshRenderer>() : nullptr;
-        const auto* transform = node != nullptr ? node->get_component<Transform>() : nullptr;
-        if (renderer != nullptr && !renderer->cast_shadows())
+        Node node = world.find_node(mesh.node_id);
+        const auto renderer =
+            static_cast<bool>(node) ? node.get_component<MeshRenderer>() : MeshRenderer{};
+        const auto transform =
+            static_cast<bool>(node) ? node.get_component<Transform>() : Transform{};
+        if (static_cast<bool>(renderer) && !renderer.cast_shadows())
         {
             continue;
         }
         Caster caster;
-        if (renderer == nullptr || renderer->mesh_data() == nullptr || transform == nullptr ||
-            !transform->world_matrix(caster.model.data()))
+        if (!renderer || renderer.mesh_data() == nullptr || !transform ||
+            !transform.world_matrix(caster.model.data()))
         {
             return false;
         }
@@ -318,19 +320,19 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
     const auto submit_caster = [&](const Caster& caster, bgfx::ViewId view)
     {
         const auto& mesh = *caster.mesh;
-        const auto* data = caster.renderer->mesh_data();
+        const auto* data = caster.renderer.mesh_data();
         const auto submit = [&](std::uint32_t first, std::uint32_t count, std::size_t slot)
         {
-            const auto* material = caster.renderer->material(slot);
-            if (material == nullptr)
+            const auto material = caster.renderer.material(slot);
+            if (!material)
             {
                 return false;
             }
-            if (material->blend_mode() != schema::BlendMode::opaque)
+            if (material.blend_mode() != schema::BlendMode::opaque)
             {
                 return true;
             }
-            if (!bind_material(*material, textures, fallback))
+            if (!bind_material(material, textures, fallback))
             {
                 return false;
             }
@@ -340,7 +342,7 @@ bool ShadowPass::draw(const WorldSystem& world, const RenderSettings& settings, 
             bgfx::setIndexBuffer(mesh.geometry->indices, first, count);
             bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A | BGFX_STATE_WRITE_Z |
                            BGFX_STATE_DEPTH_TEST_LESS |
-                           cull_state(material->cull_mode(), caster.model.data()));
+                           cull_state(material.cull_mode(), caster.model.data()));
             bgfx::submit(view, program_);
             return true;
         };

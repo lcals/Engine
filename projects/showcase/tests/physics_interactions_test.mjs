@@ -90,7 +90,7 @@ export class Scene {
     static Load(){const scene=new Scene();fixture.scene=scene;return scene;}
     CreateNode(name){const node=new Node(this,name);this.nodes.push(node);return node;}
     FindNode(name){return this.nodes.find(n=>n.name===name&&n.live)??null;}
-    InstantiateModel(path,name){const node=this.CreateNode(name),body=this.CreateNode('GENERIC MAN new');body.AddComponent(MeshRenderer);
+    InstantiatePrefab(path,name){const node=this.CreateNode(name),body=this.CreateNode('GENERIC MAN new');body.AddComponent(MeshRenderer);
         body.SetParent(node);node.body=body;fixture.avatars.push(node);return node;}
 }
 export const Navigation={Build(){return true;},Clear(){++fixture.clears;return true;}};

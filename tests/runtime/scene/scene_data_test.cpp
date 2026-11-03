@@ -11,6 +11,7 @@
 #include "runtime/scene/transform.hpp"
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/world/world_system.hpp"
+#include "scene_snapshot.hpp"
 
 #include <flatbuffers/flatbuffers.h>
 
@@ -42,7 +43,7 @@ const engine::schema::NodeDataT* find_node(const engine::schema::SceneDataT& sce
 {
     const auto iterator =
         std::find_if(scene.nodes.begin(), scene.nodes.end(), [name](const auto& node)
-                     { return node->info != nullptr && node->info->name == name; });
+                     { return node->info != nullptr && node->info->properties->name == name; });
     return iterator == scene.nodes.end() ? nullptr : iterator->get();
 }
 
@@ -70,26 +71,25 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     {
         return false;
     }
-    engine::Node* root = scene->create_node("Root");
-    engine::Node* camera_node = scene->create_node("Camera");
-    engine::Node* light_node = scene->create_node("Light");
-    engine::Node* cube_node = scene->create_node("Cube");
-    if (!expect(root != nullptr && camera_node != nullptr && light_node != nullptr &&
-                    cube_node != nullptr,
+    engine::Node root = scene->create_node("Root");
+    engine::Node camera_node = scene->create_node("Camera");
+    engine::Node light_node = scene->create_node("Light");
+    engine::Node cube_node = scene->create_node("Cube");
+    if (!expect(root.valid() && camera_node.valid() && light_node.valid() && cube_node.valid(),
                 "create model nodes") ||
-        !expect(camera_node->set_parent(root) && light_node->set_parent(root) &&
-                    cube_node->set_parent(root),
+        !expect(camera_node.set_parent(root) && light_node.set_parent(root) &&
+                    cube_node.set_parent(root),
                 "set model hierarchy"))
     {
         return false;
     }
-    engine::Camera* camera = camera_node->add_component<engine::Camera>();
-    engine::Light* light = light_node->add_component<engine::Light>();
-    engine::MeshRenderer* mesh = cube_node->add_component<engine::MeshRenderer>();
-    auto* environment = root->add_component<engine::EnvironmentComponent>();
-    auto* post_process = camera_node->add_component<engine::PostProcessComponent>();
-    if (!expect(camera != nullptr && light != nullptr && mesh != nullptr &&
-                    environment != nullptr && post_process != nullptr,
+    engine::Camera camera = camera_node.add_component<engine::Camera>();
+    engine::Light light = light_node.add_component<engine::Light>();
+    engine::MeshRenderer mesh = cube_node.add_component<engine::MeshRenderer>();
+    auto environment = root.add_component<engine::EnvironmentComponent>();
+    auto post_process = camera_node.add_component<engine::PostProcessComponent>();
+    if (!expect(camera.valid() && light.valid() && mesh.valid() && environment.valid() &&
+                    post_process.valid(),
                 "create model components") ||
         !expect(scene->set_active_camera(camera), "select camera"))
     {
@@ -146,10 +146,10 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     post_process_settings.ssr_max_distance = 120;
     post_process_settings.ssr_thickness = .2F;
     post_process_settings.ssr_roughness_cutoff = .65F;
-    auto* planar = cube_node->add_component<engine::PlanarReflectionComponent>();
-    auto* probes = root->add_component<engine::LightProbeVolumeComponent>();
-    if (!expect(planar && probes && mesh->set_bake_static(true) && probes->set_settings({}) &&
-                    !probes->resource(),
+    auto planar = cube_node.add_component<engine::PlanarReflectionComponent>();
+    auto probes = root.add_component<engine::LightProbeVolumeComponent>();
+    if (!expect(planar && probes && mesh.set_bake_static(true) && probes.set_settings({}) &&
+                    !probes.resource(),
                 "reflection/probe components register and an empty probe volume is safe"))
     {
         return false;
@@ -157,25 +157,25 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     engine::PlanarReflectionSettings planar_settings;
     planar_settings.resolution_scale = .75F;
     planar_settings.clip_bias = .03F;
-    if (!expect(planar->set_settings(planar_settings), "reflection settings apply"))
+    if (!expect(planar.set_settings(planar_settings), "reflection settings apply"))
     {
         return false;
     }
     auto invalid_planar = planar_settings;
     invalid_planar.resolution_scale = .1F;
-    if (!expect(!planar->set_settings(invalid_planar) && planar->settings() == planar_settings,
+    if (!expect(!planar.set_settings(invalid_planar) && planar.settings() == planar_settings,
                 "invalid reflection scale preserves old settings"))
     {
         return false;
     }
-    auto& material = mesh->material();
+    auto material = mesh.material();
     if (!expect(material.type_path() == "builtin://materials/default-pbr" &&
                     material.shader_path() == "builtin://shaders/pbr",
                 "default material uses resource paths") ||
-        !expect(cube_node->get_component<engine::Transform>()->set_settings(transform) &&
-                    camera->set_settings(camera_settings) && light->set_settings(light_settings) &&
-                    environment->set_settings(environment_settings) &&
-                    post_process->set_settings(post_process_settings) &&
+        !expect(cube_node.get_component<engine::Transform>().set_settings(transform) &&
+                    camera.set_settings(camera_settings) && light.set_settings(light_settings) &&
+                    environment.set_settings(environment_settings) &&
+                    post_process.set_settings(post_process_settings) &&
                     material.set_v4("baseColor", {0.75, 0.25, 0.125, 1.0}) &&
                     material.set_float("metallic", 0.625F) &&
                     material.set_float("roughness", 0.25F),
@@ -189,11 +189,11 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process.exposure = 0.0F;
     auto invalid_light = light_settings;
     invalid_light.kind = static_cast<engine::schema::LightKind>(255);
-    if (!expect(!environment->set_settings(invalid_environment) &&
-                    environment->settings() == environment_settings &&
-                    !post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings &&
-                    !light->set_settings(invalid_light) && light->settings() == light_settings,
+    if (!expect(!environment.set_settings(invalid_environment) &&
+                    environment.settings() == environment_settings &&
+                    !post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings &&
+                    !light.set_settings(invalid_light) && light.settings() == light_settings,
                 "invalid scene effects preserve the previous component settings"))
     {
         return false;
@@ -203,84 +203,84 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     invalid_post_process.exposure = 101.0F;
     invalid_light = light_settings;
     invalid_light.shadow_resolution = 1000;
-    if (!expect(!environment->set_settings(invalid_environment) &&
-                    !post_process->set_settings(invalid_post_process) &&
-                    !light->set_settings(invalid_light),
+    if (!expect(!environment.set_settings(invalid_environment) &&
+                    !post_process.set_settings(invalid_post_process) &&
+                    !light.set_settings(invalid_light),
                 "fog range, exposure limit and non-power-of-two shadow size are rejected"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.ssr_max_steps = 7;
-    if (!expect(!post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings,
+    if (!expect(!post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings,
                 "invalid SSR iteration budget preserves all post-process fields"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.ssr_thickness = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!post_process->set_settings(invalid_post_process),
+    if (!expect(!post_process.set_settings(invalid_post_process),
                 "nonfinite SSR thickness is rejected"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.ao_radius = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings,
+    if (!expect(!post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings,
                 "nonfinite AO radius preserves the complete post-process component"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.ao_fade_end = invalid_post_process.ao_fade_start;
-    if (!expect(!post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings,
+    if (!expect(!post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings,
                 "invalid AO fade interval preserves the complete post-process component"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.hdr_enabled = false;
-    if (!expect(!post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings,
+    if (!expect(!post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings,
                 "Bloom without HDR preserves the complete post-process component"))
     {
         return false;
     }
     invalid_post_process = post_process_settings;
     invalid_post_process.bloom_intensity = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!post_process->set_settings(invalid_post_process) &&
-                    post_process->settings() == post_process_settings,
+    if (!expect(!post_process.set_settings(invalid_post_process) &&
+                    post_process.settings() == post_process_settings,
                 "nonfinite Bloom intensity preserves the complete post-process component"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_cascades = 3;
-    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
                 "unsupported cascade count leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_distance = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
                 "nonfinite cascade distance leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_split_lambda = 1.01F;
-    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
                 "out-of-range cascade split leaves the light unchanged"))
     {
         return false;
     }
     invalid_light = light_settings;
     invalid_light.shadow_cascade_blend = 0.31F;
-    if (!expect(!light->set_settings(invalid_light) && light->settings() == light_settings,
+    if (!expect(!light.set_settings(invalid_light) && light.settings() == light_settings,
                 "out-of-range cascade blend leaves the light unchanged"))
     {
         return false;
@@ -289,18 +289,21 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     {
         auto local_light = light_settings;
         local_light.kind = kind;
-        if (!expect(light->set_settings(local_light) && light->settings() == local_light,
+        if (!expect(light.set_settings(local_light) && light.settings() == local_light,
                     "point and spot lights accept the same atomic shadow settings"))
         {
             return false;
         }
     }
-    if (!expect(light->set_settings(light_settings),
+    if (!expect(light.set_settings(light_settings),
                 "restore directional settings after local shadow checks"))
     {
         return false;
     }
-    mesh->set_enabled(false);
+    if (!mesh.set_enabled(false))
+    {
+        return false;
+    }
     engine::schema::SceneDataT snapshot;
     if (!expect(scene->build_data(snapshot) && snapshot.nodes.size() == 4 &&
                     snapshot.info != nullptr,
@@ -312,7 +315,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     constexpr std::uint64_t identity_offset = std::uint64_t{1} << 54;
     for (auto& node : snapshot.nodes)
     {
-        node->info->id += identity_offset;
+        node->info->properties->id += identity_offset;
         if (node->info->parent_id != 0)
         {
             node->info->parent_id += identity_offset;
@@ -338,21 +341,24 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
         engine::schema::GetSceneData(bytes.data())->UnPack());
     if (!expect(restored != nullptr && restored->info != nullptr &&
                     restored->info->name == "Shared scene model" && restored->nodes.size() == 4 &&
-                    restored->info->active_camera_node == camera_node->info().id + identity_offset,
+                    restored->info->active_camera_node ==
+                        camera_node.info().properties->id + identity_offset,
                 "scene metadata and active camera survive round trip"))
     {
         return false;
     }
-    const auto* decoded_cube = find_node(*restored, "Cube");
-    const auto* decoded_camera = find_node(*restored, "Camera");
-    const auto* decoded_light = find_node(*restored, "Light");
-    const auto* decoded_root = find_node(*restored, "Root");
+    const auto decoded_cube = find_node(*restored, "Cube");
+    const auto decoded_camera = find_node(*restored, "Camera");
+    const auto decoded_light = find_node(*restored, "Light");
+    const auto decoded_root = find_node(*restored, "Root");
     if (!expect(decoded_cube != nullptr && decoded_camera != nullptr && decoded_light != nullptr &&
                     decoded_root != nullptr &&
-                    decoded_cube->info->id == cube_node->info().id + identity_offset &&
-                    decoded_cube->info->parent_id == root->info().id + identity_offset &&
-                    decoded_camera->info->parent_id == root->info().id + identity_offset &&
-                    decoded_light->info->parent_id == root->info().id + identity_offset,
+                    decoded_cube->info->properties->id ==
+                        cube_node.info().properties->id + identity_offset &&
+                    decoded_cube->info->parent_id == root.info().properties->id + identity_offset &&
+                    decoded_camera->info->parent_id ==
+                        root.info().properties->id + identity_offset &&
+                    decoded_light->info->parent_id == root.info().properties->id + identity_offset,
                 "node identities and parent links survive round trip"))
     {
         return false;
@@ -382,7 +388,7 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
                     decoded_transform->scale.x() == 2.0 && decoded_transform->scale.y() == 3.0 &&
                     decoded_transform->scale.z() == 4.0,
                 "generated vector values survive round trip") ||
-        !expect(!mesh_data->enabled &&
+        !expect(!mesh_data->flags->enabled &&
                     decoded_mesh->mesh_guid == "00000000-0000-4000-8000-000000000005" &&
                     decoded_mesh->material_guid == "00000000-0000-4000-8000-000000000003",
                 "material and enabled state remain independent of later runtime edits") ||
@@ -405,20 +411,20 @@ bool round_trip(std::vector<std::uint8_t>& bytes)
     {
         return false;
     }
-    auto* loaded_root = loaded->create_node("Environment");
-    auto* loaded_camera = loaded->create_node("Camera");
-    auto* loaded_environment = loaded_root == nullptr
-                                   ? nullptr
-                                   : loaded_root->add_component<engine::EnvironmentComponent>();
-    auto* loaded_post_process = loaded_camera == nullptr
-                                    ? nullptr
-                                    : loaded_camera->add_component<engine::PostProcessComponent>();
-    if (!expect(loaded_environment != nullptr && loaded_post_process != nullptr &&
-                    loaded_camera->add_component<engine::Camera>() != nullptr &&
-                    loaded_environment->restore_data(*environment_data) &&
-                    loaded_post_process->restore_data(*post_process_data) &&
-                    loaded_environment->settings() == environment_settings &&
-                    loaded_post_process->settings() == post_process_settings,
+    auto loaded_root = loaded->create_node("Environment");
+    auto loaded_camera = loaded->create_node("Camera");
+    auto loaded_environment = !loaded_root
+                                  ? engine::EnvironmentComponent{}
+                                  : loaded_root.add_component<engine::EnvironmentComponent>();
+    auto loaded_post_process = !loaded_camera
+                                   ? engine::PostProcessComponent{}
+                                   : loaded_camera.add_component<engine::PostProcessComponent>();
+    if (!expect(loaded_environment.valid() && loaded_post_process.valid() &&
+                    loaded_camera.add_component<engine::Camera>().valid() &&
+                    loaded_environment.restore_data(*environment_data) &&
+                    loaded_post_process.restore_data(*post_process_data) &&
+                    loaded_environment.settings() == environment_settings &&
+                    loaded_post_process.settings() == post_process_settings,
                 "public component contract restores environment and post-process behavior"))
     {
         return false;
@@ -476,18 +482,19 @@ bool check_typescript_result(const char* changed_path, const char* original_path
         {
             return false;
         }
-        const auto* target = find_node(*changed, source->info->name);
-        if (!expect(target != nullptr && target->info->id == source->info->id &&
+        const auto target = find_node(*changed, source->info->properties->name);
+        if (!expect(target != nullptr &&
+                        target->info->properties->id == source->info->properties->id &&
                         target->info->parent_id == source->info->parent_id &&
-                        target->info->id > (std::uint64_t{1} << 53),
+                        target->info->properties->id > (std::uint64_t{1} << 53),
                     "TypeScript bigint preserves every 64-bit identity and parent link"))
         {
             return false;
         }
     }
-    const auto* cube = find_node(*changed, "Cube");
-    const auto* camera = find_node(*changed, "Camera");
-    const auto* light = find_node(*changed, "Light");
+    const auto cube = find_node(*changed, "Cube");
+    const auto camera = find_node(*changed, "Camera");
+    const auto light = find_node(*changed, "Light");
     if (!expect(cube != nullptr && camera != nullptr && light != nullptr,
                 "TypeScript retains scene nodes"))
     {
@@ -511,7 +518,7 @@ bool check_typescript_result(const char* changed_path, const char* original_path
                       transform_data->position.y() == 2.5 && transform_data->scale.x() == 2.0 &&
                       transform_data->scale.y() == 3.0 && transform_data->scale.z() == 4.0,
                   "TypeScript edits generated transform data") &&
-           expect(mesh_data != nullptr && mesh->enabled &&
+           expect(mesh_data != nullptr && mesh->flags->enabled &&
                       mesh_data->mesh_guid == "00000000-0000-4000-8000-000000000005" &&
                       mesh_data->material_guid == "00000000-0000-4000-8000-000000000004",
                   "TypeScript edits nested material and component state") &&

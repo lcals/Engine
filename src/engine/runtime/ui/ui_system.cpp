@@ -1,4 +1,6 @@
 #include "runtime/ui/ui_system.hpp"
+#include "runtime/scene/ecs_scene.hpp"
+#include "runtime/scene/ecs_storage.hpp"
 
 #include "runtime/font/font_system.hpp"
 #include "runtime/performance/profiling.hpp"
@@ -186,6 +188,7 @@ struct UiSystem::State final : Rml::EventListener
         std::uint64_t node = 0;
         std::uint64_t view = 0;
         std::uint64_t revision = 0;
+        std::uint64_t order = 0;
         std::uint64_t id = 0;
         ResourcePtr resource;
         std::string key;
@@ -193,7 +196,6 @@ struct UiSystem::State final : Rml::EventListener
         Rml::ElementDocument* markup = nullptr;
         std::map<std::uint64_t, Element> elements;
         std::uint64_t element_sequence = 0;
-        std::size_t order = 0;
         bool persistent = false;
         bool visible = true;
     };
@@ -462,6 +464,10 @@ bool UiSystem::synchronize()
         }
         return true;
     }
+    if (!world_.refresh_scene_state())
+    {
+        return false;
+    }
     int logical_width = 0;
     int logical_height = 0;
     if (!SDL_GetWindowSize(window_.native_window(), &logical_width, &logical_height) ||
@@ -478,11 +484,10 @@ bool UiSystem::synchronize()
     state_->logical_height = logical_height;
     const auto wanted = [&](const State::Document& document)
     {
-        const auto* node = world_.find_node(document.node);
-        const auto* ui = node ? node->get_component<UiComponent>() : nullptr;
-        return ui && node->scene().id() == document.scene && ui->enabled() &&
-               ui->view_id() == document.view &&
-               ui->document_revision() == document.revision && ui->document() == document.resource;
+        const auto node = world_.find_node(document.node);
+        const auto ui = node ? node.get_component<UiComponent>() : UiComponent{};
+        return ui && node.scene()->id() == document.scene && ui.instance_id() == document.view &&
+               ui.document_revision() == document.revision && ui.document() == document.resource;
     };
     bool changed = false;
     std::erase_if(state_->documents,
@@ -496,31 +501,35 @@ bool UiSystem::synchronize()
                       changed = true;
                       return true;
                   });
-    std::size_t order = 0;
-    for (const auto& scene : world_.scenes())
     {
-        for (const auto& node : scene->nodes())
+        const auto process = [&](Node node,
+                                 const ecs_detail::ComponentStorage<UiComponent::Data>& stored,
+                                 const ecs_detail::NodeRuntime& state) -> bool
         {
-            const auto* ui = node->get_component<UiComponent>();
-            if (!ui || !ui->enabled() || !ui->document())
+            const auto* scene = node.scene();
+            (void)scene;
+            (void)stored;
+
+            const auto ui = node.get_component<UiComponent>();
+            if (!ui || !ui.document())
             {
-                continue;
+                return true;
             }
-            if (auto* document = state_->find_document(node->id()))
+            if (auto* document = state_->find_document(node.id()))
             {
-                document->order = order++;
-                document->persistent = node->persistent();
-                continue;
+                document->order = state.order;
+                document->persistent = node.persistent();
+                return true;
             }
             State::Document candidate;
             candidate.scene = scene->id();
-            candidate.node = node->id();
-            candidate.view = ui->view_id();
-            candidate.revision = ui->document_revision();
+            candidate.node = node.id();
+            candidate.view = ui.instance_id();
+            candidate.revision = ui.document_revision();
             candidate.id = next_document_id();
-            candidate.order = order++;
-            candidate.persistent = node->persistent();
-            candidate.resource = ui->document();
+            candidate.order = state.order;
+            candidate.persistent = node.persistent();
+            candidate.resource = ui.document();
             candidate.key = candidate.resource->info().guid + "-" +
                             std::to_string(candidate.resource->generation());
             if (candidate.id == 0 || !state_->activate(candidate))
@@ -547,9 +556,30 @@ bool UiSystem::synchronize()
             candidate.markup->AddEventListener("click", state_.get());
             candidate.markup->AddEventListener("change", state_.get());
             candidate.markup->AddEventListener("input", state_.get());
-            candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            candidate.visible = false;
             state_->documents.push_back(std::move(candidate));
             changed = true;
+
+            return true;
+        };
+        auto query = flecs::world(world_.native_world())
+                         .query_builder<const ecs_detail::ComponentStorage<UiComponent::Data>,
+                                        const ecs_detail::NodeRuntime>()
+                         .with<ecs_detail::Published>()
+                         .build();
+        bool query_success = true;
+        query.each(
+            [&](flecs::entity entity, const ecs_detail::ComponentStorage<UiComponent::Data>& stored,
+                const ecs_detail::NodeRuntime& state)
+            {
+                if (query_success)
+                {
+                    query_success = process(world_.find_node(entity.id()), stored, state);
+                }
+            });
+        if (!query_success)
+        {
+            return false;
         }
     }
     if (changed)
@@ -559,14 +589,43 @@ bool UiSystem::synchronize()
     std::stable_sort(state_->documents.begin(), state_->documents.end(),
                      [](const auto& left, const auto& right)
                      {
-                         return left.persistent != right.persistent
-                                    ? !left.persistent
-                                    : left.order < right.order;
+                         return left.persistent != right.persistent ? !left.persistent
+                                : left.scene != right.scene         ? left.scene < right.scene
+                                                                    : left.order < right.order;
                      });
     for (auto& document : state_->documents)
     {
+        const auto node = world_.find_node(document.node);
+        const auto ui = node ? node.get_component<UiComponent>() : UiComponent{};
+        const bool active = ui && ui.active();
+        const bool visible = active && ui.visible_in_hierarchy();
+        if (document.visible != visible)
+        {
+            document.visible = visible;
+            if (visible)
+            {
+                document.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            }
+            else
+            {
+                if (state_->pointer_context == document.context)
+                {
+                    state_->cancel_pointer();
+                }
+                document.markup->Hide();
+                state_->clear_events(document.id);
+                if (state_->keyboard_context == document.context)
+                {
+                    state_->keyboard_context = nullptr;
+                    if (SDL_TextInputActive(window_.native_window()))
+                    {
+                        static_cast<void>(SDL_StopTextInput(window_.native_window()));
+                    }
+                }
+            }
+        }
         document.context->SetDimensions({logical_width, logical_height});
-        if (!state_->activate(document) || !document.context->Update())
+        if (active && (!state_->activate(document) || !document.context->Update()))
         {
             return false;
         }
@@ -827,40 +886,15 @@ bool UiSystem::document_visible(std::uint64_t node)
     const auto* document = state_->find_document(node);
     return document && document->visible;
 }
-bool UiSystem::set_document_visible(std::uint64_t node, bool visible)
+bool UiSystem::set_document_visible(std::uint64_t node_id, bool visible)
 {
-    if (!synchronize())
+    auto node = world_.find_node(node_id);
+    auto ui = node ? node.get_component<UiComponent>() : UiComponent{};
+    if (!ui)
     {
         return false;
     }
-    auto* document = state_->find_document(node);
-    if (!document)
-    {
-        return false;
-    }
-    document->visible = visible;
-    if (visible)
-    {
-        document->markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
-    }
-    else
-    {
-        if (state_->pointer_context == document->context)
-        {
-            state_->cancel_pointer();
-        }
-        document->markup->Hide();
-        state_->clear_events(document->id);
-        if (state_->keyboard_context == document->context)
-        {
-            state_->keyboard_context = nullptr;
-            if (SDL_TextInputActive(window_.native_window()))
-            {
-                static_cast<void>(SDL_StopTextInput(window_.native_window()));
-            }
-        }
-    }
-    return true;
+    return ui.set_visible(visible) && synchronize();
 }
 bool UiSystem::element_id(UiElementHandle handle, std::string& output)
 {

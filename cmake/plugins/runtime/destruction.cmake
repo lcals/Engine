@@ -5,7 +5,7 @@ function(engine_configure_destruction_plugin)
         src/engine/plugins/runtime/destruction/destruction_component.cpp
         src/engine/plugins/runtime/destruction/destruction_graph.cpp)
     target_link_libraries(engine_destruction PUBLIC engine::world engine::physics engine::resource
-                                            PRIVATE engine::blast engine::task)
+                                            PRIVATE engine::blast engine::task engine::scene_ecs)
 endfunction()
 
 engine_register_plugin(NAME runtime/destruction CONFIGURE engine_configure_destruction_plugin

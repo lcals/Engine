@@ -23,23 +23,22 @@ Object.freeze(AudioListener);
 
 void add(const Arguments& arguments)
 {
-    auto* node = BindingContext::node(arguments);
-    arguments.set_return(arguments.count() == 2 && node != nullptr &&
-                         node->add_component<AudioListener>() != nullptr);
+    auto node = BindingContext::node(arguments);
+    arguments.set_return(arguments.count() == 2 && node.valid() &&
+                         node.add_component<AudioListener>().valid());
 }
 
 void volume(const Arguments& arguments)
 {
     arguments.set_return(false);
-    auto* node = BindingContext::node(arguments);
-    auto* listener = node == nullptr ? nullptr : node->get_component<AudioListener>();
+    auto node = BindingContext::node(arguments);
+    auto listener = !node ? AudioListener{} : node.get_component<AudioListener>();
     float value = 0.0F;
-    if (listener != nullptr && arguments.count() == 3 &&
-        BindingContext::scalar(arguments, 2, value))
+    if (listener.valid() && arguments.count() == 3 && BindingContext::scalar(arguments, 2, value))
     {
-        auto settings = listener->settings();
+        auto settings = listener.settings();
         settings.volume = value;
-        arguments.set_return(listener->set_settings(settings));
+        arguments.set_return(listener.set_settings(settings));
     }
 }
 } // namespace

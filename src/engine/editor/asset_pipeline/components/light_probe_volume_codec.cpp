@@ -40,6 +40,12 @@ bool LightProbeVolumeCodec::read(const toml::table& table, schema::ComponentData
     component.payload.Set(settings);
     return validate(component, error);
 }
+std::span<const std::string_view> LightProbeVolumeCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"probes"};
+    return fields;
+}
+
 void LightProbeVolumeCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     table.insert("type", "light_probe_volume");

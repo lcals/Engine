@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "script_fixture.hpp"
 
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
@@ -189,7 +190,9 @@ bool run(test_support::ResourceFixture& files)
     floor.indices = {0, 2, 1, 1, 2, 3};
     if (!expect(resources.initialize({}) && world.initialize({}) && navigation.initialize({}) &&
                     script.initialize({}) && files.add(floor) && add_script(files) &&
-                    files.publish(resources) && script.start_gameplay("scripts/game.js"),
+                    files.publish(resources) &&
+                    test_support::start_script(script, resources, {{"content", files.root}},
+                                               "scripts/game.js"),
                 "initialize actual script backend and explicitly submitted navigation", script))
     {
         return false;

@@ -1,0 +1,20 @@
+root = "3"
+
+[[nodes]]
+id = 3
+name = "Tower"
+parent = 0
+
+[[nodes.components]]
+type = "transform"
+position = [0, 0, -2]
+rotation = [0, 0, 0]
+scale = [1, 1, 1]
+
+[[nodes.components]]
+type = "destruction"
+destruction = "2595718b-45a6-413c-8a85-ee0bf697698e"
+material = "a718a2db-32e9-4f08-9b02-541e34d5a0f7"
+density = 80
+friction = 0.7
+restitution = 0.08

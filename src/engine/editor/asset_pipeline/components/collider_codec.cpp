@@ -69,9 +69,9 @@ bool ColliderCodec::read(const toml::table& table, schema::ComponentDataT& compo
     if (table.contains("hulls"))
     {
         const auto* hulls = table["hulls"].as_array();
-        if (hulls == nullptr || hulls->empty() || hulls->size() > 4096)
+        if (hulls == nullptr || hulls->size() > 4096)
         {
-            error = "collider.hulls must contain 1..4096 convex hulls";
+            error = "collider.hulls must contain at most 4096 convex hulls";
             return false;
         }
         std::size_t total_vertices = 0;
@@ -166,15 +166,18 @@ bool ColliderCodec::read(const toml::table& table, schema::ComponentDataT& compo
     component.payload.Set(std::move(value));
     return true;
 }
+std::span<const std::string_view> ColliderCodec::resource_fields() const noexcept
+{
+    static constexpr std::string_view fields[]{"mesh"};
+    return fields;
+}
+
 void ColliderCodec::write(const schema::ComponentDataT& component, toml::table& table) const
 {
     const auto* value = component.payload.AsColliderData();
     table.insert("type", "collider");
     table.insert("shape", schema::EnumNameColliderShape(value->shape));
-    if (!value->mesh_guid.empty())
-    {
-        table.insert("mesh", value->mesh_guid);
-    }
+    table.insert("mesh", value->mesh_guid);
     table.insert("half_extents", toml::array{value->half_extents.x(), value->half_extents.y(),
                                              value->half_extents.z()});
     table.insert("radius", value->radius);
@@ -183,21 +186,18 @@ void ColliderCodec::write(const schema::ComponentDataT& component, toml::table& 
     table.insert("friction", value->friction);
     table.insert("restitution", value->restitution);
     table.insert("is_trigger", value->is_trigger);
-    if (!value->hulls.empty())
+    toml::array hulls;
+    for (const auto& hull : value->hulls)
     {
-        toml::array hulls;
-        for (const auto& hull : value->hulls)
+        toml::array vertices;
+        for (const auto& vertex : hull->vertices)
         {
-            toml::array vertices;
-            for (const auto& vertex : hull->vertices)
-            {
-                vertices.push_back(toml::array{vertex.x(), vertex.y(), vertex.z()});
-            }
-            toml::table entry;
-            entry.insert("vertices", std::move(vertices));
-            hulls.push_back(std::move(entry));
+            vertices.push_back(toml::array{vertex.x(), vertex.y(), vertex.z()});
         }
-        table.insert("hulls", std::move(hulls));
+        toml::table entry;
+        entry.insert("vertices", std::move(vertices));
+        hulls.push_back(std::move(entry));
     }
+    table.insert("hulls", std::move(hulls));
 }
 } // namespace engine::editor::asset_pipeline
