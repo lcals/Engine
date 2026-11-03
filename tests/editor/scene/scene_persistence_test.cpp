@@ -159,6 +159,8 @@ bool compound_scene_round_trip(const fs::path& root)
     node->info = std::make_unique<schema::NodeInfoT>();
     node->info->id = 1;
     node->info->name = "One compound";
+    node->info->enabled = false;
+    node->info->visible = false;
     auto transform = std::make_unique<schema::ComponentDataT>();
     transform->payload.Set(schema::TransformDataT{});
     node->components.push_back(std::move(transform));
@@ -172,6 +174,8 @@ bool compound_scene_round_trip(const fs::path& root)
         data.hulls.push_back(std::move(hull));
     }
     collider->payload.Set(std::move(data));
+    collider->enabled = false;
+    collider->visible = false;
     node->components.push_back(std::move(collider));
     source.nodes.push_back(std::move(node));
     schema::SceneDataT restored;
@@ -240,7 +244,8 @@ bool run(const fs::path& root)
     engine::editor::EditorCommands commands([&]()
                                             { return world.scene() ? world.scene()->id() : 0; });
     if (!modeling.register_commands(commands) || !scene_commands.register_commands(commands) ||
-        !persistence.register_commands(commands) || !render_commands.register_commands(commands))
+        !persistence.register_commands(commands) ||
+        !render_commands.register_commands(commands, scene_commands))
     {
         return false;
     }

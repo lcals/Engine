@@ -127,6 +127,7 @@ bool register_effect_commands(WorldSystem& world, editor::SceneCommands& scene_c
                 }
                 schema::ComponentDataT after;
                 after.enabled = component == nullptr || component->enabled();
+                after.visible = component == nullptr || component->visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())

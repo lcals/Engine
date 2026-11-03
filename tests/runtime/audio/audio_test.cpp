@@ -315,15 +315,15 @@ bool playback_and_lifecycle()
         return false;
     }
     source->set_enabled(false);
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0 &&
-                    source->playback() == engine::AudioPlayback::stopped && !source->play(),
-                "disabled source stops and cannot request output"))
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 1 && !source->playing() &&
+                    !source->play(),
+                "disabled source suspends its stream and cannot request output"))
     {
         return false;
     }
     source->set_enabled(true);
-    if (!expect(audio.tick(0.0) && audio.voice_count() == 0,
-                "reenabling does not retrigger play-on-awake") ||
+    if (!expect(audio.tick(0.0) && audio.voice_count() == 1 && source->playing(),
+                "reenabling resumes the existing stream without retriggering play-on-awake") ||
         !expect(source->play() && audio.tick(0.0) && scene->destroy_node(node->id()) &&
                     audio.tick(0.0) && audio.voice_count() == 0,
                 "deleted source leaves no stream or dangling component"))

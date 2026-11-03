@@ -146,17 +146,6 @@ int main(int argc, char** argv)
     engine::plugins::asset_sync::AssetSyncSystem sync;
     engine::plugins::mcp::ProjectMcpTools project_tools(pipeline, builder, sync, project, target);
     engine::plugins::mcp::EditorMcpTools editor_tools(project, target);
-#if ENGINE_HAS_MODELING_PLUGIN
-    engine::plugins::modeling::ModelingMcpTools modeling_tools(editor_tools);
-#endif
-    engine::plugins::mcp::RenderMcpTools render_tools(editor_tools);
-    engine::plugins::mcp::ScenePreviewMcpTools preview_tools(editor_tools);
-#if ENGINE_HAS_UI_EDITOR
-    engine::plugins::ui::UiEditorMcpTools ui_tools(editor_tools);
-#endif
-#if ENGINE_HAS_SCENE_BAKE
-    engine::plugins::scene_bake::SceneBakeMcpTools scene_bake_tools(editor_tools);
-#endif
     engine::plugins::mcp::McpSystem mcp;
     if (!threads.initialize(config) || !tasks.initialize(config))
     {
@@ -297,16 +286,16 @@ int main(int argc, char** argv)
 #endif
     if (!builder.initialize(config) || !sync.initialize(config) || !project_tools.initialize() ||
         !project_tools.register_tools(mcp) || !editor_tools.register_tools(mcp) ||
-        (!android && !render_tools.register_tools(mcp)) ||
-        (!android && !preview_tools.register_tools(mcp)) ||
+        (!android && !engine::plugins::mcp::register_render_tools(mcp, editor_tools)) ||
+        (!android && !engine::plugins::mcp::register_scene_preview_tools(mcp, editor_tools)) ||
 #if ENGINE_HAS_UI_EDITOR
-        (!android && !ui_tools.register_tools(mcp)) ||
+        (!android && !engine::plugins::ui::register_ui_editor_tools(mcp, editor_tools)) ||
 #endif
 #if ENGINE_HAS_SCENE_BAKE
-        (!android && !scene_bake_tools.register_tools(mcp)) ||
+        (!android && !engine::plugins::scene_bake::register_scene_bake_tools(mcp, editor_tools)) ||
 #endif
 #if ENGINE_HAS_MODELING_PLUGIN
-        (!android && !modeling_tools.register_tools(mcp)) ||
+        (!android && !engine::plugins::modeling::register_modeling_tools(mcp, editor_tools)) ||
 #endif
         !mcp.initialize(config))
     {

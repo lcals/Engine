@@ -22,6 +22,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -32,6 +33,7 @@
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -71,7 +73,8 @@ bool scene_render_settings_tests()
     engine::editor::EditorCommands commands(
         [&world]() { return world.scene() == nullptr ? 0 : world.scene()->id(); });
     engine::editor::RenderCommands module(renderer, world, {});
-    if (!module.register_commands(commands))
+    engine::editor::SceneCommands scene_commands(world);
+    if (!module.register_commands(commands, scene_commands))
     {
         return false;
     }
@@ -87,10 +90,12 @@ bool scene_render_settings_tests()
         return success;
     };
     const auto initial_revision = commands.mutation_revision();
-    if (!expect(execute("set_render_settings", {{"ambientIntensity", .3}}) &&
-                    renderer.settings().ambient_intensity == .3F &&
+    if (!expect(execute("set_render_settings", {{"clearColor", {0.0, 0.0, 0.0, 1.0}}}) &&
+                    renderer.idle_clear_color() == 0x000000ff &&
+                    !execute("set_render_settings", {{"ambientIntensity", .3}}) &&
+                    renderer.settings().ambient_intensity == 0.0F &&
                     commands.mutation_revision() == initial_revision,
-                "idle defaults do not mutate or create a scene"))
+                "idle color does not create a scene or accept scene effect parameters"))
     {
         return false;
     }
@@ -158,6 +163,44 @@ bool scene_render_settings_tests()
         std::fprintf(stderr, "scene render settings: %s\n", error.c_str());
         return false;
     }
+    engine::Node* environment_node = nullptr;
+    for (const auto& node : scene->nodes())
+    {
+        if (node->get_component<engine::EnvironmentComponent>())
+        {
+            environment_node = node.get();
+            break;
+        }
+    }
+    if (!expect(environment_node != nullptr, "find the automatically created environment node"))
+    {
+        return false;
+    }
+    environment_node->set_visible(false);
+    if (!expect(!commands.execute("undo", identity, result, error) &&
+                    scene->nodes().size() == count + 1,
+                "undo preserves an environment node whose local visibility was edited"))
+    {
+        return false;
+    }
+    environment_node->set_visible(true);
+    environment_node->set_enabled(false);
+    if (!expect(!commands.execute("undo", identity, result, error) &&
+                    scene->nodes().size() == count + 1,
+                "undo preserves an environment node whose local enabled state was edited"))
+    {
+        return false;
+    }
+    environment_node->set_enabled(true);
+    auto* environment_transform = environment_node->get_component<engine::Transform>();
+    environment_transform->set_visible(false);
+    if (!expect(!commands.execute("undo", identity, result, error) &&
+                    scene->nodes().size() == count + 1,
+                "undo preserves an environment node whose Transform visibility was edited"))
+    {
+        return false;
+    }
+    environment_transform->set_visible(true);
     engine::schema::SceneDataT saved;
     if (!expect(scene->build_data(saved) && saved.nodes.size() == count + 1,
                 "scene snapshot contains the environment node") ||
@@ -253,6 +296,47 @@ bool scene_render_settings_tests()
                   "undo restores both post-process flags");
 }
 
+class TrackedResourceLoader final : public engine::ResourceLoader
+{
+public:
+    explicit TrackedResourceLoader(engine::ResourceSystem& resources) : resources_(resources)
+    {
+        resources_.set_loader(this);
+    }
+    TrackedResourceLoader(const TrackedResourceLoader&) = delete;
+    TrackedResourceLoader& operator=(const TrackedResourceLoader&) = delete;
+    ~TrackedResourceLoader() noexcept override
+    {
+        resources_.set_loader(nullptr);
+    }
+    bool load(std::string_view guid, engine::ResourcePtr& output) override
+    {
+        if (!resources_.load(guid, output))
+        {
+            return false;
+        }
+        loaded_.emplace_back(output);
+        return true;
+    }
+    engine::ResourcePtr find(std::string_view) const noexcept override
+    {
+        return {};
+    }
+    const std::string& last_error() const noexcept override
+    {
+        return resources_.last_error();
+    }
+    bool released() const
+    {
+        return std::all_of(loaded_.begin(), loaded_.end(),
+                           [](const auto& resource) { return resource.expired(); });
+    }
+
+private:
+    engine::ResourceSystem& resources_;
+    std::vector<std::weak_ptr<const engine::Resource>> loaded_;
+};
+
 bool render_component_tests()
 {
     using namespace engine;
@@ -286,6 +370,7 @@ bool render_component_tests()
     {
         return false;
     }
+    TrackedResourceLoader loader(resources);
     auto* scene = world.create_scene("Lighting commands");
     auto* node = scene ? scene->create_node("Receiver") : nullptr;
     auto* mesh = node ? node->add_component<MeshRenderer>() : nullptr;
@@ -297,7 +382,8 @@ bool render_component_tests()
     editor::EditorCommands commands([&]() { return world.scene() ? world.scene()->id() : 0; });
     editor::RenderCommands module(renderer, world, {});
     editor::SceneCommands scene_commands(world);
-    if (!module.register_commands(commands) || !scene_commands.register_commands(commands))
+    if (!module.register_commands(commands, scene_commands) ||
+        !scene_commands.register_commands(commands))
     {
         return false;
     }
@@ -451,11 +537,40 @@ bool render_component_tests()
             mesh_result = component;
         }
     }
-    return expect(planar_result["enabled"] == false && planar_result["resolutionScale"] == .5 &&
-                      probe_result["resource"] == probes.path && probe_result["valid"] == true &&
-                      mesh_result["bakeStatic"] == false && mesh_result["lightmap"] == "" &&
-                      mesh_result["lightmapValid"] == false,
-                  "full scene query reports component settings and configured versus valid bindings");
+    if (!expect(planar_result["enabled"] == false && planar_result["resolutionScale"] == .5 &&
+                    probe_result["resource"] == probes.path && probe_result["valid"] == true &&
+                    mesh_result["bakeStatic"] == false && mesh_result["lightmap"] == "" &&
+                    mesh_result["lightmapValid"] == false,
+                "full scene query reports component settings and configured versus valid bindings"))
+    {
+        return false;
+    }
+    if (!execute("create_node",
+                 {{"sceneId", identity["sceneId"]}, {"name", "New probe"}, {"component", "empty"}}))
+    {
+        return false;
+    }
+    auto probe_target = target(*scene->nodes().back());
+    probe_target["resource"] = probes.path;
+    if (!expect(execute("set_light_probe_volume", probe_target) && execute("undo", identity) &&
+                    execute("undo", identity) && execute("redo", identity) &&
+                    execute("redo", identity),
+                "render component redo follows a newly created node's shared identity"))
+    {
+        std::fprintf(stderr, "render identity: %s\n", error.c_str());
+        return false;
+    }
+    const auto* restored = scene->nodes().back()->get_component<LightProbeVolumeComponent>();
+    if (!expect(restored && restored->resource() &&
+                    restored->resource()->info().path == probes.path,
+                "recreated node receives the original probe resource binding"))
+    {
+        return false;
+    }
+    // 历史仍保留探针和 Lightmap 编辑，销毁场景必须释放全部临时加载的载荷。
+    world.destroy_scene();
+    return expect(commands.undo_count() > 2 && loader.released(),
+                  "undo history retains resource version values without retaining payloads");
 }
 
 bool render_command_tests()
@@ -595,6 +710,138 @@ bool render_command_tests()
                       result["scene"]["nodes"][0]["components"][3]["materials"].size() == 2 &&
                       result["scene"]["nodes"][0]["components"][3]["materials"][1]["blendMode"] == "alpha_blend",
                   "snapshot exposes all material slots");
+}
+
+bool state_command_tests()
+{
+    using namespace engine;
+    WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("State commands");
+    auto* parent = scene ? scene->create_node("Parent") : nullptr;
+    auto* child = scene ? scene->create_node("Child") : nullptr;
+    auto* light = child ? child->add_component<Light>() : nullptr;
+    if (!parent || !light || !child->set_parent(parent))
+    {
+        return false;
+    }
+    editor::SceneCommands module(world);
+    editor::EditorCommands commands([&] { return world.scene() ? world.scene()->id() : 0; });
+    if (!module.register_commands(commands))
+    {
+        return false;
+    }
+    Json result;
+    std::string error;
+    const auto execute = [&](const char* name, const Json& arguments)
+    { return commands.execute(name, arguments, result, error); };
+    const auto set = [&](const char* name, const Node& node, const Json& changes)
+    {
+        auto arguments = target(node);
+        arguments.update(changes);
+        return execute(name, arguments);
+    };
+    const Json identity = {{"sceneId", std::to_string(scene->id())}};
+    const auto instance = light->instance_id();
+    auto light_settings = light->settings();
+    light_settings.intensity = 2.5F;
+    if (!light->set_settings(light_settings) ||
+        !expect(set("set_component_state", *child,
+                    {{"componentType", "LightData"}, {"visible", false}}) &&
+                    set("set_node_state", *parent, {{"enabled", false}, {"visible", false}}) &&
+                    child->enabled() && child->visible() && !child->active() &&
+                    !child->visible_in_hierarchy() && light->enabled() && !light->active() &&
+                    !light->visible_in_hierarchy(),
+                "parent flags affect descendants without changing their local flags") ||
+        !expect(execute("get_scene", Json::object()) &&
+                    result["scene"]["nodes"][1]["enabled"] == true &&
+                    result["scene"]["nodes"][1]["active"] == false &&
+                    result["scene"]["nodes"][1]["visible"] == true &&
+                    result["scene"]["nodes"][1]["visibleInHierarchy"] == false &&
+                    result["scene"]["nodes"][1]["components"][1]["componentType"] == "LightData" &&
+                    result["scene"]["nodes"][1]["components"][1]["visible"] == false,
+                "scene query distinguishes local and inherited state") ||
+        !expect(execute("undo", identity) && child->active() && child->visible_in_hierarchy() &&
+                    light->active() && !light->visible_in_hierarchy() &&
+                    execute("undo", identity) && light->visible_in_hierarchy() &&
+                    light->instance_id() == instance && light->settings() == light_settings,
+                "undo restores flags without recreating a component or its payload") ||
+        !expect(execute("redo", identity) && execute("redo", identity) && !parent->enabled() &&
+                    !parent->visible(),
+                "state edits redo through the normal history"))
+    {
+        return false;
+    }
+    child->set_enabled(false);
+    child->set_visible(false);
+    if (!expect(execute("undo", identity) && !child->enabled() && !child->visible() &&
+                    !child->active() && !child->visible_in_hierarchy(),
+                "restoring a parent preserves a child's independent disabled and hidden flags") ||
+        !expect(!set("set_node_state", *parent, Json::object()) &&
+                    !set("set_node_state", *parent, {{"enabled", 1}}) &&
+                    !set("set_component_state", *child,
+                         {{"componentType", "CameraData"}, {"enabled", false}}),
+                "state commands reject missing flags, wrong types and absent components"))
+    {
+        return false;
+    }
+    commands.clear_history();
+    if (!set("set_node_state", *parent, {{"enabled", false}}))
+    {
+        return false;
+    }
+    parent->set_enabled(true);
+    if (!expect(!execute("undo", identity) && parent->enabled(),
+                "stale local state refuses undo without changing the object"))
+    {
+        return false;
+    }
+    commands.clear_history();
+    if (!expect(set("set_audio_listener", *child, {{"volume", .8}}) &&
+                    set("set_component_state", *child,
+                        {{"componentType", "AudioListenerData"},
+                         {"enabled", false},
+                         {"visible", false}}) &&
+                    set("set_audio_listener", *child, {{"volume", .4}}),
+                "generic payload edit accepts a disabled and hidden component"))
+    {
+        return false;
+    }
+    const auto* listener = child->get_component(ComponentType::AudioListenerData);
+    if (!expect(listener && !listener->enabled() && !listener->visible() &&
+                    execute("undo", identity) && !listener->enabled() && !listener->visible() &&
+                    execute("redo", identity) && !listener->enabled() && !listener->visible(),
+                "payload edits and their undo/redo preserve both local state flags"))
+    {
+        return false;
+    }
+    commands.clear_history();
+    if (!execute("create_node",
+                 {{"sceneId", identity["sceneId"]}, {"name", "Recreated"}, {"component", "light"}}))
+    {
+        return false;
+    }
+    const auto* created = scene->nodes().back().get();
+    const auto original_id = created->id();
+    if (!set("set_component_state", *created,
+             {{"componentType", "LightData"}, {"enabled", false}, {"visible", false}}) ||
+        !execute("undo", identity) || !execute("undo", identity) || !execute("redo", identity) ||
+        !execute("redo", identity))
+    {
+        std::fprintf(stderr, "state edit recreation: %s\n", error.c_str());
+        return false;
+    }
+    const auto* recreated = scene->nodes().back().get();
+    const auto* recreated_light = recreated->get_component<Light>();
+    return expect(recreated->id() != original_id && recreated_light &&
+                      !recreated_light->enabled() && !recreated_light->visible() &&
+                      !execute("set_node_state", {{"sceneId", identity["sceneId"]},
+                                                  {"nodeId", std::to_string(original_id)},
+                                                  {"enabled", false}}),
+                  "internal redo follows shared node identity while external stale IDs fail");
 }
 
 bool command_tests()
@@ -891,8 +1138,9 @@ bool channel_tests(const fs::path& root)
     const auto latest = root / "editor-receipt.json";
     const auto originals = root / "editor-receipts/session_a";
     if (!expect(write(input, request("first")) && channel.poll() && count == 1 &&
-                    read(originals / "first.json")["success"] == true,
-                "channel persists the first receipt") ||
+                    read(originals / "first.json")["success"] == true &&
+                    channel.last_receipt() == read(originals / "first.json"),
+                "channel exposes only durably published receipts") ||
         !expect(channel.poll() && count == 1, "unchanged requests do not execute again") ||
         !expect(write(input, request("second")) && channel.poll() && count == 2,
                 "new request executes") ||
@@ -912,8 +1160,9 @@ bool channel_tests(const fs::path& root)
         fs::create_directory(latest, code);
     }
     if (code ||
-        !expect(write(input, request("third")) && !channel.poll() && count == 3,
-                "receipt write failure retains the completed effect") ||
+        !expect(write(input, request("third")) && !channel.poll() && count == 3 &&
+                    channel.last_receipt()["requestId"] == "first",
+                "receipt write failure retains the completed effect without publishing status") ||
         !expect(write(input, request("fourth")) && !channel.poll() && count == 3,
                 "pending receipt blocks subsequent command execution"))
     {
@@ -921,9 +1170,10 @@ bool channel_tests(const fs::path& root)
     }
     fs::remove(latest, code);
     if (code ||
-        !expect(channel.poll() && count == 4 &&
-                    read(originals / "third.json")["result"]["value"] == 3,
-                "retry publishes old result before the next request") ||
+        !expect(channel.poll() && count == 3 &&
+                    read(originals / "third.json")["result"]["value"] == 3 &&
+                    channel.last_receipt()["requestId"] == "third" && channel.poll() && count == 4,
+                "retry exposes the recovered receipt before the next request") ||
         !expect(write(input, request("huge", "large")) && channel.poll() &&
                     read(latest)["success"] == false && read(latest)["result"].is_null() &&
                     channel.poll(),
@@ -945,7 +1195,8 @@ bool channel_tests(const fs::path& root)
 
 int main()
 {
-    if (!command_tests() || !render_command_tests() || !scene_render_settings_tests() || !render_component_tests())
+    if (!state_command_tests() || !command_tests() || !render_command_tests() ||
+        !scene_render_settings_tests() || !render_component_tests())
     {
         return 1;
     }

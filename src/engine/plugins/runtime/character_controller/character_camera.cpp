@@ -62,6 +62,7 @@ bool CharacterCamera::restore_data(const schema::ComponentDataT& value)
     }
     angles_initialized_ = false;
     set_enabled(value.enabled);
+    set_visible(value.visible);
     return true;
 }
 

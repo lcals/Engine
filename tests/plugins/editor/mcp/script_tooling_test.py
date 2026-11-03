@@ -240,6 +240,8 @@ def test(
         "stop_project",
         "get_scene",
         "set_transform",
+        "set_node_state",
+        "set_component_state",
         "set_light",
         "set_camera",
         "set_collider",

@@ -132,9 +132,11 @@ bool read_component(const toml::table& table, schema::ComponentDataT& component,
 {
     using namespace asset_pipeline;
     component.enabled = table["enabled"].value_or(true);
-    if (table.contains("enabled") && !table["enabled"].is_boolean())
+    component.visible = table["visible"].value_or(true);
+    if ((table.contains("enabled") && !table["enabled"].is_boolean()) ||
+        (table.contains("visible") && !table["visible"].is_boolean()))
     {
-        error = "component enabled must be boolean";
+        error = "component enabled/visible must be boolean";
         return false;
     }
     const auto type = table["type"].value<std::string_view>();
@@ -196,6 +198,14 @@ bool SceneImporter::read(const std::filesystem::path& source, schema::SceneDataT
             return false;
         }
         node->info->name = (*node_table)["name"].value_or(std::string{});
+        if ((node_table->contains("enabled") && !(*node_table)["enabled"].is_boolean()) ||
+            (node_table->contains("visible") && !(*node_table)["visible"].is_boolean()))
+        {
+            error = "node enabled/visible must be boolean";
+            return false;
+        }
+        node->info->enabled = (*node_table)["enabled"].value_or(true);
+        node->info->visible = (*node_table)["visible"].value_or(true);
         const auto* components = (*node_table)["components"].as_array();
         if (components == nullptr)
         {
@@ -242,10 +252,22 @@ bool SceneImporter::write(const std::filesystem::path& destination, const schema
         toml::table table{{"id", std::to_string(node->info->id)},
                           {"name", node->info->name},
                           {"parent", std::to_string(node->info->parent_id)}};
+        if (!node->info->enabled)
+        {
+            table.insert("enabled", false);
+        }
+        if (!node->info->visible)
+        {
+            table.insert("visible", false);
+        }
         toml::array components;
         for (const auto& component : node->components)
         {
             toml::table value{{"enabled", component->enabled}};
+            if (!component->visible)
+            {
+                value.insert("visible", false);
+            }
             const auto* codec = asset_pipeline::find_scene_component_codec(component->payload.type);
             if (codec == nullptr)
             {

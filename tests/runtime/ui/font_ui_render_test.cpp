@@ -496,6 +496,30 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     {
         return false;
     }
+    const auto document_id = systems.ui.document_id(stable_node->id());
+    stable_node->set_visible(false);
+    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node->id()) &&
+                    systems.ui.document_id(stable_node->id()) == document_id &&
+                    systems.ui.set_text(stable_button, "Hidden but retained"),
+                "hiding a UI node retains the document, controller state and control handle"))
+    {
+        return false;
+    }
+    stable_node->set_visible(true);
+    stable_node->set_enabled(false);
+    if (!expect(systems.ui.synchronize() && !systems.ui.document_visible(stable_node->id()) &&
+                    systems.ui.document_id(stable_node->id()) == document_id,
+                "inactive UI nodes keep their document without drawing or accepting input"))
+    {
+        return false;
+    }
+    stable_node->set_enabled(true);
+    if (!expect(systems.ui.synchronize() && systems.ui.document_visible(stable_node->id()) &&
+                    systems.ui.set_text(stable_button, "Persistent View"),
+                "reactivation restores the same live document and control handle"))
+    {
+        return false;
+    }
     const auto old_generation = systems.resources.generation();
     const auto font_guid = original->document()->ui()->fonts.front()->font_guid;
     const auto before = gpu_counts();
@@ -567,12 +591,13 @@ bool document_generations(Systems& systems, const fs::path& project, const GpuCo
     {
         return false;
     }
-    original->set_enabled(false);
-    if (!systems.frames() ||
+    if (!expect(original->node().remove_component(engine::UiComponent::component_type),
+                "remove the last document owner") ||
+        !systems.frames() ||
         !expect(systems.ui.document_count() == 0 &&
                     tracked.live(red_texture_guid, new_generation) == 0 &&
                     tracked.live(font_guid, new_generation) == 0,
-                "the last disabled view releases all UI-owned font and image snapshots"))
+                "the last removed view releases all UI-owned font and image snapshots"))
     {
         return false;
     }
@@ -1061,15 +1086,19 @@ bool run(Systems& systems, const fs::path& project, const fs::path& screenshots)
         {
             return false;
         }
+        const auto original_document = systems.ui.document_id(ui_node_id);
         component->set_enabled(false);
         if (!systems.frames() ||
-            !expect(systems.ui.document_count() == 0, "disabled UI component closes its document"))
+            !expect(systems.ui.document_count() == 1 && !systems.ui.document_visible(ui_node_id),
+                    "disabled UI component suspends its retained document"))
         {
             return false;
         }
         component->set_enabled(true);
-        if (!systems.frames() || !expect(systems.ui.document_count() == 1,
-                                         "reenabled UI component rebuilds its document"))
+        if (!systems.frames() ||
+            !expect(systems.ui.document_count() == 1 &&
+                        systems.ui.document_id(ui_node_id) == original_document,
+                    "reenabled UI component retains its document identity"))
         {
             return false;
         }

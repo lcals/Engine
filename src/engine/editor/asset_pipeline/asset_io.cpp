@@ -5,17 +5,37 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <span>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
 namespace engine::editor::asset_pipeline
 {
+namespace
+{
+namespace fs = std::filesystem;
+
+bool unused_file(const fs::path& path, std::string& error)
+{
+    std::error_code status_error;
+    const auto status = fs::symlink_status(path, status_error);
+    if ((status_error && status_error != std::errc::no_such_file_or_directory) ||
+        (!status_error && status.type() != fs::file_type::not_found))
+    {
+        error = "Source or meta already exists, or its destination cannot be inspected: " +
+                PathUtils::to_utf8(path);
+        return false;
+    }
+    return true;
+}
+} // namespace
 
 std::string hash_bytes(std::span<const std::byte> bytes)
 {
@@ -70,6 +90,125 @@ bool write_bytes(const std::filesystem::path& path, std::span<const std::byte> b
 bool write_text(const std::filesystem::path& path, const std::string& text, std::string& error)
 {
     return write_bytes(path, std::as_bytes(std::span(text.data(), text.size())), error);
+}
+
+bool project_file_path(const fs::path& project, std::string_view directory,
+                       std::string_view relative, std::string_view extension, fs::path& output,
+                       std::string& error)
+{
+    output.clear();
+    if (relative.empty() || relative.size() > 1024 ||
+        std::any_of(relative.begin(), relative.end(), [](unsigned char value)
+                    { return value < 0x20 || value == 0x7f || value == ':' || value == '\\'; }))
+    {
+        error = "Project file path requires a bounded relative path without control characters";
+        return false;
+    }
+    const auto path = PathUtils::from_utf8(relative);
+    if (path.is_absolute() || path.has_root_name() || path.filename().empty() ||
+        PathUtils::to_utf8(path.extension()) != extension ||
+        std::any_of(path.begin(), path.end(),
+                    [](const auto& part) { return part == ".." || part == "." || part.empty(); }))
+    {
+        error = "File path must stay in its project directory and use " + std::string(extension);
+        return false;
+    }
+    std::error_code filesystem_error;
+    const auto root = fs::canonical(project, filesystem_error);
+    if (filesystem_error || !fs::is_directory(root, filesystem_error) || filesystem_error)
+    {
+        error = "Project directory is unavailable";
+        return false;
+    }
+    const auto candidate = root / PathUtils::from_utf8(directory) / path;
+    fs::path cursor = root;
+    for (const auto& part : candidate.lexically_relative(root))
+    {
+        cursor /= part;
+        const auto status = fs::symlink_status(cursor, filesystem_error);
+        if (filesystem_error && filesystem_error != std::errc::no_such_file_or_directory)
+        {
+            error = "Cannot inspect project file destination";
+            return false;
+        }
+        filesystem_error.clear();
+        if (fs::is_symlink(status) || (status.type() != fs::file_type::not_found &&
+                                       cursor != candidate && !fs::is_directory(status)))
+        {
+            error = "Project file destination contains a symbolic link or non-directory parent";
+            return false;
+        }
+    }
+    output = candidate;
+    return true;
+}
+
+bool create_source_with_meta(const fs::path& destination, const std::string& source,
+                             std::string_view importer, std::string& guid, std::string& error)
+{
+    guid.clear();
+    auto meta = destination;
+    meta += ".meta";
+    if (!unused_file(destination, error) || !unused_file(meta, error))
+    {
+        return false;
+    }
+    std::error_code filesystem_error;
+    fs::create_directories(destination.parent_path(), filesystem_error);
+    if (filesystem_error)
+    {
+        error = "Cannot create source directory: " + filesystem_error.message();
+        return false;
+    }
+    const auto candidate_guid = new_guid();
+    if (candidate_guid.empty())
+    {
+        error = "Cannot generate resource GUID";
+        return false;
+    }
+    auto source_temporary = destination;
+    source_temporary += ".asset-write-" + candidate_guid + ".meta";
+    auto meta_temporary = meta;
+    meta_temporary += ".asset-write-" + candidate_guid + ".meta";
+    if (!unused_file(source_temporary, error) || !unused_file(meta_temporary, error))
+    {
+        return false;
+    }
+    const auto metadata = "guid = \"" + candidate_guid + "\"\nimporter = \"" +
+                          std::string(importer) + "\"\nmeta_version = 1\n";
+    const auto cleanup = [&]()
+    {
+        std::error_code ignored;
+        fs::remove(source_temporary, ignored);
+        fs::remove(meta_temporary, ignored);
+    };
+    if (!write_text(source_temporary, source, error) ||
+        !write_text(meta_temporary, metadata, error))
+    {
+        cleanup();
+        return false;
+    }
+    if (!SDL_RenamePath(PathUtils::to_utf8(meta_temporary).c_str(),
+                        PathUtils::to_utf8(meta).c_str()))
+    {
+        cleanup();
+        error = "Cannot publish source meta: " + std::string(SDL_GetError());
+        return false;
+    }
+    if (!SDL_RenamePath(PathUtils::to_utf8(source_temporary).c_str(),
+                        PathUtils::to_utf8(destination).c_str()))
+    {
+        cleanup();
+        fs::remove(meta, filesystem_error);
+        error = "Cannot publish source: " + std::string(SDL_GetError());
+        if (filesystem_error)
+        {
+            error += "; newly created meta could not be removed";
+        }
+        return false;
+    }
+    guid = candidate_guid;
+    return true;
 }
 
 bool run_process(const std::vector<std::string>& arguments, std::string& error,

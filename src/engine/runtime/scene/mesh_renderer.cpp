@@ -6,7 +6,6 @@
 #include "runtime/utils/mesh_utils.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <cmath>
 #include <limits>
 #include <new>
@@ -17,20 +16,6 @@ namespace engine
 {
 namespace
 {
-
-std::uint64_t next_mesh_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
-}
 
 std::size_t required_materials(const schema::MeshDataT& data) noexcept
 {
@@ -74,25 +59,10 @@ bool skin_joint_count(const schema::MeshDataT& data, std::uint32_t& count) noexc
 
 } // namespace
 
-MeshRenderer::MeshRenderer(Node& node)
-    : Component(node, make_mesh_renderer_data()), mesh_instance_id_(next_mesh_instance_id())
+MeshRenderer::MeshRenderer(Node& node) : Component(node, make_mesh_renderer_data())
 {
 }
 
-std::uint64_t MeshRenderer::mesh_instance_id() const noexcept
-{
-    return mesh_instance_id_;
-}
-
-bool MeshRenderer::visible() const noexcept
-{
-    return visible_;
-}
-
-void MeshRenderer::set_visible(bool visible) noexcept
-{
-    visible_ = visible;
-}
 
 bool MeshRenderer::cast_shadows() const noexcept
 {
@@ -190,7 +160,7 @@ bool MeshRenderer::set_lightmap(std::string_view path)
 
 bool MeshRenderer::initialize()
 {
-    return mesh_instance_id_ != 0 && set_mesh("builtin://meshes/cube") &&
+    return set_mesh("builtin://meshes/cube") &&
            material_.set_type("builtin://materials/default-pbr");
 }
 

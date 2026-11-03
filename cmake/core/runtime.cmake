@@ -16,8 +16,6 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
 endif()
 
 if(ENGINE_ENABLE_RUNTIME_DEPS)
-    engine_add_system(runtime performance)
-    engine_enable_profiling(engine_performance)
 
     engine_add_system(runtime task)
     target_sources(engine_task PRIVATE src/engine/runtime/task/thread_system.cpp)
@@ -217,7 +215,6 @@ if(ENGINE_ENABLE_RUNTIME_DEPS)
     engine_embed_render_shaders(engine_ui ui)
 
     set(ENGINE_RUNTIME_SYSTEM_TARGETS
-        engine::performance
         engine::task
         engine::window
         engine::input

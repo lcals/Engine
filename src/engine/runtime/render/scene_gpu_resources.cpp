@@ -362,7 +362,7 @@ bool RenderSystem::SceneGpuResources::prepare_ibl(const Scene* scene, std::size_
         for (const auto& node : scene->nodes())
         {
             const auto* component = node->get_component<EnvironmentComponent>();
-            if (component != nullptr && component->enabled())
+            if (component != nullptr && component->active() && component->visible_in_hierarchy())
             {
                 environment = &component->settings();
                 break;

@@ -180,6 +180,146 @@ std::vector<std::uint8_t> node_snapshot(const Node& node)
     return {builder.GetBufferPointer(), builder.GetBufferPointer() + builder.GetSize()};
 }
 
+class StateEdit final : public EditorEdit
+{
+public:
+    Target target;
+    ComponentType component_type = ComponentType::NONE;
+    bool change_enabled = false;
+    bool change_visible = false;
+    bool before_enabled = true;
+    bool before_visible = true;
+    bool after_enabled = true;
+    bool after_visible = true;
+
+    explicit StateEdit(Target value) : target(std::move(value))
+    {
+    }
+
+    bool apply(std::string& error) override
+    {
+        return change(before_enabled, before_visible, after_enabled, after_visible, error);
+    }
+
+    bool revert(std::string& error) override
+    {
+        return change(after_enabled, after_visible, before_enabled, before_visible, error);
+    }
+
+private:
+    bool change(bool expected_enabled, bool expected_visible, bool enabled, bool visible,
+                std::string& error)
+    {
+        auto* node = target.node(error);
+        if (!node)
+        {
+            return false;
+        }
+        Component* component = nullptr;
+        if (component_type != ComponentType::NONE)
+        {
+            component = node->get_component(component_type);
+            if (!component)
+            {
+                error = "The requested component no longer exists";
+                return false;
+            }
+        }
+        const bool current_enabled = component ? component->enabled() : node->enabled();
+        const bool current_visible = component ? component->visible() : node->visible();
+        if ((change_enabled && current_enabled != expected_enabled) ||
+            (change_visible && current_visible != expected_visible))
+        {
+            error = "State flags changed outside this edit; undo or redo is stale";
+            return false;
+        }
+        if (component)
+        {
+            if (change_enabled)
+            {
+                component->set_enabled(enabled);
+            }
+            if (change_visible)
+            {
+                component->set_visible(visible);
+            }
+        }
+        else
+        {
+            if (change_enabled)
+            {
+                node->set_enabled(enabled);
+            }
+            if (change_visible)
+            {
+                node->set_visible(visible);
+            }
+        }
+        return true;
+    }
+};
+
+bool prepare_state(WorldSystem& world, NodeAliases& aliases, const Json& arguments, Json& result,
+                   std::unique_ptr<EditorEdit>& output, std::string& error, bool component_state)
+{
+    Target target(world, &aliases);
+    if (!fields(arguments,
+                component_state
+                    ? std::initializer_list<std::string_view>{"sceneId", "nodeId", "componentType",
+                                                              "enabled", "visible"}
+                    : std::initializer_list<std::string_view>{"sceneId", "nodeId", "enabled",
+                                                              "visible"}) ||
+        (!arguments.contains("enabled") && !arguments.contains("visible")) ||
+        (arguments.contains("enabled") && !arguments["enabled"].is_boolean()) ||
+        (arguments.contains("visible") && !arguments["visible"].is_boolean()) ||
+        !target.read(arguments, error))
+    {
+        error = "State commands require a scene/node target and enabled or visible booleans";
+        return false;
+    }
+    auto record = std::make_unique<StateEdit>(std::move(target));
+    auto* node = record->target.node(error);
+    record->before_enabled = node->enabled();
+    record->before_visible = node->visible();
+    if (component_state)
+    {
+        if (!arguments.contains("componentType") || !arguments["componentType"].is_string())
+        {
+            error = "componentType must name a componentType returned by get_scene";
+            return false;
+        }
+        for (const auto& component : node->components())
+        {
+            if (arguments["componentType"] == schema::EnumNameComponentPayload(component->type()))
+            {
+                record->component_type = component->type();
+                record->before_enabled = component->enabled();
+                record->before_visible = component->visible();
+                break;
+            }
+        }
+        if (record->component_type == ComponentType::NONE)
+        {
+            error = "The requested component type is not present on this node";
+            return false;
+        }
+    }
+    record->change_enabled = arguments.contains("enabled");
+    record->change_visible = arguments.contains("visible");
+    record->after_enabled = arguments.value("enabled", record->before_enabled);
+    record->after_visible = arguments.value("visible", record->before_visible);
+    result = {{"sceneId", arguments["sceneId"]},
+              {"nodeId", arguments["nodeId"]},
+              {"enabled", record->after_enabled},
+              {"visible", record->after_visible}};
+    if (component_state)
+    {
+        result["componentType"] = arguments["componentType"];
+    }
+    output = std::move(record);
+    return true;
+}
+
 class CreateNodeEdit final : public EditorEdit
 {
 public:
@@ -1537,7 +1677,12 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
         Json components = Json::array();
         for (const auto& component : node->components())
         {
-            Json data = {{"enabled", component->enabled()}};
+            Json data = {{"enabled", component->enabled()},
+                         {"active", component->active()},
+                         {"visible", component->visible()},
+                         {"visibleInHierarchy", component->visible_in_hierarchy()},
+                         {"componentType", schema::EnumNameComponentPayload(component->type())},
+                         {"instanceId", std::to_string(component->instance_id())}};
             switch (component->type())
             {
             case ComponentType::TransformData:
@@ -1632,6 +1777,10 @@ bool query_scene(WorldSystem& world, const Json& arguments, Json& result, std::s
         nodes.push_back(
             {{"nodeId", std::to_string(node->id())},
              {"name", node->name()},
+             {"enabled", node->enabled()},
+             {"active", node->active()},
+             {"visible", node->visible()},
+             {"visibleInHierarchy", node->visible_in_hierarchy()},
              {"parentId", node->parent() == nullptr ? Json(nullptr)
                                                     : Json(std::to_string(node->parent()->id()))},
              {"components", std::move(components)}});
@@ -1704,6 +1853,22 @@ bool SceneCommands::register_commands(EditorCommands& commands)
                                          synchronize_aliases();
                                          return prepare_create_node(world_, node_aliases_,
                                                                     arguments, result, edit, error);
+                                     }) &&
+           commands.register_command("set_node_state", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_state(world_, node_aliases_, arguments,
+                                                              result, edit, error, false);
+                                     }) &&
+           commands.register_command("set_component_state", true,
+                                     [this](const Json& arguments, Json& result,
+                                            std::unique_ptr<EditorEdit>& edit, std::string& error)
+                                     {
+                                         synchronize_aliases();
+                                         return prepare_state(world_, node_aliases_, arguments,
+                                                              result, edit, error, true);
                                      }) &&
            commands.register_command("set_active_camera", true,
                                      [this](const Json& arguments, Json& result,

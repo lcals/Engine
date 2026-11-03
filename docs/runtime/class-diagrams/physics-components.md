@@ -13,7 +13,6 @@ classDiagram
         +set_settings(const ColliderDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
         +build_data(ComponentDataT& output) const bool
-        +instance_id() const uint64_t
         +mesh_data() const MeshDataT*
         +set_mesh(string_view path) bool
         +mesh_path() const string_view

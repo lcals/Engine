@@ -5,41 +5,18 @@
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
-#include <atomic>
 #include <cmath>
 #include <limits>
 #include <utility>
 
 namespace engine::plugins::effects
 {
-namespace
-{
 
-std::uint64_t next_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
-}
-
-} // namespace
-
-EffectComponent::EffectComponent(Node& node) : Component(node), instance_id_(next_instance_id())
+EffectComponent::EffectComponent(Node& node) : Component(node)
 {
     mutable_data().payload.Set(schema::EffectDataT{});
 }
 
-bool EffectComponent::initialize()
-{
-    return instance_id_ != 0;
-}
 
 bool EffectComponent::valid_settings(const schema::EffectDataT& settings) noexcept
 {
@@ -112,6 +89,7 @@ bool EffectComponent::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     set_enabled(data.enabled);
+    set_visible(data.visible);
     return true;
 }
 
@@ -134,14 +112,10 @@ std::string_view EffectComponent::effect_path() const noexcept
     return effect_ ? std::string_view(effect_->info().path) : std::string_view{};
 }
 
-std::uint64_t EffectComponent::instance_id() const noexcept
-{
-    return instance_id_;
-}
 
 bool EffectComponent::play() noexcept
 {
-    if (!enabled() || !effect_ || revision_ == std::numeric_limits<std::uint64_t>::max())
+    if (!active() || !effect_ || revision_ == std::numeric_limits<std::uint64_t>::max())
     {
         return false;
     }
@@ -176,7 +150,7 @@ bool EffectComponent::stop() noexcept
 
 bool EffectComponent::playing() const noexcept
 {
-    return enabled() && playing_;
+    return active() && playing_;
 }
 
 } // namespace engine::plugins::effects

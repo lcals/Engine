@@ -72,7 +72,8 @@ struct UiEditorCommands::State
     std::string active;
     std::map<std::string, std::shared_ptr<SourceJob>> sources;
     bool query(std::string_view name, const Json&, Json&, std::string&);
-    bool edit_document(const Json&, Json&, std::unique_ptr<editor::EditorEdit>&, std::string&);
+    bool edit_document(editor::SceneCommands&, const Json&, Json&,
+                       std::unique_ptr<editor::EditorEdit>&, std::string&);
     bool source(std::string_view name, const Json&, Json&, std::string&);
     bool input(std::string_view name, const Json&, Json&, std::string&);
     void tick_input();

@@ -15,7 +15,7 @@ bool drawable_scene(const WorldSystem& world, const Camera* camera, bool has_ext
 {
     const auto* scene = world.scene();
     camera = camera != nullptr ? camera : scene != nullptr ? scene->active_camera() : nullptr;
-    if (camera == nullptr || !camera->enabled())
+    if (camera == nullptr || !camera->active() || !camera->visible_in_hierarchy())
     {
         return false;
     }
@@ -29,7 +29,9 @@ bool drawable_scene(const WorldSystem& world, const Camera* camera, bool has_ext
                                {
                                    const auto* mesh = node->get_component<MeshRenderer>();
                                    const auto* text = node->get_component<TextComponent>();
-                                   return (mesh && mesh->enabled()) || (text && text->enabled());
+                                   return (mesh && mesh->active() &&
+                                           mesh->visible_in_hierarchy()) ||
+                                          (text && text->active() && text->visible_in_hierarchy());
                                });
                        });
 }

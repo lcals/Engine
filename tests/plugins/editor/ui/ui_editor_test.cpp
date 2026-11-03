@@ -1,5 +1,6 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
 #include "editor/commands/editor_commands.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "editor/editor_environment.hpp"
 #include "editor/project/project_system.hpp"
 #include "editor/scene/scene_preview.hpp"
@@ -83,6 +84,7 @@ struct Fixture
     engine::editor::EditorEnvironment environment{project};
     engine::editor::ScenePreview preview;
     engine::plugins::ui::UiEditorCommands module;
+    engine::editor::SceneCommands scene_commands{world};
     engine::editor::EditorCommands commands;
     explicit Fixture(fs::path p)
         : root(std::move(p)), project(engine::PathUtils::to_utf8(root)),
@@ -156,7 +158,8 @@ shader="builtin://shaders/font"
                resources.update_catalog(pipeline.catalog(), {{"content", root / "cache"}}) &&
                window.initialize(config) && world.initialize(config) && fonts.initialize(config) &&
                ui.initialize(config) && renderer.initialize(config) &&
-               module.register_commands(commands);
+               scene_commands.register_commands(commands) &&
+               module.register_commands(commands, scene_commands);
     }
     bool call(std::string_view name, const Json& args, Json& result)
     {

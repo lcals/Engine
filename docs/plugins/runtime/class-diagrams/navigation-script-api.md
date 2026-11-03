@@ -75,4 +75,4 @@ classDiagram
 - Configure 接收完整配置；省略的字段采用生成模型默认值：radius=0.3、height=1.8、maxSpeed=3、maxAcceleration=8、separationWeight=2、arrivalDistance=0.15、faceVelocity=true。非法类型或原生校验失败返回 false，并保留原配置与运动请求。
 - MoveTo 只提交世界空间目标，成功不等于已到达；Stop 清除本组件的运动请求，失效句柄返回 false。只读 state 返回 `idle/pending/moving/arrived/unreachable/invalid` 或失效时 null；velocity 为世界速度值快照或 null。
 - 门面创建时捕获组件的 `instance_id`，包括继承行为 IsValid/SetEnabled 在内的每个组件操作均同时校验场景、节点和实例身份。删除后在同节点重建不会使旧门面复活；绑定不持有原生组件指针，也不在脚本层执行避障或物理步进。
-- NavigationAgent 将实例校验函数放入私有 handles 记录；Component 基类的 IsValid 优先使用该函数，SetEnabled 在写入前执行该校验。显式借用基类方法调用也不能绕过实例身份。没有该内部校验函数的既有组件保持原有行为，不向核心或基础绑定引入具体插件依赖。
+- NavigationAgent 与全部组件共用 Component 的实例身份和公共句柄校验；Component.IsValid/SetEnabled 以及所有逐类操作均拒绝已替换实例，不再登记插件专用验证闭包。基础绑定不依赖具体插件。

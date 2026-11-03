@@ -112,6 +112,56 @@ def test(mcp, temporary):
     project = temporary / "project 中文"
     for name in ("settings", "cache", "assets"):
         (project / name).mkdir(parents=True)
+    command_runtime = temporary / "commands-runtime"
+    command_runtime.mkdir()
+    with EditorFixture(project, command_runtime) as editor:
+        command_file = command_runtime / "editor-command.json"
+        for name, arguments in (
+            ("start_project", {}),
+            ("stop_project", {}),
+            ("set_node_state", {"sceneId": "1", "nodeId": "2", "visible": False}),
+            ("set_component_state", {"sceneId": "1", "nodeId": "2",
+                                     "componentType": "LightData", "enabled": False}),
+        ):
+            observed = []
+
+            def complete_command():
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if command_file.exists():
+                        envelope = retry_sharing(
+                            lambda: json.loads(command_file.read_text(encoding="utf-8"))
+                        )
+                        if envelope.get("command") == name:
+                            observed.append(envelope)
+                            editor.completed(envelope)
+                            return
+                    time.sleep(0.01)
+
+            worker = threading.Thread(target=complete_command, daemon=True)
+            worker.start()
+            try:
+                failed, completed = response(mcp, project, command_runtime, name, arguments)
+            finally:
+                worker.join(timeout=6)
+            require(
+                len(observed) == 1
+                and observed[0]["arguments"] == arguments
+                and observed[0]["session"] == editor.session
+                and observed[0]["projectRoot"] == project.resolve().as_posix()
+                and not failed
+                and completed.get("activation") == "completed"
+                and completed.get("command") == name
+                and completed.get("requestId") == observed[0]["requestId"],
+                f"{name} did not use the shared editor command and receipt transport: {completed}",
+            )
+            identity = {"session": editor.session, "requestId": observed[0]["requestId"]}
+            failed, durable = response(mcp, project, command_runtime, "get_editor_receipt", identity)
+            require(not failed and durable == completed, f"{name} lost its durable receipt")
+        require(
+            not (command_runtime / "project-control.json").exists(),
+            "lifecycle tools wrote a second project control channel",
+        )
     runtime = temporary / "runtime"
     runtime.mkdir()
     request_path = runtime / "editor-command.json"
@@ -207,7 +257,9 @@ def test(mcp, temporary):
             failed and unknown.get("activation") != "completed",
             f"unknown request was confused with the latest receipt: {unknown}",
         )
-        for field in ("session", "requestId"):
+        invalid_identities = [
+            dict(identity, **{field: value})
+            for field in ("session", "requestId")
             for value in (
                 "",
                 "..",
@@ -218,16 +270,24 @@ def test(mcp, temporary):
                 "bad\x00id",
                 "错",
                 "a" * 129,
-            ):
-                invalid_identity = dict(identity, **{field: value})
-                rejected = invoke(
-                    mcp, project, runtime, [call("get_editor_receipt", invalid_identity)]
-                )[0]
-                require(
-                    rejected.get("error", {}).get("code") == -32602
-                    or rejected.get("result", {}).get("isError") is True,
-                    f"invalid receipt path identity was accepted: {invalid_identity}: {rejected}",
-                )
+            )
+        ]
+        # 独立参数校验共用一个真实 MCP 会话，避免每条边界输入重复启动完整宿主。
+        rejected_replies = invoke(
+            mcp,
+            project,
+            runtime,
+            [call("get_editor_receipt", invalid, request_id=index + 1)
+             for index, invalid in enumerate(invalid_identities)],
+        )
+        require(len(rejected_replies) == len(invalid_identities),
+                "MCP omitted an invalid receipt identity response")
+        for invalid_identity, rejected in zip(invalid_identities, rejected_replies):
+            require(
+                rejected.get("error", {}).get("code") == -32602
+                or rejected.get("result", {}).get("isError") is True,
+                f"invalid receipt path identity was accepted: {invalid_identity}: {rejected}",
+            )
         require(
             request_path.read_bytes() == original,
             "invalid or unknown receipt lookup changed the outstanding request",

@@ -10,10 +10,7 @@
 
 namespace engine::plugins::scene_bake
 {
-SceneBakeMcpTools::SceneBakeMcpTools(mcp::EditorMcpTools& editor) noexcept : editor_(editor)
-{
-}
-bool SceneBakeMcpTools::register_tools(mcp::McpSystem& system)
+bool register_scene_bake_tools(mcp::McpSystem& system, mcp::EditorMcpTools& editor)
 {
     using Json = nlohmann::json;
     const auto object = [](Json properties, Json required = Json::array())
@@ -27,8 +24,8 @@ bool SceneBakeMcpTools::register_tools(mcp::McpSystem& system)
     {
         const auto command = name;
         return system.register_tool({std::move(name), std::move(description), std::move(schema),
-                                     [this, command](const Json& arguments, Json& reply)
-                                     { return editor_.call_command(command, arguments, reply); }});
+                                     [&editor, command](const Json& arguments, Json& reply)
+                                     { return editor.call_command(command, arguments, reply); }});
     };
     const Json path = {{"type", "string"}, {"minLength", 1}, {"maxLength", 4096}};
     const Json job = {{"type", "string"}, {"minLength", 1}, {"maxLength", 64}};

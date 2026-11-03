@@ -174,7 +174,7 @@ RuntimeHost 独占窗口，资源底层可由可执行宿主先初始化并借�
 | ---------- | -------------------------------------------------------- | -------------------------------------------------------- |
 | 1          | [窗口系统](../runtime/class-diagrams/window-system.md)   | RuntimeHost 独占；SDL3 窗口和事件                        |
 | 2 | [资源系统](../runtime/class-diagrams/resource-system.md) | 外部宿主或 Engine 独占；SDL3、单项解析、目录代际 |
-| 3 | [性能系统](../runtime/class-diagrams/performance-system.md) | Engine 独占；可选 Tracy CPU 区域、帧标记和 bgfx 统计，第三方不进入公开接口 |
+| 3 | [性能观测接入](../runtime/class-diagrams/performance-system.md) | 宿主初始化 Tracy 线程名称；各模块提交 CPU 区域、帧标记和 bgfx 统计，第三方不进入公开接口 |
 | 4          | [世界系统](../runtime/class-diagrams/world-system.md)    | Engine 独占；flecs 世界、场景和子系统生命周期            |
 | 5          | [渲染系统](../runtime/class-diagrams/render-system.md)   | Engine 独占；bgfx 设备、空白帧和资源网格 PBR             |
 

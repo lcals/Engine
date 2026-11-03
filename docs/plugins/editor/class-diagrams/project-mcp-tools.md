@@ -2,7 +2,7 @@
 
 [类图索引](../../../class-diagrams/index.md) · [协议与注册](mcp-system.md)
 
-ProjectMcpTools 是现有项目工具的业务适配模块，显式保存项目与运行目标，借用资源系统并向通用 McpSystem 登记工具。资源、运行调试、项目启停分别维护注册与实现文件；Android 传输继续由模块私有实现负责。
+ProjectMcpTools 是现有项目工具的业务适配模块，显式保存项目与运行目标，借用资源系统并向通用 McpSystem 登记工具。资源与运行调试分别维护注册及实现文件；Android 传输继续由模块私有实现负责。项目启停由 EditorMcpTools 通过统一命令通道登记。
 
 ```mermaid
 classDiagram
@@ -14,7 +14,6 @@ classDiagram
         +register_tools(McpSystem& mcp) bool
         -register_resource_tools(McpSystem& mcp) bool
         -register_runtime_tools(McpSystem& mcp) bool
-        -register_lifecycle_tools(McpSystem& mcp) bool
         -sync_android(const Path& source, string& reply) bool
         -set_android_hot_reload(bool enabled, string& reply) bool
         -read_android_status(string& reply) bool
@@ -48,8 +47,8 @@ classDiagram
 - `ProjectMcpTools` 构造按值保存项目根目录和目标，三个系统引用须存活到 MCP 关闭。普通业务模块不继承 System；初始化与工具注册通过 bool 报告状态。
 - 三个 Android 方法为私有实现接口，向 `reply` 输出工具回执文本，通过 `bool` 报告操作状态；不对玩法或其他系统公开新的设备控制接口。
 - `Path` 与 `string` 分别简写 `std::filesystem::path` 与 `std::string`，不是新增包装类型。文件读取使用 [ResourceSystem](../../../runtime/class-diagrams/resource-system.md)，编码转换使用 [PathUtils](../../../runtime/class-diagrams/path-utils.md)；路径安全检查仍归调用者。
-- stdio 支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。工具包括 `build_resources`、`sync_assets`、`set_hot_reload`、`get_status` 以及无参数 `start_project`、`stop_project`。项目启停面向本机编辑器；Android 支持同步与热重载控制，项目启停返回未支持错误。
-- 启停读取编辑器会话和心跳，校验项目路径后，携带请求编号原子发布 `project-control.json`；等待 `project-status.json` 对同一请求的完成回执。发布成功只表示已请求，超时明确返回未确认及请求编号，可继续查询状态；不能声称已完成。互斥发布锁防止两个 MCP 进程覆盖未确认请求。
+- stdio 支持 `initialize`、`notifications/initialized`、`ping`、`tools/list`、`tools/call`。工具包括 `build_resources`、`sync_assets`、`set_hot_reload`、`get_status` ；无参数 `start_project`、`stop_project` 由 EditorMcpTools 登记并复用统一命令通道。项目启停面向本机编辑器；Android 支持同步与热重载控制，项目启停返回未支持错误。
+- 启停通过 EditorMcpTools 的统一通道检查会话、心跳及项目，使用 OS 提交锁与逐请求持久回执。超时保留原身份并返回 pending，可用 get_editor_receipt 查询；project-status 继续报告运行状态，不承担第二套请求去重。
 - `get_status` 保留脚本版本字段，并合并编辑器运行状态、会话、最后请求结果和错误。心跳过期标记离线，磁盘历史状态不能当作活动进程证明。
 - 本机目标延续持久目录协议。Android 目标必须明确 adb 序列号和包名，先核验设备状态与 `run-as` 可用性；只支持 debuggable 包。Release 不开放此调试通路。
 - Android 文件位于包的私有 `files/`。设备已有 `assets/available.json` 时，以该完整发布版本作为同步基线；首次同步直接复用 `AssetSyncSystem` 发布完整 catalog 及引用载体，与桌面一致，无需先启动应用导出包内清单。运行时只使用选中的完整目录，缺失条目不从 APK 回退，因此无需 APK 文件删除基线。

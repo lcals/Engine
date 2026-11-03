@@ -32,10 +32,7 @@ public:
     [[nodiscard]] std::shared_ptr<const Resource> mesh_resource() const noexcept;
     [[nodiscard]] std::uint64_t mesh_revision() const noexcept;
     // 进程内稳定且不重复的组件实例身份，供瞬态缓存区分组件重建。
-    [[nodiscard]] std::uint64_t mesh_instance_id() const noexcept;
-    [[nodiscard]] bool visible() const noexcept;
     // 瞬态绘制开关，不进入持久数据，不停用组件行为或动画。
-    void set_visible(bool visible) noexcept;
     [[nodiscard]] bool cast_shadows() const noexcept;
     void set_cast_shadows(bool enabled) noexcept;
     [[nodiscard]] bool bake_static() const noexcept;
@@ -80,8 +77,6 @@ private:
     std::vector<std::array<float, 16>> skinning_palette_;
     std::vector<std::array<float, 16>> skinning_normal_palette_;
     std::uint32_t skin_joint_count_ = 0;
-    const std::uint64_t mesh_instance_id_;
-    bool visible_ = true;
     std::uint64_t mesh_revision_ = 0;
     std::uint64_t deformation_revision_ = 0;
 };

@@ -480,8 +480,7 @@ bool UiSystem::synchronize()
     {
         const auto* node = world_.find_node(document.node);
         const auto* ui = node ? node->get_component<UiComponent>() : nullptr;
-        return ui && node->scene().id() == document.scene && ui->enabled() &&
-               ui->view_id() == document.view &&
+        return ui && node->scene().id() == document.scene && ui->instance_id() == document.view &&
                ui->document_revision() == document.revision && ui->document() == document.resource;
     };
     bool changed = false;
@@ -502,7 +501,7 @@ bool UiSystem::synchronize()
         for (const auto& node : scene->nodes())
         {
             const auto* ui = node->get_component<UiComponent>();
-            if (!ui || !ui->enabled() || !ui->document())
+            if (!ui || !ui->document())
             {
                 continue;
             }
@@ -515,7 +514,7 @@ bool UiSystem::synchronize()
             State::Document candidate;
             candidate.scene = scene->id();
             candidate.node = node->id();
-            candidate.view = ui->view_id();
+            candidate.view = ui->instance_id();
             candidate.revision = ui->document_revision();
             candidate.id = next_document_id();
             candidate.order = order++;
@@ -547,7 +546,7 @@ bool UiSystem::synchronize()
             candidate.markup->AddEventListener("click", state_.get());
             candidate.markup->AddEventListener("change", state_.get());
             candidate.markup->AddEventListener("input", state_.get());
-            candidate.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            candidate.visible = false;
             state_->documents.push_back(std::move(candidate));
             changed = true;
         }
@@ -565,8 +564,37 @@ bool UiSystem::synchronize()
                      });
     for (auto& document : state_->documents)
     {
+        const auto* node = world_.find_node(document.node);
+        const auto* ui = node ? node->get_component<UiComponent>() : nullptr;
+        const bool active = ui && ui->active();
+        const bool visible = active && ui->visible_in_hierarchy();
+        if (document.visible != visible)
+        {
+            document.visible = visible;
+            if (visible)
+            {
+                document.markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
+            }
+            else
+            {
+                if (state_->pointer_context == document.context)
+                {
+                    state_->cancel_pointer();
+                }
+                document.markup->Hide();
+                state_->clear_events(document.id);
+                if (state_->keyboard_context == document.context)
+                {
+                    state_->keyboard_context = nullptr;
+                    if (SDL_TextInputActive(window_.native_window()))
+                    {
+                        static_cast<void>(SDL_StopTextInput(window_.native_window()));
+                    }
+                }
+            }
+        }
         document.context->SetDimensions({logical_width, logical_height});
-        if (!state_->activate(document) || !document.context->Update())
+        if (active && (!state_->activate(document) || !document.context->Update()))
         {
             return false;
         }
@@ -827,40 +855,16 @@ bool UiSystem::document_visible(std::uint64_t node)
     const auto* document = state_->find_document(node);
     return document && document->visible;
 }
-bool UiSystem::set_document_visible(std::uint64_t node, bool visible)
+bool UiSystem::set_document_visible(std::uint64_t node_id, bool visible)
 {
-    if (!synchronize())
+    auto* node = world_.find_node(node_id);
+    auto* ui = node ? node->get_component<UiComponent>() : nullptr;
+    if (!ui)
     {
         return false;
     }
-    auto* document = state_->find_document(node);
-    if (!document)
-    {
-        return false;
-    }
-    document->visible = visible;
-    if (visible)
-    {
-        document->markup->Show(Rml::ModalFlag::None, Rml::FocusFlag::None);
-    }
-    else
-    {
-        if (state_->pointer_context == document->context)
-        {
-            state_->cancel_pointer();
-        }
-        document->markup->Hide();
-        state_->clear_events(document->id);
-        if (state_->keyboard_context == document->context)
-        {
-            state_->keyboard_context = nullptr;
-            if (SDL_TextInputActive(window_.native_window()))
-            {
-                static_cast<void>(SDL_StopTextInput(window_.native_window()));
-            }
-        }
-    }
-    return true;
+    ui->set_visible(visible);
+    return synchronize();
 }
 bool UiSystem::element_id(UiElementHandle handle, std::string& output)
 {

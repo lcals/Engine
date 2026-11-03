@@ -8,7 +8,7 @@
 classDiagram
     class ComponentEdit {
         <<final>>
-        +ComponentEdit(WorldSystem& world, uint64_t scene, shared_ptr~uint64_t~ node, optional~ComponentDataT~ before, ComponentDataT after)
+        +ComponentEdit(WorldSystem& world, uint64_t scene, shared_ptr~uint64_t~ node, optional~ComponentDataT~ before, ComponentDataT after, vector~AssetEntryT~ versions, ComponentType required_component)
         +apply(string& error) bool
         +revert(string& error) bool
         -replace(const optional~ComponentDataT~& expected, const optional~ComponentDataT~& value, string& error) bool
@@ -18,12 +18,14 @@ classDiagram
     class Node
     class Component
     class ComponentRegistry
+    class AssetEntryT
     class ComponentDataT {
         <<generated>>
     }
     EditorEdit <|-- ComponentEdit
     ComponentEdit --> WorldSystem : 存活期间借用
     ComponentEdit *-- ComponentDataT : 独立前后快照值
+    ComponentEdit *-- AssetEntryT : 独立资源版本快照，不持有载荷
     ComponentEdit ..> Node : 每次按场景与节点身份查找
     ComponentEdit ..> ComponentRegistry : 缺失时按生成类型创建
     ComponentEdit ..> Component : 保存与恢复生成数据
@@ -32,6 +34,8 @@ classDiagram
 修改已有组件前先比较完整生成快照；场景、节点、组件或数据已变化时拒绝陈旧操作。应用设置通过组件 `restore_data()`，不直接修改内部字段。原本没有组件时，首次应用创建，撤销调用 `Node::remove_component()`；恢复失败移除本次创建的组件。历史只保存数据和节点身份，不持有音频资源或组件借用，不重建已有组件。
 
 节点身份使用与创建命令共享的 `shared_ptr<uint64_t>`，允许编辑器重做创建后更新内部身份；这不是节点所有权，外部请求仍须使用新查询的 ID。物理步进可能改变刚体快照中的速度，撤销此时返回冲突，不覆盖模拟结果。
+
+渲染及 UI 命令同样通过 `SceneCommands::node_identity()` 取得共享身份，不单独复制节点 ID。资源绑定仅记录 `AssetEntryT` 版本值，准备时可临时加载并检查类型；应用、撤销和重做先核对当前目录，再调用组件接口恢复，不因历史记录而延长旧资源载荷生命周期。`versions` 默认空、`required_component` 默认 NONE。
 
 以下是命名空间函数，不代表额外 C++ 类：
 
@@ -46,3 +50,5 @@ classDiagram
 注册函数均返回 `bool`，借用 `WorldSystem&`、`EditorCommands&` 和编辑器内部节点映射 `NodeAliases&`；由 SceneCommands 登记。`set_*` 可添加缺失组件，`get_*` 缺失时返回失败；设置和查询均要求当前 `sceneId` / `nodeId`。音频的 `clip` 输入使用逻辑资源路径，编辑器转换为 GUID，组件加载并检查实际资源类型；空路径清空 clip。
 
 所有 `set_*` 共用主线程批量事务与撤销历史。冲量与播放控制是瞬态请求，不进入 `execute_batch` 或撤销记录；成功表示请求被组件接受，音频实际输出须检查后续 `get_audio_state`。运行时组件和系统不依赖这些命令或 JSON。
+
+各类型命令重建 payload 时显式保留已有组件的局部 `enabled/visible`，只覆盖请求携带的字段；撤销快照保存两项标记。通用局部状态修改由 SceneCommands 的 `set_component_state` 负责，不重复在每个 payload 命令增加显示字段。

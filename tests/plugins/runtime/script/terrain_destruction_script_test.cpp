@@ -12,6 +12,7 @@
 #include "runtime/task/task_system.hpp"
 #include "runtime/task/thread_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "script_fixture.hpp"
 
 #include <chrono>
 #include <cstddef>
@@ -303,7 +304,9 @@ bool run(test_support::ResourceFixture& files)
     if (!expect(resources.initialize({}) && world.initialize({}) && physics.initialize({}) &&
                     threads.initialize({}) && tasks.initialize({}) && terrain.initialize({}) &&
                     destruction.initialize({}) && script.initialize({}) && add_fixtures(files) &&
-                    files.publish(resources) && script.start_gameplay("scripts/game.js"),
+                    files.publish(resources) &&
+                    test_support::start_script(script, resources, {{"content", files.root}},
+                                               "scripts/game.js"),
                 "initialize the real script backend and native edit systems"))
     {
         return false;
@@ -346,7 +349,8 @@ bool run(test_support::ResourceFixture& files)
     script.stop_gameplay();
     for (const bool replace : {false, true})
     {
-        if (!expect(script.start_gameplay("scripts/native-replace.js") &&
+        if (!expect(test_support::start_script(script, resources, {{"content", files.root}},
+                                               "scripts/native-replace.js") &&
                         prepare_components(world, terrain, destruction) && script.tick(.016) &&
                         script.status().running,
                     "queue real script delegates before a native scene change"))

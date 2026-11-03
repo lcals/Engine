@@ -268,7 +268,7 @@ bool TerrainSystem::commit_prepared(TerrainComponent& component, TerrainVolume c
                                          : "Cannot restore terrain rendering mesh";
         return false;
     }
-    renderer->set_visible(!empty);
+    renderer->set_visible(component.visible() && !empty);
     renderer->set_enabled(component.enabled());
     component.triangles_ = mesh.indices.size() / 3;
     {
@@ -289,7 +289,7 @@ bool TerrainSystem::request_apply_sphere(TerrainComponent& component, const Vec3
                                          std::function<void(bool)> completed)
 {
     if (!async_ || !is_initialized() || tasks_ == nullptr || !tasks_->is_initialized() ||
-        !completed || !component.ready_ || !component.enabled() ||
+        !completed || !component.ready_ || !component.active() ||
         world_.find_node(component.node().id()) != &component.node() ||
         !std::isfinite(center.x()) || !std::isfinite(center.y()) || !std::isfinite(center.z()) ||
         !std::isfinite(radius) || radius <= 0 || radius > 10000)
@@ -345,7 +345,7 @@ void TerrainSystem::process_requests()
             node = nullptr;
         }
         auto* component = node ? node->get_component<TerrainComponent>() : nullptr;
-        if (!component || !component->ready_ || !component->enabled() ||
+        if (!component || !component->ready_ || !component->active() ||
             owner.lifetime.lock() != component->lifetime_ || owner.revision != component->revision_)
         {
             async_->cancel(current->first, owner);
@@ -455,7 +455,7 @@ bool TerrainSystem::on_tick(double delta_time)
 {
     if (world_.paused())
     {
-        return true;
+        return synchronize();
     }
     if (!std::isfinite(simulation_time_ + delta_time))
     {
@@ -624,7 +624,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
     auto* scene = &component.node().scene();
     TransformSettings pose;
     if (!is_initialized() || world_.find_node(component.node().id()) != &component.node() ||
-        !component.ready_ || !component.enabled() || !component.settings().collision ||
+        !component.ready_ || !component.active() || !component.settings().collision ||
         !collapse_pose(component.node(), pose) || !std::isfinite(density) || density <= 0 ||
         density > 100000 || max_fragments == 0 || max_fragments > 128)
     {
@@ -702,6 +702,7 @@ bool TerrainSystem::collapse_detached(TerrainComponent& component, std::uint32_t
             }
             node->get_component<Transform>()->set_transient(true);
             renderer->set_transient(true);
+            renderer->set_visible(component.visible_in_hierarchy());
             collider->set_transient(true);
             body->set_transient(true);
         }
@@ -751,13 +752,14 @@ bool TerrainSystem::synchronize()
         std::erase_if(item->second.items, [&](const Fragment& fragment)
                       { return world_.find_node(fragment.node) == nullptr; });
         const auto* transform = node->get_component<Transform>();
-        const bool enabled = component->enabled() && transform && transform->enabled();
+        const bool enabled = component->active() && transform && transform->active();
         for (const auto& entry : item->second.items)
         {
             auto* fragment = world_.find_node(entry.node);
             if (auto* renderer = fragment->get_component<MeshRenderer>())
             {
                 renderer->set_enabled(enabled);
+                renderer->set_visible(component->visible_in_hierarchy());
             }
             if (auto* collider = fragment->get_component<Collider>())
             {
@@ -811,7 +813,7 @@ bool TerrainSystem::synchronize()
             {
                 continue;
             }
-            if (component->pending_ && component->enabled())
+            if (!world_.paused() && component->pending_ && component->active())
             {
                 if (!commit(*component, component->volume_))
                 {
@@ -823,6 +825,7 @@ bool TerrainSystem::synchronize()
                 if (auto* renderer = node->get_component<MeshRenderer>())
                 {
                     renderer->set_enabled(component->enabled());
+                    renderer->set_visible(component->visible() && component->triangles_ != 0);
                 }
                 if (auto* collider = node->get_component<Collider>())
                 {
@@ -832,7 +835,10 @@ bool TerrainSystem::synchronize()
             }
         }
     }
-    process_requests();
+    if (!world_.paused())
+    {
+        process_requests();
+    }
     return true;
 }
 

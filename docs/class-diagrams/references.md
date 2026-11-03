@@ -79,7 +79,6 @@ classDiagram
     class ResourceSystem
     class WorldSystem
     class RenderSystem
-    class PerformanceSystem
     class ScriptRuntime
     class RuntimeHost
     class GameplaySession
@@ -95,8 +94,6 @@ classDiagram
     RuntimeHost "1" *-- "0..1" GameplaySession : 独占玩法会话
     Engine "0..1" *-- "0..1" ResourceSystem : 默认装配时独占
     RuntimeHost --> ResourceSystem : 可借用宿主已初始化底层
-    Engine "1" *-- "0..1" PerformanceSystem : 独占性能根系统
-    RuntimeHost ..> PerformanceSystem : 创建并移交引擎
     Engine "1" *-- "0..1" WorldSystem : 独占世界根系统
     Engine "1" *-- "0..1" RenderSystem : 独占渲染根系统
     RuntimeHost --> RenderSystem : 借用并提交帧
@@ -123,7 +120,7 @@ classDiagram
     RenderContext --> Scene : 调用期间只读借用
 ```
 
-默认初始化顺序为 Window → Resource → Performance → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、性能系统、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。PerformanceSystem 的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
+默认初始化顺序为 Window → Resource → World → Render。宿主提供资源底层时先初始化 ResourceSystem 及可选加载插件，再初始化 RuntimeHost 的窗口、世界和渲染；资源底层及加载器必须覆盖全部消费者的生命期。关闭时反序处理。RuntimeHost 拥有窗口和会话，借用渲染与世界；GameplaySession 借用脚本、世界及渲染。ScriptRuntime 实例由 WorldSystem 独占，具体实现由宿主提供。RenderSystem 借用窗口，窗口必须存活到渲染系统退出之后。宿主的 Tracy 私有依赖由构建开关选择，不向 Engine 增加性能领域接口。
 
 ```mermaid
 classDiagram
@@ -241,9 +238,9 @@ classDiagram
     RenderSystem ..> MeshRenderer : 网格与材质参数
 ```
 
-场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
+场景中的全部对象必须使用节点和组件表达。Scene 是容器，Gameplay 是场景外项目入口；Material 与 Shader 是组件数据/渲染资源，不另形成场景对象。Node 的身份来自 flecs 完整实体标识，只管理生成的 NodeInfo 与通用组件列表；本地 enabled/visible 随场景保存，有效激活/可见沿父链计算。组件统一拥有不复用的 instance_id，重建不复活旧句柄。局部变换由 Transform 组件持有，世界矩阵按父链上的 Transform 计算；Node 不枚举具体组件类型。场景、节点与组件以 FlatBuffers schema 为统一跨语言数据模型，组件行为直接操作生成对象；完整序列化模型只在构建内存快照时组装。材质通过类型定义和命名参数设置。ScriptSystem 的 JS 句柄保存运行/场景代次与实体标识，每次调用重新验证，停止或重载后不能访问已销毁对象。
 
-EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件快照，渲染器不另存一份场景覆盖值。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
+EnvironmentComponent 持有环境光、雾、清屏色及 IBL 参数与纹理 GUID；PostProcessComponent 持有活动相机的曝光和色调映射；Light 持有自身阴影参数。RenderSettings 只是本帧组件只读快照，场景参数只经组件修改和校验；渲染器仅保存无场景清屏色。组件缺少或停用时使用固定默认值，切场景不继承旧参数；预览隐藏镜头只提供观察视角，后处理仍取项目活动相机。IBL 的实际纹理共享引用与 GPU 句柄由渲染器按资源代际管理，组件只保存生成数据中的 GUID。
 
 领域模块通过 ResourceSystem 取得 ResourceLoader，按需加载 Shader、Material、Mesh 等 Resource，项目路径直接相对资源根，引擎资源以 builtin:// 标识来源。Scene 从资源加载时持有根资源；MeshRenderer 和 Material 持有实际使用资源的共享引用，MeshRenderer 独占 Material，Material 的参数实例按所持 Shader 定义校验。RenderSystem 拥有本次场景使用的顶点/索引缓冲、Shader、Program、Uniform；来自资源的 GpuGeometry 及 GpuTexture 共享持有对应 CPU Resource，以区分资源版本并保证存活；临时网格没有 Resource 引用。切换场景按存活节点增量释放 GPU 资源，常驻节点保留实际所需资源；停止运行或图形设备重建时完整释放 GPU 资源；CPU 资源随最后一个共享引用释放。ResourceSystem 不设通用资源共享缓存，必要依赖保活由 ResourceGraphSystem 插件负责；动画编译物及 GPU 派生缓存遵守各自的场景生命周期。Material::shader_data 直接借用自己持有的 Shader 资源，渲染器不再通过全局缓存查找定义。图形设备可在编辑器待机期间保留。参数、返回值和配置数据关系分别在[场景](../runtime/class-diagrams/scene.md)、[节点](../runtime/class-diagrams/node.md)、[组件](../runtime/class-diagrams/component.md)与[渲染](../runtime/class-diagrams/render-system.md)中维护。
 
@@ -540,24 +537,9 @@ classDiagram
 
 资源同步与 MCP 具体契约见[资源同步系统](../plugins/editor/class-diagrams/asset-sync-system.md)及[项目 MCP 工具](../plugins/editor/class-diagrams/project-mcp-tools.md)。
 
-## 项目启停控制文件
+## 项目启停与编辑器命令
 
-```mermaid
-classDiagram
-    class ProjectMcpTools
-    class EditorSystem
-    class Engine
-    class ProjectControl["project-control.json"]
-    class ProjectStatus["project-status.json"]
-    ProjectMcpTools ..> ProjectControl : 会话内原子发布启停请求
-    EditorSystem ..> ProjectControl : 主线程读取
-    class GameplaySession
-    EditorSystem --> GameplaySession : 创建及结束玩法场景
-    EditorSystem ..> ProjectStatus : 状态及完成回执
-    ProjectMcpTools ..> ProjectStatus : 校验会话心跳及请求结果
-```
-
-以上文件同样位于 App 持久数据目录。项目控制与脚本热重载控制分开：启动/停止只由编辑器会话消费；同步脚本或打开热重载不会让已停止项目自行启动。启停锁串行化 MCP 发布，旧会话请求不重放，超时返回未确认请求编号。Android 支持全部资源版本同步和热重载；项目启停控制仅由桌面编辑器会话消费。
+项目启动、停止与编辑操作共用 `EditorMcpTools → EditorCommandChannel → EditorCommands` 的会话命令通道。`project-status.json` 继续发布项目身份、心跳和运行状态；逐请求结果统一保存在 editor-receipts。启动仍先取得资源锁、关闭预览并调用 GameplaySession，停用项目不会因资源同步自行重新启动。命令只在编辑器主线程执行，保留项目/会话校验、去重和 pending 查询；关闭编辑器在回执成功后延时执行。Android 资源同步与运行时热重载协议不变。
 
 ## 编辑器命令与场景业务
 
@@ -603,7 +585,7 @@ classDiagram
     SceneCommands ..> Component : 调用原生属性接口
 ```
 
-EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。旧项目启停通道与新编辑命令通道分别维护，不改变 Android 同步协议。
+EditorMcpTools 位于工具进程，EditorCommands、SceneCommands 与 EditorCommandChannel 位于编辑器进程。文件请求带项目、会话、请求编号及业务参数；编辑器主线程执行，并保存可补查的原回执。等待超时返回 pending，不表示取消；同会话同请求不重复执行。项目启停复用同一通道，不改变 Android 同步协议。
 
 SceneCommands 负责活动场景查询、创建带 Transform 的空节点或相机/灯光节点、活动相机选择，以及 Transform、Camera、Light、材质类型/参数/贴图修改；物理和音频的逐类型命令由它显式登记，快照与新增组件撤销见[组件命令图](../editor/class-diagrams/component-commands.md)。EditorCommands 管理批量执行、失败回滚和撤销/重做，持有有界批次历史；场景代次变化清空历史。修改记录重查完整节点身份与期望值，避免使用跨场景悬空指针或覆盖脚本的新修改。Node、Component、WorldSystem 不反向依赖 MCP、编辑器命令或 JSON。通用方法和数据契约只在[编辑器命令图](../editor/class-diagrams/editor-commands.md)维护。
 
@@ -688,7 +670,7 @@ classDiagram
     ScriptSystem *-- BindingContext : 每个玩法上下文
     ScriptBinding <|-- RenderBinding
     BindingContext --> RenderSystem : 有效回调期间可空借用
-    RenderBinding ..> RenderSystem : 查询及原子提交渲染设置
+    RenderBinding ..> RenderSystem : 视口与VSync查询设置
 ```
 
 核心边界见 [ScriptRuntime](../runtime/class-diagrams/script-runtime.md)，插件实现与模板登记见 [ScriptSystem](../plugins/runtime/class-diagrams/script-system.md)、[ScriptBindingRegistry](../plugins/runtime/class-diagrams/script-bindings.md)。ScriptRuntimeFactory 是宿主创建函数的别名，不是新增管理器；未提供工厂时核心不创建脚本子系统。
@@ -986,8 +968,8 @@ classDiagram
 | MeshGeometry | Manifold | 实体运算，检查返回状态；不对外暴露第三方类型 |
 | EditableMesh | Earcut | 多边形三角化；输入验证及编译由建模核心负责 |
 | ModelingCommands | MeshRenderer | 通过节点查询借用；只提交完整有效的新网格 |
-| ModelingMcpTools | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
-| ModelingMcpTools | McpSystem | 登记工具描述、参数模型和借用回调，适配器存活到服务关闭 |
+| 建模MCP注册函数 | EditorMcpTools | 借用固定项目及会话通道，转发请求与完成回执 |
+| 建模MCP注册函数 | McpSystem | 登记工具描述、参数模型和借用回调，回调借用的通道存活到服务关闭 |
 | editor_app / asset_build_app / mcp_app 宿主 | ModelingMeshImporter | 按已启用目标创建插件导入器，通过 set_importer 转交资源管线 |
 | AssetPipelineSystem | AssetImporterRegistry / AssetImporter | 独占登记与导入器接口；不引用具体建模插件，GUID/meta 与缓存发布仍归管线 |
 | ModelingMeshImporter | MeshImporter / EditableMesh | 继承编辑器普通网格导入器；权威建模源由插件几何层编译为运行时 MeshData |
@@ -1006,16 +988,16 @@ classDiagram
 | ScenePersistence | Material / ResourceSystem | 通过 has_overrides 查询实例覆盖；已加载网格与无覆盖材质保留 GUID，仅导出动态网格及独立覆盖材质 |
 | ScenePersistence / ScenePreview | SceneSavedResource | 成功回调借用本次实际变更源的 GUID 与 source/meta 摘要；预览核对自保存导入后只提交目录，保留活动场景与撤销历史 |
 | ModelingCommands | Node / MeshRenderer | export_mesh 保存已管理的多边形源；普通渲染网格可转换为编辑源，场景重载按项目路径恢复源数据 |
-| RenderCommands | RenderSystem / WorldSystem | 借用快照、截图及活动场景；按需创建环境/后处理组件，编辑器负责撤销、截图路径检查及目录创建 |
-| RenderMcpTools | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
-| RenderMcpTools | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
-| ScenePreviewMcpTools | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
-| ScenePreviewMcpTools | McpSystem | 登记预览启停、查询、镜头设置与刷新；宿主保持适配器存活到 MCP 关闭 |
+| RenderCommands | RenderSystem / WorldSystem | 借用只读快照、截图及活动场景；直接修改环境/后处理/灯光组件，编辑器负责创建、回滚与撤销，待机只编辑清屏色 |
+| 渲染MCP注册函数 | EditorMcpTools | 借用固定目标通道，只提交渲染命令并返回原回执，不直接操作 GPU 或 PNG |
+| 渲染MCP注册函数 | McpSystem | 注册 get_render_settings、set_render_settings、capture_frame、get_frame_capture |
+| 预览MCP注册函数 | EditorMcpTools | 借用桌面编辑器命令通道；不持有预览场景或镜头 |
+| 预览MCP注册函数 | McpSystem | 登记预览启停、查询、镜头设置与刷新；回调借用的通道存活到 MCP 关闭 |
 | RenderSystem | Material / ShaderDataT | 通过 Material::shader_data 借用材质持有的定义，不依赖插件缓存查询 |
-| RenderSystem | RenderSettings / RendererCallbacks | 场景设置每帧从组件组成快照，仅值持有待机配置；独占 bgfx 回调及 GPU 资源，负责阴影、IBL 采样和实际帧 PNG 输出 |
+| RenderSystem | RenderSettings / RendererCallbacks | 场景设置每帧从组件组成只读快照，仅值持有待机清屏色；独占 bgfx 回调及 GPU 资源，负责阴影、IBL 采样和实际帧 PNG 输出 |
 | editor_app 宿主 | SceneBakeSystem | 仅启用 editor/scene_bake 时装配；注入预览校验与资源发布回调，关闭次序覆盖在途 GPU 读回 |
 | SceneBakeSystem | RenderSystem / ResourceSystem | 借用 GPU 就绪状态、帧号和源纹理；烘焙、文件发布及任务状态归编辑器插件 |
-| SceneBakeMcpTools | EditorMcpTools / McpSystem | 注册并转发烘焙启动、查询与取消，不持有 GPU 任务或向运行时引入 MCP |
+| 烘焙MCP注册函数 | EditorMcpTools / McpSystem | 注册并转发烘焙启动、查询与取消，不持有 GPU 任务或向运行时引入 MCP |
 
 ```mermaid
 classDiagram
@@ -1028,7 +1010,6 @@ classDiagram
     class EditorCommands
     class EditorMcpTools
     class RenderCommands
-    class RenderMcpTools
     class RenderSystem
     ScenePersistence --> WorldSystem : 借用场景
     EditorHost ..> ModelingCommands : 创建建模业务并绑定方法
@@ -1037,7 +1018,6 @@ classDiagram
     ScenePersistence ..> SceneImporter : 发布场景快照
     ScenePersistence ..> EditorCommands : 注册保存命令
     EditorMcpTools ..> EditorCommands : 文件命令通道
-    RenderMcpTools --> EditorMcpTools : 借用固定目标通道
     RenderCommands ..> EditorCommands : 注册设置与截图命令
     RenderCommands --> RenderSystem : 借用运行时渲染能力
 ```
@@ -1048,9 +1028,9 @@ classDiagram
 
 增量保存只发布字节发生变化的源文件；原样保存不触碰源文件/meta 时间戳，回执 `resourceCount=0`、`importRequired=false`。`resourceCount` 含场景实际变化，`meshCount`、`materialCount` 分别计入变化的导出资源，`sceneChanged` 标记场景变化，复用计数另行返回。私有成功记录按场景代次管理；当前代次内源或 meta 被外部修改时拒绝覆盖，刷新接受新版本后重新建立基线。保存不加入或清除撤销历史；ScenePreview 区分自身保存与外部变化，前者增量提交目录后保留场景和历史，撤销/重做后可再次差异保存。
 
-截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。阴影使用唯一启用投影的方向光，当前只有单张 PCF 阴影图，不包含级联或点光/聚光阴影。
+截图命令被接受与文件完成分开：编辑器命令回执完成后仍须查询渲染截图状态，只有 complete 表示 PNG 已写入。方向光支持级联阴影，点光和聚光使用局部阴影图；具体布局由渲染独立类图维护。
 
-IBL 由运行时加载漫反射立方图、预滤波反射立方图及 BRDF LUT 三份独立资源；GPU 烘焙采用 Ant 的 GGX / split-sum 实现并由 bgfx 调度。bgfx `18-ibl` 使用两张预生成 DDS 立方图，不能将本项目三图及 GPU 烘焙归为该范例的原样实现。烘焙完成才发布贴图/meta、场景 GUID 引用并刷新预览，保持原效果开关；尚不采集场景几何，也不包含 Lightmap 或局部反射探针。细节及后续全局共享 LUT 计划见[场景烘焙](../plugins/editor/class-diagrams/scene-bake.md)。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
+IBL 由运行时加载漫反射立方图、预滤波反射立方图及 BRDF LUT 三份独立资源；GPU 烘焙采用 Ant 的 GGX / split-sum 实现并由 bgfx 调度。bgfx `18-ibl` 使用两张预生成 DDS 立方图，不能将本项目三图及 GPU 烘焙归为该范例的原样实现。烘焙完成才发布贴图/meta、场景 GUID 引用并刷新预览，保持原效果开关；环境 IBL 烘焙与场景几何间接光烘焙分开；Lightmap 和 SH9 探针由照明烘焙作业发布，运行时按组件引用消费。细节及后续全局共享 LUT 计划见[场景烘焙](../plugins/editor/class-diagrams/scene-bake.md)。建模的部分几何输入仍有限制，不能根据可经 MCP 全程操作便声称 ProBuilder/UModeler 已完整等价。
 
 ## 模型格式、统一运行数据与实例化
 

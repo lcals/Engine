@@ -13,7 +13,6 @@ classDiagram
         +set_settings(const UiDataT& settings) bool
         +set_document(string_view path) bool
         +document() const ResourcePtr&
-        +view_id() uint64
         +document_revision() uint64
         +restore_data(const ComponentDataT& data) bool
     }
@@ -108,7 +107,7 @@ classDiagram
 - RmlUi 的渲染与字体接口在 UI 模块内部实现；提交顺序、预乘透明度、裁剪和变换保留在 UI 绘制阶段。
 - 文档先销毁，再释放字体和 GPU 对象，最后关闭渲染设备。反复启停及平台 Surface 重建使用同样顺序。
 - C++ 返回失败状态；公开接口不暴露 RmlUi 类型。SDL 事件借用仅在调用期间有效。
-- synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 的 view_id 区分同节点上先移除再添加的组件。
+- synchronize 准备所有已发布场景中的存活文档，不提交绘制；允许玩法初始化中查询和修改 View。常驻节点在场景卸载后保留原 Rml Context、文档与控件身份，没有活动玩法场景时仍可更新、绘制和输入。文档身份跨重建不复用；UiComponent 继承的 instance_id 区分同节点上先移除再添加的组件。
 - 文档按节点独立同步，其他文档的增加或移除不会清空未变更的 View。失效事件不返回给调用方。
 - 普通常驻标记通过 Node 生效，文档中的控件仍不成为节点。常驻文档在普通关卡文档之后绘制、优先命中输入；同组保留场景和节点顺序。UiEvent.scene_id 记录目标文档的实际所属场景，不用活动关卡 ID 替代。
 - release_scene 是整个会话的完整清理入口，停止与重载时释放全部文档；普通场景切换依靠同步裁剪已删除节点，不调用全量释放。
@@ -127,3 +126,5 @@ classDiagram
 
 - [UI 编辑器插件](../../plugins/editor/class-diagrams/ui-editor.md) 复用最小查询与输入增量。UiElementInfo 只读快照，bounds 为窗口逻辑坐标，密码值掩码；实际遮挡仍由 RmlUi 命中测试决定。句柄失效保持失败，不查找同名替代。
 - 显式 modifiers 重载仅影响本次输入，不改 SDL 全局修饰键状态。取消先清理指针捕获，再失焦并释放已记录按键，抑制取消引起的激活但不删除已排队合法事件。
+
+隐藏或停用节点/UiComponent 保留 Rml 文档与控件身份。隐藏清除输入捕获及排队事件，停用还暂停 Context 更新；恢复后使用同一文档。`set_document_visible` 只写组件本地 visible，`document_visible` 返回有效激活及可见结果，不另存可写文档状态。删除组件、替换文档或卸载所属场景才释放文档。

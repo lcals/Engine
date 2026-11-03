@@ -45,7 +45,6 @@ public:
 private:
     [[nodiscard]] bool register_resource_tools(McpSystem& mcp);
     [[nodiscard]] bool register_runtime_tools(McpSystem& mcp);
-    [[nodiscard]] bool register_lifecycle_tools(McpSystem& mcp);
     [[nodiscard]] bool sync_android(const std::filesystem::path& source, std::string& reply);
     [[nodiscard]] bool set_android_hot_reload(bool enabled, std::string& reply);
     [[nodiscard]] bool read_android_status(std::string& reply);

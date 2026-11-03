@@ -20,15 +20,12 @@ public:
     [[nodiscard]] bool set_input(const CharacterInput& input) noexcept;
     // 完整取消自身意图及最近实际驱动的同实例 Motor 主动输入；保留外力。
     void clear_input() noexcept;
-    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
 
 private:
     friend class engine::Node;
     friend class CharacterControllerSystem;
     explicit CharacterController(Node& node);
-    [[nodiscard]] bool initialize() override;
-    const std::uint64_t instance_id_;
     std::uint64_t driven_motor_ = 0;
     CharacterInput input_{};
 };

@@ -111,6 +111,7 @@ bool DestructionComponent::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     set_enabled(data.enabled);
+    set_visible(data.visible);
     return true;
 }
 
@@ -118,7 +119,7 @@ bool DestructionComponent::damage_sphere(const Vec3& center, float radius, float
                                          float impulse)
 {
     auto* system = DestructionSystem::instance();
-    if (!system || !ready_ || !enabled())
+    if (!system || !ready_ || !active())
     {
         last_error_ = "Destruction component is not ready";
         return false;

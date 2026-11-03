@@ -643,11 +643,6 @@ bool AssetPipelineSystem::set_importer(std::unique_ptr<asset_pipeline::AssetImpo
     return true;
 }
 
-bool AssetPipelineSystem::build_scripts(const std::filesystem::path& project_root)
-{
-    return build_assets(project_root);
-}
-
 bool AssetPipelineSystem::build_assets(const std::filesystem::path& project_root,
                                        std::string_view requested_target)
 {

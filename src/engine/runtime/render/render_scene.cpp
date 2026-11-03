@@ -72,8 +72,9 @@ bool RenderSystem::draw_scene(const Camera* view_camera, const RenderSettings& r
             const auto* mesh = node->get_component<MeshRenderer>();
             const auto* transform = node->get_component<Transform>();
             std::array<float, 16> matrix{};
-            if (reflection && reflection->enabled() && mesh && mesh->enabled() && mesh->visible() &&
-                camera.mesh_visible(mesh->mesh_instance_id()) && transform &&
+            if (reflection && reflection->active() && reflection->visible_in_hierarchy() && mesh &&
+                mesh->active() && mesh->visible_in_hierarchy() &&
+                camera.mesh_visible(mesh->instance_id()) && transform &&
                 transform->world_matrix(matrix.data()))
             {
                 planes.push_back({node.get(), std::hypot(matrix[12] - camera_world[12],

@@ -91,10 +91,10 @@ ComponentEdit::ComponentEdit(WorldSystem& world, std::uint64_t scene,
                              std::shared_ptr<std::uint64_t> node,
                              std::optional<schema::ComponentDataT> before,
                              schema::ComponentDataT after,
-                             std::vector<std::shared_ptr<const Resource>> resources,
+                             std::vector<schema::AssetEntryT> versions,
                              ComponentType required_component)
     : world_(world), scene_(scene), node_(std::move(node)), type_(after.payload.type),
-      before_(std::move(before)), after_(std::move(after)), resources_(std::move(resources)),
+      before_(std::move(before)), after_(std::move(after)), versions_(std::move(versions)),
       required_component_(required_component)
 {
 }
@@ -117,10 +117,10 @@ bool ComponentEdit::replace(const std::optional<schema::ComponentDataT>& expecte
         return false;
     }
     const auto* resources = ResourceSystem::instance();
-    for (const auto& resource : resources_)
+    for (const auto& version : versions_)
     {
-        const auto* available = resources ? resources->catalog().find(resource->info().guid) : nullptr;
-        if (!available || *available != resource->info())
+        const auto* available = resources ? resources->catalog().find(version.guid) : nullptr;
+        if (!available || *available != version)
         {
             error = "Component resource version changed since the edit";
             return false;

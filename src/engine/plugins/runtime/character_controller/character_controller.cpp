@@ -3,9 +3,7 @@
 #include "runtime/scene/character_motor.hpp"
 #include "runtime/scene/node.hpp"
 
-#include <atomic>
 #include <cmath>
-#include <limits>
 
 namespace engine::plugins::character_controller
 {
@@ -19,20 +17,6 @@ schema::ComponentDataT make_data()
     return data;
 }
 
-std::uint64_t next_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
-}
-
 bool bounded(float value, float minimum, float maximum) noexcept
 {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -40,20 +24,11 @@ bool bounded(float value, float minimum, float maximum) noexcept
 
 } // namespace
 
-CharacterController::CharacterController(Node& node)
-    : Component(node, make_data()), instance_id_(next_instance_id())
+CharacterController::CharacterController(Node& node) : Component(node, make_data())
 {
 }
 
-bool CharacterController::initialize()
-{
-    return instance_id_ != 0;
-}
 
-std::uint64_t CharacterController::instance_id() const noexcept
-{
-    return instance_id_;
-}
 
 bool CharacterController::valid_settings(const schema::CharacterControllerDataT& value) noexcept
 {
@@ -83,7 +58,7 @@ bool CharacterController::set_input(const CharacterInput& input) noexcept
         return std::isfinite(value.x()) && std::isfinite(value.y()) &&
                std::abs(value.x()) <= 1000000.0 && std::abs(value.y()) <= 1000000.0;
     };
-    if (!enabled())
+    if (!active())
     {
         clear_input();
         return false;
@@ -115,6 +90,7 @@ bool CharacterController::restore_data(const schema::ComponentDataT& value)
         return false;
     }
     set_enabled(value.enabled);
+    set_visible(value.visible);
     clear_input();
     return true;
 }

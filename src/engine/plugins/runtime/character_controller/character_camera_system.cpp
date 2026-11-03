@@ -37,7 +37,7 @@ schema::CharacterVisualKind visual_kind(const Node& node) noexcept
     for (const Node* current = &node; current != nullptr; current = current->parent())
     {
         const auto* visual = current->get_component<CharacterVisual>();
-        if (visual != nullptr && visual->enabled())
+        if (visual != nullptr && visual->active())
         {
             return visual->settings().kind;
         }
@@ -77,8 +77,8 @@ bool CharacterCameraSystem::on_tick(double)
         {
             auto* rig = node->get_component<CharacterCamera>();
             auto* camera = node->get_component<Camera>();
-            if (rig == nullptr || !rig->enabled() || !detail::active(*node) ||
-                rig->settings().target_node_id == 0 || (camera != nullptr && !camera->enabled()))
+            if (rig == nullptr || !rig->active() || !detail::active(*node) ||
+                rig->settings().target_node_id == 0 || (camera != nullptr && !camera->active()))
             {
                 continue;
             }
@@ -162,7 +162,7 @@ bool CharacterCameraSystem::update_visibility()
             }
             const auto* rig = camera_node->get_component<CharacterCamera>();
             const Node* first_person_target = nullptr;
-            if (rig != nullptr && rig->enabled() && camera->enabled() &&
+            if (rig != nullptr && rig->active() && camera->active() &&
                 detail::active(*camera_node) &&
                 rig->settings().mode == schema::CharacterView::first_person)
             {
@@ -188,7 +188,7 @@ bool CharacterCameraSystem::update_visibility()
                         visual_kind(*node) == schema::CharacterVisualKind::first_person;
                     if ((first_person && !own) || (!first_person && own))
                     {
-                        hidden.push_back(mesh->mesh_instance_id());
+                        hidden.push_back(mesh->instance_id());
                     }
                 }
             }

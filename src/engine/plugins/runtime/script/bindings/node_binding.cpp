@@ -13,6 +13,18 @@ export class Node {
     get id() { return handles.get(this).node; }
     get sceneId() { return handles.get(this).scene; }
     IsValid() { const h = handles.get(this); return native.NodeValid(h.scene, h.node); }
+    get enabled() { const h = handles.get(this); return native.NodeLocalEnabled(h.scene, h.node); }
+    get active() { const h = handles.get(this); return native.NodeActive(h.scene, h.node); }
+    get visible() { const h = handles.get(this); return native.NodeVisible(h.scene, h.node); }
+    get visibleInHierarchy() {
+        const h = handles.get(this); return native.NodeVisibleInHierarchy(h.scene, h.node);
+    }
+    SetVisible(visible) {
+        const h = handles.get(this); return native.NodeVisibleSet(h.scene, h.node, visible);
+    }
+    SetEnabled(enabled) {
+        const h = handles.get(this); return native.NodeEnabled(h.scene, h.node, enabled);
+    }
     SetPersistent(value) {
         const h = handles.get(this);
         return native.NodePersistentSet(h.scene, h.node, value);
@@ -146,6 +158,53 @@ void find_child(const Arguments& arguments)
         remaining.remove_prefix(separator + 1);
     }
 }
+void state(const Arguments& arguments)
+{
+    arguments.set_return({});
+    const auto* target = BindingContext::node(arguments);
+    if (target == nullptr || arguments.count() != 2)
+    {
+        return;
+    }
+    switch (arguments.data())
+    {
+    case 0:
+        arguments.set_return(target->enabled());
+        break;
+    case 1:
+        arguments.set_return(target->active());
+        break;
+    case 2:
+        arguments.set_return(target->visible());
+        break;
+    case 3:
+        arguments.set_return(target->visible_in_hierarchy());
+        break;
+    }
+}
+
+void set_visible(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* target = BindingContext::node(arguments);
+    if (target != nullptr && arguments.count() == 3 && arguments.is_boolean(2))
+    {
+        target->set_visible(arguments.boolean(2));
+        arguments.set_return(true);
+    }
+}
+
+void enabled(const Arguments& arguments)
+{
+    arguments.set_return(false);
+    auto* node = BindingContext::node(arguments);
+    if (node != nullptr && arguments.count() == 3 && arguments.is_boolean(2))
+    {
+        node->set_enabled(arguments.boolean(2));
+        arguments.set_return(true);
+    }
+}
+
 } // namespace
 
 std::string_view NodeBinding::name() const noexcept
@@ -162,9 +221,12 @@ bool NodeBinding::register_functions(vm::ScriptVm& vm) const
 {
     return vm.function("NodeCreate", create) && vm.function("NodeValid", valid) &&
            vm.function("NodePersistentSet", set_persistent) &&
-           vm.function("NodePersistent", persistent) &&
-           vm.function("NodeDestroy", destroy) && vm.function("NodeParent", set_parent) &&
-           vm.function("NodeFindChild", find_child);
+           vm.function("NodePersistent", persistent) && vm.function("NodeDestroy", destroy) &&
+           vm.function("NodeParent", set_parent) && vm.function("NodeFindChild", find_child) &&
+           vm.function("NodeLocalEnabled", state, 0) && vm.function("NodeActive", state, 1) &&
+           vm.function("NodeVisible", state, 2) &&
+           vm.function("NodeVisibleInHierarchy", state, 3) &&
+           vm.function("NodeVisibleSet", set_visible) && vm.function("NodeEnabled", enabled);
 }
 
 } // namespace engine::plugins::script::bindings

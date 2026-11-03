@@ -67,12 +67,12 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
         }
         const auto* renderer = world.find_node(id)->get_component<MeshRenderer>();
         const auto* mesh = renderer ? renderer->mesh_data() : nullptr;
-        if (!renderer || !renderer->enabled() || !renderer->visible() || !mesh)
+        if (!renderer || !renderer->active() || !renderer->visible_in_hierarchy() || !mesh)
         {
             return false;
         }
         append_component(output, *renderer);
-        append_value(output, renderer->mesh_instance_id());
+        append_value(output, renderer->instance_id());
         append_value(output, renderer->mesh_revision());
         append_value(output, renderer->deformation_revision());
         for (std::size_t slot = 0; slot < renderer->material_count(); ++slot)
@@ -141,7 +141,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
             return false;
         }
         const auto* light = world.find_node(id)->get_component<Light>();
-        if (!light || !light->enabled())
+        if (!light || !light->active() || !light->visible_in_hierarchy())
         {
             return false;
         }
@@ -150,7 +150,7 @@ bool capture_snapshot(const WorldSystem& world, const SceneCaptureRequest& reque
     for (const auto& node : world.scene()->nodes())
     {
         const auto* environment = node->get_component<EnvironmentComponent>();
-        if (environment && environment->enabled())
+        if (environment && environment->active() && environment->visible_in_hierarchy())
         {
             append_component(output, *environment);
         }

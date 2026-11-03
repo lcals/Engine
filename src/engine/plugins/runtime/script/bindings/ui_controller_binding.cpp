@@ -91,21 +91,27 @@ export class UiController {
     OnUnbind() {}
 }
 // 只由 ScriptSystem 在当前 Run 的可调用作用域中使用；不进入公开类型声明。
+function uiEventTargetReady(target) {
+    if (!target.isValid) return false;
+    const h = handles.get(target);
+    return native.ComponentActive(h.scene, h.node, native.UiComponentKind) === true &&
+        native.ComponentVisibleInHierarchy(h.scene, h.node, native.UiComponentKind) === true;
+}
 function dispatchUiEvents() {
     uiPruneSubscriptions();
     for (let count = 0; count < 256; ++count) {
         const event = native.UiPollEvent();
         if (event === null) break;
         const target = new UiElement(key, event.scene, event.node, event.document, event.element);
-        if (!target.isValid) continue;
+        if (!uiEventTargetReady(target)) continue;
         const subscriptions = [...uiSubscriptions];
         for (const entry of event.route) {
-            if (!target.isValid) break;
+            if (!uiEventTargetReady(target)) break;
             const ancestor = new UiElement(key, event.scene, event.node,
                 entry.document, entry.element);
             if (!ancestor.isValid) continue;
             for (const [id, subscription] of subscriptions) {
-                if (!target.isValid || !ancestor.isValid) break;
+                if (!uiEventTargetReady(target) || !ancestor.isValid) break;
                 if (uiSubscriptions.get(id) !== subscription || subscription.type !== event.type ||
                     !uiSameElement(subscription.element, ancestor)) continue;
                 const value = Object.freeze({
@@ -120,7 +126,7 @@ function dispatchUiEvents() {
             }
         }
         // 目标卸载或文档替换后停止旧事件；常驻文档继续保留有效订阅。
-        if (!target.isValid) break;
+        if (!uiEventTargetReady(target)) break;
     }
     uiPruneSubscriptions();
 }

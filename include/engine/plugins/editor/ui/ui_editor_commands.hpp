@@ -13,6 +13,7 @@ class TaskSystem;
 namespace editor
 {
 class EditorCommands;
+class SceneCommands;
 class ScenePreview;
 } // namespace editor
 } // namespace engine
@@ -30,7 +31,8 @@ public:
     UiEditorCommands& operator=(const UiEditorCommands&) = delete;
     UiEditorCommands(UiEditorCommands&&) = delete;
     UiEditorCommands& operator=(UiEditorCommands&&) = delete;
-    [[nodiscard]] bool register_commands(editor::EditorCommands& commands);
+    [[nodiscard]] bool register_commands(editor::EditorCommands& commands,
+                                         editor::SceneCommands& scene_commands);
     void tick(double delta_time);
     void observe_event(const SDL_Event& event) noexcept;
     void cancel_pending_input() noexcept;

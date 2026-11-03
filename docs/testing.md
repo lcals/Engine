@@ -216,6 +216,16 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 
 ## 有日期的验证记录
 
+### 2026-11-03：架构收敛与节点状态，macOS ARM64 / Metal / QuickJS
+
+Debug／Release 全目标增量构建通过。两配置各通过 50 项定向 CTest，覆盖组件身份、父子激活与可见状态、场景持久化、物理、音频、动画、导航、地形与破坏、脚本、编辑器撤销、资源文件发布、MCP 传输及真实窗口。另执行的 `engine.scene_schema_cross_language` 仍因既有 flatc 输入枚举 TS import 路径错误失败（`TS2307`），见[已知失败](#已知失败与限制)；不宣称全仓测试通过。公开范例 TS 类型检查通过。
+
+状态回归包括父级恢复不覆盖子级局部标记、组件重建后旧脚本句柄失效、隐藏仍保留碰撞、UI 隐藏／停用保留文档及订阅、回调内停用后停止剩余事件投递，以及暂停期间生成碎片同步显示但不发布异步破坏候选。渲染实窗检查覆盖父级隐藏的实际像素变化；项目启停、MCP 编辑和延迟关闭仍通过真实编辑器验证。
+
+架构收敛覆盖统一组件身份、唯一脚本预检启动路径、组件直接持有渲染设置、统一编辑命令通道、无状态 MCP 登记函数、资源元数据撤销快照及源文件／meta 发布共用函数。首轮新增测试的重复持锁已修复；MCP 边界测试通过同一会话检查所有非法 ID，保留原 60 秒上限及全部断言。重复持锁、超时两项问题及最后补充的状态用例均已定向复验通过。
+
+本地证据为 `build/architecture-build-*.log`、`build/architecture-test-debug*.log`、`build/architecture-test-release*.log`、`build/architecture-typescript.log`。没有执行性能测试或 CI，未新增其他平台实测结论。
+
 ### 2026-11-03：Basis Universal 2.50 与测试目录整理，macOS ARM64
 
 BasisU 2.50 的 Debug／Release 库已实际构建安装，两配置引擎全目标构建通过。各通过 15 项定向 CTest：贴图与资源导入、HDR 半浮点转码和预算、资源编解码、UI 导入、特效导入与运行、光照资源、渲染基础、脚本编译、架构规则及桌面／Android 资源打包；另各通过 `engine.window_render` 和 `engine.font_ui_render` 两项真实 Metal 测试。

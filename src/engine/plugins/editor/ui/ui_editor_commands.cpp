@@ -1,6 +1,7 @@
 #include "plugins/editor/ui/ui_editor_commands.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "editor/scene/scene_preview.hpp"
 #include "plugins/editor/ui/ui_editor_state.hpp"
 #include "runtime/resource/resource_system.hpp"
@@ -119,7 +120,8 @@ UiEditorCommands::~UiEditorCommands() noexcept
         job->canceled.store(true);
     }
 }
-bool UiEditorCommands::register_commands(editor::EditorCommands& commands)
+bool UiEditorCommands::register_commands(editor::EditorCommands& commands,
+                                         editor::SceneCommands& scene_commands)
 {
     for (const auto* name :
          {"get_ui_documents", "get_ui_tree", "get_ui_element", "set_ui_element", "get_ui_source",
@@ -148,8 +150,9 @@ bool UiEditorCommands::register_commands(editor::EditorCommands& commands)
     }
     return commands.register_command(
         "set_ui_document", true,
-        [this](const Json& args, Json& result, std::unique_ptr<editor::EditorEdit>& edit,
-               std::string& error) { return state_->edit_document(args, result, edit, error); });
+        [this, &scene_commands](const Json& args, Json& result,
+                                std::unique_ptr<editor::EditorEdit>& edit, std::string& error)
+        { return state_->edit_document(scene_commands, args, result, edit, error); });
 }
 void UiEditorCommands::tick(double)
 {
@@ -495,8 +498,8 @@ bool UiEditorCommands::State::query(std::string_view name, const Json& args, Jso
     result = {{"changed", true}, {"scope", "view"}, {"target", handle_json(target)}};
     return true;
 }
-bool UiEditorCommands::State::edit_document(const Json& args, Json& result,
-                                            std::unique_ptr<editor::EditorEdit>& edit,
+bool UiEditorCommands::State::edit_document(editor::SceneCommands& scene_commands, const Json& args,
+                                            Json& result, std::unique_ptr<editor::EditorEdit>& edit,
                                             std::string& error)
 {
     if (!preview.active())
@@ -543,6 +546,7 @@ bool UiEditorCommands::State::edit_document(const Json& args, Json& result,
     schema::ComponentDataT after;
     after.payload.Set(data);
     after.enabled = !component || component->enabled();
+    after.visible = !component || component->visible();
     if (args.contains("enabled"))
     {
         if (!args["enabled"].is_boolean())
@@ -552,14 +556,14 @@ bool UiEditorCommands::State::edit_document(const Json& args, Json& result,
         }
         after.enabled = args["enabled"].get<bool>();
     }
-    std::vector<ResourcePtr> retained{resource};
+    std::vector<schema::AssetEntryT> versions{resource->info()};
     if (component && component->document())
     {
-        retained.push_back(component->document());
+        versions.push_back(component->document()->info());
     }
     edit = std::make_unique<editor::components::ComponentEdit>(
-        world, node->scene().id(), std::make_shared<std::uint64_t>(node->id()), std::move(before),
-        std::move(after), std::move(retained));
+        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
+        std::move(after), std::move(versions));
     result = {{"sceneId", std::to_string(node->scene().id())},
               {"nodeId", std::to_string(node->id())},
               {"document", path},

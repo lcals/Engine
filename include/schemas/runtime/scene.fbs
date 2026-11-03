@@ -248,12 +248,15 @@ union ComponentPayload {
 table ComponentData {
     enabled:bool = true;
     payload:ComponentPayload (required);
+    visible:bool = true;
 }
 
 table NodeInfo {
     id:ulong;
     name:string;
     parent_id:ulong;
+    enabled:bool = true;
+    visible:bool = true;
 }
 
 table NodeData {

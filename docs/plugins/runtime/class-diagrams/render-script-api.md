@@ -13,18 +13,6 @@ classDiagram
         +GetViewportSize() Vector2_or_null$
         +SetVSync(boolean enabled) boolean$
         +GetVSync() boolean_or_null$
-        +SetAmbient(number r, number g, number b, number intensity) boolean$
-        +SetAmbientTricolor(number[] sky, number[] equator, number[] ground, number intensity) boolean$
-        +SetLinearFog(boolean enabled, number r, number g, number b, number start, number end) boolean$
-        +SetExponentialFog(boolean enabled, number r, number g, number b, number density, boolean squared) boolean$
-        +SetExposure(number value) boolean$
-        +SetFilmicTonemap(boolean enabled) boolean$
-        +SetHdr(boolean enabled) boolean$
-        +SetBloom(boolean enabled, number threshold, number intensity, number radius) boolean$
-        +SetAmbientOcclusion(boolean enabled, number radius, number strength, number power, number fadeStart, number fadeEnd) boolean$
-        +SetDirectionalShadows(boolean enabled, number resolution, number bias) boolean$
-        +SetShadowCascades(number count, number distance, number splitLambda, number blend) boolean$
-        +SetClearColor(number rgba) boolean$
     }
     class RenderBinding
     class BindingContext
@@ -34,20 +22,13 @@ classDiagram
     Render ..> RenderBinding : JS 门面与原生方法
     RenderBinding ..> BindingContext : 校验活动回调，获取服务借用
     BindingContext --> RenderSystem : 可空借用，仅在玩法回调期间使用
-    RenderBinding ..> RenderSystem : 复制并提交现有设置
+    RenderBinding ..> RenderSystem : 查询视口与设置呈现配置
 ```
 
-- `Render` 是不可构造的静态门面；设置方法复制当前 RenderSettings，仅修改对应字段后调用 `RenderSystem::set_settings()`。一次设置调用的参数或原生校验失败时返回 false，整份设置不变。
-- `GetViewportSize()` 返回当前绘制目标的像素尺寸 `{x,y}`；系统未初始化、GPU 不可用、尺寸为零或当前回调没有可用渲染器时返回 null。查询不改变设置，也不触发窗口重置；窗口尺寸变化在下一次渲染应用后可见。
-- `SetVSync(enabled)` / `GetVSync()` 通过既有 RenderBinding 调用 RenderSystem 的窗口级
-  VSync 状态，使用 bgfx 的 reset 标志，不进入场景 RenderSettings 或持久组件。仅活动回调
-  可用，未注入或未初始化渲染器时设置返回 false、查询返回 null。设置成功表示接受请求，
-  下次正常绘制应用；重复设置不触发多余 reset。核心方法见[渲染系统](../../../runtime/class-diagrams/render-system.md)。
-- `SetAmbient` 的 RGB 为线性颜色 `0..1`，强度为 `0..1000`；曝光为 `(0, 100]`。阴影分辨率默认 2048，为 `128..8192` 的二次幂，bias 默认 0.001、范围 `0..0.1`，实际设备限制仍由 RenderSystem 校验。
-- `SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个 `[r,g,b]` 线性颜色数组并开启三色模式；调用 `SetAmbient` 恢复常量色模式。`SetLinearFog(enabled, r, g, b, start, end)` 提交线性雾，颜色为线性 `0..1`，距离为世界单位，要求 `0 <= start < end`。`SetExponentialFog(enabled, r, g, b, density, squared=false)` 使用指数雾，squared=true 使用平方指数雾；density 为非负有限数，距离取前向深度减近裁面。两个雾接口写入同一 fog_mode，互相替换；关闭雾同样提交并保留参数，后续可再次开启。
-- `SetClearColor` 接收无符号 32 位整数，按 `0xRRGGBBAA` 打包；不接受负数、小数或溢出值。MCP 的 `clearColor` 输入为归一化 `[r,g,b,a]` 数组，两者采用相同的 RGBA 通道顺序，并提交同一个原生字段。
-- 预检、模块顶层、构造和旧 Context 不得修改设置；未注入渲染器时返回 false。宿主保证渲染器覆盖全部玩法回调，停止脚本后再销毁渲染器；绑定不拥有该服务。
-- 场景初始外观保存在 EnvironmentComponent、活动相机上的 PostProcessComponent 与 Light 中。Render 静态门面更新当前场景的已有组件，缺少所需组件时返回 false，不隐式创建节点；无场景时仅修改待机默认值。项目脚本优先获取组件并动态修改，停止或切换场景不会留下上一场景的覆盖参数。
+- `Render` 是不可构造的静态设备门面，只提供视口尺寸与 VSync。环境、后处理和阴影设置直接通过下方组件接口提交，组件是唯一写入与校验入口，不再提供重复的静态效果 setter。
+- `GetViewportSize()` 返回当前绘制目标像素尺寸 `{x,y}`；系统未初始化、GPU 不可用、尺寸为零或当前回调没有渲染器时返回 null。窗口尺寸变化在下一次渲染应用后可见。
+- `SetVSync(enabled)` / `GetVSync()` 调用 RenderSystem 的窗口级状态；仅活动回调可用，未注入或未初始化渲染器时设置返回 false、查询返回 null。设置成功表示接受请求，下次正常绘制应用，不进入场景持久数据。
+- 场景初始外观保存在 EnvironmentComponent、相机节点上的 PostProcessComponent 与 Light 中。组件门面使用当前 Run 的节点及组件身份校验；失效句柄返回失败，不通过全局活动场景寻找替代对象。
 
 ```mermaid
 classDiagram
@@ -71,6 +52,7 @@ classDiagram
         +SetFilmicTonemap(boolean enabled) boolean
         +SetHdr(boolean enabled) boolean
         +SetBloom(boolean enabled, number threshold, number intensity, number radius) boolean
+        +SetScreenSpaceReflections(boolean enabled, number resolutionScale, number maxSteps, number maxDistance, number thickness, number roughnessCutoff) boolean
         +SetAmbientOcclusion(boolean enabled, number radius, number strength, number power, number fadeStart, number fadeEnd) boolean
     }
     class Light {
@@ -89,6 +71,8 @@ classDiagram
         +SetFloat(string name, number value) boolean
         +SetCullMode(string mode) boolean
         +GetCullMode() string_or_null
+        +SetBlendMode(string mode) boolean
+        +GetBlendMode() string_or_null
         +SetV2(string name, number x, number y) boolean
         +SetV3(string name, number x, number y, number z) boolean
         +SetV4(string name, number x, number y, number z, number w) boolean
@@ -103,6 +87,16 @@ classDiagram
         +SetMaterialCount(number count) boolean
         +castShadows boolean
         +SetCastShadows(boolean enabled) boolean
+        +bakeStatic boolean
+        +lightmapPath string_or_null
+        +SetBakeStatic(boolean enabled) boolean
+        +SetLightmap(string path) boolean
+    }
+    class PlanarReflectionComponent {
+        +SetSettings(number resolutionScale, number clipBias) boolean
+    }
+    class LightProbeVolumeComponent {
+        +SetResource(string path) boolean
     }
     class Component
     class Ray
@@ -114,20 +108,24 @@ classDiagram
     Component <|-- PostProcessComponent
     Component <|-- Light
     Component <|-- MeshRenderer
-    MeshRenderer --> Material : 场景和节点身份加材质槽借用
+    Component <|-- PlanarReflectionComponent
+    Component <|-- LightProbeVolumeComponent
+    MeshRenderer --> Material : Run、节点、组件实例身份加材质槽借用
 ```
 
 - `SetOrthographic` 的 size 为竖直半高；角度使用度。Spot 的 innerAngle、outerAngle 均为锥体半角。
 - `ScreenPointToRay` 接收视口局部坐标及同单位尺寸，`ViewportPointToRay` 接收归一化坐标及宽高比；均以左上为原点、X 向右、Y 向下，有限视口外坐标允许外推。返回普通 `{origin:{x,y,z}, direction:{x,y,z}}` 值，原点位于近裁剪面，方向为归一化世界方向；透视发散、正交平行。非有限参数、非正尺寸/宽高比、退化变换或失效句柄返回 null。查询不要求该 Camera 启用或成为活动镜头，不依赖窗口或 GPU。像素坐标使用 `Render.GetViewportSize()` 的尺寸；逻辑坐标须搭配同单位的逻辑尺寸，不能混用。
-- `Render.SetHdr(enabled)` / `PostProcessComponent.SetHdr(enabled)` 只改变 HDR 开关；`SetBloom(enabled, threshold=1, intensity=0.15, radius=1)` 只改变 Bloom 开关与参数。阈值 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，数值有限。先开启 HDR 才能开启 Bloom，先关闭 Bloom 才能关闭 HDR，顺序错误返回 false 并保留全部状态；方法不会自动改写另一开关。旧曝光、AO 方法保留 HDR/Bloom 配置。
-- `Render.SetAmbientOcclusion` 与 `PostProcessComponent.SetAmbientOcclusion` 使用同一后处理数据：enabled 必须是布尔值；radius 默认 1、范围 `(0,100]`，strength 默认 1、范围 `[0,2]`，power 默认 1.5、范围 `[0.1,8]`，fadeStart/fadeEnd 默认 80/150，要求 `0 <= start < end <= 100000`。全部数值有限，失败不改变曝光或 AO；旧曝光、色调映射接口也保留 AO。Render 门面修改当前活动场景相机组件，不持有独立状态。
-- `Light.SetShadowCascades` 与 `Render.SetShadowCascades` 只更新级联参数，保留投影开关、完整 atlas 分辨率和偏移；count 必须为整数 1、2、4，distance 为 `(0,100000]`，splitLambda 默认 0.6、范围 `[0,1]`，blend 默认 0.1、范围 `[0,0.3]`。原有 `SetShadows` / `SetDirectionalShadows` 也保留现有级联参数。参数按原生组件契约原子校验，不在绑定内存储另一份状态。
+- `PostProcessComponent.SetHdr(enabled)` 只改变 HDR 开关；`SetBloom(enabled, threshold=1, intensity=0.15, radius=1)` 只改变 Bloom 开关与参数。阈值 `[0,100]`、强度 `[0,10]`、半径 `[0.25,4]`，数值有限。先开启 HDR 才能开启 Bloom，先关闭 Bloom 才能关闭 HDR，顺序错误返回 false 并保留全部状态；方法不会自动改写另一开关。旧曝光、AO 方法保留 HDR/Bloom 配置。
+- `PostProcessComponent.SetAmbientOcclusion` 使用同一后处理数据：enabled 必须是布尔值；radius 默认 1、范围 `(0,100]`，strength 默认 1、范围 `[0,2]`，power 默认 1.5、范围 `[0.1,8]`，fadeStart/fadeEnd 默认 80/150，要求 `0 <= start < end <= 100000`。全部数值有限，失败不改变曝光或 AO；旧曝光、色调映射接口也保留 AO。组件修改不影响其他相机的后处理配置。
+- `Light.SetShadowCascades` 只更新级联参数，保留投影开关、完整 atlas 分辨率和偏移；count 必须为整数 1、2、4，distance 为 `(0,100000]`，splitLambda 默认 0.6、范围 `[0,1]`，blend 默认 0.1、范围 `[0,0.3]`。原有 `SetShadows` 也保留现有级联参数。参数按原生组件契约原子校验，不在绑定内存储另一份状态。
+- `PostProcessComponent.SetScreenSpaceReflections` 独立更新 SSR 设置；平面反射通过同节点的 `PlanarReflectionComponent` 配置，光照探针通过 `LightProbeVolumeComponent.SetResource` 绑定资源。`MeshRenderer.SetLightmap` 要求 UV2 与线性纹理，空路径清除绑定；`SetBakeStatic` 标记烘焙参与状态。
+- `SetBlendMode` 接受 `opaque`、`alpha_blend` 或 `premultiplied`，由材质统一校验。
 - `material` 等同第 0 槽，`materialCount` 只读；超范围槽返回 null，移除槽后原有门面的 IsValid 返回 false。
 - 纹理路径通过资源目录解析，失败保留原材质。GetTexture 对未知或非纹理参数返回 null。
 - `SetCullMode("back" | "front" | "none")` 设置通用面剔除状态，默认 `back`；`GetCullMode()` 在句柄失效时返回 null。`SetFloat("alphaCutoff", value)` 使用既有具名参数通道启用内置 Shader 的 alpha 裁切，范围为 0..1，0 关闭。
-- 每次调用校验场景、节点和材质槽，不在脚本对象中保留 C++ 指针。失效对象的修改返回 false。
+- 每次调用校验 Run、节点、组件实例和材质槽，不在脚本对象中保留 C++ 指针。失效对象的修改返回 false。
 - 动态 MeshData 使用生成的 FlatBuffers C++ 数据，通过 MeshRenderer 提交；此脚本门面只声明已经绑定的接口。
 
-EnvironmentComponentBinding 与 PostProcessComponentBinding 各自独立实现 ScriptBinding，只通过 BindingContext 校验当前场景与节点后访问对应原生组件。Node.AddComponent/GetComponent 使用既有组件登记，无需新增节点专用接口。EnvironmentComponent 只允许一个启用组件参与渲染；PostProcessComponent 由活动场景相机节点提供，预览镜头借用同一份参数。Light.SetShadows 只支持方向光，分辨率、bias 与原生组件保持同一校验。
+EnvironmentComponentBinding 与 PostProcessComponentBinding 各自独立实现 ScriptBinding，只通过 BindingContext 校验当前 Run、节点与组件实例后访问对应原生组件。Node.AddComponent/GetComponent 使用既有组件登记，无需新增节点专用接口。所有渲染组件须满足公共 Component 的 `active` 与 `visibleInHierarchy`。EnvironmentComponent 只允许一个激活且可见组件参与渲染；PostProcessComponent 由活动场景相机节点提供，预览镜头借用同一份参数。Light.SetShadows 支持方向光、点光与聚光，级联参数只适用于方向光，分辨率、bias 与原生组件保持同一校验。
 
-步骤 4：Transform 脚本门面增加 `GetWorldPosition()` 与 `GetWorldForward()`，返回普通 `{x,y,z}` 值快照或 null。两者直接读取核心 world_matrix，forward 为归一化局部 -Z 世界方向；不改变持久数据或增加相机/武器专用核心接口。
+Transform 脚本门面提供 `GetWorldPosition()` 与 `GetWorldForward()`，返回普通 `{x,y,z}` 值快照或 null。两者直接读取核心 world_matrix，forward 为归一化局部 -Z 世界方向；不改变持久数据或增加相机/武器专用核心接口。

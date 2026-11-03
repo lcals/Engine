@@ -446,6 +446,7 @@ bool register_terrain_commands(WorldSystem& world, editor::SceneCommands& scene_
                 }
                 schema::ComponentDataT after;
                 after.enabled = component == nullptr || component->enabled();
+                after.visible = component == nullptr || component->visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())

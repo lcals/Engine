@@ -137,16 +137,19 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    engine::RenderSettings idle;
-    idle.exposure = 3.0F;
-    idle.ambient_intensity = 9.0F;
-    if (!expect(renderer.set_settings(idle), "set idle settings without opening a GPU device"))
+    constexpr std::uint32_t idle_clear_color = 0x203040ff;
+    renderer.set_idle_clear_color(idle_clear_color);
+    if (!expect(renderer.settings().clear_color == idle_clear_color &&
+                    renderer.settings().exposure == 1.0F &&
+                    renderer.settings().ambient_intensity == 0.0F,
+                "idle rendering keeps only a clear color and fixed effect defaults"))
     {
         return false;
     }
     auto* scene = world.create_scene("Environment ownership");
     if (!expect(scene != nullptr && renderer.settings().exposure == 1.0F &&
-                    renderer.settings().ambient_intensity == 0.0F,
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().clear_color == engine::RenderSettings{}.clear_color,
                 "a new scene never inherits idle or preceding-scene settings"))
     {
         return false;
@@ -154,8 +157,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto* node = scene->create_node("Environment");
     auto* environment =
         node != nullptr ? node->add_component<engine::EnvironmentComponent>() : nullptr;
-    auto changed = renderer.settings();
-    changed.ambient_intensity = 0.3F;
+    engine::PostProcessSettings changed;
     changed.exposure = 2.0F;
     changed.ao_enabled = true;
     changed.ao_radius = 1.8F;
@@ -170,9 +172,12 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     changed.bloom_radius = 1.2F;
     changed.ssr_enabled = true;
     changed.ssr_max_steps = 128;
-    if (!expect(environment != nullptr && !renderer.set_settings(changed) &&
-                    environment->settings().ambient_intensity == 0.0F,
-                "missing post-process rejects the entire update without changing environment"))
+    engine::EnvironmentSettings environment_settings;
+    environment_settings.ambient_intensity = 0.3F;
+    if (!expect(environment != nullptr && environment->set_settings(environment_settings) &&
+                    renderer.settings().ambient_intensity == 0.3F &&
+                    renderer.settings().exposure == 1.0F,
+                "environment edits are independent of missing post-process components"))
     {
         return false;
     }
@@ -183,7 +188,7 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
                              : nullptr;
     if (!expect(
             camera != nullptr && post_process != nullptr && scene->set_active_camera(camera) &&
-                renderer.set_settings(changed) &&
+                post_process->set_settings(changed) &&
                 environment->settings().ambient_intensity == 0.3F &&
                 post_process->settings().exposure == 2.0F && renderer.settings().ao_enabled &&
                 post_process->settings().ao_radius == 1.8F &&
@@ -194,29 +199,30 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
                 renderer.settings().bloom_intensity == 0.4F &&
                 renderer.settings().bloom_radius == 1.2F && renderer.settings().ssr_enabled &&
                 post_process->settings().ssr_max_steps == 128,
-            "aggregate updates write the current scene's generated component data"))
+            "render snapshots read the current scene's generated component data"))
     {
         return false;
     }
     auto pending_ibl = environment->settings();
-    auto invalid_ao = renderer.settings();
-    auto invalid_hdr = renderer.settings();
+    auto invalid_ao = post_process->settings();
+    auto invalid_hdr = post_process->settings();
     invalid_hdr.hdr_enabled = false;
-    if (!expect(!renderer.set_settings(invalid_hdr) && renderer.settings().hdr_enabled &&
+    if (!expect(!post_process->set_settings(invalid_hdr) && renderer.settings().hdr_enabled &&
                     renderer.settings().bloom_enabled,
                 "Bloom requires HDR and rejection preserves the entire post-process state"))
     {
         return false;
     }
     invalid_ao.ao_radius = 0.0F;
-    if (!expect(!renderer.set_settings(invalid_ao) && renderer.settings().ao_radius == 1.8F,
+    if (!expect(!post_process->set_settings(invalid_ao) && renderer.settings().ao_radius == 1.8F,
                 "zero AO radius is rejected before component changes"))
     {
         return false;
     }
-    invalid_ao = renderer.settings();
+    invalid_ao = post_process->settings();
     invalid_ao.ao_fade_end = invalid_ao.ao_fade_start;
-    if (!expect(!renderer.set_settings(invalid_ao) && renderer.settings().ao_fade_end == 120.0F,
+    if (!expect(!post_process->set_settings(invalid_ao) &&
+                    renderer.settings().ao_fade_end == 120.0F,
                 "inverted AO fade is rejected atomically"))
     {
         return false;
@@ -264,10 +270,10 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     auto* duplicate = duplicate_node != nullptr
                           ? duplicate_node->add_component<engine::EnvironmentComponent>()
                           : nullptr;
-    changed.exposure = 4.0F;
-    if (!expect(duplicate != nullptr && !renderer.set_settings(changed) &&
+    if (!expect(duplicate != nullptr && renderer.settings().ambient_intensity == 0.0F &&
+                    environment->settings().ambient_intensity == 0.3F &&
                     post_process->settings().exposure == 2.0F,
-                "multiple enabled environments fail without partial mutation"))
+                "ambiguous environments return fixed defaults without mutating components"))
     {
         return false;
     }
@@ -298,29 +304,69 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
     {
         return false;
     }
-    changed = renderer.settings();
-    changed.shadow_cascades = 4;
-    changed.shadow_distance = 160.0F;
-    if (!expect(renderer.set_settings(changed) && second_light->settings().shadow_cascades == 4 &&
-                    second_light->settings().shadow_distance == 160.0F &&
-                    !first_light->settings().cast_shadows,
-                "cascade edits are written to the selected casting light"))
+    auto* parent = scene->create_node("Render state parent");
+    if (!expect(parent != nullptr && node->set_parent(parent) && camera_node->set_parent(parent) &&
+                    second_light_node->set_parent(parent),
+                "group scene render components under one parent"))
     {
         return false;
     }
-    changed.directional_shadows = false;
-    if (!expect(renderer.set_settings(changed) && !second_light->settings().cast_shadows &&
+    parent->set_enabled(false);
+    if (!expect(renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().exposure == 1.0F &&
+                    !renderer.settings().directional_shadows && environment->enabled() &&
+                    post_process->enabled() && second_light->enabled(),
+                "disabled ancestors suppress rendering without changing component local states"))
+    {
+        return false;
+    }
+    parent->set_enabled(true);
+    parent->set_visible(false);
+    if (!expect(environment->active() && post_process->active() && second_light->active() &&
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().exposure == 1.0F &&
                     !renderer.settings().directional_shadows,
-                "disabling aggregate shadows updates the previously selected caster"))
+                "hidden ancestors suppress scene effects while keeping components active"))
     {
         return false;
     }
-    changed = renderer.settings();
-    changed.ambient_intensity = 0.7F;
+    parent->set_visible(true);
+    environment->set_visible(false);
+    if (!expect(renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().exposure == 2.0F && renderer.settings().directional_shadows,
+                "component visibility only removes that component's frame contribution"))
+    {
+        return false;
+    }
+    environment->set_visible(true);
+    if (!expect(renderer.settings().ambient_intensity == 0.3F,
+                "restoring hierarchy visibility restores the saved component parameters"))
+    {
+        return false;
+    }
+    auto changed_shadows = second_light->settings();
+    changed_shadows.shadow_cascades = 4;
+    changed_shadows.shadow_distance = 160.0F;
+    if (!expect(second_light->set_settings(changed_shadows) &&
+                    renderer.settings().shadow_cascades == 4 &&
+                    renderer.settings().shadow_distance == 160.0F &&
+                    !first_light->settings().cast_shadows,
+                "cascade snapshots follow the explicitly edited casting light"))
+    {
+        return false;
+    }
+    changed_shadows.cast_shadows = false;
+    if (!expect(second_light->set_settings(changed_shadows) &&
+                    !renderer.settings().directional_shadows,
+                "disabling a light's shadows updates the frame snapshot"))
+    {
+        return false;
+    }
     if (!first_light->set_settings(shadows) || !second_light->set_settings(shadows) ||
-        !expect(!renderer.set_settings(changed) &&
-                    environment->settings().ambient_intensity == 0.3F,
-                "multiple shadow casters are rejected without silently discarding a light"))
+        !expect(!renderer.settings().directional_shadows &&
+                    environment->settings().ambient_intensity == 0.3F &&
+                    first_light->settings().cast_shadows && second_light->settings().cast_shadows,
+                "ambiguous shadow casters return defaults without modifying either light"))
     {
         return false;
     }
@@ -336,8 +382,9 @@ bool check_scene_render_settings(const engine::EngineConfig& config)
         return false;
     }
     world.destroy_scene();
-    if (!expect(renderer.settings().exposure == 3.0F &&
-                    renderer.settings().ambient_intensity == 9.0F,
+    if (!expect(renderer.settings().exposure == 1.0F &&
+                    renderer.settings().ambient_intensity == 0.0F &&
+                    renderer.settings().clear_color == idle_clear_color,
                 "stopping the scene returns to independent idle defaults"))
     {
         return false;
@@ -421,7 +468,7 @@ bool check_deformation(engine::Scene& scene)
     const auto* source = renderer->mesh_data();
     const auto original = *source;
     const auto source_revision = renderer->mesh_revision();
-    const auto source_instance = renderer->mesh_instance_id();
+    const auto source_instance = renderer->instance_id();
     engine::schema::ComponentDataT snapshot;
     std::vector<engine::Vec4> tangents;
     auto vertices = source->vertices;
@@ -517,15 +564,15 @@ bool check_deformation(engine::Scene& scene)
     }
     if (!expect(renderer->set_deformation(vertices, tangents) && renderer->set_mesh_data(quad()) &&
                     renderer->deformed_vertices().empty() &&
-                    renderer->mesh_instance_id() == source_instance,
+                    renderer->instance_id() == source_instance,
                 "dynamic topology replacement discards pose and retains instance identity") ||
         !node->remove_component(engine::MeshRenderer::component_type))
     {
         return false;
     }
     renderer = node->add_component<engine::MeshRenderer>();
-    return expect(renderer != nullptr && renderer->mesh_instance_id() != 0 &&
-                      renderer->mesh_instance_id() != source_instance,
+    return expect(renderer != nullptr && renderer->instance_id() != 0 &&
+                      renderer->instance_id() != source_instance,
                   "replacement component has distinct identity even on the same node");
 }
 

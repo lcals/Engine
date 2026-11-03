@@ -1,6 +1,5 @@
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 
-#include <atomic>
 #include <cmath>
 #include <limits>
 
@@ -16,20 +15,6 @@ schema::ComponentDataT make_data()
     return data;
 }
 
-std::uint64_t next_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
-}
-
 bool bounded(float value, float minimum, float maximum) noexcept
 {
     return std::isfinite(value) && value >= minimum && value <= maximum;
@@ -37,15 +22,10 @@ bool bounded(float value, float minimum, float maximum) noexcept
 
 } // namespace
 
-NavigationAgent::NavigationAgent(Node& node)
-    : Component(node, make_data()), instance_id_(next_instance_id())
+NavigationAgent::NavigationAgent(Node& node) : Component(node, make_data())
 {
 }
 
-bool NavigationAgent::initialize()
-{
-    return instance_id_ != 0;
-}
 
 bool NavigationAgent::valid_settings(const schema::NavigationAgentDataT& value) noexcept
 {
@@ -74,7 +54,7 @@ bool NavigationAgent::set_settings(const schema::NavigationAgentDataT& value) no
 
 bool NavigationAgent::move_to(const Vec3& target) noexcept
 {
-    if (!enabled() || !std::isfinite(target.x()) || !std::isfinite(target.y()) ||
+    if (!active() || !std::isfinite(target.x()) || !std::isfinite(target.y()) ||
         !std::isfinite(target.z()) || std::abs(target.x()) > 1000000.0 ||
         std::abs(target.y()) > 1000000.0 || std::abs(target.z()) > 1000000.0 ||
         request_revision_ == std::numeric_limits<std::uint64_t>::max())
@@ -111,10 +91,6 @@ Vec3 NavigationAgent::velocity() const noexcept
     return velocity_;
 }
 
-std::uint64_t NavigationAgent::instance_id() const noexcept
-{
-    return instance_id_;
-}
 
 bool NavigationAgent::restore_data(const schema::ComponentDataT& value)
 {
@@ -124,6 +100,7 @@ bool NavigationAgent::restore_data(const schema::ComponentDataT& value)
         return false;
     }
     set_enabled(value.enabled);
+    set_visible(value.visible);
     stop();
     return true;
 }

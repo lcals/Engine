@@ -40,7 +40,7 @@ Listener find_listener(const Scene& scene)
     {
         const auto* listener = node->get_component<AudioListener>();
         const auto* transform = node->get_component<Transform>();
-        if (listener && listener->enabled() && transform && transform->enabled() &&
+        if (listener && listener->active() && transform && transform->active() &&
             transform->world_matrix(result.matrix.data()))
         {
             result.volume = listener->settings().volume;
@@ -66,7 +66,7 @@ bool spatial_mix(const AudioSource& source, const Listener& listener, float& gai
     }
     const auto* transform = source.node().get_component<Transform>();
     std::array<float, 16> matrix{};
-    if (!transform || !transform->enabled() || !transform->world_matrix(matrix.data()))
+    if (!transform || !transform->active() || !transform->world_matrix(matrix.data()))
     {
         return false;
     }
@@ -339,16 +339,11 @@ bool AudioSystem::on_tick(double)
     {
         auto* node = world_->find_node(iterator->first);
         auto* source = node ? node->get_component<AudioSource>() : nullptr;
-        if (!source || !source->enabled() || source->playback_ == AudioPlayback::stopped ||
+        if (!source || source->playback_ == AudioPlayback::stopped ||
             source->playback_ == AudioPlayback::failed ||
             source->revision_ != iterator->second->revision ||
-            source->instance_id_ != iterator->second->instance_id)
+            source->instance_id() != iterator->second->instance_id)
         {
-            if (source && !source->enabled())
-            {
-                source->playback_ = AudioPlayback::stopped;
-                source->awake_pending_ = false;
-            }
             iterator = impl_->voices.erase(iterator);
         }
         else
@@ -378,9 +373,14 @@ bool AudioSystem::on_tick(double)
             {
                 continue;
             }
-            if (!source->enabled())
+            if (!source->active())
             {
-                source->playback_ = AudioPlayback::stopped;
+                const auto voice = impl_->voices.find(node->id());
+                if (voice != impl_->voices.end() && voice->second->bound)
+                {
+                    SDL_UnbindAudioStream(voice->second->stream);
+                    voice->second->bound = false;
+                }
                 continue;
             }
             if (source->awake_pending_)
@@ -433,7 +433,7 @@ bool AudioSystem::on_tick(double)
                 const SDL_AudioSpec output{SDL_AUDIO_F32, 2, 48000};
                 voice->stream = SDL_CreateAudioStream(&input, &output);
                 voice->clip = source->clip_;
-                voice->instance_id = source->instance_id_;
+                voice->instance_id = source->instance_id();
                 voice->revision = source->revision_;
                 if (!voice->stream ||
                     !SDL_SetAudioStreamGetCallback(voice->stream, Impl::Voice::feed, voice.get()))

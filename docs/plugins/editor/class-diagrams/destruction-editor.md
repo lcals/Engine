@@ -80,7 +80,7 @@ classDiagram
 - `.destruction` 使用 TOML：`size`、`fracture = "slices" | "voronoi"`、`slices_x/y/z`（切分份数）、`sites`、`seed`、`bond_health` 和 `anchor_height`。盒子底部位于局部 y=0；节点变换决定场景位置。生成网格、块、接触键保存于独立 `DestructionAssetData`。
 - 源资源的邻接 meta 保存唯一 GUID；schema 与 Authoring 工具版本进入增量指纹。导入输出标准 `cache/gen/GUID`。材质由场景组件引用，不成为几何资源的隐式依赖。
 - 场景普通节点挂载 `type = "destruction"`，包含破坏资源 GUID、材质 GUID、密度、摩擦和恢复系数；依赖由 codec 显式登记。
-- `create_destruction_asset` 校验后在 assets 内创建描述和唯一 meta，不覆盖已有文件；使用现有导入流程发布。
+- `create_destruction_asset` 负责校验破坏描述和生成结果；项目内路径检查、源文件与唯一 meta 的创建共用编辑器 `asset_io` 普通函数。调用方持有项目资源锁，先拒绝已有源文件或 meta，再写同目录临时文件，依次重命名发布 meta 和源文件；失败清理临时文件，源文件发布失败时回滚本次 meta。使用现有导入流程发布运行资源。
 - `set_destruction/get_destruction` 配置并查询资源、设置和运行统计。设置更改保留前后完整状态以便撤销，资源替换可恢复原损伤状态。
 - `destruction_damage` 使用世界坐标球体、半径、损伤和冲量；`destruction_reset` 恢复初始结构。二者均可撤销，改变运行状态而非场景初始设置，`affects_scene()` 返回 false。
 - 状态命令 handler 只创建记录；首次 apply 执行操作并保存结果，撤销/重做恢复包含键血量、块分组、世界变换和速度的完整快照。以场景、稳定节点、设置与 revision 检查外部修改；正常物理移动不增加 revision，因此不会使撤销失效。同一节点的连续编辑共用预期 revision 游标，每次 apply/revert 后更新；新操作发现外部修改时创建独立游标，使旧记录保持失效，支持多次连续撤销/重做。游标由历史共享拥有，索引只保存弱引用并清理过期项。

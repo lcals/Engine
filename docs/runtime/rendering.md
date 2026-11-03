@@ -67,7 +67,7 @@ Shader `.shader` 的 `[[samplers]]` 声明 `name/uniform/stage/default_texture/e
 
 ## 渲染设置与真实帧截图
 
-`RenderCommands` 在编辑器主线程调用渲染器；独立的 `RenderMcpTools` 只登记并转发以下工具：
+`RenderCommands` 在编辑器主线程编辑组件，并调用渲染器查询快照、提交设备设置与截图；模块函数 `register_render_tools` 只登记并转发以下工具：
 
 | 工具 | 参数与作用 |
 | --- | --- |
@@ -87,15 +87,15 @@ Tracy、CPU/GPU 统计及采集工具统一见[性能采样](performance.md)；�
 
 ## 场景环境参数
 
-场景环境光、IBL、雾与清屏色由普通节点的 `EnvironmentComponent` 持有；曝光、色调映射、屏幕空间 AO、HDR 与 Bloom 由活动相机同节点的 `PostProcessComponent` 持有；方向光阴影参数由 `Light` 持有。一个场景最多允许一个启用环境和一个启用投影的方向光，重复时明确失败。渲染每帧读取组件，不跨帧持有组件指针；缺少或禁用组件时使用固定默认值，切场景不继承前一个场景的外观。
+场景环境光、IBL、雾与清屏色由普通节点的 `EnvironmentComponent` 持有；曝光、色调映射、屏幕空间 AO、HDR 与 Bloom 由活动相机同节点的 `PostProcessComponent` 持有；方向光阴影参数由 `Light` 持有。一个场景最多允许一个启用环境和一个启用投影的方向光，重复时明确失败。渲染每帧读取组件，不跨帧持有组件指针；组件须同时满足 `active()` 与 `visible_in_hierarchy()` 才参与渲染；缺少、禁用或隐藏组件时使用固定默认值，切场景不继承前一个场景的外观。
 
-`RenderSettings` 是这些组件组成的瞬时聚合快照，不是另一份场景配置。`RenderSystem::set_settings()` 只更新已有组件，缺少变更域的组件时失败，不创建节点；无场景时只修改待机窗口配置，该配置不影响以后加载的场景。默认环境光强度为 0，IBL、AO、HDR、Bloom 与阴影关闭，曝光为 1，使用 Reinhard。核心不识别调用方是编辑器、项目还是截图工具。
+`RenderSettings` 是这些组件组成的只读帧快照，`RenderSystem::settings()` 只负责读取；环境、后处理和灯光组件分别承担写入与校验。无场景时 `set_idle_clear_color()` 只修改待机清屏色，不影响以后加载的场景；编辑器 `set_render_settings` 此时也仅接受 `clearColor`。默认环境光强度为 0，IBL、AO、HDR、Bloom 与阴影关闭，曝光为 1，使用 Reinhard。核心不识别调用方是编辑器、项目还是截图工具。
 
 可选三色环境光按世界法线 Y 在天空、赤道与地面颜色间插值，再乘环境强度。常量/三色环境光与 IBL 独立，可同时贡献照明；调试曝光时需一并检查二者，避免重复补光使画面发灰。`fog_mode` 可选 none、linear、exponential、exponential_squared。线性雾保留片元到相机的世界距离，从 `fog_start` 到 `fog_end` 混合线性雾色；指数雾与平方指数雾使用相机前向深度减近裁面后的非负距离 d，透过率分别为 `exp(-fog_density*d)` 与 `exp(-(fog_density*d)^2)`，随后进行输出处理。fog_density 为非负有限值，0 表示没有衰减。三色环境和雾默认关闭，颜色参数为线性 0..1；这些值属于环境组件，不含具体资源来源的特殊分支。
 
-脚本 `Render.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`Render.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`Render.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。
+脚本 `EnvironmentComponent.SetAmbientTricolor(sky, equator, ground, intensity)` 接受三个线性 `[r,g,b]` 数组；`SetAmbient()` 切回单色环境光。`EnvironmentComponent.SetLinearFog(enabled, r, g, b, start, end)` 要求 `0 <= start < end`；`EnvironmentComponent.SetExponentialFog(enabled, r, g, b, density, squared=false)` 在 `squared=true` 时使用平方指数雾。MCP `set_render_settings` 对应字段为 `ambientTricolor`、`ambientSkyColor`、`ambientEquatorColor`、`ambientGroundColor`、`fogMode`、`fogColor`、`fogStart`、`fogEnd`、`fogDensity`，并保留 `linearFog` 兼容入口。
 
-项目初值保存到 `.scene`。脚本通过 `Node.GetComponent` / `AddComponent` 访问组件，或在 Gameplay 回调中使用 [Render 静态门面](../plugins/runtime/class-diagrams/render-script-api.md) 修改已有组件；脚本绑定不创建节点，也不自动写入磁盘。宿主注入渲染器借用，桌面与 Android 共用；一次无效提交保留原有全部设置。编辑器 MCP `set_render_settings` 可按需创建环境节点和相机后处理组件，修改进入撤销历史及未保存状态，再由 `save_scene` 落盘。曝光、AO、HDR 与 Bloom 修改要求已有活动相机，开启阴影要求已有方向光。脚本清屏色为 `0xRRGGBBAA` 无符号整数，MCP 对应参数为归一化 `[r,g,b,a]` 数组，通道顺序相同。
+项目初值保存到 `.scene`。脚本通过 `Node.GetComponent` / `AddComponent` 访问[渲染组件接口](../plugins/runtime/class-diagrams/render-script-api.md)，并检查各方法返回值；脚本修改不自动写入磁盘。`Render` 静态门面只保留视口尺寸与 VSync。每个组件独立校验，一次无效提交保留该组件原有设置。编辑器 MCP `set_render_settings` 可按需创建环境节点和相机后处理组件，修改进入撤销历史及未保存状态，再由 `save_scene` 落盘。曝光、AO、HDR 与 Bloom 修改要求已有活动相机，开启阴影要求已有方向光。脚本清屏色为 `0xRRGGBBAA` 无符号整数，MCP 对应参数为归一化 `[r,g,b,a]` 数组，通道顺序相同。
 
 ```toml
 [[nodes]]
@@ -135,7 +135,7 @@ CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkarad
 
 `shadow_bias` 是共用的归一化深度偏移。级联距离、投射物深度范围和场景尺度改变后，应重新对比斜面自阴影与接触阴影；偏移过小可能出现条纹，过大可能使投影脱离物体。纹素对齐和交界混合不代替偏移调整，也不保证任意运动下完全无闪烁。
 
-例如 `set_render_settings {"directionalShadows":true,"shadowResolution":4096,"shadowCascades":4,"shadowDistance":150,"shadowSplitLambda":0.6,"shadowCascadeBlend":0.1}`。数量和距离等配置可独立修改，保持阴影启用状态。脚本可调用 `Render.SetShadowCascades(count, distance, splitLambda?, blend?)`，或对指定方向灯调用 `Light.SetShadowCascades(...)`；`SetDirectionalShadows` / `Light.SetShadows` 保留已有级联配置。
+例如 `set_render_settings {"directionalShadows":true,"shadowResolution":4096,"shadowCascades":4,"shadowDistance":150,"shadowSplitLambda":0.6,"shadowCascadeBlend":0.1}`。数量和距离等配置可独立修改，保持阴影启用状态。脚本对指定方向灯调用 `Light.SetShadowCascades(count, distance, splitLambda?, blend?)`；`Light.SetShadows` 保留已有级联配置。
 
 `shadowResolution` 是方向光级联区域边长；完整 atlas 预算来自项目 `settings/parallel.toml` 的 `[defaults.render].shadow_atlas_size`，平台档可覆盖。点光六面和聚光单面通过原有 `Light.SetShadows` 申请同一 atlas；只有实际分配成功的灯启用阴影，空间或面数不足会报告预算诊断。非不透明材质不投实体阴影。
 
@@ -161,7 +161,7 @@ AO 适配固定 bgfx commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099` 的 `39-a
 
 `PostProcessData` 保存 `ao_enabled`（默认 false）、`ao_radius`（默认 1，范围 `(0,100]`）、`ao_strength`（默认 1，范围 `[0,2]`）、`ao_power`（默认 1.5，范围 `[0.1,8]`）和 `ao_fade_start` / `ao_fade_end`（默认 80/150，要求 `0 <= start < end <= 100000`）。半径与淡出距离使用世界单位，参数必须有限；关闭开关保留其他设置。参数由活动场景相机提供，预览隐藏镜头只决定本帧投影与深度，支持透视和正交相机。MCP 的同名驼峰字段和脚本 `SetAmbientOcclusion` 复用组件校验与持久数据；MCP 编辑进入撤销链，再由 `save_scene` 保存，脚本修改不自动写盘。不维护单独的编辑器效果状态。
 
-MCP 开启示例：`set_render_settings {"aoEnabled":true,"aoRadius":1,"aoStrength":1,"aoPower":1.5,"aoFadeStart":80,"aoFadeEnd":150}`；关闭只需 `{"aoEnabled":false}`。 脚本可用 `Render.SetAmbientOcclusion(enabled, radius?, strength?, power?, fadeStart?, fadeEnd?)` 或组件同名方法，保留曝光及其他后处理设置；非法参数整次失败。
+MCP 开启示例：`set_render_settings {"aoEnabled":true,"aoRadius":1,"aoStrength":1,"aoPower":1.5,"aoFadeStart":80,"aoFadeEnd":150}`；关闭只需 `{"aoEnabled":false}`。 脚本可用 `PostProcessComponent.SetAmbientOcclusion(enabled, radius?, strength?, power?, fadeStart?, fadeEnd?)`，保留曝光及其他后处理设置；非法参数整次失败。
 
 AO 只衰减内置受光照材质的环境光与 IBL；直射光、自发光、无光照材质、天空和 UI 不受屏幕空间 AO 压暗。项目 Shader 可按 `s_ambient_occlusion` 与 `u_ambient_occlusion` 契约采样，保留纹理槽 11；IBL 使用 12..14、阴影使用 15，项目资源 sampler 限于 0..4，导入、运行时资源校验和反射遵守同一规则。
 
@@ -191,9 +191,9 @@ HDR 指场景内部保留高于 1 的线性亮度，最终交换链和截图仍�
 | `bloom_intensity` | `bloomIntensity` | `0.15` | 有限值 `[0,10]`，合成强度 |
 | `bloom_radius` | `bloomRadius` | `1` | 有限值 `[0.25,4]`，模糊采样间距倍率 |
 
-Bloom 与 HDR 的依赖严格校验，不自动开启或关闭另一项。MCP 可在一次 `set_render_settings` 中提交 `{"hdrEnabled":true,"bloomEnabled":true,"bloomThreshold":1,"bloomIntensity":0.15,"bloomRadius":1}` 或 `{"bloomEnabled":false,"hdrEnabled":false}`，全部通过后才修改组件，支持撤销、重做与 `save_scene`。非法组合、类型、范围或非有限数值整次失败，保持原设置。
+Bloom 与 HDR 的依赖严格校验，不自动开启或关闭另一项。MCP 可在一次 `set_render_settings` 中提交 `{"hdrEnabled":true,"bloomEnabled":true,"bloomThreshold":1,"bloomIntensity":0.15,"bloomRadius":1}` 或 `{"bloomEnabled":false,"hdrEnabled":false}`，由编辑器组织各组件提交与失败回滚，支持撤销、重做与 `save_scene`。非法组合、类型、范围或非有限数值整次失败，保持原设置。
 
-脚本静态入口为 `Render.SetHdr(enabled)` 与 `Render.SetBloom(enabled, threshold = 1, intensity = 0.15, radius = 1)`；`PostProcessComponent` 提供同签名方法。先开 HDR 再开 Bloom，先关 Bloom 再关 HDR；每次检查 bool 返回值，顺序错误返回 false 并保留全部设置。旧曝光和 AO 接口保留 HDR/Bloom 字段，关闭 HDR/Bloom 不改变其他后处理参数。脚本操作不自动保存场景。
+脚本通过相机上的 `PostProcessComponent.SetHdr(enabled)` 与 `SetBloom(enabled, threshold = 1, intensity = 0.15, radius = 1)` 修改后处理。先开 HDR 再开 Bloom，先关 Bloom 再关 HDR；每次检查 bool 返回值，顺序错误返回 false 并保留全部设置。旧曝光和 AO 接口保留 HDR/Bloom 字段，关闭 HDR/Bloom 不改变其他后处理参数。脚本操作不自动保存场景。
 
 窗口尺寸变化时重建中间目标；关闭 Bloom 释放两组 Bloom 目标，场景释放、设备重建或准备失败时释放整套专属 GPU 资源。关闭 HDR 仍保留 Forward+、SSR 与透明水共用的线性场景目标，只改变最终映射策略。设备必须支持可采样 RGBA16F 渲染目标及 D32F 深度附件，不满足时返回失败。中间结果每帧生成，不创建源贴图、meta 或 GUID 缓存；场景只保存上述参数，与 IBL 离线贴图资源独立。
 

@@ -51,7 +51,7 @@ bool GpuMesh::create(const MeshRenderer& renderer, std::shared_ptr<GpuGeometry> 
     }
     geometry = std::move(source);
     node_id = renderer.node().id();
-    instance_id = renderer.mesh_instance_id();
+    instance_id = renderer.instance_id();
     revision = renderer.mesh_revision();
     minimum = geometry->minimum;
     maximum = geometry->maximum;

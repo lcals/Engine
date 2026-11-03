@@ -1,6 +1,6 @@
 # 物理与音频组件脚本接口
 
-物理与音频组件均通过 `Node.AddComponent(Type)`、`GetComponent(Type)` 访问。绑定类属于 `engine::plugins::script::bindings`，原生组件属于 `engine`；脚本对象只保存场景及节点身份，每次调用重新查找，不借用已销毁的组件地址。
+物理与音频组件均通过 `Node.AddComponent(Type)`、`GetComponent(Type)` 访问。绑定类属于 `engine::plugins::script::bindings`，原生组件属于 `engine`；脚本对象保存场景、节点及统一组件实例身份，每次调用重新查找，不借用已销毁的组件地址。
 
 ```mermaid
 classDiagram

@@ -632,7 +632,8 @@ bool FontSystem::render_scene(const Scene& scene, std::uint16_t view_id, bool li
     for (const auto& node : scene.nodes())
     {
         const auto* text = node->get_component<TextComponent>();
-        if (text == nullptr || !text->enabled() || text->settings().text.empty())
+        if (text == nullptr || !text->active() || !text->visible_in_hierarchy() ||
+            text->settings().text.empty())
         {
             continue;
         }

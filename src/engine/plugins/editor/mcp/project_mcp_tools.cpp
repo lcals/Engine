@@ -193,8 +193,7 @@ bool ProjectMcpTools::initialize()
 
 bool ProjectMcpTools::register_tools(McpSystem& mcp)
 {
-    return initialized_ && register_resource_tools(mcp) && register_runtime_tools(mcp) &&
-           register_lifecycle_tools(mcp);
+    return initialized_ && register_resource_tools(mcp) && register_runtime_tools(mcp);
 }
 
 } // namespace engine::plugins::mcp

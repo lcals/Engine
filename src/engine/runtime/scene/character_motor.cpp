@@ -1,8 +1,6 @@
 #include "runtime/scene/character_motor.hpp"
 
-#include <atomic>
 #include <cmath>
-#include <limits>
 #include <utility>
 
 namespace engine
@@ -15,20 +13,6 @@ schema::ComponentDataT make_data()
     schema::ComponentDataT data;
     data.payload.Set(schema::CharacterMotorDataT{});
     return data;
-}
-
-std::uint64_t next_instance_id() noexcept
-{
-    static std::atomic<std::uint64_t> sequence{0};
-    auto current = sequence.load(std::memory_order_relaxed);
-    while (current != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(current, current + 1, std::memory_order_relaxed))
-        {
-            return current + 1;
-        }
-    }
-    return 0;
 }
 
 bool bounded(float value, float minimum, float maximum) noexcept
@@ -45,15 +29,10 @@ bool valid_velocity(const Vec3& value) noexcept
 
 } // namespace
 
-CharacterMotor::CharacterMotor(Node& node)
-    : Component(node, make_data()), instance_id_(next_instance_id())
+CharacterMotor::CharacterMotor(Node& node) : Component(node, make_data())
 {
 }
 
-bool CharacterMotor::initialize()
-{
-    return instance_id_ != 0;
-}
 
 bool CharacterMotor::valid_settings(const schema::CharacterMotorDataT& value) noexcept
 {
@@ -94,17 +73,14 @@ bool CharacterMotor::restore_data(const schema::ComponentDataT& value)
     grounded_ = false;
     reset_pending_ = true;
     set_enabled(value.enabled);
+    set_visible(value.visible);
     return true;
 }
 
-std::uint64_t CharacterMotor::instance_id() const noexcept
-{
-    return instance_id_;
-}
 
 bool CharacterMotor::set_velocity(const Vec3& value) noexcept
 {
-    if (!enabled() || value.y() != 0.0 || !valid_velocity(value))
+    if (!active() || value.y() != 0.0 || !valid_velocity(value))
     {
         return false;
     }
@@ -120,7 +96,7 @@ void CharacterMotor::clear_input() noexcept
 
 bool CharacterMotor::add_velocity(const Vec3& delta) noexcept
 {
-    if (!enabled() || !valid_velocity(delta))
+    if (!active() || !valid_velocity(delta))
     {
         return false;
     }
@@ -141,7 +117,7 @@ const Vec3& CharacterMotor::velocity() const noexcept
 
 bool CharacterMotor::jump(float speed) noexcept
 {
-    if (!enabled() || !grounded_ || pending_jump_ != 0.0F || !bounded(speed, 0.01F, 1000.0F))
+    if (!active() || !grounded_ || pending_jump_ != 0.0F || !bounded(speed, 0.01F, 1000.0F))
     {
         return false;
     }
@@ -151,7 +127,7 @@ bool CharacterMotor::jump(float speed) noexcept
 
 bool CharacterMotor::grounded() const noexcept
 {
-    return enabled() && grounded_;
+    return active() && grounded_;
 }
 
 } // namespace engine

@@ -274,6 +274,8 @@ bool Scene::restore_node(const schema::NodeDataT& source)
     {
         return false;
     }
+    node->set_enabled(source.info->enabled);
+    node->set_visible(source.info->visible);
     std::set<ComponentType> types;
     for (const auto& component : source.components)
     {

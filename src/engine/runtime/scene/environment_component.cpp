@@ -33,6 +33,7 @@ bool EnvironmentComponent::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     set_enabled(data.enabled);
+    set_visible(data.visible);
     return true;
 }
 

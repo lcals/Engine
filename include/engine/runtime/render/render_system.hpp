@@ -80,9 +80,9 @@ public:
     // 接受呈现配置请求；下次可提交的 render 应用，GPU 临时关闭期间保留。
     [[nodiscard]] bool set_vsync(bool enabled);
     [[nodiscard]] bool vsync() const noexcept;
-    // 有场景时只修改现有组件；缺少变更域的组件时失败，不创建节点。
-    // 无场景时保存空白窗口配置，该配置不成为后续场景的默认值。
-    [[nodiscard]] bool set_settings(const RenderSettings& settings);
+    // 只设置无活动场景时的清屏色；场景环境与后处理由对应组件管理。
+    void set_idle_clear_color(std::uint32_t rgba) noexcept;
+    [[nodiscard]] std::uint32_t idle_clear_color() const noexcept;
     // 返回当前场景组件快照；场景无相应组件时使用固定引擎默认值。
     [[nodiscard]] RenderSettings settings() const noexcept;
     // 主线程调用；开关与场景无关，图形设备临时关闭后保留并恢复。
@@ -122,7 +122,7 @@ private:
     RenderConfig config_;
     std::unique_ptr<SceneGpuResources> scene_resources_;
     std::unique_ptr<RendererCallbacks> callbacks_;
-    RenderSettings idle_settings_{};
+    std::uint32_t idle_clear_color_ = 0x181818ff;
     std::unique_ptr<render_detail::RenderSurface> surface_;
     std::uint32_t width_ = 0;
     std::uint32_t height_ = 0;

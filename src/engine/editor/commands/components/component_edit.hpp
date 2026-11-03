@@ -37,7 +37,7 @@ class ComponentEdit final : public EditorEdit
 public:
     ComponentEdit(WorldSystem& world, std::uint64_t scene, std::shared_ptr<std::uint64_t> node,
                   std::optional<schema::ComponentDataT> before, schema::ComponentDataT after,
-                  std::vector<std::shared_ptr<const Resource>> resources = {},
+                  std::vector<schema::AssetEntryT> versions = {},
                   ComponentType required_component = ComponentType::NONE);
     [[nodiscard]] bool apply(std::string& error) override;
     [[nodiscard]] bool revert(std::string& error) override;
@@ -52,7 +52,7 @@ private:
     ComponentType type_;
     std::optional<schema::ComponentDataT> before_;
     schema::ComponentDataT after_;
-    std::vector<std::shared_ptr<const Resource>> resources_;
+    std::vector<schema::AssetEntryT> versions_;
     ComponentType required_component_;
 };
 
@@ -96,6 +96,7 @@ template <typename T, typename Data, typename Read, typename Write>
                    schema::ComponentDataT after;
                    after.payload.Set(data);
                    after.enabled = component == nullptr || component->enabled();
+                   after.visible = component == nullptr || component->visible();
                    if (arguments.contains("enabled"))
                    {
                        if (!arguments["enabled"].is_boolean())

@@ -134,7 +134,6 @@ struct EditorSystem::State
     fs::path directory;
     std::string project_root;
     std::string session;
-    std::string last_control;
     std::string last_request;
     std::string last_command;
     std::string last_error;
@@ -361,100 +360,37 @@ struct EditorSystem::State
         return true;
     }
 
-    bool poll()
+    bool control_project(bool start, const Json& arguments, Json& result, std::string& error)
     {
-        const auto control = directory / "project-control.json";
-        std::error_code error;
-        if (!plain_path(control))
+        if (!arguments.is_object() || !arguments.empty() || closed || !transition.empty())
         {
-            last_error = "Project control path contains a symlink";
-            return publish();
+            error = "Project control requires an idle command channel and no arguments";
+            return false;
         }
-        const bool exists = fs::exists(control, error);
-        if (error)
-        {
-            last_error = "Cannot inspect project control";
-            return publish();
-        }
-        if (!exists)
-        {
-            return publish();
-        }
-        std::string text;
-        const auto size = fs::file_size(control, error);
-        if (error || size > 16 * 1024 || !ResourceSystem::read_text(control, text))
-        {
-            last_error = "Cannot read bounded project control";
-            return publish();
-        }
-        if (text == last_control)
-        {
-            return publish();
-        }
-        last_control = text;
-        const auto request = Json::parse(text, nullptr, false);
-        if (!request.is_object() || !request.contains("session") ||
-            !request["session"].is_string() || !request.contains("requestId") ||
-            !request["requestId"].is_string() || !request.contains("command") ||
-            !request["command"].is_string())
-        {
-            last_error = "Invalid project control";
-            return publish();
-        }
-        // 旧编辑器会话的控制文件不能在新会话自动执行。
-        if (request["session"] != session)
-        {
-            return publish();
-        }
-        const auto request_id = request["requestId"].get<std::string>();
-        if (request_id.empty() || request_id.size() > 128 || request_id == last_request)
-        {
-            return publish();
-        }
-        last_request = request_id;
-        last_command = request["command"].get<std::string>();
+        last_command = start ? "start_project" : "stop_project";
         last_error.clear();
         last_success = false;
+        transition = start ? "starting" : "stopping";
+        if (!publish(true))
+        {
+            transition.clear();
+            error = "Cannot publish project transition";
+            return false;
+        }
 #if ENGINE_HAS_ASSET_PIPELINE
-        // 启动锁覆盖刷新、资源取得及最终状态发布，避免与其他进程导入交错。
+        // 保持资源锁覆盖目录刷新、启动及最终运行状态发布。
         asset_pipeline::ProjectLock start_lock;
 #endif
-        if (last_command == "start_project" || last_command == "stop_project")
+        if (start)
         {
-            transition = last_command == "start_project" ? "starting" : "stopping";
-            if (!publish(true))
-            {
-                transition.clear();
-                return false;
-            }
-            if (last_command == "start_project")
-            {
 #if ENGINE_HAS_ASSET_PIPELINE
-                const auto import_lock =
-                    PathUtils::from_utf8(project_root) / "cache" / ".asset-build.lock";
-                if (!plain_path(import_lock) || !start_lock.acquire(import_lock, last_error))
-                {
-                    last_error =
-                        "Resource import is active; wait for it before starting the project: " +
-                        last_error;
-                }
-                else
-                {
-                    if (preview != nullptr)
-                    {
-                        preview->close();
-                    }
-                    last_success = start_gameplay();
-                    if (!last_success)
-                    {
-                        last_error = gameplay.last_error().empty()
-                                         ? "Cannot refresh the editor resource directory"
-                                         : std::string(gameplay.last_error());
-                    }
-                }
-#else
-                last_error = "Project startup requires the editor resource pipeline";
-#endif
+            const auto import_lock =
+                PathUtils::from_utf8(project_root) / "cache" / ".asset-build.lock";
+            if (!plain_path(import_lock) || !start_lock.acquire(import_lock, last_error))
+            {
+                last_error =
+                    "Resource import is active; wait for it before starting the project: " +
+                    last_error;
             }
             else
             {
@@ -462,24 +398,49 @@ struct EditorSystem::State
                 {
                     preview->close();
                 }
-                gameplay.stop();
-                restore_frame_rate();
-                if (commands != nullptr)
+                last_success = start_gameplay();
+                if (!last_success)
                 {
-                    commands->clear_history();
+                    last_error = gameplay.last_error().empty()
+                                     ? "Cannot refresh the editor resource directory"
+                                     : std::string(gameplay.last_error());
                 }
-                last_success = true;
             }
-            transition.clear();
+#else
+            last_error = "Project startup requires the editor resource pipeline";
+#endif
         }
         else
         {
-            last_error = "Unknown project control command";
+            if (preview != nullptr)
+            {
+                preview->close();
+            }
+            gameplay.stop();
+            restore_frame_rate();
+            if (commands != nullptr)
+            {
+                commands->clear_history();
+            }
+            last_success = true;
         }
+        transition.clear();
+        if (!publish(true))
+        {
+            last_success = false;
+            last_error = "Cannot publish final project status";
+        }
+        error = last_error;
+        const auto* script = gameplay.script_status();
+        const bool running = script != nullptr && script->running;
+        result = {{"projectState", running ? "running" : "idle"},
+                  {"running", running},
+                  {"runId", std::to_string(running ? script->run_id : 0)},
+                  {"targetFrameRate", Engine::instance().target_frame_rate()}};
         LogSystem::write(last_success ? LogLevel::info : LogLevel::error,
                          "Project control " + last_command + ": " +
                              (last_success ? "completed" : last_error));
-        return publish(true);
+        return last_success;
     }
 };
 
@@ -534,33 +495,47 @@ bool EditorSystem::on_initialize(const EngineConfig&)
         {
             return false;
         }
+        if (world_ != nullptr && !world_->is_initialized())
+        {
+            return false;
+        }
+        state_->commands = std::make_unique<EditorCommands>(
+            [world = world_]()
+            { return world == nullptr || world->scene() == nullptr ? 0 : world->scene()->id(); });
         if (world_ != nullptr)
         {
-            if (!world_->is_initialized())
-            {
-                return false;
-            }
             state_->scene_commands = std::make_unique<SceneCommands>(*world_);
-            state_->commands = std::make_unique<EditorCommands>(
-                [world = world_]()
-                { return world->scene() == nullptr ? 0 : world->scene()->id(); });
-            if (!state_->scene_commands->register_commands(*state_->commands) ||
-                !state_->commands->register_command(
-                    "execute_project_script", false,
-                    [state = state_.get()](const Json& arguments, Json& result,
-                                           std::unique_ptr<EditorEdit>&, std::string& error)
-                    { return state->execute_script(arguments, result, error); }) ||
-                !state_->commands->register_command(
-                    "close_editor", false,
-                    [state = state_.get()](const Json& arguments, Json& result,
-                                           std::unique_ptr<EditorEdit>&, std::string& error)
-                    { return state->schedule_close(arguments, result, error); }))
+            if (!state_->scene_commands->register_commands(*state_->commands))
             {
                 return false;
             }
-            state_->command_channel = std::make_unique<EditorCommandChannel>(
-                *state_->commands, state_->directory, state_->project_root, state_->session);
         }
+        for (const bool start : {true, false})
+        {
+            if (!state_->commands->register_command(
+                    start ? "start_project" : "stop_project", false,
+                    [state = state_.get(), start](const Json& arguments, Json& result,
+                                                  std::unique_ptr<EditorEdit>&, std::string& error)
+                    { return state->control_project(start, arguments, result, error); }))
+            {
+                return false;
+            }
+        }
+        if (!state_->commands->register_command(
+                "execute_project_script", false,
+                [state = state_.get()](const Json& arguments, Json& result,
+                                       std::unique_ptr<EditorEdit>&, std::string& error)
+                { return state->execute_script(arguments, result, error); }) ||
+            !state_->commands->register_command(
+                "close_editor", false,
+                [state = state_.get()](const Json& arguments, Json& result,
+                                       std::unique_ptr<EditorEdit>&, std::string& error)
+                { return state->schedule_close(arguments, result, error); }))
+        {
+            return false;
+        }
+        state_->command_channel = std::make_unique<EditorCommandChannel>(
+            *state_->commands, state_->directory, state_->project_root, state_->session);
     }
     return true;
 }
@@ -571,7 +546,7 @@ bool EditorSystem::on_tick(double)
     {
         state_->restore_frame_rate_if_stopped();
     }
-    if (!environment_.is_initialized() || (state_ != nullptr && !state_->poll()))
+    if (!environment_.is_initialized() || (state_ != nullptr && !state_->publish()))
     {
         return false;
     }
@@ -589,6 +564,20 @@ bool EditorSystem::on_tick(double)
         else
         {
             state_->channel_error.clear();
+            const auto& receipt = state_->command_channel->last_receipt();
+            if (receipt.is_object() &&
+                (receipt["command"] == "start_project" || receipt["command"] == "stop_project") &&
+                receipt["requestId"] != state_->last_request)
+            {
+                state_->last_request = receipt["requestId"].get<std::string>();
+                state_->last_command = receipt["command"].get<std::string>();
+                state_->last_success = receipt["success"].get<bool>();
+                state_->last_error = receipt["error"].get<std::string>();
+                if (!state_->publish(true))
+                {
+                    return false;
+                }
+            }
             // 只有持久回执已成功发布才启动延时，发布失败时保留请求并重试。
             state_->close_after_receipt();
         }

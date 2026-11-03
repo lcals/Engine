@@ -14,9 +14,6 @@ constexpr std::string_view javascript = R"js(
 export class NavigationAgent extends Component {
     constructor(token, scene, node) {
         super(token, scene, node, native.NavigationAgentKind);
-        const h = handles.get(this);
-        h.instance = native.NavigationAgentIdentity(scene, node);
-        h.validate = () => native.NavigationAgentValid(h.scene, h.node, h.instance);
     }
     Configure(options) {
         if (options === null || typeof options !== 'object' || Array.isArray(options)) return false;
@@ -71,23 +68,6 @@ void add(const Arguments& arguments)
     auto* node = BindingContext::node(arguments);
     arguments.set_return(arguments.count() == 2 && node != nullptr &&
                          node->add_component<navigation_crowd::NavigationAgent>() != nullptr);
-}
-
-void identity(const Arguments& arguments)
-{
-    arguments.set_return({});
-    const auto* node = BindingContext::node(arguments);
-    const auto* agent =
-        node != nullptr ? node->get_component<navigation_crowd::NavigationAgent>() : nullptr;
-    if (arguments.count() == 2 && agent != nullptr)
-    {
-        arguments.set_return(agent->instance_id());
-    }
-}
-
-void valid(const Arguments& arguments)
-{
-    arguments.set_return(component(arguments, 3) != nullptr);
 }
 
 void configure(const Arguments& arguments)
@@ -193,8 +173,6 @@ bool NavigationAgentBinding::register_functions(vm::ScriptVm& vm) const
     return vm.integer("NavigationAgentKind",
                       static_cast<int>(navigation_crowd::NavigationAgent::component_type)) &&
            vm.function("NavigationAgentAdd", add) &&
-           vm.function("NavigationAgentIdentity", identity) &&
-           vm.function("NavigationAgentValid", valid) &&
            vm.function("NavigationAgentConfigure", configure) &&
            vm.function("NavigationAgentMoveTo", move_to) &&
            vm.function("NavigationAgentStop", stop) && vm.function("NavigationAgentState", state) &&

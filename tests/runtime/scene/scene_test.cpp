@@ -39,6 +39,104 @@ bool near(float actual, float expected)
     return std::abs(actual - expected) < 0.0001F;
 }
 
+bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
+                        const engine::schema::SceneDataT& data);
+
+bool node_component_state()
+{
+    test_support::ResourceFixture fixture;
+    auto* resources = engine::ResourceSystem::instance();
+    engine::WorldSystem world;
+    if (!expect(resources && world.initialize({}), "initialize hierarchy state world"))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("State hierarchy");
+    auto* parent = scene ? scene->create_node("Parent") : nullptr;
+    auto* child = scene ? scene->create_node("Child") : nullptr;
+    auto* light = child ? child->add_component<engine::Light>() : nullptr;
+    if (!expect(parent && child && light && child->set_parent(parent), "create state hierarchy"))
+    {
+        return false;
+    }
+    const auto identity = light->instance_id();
+    if (!expect(identity != 0 &&
+                    identity != child->get_component<engine::Transform>()->instance_id(),
+                "all component kinds share unique nonzero identities"))
+    {
+        return false;
+    }
+    parent->set_visible(false);
+    if (!expect(light->active() && light->visible() && !light->visible_in_hierarchy(),
+                "parent hide changes effective display without disabling simulation"))
+    {
+        return false;
+    }
+    light->set_visible(false);
+    parent->set_visible(true);
+    parent->set_enabled(false);
+    if (!expect(child->enabled() && light->enabled() && !light->active() &&
+                    !light->visible_in_hierarchy() && light->instance_id() == identity,
+                "parent suspension preserves child flags and component identity"))
+    {
+        return false;
+    }
+    light->set_enabled(false);
+    parent->set_enabled(true);
+    if (!expect(!light->active() && child->active(),
+                "reactivation does not overwrite the child's explicitly disabled component"))
+    {
+        return false;
+    }
+    child->set_visible(false);
+    parent->set_enabled(false);
+    engine::schema::SceneDataT snapshot;
+    if (!expect(scene->build_data(snapshot), "snapshot local hierarchy and component flags"))
+    {
+        return false;
+    }
+    const auto child_id = child->info().id;
+    if (!expect(add_scene_resource(fixture, "state.scene", snapshot) && fixture.publish(*resources),
+                "publish hierarchy state snapshot"))
+    {
+        return false;
+    }
+    scene = world.load_scene("state.scene");
+    if (!expect(scene != nullptr, "restore flags through the scene resource"))
+    {
+        return false;
+    }
+    child = nullptr;
+    for (const auto& node : scene->nodes())
+    {
+        if (node->info().id == child_id)
+        {
+            child = node.get();
+            break;
+        }
+    }
+    light = child ? child->get_component<engine::Light>() : nullptr;
+    if (!expect(light && light->instance_id() != identity && !child->visible() &&
+                    !child->active() && !light->enabled() && !light->visible(),
+                "restoration preserves local flags and allocates fresh component identity"))
+    {
+        return false;
+    }
+    if (!expect(child->set_parent(nullptr) && child->active() && !light->active(),
+                "reparenting immediately recomputes inherited activation"))
+    {
+        return false;
+    }
+    const auto old = light->instance_id();
+    if (!child->remove_component(engine::Light::component_type))
+    {
+        return false;
+    }
+    light = child->add_component<engine::Light>();
+    return expect(light && light->instance_id() != old && light->enabled() && light->visible(),
+                  "replacing the component does not resurrect old identity or local flags");
+}
+
 bool scene_lifecycle()
 {
     const engine::EngineConfig config;
@@ -1359,9 +1457,9 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !hierarchy_and_transforms() || !indexed_scene_restore() || !incremental_scene_restore() ||
-        !persistent_nodes() || !persistent_scene_loading() || !component_contracts() ||
-        !camera_rays() || !transient_nodes() || !material_contracts() ||
+        !node_component_state() || !hierarchy_and_transforms() || !indexed_scene_restore() ||
+        !incremental_scene_restore() || !persistent_nodes() || !persistent_scene_loading() ||
+        !component_contracts() || !camera_rays() || !transient_nodes() || !material_contracts() ||
         !baked_lighting_bindings() || !resource_namespaces())
     {
         return 1;

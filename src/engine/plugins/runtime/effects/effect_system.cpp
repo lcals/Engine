@@ -73,7 +73,8 @@ void set_effect_light(const Scene& scene, EffekseerRenderer::Renderer& renderer)
     for (const auto& node : scene.nodes())
     {
         const auto* light = node->get_component<Light>();
-        if (!light || !light->enabled() || light->settings().kind != schema::LightKind::directional)
+        if (!light || !light->active() || !light->visible_in_hierarchy() ||
+            light->settings().kind != schema::LightKind::directional)
         {
             continue;
         }
@@ -111,7 +112,6 @@ struct EffectSystem::State
         std::uint64_t revision = 0;
         std::shared_ptr<CompiledEffect> compiled;
         Effekseer::Handle handle = -1;
-        bool disabled = false;
     };
 
     detail::EffectResources resources;
@@ -324,20 +324,16 @@ struct EffectSystem::State
                 const auto id = component->instance_id();
                 alive.insert(id);
                 auto& instance = instances[id];
-                if (!component->enabled())
+                if (!component->active())
                 {
-                    stop(instance);
-                    instance.compiled.reset();
-                    if (!instance.disabled)
+                    if (instance.handle >= 0)
                     {
-                        component->requested_ = EffectComponent::Playback::stopped;
-                        component->awake_pending_ = component->settings().play_on_awake;
+                        manager->SetPaused(instance.handle, true);
+                        manager->SetShown(instance.handle, false);
                     }
-                    instance.disabled = true;
                     component->playing_ = false;
                     continue;
                 }
-                instance.disabled = false;
                 if (instance.revision != component->revision_)
                 {
                     stop(instance);
@@ -375,6 +371,7 @@ struct EffectSystem::State
                     return false;
                 }
                 manager->SetMatrix(instance.handle, transform);
+                manager->SetShown(instance.handle, component->visible_in_hierarchy());
                 manager->SetSpeed(instance.handle, component->settings().speed);
                 manager->SetPaused(instance.handle,
                                    world_paused ||
@@ -417,6 +414,7 @@ struct EffectSystem::State
                         return false;
                     }
                     manager->SetMatrix(instance.handle, transform);
+                    manager->SetShown(instance.handle, component->visible_in_hierarchy());
                     manager->SetSpeed(instance.handle, component->settings().speed);
                     restarted = true;
                 }

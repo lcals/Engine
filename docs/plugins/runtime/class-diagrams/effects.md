@@ -16,7 +16,6 @@ classDiagram
         +restore_data(const ComponentDataT& data) bool
         +set_effect(string_view path) bool
         +effect_path() string_view
-        +instance_id() uint64_t
         +play() bool
         +pause() bool
         +stop() bool
@@ -52,7 +51,7 @@ classDiagram
 ```
 
 - `EffectDataT` 仅保存 `effect_guid`、`speed`、`loop`、`play_on_awake`。速度为有限 `[0,16]`，资源 GUID 可空。读取失败保持原配置及播放状态，显式播放必须有已加载的有效特效资源。schema 和资源头继续由引擎提供；`EFCT` 资源只封装未经修改的官方 `.efkefc` 字节与每效果依赖路径/GUID/种类映射，不重新定义特效算法或参数格式。
-- 组件实例拥有独立单调身份，移除后重新添加不能复活旧句柄。`play/pause/stop` 提交当前组件的播放意图；`playing()` 由 SDK 实际句柄状态回写，不能把尚未执行的请求报告为播放成功。暂停保留粒子并可恢复；停止或禁用清除本实例。重新启用时，仅 `play_on_awake` 打开的实例自动重播。同 GUID 的代际刷新及属性恢复保留播放／暂停／停止意图；只有切换到另一个资源时重新采用自动播放设置。
+- 组件实例拥有独立单调身份，移除后重新添加不能复活旧句柄。`play/pause/stop` 提交当前组件的播放意图；`playing()` 由 SDK 实际句柄状态回写，不能把尚未执行的请求报告为播放成功。显式暂停保留粒子并可恢复，停止清除本实例。组件或祖先禁用时暂停并隐藏已存在的实例，恢复激活后继续原播放意图；单独隐藏只影响绘制，继续推进播放。世界暂停时保留当前粒子，显示状态仍可同步，不推进时间或启动待播放实例。同 GUID 的代际刷新及属性恢复保留播放／暂停／停止意图；只有切换到另一个资源时重新采用自动播放设置。
 - 世界负责每帧时间，插件按官方 `Manager::Update(seconds * 60)` 推进。模型渲染器沿 efkbgfx `examples/example.cpp` 使用独立 `CreateModelRenderer(renderer, &arguments)` 工厂完成 Shader 初始化，不使用只分配对象的同名虚方法。已发布世界中无特效资源时不创建 SDK/GPU 状态；Renderer 首次绘制特效时创建，窗口暂停后不访问失效设备；本次 `RenderContext` 的右手镜头矩阵用于观察，节点完整世界矩阵决定发射器位置、朝向和缩放，不在核心补模型或项目特判。
 - 同一 GUID/资源代际共享已编译的 Effekseer Effect；播放句柄和暂停状态归各组件。移除节点、替换组件、切换资源会停止对应句柄；普通场景切换遍历所有已发布节点，常驻组件保留原 SDK 句柄、粒子状态和计时，最后一个使用者退出释放资源。`release_scene()` 不借用已销毁节点，`release_gpu()` 在 bgfx 关闭前先销毁 manager、effect、模型与纹理，再销毁 renderer 和 shader。
 - 纹理通过 `ResourceSystem::loader()` 加载标准 GUID 资源，复用渲染模块私有 `GpuTexture` 处理 Basis 转码和 meta 色彩空间；模型通过官方 ModelLoader 的内存接口加载 `.efkmodel` 字节。SDK 路径回调仅在官方同步加载期间查询本效果的编译绑定，依赖按 GUID 从清单加载并与编译 Effect 共同持有。关闭 SDK 按原文件名缓存，避免不同效果的同名路径混用；共享按 GUID/资源代际处理。不读操作系统文件、不按清单全局猜测路径。官方依赖路径目前限制为有效 UTF-16 的至多 511 个编码单元，超限明确拒绝，避免上游固定缓冲静默截断。

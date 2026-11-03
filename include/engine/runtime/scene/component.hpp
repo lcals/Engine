@@ -19,9 +19,14 @@ public:
 
     [[nodiscard]] Node& node() noexcept;
     [[nodiscard]] const Node& node() const noexcept;
+    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] ComponentType type() const noexcept;
     [[nodiscard]] bool enabled() const noexcept;
     void set_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] bool visible() const noexcept;
+    void set_visible(bool visible) noexcept;
+    [[nodiscard]] bool visible_in_hierarchy() const noexcept;
     // Derived runtime components may be regenerated from their owner's persistent data.
     // Scene snapshots omit explicitly transient components; default is false.
     [[nodiscard]] bool transient() const noexcept;
@@ -40,6 +45,7 @@ protected:
 private:
     friend class Node;
     Node& node_;
+    const std::uint64_t instance_id_;
     schema::ComponentDataT data_{};
     bool transient_ = false;
 };

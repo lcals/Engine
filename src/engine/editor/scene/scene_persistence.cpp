@@ -660,7 +660,7 @@ bool ScenePersistence::State::save(WorldSystem& world, const fs::path& project_r
                         return rollback();
                     }
                     const auto cached = meshes.find(mesh_path);
-                    MeshSnapshot snapshot{scene_id, renderer->mesh_instance_id(),
+                    MeshSnapshot snapshot{scene_id, renderer->instance_id(),
                                           renderer->mesh_revision()};
                     const bool reused = cached != meshes.end() &&
                                         cached->second.scene_id == scene_id &&

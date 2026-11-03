@@ -35,7 +35,7 @@ bool active(const Node& node)
     for (const Node* current = &node; current != nullptr; current = current->parent())
     {
         const auto* transform = current->get_component<Transform>();
-        if (transform == nullptr || !transform->enabled())
+        if (transform == nullptr || !transform->active())
         {
             return false;
         }
@@ -382,8 +382,8 @@ bool AnimationSystem::on_tick(double delta_time)
         {
             auto* animator = node->get_component<Animator>();
             auto* renderer = node->get_component<MeshRenderer>();
-            if (animator == nullptr || renderer == nullptr || !animator->enabled() ||
-                !renderer->enabled() || !active(*node) || animator->animation_ == nullptr)
+            if (animator == nullptr || renderer == nullptr || !animator->active() ||
+                !renderer->active() || !active(*node) || animator->animation_ == nullptr)
             {
                 if (renderer != nullptr && state_->entries.contains(node->id()))
                 {
@@ -411,13 +411,13 @@ bool AnimationSystem::on_tick(double delta_time)
             if (found == state_->entries.end() ||
                 animator->prepared_revision_ != animator->revision_ ||
                 found->second->mesh_revision != renderer->mesh_revision() ||
-                found->second->mesh_instance != renderer->mesh_instance_id())
+                found->second->mesh_instance != renderer->instance_id())
             {
                 std::shared_ptr<const animation_detail::CompiledAnimation> compiled;
                 auto candidate = std::make_unique<AnimationEntry>();
                 if (!state_->compile(animator->animation_, *mesh, compiled) ||
-                    !candidate->prepare(*mesh, renderer->mesh_revision(),
-                                        renderer->mesh_instance_id(), compiled))
+                    !candidate->prepare(*mesh, renderer->mesh_revision(), renderer->instance_id(),
+                                        compiled))
                 {
                     std::fputs("Cannot prepare animation: resource or skeleton mismatch\n", stderr);
                     return false;
@@ -426,10 +426,9 @@ bool AnimationSystem::on_tick(double delta_time)
                 {
                     const auto* previous =
                         found != state_->entries.end() ? found->second.get() : nullptr;
-                    const bool same_mesh =
-                        previous != nullptr && previous->sampled &&
-                        previous->mesh_instance == renderer->mesh_instance_id() &&
-                        previous->mesh_revision == renderer->mesh_revision();
+                    const bool same_mesh = previous != nullptr && previous->sampled &&
+                                           previous->mesh_instance == renderer->instance_id() &&
+                                           previous->mesh_revision == renderer->mesh_revision();
                     if (animator->frozen_pose_ != nullptr &&
                         animation_detail::identity(*animator->frozen_pose_->target) ==
                             animation_detail::identity(*compiled->target->resource))

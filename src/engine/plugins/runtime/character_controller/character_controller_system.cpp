@@ -142,7 +142,7 @@ bool CharacterControllerSystem::on_tick(double)
             for (const auto& node : scene->nodes())
             {
                 const auto* component = node->get_component<CharacterController>();
-                if (component == nullptr || !component->enabled() || !detail::active(*node))
+                if (component == nullptr || !component->active() || !detail::active(*node))
                 {
                     continue;
                 }
@@ -163,8 +163,8 @@ bool CharacterControllerSystem::on_tick(double)
         input = controller->input_;
     }
     discard_component_inputs();
-    if (controller == nullptr || !controller->enabled() || !detail::active(*player) ||
-        motor == nullptr || !motor->enabled())
+    if (controller == nullptr || !controller->active() || !detail::active(*player) ||
+        motor == nullptr || !motor->active())
     {
         stop_driving();
         return true;
@@ -200,7 +200,7 @@ bool CharacterControllerSystem::on_tick(double)
         auto* camera = camera_node->get_component<Camera>();
         auto* rig =
             camera_node != nullptr ? camera_node->get_component<CharacterCamera>() : nullptr;
-        if (camera == nullptr || !camera->enabled() || rig == nullptr || !rig->enabled() ||
+        if (camera == nullptr || !camera->active() || rig == nullptr || !rig->active() ||
             camera_node == player || camera_node->parent() != nullptr ||
             !detail::active(*camera_node) || rig->settings().target_node_id != player->info().id ||
             !rig->synchronize_angles())

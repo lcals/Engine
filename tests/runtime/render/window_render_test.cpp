@@ -1083,12 +1083,44 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
     {
         return false;
     }
+    auto* visibility_parent = scene->create_node("Visibility parent");
+    if (!expect(visibility_parent != nullptr && quad_node->set_parent(visibility_parent),
+                "group the mesh under a parent without changing its transform"))
+    {
+        return false;
+    }
+    visibility_parent->set_visible(false);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "hidden-parent", image) ||
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh->active() && mesh->visible() &&
+                    !mesh->visible_in_hierarchy(),
+                "a hidden ancestor suppresses mesh pixels while preserving local active state"))
+    {
+        return false;
+    }
+    visibility_parent->set_visible(true);
+    visibility_parent->set_enabled(false);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "disabled-parent", image) ||
+        !expect(image.pixel(cx, cy)[0] < 80 && mesh->enabled() && !mesh->active(),
+                "a disabled ancestor suppresses mesh rendering without changing local enabled"))
+    {
+        return false;
+    }
+    visibility_parent->set_enabled(true);
+    if (!render_frames(windows, renderer, 8) ||
+        !screenshot(windows, renderer, fixture.root, "parent-restored", image) ||
+        !expect(near_color(image.pixel(cx, cy), 188, 188, 188) && gpu_counts() == single_mesh,
+                "restoring parent state restores mesh pixels and the original GPU allocation"))
+    {
+        return false;
+    }
     if (!shared)
     {
         auto* observer_node = scene->create_node("Observer camera");
         auto* observer = observer_node ? observer_node->add_component<engine::Camera>() : nullptr;
-        const std::array hidden = {mesh->mesh_instance_id(), mesh->mesh_instance_id()};
-        const std::array invalid_hidden = {mesh->mesh_instance_id(), std::uint64_t{0}};
+        const std::array hidden = {mesh->instance_id(), mesh->instance_id()};
+        const std::array invalid_hidden = {mesh->instance_id(), std::uint64_t{0}};
         engine::schema::ComponentDataT saved_camera;
         if (!expect(observer != nullptr && observer->set_settings(camera_settings) &&
                         observer_node->get_component<engine::Transform>()->set_settings(
@@ -1134,8 +1166,8 @@ bool test_textured_renderer(const engine::EngineConfig& config, bool shared)
             return false;
         }
         mesh = quad_node->add_component<engine::MeshRenderer>();
-        if (!expect(mesh != nullptr && mesh->mesh_instance_id() != hidden.front() &&
-                        camera->mesh_visible(mesh->mesh_instance_id()) &&
+        if (!expect(mesh != nullptr && mesh->instance_id() != hidden.front() &&
+                        camera->mesh_visible(mesh->instance_id()) &&
                         !camera->mesh_visible(hidden.front()) && mesh->set_mesh_data(data) &&
                         mesh->material().set_type("builtin://materials/default-unlit") &&
                         mesh->material().set_v4("baseColor", {1, 1, 1, 1}) &&
@@ -1299,11 +1331,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     const auto idle = gpu_counts();
-    auto invalid = renderer.settings();
-    invalid.exposure = std::numeric_limits<float>::quiet_NaN();
-    if (!expect(!renderer.set_settings(invalid) && renderer.settings().exposure == 1.0F,
-                "invalid render settings preserve the previous configuration") ||
-        !expect(
+    if (!expect(
             !renderer.request_screenshot("relative.png") &&
                 !renderer.request_screenshot(engine::PathUtils::to_utf8(fixture.root / "bad.jpg")),
             "capture requires absolute PNG destination") ||
@@ -1318,6 +1346,29 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                     scene->active_camera()->node().add_component<engine::PostProcessComponent>() !=
                         nullptr,
                 "scene render settings are owned by environment and camera components"))
+    {
+        return false;
+    }
+    auto* environment = environment_node->get_component<engine::EnvironmentComponent>();
+    auto* post_process =
+        scene->active_camera()->node().get_component<engine::PostProcessComponent>();
+    engine::Light* light = nullptr;
+    for (const auto& node : scene->nodes())
+    {
+        if (auto* candidate = node->get_component<engine::Light>())
+        {
+            light = candidate;
+            break;
+        }
+    }
+    if (!expect(light != nullptr, "find the scene's directional light"))
+    {
+        return false;
+    }
+    auto invalid = post_process->settings();
+    invalid.exposure = std::numeric_limits<float>::quiet_NaN();
+    if (!expect(!post_process->set_settings(invalid) && renderer.settings().exposure == 1.0F,
+                "invalid post-process settings preserve the previous configuration"))
     {
         return false;
     }
@@ -1340,35 +1391,42 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    engine::RenderSettings settings;
-    settings.ambient_intensity = 0.12F;
+    auto environment_settings = environment->settings();
+    auto post_settings = post_process->settings();
+    auto light_settings = light->settings();
+    const auto apply_settings = [&]()
+    {
+        return environment->set_settings(environment_settings) &&
+               post_process->set_settings(post_settings) && light->set_settings(light_settings);
+    };
+    environment_settings.ambient_intensity = 0.12F;
     Screenshot unshadowed;
     Screenshot shadowed;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!apply_settings() || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "without-shadow", unshadowed))
     {
         return false;
     }
     const auto unshadowed_resources = renderer.gpu_resource_count();
-    settings.ambient_intensity = 0.6F;
+    environment_settings.ambient_intensity = 0.6F;
     for (const auto projection :
          {engine::schema::Projection::perspective, engine::schema::Projection::orthographic})
     {
         auto camera_projection = scene->active_camera()->settings();
         camera_projection.projection = projection;
         camera_projection.orthographic_size = 6.0F;
-        settings.ao_enabled = false;
+        post_settings.ao_enabled = false;
         Screenshot without_ao;
         Screenshot with_ao;
         Screenshot restored_ao;
-        if (!scene->active_camera()->set_settings(camera_projection) ||
-            !renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        if (!scene->active_camera()->set_settings(camera_projection) || !apply_settings() ||
+            !render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, "without-ao", without_ao))
         {
             return false;
         }
-        settings.ao_enabled = true;
-        if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+        post_settings.ao_enabled = true;
+        if (!apply_settings() || !render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, "with-ao", with_ao) ||
             !expect(renderer.gpu_resource_count() > unshadowed_resources,
                     "AO reuses scene depth and owns compute programs and intermediate textures"))
@@ -1385,10 +1443,10 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
             }
             occluded += difference > 12;
         }
-        settings.ao_enabled = false;
+        post_settings.ao_enabled = false;
         if (!expect(occluded > 20 && occluded < without_ao.pixels.size() / 2,
                     "AO darkens local contacts in both camera projections") ||
-            !renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+            !apply_settings() || !render_frames(windows, renderer, 8) ||
             !screenshot(windows, renderer, fixture.root, "restored-ao", restored_ao) ||
             !expect(restored_ao.pixels == without_ao.pixels &&
                         renderer.gpu_resource_count() == unshadowed_resources,
@@ -1399,17 +1457,17 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     }
     auto perspective = scene->active_camera()->settings();
     perspective.projection = engine::schema::Projection::perspective;
-    settings.ambient_intensity = 0.0F;
+    environment_settings.ambient_intensity = 0.0F;
     Screenshot direct_only;
     Screenshot direct_with_ao;
-    if (!scene->active_camera()->set_settings(perspective) || !renderer.set_settings(settings) ||
+    if (!scene->active_camera()->set_settings(perspective) || !apply_settings() ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "direct-only", direct_only))
     {
         return false;
     }
-    settings.ao_enabled = true;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    post_settings.ao_enabled = true;
+    if (!apply_settings() || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "direct-with-ao", direct_with_ao) ||
         !expect(direct_only.pixels == direct_with_ao.pixels,
                 "AO does not dim direct lighting when indirect light is absent"))
@@ -1431,12 +1489,12 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    settings.ao_enabled = false;
-    settings.ambient_intensity = 0.12F;
-    settings.directional_shadows = true;
-    settings.shadow_resolution = 1024;
-    settings.shadow_bias = 0.0005F;
-    if (!expect(renderer.set_settings(settings), "enable explicit directional shadow settings") ||
+    post_settings.ao_enabled = false;
+    environment_settings.ambient_intensity = 0.12F;
+    light_settings.cast_shadows = true;
+    light_settings.shadow_resolution = 1024;
+    light_settings.shadow_bias = 0.0005F;
+    if (!expect(apply_settings(), "enable explicit directional shadow settings") ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "with-shadow", shadowed) ||
         !expect(renderer.gpu_resource_count() >= unshadowed_resources,
@@ -1465,8 +1523,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     const auto shadow_resources = renderer.gpu_resource_count();
     for (const std::uint8_t cascades : {1, 2, 4})
     {
-        settings.shadow_cascades = cascades;
-        if (!expect(renderer.set_settings(settings) && render_frames(windows, renderer, 8) &&
+        light_settings.shadow_cascades = cascades;
+        if (!expect(apply_settings() && render_frames(windows, renderer, 8) &&
                         renderer.gpu_resource_count() == shadow_resources,
                     "switching cascade counts reuses a single shadow atlas"))
         {
@@ -1482,7 +1540,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    const std::array hidden_caster = {cube_mesh->mesh_instance_id()};
+    const std::array hidden_caster = {cube_mesh->instance_id()};
     Screenshot hidden_with_shadow;
     Screenshot hidden_without_shadow;
     if (!expect(scene->active_camera()->set_hidden_meshes(hidden_caster),
@@ -1517,13 +1575,22 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     cube_mesh->set_cast_shadows(true);
-    const auto shadow_settings = settings;
-    settings.directional_shadows = false;
-    settings.ao_enabled = true;
-    settings.ambient_intensity = 0.6F;
+    const auto shadow_environment = environment_settings;
+    const auto shadow_post = post_settings;
+    const auto shadow_light = light_settings;
+    const auto restore_shadow_settings = [&]()
+    {
+        environment_settings = shadow_environment;
+        post_settings = shadow_post;
+        light_settings = shadow_light;
+        return apply_settings();
+    };
+    light_settings.cast_shadows = false;
+    post_settings.ao_enabled = true;
+    environment_settings.ambient_intensity = 0.6F;
     Screenshot camera_hidden_ao;
     Screenshot globally_hidden_ao;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!apply_settings() || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "camera-hidden-ao", camera_hidden_ao))
     {
         return false;
@@ -1538,8 +1605,7 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
         return false;
     }
     cube_mesh->set_visible(true);
-    settings = shadow_settings;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8))
+    if (!restore_shadow_settings() || !render_frames(windows, renderer, 8))
     {
         return false;
     }
@@ -1575,8 +1641,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     auto skin_normal = skin_transform;
     skin_normal[12] = 0;
     skin_normal[13] = 0;
-    settings.ao_enabled = true;
-    if (!renderer.set_settings(settings) ||
+    post_settings.ao_enabled = true;
+    if (!apply_settings() ||
         !expect(cube_mesh->set_deformation(posed.vertices, posed.tangents),
                 "deform shadow caster without changing source mesh") ||
         !render_frames(windows, renderer, 8) ||
@@ -1623,16 +1689,15 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
                 "deformed positions, normals, tangents, shadow bounds and shadow pass match "
                 "equivalent static geometry") ||
         !expect(cube_mesh->set_mesh("builtin://meshes/cube"), "restore original shadow caster") ||
-        !renderer.set_settings(shadow_settings) || !render_frames(windows, renderer, 8))
+        !restore_shadow_settings() || !render_frames(windows, renderer, 8))
     {
         return false;
     }
-    settings = shadow_settings;
-    settings.filmic_tonemap = true;
-    settings.exposure = 1.25F;
+    post_settings.filmic_tonemap = true;
+    post_settings.exposure = 1.25F;
     const auto capture = fixture.root / "render-capture.png";
     const auto capture_path = engine::PathUtils::to_utf8(capture);
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!apply_settings() || !render_frames(windows, renderer, 8) ||
         !expect(renderer.request_screenshot(capture_path) &&
                     renderer.screenshot_status() == engine::ScreenshotStatus::pending &&
                     !renderer.request_screenshot(capture_path),
@@ -1663,8 +1728,8 @@ bool test_render_settings_and_capture(const engine::EngineConfig& config)
     {
         return false;
     }
-    settings.directional_shadows = false;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    light_settings.cast_shadows = false;
+    if (!apply_settings() || !render_frames(windows, renderer, 8) ||
         !expect(renderer.gpu_resource_count() == unshadowed_resources,
                 "disabling shadows releases framebuffer, textures and shaders"))
     {
@@ -2153,11 +2218,19 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
             light->set_enabled(false);
         }
     }
-    auto settings = renderer.settings();
-    settings.clear_color = 0x000000ff;
+    auto* environment_component = environment->get_component<engine::EnvironmentComponent>();
+    auto* post_process =
+        scene->active_camera()->node().get_component<engine::PostProcessComponent>();
+    auto environment_settings = environment_component->settings();
+    environment_settings.clear_color = 0x000000ff;
+    if (!environment_component->set_settings(environment_settings))
+    {
+        return false;
+    }
+    auto settings = post_process->settings();
     settings.filmic_tonemap = true;
     Screenshot sdr;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-sdr-baseline", sdr))
     {
         return false;
@@ -2165,7 +2238,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     const auto sdr_resources = renderer.gpu_resource_count();
     settings.hdr_enabled = true;
     Screenshot hdr;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-no-bloom", hdr) ||
         !expect(renderer.gpu_resource_count() == sdr_resources,
                 "HDR display settings reuse the always-linear scene target and resolve programs"))
@@ -2176,7 +2249,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     settings.bloom_enabled = true;
     settings.bloom_intensity = 0.7F;
     Screenshot bloom;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom", bloom) ||
         !expect(renderer.gpu_resource_count() > hdr_resources,
                 "Bloom owns separate bright and blur targets"))
@@ -2195,7 +2268,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     Screenshot zero_bloom;
     settings.bloom_intensity = 0.0F;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom-zero", zero_bloom) ||
         !expect(zero_bloom.pixels == hdr.pixels,
                 "zero Bloom strength preserves HDR output without applying tone mapping twice"))
@@ -2205,7 +2278,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     settings.bloom_intensity = 0.7F;
     settings.bloom_threshold = 100.0F;
     Screenshot threshold;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-bloom-threshold", threshold) ||
         !expect(threshold.pixels == hdr.pixels,
                 "linear threshold above scene radiance excludes the complete Bloom contribution") ||
@@ -2215,7 +2288,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
         return false;
     }
     settings.bloom_enabled = false;
-    if (!renderer.set_settings(settings) || !render_frames(windows, renderer, 8) ||
+    if (!post_process->set_settings(settings) || !render_frames(windows, renderer, 8) ||
         !expect(renderer.gpu_resource_count() == hdr_resources,
                 "disabling Bloom after resize releases its intermediate targets"))
     {
@@ -2223,7 +2296,7 @@ bool test_hdr_and_bloom(const engine::EngineConfig& config)
     }
     settings.hdr_enabled = false;
     Screenshot restored;
-    if (!renderer.set_settings(settings) ||
+    if (!post_process->set_settings(settings) ||
         !SDL_SetWindowSize(windows.native_window(), config.width, config.height) ||
         !render_frames(windows, renderer, 8) ||
         !screenshot(windows, renderer, fixture.root, "hdr-sdr-restored", restored) ||
@@ -2643,11 +2716,6 @@ public:
     {
         script_lifecycle.scene_present_when_stopped =
             script_lifecycle.scene_present_when_stopped || world_.scene() != nullptr;
-    }
-
-    void set_hot_reload(bool enabled) override
-    {
-        status_.hot_reload = enabled;
     }
 
     [[nodiscard]] bool execute_project_script(const engine::ProjectScriptRequest&,

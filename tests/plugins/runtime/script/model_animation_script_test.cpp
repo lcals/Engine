@@ -1,4 +1,5 @@
 #include "animation_fixture.hpp"
+#include "script_fixture.hpp"
 
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
@@ -90,7 +91,9 @@ export default class extends Gameplay {
     }
     fixture.world.destroy_scene();
     engine::plugins::script::ScriptSystem script(&fixture.world);
-    if (!expect(script.initialize({}) && script.start_gameplay("scripts/game.js"),
+    if (!expect(script.initialize({}) && test_support::start_script(
+                                             script, fixture.resources,
+                                             {{"content", fixture.files.root}}, "scripts/game.js"),
                 "selected script backend executes model instantiation and Animator bindings") ||
         !expect(fixture.animation.tick(0) && script.tick(0.25) && script.status().running,
                 "paused pose survives a script update"))

@@ -288,8 +288,8 @@ void contact_target(const Arguments& arguments)
     }
     const auto* collider = node->get_component<Collider>();
     const auto* motor = node->get_component<CharacterMotor>();
-    const bool has_collider = collider && collider->enabled();
-    const bool has_motor = motor && motor->enabled();
+    const bool has_collider = collider && collider->active();
+    const bool has_motor = motor && motor->active();
     if (has_collider == has_motor)
     {
         return;

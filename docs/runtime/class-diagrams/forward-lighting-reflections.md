@@ -2,7 +2,7 @@
 
 [类图索引](../../class-diagrams/index.md) · [现有渲染系统](render-system.md) · [上游实现与适配](../rendering-upstream-plan.md) · [编辑器光照烘焙](../../plugins/editor/class-diagrams/scene-lighting-bake.md)
 
-**状态：接口已评审通过，实现与验证中。** 本图集中列出本轮新增及改变的契约；现有方法仍以所属类图为准。实现继续使用当前工作分支。目标包括分簇前向光照、SSR、平面反射、透明与折射、点光/聚光阴影、静态 Lightmap 和动态对象的光照探针。
+**状态：当前实现契约。** 本图维护分簇与反射相关接口；基础方法以所属类图为准，实际验证范围见[测试文档](../../testing.md)。功能包括分簇前向光照、SSR、平面反射、透明与折射、点光/聚光阴影、静态 Lightmap 和动态对象的光照探针。
 
 ## 运行时归属
 
@@ -33,7 +33,7 @@ classDiagram
     SceneGpuResources *-- HdrPostProcessPass : 扩展已有颜色目标
 ```
 
-沿用 `RenderSystem` 和已有 `passes/`，不增加渲染管理器或另一套图形后端。以上私有通道只拥有 GPU 资源，不拥有 Scene、Node 或 Component；输入只在帧提交期间借用。初始化失败清理已创建部分；窗口尺寸改变时重新准备受影响目标，关闭效果、换场景和关闭设备时释放。GPU 拥有者不可复制，析构兜底。
+沿用 `RenderSystem` 和已有 `passes/`，不增加渲染管理器或另一套图形后端。以上私有通道只拥有 GPU 资源，不拥有 Scene、Node 或 Component；输入只在帧提交期间借用。初始化失败清理已创建部分；窗口尺寸改变时重新准备受影响目标，关闭效果、已无存活使用者或关闭设备时释放。GPU 拥有者不可复制，析构兜底。
 
 内部组织仍采用各通道的 `prepare(...) -> bool`、`release() noexcept`、`resource_count() const noexcept -> uint32_t` 契约。具体提交保持在渲染模块内部，不向脚本暴露 GPU handle：
 

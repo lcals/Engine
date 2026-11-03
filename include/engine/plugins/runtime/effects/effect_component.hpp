@@ -21,7 +21,6 @@ public:
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
     [[nodiscard]] bool set_effect(std::string_view path);
     [[nodiscard]] std::string_view effect_path() const noexcept;
-    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] bool play() noexcept;
     [[nodiscard]] bool pause() noexcept;
     [[nodiscard]] bool stop() noexcept;
@@ -31,7 +30,6 @@ private:
     friend class engine::Node;
     friend class EffectSystem;
     explicit EffectComponent(Node& node);
-    [[nodiscard]] bool initialize() override;
 
     enum class Playback
     {
@@ -40,7 +38,6 @@ private:
         paused
     };
 
-    const std::uint64_t instance_id_;
     ResourcePtr effect_;
     std::uint64_t revision_ = 0;
     Playback requested_ = Playback::stopped;

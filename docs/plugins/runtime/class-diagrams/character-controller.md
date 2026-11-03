@@ -9,7 +9,6 @@ classDiagram
         +set_settings(const CharacterControllerDataT& settings) bool
         +set_input(const CharacterInput& input) bool
         +clear_input() void
-        +instance_id() uint64_t
         +restore_data(const ComponentDataT& data) bool
     }
     class CharacterControllerSystem {

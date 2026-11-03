@@ -21,6 +21,50 @@ Node::~Node() noexcept
     scene_.destroy_entity(entity_id_, info_.id);
 }
 
+bool Node::enabled() const noexcept
+{
+    return info_.enabled;
+}
+
+void Node::set_enabled(bool enabled) noexcept
+{
+    info_.enabled = enabled;
+}
+
+bool Node::active() const noexcept
+{
+    for (const Node* current = this; current != nullptr; current = current->parent())
+    {
+        if (!current->enabled())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool Node::visible() const noexcept
+{
+    return info_.visible;
+}
+
+void Node::set_visible(bool visible) noexcept
+{
+    info_.visible = visible;
+}
+
+bool Node::visible_in_hierarchy() const noexcept
+{
+    for (const Node* current = this; current != nullptr; current = current->parent())
+    {
+        if (!current->visible())
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::uint64_t Node::id() const noexcept
 {
     return entity_id_;

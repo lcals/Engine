@@ -10,7 +10,6 @@ classDiagram
         +settings() const CharacterMotorDataT&
         +set_settings(const CharacterMotorDataT& settings) bool
         +restore_data(const ComponentDataT& data) bool
-        +instance_id() uint64_t
         +set_velocity(const Vec3& velocity) bool
         +clear_input() void
         +add_velocity(const Vec3& delta) bool

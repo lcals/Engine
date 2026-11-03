@@ -14,7 +14,6 @@ classDiagram
         +stop() void
         +state() NavigationAgentStatus
         +velocity() Vec3
-        +instance_id() uint64_t
         +restore_data(const ComponentDataT& data) bool
     }
     class NavigationCrowdSystem {

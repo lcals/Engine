@@ -325,12 +325,14 @@ bool runtime_contract()
     if (!expect(component->apply_sphere({0, 0, 0}, 100, false) &&
                     component->triangle_count() == 0 && !renderer->visible() &&
                     !collider->enabled() && physics.body_count() == 0 && cast(0.25, false) &&
+                    terrain.synchronize() && component->triangle_count() == 0 &&
+                    !renderer->visible() && !collider->enabled() &&
                     component->apply_sphere({0, -4, 0}, 4, true) &&
                     component->triangle_count() > 0 && renderer->visible() && collider->enabled() &&
                     physics.body_count() == 1 && node->get_component<Collider>() == collider &&
                     scene->nodes().size() == 1 && cast(0.25, true) && component->restore(saved) &&
                     cast(0.25, false) && cast(12, true),
-                "filling an entirely empty terrain restores collision without a physics tick"))
+                "empty terrain stays hidden after synchronization and filling restores collision"))
     {
         return false;
     }
@@ -637,6 +639,7 @@ bool collapse_runtime_contract()
     ByteBuffer before;
     ByteBuffer after;
     const auto revision = component->revision();
+    component->set_visible(false);
     if (!expect(component->snapshot(before) && !component->collapse_detached(8, 7, 2, 100) &&
                     component->snapshot(after) && before == after &&
                     component->revision() == revision && component->fragment_count() == 0 &&
@@ -664,12 +667,55 @@ bool collapse_runtime_contract()
             fragment_id = item->id();
             auto* body = item->get_component<RigidBody>();
             if (!expect(body && body->settings().motion == schema::BodyMotion::dynamic &&
-                            item->get_component<MeshRenderer>() && item->get_component<Collider>(),
-                        "detached soil uses ordinary renderer/collider/dynamic-body components"))
+                            item->get_component<MeshRenderer>() &&
+                            item->get_component<Collider>() &&
+                            !item->get_component<MeshRenderer>()->visible_in_hierarchy() &&
+                            item->get_component<Collider>()->active(),
+                        "new soil fragments immediately inherit hidden source state without "
+                        "suppressing collision"))
             {
                 return false;
             }
         }
+    }
+    const auto fragments_visible = [&](bool expected)
+    {
+        return std::all_of(scene->nodes().begin(), scene->nodes().end(),
+                           [&](const auto& item)
+                           {
+                               const auto* mesh = item->template get_component<MeshRenderer>();
+                               return !item->transient() ||
+                                      (mesh && mesh->visible_in_hierarchy() == expected);
+                           });
+    };
+    component->set_visible(true);
+    if (!expect(world.set_paused(true) && terrain.tick(2) && fragments_visible(true) &&
+                    node->get_component<MeshRenderer>()->visible(),
+                "paused terrain synchronizes visibility without advancing simulation"))
+    {
+        return false;
+    }
+    node->set_visible(false);
+    if (!expect(terrain.tick(2) && fragments_visible(false) && physics.body_count() == 9,
+                "hiding the source node while paused hides all independent fragments"))
+    {
+        return false;
+    }
+    node->set_visible(true);
+    node->set_enabled(false);
+    if (!expect(terrain.tick(2) && physics.tick(0) &&
+                    !scene->find_node(fragment_id)->get_component<MeshRenderer>()->active() &&
+                    !scene->find_node(fragment_id)->get_component<Collider>()->active(),
+                "disabling the source while paused synchronizes fragment activation"))
+    {
+        return false;
+    }
+    node->set_enabled(true);
+    if (!expect(terrain.tick(2) && physics.tick(0) && fragments_visible(true) &&
+                    physics.body_count() == 9 && world.set_paused(false),
+                "reenabling the paused source restores the retained fragments"))
+    {
+        return false;
     }
     const double initial_y =
         scene->find_node(fragment_id)->get_component<Transform>()->settings().position.y();
@@ -708,8 +754,9 @@ bool collapse_runtime_contract()
     {
         return false;
     }
+    node->set_visible(false);
     if (!expect(component->apply_sphere({7, 4, 7}, 1.8F, false) &&
-                    component->collapse_detached(8, 16, 2, 100) &&
+                    component->collapse_detached(8, 16, 2, 100) && fragments_visible(false) &&
                     node->remove_component(TerrainComponent::component_type) && terrain.tick(0) &&
                     physics.tick(0) && physics.body_count() == 0 && scene->nodes().size() == 1,
                 "removing the source component cleans all fragment nodes and bodies"))
@@ -949,9 +996,11 @@ bool asynchronous_brush_contract()
         terrain.synchronize() && results.empty() && component->revision() == before &&
         !component->retire_fragments(0, 0, retired) && retired == 0;
     gate.release();
-    if (!expect(occupied.get() && queued && tasks.wait() && terrain.synchronize() &&
-                    results == std::vector<bool>{true} && component->revision() == before + 1 &&
-                    tasks.wait() && terrain.synchronize() &&
+    if (!expect(occupied.get() && queued && tasks.wait() && world.set_paused(true) &&
+                    terrain.tick(1) && terrain.synchronize() && results.empty() &&
+                    component->revision() == before && world.set_paused(false) &&
+                    terrain.synchronize() && results == std::vector<bool>{true} &&
+                    component->revision() == before + 1 && tasks.wait() && terrain.synchronize() &&
                     results == std::vector<bool>({true, true}) &&
                     component->revision() == before + 2 &&
                     retirement_allowed == std::vector<bool>({false, true}),

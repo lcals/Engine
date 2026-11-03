@@ -3,6 +3,7 @@
 
 #include "editor/commands/editor_commands.hpp"
 #include "editor/commands/editor_edit.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "runtime/render/render_system.hpp"
 #include "runtime/scene/camera.hpp"
 #include "runtime/scene/environment_component.hpp"
@@ -286,9 +287,9 @@ bool read_settings(const Json& arguments, RenderSettings& settings, std::string&
 class SettingsEdit final : public EditorEdit
 {
 public:
-    SettingsEdit(RenderSystem& renderer, WorldSystem& world, RenderSettings before,
-                 RenderSettings after, const Json& arguments)
-        : renderer_(renderer), world_(world), before_(before), after_(after),
+    SettingsEdit(RenderSystem& renderer, WorldSystem& world, SceneCommands& scenes,
+                 RenderSettings before, RenderSettings after, const Json& arguments)
+        : renderer_(renderer), world_(world), scenes_(scenes), before_(before), after_(after),
           scene_id_(world.scene() == nullptr ? 0 : world.scene()->id())
     {
         for (const auto& item : arguments.items())
@@ -335,7 +336,7 @@ public:
             return false;
         }
         records_.clear();
-        if (scene != nullptr && !prepare_components(*scene, error))
+        if (scene != nullptr && !apply_components(*scene, error))
         {
             if (!restore_records(*scene))
             {
@@ -343,19 +344,13 @@ public:
             }
             return false;
         }
-        if (!renderer_.set_settings(after_))
+        if (scene == nullptr)
         {
-            error =
-                "Invalid scene render settings, missing camera/light, or conflicting components";
-            if (scene != nullptr && !restore_records(*scene))
-            {
-                error += "; cannot restore scene component setup";
-            }
-            return false;
+            renderer_.set_idle_clear_color(after_.clear_color);
         }
         for (auto& record : records_)
         {
-            const auto* node = scene->find_node(record.node_id);
+            const auto* node = scene->find_node(*record.node_id);
             const auto* component = node == nullptr ? nullptr : node->get_component(record.type);
             if (component == nullptr || !component->build_data(record.after))
             {
@@ -380,17 +375,17 @@ public:
         }
         if (scene == nullptr)
         {
-            if (settings_json(renderer_.settings()) != settings_json(after_) ||
-                !renderer_.set_settings(before_))
+            if (renderer_.idle_clear_color() != after_.clear_color)
             {
                 error = "Idle render settings changed outside this edit";
                 return false;
             }
+            renderer_.set_idle_clear_color(before_.clear_color);
             return true;
         }
         for (const auto& record : records_)
         {
-            const auto* node = scene->find_node(record.node_id);
+            const auto* node = scene->find_node(*record.node_id);
             const auto* component = node == nullptr ? nullptr : node->get_component(record.type);
             schema::ComponentDataT snapshot;
             if (component == nullptr || !component->build_data(snapshot) ||
@@ -416,7 +411,7 @@ public:
 private:
     struct Record
     {
-        std::uint64_t node_id = 0;
+        std::shared_ptr<std::uint64_t> node_id;
         ComponentType type = ComponentType::NONE;
         bool created_node = false;
         std::optional<schema::ComponentDataT> before;
@@ -425,12 +420,13 @@ private:
 
     static bool can_remove_environment(const Scene& scene, const Node& node)
     {
-        if (node.parent() != nullptr || node.components().size() != 2)
+        if (node.parent() != nullptr || node.components().size() != 2 || !node.enabled() ||
+            !node.visible())
         {
             return false;
         }
         const auto* transform = node.get_component<Transform>();
-        if (transform == nullptr || !transform->enabled() ||
+        if (transform == nullptr || !transform->enabled() || !transform->visible() ||
             transform->settings() != TransformSettings{})
         {
             return false;
@@ -448,7 +444,12 @@ private:
     bool record(Component& component, bool created_component, bool created_node, std::string& error)
     {
         Record value;
-        value.node_id = component.node().id();
+        value.node_id = scenes_.node_identity(component.node().id());
+        if (!value.node_id)
+        {
+            error = "Cannot retain the edited node identity";
+            return false;
+        }
         value.type = component.type();
         value.created_node = created_node;
         if (!created_component)
@@ -464,7 +465,7 @@ private:
         return true;
     }
 
-    bool prepare_components(Scene& scene, std::string& error)
+    bool apply_components(Scene& scene, std::string& error)
     {
         if (environment_)
         {
@@ -472,7 +473,8 @@ private:
             for (const auto& node : scene.nodes())
             {
                 auto* candidate = node->get_component<EnvironmentComponent>();
-                if (candidate != nullptr && candidate->enabled())
+                if (candidate != nullptr && candidate->active() &&
+                    candidate->visible_in_hierarchy())
                 {
                     if (environment != nullptr)
                     {
@@ -507,13 +509,38 @@ private:
             {
                 return false;
             }
+            auto settings = environment->settings();
+            const auto color = [](const std::array<float, 3>& value, const Color& previous)
+            { return Color{value[0], value[1], value[2], previous.a()}; };
+            settings.ambient_color = color(after_.ambient_color, settings.ambient_color);
+            settings.ambient_intensity = after_.ambient_intensity;
+            settings.ambient_tricolor = after_.ambient_tricolor;
+            settings.ambient_sky_color =
+                color(after_.ambient_sky_color, settings.ambient_sky_color);
+            settings.ambient_equator_color =
+                color(after_.ambient_equator_color, settings.ambient_equator_color);
+            settings.ambient_ground_color =
+                color(after_.ambient_ground_color, settings.ambient_ground_color);
+            settings.fog_mode = static_cast<schema::FogMode>(after_.fog_mode);
+            settings.fog_color = color(after_.fog_color, settings.fog_color);
+            settings.fog_start = after_.fog_start;
+            settings.fog_end = after_.fog_end;
+            settings.fog_density = after_.fog_density;
+            settings.clear_color = after_.clear_color;
+            settings.ibl_enabled = after_.ibl_enabled;
+            settings.ibl_intensity = after_.ibl_intensity;
+            if (!environment->set_settings(settings))
+            {
+                error = "Invalid environment component settings";
+                return false;
+            }
         }
         if (post_process_)
         {
             auto* camera = scene.active_camera();
-            if (camera == nullptr)
+            if (camera == nullptr || !camera->active() || !camera->visible_in_hierarchy())
             {
-                error = "Post-processing requires an active scene camera";
+                error = "Post-processing requires an active, visible scene camera";
                 return false;
             }
             auto* component = camera->node().get_component<PostProcessComponent>();
@@ -522,13 +549,38 @@ private:
             {
                 component = camera->node().add_component<PostProcessComponent>();
             }
-            if (component == nullptr || !component->enabled())
+            if (component == nullptr || !component->active() || !component->visible_in_hierarchy())
             {
                 error = "The active camera needs an enabled post-process component";
                 return false;
             }
             if (!record(*component, created, false, error))
             {
+                return false;
+            }
+            auto settings = component->settings();
+            settings.exposure = after_.exposure;
+            settings.filmic_tonemap = after_.filmic_tonemap;
+            settings.hdr_enabled = after_.hdr_enabled;
+            settings.bloom_enabled = after_.bloom_enabled;
+            settings.bloom_threshold = after_.bloom_threshold;
+            settings.bloom_intensity = after_.bloom_intensity;
+            settings.bloom_radius = after_.bloom_radius;
+            settings.ssr_enabled = after_.ssr_enabled;
+            settings.ssr_resolution_scale = after_.ssr_resolution_scale;
+            settings.ssr_max_steps = after_.ssr_max_steps;
+            settings.ssr_max_distance = after_.ssr_max_distance;
+            settings.ssr_thickness = after_.ssr_thickness;
+            settings.ssr_roughness_cutoff = after_.ssr_roughness_cutoff;
+            settings.ao_enabled = after_.ao_enabled;
+            settings.ao_radius = after_.ao_radius;
+            settings.ao_strength = after_.ao_strength;
+            settings.ao_power = after_.ao_power;
+            settings.ao_fade_start = after_.ao_fade_start;
+            settings.ao_fade_end = after_.ao_fade_end;
+            if (!component->set_settings(settings))
+            {
+                error = "Invalid post-process component settings";
                 return false;
             }
         }
@@ -539,7 +591,7 @@ private:
             for (const auto& node : scene.nodes())
             {
                 auto* light = node->get_component<Light>();
-                if (light == nullptr || !light->enabled() ||
+                if (light == nullptr || !light->active() || !light->visible_in_hierarchy() ||
                     light->settings().kind != schema::LightKind::directional)
                 {
                     continue;
@@ -578,6 +630,19 @@ private:
             {
                 return false;
             }
+            auto settings = light->settings();
+            settings.cast_shadows = after_.directional_shadows;
+            settings.shadow_resolution = after_.shadow_resolution;
+            settings.shadow_bias = after_.shadow_bias;
+            settings.shadow_cascades = after_.shadow_cascades;
+            settings.shadow_distance = after_.shadow_distance;
+            settings.shadow_split_lambda = after_.shadow_split_lambda;
+            settings.shadow_cascade_blend = after_.shadow_cascade_blend;
+            if (!light->set_settings(settings))
+            {
+                error = "Invalid light component settings";
+                return false;
+            }
         }
         return true;
     }
@@ -587,7 +652,7 @@ private:
         bool restored = true;
         for (auto item = records_.rbegin(); item != records_.rend(); ++item)
         {
-            auto* node = scene.find_node(item->node_id);
+            auto* node = scene.find_node(*item->node_id);
             auto* component = node == nullptr ? nullptr : node->get_component(item->type);
             if (node == nullptr || component == nullptr)
             {
@@ -595,7 +660,7 @@ private:
             }
             else if (item->created_node)
             {
-                restored = scene.destroy_node(item->node_id) && restored;
+                restored = scene.destroy_node(*item->node_id) && restored;
             }
             else if (!item->before)
             {
@@ -611,6 +676,7 @@ private:
 
     RenderSystem& renderer_;
     WorldSystem& world_;
+    SceneCommands& scenes_;
     RenderSettings before_;
     RenderSettings after_;
     std::uint64_t scene_id_ = 0;
@@ -641,9 +707,9 @@ RenderCommands::RenderCommands(RenderSystem& renderer, WorldSystem& world, fs::p
 {
 }
 
-bool RenderCommands::register_commands(EditorCommands& commands)
+bool RenderCommands::register_commands(EditorCommands& commands, SceneCommands& scenes)
 {
-    return register_render_component_commands(world_, commands) &&
+    return register_render_component_commands(world_, scenes, commands) &&
            commands.register_command("get_render_settings", false,
                                      [this](const Json& arguments, Json& result,
                                             std::unique_ptr<EditorEdit>&, std::string& error)
@@ -658,9 +724,16 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                                      }) &&
            commands.register_command(
                "set_render_settings", true,
-               [this](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                      std::string& error)
+               [this, &scenes](const Json& arguments, Json& result,
+                               std::unique_ptr<EditorEdit>& edit, std::string& error)
                {
+                   if (world_.scene() == nullptr &&
+                       (!arguments.is_object() || arguments.size() != 1 ||
+                        !arguments.contains("clearColor")))
+                   {
+                       error = "Without an active scene only clearColor can be changed";
+                       return false;
+                   }
                    const auto before = renderer_.settings();
                    auto after = before;
                    if (arguments.empty() || !read_settings(arguments, after, error))
@@ -671,8 +744,8 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                        }
                        return false;
                    }
-                   edit =
-                       std::make_unique<SettingsEdit>(renderer_, world_, before, after, arguments);
+                   edit = std::make_unique<SettingsEdit>(renderer_, world_, scenes, before, after,
+                                                         arguments);
                    auto resolved_after = after;
                    // 关闭非首方向灯的阴影后，查询会采用首方向灯的非活动阴影参数。
                    if (world_.scene() != nullptr && before.directional_shadows &&
@@ -681,7 +754,8 @@ bool RenderCommands::register_commands(EditorCommands& commands)
                        for (const auto& node : world_.scene()->nodes())
                        {
                            const auto* light = node->get_component<Light>();
-                           if (light == nullptr || !light->enabled() ||
+                           if (light == nullptr || !light->active() ||
+                               !light->visible_in_hierarchy() ||
                                light->settings().kind != schema::LightKind::directional)
                            {
                                continue;

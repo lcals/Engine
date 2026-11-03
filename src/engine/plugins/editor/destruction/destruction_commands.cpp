@@ -185,6 +185,7 @@ bool register_destruction_commands(WorldSystem& world, editor::SceneCommands& sc
                 }
                 schema::ComponentDataT after;
                 after.enabled = !component || component->enabled();
+                after.visible = component == nullptr || component->visible();
                 if (arguments.contains("enabled"))
                 {
                     if (!arguments["enabled"].is_boolean())

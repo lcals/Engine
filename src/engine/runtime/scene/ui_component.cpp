@@ -3,32 +3,13 @@
 #include "runtime/core/guid_map.hpp"
 #include "runtime/resource/resource_system.hpp"
 
-#include <atomic>
 #include <limits>
 
 namespace engine
 {
 UiComponent::UiComponent(Node& node) : Component(node)
 {
-    static std::atomic<std::uint64_t> sequence{0};
-    auto previous = sequence.load(std::memory_order_relaxed);
-    while (previous != std::numeric_limits<std::uint64_t>::max())
-    {
-        if (sequence.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed))
-        {
-            view_id_ = previous + 1;
-            break;
-        }
-    }
     mutable_data().payload.Set(schema::UiDataT{});
-}
-bool UiComponent::initialize()
-{
-    return view_id_ != 0;
-}
-std::uint64_t UiComponent::view_id() const noexcept
-{
-    return view_id_;
 }
 std::uint64_t UiComponent::document_revision() const noexcept
 {
@@ -92,6 +73,7 @@ bool UiComponent::restore_data(const schema::ComponentDataT& value)
         return false;
     }
     set_enabled(value.enabled);
+    set_visible(value.visible);
     return true;
 }
 } // namespace engine

@@ -7,6 +7,7 @@
 #include <utility>
 namespace engine::plugins::mcp
 {
+[[nodiscard]] bool register_project_lifecycle_tools(McpSystem& system, EditorMcpTools& editor);
 [[nodiscard]] bool register_physics_tools(McpSystem& system, EditorMcpTools& editor);
 [[nodiscard]] bool register_audio_tools(McpSystem& system, EditorMcpTools& editor);
 [[nodiscard]] bool register_animation_tools(McpSystem& system, EditorMcpTools& editor);

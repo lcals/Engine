@@ -257,7 +257,7 @@ bool RenderSystem::initialize_renderer()
         bgfx::setViewName(render_detail::shadow_view + index, shadow_names[index]);
     }
     bgfx::setViewClear(render_detail::main_view, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH,
-                       idle_settings_.clear_color, 1.0F, 0);
+                       idle_clear_color_, 1.0F, 0);
     bgfx::setDebug(stats_visible_ ? BGFX_DEBUG_STATS : BGFX_DEBUG_NONE);
     SDL_Log("Renderer initialized: %s (%u x %u)", bgfx::getRendererName(bgfx::getRendererType()),
             width_, height_);

@@ -20,16 +20,13 @@ public:
     void stop() noexcept;
     [[nodiscard]] NavigationAgentStatus state() const noexcept;
     [[nodiscard]] Vec3 velocity() const noexcept;
-    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& value) override;
 
 private:
     friend class engine::Node;
     friend class NavigationCrowdSystem;
     explicit NavigationAgent(Node& node);
-    [[nodiscard]] bool initialize() override;
 
-    const std::uint64_t instance_id_;
     std::uint64_t settings_revision_ = 1;
     std::uint64_t request_revision_ = 1;
     Vec3 target_{};

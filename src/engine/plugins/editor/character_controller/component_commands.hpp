@@ -48,6 +48,7 @@ template <typename T, typename Data, typename Read, typename Write>
                    schema::ComponentDataT after;
                    after.payload.Set(value);
                    after.enabled = component == nullptr || component->enabled();
+                   after.visible = component == nullptr || component->visible();
                    if (arguments.contains("enabled"))
                    {
                        if (!arguments["enabled"].is_boolean())

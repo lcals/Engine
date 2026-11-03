@@ -2112,6 +2112,29 @@ bool snapshot_reuse_lifecycle()
     {
         return false;
     }
+    auto* parent = scene.create_node("Collision activation parent");
+    if (!expect(parent && node->set_parent(parent), "parent a static collision node"))
+    {
+        return false;
+    }
+    parent->set_visible(false);
+    if (!expect(fixture.physics.tick(0.0) && cast(3, true), "hidden geometry retains collision"))
+    {
+        return false;
+    }
+    parent->set_enabled(false);
+    if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 && cast(3, false) &&
+                    collider->enabled(),
+                "inactive parent suspends child collision without overwriting local enabled"))
+    {
+        return false;
+    }
+    parent->set_enabled(true);
+    if (!expect(fixture.physics.tick(0.0) && cast(3, true),
+                "reactivating parent restores collision even while hidden"))
+    {
+        return false;
+    }
     collider->set_enabled(false);
     if (!expect(fixture.physics.tick(0.0) && fixture.physics.body_count() == 0 && cast(3, false),
                 "disabled entries are removed despite retained snapshot array capacity"))

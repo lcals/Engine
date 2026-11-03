@@ -406,14 +406,14 @@ int main(int argc, char** argv)
     second->set_enabled(false);
     if (!advance(windows, renderer, effects) ||
         !expect(!first->playing() && !second->playing() && third->playing() &&
-                    bgfx::getStats()->numTextures == first_textures,
-                "stop and disable release only the unreferenced resource"))
+                    bgfx::getStats()->numTextures == sprite_textures,
+                "disabled emitter retains its paused effect and shared resources"))
     {
         return 1;
     }
     second->set_enabled(true);
     if (!advance(windows, renderer, effects) ||
-        !expect(second->playing(), "re-enable respects play-on-awake"))
+        !expect(second->playing(), "re-enable resumes the retained emitter"))
     {
         return 1;
     }

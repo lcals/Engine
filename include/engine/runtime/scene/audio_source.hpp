@@ -48,10 +48,8 @@ private:
     friend class Node;
     friend class AudioSystem;
     explicit AudioSource(Node& node);
-    [[nodiscard]] bool initialize() override;
 
     std::shared_ptr<const Resource> clip_;
-    std::uint64_t instance_id_ = 0;
     std::uint64_t revision_ = 0;
     AudioPlayback playback_ = AudioPlayback::stopped;
     bool awake_pending_ = true;

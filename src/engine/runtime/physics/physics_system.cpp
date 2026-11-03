@@ -536,7 +536,7 @@ bool read_character(const Node& node, const CharacterMotor& motor, CharacterSnap
     const auto* collider = node.get_component<Collider>();
     const auto* rigid = node.get_component<RigidBody>();
     if (node.parent() != nullptr || transform == nullptr ||
-        (collider != nullptr && collider->enabled()) || (rigid != nullptr && rigid->enabled()) ||
+        (collider != nullptr && collider->active()) || (rigid != nullptr && rigid->active()) ||
         !CharacterMotor::valid_settings(motor.settings()))
     {
         return false;
@@ -598,7 +598,7 @@ bool read_snapshot(const Node& node, const schema::ColliderDataT& collider,
         if (ancestor_transform == nullptr || ancestor_transform->settings().scale.x() <= 0.0 ||
             ancestor_transform->settings().scale.y() <= 0.0 ||
             ancestor_transform->settings().scale.z() <= 0.0 ||
-            (ancestor != &node && ancestor_body != nullptr && ancestor_body->enabled() &&
+            (ancestor != &node && ancestor_body != nullptr && ancestor_body->active() &&
              ancestor_body->settings().motion != schema::BodyMotion::static_body))
         {
             return false;
@@ -801,7 +801,7 @@ bool active_transform(const Node& node)
     for (const Node* current = &node; current != nullptr; current = current->parent())
     {
         const auto* transform = current->get_component<Transform>();
-        if (transform == nullptr || !transform->enabled())
+        if (transform == nullptr || !transform->active())
         {
             return false;
         }
@@ -813,16 +813,16 @@ bool active_collision(const Node& node)
 {
     const auto* collider = node.get_component<Collider>();
     const auto* body = node.get_component<RigidBody>();
-    return collider != nullptr && collider->enabled() && !collider->settings().is_trigger &&
-           (body == nullptr || body->enabled()) && active_transform(node);
+    return collider != nullptr && collider->active() && !collider->settings().is_trigger &&
+           (body == nullptr || body->active()) && active_transform(node);
 }
 
 bool active_query_collision(const Node& node, std::uint64_t collider_id)
 {
     const auto* collider = node.get_component<Collider>();
     const auto* body = node.get_component<RigidBody>();
-    return collider != nullptr && collider->instance_id() == collider_id && collider->enabled() &&
-           (body == nullptr || body->enabled()) && active_transform(node);
+    return collider != nullptr && collider->instance_id() == collider_id && collider->active() &&
+           (body == nullptr || body->active()) && active_transform(node);
 }
 
 bool active_physics_object(const WorldSystem& world, const PhysicsObject& object)
@@ -847,9 +847,9 @@ bool active_physics_object(const WorldSystem& world, const PhysicsObject& object
     const auto* motor = node->get_component<CharacterMotor>();
     const auto* collider = node->get_component<Collider>();
     const auto* body = node->get_component<RigidBody>();
-    return motor != nullptr && motor->instance_id() == object.instance_id && motor->enabled() &&
-           active_transform(*node) && (collider == nullptr || !collider->enabled()) &&
-           (body == nullptr || !body->enabled());
+    return motor != nullptr && motor->instance_id() == object.instance_id && motor->active() &&
+           active_transform(*node) && (collider == nullptr || !collider->active()) &&
+           (body == nullptr || !body->active());
 }
 
 bool object_less(const PhysicsObject& left, const PhysicsObject& right)
@@ -2140,7 +2140,7 @@ bool PhysicsSystem::set_collider_data(Collider& collider, const schema::Collider
     }
     const auto* rigid = node.get_component<RigidBody>();
     const auto* motor = node.get_component<CharacterMotor>();
-    if (motor != nullptr && motor->enabled() && collider.enabled())
+    if (motor != nullptr && motor->active() && collider.active())
     {
         return false;
     }
@@ -2160,7 +2160,7 @@ bool PhysicsSystem::set_collider_data(Collider& collider, const schema::Collider
         return false;
     }
     const bool active =
-        collider.enabled() && active_transform(node) && (rigid == nullptr || rigid->enabled());
+        collider.active() && active_transform(node) && (rigid == nullptr || rigid->active());
     snapshot.shape_scale = snapshot.scale;
     if (active && !make_shape(*snapshot.collider, mesh, snapshot.shape_scale, snapshot.shape))
     {
@@ -2194,7 +2194,7 @@ bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& m
     const auto* rigid = node.get_component<RigidBody>();
     const auto* motor = node.get_component<CharacterMotor>();
     if ((rigid != nullptr && rigid->settings().motion != schema::BodyMotion::static_body) ||
-        (motor != nullptr && motor->enabled() && collider.enabled()))
+        (motor != nullptr && motor->active() && collider.active()))
     {
         return false;
     }
@@ -2219,8 +2219,8 @@ bool PhysicsSystem::set_mesh_data(Collider& collider, const schema::MeshDataT& m
     {
         return false;
     }
-    const bool active = !empty && collider.enabled() && active_transform(node) &&
-                        (rigid == nullptr || rigid->enabled());
+    const bool active = !empty && collider.active() && active_transform(node) &&
+                        (rigid == nullptr || rigid->active());
     if (active && !state_->publish_body(snapshot))
     {
         return false;
@@ -2249,7 +2249,7 @@ bool PhysicsSystem::set_mesh_parts(Collider& collider, const MeshCollisionData& 
     const auto* rigid = node.get_component<RigidBody>();
     const auto* motor = node.get_component<CharacterMotor>();
     if ((rigid != nullptr && rigid->settings().motion != schema::BodyMotion::static_body) ||
-        (motor != nullptr && motor->enabled() && collider.enabled()))
+        (motor != nullptr && motor->active() && collider.active()))
     {
         return false;
     }
@@ -2274,8 +2274,8 @@ bool PhysicsSystem::set_mesh_parts(Collider& collider, const MeshCollisionData& 
     {
         return false;
     }
-    const bool active = snapshot.shape != nullptr && collider.enabled() && active_transform(node) &&
-                        (rigid == nullptr || rigid->enabled());
+    const bool active = snapshot.shape != nullptr && collider.active() && active_transform(node) &&
+                        (rigid == nullptr || rigid->active());
     if (active && !state_->publish_body(snapshot))
     {
         return false;
@@ -2342,7 +2342,7 @@ bool PhysicsSystem::on_tick(double delta_time)
             {
                 if (auto* motor = node->get_component<CharacterMotor>())
                 {
-                    if (motor->enabled() && active_transform(*node))
+                    if (motor->active() && active_transform(*node))
                     {
                         CharacterSnapshot snapshot;
                         if (!read_character(*node, *motor, snapshot))
@@ -2369,8 +2369,8 @@ bool PhysicsSystem::on_tick(double delta_time)
                 }
                 const auto* collider = node->get_component<Collider>();
                 auto* rigid_body = node->get_component<RigidBody>();
-                if (collider == nullptr || !collider->enabled() ||
-                    (rigid_body != nullptr && !rigid_body->enabled()) || !active_transform(*node))
+                if (collider == nullptr || !collider->active() ||
+                    (rigid_body != nullptr && !rigid_body->active()) || !active_transform(*node))
                 {
                     if (rigid_body != nullptr)
                     {

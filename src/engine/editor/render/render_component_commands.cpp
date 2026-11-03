@@ -1,6 +1,7 @@
 #include "editor/render/render_component_commands.hpp"
 
 #include "editor/commands/components/component_edit.hpp"
+#include "editor/commands/scene_commands.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/scene/light_probe_volume_component.hpp"
 #include "runtime/scene/mesh_renderer.hpp"
@@ -30,7 +31,8 @@ std::string configured_path(std::string_view guid)
     return path;
 }
 
-bool retain_resource(std::string_view guid, std::vector<ResourcePtr>& versions, std::string& error)
+bool retain_resource(std::string_view guid, std::vector<schema::AssetEntryT>& versions,
+                     std::string& error)
 {
     if (guid.empty())
     {
@@ -43,7 +45,7 @@ bool retain_resource(std::string_view guid, std::vector<ResourcePtr>& versions, 
         error = "Cannot retain the configured resource version";
         return false;
     }
-    versions.push_back(std::move(resource));
+    versions.push_back(resource->info());
     return true;
 }
 
@@ -62,8 +64,8 @@ bool read_enabled(const Json& arguments, schema::ComponentDataT& data, std::stri
     return true;
 }
 
-bool prepare_planar(WorldSystem& world, const Json& arguments, Json& result,
-                    std::unique_ptr<EditorEdit>& edit, std::string& error)
+bool prepare_planar(WorldSystem& world, SceneCommands& scene_commands, const Json& arguments,
+                    Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error)
 {
     if (!components::fields(arguments, {"enabled", "resolutionScale", "clipBias"}, error) ||
         arguments.size() <= 2)
@@ -105,13 +107,13 @@ bool prepare_planar(WorldSystem& world, const Json& arguments, Json& result,
     result = {{"sceneId", std::to_string(node->scene().id())},
               {"nodeId", std::to_string(node->id())}};
     edit = std::make_unique<components::ComponentEdit>(
-        world, node->scene().id(), std::make_shared<std::uint64_t>(node->id()), std::move(before),
-        std::move(after), std::vector<ResourcePtr>{}, ComponentType::MeshRendererData);
+        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
+        std::move(after), std::vector<schema::AssetEntryT>{}, ComponentType::MeshRendererData);
     return true;
 }
 
-bool prepare_probe(WorldSystem& world, const Json& arguments, Json& result,
-                   std::unique_ptr<EditorEdit>& edit, std::string& error)
+bool prepare_probe(WorldSystem& world, SceneCommands& scene_commands, const Json& arguments,
+                   Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error)
 {
     if (!components::fields(arguments, {"enabled", "resource"}, error) || arguments.size() <= 2)
     {
@@ -127,7 +129,7 @@ bool prepare_probe(WorldSystem& world, const Json& arguments, Json& result,
     std::optional<schema::ComponentDataT> before;
     schema::ComponentDataT after;
     after.payload.Set(LightProbeVolumeSettings{});
-    std::vector<ResourcePtr> versions;
+    std::vector<schema::AssetEntryT> versions;
     if (component)
     {
         before = component->data();
@@ -151,10 +153,9 @@ bool prepare_probe(WorldSystem& world, const Json& arguments, Json& result,
         }
         const auto path = arguments["resource"].get<std::string>();
         settings.probes_guid.clear();
-        if (!path.empty() &&
-            (!ResourceSystem::path_to_guid(path, settings.probes_guid) ||
-             !retain_resource(settings.probes_guid, versions, error) ||
-             !versions.back()->light_probe()))
+        if (!path.empty() && (!ResourceSystem::path_to_guid(path, settings.probes_guid) ||
+                              !retain_resource(settings.probes_guid, versions, error) ||
+                              versions.back().kind != schema::AssetKind::light_probe))
         {
             error = "resource must identify a light-probe resource in the current catalog";
             return false;
@@ -163,7 +164,7 @@ bool prepare_probe(WorldSystem& world, const Json& arguments, Json& result,
     result = {{"sceneId", std::to_string(node->scene().id())},
               {"nodeId", std::to_string(node->id())}};
     edit = std::make_unique<components::ComponentEdit>(
-        world, node->scene().id(), std::make_shared<std::uint64_t>(node->id()), std::move(before),
+        world, node->scene().id(), scene_commands.node_identity(node->id()), std::move(before),
         std::move(after), std::move(versions));
     return true;
 }
@@ -172,10 +173,12 @@ bool prepare_probe(WorldSystem& world, const Json& arguments, Json& result,
 class MeshLightingEdit final : public EditorEdit
 {
 public:
-    MeshLightingEdit(WorldSystem& world, const MeshRenderer& mesh, Json arguments)
-        : world_(world), scene_id_(mesh.node().scene().id()), node_id_(mesh.node().id()),
-          instance_(mesh.mesh_instance_id()), revision_(mesh.mesh_revision()),
-          before_(mesh.data()), after_(before_), arguments_(std::move(arguments))
+    MeshLightingEdit(WorldSystem& world, std::shared_ptr<std::uint64_t> identity,
+                     const MeshRenderer& mesh, Json arguments)
+        : world_(world), identity_(std::move(identity)), scene_id_(mesh.node().scene().id()),
+          node_id_(mesh.node().id()), instance_(mesh.instance_id()),
+          revision_(mesh.mesh_revision()), before_(mesh.data()), after_(before_),
+          arguments_(std::move(arguments))
     {
     }
 
@@ -254,9 +257,12 @@ private:
                 const std::string& path, bool applying, std::string& error)
     {
         auto* scene = world_.scene();
-        auto* node = scene && scene->id() == scene_id_ ? scene->find_node(node_id_) : nullptr;
+        auto* node = scene && scene->id() == scene_id_ ? scene->find_node(*identity_) : nullptr;
         auto* mesh = node ? node->get_component<MeshRenderer>() : nullptr;
-        if (!mesh || mesh->mesh_instance_id() != instance_ || mesh->mesh_revision() != revision_ ||
+        const bool recreated = node && node->id() != node_id_;
+        if (!mesh ||
+            (!recreated &&
+             (mesh->instance_id() != instance_ || mesh->mesh_revision() != revision_)) ||
             mesh->data() != expected)
         {
             error = "Mesh or lighting settings changed outside this edit";
@@ -272,11 +278,11 @@ private:
                 return false;
             }
             const auto* resources = ResourceSystem::instance();
-            for (const auto& resource : versions_)
+            for (const auto& version : versions_)
             {
                 const auto* available =
-                    resources ? resources->catalog().find(resource->info().guid) : nullptr;
-                if (!available || *available != resource->info())
+                    resources ? resources->catalog().find(version.guid) : nullptr;
+                if (!available || *available != version)
                 {
                     error = "Mesh or lightmap resource version changed outside this edit";
                     return false;
@@ -307,10 +313,14 @@ private:
         {
             replacement = mesh->data();
         }
+        node_id_ = node->id();
+        instance_ = mesh->instance_id();
+        revision_ = mesh->mesh_revision();
         return true;
     }
 
     WorldSystem& world_;
+    std::shared_ptr<std::uint64_t> identity_;
     std::uint64_t scene_id_;
     std::uint64_t node_id_;
     std::uint64_t instance_;
@@ -321,11 +331,11 @@ private:
     std::string before_path_;
     std::string after_path_;
     std::array<float, 16> transform_{};
-    std::vector<ResourcePtr> versions_;
+    std::vector<schema::AssetEntryT> versions_;
 };
 
-bool prepare_mesh(WorldSystem& world, const Json& arguments, Json& result,
-                  std::unique_ptr<EditorEdit>& edit, std::string& error)
+bool prepare_mesh(WorldSystem& world, SceneCommands& scene_commands, const Json& arguments,
+                  Json& result, std::unique_ptr<EditorEdit>& edit, std::string& error)
 {
     if (!components::fields(arguments, {"castShadows", "bakeStatic", "lightmap"}, error) ||
         arguments.size() <= 2)
@@ -343,7 +353,8 @@ bool prepare_mesh(WorldSystem& world, const Json& arguments, Json& result,
         }
         return false;
     }
-    auto pending = std::make_unique<MeshLightingEdit>(world, *mesh, arguments);
+    auto pending = std::make_unique<MeshLightingEdit>(
+        world, scene_commands.node_identity(node->id()), *mesh, arguments);
     if (!pending->prepare(*mesh, error))
     {
         return false;
@@ -380,7 +391,8 @@ nlohmann::json mesh_lighting_json(const MeshRenderer& component)
             {"lightmapValid", bool(component.lightmap_resource())}};
 }
 
-bool register_render_component_commands(WorldSystem& world, EditorCommands& commands)
+bool register_render_component_commands(WorldSystem& world, SceneCommands& scene_commands,
+                                        EditorCommands& commands)
 {
     const auto add_get = [&world, &commands]<typename T>(const char* name, auto write)
     {
@@ -408,12 +420,14 @@ bool register_render_component_commands(WorldSystem& world, EditorCommands& comm
                 return true;
             });
     };
-    const auto add_set = [&world, &commands](const char* name, auto prepare)
+    const auto add_set = [&world, &scene_commands, &commands](const char* name, auto prepare)
     {
-        return commands.register_command(name, true,
-            [&world, prepare](const Json& arguments, Json& result, std::unique_ptr<EditorEdit>& edit,
-                              std::string& error)
-            { return prepare(world, arguments, result, edit, error); });
+        return commands.register_command(
+            name, true,
+            [&world, &scene_commands, prepare](const Json& arguments, Json& result,
+                                               std::unique_ptr<EditorEdit>& edit,
+                                               std::string& error)
+            { return prepare(world, scene_commands, arguments, result, edit, error); });
     };
     return add_get.operator()<PlanarReflectionComponent>("get_planar_reflection",
                                                          planar_reflection_json) &&

@@ -60,7 +60,8 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                                             {
                                                 const auto* light =
                                                     node->template get_component<Light>();
-                                                return light != nullptr && light->enabled();
+                                                return light != nullptr && light->active() &&
+                                                       light->visible_in_hierarchy();
                                             });
     if (lights > static_cast<std::ptrdiff_t>(config_.maximum_lights))
     {
@@ -106,7 +107,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
         for (const auto& node : owner->nodes())
         {
             const auto* renderer = node->get_component<MeshRenderer>();
-            if (renderer == nullptr || !renderer->enabled() || !renderer->visible())
+            if (renderer == nullptr || !renderer->active() || !renderer->visible_in_hierarchy())
             {
                 continue;
             }
@@ -133,7 +134,7 @@ bool RenderSystem::prepare_scene(const Camera* camera)
                 meshes.emplace_back();
                 mesh = std::prev(meshes.end());
             }
-            if (mesh->instance_id != renderer->mesh_instance_id() ||
+            if (mesh->instance_id != renderer->instance_id() ||
                 mesh->revision != renderer->mesh_revision())
             {
                 ENGINE_PROFILE_ZONE("Render.rebuildMeshResource");

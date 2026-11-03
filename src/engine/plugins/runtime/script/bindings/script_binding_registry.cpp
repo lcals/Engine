@@ -152,13 +152,24 @@ std::string ScriptBindingRegistry::source() const
     std::string result = R"js(
 const native = globalThis.__engineNative;
 const key = {};
-const handles = new WeakMap();
+const handleRecords = new WeakMap();
+const handles = {
+    get(object) {
+        const handle = handleRecords.get(object);
+        if (handle === undefined || handle.kind <= 0) return handle;
+        if (handle.instance !== 0n &&
+            native.ComponentIdentity(handle.scene, handle.node, handle.kind) === handle.instance)
+            return handle;
+        return { ...handle, scene: 0n, node: 0n };
+    }
+};
 const componentTypes = new Map();
 const bindingEventHooks = [];
 const bindingCleanupHooks = [];
 function attach(object, token, scene, node = 0n, kind = -1) {
     if (token !== key) throw new TypeError('Use scene and node factory methods');
-    handles.set(object, { scene, node, kind });
+    const instance = kind > 0 ? native.ComponentIdentity(scene, node, kind) : 0n;
+    handleRecords.set(object, { scene, node, kind, instance });
 }
 )js";
     for (const auto& binding : bindings_)

@@ -78,7 +78,6 @@ struct Snapshot
     std::shared_ptr<const ResourceCatalog> catalog;
     MountList mounts;
     std::map<std::string, Guid, std::less<>> module_guids;
-    bool active_catalog = false;
 };
 
 [[nodiscard]] bool catalog_snapshot(const ResourceCatalog& catalog, const MountList& mounts,
@@ -141,19 +140,7 @@ struct ScriptSystem::State
             const auto mapped = snapshot.module_guids.find(path);
             ByteBuffer bytes;
             bool success = mapped != snapshot.module_guids.end();
-            if (success && snapshot.active_catalog)
-            {
-                ResourcePtr resource;
-                auto* system = ResourceSystem::instance();
-                success = system != nullptr && system->loader().load(mapped->second, resource);
-                if (success)
-                {
-                    const auto content = resource->bytes();
-                    bytes.assign(content.begin(), content.end());
-                    resources.push_back(std::move(resource));
-                }
-            }
-            else if (success)
+            if (success)
             {
                 success = ResourceSystem::read_resource(*snapshot.catalog, snapshot.mounts,
                                                         mapped->second, bytes);
@@ -279,7 +266,7 @@ struct ScriptSystem::State
         {
             return fail("Gameplay run identifiers are exhausted");
         }
-        if (candidate->snapshot.catalog != nullptr && !candidate->snapshot.active_catalog)
+        if (candidate->snapshot.catalog != nullptr)
         {
             auto* system = ResourceSystem::instance();
             if (system == nullptr)
@@ -345,7 +332,6 @@ ScriptSystem::~ScriptSystem() noexcept
 bool ScriptSystem::on_initialize(const EngineConfig&)
 {
     status_.last_error.clear();
-    status_.available_revision.clear();
     state_ =
         std::make_unique<State>(status_, world_, renderer_, ui_, physics_, navigation_, input_,
                                 window_);
@@ -379,7 +365,6 @@ bool ScriptSystem::prepare_gameplay(const ResourceCatalog& catalog, const MountL
         return state_->fail("Invalid gameplay entry or resource catalog");
     }
     snapshot.revision = revision.empty() ? std::string(catalog.revision()) : std::string(revision);
-    status_.available_revision = snapshot.revision;
     state_->prepared = state_->precheck(std::move(snapshot));
     return state_->prepared != nullptr;
 }
@@ -394,43 +379,12 @@ bool ScriptSystem::start_prepared_gameplay()
     return state_->activate(std::move(state_->prepared));
 }
 
-bool ScriptSystem::start_gameplay(std::string_view entry)
-{
-    if (!is_initialized() || !state_)
-    {
-        status_.last_error = "Gameplay requires an initialized script system";
-        return false;
-    }
-    Snapshot snapshot;
-    const auto selected = entry.empty() ? std::string_view{"scripts/game.js"} : entry;
-    if (!relative_path(selected, snapshot.entry) || snapshot.entry != selected ||
-        !script_path(snapshot.entry))
-    {
-        return state_->fail("Unsafe gameplay entry path");
-    }
-    auto* resources = ResourceSystem::instance();
-    if (resources == nullptr || resources->catalog().data().entries.empty() ||
-        !catalog_snapshot(resources->catalog(), {}, snapshot))
-    {
-        return state_->fail("Gameplay requires an active runtime resource catalog");
-    }
-    snapshot.active_catalog = true;
-    snapshot.revision = std::string(resources->catalog().revision());
-    auto candidate = state_->precheck(std::move(snapshot));
-    return candidate != nullptr && state_->activate(std::move(candidate));
-}
-
 void ScriptSystem::stop_gameplay() noexcept
 {
     if (state_)
     {
         state_->stop();
     }
-}
-
-void ScriptSystem::set_hot_reload(bool enabled)
-{
-    status_.hot_reload = enabled;
 }
 
 bool ScriptSystem::execute_project_script(const ProjectScriptRequest& request,

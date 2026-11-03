@@ -59,7 +59,7 @@ bool sample_probe(const WorldSystem& world, const std::array<float, 3>& point,
         for (const auto& node : owner->nodes())
         {
             const auto* volume = node->get_component<LightProbeVolumeComponent>();
-            if (!volume || !volume->enabled())
+            if (!volume || !volume->active() || !volume->visible_in_hierarchy())
             {
                 continue;
             }
@@ -162,7 +162,7 @@ bool RenderSystem::SceneGpuResources::prepare_lighting(
         for (const auto& node : owner->nodes())
         {
             const auto* light = node->get_component<Light>();
-            if (!light || !light->enabled())
+            if (!light || !light->active() || !light->visible_in_hierarchy())
             {
                 continue;
             }
@@ -352,8 +352,8 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
         for (const auto& node : owner->nodes())
         {
             const auto* renderer = node->get_component<MeshRenderer>();
-            if (!renderer || !renderer->enabled() || !renderer->visible() ||
-                (draw.visibility && !draw.visibility->mesh_visible(renderer->mesh_instance_id())))
+            if (!renderer || !renderer->active() || !renderer->visible_in_hierarchy() ||
+                (draw.visibility && !draw.visibility->mesh_visible(renderer->instance_id())))
             {
                 continue;
             }
@@ -366,7 +366,7 @@ bool RenderSystem::SceneGpuResources::draw_meshes(const WorldSystem& world,
             if (draw.reflection)
             {
                 const auto* plane = node->get_component<PlanarReflectionComponent>();
-                if (plane && plane->enabled())
+                if (plane && plane->active() && plane->visible_in_hierarchy())
                 {
                     continue;
                 }

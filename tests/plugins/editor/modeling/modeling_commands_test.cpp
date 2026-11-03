@@ -39,11 +39,12 @@ bool expect(bool value, const char* message, const std::string& error)
 bool registry_test()
 {
     engine::plugins::mcp::EditorMcpTools editor({}, {});
-    engine::plugins::modeling::ModelingMcpTools module(editor);
     engine::plugins::mcp::McpSystem system;
     Json reply;
-    if (!expect(module.register_tools(system), "register all modeling schemas", {}) ||
-        !expect(!module.register_tools(system), "duplicate modeling registration rejected", {}) ||
+    if (!expect(engine::plugins::modeling::register_modeling_tools(system, editor),
+                "register all modeling schemas", {}) ||
+        !expect(!engine::plugins::modeling::register_modeling_tools(system, editor),
+                "duplicate modeling registration rejected", {}) ||
         !expect(system.list_tools()["tools"].size() == 11, "all tools are discoverable", {}) ||
         !expect(system.initialize({}), "initialize registry", {}))
     {

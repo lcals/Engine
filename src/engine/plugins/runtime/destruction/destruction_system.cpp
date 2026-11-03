@@ -83,7 +83,7 @@ bool finite(const Vec3& value)
 bool active_component(const DestructionComponent& component)
 {
     const auto* transform = component.node().get_component<Transform>();
-    return component.enabled() && transform != nullptr && transform->enabled();
+    return component.active() && transform != nullptr && transform->active();
 }
 
 bool valid_transform(const TransformSettings& value)
@@ -581,13 +581,14 @@ bool DestructionSystem::publish(DestructionComponent& component, DestructionGrap
             return fail("Cannot prepare destruction fragment render or body settings");
         }
         renderer->set_enabled(enabled);
+        renderer->set_visible(component.visible_in_hierarchy());
         collider->set_enabled(enabled);
         if (!physics_.set_collider_data(*collider, geometry.collision))
         {
             return fail("Cannot prepare destruction convex compound collision");
         }
         auto& record = created.back();
-        record.renderer_instance = renderer->mesh_instance_id();
+        record.renderer_instance = renderer->instance_id();
         record.collider_instance = collider->instance_id();
         published.push_back(created.back());
     }
@@ -1159,15 +1160,15 @@ bool DestructionSystem::retire_fragments(DestructionComponent& component, std::u
         const auto* renderer = node ? node->get_component<MeshRenderer>() : nullptr;
         const auto* collider = node ? node->get_component<Collider>() : nullptr;
         const auto* body = node ? node->get_component<RigidBody>() : nullptr;
-        if (!node || !node->transient() || node->parent() || !transform || !renderer ||
-            !collider || !body || renderer->mesh_instance_id() != group.renderer_instance ||
+        if (!node || !node->transient() || node->parent() || !transform || !renderer || !collider ||
+            !body || renderer->instance_id() != group.renderer_instance ||
             collider->instance_id() != group.collider_instance ||
             !valid_transform(transform->settings()) ||
             !Collider::valid_settings(collider->settings()) ||
             collider->settings().shape != schema::ColliderShape::compound ||
             !RigidBody::valid_settings(body->settings()) ||
-            body->settings().motion != (group.anchored ? schema::BodyMotion::static_body
-                                                       : schema::BodyMotion::dynamic))
+            body->settings().motion !=
+                (group.anchored ? schema::BodyMotion::static_body : schema::BodyMotion::dynamic))
         {
             component.last_error_ = "A generated destruction fragment was removed or replaced";
             return false;
@@ -1416,7 +1417,7 @@ bool DestructionSystem::on_tick(double delta_time)
 {
     if (world_.paused())
     {
-        return true;
+        return synchronize();
     }
     if (!state_ || !std::isfinite(delta_time) || delta_time < 0)
     {
@@ -1486,7 +1487,10 @@ bool DestructionSystem::synchronize()
             return false;
         }
     }
-    process_requests();
+    if (!world_.paused())
+    {
+        process_requests();
+    }
     return true;
 }
 
@@ -1527,7 +1531,7 @@ bool DestructionSystem::synchronize(Node& owner)
             "Generated destruction nodes were unloaded; Reset recreates the assembly";
         return true;
     }
-    if (component->pending_ && component->enabled())
+    if (!world_.paused() && component->pending_ && component->active())
     {
         DestructionGraph candidate;
         if (!component->graph_.clone(candidate, component->last_error_) ||
@@ -1592,6 +1596,7 @@ bool DestructionSystem::synchronize(Node& owner)
             }
         }
         renderer->set_enabled(enabled);
+        renderer->set_visible(component->visible_in_hierarchy());
     }
     return true;
 }

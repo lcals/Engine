@@ -7,18 +7,6 @@ class McpSystem;
 } // namespace engine::plugins::mcp
 namespace engine::plugins::ui
 {
-class UiEditorMcpTools final
-{
-public:
-    explicit UiEditorMcpTools(mcp::EditorMcpTools& editor) noexcept;
-    ~UiEditorMcpTools() noexcept = default;
-    UiEditorMcpTools(const UiEditorMcpTools&) = delete;
-    UiEditorMcpTools& operator=(const UiEditorMcpTools&) = delete;
-    UiEditorMcpTools(UiEditorMcpTools&&) = delete;
-    UiEditorMcpTools& operator=(UiEditorMcpTools&&) = delete;
-    [[nodiscard]] bool register_tools(mcp::McpSystem& system);
-
-private:
-    mcp::EditorMcpTools& editor_;
-};
+// 登记回调直接借用 editor；它须存活到 McpSystem 关闭。
+[[nodiscard]] bool register_ui_editor_tools(mcp::McpSystem& system, mcp::EditorMcpTools& editor);
 } // namespace engine::plugins::ui

@@ -79,12 +79,13 @@ bool RigidBody::restore_data(const schema::ComponentDataT& value)
     }
     pending_impulse_ = {};
     set_enabled(value.enabled);
+    set_visible(value.visible);
     return true;
 }
 
 bool RigidBody::add_impulse(const Vec3& value) noexcept
 {
-    if (!enabled() || settings().motion != schema::BodyMotion::dynamic ||
+    if (!active() || settings().motion != schema::BodyMotion::dynamic ||
         !vector_bounded(value, 1000000.0))
     {
         return false;

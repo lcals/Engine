@@ -28,6 +28,12 @@ public:
     [[nodiscard]] std::uint64_t id() const noexcept;
     [[nodiscard]] std::string_view name() const noexcept;
     [[nodiscard]] const schema::NodeInfoT& info() const noexcept;
+    [[nodiscard]] bool enabled() const noexcept;
+    void set_enabled(bool enabled) noexcept;
+    [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] bool visible() const noexcept;
+    void set_visible(bool visible) noexcept;
+    [[nodiscard]] bool visible_in_hierarchy() const noexcept;
     [[nodiscard]] Scene& scene() noexcept;
     [[nodiscard]] const Scene& scene() const noexcept;
     [[nodiscard]] Node* parent() noexcept;
@@ -49,7 +55,8 @@ public:
             return nullptr;
         }
         std::unique_ptr<T> component(new (std::nothrow) T(*this));
-        if (component == nullptr || !static_cast<Component&>(*component).initialize())
+        if (component == nullptr || component->instance_id() == 0 ||
+            !static_cast<Component&>(*component).initialize())
         {
             return nullptr;
         }

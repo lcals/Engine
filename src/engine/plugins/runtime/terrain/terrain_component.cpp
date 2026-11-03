@@ -156,6 +156,7 @@ bool TerrainComponent::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     set_enabled(data.enabled);
+    set_visible(data.visible);
     return true;
 }
 
@@ -163,7 +164,7 @@ bool TerrainComponent::apply_sphere(const Vec3& center, float radius, bool fill)
 {
     ENGINE_PROFILE_ZONE("Terrain.brush");
     auto* system = TerrainSystem::instance();
-    if (!ready_ || !system || !enabled())
+    if (!ready_ || !system || !active())
     {
         last_error_ = "Terrain is not ready";
         return false;

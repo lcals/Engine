@@ -5,6 +5,12 @@
 ```mermaid
 classDiagram
     class Node {
+        +enabled() bool
+        +set_enabled(bool enabled) void
+        +active() bool
+        +visible() bool
+        +set_visible(bool visible) void
+        +visible_in_hierarchy() bool
         +~Node()
         +id() uint64_t
         +name() string_view
@@ -33,6 +39,8 @@ classDiagram
         +uint64_t id
         +string name
         +uint64_t parent_id
+        +bool enabled
+        +bool visible
     }
     class ComponentType {
         <<FlatBuffers生成枚举别名>>
@@ -57,3 +65,7 @@ classDiagram
 节点默认非瞬态。`set_transient` 只设置本节点的运行时标记，`transient()` 沿父链查询有效状态；瞬态父节点的子树同样不进入 Scene/编辑器保存。标记不改变渲染、物理或节点查询，不写入 NodeInfo/schema，也不依赖具体生成插件。调用方拥有并负责释放自己生成的节点；取消本节点标记不会覆盖父节点的瞬态状态。
 
 `set_persistent(bool)` 只接受根节点，返回成功状态；默认关闭，重复调用幂等。`persistent()` 包含祖先标记。常驻根及子树跨场景卸载保留原对象、组件和身份，但显式销毁、停止项目及世界关闭仍释放。已直接标记的根不能设置非空父节点；取消标记后可重新挂接，移出常驻子树的节点不再继承常驻。标记不写入 schema，与是否保存的 `transient` 独立；完整契约见[常驻节点与场景切换](persistent-nodes.md)。两方法均为 `[[nodiscard]] noexcept`，查询为 `const`。
+
+## 子树激活与可见性
+
+`enabled()/set_enabled()`、`visible()/set_visible()` 读写 NodeInfo 中的本地布尔值，默认 true，随场景保存；旧资源缺少字段时仍为 true。`active()` 与 `visible_in_hierarchy()` 分别沿父链合并本地激活和可见标记，两者独立，均为 `const noexcept`。设置方法为 `noexcept`，不递归覆盖子节点本地值、不重建组件、不改变节点身份；重设父节点后即时按新父链计算。绘制要求组件有效激活且有效可见；隐藏继续模拟，停用使系统暂停消费该子树。Transform 仍提供层级坐标计算。

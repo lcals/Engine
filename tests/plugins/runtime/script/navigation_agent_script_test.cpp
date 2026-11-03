@@ -1,4 +1,5 @@
 #include "resource_fixture.hpp"
+#include "script_fixture.hpp"
 
 #include "plugins/runtime/navigation_crowd/navigation_agent.hpp"
 #include "plugins/runtime/script/script_system.hpp"
@@ -163,7 +164,8 @@ bool run(test_support::ResourceFixture& files)
                     world.subsystem_count() == 2 && world.initialize({}) &&
                     world.component_registry().contains(NavigationAgent::component_type) &&
                     script.initialize({}) && add_script(files) && files.publish(resources) &&
-                    script.start_gameplay("scripts/game.js"),
+                    test_support::start_script(script, resources, {{"content", files.root}},
+                                               "scripts/game.js"),
                 "production host assembly registers the plugin without a window or GPU", script))
     {
         return false;

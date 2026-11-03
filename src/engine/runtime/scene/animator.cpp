@@ -80,6 +80,7 @@ bool Animator::restore_data(const schema::ComponentDataT& data)
         return false;
     }
     set_enabled(data.enabled);
+    set_visible(data.visible);
     const bool stopped = stop();
     (void)stopped;
     awake_pending_ = settings->play_on_awake;
@@ -120,7 +121,7 @@ bool Animator::cross_fade(std::string_view path, double seconds)
     ResourcePtr candidate;
     ResourcePtr target;
     ResourcePtr source;
-    if (!enabled() || path.empty() || !std::isfinite(seconds) || seconds < 0.0 ||
+    if (!active() || path.empty() || !std::isfinite(seconds) || seconds < 0.0 ||
         revision_ == std::numeric_limits<std::uint64_t>::max() || mesh == nullptr ||
         mesh->skeleton_guid.empty() || resources == nullptr ||
         !ResourceSystem::path_to_guid(path, guid) || !resources->loader().load(guid, candidate) ||
@@ -181,7 +182,7 @@ std::string_view Animator::animation_path() const noexcept
 
 bool Animator::play() noexcept
 {
-    if (!enabled() || !animation_ || !animation_->animation())
+    if (!active() || !animation_ || !animation_->animation())
     {
         return false;
     }

@@ -26,7 +26,7 @@ bool same_position(const Vec3& left, const Vec3& right) noexcept
 
 bool can_drive(const Node& node, const Transform* transform) noexcept
 {
-    if (node.parent() != nullptr || transform == nullptr || !transform->enabled())
+    if (node.parent() != nullptr || transform == nullptr || !transform->active())
     {
         return false;
     }
@@ -34,14 +34,14 @@ bool can_drive(const Node& node, const Transform* transform) noexcept
     const auto* motor = node.get_component<CharacterMotor>();
     const auto* collider = node.get_component<Collider>();
     const auto* body = node.get_component<RigidBody>();
-    const bool collider_enabled = collider != nullptr && collider->enabled();
-    const bool body_enabled = body != nullptr && body->enabled();
+    const bool collider_enabled = collider != nullptr && collider->active();
+    const bool body_enabled = body != nullptr && body->active();
     const bool physics_mirror = collider_enabled && body_enabled &&
                                 body->settings().motion == schema::BodyMotion::kinematic &&
                                 same_position(body->settings().linear_velocity, Vec3{}) &&
                                 same_position(body->settings().angular_velocity, Vec3{});
     return scale.x() == 1.0 && scale.y() == 1.0 && scale.z() == 1.0 &&
-           (motor == nullptr || !motor->enabled()) &&
+           (motor == nullptr || !motor->active()) &&
            ((!collider_enabled && !body_enabled) || physics_mirror);
 }
 
@@ -143,7 +143,7 @@ bool NavigationCrowdSystem::on_tick(double delta_time)
             {
                 continue;
             }
-            if (!component->enabled())
+            if (!component->active())
             {
                 component->stop();
                 continue;

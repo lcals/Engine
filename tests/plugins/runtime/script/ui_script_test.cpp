@@ -16,6 +16,7 @@
 #include "runtime/utils/path_utils.hpp"
 #include "runtime/window/window_system.hpp"
 #include "runtime/world/world_system.hpp"
+#include "script_fixture.hpp"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -356,6 +357,8 @@ std::string bubbling_source(std::string_view operation)
     return "const operation = '" + std::string(operation) + "';\n" + R"js(
 import { Gameplay, Scene, UiComponent, UiController } from 'engine';
 function check(value, message) { if (!value) throw new Error(message); }
+const stateCase = operation === 'bubble-disable-parent' || operation === 'bubble-hide-parent' ||
+    operation === 'bubble-disable-view';
 function checkEvent(event, current) {
     check(event.type === 'click' && event.target.id === 'caption' && event.target.isValid &&
           event.currentTarget.id === current && event.currentTarget.isValid,
@@ -366,8 +369,9 @@ class BubbleController extends UiController {
         // Register the ancestor first: delivery must still follow the actual element path.
         return this.Listen(this.model.button, 'click', event => {
             checkEvent(event, 'bubble-button');
-            check(operation === 'bubble-order', 'invalidated child stops parent delivery');
-            check(this.model.children === this.model.parents + 1,
+            check(operation === 'bubble-order' || (stateCase && this.model.children > 1),
+                  'inactive or invalidated child stops parent delivery');
+            check(this.model.children === this.model.parents + (stateCase ? 2 : 1),
                   'child callback precedes its parent regardless of registration order');
             ++this.model.parents;
             this.model.calls.push('parent');
@@ -391,19 +395,28 @@ class BubbleController extends UiController {
             } else if (operation === 'bubble-remove') {
                 check(this.model.button.SetText('Removed') && !this.model.caption.isValid &&
                       this.model.button.isValid, 'remove the target while retaining its ancestor');
+            } else if (stateCase && this.model.children === 1) {
+                const changed = operation === 'bubble-disable-view' ? this.view.SetEnabled(false) :
+                    operation === 'bubble-disable-parent' ? this.model.parent.SetEnabled(false) :
+                    this.model.parent.SetVisible(false);
+                check(changed && this.bound && this.model.caption.isValid,
+                      'stopping UI events retains the controller and its document handles');
             }
             check(this.model.label.SetText(this.model.calls.join(',')), 'display callback order');
         });
     }
     OnRefresh() { return this.model.label.SetText(this.model.calls.join(',')); }
+    OnUnbind() { ++this.model.unbinds; }
 }
 export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
+        const parent = stateCase ? scene?.CreateNode('UI Parent') : null;
+        check(!stateCase || (parent && view?.node.SetParent(parent)), 'attach UI under a parent');
         this.model = { button: view?.FindElement('bubble-button'),
                        caption: view?.FindElement('caption'), label: view?.FindElement('label'),
-                       calls: [], children: 0, parents: 0, late: 0 };
+                       parent, calls: [], children: 0, parents: 0, late: 0, unbinds: 0 };
         check(this.model.button?.isValid && this.model.caption?.isValid, 'nested View elements');
         this.controller = new BubbleController(view, this.model);
         this.frame = 0;
@@ -416,6 +429,20 @@ export default class extends Gameplay {
             check(this.model.children === (first ? 1 : 2) &&
                   this.model.parents === (first ? 1 : 2) && this.model.late === (first ? 0 : 1),
                   'each eligible listener runs once, and the event snapshot excludes new ones');
+        } else if (stateCase) {
+            check(this.model.children === (this.frame < 3 ? 1 : 2) &&
+                  this.model.parents === (this.frame < 3 ? 0 : 1),
+                  'stopping UI suppresses remaining callbacks and discards queued input');
+            check(this.controller.bound && this.model.unbinds === 0 && this.model.caption.isValid,
+                  'stopping UI retains controller bindings and document identity');
+            if (this.frame === 1) {
+                const view = this.controller.view;
+                check(operation === 'bubble-hide-parent' ? view.active && !view.visibleInHierarchy :
+                      !view.active, 'UI inherits effective parent activation and visibility');
+                check(view.SetEnabled(true) && this.model.parent.SetEnabled(true) &&
+                      this.model.parent.SetVisible(true) && view.active && view.visibleInHierarchy,
+                      'resuming UI retains original handles and subscriptions');
+            }
         } else {
             check(this.model.children === 1 && this.model.parents === 0,
                   'child invalidation suppresses both the parent and queued stale input');
@@ -432,7 +459,7 @@ export default class extends Gameplay {
     OnInitialize() {
         const scene = Scene.Load('scenes/main.scene');
         const view = scene?.FindNode('View')?.GetComponent(UiComponent);
-        if (!view || view.FindElement('action') !== null || view.SetVisible(true)) return false;
+        if (!view || view.FindElement('action') !== null || !view.SetVisible(true) || !view.visible) return false;
         const controller = new UiController(view, {});
         return !controller.Bind() && !controller.bound;
     }
@@ -509,6 +536,7 @@ export default class extends Gameplay {
 
 struct Systems
 {
+    engine::MountList mounts;
     engine::ResourceSystem resources;
     engine::ThreadSystem threads;
     engine::TaskSystem tasks{threads, {"Editor", 4, engine::TaskPriority::low}};
@@ -567,6 +595,7 @@ struct Systems
 
     bool initialize(const fs::path& project)
     {
+        mounts = {{"content", project / "cache"}};
         engine::EngineConfig config;
         config.window_title = "Engine UI script MVC integration";
         config.width = 640;
@@ -600,15 +629,16 @@ struct Systems
                 return false;
             }
         }
-        for (const auto* operation : {"bubble-order", "bubble-unbind", "bubble-remove"})
+        for (const auto* operation :
+             {"bubble-order", "bubble-unbind", "bubble-remove", "bubble-disable-parent",
+              "bubble-hide-parent", "bubble-disable-view"})
         {
             if (!add_script(catalog, project, operation, bubbling_source(operation)))
             {
                 return false;
             }
         }
-        return expect(resources.initialize(config) &&
-                          resources.update_catalog(catalog, {{"content", project / "cache"}}),
+        return expect(resources.initialize(config) && resources.update_catalog(catalog, mounts),
                       resources.last_error()) &&
                expect(window.initialize(config) && world.initialize(config) &&
                           fonts.initialize(config) && ui.initialize(config) &&
@@ -649,7 +679,8 @@ struct Systems
 
     bool start(std::string_view name)
     {
-        return expect(script.start_gameplay("scripts/" + std::string(name) + ".js"),
+        return expect(test_support::start_script(script, resources, mounts,
+                                                 "scripts/" + std::string(name) + ".js"),
                       script.status().last_error) &&
                expect(renderer.prepare_scene(), "prepare scene after gameplay initialization") &&
                frames();
@@ -1067,6 +1098,18 @@ bool bubbling_cases(Systems& systems)
         }
         systems.stop();
     }
+    for (const auto* operation :
+         {"bubble-disable-parent", "bubble-hide-parent", "bubble-disable-view"})
+    {
+        if (!systems.start(operation) || !click(systems, 350.0F, 40.0F) ||
+            !click(systems, 350.0F, 40.0F) || !systems.tick() || !systems.label_is("child") ||
+            !systems.tick() || !systems.label_is("child") || !click(systems, 350.0F, 40.0F) ||
+            !systems.tick() || !systems.label_is("child,child,parent"))
+        {
+            return false;
+        }
+        systems.stop();
+    }
     return true;
 }
 
@@ -1124,7 +1167,9 @@ bool independent_documents(Systems& systems)
 bool missing_ui(Systems& systems)
 {
     engine::plugins::script::ScriptSystem script(&systems.world);
-    if (!expect(script.initialize({}) && script.start_gameplay("scripts/no-ui.js") &&
+    if (!expect(script.initialize({}) &&
+                    test_support::start_script(script, systems.resources, systems.mounts,
+                                               "scripts/no-ui.js") &&
                     script.tick(delta_time) && script.status().running,
                 "UI script API safely rejects View binding without an injected UiSystem"))
     {

@@ -213,6 +213,42 @@ std::string game_source(std::string_view name, int expected_value)
            std::string(name) + ":stop');}}";
 }
 
+bool run_prepared_catalog_cases(const fs::path& workspace)
+{
+    engine::plugins::script::ScriptSystem script;
+    Fixture first;
+    Fixture second;
+    const std::string source =
+        "import {Gameplay} from 'engine'; export default class extends Gameplay {}";
+    if (!script.initialize({}) ||
+        !fixture(workspace, "prepared-first", {{"scripts/game.js", source}}, first) ||
+        !fixture(workspace, "prepared-second", {{"scripts/game.js", source + "\n// next"}},
+                 second) ||
+        !apply(script, first))
+    {
+        return false;
+    }
+    const auto original_run = script.status().run_id;
+    if (!expect(!script.prepare_gameplay(second.catalog, {}) && script.status().running &&
+                    script.status().run_id == original_run,
+                "candidate preparation requires its mounts and does not fall back to active "
+                "resources") ||
+        !expect(script.prepare_gameplay(second.catalog, second.mounts) &&
+                    !script.start_prepared_gameplay() && !script.status().running &&
+                    script.status().last_error ==
+                        "Active script resources differ from the prepared catalog",
+                "starting an unpublished candidate rejects mismatched active script content") ||
+        !expect(apply(script, second) && script.status().running &&
+                    script.status().active_revision == "prepared-second" &&
+                    script.status().run_id != original_run,
+                "publishing a prechecked candidate starts a fresh Run through the formal path"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return true;
+}
+
 bool run_cases(const fs::path& workspace)
 {
     engine::plugins::script::ScriptSystem script;
@@ -275,7 +311,7 @@ bool run_cases(const fs::path& workspace)
         }
     }
     if (!expect(!script.prepare_gameplay(next.catalog, next.mounts, "../outside.js") &&
-                    !script.start_gameplay("/absolute.js"),
+                    !script.prepare_gameplay(next.catalog, next.mounts, "/absolute.js"),
                 "unsafe entry paths are rejected") ||
         !expect(apply(script, next) && script.tick(.01) && log_contains("first:stop") &&
                     log_contains("second:update:1"),
@@ -283,7 +319,6 @@ bool run_cases(const fs::path& workspace)
     {
         return false;
     }
-    script.set_hot_reload(true);
     if (!write_file(engine::App::persistent_data_path() / "assets/available.json", "invalid") ||
         !write_file(engine::App::persistent_data_path() / "script-control.json", "invalid") ||
         !expect(script.tick(.01) && script.status().running && script.status().last_error.empty(),
@@ -738,6 +773,93 @@ export default class Game extends Gameplay {
     }
 }
 )js";
+
+bool run_component_identity_and_state_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import { Gameplay, Scene, Component, Transform, Camera, Collider, MeshRenderer } from 'engine';
+function check(value, message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    OnInitialize() {
+        const scene = Scene.Create('Component identity');
+        this.parent = scene.CreateNode('Parent');
+        this.node = scene.CreateNode('Replaced');
+        check(this.node.SetParent(this.parent), 'parent link');
+        this.transform = this.node.GetComponent(Transform);
+        this.camera = this.node.AddComponent(Camera);
+        this.collider = this.node.AddComponent(Collider);
+        this.mesh = this.node.AddComponent(MeshRenderer);
+        this.material = this.mesh.material;
+        this.components = [this.transform, this.camera, this.collider, this.mesh];
+        check(this.components.every(value => value.IsValid() && value.enabled && value.active &&
+              value.visible && value.visibleInHierarchy), 'initial component flags');
+        check(this.parent.SetEnabled(false) && this.node.enabled && !this.node.active &&
+              this.components.every(value => value.enabled && !value.active && value.IsValid()),
+              'ancestor activation preserves local settings and identities');
+        check(this.parent.SetVisible(false) && this.node.visible && !this.node.visibleInHierarchy &&
+              this.components.every(value => value.visible && !value.visibleInHierarchy),
+              'ancestor visibility preserves local component settings');
+        check(this.parent.SetEnabled(true) && this.node.active && !this.node.visibleInHierarchy,
+              'hidden objects can stay active');
+        check(this.parent.SetVisible(true) && this.camera.SetEnabled(false) &&
+              !this.camera.enabled && !this.camera.active && this.camera.visibleInHierarchy &&
+              this.node.active && this.camera.SetEnabled(true), 'independent component activation');
+        check(this.camera.SetVisible(false) && !this.camera.visible &&
+              !this.camera.visibleInHierarchy && this.camera.active && this.node.visible &&
+              this.camera.SetVisible(true), 'component visibility does not stop logic');
+        check(!this.parent.SetEnabled(1) && !this.parent.SetVisible('no') &&
+              !this.camera.SetEnabled(null) && !this.camera.SetVisible(1), 'strict boolean flags');
+        return true;
+    }
+    Update() {
+        check(this.node.IsValid() && this.components.every(value => !value.IsValid() &&
+              !value.SetEnabled(false) && !value.SetVisible(false) && value.enabled === null &&
+              value.active === null && value.visible === null && value.visibleInHierarchy === null),
+              'all old component handles stay invalid after same-node replacement');
+        check(!Component.prototype.SetEnabled.call(this.camera, false) &&
+              !Component.prototype.SetVisible.call(this.camera, false) &&
+              !this.transform.SetPosition(7, 8, 9) && !this.camera.SetPerspective(40, .1, 50) &&
+              !this.collider.SetSphere(5) && !this.mesh.SetMaterialCount(2),
+              'base methods and class methods cannot mutate replacement components');
+        check(!this.material.IsValid() && !this.material.SetFloat('roughness', .2),
+              'material handle retains its original owning component identity');
+        for (const type of [Transform, Camera, Collider, MeshRenderer]) {
+            const fresh = this.node.GetComponent(type);
+            check(fresh && fresh.IsValid() && fresh.enabled && fresh.active && fresh.visible &&
+                  fresh.visibleInHierarchy, 'fresh component handle targets replacement');
+        }
+        check(this.node.GetComponent(Transform).SetPosition(1, 2, 3), 'fresh behavior works');
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture input;
+    if (!world.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "component-identities", {{"scripts/game.js", std::string(source)}},
+                 input) ||
+        !expect(apply(script, input), "initialize common component identities and hierarchy flags"))
+    {
+        return false;
+    }
+    auto* node = world.scene()->nodes().back().get();
+    if (!expect(node->remove_component(engine::Transform::component_type) &&
+                    node->remove_component(engine::Camera::component_type) &&
+                    node->remove_component(engine::Collider::component_type) &&
+                    node->remove_component(engine::MeshRenderer::component_type) &&
+                    node->add_component<engine::Transform>() != nullptr &&
+                    node->add_component<engine::Camera>() != nullptr &&
+                    node->add_component<engine::Collider>() != nullptr &&
+                    node->add_component<engine::MeshRenderer>() != nullptr,
+                "replace four component types without replacing their node") ||
+        !expect(script.tick(.01) && script.status().running,
+                "old component and material handles reject replacements while new handles work"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return true;
+}
 
 bool run_scene_cases(const fs::path& workspace)
 {
@@ -2610,167 +2732,41 @@ export default class extends Gameplay {
 bool run_render_binding_cases(const fs::path& workspace)
 {
     const engine::EngineConfig config;
-    Fixture missing;
-    constexpr std::string_view missing_source = R"js(
-import { Gameplay, Render } from 'engine';
-export default class extends Gameplay {
-    OnInitialize() {
-        return !Render.SetAmbient(1, 1, 1, 1) && !Render.SetExposure(1) &&
-            !Render.SetFilmicTonemap(true) && !Render.SetDirectionalShadows(true) &&
-            !Render.SetAmbientOcclusion(true) &&
-            !Render.SetHdr(true) && !Render.SetBloom(true) &&
-            !Render.SetShadowCascades(2, 120) &&
-            !Render.SetClearColor(0xffffffff);
-    }
-}
-)js";
-    {
-        engine::plugins::script::ScriptSystem script;
-        if (!script.initialize(config) ||
-            !fixture(workspace, "render-without-service",
-                     {{"scripts/game.js", std::string(missing_source)}}, missing) ||
-            !expect(apply(script, missing), "render binding rejects an absent injected service"))
-        {
-            return false;
-        }
-    }
-
-    // 设置接口不要求初始化图形设备，本测试不创建窗口或依赖 GPU。
-    engine::WindowSystem windows;
-    engine::RenderSystem renderer(windows);
-    engine::plugins::script::ScriptSystem script(nullptr, &renderer);
     constexpr std::string_view source = R"js(
 import { Gameplay, Render } from 'engine';
-const topLevelBlocked = !Render.SetExposure(9) && !Render.SetAmbient(1, 1, 1, 5);
+const blocked = !Render.SetVSync(false) && Render.GetVSync() === null &&
+    Render.GetViewportSize() === null;
 export default class extends Gameplay {
-    constructor() { super(); this.constructorBlocked = !Render.SetExposure(8); }
     OnInitialize() {
-        return topLevelBlocked && this.constructorBlocked && Object.isFrozen(Render) &&
-            !Render.SetBloom(true) && Render.SetHdr(true) && Render.SetBloom(true, .8, .35, 2) &&
-            !Render.SetHdr(false) &&
-            Render.SetAmbient(.2, .3, .4, .15) && Render.SetExposure(1.4) &&
-            Render.SetAmbientTricolor([.5,.6,.7], [.3,.4,.5], [.1,.2,.3], .15) &&
-            Render.SetLinearFog(true, .2, .3, .4, 60, 300) &&
-            Render.SetExponentialFog(true, .2, .3, .4, .007, true) &&
-            !Render.SetExponentialFog(true, .8, .7, .6, -.01, true) &&
-            !Render.SetExponentialFog(true, .8, .7, .6, Infinity, true) &&
-            !Render.SetExponentialFog(true, .8, .7, .6, .01, 1) &&
-            !Render.SetAmbientTricolor(null, [.3,.4,.5], [.1,.2,.3], .2) &&
-            !Render.SetAmbientTricolor([1,2,3], [.3,.4,.5], [.1,.2,.3], .2) &&
-            !Render.SetLinearFog(true, .8, .7, .6, 300, 60) &&
-            !Render.SetLinearFog(true, .8, .7, .6, -1, 60) &&
-            Render.SetFilmicTonemap(true) && Render.SetDirectionalShadows(true) &&
-            Render.SetAmbientOcclusion(true, 1.4, .8, 2, 40, 140) &&
-            Render.SetShadowCascades(2, 120, .7, .2) &&
-            Render.SetDirectionalShadows(true, 1024, .002) &&
-            Render.SetClearColor(0xffffffff) && Render.SetClearColor(0x56789aff) &&
-            !Render.SetAmbient(.8, .7, -1, .9) && !Render.SetAmbient(.8, .7, .6, -1) &&
-            !Render.SetAmbient(.8, .7, .6, 1001) && !Render.SetAmbient(NaN, 0, 0, 1) &&
-            !Render.SetAmbient('1', 0, 0, 1) && !Render.SetExposure(0) &&
-            !Render.SetExposure(Infinity) && !Render.SetExposure(101) &&
-            !Render.SetFilmicTonemap(1) && !Render.SetDirectionalShadows(1) &&
-            !Render.SetDirectionalShadows(false, 65536, .02) &&
-            !Render.SetDirectionalShadows(false, 1000, .03) &&
-            !Render.SetDirectionalShadows(false, 1024.5, .03) &&
-            !Render.SetDirectionalShadows(false, 128, .2) &&
-            !Render.SetShadowCascades(3, 120) && !Render.SetShadowCascades(2.5, 120) &&
-            !Render.SetShadowCascades('2', 120) && !Render.SetShadowCascades(2, 0) &&
-            !Render.SetShadowCascades(2, 100001) && !Render.SetShadowCascades(2, NaN) &&
-            !Render.SetShadowCascades(2, 120, 1.1) &&
-            !Render.SetShadowCascades(2, 120, .5, .31) &&
-            !Render.SetAmbientOcclusion(1) && !Render.SetAmbientOcclusion(true, 0) &&
-            !Render.SetAmbientOcclusion(true, 101) &&
-            !Render.SetAmbientOcclusion(true, 1, 2.1) &&
-            !Render.SetAmbientOcclusion(true, 1, 1, NaN) &&
-            !Render.SetAmbientOcclusion(true, 1, 1, .09) &&
-            !Render.SetAmbientOcclusion(true, 1, 1, 8.1) &&
-            !Render.SetAmbientOcclusion(true, 1, 1, 1.5, 150, 150) &&
-            !Render.SetAmbientOcclusion(true, 1, 1, 1.5, 80, 100001) &&
-            !Render.SetHdr(1) && !Render.SetBloom(1) && !Render.SetBloom(true, -1) &&
-            !Render.SetBloom(true, 101) && !Render.SetBloom(true, 1, 10.1) &&
-            !Render.SetBloom(true, 1, NaN) && !Render.SetBloom(true, 1, .2, .24) &&
-            !Render.SetBloom(true, 1, .2, 4.1) &&
-            !Render.SetClearColor(-1) && !Render.SetClearColor(0x100000000) &&
-            !Render.SetClearColor(.5) && !Render.SetClearColor('0x123456ff');
-    }
-    Update() {
-        if (!Render.SetExposure(.75) || !Render.SetDirectionalShadows(false))
-            throw new Error('Cannot set render options during Update');
-    }
-    OnShutdown() {
-        if (!Render.SetExposure(.5) || Render.SetHdr(false) ||
-            !Render.SetBloom(false, .8, .35, 2) || !Render.SetHdr(false))
-            throw new Error('Renderer must outlive gameplay callbacks and preserve flag order');
+        return blocked && Object.isFrozen(Render) &&
+            Render.GetViewportSize() === null && Render.GetVSync() === null &&
+            !Render.SetVSync(true) && !Render.SetVSync(1) &&
+            typeof Render.SetAmbient === 'undefined' &&
+            typeof Render.SetExposure === 'undefined' &&
+            typeof Render.SetDirectionalShadows === 'undefined';
     }
 }
 )js";
     Fixture input;
-    if (!script.initialize(config) ||
-        !fixture(workspace, "render-settings", {{"scripts/game.js", std::string(source)}}, input) ||
-        !expect(apply(script, input), "render settings apply in OnInitialize with typed inputs"))
+    if (!fixture(workspace, "render-device-controls", {{"scripts/game.js", std::string(source)}},
+                 input))
     {
         return false;
     }
-    const auto settings = renderer.settings();
-    if (!expect(settings.ambient_color == std::array<float, 3>{.2F, .3F, .4F} &&
-                    settings.ambient_intensity == .15F && settings.exposure == 1.4F &&
-                    settings.ambient_tricolor &&
-                    settings.ambient_sky_color == std::array<float, 3>{.5F, .6F, .7F} &&
-                    settings.fog_mode == engine::FogMode::exponential_squared &&
-                    settings.fog_density == .007F && settings.fog_start == 60 &&
-                    settings.fog_end == 300 &&
-                    settings.fog_color == std::array<float, 3>{.2F, .3F, .4F} &&
-                    settings.filmic_tonemap && settings.directional_shadows &&
-                    settings.ao_enabled && settings.ao_radius == 1.4F &&
-                    settings.ao_strength == .8F && settings.ao_power == 2.0F &&
-                    settings.ao_fade_start == 40 && settings.ao_fade_end == 140 &&
-                    settings.hdr_enabled && settings.bloom_enabled &&
-                    settings.bloom_threshold == .8F && settings.bloom_intensity == .35F &&
-                    settings.bloom_radius == 2 && settings.shadow_resolution == 1024 &&
-                    settings.shadow_bias == .002F && settings.shadow_cascades == 2 &&
-                    settings.shadow_distance == 120.0F && settings.shadow_split_lambda == .7F &&
-                    settings.shadow_cascade_blend == .2F && settings.clear_color == 0x56789aff,
-                "invalid calls preserve all fields, including partial ambient and shadow input") ||
-        !expect(
-            script.tick(.016) && script.status().running && renderer.settings().exposure == .75F &&
-                renderer.settings().ao_enabled && renderer.settings().ao_radius == 1.4F &&
-                renderer.settings().ao_strength == .8F && renderer.settings().ao_power == 2 &&
-                renderer.settings().ao_fade_start == 40 && renderer.settings().ao_fade_end == 140 &&
-                renderer.settings().hdr_enabled && renderer.settings().bloom_enabled &&
-                renderer.settings().bloom_threshold == .8F &&
-                renderer.settings().bloom_intensity == .35F &&
-                renderer.settings().bloom_radius == 2 && !renderer.settings().directional_shadows &&
-                renderer.settings().shadow_resolution == 2048 &&
-                renderer.settings().shadow_bias == .001F &&
-                renderer.settings().shadow_cascades == 2 &&
-                renderer.settings().shadow_distance == 120.0F &&
-                renderer.settings().shadow_split_lambda == .7F &&
-                renderer.settings().shadow_cascade_blend == .2F,
-            "Update can change renderer settings and shadow defaults match the native API"))
     {
-        return false;
+        engine::plugins::script::ScriptSystem script;
+        if (!script.initialize(config) ||
+            !expect(apply(script, input), "device queries reject an absent render service"))
+        {
+            return false;
+        }
     }
-    script.stop_gameplay();
-    if (!expect(renderer.settings().exposure == .5F && !script.status().running &&
-                    !renderer.settings().hdr_enabled && !renderer.settings().bloom_enabled &&
-                    renderer.settings().bloom_intensity == .35F,
-                "shutdown callback runs while the injected renderer remains valid") ||
-        !renderer.set_settings({}) ||
-        !expect(script.prepare_gameplay(input.catalog, input.mounts) &&
-                    renderer.settings().exposure == 1.0F &&
-                    renderer.settings().ambient_intensity == 0.0F &&
-                    !renderer.settings().directional_shadows,
-                "preparing a candidate does not apply project render settings") ||
-        !expect(script.start_prepared_gameplay() && renderer.settings().exposure == 1.4F &&
-                    renderer.settings().ambient_intensity == .15F &&
-                    renderer.settings().directional_shadows,
-                "starting the project again reapplies its own render settings"))
-    {
-        return false;
-    }
-    script.stop_gameplay();
-    return expect(renderer.settings().exposure == .5F && script.status().last_error.empty(),
-                  "repeated lifecycle preserves the renderer borrowing contract");
+    engine::WindowSystem windows;
+    engine::RenderSystem renderer(windows);
+    engine::plugins::script::ScriptSystem script(nullptr, &renderer);
+    return script.initialize(config) &&
+           expect(apply(script, input),
+                  "an uninitialized render service exposes no viewport or presentation controls");
 }
 
 bool run_scene_render_binding_cases(const fs::path& workspace)
@@ -2787,9 +2783,7 @@ export default class extends Gameplay {
     frame = 0;
     OnInitialize() {
         this.scene = Scene.Create('Scene environment');
-        if (!this.scene || Render.SetExposure(2) || Render.SetAmbient(1, 1, 1, 2) ||
-            Render.SetShadowCascades(2, 120) || Render.SetAmbientOcclusion(true) ||
-            Render.SetHdr(true) || Render.SetBloom(true)) return false;
+        if (!this.scene) return false;
         const environmentNode = this.scene.CreateNode('Environment');
         this.environment = environmentNode.AddComponent(EnvironmentComponent);
         const cameraNode = this.scene.CreateNode('Camera');
@@ -2845,7 +2839,7 @@ export default class extends Gameplay {
             !this.post.SetAmbientOcclusion(true, 1, 1, 1.5, -1, 100) &&
             !this.post.SetAmbientOcclusion(true, 1, 1, 1.5, 100, 80) &&
             !this.post.SetExposure(0) && !this.post.SetFilmicTonemap(1) &&
-            light.SetDirectional() && Render.SetShadowCascades(1, 100) &&
+            light.SetDirectional() && light.SetShadowCascades(1, 100) &&
             light.SetShadowCascades(2, 90, .8, .15) && light.SetShadows(true, 1024, .002) &&
             !light.SetShadowCascades(3, 90) && !light.SetShadowCascades(2.5, 90) &&
             !light.SetShadowCascades(2, 0) && !light.SetShadowCascades(2, Infinity) &&
@@ -2963,9 +2957,11 @@ int main(int argc, char** argv)
     }
     engine::ResourceSystem resources;
     const bool passed =
-        resources.initialize(config) && run_cases(workspace) && run_project_script_cases(workspace) &&
+        resources.initialize(config) && run_cases(workspace) &&
+        run_prepared_catalog_cases(workspace) && run_project_script_cases(workspace) &&
         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
+        run_component_identity_and_state_cases(workspace) &&
         run_persistent_scene_cases(workspace) && run_guid_cases(workspace) &&
         run_physics_audio_binding_cases(workspace) && run_impact_binding_cases(workspace) &&
         run_render_binding_cases(workspace) && run_scene_render_binding_cases(workspace) &&

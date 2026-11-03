@@ -422,6 +422,19 @@ bool runtime_contract()
     {
         return false;
     }
+    const auto generated_visible = [&](bool expected)
+    {
+        const auto ids = generated_ids(*scene);
+        return !ids.empty() &&
+               std::all_of(ids.begin(), ids.end(),
+                           [&](std::uint64_t id)
+                           {
+                               const auto* node = scene->find_node(id);
+                               const auto* mesh = node->get_component<MeshRenderer>();
+                               return mesh && mesh->visible_in_hierarchy() == expected;
+                           });
+    };
+    component->set_visible(false);
     auto floor_pose = floor->get_component<Transform>()->settings();
     floor_pose.position = {10, -0.5, 0};
     auto floor_shape = collider->settings();
@@ -441,8 +454,8 @@ bool runtime_contract()
                     component->ready() && component->chunk_count() == 3 &&
                     component->group_count() == 1 && component->dynamic_groups() == 0 &&
                     fixture.physics.body_count() == 1 && scene->nodes().size() == 3 &&
-                    generated_enabled(*scene, false) && fixture.high_collision(10, false) &&
-                    fixture.high_collision(12, false),
+                    generated_enabled(*scene, false) && generated_visible(false) &&
+                    fixture.high_collision(10, false) && fixture.high_collision(12, false),
                 "initially disabled source transform keeps generated renderers and collision off",
                 component->last_error()))
     {
@@ -453,6 +466,35 @@ bool runtime_contract()
                     generated_enabled(*scene, true) && fixture.high_collision(10, true) &&
                     fixture.high_collision(12, true),
                 "enabling source transform publishes collision immediately in preview"))
+    {
+        return false;
+    }
+    component->set_visible(true);
+    if (!expect(fixture.world.set_paused(true) && fixture.world.tick(2) && generated_visible(true),
+                "paused destruction synchronizes component visibility"))
+    {
+        return false;
+    }
+    owner->set_visible(false);
+    if (!expect(fixture.world.tick(2) && generated_visible(false) &&
+                    generated_enabled(*scene, true) && fixture.physics.body_count() == 2,
+                "hidden paused source hides independent groups while retaining collision"))
+    {
+        return false;
+    }
+    owner->set_visible(true);
+    owner->set_enabled(false);
+    if (!expect(fixture.world.tick(2) && generated_enabled(*scene, false) &&
+                    fixture.physics.body_count() == 1,
+                "disabled paused source deactivates independent groups"))
+    {
+        return false;
+    }
+    owner->set_enabled(true);
+    if (!expect(fixture.world.tick(2) && generated_enabled(*scene, true) &&
+                    generated_visible(true) && fixture.physics.body_count() == 2 &&
+                    fixture.world.set_paused(false),
+                "reenabling a paused source restores groups without rebuilding them"))
     {
         return false;
     }
@@ -1200,7 +1242,10 @@ bool asynchronous_damage_contract()
         generated_ids(*scene) == ids;
     gate.release();
     ByteBuffer bytes;
-    if (!expect(occupied.get() && queued && tasks.wait() && fixture.destruction->synchronize() &&
+    if (!expect(occupied.get() && queued && tasks.wait() && fixture.world.set_paused(true) &&
+                    fixture.world.tick(1) && fixture.destruction->synchronize() &&
+                    results.empty() && component->revision() == revision &&
+                    fixture.world.set_paused(false) && fixture.destruction->synchronize() &&
                     results == std::vector<bool>{true} && component->revision() == revision + 1 &&
                     tasks.wait() && fixture.destruction->synchronize() &&
                     results == std::vector<bool>({true, true}) && generated_ids(*scene) == ids &&

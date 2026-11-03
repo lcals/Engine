@@ -39,6 +39,14 @@ bool write(const std::filesystem::path& path, const std::string& text)
     return static_cast<bool>(file);
 }
 
+bool published_hot_reload(const std::filesystem::path& root, bool enabled)
+{
+    std::string status;
+    const std::string value = enabled ? "\"hotReload\":true" : "\"hotReload\":false";
+    return ResourceSystem::read_text(root / "script-status.json", status) &&
+           status.find(value) != std::string::npos;
+}
+
 class TestScript final : public ScriptRuntime
 {
 public:
@@ -55,12 +63,6 @@ public:
     {
         status_.running = false;
     }
-    void set_hot_reload(bool enabled) override
-    {
-        owner_only = owner_only && std::this_thread::get_id() == owner_;
-        ++control_calls;
-        status_.hot_reload = enabled;
-    }
     bool execute_project_script(const ProjectScriptRequest&, std::string& result,
                                 std::string& error) override
     {
@@ -70,11 +72,11 @@ public:
     }
     const ScriptStatus& status() const noexcept override
     {
+        owner_only = owner_only && std::this_thread::get_id() == owner_;
         return status_;
     }
 
-    bool owner_only = true;
-    std::size_t control_calls = 0;
+    mutable bool owner_only = true;
 
 protected:
     bool on_initialize(const EngineConfig&) override
@@ -126,18 +128,20 @@ bool test_background_protocol(const std::filesystem::path& root)
         return false;
     }
     const bool accepted = session.tick();
-    const bool untouched = script.control_calls == 0;
+    const bool untouched = !published_hot_reload(root, true);
     release.set_value();
     if (!expect(accepted && untouched,
                 "tick only queues work and never mutates scripts on worker") ||
         !tasks.wait() ||
-        !expect(script.control_calls == 0, "worker completion alone cannot apply control"))
+        !expect(published_hot_reload(root, false) && script.owner_only,
+                "worker completion alone cannot apply the new control or access scripts"))
     {
         return false;
     }
     (void)tasks.dispatch_completions(8, 1.0);
-    if (!session.tick() || !expect(script.status().hot_reload && script.owner_only,
-                                   "control is applied by the next owner-thread tick"))
+    if (!session.tick() || !tasks.wait() ||
+        !expect(published_hot_reload(root, true) && script.owner_only,
+                "owner-thread tick applies control and publishes the session policy"))
     {
         return false;
     }
@@ -147,20 +151,19 @@ bool test_background_protocol(const std::filesystem::path& root)
     {
         return false;
     }
-    const auto calls = script.control_calls;
     if (!session.set_resources(fixture.catalog, {{"content", fixture.root}}) ||
         !write(root / "script-control.json", R"({"hotReload":false})"))
     {
         return false;
     }
     (void)tasks.dispatch_completions(8, 1.0);
-    if (!session.tick() || !expect(script.control_calls == calls,
+    if (!session.tick() || !expect(published_hot_reload(root, true),
                                    "replaced resource state discards old completion generation"))
     {
         return false;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (script.status().hot_reload && std::chrono::steady_clock::now() < deadline)
+    while (!published_hot_reload(root, false) && std::chrono::steady_clock::now() < deadline)
     {
         (void)tasks.dispatch_completions(8, 1.0);
         if (!session.tick())
@@ -169,7 +172,7 @@ bool test_background_protocol(const std::filesystem::path& root)
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (!expect(!script.status().hot_reload && script.owner_only,
+    if (!expect(published_hot_reload(root, false) && script.owner_only,
                 "replacement state eventually accepts only the current control file"))
     {
         return false;

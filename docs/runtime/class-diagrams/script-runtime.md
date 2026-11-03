@@ -12,15 +12,13 @@ classDiagram
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
-        +set_hot_reload(bool enabled) void
         +status() const ScriptStatus&
     }
     class ScriptStatus {
         <<struct>>
         +bool running
-        +bool hot_reload
+        +uint64_t run_id
         +string active_revision
-        +string available_revision
         +string last_error
     }
     class System
@@ -41,6 +39,6 @@ classDiagram
 - ScriptRuntime 继承 System，复用统一初始化、逐帧更新和反序关闭，不再创建另一套生命周期接口。运行宿主通过调用方提供的工厂取得独占实例，并移交给 WorldSystem 管理。
 - `prepare_gameplay()` 只预检调用方明确提供的候选目录，不执行玩法、不切换当前资源；入口和修订默认空，由实现解析默认值。失败保留旧运行。
 - `start_prepared_gameplay()` 执行已经预检且与活动目录匹配的玩法。`stop_gameplay()` 支持重复停止、部分初始化，保证 noexcept。
-- `set_hot_reload()` 表达是否允许调用方应用新候选，不自行扫描编辑器或项目目录。`status()` 返回实现拥有的只读 ScriptStatus 引用，有效期受实例及后续操作约束。
-- ScriptStatus 是普通状态结构，属于核心契约，不包含任何虚拟机句柄。`running`、`hot_reload` 默认 false，其余字符串默认空。所有失败通过返回值与状态中的 last_error 表达。
+- `status()` 只报告当前执行状态，返回实现拥有的只读 ScriptStatus 引用，有效期受实例及后续操作约束。热重载许可、可用部署版本与部署错误由 GameplaySession 持有，不进入执行契约。
+- ScriptStatus 是普通状态结构，属于核心契约，不包含任何虚拟机句柄。`running` 默认 false，`run_id` 默认 0，其余字符串默认空。执行失败通过返回值与状态中的 last_error 表达。
 - 核心不提供脚本系统伪实现；不选择插件时不创建此子系统。QuickJS/V8 选择及实际执行属于脚本插件；独立 V8 依赖的编译、链接验证由测试目标负责。

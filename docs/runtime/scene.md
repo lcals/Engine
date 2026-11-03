@@ -20,6 +20,10 @@
 
 组件设置通过返回值报告失败，非法范围不会覆盖原值。禁用组件不会销毁组件，渲染器跳过禁用对象。GPU 资源由 `RenderSystem` 持有，场景停止、替换及设备关闭时按生命周期释放，见[渲染模块](rendering.md)。
 
+节点和组件都有独立的激活、可见标记，默认开启并随场景保存。`set_enabled(false)` 暂停对应对象参与各系统；`set_visible(false)` 只隐藏画面，物理、导航和动画继续。节点标记影响整棵子树，组件标记只作用于自身；父级恢复时保留子级各自的局部设置，Transform 仍可用于坐标计算。有效状态通过 `active()` 和 `visible_in_hierarchy()` 查询，绘制要求两者都为真。
+
+TS 对应 `SetEnabled()`、`SetVisible()`、`enabled`、`visible`、`active` 和 `visibleInHierarchy`。UI 隐藏或停用保留文档、控件句柄和 Controller，期间不接收交互；移除组件才释放这些对象。所有组件共用 `Component::instance_id()`，同类型删除再添加也会获得新身份，旧脚本句柄不会指向新组件。
+
 ## 保存与加载
 
 源场景使用 `.scene` 后缀和 TOML 内容。`SceneImporter::read` / `write` 负责编辑器端读取与保存；资源管线将其转换为 `cache/gen/<完整GUID>` 中的 FlatBuffers 二进制。运行时通过活动资源目录解析 GUID，`Scene.Load("scenes/main.scene")` 加载场景。节点 ID、父子关系及活动相机经过保存与加载保持一致。

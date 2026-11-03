@@ -18,6 +18,7 @@ public:
                          std::string project_root, std::string session);
     [[nodiscard]] bool poll();
     [[nodiscard]] const std::string& last_error() const noexcept;
+    [[nodiscard]] const nlohmann::json& last_receipt() const noexcept;
 
 private:
     [[nodiscard]] bool publish_pending();
@@ -30,6 +31,7 @@ private:
     std::string last_error_;
     std::set<std::string> executed_;
     nlohmann::json pending_;
+    nlohmann::json last_receipt_;
 };
 
 } // namespace engine::editor

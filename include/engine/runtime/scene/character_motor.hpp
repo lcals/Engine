@@ -17,7 +17,6 @@ public:
     [[nodiscard]] const schema::CharacterMotorDataT& settings() const noexcept;
     [[nodiscard]] bool set_settings(const schema::CharacterMotorDataT& settings) noexcept;
     [[nodiscard]] bool restore_data(const schema::ComponentDataT& data) override;
-    [[nodiscard]] std::uint64_t instance_id() const noexcept;
     // 世界空间水平速度请求，Y 必须为零；不进入持久数据。
     [[nodiscard]] bool set_velocity(const Vec3& velocity) noexcept;
     // 清除主动移动及未消费跳跃，保留外部速度和待消费速度增量。
@@ -32,8 +31,6 @@ private:
     friend class Node;
     friend class PhysicsSystem;
     explicit CharacterMotor(Node& node);
-    [[nodiscard]] bool initialize() override;
-    const std::uint64_t instance_id_;
     Vec3 desired_velocity_{};
     Vec3 velocity_{};
     Vec3 pending_velocity_{};

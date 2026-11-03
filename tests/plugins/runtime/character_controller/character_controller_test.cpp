@@ -525,14 +525,14 @@ bool first_person_visibility_lifecycle()
     engine::schema::ComponentDataT after;
     if (!hand_visual->set_settings(visual) || !body_mesh->build_data(before) ||
         !rig->set_settings(settings) || !fixture.cameras.tick(0.0) ||
-        !expect(!view->mesh_visible(body_mesh->mesh_instance_id()) &&
-                    !view->mesh_visible(head_mesh->mesh_instance_id()) &&
-                    view->mesh_visible(hand_mesh->mesh_instance_id()) &&
-                    observer->mesh_visible(body_mesh->mesh_instance_id()) &&
-                    observer->mesh_visible(head_mesh->mesh_instance_id()) &&
-                    !observer->mesh_visible(hand_mesh->mesh_instance_id()) &&
-                    body_mesh->visible() && head_mesh->visible() && hand_mesh->visible() &&
-                    body_mesh->build_data(after) && before == after,
+        !expect(!view->mesh_visible(body_mesh->instance_id()) &&
+                    !view->mesh_visible(head_mesh->instance_id()) &&
+                    view->mesh_visible(hand_mesh->instance_id()) &&
+                    observer->mesh_visible(body_mesh->instance_id()) &&
+                    observer->mesh_visible(head_mesh->instance_id()) &&
+                    !observer->mesh_visible(hand_mesh->instance_id()) && body_mesh->visible() &&
+                    head_mesh->visible() && hand_mesh->visible() && body_mesh->build_data(after) &&
+                    before == after,
                 "first-person body/head/weapon filtering is per view and never mutates meshes"))
     {
         return false;
@@ -540,15 +540,15 @@ bool first_person_visibility_lifecycle()
     if (!avatar->remove_component(engine::MeshRenderer::component_type) ||
         (body_mesh = avatar->add_component<engine::MeshRenderer>()) == nullptr ||
         !fixture.cameras.tick(0.0) ||
-        !expect(!view->mesh_visible(body_mesh->mesh_instance_id()),
+        !expect(!view->mesh_visible(body_mesh->instance_id()),
                 "replacement mesh receives its own per-view filter"))
     {
         return false;
     }
     settings.mode = engine::schema::CharacterView::third_person;
     if (!rig->set_settings(settings) || !fixture.cameras.tick(0.0) ||
-        !expect(view->mesh_visible(body_mesh->mesh_instance_id()) &&
-                    !view->mesh_visible(hand_mesh->mesh_instance_id()),
+        !expect(view->mesh_visible(body_mesh->instance_id()) &&
+                    !view->mesh_visible(hand_mesh->instance_id()),
                 "third-person camera shows body and hides first-person-only attachments"))
     {
         return false;
@@ -559,7 +559,7 @@ bool first_person_visibility_lifecycle()
         return false;
     }
     rig->set_enabled(false);
-    if (!fixture.cameras.tick(0.0) || !expect(view->mesh_visible(body_mesh->mesh_instance_id()),
+    if (!fixture.cameras.tick(0.0) || !expect(view->mesh_visible(body_mesh->instance_id()),
                                               "disabled rig clears its body filter"))
     {
         return false;
@@ -568,13 +568,13 @@ bool first_person_visibility_lifecycle()
     if (!fixture.cameras.tick(0.0) ||
         !fixture.camera->remove_component(CharacterCamera::component_type) ||
         !fixture.cameras.tick(0.0) ||
-        !expect(view->mesh_visible(body_mesh->mesh_instance_id()),
+        !expect(view->mesh_visible(body_mesh->instance_id()),
                 "removed rig clears its body filter without a retained pointer"))
     {
         return false;
     }
     fixture.cameras.shutdown();
-    return expect(observer->mesh_visible(hand_mesh->mesh_instance_id()) && body_mesh->visible(),
+    return expect(observer->mesh_visible(hand_mesh->instance_id()) && body_mesh->visible(),
                   "camera system shutdown releases its transient filters");
 }
 

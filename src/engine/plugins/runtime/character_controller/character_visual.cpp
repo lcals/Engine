@@ -47,6 +47,7 @@ bool CharacterVisual::restore_data(const schema::ComponentDataT& value)
         return false;
     }
     set_enabled(value.enabled);
+    set_visible(value.visible);
     return true;
 }
 

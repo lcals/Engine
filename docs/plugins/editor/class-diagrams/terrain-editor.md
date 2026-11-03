@@ -86,7 +86,7 @@ classDiagram
 
 - `register_terrain_codec()` 登记组件 codec；导入器交给现有资源管线。
 - `register_terrain_commands(WorldSystem&, SceneCommands&, EditorCommands&, const Path& project_root)` 借用世界和场景命令至命令与撤销历史释放。项目根按值捕获。
-- `create_terrain_asset` 在项目 `assets/` 内创建经过校验的 TOML 源文件和唯一 meta，不覆盖已有资源。之后沿用现有资源导入命令；不再建立另一条缓存发布管线。
+- `create_terrain_asset` 负责校验地形描述和生成结果；项目内路径检查、源文件与唯一 meta 的创建共用编辑器 `asset_io` 普通函数。调用方持有项目资源锁，先拒绝已有源文件或 meta，再写同目录临时文件，依次重命名发布 meta 和源文件；失败清理临时文件，源文件发布失败时回滚本次 meta。之后沿用现有资源导入命令。
 - `set_terrain/get_terrain` 通过标准资源路径配置和查询组件。场景落盘仍保存 GUID。`TerrainSettingsEdit` 在切换资源时保留前后体积快照，撤销回原资源时保留原有挖掘修改；仅换材质或颜色不重置地形。
 - `terrain_brush` 对节点局部坐标的球形区域挖掘或填充；坐标包含生成资源的 `origin`，不自动解释成世界坐标。
 - `terrain_reset/terrain_load_state` 与笔刷共用 `TerrainStateEdit`。处理函数只准备候选 ETRS 快照，由编辑器框架执行 `apply()` 并调用 `TerrainComponent::restore`；当前重新初始化体积，所以 MCP 笔刷、撤销/重做、加载与重置均全块重建，再完整提交 GPU/Jolt 网格。该路径不复用脚本直接 `apply_sphere` 的局部块缓存。失败保留旧有效状态，撤销/重做验证场景身份、稳定节点身份、组件设置和当前快照，不覆盖外部修改。

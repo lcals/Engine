@@ -43,7 +43,6 @@ public:
     // target_platform 为空采用宿主；支持 macos/ios/windows/android/linux。
     [[nodiscard]] bool build_assets(const std::filesystem::path& project_root,
                                     std::string_view target_platform = {});
-    [[nodiscard]] bool build_scripts(const std::filesystem::path& project_root);
     // 失败保留上一次成功批次统计；所有接口由编辑器协调线程调用。
     [[nodiscard]] const AssetBuildStats& last_build() const noexcept;
     [[nodiscard]] const std::string& last_error() const noexcept;
