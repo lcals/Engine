@@ -26,4 +26,4 @@ Collider 的单网格 `mesh_data()` 在分段模式返回 nullptr，不能虚构
 
 私有缓存按连续 64 个槽位组成一个官方 StaticCompoundShape 分组，根再组合各组；未变叶子与分组都共享，仅重建变化组和根。不引入新的树算法或公开分组模型。小列表直接退化为单组/单叶。缓存记录实际烘入形状的缩放，连续小步缩放达到容差后必须重建，不能逐帧推进比较基准而永久复用旧形状。
 
-上游依据和性能目标见[局部碰撞研究](../../plugins/runtime/terrain-collision-plan.md)。
+上游依据和性能目标见[局部碰撞研究](../../plugins/runtime/terrain-collision.md)。

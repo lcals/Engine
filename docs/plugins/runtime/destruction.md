@@ -18,14 +18,13 @@
 场景保存排除生成节点，组件移除或项目关闭时回收。
 
 脚本 `DamageSphere(x,y,z,radius,damage,impulse=0)` 接收世界坐标，移动中的组仍按当前姿态受损；
-`Reset()` 恢复初始图。`ready/revision/chunkCount/groupCount/dynamicGroups/lastError` 报告状态。
+`Reset()` 恢复初始图。`RetireFragments(maxCount, maxAgeSeconds)` 按数量与模拟寿命显式回收脱离动态组；锚定组保留，继续损伤/应力及快照恢复不会复活已回收片块，Reset 才清除回收身份，见[回收契约](class-diagrams/fragment-retirement.md)。`ready/revision/chunkCount/groupCount/dynamicGroups/lastError` 报告状态。
 MCP 提供 `create_destruction_asset`、`set_destruction`、`get_destruction`、
 `destruction_damage`、`destruction_reset`。损伤与重置使用完整快照支持撤销重做，
 包含基础资源 GUID/hash、连接血量、组姿态及线/角速度；自然物理运动不使编辑记录过期，
 外部损伤修改则拒绝覆盖。该快照不是独立游戏存档槽 API。
 
 同步损伤接口保留，另提供有界异步损伤准备与版本校验后的主线程发布；两条路径都按组增量发布并复用兼容未变组的节点、网格和碰撞，仅为需要替换的组准备候选。仅速度变化通过 Jolt 原地更新，不替换 BodyID；节点查找和子树释放使用核心的 ID 索引与线性删除流程。地形地基、撞击再破坏、烟尘音效和官方 ExtStress 同步重力应力均已联通，详见[当前实现](../../runtime/performance.md#当前实现)。
-
 
 ## 地形与物理联动
 

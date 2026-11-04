@@ -24,7 +24,7 @@ classDiagram
         +shutdown() void
         +completed() uint32
         +total() uint32
-        +outputs() LightingBakeOutputs&
+        +outputs() const LightingBakeOutputs&
     }
     class LightingBakeSettings {
         <<struct>>
@@ -102,10 +102,10 @@ LightProbeData 是新增 schema 的唯一模型来源，生成的 LightProbeData
 输出保存到源场景同名资源子目录，拥有独立且稳定的 meta/GUID，缓存继续使用 cache/gen/GUID。
 新增照明源描述和导入器按类型登记；源格式及 runtime FlatBuffers 编解码分别归编辑器与核心。
 Lightmap 使用线性 HDR 纹理；源纹理、模型、材质、固定光源和变换参与烘焙输入指纹。
-SceneBakeFiles 需要扩展暂存/发布照明输出的契约，仍由既有事务统一修改场景绑定及导入刷新。
+SceneBakeFiles 的 `initialize_lighting()` / `stage_lighting()` 复用既有发布事务，统一修改场景绑定及导入刷新。
 失败、取消或输入版本变化不发布半成品；旧源文件和场景引用在发布失败时一起恢复。
 
-发布类的增量接口（设计差异，当前 IBL 签名仍见原图）：`initialize` 的单一输入路径改为 `span<const string>`，用于快照全部输入；新增 `stage(const LightingBakeOutputs&, string& error) -> bool` 重载；`outputs() const noexcept` 从固定三项改为 `span<const BakeOutput>`。`publish`、`unchanged`、`cleanup` 保持同一事务语义。现有 IBL 调用同步传入单元素路径列表，输出仍是三项，不另建照明专用发布器。
+发布接口以[SceneBakeFiles 类图](scene-bake.md)及当前头文件为准：IBL 保留单输入的 `initialize()` 与三份 KTX 的 `stage()`；照明使用 `initialize_lighting()` 与 `stage_lighting()`，没有额外的 `span<const string>` 初始化重载。`outputs()` 返回 `const std::vector<BakeOutput>&`，两类任务共享 `publish()`、`unchanged()` 和 `cleanup()` 的事务语义。
 
 ## UV2 与几何
 

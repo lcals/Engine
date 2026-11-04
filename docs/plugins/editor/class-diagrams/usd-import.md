@@ -1,4 +1,6 @@
-# USD 导入插件
+# USD 导入器
+
+归属：[统一资源导入插件](asset-import.md)，命名空间 `engine::plugins::asset_import`；本页只维护这一类型的源格式、公开方法和数据关系。
 
 ```mermaid
 classDiagram
@@ -7,7 +9,7 @@ classDiagram
         +id() string_view
         +kind() AssetKind
         +matches(const Path& source) bool
-        +discover(const ImportAsset& source, SubresourceList& output, string& error) bool
+        +discover(const ImportAsset& source, vector~ImportSubresource~& output, string& error) bool
         +inspect_batch(const ImportContext& context, string& fingerprint, string& error) bool
         +scan_dependencies(ImportAsset& asset, const ImportContext& context, string& error) bool
         +convert(const ImportAsset& asset, const ImportContext& context, string& error) bool
@@ -21,7 +23,7 @@ classDiagram
     UsdImporter ..> MeshDataT : 生成独立子资源
 ```
 
-USD 的依赖和目标只在 `editor/usd_import` 被选择时出现，不进入核心、编辑器基础库或运行包。当前转换范围为默认时刻的静态多边形网格，统一米和 Y-up，层级节点保留，世界变换烘焙入顶点；材质使用内置 PBR。源材质、贴图、蒙皮、动画和实例化原型尚未转换，检测到不支持的网格条件返回错误，不标记为已实现。
+USD 的离线依赖随统一 `editor/asset_import` 插件选择装配，不进入核心、编辑器基础库或运行包。当前转换范围为默认时刻的静态多边形网格，统一米和 Y-up，层级节点保留，世界变换烘焙入顶点；材质使用内置 PBR。源材质、贴图、蒙皮、动画和实例化原型尚未转换，检测到不支持的网格条件返回错误，不标记为已实现。
 
 所有格式通过 `AssetImporter::id()` 调度，可同时产出 `AssetKind::model`；不能用运行资源类型代替源格式身份。
 

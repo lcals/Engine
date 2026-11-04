@@ -48,6 +48,7 @@ classDiagram
         +bool removed
     }
     class Scene
+    class ecs_world_t
     class SceneDataT
     class Resource
     class NodeDataT
@@ -57,7 +58,8 @@ classDiagram
     PrefabDataT *-- NodeDataT : 已合成模板树
     PrefabDataT *-- PrefabModelNodeMappingT : 模型来源稳定身份
     PrefabDataT *-- PrefabNodeOverrideT : 模型模板显式覆盖
-    Scene *-- PrefabInstanceDataT : 实例来源记录
+    ecs_world_t *-- PrefabInstanceDataT : 实例根实体上的唯一来源记录
+    Scene ..> PrefabInstanceDataT : 登记、查询及保存时组装快照
     SceneDataT *-- PrefabInstanceDataT : 可保存独立快照
     PrefabInstanceDataT *-- NodeIdMappingT
     PrefabInstanceDataT *-- PrefabNodeOverrideT

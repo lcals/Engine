@@ -1,6 +1,8 @@
 # FBX 模型资源导入
 
-FBX 是可选编辑器插件，使用固定版本 ufbx 读取模型。编辑器基础管线只认识导入接口和子资源身份；运行时只读取生成后的 FlatBuffers，不包含 ufbx 或编辑器策略。
+归属：[统一资源导入插件](asset-import.md)，命名空间 `engine::plugins::asset_import`；本页只维护这一类型的源格式、公开方法和数据关系。
+
+FbxImporter 属于统一的 `editor/asset_import` 插件，使用固定版本 ufbx 读取模型。编辑器基础管线只认识导入接口和子资源身份；运行时只读取生成后的 FlatBuffers，不包含 ufbx 或编辑器策略。
 
 ```mermaid
 classDiagram

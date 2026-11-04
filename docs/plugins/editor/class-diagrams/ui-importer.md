@@ -1,6 +1,8 @@
 # UI 文档导入
 
-UI 是普通场景节点上的组件。该插件只把 RmlUi 文档及其显式资源引用转换成单项 UI 资源，不创建场景节点，不实现字体渲染。
+归属：[统一资源导入插件](asset-import.md)，命名空间 `engine::plugins::asset_import`；本页只维护这一类型的源格式、公开方法和数据关系。
+
+UI 是普通场景节点上的组件。UiImporter 只把 RmlUi 文档及其显式资源引用转换成单项 UI 资源，不创建场景节点，不实现字体渲染。
 
 ```mermaid
 classDiagram

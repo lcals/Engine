@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from check_architecture import include_errors, read_targets, target_errors
+from check_architecture import file_scope, include_errors, read_targets, target_errors
 
 
 class ArchitectureRulesTest(unittest.TestCase):
@@ -47,6 +47,31 @@ class ArchitectureRulesTest(unittest.TestCase):
                 for error in target_errors([core, editor], self.root)
             )
         )
+
+    def test_platform_sources_use_their_real_owner(self):
+        sources = {
+            "platforms/macos/render/surface.cpp": '#include "editor/api.hpp"\n',
+            "platforms/macos/editor/tools.cpp": '#include "plugins/editor/feature.hpp"\n',
+            "platforms/android/editor/plugins/mcp/sync.cpp":
+                '#include "plugins/editor/mcp/mcp_system.hpp"\n',
+            "platforms/desktop/app.cpp": '#include "plugins/editor/feature.hpp"\n',
+            "platforms/android/native/app.cpp": '#include "plugins/runtime/feature.hpp"\n',
+            "platforms/android/native/android_v8_smoke.cpp":
+                '#include "plugins/runtime/feature.hpp"\n',
+        }
+        for relative, content in sources.items():
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        errors = include_errors(self.root)
+        self.assertEqual(len(errors), 4, errors)
+        self.assertEqual(
+            file_scope("platforms/android/editor/plugins/mcp/sync.cpp", self.root),
+            "plugins/editor",
+        )
+        plugin = self.target("engine_mcp", "plugins/editor")
+        plugin["sources"].append("platforms/android/editor/plugins/mcp/sync.cpp")
+        self.assertEqual(target_errors([plugin], self.root), [])
 
     def test_actual_alias_and_private_edge(self):
         targets = [

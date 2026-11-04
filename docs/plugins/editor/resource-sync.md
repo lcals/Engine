@@ -6,30 +6,29 @@
 
 ```sh
 npm ci --prefix projects/showcase/settings
-cmake --workflow --preset ninja-engine-debug
 cmake --workflow --preset ninja-engine-release
 ```
 
 从仓库根目录启动编辑器，指定一个持久运行目录，让编辑器和 MCP 工具访问同一份缓存与状态：
 
 ```sh
-./build/ninja-engine-debug/editor_app --project projects/showcase --runtime-dir build/editor-runtime
+./build/ninja-engine-release/editor_app --project projects/showcase --runtime-dir build/editor-runtime
 ```
 
-Windows 将可执行文件写为 `build/ninja-engine-debug/editor_app.exe`；Release 对应 `build/ninja-engine-release/`。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
+Windows 将可执行文件写为 `build/ninja-engine-release/editor_app.exe`；Debug 仅作编译验证。可加 `--frames 120` 做有限帧运行。不传 `--runtime-dir` 时使用按项目区分的系统应用数据目录，启动日志会打印实际路径。
 
 编辑器先导入 `assets/`：读取 `.meta` 身份、解析资源描述、编译 TS 与目标平台 Shader，并生成 `cache/gen/<完整 GUID>`。SQLite 在 `cache/assets.sqlite` 记录输入哈希、依赖、工具版本与生成版本；再次导入只转换变化及受影响资源，失败保留上一版完整输出。随后建立本会话不变的内置资源快照并发布持久资源版本，全部引擎系统就绪后保持空白，等待 MCP 的 `start_project`。启动时示例 Gameplay 调用 `Scene.Load("scenes/launcher.scene")`，显示项目场景菜单，停止时释放场景及本次运行 GPU 资源。
 
 编辑器运行时，若在另一终端修改了项目源脚本或其他资源，可执行：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime start
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime sync
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload on
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload off
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime stop
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime start
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime sync
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload on
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime status
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime hot-reload off
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime stop
 ```
 
 Windows 的 `--server` 使用对应 `mcp_app.exe`。客户端通过 stdio 启动 `mcp_app`，完成 MCP 初始化并调用一次工具；也可将这个可执行文件及相同参数配置到其他 MCP 客户端。`sync` 同时导入项目资源和同步完整版本；热重载开关只写控制请求，切换由引擎在帧边界执行。同步成功或返回 `pending engine decision` 不等于新资源版本已经启用，应通过 `status` 的 `activeRevision`、`availableRevision`、`running` 和 `lastError` 确认。运行资源版本是引擎最近一次上报；编辑器另有带心跳的项目状态，超过 5 秒无更新会标记离线。
@@ -54,11 +53,11 @@ MCP 同步整个资源目录，包括场景、Mesh、材质、Shader、脚本及
 安装 Debug APK 后即可首次同步完整资源，无需先启动应用导出清单；查询运行状态或使用热重载时再启动应用。电脑上的 MCP 使用明确的设备序列号与包名，拒绝隐式选择设备：
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal hot-reload on
 # 修改项目 assets 下的脚本、场景、材质等资源后同步；无需重新打 APK。
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal sync
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal sync
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --android-serial emulator-5580 --android-package org.engine.minimal status
 ```
 
 adb 不在 PATH 时添加 `--adb <adb可执行文件>`。真机使用 `adb devices` 中的实际序列号；需要设备已经授权 adb 调试。MCP 运行在电脑，通过 `run-as` 写入该调试包的私有持久目录，手机不安装 MCP 服务。此通路仅支持 debuggable APK；Release 保持不可调试，同步请求会返回明确错误。

@@ -5,31 +5,31 @@
 ```mermaid
 classDiagram
     class MeshTopology {
-        +transform(EditableMeshDataT data, MeshSelection selection, Matrix4 matrix, string error) bool
-        +extrude(EditableMeshDataT data, IdSpan faces, double distance, bool individual, string error) bool
-        +extrude_edges(EditableMeshDataT data, EdgeSpan edges, Vec3 delta, string error) bool
-        +inset(EditableMeshDataT data, IdSpan faces, double distance, string error, bool group) bool
-        +erase_faces(EditableMeshDataT data, IdSpan faces, string error) bool
-        +reverse_faces(EditableMeshDataT data, IdSpan faces, string error) bool
-        +triangulate(EditableMeshDataT data, IdSpan faces, string error) bool
-        +subdivide(EditableMeshDataT data, IdSpan faces, uint32 iterations, string error) bool
-        +weld(EditableMeshDataT data, IdSpan vertices, double tolerance, string error) bool
-        +merge_vertices(EditableMeshDataT data, IdSpan vertices, Vec3 position, string error) bool
-        +split_vertices(EditableMeshDataT data, IdSpan vertices, string error) bool
-        +detach_faces(EditableMeshDataT data, IdSpan faces, string error) bool
-        +duplicate_faces(EditableMeshDataT data, IdSpan faces, string error) bool
-        +bridge(EditableMeshDataT data, IdSpan first_loop, IdSpan second_loop, string error) bool
-        +fill_hole(EditableMeshDataT data, IdSpan loop, string error) bool
-        +dissolve_edge(EditableMeshDataT data, MeshEdge edge, string error) bool
-        +split_edge(EditableMeshDataT data, MeshEdge edge, double fraction, string error) bool
-        +connect_vertices(EditableMeshDataT data, uint64 face, uint64 first, uint64 second, string error) bool
-        +set_material(EditableMeshDataT data, IdSpan faces, uint32 slot, string error) bool
-        +set_color(EditableMeshDataT data, IdSpan faces, Color color, string error) bool
-        +select_faces(EditableMeshDataT data, IdSpan faces, MeshFaceSelection mode, IdVector output, string error) bool
-        +edge_ring(EditableMeshDataT data, MeshEdge edge, EdgeVector output, string error) bool
-        +edge_loop(EditableMeshDataT data, MeshEdge edge, EdgeVector output, string error) bool
-        +loop_cut(EditableMeshDataT data, MeshEdge edge, uint32 cuts, double pinch, double offset, string error) bool
-        +append(EditableMeshDataT data, EditableMeshDataT other, string error, uint32 material_slot_offset) bool
+        +transform(EditableMeshDataT& data, const MeshSelection& selection, const array~double, 16~& matrix, string& error) bool$
+        +extrude(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, bool individual, string& error) bool$
+        +extrude_edges(EditableMeshDataT& data, span~const MeshEdge~ edges, const Vec3& delta, string& error) bool$
+        +inset(EditableMeshDataT& data, span~const uint64_t~ faces, double distance, string& error, bool group = false) bool$
+        +erase_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
+        +reverse_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
+        +triangulate(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
+        +subdivide(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t iterations, string& error) bool$
+        +weld(EditableMeshDataT& data, span~const uint64_t~ vertices, double tolerance, string& error) bool$
+        +merge_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, const Vec3& position, string& error) bool$
+        +split_vertices(EditableMeshDataT& data, span~const uint64_t~ vertices, string& error) bool$
+        +detach_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
+        +duplicate_faces(EditableMeshDataT& data, span~const uint64_t~ faces, string& error) bool$
+        +bridge(EditableMeshDataT& data, span~const uint64_t~ first_loop, span~const uint64_t~ second_loop, string& error) bool$
+        +fill_hole(EditableMeshDataT& data, span~const uint64_t~ loop, string& error) bool$
+        +dissolve_edge(EditableMeshDataT& data, MeshEdge edge, string& error) bool$
+        +split_edge(EditableMeshDataT& data, MeshEdge edge, double fraction, string& error) bool$
+        +connect_vertices(EditableMeshDataT& data, uint64_t face, uint64_t first, uint64_t second, string& error) bool$
+        +set_material(EditableMeshDataT& data, span~const uint64_t~ faces, uint32_t slot, string& error) bool$
+        +set_color(EditableMeshDataT& data, span~const uint64_t~ faces, const Color& color, string& error) bool$
+        +select_faces(const EditableMeshDataT& data, span~const uint64_t~ faces, MeshFaceSelection mode, vector~uint64_t~& output, string& error) bool$
+        +edge_ring(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool$
+        +edge_loop(const EditableMeshDataT& data, MeshEdge edge, vector~MeshEdge~& output, string& error) bool$
+        +loop_cut(EditableMeshDataT& data, MeshEdge edge, uint32_t cuts, double pinch, double offset, string& error) bool$
+        +append(EditableMeshDataT& data, const EditableMeshDataT& other, string& error, uint32_t material_slot_offset = 0) bool$
     }
     class EditableMesh
     class EditableMeshDataT

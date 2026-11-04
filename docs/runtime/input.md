@@ -2,7 +2,7 @@
 
 输入由核心 InputSystem 统一采集和求值，WindowSystem 只保留窗口与单次事件泵。原生接口、生成数据和脚本 SDK 共用下述契约；平台构建见[构建指南](../building.md)，运行验证范围见[测试与范例](../testing.md)。
 
-[原生类图](class-diagrams/input-system.md) · [数据契约](class-diagrams/input-data.md) · [脚本接口](../plugins/runtime/class-diagrams/input-script-api.md) · [首个游戏](../first-game.md)
+[原生类图](class-diagrams/input-system.md) · [数据契约](class-diagrams/input-data.md) · [脚本接口](../plugins/runtime/class-diagrams/input-script-api.md)
 
 ## 确定的职责边界
 
@@ -36,7 +36,7 @@ flowchart LR
     ROUTE --> INPUT
     INPUT --> SNAP[原始状态与通道动作快照]
     SNAP --> NATIVE[C++ 玩法与角色意图]
-    SNAP --> SCRIPT[TS 低频策略与少量动作查询]
+    SNAP --> SCRIPT[TS 项目策略与动作查询]
     DEV[设备版本与清单] --> TS
     INPUT --> DEV
     SCRIPT --> KV[TS 显式使用 Storage]

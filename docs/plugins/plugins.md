@@ -15,29 +15,25 @@
 | 编辑器地形 | `plugins/editor/terrain/` | 参数化 `.terrain` 导入、组件编解码、可撤销设置/笔刷/恢复及 MCP |
 | 运行时建筑破坏 | `plugins/runtime/destruction/` | 官方 Blast 支撑图/损伤/拆分、瞬态组节点、Jolt 凸形复合碰撞与完整状态快照 |
 | 编辑器建筑破坏 | `plugins/editor/destruction/` | 官方 Authoring 盒体切片/Voronoi、`.destruction` 导入、组件 codec、可撤销损伤/设置及 MCP |
-| 编辑器 FBX | `plugins/editor/fbx_import/` | 固定版本 ufbx，模型/骨架/动画多子资源转换 |
-| 编辑器 USD | `plugins/editor/usd_import/` | 独立 OpenUSD 依赖，自包含静态模型转换 |
-| 编辑器字体导入 | `plugins/editor/font_import/` | FreeType 读取 TTF 轮廓及度量，meta 控制字符集与转换参数 |
+| 编辑器资源导入 | `plugins/editor/asset_import/` | FBX、USD、字体、UI 与 JSON 独立格式实现，统一目标与宿主登记 |
 | 编辑器 UI 操作 | `plugins/editor/ui/` | 文档绑定、控件查询、源码读写及正常输入模拟；可选 MCP 适配 |
-| 编辑器 UI 导入 | `plugins/editor/ui_import/` | RmlUi 文档及字体、图片依赖转换，生成独立 UI 资源 |
-| 编辑器 JSON 导入 | `plugins/editor/json_import/` | 严格校验 `.json` 后原字节发布；运行时复用字节资源和 JsonBinding |
 | 编辑器角色控制器 | `plugins/editor/character_controller/` | 组件 TOML、撤销编辑与 MCP 适配，依赖对应运行时插件 |
 | 编辑器建模 | `plugins/editor/modeling/` | 纯几何、拓扑、UV、网格编译、模型与节点映射、选择、撤销、源资源保存及本模块 MCP 适配 |
 | 编辑器 MCP | `plugins/editor/mcp/` | MCP 协议、工具注册、参数检查、项目/场景/渲染工具和固定目标通道 |
 | 编辑器资源构建 | `plugins/editor/asset_build/` | 项目打包清单、增量散文件/合并包及精简运行清单 |
 | 编辑器资源同步 | `plugins/editor/asset_sync/` | 向本机或 Android 调试包发布完整资源版本 |
-| 编辑器场景烘焙 | `plugins/editor/scene_bake/` | 分帧 GPU IBL 烘焙、KTX 资源发布与 MCP 作业控制 |
+| 编辑器场景烘焙 | `plugins/editor/scene_bake/` | GPU IBL、Lightmap 与 SH9 探针烘焙，标准资源发布与 MCP 作业控制 |
 
 头文件以完整作用域引用，例如 `plugins/editor/modeling/editable_mesh.hpp`、`plugins/editor/mcp/editor_mcp_tools.hpp`。纯运行时插件不得引用编辑器基础或编辑器插件；编辑器插件可以组合运行时插件和编辑器基础。核心通过自己的抽象接口使用可选实现，不 include 或链接具体插件。
 
 ## 插件清单
 
-[可修改地形与建筑破坏](runtime/terrain-destruction-plan.md)按阶段推进：[地形编辑器制作与资源流程](editor/terrain-destruction-authoring.md)已实现同步步骤 1，`runtime/terrain` 与 `editor/terrain` 已登记；步骤 2 的 `runtime/destruction` 与 `editor/destruction` 代码已接入，正式窗口及各平台验收范围继续单独记录。[步骤 0](runtime/terrain-destruction-feasibility.md#步骤-0-实测记录)的独立 ARM 验证与正式插件的测试范围分别记录，不混为全平台功能验收。
+地形与建筑破坏按各自的运行时/编辑器插件装配，现行职责与跨插件协作见[联动契约](runtime/terrain-destruction.md)，制作流程见[地形与破坏制作](editor/terrain-destruction-authoring.md)。历史独立 ARM 探针与正式插件的测试范围分别记录于[技术研究](runtime/terrain-destruction-feasibility.md)；平台结果以[测试文档](../testing.md)为准。
 
 `cmake/plugins/runtime/<name>.cmake` 与 `cmake/plugins/editor/<name>.cmake` 分别登记插件。**一插件一份 CMake**，同一文件声明本插件目标、源码、依赖和创建入口；中央注册器只读取登记、解析选择和依赖，不替插件维护源码列表。
 
 - `ENGINE_RUNTIME_PLUGINS`：请求启用的运行时插件列表，运行时依赖开启时默认 `resource_graph`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`，脚本运行开启时再加入 `script`；显式设置优先。
-- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `fbx_import`、`usd_import`、`font_import`、`ui_import`、`json_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`、`ui`，可显式设置为空。
+- `ENGINE_EDITOR_PLUGINS`：请求启用的编辑器插件列表，默认根据已启用依赖能力选择 `modeling`、`asset_build`、`asset_sync`、`mcp`，资源管线开启时还加入 `asset_import`、`character_controller`、`navigation_crowd`、`effects`、`terrain` 与 `destruction`；完整桌面编辑器还加入 `scene_bake`、`ui`，可显式设置为空。
 - 登记器解析依赖闭包后创建目标；依赖先于使用者建立，未选且不在闭包内的插件不创建目标。
 - 明确移除一个插件时，同时核对有无已选插件依赖它；不能一边依赖它、一边声称它已禁用。
 - 宿主只装配已创建的插件目标，核心基础构建不能被未选业务插件的源文件、依赖或头文件阻塞。
@@ -56,12 +52,8 @@
 | `editor/terrain` | 非设备构建，资源管线依赖开启 | `runtime/terrain` |
 | `runtime/destruction` | `ENGINE_ENABLE_RUNTIME_DEPS=ON` | 无；固定 Blast CPU low-level/ExtShaders，使用核心 Jolt 凸形复合碰撞 |
 | `editor/destruction` | 非设备构建，资源管线依赖开启 | `runtime/destruction`；官方 ExtAuthoring 和 `destruction-authoring` vcpkg feature（Boost Multiprecision） |
-| `editor/fbx_import` | 非设备构建，资源管线依赖开启 | 无；固定版本 ufbx 子模块 |
-| `editor/usd_import` | 非设备构建，资源管线依赖开启 | 无；独立 `usd-import` vcpkg feature |
-| `editor/font_import` | 非设备构建，资源管线依赖开启 | 无；FreeType 私有于离线导入 |
-| `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/ui_import`；选中 MCP 时额外生成 UI 工具适配目标 |
-| `editor/ui_import` | 非设备构建，资源管线依赖开启 | 无；通过资源管线解析标准引用 |
-| `editor/json_import` | 非设备构建，资源管线依赖开启 | 无；依赖通用资源管线，nlohmann/json 私有于离线格式校验 |
+| `editor/asset_import` | 非设备构建，资源管线依赖开启 | 无；统一声明 ufbx、OpenUSD、FreeType 与格式校验依赖，vcpkg features 为 `font-import`、`usd-import` |
+| `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/asset_import`；选中 MCP 时额外生成 UI 工具适配目标 |
 | `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | `runtime/resource_graph`；运行包不包含此插件 |
 | `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
@@ -82,7 +74,7 @@ Android/iOS 构建拒绝编辑器插件。未知插件、依赖环、缺少前�
 
 资源核心保留目录、GUID/VFS、单项读取与解析。`ResourceLoader` 定义加载与查询接口；运行时 `resource_graph` 插件通过相同接口组合单项能力、加载依赖并共享资源。业务只请求顶级对象，依赖策略不进入 Engine、资源文件底层或 MCP。
 
-字体运行时属于核心 `runtime/font/`，字体源导入属于编辑器插件 `font_import`。UI 和 3D 文字共用同一字体资源，运行包只消费转换后的轮廓与度量。`ui_import` 生成 UI 文档资源，运行时由普通 Node 上的 UiComponent 使用；控件树属于文档内部，不改变场景节点层级。两个导入插件均由工具宿主登记，编辑器基础和核心不反向链接插件。
+字体运行时属于核心 `runtime/font/`，字体源导入和 UI 文档导入分别由统一 `asset_import` 插件内的 FontImporter 与 UiImporter 实现。UI 和 3D 文字共用同一字体资源，运行包只消费转换后的轮廓与度量。UiImporter 生成独立 UI 文档资源，由普通 Node 上的 UiComponent 使用；控件树属于文档内部，不改变场景节点层级。宿主逐类型登记导入器，编辑器基础和核心不反向链接插件，见[统一资源导入](editor/asset-import.md)。
 
 MCP 插件中的协议目标只拥有描述、输入模型与回调。编辑器业务模块自行注册工具，场景命令通过文件通道进入编辑器主线程；组件继续提供普通 C++ 方法。超时返回原请求身份，客户端查询完成回执，不重复执行未确认操作。
 
@@ -108,8 +100,9 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 - [地形运行时](runtime/class-diagrams/terrain.md)、[地形制作](editor/class-diagrams/terrain-editor.md)与[地形脚本接口](runtime/class-diagrams/terrain-script-api.md)。
 - [建筑破坏组件与系统](runtime/class-diagrams/destruction.md)、[Blast 图](runtime/class-diagrams/destruction-graph.md)、[官方预破碎](editor/class-diagrams/destruction-authoring.md)与[编辑器事务/MCP](editor/class-diagrams/destruction-editor.md)。
 - [资源构建](editor/resource-build.md)、[资源同步](editor/class-diagrams/asset-sync-system.md)。
+- [统一资源导入](editor/asset-import.md)与[插件归属类图](editor/class-diagrams/asset-import.md)：FBX/USD/字体/UI/JSON 五种实现共用一个编辑器插件，保留类型职责及现有接口。
 - [字体导入](editor/class-diagrams/font-importer.md)、[UI 导入](editor/class-diagrams/ui-importer.md)、[核心字体](../runtime/class-diagrams/font-system.md)与[场景界面](../runtime/class-diagrams/ui-system.md)。
-- [JSON 导入](editor/class-diagrams/json-importer.md)与[JSON 脚本接口](runtime/class-diagrams/json-script-api.md)：独立编辑器插件校验配置，原生资源载荷和静态脚本读取复用现有契约。
+- [JSON 导入](editor/class-diagrams/json-importer.md)与[JSON 脚本接口](runtime/class-diagrams/json-script-api.md)：统一资源导入插件内校验配置，原生资源载荷和静态脚本读取复用现有契约。
 - [跨层完整引用关系](../class-diagrams/references.md)。
 
 模型格式以导入器 id 区分，FBX/USD 可同时产出 `model`。宿主通过 `add_importer` 装配新格式，现有同 id 才使用 `set_importer`；管线统一管理子 GUID、缓存和发布。格式解析器不进入运行包，后续格式遵循同一扩展契约，见[FBX](editor/class-diagrams/fbx-importer.md)及[USD](editor/class-diagrams/usd-import.md)。
@@ -126,14 +119,14 @@ V8 的 WebAssembly、Intl/ICU、Temporal、系统 instrumentation 在全部平�
 
 ## 插件选择
 
-插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和 FBX/USD 格式导入均属于编辑器插件。
+插件由 CMake 清单选择，不使用额外 JSON 清单。每个插件在 `cmake/plugins/<runtime|editor>/<name>.cmake` 声明自己的目标、源码和依赖；注册器解析依赖闭包后才创建目标，宿主按实际目标装配。运行时插件包括 `resource_graph`、`script` 与可选角色输入/相机控制器；建模（包括纯几何）、MCP（包括协议）、资源构建、同步和统一资源导入均属于编辑器插件。
 
 例如，使用已准备好的依赖配置纯运行时窗口且不启用资源依赖图：
 
 ```sh
-cmake --preset ninja-debug -DENGINE_RUNTIME_PLUGINS= -DENGINE_EDITOR_PLUGINS=
-cmake --build --preset ninja-debug
-ctest --preset ninja-debug
+cmake --preset ninja-release -DENGINE_RUNTIME_PLUGINS= -DENGINE_EDITOR_PLUGINS=
+cmake --build --preset ninja-release
+ctest --preset ninja-release
 ```
 
 如需恢复资源依赖图，在配置时传入 `-DENGINE_RUNTIME_PLUGINS=resource_graph`；完整脚本运行使用 `'-DENGINE_RUNTIME_PLUGINS=resource_graph;script'`，默认选择 QuickJS，显式传入 `-DENGINE_SCRIPT_BACKEND=v8` 才选择 V8。依赖闭包会加入已选插件所需的其他插件；要排除某插件，必须同时移除依赖它的入口。完整能力清单见[插件说明](plugins.md)。核心 `ResourceSystem` 始终可单项加载，完整依赖加载与共享释放由选中的 `ResourceGraphSystem` 提供。

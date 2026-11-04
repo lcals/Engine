@@ -1,6 +1,6 @@
 #include "editor/asset_pipeline/asset_pipeline_system.hpp"
-#include "plugins/editor/font_import/font_importer.hpp"
-#include "plugins/editor/ui_import/ui_importer.hpp"
+#include "plugins/editor/asset_import/font_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "plugins/runtime/script/script_system.hpp"
 #include "runtime/app/app.hpp"
 #include "runtime/engine_config.hpp"
@@ -602,9 +602,9 @@ struct Systems
         config.width = 640;
         config.height = 480;
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font =
-            std::make_unique<engine::plugins::font_import::FontImporter>();
+            std::make_unique<engine::plugins::asset_import::FontImporter>();
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> document =
-            std::make_unique<engine::plugins::ui_import::UiImporter>();
+            std::make_unique<engine::plugins::asset_import::UiImporter>();
         if (!expect(threads.initialize(config) && tasks.initialize(config) &&
                         pipeline.initialize(config),
                     "initialize pipeline") ||

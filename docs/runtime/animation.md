@@ -6,7 +6,7 @@
 
 有轨道时直接使用源局部 TRS，不包含语义、参考姿态、骨轴或体型补偿；名称和层级匹配不保证不同默认/绑定姿态下的动作效果正确。FBX 外部骨架引用也只按完整节点路径采样，限不带网格的动画源；其缺节点规则见 [FBX 导入契约](../plugins/editor/class-diagrams/fbx-importer.md)，不能将它当作运行时缺骨回退或跨层级重定向。
 
-已校验的 FlatBuffers 数据经 ozz 纯内存 Builder 转换为不可变运行对象，不读取未经校验的 ozz archive。场景缓存按骨架 GUID、资源代际，以及动作的源/目标骨架身份共享编译结果；缓存保留本场景已使用动作，往返切换不重复编译。每个实例独占时间、采样上下文、局部姿态和矩阵。组件删除或停用等条件在系统更新时清理采样条目及组件变形，编译缓存继续保留；停用不销毁 Animator 的播放状态及打断过渡快照。`clear()` 清理系统条目及编译缓存，切场景和结束玩法同样释放该系统缓存，不建立进程永久动画缓存。
+已校验的 FlatBuffers 数据经 ozz 纯内存 Builder 转换为不可变运行对象，不读取未经校验的 ozz archive。编译缓存按骨架 GUID、资源代际，以及动作的源/目标骨架身份共享结果。当前 tick 会回收只剩缓存自身引用的编译对象；仍被活动采样实例或过渡持有时可共享，切回已完全释放的动作可能重新编译。每个实例独占时间、采样上下文、局部姿态和矩阵。组件删除或停用等条件在系统更新时清理采样条目及组件变形，停止使用的编译对象随后按引用回收；停用不销毁 Animator 的播放状态及打断过渡快照。`clear()` 清理全部系统条目和编译缓存，结束玩法同样释放；普通场景切换只移除消失实例，常驻 Animator 继续使用其条目，不建立进程永久缓存。
 
 `SamplingJob` 分别采样两层动作，`BlendingJob` 混合局部平移、旋转和缩放，最后一次 `LocalToModelJob` 生成模型矩阵。混合与共享不可变运行对象分别参照 ozz 的 [blend](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/blend/sample_blend.cc) 和 [multithread](https://github.com/guillaumeblanc/ozz-animation/blob/master/samples/multithread/sample_multithread.cc) 示例；本模块借用宿主的 `TaskSystem`，复用 oneTBB worker，不创建自己的线程池。
 

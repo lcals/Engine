@@ -11,7 +11,7 @@ classDiagram
         +register_type(ComponentRegistry& registry) bool$
         +runtime() CharacterMotorRuntime#42;
         <<final>>
-        +valid_settings(const CharacterMotorDataT& settings) bool
+        +valid_settings(const CharacterMotorDataT& settings) bool$
         +settings() CharacterMotorDataT
         +get_settings(CharacterMotorDataT& output) bool
         +set_settings(const CharacterMotorDataT& settings) bool

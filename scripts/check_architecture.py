@@ -29,10 +29,15 @@ def file_scope(path, root):
             for scope in reversed(ALLOWED):
                 if suffix.startswith(scope + "/"):
                     return scope
-    if relative.startswith("platforms/") and len(path.parts) >= 4:
+    if relative.startswith("platforms/"):
         parts = Path(relative).parts
         if len(parts) >= 4 and parts[2] == "editor":
+            if len(parts) >= 6 and parts[3] == "plugins":
+                return "plugins/editor"
             return "editor"
+        # 独立 V8 验证入口是宿主；平台 app.cpp 实现核心 App，仍受运行时边界约束。
+        if relative == "platforms/android/native/android_v8_smoke.cpp":
+            return "host"
     if relative.startswith(("platforms/", "include/schemas/runtime/")):
         return "runtime"
     if relative.startswith(("src/", "tests/")):
@@ -42,7 +47,7 @@ def file_scope(path, root):
 
 def include_errors(root):
     errors = []
-    for directory in (root / "include/engine", root / "src/engine"):
+    for directory in (root / "include/engine", root / "src/engine", root / "platforms"):
         for path in sorted(directory.rglob("*")):
             if path.suffix not in {".h", ".hpp", ".cpp", ".mm", ".c"}:
                 continue

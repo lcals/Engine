@@ -195,7 +195,7 @@ classDiagram
     AssetPipelineSystem ..> AssetImporter : 调用通用导入契约
 ```
 
-ToolHost 表示编辑器、构建和 MCP 入口；字体和 UI 导入器属于独立编辑器插件。依赖单向流向通用导入契约与核心资源，运行时不引用插件或离线 FreeType。源字体、meta 与文档属于项目 assets，运行时只使用转换后的独立 GUID 实体及标准目录依赖。
+ToolHost 表示编辑器、构建和 MCP 入口；字体和 UI 导入器与 FBX、USD、JSON 一同归统一 editor/asset_import 插件。依赖单向流向通用导入契约与核心资源，运行时不引用插件或离线 FreeType。源字体、meta 与文档属于项目 assets，运行时只使用转换后的独立 GUID 实体及标准目录依赖。
 
 ## 场景对象、组件及渲染引用
 
@@ -226,7 +226,7 @@ classDiagram
     Component <|-- EnvironmentComponent
     Component <|-- PostProcessComponent
     Component <|-- MeshRenderer
-    Scene --> Camera : 可空活动相机借用
+    Scene ..> Camera : 按值返回活动相机身份句柄
     ScriptSystem --> WorldSystem : 可空构造借用
     ScriptSystem ..> Scene : 按运行代次创建与销毁
     ScriptSystem ..> Node : 按场景及实体标识查找
@@ -646,7 +646,7 @@ App 不参与 System 继承，初始化参数为 AppConfig。McpTarget 是普通
 
 ## 类型登记与框架分派
 
-JSON 资源扩展新增独立编辑器 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过 ResourceSystem / ResourceLoader 取得本次 ResourcePtr 并检查 json 类型后读取 bytes；JS 门面解析为当前 VM 的普通值。核心只追加 AssetKind 与 BinaryResourceCodec 登记，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
+JSON 资源使用统一导入插件内的 [JsonImporter](../plugins/editor/class-diagrams/json-importer.md) 与脚本 [JsonBinding / Json](../plugins/runtime/class-diagrams/json-script-api.md)。JsonImporter 继承 AssetImporter，由宿主创建后转交 AssetImporterRegistry 独占；借用 ImportAsset、ImportContext，私有调用 nlohmann/json 严格校验。JsonBinding 继承 ScriptBinding，由 ScriptBindingRegistry 独占，借用 BindingContext 验证活动回调，通过 ResourceSystem / ResourceLoader 取得本次 ResourcePtr 并检查 json 类型后读取 bytes；JS 门面解析为当前 VM 的普通值。核心只追加 AssetKind 与 BinaryResourceCodec 登记，不拥有 JSON 解析器或配置业务。完整参数、返回类型及所有权关系仅在两份新独立图定义；已按评审契约实现。
 
 脚本、组件、资源实体和资源导入分别使用本模块的最小契约。框架组织生命周期或批次，具体类型在自己的文件实现；登记表显式列出实现，不使用 RTTI、宏反射或跨模块 Manager。
 
@@ -740,8 +740,10 @@ classDiagram
     }
     WindowSystem "1" *-- "0..1" SDL_Window : 配对创建和销毁
     WindowSystem --> SDL_Window : 返回借用
-    RenderSystem "1" *-- "0..1" SDL_MetalView : Apple 平台拥有视图
-    RenderSystem "1" o-- "0..1" ANativeWindow : Android 持有原生引用
+    class RenderSurface
+    RenderSystem "1" *-- "0..1" RenderSurface : 独占私有平台表面
+    RenderSurface "1" *-- "0..1" SDL_MetalView : Apple 创建并销毁视图
+    RenderSurface "1" o-- "0..1" ANativeWindow : Android 持有原生引用
     RenderSystem --> WindowSystem : 借用窗口系统
     SDL_Window --> ANativeWindow : 平台属性提供借用
 ```
@@ -782,7 +784,7 @@ classDiagram
 
 RenderSystem 借用 SDL 窗口和原生句柄，拥有 bgfx 初始化状态及 Apple Metal view；Android 通过 acquire/release 持有原生窗口引用，在 bgfx 完全关闭后释放，不独占 Android 窗口对象。
 
-WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。VirtualFileSystem 每次读取或计算摘要时拥有一个局部 SDL_IOStream，读取结束必须关闭；App 与 LogSystem 分别拥有平台路径值和日志文件。初始化期间的局部依赖检查对象不构成持久拥有关系。
+WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实例并调用配对销毁接口。VirtualFileSystem 每次读取或计算摘要时拥有一个局部 SDL_IOStream，读取结束必须关闭；App 保存平台路径值；LogSystem 管理 Quill 后端和 Logger，日志文件由其私有 Output Sink 持有。初始化期间的局部依赖检查对象不构成持久拥有关系。
 
 ## 实际编译与链接依赖
 
@@ -824,8 +826,8 @@ WorldSystem、NavigationSystem、EditorSystem 分别拥有图中的第三方实�
 | EditorMcpTools        | McpSystem、ProjectLock、ResourceSystem、PathUtils、SDL3、nlohmann/json                                                                        | 编辑器工具注册、跨进程命令提交与回执查询               |
 | TS 构建工具           | Node.js、项目固定版本 TypeScript                                                                                                              | settings 中配置，assets 中源码，cache 中生成物         |
 | 资源构建工具          | shaderc、texturec、geometryc                                                                                                                  | 宿主工具，不进入运行时生命周期                         |
-| FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 编辑器格式插件；不进入运行时 |
-| UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 编辑器格式插件；OpenUSD 从基础管线分离 |
+| FbxImporter | ufbx、AssetImporter、生成 Model/Mesh/Skeleton/Animation | 统一 editor/asset_import 的逐类型实现；不进入运行时 |
+| UsdImporter | OpenUSD、AssetImporter、生成 Model/Mesh | 同一 editor/asset_import 目标；OpenUSD 保持离线私有依赖 |
 | CharacterControllerSystem | WorldSystem、CharacterController、CharacterMotor | 运行时插件；消费明确意图并计算移动与观察 |
 
 Engine 与运行时系统不拥有 ProjectSystem、EditorSystem、AssetPipelineSystem、AssetBuildSystem、AssetSyncSystem 或 McpSystem，也不反向依赖离线编译器或具体项目。工具可以复用运行时的静态资源读取能力，运行时仍只消费部署内容。

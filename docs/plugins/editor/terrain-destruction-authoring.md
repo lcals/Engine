@@ -1,6 +1,6 @@
 # 地形与建筑破坏制作方案
 
-地形导入、组件编解码、MCP、撤销/重做、建筑预破碎及 showcase 实验场已实现。制作工具保持同步准备和原子发布；运行时已接入地基联动、撞击反馈、应力、土石塌方、导航和连续火箭测试。整体目标见[运行时方案](../runtime/terrain-destruction-plan.md)，各阶段实际平台验证见[技术研究](../runtime/terrain-destruction-feasibility.md)，当前性能与待优化项见[性能采样](../../runtime/performance.md)。
+地形导入、组件编解码、MCP、撤销/重做、建筑预破碎及 showcase 实验场已实现。制作工具保持同步准备和原子发布；运行时已接入地基联动、撞击反馈、应力、土石塌方、导航和连续火箭测试。整体目标见[运行时方案](../runtime/terrain-destruction.md)，各阶段实际平台验证见[技术研究](../runtime/terrain-destruction-feasibility.md)，当前性能与待优化项见[性能采样](../../runtime/performance.md)。
 
 全部测试统一放在第一个示例项目 `projects/showcase/`。当前已生成自制地形、墙柱和分层塔试件，后续扩展空心楼板与多层建筑，复用现有菜单、角色与效果；每阶段扩展本项目的场景和桌面/Android 资源清单，不另开测试项目或导入其他项目的商业资源。
 
@@ -16,7 +16,7 @@
 
 - 已实现 `.terrain` TOML 参数化生成：`cells_x/y/z`、`voxel_size`、`chunk_cells`、`origin`、`height`、`amplitude`、`frequency`、`seed` 与 `[[cavities]]` 的 `center/radius`。当前为平面/正弦起伏与球形洞穴，FastNoise2 和高度图导入尚未接入。
 - `.terrain.meta` 保留唯一资源身份，导入器按源数据和 schema/生成器指纹增量生成 `cache/gen/<GUID>`；运行时加载预生成密度，不依赖编辑器解析器。
-- 已实现节点局部坐标下的球形挖掘、填充、重置及保存/恢复。脚本直接笔刷会复用块缓存并局部重建；编辑器/MCP 使用候选 ETRS 快照和 `TerrainStateEdit`，当前 `restore` 重新初始化体积，因此笔刷、撤销/重做、加载和重置均重建全部块。渲染仍合并为单 Mesh 后整体上传；静态碰撞使用分段几何，直接笔刷可复用未变叶子和复合树分组。恢复路径的全量准备成本仍需单独测量，不能套用局部笔刷预算。见[碰撞方案](../runtime/terrain-collision-plan.md)。
+- 已实现节点局部坐标下的球形挖掘、填充、重置及保存/恢复。脚本直接笔刷会复用块缓存并局部重建；编辑器/MCP 使用候选 ETRS 快照和 `TerrainStateEdit`，当前 `restore` 重新初始化体积，因此笔刷、撤销/重做、加载和重置均重建全部块。渲染仍合并为单 Mesh 后整体上传；静态碰撞使用分段几何，直接笔刷可复用未变叶子和复合树分组。恢复路径的全量准备成本仍需单独测量，不能套用局部笔刷预算。见[碰撞方案](../runtime/terrain-collision.md)。
 - 地表与洞壁可设置顶点色及 UV 缩放，材质引用使用通用资源路径和 Shader 参数；平滑、材质层笔刷和更丰富的纹理映射尚未实现。
 - 初始地图与运行修改分离；无限地图、运行时按需生成和后台队列均留待后续。
 

@@ -56,8 +56,9 @@ include("${ROOT}/cmake/plugins/selection.cmake")
 if(ENGINE_SELECTED_PLUGINS)
     message(FATAL_ERROR "Explicit empty lists must select no plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
-if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR "font-import" IN_LIST VCPKG_MANIFEST_FEATURES)
-    message(FATAL_ERROR "Empty plugin lists must not enable modeling or font importer dependencies")
+if("modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR "font-import" IN_LIST VCPKG_MANIFEST_FEATURES OR
+   "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Empty plugin lists must not enable modeling or asset importer dependencies")
 endif()
 ]=])
 
@@ -132,8 +133,8 @@ if(NOT ENGINE_PLUGIN_DEVICE_BUILD OR
     message(FATAL_ERROR "Android defaults leaked editor plugins: ${ENGINE_SELECTED_PLUGINS}")
 endif()
 if(ENGINE_EDITOR_PLUGINS OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES OR
-   "font-import" IN_LIST VCPKG_MANIFEST_FEATURES)
-    message(FATAL_ERROR "Android must not prepare editor modeling or font importer features")
+   "font-import" IN_LIST VCPKG_MANIFEST_FEATURES OR "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Android must not prepare editor modeling or asset importer features")
 endif()
 ]=])
 
@@ -211,15 +212,16 @@ file(WRITE "${CASE_ROOT}/source/CMakeLists.txt"
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${CASE_ROOT}/source" -B "${CASE_ROOT}/build"
     -DENGINE_ENABLE_RUNTIME_DEPS=ON -DENGINE_ENABLE_EDITOR_DEPS=ON
     -DENGINE_ENABLE_ASSET_PIPELINE_DEPS=ON
-    -DENGINE_RUNTIME_PLUGINS= "-DENGINE_EDITOR_PLUGINS=modeling;font_import;ui_import"
+    -DENGINE_RUNTIME_PLUGINS= "-DENGINE_EDITOR_PLUGINS=modeling;asset_import"
     -DVCPKG_MANIFEST_FEATURES=runtime
     RESULT_VARIABLE _first OUTPUT_VARIABLE _first_out ERROR_VARIABLE _first_error)
 if(NOT _first EQUAL 0)
     message(FATAL_ERROR "First selection configure failed: ${_first_out}${_first_error}")
 endif()
 file(READ "${CASE_ROOT}/build/features.txt" _enabled)
-if(NOT "modeling" IN_LIST _enabled OR NOT "font-import" IN_LIST _enabled)
-    message(FATAL_ERROR "First configure did not add modeling and font importer features")
+if(NOT "modeling" IN_LIST _enabled OR NOT "font-import" IN_LIST _enabled OR
+   NOT "usd-import" IN_LIST _enabled)
+    message(FATAL_ERROR "First configure did not add modeling and asset importer features")
 endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${CASE_ROOT}/source" -B "${CASE_ROOT}/build"
     -DENGINE_EDITOR_PLUGINS=
@@ -372,78 +374,79 @@ endif()
 ]=])
 
 run_case(
-    independent_format_importer
+    unified_asset_import
     ""
     [=[
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
-set(ENGINE_EDITOR_PLUGINS fbx_import CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS asset_import CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/fbx_import" OR
-   "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES OR "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
-    message(FATAL_ERROR "FBX alone must not select controller, USD or modeling: ${ENGINE_SELECTED_PLUGINS}")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/asset_import" OR
+   NOT "font-import" IN_LIST VCPKG_MANIFEST_FEATURES OR
+   NOT "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES OR
+   "modeling" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "Asset import must select one plugin and both format dependency features: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
 endif()
 ]=])
 
 run_case(
-    independent_font_importer
+    ui_asset_import_closure
     ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS ui CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/asset_import;editor/ui" OR
+   NOT "font-import" IN_LIST VCPKG_MANIFEST_FEATURES OR
+   NOT "usd-import" IN_LIST VCPKG_MANIFEST_FEATURES)
+    message(FATAL_ERROR "UI editing must depend on the unified asset importer: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
+endif()
+]=])
+
+run_case(
+    legacy_import_plugin_rejected
+    "Unknown plugin: editor/font_import"
     [=[
 set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
 set(ENGINE_EDITOR_PLUGINS font_import CACHE STRING "" FORCE)
 include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/font_import" OR
-   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime;font-import")
-    message(FATAL_ERROR "Font import alone must select only its plugin and FreeType feature: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
-endif()
 ]=])
 
 run_case(
-    independent_ui_importer
+    asset_import_target_toggle
     ""
     [=[
-set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
-set(ENGINE_EDITOR_PLUGINS ui_import CACHE STRING "" FORCE)
-include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/ui_import" OR
-   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime")
-    message(FATAL_ERROR "UI import alone must not select font import, FreeType or unrelated plugins: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
-endif()
-]=])
-
-run_case(
-    independent_json_importer
-    ""
-    [=[
-set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
-set(ENGINE_EDITOR_PLUGINS json_import CACHE STRING "" FORCE)
-include("${ROOT}/cmake/plugins/selection.cmake")
-if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/json_import" OR
-   NOT VCPKG_MANIFEST_FEATURES STREQUAL "runtime")
-    message(FATAL_ERROR "JSON import alone must not add plugins or dependency features: ${ENGINE_SELECTED_PLUGINS} / ${VCPKG_MANIFEST_FEATURES}")
-endif()
-]=])
-
-run_case(
-    json_importer_target_toggle
-    ""
-    [=[
-# 仅配置真实插件和宿主装配函数；基础目标使用接口桩，不查找或安装依赖。
+# 使用真实统一插件与宿主装配函数；仅外部依赖用接口桩，不安装或编译第三方。
 set(_source "${CASE_ROOT}/source")
-file(MAKE_DIRECTORY "${_source}/src/engine/plugins/editor/json_import")
-configure_file("${ROOT}/src/engine/plugins/editor/json_import/json_importer.cpp"
-    "${_source}/src/engine/plugins/editor/json_import/json_importer.cpp" COPYONLY)
+file(MAKE_DIRECTORY "${_source}/src/engine/plugins/editor/asset_import"
+                    "${_source}/third_party/ufbx")
+file(GLOB _import_sources "${ROOT}/src/engine/plugins/editor/asset_import/*.cpp")
+foreach(_path IN LISTS _import_sources)
+    get_filename_component(_name "${_path}" NAME)
+    configure_file("${_path}"
+        "${_source}/src/engine/plugins/editor/asset_import/${_name}" COPYONLY)
+endforeach()
+file(WRITE "${_source}/third_party/ufbx/ufbx.c" "/* external dependency fixture */\n")
 file(WRITE "${_source}/probe.cpp" "int main() { return 0; }\n")
 file(WRITE "${_source}/CMakeLists.txt"
     "cmake_minimum_required(VERSION 3.25)\n"
     "set(ROOT [==[${ROOT}]==])\n")
 file(APPEND "${_source}/CMakeLists.txt" [==[
 include("${ROOT}/cmake/plugins/selection.cmake")
-project(json_importer_selection_fixture LANGUAGES CXX)
+project(asset_import_selection_fixture LANGUAGES C CXX)
 function(engine_apply_options target)
 endfunction()
-add_library(engine_asset_pipeline INTERFACE)
-add_library(engine::asset_pipeline ALIAS engine_asset_pipeline)
-add_library(nlohmann_json::nlohmann_json INTERFACE IMPORTED)
+foreach(_name asset_pipeline resource)
+    add_library(engine_${_name} INTERFACE)
+    add_library(engine::${_name} ALIAS engine_${_name})
+endforeach()
+foreach(_name engine_editor_mesh engine_usd_sdk ozz_animation_offline)
+    add_library(${_name} INTERFACE)
+endforeach()
+foreach(_name Freetype::Freetype nlohmann_json::nlohmann_json tomlplusplus::tomlplusplus)
+    add_library(${_name} INTERFACE IMPORTED)
+endforeach()
+set_target_properties(tomlplusplus::tomlplusplus PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "${ROOT}/include")
 engine_configure_selected_plugins()
 set(ENGINE_BUILD_APP OFF)
 include("${ROOT}/cmake/editor/hosts.cmake")
@@ -451,28 +454,54 @@ add_executable(probe_host probe.cpp)
 engine_link_asset_importers(probe_host)
 get_target_property(_host_definitions probe_host COMPILE_DEFINITIONS)
 get_target_property(_host_links probe_host LINK_LIBRARIES)
-if("editor/json_import" IN_LIST ENGINE_SELECTED_PLUGINS)
-    if(NOT TARGET engine_json_import OR NOT TARGET engine::json_import)
-        message(FATAL_ERROR "Enabled JSON importer target or alias is missing")
+foreach(_format fbx usd font ui json)
+    if(TARGET engine_${_format}_import OR TARGET engine::${_format}_import)
+        message(FATAL_ERROR "Legacy importer target leaked: ${_format}")
     endif()
-    get_target_property(_links engine_json_import LINK_LIBRARIES)
-    if(NOT "engine::asset_pipeline" IN_LIST _links OR
-       NOT "nlohmann_json::nlohmann_json" IN_LIST _links OR
-       NOT "engine::json_import" IN_LIST _host_links OR
-       NOT "ENGINE_HAS_JSON_IMPORTER=1" IN_LIST _host_definitions)
-        message(FATAL_ERROR "JSON importer target or host linkage differs")
+endforeach()
+if("editor/asset_import" IN_LIST ENGINE_SELECTED_PLUGINS)
+    if(NOT TARGET engine_asset_import OR NOT TARGET engine::asset_import)
+        message(FATAL_ERROR "Enabled unified asset importer target or alias is missing")
     endif()
-elseif(TARGET engine_json_import OR TARGET engine::json_import OR
-       "engine::json_import" IN_LIST _host_links OR
-       NOT "ENGINE_HAS_JSON_IMPORTER=0" IN_LIST _host_definitions)
-    message(FATAL_ERROR "Disabled JSON importer leaked a target or host linkage")
+    get_target_property(_links engine_asset_import LINK_LIBRARIES)
+    get_target_property(_sources engine_asset_import SOURCES)
+    foreach(_dependency engine::asset_pipeline engine::resource engine_ufbx
+                        engine_usd_sdk ozz_animation_offline engine_editor_mesh
+                        Freetype::Freetype nlohmann_json::nlohmann_json)
+        if(NOT "${_dependency}" IN_LIST _links)
+            message(FATAL_ERROR "Unified asset import missing actual target dependency: ${_dependency}")
+        endif()
+    endforeach()
+    foreach(_format fbx usd font ui json)
+        set(_found FALSE)
+        foreach(_path IN LISTS _sources)
+            if(_path MATCHES "/${_format}_importer\\.cpp$")
+                set(_found TRUE)
+            endif()
+        endforeach()
+        if(NOT _found)
+            message(FATAL_ERROR "Unified target does not compile ${_format}_importer.cpp")
+        endif()
+    endforeach()
+    set(_host_import_links "${_host_links}")
+    list(FILTER _host_import_links INCLUDE REGEX "^engine::asset_import$")
+    list(LENGTH _host_import_links _host_import_count)
+    if(NOT _host_import_count EQUAL 1 OR
+       NOT "ENGINE_HAS_ASSET_IMPORT_PLUGIN=1" IN_LIST _host_definitions)
+        message(FATAL_ERROR "Unified importer must have one host link and enabled assembly macro")
+    endif()
+elseif(TARGET engine_asset_import OR TARGET engine::asset_import OR
+       TARGET engine_ufbx OR
+       "engine::asset_import" IN_LIST _host_links OR
+       NOT "ENGINE_HAS_ASSET_IMPORT_PLUGIN=0" IN_LIST _host_definitions)
+    message(FATAL_ERROR "Disabled asset importer leaked targets, dependencies or host linkage")
 endif()
 file(WRITE "${CMAKE_BINARY_DIR}/selection.txt"
     "${ENGINE_SELECTED_PLUGINS}|${VCPKG_MANIFEST_FEATURES}")
 ]==])
 foreach(_state enabled disabled)
     if(_state STREQUAL "enabled")
-        set(_plugins json_import)
+        set(_plugins asset_import)
     else()
         set(_plugins "")
     endif()
@@ -483,16 +512,16 @@ foreach(_state enabled disabled)
         -DVCPKG_MANIFEST_FEATURES=runtime
         RESULT_VARIABLE _result OUTPUT_VARIABLE _out ERROR_VARIABLE _error)
     if(NOT _result EQUAL 0)
-        message(FATAL_ERROR "JSON importer toggle configure failed: ${_out}${_error}")
+        message(FATAL_ERROR "Asset importer toggle configure failed: ${_out}${_error}")
     endif()
     file(READ "${CASE_ROOT}/build/selection.txt" _selection)
-    if(_plugins STREQUAL "json_import")
-        set(_expected "editor/json_import|runtime")
-    else()
-        set(_expected "|runtime")
-    endif()
-    if(NOT _selection STREQUAL _expected)
-        message(FATAL_ERROR "JSON importer toggle left stale selection/features: ${_selection}")
+    if(_plugins STREQUAL "asset_import")
+        if(NOT _selection MATCHES "^editor/asset_import\\|" OR
+           NOT _selection MATCHES "font-import" OR NOT _selection MATCHES "usd-import")
+            message(FATAL_ERROR "Enabled unified asset import omitted its selection or dependency features: ${_selection}")
+        endif()
+    elseif(NOT _selection STREQUAL "|runtime")
+        message(FATAL_ERROR "Disabled asset importer left stale selection/features: ${_selection}")
     endif()
 endforeach()
 ]=])

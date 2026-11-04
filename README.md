@@ -7,7 +7,7 @@ C++20 跨平台游戏引擎，使用 CMake、vcpkg 和成熟开源库。运行�
 | 模块 | 当前能力与文档 |
 | --- | --- |
 | 核心与场景 | 系统生命周期、ECS 场景、组件值句柄、场景加载、预制体与实例覆盖、常驻节点、世界暂停。[运行时](docs/runtime/runtime.md) · [场景](docs/runtime/scene.md) · [预制体](docs/editor/prefabs.md) |
-| 渲染 | bgfx、PBR、Clustered Forward+、方向/点/聚光阴影、SSR、平面反射、透明水与折射、AO、HDR/Bloom。[渲染模块](docs/runtime/rendering.md) |
+| 渲染 | bgfx、标准 PBR、Forward+、阴影与反射、水、HDR、大气天空、视锥剔除、静态实例化与 LOD。[渲染模块](docs/runtime/rendering.md) |
 | 光照烘焙 | 环境 IBL、多反弹 Lightmap、动态对象 SH9 光照探针。[场景烘焙](docs/plugins/editor/scene-bake.md) |
 | 资源 | GUID、独立资源、增量导入、依赖加载、异步读取、运行包与完整版本同步。[加载](docs/runtime/resource-loading.md) · [导入](docs/editor/asset-pipeline.md) · [打包](docs/plugins/editor/resource-build.md) |
 | 脚本 | TypeScript → JavaScript、Gameplay、逐类绑定、热重载；构建时选择 QuickJS 或 V8。[脚本](docs/plugins/runtime/scripting.md) · [SDK](include/engine.d.ts) |
@@ -42,7 +42,7 @@ Windows 在 Developer PowerShell 中执行，程序使用对应的 `.exe`。编�
 python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime start
 ```
 
-`projects/showcase` 是公开技术范例项目。场景入口、操作方式、CTest/GPU 验证命令、实际通过范围及已知问题统一见[测试与范例](docs/testing.md)。环境准备、Release、平台预设、导出与构建选项见[构建指南](docs/building.md)；资源修改后的更新流程见[同步与热重载](docs/plugins/editor/resource-sync.md)。
+`projects/showcase` 是公开技术范例项目，项目说明集中在[项目文档](projects/showcase/docs/index.md)。CTest/GPU 验证命令、实际通过范围及已知问题见[测试与范例](docs/testing.md)。环境准备、Release、平台预设、导出与构建选项见[构建指南](docs/building.md)；资源修改后的更新流程见[同步与热重载](docs/plugins/editor/resource-sync.md)。
 
 ## 平台
 
@@ -61,6 +61,6 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 - [架构总览](docs/architecture.md) · [类图评审入口](docs/class-diagrams/index.md) · [插件清单与选择](docs/plugins/plugins.md)
 - [构建与交付](docs/building.md) · [开发与依赖维护](docs/development.md) · [协作约定](AGENTS.md)
 - [项目设置](docs/editor/configuration.md) · [资源制作与导入](docs/editor/asset-pipeline.md) · [场景效果巡览](docs/editor/visual-review.md)
-- [测试项目、验证记录与限制](docs/testing.md) · [渲染上游来源](docs/runtime/rendering-upstream-plan.md)
+- [测试项目、验证记录与限制](docs/testing.md) · [渲染上游来源](docs/runtime/rendering-sources.md)
 
 私有项目、付费素材、商业参考与构建产物保持本地隔离。CI 仅手动触发。

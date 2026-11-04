@@ -32,7 +32,7 @@ classDiagram
 
 - 项目写 `export default class Game extends Gameplay`，可直接承载业务或组织业务对象，不挂到节点。一个运行中的项目只有一个入口实例。
 - `OnInitialize(): boolean` 在模块执行和构造后调用；必须返回布尔值，基类默认 true。`Update(): void` 每帧一次；`OnShutdown(): void` 在停止、重载或部分初始化失败清理时调用；基类后二者为空实现。
-- 入口在 OnInitialize 通过 Scene.Load 加载编译场景，也可显式创建 Scene；所有可见对象、相机与灯光都由 Node 持有对应 Component，自定义脚本组件尚未实现。
+- 入口在 OnInitialize 通过 Scene.Load 加载编译场景，也可显式创建 Scene；所有可见对象、相机与灯光都通过 Node 获取对应 Component 值句柄，自定义脚本组件尚未实现。
 - `Debug.Log`、`Debug.LogWarning`、`Debug.LogError` 分别绑定 C++ 日志 info、warning、error，参数为字符串，默认落盘。
 - App 暴露静态只读字符串 `assetsPath`、`persistentDataPath`、`cachePath`，对应 C++ App 路径。宿主初始化，脚本不能改写；低频用户数据通过 [Storage 字符串 KV](../../plugins/runtime/class-diagrams/storage-script-api.md) 读写和显式保存，尚无通用脚本文件接口。
 - `App.RequestQuit` 和新的 Window 脚本入口由现有原生系统提供，具体方法与关系只在[运行时控制脚本接口](../../plugins/runtime/class-diagrams/runtime-controls-script-api.md)定义；不新增原生平台或窗口系统。
@@ -65,6 +65,8 @@ classDiagram
         +Destroy() bool
     }
     class Node {
+        +id bigint
+        +sceneId bigint
         +IsValid() bool
         +SetEnabled(enabled bool) bool
         +enabled bool?
@@ -73,6 +75,8 @@ classDiagram
         +visible bool?
         +visibleInHierarchy bool?
         +Destroy() bool
+        +SetPersistent(value bool) bool
+        +IsPersistent() bool
         +SetParent(parent Node?) bool
         +FindChild(path string) Node?
         +AddComponent~T~(type ComponentType~T~) T?
@@ -97,6 +101,8 @@ classDiagram
 
 ## 脚本组件接口
 
+通用 Component 与 Transform 在本节定义；Camera、Light、MeshRenderer、Material 的完整接口统一见[渲染脚本类图](../../plugins/runtime/class-diagrams/render-script-api.md)。
+
 ```mermaid
 classDiagram
     direction TB
@@ -114,26 +120,13 @@ classDiagram
         +SetPosition(x number, y number, z number) bool
         +SetRotation(x number, y number, z number) bool
         +SetScale(x number, y number, z number) bool
+        +GetWorldPosition() Vector3?
+        +GetWorldForward() Vector3?
     }
-    class Camera {
-        +SetPerspective(fovDegrees number, nearClip number, farClip number) bool
-    }
-    class Light {
-        +SetColor(r number, g number, b number) bool
-        +SetIntensity(intensity number) bool
-    }
-    class MeshRenderer {
-        +material Material
-    }
-    class Material {
-        +IsValid() bool
-        +SetType(path string) bool
-        +SetShader(path string) bool
-        +SetFloat(name string, value number) bool
-        +SetV2(name string, x number, y number) bool
-        +SetV3(name string, x number, y number, z number) bool
-        +SetV4(name string, x number, y number, z number, w number) bool
-    }
+    class Camera
+    class Light
+    class MeshRenderer
+    class Material
     class Time {
         +deltaTime number$
     }

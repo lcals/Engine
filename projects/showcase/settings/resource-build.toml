@@ -62,8 +62,6 @@ roots = [
 ]
 keep = [
     "fonts/ofl.txt",
-    "fonts/source.md",
-    "effects/source.md",
     "effects/effekseer-license.txt",
     "effects/efkbgfx-license.txt",
 ]

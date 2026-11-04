@@ -8,6 +8,8 @@
 
 `App` 为各平台提供含义一致的内置资源、持久数据和可清理缓存路径；日志默认写入持久目录。SDL3 用于窗口、事件、平台目录与同步文件读取。公开头文件和实现分别位于 `include/engine/runtime/`、`src/engine/runtime/`，各系统按职责分目录。[PathUtils](class-diagrams/path-utils.md) 位于 `runtime/utils/`，提供 UTF-8 路径转换，调用者负责权限、规范化及越界检查。
 
-`WorldSystem` 使用 flecs 管理实体，`Node` 与组件表达场景行为；持久数据以生成的 FlatBuffers 结构为准。物理系统通过 Jolt 同步 Collider/RigidBody 并进行固定步模拟；音频系统通过 SDL3 消费 AudioSource 请求并读取 AudioListener。设备、模拟对象和播放状态归各自系统，结束玩法由会话显式清理。具体范围见[物理](physics.md)、[音频](audio.md)、[导航](navigation.md)、[动画](animation.md)和 [UI](ui.md)。
+`WorldSystem` 独占 Flecs world，场景持久参数与运行列只存一份；`Node` / `Component` 是按身份解析的值句柄，不拥有逐对象行为实例，持久数据以生成的 FlatBuffers 结构为准。物理系统通过 Jolt 同步 Collider/RigidBody 并进行固定步模拟；音频系统通过 SDL3 消费 AudioSource 请求并读取 AudioListener。设备、模拟对象和播放状态归各自系统，结束玩法由会话显式清理。具体范围见[物理](physics.md)、[音频](audio.md)、[导航](navigation.md)、[动画](animation.md)和 [UI](ui.md)。
 
 TypeScript 由编辑器工具编译为 JavaScript，再由可选脚本插件执行。插件默认 QuickJS，通过 `ENGINE_SCRIPT_BACKEND=v8` 可构建 V8 版本；两者互斥，不在运行时切换。核心只提供 [ScriptRuntime](class-diagrams/script-runtime.md) 执行契约与 ScriptStatus，宿主通过创建函数装配插件，核心不链接具体虚拟机或 ScriptSystem。插件负责模块预检、执行和 Gameplay 回调，绑定实现按类或模块拆分并统一注册。GameplaySession 决定部署来源、应用目录并协调热重载，脚本插件不自行发现或切换部署目录。运行生命周期在宿主线程执行，未提供多线程脚本插件或任意状态迁移。接口见[脚本插件](../plugins/runtime/class-diagrams/script-system.md)与[玩法入口](class-diagrams/gameplay.md)。
+
+项目对场景效果与对象持久属性通过 `AddComponent` / `GetComponent` 获取具名组件后操作，可选效果默认关闭。窗口、显示设备、时间、输入及资源加载属于场景外服务；这些抽象继续由宿主统一管理，不为统一入口创建无实际职责的组件。编辑/诊断状态由 MCP 临时控制，不写入场景或预制体。

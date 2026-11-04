@@ -1,9 +1,9 @@
 # 大气天空与 Hex-Tiling 材质增量
 
 [类图索引](../../class-diagrams/index.md) · [环境组件](environment-components.md) ·
-[材质](material.md) · [接入与验证计划](../atmosphere-hex-plan.md)
+[材质](material.md) · [实现与使用](../atmosphere-hex.md)
 
-**本页接口已评审，代码正在接入与验证；实际验收结果以测试记录为准。** 大气参数扩展已有 `EnvironmentDataT`，Hex-Tiling
+**状态：当前实现契约；实际验收范围见[测试文档](../../testing.md)。** 大气参数扩展已有 `EnvironmentDataT`，Hex-Tiling
 扩展已有 PBR Shader 的具名参数；不增加天空系统、材质种类枚举或另一套效果管理器。
 
 ## 归属、关系与所有权
@@ -11,14 +11,9 @@
 ```mermaid
 classDiagram
     class Component
-    class EnvironmentComponent {
-        <<existing value handle>>
-        +get_settings(EnvironmentDataT& output) bool
-        +set_settings(const EnvironmentDataT& settings) bool
-        +remap_node_references(ComponentDataT& data, span~NodeIdMappingT~ mapping) bool
-    }
+    class EnvironmentComponent
     class EnvironmentDataT {
-        <<generated ECS data, proposed additions>>
+        <<generated ECS data>>
         +bool atmosphere_enabled = false
         +uint64_t atmosphere_sun_node_id = 0
         +float atmosphere_ground_height = 0
@@ -131,12 +126,7 @@ Multiscatter；Sky-view 按所用视图分配或在独立有序视图中更新�
 
 ```mermaid
 classDiagram
-    class Material {
-        <<existing value handle>>
-        +set_float(string_view name, float value) bool
-        +get_float(string_view name, float& output) bool
-        +set_texture(string_view name, string_view path) bool
-    }
+    class Material
     class MaterialState
     class MaterialDataT
     class ShaderDataT
@@ -207,6 +197,6 @@ BaseColor 的硬件 sRGB 解码先于线性混合；Normal/ORM 保持线性。�
 | bgfx `49-hextile` 与 `53-sky2/hextile.sh` | 同上；`fs_hextile.sc`、`hextile.sh` 及 `fs_sky2.sc` 的显式梯度调用 | 三角网格、随机旋转、权重与 `texture2DGrad`；保留 Preetish Kakkar 2022 署名 |
 | mmikk `hextile-demo` | `43c3ed7e18e1e4539fa9323f72d5e2a65147ebb3`；`hextile-demo/hextiling.h`、`surfgrad_framework.h` | 法线转表面梯度及正确旋转；MIT，保留 mmikk 2022 版权 |
 
-实际接入将来源、完整许可和兼容改动列入 `third_party/notices/`，不将上游检出/构建缓存提交。
+来源、完整许可和兼容改动见 `third_party/notices/`，不将上游检出/构建缓存提交。
 算法论文由示例原注释引用：Sébastien Hillaire，*A Scalable and Production Ready Sky and
 Atmosphere Rendering Technique*（EGSR 2020）。引用论文不等于将其全部系统移植。

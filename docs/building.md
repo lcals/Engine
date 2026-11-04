@@ -95,12 +95,12 @@ cmake --workflow --preset ninja-engine-release
 | 桌面编辑器 | `editor` | 项目系统所用 toml++、Dear ImGui（docking 与 SDL3 绑定） |
 | 编辑器与离线资源管线 | `asset-pipeline` | OpenUSD、SQLite、efsw、FlatBuffers、toml++、Basis Universal、meshoptimizer、bgfx 编译工具（shaderc、texturec、geometryc） |
 | 编辑器建模插件 | `modeling` | Earcut、Manifold（含 Clipper2 依赖）；仅选中建模插件时加入 |
-| 编辑器字体导入插件 | `font-import` | FreeType；仅选中 `font_import` 插件时加入 |
+| 编辑器资源导入 | `font-import`、`usd-import` | 统一 `asset_import` 插件所需的 FreeType 与 OpenUSD；不进入运行包 |
 | 脚本插件 QuickJS 后端 | `quickjs` | quickjs-ng；仅选中脚本插件且 `ENGINE_SCRIPT_BACKEND=quickjs` 时加入 |
 
 编辑器建模与场景烘焙共用固定 Git 子模块 xatlas；场景烘焙另使用 lightmapper。只有选择对应插件时才创建这些第三方目标，运行包不链接编辑器烘焙依赖。
 
-RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已导入的曲线字体资源。FreeType 仅供离线字体导入插件使用，不进入运行时依赖和 Android 包。
+RmlUi 关闭默认 FreeType 字体引擎，使用核心 `FontSystem` 消费已导入的曲线字体资源。FreeType 仅供统一资源导入插件的 FontImporter 使用，不进入运行时依赖和 Android 包。
 
 运行时通过固定提交的 Git 子模块引入 ozz-animation，作为 CMake 子项目接入，关闭工具、示例与上游测试。脚本依赖选择、准备入口与后端限制见[脚本后端选择](plugins/runtime/scripting.md#脚本后端选择)和[V8 依赖](plugins/runtime/scripting.md#v8-依赖)。
 

@@ -36,11 +36,11 @@
 场景与节点 ID 使用查询返回的十进制**字符串**，保留完整 64 位身份。创建后按唯一名称通过 `get_scene` 查询节点；创建或删除的重做可能改变运行时 ID，后续外部请求使用新查询值。`set_material_type` 支持 `builtin://materials/default-pbr`、`builtin://materials/default-unlit`、`builtin://materials/default-blinn-phong` 和项目材质路径；隐藏 Shader 字段不能通过具名参数工具修改。几何创建与拓扑编辑由[建模模块](modeling.md)提供。编辑结果不会自动写回源文件，显式 `save_scene` 才发布场景与资源。
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime list
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime list
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call get_scene
 # edit.json 使用查询到的 sceneId/nodeId，内容例如：
 # {"sceneId":"1","nodeId":"42","position":[1,0,0]}
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_transform --arguments-file edit.json
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app --project projects/showcase --runtime-dir build/editor-runtime call set_transform --arguments-file edit.json
 ```
 
 `list` 使用标准 `tools/list`，输出当前构建实际注册的工具与完整参数 schema，不要求编辑器正在运行；可选插件未装配时相应工具不会出现。模块覆盖及已确认缺口见 [MCP 覆盖清单](mcp-coverage.md)。
@@ -91,7 +91,7 @@ python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app --projec
 {"lines":[{"start":[0,0,0],"end":[0,3,0],"color":1358926079,"depthTest":true}],"lifetimeFrames":120}
 ```
 
-Frame/View uniform 作为 `implementation.frame_view_uniforms` 的只读实现能力查询，不是可切换画质效果。天空数值继续通过 `set_render_settings` 的 atmosphere 字段配置，Hex 尺度/混合通过正常具名材质参数配置。LOD 离线生成通过 `get_mesh_lod_import {"path":"meshes/source.mesh"}` 和 `set_mesh_lod_import` 修改源 meta、保留 GUID 并走正常导入；它与运行时 static_lod 开关分开保存。详见[统一功能归属与契约](render-feature-mcp-plan.md)和[静态模型 LOD](../../editor/static-model-lod-plan.md)。
+Frame/View uniform 作为 `implementation.frame_view_uniforms` 的只读实现能力查询，不是可切换画质效果。天空数值继续通过 `set_render_settings` 的 atmosphere 字段配置，Hex 尺度/混合通过正常具名材质参数配置。LOD 离线生成通过 `get_mesh_lod_import {"path":"meshes/source.mesh"}` 和 `set_mesh_lod_import` 修改源 meta、保留 GUID 并走正常导入；它与运行时 static_lod 开关分开保存。详见[统一功能归属与契约](render-feature-controls.md)和[静态模型 LOD](../../editor/static-model-lod.md)。
 
 ## 当前项目的 TS 执行
 
@@ -122,7 +122,7 @@ export default function(args: { label: string }, gameplay: unknown) {
 ## 延迟关闭编辑器
 
 ```sh
-python3 scripts/mcp_client.py --server build/ninja-engine-debug/mcp_app \
+python3 scripts/mcp_client.py --server build/ninja-engine-release/mcp_app \
   --project projects/showcase --runtime-dir build/editor-runtime \
   call close_editor --arguments '{"delayMs":500}'
 ```

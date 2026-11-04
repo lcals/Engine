@@ -8,6 +8,8 @@ C++ 类型为 `engine::plugins::script::ScriptSystem`；核心契约和借用对
 
 ```mermaid
 classDiagram
+    class ProjectScriptRequest
+    ScriptSystem ..> ProjectScriptRequest : 同步调用期间借用
     class ScriptSystem {
         <<final>>
         +ScriptSystem(WorldSystem#42; world, RenderSystem#42; renderer, UiSystem#42; ui, PhysicsSystem#42; physics, NavigationSystem#42; navigation, InputSystem#42; input, WindowSystem#42; window)
@@ -15,6 +17,7 @@ classDiagram
         +prepare_gameplay(const ResourceCatalog& catalog, const MountList& mounts, string_view entry, string_view revision) bool
         +start_prepared_gameplay() bool
         +stop_gameplay() void
+        +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
         +status() const ScriptStatus&
         #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool

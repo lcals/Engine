@@ -3,7 +3,7 @@
 #include "editor/asset_pipeline/asset_io.hpp"
 #include "editor/asset_pipeline/import_context.hpp"
 #include "editor/asset_pipeline/project_lock.hpp"
-#include "plugins/editor/ui_import/ui_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "runtime/resource/builtin_resources.hpp"
 #include "runtime/resource/resource_system.hpp"
 #include "runtime/task/task_system.hpp"
@@ -411,7 +411,7 @@ bool perform_source(const Json& args, bool save, const fs::path& project,
     asset.source = staged;
     asset.kind = schema::AssetKind::ui;
     asset.importer_id = "ui";
-    ui_import::UiImporter importer;
+    asset_import::UiImporter importer;
     if (validated)
     {
         validated = importer.scan_dependencies(asset, context, job.error) &&

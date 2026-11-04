@@ -2,7 +2,7 @@
 
 [IBL 类图](class-diagrams/scene-bake.md) · [Lightmap 与探针类图](class-diagrams/scene-lighting-bake.md) · [运行时渲染](../../runtime/rendering.md) · [验证记录](../../testing.md)
 
-`editor/scene_bake` 负责编辑器中的离线场景烘焙。调用方保存场景、选择输入并通过 MCP 发起作业；插件复用现有任务域、GPU 捕获和资源管线，运行包只加载发布结果。固定上游版本、许可和适配边界集中记录在[渲染上游来源](../../runtime/rendering-upstream-plan.md#固定来源与许可)。
+`editor/scene_bake` 负责编辑器中的离线场景烘焙。调用方保存场景、选择输入并通过 MCP 发起作业；插件复用现有任务域、GPU 捕获和资源管线，运行包只加载发布结果。固定上游版本、许可和适配边界集中记录在[渲染上游来源](../../runtime/rendering-sources.md#固定来源与许可)。
 
 ## 场景 GPU IBL 烘焙
 

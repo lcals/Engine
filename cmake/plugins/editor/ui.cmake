@@ -10,7 +10,7 @@ function(engine_configure_ui_editor_plugin)
     target_compile_definitions(engine_ui_editor PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0
         JSON_NOEXCEPTION=1)
     target_link_libraries(engine_ui_editor PUBLIC engine::editor engine::ui
-        PRIVATE engine::asset_pipeline engine::ui_import engine::window engine::resource engine::task
+        PRIVATE engine::asset_pipeline engine::asset_import engine::window engine::resource engine::task
         SDL3::SDL3)
     engine_apply_options(engine_ui_editor)
     if("editor/mcp" IN_LIST ENGINE_SELECTED_PLUGINS)
@@ -24,5 +24,5 @@ function(engine_configure_ui_editor_plugin)
 endfunction()
 
 engine_register_plugin(NAME editor/ui CONFIGURE engine_configure_ui_editor_plugin
-    DEPENDS editor/ui_import OPTIONS ENGINE_ENABLE_RUNTIME_DEPS ENGINE_ENABLE_EDITOR_DEPS
+    DEPENDS editor/asset_import OPTIONS ENGINE_ENABLE_RUNTIME_DEPS ENGINE_ENABLE_EDITOR_DEPS
         ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

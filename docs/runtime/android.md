@@ -6,8 +6,8 @@ Android 平台工程位于 `platforms/android/`，沿用 [SDL3 的 Activity / JN
 
 ```sh
 npm ci --prefix projects/showcase/settings
-python3 scripts/build_android.py --config debug --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
-python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-debug/asset_build_app
+python3 scripts/build_android.py --config debug --project projects/showcase --asset-builder build/ninja-engine-release/asset_build_app
+python3 scripts/build_android.py --config release --project projects/showcase --asset-builder build/ninja-engine-release/asset_build_app
 ```
 
 Android 默认使用 QuickJS；脚本依次调用 `android-arm64-debug` / `android-arm64-release` 的根 configure、显式 `-prepare`（`engine_script_prepare`）、build Preset，再打包。传入 `--backend v8` 使用独立 `android-arm64-v8-debug` / `android-arm64-v8-release` 预设，不混用后端缓存。V8 的 Android 构建入口支持 macOS ARM64 / x64 和 Linux x64 宿主，Windows 宿主的 Android V8 工具链尚未接入。产物为 `output/android/arm64/debug/runtime/engine-showcase.apk` 和 `output/android/arm64/release/runtime/engine-showcase.apk`；最低 Android 9 / API 28，ABI 为 `arm64-v8a`，需要 Vulkan。两种 APK 均使用本机调试签名，供安装测试；发布签名尚未配置，签名密钥不进入仓库。

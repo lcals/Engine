@@ -15,21 +15,26 @@ classDiagram
     FontSystem ..> FontDraw : 绘制参数
     FontSystem ..> Scene : 遍历文字组件
     TextComponentRuntime o-- Resource : 共享字体及Shader
-    TextComponent ..> FontSystem : 请求排布和绘制
+    TextComponent ..> ResourceLoader : 加载字体与Shader资源
+    FontSystem ..> TextComponent : 读取已发布ECS数据并生成排布和绘制
     Node ..> Component : 按类型返回值句柄
     class FontSystem {
-        +load_font(path_or_guid, output) bool
-        +glyph(data, codepoint) const FontGlyphT#42;$
-        +kerning(data, left, right) float$
-        +measure(data, text, size, spacing) float$
-        +layout(font, text, settings, output) bool$
-        +append_glyph(data, glyph, x, y, size, color, y_down, output) bool$
-        +draw(font, geometry, settings) bool
-        +render_scene(scene, view_id, bool linear_output = false) bool
+        +FontSystem()
+        +~FontSystem()
+        +load_font(string_view path_or_guid, ResourcePtr& output) bool
+        +glyph(const FontDataT& data, uint32_t codepoint) const FontGlyphT#42;$
+        +kerning(const FontDataT& data, uint32_t left, uint32_t right) float$
+        +measure(const FontDataT& data, string_view text, float size, float letter_spacing = 0) float$
+        +layout(const Resource& font, string_view text, const FontLayout& settings, FontGeometry& output) bool$
+        +append_glyph(const FontDataT& data, const FontGlyphT& glyph, float x, float y, float size, uint32_t color, bool y_down, FontGeometry& output) bool$
+        +draw(const ResourcePtr& font, const FontGeometry& geometry, const FontDraw& settings) bool
+        +render_scene(const Scene& scene, uint16_t view_id, bool linear_output = false) bool
         +release_scene() void
         +gpu_resource_count() uint32
-        +last_error() string
+        +last_error() const string&
+        #on_initialize(const EngineConfig& config) bool
         #on_tick(double delta_time) bool
+        #on_shutdown() void
     }
     class TextComponent {
         <<value handle>>
@@ -37,17 +42,28 @@ classDiagram
         +TextComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() TextComponentRuntime#42;
-        +valid_settings(settings) bool$
+        +initialize() bool
+        +valid_settings(const TextDataT& settings) bool$
         +settings() TextDataT
         +get_settings(TextDataT& output) bool
-        +set_settings(settings) bool
-        +set_font(path) bool
+        +set_settings(const TextDataT& settings) bool
+        +set_font(string_view path) bool
         +font() ResourcePtr
         +shader() ResourcePtr
-        +restore_data(data) bool
+        +restore_data(const ComponentDataT& data) bool
     }
     class ComponentRegistry
+    class FontDataT
+    class FontGlyphT
+    class TextDataT
+    class ComponentDataT
+    class EngineConfig
     class ecs_world_t
+    FontSystem ..> FontDataT : 只读输入生成模型
+    FontSystem ..> FontGlyphT : 字形查询及绘制输入
+    FontSystem ..> EngineConfig : 生命周期参数
+    TextComponent ..> TextDataT : ECS唯一持久参数
+    TextComponent ..> ComponentDataT : 恢复快照
     class TextComponentRuntime {
         <<ECS runtime column>>
     }
@@ -84,10 +100,11 @@ classDiagram
     class FontDraw {
         <<struct>>
         +uint16 view_id
-        +float[16] transform
-        +uint16[4] scissor
+        +array~float,16~ transform
+        +array~uint16_t,4~ scissor
         +bool use_scissor
         +bool depth_test
+        +bool linear_output = false
         +ResourcePtr shader
     }
     FontGeometry *-- FontVertex : 临时顶点

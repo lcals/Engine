@@ -22,17 +22,18 @@ class DestructionComponent {
         +DestructionComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() DestructionComponentRuntime#42;
++valid_settings(const DestructionDataT& settings) bool$
 +settings() DestructionDataT
 +get_settings(DestructionDataT& output) bool
-+set_settings(DestructionDataT value) bool
-+restore_data(ComponentDataT data) bool
-+damage_sphere(Vec3 center, float radius, float damage, float impulse) bool
-+refresh_support(Collider support, float max_gap, float min_coverage) bool
-+apply_stress(Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
++set_settings(const DestructionDataT& settings) bool
++restore_data(const ComponentDataT& data) bool
++damage_sphere(const Vec3& center, float radius, float damage, float impulse) bool
++refresh_support(const Collider& support, float max_gap, float min_coverage) bool
++apply_stress(const Vec3& gravity, float elastic_limit, float fatal_limit, uint32_t iterations, uint32_t& broken_bonds) bool
 +owns_fragment(uint64_t node_id) bool
 +retire_fragments(uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset() bool
-+snapshot(ByteBuffer output) bool
++snapshot(ByteBuffer& output) bool
 +restore(ByteView bytes) bool
 +ready() bool
 +revision() uint64_t
@@ -43,27 +44,28 @@ class DestructionComponent {
 }
 class DestructionSystem {
 +DestructionSystem(WorldSystem& world, PhysicsSystem& physics, TaskSystem* tasks, size_t max_pending_requests, size_t max_commits_per_tick)
-+instance() DestructionSystem*
++~DestructionSystem()
++instance() DestructionSystem*$
 +synchronize() bool
 +synchronize(Node node) bool
 +rebuild(DestructionComponent component, DestructionGraph candidate, bool preserve) bool
-+damage(DestructionComponent component, Vec3 center, float radius, float damage, float impulse) bool
++damage(DestructionComponent component, const Vec3& center, float radius, float damage, float impulse) bool
 +request_damage(DestructionComponent component, const Vec3& center, float radius, float damage, float impulse, function~void(bool)~ completed) bool
 +refresh_support(DestructionComponent component, Collider support, float max_gap, float min_coverage) bool
-+apply_stress(DestructionComponent component, Vec3 gravity, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds) bool
++apply_stress(DestructionComponent component, const Vec3& gravity, float elastic_limit, float fatal_limit, uint32_t iterations, uint32_t& broken_bonds) bool
 +owns_fragment(DestructionComponent component, uint64_t node_id) bool
 +retire_fragments(DestructionComponent component, uint32_t max_count, double max_age_seconds, uint32_t& retired_count) bool
 +reset(DestructionComponent component) bool
-+snapshot(DestructionComponent component, DestructionStateDataT output) bool
-+restore(DestructionComponent component, DestructionStateDataT state) bool
-#on_initialize(EngineConfig config) bool
++snapshot(DestructionComponent component, DestructionStateDataT& output) bool
++restore(DestructionComponent component, const DestructionStateDataT& state) bool
+#on_initialize(const EngineConfig& config) bool
 #on_tick(double delta_time) bool
 #on_shutdown() void
 }
 System <|-- DestructionSystem
 Component <|-- DestructionComponent
 DestructionComponentRuntime *-- DestructionGraph : independent damage state
-DestructionComponentRuntime --> Resource : shared immutable source
+DestructionComponentRuntime o-- Resource : shared immutable source
 DestructionComponent ..> DestructionDataT : generated settings
 DestructionComponent ..> DestructionStateDataT : portable snapshot
 DestructionComponent ..> Collider : explicit support query target

@@ -1,19 +1,19 @@
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS OR "editor/modeling" IN_LIST ENGINE_SELECTED_PLUGINS)
-    add_library(engine_editor_mesh_tangents STATIC src/engine/editor/mesh/mesh_tangents.cpp)
-    target_compile_features(engine_editor_mesh_tangents PRIVATE cxx_std_20)
-    target_include_directories(engine_editor_mesh_tangents PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
-    target_link_libraries(engine_editor_mesh_tangents PRIVATE engine::scene_data mikktspace::mikktspace)
-    engine_apply_options(engine_editor_mesh_tangents)
+    add_library(engine_editor_mesh STATIC src/engine/editor/mesh/mesh_tangents.cpp)
+    target_compile_features(engine_editor_mesh PRIVATE cxx_std_20)
+    target_include_directories(engine_editor_mesh PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    target_link_libraries(engine_editor_mesh PRIVATE engine::scene_data mikktspace::mikktspace)
+    engine_apply_options(engine_editor_mesh)
 endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
-    target_sources(engine_editor_mesh_tangents PRIVATE src/engine/editor/mesh/mesh_lods.cpp)
-    target_link_libraries(engine_editor_mesh_tangents
+    target_sources(engine_editor_mesh PRIVATE src/engine/editor/mesh/mesh_lods.cpp)
+    target_link_libraries(engine_editor_mesh
                           PRIVATE meshoptimizer::meshoptimizer engine::resource)
     get_target_property(_mesh_lod_toml_includes tomlplusplus::tomlplusplus
                         INTERFACE_INCLUDE_DIRECTORIES)
-    target_include_directories(engine_editor_mesh_tangents SYSTEM PRIVATE ${_mesh_lod_toml_includes})
-    target_compile_definitions(engine_editor_mesh_tangents
+    target_include_directories(engine_editor_mesh SYSTEM PRIVATE ${_mesh_lod_toml_includes})
+    target_compile_definitions(engine_editor_mesh
                                PRIVATE TOML_HEADER_ONLY=1 TOML_EXCEPTIONS=0)
 endif()
 
@@ -77,7 +77,7 @@ endif()
 
 if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
     engine_add_system(editor asset_pipeline)
-    target_link_libraries(engine_asset_pipeline PRIVATE engine_editor_mesh_tangents)
+    target_link_libraries(engine_asset_pipeline PRIVATE engine_editor_mesh)
     target_sources(
         engine_asset_pipeline
         PRIVATE src/engine/editor/asset_pipeline/asset_metadata.cpp

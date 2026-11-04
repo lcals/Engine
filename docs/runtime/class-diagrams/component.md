@@ -82,6 +82,11 @@ classDiagram
         +set_static_instancing_enabled(bool enabled) bool
         +static_lod_enabled() bool
         +set_static_lod_enabled(bool enabled) bool
+        +bake_static() bool
+        +set_bake_static(bool enabled) bool
+        +lightmap_path() string_view
+        +set_lightmap(string_view path) bool
+        +lightmap_resource() shared_ptr~const Resource~
         +set_deformation(span~const MeshVertex~ vertices, span~const Vec4~ tangents) bool
         +set_skinning_palette(span~const array_float_16~ transforms, span~const array_float_16~ normal_transforms) bool
         +skinning_palette() span~const array_float_16~
@@ -157,6 +162,10 @@ classDiagram
         +bool cast_shadows
         +bool static_instancing_enabled
         +bool static_lod_enabled
+        +bool bake_static
+        +string lightmap_guid
+        +string lightmap_mesh_hash
+        +vector~float~ lightmap_transform
     }
     class MeshDataT
     class MeshUtils

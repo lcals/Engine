@@ -5,17 +5,19 @@
 ```mermaid
 classDiagram
 class DestructionGraph {
-  +validate(DestructionAssetDataT, string) bool
-  +initialize(DestructionAssetDataT, string) bool
-  +clone(DestructionGraph, string) bool
-  +damage_sphere(uint32, Vec3, float, float, string) bool
-  +release_anchors(span~uint32~, string) bool
+  +DestructionGraph()
+  +~DestructionGraph()
+  +validate(const DestructionAssetDataT& data, string& error) bool$
+  +initialize(const DestructionAssetDataT& data, string& error) bool
+  +clone(DestructionGraph& output, string& error) bool
+  +damage_sphere(uint32_t group_id, const Vec3& center, float radius, float damage, string& error) bool
+  +release_anchors(span~const uint32_t~ chunk_ids, string& error) bool
   +retire_groups(span~const uint32_t~ group_ids, string& error) bool
-  +apply_stress(uint32 group_id, Vec3 gravity, float density, float elastic_limit, float fatal_limit, uint32 iterations, uint32 broken_bonds, string error) bool
-  +restore_health(span~float~, string) bool
+  +apply_stress(uint32_t group_id, const Vec3& gravity, float density, float elastic_limit, float fatal_limit, uint32_t iterations, uint32_t& broken_bonds, string& error) bool
+  +restore_health(span~const float~ health, string& error) bool
   +healths() vector~float~
-  +data() DestructionAssetDataT
-  +groups() vector~DestructionGroup~
+  +data() const DestructionAssetDataT&
+  +groups() const vector~DestructionGroup~&
 }
 class DestructionGroup {
   +uint32 id

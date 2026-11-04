@@ -93,7 +93,7 @@ export default class Game extends Gameplay {
 
 ## JSON 配置资源
 
-项目配置可保存为独立 `.json` 资源。编辑器插件 `json_import` 校验 1 字节至 4 MiB 的严格 UTF-8 JSON，拒绝 BOM、原始 NUL、注释和尾逗号；成功后原样进入 GUID 缓存、同步与运行包。运行时复用普通资源字节，不向核心增加 JSON 解析器。显式设置 `ENGINE_EDITOR_PLUGINS` 的已有构建需在原清单追加 `json_import`，默认清单已包含该插件。
+项目配置可保存为独立 `.json` 资源。统一编辑器 `asset_import` 插件内的 JsonImporter 校验 1 字节至 4 MiB 的严格 UTF-8 JSON，拒绝 BOM、原始 NUL、注释和尾逗号；成功后原样进入 GUID 缓存、同步与运行包。运行时复用普通资源字节，不向核心增加 JSON 解析器。显式设置 `ENGINE_EDITOR_PLUGINS` 的已有构建需在原清单选择 `asset_import`，默认清单已包含该插件。
 
 资源类型表参与公共导入指纹，首次升级会重新导入旧项目缓存；之后继续按资源增量构建，不需清空缓存或重编第三方依赖。
 

@@ -4,10 +4,10 @@
 #include "editor/editor_environment.hpp"
 #include "editor/project/project_system.hpp"
 #include "editor/scene/scene_preview.hpp"
-#include "plugins/editor/font_import/font_importer.hpp"
+#include "plugins/editor/asset_import/font_importer.hpp"
 #include "plugins/editor/ui/ui_editor_commands.hpp"
 #include "plugins/editor/ui/ui_editor_state.hpp"
-#include "plugins/editor/ui_import/ui_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
 #include "runtime/engine_config.hpp"
 #include "runtime/font/font_system.hpp"
 #include "runtime/gameplay/gameplay_session.hpp"
@@ -147,9 +147,9 @@ shader="builtin://shaders/font"
         config.height = 480;
         config.window_title = "Engine UI editor integration";
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font =
-            std::make_unique<engine::plugins::font_import::FontImporter>();
+            std::make_unique<engine::plugins::asset_import::FontImporter>();
         std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> document =
-            std::make_unique<engine::plugins::ui_import::UiImporter>();
+            std::make_unique<engine::plugins::asset_import::UiImporter>();
         return threads.initialize(config) && tasks.initialize(config) &&
                pipeline.initialize(config) && pipeline.add_importer(font) &&
                pipeline.add_importer(document) &&

@@ -7,9 +7,11 @@ VirtualFileSystem 是资源模块内部的文件访问对象，不继承 System�
 ```mermaid
 classDiagram
     class VirtualFileSystem {
+        +VirtualFileSystem()
+        +~VirtualFileSystem()
         +configure(const MountList& mounts) bool
         +configure_async(TaskSystem& tasks, const FileAsyncConfig& config) bool
-        +read_async(const FileLocationT& location, uint64_t offset, uint64_t size, function completed) FileReadStatus
+        +read_async(const FileLocationT& location, uint64_t offset, uint64_t size, function~void(bool, ByteBuffer)~ completed) FileReadStatus
         +poll_async(size_t max_callbacks) size_t
         +shutdown_async() void
         +mounts() const MountList&

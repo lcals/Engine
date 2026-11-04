@@ -149,7 +149,7 @@ python3 scripts/performance/summarize_terrain_collision.py \
 - **严格盒形识别。** 完整且精确的八角点长方体先成功创建官方 Hull，再替换为保留其实际圆角、密度、材质和局部偏移的官方 BoxShape。缺角、不规则或微斜顶继续使用 Hull，失败沿用原结果；浮点质量计算、接触选择和运动轨迹不保证逐位相同。
 - **Jolt 执行与采样。** 私有适配器复用官方 `JobSystemWithBarrier` 与 `FixedSizeFreeList`，将就绪工作投递到共享 oneTBB 域，主线程通过官方 barrier 参与并等待本帧求解；域拒绝时释放投递引用，由已登记的官方 Barrier 执行就绪任务，不递归执行后继。Tracy 按上游任务名记录各线程工作，无需改动 Jolt ABI 或重编内部 profiler。角色循环与组件发布仍有序执行。
 
-架构与契约见[场景](class-diagrams/scene.md)、[物理](class-diagrams/physics-system.md)、[地形](../plugins/runtime/class-diagrams/terrain.md)、[破坏](../plugins/runtime/class-diagrams/destruction.md)及[地形碰撞方案](../plugins/runtime/terrain-collision-plan.md)。
+架构与契约见[场景](class-diagrams/scene.md)、[物理](class-diagrams/physics-system.md)、[地形](../plugins/runtime/class-diagrams/terrain.md)、[破坏](../plugins/runtime/class-diagrams/destruction.md)及[地形碰撞方案](../plugins/runtime/terrain-collision.md)。
 
 ## 当前并行采样
 

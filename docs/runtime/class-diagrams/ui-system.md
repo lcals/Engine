@@ -24,6 +24,7 @@ classDiagram
     }
     class UiSystem {
         +UiSystem(WindowSystem& window, WorldSystem& world, FontSystem& fonts)
+        +~UiSystem()
         +render(uint32 width, uint32 height) bool
         +synchronize() bool
         +find_element(uint64 node, string_view id, UiElementHandle& output) bool
@@ -84,7 +85,7 @@ classDiagram
         +string text
         +string value
         +string classes
-        +array~float_4~ bounds
+        +array~float,4~ bounds
         +uint32 child_count
         +bool visible
         +bool enabled
@@ -96,6 +97,7 @@ classDiagram
     Component <|-- UiComponent
     Node ..> UiComponent : 按类型返回值句柄
     UiComponentRuntime o-- Resource : 共享 UI 资源
+    WorldSystem *-- UiSystem : 宿主装配后由世界独占生命周期
     UiSystem --> WorldSystem : 借用所有已发布场景与存活节点
     UiSystem --> WindowSystem : 借用输入与尺寸
     UiSystem --> FontSystem : 借用字体能力

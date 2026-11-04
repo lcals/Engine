@@ -15,6 +15,21 @@
 | 运行宿主 | 平台入口、帧推进、部署来源和启动顺序         | 装配系统，调用核心初始化、更新与关闭           |
 | 核心     | 每项能力内部的正确执行、状态与生命周期约束   | 提供最小接口，返回成功、失败或必要状态         |
 
+### 组件与独立服务的边界
+
+以状态归属和生命周期决定接口形态，组件不是所有引擎能力的统一包装。
+
+| 归属 | 项目接口 | 例子与边界 |
+| --- | --- | --- |
+| 场景或对象的配置、资源关联和行为意图 | 获取组件后调整属性；需要保存的值进入生成 ECS Data | 环境/大气、相机后处理、灯光、网格 LOD/实例化、音源、角色和导航代理；材质通过 MeshRenderer 的材质槽句柄访问 |
+| 宿主、设备或进程级的独立服务 | 按所属服务直接访问，不挂场景节点 | Window 的尺寸/模式/鼠标、Render 的 VSync/MSAA/各向异性、时间/帧率、输入、资源和存储；不得在这里增加另一份场景效果配置 |
+| 无持久场景配置的查询与显式操作 | 保留所属领域的直接接口 | 物理射线/范围查询、导航路径查询与显式构建请求；有状态的对象仍由组件表达，不为一次查询创建占位组件 |
+| 编辑、构建和诊断 | 编辑器命令与 MCP | 导入、烘焙、线框、包围盒、统计与调试线；临时诊断状态不进入场景/预制体 |
+
+场景组件应有明确归属，能随对象组合并保持保存、恢复和调试语义。窗口与显示设备不属于某个场景，不创建 WindowComponent 来包住同一个全局窗口。相反，环境和后处理属于场景画面，不能通过一个全局 Render setter 绕开其组件状态。
+
+优先扩展既有组件，不为每项效果新建组件。组件上的可选效果开关默认关闭，由项目显式开启；组件本身的基础 enabled/visible 与这一规则不同。缺少或禁用场景组件使用固定默认值，切场景不继承前一场景参数。
+
 资源加载时自动处理必要依赖由运行时资源依赖图插件实现；是否加载哪个场景、是否启用热重载、何时应用新目录属于调用方决策。窗口、世界、渲染、脚本等模块同样遵循这一划分，不把上层流程塞进 Engine 或任何核心系统。
 
 “编辑器多次更新目录，真机启动提交一次”只是调用频率的例子，不是核心里的两种模式。编辑器与运行时不需要两套资源机制，也不为调用方另建通用 Driver 类。具体所有权和公开接口以独立类图为准。
@@ -36,11 +51,13 @@ Engine/System 框架只依赖标准库。SDL、bgfx 等必要的系统实现依�
 公开头文件和实现分别位于 `include/engine/`、`src/engine/`，采用相同分层：
 
 - `runtime/`：系统框架、运行时宿主、玩法会话、脚本执行契约、平台路径、窗口、日志、资源、世界、渲染、物理与音频；公共工具位于 `runtime/utils/`。
-- `editor/`：编辑器环境、项目约束、通用命令、任务调度和资源导入基础。
+- `editor/`：编辑器环境、项目约束、通用命令、编辑器任务域使用和资源导入基础；线程与任务系统仍属于运行时核心。
 - `plugins/runtime/`：可独立选择的资源依赖图、脚本执行、编译期可选 QuickJS/V8 后端与逐类绑定实现。
-- `plugins/editor/`：完整建模、MCP 协议及业务适配、资源构建和资源同步插件。
+- `plugins/editor/`：完整建模、统一源格式导入、MCP 协议及业务适配、资源构建和资源同步插件。
 
 运行时插件调用核心接口，编辑器插件可以组合运行时插件及编辑器基础。核心通过自己定义的接口接收宿主注入的实现，不引用具体插件；运行时插件不得反向依赖编辑器或具体项目。平台专用实现、入口与打包资源集中于 `platforms/<platform>/`。自有头文件从 `runtime/`、`editor/`、`plugins/runtime/` 或 `plugins/editor/` 开始包含；CMake 目标传递搜索根，不使用相对目录回跳。
+
+平台专用编辑器基础实现位于 `platforms/<platform>/editor/`，具体编辑器插件的实现位于其中的 `plugins/<name>/`，继续由所属插件目标编译。比如 Android adb 同步由桌面 MCP 执行，源码位于 `platforms/android/editor/plugins/mcp/`，不进入 APK 或运行时核心。`platforms/desktop/app.cpp` 与 Android 的 `native/app.cpp` 实现核心 App，并非可自由装配插件的宿主；真正的可执行装配入口与独立测试入口按其实际职责判断。
 
 模块说明位于 `docs/runtime/`、`docs/editor/`、`docs/plugins/runtime/` 和 `docs/plugins/editor/`，独立类图位于各范围的 `class-diagrams/`；跨层入口和[完整引用关系](class-diagrams/references.md)位于 `docs/class-diagrams/`。TypeScript 公共声明统一维护在 `include/engine.d.ts`，只暴露已实现绑定。
 
@@ -66,6 +83,43 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 
 实现采用 C++20 与返回值错误处理，资源所有权和失败清理保持明确。依赖使用固定版本的 vcpkg port 或 Git 子模块，实际参与系统编译和链接。代码规则见 [AGENTS.md](../AGENTS.md)，构建和补丁维护见[开发说明](development.md)。
 
+## 全模块架构审查（2026-11-04）
+
+本轮覆盖全部运行时核心、编辑器基础、运行时/编辑器插件、平台实现、CMake 及测试/工具目录；原有 128 份类图文档全部参与核对，并补充审查统一导入插件关系图，当前共 129 份。检查包括类和公开方法对应、所有权、数据唯一性、直接包含、实际目标链接、模块必要性与内部实现归属。算法正确性、完整平台功能和每个函数的行为不由静态结构审查代替，实际验证单独记录在[测试文档](testing.md)。
+
+### 职责与收敛判断
+
+| 范围 | 当前边界与审查判断 |
+| --- | --- |
+| Engine / System / RuntimeHost / GameplaySession | 框架管理系统，宿主装配与逐帧调度，会话处理部署/启停；职责不同，保留，不再加便利转发或 Driver |
+| App / Window / Input / Storage / Log | 独立平台和进程服务；平台实现与业务分离，保留直接接口，不组件化窗口 |
+| ThreadSystem / TaskSystem | 共享并行预算与独立任务域不同，保留两层；领域系统借用任务域，不另建线程池 |
+| World / Scene / Node / Component / Prefab | 世界拥有唯一 ECS；Scene 管场景发布和局部身份索引；值句柄访问数据，预制体记录模板关系与覆盖，保留现有结构 |
+| Resource / Catalog / VFS / Codec / ResourceGraph | 目录、读取、单项解析与依赖树/共享引用分别有职责；依赖图继续留可选插件，不并回资源核心 |
+| Render / GPU Resources / Passes | 系统组织视图，资源类负责 GPU 所有权，各 pass 实现对应算法；帧快照是派生输入，不是第二份场景配置 |
+| Physics / Collider / RigidBody / CharacterMotor | 系统拥有 Jolt 运行对象，组件表达设置和控制意图；碰撞查询作为领域服务，不能因代码量大就搬进项目或拆出平行模拟框架 |
+| Navigation / NavigationCrowd / NavigationAgent | 核心提供 Recast/Detour 能力，插件把代理与 ECS 联动；路径查询无需包装成组件，代理对象需要组件 |
+| Animation / Animator / CharacterController | 骨架采样、实例状态与玩家控制策略各有归属；控制器/相机/可见性策略留角色插件，保留组合 |
+| UiSystem / FontSystem / TextComponent | 文档布局/输入与通用字体排布/GPU 绘制分开，3D 文字复用字体核心；不合并，RmlUi 适配私有，离线字体解析留导入插件 |
+| ScriptSystem / ScriptVm / Bindings / UI MVC | 运行生命周期、VM 后端隔离、逐类外观、项目业务四层各有必要；后端构建互斥，不新加通用 Manager |
+| Terrain / Destruction / Effects | 运行时体积修改、Blast/Jolt 碎块与实时特效属于插件；离线破碎准备、导入和编辑事务继续留编辑器插件 |
+| Project / EditorEnvironment / EditorSystem | 项目目录检查、路径/目录应用与编辑器生命周期分工成立；编辑器借用运行时能力，不能反向让核心读取项目 TOML |
+| AssetPipeline / Importers / SceneComponentCodec | 管线组织批次/依赖/原子发布，各类型拥有识别和转换；TOML 编解码留编辑器，不搬进运行时组件 |
+| AssetImport / Modeling / Editor Mesh | FBX/USD/字体/UI/JSON 的格式导入收敛到统一 `asset_import` 插件，各类型保留独立实现及宿主登记；建模制作留原插件，MikkTSpace 与 LOD 共用 `editor/mesh` 内部目标 |
+| SceneBake / AssetBuild / AssetSync / MCP / UI Editor | 烘焙、出包、同步、协议与 UI 编辑分别有生命周期；MCP 只调用真实领域命令，平台传输实现从通用目录分离 |
+| Tests / Showcase Tools / Build Scripts | 测试按模块归档；公开项目资产生成器归项目 tools，根 scripts 保留可复用工程工具；图与说明不重复维护实际测试结果 |
+
+保留核心/编辑器/插件分层；五个仅承担格式导入的插件已收敛为一个 `asset_import`，不新增类或注册框架，详见[统一导入边界](plugins/editor/class-diagrams/asset-import.md)。制作、模拟和编辑命令各有职责，继续独立。其余重复主要是文档重复定义、项目工具混在通用目录，以及个别内部辅助暴露为公共头，已按职责修正。
+
+### 仍需单独收敛的点
+
+- `scene_commands.cpp` 同时包含场景生命周期、Transform/Camera/Light 与材质编辑。已有 `commands/components/` 可承接按类型的内部实现，后续拆分应保留同一 EditorCommands 事务与节点身份机制，避免再造注册框架。
+- 角色插件的 `detail::find_local_node` 用 ECS 查询解析场景局部 ID；Scene 已有私有索引查询，其他领域也有类似解析。脚本绑定的 `Scene.FindNode` / `Node.FindChild` 则在绑定内枚举节点并处理名称/路径。后续应统一这些场景查询的职责与复用，绑定仅处理脚本参数和 Run 身份；共享最小查询契约涉及公开方法，需先在类图中确认身份与可见性语义。
+- `scene_bake` 清单强制选择 `runtime/resource_graph`，实现经核心 ResourceLoader 访问资源。可以评估移除此具体装配约束，但须独立验证不装配依赖图时的资源来源与烘焙加载，不能只删依赖声明。
+- PhysicsSystem、UiSystem、ModelingCommands 等少数实现文件较长，职责仍在正确模块。需要拆时按内部算法、输入/文档、命令类型拆文件；文件长度本身不构成新增系统或合并领域的理由。
+
+上述是后续结构收敛点，不代表当前接口失效，也不把窗口、设备画质、输入或无状态查询列为组件化缺陷。
+
 ## 模块入口
 
 - [运行时](runtime/runtime.md)：框架、宿主、玩法和系统生命周期。
@@ -79,4 +133,3 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 - [脚本与插件](plugins/plugins.md)：虚拟机选择、共享绑定、Gameplay、热重载和 MCP。
 - [编辑器](editor/editor.md)、[编辑器配置](editor/configuration.md)：环境、项目控制和工具设置。
 - [项目与出包](editor/project.md)：项目目录契约、运行内容与平台部署。
-- [首个游戏](first-game.md)：玩法目标及引擎验证需求。

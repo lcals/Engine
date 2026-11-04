@@ -35,7 +35,7 @@ classDiagram
     }
     class GpuProgram {
         +create(const ShaderDataT& shader) bool
-        +bind_material(const Material& material, const vector~GpuTexture~& textures, span~TextureHandle~ frame_textures, bool max_anisotropy) bool
+        +bind_material(const Material& material, const vector~GpuTexture~& textures, span~const TextureHandle~ frame_textures, bool max_anisotropy) bool
         +release() void
     }
     class GpuMesh {
@@ -148,7 +148,11 @@ classDiagram
 bool draw(const WorldSystem& world, const RenderSettings& settings,
           ShadowFrame& frame, const std::vector<GpuMesh>& meshes,
           const std::vector<GpuTexture>& textures,
-          bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform);
+          bgfx::TextureHandle fallback, bgfx::UniformHandle depth_uniform,
+          const RenderConfig& config, std::span<const LocalShadowLight> local_lights,
+          std::span<ClusterLight> lights, const float* camera_world,
+          bgfx::ViewId base_view,
+          const std::span<const std::uint64_t>* caster_ids = nullptr);
 ```
 
 `ShadowPass` 独占 atlas 的颜色纹理、深度纹理、Framebuffer、Shader/Program 及 alpha 裁切和 UV Uniform。`prepare()` 按分辨率准备资源，`draw()` 组织逐级阴影绘制，`texture()` 返回借用句柄；调用方不得销毁它。对象不可复制或移动，析构兜底释放；`release()` 支持重复调用。两个只读查询为 `const noexcept`，释放为 `noexcept`，状态与句柄返回值标注 `[[nodiscard]]`。AO 和 HDR/Bloom 的完整接口见本文后续独立图。
@@ -235,7 +239,7 @@ void screenShot(const char* path, uint32_t width, uint32_t height,
 
 回调实现 bgfx 的日志和截图契约，用互斥量同步待写路径、原子状态同步回执，通过 bimg 和 SDL3 IO 写出截图。PNG 截图当前只接受 `BGRA8`，其他格式报告已有失败状态，避免将 HDR 或浮点输出误读为 SDR 像素。其他 profiler、缓存与视频捕获回调保持契约空实现，缓存查询报告缺失；不在此引入性能采样或视频录制业务。
 
-统一策略、逐视图提交统计及临时调试绘制的公开契约见[渲染功能控制](render-feature-controls.md)；渲染器保存策略/诊断请求，场景和材质功能仍由对应组件/材质独占状态。
+统一策略、逐视图提交统计及临时调试绘制的公开契约见[渲染功能控制](render-feature-controls.md)；渲染器只保存临时诊断请求，运行策略与场景/材质功能由对应组件/材质独占状态。
 
 ## 公开接口
 
@@ -520,24 +524,23 @@ C++ 限定符：构造为 `explicit` 且 `noexcept`，`world` 默认为 `nullptr
 classDiagram
     class RenderSystem
     class RenderSettings
-    class CameraDataT
+    class CameraSettings
     class SceneGpuResources
     class AmbientOcclusionPass {
         <<渲染私有实现>>
         +prepare(uint16_t width, uint16_t height) bool
-        +begin_depth(const float* view, const float* projection) void
-        +compute(const CameraDataT& camera, const RenderSettings& settings, const float* projection) bool
-        +texture() const TextureHandle
+        +compute(const CameraSettings& camera, const RenderSettings& settings, const float* projection, bgfx::TextureHandle source_depth) bool
+        +texture() bgfx::TextureHandle
         +resource_count() const uint32_t
         +release() void
     }
     RenderSystem *-- SceneGpuResources : 独占
     SceneGpuResources *-- AmbientOcclusionPass : 独占GPU资源
-    AmbientOcclusionPass ..> CameraDataT : 本帧投影参数
+    AmbientOcclusionPass ..> CameraSettings : 本帧投影参数
     AmbientOcclusionPass ..> RenderSettings : 本帧AO参数
 ```
 
-AmbientOcclusionPass 位于渲染私有实现目录，拥有深度附件、法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、设备重建和失败时完整释放；切换场景重新读取活动相机设置，按实际开关保留或释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
+AmbientOcclusionPass 位于渲染私有实现目录，借用 SurfacePass 提供的源深度，拥有法线、半尺寸深度 mip、AO 中间纹理和计算程序，按需初始化；关闭效果、设备重建和失败时完整释放；切换场景重新读取活动相机设置，按实际开关保留或释放。窗口变化只重建尺寸相关纹理。RenderSystem 组织通道顺序，不向 Engine 增加功能接口，不增加通用后处理管理框架。
 
 AO 默认关闭，由活动场景相机的 PostProcessDataT.ao_enabled 控制，可随时关闭并保留半径、强度与淡出参数。只有参数随场景保存；遮蔽结果每帧在 GPU 计算，不产生贴图源文件、meta 或 GUID 资源，不加入烘焙任务。预览隐藏镜头不持有另一份 AO 配置。
 
@@ -555,6 +558,10 @@ classDiagram
         +prepare(uint16_t width, uint16_t height, bool bloom_enabled, uint8_t samples) bool
         +begin_scene(uint32_t clear_color) void
         +scene_framebuffer() bgfx::FrameBufferHandle
+        +opaque_color() bgfx::TextureHandle
+        +opaque_specular() bgfx::TextureHandle
+        +scene_color() bgfx::TextureHandle
+        +begin_transparency(bgfx::TextureHandle frozen_scene, const float* view, const float* projection) void
         +resolve(const RenderSettings& settings) bool
         +resource_count() uint32_t
         +release() void

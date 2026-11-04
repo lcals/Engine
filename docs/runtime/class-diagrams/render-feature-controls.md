@@ -1,6 +1,6 @@
 # 渲染能力与调试控制
 
-运行配置由 Camera / MeshRenderer / Environment / Material 各自保存，新增可选能力默认关闭，诊断显示及提交统计仅通过 MCP 访问；项目脚本通过组件组合运行能力。实际构建与运行结果单独记录。系统入口见[渲染系统](render-system.md)，统一编辑入口见[渲染功能 MCP](../../plugins/editor/render-feature-mcp-plan.md)。
+运行配置由 Camera / MeshRenderer / Environment / Material 各自保存，新增可选能力默认关闭，诊断显示及提交统计仅通过 MCP 访问；项目脚本通过组件组合运行能力。实际构建与运行结果单独记录。系统入口见[渲染系统](render-system.md)，统一编辑入口见[渲染功能 MCP](../../plugins/editor/render-feature-controls.md)。
 
 ## 数据归属
 
@@ -20,30 +20,19 @@
 
 `RenderSettings` 继续只读地汇总场景组件，不加入全局覆盖写入口。天空与 Hex 的具体字段由各自能力图定义，本图只规定路由与所有权。
 
-## 最小公开契约
+## 功能数据与调用关系
+
+系统方法见[RenderSystem](render-system.md)，组件属性方法见[基础组件](component.md)；本图统一定义功能枚举、状态快照和调试线数据，不重复定义已有类的方法。
 
 ```mermaid
 classDiagram
-    class RenderSystem {
-        +set_debug_feature(RenderFeature feature, bool enabled) bool
-        +feature_state(RenderFeature feature) RenderFeatureState
-        +submission_stats() vector~RenderViewStats~
-        +draw_debug_lines(span~const DebugLine~ lines, uint16_t lifetime_frames = 1) bool
-    }
-    class Camera {
-        +settings() CameraSettings
-        +set_settings(const CameraSettings& settings) bool
-    }
+    class RenderSystem
+    class Camera
     class CameraDataT {
         <<generated ECS data>>
         +bool frustum_culling_enabled = false
     }
-    class MeshRenderer {
-        +static_instancing_enabled() bool
-        +set_static_instancing_enabled(bool enabled) bool
-        +static_lod_enabled() bool
-        +set_static_lod_enabled(bool enabled) bool
-    }
+    class MeshRenderer
     class MeshRendererDataT {
         <<generated ECS data>>
         +bool static_instancing_enabled = false
@@ -119,9 +108,13 @@ classDiagram
     class SceneGpuResources
     class DebugDrawPass {
         <<private final>>
-        +prepare(bool wireframe) bool
+        +supports_wireframe() bool$
         +draw(...) bool
+        +reset_frame() void
+        +submitted(RenderFeature feature) bool
+        +resource_count() uint32_t
         +release() void
+        -prepare(bool wireframe) bool
     }
     class GpuGeometry
     class GpuMesh
@@ -148,7 +141,7 @@ classDiagram
 5. **边界来源**AABB 来自当前几何与真实世界矩阵，包含变形/蒙皮的保守边界；剔除前保存只读诊断候选，屏外包围盒可用于验证。相机视锥使用相机自身参数；正在观察的相机视锥可在第二相机查看，镜像相机不得替代场景持久相机。
 6. **领域模块**碰撞、导航、骨骼、体素等由所属系统/插件把自己实际数据转换为 `DebugLine` 后提交。渲染核心不 include Jolt、Recast 或建模插件，也不把全部领域枚举堆进 RenderFeature。
 
-不使用全局 `BGFX_DEBUG_WIREFRAME` 作为首期完整线框实现：它会影响非主场景绘制以及全屏通道，无法表达上述隔离。若保留临时 bgfx debug flags，必须在唯一函数合并 `STATS/TEXT/其他标志`，修正现有两处只写 `BGFX_DEBUG_STATS` 的覆盖关系。
+正式线框走独立诊断视图；`BGFX_DEBUG_WIREFRAME` 会影响非主场景与全屏通道，不用于这条路径。统计显示使用现有唯一状态，不与诊断通道保存重复开关。
 
 ## 基准与验收
 

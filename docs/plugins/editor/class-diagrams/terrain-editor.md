@@ -1,6 +1,6 @@
 # 地形资源与编辑器命令
 
-[类图索引](../../../class-diagrams/index.md) · [运行时方案](../../runtime/terrain-destruction-plan.md)
+[类图索引](../../../class-diagrams/index.md) · [运行时方案](../../runtime/terrain-destruction.md)
 
 地形编辑器插件负责 `.terrain` 生成描述导入、场景组件编解码、可撤销笔刷和状态恢复、MCP 转发。生成与网格算法仍由运行时地形插件提供；核心及编辑器基础不引用具体地形插件。宿主按清单装配。
 

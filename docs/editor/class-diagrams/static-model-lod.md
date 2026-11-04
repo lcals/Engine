@@ -1,11 +1,11 @@
-# 静态模型 LOD：评审契约
+# 静态模型 LOD
 
-状态：最小契约已评审，正在实现与集成验证。
+状态：当前实现契约；构建、资源导入与实际渲染验证见[测试文档](../../testing.md)。
 
-[详细计划](../static-model-lod-plan.md) · [现有模型资源](../../runtime/class-diagrams/model-resources.md)
+[导入参数与使用](../static-model-lod.md) · [现有模型资源](../../runtime/class-diagrams/model-resources.md)
 
 本次不新增系统或 Manager。运行时持久数据由 Mesh Schema 生成；
-生成只在编辑器离线阶段调用现有 meshoptimizer。MeshRenderer、Model 与资源图的公开方法不变。
+生成只在编辑器离线阶段调用现有 meshoptimizer。MeshRenderer 通过组件属性选择是否使用 LOD；Model 与资源图不增加逐级加载接口。
 
 ## 同一 Mesh 内的渲染拓扑
 
@@ -55,7 +55,7 @@ classDiagram
         <<upstream library>>
     }
     AssetImporter <|-- MeshImporter
-    AssetImporter <|-- ModelingMeshImporter
+    MeshImporter <|-- ModelingMeshImporter
     AssetImporter <|-- FbxImporter
     AssetImporter <|-- UsdImporter
     MeshImporter ..> MeshLodFunctions : 顶点和切线完成后调用
@@ -87,7 +87,7 @@ classDiagram
     RenderSystem ..> MeshRenderer : 只读实例 static_lod_enabled 属性
     RenderSystem ..> WorldSystem : 借用 ECS 世界
     SceneGpuResources *-- GpuMesh : 实例状态
-    SceneGpuResources o-- GpuGeometry : 共享几何缓存
+    SceneGpuResources ..> GpuGeometry : 按资源身份weak_ptr缓存，不延长寿命
     GpuMesh o-- GpuGeometry : shared_ptr 共享同源几何
     GpuGeometry o-- Resource : 强引用精确发布版本
     SceneGpuResources ..> Camera : 当前视图投影与实例身份

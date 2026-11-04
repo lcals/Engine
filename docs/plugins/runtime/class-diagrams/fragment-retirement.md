@@ -20,11 +20,15 @@ class TerrainComponent
 class DestructionSystem
 class TerrainSystem
 class DestructionGraph
+class DestructionComponentRuntime
+class ecs_world_t
 Component <|-- DestructionComponent
 Component <|-- TerrainComponent
 System <|-- DestructionSystem
 System <|-- TerrainSystem
-DestructionComponent *-- DestructionGraph : existing owned state
+ecs_world_t *-- DestructionComponentRuntime : 唯一运行列
+DestructionComponentRuntime *-- DestructionGraph : 独占损伤状态
+DestructionComponent ..> DestructionComponentRuntime : 值句柄按身份访问
 DestructionComponent ..> DestructionSystem : explicit request
 TerrainComponent ..> TerrainSystem : explicit request
 DestructionSystem ..> DestructionGraph : prepare candidate then publish

@@ -6,6 +6,7 @@ function(engine_configure_character_controller_plugin)
                            src/engine/plugins/runtime/character_controller/character_camera_system.cpp
                            src/engine/plugins/runtime/character_controller/character_visual.cpp)
     target_link_libraries(engine_character_controller PUBLIC engine::world engine::physics)
+    target_include_directories(engine_character_controller PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
     target_link_libraries(engine_character_controller PRIVATE engine::scene_ecs)
 endfunction()
 

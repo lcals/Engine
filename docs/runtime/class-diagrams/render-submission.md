@@ -12,7 +12,7 @@ classDiagram
     class RenderSystem
     class SceneGpuResources {
         <<private>>
-        +draw_meshes(WorldSystem world, RenderSettings settings, SceneDrawView view, SceneDrawMode mode) bool
+        +draw_meshes(const WorldSystem& world, const RenderSettings& settings, const SceneDrawView& view, SceneDrawMode mode) bool
         +view_stats vector~RenderViewStats~
     }
     class SceneDrawView {

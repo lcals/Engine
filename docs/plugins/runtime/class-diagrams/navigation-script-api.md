@@ -5,10 +5,10 @@
 ```mermaid
 classDiagram
 class Navigation {
-+Build(Node[] nodes, NavigationOptions options) boolean
-+Replace(Node[] nodes, Vec3 minimum, Vec3 maximum) boolean
-+FindPath(Vec3 start, Vec3 end) Vec3[]OrNull
-+Clear() boolean
++Build(Node[] nodes, NavigationOptions options) boolean$
++Replace(Node[] nodes, Vec3 minimum, Vec3 maximum) boolean$
++FindPath(Vec3 start, Vec3 end) Vec3[]OrNull$
++Clear() boolean$
 +ready boolean
 +revision bigintOrNull
 +rebuiltTiles numberOrNull

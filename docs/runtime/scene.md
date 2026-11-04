@@ -18,7 +18,7 @@ Node 保存世界借用、世界代次与完整实体 ID，Component 再保存�
 
 `Transform` 的位置、欧拉角和缩放使用 double。欧拉角单位为度，局部矩阵为 `T * Rz * Ry * Rx * S`；Y 轴向上，相机和方向光的局部前向为 -Z。WorldSystem 在结构稳定安全点以 double 精度沿 ChildOf 累乘，缓存派生的列主序 float 世界矩阵；计算溢出或不能表示时返回失败，输出保持单位矩阵。分量须有限，缩放各分量非零，可以为负。此数据精度不表示已实现浮动原点或大世界分区。
 
-组件设置通过返回值报告失败，非法范围不会覆盖原值。禁用组件不会销毁组件，渲染器跳过禁用对象。GPU 资源由 `RenderSystem` 持有，场景停止、替换及设备关闭时按生命周期释放，见[渲染模块](rendering.md)。
+组件的可选效果开关默认关闭，由项目显式开启；这与节点/组件本身的激活及可见标记不同。组件设置通过返回值报告失败，非法范围不会覆盖原值。禁用组件不会销毁组件，渲染器跳过禁用对象。GPU 资源由 `RenderSystem` 持有，场景停止、替换及设备关闭时按生命周期释放，见[渲染模块](rendering.md)。
 
 节点和组件都有独立的激活、可见标记，默认开启并随场景保存。`set_enabled(false)` 暂停对应对象参与各系统；`set_visible(false)` 只隐藏画面，物理、导航和动画继续。节点标记影响整棵子树，组件标记只作用于自身；父级恢复时保留子级各自的局部设置，Transform 仍可用于坐标计算。有效状态通过 `active()` 和 `visible_in_hierarchy()` 查询，绘制要求两者都为真。状态与变换修改标记派生缓存失效，消费前由 `refresh_scene_state()` 刷新，不能跨帧使用陈旧父链结果。
 
@@ -28,10 +28,11 @@ TS 对应 `SetEnabled()`、`SetVisible()`、`enabled`、`visible`、`active` 和
 
 源场景使用 `.scene` 后缀和 TOML 内容。`SceneImporter::read` / `write` 负责编辑器端读取与保存；资源管线将其转换为 `cache/gen/<完整GUID>` 中的 FlatBuffers 二进制。运行时通过活动资源目录解析 GUID，`Scene.Load("scenes/main.scene")` 加载场景。节点 ID、父子关系及活动相机经过保存与加载保持一致。
 
-`projects/showcase` 按菜单模块加载各自的磁盘场景，网格、材质及 Shader 通过独立资源组装；庭院角色再由脚本实例化。场景不限定节点数量，`Scene.Create` 仍支持动态场景。停止或热重载销毁旧场景，再按新资源版本创建，业务脚本状态不会自动迁移。运行时修改的材质实例参数不会自动回写源材质。
+`projects/showcase` 按菜单模块加载各自的磁盘场景，网格、材质及 Shader 通过独立资源组装；庭院角色再由脚本实例化。节点数量不是写死的小规模对象数组，`Scene.Create` 同样支持动态场景；实际资源/内存预算与数据校验仍然适用。停止或热重载销毁旧场景，再按新资源版本创建，业务脚本状态不会自动迁移。运行时修改的材质实例参数不会自动回写源材质。
+
+分帧加载由 `Scene.BeginLoad/StepLoad/CommitLoad/CancelLoad` 组织，当前场景与常驻 UI 保留到候选成功提交；资源加载、节点恢复与 GPU 就绪分别判断，见[资源加载流程](resource-loading.md#后台加载与分帧提交)。`Scene.SetPaused` 控制自动世界模拟，UI 与 Gameplay.Update 继续处理；暂停不等于跳过脚本更新，详见[模拟暂停](world-pause.md)。
 
 `Scene::instantiate_model` 将模型资源（Model）展开为 Node + Component 层级，失败回滚候选对象；模型只组织节点层级及其 Mesh/Material 引用；蒙皮 Mesh 自己引用骨架，Animator 另行选择独立动画，贴图由材质引用。同一美术源文件的其他子资源不因实例化而全部加载。FBX/USD 由编辑器插件按各自已支持的范围转成统一资源，运行时不读源格式。预制体来源、实例修改与覆盖传播通过现有[预制体链路](class-diagrams/prefab.md)维护；完整 USD 场景语义及大世界分区不在本次 ECS 迁移范围。资源身份及导入规则见[资源管线](../editor/asset-pipeline.md)。
-
 
 ## 系统查询与安全点
 
@@ -41,4 +42,4 @@ C++ 句柄每次解析，`settings()` 返回独立值，`get_settings(output)` �
 
 `collect_nodes()` / `collect_components()` 为编辑、持久化与诊断提供独立身份快照；原生游戏系统不依赖全场景节点数组。`instantiate_model/prefab` 可输出精确创建集合，编辑 Undo 用专属身份映射重绑，不能令旧 TS 句柄复活。
 
-公开范例 `ecs-many-objects` 的分档、操作与验证记录见 [showcase ECS 范例](../../projects/showcase/ecs-many-objects.md)。数量档位是功能场景规模，不构成帧率或平台性能承诺。
+公开范例 `ecs-many-objects` 的分档、操作与验证记录见 [showcase ECS 范例](../../projects/showcase/docs/ecs-many-objects.md)。数量档位是功能场景规模，不构成帧率或平台性能承诺。

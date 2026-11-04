@@ -24,20 +24,12 @@
 #include "runtime/task/thread_system.hpp"
 #include "runtime/utils/path_utils.hpp"
 
-#if ENGINE_HAS_FONT_IMPORTER
-#include "plugins/editor/font_import/font_importer.hpp"
-#endif
-#if ENGINE_HAS_UI_IMPORTER
-#include "plugins/editor/ui_import/ui_importer.hpp"
-#endif
-#if ENGINE_HAS_JSON_IMPORTER
-#include "plugins/editor/json_import/json_importer.hpp"
-#endif
-#if ENGINE_HAS_FBX_IMPORTER
-#include "plugins/editor/fbx_import/fbx_importer.hpp"
-#endif
-#if ENGINE_HAS_USD_IMPORTER
-#include "plugins/editor/usd_import/usd_importer.hpp"
+#if ENGINE_HAS_ASSET_IMPORT_PLUGIN
+#include "plugins/editor/asset_import/font_importer.hpp"
+#include "plugins/editor/asset_import/ui_importer.hpp"
+#include "plugins/editor/asset_import/json_importer.hpp"
+#include "plugins/editor/asset_import/fbx_importer.hpp"
+#include "plugins/editor/asset_import/usd_importer.hpp"
 #endif
 
 #if ENGINE_HAS_MODELING_IMPORTER
@@ -172,45 +164,37 @@ int main(int argc, char** argv)
         return 1;
     }
 #endif
-#if ENGINE_HAS_FONT_IMPORTER
+#if ENGINE_HAS_ASSET_IMPORT_PLUGIN
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> font_importer =
-        std::make_unique<engine::plugins::font_import::FontImporter>();
+        std::make_unique<engine::plugins::asset_import::FontImporter>();
     if (!pipeline.add_importer(font_importer))
     {
         std::fputs("Cannot register font importer\n", stderr);
         return 1;
     }
-#endif
-#if ENGINE_HAS_UI_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> ui_importer =
-        std::make_unique<engine::plugins::ui_import::UiImporter>();
+        std::make_unique<engine::plugins::asset_import::UiImporter>();
     if (!pipeline.add_importer(ui_importer))
     {
         std::fputs("Cannot register ui importer\n", stderr);
         return 1;
     }
-#endif
-#if ENGINE_HAS_JSON_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> json_importer =
-        std::make_unique<engine::plugins::json_import::JsonImporter>();
+        std::make_unique<engine::plugins::asset_import::JsonImporter>();
     if (!pipeline.add_importer(json_importer))
     {
         std::fputs("Cannot register JSON importer\n", stderr);
         return 1;
     }
-#endif
-#if ENGINE_HAS_FBX_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> fbx_importer =
-        std::make_unique<engine::plugins::fbx_import::FbxImporter>();
+        std::make_unique<engine::plugins::asset_import::FbxImporter>();
     if (!pipeline.add_importer(fbx_importer))
     {
         std::fputs("Cannot register FBX importer\n", stderr);
         return 1;
     }
-#endif
-#if ENGINE_HAS_USD_IMPORTER
     std::unique_ptr<engine::editor::asset_pipeline::AssetImporter> usd_importer =
-        std::make_unique<engine::plugins::usd_import::UsdImporter>();
+        std::make_unique<engine::plugins::asset_import::UsdImporter>();
     if (!pipeline.add_importer(usd_importer))
     {
         std::fputs("Cannot register USD importer\n", stderr);

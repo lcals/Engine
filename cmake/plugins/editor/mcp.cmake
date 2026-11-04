@@ -11,7 +11,7 @@ function(engine_configure_mcp_plugin)
         src/engine/plugins/editor/mcp/project_resource_tools.cpp
         src/engine/plugins/editor/mcp/project_runtime_tools.cpp
         src/engine/plugins/editor/mcp/project_lifecycle_tools.cpp
-        src/engine/plugins/editor/mcp/android_sync.cpp
+        platforms/android/editor/plugins/mcp/android_sync.cpp
         src/engine/plugins/editor/mcp/editor_mcp_tools.cpp
         src/engine/plugins/editor/mcp/project_script_mcp_tools.cpp
         src/engine/plugins/editor/mcp/physics_mcp_tools.cpp

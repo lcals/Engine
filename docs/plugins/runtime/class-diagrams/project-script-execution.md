@@ -57,13 +57,8 @@ class ProjectScriptRequest {
     +string_view javascript
     +string_view arguments_json
 }
-class ScriptRuntime {
-    <<abstract>>
-    +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
-}
-class GameplaySession {
-    +execute_project_script(const ProjectScriptRequest& request, string& result_json, string& error) bool
-}
+class ScriptRuntime
+class GameplaySession
 class ScriptSystem
 class System
 System <|-- ScriptRuntime
@@ -75,7 +70,7 @@ ScriptRuntime ..> ProjectScriptRequest : synchronous borrowed input
 ScriptRuntime ..> ScriptStatus : existing status output
 ```
 
-图只列新增字段及方法；其余方法跨图引用，不重新定义。
+本页定义请求数据和跨层调用关系；方法统一维护在各自的[核心执行契约](../../../runtime/class-diagrams/script-runtime.md)、[玩法会话](../../../runtime/class-diagrams/gameplay-session.md)、[脚本系统](script-system.md)与[VM 类图](script-vm.md)。
 `ProjectScriptRequest` 是一个临时输入 struct，放在核心 gameplay 模块：
 `module_path` 为规范化后的 assets 相对 `.js` 逻辑路径，
 `javascript` 为工具生成的 CommonJS 代码，`arguments_json` 为 UTF-8 JSON。
@@ -100,10 +95,7 @@ GameplaySession 只转发并拒绝空 ScriptRuntime，不解析源码或 JSON，
 
 ```mermaid
 classDiagram
-class ScriptVm {
-    <<abstract>>
-    +execute_script(const ProjectScriptRequest& request, string& result_json) bool
-}
+class ScriptVm
 class QuickJsVm
 class V8Vm
 class ScriptSystem

@@ -15,7 +15,7 @@ classDiagram
         +EffectComponent(Component component)
         +register_type(ComponentRegistry& registry) bool$
         +runtime() EffectComponentRuntime#42;
-        +valid_settings(const EffectDataT& settings) bool
+        +valid_settings(const EffectDataT& settings) bool$
         +settings() EffectDataT
         +get_settings(EffectDataT& output) bool
         +set_settings(const EffectDataT& settings) bool
