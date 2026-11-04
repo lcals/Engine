@@ -876,6 +876,22 @@ bool ktx_tests()
     {
         return false;
     }
+    for (const auto* valid : {&data, &lut_data})
+    {
+        if (!expect(valid->data[44] == 0 && valid->data[45] == 0 && valid->data[46] == 0 &&
+                        valid->data[47] == 0 && TextureResourceCodec::validate(*valid),
+                    "2D and cube KTX use zero pixelDepth and remain valid"))
+        {
+            return false;
+        }
+        invalid = *valid;
+        invalid.data[44] = 1;
+        if (!expect(!TextureResourceCodec::validate(invalid),
+                    "reject nonzero pixelDepth instead of normalizing an invalid 2D/cube header"))
+        {
+            return false;
+        }
+    }
     for (const auto offset : {std::size_t{48}, std::size_t{52}, std::size_t{56}, std::size_t{64}})
     {
         invalid = data;

@@ -13,7 +13,7 @@
 #include "runtime/world/world_system.hpp"
 #include <algorithm>
 #include <bx/math.h>
-#include <bx/uint32_t.h>
+#include <bx/math.h>
 #include <cmath>
 #include <set>
 #include <utility>
@@ -76,10 +76,9 @@ void RenderSystem::submit_hdr_capture()
     auto& resources = *scene_resources_;
     const auto* caps = bgfx::getCaps();
     constexpr auto readback_flags = BGFX_TEXTURE_BLIT_DST | BGFX_TEXTURE_READ_BACK;
-    constexpr auto required_caps = BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK;
     const auto source = resources.hdr_post_process.scene_color();
-    if (!caps || (caps->supported & required_caps) != required_caps || !bgfx::isValid(source) ||
-        width_ == 0 || height_ == 0 || width_ > UINT16_MAX || height_ > UINT16_MAX ||
+    if (!caps || !bgfx::isValid(source) || width_ == 0 || height_ == 0 || width_ > UINT16_MAX ||
+        height_ > UINT16_MAX ||
         !bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, readback_flags))
     {
         hdr_capture_status_ = SceneCaptureStatus::failed;
@@ -87,9 +86,9 @@ void RenderSystem::submit_hdr_capture()
     }
     resources.hdr_capture_width = static_cast<std::uint16_t>(width_);
     resources.hdr_capture_height = static_cast<std::uint16_t>(height_);
-    resources.hdr_capture_readback = bgfx::createTexture2D(
-        resources.hdr_capture_width, resources.hdr_capture_height, false, 1,
-        bgfx::TextureFormat::RGBA16F, readback_flags);
+    resources.hdr_capture_readback =
+        bgfx::createTexture2D(resources.hdr_capture_width, resources.hdr_capture_height, false, 1,
+                              bgfx::TextureFormat::RGBA16F, readback_flags);
     if (!bgfx::isValid(resources.hdr_capture_readback))
     {
         hdr_capture_status_ = SceneCaptureStatus::failed;
@@ -99,9 +98,9 @@ void RenderSystem::submit_hdr_capture()
     // bgfx resolves multisample attachments when the drawing view ends. The
     // capture view follows transparent/extension and final display resolve;
     // display resolve samples but does not modify this linear scene texture.
-    bgfx::blit(render_detail::hdr_capture_view, resources.hdr_capture_readback, 0, 0, source);
-    resources.hdr_capture_ready_frame =
-        bgfx::readTexture(resources.hdr_capture_readback, resources.hdr_capture_pixels.data());
+    const bgfx::TextureRegion readback{.handle = resources.hdr_capture_readback};
+    bgfx::blit(render_detail::hdr_capture_view, readback, bgfx::TextureRegion{.handle = source});
+    resources.hdr_capture_ready_frame = bgfx::read(readback, resources.hdr_capture_pixels.data());
     resources.hdr_capture_pending = true;
 }
 
@@ -382,10 +381,10 @@ bool RenderSystem::draw_diffuse_capture(const RenderSettings& rendering)
         {
             return fail();
         }
-        bgfx::blit(render_detail::capture_copy_view, resources.capture_readback, 0, 0,
-                   resources.capture_color);
-        resources.capture_ready_frame =
-            bgfx::readTexture(resources.capture_readback, resources.capture_pixels.data());
+        const bgfx::TextureRegion readback{.handle = resources.capture_readback};
+        bgfx::blit(render_detail::capture_copy_view, readback,
+                   bgfx::TextureRegion{.handle = resources.capture_color});
+        resources.capture_ready_frame = bgfx::read(readback, resources.capture_pixels.data());
         resources.capture_pending = true;
     }
     return true;
@@ -398,9 +397,7 @@ bool RenderSystem::request_diffuse_capture(const SceneCaptureRequest& request)
         request.height == 0 || request.width > bgfx::getCaps()->limits.maxTextureSize ||
         request.height > bgfx::getCaps()->limits.maxTextureSize ||
         !render_detail::finite_matrix(request.view.data()) ||
-        !render_detail::finite_matrix(request.projection.data()) ||
-        (bgfx::getCaps()->supported & (BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK)) !=
-            (BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK))
+        !render_detail::finite_matrix(request.projection.data()))
     {
         return false;
     }

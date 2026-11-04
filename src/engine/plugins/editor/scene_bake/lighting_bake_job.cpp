@@ -13,7 +13,7 @@
 #include <bx/allocator.h>
 #include <bx/math.h>
 #include <bx/readerwriter.h>
-#include <bx/uint32_t.h>
+#include <bx/math.h>
 #include <xatlas.h>
 #define LIGHTMAPPER_IMPLEMENTATION
 #include <lightmapper.h>
@@ -103,7 +103,7 @@ bool texture(std::span<const float> rgba, std::uint16_t size, schema::TextureDat
     bx::MemoryWriter writer(&block);
     bx::Error error;
     const auto written = bimg::imageWriteKtx(&writer, bimg::TextureFormat::RGBA16F, false, size,
-                                             size, 1, 1, 1, false, half.data(), &error);
+                                             size, 0, 1, 1, false, half.data(), &error);
     if (!error.isOk() || written <= 0)
     {
         return false;

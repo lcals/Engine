@@ -770,7 +770,7 @@ engine::schema::TextureDataT ibl_test_texture(const char* path, bool cube)
     bx::Error error;
     const auto written = bimg::imageWriteKtx(
         &writer, cube ? bimg::TextureFormat::RGBA16F : bimg::TextureFormat::RG16F, cube,
-        4, 4, 1, 1, 1, false, pixels.data(), &error);
+        4, 4, 0, 1, 1, false, pixels.data(), &error);
     engine::schema::TextureDataT result;
     result.path = path;
     result.width = result.height = 4;

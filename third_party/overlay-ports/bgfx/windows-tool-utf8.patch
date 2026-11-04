@@ -1,6 +1,6 @@
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -126,6 +126,16 @@
+@@ -203,6 +203,16 @@
  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cmake/bimg)
  add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cmake/bgfx)
  

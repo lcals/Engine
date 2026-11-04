@@ -48,6 +48,8 @@ cmake --workflow --preset ninja-debug
 
 vcpkg 依赖版本由仓库中的 `vcpkg.json` 固定，Git 子模块由仓库提交固定；已有 vcpkg 安装时，直接设置 `VCPKG_ROOT` 即可。首次配置会自动安装所选依赖。
 
+bgfx 使用本地 overlay 固定到 bgfx.cmake `1.167.9605-606`（API 167），归档同时包含匹配版本的 bx、bimg 和宿主 Shader 工具。运行库与 `shaderc` 必须同步升级，配置时会核对工具报告的 API 和目标头文件；旧 Shader 二进制不能沿用。内置渲染及特效 Shader 随工具更新重编，项目 Shader 经正常增量导入刷新。保留的本地补丁及固定提交见 [overlay 说明](../third_party/overlay-ports/README.md)。
+
 ## 根目录 Presets
 
 推荐使用 `ninja-debug` / `ninja-release` Preset，构建窗口运行时（不包含脚本插件），三端统一使用 Ninja 并要求可运行的编译缓存工具。`debug` / `release` 使用平台默认生成器。按需启用编辑器、资源管线或脚本插件；`editor-deps` 同时启用运行时与资源管线。

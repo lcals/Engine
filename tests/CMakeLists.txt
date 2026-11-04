@@ -629,12 +629,16 @@ if(ENGINE_ENABLE_ASSET_PIPELINE_DEPS)
                                            "PXR_PLUGINPATH_NAME=$<TARGET_FILE_DIR:usd>/usd")
     endif()
 
+    engine_render_shader_profile(_asset_shader_platform _asset_shader_profile)
     add_test(
         NAME engine.asset_tools
         COMMAND
             "${CMAKE_COMMAND}" "-DENGINE_SHADERC=${ENGINE_BGFX_SHADERC_EXECUTABLE}"
             "-DENGINE_TEXTUREC=${ENGINE_BGFX_TEXTUREC_EXECUTABLE}"
             "-DENGINE_GEOMETRYC=${ENGINE_BGFX_GEOMETRYC_EXECUTABLE}"
+            "-DENGINE_SHADER_PLATFORM=${_asset_shader_platform}"
+            "-DENGINE_SHADER_PROFILE=${_asset_shader_profile}"
+            "-DENGINE_SHADER_INCLUDE_DIR=${ENGINE_BGFX_SHADER_INCLUDE_DIR}"
             "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/asset-tools-output" -P
             "${CMAKE_CURRENT_SOURCE_DIR}/editor/asset_pipeline/asset_tools_test.cmake")
     set_tests_properties(engine.asset_tools PROPERTIES TIMEOUT 100)
@@ -791,6 +795,14 @@ add_test(
         "-DENGINE_OUTPUT_DIR=${CMAKE_CURRENT_BINARY_DIR}/plugin-selection-test" -P
         "${CMAKE_CURRENT_SOURCE_DIR}/build/plugin_selection_test.cmake")
 set_tests_properties(engine.plugin_selection PROPERTIES TIMEOUT 30)
+
+if(ENGINE_SHADERC_EXECUTABLE)
+    add_test(NAME engine.shader_toolchain
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/build/shader_toolchain_test.py"
+            --cmake "${CMAKE_COMMAND}" --source "${PROJECT_SOURCE_DIR}"
+            --shaderc "${ENGINE_SHADERC_EXECUTABLE}")
+    set_tests_properties(engine.shader_toolchain PROPERTIES TIMEOUT 120)
+endif()
 
 add_test(
     NAME engine.architecture_boundaries

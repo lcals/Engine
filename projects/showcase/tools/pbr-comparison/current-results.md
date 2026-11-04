@@ -4,6 +4,11 @@
 本页是当前入口；`standard-v2-results.md`、`specgloss-v3-results.md`、
 `display-matched-results.md` 和 `normal-findings.md` 保留分阶段结果，不能混用为同一次验收。
 
+bgfx API 167 升级后在 macOS Metal 重新导入并采集 12 组 1280×720 截图，
+`build/material-comparison/current/1793773436458021000/` 保存新回执和单文件报告。
+各组 PNG SHA256 与下述升级前的 `1793770721339431000` 相同，11 组 Blender 对照数值也不变；
+此结论限于这套受控场景。升级细节与 IBL 烘焙复核见[测试文档](../../../../docs/testing.md)。
+
 ## 默认流程与本次修复
 
 - 默认受光材质为 `builtin://materials/default-pbr`，Shader 为 `builtin://shaders/pbr`，

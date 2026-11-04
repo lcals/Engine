@@ -1,6 +1,6 @@
 --- a/cmake/bgfx/bgfx.cmake
 +++ b/cmake/bgfx/bgfx.cmake
-@@ -153,6 +153,10 @@
+@@ -134,6 +134,10 @@
  # bgfx depends on bx and bimg
  target_link_libraries(bgfx PRIVATE bx bimg)
  

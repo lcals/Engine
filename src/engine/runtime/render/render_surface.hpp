@@ -35,9 +35,9 @@ public:
     // true + available=false 表示设备暂不可用，调用方保留系统并在恢复后重试。
     [[nodiscard]] bool prepare(bgfx::Init& init, bool& available);
 
-    // 不执行 bgfx 操作。rebind 后调用方 setPlatformData；recreate 后先关闭 GPU 再 prepare。
+    // 不执行 bgfx 操作。rebind 后调用方 reset 交换链；recreate 后先关闭 GPU 再 prepare。
     // 失败清空全部输出；无原生句柄变化也会返回最新尺寸。
-    [[nodiscard]] SurfaceChange poll(bgfx::PlatformData& data, std::uint32_t& width,
+    [[nodiscard]] SurfaceChange poll(bgfx::SwapChain& swap_chain, std::uint32_t& width,
                                      std::uint32_t& height);
 
     // 必须先关闭 bgfx；释放平台句柄，保留事件观察器与借用窗口以便恢复。
@@ -49,7 +49,8 @@ public:
 private:
     [[nodiscard]] bool read_size(std::uint32_t& width, std::uint32_t& height) const;
 
-    [[nodiscard]] bool read_platform_data(bgfx::PlatformData& data) const;
+    [[nodiscard]] bool read_platform_data(bgfx::PlatformData& data,
+                                          bgfx::SwapChain& swap_chain) const;
     [[nodiscard]] bool start_watching();
     void stop_watching() noexcept;
     static bool SDLCALL watch_surface_lifecycle(void* userdata, SDL_Event* event);
@@ -57,7 +58,8 @@ private:
     SDL_Window* window_ = nullptr;
     void* context_ = nullptr;
     SuspendCallback suspend_ = nullptr;
-    bgfx::PlatformData current_{};
+    bgfx::PlatformData platform_data_{};
+    bgfx::SwapChain current_{};
     void* metal_view_ = nullptr;
     bool rendering_registered_ = false;
     bool watching_events_ = false;

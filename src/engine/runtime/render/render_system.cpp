@@ -12,7 +12,6 @@
 #include "runtime/window/window_system.hpp"
 
 #include <SDL3/SDL.h>
-#include <bgfx/platform.h>
 
 #include <algorithm>
 #include <array>
@@ -222,11 +221,12 @@ bool RenderSystem::initialize_renderer()
         // 平台表面暂不可用时保留系统；调用方恢复提交后再建立GPU设备。
         return true;
     }
-    width_ = init.resolution.width;
-    height_ = init.resolution.height;
-    init.resolution.reset = render_detail::reset_flags |
-                            (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
-                            (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE);
+    width_ = init.swapChain.width;
+    height_ = init.swapChain.height;
+    init.fallback = false;
+    init.reset = render_detail::reset_flags |
+                 (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
+                 (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE);
     if (callbacks_ == nullptr)
     {
         callbacks_.reset(new (std::nothrow) RendererCallbacks{});
@@ -351,11 +351,12 @@ bool RenderSystem::supports_msaa_samples(std::uint8_t samples) const noexcept
     {
         return true;
     }
-    constexpr auto required = BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA;
+    const auto required = samples == 2   ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X2
+                          : samples == 4 ? BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X4
+                                         : BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER_MSAA_X8;
     for (const auto format : {bgfx::TextureFormat::RGBA16F, bgfx::TextureFormat::D32F})
     {
-        if ((caps->formats[format] & required) == 0 ||
-            (caps->framebufferSampleCounts[format] & samples) == 0)
+        if ((caps->formats[format] & required) == 0)
         {
             return false;
         }
@@ -415,12 +416,12 @@ bool RenderSystem::render(Camera camera)
 
     std::uint32_t width = 0;
     std::uint32_t height = 0;
-    bgfx::PlatformData data{};
+    bgfx::SwapChain swap_chain{};
     if (surface_ == nullptr)
     {
         return false;
     }
-    const auto change = surface_->poll(data, width, height);
+    const auto change = surface_->poll(swap_chain, width, height);
     if (change == render_detail::SurfaceChange::error)
     {
         return false;
@@ -434,10 +435,6 @@ bool RenderSystem::render(Camera camera)
             return false;
         }
     }
-    else if (change == render_detail::SurfaceChange::rebind)
-    {
-        bgfx::setPlatformData(data);
-    }
     if (surface_changed || width != width_ || height != height_ ||
         vsync_enabled_ != vsync_applied_ || config_.max_anisotropy != max_anisotropy_applied_)
     {
@@ -445,10 +442,10 @@ bool RenderSystem::render(Camera camera)
         {
             cancel_hdr_capture();
         }
-        bgfx::reset(width, height,
-                    render_detail::reset_flags |
+        bgfx::reset(render_detail::reset_flags |
                         (vsync_enabled_ ? BGFX_RESET_VSYNC : BGFX_RESET_NONE) |
-                        (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE));
+                        (config_.max_anisotropy ? BGFX_RESET_MAXANISOTROPY : BGFX_RESET_NONE),
+                    &swap_chain);
         vsync_applied_ = vsync_enabled_;
         max_anisotropy_applied_ = config_.max_anisotropy;
         width_ = width;

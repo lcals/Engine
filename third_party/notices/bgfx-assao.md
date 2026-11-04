@@ -2,7 +2,8 @@
 
 运行时屏幕空间环境遮蔽适配 bgfx 官方 `examples/39-assao`，固定来源为
 [`7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/39-assao)，
-与项目使用的 bgfx.cmake `v1.129.8940-496` 对应。示例作者为 Attila Kocsis；
+最初引入时对应 bgfx.cmake `v1.129.8940-496`；运行依赖现已升级到 `v1.167.9605-606`，
+这里保留算法适配的原始固定来源。示例作者为 Attila Kocsis；
 原示例将 Intel 的 [ASSAO](https://github.com/GameTechDev/ASSAO) 列为算法参考。
 
 保留的 Shader 文件位于 `src/engine/runtime/render/shaders/assao/`：

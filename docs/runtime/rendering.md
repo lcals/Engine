@@ -147,7 +147,7 @@ MeshRenderer 的 `cast_shadows` 默认 true；设为 false 后，该组件仍在
 
 主 pass 按观察镜头的正向深度选级，16 点 PCF 的每次采样限制在本级 tile 内。每级末尾的混合区与下一层平滑过渡，最后一级在同样区间淡出；混合比例为 0 时使用硬切换。下一级投影向前扩展以覆盖混合区。坐标变换处理各后端的屏幕原点和深度范围；超出有效投影或阴影距离返回全可见。没有投影方向光时仍可为点光与聚光提交 atlas；没有任何阴影面时释放专属 GPU 对象。聚合设置只查询和修改方向光，逐灯编辑应直接使用 `Light`。
 
-CSM 参考实际依赖版本的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）：`shadowmaps.cpp` 提供混合划分和纹素稳定思路，`fs_shadowmaps_color_lighting_main.sh` 提供分级采样结构。引擎适配为单 atlas、相机深度选级、包围球稳定范围、交界重叠混合和末级淡出，PCF 保留 `15-shadowmaps-simple/fs_sms_shadow.sh` 的 4×4 布局，并增加 tile 边界限制。Dario Manesku 的示例版权与 BSD-2-Clause 条款保留在 [bgfx 许可](../../third_party/notices/bgfx.txt)。
+CSM 参考引入时固定的 [bgfx `16-shadowmaps`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/16-shadowmaps)（commit `7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`）：`shadowmaps.cpp` 提供混合划分和纹素稳定思路，`fs_shadowmaps_color_lighting_main.sh` 提供分级采样结构。引擎适配为单 atlas、相机深度选级、包围球稳定范围、交界重叠混合和末级淡出，PCF 保留 `15-shadowmaps-simple/fs_sms_shadow.sh` 的 4×4 布局，并增加 tile 边界限制。运行库升级不改写原始算法来源；Dario Manesku 的示例版权与 BSD-2-Clause 条款保留在 [bgfx 许可](../../third_party/notices/bgfx.txt)。
 
 `shadow_bias` 是共用的归一化深度偏移。级联距离、投射物深度范围和场景尺度改变后，应重新对比斜面自阴影与接触阴影；偏移过小可能出现条纹，过大可能使投影脱离物体。纹素对齐和交界混合不代替偏移调整，也不保证任意运动下完全无闪烁。
 

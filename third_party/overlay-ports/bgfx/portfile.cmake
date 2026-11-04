@@ -6,7 +6,7 @@ vcpkg_download_distfile(
   ARCHIVE_FILE
   URLS https://github.com/bkaradzic/bgfx.cmake/releases/download/v${VERSION}/bgfx.cmake.v${VERSION}.tar.gz
   FILENAME bgfx.cmake.v${VERSION}.tar.gz
-  SHA512 520c542b65e76e92eae818e32eeb62bb2347ac89a1e10fc07cd5059a3b8a9a543cadca87d451a3bc157c415f6183b1f0e5031248e38fae704b8efd54679d482b
+  SHA512 c4563a147e5aa734e24f43212e1e3c8a0e084799f2e6a7ff1fb078efdb6e209542c618277441a6026ddd3f518b52d11f9389fe302d7fa44ab8cffc083bed3a12
 )
 
 vcpkg_extract_source_archive(
@@ -16,9 +16,8 @@ vcpkg_extract_source_archive(
     fix-dependencies.patch
     android-link-libraries.patch
     windows-tool-utf8.patch
-    d3d12-compressed-mip-update.patch
-    metal-uniform-buffer-segments.patch
-    framebuffer-sampling-caps.patch
+    max-anisotropy-caps.patch
+    metal-uniform-bounds.patch
 )
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/windows-utf8.manifest"
      DESTINATION "${SOURCE_PATH}/cmake")
@@ -28,7 +27,7 @@ file(REMOVE_RECURSE
   "${SOURCE_PATH}/bgfx/3rdparty/meshoptimizer"
   "${SOURCE_PATH}/bgfx/3rdparty/spirv-cross"
   "${SOURCE_PATH}/bgfx/3rdparty/spirv-headers"
-  "${SOURCE_PATH}/bgfx/3rdparty/spirv-opt"
+  "${SOURCE_PATH}/bgfx/3rdparty/spirv-tools"
   "${SOURCE_PATH}/bgfx/3rdparty/stb"
   "${SOURCE_PATH}/bimg/3rdparty/libsquish"
   "${SOURCE_PATH}/bimg/3rdparty/lodepng"

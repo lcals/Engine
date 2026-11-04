@@ -112,8 +112,8 @@ bool test_pbr_hdr_direct_light()
         resources.framebuffer = bgfx::createFrameBuffer(1, &resources.target, false);
     }
     constexpr std::array<const char*, 8> uniform_names{
-        "u_test_parameters", "u_test_base_color", "u_test_light", "u_material",
-        "u_specular_options", "u_capture_mode", "u_specular", "u_shadow_settings"};
+        "u_test_parameters",  "u_test_base_color", "u_test_light", "u_material",
+        "u_specular_options", "u_capture_mode",    "u_specular",   "u_shadow_settings"};
     for (std::size_t i = 0; i < uniform_names.size(); ++i)
     {
         resources.uniforms[i] = bgfx::createUniform(uniform_names[i], bgfx::UniformType::Vec4);
@@ -132,12 +132,9 @@ bool test_pbr_hdr_direct_light()
         float roughness, metallic, intensity, angle, kind, distance, range, spot_cos;
     };
     constexpr std::array cases{
-        Case{0.5F, 0, 10, 0, 0, 1, 10, 1},
-        Case{0.25F, 1, 10, 0, 0, 1, 10, 1},
-        Case{0.045F, 0, 10, 0, 0, 1, 10, 1},
-        Case{0.5F, 0.5F, 100, 0.6F, 1, 2, 10, 1},
-        Case{0.5F, 0.5F, 100, 0.6F, 1, 4, 10, 1},
-        Case{0.5F, 0.5F, 100, 0.6F, 2, 2, 10, 0.75F},
+        Case{0.5F, 0, 10, 0, 0, 1, 10, 1},          Case{0.25F, 1, 10, 0, 0, 1, 10, 1},
+        Case{0.045F, 0, 10, 0, 0, 1, 10, 1},        Case{0.5F, 0.5F, 100, 0.6F, 1, 2, 10, 1},
+        Case{0.5F, 0.5F, 100, 0.6F, 1, 4, 10, 1},   Case{0.5F, 0.5F, 100, 0.6F, 2, 2, 10, 0.75F},
         Case{0.5F, 0.5F, 100, 0.6F, 2, 2, 10, 0.5F}};
     constexpr std::array<float, 4> base{0.8F, 0.4F, 0.2F, 1};
     constexpr std::array<float, 4> zero{0, 0, 0, 0};
@@ -164,8 +161,9 @@ bool test_pbr_hdr_direct_light()
         bgfx::setVertexBuffer(0, resources.vertices);
         bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A);
         bgfx::submit(draw_view, resources.program);
-        bgfx::blit(copy_view, resources.readback, 0, 0, resources.target);
-        const auto ready = bgfx::readTexture(resources.readback, pixels.data());
+        const bgfx::TextureRegion readback{.handle = resources.readback};
+        bgfx::blit(copy_view, readback, bgfx::TextureRegion{.handle = resources.target});
+        const auto ready = bgfx::read(readback, pixels.data());
         while (bgfx::frame() < ready)
         {
         }
@@ -229,10 +227,10 @@ int main(int, char**)
         return 1;
     }
     const auto* caps = bgfx::getCaps();
-    constexpr auto required = BGFX_CAPS_TEXTURE_BLIT | BGFX_CAPS_TEXTURE_READ_BACK;
     constexpr auto required_format =
         BGFX_CAPS_FORMAT_TEXTURE_2D | BGFX_CAPS_FORMAT_TEXTURE_FRAMEBUFFER;
-    const bool supported = caps && (caps->supported & required) == required &&
+    const bool supported =
+        caps &&
         (caps->formats[bgfx::TextureFormat::RGBA16F] & required_format) == required_format &&
         caps->limits.maxTextureSize >= 4 && caps->limits.maxFBAttachments >= 1 &&
         bgfx::isTextureValid(0, false, 1, bgfx::TextureFormat::RGBA16F, BGFX_TEXTURE_RT) &&

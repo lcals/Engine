@@ -63,7 +63,8 @@ function(engine_embed_render_shaders target)
     execute_process(
         COMMAND "${ENGINE_SHADERC_EXECUTABLE}" --version
         RESULT_VARIABLE _shaderc_result
-        OUTPUT_QUIET ERROR_QUIET
+        OUTPUT_VARIABLE _shaderc_version
+        ERROR_VARIABLE _shaderc_version_error
         TIMEOUT 10)
     if(NOT _shaderc_result EQUAL 0)
         message(
@@ -87,6 +88,34 @@ function(engine_embed_render_shaders target)
         NO_CMAKE_FIND_ROOT_PATH)
     if(NOT ENGINE_BGFX_SHADER_INCLUDE_DIR)
         message(FATAL_ERROR "bgfx shader include directory is unavailable")
+    endif()
+
+    # 跨编译时工具在宿主运行，但其 Shader 格式必须匹配目标 bgfx 的 API。
+    # 不以 shaderc 的可执行性或显式缓存路径代替版本兼容检查。
+    set(_bgfx_header_hints)
+    foreach(_include IN LISTS _bgfx_includes)
+        if(NOT _include MATCHES "\\$<")
+            list(APPEND _bgfx_header_hints "${_include}")
+        endif()
+    endforeach()
+    find_file(_bgfx_defines NAMES bgfx/defines.h HINTS ${_bgfx_header_hints}
+              NO_DEFAULT_PATH NO_CMAKE_FIND_ROOT_PATH NO_CACHE)
+    if(NOT _bgfx_defines)
+        message(FATAL_ERROR "Cannot inspect target bgfx API from its imported headers")
+    endif()
+    file(STRINGS "${_bgfx_defines}" _bgfx_api_line REGEX "^#define BGFX_API_VERSION ")
+    string(REGEX MATCH "BGFX_API_VERSION[ \t]+UINT32_C\\(([0-9]+)\\)" _bgfx_api_match
+           "${_bgfx_api_line}")
+    if(NOT _bgfx_api_match)
+        message(FATAL_ERROR "Cannot read target bgfx API version: ${_bgfx_defines}")
+    endif()
+    set(_bgfx_api "${CMAKE_MATCH_1}")
+    string(REGEX MATCH "shaderc, bgfx shader compiler tool, version [0-9]+\\.[0-9]+\\.([0-9]+)\\."
+           _shaderc_api_match "${_shaderc_version}${_shaderc_version_error}")
+    if(NOT _shaderc_api_match OR NOT CMAKE_MATCH_1 STREQUAL _bgfx_api)
+        message(FATAL_ERROR
+            "Host shaderc must match target bgfx API ${_bgfx_api}: ${ENGINE_SHADERC_EXECUTABLE}\n"
+            "${_shaderc_version}${_shaderc_version_error}")
     endif()
 
     engine_render_shader_profile(_platform _profile)

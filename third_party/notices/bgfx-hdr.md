@@ -2,7 +2,8 @@
 
 HDR 场景合成与 Bloom 适配 bgfx 官方 `examples/09-hdr`，固定来源为
 [`7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099`](https://github.com/bkaradzic/bgfx/tree/7a70927d2af7ffcc5cef9c9e8f4c821e31fcb099/examples/09-hdr)，
-与项目使用的 bgfx.cmake `v1.129.8940-496` 对应。作者为 Branimir Karadzic，
+最初引入时对应 bgfx.cmake `v1.129.8940-496`；运行依赖现已升级到 `v1.167.9605-606`，
+这里保留算法适配的原始固定来源。作者为 Branimir Karadzic，
 许可为 BSD-2-Clause。
 
 适配文件位于 `src/engine/runtime/render/shaders/hdr/`：

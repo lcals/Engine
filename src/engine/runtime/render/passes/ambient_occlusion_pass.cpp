@@ -131,14 +131,13 @@ void set_phase(AoUniforms& uniforms, std::uint16_t pass, bool origin_bottom_left
 
 bool supports_ao(const bgfx::Caps& caps)
 {
-    constexpr auto required = BGFX_CAPS_COMPUTE | BGFX_CAPS_TEXTURE_2D_ARRAY;
+    constexpr auto required = BGFX_CAPS_COMPUTE;
     if ((caps.supported & required) != required || caps.limits.maxComputeBindings < 8 ||
         caps.limits.maxTextureLayers < 4)
     {
         SDL_LogError(SDL_LOG_CATEGORY_RENDER,
-                     "ASSAO device limits: compute=%u arrays=%u bindings=%u layers=%u",
+                     "ASSAO device limits: compute=%u bindings=%u layers=%u",
                      (caps.supported & BGFX_CAPS_COMPUTE) != 0 ? 1U : 0U,
-                     (caps.supported & BGFX_CAPS_TEXTURE_2D_ARRAY) != 0 ? 1U : 0U,
                      caps.limits.maxComputeBindings, caps.limits.maxTextureLayers);
         return false;
     }

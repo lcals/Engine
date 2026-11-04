@@ -250,6 +250,18 @@ python3 tests/plugins/editor/scene_bake/scene_lighting_gpu_test.py --run \
 
 ## 有日期的验证记录
 
+### 2026-11-04：bgfx API 167，macOS ARM64 / Metal
+
+当前功能分支把 bgfx overlay 固定到 bgfx.cmake `1.167.9605-606`，运行库 API 为 `167`，宿主 `shaderc --version` 为 `1.19.167`。bgfx、bx、bimg 及工具随同一发布归档安装；SPIRV-Cross 保持 baseline 的 `1.4.309.0`，以 `#1` overlay 回补新 Shader 工具要求的上游 PointSize 查询。固定提交、补丁去留和工具范围见 [overlay 说明](../third_party/overlay-ports/README.md)。
+
+`local-ninja-debug` 和 `local-ninja-release` 整体构建成功，Debug 未运行测试。Release 的渲染基础、实窗、平面反射、HDR 场景／透明／扩展捕获、直接光浮点对照、字体/UI、纹理管线、资源构建、工具、宿主 Shader API 匹配、特效管线与运行、照明数学及文件回归共 16 项全部通过；两项架构检查也通过。窗口回归继续验证真实像素尺寸、VSync、MSAA 与各向异性切换。工具回归按当前后端编译并检查 `VSH` 二进制版本 `14`；配置回归验证原生和带 sysroot 的交叉目标都拒绝不匹配的宿主工具。
+
+本次兼容修复包括交换链初始化／重设、纹理区域复制与异步回读、截图格式参数、精确 MSAA 能力位和 Effekseer C99 调用。新版 bimg 对二维／立方体 KTX1 的 depth 语义为 `0`；引擎写入器和读取校验同步，非法 `pixelDepth=1` 仍拒绝，并新增二维与立方体回归。
+
+通过 Release 编辑器 MCP 重新导入公开 showcase，并采集 12 组 1280×720 原生 PBR 截图，编辑器退出码为 0。全部截图的 PNG SHA256 与升级前 `1793770721339431000` 那次一致，11 组 Blender 逐球误差不变；本次回执、原图及自包含报告位于 `build/material-comparison/current/1793773436458021000/`。
+
+另用高对比线性 HDR 全景图和 cubemap 各完成一次真实 IBL 烘焙，均完成 97 项任务、发布三项 KTX 及相邻 meta、正常增量导入并刷新场景，编辑器均正常退出。全景图回执在 `build/ibl-high-contrast-hdr/1793773514741883000/project/cache/verification/1793773515071122000/`，cubemap 回执在 `build/ibl-high-contrast-hdr/1793773375678584000/project/cache/verification/1793773375819501000/`。这些记录覆盖本机 Metal；其他平台只完成共享接口适配，未宣称已构建或运行通过。
+
 ### 2026-11-03：预制体与公开范例迁移，macOS ARM64 / QuickJS
 
 Debug／Release 全目标构建通过，两配置各通过 31 项定向 CTest：预制体字段合成、资源管线、运行时实例、编辑命令、场景保存、Model/FBX/USD、资源闭包、脚本实例化、架构边界和 5 项公开项目行为测试。覆盖同值/0/false 的明确覆盖、模板连续更新的稳定身份、引用重映射、失败回滚、材质恢复与撤销、缺失或临时实例的保存约束。另有 53 项 Python 资源打包/导出/架构规则检查通过；没有运行性能测试或 CI。
