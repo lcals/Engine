@@ -593,3 +593,35 @@ ctest --preset ninja-engine-release --output-on-failure -R \
 - 禁用配置：使用根 Release 预设的独立构建目录 `build/asset-import-disabled`，只选择编辑器 `asset_build;asset_sync;mcp`，实际编译/链接 `editor_app`、`mcp_app`、`asset_build_app` 成功；三个 `--help` 均返回 **0**。无 `engine_asset_import` / `engine_ufbx` 目标，配置及实际链接不包含 USD/FreeType；未运行项目或重新生成资产。日志：`build/asset-import-disabled-{configure,build,verification}.log`。
 
 构建沿用已安装依赖及编译缓存；未更新依赖版本、触发 CI 或改变运行包格式。原有 macOS 依赖最低部署版本警告继续按前文边界记录，不作为低版本设备或跨平台实测。
+
+
+## 场景查询与内部职责收敛回归（2026-11-04）
+
+本轮完成[架构审查中的职责收敛](architecture.md#本次职责收敛)：按类型拆分场景编辑命令，将名称/局部身份/子路径查询归 Scene / Node，建模源文件 I/O 归插件私有实现，并移除 `scene_bake` 对依赖图插件的强制装配。公开查询按[Scene 类图](runtime/class-diagrams/scene.md#场景查询收敛契约)与[Node 类图](runtime/class-diagrams/node.md#相对子路径查询)实现；未新增查询系统或命令框架。
+
+- macOS ARM64 / Metal / QuickJS 的 Debug、Release 完整增量构建均返回 **0**；Debug 未运行测试。构建使用继承根预设的 `local-ninja-debug/release`，日志为 `build/scene-convergence-build-debug.log`、`build/scene-convergence-build-release.log`。
+- Release 定向 CTest **22/22 通过**，总运行时间 76.66 秒，日志为 `build/scene-convergence-release-tests.log`。覆盖场景/ECS、脚本/角色、编辑命令/预制体/保存、建模/MCP、插件闭包和架构边界；此结果不等于全量 132 项或其他平台验收。
+- 命令组合回归覆盖 Transform、Camera、材质与 Light 的同批次编辑、陈旧撤销拒绝及已撤销部分的回滚、未编辑字段保留、创建撤销/重做后的新实体身份、旧外部 ID 拒绝，以及 `get_scene` 多材质槽快照。原事务、NodeAliases 和 JSON 形状保持。
+- 查询回归覆盖实体/局部 ID 区分、不同场景和常驻节点隔离、候选内部查询与 Published 边界、删除重建、同名顺序、空名及含斜线名称、非法/歧义路径、重挂父级和旧脚本 Run 拒绝。TS 外观未改变。
+- 架构检查通过自有源码包含和实际 CMake 目标依赖校验；插件选择用例确认空运行时插件列表仅选择 `editor/scene_bake` 时不会隐式加入 `runtime/resource_graph`。
+
+新增 `editor.scene_bake_core_loader` 是独立的真实 GPU 可执行测试，既不链接也不构造 ResourceGraph。核心默认加载器从正式 GUID 目录和挂载读取输入，场景组件/材质持有网格、Shader、贴图；测试完成纹理捕获、IBL、UV2、Lightmapper 和生成光图正式资源回载。最终 Release 回归耗时 6.01 秒，实际输出：
+
+```text
+core-loader bake: graph=absent IBL=0.999512 lightmap=3.144531 expected=pi captures=complete
+```
+
+常量环境的 IBL 目标值为 1，光图目标值为 π，光图断言为 `abs(mean - pi) < 0.03`。GPU 用例仅在开启 `ENGINE_ENABLE_GPU_TESTS` 且非交叉编译时登记；测试输出详见 `build/local-ninja-release/Testing/Temporary/LastTest.log`。该验证证明无依赖图装配的所列资源与烘焙链路，不代表所有烘焙素材、后端或平台。
+
+其他检出沿用[构建指南](building.md)准备根预设与 GPU 测试，再执行相同范围：
+
+```sh
+cmake --preset ninja-engine-debug
+cmake --build --preset ninja-engine-debug
+cmake --preset ninja-engine-release -DENGINE_ENABLE_GPU_TESTS=ON
+cmake --build --preset ninja-engine-release
+ctest --preset ninja-engine-release --output-on-failure -R \
+  '^(engine\.(script_runtime|scene|ecs_scene|plugin_selection|architecture_boundaries|architecture_rules|character_controller|character_host|ui_script)|modeling\.(commands|pipeline|mcp)|editor\.(physics_audio_commands|commands|mcp_commands|scene_persistence|animation_commands|model_commands|character_controller|scene_bake_core_loader|scene_lighting_files|prefab_commands))$'
+```
+
+构建缓存与日志留在忽略目录，不提交产物或本机依赖路径。既有第三方库的 macOS 最低部署版本警告仍在；本轮没有低版本 macOS、跨平台运行或性能测量。

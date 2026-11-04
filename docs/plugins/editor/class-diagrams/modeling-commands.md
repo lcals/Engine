@@ -42,7 +42,7 @@ classDiagram
 - `modeling_create/get/select/edit/delete/duplicate/combine/separate/save/load` 各自注册。修改通过 EditorEdit；复用已有 batch/undo/redo，不建立另一条历史。
 - 几何运算在候选副本上执行，完整编译通过才替换节点网格。撤销校验前后快照，失败不改变对象。
 - 保存为 assets 内的 .mesh TOML；渲染数组兼容资源管线，附加 modeling 字段保存 schema 生成数据，meta/GUID 继续由资源管线管理。
-- 文件访问拒绝绝对路径、越界、符号链接和非 .mesh 后缀；保存采用同目录临时文件替换。
+- 文件访问拒绝绝对路径、越界、符号链接和非 .mesh 后缀；保存采用同目录临时文件替换。路径校验、建模源 TOML 读写及 hex 编解码集中在插件内部 `modeling_source_io.cpp`；不持有场景、选区或撤销状态，`ModelingCommands` 继续负责身份校验与事务。
 - modeling_help 在空编辑器也可查询操作参数和示例；选择支持 replace/grow/shrink/connected/edge_ring/edge_loop，操作均由 C++ 核心计算。
 - mirror_mode 为编辑器会话状态：enable 保留原始可编辑半边模型并派生镜像渲染；cancel 移除派生部分；finish 将镜像烘焙到源模型。三者可撤销。核心验证源模型位于镜像平面的单一半空间；跨过平面的编辑失败且保持源模型、派生网格不变。保存时写入烘焙后的完整几何，源文件不携带活跃编辑模式。
 - Boolean 将另一对象的世界变换转换到目标局部空间，组合将各源对象变换烘焙到新对象；坐标空间选择归编辑器，模型变换和布尔算法归纯 C++ 核心。

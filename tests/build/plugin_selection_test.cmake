@@ -151,6 +151,18 @@ endif()
 ]=])
 
 run_case(
+    scene_bake_without_resource_graph
+    ""
+    [=[
+set(ENGINE_RUNTIME_PLUGINS "" CACHE STRING "" FORCE)
+set(ENGINE_EDITOR_PLUGINS scene_bake CACHE STRING "" FORCE)
+include("${ROOT}/cmake/plugins/selection.cmake")
+if(NOT ENGINE_SELECTED_PLUGINS STREQUAL "editor/scene_bake")
+    message(FATAL_ERROR "Scene baking must work without selecting a runtime loader plugin: ${ENGINE_SELECTED_PLUGINS}")
+endif()
+]=])
+
+run_case(
     navigation_crowd_editor_closure
     ""
     [=[

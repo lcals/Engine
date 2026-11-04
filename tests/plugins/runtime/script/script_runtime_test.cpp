@@ -790,6 +790,79 @@ export default class Game extends Gameplay {
 }
 )js";
 
+bool run_scene_query_cases(const fs::path& workspace)
+{
+    constexpr std::string_view source = R"js(
+import {Gameplay,Scene,Debug} from 'engine';
+function check(value,message) { if (!value) throw new Error(message); }
+export default class extends Gameplay {
+    OnInitialize() {
+        this.scene = Scene.Create('Script query owner');
+        this.root = this.scene?.CreateNode('Root');
+        const second = this.scene?.CreateNode('Root');
+        const branch = this.scene?.CreateNode('Branch');
+        const leaf = this.scene?.CreateNode('Leaf');
+        const empty = this.scene?.CreateNode('');
+        const slash = this.scene?.CreateNode('a/b');
+        const backslash = this.scene?.CreateNode('back\\name');
+        check(this.root && second && branch && leaf && empty && slash && backslash &&
+            branch.SetParent(this.root) && leaf.SetParent(branch) &&
+            backslash.SetParent(this.root) && this.root.SetEnabled(false) &&
+            this.root.SetVisible(false), 'query setup');
+        check(this.scene.FindNode('Root')?.id === this.root.id &&
+            this.scene.FindNode('')?.id === empty.id &&
+            this.scene.FindNode('a/b')?.id === slash.id &&
+            this.scene.FindNode('root') === null &&
+            this.root.FindChild('Branch/Leaf')?.id === leaf.id &&
+            this.root.FindChild('back\\name')?.id === backslash.id &&
+            this.root.FindChild('Leaf') === null, 'exact query semantics');
+        for (const path of ['', '/Branch', 'Branch/', 'Branch//Leaf', '.', '..',
+            'Branch/.', 'Branch/..', 'Branch/../Leaf', 'branch', null, 3]) {
+            check(this.root.FindChild(path) === null, 'invalid child path must fail');
+        }
+        const duplicate = this.scene.CreateNode('Branch');
+        check(duplicate?.SetParent(this.root) &&
+            this.scene.FindNode('Branch')?.id === branch.id &&
+            this.root.FindChild('Branch') === null &&
+            this.root.FindChild('Branch/Leaf') === null && branch.SetParent(second) &&
+            this.root.FindChild('Branch')?.id === duplicate.id &&
+            second.FindChild('Branch/Leaf')?.id === leaf.id && branch.Destroy() &&
+            !leaf.IsValid() && branch.FindChild('Leaf') === null &&
+            this.scene.FindNode('Branch')?.id === duplicate.id, 'tree edits and ambiguity');
+        return true;
+    }
+    Update() {
+        check(!this.scene.IsValid() && this.scene.FindNode('Root') === null &&
+            !this.root.IsValid() && this.root.FindChild('Branch') === null,
+            'old Run handles must not acquire nodes in a native replacement scene');
+        Debug.Log('queries:stale-rejected');
+    }
+}
+)js";
+    engine::WorldSystem world;
+    engine::plugins::script::ScriptSystem script(&world);
+    Fixture input;
+    if (!world.initialize({}) || !script.initialize({}) ||
+        !fixture(workspace, "scene-query", {{"scripts/game.js", std::string(source)}}, input) ||
+        !expect(apply(script, input), "script queries delegate names, hierarchy and ambiguity"))
+    {
+        return false;
+    }
+    world.destroy_scene();
+    auto* foreign = world.create_scene("Foreign query owner");
+    auto root = foreign ? foreign->create_node("Root") : engine::Node{};
+    auto child = foreign ? foreign->create_node("Branch") : engine::Node{};
+    if (!expect(root && child && child.set_parent(root) && script.tick(.016) &&
+                    script.status().running && log_contains("queries:stale-rejected"),
+                "script query handles preserve Run ownership across scene replacement"))
+    {
+        return false;
+    }
+    script.stop_gameplay();
+    return expect(world.scene() == foreign && root.find_child("Branch") == child,
+                  "query fixture cleanup leaves native scene ownership intact");
+}
+
 bool run_component_identity_and_state_cases(const fs::path& workspace)
 {
     constexpr std::string_view source = R"js(
@@ -2275,7 +2348,8 @@ export default class extends Gameplay {
     Update() {
         if (this.phase === 0) {
             const progress = Scene.StepLoad(1);
-            if (!this.old.IsValid()) throw new Error('Loading replaced the old scene');
+            if (!this.old.IsValid() || this.old.FindNode('Prepared node') !== null)
+                throw new Error('Loading exposed the candidate through the active scene');
             if (progress?.status === 'loading') return;
             if (progress?.status !== 'ready' || progress.completed !== progress.total)
                 throw new Error('Budgeted progress or menu lifetime is invalid');
@@ -3021,7 +3095,7 @@ int main(int argc, char** argv)
         run_prepared_catalog_cases(workspace) && run_project_script_cases(workspace) &&
         run_module_contract_cases(workspace) && run_job_contract_cases(workspace) &&
         run_native_boundary_cases(workspace) && run_scene_cases(workspace) &&
-        run_component_identity_and_state_cases(workspace) &&
+        run_scene_query_cases(workspace) && run_component_identity_and_state_cases(workspace) &&
         run_persistent_scene_cases(workspace) && run_guid_cases(workspace) &&
         run_physics_audio_binding_cases(workspace) && run_impact_binding_cases(workspace) &&
         run_render_binding_cases(workspace) && run_scene_render_binding_cases(workspace) &&

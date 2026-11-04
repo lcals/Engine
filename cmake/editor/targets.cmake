@@ -40,6 +40,11 @@ if(ENGINE_ENABLE_EDITOR_DEPS)
                 src/engine/editor/editor_environment.cpp
                 src/engine/editor/commands/editor_commands.cpp
                 src/engine/editor/commands/scene_commands.cpp
+                src/engine/editor/commands/scene_query.cpp
+                src/engine/editor/commands/components/transform_commands.cpp
+                src/engine/editor/commands/components/light_commands.cpp
+                src/engine/editor/commands/components/camera_commands.cpp
+                src/engine/editor/commands/components/material_commands.cpp
                 src/engine/editor/commands/model_commands.cpp
                 src/engine/editor/commands/components/component_edit.cpp
                 src/engine/editor/commands/components/collider_commands.cpp

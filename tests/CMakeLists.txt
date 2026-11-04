@@ -1271,6 +1271,20 @@ if(TARGET engine_asset_pipeline)
 endif()
 
 if(TARGET engine_scene_bake)
+    # This executable deliberately neither links nor constructs the optional dependency loader.
+    add_executable(engine_scene_bake_core_loader_test
+                   plugins/editor/scene_bake/core_loader_gpu_test.cpp)
+    target_link_libraries(engine_scene_bake_core_loader_test PRIVATE engine::scene_bake
+        engine::render engine::window engine::world engine::resource engine::task SDL3::SDL3
+        bgfx::bgfx bgfx::bx)
+    target_include_directories(engine_scene_bake_core_loader_test
+        PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")
+    engine_apply_options(engine_scene_bake_core_loader_test)
+    if(ENGINE_ENABLE_GPU_TESTS AND NOT CMAKE_CROSSCOMPILING)
+        add_test(NAME editor.scene_bake_core_loader COMMAND engine_scene_bake_core_loader_test)
+        set_tests_properties(editor.scene_bake_core_loader PROPERTIES TIMEOUT 90 RUN_SERIAL TRUE)
+    endif()
+
     add_executable(engine_scene_lighting_files_test plugins/editor/scene_bake/scene_lighting_files_test.cpp
         "${PROJECT_SOURCE_DIR}/src/engine/plugins/editor/scene_bake/scene_bake_files.cpp")
     target_link_libraries(engine_scene_lighting_files_test PRIVATE engine::asset_pipeline engine::resource)

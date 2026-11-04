@@ -116,51 +116,15 @@ void set_parent(const Arguments& arguments)
 void find_child(const Arguments& arguments)
 {
     arguments.set_return({});
-    auto current = BindingContext::node(arguments);
+    const auto current = BindingContext::node(arguments);
     std::string path;
-    if (!current || arguments.count() != 3 || !BindingContext::text(arguments, 2, path) ||
-        path.empty() || path.front() == '/' || path.back() == '/')
+    if (!current || arguments.count() != 3 || !BindingContext::text(arguments, 2, path))
     {
         return;
     }
-    std::vector<Node> nodes;
-    if (!current.scene()->collect_nodes(nodes))
+    if (const auto found = current.find_child(path))
     {
-        return;
-    }
-    std::string_view remaining(path);
-    while (!remaining.empty())
-    {
-        const auto separator = remaining.find('/');
-        const auto segment = remaining.substr(0, separator);
-        if (segment.empty() || segment == "." || segment == "..")
-        {
-            return;
-        }
-        Node found = {};
-        for (const auto& candidate : nodes)
-        {
-            if (candidate.parent() != current || candidate.name() != segment)
-            {
-                continue;
-            }
-            if (found.valid())
-            {
-                return;
-            }
-            found = candidate;
-        }
-        if (!found)
-        {
-            return;
-        }
-        current = found;
-        if (separator == std::string_view::npos)
-        {
-            arguments.set_return(current.id());
-            return;
-        }
-        remaining.remove_prefix(separator + 1);
+        arguments.set_return(found.id());
     }
 }
 void state(const Arguments& arguments)

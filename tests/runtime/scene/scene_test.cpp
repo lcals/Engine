@@ -53,6 +53,88 @@ bool near(float actual, float expected)
 bool add_scene_resource(test_support::ResourceFixture& fixture, std::string_view path,
                         const engine::schema::SceneDataT& data);
 
+bool scene_node_queries()
+{
+    using namespace engine;
+    WorldSystem world;
+    if (!world.initialize({}))
+    {
+        return false;
+    }
+    auto* first = world.create_scene("Query ownership");
+    auto root = first ? first->create_node("Root") : Node{};
+    auto other_root = first ? first->create_node("Root") : Node{};
+    auto branch = first ? first->create_node("Branch") : Node{};
+    auto leaf = first ? first->create_node("Leaf") : Node{};
+    auto empty = first ? first->create_node("") : Node{};
+    auto slash = first ? first->create_node("a/b") : Node{};
+    auto backslash = first ? first->create_node(R"(back\name)") : Node{};
+    if (!root || !other_root || !branch || !leaf || !empty || !slash || !backslash ||
+        !branch.set_parent(root) || !leaf.set_parent(branch) || !backslash.set_parent(root) ||
+        !root.set_enabled(false) || !root.set_visible(false) || !branch.set_transient(true) ||
+        !root.add_component<Light>())
+    {
+        return false;
+    }
+    const auto root_local_id = root.info().properties->id;
+    if (!expect(first->find_node("Root") == root && first->find_node("") == empty &&
+                    first->find_node("a/b") == slash && !first->find_node("root") &&
+                    !first->find_node("missing") && !first->find_local_node(0) &&
+                    !first->find_local_node(std::numeric_limits<std::uint64_t>::max()) &&
+                    first->find_local_node(root_local_id) == root &&
+                    !first->find_node(root_local_id) && !first->find_local_node(root.id()) &&
+                    root.find_child("Branch/Leaf") == leaf &&
+                    root.find_child(R"(back\name)") == backslash && !root.find_child("Leaf") &&
+                    !Node{}.find_child("Branch"),
+                "queries use exact names and distinct identities without filtering local state"))
+    {
+        return false;
+    }
+    for (const auto path : {"", "/Branch", "Branch/", "Branch//Leaf", ".", "..", "Branch/.",
+                            "Branch/..", "Branch/../Leaf", "branch"})
+    {
+        if (!expect(!root.find_child(path), "relative paths reject invalid segments and case"))
+        {
+            return false;
+        }
+    }
+    auto duplicate = first->create_node("Branch");
+    if (!duplicate || !duplicate.set_parent(root) ||
+        !expect(
+            first->find_node("Branch") == branch && !root.find_child("Branch") &&
+                !root.find_child("Branch/Leaf"),
+            "name lookup preserves creation order while child paths reject ambiguous siblings") ||
+        !branch.set_parent(other_root) ||
+        !expect(root.find_child("Branch") == duplicate &&
+                    other_root.find_child("Branch/Leaf") == leaf,
+                "reparenting immediately changes direct-child paths") ||
+        !first->destroy_node(branch.id()) ||
+        !expect(!branch && !leaf && !branch.find_child("Leaf") &&
+                    first->find_node("Branch") == duplicate,
+                "deleted query handles stay invalid and names fall back to the next survivor") ||
+        !root.set_persistent(true))
+    {
+        return false;
+    }
+    world.unload_scene();
+    auto* next = world.create_scene("Another query owner");
+    auto replacement = next ? next->create_node("Root") : Node{};
+    if (!expect(replacement && next != first &&
+                    replacement.info().properties->id == root_local_id &&
+                    next->find_local_node(root_local_id) == replacement &&
+                    first->find_local_node(root_local_id) == root &&
+                    next->find_node("Root") == replacement && first->find_node("Root") == root &&
+                    !next->find_node(root.id()) && !first->find_node(replacement.id()) &&
+                    root.find_child("Branch") == duplicate,
+                "persistent and active scenes resolve overlapping local identities independently"))
+    {
+        return false;
+    }
+    world.shutdown();
+    return expect(world.initialize({}) && !root && !replacement && !root.find_child("Branch"),
+                  "world reinitialization cannot revive query result identities");
+}
+
 bool node_component_state()
 {
     test_support::ResourceFixture fixture;
@@ -453,7 +535,9 @@ bool indexed_scene_restore()
     {
         auto node = test_support::scene_nodes(*loaded)[i];
         if (!expect(node.info().properties->id == ids[i] && loaded->find_node(node.id()) == node &&
-                        std::as_const(*loaded).find_node(node.id()) == node,
+                        std::as_const(*loaded).find_node(node.id()) == node &&
+                        std::as_const(*loaded).find_local_node(ids[i]) == node &&
+                        loaded->find_node(node.name()) == node,
                     "resource order and both const/mutable runtime lookups survive restoration"))
         {
             return false;
@@ -559,6 +643,14 @@ bool indexed_scene_restore()
             return false;
         }
     }
+    loaded = world.load_scene("indexed.scene");
+    if (!expect(loaded && !spare && loaded->find_local_node(ids[3]) &&
+                    loaded->find_local_node(ids[3]).id() != spare.id(),
+                "restoring the same local identity creates a fresh entity instead of reviving a "
+                "handle"))
+    {
+        return false;
+    }
     source.nodes[0]->info->properties->id = std::numeric_limits<std::uint64_t>::max();
     source.info->active_camera_node = source.nodes[0]->info->properties->id;
     if (!add_scene_resource(fixture, "index-limit.scene", source) || !fixture.publish(*resources))
@@ -568,6 +660,8 @@ bool indexed_scene_restore()
     loaded = world.load_scene("index-limit.scene");
     return expect(loaded && test_support::scene_nodes(*loaded).size() == ids.size() &&
                       loaded->active_camera() &&
+                      loaded->find_local_node(std::numeric_limits<std::uint64_t>::max()) ==
+                          test_support::scene_nodes(*loaded)[0] &&
                       test_support::scene_nodes(*loaded)[0].parent() ==
                           test_support::scene_nodes(*loaded)[2] &&
                       !loaded->create_node("Cannot wrap ID"),
@@ -1560,10 +1654,11 @@ int main()
     const engine::EngineConfig config;
     engine::ResourceSystem resources;
     if (!missing_material_resources() || !resources.initialize(config) || !scene_lifecycle() ||
-        !node_component_state() || !hierarchy_and_transforms() || !indexed_scene_restore() ||
-        !incremental_scene_restore() || !persistent_nodes() || !persistent_scene_loading() ||
-        !component_contracts() || !camera_rays() || !transient_nodes() || !material_contracts() ||
-        !baked_lighting_bindings() || !resource_namespaces())
+        !scene_node_queries() || !node_component_state() || !hierarchy_and_transforms() ||
+        !indexed_scene_restore() || !incremental_scene_restore() || !persistent_nodes() ||
+        !persistent_scene_loading() || !component_contracts() || !camera_rays() ||
+        !transient_nodes() || !material_contracts() || !baked_lighting_bindings() ||
+        !resource_namespaces())
     {
         return 1;
     }

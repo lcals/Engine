@@ -111,14 +111,12 @@ MCP 协议层只登记、校验并调用工具。项目工具和场景工具各�
 
 保留核心/编辑器/插件分层；五个仅承担格式导入的插件已收敛为一个 `asset_import`，不新增类或注册框架，详见[统一导入边界](plugins/editor/class-diagrams/asset-import.md)。制作、模拟和编辑命令各有职责，继续独立。其余重复主要是文档重复定义、项目工具混在通用目录，以及个别内部辅助暴露为公共头，已按职责修正。
 
-### 仍需单独收敛的点
+### 本次职责收敛
 
-- `scene_commands.cpp` 同时包含场景生命周期、Transform/Camera/Light 与材质编辑。已有 `commands/components/` 可承接按类型的内部实现，后续拆分应保留同一 EditorCommands 事务与节点身份机制，避免再造注册框架。
-- 角色插件的 `detail::find_local_node` 用 ECS 查询解析场景局部 ID；Scene 已有私有索引查询，其他领域也有类似解析。脚本绑定的 `Scene.FindNode` / `Node.FindChild` 则在绑定内枚举节点并处理名称/路径。后续应统一这些场景查询的职责与复用，绑定仅处理脚本参数和 Run 身份；共享最小查询契约涉及公开方法，需先在类图中确认身份与可见性语义。
-- `scene_bake` 清单强制选择 `runtime/resource_graph`，实现经核心 ResourceLoader 访问资源。可以评估移除此具体装配约束，但须独立验证不装配依赖图时的资源来源与烘焙加载，不能只删依赖声明。
-- PhysicsSystem、UiSystem、ModelingCommands 等少数实现文件较长，职责仍在正确模块。需要拆时按内部算法、输入/文档、命令类型拆文件；文件长度本身不构成新增系统或合并领域的理由。
-
-上述是后续结构收敛点，不代表当前接口失效，也不把窗口、设备画质、输入或无状态查询列为组件化缺陷。
+- `scene_commands.cpp` 保留节点生命周期、活动相机选择、身份单元与显式登记。Transform、Camera、Light 和材质编辑归 `commands/components/` 的类型文件；诊断快照归 `commands/scene_query.cpp`。原有 EditorCommands、EditorEdit、NodeAliases 继续负责事务、回滚与创建后重做身份，命令和 JSON 契约不变。
+- 经类图评审后，核心提供 `Scene::find_local_node(local_id)`、名称重载 `find_node(name)` 和 `Node::find_child(relative_path)`。局部身份复用索引，名称直接读取 ECS，子路径逐级查询 ChildOf；角色、脚本和相关编辑器代码复用这些接口。显式 Scene 查询允许恢复候选内部解析，WorldSystem 仍过滤 Published，脚本继续检查 Run/场景；隐藏或禁用不改变身份可查询性。完整语义见[Scene](runtime/class-diagrams/scene.md)与[Node](runtime/class-diagrams/node.md)。
+- `scene_bake` 仅依赖核心资源加载契约，不再强制装配 `runtime/resource_graph`。调用方组件与作业各自持有实际加载的资源，独立测试通过不链接、不装配依赖图插件的捕获、IBL、光图烘焙和正式资源回载链路，验证结果见[测试文档](testing.md)。
+- ModelingCommands 的路径校验与源文件 I/O 归私有 `modeling_source_io`，场景选择和命令事务仍由原模块负责。UiSystem 的输入与文档/焦点/捕获状态紧密相关，PhysicsSystem 的模拟和形状算法也仍在正确领域；后续有实际维护需求时按内部职责拆文件，保持既有系统与所有权边界。
 
 ## 模块入口
 

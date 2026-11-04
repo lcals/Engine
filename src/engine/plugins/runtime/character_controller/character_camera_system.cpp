@@ -98,7 +98,7 @@ bool CharacterCameraSystem::on_tick(double)
                 clear_visibility();
                 return false;
             }
-            auto target = detail::find_local_node(*scene, stored.data.target_node_id);
+            auto target = scene->find_local_node(stored.data.target_node_id);
             if (!target)
             {
                 // 跨场景保留相机时，普通目标可以已经卸载；原场景 local ID 不转向新场景。
@@ -205,8 +205,7 @@ bool CharacterCameraSystem::update_visibility()
                 detail::active(camera_node) &&
                 rig.settings().mode == schema::CharacterView::first_person)
             {
-                first_person_target =
-                    detail::find_local_node(*scene, rig.settings().target_node_id);
+                first_person_target = scene->find_local_node(rig.settings().target_node_id);
                 if (static_cast<bool>(first_person_target) && !detail::active(first_person_target))
                 {
                     first_person_target = {};

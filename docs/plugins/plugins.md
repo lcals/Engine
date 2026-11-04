@@ -54,7 +54,7 @@
 | `editor/destruction` | 非设备构建，资源管线依赖开启 | `runtime/destruction`；官方 ExtAuthoring 和 `destruction-authoring` vcpkg feature（Boost Multiprecision） |
 | `editor/asset_import` | 非设备构建，资源管线依赖开启 | 无；统一声明 ufbx、OpenUSD、FreeType 与格式校验依赖，vcpkg features 为 `font-import`、`usd-import` |
 | `editor/ui` | 桌面编辑器，运行时及资源管线依赖开启 | `editor/asset_import`；选中 MCP 时额外生成 UI 工具适配目标 |
-| `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | `runtime/resource_graph`；运行包不包含此插件 |
+| `editor/scene_bake` | 桌面编辑器，运行时及资源管线依赖开启 | 无；通过核心 `ResourceLoader` 加载输入，不强制装配依赖图；运行包不包含此插件 |
 | `editor/character_controller` | 非设备构建，资源管线依赖开启 | `runtime/character_controller` |
 | `runtime/script` | `ENGINE_ENABLE_SCRIPT_RUNTIME=ON` | 无；需要运行时依赖和所选 JS 后端，默认 QuickJS |
 | `editor/modeling` | 非设备构建，编辑器或资源管线依赖开启 | 无；需要运行时及建模第三方依赖 |

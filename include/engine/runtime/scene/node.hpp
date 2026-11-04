@@ -38,6 +38,7 @@ public:
     // Borrowed WorldSystem must outlive calls through this handle.
     [[nodiscard]] WorldSystem* world() const noexcept;
     [[nodiscard]] Node parent() const noexcept;
+    [[nodiscard]] Node find_child(std::string_view relative_path) const noexcept;
     [[nodiscard]] bool set_parent(Node parent) noexcept;
     [[nodiscard]] bool transient() const noexcept;
     [[nodiscard]] bool set_transient(bool value) noexcept;

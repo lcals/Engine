@@ -892,6 +892,168 @@ bool state_command_tests()
                   "internal redo follows shared node identity while external stale IDs fail");
 }
 
+bool combined_component_history_tests()
+{
+    using namespace engine;
+    ResourceSystem resources;
+    WorldSystem world;
+    if (!resources.initialize({}) || !world.initialize({}))
+    {
+        return false;
+    }
+    auto* scene = world.create_scene("Combined component history");
+    auto mesh_node = scene ? scene->create_node("Mesh") : Node{};
+    auto light_node = scene ? scene->create_node("Light") : Node{};
+    auto mesh = mesh_node ? mesh_node.add_component<MeshRenderer>() : MeshRenderer{};
+    auto light = light_node ? light_node.add_component<Light>() : Light{};
+    if (!mesh || !light || !mesh.set_material_count(2))
+    {
+        return false;
+    }
+    float before_roughness = 0;
+    if (!mesh.material(1).get_float("roughness", before_roughness))
+    {
+        return false;
+    }
+    const auto before_light = light.settings();
+    editor::SceneCommands module(world);
+    editor::EditorCommands commands([&] { return world.scene() ? world.scene()->id() : 0; });
+    if (!module.register_commands(commands))
+    {
+        return false;
+    }
+    Json result;
+    std::string error;
+    const auto execute = [&](const char* name, const Json& arguments)
+    { return commands.execute(name, arguments, result, error); };
+    const Json identity = {{"sceneId", std::to_string(scene->id())}};
+    if (!execute("create_node", {{"sceneId", identity["sceneId"]},
+                                 {"name", "Recreated camera"},
+                                 {"component", "camera"}}))
+    {
+        return false;
+    }
+    const auto original = test_support::scene_nodes(*scene).back();
+    const auto original_id = original.id();
+    auto camera = original.get_component<Camera>();
+    const auto before_camera = camera.settings();
+    auto transform_args = target(original);
+    transform_args["position"] = {2, 1, 3};
+    auto camera_args = target(original);
+    camera_args.update({{"fovDegrees", 73}, {"frustumCullingEnabled", true}});
+    auto material_args = target(mesh_node);
+    material_args.update({{"slot", 1}, {"name", "roughness"}, {"type", "float"}, {"value", .75}});
+    auto light_args = target(light_node);
+    light_args["intensity"] = 6.5;
+    const Json batch = {
+        {"commands",
+         Json::array({{{"command", "set_transform"}, {"arguments", transform_args}},
+                      {{"command", "set_camera"}, {"arguments", camera_args}},
+                      {{"command", "set_material_parameter"}, {"arguments", material_args}},
+                      {{"command", "set_light"}, {"arguments", light_args}}})}};
+    const auto applied = [&](Node node)
+    {
+        float roughness = 0;
+        const auto current = node.get_component<Camera>();
+        return current && node.get_component<Transform>().settings().position.x() == 2 &&
+               current.settings().fov_degrees == 73 && current.settings().frustum_culling_enabled &&
+               light.settings().intensity == 6.5F &&
+               mesh.material(1).get_float("roughness", roughness) && roughness == .75F;
+    };
+    if (!expect(execute("batch", batch) && applied(original) && commands.undo_count() == 2,
+                "four component types share one transaction after node creation"))
+    {
+        return false;
+    }
+    if (!expect(mesh.material(1).set_float("roughness", .9F) && !execute("undo", identity) &&
+                    light.settings().intensity == 6.5F && camera.settings().fov_degrees == 73 &&
+                    original.get_component<Transform>().settings().position.x() == 2 &&
+                    commands.undo_count() == 2 && commands.redo_count() == 0,
+                "a stale material rejects mixed undo and restores the light already reverted"))
+    {
+        return false;
+    }
+    auto unrelated_camera = camera.settings();
+    unrelated_camera.near_clip = .25F;
+    float roughness = 0;
+    if (!expect(mesh.material(1).set_float("roughness", .75F) &&
+                    camera.set_settings(unrelated_camera) && execute("undo", identity) &&
+                    camera.settings().fov_degrees == before_camera.fov_degrees &&
+                    camera.settings().near_clip == .25F &&
+                    camera.settings().frustum_culling_enabled ==
+                        before_camera.frustum_culling_enabled &&
+                    original.get_component<Transform>().settings().position.x() == 0 &&
+                    light.settings() == before_light &&
+                    mesh.material(1).get_float("roughness", roughness) &&
+                    roughness == before_roughness,
+                "mixed undo restores edited fields and preserves an unrelated camera field"))
+    {
+        return false;
+    }
+    if (!expect(camera.set_settings(before_camera) && execute("undo", identity) &&
+                    !scene->find_node(original_id) && execute("redo", identity),
+                "node creation remains undoable after the mixed transaction is reverted"))
+    {
+        return false;
+    }
+    const auto recreated = test_support::scene_nodes(*scene).back();
+    if (!expect(recreated.id() != original_id && execute("redo", identity) && applied(recreated) &&
+                    !execute("set_camera", camera_args) && commands.undo_count() == 2,
+                "mixed redo follows shared identities while old external node IDs stay invalid"))
+    {
+        std::fprintf(stderr, "combined component history: %s\n", error.c_str());
+        return false;
+    }
+    if (!execute("get_scene", Json::object()))
+    {
+        return false;
+    }
+    Json camera_snapshot;
+    Json mesh_snapshot;
+    Json light_snapshot;
+    for (const auto& node : result["scene"]["nodes"])
+    {
+        for (const auto& component : node["components"])
+        {
+            if (component["type"] == "camera")
+            {
+                camera_snapshot = component;
+            }
+            else if (component["type"] == "mesh_renderer")
+            {
+                mesh_snapshot = component;
+            }
+            else if (component["type"] == "light")
+            {
+                light_snapshot = component;
+            }
+        }
+    }
+    if (!expect(camera_snapshot.is_object() && light_snapshot.is_object() &&
+                    mesh_snapshot.is_object() && mesh_snapshot["materials"].is_array() &&
+                    mesh_snapshot["materials"].size() == 2 &&
+                    mesh_snapshot["materials"][1]["parameters"].is_array(),
+                "scene query includes all edited component and material parameter shapes"))
+    {
+        return false;
+    }
+    const auto& slot = mesh_snapshot["materials"][1];
+    const auto parameter =
+        std::find_if(slot["parameters"].begin(), slot["parameters"].end(),
+                     [](const auto& value) { return value["name"] == "roughness"; });
+    return expect(result["totalNodes"] == 3 && result["offset"] == 0 &&
+                      result["scene"]["activeCameraNodeId"].is_null() &&
+                      camera_snapshot["fovDegrees"] == 73 &&
+                      camera_snapshot["frustumCullingEnabled"] == true &&
+                      light_snapshot["intensity"] == 6.5 &&
+                      mesh_snapshot["materials"].size() == 2 &&
+                      mesh_snapshot["material"] == mesh_snapshot["materials"][0] &&
+                      slot["blendMode"] == "opaque" && slot["textures"].is_array() &&
+                      parameter != slot["parameters"].end() && (*parameter)["type"] == "float" &&
+                      (*parameter)["value"] == .75,
+                  "scene query preserves component and per-slot material snapshot JSON");
+}
+
 bool command_tests()
 {
     engine::ResourceSystem resources;
@@ -1243,8 +1405,8 @@ bool channel_tests(const fs::path& root)
 
 int main()
 {
-    if (!state_command_tests() || !command_tests() || !render_command_tests() ||
-        !scene_render_settings_tests() || !render_component_tests())
+    if (!state_command_tests() || !combined_component_history_tests() || !command_tests() ||
+        !render_command_tests() || !scene_render_settings_tests() || !render_component_tests())
     {
         return 1;
     }

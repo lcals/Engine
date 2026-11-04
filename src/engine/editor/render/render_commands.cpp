@@ -111,17 +111,11 @@ Json settings_reply(const RenderSettings& settings, const WorldSystem& world)
     result["atmosphereSunLocalId"] = std::to_string(local);
     result["atmosphereSunNodeId"] = local == 0 ? Json("0") : Json(nullptr);
     const auto* scene = world.scene();
-    std::vector<Node> nodes;
-    if (local != 0 && scene && scene->collect_nodes(nodes))
+    if (local != 0 && scene)
     {
-        for (const auto& node : nodes)
+        if (const auto node = scene->find_local_node(local))
         {
-            const auto info = node.info();
-            if (info.properties && info.properties->id == local)
-            {
-                result["atmosphereSunNodeId"] = std::to_string(node.id());
-                break;
-            }
+            result["atmosphereSunNodeId"] = std::to_string(node.id());
         }
     }
     return result;

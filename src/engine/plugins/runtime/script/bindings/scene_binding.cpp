@@ -174,18 +174,9 @@ void find_node(const Arguments& arguments)
     {
         return;
     }
-    std::vector<Node> nodes;
-    if (!scene->collect_nodes(nodes))
+    if (const auto node = scene->find_node(name))
     {
-        return;
-    }
-    for (const auto& node : nodes)
-    {
-        if (node.name() == name)
-        {
-            arguments.set_return(node.id());
-            return;
-        }
+        arguments.set_return(node.id());
     }
 }
 

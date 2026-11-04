@@ -165,6 +165,55 @@ Node Node::parent() const noexcept
     const auto parent_entity = current.entity(entity_id_).parent();
     return parent_entity ? Node(*world_, world_epoch_, parent_entity.id()) : Node{};
 }
+Node Node::find_child(std::string_view relative_path) const noexcept
+{
+    const auto* owner = scene();
+    if (!owner || relative_path.empty() || relative_path.front() == '/' ||
+        relative_path.back() == '/')
+    {
+        return {};
+    }
+    flecs::world native(world_->native_world());
+    auto current = *this;
+    while (!relative_path.empty())
+    {
+        const auto separator = relative_path.find('/');
+        const auto segment = relative_path.substr(0, separator);
+        if (segment.empty() || segment == "." || segment == "..")
+        {
+            return {};
+        }
+        Node found;
+        bool ambiguous = false;
+        native.entity(current.id())
+            .children(
+                [&](flecs::entity entity)
+                {
+                    const auto* properties = entity.try_get<schema::NodePropertiesT>();
+                    if (!properties || properties->name != segment)
+                    {
+                        return;
+                    }
+                    const auto candidate = owner->find_node(entity.id());
+                    if (candidate)
+                    {
+                        ambiguous = ambiguous || found.valid();
+                        found = candidate;
+                    }
+                });
+        if (!found || ambiguous)
+        {
+            return {};
+        }
+        current = found;
+        if (separator == std::string_view::npos)
+        {
+            return current;
+        }
+        relative_path.remove_prefix(separator + 1);
+    }
+    return {};
+}
 bool Node::set_parent(Node parent) noexcept
 {
     if (!valid() || !world_->can_modify())

@@ -34,6 +34,19 @@ TS 对应 `SetEnabled()`、`SetVisible()`、`enabled`、`visible`、`active` 和
 
 `Scene::instantiate_model` 将模型资源（Model）展开为 Node + Component 层级，失败回滚候选对象；模型只组织节点层级及其 Mesh/Material 引用；蒙皮 Mesh 自己引用骨架，Animator 另行选择独立动画，贴图由材质引用。同一美术源文件的其他子资源不因实例化而全部加载。FBX/USD 由编辑器插件按各自已支持的范围转成统一资源，运行时不读源格式。预制体来源、实例修改与覆盖传播通过现有[预制体链路](class-diagrams/prefab.md)维护；完整 USD 场景语义及大世界分区不在本次 ECS 迁移范围。资源身份及导入规则见[资源管线](../editor/asset-pipeline.md)。
 
+## 节点查询
+
+名称、局部身份和子路径解析统一由 Scene / Node 提供，角色、脚本及编辑器复用同一实现；脚本绑定只处理参数、Run 和场景身份。C++ 查询返回可空 Node 值句柄，不借出 ECS 行或内部容器。
+
+| C++ 接口 | 查询含义 |
+| --- | --- |
+| `Scene::find_node(uint64_t entity_id)` | 本场景的完整运行实体 ID，包含代次；不能传源局部 ID。 |
+| `Scene::find_local_node(uint64_t local_id)` | 本场景保存的局部 ID，复用已有索引；0 无效。 |
+| `Scene::find_node(string_view name)` | 本场景任意层级的精确名称；同名取最早创建/恢复的存活节点，空名及 `/` 按普通名称处理。 |
+| `Node::find_child(string_view relative_path)` | 逐段匹配直接子节点；无匹配或同名兄弟歧义返回空，拒绝空路径、首尾/连续 `/` 及 `.`、`..` 段。 |
+
+这些查询不排除隐藏、停用或瞬态节点，也不跨场景搜索。显式持有的候选 Scene 可以解析自己已恢复的节点；WorldSystem 仍只对运行查询暴露 Published 对象，脚本继续校验当前 Run/场景，不扩大候选可见性。删除重建后查询返回新身份，旧句柄保持失效。TS 既有 `Scene.FindNode(name)` / `Node.FindChild(path)` 外观不变；完整身份和生命周期语义见[场景查询契约](class-diagrams/scene.md#场景查询收敛契约)与[相对子路径查询](class-diagrams/node.md#相对子路径查询)。
+
 ## 系统查询与安全点
 
 渲染、物理、音频、动画、UI、字体以及角色、导航群体、地形、破坏和特效插件直接查询自身需要的具体 ECS 列，并要求 Published 标记。未发布候选即使与当前场景共用一个 world，也不会被运行系统消费。需要稳定选择/绘制顺序时使用明确的节点创建顺序，不依赖 archetype 内部行位置。

@@ -18,7 +18,8 @@ function(engine_configure_modeling_plugin)
     engine_apply_options(engine_modeling)
     if(TARGET engine_editor)
         add_library(engine_modeling_editor STATIC
-                    src/engine/plugins/editor/modeling/modeling_commands.cpp)
+                    src/engine/plugins/editor/modeling/modeling_commands.cpp
+                    src/engine/plugins/editor/modeling/modeling_source_io.cpp)
         add_library(engine::modeling_editor ALIAS engine_modeling_editor)
         target_include_directories(engine_modeling_editor
                                    PRIVATE "${PROJECT_SOURCE_DIR}/src/engine")

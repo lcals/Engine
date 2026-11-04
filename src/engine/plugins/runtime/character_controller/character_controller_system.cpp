@@ -257,7 +257,7 @@ bool CharacterControllerSystem::on_tick(double)
     double yaw = transform.settings().rotation.y();
     if (settings.camera_node_id != 0)
     {
-        auto camera_node = detail::find_local_node(*player.scene(), settings.camera_node_id);
+        auto camera_node = player.scene()->find_local_node(settings.camera_node_id);
         if (!camera_node)
         {
             stop_driving();

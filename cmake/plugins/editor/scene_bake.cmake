@@ -49,5 +49,5 @@ function(engine_configure_scene_bake_plugin)
 endfunction()
 
 engine_register_plugin(NAME editor/scene_bake CONFIGURE engine_configure_scene_bake_plugin
-    DEPENDS runtime/resource_graph OPTIONS ENGINE_ENABLE_RUNTIME_DEPS ENGINE_ENABLE_EDITOR_DEPS
+    OPTIONS ENGINE_ENABLE_RUNTIME_DEPS ENGINE_ENABLE_EDITOR_DEPS
         ENGINE_ENABLE_ASSET_PIPELINE_DEPS)

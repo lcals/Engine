@@ -32,6 +32,8 @@ public:
     [[nodiscard]] bool set_prefab_instance(const schema::PrefabInstanceDataT& instance);
     [[nodiscard]] bool remove_prefab_instance(std::uint64_t root_local_id) noexcept;
     [[nodiscard]] Node find_node(std::uint64_t id) const noexcept;
+    [[nodiscard]] Node find_local_node(std::uint64_t local_id) const noexcept;
+    [[nodiscard]] Node find_node(std::string_view name) const noexcept;
     [[nodiscard]] bool destroy_node(std::uint64_t id);
     [[nodiscard]] bool collect_nodes(std::vector<Node>& output) const;
     [[nodiscard]] Camera active_camera() const noexcept;
@@ -45,7 +47,6 @@ private:
     [[nodiscard]] bool initialize(std::string_view name);
     [[nodiscard]] bool publish();
     [[nodiscard]] Node create_node(std::string_view name, std::uint64_t local_id);
-    [[nodiscard]] Node find_local_node(std::uint64_t local_id) const noexcept;
     [[nodiscard]] bool restore_data(const schema::SceneDataT& data);
     [[nodiscard]] bool restore_node(const schema::NodeDataT& data,
                                     std::span<const schema::NodeIdMappingT> mapping = {});
